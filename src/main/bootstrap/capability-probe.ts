@@ -9,6 +9,7 @@ import { getRLMDatabase } from '../persistence/rlm-database';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { probeSeatbelt } from '../sandbox/seatbelt';
 import { providerName } from '../../shared/display-names';
+import { formatHostPort } from '../../shared/remote-node/host-address';
 import {
   providerExpectation,
   type ProbedProviderId,
@@ -461,7 +462,7 @@ export class CapabilityProbe {
       };
     }
 
-    const address = `${config.serverHost}:${config.serverPort}`;
+    const address = formatHostPort(config.serverHost, config.serverPort);
     const running = getWorkerNodeConnectionServer().isRunning();
     const details = {
       namespace: config.namespace,

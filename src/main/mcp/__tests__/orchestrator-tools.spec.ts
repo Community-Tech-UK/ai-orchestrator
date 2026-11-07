@@ -822,6 +822,33 @@ describe('orchestrator MCP tools', () => {
     await expect(unwired!.handler({ node: 'windows-pc' })).rejects.toThrow('not wired');
   });
 
+  it('issue_remote_node_pairing validates args and issues for the calling session', async () => {
+    const db = createDb();
+    const calls: unknown[] = [];
+    const result = { command: 'aio-worker pair "<link>"', link: '<link>', connectionConfig: {}, createdAt: 1, expiresAt: 2 };
+    const tools = createOrchestratorToolDefinitions({
+      db,
+      instanceId: 'instance-1',
+      issueRemoteNodePairing: async (args) => {
+        calls.push(args);
+        return result;
+      },
+    });
+    const tool = tools.find((t) => t.name === 'issue_remote_node_pairing');
+
+    await expect(tool!.handler({ label: 'ct-test-mac' })).resolves.toEqual(result);
+    expect(calls).toEqual([{ label: 'ct-test-mac', instanceId: 'instance-1' }]);
+    await expect(tool!.handler({ ttlMinutes: 0 })).rejects.toThrow();
+    await expect(tool!.handler({ label: '' })).rejects.toThrow();
+
+    const anonymous = createOrchestratorToolDefinitions({ db, instanceId: null, issueRemoteNodePairing: async () => result })
+      .find((t) => t.name === 'issue_remote_node_pairing');
+    await expect(anonymous!.handler({})).rejects.toThrow('needs the calling session');
+    const unwired = createOrchestratorToolDefinitions({ db, instanceId: 'instance-1' })
+      .find((t) => t.name === 'issue_remote_node_pairing');
+    await expect(unwired!.handler({})).rejects.toThrow('not wired');
+  });
+
   it('terminate_node_instance forwards single-id args to the injected terminator', async () => {
     const db = createDb();
     const calls: unknown[] = [];

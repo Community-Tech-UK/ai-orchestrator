@@ -91,10 +91,10 @@ export class PlanQueueItemLanding {
 
   cancel(itemId: string): void { this.active.get(itemId)?.abort(); }
 
-  async land(itemId: string, options: { operatorOverride?: boolean }): Promise<void> {
+  async land(itemId: string, options: { landedAnywayBy?: string }): Promise<void> {
     const controller = new AbortController();
     this.active.set(itemId, controller);
-    if (!options.operatorOverride && this.ctx.host.getRun(this.ctx.host.getItem(itemId).runId).status === 'paused') controller.abort();
+    if (!options.landedAnywayBy && this.ctx.host.getRun(this.ctx.host.getItem(itemId).runId).status === 'paused') controller.abort();
     try { await this.landActive(itemId, options, controller.signal); }
     catch (error) {
       const item = this.ctx.host.getItem(itemId);
@@ -130,7 +130,7 @@ export class PlanQueueItemLanding {
     return false;
   }
 
-  private async landActive(itemId: string, options: { operatorOverride?: boolean }, signal: AbortSignal): Promise<void> {
+  private async landActive(itemId: string, options: { landedAnywayBy?: string }, signal: AbortSignal): Promise<void> {
     const { host } = this.ctx;
     let item = host.getItem(itemId);
     if (item.state !== 'landing') return;
@@ -143,7 +143,7 @@ export class PlanQueueItemLanding {
     const run = host.getRun(item.runId);
     const repoRoot = run.workspaceCwd;
     const baseBranch = requireBaseBranch(run);
-    const closeDocuments = !options.operatorOverride && (item.verdict?.documentComplete ?? true);
+    const closeDocuments = !options.landedAnywayBy && (item.verdict?.documentComplete ?? true);
 
     // A recorded promotion is not complete until pending root edits are restored.
     // This runs before the already-landed shortcut, outside any Git write thunk.
@@ -169,13 +169,13 @@ export class PlanQueueItemLanding {
     if (!alreadyLanded) {
       signal.throwIfAborted();
       // The request-time check cannot see the future: a resumed attempt can reach this point after a newer one merged.
-      if (!options.operatorOverride && (host.store.newerAttemptLanded(item) || await this.newerAttemptOnBase(item, baseTip, repoRoot))) {
+      if (!options.landedAnywayBy && (host.store.newerAttemptLanded(item) || await this.newerAttemptOnBase(item, baseTip, repoRoot))) {
         await this.ctx.park(item, 'land-blocked', 'Nothing was landed: a newer attempt at this document merged first.');
         return;
       }
       // Land anyway can't wait: the pump's later attempt wouldn't know it was an override. Nor does Harness's own retry:
       // its run has usually ended, and a wait would hold one of the few job places for a day. It tries again tomorrow.
-      const landed = await this.buildAndPromote(item, run, baseTip, closeDocuments, signal, !options.operatorOverride && !item.landingAutomatic);
+      const landed = await this.buildAndPromote(item, run, baseTip, closeDocuments, signal, !options.landedAnywayBy && !item.landingAutomatic);
       if (!landed) return;
       item = landed;
     }
@@ -184,8 +184,8 @@ export class PlanQueueItemLanding {
     const notes: string[] = [];
     if (item.detail?.startsWith('Merged with your uncommitted edits to ')) notes.push(item.detail);
     if (rescueRef) notes.push(rescueNote(rescueRef));
-    if (options.operatorOverride) {
-      notes.push('Landed by James without a verifier PASS; the document was left open.');
+    if (options.landedAnywayBy) {
+      notes.push(`Landed by ${options.landedAnywayBy} without a verifier PASS; the document was left open.`);
     } else if (closeDocuments) {
       notes.push(...(await this.finishDocuments(item, repoRoot, baseBranch)));
     }

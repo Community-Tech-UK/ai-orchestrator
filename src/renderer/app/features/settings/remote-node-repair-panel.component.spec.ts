@@ -103,6 +103,43 @@ describe('RemoteNodeRepairPanelComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('powershell placeholder-command');
   });
 
+  it('lists host problems with their fix for a healthy node and marks admin ones', async () => {
+    ipc.diagnoseRepair.mockResolvedValue({
+      nodeId: 'node-1', nodeName: 'Mac', status: 'healthy', coordinatorUrls: ['ws://host:4878'],
+      hasCoordinatorRecoveryToken: true, recommendedAction: 'none', availableActions: ['check_service_status'],
+      summary: 'Node is connected.',
+      hostReadiness: {
+        checkedAt: 1,
+        checks: [
+          { id: 'sleep_on_power', status: 'problem', summary: 'This Mac sleeps after 1 minute on power, so jobs stop.', fix: 'sudo pmset -c sleep 0', needsAdmin: true },
+          { id: 'tailscale_running', status: 'problem', summary: 'Tailscale is installed but not running.', fix: 'Open Tailscale and sign in.', needsAdmin: false },
+          { id: 'filevault', status: 'note', summary: 'FileVault is on.', needsAdmin: false },
+        ],
+      },
+    });
+    await (component as unknown as { refreshDiagnostic: () => Promise<void> }).refreshDiagnostic();
+    await settle();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('This Mac sleeps after 1 minute on power');
+    expect(text).toContain('sudo pmset -c sleep 0');
+    expect(text).toContain('Open Tailscale and sign in.');
+    expect(text.match(/Needs an admin password/g)).toHaveLength(1);
+    expect(text).not.toContain('FileVault is on.');
+    expect(text).not.toContain('Node is connected.');
+  });
+
+  it('stays hidden for a healthy node with no host problems', async () => {
+    ipc.diagnoseRepair.mockResolvedValue({
+      nodeId: 'node-1', nodeName: 'Mac', status: 'healthy', coordinatorUrls: [], hasCoordinatorRecoveryToken: true,
+      recommendedAction: 'none', availableActions: [], summary: 'Node is connected.',
+      hostReadiness: { checkedAt: 1, checks: [{ id: 'filevault', status: 'note', summary: 'FileVault is on.', needsAdmin: false }] },
+    });
+    await (component as unknown as { refreshDiagnostic: () => Promise<void> }).refreshDiagnostic();
+    await settle();
+    expect(fixture.nativeElement.querySelector('.repair-panel')).toBeNull();
+  });
+
   it('generates and copies the repair command only after explicit generation', async () => {
     await (component as unknown as { generateRepairCommand: () => Promise<void> }).generateRepairCommand();
     await settle();

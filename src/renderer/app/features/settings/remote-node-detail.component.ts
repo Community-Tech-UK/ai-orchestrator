@@ -76,6 +76,22 @@ export class RemoteNodeDetailComponent {
   protected readonly healthEntry = computed<NodeHealthEntry>(
     () => buildNodeHealthEntries([this.node()])[0],
   );
+  /** Why this computer has trouble reaching Harness, in its own words (for example macOS Local Network). */
+  protected readonly connectionNotice = computed(
+    () => this.node().connectionNotice ?? this.node().capabilities.connectionNotice,
+  );
+  /** Where to load the Chrome extension, while the link is on but the extension has not made contact. */
+  protected readonly extensionSetupHint = computed(() => {
+    const node = this.node();
+    const relay = node.extensionRelay ?? node.capabilities.extensionRelay;
+    if (node.status === 'disconnected' || !relay?.enabled || relay.lastExtensionContactAt !== undefined) {
+      return null;
+    }
+    const where = relay.extensionFolder
+      ? `chrome://extensions, turn on Developer mode, choose Load unpacked, then pick ${relay.extensionFolder}`
+      : 'chrome://extensions, turn on Developer mode, choose Load unpacked, then pick the resources/browser-extension folder of a Harness checkout';
+    return `The Chrome extension on ${this.computerLabel()} has not connected yet. To add it, open Chrome there: ${where}.`;
+  });
 
   protected readonly formatNodePlatformLabel = formatNodePlatformLabel;
   protected readonly formatNodeCapacity = formatNodeCapacity;

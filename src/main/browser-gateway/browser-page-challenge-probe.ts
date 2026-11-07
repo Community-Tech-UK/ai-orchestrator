@@ -12,10 +12,11 @@
  * Read-only: shared tabs use the existing `read_control` extension command
  * (no extension rebuild needed); managed tabs evaluate a fixed expression.
  *
- * Sign-in code box evidence (browser-one-time-code-field-probe.ts) rides the
- * same probe: the extension's boolean-only `probe_one_time_code` command on
- * shared tabs (from bundle 0.2.50; older bundles are not asked) and the same
- * page function on managed tabs.
+ * Sign-in code box and password box evidence (browser-one-time-code-field-probe.ts)
+ * rides the same probe: the extension's boolean-only `probe_one_time_code`
+ * command on shared tabs (from bundle 0.2.50; older bundles are not asked, and
+ * only 0.2.51+ answers the password box question) and the same page function on
+ * managed tabs.
  */
 
 import type { BrowserElementContext } from '@contracts/types/browser';
@@ -72,10 +73,11 @@ export interface BrowserPageChallengeProbeDeps {
   extensionContactState: BrowserExtensionContactStateReader;
 }
 
-/** Fields a type/fill_form writes to: CSS selectors, plus whether any is an accessibility uid. */
+/** Fields a type/fill_form writes to: CSS selectors and accessibility uids. */
 export interface BrowserProbeInputTargets {
   selectors: string[];
-  hasUidTarget: boolean;
+  /** Page script cannot resolve these; only the extension can, through the debugger. */
+  uids: string[];
 }
 
 export type BrowserPageChallengeProbe = (target: {
@@ -106,7 +108,7 @@ export function createBrowserPageChallengeProbe(deps: BrowserPageChallengeProbeD
           )
           : { detected: false };
         if (!wantsCode) return evidence;
-        return await withCodeEvidence(evidence, inputTargets, async () => parseManagedJson(
+        return await withCodeEvidence(evidence, inputTargets, 'page_function', async () => parseManagedJson(
           await deps.driver.evaluate(profileId, targetId, managedOneTimeCodeProbeExpression(targetSelector), false),
         ));
       }
@@ -135,10 +137,11 @@ export function createBrowserPageChallengeProbe(deps: BrowserPageChallengeProbeD
       ) {
         return evidence;
       }
-      return await withCodeEvidence(evidence, inputTargets, () => deps.existingTabOperations.sendCommand(
+      const uids = inputTargets?.uids ?? [];
+      return await withCodeEvidence(evidence, inputTargets, 'extension', () => deps.existingTabOperations.sendCommand(
         attachment,
         'probe_one_time_code',
-        targetSelector ? { selector: targetSelector } : {},
+        { ...(targetSelector ? { selector: targetSelector } : {}), ...(uids.length ? { uids } : {}) },
         EXTENSION_PROBE_TIMEOUT_MS,
       ));
     } catch (error) {
@@ -164,14 +167,18 @@ async function readChallenge(
 }
 
 /**
- * Read and attach code box evidence. An accessibility-uid target cannot be
- * resolved in the page, so it counts as a code box whenever one is visible
- * (fails closed). A failed or malformed read adds nothing and is reported as
- * unavailable, without discarding the CAPTCHA evidence already gathered.
+ * Read and attach code box and password box evidence. An accessibility-uid
+ * target cannot be resolved in the page, so it counts as a code box whenever
+ * one is visible (fails closed). The extension resolves uids for the password
+ * box answer itself and leaves that answer out when it cannot; the bare page
+ * function cannot, so its answer only counts for selector-only targets. A
+ * failed or malformed read adds nothing and is reported as unavailable, without
+ * discarding the CAPTCHA evidence already gathered.
  */
 async function withCodeEvidence(
   evidence: BrowserPageChallengeEvidence,
   inputTargets: BrowserProbeInputTargets | undefined,
+  reader: 'extension' | 'page_function',
   read: () => Promise<unknown>,
 ): Promise<BrowserPageChallengeEvidence> {
   let code: BrowserOneTimeCodeEvidence | undefined;
@@ -183,19 +190,26 @@ async function withCodeEvidence(
   if (!code) {
     return { ...evidence, unavailable: evidence.unavailable ?? 'one_time_code_probe_result_invalid' };
   }
+  const uidTargets = (inputTargets?.uids.length ?? 0) > 0;
+  const passwordAnswered = reader === 'extension'
+    || (Boolean(inputTargets?.selectors.length) && !uidTargets);
+  const passwordField = passwordAnswered ? code.targetIsPasswordField : undefined;
   return {
     ...evidence,
     oneTimeCode: {
-      ...code,
-      targetIsCodeField: code.targetIsCodeField || (Boolean(inputTargets?.hasUidTarget) && code.codeField),
+      codeField: code.codeField,
+      filled: code.filled,
+      targetIsCodeField: code.targetIsCodeField || (uidTargets && code.codeField),
     },
+    ...(passwordField === undefined ? {} : { passwordField }),
   };
 }
 
 /**
- * The action guard's classification step: element classification (or the
- * caller's fixed override, e.g. browser.evaluate), then page challenge
- * evidence for the tools that act on the page.
+ * The action guard's classification step: page evidence first (so the
+ * password stop can follow the real box), then element classification (or the
+ * caller's fixed override, e.g. browser.evaluate), then the page evidence's own
+ * stops for the tools that act on the page or write fields.
  */
 export async function classifyGuardedBrowserAction(input: {
   probe?: BrowserPageChallengeProbe;
@@ -208,22 +222,22 @@ export async function classifyGuardedBrowserAction(input: {
   override?: BrowserActionClassification;
   inputTargets?: BrowserProbeInputTargets;
 }): Promise<BrowserActionClassification> {
+  const evidence = input.probe && PAGE_PROBED_TOOLS.has(input.toolName)
+    ? await input.probe({
+      profileId: input.profileId,
+      targetId: input.targetId,
+      toolName: input.toolName,
+      ...(input.inputTargets ? { inputTargets: input.inputTargets } : {}),
+    })
+    : undefined;
   const base = input.override ?? classifyBrowserAction({
     toolName: input.toolName,
     actionHint: input.actionHint,
     elementContext: input.elementContext,
     elementContextSource: input.elementContextSource,
+    ...(evidence?.passwordField === undefined ? {} : { passwordField: evidence.passwordField }),
   });
-  if (!input.probe || !PAGE_PROBED_TOOLS.has(input.toolName)) {
-    return base;
-  }
-  const evidence = await input.probe({
-    profileId: input.profileId,
-    targetId: input.targetId,
-    toolName: input.toolName,
-    ...(input.inputTargets ? { inputTargets: input.inputTargets } : {}),
-  });
-  return withPageChallengeEvidence(base, evidence, input.toolName);
+  return evidence ? withPageChallengeEvidence(base, evidence, input.toolName) : base;
 }
 
 async function readControl(

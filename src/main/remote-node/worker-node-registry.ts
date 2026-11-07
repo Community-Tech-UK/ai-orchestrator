@@ -170,6 +170,7 @@ export class WorkerNodeRegistry extends EventEmitter {
     ) {
       return -Infinity;
     }
+    if (prefs.requiresIos && !isIosAutomationReady(caps)) return -Infinity;
     if (prefs.requiresGpu && !caps.gpuName) return -Infinity;
     if (prefs.requiresCli && !caps.supportedClis.includes(prefs.requiresCli)) return -Infinity;
     if (prefs.requiresOpenCodeMajor && caps.openCodeMajor !== prefs.requiresOpenCodeMajor) return -Infinity;
@@ -325,6 +326,11 @@ export function isAndroidAutomationReady(caps: WorkerNodeCapabilities): boolean 
     summary.avds.length > 0 ||
     Boolean(summary.defaultAvd)
   );
+}
+
+/** Routing for `requiresIos`: only the worker's own readiness verdict counts, so an older worker never matches. */
+export function isIosAutomationReady(caps: WorkerNodeCapabilities): boolean {
+  return caps.iosAutomation?.ready === true;
 }
 
 /**

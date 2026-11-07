@@ -183,6 +183,6 @@ export function probeInputTargets(request: BrowserGuardedMutationRequest): Brows
   const targets = request.fields ?? [{ selector: request.selector, uid: request.uid }];
   return {
     selectors: targets.flatMap((target) => (target.selector ? [target.selector] : [])),
-    hasUidTarget: targets.some((target) => Boolean(target.uid)),
+    uids: targets.flatMap((target) => (target.uid ? [target.uid] : [])),
   };
 }

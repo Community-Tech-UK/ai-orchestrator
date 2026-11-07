@@ -37,6 +37,7 @@ import {
   getOrchestratorToolsRpcServer,
 } from './orchestrator-tools-rpc-server';
 import type { McpServerToolDefinition } from './mcp-server-tools';
+import { createNodeConnectionToolDefinitions } from './orchestrator-node-connection-tools';
 
 const KNOWN_INSTANCE = 'instance-known';
 
@@ -84,6 +85,36 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
     expect(toolHandler).toHaveBeenCalledOnce();
     expect(toolHandler.mock.calls[0]?.[0]).toEqual({ root: '/repo', concurrency: 4 });
     expect(result).toEqual({ echoed: { root: '/repo', concurrency: 4 } });
+  });
+
+  it('issues a remote node pairing for the calling local session only, with a validated payload', async () => {
+    const issueRemoteNodePairing = vi.fn(async () => ({
+      command: 'aio-worker pair "ai-orchestrator://remote-node/pair?host=mac"',
+      link: 'ai-orchestrator://remote-node/pair?host=mac',
+      connectionConfig: {},
+      createdAt: 1,
+      expiresAt: 2,
+    }));
+    const { server } = makeServer({
+      issueRemoteNodePairing,
+      toolFactory: (context) => createNodeConnectionToolDefinitions(context),
+    });
+    const request = (instanceId: string, payload: Record<string, unknown>) => server.handleRequest({
+      jsonrpc: '2.0',
+      id: 30,
+      method: 'orchestrator_tools.issue_remote_node_pairing',
+      params: { instanceId, payload },
+    });
+
+    await expect(request(KNOWN_INSTANCE, { label: ' ct-test-mac ', ttlMinutes: 30 }))
+      .resolves.toMatchObject({ expiresAt: 2 });
+    expect(issueRemoteNodePairing).toHaveBeenCalledWith({ label: 'ct-test-mac', ttlMinutes: 30, instanceId: KNOWN_INSTANCE });
+
+    // Remote-worker agents and unknown callers are not known local instances.
+    await expect(request('remote-instance', {})).rejects.toThrow('unknown orchestrator-tools instance');
+    await expect(request(KNOWN_INSTANCE, { ttlMinutes: 61 })).rejects.toThrow();
+    await expect(request(KNOWN_INSTANCE, { instanceId: 'someone-else' })).rejects.toThrow();
+    expect(issueRemoteNodePairing).toHaveBeenCalledOnce();
   });
 
   it('routes loop RPC methods to the injected loop operations', async () => {

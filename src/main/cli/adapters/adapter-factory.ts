@@ -352,8 +352,9 @@ export function createGeminiAdapter(options: UnifiedSpawnOptions): GeminiCliAdap
 /**
  * Creates an Antigravity CLI adapter (spawns the `agy` binary).
  *
- * Successor to createGeminiAdapter. agy has no `--output-format` flag and no
- * Gemini-style browser-gateway settings path, so this is a simpler env merge.
+ * Successor to createGeminiAdapter. agy has no Gemini-style browser-gateway
+ * settings path, so this is a simpler env merge. `timeout` is a hard limit on
+ * one turn; sessions leave it unset so a long turn runs while it makes progress.
  */
 export function createAntigravityAdapter(options: UnifiedSpawnOptions): AntigravityCliAdapter {
   const env = mergeSpawnEnv(options);

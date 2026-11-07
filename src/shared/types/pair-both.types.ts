@@ -38,6 +38,7 @@ export interface WorkerModeRuntimeSnapshot {
 
 /**
  * Where the worker process says it is with the main Harness:
+ * - `waiting_for_pairing`: started with no main Harness address yet; waits for `aio-worker pair`.
  * - `connecting`: started, looking for the main Harness for the first time.
  * - `registering`: reached it and is waiting for it to accept this computer.
  * - `connected`: the main Harness accepted this computer and can send it work.
@@ -48,6 +49,7 @@ export interface WorkerModeRuntimeSnapshot {
  * - `failed`: the worker could not start at all (`message` says why).
  */
 export type WorkerConnectionState =
+  | 'waiting_for_pairing'
   | 'connecting'
   | 'registering'
   | 'connected'
@@ -62,6 +64,9 @@ export type WorkerConnectionState =
  * (an internal error while connecting), not the network or the main Harness.
  */
 export const WORKER_INTERNAL_CONNECT_ERROR = 'Something went wrong on this computer while connecting.';
+
+/** How the worker's `unreachable` reason starts when macOS Local Network privacy blocks it. */
+export const LOCAL_NETWORK_BLOCKED_PREFIX = 'macOS is blocking this computer from reaching Harness.';
 
 /** The worker's own report of its connection, as the Worker Mode page sees it. */
 export interface WorkerConnectionSnapshot {

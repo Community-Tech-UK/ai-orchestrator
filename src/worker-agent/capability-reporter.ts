@@ -1,5 +1,6 @@
 import * as os from 'os';
 import * as fs from 'fs';
+import * as path from 'path';
 import { execFileSync } from 'child_process';
 import type {
   WorkerNodeCapabilities,
@@ -13,6 +14,9 @@ import type {
   WorkerNodeFileTransferSummary,
   WorkerAgentBuildSummary,
 } from '../shared/types/worker-node.types';
+import { getCachedIosAutomation } from './ios/ios-readiness';
+import { getCachedHostReadiness } from './host-readiness';
+import type { LocalNetworkState } from './local-network-evidence';
 import { readWorkerCliVersions } from './worker-cli-versions';
 import { readWorkerOpenCodeMajor } from './opencode-worker-capability';
 import { CLI_REGISTRY, getCliCandidatePaths } from '../main/cli/cli-registry';
@@ -32,6 +36,13 @@ import {
   SPEACHES_STT_LOCAL_BASE_URL,
   LOCAL_MODEL_PROBE_TIMEOUT_MS,
 } from './local-model-config';
+import { workerBrowserExtensionFolder } from './browser-extension-folder';
+
+const EXTENSION_FOLDER = workerBrowserExtensionFolder();
+
+function extensionFolderField(): { extensionFolder?: string } {
+  return EXTENSION_FOLDER ? { extensionFolder: EXTENSION_FOLDER } : {};
+}
 
 /**
  * One long-lived scanner for the whole process.
@@ -92,6 +103,18 @@ export function busyCoresSinceLastReport(sample: () => os.CpuInfo[] = os.cpus): 
   return total > 0 ? Math.round((busy / total) * now.length * 10) / 10 : undefined;
 }
 
+/** Values the worker computes itself and hands to the reporter. All optional. */
+export interface ReportCapabilitiesExtras {
+  /** Plain-words reason the worker had trouble connecting (macOS Local Network block). Sent as `connectionNotice`. */
+  connectionNotice?: string;
+  /** What the worker learned about macOS Local Network access; feeds the host check. Default 'unknown'. */
+  localNetwork?: LocalNetworkState;
+  /** Program name macOS lists under Local Network (default: the running program's file name). */
+  localNetworkBinaryName?: string;
+  /** The worker's config folder, searched for Xcode build logs (default ~/.orchestrator). */
+  configDir?: string;
+}
+
 export async function reportCapabilities(
   workingDirectories: string[],
   maxConcurrentInstances = 10,
@@ -99,6 +122,7 @@ export async function reportCapabilities(
   androidAutomation?: WorkerNodeAndroidAutomationSummary,
   extensionRelay?: WorkerNodeExtensionRelaySummary,
   fileTransfer?: WorkerNodeFileTransferSummary,
+  extras: ReportCapabilitiesExtras = {},
 ): Promise<WorkerNodeCapabilities> {
   const supportedClis = detectClis();
   const openCodeMajor = supportedClis.includes('opencode') ? await readWorkerOpenCodeMajor() : undefined;
@@ -118,6 +142,13 @@ export async function reportCapabilities(
   if (openCodeAccountProfileIds.length > 0) {
     accountProfileIds.opencode = openCodeAccountProfileIds;
   }
+
+  // Cached values only: the first report carries none and a later one picks them up, so connecting never waits.
+  const iosAutomation = getCachedIosAutomation({ workingDirectories, configDir: extras.configDir });
+  const hostReadiness = getCachedHostReadiness({
+    localNetwork: extras.localNetwork ?? 'unknown',
+    ...(extras.localNetworkBinaryName ? { binaryName: extras.localNetworkBinaryName } : {}),
+  });
 
   return {
     workerAgent: {
@@ -151,9 +182,13 @@ export async function reportCapabilities(
     hasBrowserMcp: (browserAutomation?.enabled ?? false) && hasBrowserRuntime,
     ...(browserAutomation ? { browserAutomation } : {}),
     hasExtensionRelay: (extensionRelay?.enabled ?? false) && (extensionRelay?.running ?? false),
-    ...(extensionRelay ? { extensionRelay } : {}),
+    // Where to load the unpacked extension, so Settings can say it until the extension makes contact.
+    ...(extensionRelay ? { extensionRelay: { ...extensionRelay, ...extensionFolderField() } } : {}),
     hasAndroidMcp: (androidAutomation?.enabled ?? false) && Boolean(androidAutomation?.adbVersion),
     ...(androidAutomation ? { androidAutomation } : {}),
+    ...(iosAutomation ? { iosAutomation } : {}),
+    ...(hostReadiness ? { hostReadiness } : {}),
+    ...(extras.connectionNotice ? { connectionNotice: extras.connectionNotice.slice(0, 500) } : {}),
     hasDocker: detectDocker(),
     ...(Object.keys(accountProfileIds).length > 0 ? { accountProfileIds } : {}),
     maxConcurrentInstances,
@@ -491,6 +526,9 @@ export function resolveChromeExecutablePath(): string | null {
   const candidates = process.platform === 'win32'
     ? ['C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+       ...(process.env['LOCALAPPDATA']
+         ? [path.join(process.env['LOCALAPPDATA'], 'Google', 'Chrome', 'Application', 'chrome.exe')]
+         : []),
        'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe']
     : process.platform === 'darwin'

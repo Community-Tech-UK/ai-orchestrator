@@ -6,13 +6,14 @@ import { DEFAULT_PLAN_QUEUE_ROUTING } from '@contracts/schemas/plan-queue';
 import { CopilotAccountIpcService } from '../../core/services/ipc/copilot-account-ipc.service';
 import { ProviderAccountIpcService } from '../../core/services/ipc/provider-account-ipc.service';
 import { InstanceStore } from '../../core/state/instance.store';
+import type { Instance } from '../../core/state/instance/instance.types';
 import { PlanQueueStore } from '../../core/state/plan-queue.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { PlanQueueAccountRulesPanelComponent } from './components/plan-queue-account-rules-panel.component';
 import { PlanQueueFolderChecklistsPanelComponent } from './components/plan-queue-folder-checklists-panel.component';
 import { PlanQueueHealthComponent } from './components/plan-queue-health.component';
 import { PlanQueueNeedJamesListComponent } from './components/plan-queue-need-james-list.component';
-import { PlanQueueParkedListComponent } from './components/plan-queue-parked-list.component';
+import { PlanQueueParkedListComponent, type PlanQueueSetAsideAgentView } from './components/plan-queue-parked-list.component';
 import { PlanQueueQuestionListComponent } from './components/plan-queue-question-list.component';
 import { PlanQueueRoutingPanelComponent } from './components/plan-queue-routing-panel.component';
 import { upgradePlanQueueRouting } from '../../../../shared/utils/plan-queue-routing-upgrade';
@@ -205,9 +206,44 @@ export class PlanQueuePageComponent implements OnInit {
     void this.store.control({ action: 'land-anyway', itemId });
   }
 
+  /** Folders whose Set aside agent has been asked for and has not appeared yet. */
+  private readonly startingAgentFolders = signal<ReadonlySet<string>>(new Set());
+
+  /** Each folder's newest Set aside agent, so the page shows its progress without opening it. */
+  protected readonly setAsideAgents = computed(() => {
+    const newest = new Map<string, Instance>();
+    for (const instance of this.instanceStore.instances()) {
+      const folder = instance.metadata?.[SET_ASIDE_AGENT_METADATA];
+      if (typeof folder !== 'string') continue;
+      const current = newest.get(folder);
+      if (!current || instance.createdAt > current.createdAt) newest.set(folder, instance);
+    }
+    const agents = new Map<string, PlanQueueSetAsideAgentView>();
+    for (const [folder, instance] of newest) {
+      // Mirrors PlanQueueSetAsideAgents.isWorking in the main process.
+      const state = AUTOMATION_FAILURE_STATUSES.has(instance.status) ? 'stopped'
+        : instance.status === 'idle' || instance.status === 'ready' ? 'finished' : 'working';
+      agents.set(folder, { state, instanceId: instance.id });
+    }
+    for (const folder of this.startingAgentFolders()) agents.set(folder, { state: 'starting', instanceId: null });
+    return agents;
+  });
+
+  /** Starts the folder's agent and stays on this page; the list shows how it is getting on. */
   async onSortOut(folder: string): Promise<void> {
-    const instanceId = await this.store.startSetAsideAgent(folder);
-    if (!instanceId) return;
+    this.startingAgentFolders.update(old => new Set(old).add(folder));
+    try {
+      await this.store.startSetAsideAgent(folder);
+    } finally {
+      this.startingAgentFolders.update(old => { const next = new Set(old); next.delete(folder); return next; });
+    }
+  }
+
+  onSortOutAll(folders: string[]): void {
+    for (const folder of folders) void this.onSortOut(folder);
+  }
+
+  onOpenAgent(instanceId: string): void {
     this.instanceStore.setSelectedInstance(instanceId);
     void this.router.navigate(['/']);
   }

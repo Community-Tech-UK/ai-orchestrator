@@ -48,10 +48,17 @@ const mocks = vi.hoisted(() => ({
   stoppedRecently: vi.fn(() => false),
   clearConnection: vi.fn(),
   watcherStart: vi.fn(),
+  // What this computer's network looks like to the handler.
+  network: {
+    tailscaleIp: null as string | null,
+    tailscaleIpv6: null as string | null,
+    tailscaleStatus: null as { backendState: string | null; dnsName: string | null } | null,
+    localIps: ['192.168.1.20'],
+  },
   // Options each PairBothRendezvousService was constructed with. A plain array
   // (not a mock) so vi.clearAllMocks() leaves it alone: the handler module
   // builds its service once and caches it across tests.
-  rendezvousOptions: [] as Array<{ beforeWorkerConfigWrite?: () => Promise<unknown> | unknown }>,
+  rendezvousOptions: [] as { beforeWorkerConfigWrite?: () => Promise<unknown> | unknown }[],
 }));
 
 vi.mock('electron', () => ({
@@ -93,9 +100,10 @@ vi.mock('../../../remote-node/coordinator-tailscale-watcher', () => ({
 }));
 
 vi.mock('../../../util/network-addresses', () => ({
-  getLocalIpv4Addresses: () => ['192.168.1.20'],
-  getTailscaleIpv4Address: () => null,
-  getTailscaleMagicDnsName: () => null,
+  getLocalIpv4Addresses: () => mocks.network.localIps,
+  getTailscaleIpv4Address: () => mocks.network.tailscaleIp,
+  getTailscaleIpv6Address: () => mocks.network.tailscaleIpv6,
+  readTailscaleSelfStatus: async () => mocks.network.tailscaleStatus,
 }));
 
 vi.mock('../../../../worker-agent/cli/pairing-config', () => ({
@@ -223,6 +231,10 @@ function makeState(candidate: PairBothCandidate): PairBothSessionState {
 describe('pair-both IPC handlers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.network.tailscaleIp = null;
+    mocks.network.tailscaleIpv6 = null;
+    mocks.network.tailscaleStatus = null;
+    mocks.network.localIps = ['192.168.1.20'];
     mocks.remoteNodeConfig = {
       enabled: true,
       serverHost: '0.0.0.0',
@@ -275,6 +287,62 @@ describe('pair-both IPC handlers', () => {
     });
     expect(mocks.publish).toHaveBeenCalledWith(candidate);
     expect(mocks.watcherStart).toHaveBeenCalledOnce();
+  });
+
+  it('offers every reachable address, Tailscale name first only while Tailscale runs', async () => {
+    mocks.network.tailscaleIp = '100.68.10.5';
+    mocks.network.tailscaleIpv6 = 'fd7a:115c:a1e0::1234';
+    mocks.network.tailscaleStatus = { backendState: 'Running', dnsName: 'mac.tail1234.ts.net' };
+    mocks.network.localIps = ['192.168.1.20', '10.0.0.7'];
+    const candidate = makeCandidate();
+    mocks.startCoordinatorPairing.mockResolvedValueOnce(makeState(candidate));
+    mocks.getLocalCandidate.mockReturnValueOnce(candidate);
+
+    await handlerFor(IPC_CHANNELS.PAIR_BOTH_COORDINATOR_START)({}, {});
+
+    expect(mocks.startCoordinatorPairing).toHaveBeenCalledWith(expect.objectContaining({
+      coordinatorUrl: 'ws://mac.tail1234.ts.net:4878',
+      coordinatorUrls: [
+        'ws://100.68.10.5:4878',
+        'ws://[fd7a:115c:a1e0::1234]:4878',
+        'ws://192.168.1.20:4878',
+        'ws://10.0.0.7:4878',
+      ],
+    }));
+    expect(mocks.getLocalCandidate).toHaveBeenCalledWith(candidate.pairingSessionId, [
+      'mac.tail1234.ts.net',
+      '100.68.10.5',
+      'fd7a:115c:a1e0::1234',
+      '192.168.1.20',
+      '10.0.0.7',
+    ]);
+
+    mocks.network.tailscaleStatus = { backendState: 'Stopped', dnsName: 'mac.tail1234.ts.net' };
+    mocks.startCoordinatorPairing.mockResolvedValueOnce(makeState(candidate));
+    mocks.getLocalCandidate.mockReturnValueOnce(candidate);
+    await handlerFor(IPC_CHANNELS.PAIR_BOTH_COORDINATOR_START)({}, {});
+
+    expect(mocks.getLocalCandidate).toHaveBeenLastCalledWith(candidate.pairingSessionId, [
+      '100.68.10.5',
+      'fd7a:115c:a1e0::1234',
+      '192.168.1.20',
+      '10.0.0.7',
+    ]);
+  });
+
+  it('offers only the bound address when the server is bound to one address', async () => {
+    mocks.remoteNodeConfig = { enabled: true, serverHost: '192.168.1.60', serverPort: 4878, namespace: 'default' };
+    mocks.network.tailscaleIp = '100.68.10.5';
+    const candidate = makeCandidate();
+    mocks.startCoordinatorPairing.mockResolvedValueOnce(makeState(candidate));
+    mocks.getLocalCandidate.mockReturnValueOnce(candidate);
+
+    await handlerFor(IPC_CHANNELS.PAIR_BOTH_COORDINATOR_START)({}, {});
+
+    expect(mocks.getLocalCandidate).toHaveBeenCalledWith(candidate.pairingSessionId, ['192.168.1.60']);
+    const input = mocks.startCoordinatorPairing.mock.calls[0][0] as Record<string, unknown>;
+    expect(input['coordinatorUrl']).toBe('ws://192.168.1.60:4878');
+    expect(input).not.toHaveProperty('coordinatorUrls');
   });
 
   it('returns the paired config without starting the worker before post-pair choice', async () => {

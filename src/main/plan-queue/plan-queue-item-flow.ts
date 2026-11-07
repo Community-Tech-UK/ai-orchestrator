@@ -618,7 +618,7 @@ export class PlanQueueItemFlow {
 
   // Landing — serial, one at a time across every run
   /** Queue a landing. Never await this while holding the item's lock. */
-  enqueueLanding(itemId: string, options: { operatorOverride?: boolean } = {}): Promise<void> {
+  enqueueLanding(itemId: string, options: { landedAnywayBy?: string } = {}): Promise<void> {
     const previous = this.landingChain;
     this.landingChain = this.withItemLock(itemId, async () => { await previous; await this.landing.land(itemId, options); })
       .catch((error: unknown) => {
@@ -718,15 +718,15 @@ export class PlanQueueItemFlow {
     return this.withItemLock(itemId, () => restoreDiscardedWork(this.host, itemId));
   }
 
-  /** parked → landing without a verifier PASS ("Land anyway"). Resolves once queued to land. */
-  landAnyway(itemId: string): Promise<void> {
+  /** parked → landing without a verifier PASS ("Land anyway"). Resolves once queued to land. `actor` goes in its detail. */
+  landAnyway(itemId: string, actor = 'James'): Promise<void> {
     return this.withItemLock(itemId, async () => {
       const item = this.host.getItem(itemId);
       if (item.state !== 'parked' || !item.branchName) throw new Error('Only a parked item with a branch can be landed');
       const run = this.host.getRun(item.runId);
       const reattached = await this.host.worktrees.reattach(item, run.workspaceCwd);
       this.host.transition(reattached, 'landing', { verifiedMainCommit: null, parkReason: null, detail: null });
-      void this.enqueueLanding(itemId, { operatorOverride: true });
+      void this.enqueueLanding(itemId, { landedAnywayBy: actor });
     });
   }
 

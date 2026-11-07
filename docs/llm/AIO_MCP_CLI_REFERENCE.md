@@ -43,6 +43,7 @@ $AIO_MCP plan-queue move <run-id> [--to <session-id>] [--json]
 $AIO_MCP plan-queue jobs [--all] [--json]
 $AIO_MCP plan-queue discard <item-id> [<item-id>...] [--json]
 $AIO_MCP remote-nodes [--json]
+$AIO_MCP remote-nodes pair [--label <name>] [--ttl-minutes <n>] [--json]
 $AIO_MCP local-ai --help
 $AIO_MCP release-readiness --help
 ```
@@ -328,6 +329,23 @@ Prefer JSON if you need to parse fields such as `status`, `activeInstances`,
 derives Capacity and Capabilities from those fields. Do not treat a missing or
 disconnected node as proof that the machine is off; only report what the roster
 says.
+
+To pair a new worker computer you are setting up:
+
+```bash
+$AIO_MCP remote-nodes pair --label <computer-name> --json
+```
+
+This issues one single-use pairing credential (60 minutes by default, 60 at
+most) and returns `command`, `link`, `connectionConfig`, `label`, `createdAt`
+and `expiresAt`. Run `command` on the new computer, for example over SSH, then
+confirm the computer shows as connected in `$AIO_MCP remote-nodes --json`.
+The command and config contain the credential: never paste them into chat,
+logs, or any file except that computer's worker config. It fails while
+Harness is not accepting worker connections ("Let your other computers
+connect" on the Other computers page). Without a shell, use the deferred
+`issue_remote_node_pairing` orchestrator tool. Never read or change
+`remoteNodesEnrollmentToken` for pairing.
 
 ## Local AI Guard Targets
 

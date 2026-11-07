@@ -7,7 +7,7 @@ import { EventEmitter } from 'node:events';
 import * as net from 'node:net';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT, DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueFolderChecklist, type PlanQueueRouting } from '@contracts/schemas/plan-queue';
+import { DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueFolderChecklist, type PlanQueueRouting } from '@contracts/schemas/plan-queue';
 import type { InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { ProviderAccountProfile } from '../../shared/types/provider-account.types';
 import type { SqliteDriver } from '../db/sqlite-driver';
@@ -2155,7 +2155,7 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     return { runId: run.id, itemId: item.id, branch: item.branchName!, parentId: parent.id };
   }
 
-  it('the Set aside agent clears only an empty job and cannot land or adopt', async () => {
+  it('the Set aside agent clears only an empty job and cannot skip or adopt', async () => {
     const { runId, itemId, branch } = await parkedAtRoundLimit();
     const agent = fake.addParent();
     agent.metadata = { [SET_ASIDE_FOLDER_METADATA]: repo };
@@ -2164,7 +2164,7 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
 
     expect(await coordinator.setAsideAgents.clear(agent.id)).toMatchObject({ cleared: 0, left: 1 });
     expect(git(['rev-parse', '--verify', branch])).toBeTruthy();
-    await expect(coordinator.control({ action: 'land-anyway', itemId }, agent.id)).rejects.toThrow('may only retry');
+    await expect(coordinator.control({ action: 'skip-item', itemId }, agent.id)).rejects.toThrow('may only retry');
     await expect(coordinator.control({ action: 'adopt', runId }, agent.id)).rejects.toThrow('may only retry');
     await expect(coordinator.startRun({ parentInstanceId: agent.id, kind: 'plans' })).rejects.toThrow('Set aside session');
 
@@ -2179,7 +2179,7 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     expect(coordinator.getRunDto(runId)!.items[0].discardedBy).toContain('the Set aside agent');
   });
 
-  it('the Set aside agent can discard a job holding work at no cost to its retries, and bring it back', async () => {
+  it('the Set aside agent can discard a job holding work, and bring it back', async () => {
     const { runId, itemId, branch } = await parkedAtRoundLimit();
     const agent = fake.addParent();
     agent.metadata = { [SET_ASIDE_FOLDER_METADATA]: repo };
@@ -2188,7 +2188,6 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
 
     expect(git(['branch', '--list', branch])).toBe('');
     expect(coordinator.getRunDto(runId)!.items[0].discardedBy).toContain('the Set aside agent');
-    expect((await coordinator.setAsideAgents.review(agent.id, 0)).restartsLeft).toBe(PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT);
 
     await coordinator.control({ action: 'restore-discarded', itemId }, agent.id);
 
@@ -2206,20 +2205,28 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     expect(coordinator.getRunDto(runId)!.items[0].discardedBy).toBe(`session ${other.id}`);
   });
 
-  it('applies the Set aside agent limits on the control path, before anything changes and at no cost', async () => {
+  it('refuses a Set aside agent\'s invalid retry before anything changes', async () => {
     const { runId, itemId } = await parkedAtRoundLimit();
     const agent = fake.addParent();
     agent.metadata = { [SET_ASIDE_FOLDER_METADATA]: repo };
     const before = coordinator.getRunDto(runId)!.items[0];
 
-    await expect(coordinator.control({ action: 'retry-landing', itemId }, agent.id)).rejects.toThrow('Only a job that passed');
+    await expect(coordinator.control({ action: 'retry-landing', itemId }, agent.id)).rejects.toThrow('Only a land-blocked parked item');
     expect(coordinator.getRunDto(runId)!.items[0]).toMatchObject({ state: 'parked', parkReason: before.parkReason, branchName: before.branchName });
+  });
 
-    const item = coordinator.getItem(itemId);
-    coordinator.save({ ...item, verdict: { verdict: 'PASS', findings: [] } as unknown as typeof item.verdict });
-    await expect(coordinator.control({ action: 'resume-item', itemId }, agent.id)).rejects.toThrow('erase');
-    expect(coordinator.getRunDto(runId)!.items[0]).toMatchObject({ state: 'parked', verdict: { verdict: 'PASS' } });
-    expect((await coordinator.setAsideAgents.review(agent.id, 0)).restartsLeft).toBe(PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT);
+  it('lets the Set aside agent merge a job without checks, and records that it did', async () => {
+    const { runId, itemId } = await parkedAtRoundLimit();
+    const agent = fake.addParent();
+    agent.metadata = { [SET_ASIDE_FOLDER_METADATA]: repo };
+
+    await coordinator.control({ action: 'land-anyway', itemId }, agent.id);
+    await coordinator._whenSettledForTesting();
+
+    const landed = coordinator.getRunDto(runId)!.items[0];
+    expect(landed.state).toBe('landed');
+    expect(landed.detail).toContain(`Landed by the Set aside agent (session ${agent.id}) without a verifier PASS`);
+    expect(git(['log', '-1', '--format=%s', 'main'])).toBe('Plan: 2026-01-01-alpha_plan');
   });
 
   describe('a document with another merged attempt', () => {
@@ -2230,6 +2237,14 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
       store.upsertItem({ ...item, id: 'merged-attempt', runId: 'run-that-merged', state: 'landed', createdAt: item.createdAt + startedAfterParked });
       return parked;
     }
+
+    it('refuses the Set aside agent\'s Land anyway over a newer merged attempt, which stays James\'s choice', async () => {
+      const { itemId } = await withMergedAttempt(1);
+      const agent = fake.addParent();
+      agent.metadata = { [SET_ASIDE_FOLDER_METADATA]: repo };
+      await expect(coordinator.control({ action: 'land-anyway', itemId }, agent.id)).rejects.toThrow('A newer attempt at this document has already merged');
+      expect(coordinator.getItem(itemId).state).toBe('parked');
+    });
 
     it.each(['resume-item', 'retry-landing'] as const)('refuses %s once a newer attempt has merged', async (action) => {
       const { itemId } = await withMergedAttempt(1);

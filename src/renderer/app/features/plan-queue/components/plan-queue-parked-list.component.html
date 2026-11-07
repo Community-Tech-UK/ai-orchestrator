@@ -15,12 +15,29 @@
   @if (agentFolders().length > 0) {
     <details class="pq-sort-out">
       <summary>Sort out with an agent</summary>
-      <p>An agent clears jobs that hold nothing, then lists what needs you. It discards jobs whose work has already merged, and any you tell it to, which deletes their branches. It can't merge without checks. It may retry merges or resume jobs up to {{ restartLimit }} times in all, which uses provider usage.</p>
-      <div class="pq-sort-out-projects">
+      <p>An agent works through a project's list and does what it recommends. It merges finished work, restarts jobs a worker can fix, discards jobs whose work already merged, and fixes problems that stopped jobs, including bugs in Harness. It can merge without the final checks when a failure isn't the job's fault, and it commits its fixes to the project or to Harness's source on this computer, but never pushes. It leaves you only big decisions, such as work that would otherwise be lost. Retries and restarts use provider usage.</p>
+      @if (idleAgentFolders().length > 1) {
+        <button type="button" class="pq-sort-out-all" (click)="sortOutAll.emit(idleAgentFolders())">Sort out {{ idleAgentFolders().length === agentFolders().length ? 'all' : 'the other' }} {{ idleAgentFolders().length }} projects</button>
+      }
+      <ul class="pq-sort-out-projects">
         @for (entry of agentFolders(); track entry.folder) {
-          <button type="button" class="pq-sort-out-start" (click)="sortOut.emit(entry.folder)">Sort out {{ entry.name }} ({{ pluralise(entry.count, 'job') }})</button>
+          <li class="pq-sort-out-project">
+            <span class="pq-sort-out-name">{{ entry.name }} ({{ pluralise(entry.count, 'job') }})</span>
+            @switch (entry.agent?.state) {
+              @case ('starting') { <span class="pq-sort-out-state" role="status">Starting…</span> }
+              @case ('working') { <span class="pq-sort-out-state" role="status">Working…</span> }
+              @case ('finished') { <span class="pq-sort-out-state" role="status">Finished</span> }
+              @case ('stopped') { <span class="pq-sort-out-state" role="status">Stopped before it finished</span> }
+            }
+            @if (entry.agent?.instanceId; as instanceId) {
+              <button type="button" class="pq-sort-out-open" [attr.aria-label]="openAgentLabel(entry.agent) + ': ' + entry.name" (click)="openAgent.emit(instanceId)">{{ openAgentLabel(entry.agent) }}</button>
+            }
+            @if (entry.agent?.state !== 'starting' && entry.agent?.state !== 'working') {
+              <button type="button" class="pq-sort-out-start" [attr.aria-label]="(entry.agent ? 'Sort out again' : 'Sort out') + ': ' + entry.name" (click)="sortOut.emit(entry.folder)">{{ entry.agent ? 'Sort out again' : 'Sort out' }}</button>
+            }
+          </li>
         }
-      </div>
+      </ul>
     </details>
   }
   @for (section of sections(); track section.key) {

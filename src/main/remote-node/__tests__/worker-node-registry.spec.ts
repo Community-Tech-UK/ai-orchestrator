@@ -21,6 +21,12 @@ import type { WorkerNodeInfo, WorkerNodeCapabilities, NodePlacementPrefs } from 
 // Helpers
 // ---------------------------------------------------------------------------
 
+const iosBlock = (ready: boolean) => ({
+  xcodePath: '/Applications/Xcode.app/Contents/Developer', xcodeVersion: '27.2', licenceAccepted: true,
+  runtimes: [{ name: 'iOS 27.2', version: '27.2', isAvailable: true }], devices: [],
+  signing: {}, problems: [], checkedAt: 1, ready,
+});
+
 function makeCapabilities(overrides: Partial<WorkerNodeCapabilities> = {}): WorkerNodeCapabilities {
   return {
     platform: 'linux',
@@ -401,6 +407,19 @@ describe('WorkerNodeRegistry', () => {
         capabilities: makeCapabilities({ hasAndroidMcp: true }),
       }));
       expect(registry.selectNode({ requiresAndroid: true })?.id).toBe('android-ready');
+    });
+
+    it('only picks nodes that report iOS readiness when requiresIos is true', () => {
+      registry.registerNode(makeNode('no-ios', { capabilities: makeCapabilities() }));
+      registry.registerNode(makeNode('ios-not-ready', {
+        capabilities: makeCapabilities({ iosAutomation: iosBlock(false) }),
+      }));
+      expect(registry.selectNode({ requiresIos: true })).toBeNull();
+      registry.registerNode(makeNode('ios-ready', {
+        capabilities: makeCapabilities({ iosAutomation: iosBlock(true) }),
+      }));
+      expect(registry.selectNode({ requiresIos: true })?.id).toBe('ios-ready');
+      expect(registry.selectNode({})).not.toBeNull();
     });
 
     it('filters out ADB-only Android nodes with no usable device or AVD', () => {

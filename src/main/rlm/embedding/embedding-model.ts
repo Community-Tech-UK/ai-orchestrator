@@ -65,8 +65,12 @@ export const HASH_EMBEDDING_MODEL: EmbeddingModelSpec = {
  *   99th percentile and 0.73 at the 99.9th, so search floors sit near 0.70.
  * - Two unrelated stored texts score higher, 0.62 at the median and 0.76 at the
  *   99th percentile, so comparisons between stored texts need higher floors.
- * - `skill-match` is 0.62 with only the best skill taken: no wrong skill and no
- *   off-topic match across 68 prompts, with 25 of 34 skills found.
+ * - `skill-match` is 0.68, with only the best skill taken. On 1,549 real user
+ *   messages, 13 of the 16 short ones scoring 0.645 to 0.674 got the wrong
+ *   skill: everyday words like "test", "release" and "fix" pull in the Android,
+ *   iOS and sweep skills. 0.68 adds no wrong skill to any of the 591 short messages and
+ *   keeps 10 of 34 purpose-written prompts (LT-730; the first value, 0.62, kept
+ *   25 of 34 but added wrong skills in real use).
  *
  * Floors must be re-measured if the model changes.
  */
@@ -84,7 +88,7 @@ export const LOCAL_EMBEDDING_MODEL: LocalEmbeddingModelSpec = {
     'pattern-match': 0.85,
     'pattern-relevance': 0.7,
     'pattern-duplicate': 0.92,
-    'skill-match': 0.62,
+    'skill-match': 0.68,
     'memory-related': 0.75,
     'memory-link': 0.85,
   },

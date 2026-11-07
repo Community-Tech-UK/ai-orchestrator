@@ -21,7 +21,7 @@ import { createOrchestratorEvidenceToolDefinitions } from './orchestrator-eviden
 import { createAutomationToolDefinitions } from './orchestrator-automation-tools';
 import { PLAN_QUEUE_TOOL_SPECS } from './plan-queue-tools';
 import { createNodeExecForwarderTool } from './orchestrator-node-exec-forwarder-tool';
-import { createNodeConnectionForwarderTool } from './orchestrator-node-connection-tools';
+import { createNodeConnectionForwarderTools } from './orchestrator-node-connection-tools';
 import { createHostProcessForwarderTools } from './orchestrator-host-process-tools';
 import {
   createSessionMessagingForwarderTools,
@@ -158,6 +158,11 @@ export function createOrchestratorToolsForwarderTools(
             description:
               'Android device preference when requiresAndroid is true. Defaults to any.',
           },
+          requiresIos: {
+            type: 'boolean',
+            description:
+              'Only run on a Mac that reports iOS readiness (Xcode with the licence accepted, and a simulator runtime or a paired iPhone/iPad). Routing only: no iOS tools are injected. Explicit only; never inferred from the prompt.',
+          },
         },
         required: ['prompt'],
         additionalProperties: false,
@@ -170,7 +175,7 @@ export function createOrchestratorToolsForwarderTools(
       },
     },
     createNodeExecForwarderTool(client),
-    createNodeConnectionForwarderTool(client),
+    ...createNodeConnectionForwarderTools(client),
     ...createHostProcessForwarderTools(client),
     ...createSessionMessagingForwarderTools(client, sessionMessagingEnabled),
     ...createSessionReadForwarderTools(client),

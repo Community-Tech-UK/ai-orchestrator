@@ -259,6 +259,9 @@ describe('browser extension assets', () => {
     // probe_one_time_code: boolean-only sign-in code box evidence for the action
     // guard, answering even on an origin a password fill has protected.
     '0.2.50': '9b418260a69d',
+    // probe_one_time_code also answers whether the type/fill_form target is a
+    // password box, resolving accessibility uids through the debugger.
+    '0.2.51': 'bf8a3312ff8f',
   };
 
   it('ships each background bundle under its own manifest version', () => {

@@ -436,6 +436,30 @@ describe('WorkerNodeConnectionServer — sendRpc timeout & disconnect', () => {
   });
 });
 
+describe('WorkerNodeConnectionServer — all-interfaces listener', () => {
+  beforeEach(() => {
+    WorkerNodeConnectionServer._resetForTesting();
+  });
+
+  it('accepts IPv4 workers when the host setting is the all-interfaces wildcard', async () => {
+    const server = WorkerNodeConnectionServer.getInstance();
+    await server.start(0, '0.0.0.0');
+    const wss = (server as unknown as {
+      wss: { options: { host?: string }; address(): { port: number; address: string } };
+    }).wss;
+    // `::` where the computer has IPv6; the configured wildcard where it does not.
+    expect(['::', '0.0.0.0']).toContain(wss.options.host);
+
+    const client = new WebSocket(`ws://127.0.0.1:${wss.address().port}`);
+    await new Promise<void>((resolve, reject) => {
+      client.once('open', () => resolve());
+      client.once('error', reject);
+    });
+    client.close();
+    server.stop();
+  });
+});
+
 describe('WorkerNodeConnectionServer — work dispatch classification', () => {
   it('treats audio.transcribe as real remote-node work', () => {
     expect(isWorkerNodeWorkDispatchMethod(COORDINATOR_TO_NODE.AUDIO_TRANSCRIBE)).toBe(true);

@@ -62,15 +62,24 @@ describe('packaged startup smoke helpers', () => {
     );
   });
 
-  it('uses xvfb for a headless Linux launch', () => {
+  it('launches the Linux app directly on the display the caller provides', () => {
     expect(getLaunchCommand({
       executablePath: '/repo/release/linux-unpacked/harness',
       platform: 'linux',
-      env: {},
+      env: { DISPLAY: ':99' },
     })).toEqual({
-      command: 'xvfb-run',
-      args: ['-a', '/repo/release/linux-unpacked/harness', '--no-sandbox'],
+      command: '/repo/release/linux-unpacked/harness',
+      args: ['--no-sandbox'],
     });
+  });
+
+  // The app relaunches itself, so xvfb-run around the app would close the display under it (LT-731).
+  it('refuses a headless Linux launch instead of wrapping the app in its own display', () => {
+    expect(() => getLaunchCommand({
+      executablePath: '/repo/release/linux-unpacked/harness',
+      platform: 'linux',
+      env: {},
+    })).toThrow('xvfb-run -a node scripts/packaged-startup-smoke.js');
   });
 
   it('requires the completed startup marker and rejects critical initialization failures', () => {

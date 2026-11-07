@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { buildPairingCommand, buildPairingLink } from '../../shared/remote-node/pairing-command';
 import {
+  buildCoordinatorUrl,
   parsePairingConfigInput,
   sanitizePairingErrorMessage,
 } from './pairing-config';
@@ -59,6 +61,54 @@ describe('pairing-config', () => {
 
     expect(parsed.coordinatorUrl).toBe('wss://macbook-pro.tail4fc107.ts.net:4878');
     expect(parsed.coordinatorUrls).toEqual(['ws://192.168.1.9:4878']);
+  });
+
+  it('reads fallbackHost link parameters as coordinatorUrls with the link port and protocol', () => {
+    const parsed = parsePairingConfigInput(
+      'ai-orchestrator://remote-node/pair?host=mac.tail.ts.net&port=4878&namespace=default&token=pair-token'
+      + '&requireTls=true&fallbackHost=100.64.0.5&fallbackHost=192.168.1.9&fallbackHost=mac.tail.ts.net',
+    );
+
+    expect(parsed.coordinatorUrl).toBe('wss://mac.tail.ts.net:4878');
+    expect(parsed.coordinatorUrls).toEqual(['wss://100.64.0.5:4878', 'wss://192.168.1.9:4878']);
+  });
+
+  it('round-trips a link with an IPv6 host, IPv6 fallback hosts and a name', () => {
+    const input = {
+      token: 'pair-token',
+      label: 'Studio PC',
+      host: 'mac.tail.ts.net',
+      port: 4878,
+      namespace: 'default',
+      requireTls: false,
+      fallbackHosts: ['100.64.0.5', 'fd7a:115c:a1e0::1234', '192.168.1.9'],
+    };
+    const parsed = parsePairingConfigInput(buildPairingLink(input));
+
+    expect(parsed.name).toBe('Studio PC');
+    expect(parsed.coordinatorUrl).toBe('ws://mac.tail.ts.net:4878');
+    expect(parsed.coordinatorUrls).toEqual([
+      'ws://100.64.0.5:4878',
+      'ws://[fd7a:115c:a1e0::1234]:4878',
+      'ws://192.168.1.9:4878',
+    ]);
+    // The command wraps the same link in quotes.
+    expect(buildPairingCommand(input)).toContain(buildPairingLink(input));
+  });
+
+  it('accepts an IPv6 primary host from a link and builds a bracketed URL', () => {
+    const parsed = parsePairingConfigInput(
+      buildPairingLink({
+        token: 'pair-token',
+        host: 'fd7a:115c:a1e0::1234',
+        port: 4878,
+        namespace: 'default',
+        requireTls: true,
+      }),
+    );
+    expect(parsed.coordinatorUrl).toBe('wss://[fd7a:115c:a1e0::1234]:4878');
+    expect(buildCoordinatorUrl({ host: 'fd7a:115c:a1e0::1234', port: 4878 })).toBe('ws://[fd7a:115c:a1e0::1234]:4878');
+    expect(buildCoordinatorUrl({ host: '192.168.1.9', port: 4878 })).toBe('ws://192.168.1.9:4878');
   });
 
   it('omits coordinatorUrls entirely when none survive, so the shape is unchanged', () => {

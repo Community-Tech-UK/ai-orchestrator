@@ -191,4 +191,29 @@ describe('RemoteNodeDetailComponent', () => {
 
     expect(fixture.nativeElement.querySelector('.ba-config-form')).toBeNull();
   });
+  it('shows why the computer cannot reach Harness, in its own words', () => {
+    const notice = 'macOS is blocking this computer from reaching Harness. Turn on node under System Settings > Privacy & Security > Local Network.';
+    fixture.componentRef.setInput('node', makeNode({ connectionNotice: notice }));
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.connection-notice')?.textContent).toContain(notice);
+  });
+
+  it('says where to load the Chrome extension until it makes contact', () => {
+    const relay = { enabled: true, running: true, extensionFolder: '/Users/suas/work/orchestrat0r/ai-orchestrator/resources/browser-extension' };
+    fixture.componentRef.setInput('node', makeNode({ extensionRelay: relay }));
+    fixture.detectChanges();
+
+    const hint = fixture.nativeElement.querySelector('.extension-setup-hint')?.textContent ?? '';
+    expect(hint).toContain('has not connected yet');
+    expect(hint).toContain(relay.extensionFolder);
+
+    fixture.componentRef.setInput('node', makeNode({ extensionRelay: { ...relay, lastExtensionContactAt: 1 } }));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.extension-setup-hint')).toBeNull();
+
+    fixture.componentRef.setInput('node', makeNode({ status: 'disconnected', extensionRelay: relay }));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.extension-setup-hint')).toBeNull();
+  });
 });

@@ -44,8 +44,13 @@ function getPackagedExecutableCandidates(root = ROOT, platform = process.platfor
 }
 
 function getLaunchCommand({ executablePath, platform = process.platform, env = process.env }) {
+  // The app relaunches itself and its first process exits at once, so a display started just for
+  // that process (`xvfb-run` around the app) closes under the real app. The display must outlive
+  // the whole smoke run, so the caller provides it.
   if (platform === 'linux' && !env.DISPLAY) {
-    return { command: 'xvfb-run', args: ['-a', executablePath, '--no-sandbox'] };
+    throw new Error(
+      'Packaged startup smoke needs a display on Linux. Run it as: xvfb-run -a node scripts/packaged-startup-smoke.js',
+    );
   }
   return {
     command: executablePath,
@@ -154,6 +159,7 @@ async function runPackagedStartupSmoke(options = {}) {
   if (!executablePath) {
     throw new Error(`Packaged startup smoke found no unpacked ${platform} executable`);
   }
+  const launch = getLaunchCommand({ executablePath, platform, env: process.env });
 
   const userDataPath = fs.mkdtempSync(
     path.join(options.tempRoot ?? os.tmpdir(), 'harness-startup-smoke-'),
@@ -174,7 +180,6 @@ async function runPackagedStartupSmoke(options = {}) {
     AIO_STARTUP_SMOKE: '1',
     AIO_STARTUP_SMOKE_USER_DATA_PATH: userDataPath,
   };
-  const launch = getLaunchCommand({ executablePath, platform, env });
   const launchStartedAt = Date.now();
   const child = spawn(launch.command, launch.args, {
     cwd: root,

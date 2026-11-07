@@ -19,6 +19,12 @@ export function buildCoordinatorCandidates(
   )];
 }
 
+/** Told why a probe failed, or which address answered. */
+export interface CoordinatorProbeObserver {
+  failed?(url: string, error: NodeJS.ErrnoException): void;
+  reached?(url: string, remoteAddress: string | undefined): void;
+}
+
 /**
  * Check whether the coordinator's TCP endpoint is reachable without sending
  * credentials or starting a WebSocket handshake.
@@ -27,6 +33,7 @@ export function probeCoordinatorCandidate(
   rawUrl: string,
   signal?: AbortSignal,
   timeoutMs = COORDINATOR_PROBE_TIMEOUT_MS,
+  observer?: CoordinatorProbeObserver,
 ): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     let endpoint: URL;
@@ -53,8 +60,14 @@ export function probeCoordinatorCandidate(
     const abort = (): void => finish(false);
 
     socket.setTimeout(timeoutMs);
-    socket.once('connect', () => finish(true));
-    socket.once('error', () => finish(false));
+    socket.once('connect', () => {
+      observer?.reached?.(rawUrl, socket.remoteAddress);
+      finish(true);
+    });
+    socket.once('error', (error: NodeJS.ErrnoException) => {
+      observer?.failed?.(rawUrl, error);
+      finish(false);
+    });
     socket.once('timeout', () => finish(false));
     if (signal?.aborted) {
       finish(false);

@@ -2,32 +2,16 @@
  * Antigravity CLI Adapter — spawns and manages Google Antigravity CLI (`agy`).
  *
  * Replaces the retired Google Gemini CLI adapter. Antigravity runs one process
- * per message in non-interactive print mode (`agy --print <prompt>`) and emits
- * PLAIN TEXT on stdout, so this adapter parses raw text rather than JSON event
- * streams. It exposes the same spawn/sendInput surface the InstanceManager
- * expects.
+ * per message in non-interactive print mode
+ * (`agy --output-format stream-json --print <prompt>`). It exposes the same
+ * spawn/sendInput surface the InstanceManager expects.
  *
- * CORRECTION (LT-220, 2026-08-20): this comment previously claimed `agy` "has
- * no `--output-format stream-json` mode". That is false — `agy --help` lists
- * `text, json, stream-json`, confirmed live against the installed binary. The
- * plain-text parsing below is therefore a *choice*, not a constraint.
- *
- * The consequence is not cosmetic. Because this adapter never emits
- * `type: 'tool_result'` OutputMessages (nor raw `captureToolResult` adapter
- * events), context-evidence capture is **always empty for Antigravity, in every
- * mode** — the capture pipeline is never entered at all, with no error to
- * signal it. Contrast `gemini-cli-adapter.ts`, which does emit real
- * `tool_result` events and is captured normally: the two share a capability
- * *label*, not the underlying instrumentation.
- *
- * This gap is KNOWN AND ACCEPTED, not an oversight — rewriting the output
- * pipeline to `--output-format stream-json` is substantial work with real
- * regression risk on a secondary provider, for capture nothing currently
- * depends on. Revisit if Antigravity becomes a primary provider or evidence
- * capture becomes load-bearing for it.
- *
- * agy reports no token usage or dollar cost, so usage is estimated from the
- * response length and priced via the shared pricing table.
+ * stream-json reports every step of the turn (see antigravity-stream-json.ts),
+ * so the transcript shows each tool call, its result and the reply text as they
+ * happen, and usage comes from agy's own token counts. It also lets a turn run
+ * for as long as it keeps making progress: until 7 November 2026 this adapter
+ * read plain text, which arrives only when the turn ends, and stopped every
+ * turn at a fixed five minutes, cutting off long jobs that were still working.
  */
 
 import {
@@ -57,13 +41,45 @@ import {
   resolveModelReplacementForProvider,
 } from '../../../shared/types/provider.types';
 import { extractThinkingContent, ThinkingBlock } from '../../../shared/utils/thinking-extractor';
+import { NdjsonLineBuffer, splitCompleteNdjsonLines } from '../json-parse';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import { probeVersionStatus } from './cli-status-probe';
 import { killProcessGroup } from './base-cli-process-utils';
 
 import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
+import { AntigravityStreamReader, antigravityUsageToCliUsage } from './antigravity-stream-json';
+import type { SurfacedToUserError } from './surfaced-error';
 
 const logger = getLogger('AntigravityCliAdapter');
+
+/** A turn that reports no progress for this long is stopped. */
+export const ANTIGRAVITY_SILENCE_LIMIT_MS = 5 * 60_000;
+/**
+ * The same limit while one of agy's tools is running. agy reports nothing until
+ * a tool finishes (a shell command is silent for its whole run), so a test suite
+ * or build needs far longer than a model step.
+ */
+export const ANTIGRAVITY_TOOL_SILENCE_LIMIT_MS = 30 * 60_000;
+/** How much of agy's stderr is kept as a failure reason. */
+const STDERR_TAIL_LIMIT = 4000;
+
+/**
+ * A turn that agy accepted and then failed. sendInputImpl puts the reason in
+ * the transcript, so callers must not add a "could not be delivered" notice:
+ * the message was delivered and agy worked on it.
+ */
+export class AntigravityTurnError extends Error implements SurfacedToUserError {
+  readonly surfacedToUser = true;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'AntigravityTurnError';
+  }
+}
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
 
 /**
  * Antigravity CLI specific configuration
@@ -75,7 +91,12 @@ export interface AntigravityCliConfig {
   sandbox?: boolean;
   /** Working directory */
   workingDir?: string;
-  /** Timeout in milliseconds */
+  /**
+   * Longest one turn may run, in milliseconds, for callers that need an answer
+   * by a deadline (reviews, titles). Absent means no limit; a turn is still
+   * stopped after ANTIGRAVITY_SILENCE_LIMIT_MS without progress
+   * (ANTIGRAVITY_TOOL_SILENCE_LIMIT_MS while a tool runs).
+   */
   timeout?: number;
   /** Auto-approve mode (maps to `--dangerously-skip-permissions`). */
   yolo?: boolean;
@@ -103,7 +124,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
   private cliConfig: AntigravityCliConfig;
   /** Running total of tokens used across all turns. */
   private cumulativeTokensUsed = 0;
-  /** Running USD cost across all turns (priced locally; agy reports none). */
+  /** Running USD cost across all turns (agy reports tokens, not dollars). */
   private cumulativeCostUsd = 0;
   private isSpawned = false;
   private advisoryMemoryDelivered = false;
@@ -118,7 +139,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
       command: 'agy',
       args: [],
       cwd: config.workingDir,
-      timeout: config.timeout || 300000,
+      timeout: config.timeout,
       env: config.env,
       sessionPersistence: true,
     };
@@ -139,7 +160,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
 
   getCapabilities(): CliCapabilities {
     return {
-      streaming: false, // agy --print returns the full response on close
+      streaming: true,
       toolUse: true,
       fileAccess: true,
       shellExecution: true,
@@ -147,7 +168,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
       vision: false,
       codeExecution: true,
       contextWindow: 1000000,
-      outputFormats: ['text'],
+      outputFormats: ['stream-json'],
     };
   }
 
@@ -185,95 +206,133 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
 
     const startTime = Date.now();
     this.outputBuffer = '';
-    let turnFailed = false;
 
     return new Promise((resolve, reject) => {
       const args = this.buildArgs(message);
       assertAdapterInputCurrent(dispatch);
       dispatch?.beforeProviderDispatch?.();
       assertAdapterInputCurrent(dispatch);
-      this.process = this.spawnProcess(args);
+      const nativeProcess = this.spawnProcess(args);
+      this.process = nativeProcess;
 
-      this.process.on('error', (err) => {
-        turnFailed = true;
-        this.process = null;
-        reject(new Error(`Failed to spawn agy CLI: ${err.message}`));
+      const reader = new AntigravityStreamReader();
+      const lines = new NdjsonLineBuffer();
+      let stderrTail = '';
+      let settled = false;
+      let silenceTimer: NodeJS.Timeout | undefined;
+      let deadlineTimer: NodeJS.Timeout | undefined;
+
+      const clearTimers = (): void => {
+        clearTimeout(silenceTimer);
+        clearTimeout(deadlineTimer);
+      };
+      const fail = (error: Error): void => {
+        if (settled) return;
+        settled = true;
+        clearTimers();
+        reject(error);
+      };
+      // Once agy has accepted the prompt the turn did run, so the failure is
+      // not a delivery failure (see AntigravityTurnError).
+      const turnError = (text: string): Error => reader.started ? new AntigravityTurnError(text) : new Error(text);
+      const stop = (text: string): void => {
+        if (settled) return;
+        killProcessGroup(nativeProcess.pid, 'SIGTERM');
+        fail(turnError(text));
+      };
+
+      // agy reports every step, so a quiet agy is a stuck agy. A turn that keeps
+      // reporting progress runs for as long as it needs.
+      const armSilenceLimit = (): void => {
+        clearTimeout(silenceTimer);
+        const limitMs = reader.toolRunning() ? ANTIGRAVITY_TOOL_SILENCE_LIMIT_MS : ANTIGRAVITY_SILENCE_LIMIT_MS;
+        silenceTimer = setTimeout(
+          () => stop(`Antigravity stopped responding: no progress for ${Math.round(limitMs / 60_000)} minutes`),
+          limitMs,
+        );
+      };
+      armSilenceLimit();
+      const deadlineMs = this.cliConfig.timeout;
+      if (deadlineMs) {
+        deadlineTimer = setTimeout(
+          () => stop(`Antigravity CLI timeout after ${Math.round(deadlineMs / 1000)} seconds`),
+          deadlineMs,
+        );
+      }
+
+      nativeProcess.on('error', (err) => {
+        if (this.process === nativeProcess) this.process = null;
+        fail(new Error(`Failed to spawn agy CLI: ${err.message}`));
       });
 
       // agy reads its prompt from argv; close stdin.
-      if (this.process.stdin) {
-        this.process.stdin.end();
-      }
+      nativeProcess.stdin?.end();
 
-      const streamingMessageId = generateId();
-      let accumulatedContent = '';
-
-      this.process.stdout?.on('data', (data) => {
-        if (dispatch?.signal?.aborted) return;
-        const chunk = data.toString();
-        this.outputBuffer += chunk;
-        accumulatedContent += chunk;
-        // agy emits plain text; surface it incrementally for a live feel.
-        this.emit('output', {
-          id: streamingMessageId,
-          timestamp: Date.now(),
-          type: 'assistant',
-          content: chunk,
-          metadata: { streaming: true, accumulatedContent },
-        } as OutputMessage);
-      });
-
-      this.process.stderr?.on('data', (data) => {
-        if (dispatch?.signal?.aborted) return;
-        const trimmed = data.toString().trim();
-        if (!trimmed) return;
-        const looksLikeError =
-          /error|fatal|failed|ENOENT|EACCES|ECONNREFUSED|ETIMEDOUT|Exception|not authenticated|sign in/i.test(trimmed);
-        if (looksLikeError) {
-          this.emit('output', {
-            id: generateId(),
-            timestamp: Date.now(),
-            type: 'error',
-            content: trimmed.slice(0, 2000),
-          } as OutputMessage);
-          this.emitErrorIfObserved(new Error(trimmed));
-        } else {
-          logger.debug('agy stderr', textDiagnostic(trimmed));
-        }
-      });
-
-      this.process.on('close', (code) => {
-        if (dispatch?.signal?.aborted) {
-          try { assertAdapterInputCurrent({ signal: dispatch.signal }); } catch (error) { reject(error); }
-          this.process = null;
+      const handleLine = (line: string): void => {
+        const messages = reader.readLine(line);
+        if (messages === null) {
+          logger.debug('Ignoring agy stdout line that is not a stream-json event', textDiagnostic(line));
           return;
         }
-        const duration = Date.now() - startTime;
-        if (code === 0 || this.outputBuffer.trim()) {
-          const response = this.parseOutput(this.outputBuffer);
-          response.usage = { ...response.usage, duration };
-          this.completeResponse(response);
-          if (code === 0 && !turnFailed) this.advisoryMemoryDelivered = true;
-          resolve(response);
-        } else {
-          reject(new Error(`agy exited with code ${code}`));
-        }
-        this.process = null;
+        for (const output of messages) this.emit('output', output);
+      };
+
+      nativeProcess.stdout?.on('data', (data) => {
+        if (settled || dispatch?.signal?.aborted) return;
+        const chunk = data.toString();
+        this.outputBuffer += chunk;
+        for (const line of lines.push(chunk)) handleLine(line);
+        armSilenceLimit();
       });
 
-      const timeout = setTimeout(() => {
-        if (this.process) {
-          turnFailed = true;
-          killProcessGroup(this.process.pid, 'SIGTERM');
-          reject(new Error('Antigravity CLI timeout'));
-        }
-      }, this.config.timeout);
+      // agy repeats its errors on stderr and also writes them into the result
+      // event, so stderr is a diagnostic here. It becomes the failure reason
+      // only when agy exits without a result.
+      nativeProcess.stderr?.on('data', (data) => {
+        if (settled || dispatch?.signal?.aborted) return;
+        armSilenceLimit();
+        const text = data.toString();
+        const trimmed = text.trim();
+        if (trimmed) logger.debug('agy stderr', textDiagnostic(trimmed));
+        stderrTail = (stderrTail + text).slice(-STDERR_TAIL_LIMIT);
+      });
 
-      const nativeProcess = this.process;
+      nativeProcess.on('close', (code) => {
+        if (this.process === nativeProcess) this.process = null;
+        if (dispatch?.signal?.aborted) {
+          try { assertAdapterInputCurrent({ signal: dispatch.signal }); } catch (error) { fail(asError(error)); }
+          return;
+        }
+        if (settled) return;
+        const trailing = lines.flush();
+        if (trailing) handleLine(trailing);
+
+        const result = reader.result;
+        if (result && result.status !== 'SUCCESS') {
+          fail(turnError(result.error?.trim() || `Antigravity ended the turn with status ${result.status}`));
+          return;
+        }
+        // Without a result, only a clean exit or streamed reply text counts.
+        if (!result && code !== 0 && !reader.streamedText().trim()) {
+          fail(turnError(stderrTail.trim() || `agy exited with code ${code}`));
+          return;
+        }
+        if (!result) logger.warn('agy finished without a result event', { code });
+
+        settled = true;
+        clearTimers();
+        const reply = reader.unstreamedReply();
+        if (reply) this.emit('output', reply);
+        const response = this.buildResponse(reader, this.outputBuffer);
+        response.usage = { ...response.usage, duration: Date.now() - startTime };
+        this.completeResponse(response);
+        if (result || code === 0) this.advisoryMemoryDelivered = true;
+        resolve(response);
+      });
+
       const onAbort = (): void => {
-        turnFailed = true;
-        try { assertAdapterInputCurrent({ signal: dispatch?.signal }); } catch (error) { reject(error); }
-        clearTimeout(timeout);
+        try { assertAdapterInputCurrent({ signal: dispatch?.signal }); } catch (error) { fail(asError(error)); }
+        clearTimers();
         killProcessGroup(nativeProcess.pid, 'SIGTERM');
         if (this.process === nativeProcess) this.process = null;
       };
@@ -281,7 +340,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
       dispatch?.signal?.addEventListener('abort', onAbort, { once: true });
       nativeProcess.once('close', detachAbort);
       nativeProcess.once('error', detachAbort);
-      nativeProcess.on('close', () => clearTimeout(timeout));
+      nativeProcess.on('close', clearTimers);
       if (dispatch?.signal?.aborted) onAbort();
     });
   }
@@ -290,7 +349,6 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
     const args = this.buildArgs(message);
     this.process = this.spawnProcess(args);
     let spawnError: Error | null = null;
-    this.process.once('close', (code) => { if (code === 0 && !spawnError) this.advisoryMemoryDelivered = true; });
     this.process.on('error', (err) => {
       spawnError = new Error(`Failed to spawn agy CLI: ${err.message}`);
       this.emitErrorIfObserved(spawnError);
@@ -304,24 +362,55 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
     const stdout = this.process.stdout;
     if (!stdout) return;
 
+    const reader = new AntigravityStreamReader();
+    const lines = new NdjsonLineBuffer();
+    const textOf = (line: string): string => (reader.readLine(line) ?? [])
+      .filter(output => output.type === 'assistant')
+      .map(output => output.content)
+      .join('');
     for await (const chunk of stdout) {
       if (spawnError) return;
-      yield chunk.toString();
+      for (const line of lines.push(chunk.toString())) {
+        const text = textOf(line);
+        if (text) yield text;
+      }
     }
+    const trailing = lines.flush();
+    const tail = trailing ? textOf(trailing) : '';
+    if (tail) yield tail;
+    if (reader.result?.status === 'SUCCESS') this.advisoryMemoryDelivered = true;
   }
 
   parseOutput(raw: string): CliResponse & { thinking?: ThinkingBlock[] } {
-    const id = this.generateResponseId();
-    const extracted = extractThinkingContent(raw.trim());
-    const usage = this.extractUsage(raw);
+    const reader = new AntigravityStreamReader();
+    for (const line of splitCompleteNdjsonLines(raw)) reader.readLine(line);
+    return this.buildResponse(reader, raw);
+  }
+
+  private buildResponse(reader: AntigravityStreamReader, raw: string): CliResponse & { thinking?: ThinkingBlock[] } {
+    const extracted = extractThinkingContent(reader.responseText().trim());
+    const result = reader.result;
+    const usage: CliUsage = result?.usage
+      ? antigravityUsageToCliUsage(result.usage)
+      : { inputTokens: 0, outputTokens: this.estimateTokens(extracted.response), isEstimated: true };
+    if (result && result.deniedActions.length > 0) {
+      // Only happens without --dangerously-skip-permissions (reviews, titles):
+      // agy refuses tools it cannot ask about and may then answer with nothing.
+      logger.warn('agy refused tools it could not ask permission for', { deniedActions: result.deniedActions });
+    }
 
     return {
-      id,
+      id: this.generateResponseId(),
       content: extracted.response,
       role: 'assistant',
       usage,
       raw,
       thinking: extracted.thinking.length > 0 ? extracted.thinking : undefined,
+      metadata: {
+        ...(reader.conversationId ? { conversationId: reader.conversationId } : {}),
+        ...(reader.contextTokens !== null ? { contextTokens: reader.contextTokens } : {}),
+        ...(result && result.deniedActions.length > 0 ? { deniedActions: result.deniedActions } : {}),
+      },
     };
   }
 
@@ -331,7 +420,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
     // Forward the selected model iff agy currently lists it. agy's `--model`
     // takes the display label from `agy models` (e.g. "Gemini 3.8 Flash
     // (Medium)"), and since agy 1.4 an unknown value fails the turn outright
-    // (exit 1, "not recognized as a known model"). Resolved here, at the spawn
+    // ("not recognized as a known model"). Resolved here, at the spawn
     // boundary, because wake/restart/resume rebuild the config from the
     // persisted model: a label on the known list is kept as-is, a retired label
     // maps to its successor, and anything else agy does not list (a legacy
@@ -372,6 +461,10 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
       args.push('--dangerously-skip-permissions');
     }
 
+    // One JSON event per step (tool calls, reply text, token usage), so the
+    // transcript shows progress and a long turn is not mistaken for a stuck one.
+    args.push('--output-format', 'stream-json');
+
     // `--print <prompt>` must come last: the prompt is consumed as its value.
     // T48: agy print mode has no resume, so RTK awareness is wrapped every turn.
     const systemPrompt = (this.advisoryMemoryDelivered
@@ -396,12 +489,6 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
       return;
     }
     logger.warn('Antigravity CLI error without listener', errorDiagnostic(error));
-  }
-
-  /** agy reports no token usage; estimate from the response content. */
-  private extractUsage(raw: string): CliUsage {
-    const outputTokens = this.estimateTokens(raw);
-    return { inputTokens: 0, outputTokens, totalTokens: outputTokens };
   }
 
   // ============ InstanceManager Compatibility API ============
@@ -445,13 +532,15 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
       if (response.usage) {
         const inputTokens = response.usage.inputTokens || 0;
         const outputTokens = response.usage.outputTokens || 0;
-        const turnTokens = inputTokens || outputTokens
-          ? inputTokens + outputTokens
-          : (response.usage.totalTokens || 0);
+        const cacheReadTokens = response.usage.cacheReadTokens || 0;
+        const turnTokens = response.usage.totalTokens || inputTokens + cacheReadTokens + outputTokens;
         this.cumulativeTokensUsed += turnTokens;
-        this.cumulativeCostUsd += computeTokenCost(this.cliConfig.model, { inputTokens, outputTokens });
+        this.cumulativeCostUsd += computeTokenCost(this.cliConfig.model, { inputTokens, outputTokens, cacheReadTokens });
         const contextWindow = this.getCapabilities().contextWindow;
-        const used = Math.min(turnTokens, contextWindow);
+        // A turn makes many model calls; the context in use is the last one's,
+        // not the turn's total.
+        const contextTokens = response.metadata?.['contextTokens'];
+        const used = Math.min(typeof contextTokens === 'number' ? contextTokens : turnTokens, contextWindow);
         const contextUsage: ContextUsage = {
           used,
           total: contextWindow,

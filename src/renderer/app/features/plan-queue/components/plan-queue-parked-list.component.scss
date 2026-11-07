@@ -54,8 +54,27 @@
 
 .pq-sort-out-projects {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pq-sort-out-project {
+  display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.pq-sort-out-name {
+  min-width: 16ch;
+}
+
+.pq-sort-out-state {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
 }
 
 .pq-parked-section {

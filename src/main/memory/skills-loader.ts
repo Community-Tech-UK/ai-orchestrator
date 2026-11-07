@@ -352,10 +352,9 @@ export class SkillsLoader extends EventEmitter {
       });
     }
 
-    // 2. Add at most the single best semantic match. A skill can add thousands
-    // of tokens, and taking only the top match at the model's measured floor
-    // injected no wrong skill across 68 test prompts. Accepting every skill over
-    // the floor would pull in near misses.
+    // 2. Add at most the single best semantic match, and only above the model's
+    // measured floor. A skill can add thousands of tokens, and accepting every
+    // skill over the floor would pull in near misses.
     try {
       const messageResult = await this.embeddingService.embed(userMessage, 'query');
       const floor = this.config.similarityThreshold

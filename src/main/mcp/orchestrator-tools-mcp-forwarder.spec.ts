@@ -15,6 +15,7 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'run_on_node',
       'exec_on_node',
       'reset_node_connection',
+      'issue_remote_node_pairing',
       'list_host_processes',
       'stop_leftover_processes',
       'read_session',
@@ -519,6 +520,18 @@ describe('createOrchestratorToolsForwarderTools', () => {
 
     expect(call).toHaveBeenCalledWith('orchestrator_tools.reset_node_connection', { node: 'windows-pc' });
     expect(result).toEqual({ nodeId: 'node-1', nodeName: 'windows-pc', reset: true });
+    await expect(tool!.handler([] as unknown as Record<string, unknown>)).rejects.toThrow('must be an object');
+  });
+
+  it('forwards issue_remote_node_pairing invocations with the canonical method name', async () => {
+    const call = vi.fn(async () => ({ command: 'aio-worker pair "<link>"' }));
+    const tool = createOrchestratorToolsForwarderTools(stubClient(call)).find(
+      (t) => t.name === 'issue_remote_node_pairing',
+    );
+
+    await tool!.handler({ label: 'ct-test-mac' });
+
+    expect(call).toHaveBeenCalledWith('orchestrator_tools.issue_remote_node_pairing', { label: 'ct-test-mac' });
     await expect(tool!.handler([] as unknown as Record<string, unknown>)).rejects.toThrow('must be an object');
   });
 

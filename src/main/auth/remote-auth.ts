@@ -6,6 +6,7 @@ import { getNodeIdentityStore } from '../remote-node/node-identity-store';
 import type {
   NodeIdentity,
   NodePlatform,
+  PairingCredentialIssuer,
   RemotePairingCredentialInfo,
 } from '../../shared/types/worker-node.types';
 
@@ -77,6 +78,7 @@ export class RemoteAuthService {
     ttlMs?: number;
     purpose?: PairingPurpose;
     allowedNodeId?: string;
+    issuedBy?: PairingCredentialIssuer;
   } = {}): RemotePairingCredential {
     const createdAt = Date.now();
     const record: RemotePairingCredentialRecord = {
@@ -86,8 +88,16 @@ export class RemoteAuthService {
       purpose: options.purpose ?? 'pairing',
       ...(options.label ? { label: options.label } : {}),
       ...(options.allowedNodeId ? { allowedNodeId: options.allowedNodeId } : {}),
+      ...(options.issuedBy ? { issuedBy: options.issuedBy } : {}),
     };
     this.pendingPairings.set(record.token, record);
+    // Audit trail; never log the token.
+    logger.info('Issued remote node pairing credential', {
+      purpose: record.purpose,
+      label: record.label ?? null,
+      issuedBy: record.issuedBy ?? null,
+      expiresAt: new Date(record.expiresAt).toISOString(),
+    });
     return this.toPairingInfo(record);
   }
 
@@ -397,6 +407,7 @@ export class RemoteAuthService {
       createdAt: record.createdAt,
       expiresAt: record.expiresAt,
       ...(record.label ? { label: record.label } : {}),
+      ...(record.issuedBy ? { issuedBy: record.issuedBy } : {}),
     };
   }
 }

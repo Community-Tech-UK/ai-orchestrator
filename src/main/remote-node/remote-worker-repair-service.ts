@@ -2,6 +2,7 @@ import { getRemoteAuthService } from '../auth/remote-auth';
 import {
   getLocalIpv4Addresses,
   getTailscaleIpv4Address,
+  getTailscaleIpv6Address,
   getTailscaleMagicDnsName,
 } from '../util/network-addresses';
 import { buildCoordinatorUrls } from './coordinator-advertised-urls';
@@ -42,6 +43,7 @@ interface RemoteWorkerRepairServiceDeps {
   getConfig?: () => RemoteNodeConfig;
   getLocalIpv4Addresses?: () => string[];
   getTailscaleIpv4Address?: () => string | null;
+  getTailscaleIpv6Address?: () => string | null;
   getTailscaleMagicDnsName?: () => string | null;
 }
 
@@ -53,6 +55,7 @@ export class RemoteWorkerRepairService {
   private readonly readConfig: () => RemoteNodeConfig;
   private readonly readLocalIps: () => string[];
   private readonly readTailscaleIp: () => string | null;
+  private readonly readTailscaleIpv6: () => string | null;
   private readonly readTailscaleDnsName: () => string | null;
 
   constructor(deps: RemoteWorkerRepairServiceDeps = {}) {
@@ -63,6 +66,7 @@ export class RemoteWorkerRepairService {
     this.readConfig = deps.getConfig ?? getRemoteNodeConfig;
     this.readLocalIps = deps.getLocalIpv4Addresses ?? getLocalIpv4Addresses;
     this.readTailscaleIp = deps.getTailscaleIpv4Address ?? getTailscaleIpv4Address;
+    this.readTailscaleIpv6 = deps.getTailscaleIpv6Address ?? getTailscaleIpv6Address;
     this.readTailscaleDnsName = deps.getTailscaleMagicDnsName ?? getTailscaleMagicDnsName;
   }
 
@@ -92,6 +96,7 @@ export class RemoteWorkerRepairService {
       hasCoordinatorRecoveryToken: Boolean(identity?.recoveryToken),
       recommendedAction,
       availableActions: live ? ['check_service_status'] : [],
+      ...(live?.capabilities.hostReadiness ? { hostReadiness: live.capabilities.hostReadiness } : {}),
       summary: this.buildSummary({ identity, live, rejection, status, trustedPlatform, recommendedAction }),
     };
   }
@@ -247,6 +252,7 @@ export class RemoteWorkerRepairService {
     return buildCoordinatorUrls(config, {
       tailscaleDnsName: this.readTailscaleDnsName(),
       tailscaleIp: this.readTailscaleIp(),
+      tailscaleIpv6: this.readTailscaleIpv6(),
       localIps: this.readLocalIps(),
     });
   }

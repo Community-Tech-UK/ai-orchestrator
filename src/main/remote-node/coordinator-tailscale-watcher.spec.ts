@@ -92,6 +92,19 @@ describe('CoordinatorTailscaleWatcher', () => {
     expect(watcher.getDisconnectedNodeHint('node-2')).toBeUndefined();
   });
 
+  it('also recognises Tailscale IPv6 peers, bare or IPv4-mapped IPv4 ones', async () => {
+    const { watcher } = makeWatcher([{ state: 'stopped' }], [
+      { id: 'node-1', name: 'ipv6-box' },
+      { id: 'node-2', name: 'lan-box' },
+    ]);
+    watcher.noteNodeConnected({ id: 'node-1', name: 'ipv6-box', address: 'fd7a:115c:a1e0::1234' });
+    watcher.noteNodeConnected({ id: 'node-2', name: 'lan-box', address: '::ffff:192.168.0.40' });
+    await watcher.checkNow();
+
+    expect(watcher.getDisconnectedNodeHint('node-1')).toMatch(/This worker connects over Tailscale/);
+    expect(watcher.getDisconnectedNodeHint('node-2')).toBeUndefined();
+  });
+
   it('shares one in-flight probe between overlapping checks', async () => {
     const { watcher, probe } = makeWatcher([{ state: 'running' }]);
     await Promise.all([watcher.checkNow(), watcher.checkNow()]);

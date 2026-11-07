@@ -55,7 +55,7 @@ import {
 } from './plan-queue-instance-tracker';
 import type { PlanQueueFlowHost, PlanQueueInstancePort, PlanQueueRoleRecord, PlanQueueSessionTreePort } from './plan-queue-host';
 import { PlanQueueItemFlow } from './plan-queue-item-flow';
-import { PlanQueueSetAsideAgents } from './plan-queue-set-aside';
+import { PlanQueueSetAsideAgents, type PlanQueueSetAsideDeps } from './plan-queue-set-aside';
 import { hasPendingLandingCleanup } from './plan-queue-item-landing';
 import { spawnQueueInstance } from './plan-queue-spawn';
 import { PlanQueueRunControl } from './plan-queue-run-control';
@@ -78,7 +78,7 @@ import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 const logger = getLogger('PlanQueueCoordinator');
 const DEFAULT_PUMP_INTERVAL_MS = 30_000;
 export type PlanQueueInstanceManagerPort = PlanQueueInstancePort & PlanQueueSessionTreePort & Pick<PlanQueueInstanceEventSource, 'on'>;
-export interface PlanQueueCoordinatorDeps {
+export interface PlanQueueCoordinatorDeps extends Pick<PlanQueueSetAsideDeps, 'harnessSource'> {
   store: PlanQueueStore;
   instances: PlanQueueInstanceManagerPort;
   worktreeCreator: PlanQueueWorktreeCreator;
@@ -205,7 +205,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     this.whenOrchestratorToolsListening = deps.whenOrchestratorToolsListening ?? (() => Promise.resolve());
     this.setAside = new PlanQueueSetAsideAgents({
       store: deps.store, instances: deps.instances, getRun: (id) => this.getRun(id), getItem: (id) => this.getItem(id), now: deps.now ?? Date.now,
-      discard: (id, actor) => this.requireFlow().discard(id, actor), quietly: (work) => this.quietly(work),
+      discard: (id, actor) => this.requireFlow().discard(id, actor), quietly: (work) => this.quietly(work), harnessSource: deps.harnessSource,
     });
     this.parentMessenger = new PlanQueueParentMessenger({
       instances: this.instances, isQueueInstance: (id) => this.isQueueInstance(id),
@@ -594,7 +594,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (payload.action === 'resume-item' || payload.action === 'retry-landing') this.refuseIfNewerAttemptLanded(item);
     // Resuming a job reopens its finished run: the same checks as resuming a run (step 5.3). A merge needs no new folder or install.
     if (payload.action === 'resume-item' && (run.status === 'completed' || run.status === 'cancelled')) await preflightResumedRun(run, input => this.selectVerifier(input));
-    this.setAside?.spendRestart(callerInstanceId, payload.action, item);
+    this.setAside?.checkRestart(callerInstanceId, payload.action, item);
     switch (payload.action) {
       case 'skip-item':
         if (this.answering.has(item.id)) throw new Error('This document is applying an answer. Wait for it to finish before skipping.');
@@ -609,7 +609,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         // Landing can send the item back to a worker (a conflict or a failed
         // gate), which only the scheduler of an open run picks up.
         this.reopen(run);
-        await flow.landAnyway(item.id);
+        await flow.landAnyway(item.id, actor);
         break;
       case 'discard-item':
         await flow.discard(item.id, actor);

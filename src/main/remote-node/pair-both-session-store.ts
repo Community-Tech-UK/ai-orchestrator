@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { RemotePairingCredential } from '../auth/remote-auth';
+import { getLogger } from '../logging/logger';
+import { capForLog } from './pair-both-rendezvous-helpers';
 import {
   buildPairBothTranscript,
   createPairBothNonce,
@@ -19,6 +21,8 @@ import type {
   PairBothPayloadResult,
   PairBothSessionState,
 } from '../../shared/types/pair-both.types';
+
+const logger = getLogger('PairBoth');
 
 const DEFAULT_PAIR_BOTH_TTL_MS = 5 * 60_000;
 /**
@@ -42,6 +46,7 @@ interface PairBothAuthPort {
 interface PairBothSessionRecord extends PairBothSessionState {
   keyMaterial: PairBothKeyMaterial;
   pairingCredentialToken?: string;
+  coordinatorUrls?: string[];
 }
 
 interface FailedAttemptState {
@@ -59,6 +64,8 @@ export interface BeginPairBothCoordinatorSessionInput {
   namespace: string;
   listenerPort: number;
   coordinatorUrl: string;
+  /** Other addresses the worker may try after `coordinatorUrl`; sent in the payload. */
+  coordinatorUrls?: string[];
   ttlMs?: number;
 }
 
@@ -92,6 +99,7 @@ export class PairBothSessionStore {
       namespace: input.namespace,
       listenerPort: input.listenerPort,
       coordinatorUrl: input.coordinatorUrl,
+      ...(input.coordinatorUrls?.length ? { coordinatorUrls: input.coordinatorUrls } : {}),
       expiresAt: this.now() + Math.max(1_000, input.ttlMs ?? DEFAULT_PAIR_BOTH_TTL_MS),
       coordinatorHello,
       workerConfirmed: false,
@@ -243,6 +251,7 @@ export class PairBothSessionStore {
       name: record.workerHello.machineName,
       authToken: record.pairingCredentialToken,
       coordinatorUrl: record.coordinatorUrl,
+      ...(record.coordinatorUrls?.length ? { coordinatorUrls: record.coordinatorUrls } : {}),
       namespace: record.namespace,
       maxConcurrentInstances: DEFAULT_MAX_CONCURRENT_INSTANCES,
       workingDirectories: [],
@@ -292,9 +301,7 @@ export class PairBothSessionStore {
     ) {
       return this.toState(record);
     }
-    this.revokeUnusedPairingCredential(record);
-    record.status = 'expired';
-    record.error = 'Pairing session expired';
+    this.markExpired(record);
     return this.toState(record);
   }
 
@@ -331,9 +338,7 @@ export class PairBothSessionStore {
   private requireActive(sessionId: string): PairBothSessionRecord {
     const record = this.requireSession(sessionId);
     if (record.expiresAt <= this.now()) {
-      this.revokeUnusedPairingCredential(record);
-      record.status = 'expired';
-      record.error = 'Pairing session expired';
+      this.markExpired(record);
       throw new Error('Pairing session expired');
     }
     if (record.status === 'cancelled') {
@@ -362,6 +367,24 @@ export class PairBothSessionStore {
     record.pairingCredentialToken = undefined;
   }
 
+  /** Ends a session whose time ran out. Logs only the first time, since later reads see it expired already. */
+  private markExpired(record: PairBothSessionRecord): void {
+    const previousStatus = record.status;
+    this.revokeUnusedPairingCredential(record);
+    record.status = 'expired';
+    record.error = 'Pairing session expired';
+    if (previousStatus !== 'expired' && previousStatus !== 'rejected' && previousStatus !== 'cancelled') {
+      logger.info('Pair-both session expired', {
+        sessionId: record.sessionId,
+        previousStatus,
+        status: record.status,
+        expiresAt: new Date(record.expiresAt).toISOString(),
+        namespace: record.namespace,
+        machineName: capForLog(record.machineName),
+      });
+    }
+  }
+
   private requireSession(sessionId: string): PairBothSessionRecord {
     const record = this.sessions.get(sessionId);
     if (!record) {
@@ -374,9 +397,7 @@ export class PairBothSessionStore {
     const now = this.now();
     for (const record of this.sessions.values()) {
       if (record.expiresAt <= now && record.status !== 'completed') {
-        this.revokeUnusedPairingCredential(record);
-        record.status = 'expired';
-        record.error = 'Pairing session expired';
+        this.markExpired(record);
       }
     }
   }
@@ -404,28 +425,36 @@ export class PairBothSessionStore {
     sessionId: string | undefined,
   ): void {
     if (remoteAddress) {
-      this.incrementFailedAttempts(this.failedAttemptsByRemote, remoteAddress);
+      this.incrementFailedAttempts(this.failedAttemptsByRemote, remoteAddress, 'remote address', remoteAddress);
     }
     if (sessionId) {
-      this.incrementFailedAttempts(this.failedAttemptsBySession, sessionId);
+      this.incrementFailedAttempts(this.failedAttemptsBySession, sessionId, 'session', remoteAddress, sessionId);
     }
   }
 
   private incrementFailedAttempts(
     attempts: Map<string, FailedAttemptState>,
     key: string,
+    lockedBy: 'remote address' | 'session',
+    remoteAddress?: string,
+    sessionId?: string,
   ): void {
     const current = attempts.get(key);
     const windowStartedAt = current && this.now() - current.windowStartedAt < FAILED_ATTEMPT_WINDOW_MS
       ? current.windowStartedAt
       : this.now();
-    attempts.set(
-      key,
-      {
-        count: windowStartedAt === current?.windowStartedAt ? current.count + 1 : 1,
-        windowStartedAt,
-      },
-    );
+    const count = windowStartedAt === current?.windowStartedAt ? current.count + 1 : 1;
+    attempts.set(key, { count, windowStartedAt });
+    // Once per lockout, not once per blocked attempt, so a flood cannot flood the log.
+    if (count === MAX_FAILED_ATTEMPTS_PER_REMOTE) {
+      logger.warn('Pair-both rate limit reached; further attempts are refused for a minute', {
+        lockedBy,
+        ...(remoteAddress ? { remoteAddress: capForLog(remoteAddress) } : {}),
+        ...(sessionId ? { sessionId } : {}),
+        failedAttempts: count,
+        windowMs: FAILED_ATTEMPT_WINDOW_MS,
+      });
+    }
   }
 
   private currentFailedAttempts(

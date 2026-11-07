@@ -3,8 +3,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  assertWorkerConfigHasCoordinator,
   getConfiguredCoordinatorUrl,
+  readConfiguredCoordinatorUrl,
   loadWorkerConfig,
 } from '../worker-config';
 
@@ -481,35 +481,25 @@ describe('loadWorkerConfig', () => {
     expect(persisted).not.toContain('fragment');
   });
 
-  it('reports a clear startup error when no coordinator URL can be derived', () => {
-    expect(() => assertWorkerConfigHasCoordinator({
-      nodeId: 'node-1',
-      name: 'worker',
-      authToken: 'pair-token',
-      namespace: 'default',
-      maxConcurrentInstances: 10,
-      workingDirectories: [],
-      reconnectIntervalMs: 5000,
-      heartbeatIntervalMs: 10000,
-    })).toThrow(
-      'Worker config is missing coordinatorUrl. Paste the full Connection Config or run:\n  aio-worker pair <pairing-link>',
-    );
+  it('reads the coordinator from the file without rewriting it', () => {
+    const configPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'aio-read-coord-')), 'worker-node.json');
+    const raw = JSON.stringify({ nodeId: 'node-1', host: 'fd7a:115c:a1e0::1', port: 4878 });
+    fs.writeFileSync(configPath, raw);
+
+    expect(readConfiguredCoordinatorUrl(configPath)).toBe('ws://[fd7a:115c:a1e0::1]:4878');
+    fs.writeFileSync(configPath, JSON.stringify({ nodeId: 'node-1', coordinatorUrl: 'ws://192.168.0.95:4878' }));
+    expect(readConfiguredCoordinatorUrl(configPath)).toBe('ws://192.168.0.95:4878');
+    fs.writeFileSync(configPath, JSON.stringify({ nodeId: 'node-1' }));
+    expect(readConfiguredCoordinatorUrl(configPath)).toBeUndefined();
+    expect(fs.readFileSync(configPath, 'utf-8')).toBe(JSON.stringify({ nodeId: 'node-1' }));
   });
 
-  it('reports the same startup error for unsupported coordinator URL protocols', () => {
-    expect(() => assertWorkerConfigHasCoordinator({
-      nodeId: 'node-1',
-      name: 'worker',
-      authToken: 'pair-token',
-      coordinatorUrl: 'https://coordinator.example.test:4878',
-      namespace: 'default',
-      maxConcurrentInstances: 10,
-      workingDirectories: [],
-      reconnectIntervalMs: 5000,
-      heartbeatIntervalMs: 10000,
-    })).toThrow(
-      'Worker config is missing coordinatorUrl. Paste the full Connection Config or run:\n  aio-worker pair <pairing-link>',
-    );
+  it('finds no coordinator when none is configured, so the worker waits to be paired', () => {
+    expect(getConfiguredCoordinatorUrl({})).toBeUndefined();
+  });
+
+  it('ignores a coordinator URL with an unsupported protocol', () => {
+    expect(getConfiguredCoordinatorUrl({ coordinatorUrl: 'https://coordinator.example.test:4878' })).toBeUndefined();
   });
 
   it('uses the first fallback coordinator URL when no primary is configured', () => {
@@ -525,7 +515,6 @@ describe('loadWorkerConfig', () => {
       heartbeatIntervalMs: 10000,
     };
 
-    expect(() => assertWorkerConfigHasCoordinator(config)).not.toThrow();
     expect(getConfiguredCoordinatorUrl(config)).toBe('ws://fallback:4878');
   });
 });

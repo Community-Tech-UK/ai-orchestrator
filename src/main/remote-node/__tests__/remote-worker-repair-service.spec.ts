@@ -3,7 +3,7 @@ import { WorkerNodeRegistry } from '../worker-node-registry';
 import { NodeIdentityStore } from '../node-identity-store';
 import { RemoteWorkerRepairTracker } from '../remote-worker-repair-tracker';
 import { RemoteWorkerRepairService } from '../remote-worker-repair-service';
-import type { NodeIdentity, WorkerNodeInfo } from '../../../shared/types/worker-node.types';
+import type { NodeIdentity, WorkerNodeHostReadiness, WorkerNodeInfo } from '../../../shared/types/worker-node.types';
 
 vi.mock('../../logging/logger', () => ({
   getLogger: () => ({
@@ -100,6 +100,7 @@ describe('RemoteWorkerRepairService', () => {
       }),
       getLocalIpv4Addresses: () => ['192.168.1.20'],
       getTailscaleIpv4Address: () => '100.101.102.103',
+      getTailscaleIpv6Address: () => null,
       getTailscaleMagicDnsName: () => 'studio.tailnet.ts.net',
     });
   }
@@ -125,6 +126,20 @@ describe('RemoteWorkerRepairService', () => {
       recommendedAction: 'none',
       availableActions: ['check_service_status'],
     }));
+  });
+
+  it('includes the node\'s latest host readiness in the diagnostic', () => {
+    store.set(identity({ platform: 'darwin', platformSeenAt: now - 6_000 }));
+    const hostReadiness: WorkerNodeHostReadiness = {
+  checks: [{ id: 'sleep_on_power', status: 'problem', summary: 'This Mac sleeps after 1 minute on power, so jobs stop.', fix: 'sudo pmset -c sleep 0', needsAdmin: true }],
+  checkedAt: 1_700_000_000_000,
+};
+    const node = liveNode();
+    registry.registerNode({ ...node, capabilities: { ...node.capabilities, platform: 'darwin', hostReadiness } });
+
+    expect(service().diagnose('node-1').hostReadiness).toEqual(hostReadiness);
+    registry.deregisterNode('node-1');
+    expect(service().diagnose('node-1')).not.toHaveProperty('hostReadiness');
   });
 
   it('keeps connected nodes on the healthy path when a duplicate registration is rejected', () => {
@@ -358,6 +373,7 @@ describe('RemoteWorkerRepairService', () => {
       }),
       getLocalIpv4Addresses: () => [],
       getTailscaleIpv4Address: () => null,
+      getTailscaleIpv6Address: () => null,
       getTailscaleMagicDnsName: () => null,
     });
 
@@ -395,6 +411,7 @@ describe('RemoteWorkerRepairService', () => {
       }),
       getLocalIpv4Addresses: () => ['192.168.1.20'],
       getTailscaleIpv4Address: () => null,
+      getTailscaleIpv6Address: () => null,
       getTailscaleMagicDnsName: () => null,
     });
 
@@ -435,6 +452,7 @@ describe('RemoteWorkerRepairService', () => {
       }),
       getLocalIpv4Addresses: () => ['192.168.1.20'],
       getTailscaleIpv4Address: () => '100.101.102.103',
+      getTailscaleIpv6Address: () => null,
       getTailscaleMagicDnsName: () => 'studio.tailnet.ts.net',
     });
 

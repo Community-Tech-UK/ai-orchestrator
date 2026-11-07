@@ -127,6 +127,9 @@ function buildEntry(
     ...(live?.capabilities.androidAutomation
       ? { androidAutomation: live.capabilities.androidAutomation }
       : {}),
+    ...(live?.capabilities.iosAutomation ? { iosAutomation: live.capabilities.iosAutomation } : {}),
+    ...(live?.capabilities.hostReadiness ? { hostReadiness: live.capabilities.hostReadiness } : {}),
+    ...(live?.capabilities.connectionNotice ? { connectionNotice: live.capabilities.connectionNotice } : {}),
     ...(live?.capabilities.fileTransfer ? { fileTransfer: live.capabilities.fileTransfer } : {}),
     ...(live?.capabilities.gpuName ? { gpuName: live.capabilities.gpuName } : {}),
     ...(live?.capabilities.gpuMemoryMB ? { gpuMemoryMB: live.capabilities.gpuMemoryMB } : {}),

@@ -1,12 +1,23 @@
 import { servicePaths } from '../../../../shared/service/worker-service-paths';
 import type { ServiceStatus } from '../../../../shared/types/service.types';
 import type {
+  HostReadinessCheck,
   NodePlatform,
   RemoteWorkerRepairDiagnostic,
 } from '../../../../shared/types/worker-node.types';
 
+/** Connection trouble: the node is not healthy, or it was turned away recently. */
+export function hasConnectionIssue(diagnostic: RemoteWorkerRepairDiagnostic): boolean {
+  return diagnostic.status !== 'healthy' || Boolean(diagnostic.lastRejectedRegistration);
+}
+
+/** Host checks the computer reported as problems, in the order it reported them. */
+export function hostReadinessProblems(diagnostic: RemoteWorkerRepairDiagnostic | undefined): HostReadinessCheck[] {
+  return diagnostic?.hostReadiness?.checks.filter((check) => check.status === 'problem') ?? [];
+}
+
 export function shouldShowRepairDiagnostic(diagnostic: RemoteWorkerRepairDiagnostic | undefined): boolean {
-  return Boolean(diagnostic && (diagnostic.status !== 'healthy' || diagnostic.lastRejectedRegistration));
+  return Boolean(diagnostic && (hasConnectionIssue(diagnostic) || hostReadinessProblems(diagnostic).length > 0));
 }
 
 export function repairActionLabel(action: RemoteWorkerRepairDiagnostic['recommendedAction']): string {

@@ -2,9 +2,11 @@ import { getLogger } from '../logging/logger';
 import {
   getTailscaleIpv4Address,
   isTailscaleIpv4Address,
+  isTailscaleIpv6Address,
   readTailscaleSelfStatus,
   type TailscaleSelfStatus,
 } from '../util/network-addresses';
+import { stripIpv4MappedPrefix } from '../../shared/remote-node/host-address';
 
 const logger = getLogger('CoordinatorTailscaleWatcher');
 
@@ -95,8 +97,8 @@ export class CoordinatorTailscaleWatcher {
   /** Record which route a node used; only Tailscale-sourced nodes are named in warnings. */
   noteNodeConnected(node: { id: string; name: string; address?: string }): void {
     // A dual-stack listener reports IPv4 peers as IPv4-mapped IPv6.
-    const address = node.address?.trim().replace(/^::ffff:/i, '');
-    if (address && isTailscaleIpv4Address(address)) {
+    const address = node.address ? stripIpv4MappedPrefix(node.address) : undefined;
+    if (address && (isTailscaleIpv4Address(address) || isTailscaleIpv6Address(address))) {
       this.tailscaleNodes.set(node.id, node.name);
     } else if (address) {
       this.tailscaleNodes.delete(node.id);

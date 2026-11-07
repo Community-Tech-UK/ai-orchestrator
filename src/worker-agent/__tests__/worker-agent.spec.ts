@@ -34,6 +34,7 @@ const workerConfigMockState = vi.hoisted(() => ({
 
 const networkReadinessMockState = vi.hoisted(() => ({
   firstReachableCoordinatorCandidate: vi.fn(),
+  probeCoordinatorCandidate: vi.fn(),
 }));
 
 const extensionRegistrationMockState = vi.hoisted(() => ({
@@ -114,12 +115,15 @@ vi.mock('../worker-config', () => ({
     typeof url === 'string' && /^wss?:\/\//.test(url.trim()) ? url.trim() : undefined,
 }));
 
+vi.mock('../router-reachability', () => ({ isRouterUnreachable: vi.fn(async () => true) }));
+
 vi.mock('../coordinator-network-readiness', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../coordinator-network-readiness')>();
   return {
     ...actual,
     firstReachableCoordinatorCandidate:
       networkReadinessMockState.firstReachableCoordinatorCandidate,
+    probeCoordinatorCandidate: networkReadinessMockState.probeCoordinatorCandidate,
   };
 });
 
@@ -436,6 +440,7 @@ describe('WorkerAgent', () => {
         lastRegistrationCheckAt: 1234,
       }),
       undefined,
+      expect.objectContaining({ localNetwork: 'unknown' }),
     );
   });
 
@@ -488,6 +493,7 @@ describe('WorkerAgent', () => {
           }),
         ]),
       }),
+      expect.objectContaining({ localNetwork: 'unknown' }),
     );
   });
 
@@ -650,6 +656,36 @@ describe('WorkerAgent', () => {
     await connect;
 
     expect(wsMockState.instances).toHaveLength(0);
+  });
+
+  it('names the macOS Local Network setting when the home-network address is blocked', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
+    try {
+      const config: WorkerConfig = { ...mockConfig, coordinatorUrl: 'ws://192.168.0.95:4878' };
+      networkReadinessMockState.probeCoordinatorCandidate.mockImplementation(
+        async (url: string, _signal: unknown, _timeout: unknown, observer?: { failed?: (u: string, e: Error) => void }) => {
+          observer?.failed?.(url, Object.assign(new Error('connect EHOSTUNREACH'), { code: 'EHOSTUNREACH' }));
+          return false;
+        },
+      );
+      networkReadinessMockState.firstReachableCoordinatorCandidate.mockImplementationOnce(
+        async (candidates: string[], probe: (url: string, signal: AbortSignal) => Promise<boolean>) => {
+          for (const url of candidates) await probe(url, new AbortController().signal);
+          return null;
+        },
+      );
+      const status = { set: vi.fn(), heartbeat: vi.fn(() => false), noteContact: vi.fn() };
+      agent = new WorkerAgent(config, undefined, status);
+
+      await agent.connect();
+
+      expect(status.set).toHaveBeenCalledWith('unreachable', expect.objectContaining({
+        message: expect.stringContaining('System Settings > Privacy & Security > Local Network'),
+      }));
+    } finally {
+      if (platform) Object.defineProperty(process, 'platform', platform);
+    }
   });
 
   it('re-probes remaining routes after a TCP-ready endpoint rejects WebSocket', async () => {

@@ -2,7 +2,7 @@ import { WebSocket } from 'ws';
 import { EventEmitter } from 'events';
 import * as os from 'os';
 import * as path from 'path';
-import { reportCapabilities } from './capability-reporter';
+import { reportCapabilities, type ReportCapabilitiesExtras } from './capability-reporter';
 import { DiscoveryClient } from './discovery-client';
 import { LocalInstanceManager } from './local-instance-manager';
 import { LocalModelSessionManager } from './local-model-session-manager';
@@ -63,7 +63,10 @@ import type { DiscoveredCoordinator } from './discovery-client';
 import {
   buildCoordinatorCandidates,
   firstReachableCoordinatorCandidate,
+  probeCoordinatorCandidate,
+  COORDINATOR_PROBE_TIMEOUT_MS,
 } from './coordinator-network-readiness';
+import { LocalNetworkEvidence } from './local-network-evidence';
 
 export { buildCoordinatorCandidates } from './coordinator-network-readiness';
 
@@ -113,6 +116,8 @@ export class WorkerAgent extends EventEmitter {
   private lastExtensionRelayRegistrationCheckAt: number | null = null;
   private readonly legacyNativeHostWarnedFailures = new Set<string>();
   private activeCoordinatorUrl: string | null = null;
+  /** Whether macOS Local Network privacy is blocking the home-network route. */
+  private readonly localNetwork = new LocalNetworkEvidence();
   private retryRegistrationWithRecovery = false;
   /** EnrollmentResult.sleepsIdleSessionsOnWorkerRestart from the coordinator that accepted us. */
   private coordinatorSleepsIdleSessions = false;
@@ -227,6 +232,7 @@ export class WorkerAgent extends EventEmitter {
         await this.androidManager.getSummary(),
         this.extensionRelay.getSummary(),
         this.fileTransferSummary(),
+        this.capabilityExtras(),
       );
       this.rebuildFilesystemHandler();
       this.startContinuousDiscovery();
@@ -254,11 +260,22 @@ export class WorkerAgent extends EventEmitter {
       // must not add its full socket timeout to every startup retry.
       let remainingCandidates = candidates;
       while (remainingCandidates.length > 0) {
-        const readyCandidate = await firstReachableCoordinatorCandidate(remainingCandidates);
+        const readyCandidate = await firstReachableCoordinatorCandidate(
+          remainingCandidates,
+          (url, signal) => probeCoordinatorCandidate(url, signal, COORDINATOR_PROBE_TIMEOUT_MS, {
+            failed: (failedUrl, error) => this.localNetwork.noteFailure(failedUrl, error),
+            reached: (reachedUrl, address) => this.localNetwork.noteReachable(reachedUrl, address),
+          }),
+        );
         if (!readyCandidate) {
-          console.log('Coordinator network not ready; deferring WebSocket connection');
+          await this.localNetwork.settle();
+          const notice = this.localNetwork.notice();
+          console.log(`Coordinator network not ready; deferring WebSocket connection${notice ? `. ${notice}` : ''}`);
           break;
         }
+        // Connected another way (say Tailscale) while a home-network address
+        // failed: settle it in the background; the next heartbeat carries it.
+        void this.localNetwork.settle();
         if (await this.tryConnect(readyCandidate, token)) {
           return;
         }
@@ -268,7 +285,10 @@ export class WorkerAgent extends EventEmitter {
 
       // Every known address failed — re-probe mDNS in case the host moved and
       // is advertising a fresh address, then retry on the usual backoff.
-      this.connectionStatus?.set('unreachable', { coordinatorUrl: candidates[0], message: noAnswerMessage(candidates) });
+      this.connectionStatus?.set('unreachable', {
+        coordinatorUrl: candidates[0],
+        message: this.localNetwork.notice() ?? noAnswerMessage(candidates),
+      });
       const rediscovered = await new DiscoveryClient().discover(
         this.config.namespace,
         REDISCOVERY_TIMEOUT_MS
@@ -280,6 +300,15 @@ export class WorkerAgent extends EventEmitter {
     } finally {
       this.connecting = false;
     }
+  }
+
+  /** What the worker knows about its own connection, for the capability report. */
+  private capabilityExtras(): ReportCapabilitiesExtras {
+    return {
+      connectionNotice: this.localNetwork.notice(),
+      localNetwork: this.localNetwork.current,
+      configDir: path.dirname(this.configPath),
+    };
   }
 
   private getCandidateUrls(): string[] {
@@ -600,6 +629,7 @@ export class WorkerAgent extends EventEmitter {
       await this.androidManager.getSummary(),
       this.extensionRelay.getSummary(),
       this.fileTransferSummary(),
+      this.capabilityExtras(),
     );
     this.notifier.send({
       jsonrpc: '2.0',

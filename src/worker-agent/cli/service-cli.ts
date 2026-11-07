@@ -7,8 +7,6 @@ import { activateVersion, listVersions } from '../service/rollback';
 import * as path from 'node:path';
 import {
   DEFAULT_CONFIG_PATH,
-  defaultExtensionRelaySocketPath,
-  ensureExtensionRelayDefaults,
   loadWorkerConfig,
   normalizeCoordinatorUrl,
   persistConfig,
@@ -17,13 +15,12 @@ import {
 import {
   BROWSER_EXTENSION_NATIVE_HOST_NAME,
   BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
-  assertBrowserExtensionNativeHostManifestWritable,
   browserExtensionNativeHostPaths,
   browserExtensionNativeHostManifestPath,
   isBrowserExtensionNativeHostManifestOwned,
-  prepareBrowserExtensionNativeHostRuntime,
   removeBrowserExtensionNativeHostRuntime,
 } from '../../main/browser-gateway/browser-extension-native-runtime';
+import { installExtensionRelay, loadExtensionInstruction } from './browser-setup';
 
 export type ServiceCommand =
   | {
@@ -169,52 +166,11 @@ export async function runServiceCommand(cmd: ServiceCommand): Promise<number> {
     case 'run':
       return 0;
     case 'install-extension-relay': {
-      const configPath = cmd.configPath ?? DEFAULT_CONFIG_PATH;
-      const config = loadWorkerConfig(configPath);
-      const extensionRelay = ensureExtensionRelayDefaults(
-        {
-          ...config.extensionRelay,
-          enabled: true,
-        },
-        defaultExtensionRelaySocketPath,
-      );
-      if (!extensionRelay?.extensionToken || !extensionRelay.socketPath) {
-        throw new Error('Failed to prepare extension relay config');
-      }
-      const userDataPath = path.dirname(configPath);
-      if (extensionRelay.legacyNameRegistration !== false) {
-        assertBrowserExtensionNativeHostManifestWritable({
-          manifestPath: browserExtensionNativeHostManifestPath(undefined, BROWSER_EXTENSION_NATIVE_HOST_NAME),
-          nativeDir: browserExtensionNativeHostPaths({
-            userDataPath,
-            hostName: BROWSER_EXTENSION_NATIVE_HOST_NAME,
-          }).nativeDir,
-          force: cmd.force === true,
-        });
-      }
-      config.extensionRelay = extensionRelay;
-      persistConfig(configPath, config);
-      const result = prepareBrowserExtensionNativeHostRuntime({
-        userDataPath,
-        socketPath: extensionRelay.socketPath,
-        extensionToken: extensionRelay.extensionToken,
-        hostCommand: currentWorkerNativeHostCommand(),
-        hostName: BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
-      });
-      if (extensionRelay.legacyNameRegistration !== false) {
-        prepareBrowserExtensionNativeHostRuntime({
-          userDataPath,
-          socketPath: extensionRelay.socketPath,
-          extensionToken: extensionRelay.extensionToken,
-          hostCommand: currentWorkerNativeHostCommand(),
-          hostName: BROWSER_EXTENSION_NATIVE_HOST_NAME,
-        });
-      }
+      const result = installExtensionRelay(cmd.configPath ?? DEFAULT_CONFIG_PATH, cmd.force === true);
       process.stdout.write(
         [
           `Browser extension relay native host installed: ${result.manifestPath}`,
-          'Load the unpacked Chrome extension from resources/browser-extension on the remote machine.',
-          'If this worker is on another host, copy that directory there before loading it in Chrome.',
+          loadExtensionInstruction(),
           '',
         ].join('\n'),
       );
@@ -270,20 +226,6 @@ function removeLegacyExtensionRelayNativeHostIfOwned(userDataPath: string): void
     userDataPath,
     hostName: BROWSER_EXTENSION_NATIVE_HOST_NAME,
   });
-}
-
-function currentWorkerNativeHostCommand(): { exe: string; args: string[] } {
-  const entrypoint = process.argv[1];
-  if (entrypoint && path.resolve(entrypoint) !== path.resolve(process.execPath)) {
-    return {
-      exe: process.execPath,
-      args: [entrypoint, 'native-host'],
-    };
-  }
-  return {
-    exe: process.execPath,
-    args: ['native-host'],
-  };
 }
 
 function parseServiceEnv(entries: string[]): Record<string, string> | undefined {

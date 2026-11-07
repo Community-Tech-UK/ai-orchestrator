@@ -17,9 +17,9 @@
  * that owner's explicit control or the operator panel.
  *
  * Set aside agent: the session James starts from the Set aside tab may discard or
- * restore any job, and retry a merge or resume a job in its own folder. It may do
- * nothing else, even on a run it would otherwise be able to adopt. It clears empty
- * jobs through plan-queue-set-aside.ts.
+ * restore any job, and retry a merge, resume a job or merge one without checks in
+ * its own folder. It may do nothing else, even on a run it would otherwise be able
+ * to adopt. It clears empty jobs through plan-queue-set-aside.ts.
  */
 
 import type { PlanQueueControlPayload } from '@contracts/schemas/plan-queue';
@@ -48,6 +48,7 @@ const DISCARD_ACTIONS: ReadonlySet<PlanQueueControlAction> = new Set<PlanQueueCo
 export const SET_ASIDE_AGENT_ACTIONS: ReadonlySet<PlanQueueControlAction> = new Set<PlanQueueControlAction>([
   'resume-item',
   'retry-landing',
+  'land-anyway',
 ]);
 
 export interface PlanQueueCallerLookup {
@@ -77,7 +78,7 @@ export function authorizePlanQueueControl(
   const setAsideFolder = callerInstanceId === undefined ? undefined : lookup.setAsideFolder(callerInstanceId);
   if (setAsideFolder !== undefined) {
     if (!DISCARD_ACTIONS.has(action) && (!SET_ASIDE_AGENT_ACTIONS.has(action) || setAsideFolder !== run.workspaceCwd)) {
-      throw new Error('The Set aside agent may only retry a merge or resume a job in its own folder, or discard or restore a job. List this for James.');
+      throw new Error('The Set aside agent may only retry a merge, resume a job or merge one without checks in its own folder, or discard or restore a job. List this for James.');
     }
     return `the Set aside agent (session ${callerInstanceId})`;
   }

@@ -28,6 +28,15 @@ async function isThisRepository(repoRoot: string, rootCommit: string): Promise<b
   return rootCommits.split('\n').includes(rootCommit);
 }
 
+/** The first folder holding this repository, skipping queue and session working copies under `.worktrees`. */
+export async function findThisRepository(folders: Iterable<string>, rootCommit = THIS_REPOSITORY_ROOT_COMMIT): Promise<string | undefined> {
+  for (const folder of new Set(folders)) {
+    if (folder.split(/[\\/]/).includes('.worktrees')) continue;
+    if (await isThisRepository(folder, rootCommit)) return folder;
+  }
+  return undefined;
+}
+
 async function readScripts(repoRoot: string): Promise<Record<string, unknown> | null> {
   try {
     const parsed: unknown = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf-8'));

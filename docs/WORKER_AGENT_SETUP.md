@@ -55,7 +55,7 @@ On the Mac where the Electron app runs:
 4. Toggle **Enable** to on
 
 The app will:
-- Start a WebSocket server on port 4878, bound to `0.0.0.0` (all interfaces)
+- Start a WebSocket server on port 4878 on all interfaces, IPv4 and IPv6. The Server Config host stays `0.0.0.0`; that value means "all interfaces", and the server listens on `::` for it, which takes both. A computer with IPv6 switched off listens on IPv4 only.
 - Prepare pairing credentials for first-time worker enrollment
 - Begin advertising the service on the LAN via mDNS for fallback discovery
 
@@ -90,6 +90,10 @@ Or run the source-built standalone alias directly:
 ```
 
 The pairing link contains a one-time credential. Treat it as secret while it is valid. After the worker connects and registers, it automatically receives its own unique per-node token. Future connections use that per-node token — you never need to copy the one-time credential again.
+
+The link also lists every other address the Mac answers on (`fallbackHost`). If the first address does not answer from the worker, for example a Tailscale name the network cannot route, `aio-worker pair` tries the others in order and keeps the first that answers.
+
+**Agents setting up a worker should use `$AIO_MCP remote-nodes pair --label <computer-name>`.** It needs no Settings screen and not the two-sided "Pair both" flow. From a Harness session on the Mac it issues a single-use command (see [AIO_MCP_CLI.md](AIO_MCP_CLI.md#pairing-a-new-worker-computer)); run that command on the worker over SSH. The label becomes the worker's name (`aio-worker pair --name <name>` overrides it), and the command lists every address the Mac answers on, including the Tailscale IPv6 one. The pairing shows on the Other computers page with the session that asked for it. **Copy Command** in Settings makes the same command for people.
 
 ## Step 4 — Canonical Config Fallback
 
@@ -158,9 +162,10 @@ as the first-run pairing credential and derives `coordinatorUrl` from
 
 When Tailscale is running on the coordinator, the generated pairing config prefers
 the coordinator's Tailscale MagicDNS name when the Tailscale CLI exposes it, then
-falls back to the coordinator's `100.x.y.z` Tailscale IP, then to a normal LAN IP.
-This avoids stale LAN addresses when the Mac changes networks. Keep the server
-host set to `0.0.0.0` so it accepts connections on the Tailscale interface.
+falls back to the coordinator's `100.x.y.z` Tailscale IP, then its Tailscale IPv6
+address (`fd7a:115c:a1e0:...`), then to a normal LAN IP. This avoids stale LAN
+addresses when the Mac changes networks. Keep the server host set to `0.0.0.0` so
+it accepts connections on the Tailscale interface.
 
 **Auto-generated fields** (don't set these manually):
 - `nodeId` — UUID generated on first run, persisted to this file
@@ -666,6 +671,35 @@ A worker that vanishes leaves three things to read, in this order:
 a minute. The last one before the gap distinguishes heap exhaustion (pressure
 near 1.0, and warn-level for a while beforehand) from an external kill (flat).
 
+### Mac: install for the logged-in user (recommended)
+
+On a Mac worker, install the worker into your own logged-in session. No administrator password is needed:
+
+```bash
+node dist/worker-agent/index.js install-agent --name ct-test-mac
+```
+
+This writes `~/Library/LaunchAgents/com.aiorchestrator.worker.user.plist` (the worker starts at login and restarts if it
+stops; logs go to `~/.orchestrator/logs/launchagent.*.log`) and starts it. It runs in the logged-in session on purpose:
+the worker can then show Chrome, ask for Local Network access, and use the login keychain for Xcode signing and the AI
+tools' sign-ins, none of which work from the system service or an SSH shell. It also:
+
+- names the computer (`--name`; otherwise the hostname without `.local`);
+- turns browser features on when Chrome is installed (`--no-browser` leaves them off), and prints where to load the
+  unpacked Chrome extension;
+- checks this Mac's settings for unattended work and prints each problem with its fix: sleep on power, Remote Login
+  access for this account, Local Network access, Tailscale, and FileVault. It opens Tailscale itself if it is installed
+  but not running; the rest need an admin password, so they are steps for you. Run `aio-worker check-host` at any time
+  for the same report.
+
+An unpaired worker waits to be paired instead of exiting: its status file says "not paired with Harness yet", and it
+connects as soon as `aio-worker pair` writes an address. When it first connects, macOS may ask whether it may find
+devices on your local network: click **Allow**. If that was refused, the worker's status, and the computer's page in
+Settings once it gets through another way (for example over Tailscale), say "macOS is blocking this computer from
+reaching Harness" and name the setting to turn on. It says this only when the home router is unreachable too, so a main
+Mac that is merely asleep is not blamed on macOS. `install-agent` replaces a hand-made agent with the same label.
+`uninstall-agent` stops and removes it.
+
 ### Running as a Background Service (Optional)
 
 The worker also self-heals from most runtime faults now: unhandled exceptions
@@ -767,8 +801,9 @@ left windows-pc depending on Tailscale alone.
 
 So after every registration the coordinator sends a `node.coordinatorAddresses`
 notification (scope `service`) listing where it can currently be reached: its
-Tailscale MagicDNS name (only while Tailscale is running), its Tailscale IP, and
-its ranked LAN IPs, all on the same port and protocol. The worker stores them as
+Tailscale MagicDNS name (only while Tailscale is running), its Tailscale IPv4 and
+IPv6 addresses, and its ranked LAN IPs, all on the same port and protocol. IPv6
+addresses are written in square brackets (`ws://[fd7a:115c:a1e0::1234]:4878`). The worker stores them as
 `advertisedCoordinatorUrls` in `worker-node.json`, replacing the previous list, and
 tries them after `coordinatorUrl` and `coordinatorUrls`. A worker pinned to
 `wss://` ignores advertised `ws://` routes. Older workers ignore the notification.
@@ -825,7 +860,11 @@ If you need to re-enroll a worker (e.g. after revocation), delete the `nodeToken
 machines, sign them into the same tailnet, and keep MagicDNS enabled. When the
 Remote Nodes server is bound to `0.0.0.0`, the generated pairing config/link
 will prefer the Mac's MagicDNS name if available, then its stable `100.x.y.z`
-Tailscale IP. If you create the worker config manually, use:
+Tailscale IP, then its Tailscale IPv6 address. The IPv6 address is listed on
+purpose: on some Macs the Tailscale IPv4 route (100.x) does not carry traffic
+between two Macs, while the IPv6 route does. The server listens on IPv6 as well as
+IPv4 (see Step 2), so a worker away from the home network can still connect. If
+you create the worker config manually, use:
 
 ```json
 "coordinatorUrl": "ws://<mac-machine-name>.<tailnet>.ts.net:4878"
@@ -835,6 +874,12 @@ or:
 
 ```json
 "coordinatorUrl": "ws://100.x.y.z:4878"
+```
+
+or, with the Tailscale IPv6 address (note the square brackets):
+
+```json
+"coordinatorUrl": "ws://[fd7a:115c:a1e0::1234]:4878"
 ```
 
 **Different networks / SSH tunnel:** If the machines aren't on the same LAN, set up an SSH tunnel from Windows to Mac:
@@ -853,7 +898,7 @@ Then set `"coordinatorUrl": "ws://localhost:4878"` in the worker config.
 
 **"Failed to connect" on startup** — Check that the coordinator has remote nodes enabled in Settings, the port is open, and both machines can reach each other (`ping` / `Test-NetConnection <mac-ip> -Port 4878`).
 
-**"Worker config is missing coordinatorUrl"** — The worker only has a raw credential or incomplete config. Paste the full canonical Connection Config or run `aio-worker pair <pairing-link>`.
+**Worker says it is waiting to be paired** — It has no address for the main Harness yet. Run `aio-worker pair <pairing-link>` on it (or ask an agent in Harness for `$AIO_MCP remote-nodes pair`); the waiting worker connects without a restart.
 
 **"No coordinator discovered" on startup** — mDNS discovery failed. This is common on Windows. Run the copied pairing command or set `coordinatorUrl` explicitly in the worker config (e.g. `"ws://192.168.0.14:4878"`). Also check that both machines are on the same subnet, the Mac firewall allows incoming connections, and the `namespace` matches.
 
@@ -865,7 +910,9 @@ Then set `"coordinatorUrl": "ws://localhost:4878"` in the worker config.
 
 **GPU not detected** — The reporter runs `nvidia-smi`. Make sure NVIDIA drivers are installed and `nvidia-smi` is on your PATH. AMD GPUs aren't detected yet (only NVIDIA via nvidia-smi).
 
-**Browser not detected** — The reporter checks `C:\Program Files\Google\Chrome\Application\chrome.exe` and `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`. If Chrome/Edge is installed elsewhere, this won't pick it up currently.
+**Browser not detected** — On Windows the reporter checks Chrome under `C:\Program Files`, `C:\Program Files (x86)` and the per-user `%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe`, then Edge; on a Mac it checks `/Applications`. Pairing (`aio-worker pair`) and `install-agent` turn browser features on when Chrome is found, unless given `--no-browser`.
+
+**iPhone/iPad testing** — A Mac worker reports `iosAutomation` in `$AIO_MCP remote-nodes --json`: Xcode version and whether its licence is accepted, simulator runtimes, connected devices with their trust and Developer Mode state, whether an Apple account is in Xcode, and the newest signing error found in recent Xcode build logs (for example an Apple Program License Agreement that needs accepting). These checks run inside the worker, in the logged-in session; over SSH the keychain is locked and signing looks broken when it is not. `run_on_node` with `requiresIos: true` only places work on a Mac whose report is ready.
 
 ## Running the Full Electron App on Windows (Optional)
 

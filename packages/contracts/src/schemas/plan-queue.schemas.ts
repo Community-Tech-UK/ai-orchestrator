@@ -550,9 +550,6 @@ export const PlanQueueStatusArgsSchema = z.object({
   sinceVersion: z.string().min(1).max(100).optional(),
 });
 
-/** Retries and resumes one Set aside agent session may make; each can start paid sessions. */
-export const PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT = 10;
-
 export const PlanQueueSetAsideArgsSchema = z.object({ offset: z.number().int().min(0).optional() });
 
 export const PlanQueueAnswerArgsSchema = z.object({

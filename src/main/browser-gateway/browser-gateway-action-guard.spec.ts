@@ -596,7 +596,7 @@ describe('BrowserGatewayActionGuard CAPTCHA evidence (2026-09-15 §3.4)', () => 
 
     expect(probe).toHaveBeenCalledWith({
       profileId: 'p1', targetId: 't1', toolName: 'browser.type',
-      inputTargets: { selectors: ['#name'], hasUidTarget: false },
+      inputTargets: { selectors: ['#name'], uids: [] },
     });
     expect(raise).not.toHaveBeenCalled();
     expect(prep).toMatchObject({ grant: { id: 'input-grant' }, actionClass: 'input' });
@@ -665,7 +665,7 @@ describe('BrowserGatewayActionGuard sign-in code box evidence (Report MI, 2026-1
 
     expect(result.reason).toBe('two_factor_unavailable_parked_to_escalation_queue');
     expect(probe).toHaveBeenCalledWith(expect.objectContaining({
-      toolName: 'browser.fill_form', inputTargets: { selectors: ['#email'], hasUidTarget: true },
+      toolName: 'browser.fill_form', inputTargets: { selectors: ['#email'], uids: ['a11y-7'] },
     }));
   });
 
@@ -676,6 +676,64 @@ describe('BrowserGatewayActionGuard sign-in code box evidence (Report MI, 2026-1
 
     expect(prep).toMatchObject({ grant: { id: 'g1' }, actionClass: 'submit' });
     expect(raise).not.toHaveBeenCalled();
+  });
+});
+
+describe('BrowserGatewayActionGuard password box evidence (2026-11-07)', () => {
+  const INPUT_GRANT: BrowserPermissionGrant = { ...CAMPAIGN_SUBMIT_GRANT, id: 'input-grant', allowedActionClasses: ['input'] };
+  const box = (passwordField: boolean | undefined, targetIsCodeField = false) => vi.fn(async () => ({
+    detected: false,
+    oneTimeCode: { codeField: targetIsCodeField, filled: false, targetIsCodeField },
+    ...(passwordField === undefined ? {} : { passwordField }),
+  }));
+  const type = (guard: BrowserGatewayActionGuard, hint: string) =>
+    guard.prepareMutatingAction({ ...CONTEXT, selector: '#field' }, 'type', 'browser.type', '#field', hint);
+
+  // Real descriptions from the approval log that stopped typing into ordinary boxes.
+  it.each([
+    'Pre-fill DBT Jaggaer username (non-secret)',
+    'Enter the known business email only; do not handle a password.',
+    'Set a non-secret description for the Community Tech Desk client secret.',
+  ])('lets typing go ahead when the box is not a password box: %s', async (hint) => {
+    const { guard, createRequest } = makeGuard({ grants: [INPUT_GRANT], probe: box(false) });
+    expect(await type(guard, hint)).toMatchObject({ grant: { id: 'input-grant' }, actionClass: 'input' });
+    expect(createRequest).not.toHaveBeenCalled();
+  });
+
+  it('stops typing into a real password box however the agent describes it', async () => {
+    const { guard, createRequest } = makeGuard({ grants: [INPUT_GRANT], probe: box(true) });
+    const result = resultOf(await type(guard, 'Fill in the second field'));
+    expect(result).toMatchObject({ decision: 'requires_user', reason: CREDENTIAL_CHALLENGE_REASON });
+    expect(createRequest).toHaveBeenCalledWith(expect.objectContaining({ actionClass: 'credential' }));
+  });
+
+  it('falls back to the agent\'s words only when the box could not be checked', async () => {
+    const unknown = makeGuard({ grants: [INPUT_GRANT], probe: box(undefined) });
+    expect(resultOf(await type(unknown.guard, 'Enter Instagram password')))
+      .toMatchObject({ decision: 'requires_user', reason: CREDENTIAL_CHALLENGE_REASON });
+    const plain = makeGuard({ grants: [INPUT_GRANT], probe: box(undefined) });
+    expect(await type(plain.guard, 'Type the email')).toMatchObject({ actionClass: 'input' });
+  });
+
+  it('stops a shared-tab fill_form that writes a password box, despite its fixed input classification', async () => {
+    const { guard } = makeGuard({ grants: [INPUT_GRANT], probe: box(true) });
+    const result = resultOf(await guard.prepareMutatingAction(
+      { ...CONTEXT, fields: [{ selector: '#user' }, { selector: '#pass' }] },
+      'fill_form', 'browser.fill_form', '#user', 'Fill the sign-in form', { actionClass: 'input', hardStop: false },
+    ));
+    expect(result).toMatchObject({ decision: 'requires_user', reason: CREDENTIAL_CHALLENGE_REASON });
+  });
+
+  it('treats a masked sign-in code box as the two-factor step, not a password', async () => {
+    const { guard, raise } = makeGuard({ grants: [INPUT_GRANT], probe: box(true, true) });
+    const result = resultOf(await type(guard, 'Type the passcode'));
+    expect(result.reason).toBe('two_factor_unavailable_parked_to_escalation_queue');
+    expect(raise).toHaveBeenCalledWith(expect.objectContaining({ kind: 'two_factor_unavailable' }));
+  });
+
+  it('judges an inspected managed-tab box by its own type, not nearby words', async () => {
+    const nearby = makeGuard({ grants: [INPUT_GRANT], managed: true, elementText: 'Username. Forgot password?' });
+    expect(await type(nearby.guard, 'Type the username')).toMatchObject({ actionClass: 'input' });
   });
 });
 

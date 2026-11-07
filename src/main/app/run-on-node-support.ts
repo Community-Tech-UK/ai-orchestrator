@@ -1,5 +1,6 @@
 import { detectAndroidIntent } from '../channels/android-intent';
 import { isAndroidAutomationReady } from '../remote-node';
+import { isIosAutomationReady } from '../remote-node/worker-node-registry';
 import type { Instance } from '../../shared/types/instance.types';
 import type { CanonicalCliType, CliType as ConfiguredCliType } from '../../shared/types/settings.types';
 import type { NodePlacementPrefs, WorkerNodeInfo } from '../../shared/types/worker-node.types';
@@ -33,6 +34,7 @@ export interface RunOnNodePlacementArgs {
   requiresBrowser?: boolean;
   requiresAndroid?: boolean;
   androidDeviceKind?: 'emulator' | 'physical' | 'any';
+  requiresIos?: boolean;
 }
 
 const EXPLICIT_SHARED_BROWSER_MARKERS = [
@@ -281,6 +283,7 @@ export function buildRunOnNodePlacement(args: RunOnNodePlacementArgs): NodePlace
           androidDeviceKind: args.androidDeviceKind ?? 'any',
         }
       : {}),
+    ...(args.requiresIos === true ? { requiresIos: true } : {}),
   };
   return Object.keys(placement).length > 0 ? placement : undefined;
 }
@@ -300,6 +303,11 @@ export function assertNodeSatisfiesPlacement(
   if (placement.requiresAndroid && !isAndroidAutomationReady(node.capabilities)) {
     throw new Error(
       `Worker node "${node.name}" is not Android-automation ready. Enable Android automation and verify adb/AVD/device readiness before running this test.`,
+    );
+  }
+  if (placement.requiresIos && !isIosAutomationReady(node.capabilities)) {
+    throw new Error(
+      `Worker node "${node.name}" is not ready for iPhone/iPad testing. It needs Xcode with the licence accepted and a simulator runtime or a paired device; see iosAutomation in $AIO_MCP remote-nodes --json for what is missing.`,
     );
   }
   if (

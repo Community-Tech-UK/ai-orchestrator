@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { BrowserElementContext } from '@contracts/types/browser';
 import {
   classifyBrowserAction,
   classifyBrowserFillForm,
@@ -138,15 +139,48 @@ describe('browser-action-classifier', () => {
       })).toEqual({ actionClass: 'input', hardStop: false });
     });
 
-    it('keeps stopping text typed into a password or secret field', () => {
-      for (const elementContext of [
+    it('stops text written into a password box, judged by the box itself', () => {
+      const stop = { actionClass: 'credential', hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON };
+      for (const elementContext of <BrowserElementContext[]>[
         { inputType: 'password', label: 'New password' },
-        { label: 'Client secret' },
-        { label: 'API token' },
+        { inputType: 'text', attributes: { autocomplete: 'new-password' } },
+        { attributes: { AutoComplete: 'section-x current-password' } },
       ]) {
-        expect(classifyBrowserAction({ toolName: 'browser.type', elementContext }))
-          .toEqual({ actionClass: 'credential', hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON });
+        expect(classifyBrowserAction({ toolName: 'browser.type', elementContext })).toEqual(stop);
       }
+      // A plain text box is not a password box, whatever its label or neighbours say.
+      for (const elementContext of <BrowserElementContext[]>[
+        { label: 'Client secret', inputType: 'text' },
+        { label: 'API token' },
+        { label: 'Username', nearbyText: 'Forgot password?' },
+        { attributes: { autocomplete: 'password-hint' } },
+      ]) {
+        expect(classifyBrowserAction({ toolName: 'browser.type', elementContext })).toEqual({ actionClass: 'input', hardStop: false });
+      }
+    });
+
+    it('lets the page\'s own answer override the agent\'s words either way', () => {
+      const hinted = (hint: string, passwordField?: boolean) => classifyBrowserAction({
+        toolName: 'browser.type',
+        actionHint: hint,
+        elementContext: { visibleText: hint, nearbyText: hint },
+        elementContextSource: 'agent_hint',
+        ...(passwordField === undefined ? {} : { passwordField }),
+      });
+      expect(hinted('Pre-fill DBT Jaggaer username (non-secret)', false)).toEqual({ actionClass: 'input', hardStop: false });
+      expect(hinted('Fill in the second box', true))
+        .toEqual({ actionClass: 'credential', hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON });
+      // An inspected password box stops even if the page check said no (it can miss
+      // selectors only Puppeteer understands, and hidden boxes in its fallback).
+      expect(classifyBrowserAction({
+        toolName: 'browser.type',
+        elementContext: { inputType: 'password' },
+        elementContextSource: 'inspected',
+        passwordField: false,
+      })).toEqual({ actionClass: 'credential', hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON });
+      // Unknown box: the words are the fallback.
+      expect(hinted('Enter Instagram password')).toMatchObject({ actionClass: 'credential', hardStop: true });
+      expect(hinted('Fill in the second box')).toEqual({ actionClass: 'input', hardStop: false });
     });
   });
 

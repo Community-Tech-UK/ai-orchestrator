@@ -1,4 +1,5 @@
 import * as os from 'node:os';
+import { formatHostPort } from '../../shared/remote-node/host-address';
 import { loadWorkerConfig, persistConfig, type WorkerConfig } from '../worker-config';
 
 export interface ParsedPairingConfig {
@@ -54,7 +55,7 @@ export function buildCoordinatorUrl(params: {
   requireTls?: boolean;
 }): string {
   const protocol = params.requireTls === true ? 'wss' : 'ws';
-  return `${protocol}://${params.host}:${params.port}`;
+  return `${protocol}://${formatHostPort(params.host, params.port)}`;
 }
 
 export function writePairedWorkerConfig(
@@ -98,15 +99,19 @@ function parsePairingLink(input: string): ParsedPairingConfig {
   }
 
   const token = firstString(url.searchParams.get('authToken'), url.searchParams.get('token'));
-  const coordinatorUrl = firstString(url.searchParams.get('coordinatorUrl'))
-    ?? coordinatorFromHostPort({
-      host: url.searchParams.get('host'),
-      port: url.searchParams.get('port'),
-      requireTls: url.searchParams.get('requireTls'),
-    });
+  const fromHost = (host: string | null) => coordinatorFromHostPort({
+    host,
+    port: url.searchParams.get('port'),
+    requireTls: url.searchParams.get('requireTls'),
+  });
+  const coordinatorUrl = firstString(url.searchParams.get('coordinatorUrl')) ?? fromHost(url.searchParams.get('host'));
   return normalizedParsedConfig({
     authToken: token,
     coordinatorUrl,
+    // Other addresses the coordinator answers on, tried in order when the
+    // primary host does not answer (for example a Tailscale name this network
+    // cannot route).
+    coordinatorUrls: url.searchParams.getAll('fallbackHost').map(fromHost),
     namespace: url.searchParams.get('namespace') ?? undefined,
     name: url.searchParams.get('name') ?? undefined,
   });

@@ -36,6 +36,7 @@ const NodePlacementPrefsSchema = z.object({
   requiresBrowser: z.boolean().optional(),
   requiresAndroid: z.boolean().optional(),
   androidDeviceKind: z.enum(['emulator', 'physical', 'any']).optional(),
+  requiresIos: z.boolean().optional(),
   requiresGpu: z.boolean().optional(),
   preferPlatform: z.enum(['darwin', 'win32', 'linux']).optional(),
   preferNodeId: z.string().optional(),

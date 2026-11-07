@@ -95,7 +95,7 @@ function formatHelp(): string {
     '  browser-gateway     Stdio MCP forwarder for browser-gateway',
     '  computer-use        Stdio MCP forwarder for desktop Computer Use',
     '  native-host         Chrome native-messaging host for the browser extension',
-    '  remote-nodes        Print the safe remote worker roster (--json for JSON)',
+    '  remote-nodes        Print the safe remote worker roster, or pair a new worker (pair)',
     '  release-readiness   Build release readiness report from evidence JSON',
     '  settings            Inspect and repair app settings through the parent app',
     '  local-ai            Discover, enrol, inspect, check, rename and retire Local AI targets',

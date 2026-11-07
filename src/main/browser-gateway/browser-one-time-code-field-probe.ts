@@ -1,5 +1,5 @@
 /**
- * Sign-in code box evidence for the action guard.
+ * Sign-in code box and password box evidence for the action guard.
  *
  * On a shared extension tab the guard only sees the agent's own description of
  * a click, so a two-factor step used to stop only when that description used a
@@ -16,7 +16,7 @@
  *    there.
  *  - managed (Harness-owned) profiles, through the driver's evaluate.
  *
- * It returns three booleans and nothing else: never a value, page text,
+ * It returns four booleans and nothing else: never a value, page text,
  * selector match list or element identity.
  *
  * A code box is a visible, enabled text/tel/number/password/untyped
@@ -29,9 +29,15 @@
  * Card security codes, postcodes and discount/CPV/SIC codes deliberately do
  * not match.
  *
+ * A password box is an `<input>` whose type is `password`, or whose
+ * `autocomplete` names `current-password` or `new-password`. A text box merely
+ * labelled "secret" or "token" is not one.
+ *
  * `targetSelector` (type/fill_form targets, a CSS selector list): a selector the
- * page cannot parse counts as a code box whenever one is visible, so an
- * unresolvable target fails closed rather than open.
+ * page cannot parse counts as a code box whenever one is visible, and as a
+ * password box whenever a visible one is on the page, so an unresolvable target
+ * fails closed rather than open. A matched password target counts even when
+ * hidden: what matters is the box being written.
  *
  * Must stay free of backticks and template placeholders: it is a String.raw.
  */
@@ -98,6 +104,10 @@ export const ONE_TIME_CODE_FIELD_PROBE_SOURCE = String.raw`function oneTimeCodeF
     ].join(' ')));
   };
   const codeFields = candidates.filter(named);
+  // A password box by its own markup: masked, or marked for a saved password.
+  const passwordBox = (element) => element.tagName === 'INPUT'
+    && ((element.getAttribute('type') || '').toLowerCase() === 'password'
+      || /(?:^|\s)(?:current|new)-password(?:\s|$)/.test((element.getAttribute('autocomplete') || '').toLowerCase()));
   const boxesByForm = new Map();
   for (const element of candidates) {
     if (element.maxLength !== 1) continue;
@@ -109,15 +119,18 @@ export const ONE_TIME_CODE_FIELD_PROBE_SOURCE = String.raw`function oneTimeCodeF
   }
   const filled = codeFields.some((element) => String(element.value || '').trim() !== '');
   let targetIsCodeField = false;
+  let targetIsPasswordField = false;
   if (typeof targetSelector === 'string' && targetSelector) {
     try {
-      targetIsCodeField = roots.some((root) => Array.from(root.querySelectorAll(targetSelector))
-        .some((element) => codeFields.includes(element)));
+      const targets = roots.flatMap((root) => Array.from(root.querySelectorAll(targetSelector)));
+      targetIsCodeField = targets.some((element) => codeFields.includes(element));
+      targetIsPasswordField = targets.some(passwordBox);
     } catch {
       targetIsCodeField = codeFields.length > 0;
+      targetIsPasswordField = candidates.some(passwordBox);
     }
   }
-  return { codeField: codeFields.length > 0, filled, targetIsCodeField };
+  return { codeField: codeFields.length > 0, filled, targetIsCodeField, targetIsPasswordField };
 }`;
 
 /** Driver expression for managed profiles: the same function, main frame only. */
@@ -132,29 +145,38 @@ export interface BrowserOneTimeCodeEvidence {
   filled: boolean;
   /** The type/fill_form target is a code box (or cannot be resolved while one is visible). */
   targetIsCodeField: boolean;
+  /**
+   * The type/fill_form target is a password box. Absent when unknown: an
+   * extension older than 0.2.51, no target, or a uid target it could not resolve.
+   */
+  targetIsPasswordField?: boolean;
 }
 
+const CODE_KEYS = 'codeField,filled,targetIsCodeField';
+const CODE_AND_PASSWORD_KEYS = 'codeField,filled,targetIsCodeField,targetIsPasswordField';
+
 /**
- * Strict reader for the probe's answer. Anything but exactly three booleans is
- * not evidence (a stale or foreign reply must not be read as "no code box").
+ * Strict reader for the probe's answer: the three code box booleans, plus the
+ * password box boolean when the extension knows it. Anything else is not
+ * evidence (a stale or foreign reply must not be read as "no code box").
  */
 export function parseOneTimeCodeEvidence(value: unknown): BrowserOneTimeCodeEvidence | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return undefined;
   }
   const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).sort();
+  const keys = Object.keys(record).sort().join(',');
   if (
-    keys.join(',') !== 'codeField,filled,targetIsCodeField'
-    || typeof record['codeField'] !== 'boolean'
-    || typeof record['filled'] !== 'boolean'
-    || typeof record['targetIsCodeField'] !== 'boolean'
+    (keys !== CODE_KEYS && keys !== CODE_AND_PASSWORD_KEYS)
+    || Object.values(record).some((entry) => typeof entry !== 'boolean')
   ) {
     return undefined;
   }
+  const flags = record as Record<string, boolean>;
   return {
-    codeField: record['codeField'],
-    filled: record['filled'],
-    targetIsCodeField: record['targetIsCodeField'],
+    codeField: flags['codeField']!,
+    filled: flags['filled']!,
+    targetIsCodeField: flags['targetIsCodeField']!,
+    ...(keys === CODE_AND_PASSWORD_KEYS ? { targetIsPasswordField: flags['targetIsPasswordField']! } : {}),
   };
 }

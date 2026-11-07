@@ -1,16 +1,12 @@
 import * as os from 'node:os';
 import type { AddressInfo } from 'node:net';
 import type { IncomingMessage } from 'node:http';
-import { WebSocket, WebSocketServer } from 'ws';
-import type { RemotePairingCredential } from '../auth/remote-auth';
+import { WebSocket, type WebSocketServer } from 'ws';
+import { getLogger } from '../logging/logger';
+import { stripIpv4MappedPrefix } from '../../shared/remote-node/host-address';
 import {
-  buildPairBothTranscript,
   createPairBothNonce,
-  decryptPairBothPayload,
-  derivePairBothCodeForHellos,
-  derivePairBothPayloadKeyForHellos,
   generatePairBothKeyMaterial,
-  hashPairBothTranscript,
   PAIR_BOTH_PROTOCOL_VERSION,
   type PairBothKeyMaterial,
 } from './pair-both-crypto';
@@ -19,23 +15,39 @@ import {
   type PairBothWireMessage,
 } from './pair-both-wire-schema';
 import {
+  capForLog,
   closeServer,
+  closeServerClients,
   closeSocket,
   createDeferred,
   isPairingRateLimitError,
   sendPairBothMessage as sendMessage,
-  waitForServerListening,
+  listenPairBothServer,
   type Deferred,
 } from './pair-both-rendezvous-helpers';
 import { PairBothSessionStore } from './pair-both-session-store';
 import {
+  MAX_CANDIDATE_ADDRESSES,
+  PAIR_BOTH_ADDRESS_TIMEOUT_MS,
+  PAIR_BOTH_CONFIRM_TIMEOUT_MS,
+  PAIR_BOTH_WORKER_HANDSHAKE_TIMEOUT_MS,
+  PAIR_BOTH_WORKER_RESULT_TIMEOUT_MS,
+  PAIR_BOTH_WS_MAX_PAYLOAD_BYTES,
+  type PairBothRendezvousServiceOptions,
+  type PairBothWorkerPairingState,
+  type StartCoordinatorPairingInput,
+} from './pair-both-rendezvous.types';
+import { pairBothLog } from './pair-both-logging';
+import {
+  decryptPairingPayload,
+  dialPairBothCandidate,
+  verifyCoordinatorHello,
+} from './pair-both-worker-side';
+import {
   DEFAULT_CONFIG_PATH,
   type WorkerConfig,
 } from '../../worker-agent/worker-config';
-import {
-  parsePairingConfigInput,
-  writePairedWorkerConfig,
-} from '../../worker-agent/cli/pairing-config';
+import { writePairedWorkerConfig } from '../../worker-agent/cli/pairing-config';
 import type {
   PairBothCandidate,
   PairBothEncryptedPayload,
@@ -44,42 +56,7 @@ import type {
   PairBothTranscript,
 } from '../../shared/types/pair-both.types';
 
-const PAIR_BOTH_WS_MAX_PAYLOAD_BYTES = 64 * 1024;
-const PAIR_BOTH_CONFIRM_TIMEOUT_MS = 15_000;
-const PAIR_BOTH_WORKER_HANDSHAKE_TIMEOUT_MS = 15_000;
-const PAIR_BOTH_WORKER_RESULT_TIMEOUT_MS = 5 * 60_000;
-
-interface PairBothAuthPort {
-  issuePairingCredential(options: { label?: string; ttlMs?: number }): RemotePairingCredential;
-  revokePairingCredential?(token: string): boolean;
-}
-
-export interface PairBothRendezvousServiceOptions {
-  auth: PairBothAuthPort;
-  machineName?: string;
-  workerConfigPath?: string;
-  /** Runs before a newly delivered pairing overwrites the worker config. */
-  beforeWorkerConfigWrite?: () => Promise<unknown> | unknown;
-  now?: () => number;
-  workerHandshakeTimeoutMs?: number;
-  workerResultTimeoutMs?: number;
-}
-
-export interface StartCoordinatorPairingInput {
-  host: string;
-  namespace: string;
-  coordinatorUrl: string;
-  ttlMs?: number;
-}
-
-export interface PairBothWorkerPairingState {
-  sessionId: string;
-  status: 'confirming';
-  shortCode: string;
-  candidate: PairBothCandidate;
-  coordinatorHello: PairBothHello;
-  workerHello: PairBothHello;
-}
+const logger = getLogger('PairBoth');
 
 export class PairBothRendezvousService {
   private readonly store: PairBothSessionStore;
@@ -89,6 +66,7 @@ export class PairBothRendezvousService {
   private readonly now: () => number;
   private readonly workerHandshakeTimeoutMs: number;
   private readonly workerResultTimeoutMs: number;
+  private readonly addressTimeoutMs: number;
   private coordinatorServer: WebSocketServer | null = null;
   private coordinatorExpiryTimer: NodeJS.Timeout | null = null;
   private coordinatorSocket: WebSocket | null = null;
@@ -118,6 +96,7 @@ export class PairBothRendezvousService {
       1,
       options.workerResultTimeoutMs ?? PAIR_BOTH_WORKER_RESULT_TIMEOUT_MS,
     );
+    this.addressTimeoutMs = Math.max(1, options.addressTimeoutMs ?? PAIR_BOTH_ADDRESS_TIMEOUT_MS);
     this.store = new PairBothSessionStore({
       auth: options.auth,
       ...(options.now ? { now: options.now } : {}),
@@ -127,13 +106,8 @@ export class PairBothRendezvousService {
   async startCoordinatorPairing(
     input: StartCoordinatorPairingInput,
   ): Promise<PairBothSessionState> {
-    await this.stopCoordinatorServer();
-    const server = new WebSocketServer({
-      host: input.host,
-      port: 0,
-      maxPayload: PAIR_BOTH_WS_MAX_PAYLOAD_BYTES,
-    });
-    await waitForServerListening(server);
+    await this.stopCoordinatorServer('replaced by a new pairing session');
+    const server = await listenPairBothServer(input.host, PAIR_BOTH_WS_MAX_PAYLOAD_BYTES);
     this.coordinatorServer = server;
     server.on('connection', (socket, request) => this.handleCoordinatorConnection(socket, request));
 
@@ -147,15 +121,23 @@ export class PairBothRendezvousService {
       namespace: input.namespace,
       listenerPort: (address as AddressInfo).port,
       coordinatorUrl: input.coordinatorUrl,
+      ...(input.coordinatorUrls?.length ? { coordinatorUrls: input.coordinatorUrls } : {}),
       ...(input.ttlMs ? { ttlMs: input.ttlMs } : {}),
     });
     const sessionId = this.coordinatorState.sessionId;
+    pairBothLog.info('Pair-both session started', this.coordinatorState, {
+      namespace: this.coordinatorState.namespace,
+      machineName: capForLog(this.machineName),
+      listenerPort: this.coordinatorState.listenerPort,
+      listenerAddress: address.address,
+      expiresAt: new Date(this.coordinatorState.expiresAt).toISOString(),
+    });
     this.coordinatorExpiryTimer = setTimeout(() => {
       if (this.coordinatorState?.sessionId !== sessionId) {
         return;
       }
       this.coordinatorState = this.store.expireSession(sessionId);
-      void this.stopCoordinatorServer().catch(() => {
+      void this.stopCoordinatorServer('expired').catch(() => {
         if (this.coordinatorState?.sessionId === sessionId) {
           this.coordinatorState = {
             ...this.coordinatorState,
@@ -167,13 +149,24 @@ export class PairBothRendezvousService {
     return this.coordinatorState;
   }
 
-  getLocalCandidate(sessionId: string, host: string): PairBothCandidate {
+  /**
+   * The offer for the other computer. `hosts` is every address this computer
+   * answers on, best first; the first is the main one and the joining side
+   * tries them all in order.
+   */
+  getLocalCandidate(sessionId: string, hosts: string[]): PairBothCandidate {
+    const addresses = [...new Set(hosts)].slice(0, MAX_CANDIDATE_ADDRESSES);
+    const host = addresses[0];
+    if (!host) {
+      throw new Error('Pair-both needs at least one address to offer');
+    }
     const metadata = this.store.getDiscoveryMetadata(sessionId);
+    pairBothLog.info('Pair-both offer ready', this.coordinatorState, { port: metadata.port, addresses });
     return {
       ...metadata,
       id: `pair-both:${sessionId}:${host}:${metadata.port}`,
       host,
-      addresses: [host],
+      addresses,
     };
   }
 
@@ -203,10 +196,14 @@ export class PairBothRendezvousService {
       pairingSessionId: candidate.pairingSessionId,
     };
 
-    const socket = new WebSocket(
-      `ws://${candidate.host}:${candidate.port}`,
-      { maxPayload: PAIR_BOTH_WS_MAX_PAYLOAD_BYTES },
-    );
+    const socket = await dialPairBothCandidate(candidate, {
+      maxPayload: PAIR_BOTH_WS_MAX_PAYLOAD_BYTES,
+      perAddressTimeoutMs: this.addressTimeoutMs,
+      now: this.now,
+    }).catch((error: unknown) => {
+      this.workerResultDeferred?.reject(error);
+      throw error;
+    });
     this.workerSocket = socket;
 
     return new Promise<PairBothWorkerPairingState>((resolve, reject) => {
@@ -228,12 +225,10 @@ export class PairBothRendezvousService {
         Math.min(this.workerHandshakeTimeoutMs, candidate.expiresAt - this.now()),
       );
       this.workerHandshakeTimer = setTimeout(() => {
+        logger.warn('Pair-both worker handshake timed out', { sessionId: candidate.pairingSessionId });
         rejectIfPending(new Error('Pair-both worker handshake timed out'));
       }, handshakeDelayMs);
 
-      socket.once('open', () => {
-        sendMessage(socket, { type: 'worker.hello', hello: this.requireWorkerHello() });
-      });
       socket.on('message', (data) => {
         try {
           const message = parsePairBothWireMessage(data);
@@ -253,7 +248,11 @@ export class PairBothRendezvousService {
         }
       });
       socket.once('error', rejectIfPending);
-      socket.once('close', () => {
+      socket.once('close', (code, reason) => {
+        pairBothLog.closed('Pair-both worker socket closed', null, code, reason, {
+          sessionId: candidate.pairingSessionId,
+          paired: this.workerResult !== null,
+        });
         this.clearWorkerHandshakeTimer();
         this.clearWorkerResultTimer();
         this.workerConfirmAck?.reject(
@@ -264,6 +263,12 @@ export class PairBothRendezvousService {
           rejectIfPending(new Error('Pair-both worker socket closed before pairing completed'));
         }
       });
+      // The socket is already open: the hello goes out as soon as handlers are in place.
+      try {
+        sendMessage(socket, { type: 'worker.hello', hello: this.requireWorkerHello() });
+      } catch (error) {
+        rejectIfPending(error);
+      }
     });
   }
 
@@ -278,10 +283,7 @@ export class PairBothRendezvousService {
       return this.workerConfirmAck.promise;
     }
     this.workerConfirmAck = createDeferred<void>();
-    sendMessage(socket, {
-      type: 'worker.confirmed',
-      sessionId: workerHello.pairingSessionId,
-    });
+    sendMessage(socket, { type: 'worker.confirmed', sessionId: workerHello.pairingSessionId });
     const pendingAck = this.workerConfirmAck;
     const timeout = setTimeout(() => {
       pendingAck.reject(new Error('Pair-both confirmation acknowledgement timed out'));
@@ -296,6 +298,9 @@ export class PairBothRendezvousService {
 
   async approveCoordinatorPairing(sessionId: string): Promise<PairBothSessionState> {
     this.coordinatorState = this.store.approveCoordinator(sessionId);
+    pairBothLog.info('Pair-both approved on this computer', this.coordinatorState, {
+      workerConfirmed: this.coordinatorState.workerConfirmed,
+    });
     if (this.coordinatorState.workerConfirmed) {
       return this.deliverEncryptedPairingPayload(sessionId);
     }
@@ -304,11 +309,9 @@ export class PairBothRendezvousService {
 
   rejectCoordinatorPairing(sessionId: string): PairBothSessionState {
     this.coordinatorState = this.store.rejectCoordinator(sessionId);
+    pairBothLog.info('Pair-both rejected on this computer', this.coordinatorState);
     if (this.coordinatorSocket?.readyState === WebSocket.OPEN) {
-      sendMessage(this.coordinatorSocket, {
-        type: 'error',
-        message: 'Coordinator rejected the pairing request',
-      });
+      sendMessage(this.coordinatorSocket, { type: 'error', message: 'Coordinator rejected the pairing request' });
     }
     return this.coordinatorState;
   }
@@ -325,13 +328,17 @@ export class PairBothRendezvousService {
 
   async shutdown(): Promise<void> {
     await Promise.all([
-      this.stopCoordinatorServer(),
+      this.stopCoordinatorServer('stopped by the user'),
       this.closeWorkerSocket(),
     ]);
   }
 
   private handleCoordinatorConnection(socket: WebSocket, request?: IncomingMessage): void {
-    const remoteAddress = request?.socket.remoteAddress;
+    // A dual-stack listener reports IPv4 peers as `::ffff:a.b.c.d`.
+    const remoteAddress = request?.socket.remoteAddress
+      ? stripIpv4MappedPrefix(request.socket.remoteAddress)
+      : undefined;
+    pairBothLog.info('Pair-both connection opened', this.coordinatorState, { remoteAddress });
     socket.on('message', (data) => {
       try {
         let message: PairBothWireMessage;
@@ -351,10 +358,10 @@ export class PairBothRendezvousService {
         if (message.type === 'worker.confirmed') {
           this.assertBoundCoordinatorSocket(socket, message.sessionId);
           this.coordinatorState = this.store.confirmWorkerCode(message.sessionId);
-          sendMessage(socket, {
-            type: 'worker.confirmed.ack',
-            sessionId: message.sessionId,
+          pairBothLog.info('Pair-both worker confirmed the code', this.coordinatorState, {
+            coordinatorApproved: this.coordinatorState.coordinatorApproved,
           });
+          sendMessage(socket, { type: 'worker.confirmed.ack', sessionId: message.sessionId });
           if (this.coordinatorState.coordinatorApproved) {
             this.deliverEncryptedPairingPayload(message.sessionId, socket);
           }
@@ -363,7 +370,8 @@ export class PairBothRendezvousService {
         if (message.type === 'pairing.payload.ack') {
           this.assertBoundCoordinatorSocket(socket, message.sessionId);
           this.coordinatorState = this.store.markPayloadDelivered(message.sessionId);
-          void this.stopCoordinatorServer().catch(() => {
+          pairBothLog.info('Pair-both completed: the worker received its connection details', this.coordinatorState);
+          void this.stopCoordinatorServer('pairing completed').catch(() => {
             if (this.coordinatorState?.sessionId === message.sessionId) {
               this.coordinatorState = {
                 ...this.coordinatorState,
@@ -373,6 +381,10 @@ export class PairBothRendezvousService {
           });
         }
       } catch (error) {
+        pairBothLog.warn('Pair-both request refused', this.coordinatorState, {
+          remoteAddress,
+          error: capForLog(error instanceof Error ? error.message : 'Pair-both request failed'),
+        });
         if (isPairingRateLimitError(error)) {
           socket.close(1008, 'Pairing rate limit exceeded');
           return;
@@ -383,7 +395,11 @@ export class PairBothRendezvousService {
         });
       }
     });
-    socket.once('close', () => {
+    socket.once('close', (code, reason) => {
+      pairBothLog.closed('Pair-both connection closed', this.coordinatorState, code, reason, {
+        remoteAddress,
+        wasBoundWorker: this.coordinatorSocket === socket,
+      });
       if (this.coordinatorSocket === socket) {
         this.coordinatorSocket = null;
         if (
@@ -417,43 +433,30 @@ export class PairBothRendezvousService {
       remoteAddress,
     );
     this.coordinatorSocket = socket;
+    pairBothLog.info('Pair-both worker connected; waiting for the code to be confirmed', this.coordinatorState, {
+      workerMachineName: capForLog(hello.machineName),
+      remoteAddress,
+    });
     sendMessage(socket, {
       type: 'coordinator.hello',
       hello: this.coordinatorState.coordinatorHello,
       shortCode: this.requireCoordinatorCode(),
     });
+    // Never log the code itself.
+    pairBothLog.info('Pair-both verification code is ready to compare on both screens', this.coordinatorState);
   }
 
   private acceptCoordinatorHello(
     candidate: PairBothCandidate,
     message: Extract<PairBothWireMessage, { type: 'coordinator.hello' }>,
   ): PairBothWorkerPairingState {
-    if (message.hello.pairingSessionId !== candidate.pairingSessionId) {
-      throw new Error('Coordinator hello does not match the selected pairing session');
-    }
-    if (message.hello.publicKey !== candidate.coordinatorPublicKey) {
-      throw new Error('Coordinator public key does not match discovery metadata');
-    }
-    if (message.hello.protocolVersion !== candidate.protocolVersion) {
-      throw new Error('Coordinator protocol version does not match discovery metadata');
-    }
-
     const workerHello = this.requireWorkerHello();
-    const keyMaterial = this.requireWorkerKeyMaterial();
-    const transcript = buildPairBothTranscript({
-      protocolVersion: message.hello.protocolVersion,
-      pairingSessionId: candidate.pairingSessionId,
-      coordinator: message.hello,
-      worker: workerHello,
-    });
-    const shortCode = derivePairBothCodeForHellos({
-      privateKey: keyMaterial.privateKey,
-      peerPublicKey: message.hello.publicKey,
-      transcript,
-    });
-    if (shortCode !== message.shortCode) {
-      throw new Error('Pair-both verification code mismatch');
-    }
+    const { transcript, shortCode } = verifyCoordinatorHello(
+      candidate,
+      message,
+      workerHello,
+      this.requireWorkerKeyMaterial(),
+    );
     this.workerTranscript = transcript;
     return {
       sessionId: candidate.pairingSessionId,
@@ -485,6 +488,7 @@ export class PairBothRendezvousService {
       return;
     }
     if (message.type === 'error') {
+      logger.warn('Pair-both coordinator reported an error', { error: capForLog(message.message) });
       throw new Error(message.message);
     }
   }
@@ -497,26 +501,16 @@ export class PairBothRendezvousService {
     if (!this.workerConfirmationAcknowledged) {
       throw new Error('Pair-both payload cannot be applied before worker confirmation');
     }
-    const keyMaterial = this.requireWorkerKeyMaterial();
-    const transcript = this.requireWorkerTranscript();
-    const sessionKey = derivePairBothPayloadKeyForHellos({
-      privateKey: keyMaterial.privateKey,
-      peerPublicKey: transcript.coordinator.publicKey,
-      transcript,
-    });
-    const decrypted = decryptPairBothPayload(
+    const parsed = decryptPairingPayload(
       payload,
-      sessionKey,
-      hashPairBothTranscript(transcript),
+      this.requireWorkerKeyMaterial(),
+      this.requireWorkerTranscript(),
     );
-    const parsed = parsePairingConfigInput(JSON.stringify(decrypted));
     await this.beforeWorkerConfigWrite();
     this.workerResult = writePairedWorkerConfig(this.workerConfigPath, parsed);
     this.clearWorkerResultTimer();
-    sendMessage(this.requireOpenWorkerSocket(), {
-      type: 'pairing.payload.ack',
-      sessionId,
-    });
+    logger.info('Pair-both worker config written', { sessionId });
+    sendMessage(this.requireOpenWorkerSocket(), { type: 'pairing.payload.ack', sessionId });
     this.workerResultDeferred?.resolve(this.workerResult);
   }
 
@@ -537,6 +531,7 @@ export class PairBothRendezvousService {
     if (!latest) {
       throw new Error('Pairing session disappeared after payload delivery');
     }
+    pairBothLog.info('Pair-both connection details sent to the worker', latest);
     this.coordinatorState = latest;
     return latest;
   }
@@ -617,6 +612,7 @@ export class PairBothRendezvousService {
           ? 'Pair-both candidate expired before pairing completed'
           : 'Pair-both worker pairing result timed out',
       );
+      logger.warn('Pair-both worker side timed out', { sessionId: candidate.pairingSessionId, error: error.message });
       this.workerResultDeferred?.reject(error);
       this.workerConfirmAck?.reject(error);
       this.workerConfirmAck = null;
@@ -641,36 +637,32 @@ export class PairBothRendezvousService {
     }
   }
 
-  private async stopCoordinatorServer(): Promise<void> {
+  private async stopCoordinatorServer(reason: string): Promise<void> {
     if (this.coordinatorExpiryTimer) {
       clearTimeout(this.coordinatorExpiryTimer);
       this.coordinatorExpiryTimer = null;
     }
     const server = this.coordinatorServer;
     const socket = this.coordinatorSocket;
-    if (
-      this.coordinatorState?.status === 'approved'
-      && !this.coordinatorState.payloadDelivered
-    ) {
+    if (this.coordinatorState?.status === 'approved' && !this.coordinatorState.payloadDelivered) {
       this.coordinatorState = this.store.abortPayloadDelivery(
         this.coordinatorState.sessionId,
         'Pairing stopped before worker acknowledged payload delivery',
       );
     }
+    // A session still waiting for, or comparing codes with, a worker ends as
+    // cancelled instead of keeping a status that says it is still open.
+    if (this.coordinatorState?.status === 'waiting' || this.coordinatorState?.status === 'confirming') {
+      this.coordinatorState = this.store.cancel(this.coordinatorState.sessionId);
+    }
     this.coordinatorServer = null;
     this.coordinatorSocket = null;
-    if (server) {
-      for (const client of server.clients) {
-        if (client.readyState === WebSocket.OPEN || client.readyState === WebSocket.CONNECTING) {
-          client.close();
-        }
-      }
-    } else if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.close();
-    }
     if (!server) {
+      if (socket?.readyState === WebSocket.OPEN) socket.close();
       return;
     }
+    pairBothLog.info('Pair-both listener stopped', this.coordinatorState, { reason });
+    closeServerClients(server);
     await closeServer(server);
   }
 

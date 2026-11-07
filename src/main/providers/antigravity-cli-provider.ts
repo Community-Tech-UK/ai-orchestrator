@@ -109,7 +109,6 @@ export class AntigravityCliProvider extends BaseProvider {
       yolo: options.yoloMode ?? true,
       sandbox: false,
       workingDir: options.workingDirectory,
-      timeout: 300000,
     };
 
     this.adapter = new AntigravityCliAdapter(antigravityConfig);

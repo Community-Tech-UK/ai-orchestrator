@@ -438,19 +438,54 @@ describe('PlanQueuePageComponent', () => {
     expect(store.control).toHaveBeenCalledWith({ action: 'discard-item', itemId: 'item-parked' });
   });
 
-  it('opens the Set aside agent session once it has started, and stays put if it could not', async () => {
+  it('starts a Set aside agent without leaving the page, and shows it starting, then working', async () => {
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
-    await fixture.componentInstance.onSortOut('/repo');
-    expect(store.startSetAsideAgent).toHaveBeenCalledWith('/repo');
-    expect(setSelectedInstance).toHaveBeenCalledWith('agent-1');
-    expect(navigate).toHaveBeenCalledWith(['/']);
+    let started!: (id: string) => void;
+    store.startSetAsideAgent.mockReturnValue(new Promise<string>((resolve) => { started = resolve; }));
+    store.parkedItems.set([PARKED_ITEM]);
+    store.allRuns.set([makeRun({ id: 'run-x', status: 'completed', workspaceCwd: '/repo' })]);
+    clickTab('Set aside');
+    const row = () => [...(fixture.nativeElement.querySelector('.pq-sort-out-project') as HTMLElement).children].map((part) => part.textContent?.trim()).join(' ');
 
-    setSelectedInstance.mockClear();
-    navigate.mockClear();
-    store.startSetAsideAgent.mockResolvedValue(null);
-    await fixture.componentInstance.onSortOut('/repo');
+    const sorting = fixture.componentInstance.onSortOut('/repo');
+    fixture.detectChanges();
+    expect(row()).toBe('repo (1 job) Starting…');
+
+    instances.set([{ id: 'agent-1', displayName: 'Sort out set-aside work: repo', provider: 'claude', status: 'busy', parentId: null,
+      workingDirectory: '/repo', createdAt: 2, metadata: { planQueueSetAsideFolder: '/repo' } }]);
+    started('agent-1');
+    await sorting;
+    fixture.detectChanges();
+    expect(store.startSetAsideAgent).toHaveBeenCalledWith('/repo');
+    expect(row()).toBe('repo (1 job) Working… Watch it work');
     expect(setSelectedInstance).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
+
+    (fixture.nativeElement.querySelector('.pq-sort-out-open') as HTMLButtonElement).click();
+    expect(setSelectedInstance).toHaveBeenCalledWith('agent-1');
+    expect(navigate).toHaveBeenCalledWith(['/']);
+  });
+
+  it('follows each folder\'s newest Set aside agent, and clears Starting when the start fails', async () => {
+    store.startSetAsideAgent.mockResolvedValue(null);
+    await fixture.componentInstance.onSortOut('/repo');
+    expect(fixture.componentInstance['setAsideAgents']().has('/repo')).toBe(false);
+
+    instances.set([
+      { id: 'old', status: 'idle', createdAt: 1, metadata: { planQueueSetAsideFolder: '/repo' } },
+      { id: 'new', status: 'failed', createdAt: 2, metadata: { planQueueSetAsideFolder: '/repo' } },
+      { id: 'done', status: 'idle', createdAt: 1, metadata: { planQueueSetAsideFolder: '/other' } },
+      { id: 'plain', status: 'busy', createdAt: 3 },
+    ]);
+    expect([...fixture.componentInstance['setAsideAgents']()]).toEqual([
+      ['/repo', { state: 'stopped', instanceId: 'new' }], ['/other', { state: 'finished', instanceId: 'done' }],
+    ]);
+  });
+
+  it('starts every project\'s agent from Sort out all', async () => {
+    fixture.componentInstance.onSortOutAll(['/a', '/b']);
+    await fixture.whenStable();
+    expect(store.startSetAsideAgent.mock.calls).toEqual([['/a'], ['/b']]);
   });
 
   it('warns that Discard deletes work', async () => {

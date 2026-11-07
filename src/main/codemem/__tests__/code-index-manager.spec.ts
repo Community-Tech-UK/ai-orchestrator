@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import { copyFile, mkdir, rm, truncate, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -80,6 +81,61 @@ describe('CodeIndexManager (cold index)', () => {
     const entries = store.listManifestEntries(result.workspaceHash);
 
     expect(entries.find((entry) => entry.pathFromRoot.startsWith('node_modules/'))).toBeUndefined();
+  });
+
+  it('coldIndex follows nested ignore files, and reconcile drops files that become ignored', async () => {
+    const workDir = join(tmpdir(), `codemem-git-ignore-${Date.now()}-${Math.random()}`);
+    await mkdir(join(workDir, 'apps/web/dist-xa'), { recursive: true });
+    await mkdir(join(workDir, 'apps/web/src'), { recursive: true });
+    await mkdir(join(workDir, 'runner-copy'), { recursive: true });
+    execFileSync('git', ['init', '-q'], { cwd: workDir, stdio: 'ignore' });
+    await writeFile(join(workDir, 'apps/web/.gitignore'), '/dist-xa\n');
+    await writeFile(join(workDir, 'apps/web/dist-xa/main.js'), 'export function built(): number { return 1; }\n');
+    await writeFile(join(workDir, 'apps/web/src/app.ts'), 'export function app(): number { return 2; }\n');
+    await writeFile(join(workDir, 'runner-copy/copy.ts'), 'export function copy(): number { return 3; }\n');
+
+    try {
+      const result = await mgr.coldIndex(workDir);
+      const pathsAfterCold = store.listManifestEntries(result.workspaceHash).map((entry) => entry.pathFromRoot).sort();
+      expect(pathsAfterCold).toEqual(['apps/web/src/app.ts', 'runner-copy/copy.ts']);
+
+      await writeFile(join(workDir, '.git/info/exclude'), 'runner-copy/\n');
+      // A fresh manager, so the rules are read again rather than reused from the cold index.
+      const reconcileMgr = new CodeIndexManager({ store });
+      const reconciled = await reconcileMgr.reconcileIndex(workDir);
+      await reconcileMgr.stop();
+
+      expect(reconciled.removedFiles).toBe(1);
+      const paths = store.listManifestEntries(result.workspaceHash).map((entry) => entry.pathFromRoot);
+      expect(paths).toEqual(['apps/web/src/app.ts']);
+      expect(store.listWorkspaceSymbols(result.workspaceHash).some((symbol) => symbol.name === 'copy')).toBe(false);
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
+  });
+
+  it('drops an indexed file on its next change once git ignores it', async () => {
+    const workDir = join(tmpdir(), `codemem-git-ignore-change-${Date.now()}-${Math.random()}`);
+    await mkdir(join(workDir, 'out-of-tree'), { recursive: true });
+    execFileSync('git', ['init', '-q'], { cwd: workDir, stdio: 'ignore' });
+    const builtFile = join(workDir, 'out-of-tree/built.ts');
+    await writeFile(builtFile, 'export function built(): number { return 1; }\n');
+
+    try {
+      const result = await mgr.coldIndex(workDir);
+      expect(store.hasManifestEntry(result.workspaceHash, 'out-of-tree/built.ts')).toBe(true);
+
+      await writeFile(join(workDir, '.git/info/exclude'), 'out-of-tree/\n');
+      // A fresh manager, so the rules are read again rather than reused from the cold index.
+      const changeMgr = new CodeIndexManager({ store });
+      await changeMgr.onFileChange(builtFile, result.workspaceHash);
+      await changeMgr.stop();
+
+      expect(store.hasManifestEntry(result.workspaceHash, 'out-of-tree/built.ts')).toBe(false);
+      expect(store.listWorkspaceSymbols(result.workspaceHash).some((symbol) => symbol.name === 'built')).toBe(false);
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
   });
 
   it('coldIndex ignores archive backup files', async () => {

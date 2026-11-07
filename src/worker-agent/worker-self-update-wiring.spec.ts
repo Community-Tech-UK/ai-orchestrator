@@ -9,6 +9,9 @@ import { runWorkerSelfCheck, startWorkerSelfUpdate } from './worker-self-update-
 import { WORKER_SUPERVISED_ENV } from './worker-self-update';
 
 // Keep heartbeat status projection real while isolating unrelated host inventory.
+// Readiness probes would run xcodebuild, pmset and friends on the real machine.
+vi.mock('./ios/ios-readiness', () => ({ getCachedIosAutomation: () => undefined }));
+vi.mock('./host-readiness', () => ({ getCachedHostReadiness: () => undefined }));
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
   return { ...actual, execFileSync: vi.fn(() => { throw new Error('Fixture CLI unavailable'); }) };

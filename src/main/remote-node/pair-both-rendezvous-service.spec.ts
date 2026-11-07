@@ -79,7 +79,7 @@ describe('PairBothRendezvousService', () => {
       namespace: 'default',
       coordinatorUrl: 'ws://127.0.0.1:4878',
     });
-    const candidate = coordinator.getLocalCandidate(coordinatorState.sessionId, '127.0.0.1');
+    const candidate = coordinator.getLocalCandidate(coordinatorState.sessionId, ['127.0.0.1']);
     const workerState = await worker.connectWorkerToCandidate(candidate);
 
     expect(workerState.shortCode).toMatch(/^\d{3} \d{3}$/);
@@ -135,7 +135,7 @@ describe('PairBothRendezvousService', () => {
       namespace: 'default',
       coordinatorUrl: 'ws://127.0.0.1:4878',
     });
-    const candidate = coordinator.getLocalCandidate(coordinatorState.sessionId, '127.0.0.1');
+    const candidate = coordinator.getLocalCandidate(coordinatorState.sessionId, ['127.0.0.1']);
     await worker.connectWorkerToCandidate(candidate);
 
     const approved = await coordinator.approveCoordinatorPairing(coordinatorState.sessionId);

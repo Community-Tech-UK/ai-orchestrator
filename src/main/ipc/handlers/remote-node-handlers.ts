@@ -32,6 +32,7 @@ import { getLogger } from '../../logging/logger';
 import {
   getLocalIpv4Addresses,
   getTailscaleIpv4Address,
+  getTailscaleIpv6Address,
   getTailscaleMagicDnsName,
 } from '../../util/network-addresses';
 import { getRemoteAuthService } from '../../auth/remote-auth';
@@ -309,6 +310,7 @@ export function registerRemoteNodeHandlers(): void {
               : null,
             localIps: getLocalIpv4Addresses(),
             tailscaleIp: getTailscaleIpv4Address(),
+            tailscaleIpv6: getTailscaleIpv6Address(),
             tailscaleDnsName: getTailscaleMagicDnsName(),
             requireTls: Boolean(config.tlsCertPath && config.tlsKeyPath),
           },

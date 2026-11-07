@@ -21,6 +21,8 @@ export interface BrowserActionClassificationInput {
    * hidden (declaration, destructive) still apply to it.
    */
   ignoreTwoFactor?: boolean;
+  /** The page's own answer: the field being written is a password box. When known it decides the password stop. */
+  passwordField?: boolean;
 }
 
 export interface BrowserFieldClassificationInput {
@@ -91,8 +93,9 @@ const TWO_FACTOR_WORDS = [
   'verification code',
   'recovery code',
 ];
-// "Tokenize" is not a token: it stopped typing into Play Console's tester box.
+// Fallback only, for a box that could not be checked. "Tokenize" is not a token (Play Console tester box).
 const PASSWORD_WORDS = /password|passkey|secret|token(?!i[sz])/;
+const PASSWORD_AUTOCOMPLETE = /(?:^|\s)(?:current|new)-password(?:\s|$)/;
 
 // Payment fields are NEVER automatable, even under an autonomous grant — they
 // hard-stop AND are never grantable (see grant policy). Detected ahead of the
@@ -274,7 +277,7 @@ export function classifyBrowserAction(
   // selection or key press cannot, whatever its control is called, and falls
   // through to the ordinary rules below: "Configure Recovery Password Rotation"
   // stopped a plain Intune dropdown on 2026-11-07.
-  if (TEXT_ENTRY_TOOLS.has(input.toolName) && PASSWORD_WORDS.test(contextText)) {
+  if (TEXT_ENTRY_TOOLS.has(input.toolName) && writesPasswordBox(input, contextText)) {
     return { actionClass: 'credential', hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON };
   }
 
@@ -336,6 +339,24 @@ export function classifyBrowserAction(
     hardStop: false,
     reason: 'unclassified_browser_action',
   };
+}
+
+/**
+ * Whether a text write goes into a password box: yes from the page's own answer or from an inspected element's
+ * own type/autocomplete (never nearby text like "Forgot password?"). Only the agent's words, with no answer from
+ * the page, fall back to the password words: on 2026-11-07, 10 of 20 typing stops were hints like
+ * "Pre-fill username (non-secret)".
+ */
+function writesPasswordBox(input: BrowserActionClassificationInput, contextText: string): boolean {
+  if (input.passwordField === true) {
+    return true;
+  }
+  if (input.elementContextSource === 'agent_hint') {
+    return input.passwordField === undefined && PASSWORD_WORDS.test(contextText);
+  }
+  const context = input.elementContext;
+  return normalize(context?.inputType ?? '').trim() === 'password'
+    || PASSWORD_AUTOCOMPLETE.test(attributeValue(context, 'autocomplete').toLowerCase());
 }
 
 /**
@@ -438,6 +459,8 @@ export interface BrowserPageChallengeEvidence {
     filled: boolean;
     targetIsCodeField: boolean;
   };
+  /** The type/fill_form target is a password box. Absent when unknown (no target, extension < 0.2.51, unresolved). */
+  passwordField?: boolean;
 }
 
 /**
@@ -469,7 +492,11 @@ export const TEXT_ENTRY_TOOLS: ReadonlySet<string> = new Set([
  * box is being written to, or is filled and about to be submitted, is the
  * two-factor step whatever the agent called the control. An empty code box
  * alone stops nothing, so "Send code", "Resend" and cookie banners still pass.
- * An existing hard stop keeps its own (stronger or equal) reason.
+ * A password stop gives way to it (a masked code box is both, and the
+ * two-factor path is the one that recovers); any other hard stop keeps its reason.
+ *
+ * A write into a password box stops even when the caller fixed the
+ * classification (a shared-tab fill_form arrives as plain input).
  */
 export function withPageChallengeEvidence(
   classification: BrowserActionClassification,
@@ -487,14 +514,16 @@ export function withPageChallengeEvidence(
     return { actionClass: 'credential', hardStop: true, reason: CAPTCHA_CHALLENGE_REASON };
   }
   const code = evidence?.oneTimeCode;
-  if (!code || classification.hardStop) {
-    return classification;
+  const submitsCode = PAGE_ACTING_TOOLS.has(toolName) && code?.filled === true;
+  const entersCode = TEXT_ENTRY_TOOLS.has(toolName) && code?.targetIsCodeField === true;
+  const yieldsToCode = !classification.hardStop || classification.reason === CREDENTIAL_CHALLENGE_REASON;
+  if ((submitsCode || entersCode) && yieldsToCode) {
+    return { actionClass: 'credential', hardStop: true, reason: TWO_FACTOR_CHALLENGE_REASON };
   }
-  const submitsCode = PAGE_ACTING_TOOLS.has(toolName) && code.filled;
-  const entersCode = TEXT_ENTRY_TOOLS.has(toolName) && code.targetIsCodeField;
-  return submitsCode || entersCode
-    ? { actionClass: 'credential', hardStop: true, reason: TWO_FACTOR_CHALLENGE_REASON }
-    : classification;
+  if (!classification.hardStop && TEXT_ENTRY_TOOLS.has(toolName) && evidence?.passwordField === true) {
+    return { actionClass: 'credential', hardStop: true, reason: CREDENTIAL_CHALLENGE_REASON };
+  }
+  return classification;
 }
 
 export function classifyBrowserFillForm(
@@ -589,9 +618,7 @@ function navigationLinkClassification(
  * qualifies.
  */
 function navigationDestination(context: BrowserElementContext): string | null {
-  const attributes = context.attributes ?? {};
-  const key = Object.keys(attributes).find((name) => name.toLowerCase() === 'href');
-  const href = key ? attributes[key]?.trim() : undefined;
+  const href = attributeValue(context, 'href').trim();
   if (!href) {
     return null;
   }
@@ -631,6 +658,12 @@ function classFromText(text: string): BrowserActionClass | null {
     return 'submit';
   }
   return null;
+}
+
+function attributeValue(context: BrowserElementContext | undefined, name: string): string {
+  const attributes = context?.attributes ?? {};
+  const key = Object.keys(attributes).find((candidate) => candidate.toLowerCase() === name);
+  return key ? attributes[key] ?? '' : '';
 }
 
 function textFromContext(context?: BrowserElementContext): string {

@@ -40,6 +40,24 @@ describe('coordinator network readiness', () => {
     expect(socket.destroy).toHaveBeenCalledTimes(1);
   });
 
+  it('tells the observer why a probe failed and which address answered', async () => {
+    const failing = new FakeSocket();
+    const answering = Object.assign(new FakeSocket(), { remoteAddress: '::ffff:192.168.0.95' });
+    netMock.createConnection.mockReturnValueOnce(failing).mockReturnValueOnce(answering);
+    const observer = { failed: vi.fn(), reached: vi.fn() };
+
+    const failed = probeCoordinatorCandidate('ws://192.168.0.95:4878', undefined, 2500, observer);
+    const error = Object.assign(new Error('connect EHOSTUNREACH'), { code: 'EHOSTUNREACH' });
+    failing.emit('error', error);
+    const reached = probeCoordinatorCandidate('ws://mac.local:4878', undefined, 2500, observer);
+    answering.emit('connect');
+
+    await expect(failed).resolves.toBe(false);
+    await expect(reached).resolves.toBe(true);
+    expect(observer.failed).toHaveBeenCalledWith('ws://192.168.0.95:4878', error);
+    expect(observer.reached).toHaveBeenCalledWith('ws://mac.local:4878', '::ffff:192.168.0.95');
+  });
+
   it('treats a timed-out stale address as unreachable and closes its probe socket', async () => {
     const socket = new FakeSocket();
     netMock.createConnection.mockReturnValue(socket);

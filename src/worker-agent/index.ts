@@ -1,6 +1,5 @@
 import { WorkerAgent } from './worker-agent';
 import {
-  assertWorkerConfigHasCoordinator,
   DEFAULT_CONFIG_PATH,
   getConfiguredCoordinatorUrl,
   loadWorkerConfig,
@@ -8,6 +7,12 @@ import {
 } from './worker-config';
 import { parseServiceArgs, runServiceCommand } from './cli/service-cli';
 import { runPairCommand } from './cli/pair-cli';
+import {
+  parseInstallAgentArgs,
+  reportHostReadiness,
+  runInstallAgent,
+  runUninstallAgent,
+} from './cli/install-agent-cli';
 import { runBrowserExtensionNativeHost } from '../main/browser-gateway/browser-extension-native-host';
 import { installWorkerFileLogging } from './worker-file-logger';
 import { previousChildPidFromEnv, runWorkerSupervisor } from './worker-supervisor';
@@ -16,6 +21,7 @@ import { WorkerConnectionStatusWriter } from './worker-connection-status';
 import { captureRuntimeVitals, startRuntimeVitalsLogging } from './worker-runtime-vitals';
 import { startHostHealthSampling } from './host-health-sampler';
 import { runWorkerSelfCheck, startWorkerSelfUpdate } from './worker-self-update-wiring';
+import { waitForPairing } from './wait-for-pairing';
 
 const SUPERVISE_FLAG = '--supervise';
 
@@ -29,6 +35,17 @@ async function main(): Promise<void> {
   if (argv[0] === 'native-host') {
     await runBrowserExtensionNativeHost();
     return;
+  }
+
+  if (argv[0] === 'install-agent') {
+    process.exit(await runInstallAgent(parseInstallAgentArgs(argv.slice(1))));
+  }
+  if (argv[0] === 'uninstall-agent') {
+    process.exit(await runUninstallAgent());
+  }
+  if (argv[0] === 'check-host') {
+    await reportHostReadiness((line) => console.log(line));
+    process.exit(0);
   }
 
   if (argv[0] === 'pair') {
@@ -80,7 +97,7 @@ async function main(): Promise<void> {
       : undefined;
 
   const activeConfigPath = configPath ?? DEFAULT_CONFIG_PATH;
-  const config = loadWorkerConfig(activeConfigPath);
+  let config = loadWorkerConfig(activeConfigPath);
   // Tells Harness's Worker Mode page how this worker is doing (connecting,
   // connected, cannot reach the main Harness, refused). Written only once this
   // process holds the lock below: otherwise the report is the live worker's.
@@ -93,8 +110,9 @@ async function main(): Promise<void> {
   // under the same identity and evict the primary's coordinator socket in a
   // flap storm that fails in-flight work. Detect the live primary and exit
   // cleanly instead of connecting.
-  const lock = acquireSingleInstanceLock({
-    key: `${config.namespace}:${config.nodeId}`,
+  const lockKey = (): string => `${config.namespace}:${config.nodeId}`;
+  let lock = acquireSingleInstanceLock({
+    key: lockKey(),
     exitedHolderPid: previousChildPidFromEnv(process.env),
   });
   if (!lock) {
@@ -103,15 +121,31 @@ async function main(): Promise<void> {
     );
     process.exit(0);
   }
-  try {
-    assertWorkerConfigHasCoordinator(config);
-  } catch (error) {
-    lock.release();
-    connectionStatus.set('failed', {
-      message: 'This computer has no address for the main Harness. Pair it again.',
-    });
-    throw error;
+  if (!getConfiguredCoordinatorUrl(config)) {
+    // Unpaired: wait for `aio-worker pair` to write an address rather than
+    // exiting into a restart loop. Pairing keeps the node id; a new namespace
+    // changes the lock key, so take the lock under the new one.
+    const waitingKey = lockKey();
+    const waitingLock = lock;
+    const stopWaiting = (): void => {
+      waitingLock.release();
+      process.exit(0);
+    };
+    process.once('SIGTERM', stopWaiting);
+    process.once('SIGINT', stopWaiting);
+    config = await waitForPairing({ configPath: activeConfigPath, status: connectionStatus });
+    process.off('SIGTERM', stopWaiting);
+    process.off('SIGINT', stopWaiting);
+    if (lockKey() !== waitingKey) {
+      lock.release();
+      lock = acquireSingleInstanceLock({ key: lockKey() });
+      if (!lock) {
+        console.warn(`[WorkerAgent] Another worker is already running for node "${config.nodeId}" — exiting`);
+        process.exit(0);
+      }
+    }
   }
+  const heldLock = lock;
 
   console.log(`Worker node "${config.name}" (${config.nodeId})`);
   console.log(`Connecting to coordinator at ${getConfiguredCoordinatorUrl(config)}...`);
@@ -131,7 +165,7 @@ async function main(): Promise<void> {
     // re-throws whatever the mirrored write throws (a torn-down stdout during
     // exit can raise ERR_STREAM_DESTROYED) — and a throw here would skip the
     // release the previous handler always performed.
-    lock.release();
+    heldLock.release();
     try {
       console.warn(
         `[WorkerAgent] process exiting ${JSON.stringify({
@@ -152,7 +186,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     console.log(`\n${signal} received — shutting down...`);
     await agent.disconnect();
-    lock.release();
+    heldLock.release();
     process.exit(0);
   };
 
@@ -208,7 +242,7 @@ async function main(): Promise<void> {
     onRestart: async () => {
       shuttingDown = true;
       await agent.disconnect();
-      lock.release();
+      heldLock.release();
     },
   });
 }

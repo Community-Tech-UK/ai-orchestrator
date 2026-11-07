@@ -19,6 +19,8 @@ import type {
 import type { NodeHealthEntry } from './remote-nodes-browser-automation';
 import {
   formatServiceConfigStatus,
+  hasConnectionIssue,
+  hostReadinessProblems,
   repairActionLabel,
   shouldShowRepairDiagnostic,
 } from './remote-nodes-repair-ui';
@@ -35,83 +37,104 @@ import {
           @if (error()) {
             <div class="repair-error">{{ error() }}</div>
           }
-          <div class="repair-panel-header">
-            <span class="repair-status" [class.error]="diagnostic.status === 'depaired'">
-              {{ diagnostic.status }}
-            </span>
-            <span>{{ repairActionLabel(diagnostic.recommendedAction) }}</span>
-          </div>
-          <p class="repair-hint">{{ diagnostic.summary }}</p>
-
-          @if (diagnostic.lastRejectedRegistration) {
-            <div class="repair-meta">
-              <span>Rejected {{ diagnostic.lastRejectedRegistration.count }} time(s)</span>
-              <span>Last rejected {{ formatRelativeTime(diagnostic.lastRejectedRegistration.lastSeenAt) }}</span>
-              <span>{{ diagnostic.lastRejectedRegistration.reason }}</span>
-            </div>
-          }
-
-          @if (diagnostic.coordinatorUrls.length > 0) {
-            <div class="repair-meta">
-              @for (url of diagnostic.coordinatorUrls; track url) {
-                <span>{{ url }}</span>
-              }
-            </div>
-          }
-
-          @if (diagnostic.recommendedAction === 'check_connectivity') {
-            <p class="repair-hint">No recent failed registration was seen. Check the remote service or network path first.</p>
-          }
-
-          @if (diagnostic.recommendedAction === 'configure_tls') {
-            <p class="repair-hint warning">Repair command generation is blocked until the coordinator exposes a worker-reachable non-mTLS endpoint or the worker has separate TLS trust/client-certificate configuration.</p>
-          }
-
-          @if (diagnostic.availableActions.includes('check_service_status')) {
-            <div class="repair-actions">
-              <button class="repair-btn" type="button" [disabled]="busy()" (click)="checkServiceStatus()">
-                Check service status
-              </button>
-            </div>
-            @if (serviceConfigDetail()) {
-              <p class="repair-hint">{{ serviceConfigDetail() }}</p>
+          @if (hostReadinessProblems(diagnostic); as problems) {
+            @if (problems.length > 0) {
+              <div class="repair-host">
+                <p class="repair-hint">To run jobs without anyone at this computer, fix:</p>
+                @for (problem of problems; track problem.id) {
+                  <div class="repair-host-item">
+                    <span>{{ problem.summary }}</span>
+                    @if (problem.fix) {
+                      <span class="repair-hint">{{ problem.fix }}</span>
+                    }
+                    @if (problem.needsAdmin) {
+                      <span class="repair-hint">Needs an admin password.</span>
+                    }
+                  </div>
+                }
+              </div>
             }
           }
 
-          @if (diagnostic.recommendedAction === 'choose_platform') {
-            <label class="repair-field">
-              <span>Repair command platform</span>
-              <select [value]="platformSelection()" (change)="setPlatform($any($event.target).value)">
-                <option value="">Choose platform</option>
-                <option value="win32">Windows</option>
-              </select>
-            </label>
-          }
-
-          @if (diagnostic.recommendedAction === 'copy_windows_command' || diagnostic.recommendedAction === 'choose_platform') {
-            <div class="repair-actions">
-              <button
-                class="repair-btn primary"
-                type="button"
-                [disabled]="busy()" [appTooltipDisabledReason]="diagnostic.recommendedAction === 'choose_platform' && platformSelection() !== 'win32' ? 'Choose Windows as the repair command platform first.' : null"
-                (click)="generateRepairCommand()"
-              >
-                {{ busy() ? 'Generating...' : 'Generate repair command' }}
-              </button>
+          @if (hasConnectionIssue(diagnostic)) {
+            <div class="repair-panel-header">
+              <span class="repair-status" [class.error]="diagnostic.status === 'depaired'">
+                {{ diagnostic.status }}
+              </span>
+              <span>{{ repairActionLabel(diagnostic.recommendedAction) }}</span>
             </div>
-          }
+            <p class="repair-hint">{{ diagnostic.summary }}</p>
 
-          @if (command(); as command) {
-            <div class="repair-meta">
-              <span>Expires {{ formatExpiry(command.expiresAt) }}</span>
-              <span>{{ command.configPath }}</span>
-              <span>Regenerate after app restart or expiry.</span>
-            </div>
-            <app-code-preview-block
-              label="Windows Repair Command"
-              [code]="command.command"
-              (copyRequested)="copyRepairCommand($event)"
-            />
+            @if (diagnostic.lastRejectedRegistration) {
+              <div class="repair-meta">
+                <span>Rejected {{ diagnostic.lastRejectedRegistration.count }} time(s)</span>
+                <span>Last rejected {{ formatRelativeTime(diagnostic.lastRejectedRegistration.lastSeenAt) }}</span>
+                <span>{{ diagnostic.lastRejectedRegistration.reason }}</span>
+              </div>
+            }
+
+            @if (diagnostic.coordinatorUrls.length > 0) {
+              <div class="repair-meta">
+                @for (url of diagnostic.coordinatorUrls; track url) {
+                  <span>{{ url }}</span>
+                }
+              </div>
+            }
+
+            @if (diagnostic.recommendedAction === 'check_connectivity') {
+              <p class="repair-hint">No recent failed registration was seen. Check the remote service or network path first.</p>
+            }
+
+            @if (diagnostic.recommendedAction === 'configure_tls') {
+              <p class="repair-hint warning">Repair command generation is blocked until the coordinator exposes a worker-reachable non-mTLS endpoint or the worker has separate TLS trust/client-certificate configuration.</p>
+            }
+
+            @if (diagnostic.availableActions.includes('check_service_status')) {
+              <div class="repair-actions">
+                <button class="repair-btn" type="button" [disabled]="busy()" (click)="checkServiceStatus()">
+                  Check service status
+                </button>
+              </div>
+              @if (serviceConfigDetail()) {
+                <p class="repair-hint">{{ serviceConfigDetail() }}</p>
+              }
+            }
+
+            @if (diagnostic.recommendedAction === 'choose_platform') {
+              <label class="repair-field">
+                <span>Repair command platform</span>
+                <select [value]="platformSelection()" (change)="setPlatform($any($event.target).value)">
+                  <option value="">Choose platform</option>
+                  <option value="win32">Windows</option>
+                </select>
+              </label>
+            }
+
+            @if (diagnostic.recommendedAction === 'copy_windows_command' || diagnostic.recommendedAction === 'choose_platform') {
+              <div class="repair-actions">
+                <button
+                  class="repair-btn primary"
+                  type="button"
+                  [disabled]="busy()" [appTooltipDisabledReason]="diagnostic.recommendedAction === 'choose_platform' && platformSelection() !== 'win32' ? 'Choose Windows as the repair command platform first.' : null"
+                  (click)="generateRepairCommand()"
+                >
+                  {{ busy() ? 'Generating...' : 'Generate repair command' }}
+                </button>
+              </div>
+            }
+
+            @if (command(); as command) {
+              <div class="repair-meta">
+                <span>Expires {{ formatExpiry(command.expiresAt) }}</span>
+                <span>{{ command.configPath }}</span>
+                <span>Regenerate after app restart or expiry.</span>
+              </div>
+              <app-code-preview-block
+                label="Windows Repair Command"
+                [code]="command.command"
+                (copyRequested)="copyRepairCommand($event)"
+              />
+            }
           }
         </div>
       }
@@ -148,6 +171,15 @@ import {
     .repair-status.error {
       background: var(--pill-error-bg);
       color: var(--pill-error-fg);
+    }
+    .repair-host,
+    .repair-host-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .repair-host-item {
+      font-size: 0.8125rem;
     }
     .repair-hint {
       margin: 0;
@@ -216,6 +248,8 @@ export class RemoteNodeRepairPanelComponent implements OnChanges {
   protected readonly error = signal<string | null>(null);
 
   protected readonly shouldShowRepairDiagnostic = shouldShowRepairDiagnostic;
+  protected readonly hasConnectionIssue = hasConnectionIssue;
+  protected readonly hostReadinessProblems = hostReadinessProblems;
   protected readonly repairActionLabel = repairActionLabel;
   private repairContextKey = '';
 

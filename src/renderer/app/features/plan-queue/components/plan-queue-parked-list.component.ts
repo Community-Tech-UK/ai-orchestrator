@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, linkedSignal, output, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
-import { PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT, type PlanQueueItemDto, type PlanQueueParkReason, type PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import type { PlanQueueItemDto, PlanQueueParkReason, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
 import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../../shared/tooltip/tooltip-copy';
 import { PlanQueueStore } from '../../../core/state/plan-queue.store';
@@ -11,6 +11,13 @@ import { foldDetail, pluralise } from '../../../../../shared/utils/plan-queue-it
 import { planQueueBulkResumePreview, planQueueBulkRetryPreview, type PlanQueueBulkPreview } from '../plan-queue-bulk-preview';
 
 type ParkedAction = 'land-anyway' | 'discard-item';
+
+/** Where a project's Set aside agent has got to; a folder with no agent has no entry. */
+export interface PlanQueueSetAsideAgentView {
+  state: 'starting' | 'working' | 'finished' | 'stopped';
+  /** Null while it is starting. */
+  instanceId: string | null;
+}
 
 /** Documents shown per section before "Show more". */
 const SECTION_PAGE_SIZE = 25;
@@ -65,8 +72,11 @@ export class PlanQueueParkedListComponent {
   runs = input<readonly PlanQueueRunDto[]>([]);
   busyDocuments = input<readonly string[]>([]);
   chooseChecker = output<string>();
+  /** Each project folder's Set aside agent, keyed by folder. */
+  agents = input<ReadonlyMap<string, PlanQueueSetAsideAgentView>>(new Map());
   sortOut = output<string>();
-  protected readonly restartLimit = PLAN_QUEUE_SET_ASIDE_RESTART_LIMIT;
+  sortOutAll = output<string[]>();
+  openAgent = output<string>();
   /** One entry per project folder with set-aside jobs, biggest first. */
   protected readonly agentFolders = computed(() => {
     const folderOf = new Map(this.runs().map(run => [run.id, run.workspaceCwd]));
@@ -75,9 +85,16 @@ export class PlanQueueParkedListComponent {
       const folder = folderOf.get(item.runId);
       if (folder) jobs.set(folder, (jobs.get(folder) ?? 0) + 1);
     }
-    return [...jobs].map(([folder, count]) => ({ folder, name: projectName(folder) || folder, count }))
+    const agents = this.agents();
+    return [...jobs].map(([folder, count]) => ({ folder, name: projectName(folder) || folder, count, agent: agents.get(folder) ?? null }))
       .sort((a, b) => b.count - a.count || a.folder.localeCompare(b.folder));
   });
+  /** Folders whose agent is not already starting or working, so Sort out everything never starts a second one. */
+  protected readonly idleAgentFolders = computed(() => this.agentFolders()
+    .filter(entry => entry.agent?.state !== 'starting' && entry.agent?.state !== 'working').map(entry => entry.folder));
+  protected openAgentLabel(agent: PlanQueueSetAsideAgentView | null): string {
+    return agent?.state === 'working' ? 'Watch it work' : agent?.state === 'finished' ? 'Read its report' : 'Open its session';
+  }
   protected readonly pluralise = pluralise;
   protected readonly detailFor = foldDetail;
   protected readonly query = signal('');

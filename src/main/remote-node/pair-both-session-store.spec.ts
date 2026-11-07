@@ -54,6 +54,29 @@ describe('PairBothSessionStore', () => {
     });
   });
 
+  it('puts the fallback coordinator URLs in the payload only when there are some', () => {
+    const issue = () => ({ token: 'one-time-pairing-token', createdAt: 1_000, expiresAt: 301_000 });
+    const configFor = (coordinatorUrls?: string[]) => {
+      const store = new PairBothSessionStore({ auth: { issuePairingCredential: issue }, now: () => 1_000 });
+      const session = store.beginCoordinatorSession({
+        machineName: 'James MacBook',
+        namespace: 'default',
+        listenerPort: 49321,
+        coordinatorUrl: 'ws://mac.ts.net:4878',
+        ...(coordinatorUrls ? { coordinatorUrls } : {}),
+      });
+      store.acceptWorkerHello(session.sessionId, workerHello(session.sessionId, generatePairBothKeyMaterial().publicKey));
+      store.confirmWorkerCode(session.sessionId);
+      store.approveCoordinator(session.sessionId);
+      return store.producePairingPayload(session.sessionId).connectionConfig;
+    };
+
+    expect(configFor(['ws://[fd7a:115c:a1e0::1234]:4878', 'ws://192.168.1.2:4878']).coordinatorUrls)
+      .toEqual(['ws://[fd7a:115c:a1e0::1234]:4878', 'ws://192.168.1.2:4878']);
+    expect(configFor([])).not.toHaveProperty('coordinatorUrls');
+    expect(configFor()).not.toHaveProperty('coordinatorUrls');
+  });
+
   it('marks a pairing complete only after the worker acknowledges payload delivery', () => {
     const store = new PairBothSessionStore({
       auth: {

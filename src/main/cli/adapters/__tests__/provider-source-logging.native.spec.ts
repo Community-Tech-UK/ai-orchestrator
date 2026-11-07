@@ -92,7 +92,10 @@ function capture(adapter: BaseCliAdapter) {
 describe('native provider source logging boundaries', () => {
   it.each(['gemini', 'antigravity'] as const)('%s informational stderr keeps source out of log arguments and sink', async provider => {
     const visible = `Visible ${marker}`;
-    const stdout = provider === 'gemini' ? `${JSON.stringify({ type: 'message', role: 'assistant', content: visible })}\n` : visible;
+    const stdout = provider === 'gemini'
+      ? `${JSON.stringify({ type: 'message', role: 'assistant', content: visible })}\n`
+      : `${JSON.stringify({ event: 'step_update', step_update: { step_index: 1, state: 'DONE', step_type: 'agent_response', text_delta: visible } })}\n`
+        + `${JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: visible } })}\n`;
     const stderr = `Provider banner ${marker}`;
     const { adapter, output, receipt } = nativeCli(provider, stdout, stderr);
     const response = await adapter.sendMessage({ role: 'user', content: prompt });
@@ -104,14 +107,28 @@ describe('native provider source logging boundaries', () => {
     expect(diagnostic?.data).toEqual({ textChars: stderr.length, textHash: createHash('sha256').update(stderr).digest('hex').slice(0, 16) });
   });
 
-  it.each(['gemini', 'antigravity'] as const)('%s listenerless native errors keep visible source and omit logged source', async provider => {
+  it('gemini listenerless native errors keep visible source and omit logged source', async () => {
     const stderr = `Error: ${marker}`;
-    const stdout = provider === 'gemini' ? `${JSON.stringify({ type: 'message', role: 'assistant', content: marker })}\n` : marker;
-    const { adapter, output, receipt } = nativeCli(provider, stdout, stderr);
+    const stdout = `${JSON.stringify({ type: 'message', role: 'assistant', content: marker })}\n`;
+    const { adapter, output, receipt } = nativeCli('gemini', stdout, stderr);
     await adapter.sendMessage({ role: 'user', content: prompt });
     expect(output.some(message => message.type === 'error' && message.content === stderr)).toBe(true);
     expect(readFileSync(receipt, 'utf8')).toContain(prompt);
-    verifyLogs(`${provider}-stderr-error`, [provider === 'gemini' ? 'Gemini CLI error without listener' : 'Antigravity CLI error without listener']);
+    verifyLogs('gemini-stderr-error', ['Gemini CLI error without listener']);
+  });
+
+  it('antigravity listenerless turn errors keep visible source and omit logged source', async () => {
+    // agy reports a failed turn in its result event (and repeats it on stderr);
+    // the result is what reaches the transcript.
+    const failure = `Error: ${marker}`;
+    const stdout = `${JSON.stringify({ event: 'init', conversation_id: 'synthetic-conversation', init: {} })}\n`
+      + `${JSON.stringify({ event: 'result', result: { status: 'ERROR', response: '', error: failure } })}\n`;
+    const { adapter, output, receipt } = nativeCli('antigravity', stdout, `error: ${marker}`);
+    Object.assign(adapter, { isSpawned: true });
+    await expect(adapter.sendInput(prompt)).rejects.toThrow(failure);
+    expect(output.filter(message => message.type === 'error').map(message => message.content)).toEqual([failure]);
+    expect(readFileSync(receipt, 'utf8')).toContain(prompt);
+    verifyLogs('antigravity-turn-error', ['Antigravity CLI error without listener', 'agy stderr']);
   });
 
   it('Gemini malformed native stdout logs diagnostics while preserving native and parsed output', async () => {

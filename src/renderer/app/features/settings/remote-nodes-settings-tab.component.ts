@@ -56,16 +56,18 @@ import { getControlSurface } from '../../shared/control-surface/control-surface-
 import { RemoteNodeListComponent } from './remote-node-list.component';
 import { RemoteNodeDetailComponent, type RemoteNodeDetailAction } from './remote-node-detail.component';
 import {
-  buildCanonicalConnectionConfig,
-  buildPairingCommand,
-  buildPairingLink,
   formatPairingCredentialLabel,
   formatExpiry,
   formatRelativeTime,
-  selectPairingConnectionHost,
+} from './remote-nodes-pairing-ui';
+import {
+  buildCanonicalConnectionConfig,
+  buildPairingCommand,
+  buildPairingLink,
+  selectPairingConnectionHosts,
   selectPairingConnectionPort,
   type PairingCopyInput,
-} from './remote-nodes-pairing-ui';
+} from '../../../../shared/remote-node/pairing-command';
 
 export type { RemoteNodesSection };
 
@@ -641,7 +643,7 @@ export class RemoteNodesSettingsTabComponent implements OnInit, OnDestroy {
     return {
       token,
       label: this.pendingPairings().find((pairing) => pairing.token === token)?.label,
-      host: selectPairingConnectionHost(this.serverStatus(), this.store.remoteNodesServerHost()),
+      ...selectPairingConnectionHosts(this.serverStatus(), this.store.remoteNodesServerHost()),
       port: selectPairingConnectionPort(this.serverStatus(), this.store.remoteNodesServerPort()),
       namespace: this.store.remoteNodesNamespace(),
       requireTls: this.serverStatus().requireTls ?? this.store.remoteNodesRequireTls(),

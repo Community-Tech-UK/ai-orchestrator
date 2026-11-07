@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { reportCapabilities } from '../capability-reporter';
 
+// Readiness probes would run xcodebuild, pmset and friends on the real machine.
+vi.mock('../ios/ios-readiness', () => ({ getCachedIosAutomation: () => undefined }));
+vi.mock('../host-readiness', () => ({ getCachedHostReadiness: () => undefined }));
 vi.mock('../worker-cli-versions', () => ({ readWorkerCliVersions: vi.fn().mockResolvedValue({ claude: '2.1.296' }) }));
 
 // Selected-install process probing has its own tests; heartbeats must not open the developer's real OpenCode database.

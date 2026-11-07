@@ -85,6 +85,13 @@ describe('AntigravityCliAdapter buildArgs model forwarding', () => {
     expect(second[second.length - 1]).toContain('[RTK AWARENESS]');
   });
 
+  it('asks agy for its stream-json step events', () => {
+    const args = buildArgs(new AntigravityCliAdapter({}));
+    const formatIdx = args.indexOf('--output-format');
+    expect(args[formatIdx + 1]).toBe('stream-json');
+    expect(formatIdx).toBeLessThan(args.indexOf('--print'));
+  });
+
   it('adds --dangerously-skip-permissions when yolo is enabled', () => {
     const adapter = new AntigravityCliAdapter({ yolo: true });
     expect(buildArgs(adapter)).toContain('--dangerously-skip-permissions');

@@ -364,7 +364,12 @@ async function warmWorkspace(msg: WarmWorkspaceMsg): Promise<void> {
     // An existing index may predate this worker: no watcher was running while
     // the app was closed, so diff the manifest against the filesystem once.
     store.clearCancel(workspaceHash);
-    await indexManager.reconcileIndex(normalizedPath);
+    const result = await indexManager.reconcileIndex(normalizedPath);
+    // A reconcile cancelled part-way, for example by a warm timeout during a busy start, has not
+    // repaired the index (LT-729: ignored files stay indexed), so the next warm tries again.
+    if (result.cancelled) {
+      reconciledWorkspaces.delete(workspaceHash);
+    }
   } catch (error) {
     logger.warn('Codemem warm reconcile failed', {
       error: error instanceof Error ? error.message : String(error),

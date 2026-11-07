@@ -278,6 +278,9 @@
                 Expires {{ formatExpiry(pairing.expiresAt) }}
               </span>
               <span>Created {{ formatRelativeTime(pairing.createdAt) }}</span>
+              @if (pairing.issuedBy) {
+                <span>Requested by {{ pairing.issuedBy.name }}</span>
+              }
             </div>
 
             <div class="btn-row">
@@ -299,6 +302,9 @@
                 <div class="node-meta">
                   <span>Created {{ formatRelativeTime(pairing.createdAt) }}</span>
                   <span [class.warning-text]="pairingExpiresSoon(pairing)">Expires {{ formatExpiry(pairing.expiresAt) }}</span>
+                  @if (pairing.issuedBy) {
+                    <span>Requested by {{ pairing.issuedBy.name }}</span>
+                  }
                 </div>
               </div>
               <div class="btn-row compact">

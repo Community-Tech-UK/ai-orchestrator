@@ -340,6 +340,7 @@ export function readWorkerConnectionStatus(
 }
 
 const STATES = new Set<WorkerConnectionState>([
+  'waiting_for_pairing',
   'connecting',
   'registering',
   'connected',

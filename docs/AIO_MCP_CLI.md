@@ -25,7 +25,7 @@ dist/aio-mcp-cli-sea/aio-mcp --help
 | Command | Purpose |
 | --- | --- |
 | `settings` | Inspect and repair Harness app settings through the running parent app. |
-| `remote-nodes` | Print the safe remote worker roster. |
+| `remote-nodes` | Print the safe remote worker roster, or issue a one-time command that pairs a new worker computer. |
 | `release-readiness` | Build a mobile release readiness report from evidence JSON and live captures. |
 | `local-ai` | Discover, enrol, inspect, check, rename, edit, pause, and retire Local AI Guard targets, read effectiveness, and acknowledge incidents through the running parent app. |
 | `copilot-account` | Inspect GitHub Copilot account routing: profiles, rules, what a workspace resolves to, and routing health. Read-only. |
@@ -85,7 +85,7 @@ reused when the job's worktree HEAD is unchanged.
 | `plan_queue_answer` | `item_id`, `option_id` | Record James's answer to a readiness or worker question. Parent session only. |
 | `plan_queue_control` | `action`, `run_id?`, `item_id?`, `routing?`, `move_in_progress?` | Pause stops workers, triage and checkers now, checkpointing work on document branches; Resume starts fresh sessions on those branches. Landing already in progress finishes. Cancel ends the run. `set-routing` changes providers/accounts for future sessions; see below. Item controls include skip, resume, retry-landing, land-anyway and discard. Parent session only, with two exceptions. Any session the queue did not start may `discard-item` a parked item or `restore-discarded` it, whoever owns the run. Stranded-run rescue: once the parent no longer exists, such a session may also adopt or cancel the run. `set-routing` is never a rescue action. `request-handover` (`run_id`) asks the current owner to transfer the run; `handover` (`run_id`, `target_instance_id`) is the owner's own transfer, refused while any document is being worked on or checked. If the owner does not answer, use `aio-mcp plan-queue move` below. |
 | `plan_queue_set_aside` | `offset?` | The Set aside agent only (caller-checked). Lists the jobs set aside in its folder, 40 at a time, with what each branch still holds, whether it merges cleanly and whether its checks passed. Read-only. |
-| `plan_queue_set_aside_clear` | none | The Set aside agent only (caller-checked). Removes jobs proved to hold nothing: no branch, or a branch that adds nothing to the base branch. Call until `more` is false. The Set aside tab starts this agent, one per project folder. In `plan_queue_control` it may use `discard-item` and `restore-discarded`, and in that folder `retry-landing` and `resume-item`, ten times in all per session. Discarding and restoring are not limited. |
+| `plan_queue_set_aside_clear` | none | The Set aside agent only (caller-checked). Removes jobs proved to hold nothing: no branch, or a branch that adds nothing to the base branch. Call until `more` is false. The Set aside tab starts this agent, one per project folder. In `plan_queue_control` it may use `discard-item` and `restore-discarded`, and in that folder `retry-landing`, `resume-item` and `land-anyway`, with no limit on how many. It acts on its own recommendations and may fix faults outside the jobs, including Harness bugs when Harness can find its own source folder (the app folder when it runs from source, otherwise a Plan Queue project folder holding Harness's repository). |
 | `plan_queue_report_triage` | `run_id`, `records` | Triage agent only (caller-checked). |
 | `plan_queue_report_verdict` | `item_id`, `verdict`, `not_checked`, `findings?`, `gates_run?`, `document_complete?`, `need_james?` | The item's current verifier only (caller-checked); a worker cannot report its own verdict. `not_checked` is a required array (empty is allowed); each entry explains a specific remaining check. Harness's own current gate receipts must agree with a PASS. |
 
@@ -321,6 +321,35 @@ app:
 $AIO_MCP remote-nodes
 $AIO_MCP remote-nodes --json
 ```
+
+### Pairing a new worker computer
+
+An agent setting up a worker can pair it without the Other computers page:
+
+```bash
+$AIO_MCP remote-nodes pair --label ct-test-mac
+$AIO_MCP remote-nodes pair --label ct-test-mac --ttl-minutes 15 --json
+```
+
+It issues one single-use pairing credential through the running app, the same
+kind Copy Command issues, and prints the ready-to-run `aio-worker pair "<link>"`
+command, the canonical connection config and the expiry. The lifetime defaults
+to 60 minutes, which is also the maximum. Harness must be accepting worker
+connections ("Let your other computers connect" on the Other computers page).
+The long-lived manual pairing token (`remoteNodesEnrollmentToken`) is never
+read or changed.
+
+Run the printed command on the new computer, for example over SSH. The link
+carries every address this computer answers on; the worker tries them in order
+and keeps the first that answers. The command contains the credential, so never
+paste it into chat, logs or files other than the worker config. The pairing
+shows on the Other computers page with the requesting session's name and can be
+revoked there. Chat agents without a shell can use the deferred
+`issue_remote_node_pairing` tool instead (search the orchestrator tools for
+"pair a new remote worker node").
+
+Only Harness-spawned local sessions can issue a credential. Agents running on a
+worker computer are refused.
 
 ## Local AI Guard
 
@@ -797,6 +826,7 @@ npm run test:quiet -- \
   src/main/mcp/orchestrator-tools-rpc-server.spec.ts \
   src/main/mcp/orchestrator-settings-tools.spec.ts \
   src/main/mcp/remote-nodes-cli.spec.ts \
+  src/main/remote-node/agent-pairing-command.spec.ts \
   src/main/mcp/release-readiness-cli.spec.ts
 
 npm run build:aio-mcp-dist

@@ -1,9 +1,8 @@
 import * as fs from 'node:fs';
 import * as net from 'node:net';
-import * as os from 'node:os';
 import * as tls from 'node:tls';
 import * as readline from 'node:readline/promises';
-import { DEFAULT_CONFIG_PATH } from '../worker-config';
+import { DEFAULT_CONFIG_PATH, defaultWorkerName } from '../worker-config';
 import {
   buildCoordinatorUrl,
   parsePairingConfigInput,
@@ -11,7 +10,10 @@ import {
   writePairedWorkerConfig,
   type ParsedPairingConfig,
 } from './pairing-config';
-import { clearWorkerConnectionStatus } from '../worker-connection-status';
+import { clearWorkerConnectionStatus, readWorkerConnectionStatus } from '../worker-connection-status';
+import { isSingleInstanceLockHeld } from '../single-instance-lock';
+import { setUpBrowserFeatures } from './browser-setup';
+import { formatHostPort } from '../../shared/remote-node/host-address';
 
 export interface PairCommandResult {
   exitCode: number;
@@ -26,6 +28,9 @@ export interface PairCommandDeps {
   stdin?: NodeJS.ReadableStream;
   isInteractive?: boolean;
   prompt?: (question: string) => Promise<string>;
+  setUpBrowser?: (configPath: string) => string[];
+  isWorkerRunning?: (key: string) => boolean;
+  platform?: NodeJS.Platform;
 }
 
 interface ParsedPairArgs {
@@ -35,6 +40,7 @@ interface ParsedPairArgs {
   workingDirectories: string[];
   probe: boolean;
   startWorker: boolean;
+  browser: boolean;
 }
 
 export async function runPairCommand(
@@ -55,16 +61,41 @@ export async function runPairCommand(
       : prompted.workingDirectories,
   };
 
-  if (options.probe) {
-    await (deps.probeCoordinator ?? probeCoordinatorReachability)(merged.coordinatorUrl);
+  const reachable = options.probe
+    ? await preferReachableCoordinator(merged, deps.probeCoordinator ?? probeCoordinatorReachability)
+    : merged;
+  if (reachable.coordinatorUrl !== merged.coordinatorUrl) {
+    stdout(`${safeCoordinatorDisplay(merged.coordinatorUrl)} did not answer; using ${safeCoordinatorDisplay(reachable.coordinatorUrl)}.\n`);
   }
 
-  const config = writePairedWorkerConfig(options.configPath, merged);
+  const runningState = readWorkerConnectionStatus(options.configPath)?.state;
+  // Browser settings go in first, so a worker waiting to be paired starts
+  // with them: it starts as soon as the file holds an address.
+  const browserLines = options.browser ? (deps.setUpBrowser ?? setUpBrowserFeatures)(options.configPath) : [];
+  const config = writePairedWorkerConfig(options.configPath, reachable);
   // Any report beside the config is about the previous pairing.
   clearWorkerConnectionStatus(options.configPath);
   const coordinator = safeCoordinatorDisplay(config.coordinatorUrl);
   stdout(`Paired ${config.name} with ${coordinator}.\n`);
-  if (options.startWorker) {
+  for (const line of browserLines) {
+    stdout(`${line}\n`);
+  }
+  if ((deps.platform ?? process.platform) === 'darwin') {
+    stdout('If macOS asks whether the worker may find devices on your local network, click Allow.\n');
+  }
+
+  // A worker already running for this node holds its lock, so a second one
+  // would exit at once. One waiting to be paired picks the new config up.
+  const running = (deps.isWorkerRunning ?? ((key) => isSingleInstanceLockHeld({ key })))(
+    `${config.namespace}:${config.nodeId}`,
+  );
+  let startWorker = options.startWorker;
+  if (running) {
+    startWorker = false;
+    stdout(runningState === 'waiting_for_pairing'
+      ? 'The worker already running here was waiting to be paired and connects now.\n'
+      : 'A worker is already running here. Restart it to use this pairing.\n');
+  } else if (startWorker) {
     stdout('Worker starting under supervision.\n');
   } else {
     stderr('Worker config written. Start it with aio-worker --supervise.\n');
@@ -72,7 +103,7 @@ export async function runPairCommand(
 
   return {
     exitCode: 0,
-    startWorker: options.startWorker,
+    startWorker,
     configPath: options.configPath,
   };
 }
@@ -83,6 +114,7 @@ export function parsePairCommandArgs(argv: string[]): ParsedPairArgs {
     workingDirectories: [],
     probe: true,
     startWorker: true,
+    browser: true,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -99,6 +131,8 @@ export function parsePairCommandArgs(argv: string[]): ParsedPairArgs {
       result.startWorker = false;
     } else if (arg === '--start') {
       result.startWorker = true;
+    } else if (arg === '--no-browser') {
+      result.browser = false;
     } else if (arg.startsWith('--')) {
       throw new Error(`Unknown pair option: ${arg}`);
     } else if (!result.input) {
@@ -114,11 +148,12 @@ export function parsePairCommandArgs(argv: string[]): ParsedPairArgs {
 export function probeCoordinatorReachability(coordinatorUrl: string, timeoutMs = 5_000): Promise<void> {
   const url = new URL(coordinatorUrl);
   const port = Number.parseInt(url.port || (url.protocol === 'wss:' ? '443' : '80'), 10);
-  const host = url.hostname;
+  // `new URL` keeps IPv6 brackets in `hostname`; sockets need the bare address.
+  const host = url.hostname.replace(/^\[|\]$/g, '');
   return new Promise<void>((resolve, reject) => {
     const onError = (error: Error): void => {
       socket.destroy();
-      reject(new Error(`Coordinator is not reachable at ${host}:${port}: ${error.message}`));
+      reject(new Error(`Coordinator is not reachable at ${formatHostPort(host, port)}: ${error.message}`));
     };
     const socket = url.protocol === 'wss:'
       ? tls.connect({ host, port, servername: host, rejectUnauthorized: false })
@@ -134,6 +169,31 @@ export function probeCoordinatorReachability(coordinatorUrl: string, timeoutMs =
       resolve();
     });
   });
+}
+
+/**
+ * Probes the primary coordinator URL, then each fallback in order, and makes
+ * the first that answers the primary. The others stay as fallbacks because a
+ * route that fails now (say, Tailscale) may work from this computer later.
+ * Throws every probe error when nothing answers.
+ */
+async function preferReachableCoordinator(
+  parsed: ParsedPairingConfig,
+  probe: (coordinatorUrl: string) => Promise<void>,
+): Promise<ParsedPairingConfig> {
+  const candidates = [parsed.coordinatorUrl, ...(parsed.coordinatorUrls ?? [])];
+  const failures: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      await probe(candidate);
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : String(error));
+      continue;
+    }
+    const others = candidates.filter((url) => url !== candidate);
+    return { ...parsed, coordinatorUrl: candidate, ...(others.length > 0 ? { coordinatorUrls: others } : {}) };
+  }
+  throw new Error(failures.join('\n'));
 }
 
 async function parseInputWithCredentialPrompt(
@@ -195,7 +255,7 @@ async function promptForPairingDetails(
     return parsed;
   }
 
-  const defaultName = parsed.name?.trim() || os.hostname();
+  const defaultName = parsed.name?.trim() || defaultWorkerName();
   const name = options.name
     ? options.name
     : (await askQuestion(deps, `Worker display name [${defaultName}]: `)).trim() || defaultName;

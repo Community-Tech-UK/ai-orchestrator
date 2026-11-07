@@ -203,6 +203,27 @@ describe('codemem index worker main', () => {
     expect(indexManager.reconcileIndex).toHaveBeenCalledTimes(1);
   });
 
+  it('reconciles again on the next warm when the reconcile was cancelled part-way', async () => {
+    const repo = path.resolve('/repo');
+    store.getWorkspaceRootByPath.mockReturnValue({ absPath: repo, primaryLanguage: 'typescript' });
+    indexManager.reconcileIndex.mockResolvedValueOnce({
+      workspaceHash: 'hash',
+      scannedFiles: 0,
+      changedFiles: 0,
+      removedFiles: 0,
+      cancelled: true,
+    });
+
+    await importWorker();
+    for (const id of [1, 2, 3]) {
+      parentPort.emit('message', { type: 'warm-workspace', id, workspacePath: '/repo' });
+      await flushMicrotasks();
+    }
+
+    // Cancelled, then completed; the third warm finds it already reconciled.
+    expect(indexManager.reconcileIndex).toHaveBeenCalledTimes(2);
+  });
+
   it('re-arms warm reconcile after the workspace watcher is stopped', async () => {
     const repo = path.resolve('/repo');
     store.getWorkspaceRootByPath.mockReturnValue({ absPath: repo, primaryLanguage: 'typescript' });

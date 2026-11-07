@@ -27,6 +27,7 @@ import {
 import { resolveWorkerNodeTarget } from '../remote-node/worker-node-registry';
 import { sendServiceRpc } from '../remote-node/service-rpc-client';
 import { resetWorkerNodeConnection, resolveConnectedWorkerNode } from '../remote-node/worker-node-connection-control';
+import { issueAgentPairingCommand } from '../remote-node/agent-pairing-command';
 import { createRemoteNodeFileTransferImplementations } from '../remote-node/remote-node-file-transfer-mcp-service';
 import { evaluateSpawn } from '../orchestration/subagent-spawn-guard';
 import { getPermissionRegistry } from '../orchestration/permission-registry';
@@ -231,6 +232,15 @@ export function createOrchestratorToolsStep(
                 hasAndroidMcp: node.hasAndroidMcp ?? capabilities.hasAndroidMcp,
                 ...(node.androidAutomation ?? capabilities.androidAutomation
                   ? { androidAutomation: node.androidAutomation ?? capabilities.androidAutomation }
+                  : {}),
+                ...(node.iosAutomation ?? capabilities.iosAutomation
+                  ? { iosAutomation: node.iosAutomation ?? capabilities.iosAutomation }
+                  : {}),
+                ...(node.hostReadiness ?? capabilities.hostReadiness
+                  ? { hostReadiness: node.hostReadiness ?? capabilities.hostReadiness }
+                  : {}),
+                ...(node.connectionNotice ?? capabilities.connectionNotice
+                  ? { connectionNotice: node.connectionNotice ?? capabilities.connectionNotice }
                   : {}),
                 hasDocker: node.hasDocker ?? capabilities.hasDocker,
                 ...(node.gpuName ?? capabilities.gpuName ? { gpuName: node.gpuName ?? capabilities.gpuName } : {}),
@@ -549,6 +559,10 @@ export function createOrchestratorToolsStep(
         },
         resetNodeConnection: async (args) =>
           resetWorkerNodeConnection(nodeControl(), args.node, 'Agent reset_node_connection'),
+        issueRemoteNodePairing: async ({ instanceId, ...args }) => issueAgentPairingCommand({
+          ...args,
+          issuedBy: { instanceId, name: instanceManager.getInstance(instanceId)?.displayName ?? instanceId },
+        }),
         // Host process tools run here, unsandboxed, because a session's own sandbox cannot exec ps/top.
         listHostProcesses: (args) => listHostProcesses(hostProcessRuntime, args),
         stopLeftoverProcesses: (args) => stopLeftoverProcesses(hostProcessRuntime, args),

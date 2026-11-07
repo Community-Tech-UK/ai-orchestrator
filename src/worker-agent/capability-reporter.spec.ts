@@ -6,7 +6,14 @@ vi.mock('./worker-account-route', () => ({
   listWorkerAccountProfileIds: () => ({}),
   listWorkerOpenCodeAccountProfileIds: async () => [],
 }));
+const probes = vi.hoisted(() => ({
+  ios: vi.fn(),
+  host: vi.fn(),
+}));
+vi.mock('./ios/ios-readiness', () => ({ getCachedIosAutomation: probes.ios }));
+vi.mock('./host-readiness', () => ({ getCachedHostReadiness: probes.host }));
 vi.mock('./opencode-worker-capability', () => ({ readWorkerOpenCodeMajor: async () => undefined }));
+vi.mock('./browser-extension-folder', () => ({ workerBrowserExtensionFolder: () => '/repo/resources/browser-extension' }));
 
 // Mock dependencies that are not available in the test environment.
 // child_process: partial mock preserving the module shape but replacing execFileSync.
@@ -231,6 +238,12 @@ describe('capability-reporter', () => {
     });
     stop();
     _resetHostHealthSamplerForTesting();
+  });
+
+  it('tells the main Harness where the unpacked Chrome extension is on this computer', async () => {
+    const caps = await reportCapabilities(['/workspace'], 4, undefined, undefined, { enabled: true, running: true });
+
+    expect(caps.extensionRelay?.extensionFolder).toBe('/repo/resources/browser-extension');
   });
 
   it('includes non-secret file transfer capability summaries', async () => {
@@ -763,6 +776,63 @@ describe('project discovery reuse across heartbeats', () => {
     await reportCapabilities(['/tmp/one']);
 
     expect(ctor.mock.calls.length).toBe(before);
+  });
+});
+
+describe('capability-reporter readiness extras', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    probes.ios.mockReturnValue(undefined);
+    probes.host.mockReturnValue(undefined);
+  });
+
+  it('omits the new fields when nothing is cached or given', async () => {
+    const caps = await reportCapabilities(['/tmp/one']);
+    expect(caps).not.toHaveProperty('iosAutomation');
+    expect(caps).not.toHaveProperty('hostReadiness');
+    expect(caps).not.toHaveProperty('connectionNotice');
+  });
+
+  it('passes cached iOS and host readiness, the connection notice and the inputs through', async () => {
+    const ios = { ready: true };
+    const host = { checks: [], checkedAt: 1 };
+    probes.ios.mockReturnValue(ios);
+    probes.host.mockReturnValue(host);
+    const caps = await reportCapabilities(['/tmp/one'], 4, undefined, undefined, undefined, undefined, {
+      connectionNotice: 'macOS is blocking this computer from reaching Harness.',
+      localNetwork: 'blocked',
+      localNetworkBinaryName: 'node',
+      configDir: '/cfg',
+    });
+    expect(caps.iosAutomation).toBe(ios);
+    expect(caps.hostReadiness).toBe(host);
+    expect(caps.connectionNotice).toBe('macOS is blocking this computer from reaching Harness.');
+    expect(probes.ios).toHaveBeenCalledWith({ workingDirectories: ['/tmp/one'], configDir: '/cfg' });
+    expect(probes.host).toHaveBeenCalledWith({ localNetwork: 'blocked', binaryName: 'node' });
+  });
+
+  it('finds the per-user Chrome install on Windows', async () => {
+    const { resolveChromeExecutablePath } = await import('./capability-reporter');
+    const originalPlatform = process.platform;
+    const originalLocal = process.env['LOCALAPPDATA'];
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    process.env['LOCALAPPDATA'] = 'C:\\Users\\a\\AppData\\Local';
+    vi.mocked(fs.accessSync).mockImplementation((file) => {
+      if (String(file).endsWith('chrome.exe') && String(file).includes('AppData')) return;
+      throw new Error('not found');
+    });
+    try {
+      expect(resolveChromeExecutablePath()).toContain('AppData');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+      if (originalLocal === undefined) delete process.env['LOCALAPPDATA']; else process.env['LOCALAPPDATA'] = originalLocal;
+      vi.mocked(fs.accessSync).mockImplementation(() => { throw new Error('not found'); });
+    }
+  });
+
+  it('defaults Local Network to unknown', async () => {
+    await reportCapabilities(['/tmp/one']);
+    expect(probes.host).toHaveBeenCalledWith({ localNetwork: 'unknown' });
   });
 });
 

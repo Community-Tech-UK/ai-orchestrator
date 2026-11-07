@@ -20,6 +20,7 @@ export const WorkerNodeExtensionRelaySummarySchema = z.object({
   extensionReloadedAt: z.number().int().nonnegative().optional(),
   lastExtensionContactAt: z.number().int().nonnegative().optional(),
   forwardsRuntimeEvidence: z.boolean().optional(),
+  extensionFolder: z.string().min(1).max(4096).optional(),
 });
 
 export const NodeExecParamsSchema = z.object({

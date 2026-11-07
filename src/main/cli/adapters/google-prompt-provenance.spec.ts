@@ -11,6 +11,14 @@ import { createBudgetedSystemPromptComposer } from '../../context/budgeted-syste
 
 const governing = '<aio-first-turn-memory>Never publish without permission.</aio-first-turn-memory>';
 type GoogleAdapter = GeminiCliAdapter | AntigravityCliAdapter;
+// agy runs with --output-format stream-json: reply text arrives as step deltas
+// and the turn ends with a result event.
+const agyReplyText = `${JSON.stringify({ event: 'step_update', step_update: { step_index: 1, state: 'DONE', step_type: 'agent_response', text_delta: 'result' } })}\n`;
+const agyResult = `${JSON.stringify({ event: 'result', result: { status: 'SUCCESS', response: 'result' } })}\n`;
+function replyFor(provider: string, finished: boolean): string {
+  if (provider === 'gemini') return '{"type":"message","role":"assistant","content":"result"}\n';
+  return finished ? agyReplyText + agyResult : agyReplyText;
+}
 function capture(adapter: GoogleAdapter, provider: string, outcomes: (number | 'spawn-error' | 'partial-failure' | 'api-error')[] = []) {
   const spawn = vi.spyOn(adapter as unknown as { spawnProcess(args: string[]): ChildProcess }, 'spawnProcess');
   spawn.mockImplementation(() => {
@@ -18,7 +26,7 @@ function capture(adapter: GoogleAdapter, provider: string, outcomes: (number | '
     const outcome = outcomes.shift() ?? 0;
     queueMicrotask(() => {
       if (outcome === 'spawn-error') { child.emit('error', new Error('Synthetic spawn refusal')); child.emit('close', 1); return; }
-      if (outcome === 0 || outcome === 'partial-failure') child.stdout.write(provider === 'gemini' ? '{"type":"message","role":"assistant","content":"result"}\n' : 'result');
+      if (outcome === 0 || outcome === 'partial-failure') child.stdout.write(replyFor(provider, outcome === 0));
       if (outcome === 'api-error') child.stdout.write('{"type":"result","status":"error","error":{"message":"Synthetic API refusal"}}\n');
       child.stdout.end();
       child.emit('close', outcome === 'partial-failure' ? 1 : outcome === 'api-error' ? 0 : outcome);

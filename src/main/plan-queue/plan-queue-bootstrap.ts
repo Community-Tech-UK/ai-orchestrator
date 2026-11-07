@@ -5,6 +5,7 @@ import { attachPlanQueueSpendRecorder } from './plan-queue-spend';
  * item re-attach). Runs after the loop store opens, beside Campaigns.
  */
 
+import { app } from 'electron';
 import type { AppSettings } from '../../shared/types/settings.types';
 import { DEFAULT_PLAN_QUEUE_ACCOUNT_RULES } from '@contracts/schemas/plan-queue';
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -16,6 +17,7 @@ import { getLoopStoreService } from '../orchestration/loop-store';
 import { getWorktreeManager } from '../workspace/git/worktree-manager';
 import { getOrchestratorToolsRpcSocketPath } from '../mcp/orchestrator-tools-rpc-server';
 import { getPlanQueueCoordinator } from './plan-queue-coordinator';
+import { findThisRepository } from './plan-queue-default-gates';
 import { findRestoredSessionId } from './plan-queue-parent';
 import { PlanQueueRelaxation } from './plan-queue-relaxation';
 import { PlanQueueStore } from './plan-queue-store';
@@ -50,6 +52,17 @@ export function waitForOrchestratorToolsListening(): Promise<void> {
   });
 }
 
+/** Runs looked through for Harness's own repository. */
+const HARNESS_SOURCE_RUNS = 200;
+
+/**
+ * Harness's own source folder, so the Set aside agent can fix Harness bugs there: the app folder when Harness runs
+ * from a checkout, otherwise a Plan Queue project folder holding Harness's repository.
+ */
+function findHarnessSource(store: PlanQueueStore): Promise<string | undefined> {
+  return findThisRepository([...(app.isPackaged ? [] : [app.getAppPath()]), ...store.listRuns(HARNESS_SOURCE_RUNS).map(run => run.workspaceCwd)]);
+}
+
 export async function initializePlanQueue(instanceManager: InstanceManager): Promise<void> {
   const db = getLoopStoreService().getDb();
   if (!db) {
@@ -58,7 +71,8 @@ export async function initializePlanQueue(instanceManager: InstanceManager): Pro
   }
   const settings = getSettingsManager();
   const coordinator = getPlanQueueCoordinator();
-  planQueueStore = new PlanQueueStore(db);
+  const store = new PlanQueueStore(db);
+  planQueueStore = store;
   coordinator.initialize({
     store: planQueueStore,
     instances: instanceManager,
@@ -84,6 +98,7 @@ export async function initializePlanQueue(instanceManager: InstanceManager): Pro
     whenOrchestratorToolsListening: waitForOrchestratorToolsListening,
     findRestoredSession: (instanceId) =>
       findRestoredSessionId(instanceId, getHistoryManager().getEntries(), instanceManager.getAllInstances()),
+    harnessSource: () => findHarnessSource(store),
   });
   stopSpendRecorder?.();
   stopSpendRecorder = attachPlanQueueSpendRecorder({ store: planQueueStore, onRecorded: (runId, itemId) => { coordinator.emit('state-changed', { runId, itemId }); } });

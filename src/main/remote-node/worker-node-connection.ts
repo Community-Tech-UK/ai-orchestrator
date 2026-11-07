@@ -1,6 +1,4 @@
 import { EventEmitter } from 'events';
-import * as https from 'https';
-import * as fs from 'fs';
 import { WebSocketServer, WebSocket } from 'ws';
 import { getLogger } from '../logging/logger';
 import {
@@ -16,7 +14,6 @@ import type { RpcRequest, RpcResponse, RpcNotification, RpcScope } from './worke
 import { getRemoteNodeConfig } from './remote-node-config';
 import { getWorkerNodeRegistry } from './worker-node-registry';
 import { getRemoteAuthService } from '../auth/remote-auth';
-import { WORKER_NODE_WS_MAX_PAYLOAD_BYTES } from './rpc-schemas';
 import { getRemoteWorkerRepairTracker } from './remote-worker-repair-tracker';
 import {
   CONNECTION_RESET_CLOSE_CODE,
@@ -35,6 +32,8 @@ import {
 } from './worker-node-connection-helpers';
 import { bindWorkerNodeRosterUpdates } from './worker-node-roster-updates';
 import { ConnectionDisconnectLifecycle } from './connection-disconnect-lifecycle';
+import { listenDualStack } from './dual-stack-listen';
+import { listenWorkerNodeServer } from './worker-node-listener';
 
 // Re-exported for existing importers (tests, dispatch classification callers).
 export { isWorkerNodeWorkDispatchMethod };
@@ -106,52 +105,24 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       return;
     }
 
-    const config = getRemoteNodeConfig();
-    const useTls = config.tlsCertPath && config.tlsKeyPath;
-
-    await new Promise<void>((resolve, reject) => {
-      let wss: WebSocketServer;
-
-      if (useTls) {
-        const server = https.createServer({
-          cert: fs.readFileSync(config.tlsCertPath!),
-          key: fs.readFileSync(config.tlsKeyPath!),
-          ...(config.tlsCaPath ? { ca: fs.readFileSync(config.tlsCaPath), requestCert: true, rejectUnauthorized: true } : {}),
-        });
-
-        wss = new WebSocketServer({ server, maxPayload: WORKER_NODE_WS_MAX_PAYLOAD_BYTES });
-
-        server.on('error', (err) => {
-          if (!this.wss) reject(err);
-          else logger.error('HTTPS server error', err);
-        });
-
-        server.listen(port, host, () => {
-          this.wss = wss;
-          logger.info('WorkerNodeConnectionServer listening (WSS/TLS)', { host, port });
-          resolve();
-        });
-      } else {
-        wss = new WebSocketServer({ host, port, maxPayload: WORKER_NODE_WS_MAX_PAYLOAD_BYTES });
-
-        wss.on('error', (err) => {
-          if (!this.wss) reject(err);
-          else logger.error('WebSocket server error', err);
-        });
-
-        wss.on('listening', () => {
-          this.wss = wss;
-          logger.info('WorkerNodeConnectionServer listening', { host, port });
-          resolve();
-        });
-      }
-
-      wss.on('connection', (ws, request) => {
-        this.handleConnection(ws, request.socket.remoteAddress);
-      });
-    });
+    // "All interfaces" listens on `::`, which takes IPv4 and IPv6 peers (for
+    // example a worker on the Tailscale IPv6 address).
+    await listenDualStack(host, (listenHost) => this.listen(port, listenHost));
 
     this.stopRosterUpdates = bindWorkerNodeRosterUpdates(getWorkerNodeRegistry());
+  }
+
+  private async listen(port: number, host: string): Promise<void> {
+    const wss = await listenWorkerNodeServer({
+      port,
+      host,
+      config: getRemoteNodeConfig(),
+      isRunning: () => this.wss !== null,
+    });
+    wss.on('connection', (ws, request) => {
+      this.handleConnection(ws, request.socket.remoteAddress);
+    });
+    this.wss = wss;
   }
 
   stop(): void {

@@ -9,7 +9,7 @@ const logger = getLogger('PlanQueueHandover');
 interface HandoverDeps {
   instances: Pick<PlanQueueInstancePort, 'getInstance' | 'getAllInstances' | 'sendInput'>;
   isQueueInstance(id: string): boolean;
-  /** Set aside agents may only retry or resume jobs in their folder, so they can never own a run. */
+  /** Set aside agents may only act on set-aside jobs (see plan-queue-control-authority.ts), so they can never own a run. */
   isSetAsideAgent(id: string): boolean;
 }
 

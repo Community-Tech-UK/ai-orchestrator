@@ -41,21 +41,21 @@ describe('Set aside agent authority', () => {
     setAsideFolder: (id: string) => (id === 'agent' ? '/repo' : undefined),
   };
 
-  it('may retry a merge, or resume, discard or restore a job, named in the audit trail', () => {
-    for (const action of ['retry-landing', 'resume-item', 'discard-item', 'restore-discarded'] as const) {
+  it('may retry a merge, merge without checks, or resume, discard or restore a job, named in the audit trail', () => {
+    for (const action of ['retry-landing', 'land-anyway', 'resume-item', 'discard-item', 'restore-discarded'] as const) {
       expect(authorizePlanQueueControl(run, action, 'agent', lookup)).toContain('the Set aside agent');
     }
   });
 
-  it('may not land without checks or take over a run, even a stranded one', () => {
-    for (const action of ['land-anyway', 'adopt', 'cancel', 'set-routing', 'handover', 'request-handover'] as const) {
-      expect(() => authorizePlanQueueControl(run, action, 'agent', lookup)).toThrow('may only retry a merge or resume');
+  it('may not skip a job or take over a run, even a stranded one', () => {
+    for (const action of ['skip-item', 'adopt', 'cancel', 'set-routing', 'handover', 'request-handover'] as const) {
+      expect(() => authorizePlanQueueControl(run, action, 'agent', lookup)).toThrow('may only retry a merge, resume a job');
     }
   });
 
-  it('may not retry or resume in another folder, but may discard or restore there', () => {
+  it('may not retry, merge or resume in another folder, but may discard or restore there', () => {
     const elsewhere = { ...run, workspaceCwd: '/other' };
-    for (const action of ['resume-item', 'retry-landing'] as const) {
+    for (const action of ['resume-item', 'retry-landing', 'land-anyway'] as const) {
       expect(() => authorizePlanQueueControl(elsewhere, action, 'agent', lookup)).toThrow('its own folder');
     }
     for (const action of ['discard-item', 'restore-discarded'] as const) {
@@ -64,6 +64,6 @@ describe('Set aside agent authority', () => {
   });
 
   it('keeps those limits when it is the recorded parent', () => {
-    expect(() => authorizePlanQueueControl({ ...run, parentInstanceId: 'agent' }, 'land-anyway', 'agent', lookup)).toThrow('may only retry');
+    expect(() => authorizePlanQueueControl({ ...run, parentInstanceId: 'agent' }, 'cancel', 'agent', lookup)).toThrow('may only retry');
   });
 });

@@ -1,10 +1,10 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { watch } from 'chokidar';
-import type { Ignore } from 'ignore';
 import { getLogger } from '../logging/logger';
 import { buildWatchIgnoredMatchers } from '../workspace/watcher/watch-ignore';
 import { DEFAULT_CODE_INDEX_IGNORES } from './code-index-ignores';
+import type { CodeIndexIgnoreRules } from './code-index-ignore-rules';
 import type { WorkspaceHash } from './types';
 
 export { DEFAULT_CODE_INDEX_IGNORES } from './code-index-ignores';
@@ -25,8 +25,8 @@ export interface CodeIndexWatcherOptions {
   maxNativeWatchFiles: number;
   maxWatchedWorkspaces: number;
   pollingIntervalMs: number;
-  loadIgnoreRules(workspacePath: string): Promise<Ignore>;
-  walkFiles(rootPath: string, dirPath: string, ig: Ignore): Promise<string[]>;
+  loadIgnoreRules(workspacePath: string): Promise<CodeIndexIgnoreRules>;
+  walkFiles(rootPath: string, dirPath: string, ig: CodeIndexIgnoreRules): Promise<string[]>;
   toRelativePath(workspacePath: string, absolutePath: string): string;
   applyFileChange(workspaceHash: WorkspaceHash, absoluteFilePath: string): Promise<string | null>;
   emitChanged(event: { workspaceHash: WorkspaceHash; paths: string[] }): void;

@@ -39,7 +39,7 @@ function fixture(managed = false) {
   const options: BrowserGatewayActionGuardOptions = {
     approvalStore, grantStore, result, profileStore,
     targetRegistry: { listTargets: () => [target] },
-    driver: { refreshTarget: async () => target, inspectElement: async () => ({ role: 'button', accessibleName: hint }) },
+    driver: { refreshTarget: async () => target, inspectElement: async () => ({ inputType: 'password', label: hint }) },
     extensionTabStore: { getTab: () => managed ? null : tab },
   };
   const guard = new BrowserGatewayActionGuard(options);
@@ -186,7 +186,7 @@ describe('explicit reusable browser approvals', () => {
   it('pins managed forever approval to the profile and its execution computer', async () => {
     const f = fixture(true);
     const { grant } = await f.approve('persistent');
-    expect(grant).toMatchObject({ profileId: f.profile.id, nodeId: 'windows-pc' });
+    expect(grant).toMatchObject({ profileId: f.profile.id, nodeId: 'windows-pc', allowedActionClasses: ['credential'] });
     expect(grant.targetId).toBeUndefined();
     expect(await f.prepare({ instanceId: 'another-instance', provider: 'claude' })).toMatchObject({ grant: { id: grant.id } });
     f.profile.executionNodeId = undefined;

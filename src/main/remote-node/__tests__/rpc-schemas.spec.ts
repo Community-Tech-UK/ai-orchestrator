@@ -170,6 +170,52 @@ describe('rpc-schemas', () => {
       expect(result.success).toBe(true);
     });
 
+    it('keeps iosAutomation, hostReadiness, connectionNotice and extensionFolder instead of stripping them', () => {
+      const iosAutomation = {
+  xcodePath: '/Applications/Xcode.app/Contents/Developer', xcodeVersion: '27.2', xcodeBuild: '27B52', licenceAccepted: true,
+  runtimes: [{ name: 'iOS 27.2', version: '27.2', isAvailable: true }], devices: [],
+  signing: { appleAccountPresent: true }, problems: [], checkedAt: 1_700_000_000_000, ready: true,
+};
+      const hostReadiness = {
+  checks: [{ id: 'sleep_on_power', status: 'problem', summary: 'This Mac sleeps after 1 minute on power, so jobs stop.', fix: 'sudo pmset -c sleep 0', needsAdmin: true }],
+  checkedAt: 1_700_000_000_000,
+};
+      const result = NodeHeartbeatParamsSchema.parse({
+        nodeId: 'node-1',
+        capabilities: {
+          platform: 'darwin', arch: 'arm64', cpuCores: 8, totalMemoryMB: 16000, availableMemoryMB: 8000,
+          supportedClis: [], hasBrowserRuntime: true, hasBrowserMcp: true, hasDocker: false, maxConcurrentInstances: 4,
+          workingDirectories: [],
+          extensionRelay: { enabled: true, running: true, extensionFolder: '/Users/a/ext' },
+          iosAutomation, hostReadiness, connectionNotice: 'macOS is blocking this computer from reaching Harness.',
+        },
+        activeInstances: 0,
+      });
+      expect(result.capabilities.iosAutomation).toEqual(iosAutomation);
+      expect(result.capabilities.hostReadiness).toEqual(hostReadiness);
+      expect(result.capabilities.connectionNotice).toContain('blocking');
+      expect(result.capabilities.extensionRelay?.extensionFolder).toBe('/Users/a/ext');
+    });
+
+    it('drops a malformed iOS block, host block or over-long notice without failing the heartbeat', () => {
+      const result = NodeHeartbeatParamsSchema.safeParse({
+        nodeId: 'node-1',
+        capabilities: {
+          platform: 'darwin', arch: 'arm64', cpuCores: 8, totalMemoryMB: 16000, availableMemoryMB: 8000,
+          supportedClis: [], hasBrowserRuntime: true, hasBrowserMcp: true, hasDocker: false, maxConcurrentInstances: 4,
+          workingDirectories: [],
+          iosAutomation: { ready: 'yes' }, hostReadiness: { checks: 'no' }, connectionNotice: 'x'.repeat(501),
+        },
+        activeInstances: 0,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.capabilities.iosAutomation).toBeUndefined();
+        expect(result.data.capabilities.hostReadiness).toBeUndefined();
+        expect(result.data.capabilities.connectionNotice).toBeUndefined();
+      }
+    });
+
     it('preserves non-secret worker and extension rollout evidence', () => {
       const result = NodeHeartbeatParamsSchema.parse({
         nodeId: 'node-1',

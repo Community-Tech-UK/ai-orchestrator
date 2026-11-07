@@ -1,4 +1,5 @@
 import * as os from 'os';
+import { isIPv6 } from 'net';
 import { execFile, execFileSync } from 'child_process';
 
 export interface LocalIpv4Candidate {
@@ -111,6 +112,22 @@ function collectLocalIpv4Candidates(): LocalIpv4Candidate[] {
  */
 export function getLocalIpv4Addresses(): string[] {
   return rankLocalIpv4Candidates(collectLocalIpv4Candidates());
+}
+
+/**
+ * This computer's Tailscale IPv6 address (`fd7a:115c:a1e0::/48`), if any. Worth
+ * advertising because the IPv4 route (100.x) does not always carry traffic on a
+ * Mac, while the IPv6 one does.
+ */
+export function getTailscaleIpv6Address(): string | null {
+  for (const values of Object.values(os.networkInterfaces())) {
+    for (const iface of values || []) {
+      if (iface.family === 'IPv6' && !iface.internal && isTailscaleIpv6Address(iface.address)) {
+        return iface.address;
+      }
+    }
+  }
+  return null;
 }
 
 export function getTailscaleIpv4Address(): string | null {
@@ -232,6 +249,14 @@ export function isTailscaleIpv4Address(ip: string): boolean {
   }
 
   return parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127;
+}
+
+/** Whether an address is inside Tailscale's IPv6 range, `fd7a:115c:a1e0::/48`. */
+export function isTailscaleIpv6Address(ip: string): boolean {
+  const address = ip.trim().replace(/^\[|\]$/g, '').split('%')[0].toLowerCase();
+  if (!isIPv6(address)) return false;
+  const [first, second, third] = address.split(':');
+  return first === 'fd7a' && second === '115c' && third === 'a1e0';
 }
 
 function getTailscaleCommandCandidates(): string[] {

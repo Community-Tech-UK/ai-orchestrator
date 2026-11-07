@@ -1,4 +1,5 @@
 import {
+  LOCAL_NETWORK_BLOCKED_PREFIX,
   WORKER_INTERNAL_CONNECT_ERROR,
   type WorkerConnectionSnapshot,
   type WorkerModeStatus,
@@ -100,12 +101,21 @@ export function describeConnection(
           : `Working. Connected to your main Harness${at}, which can now send work to this computer.`,
         warning: false,
       };
+    case 'waiting_for_pairing':
+      return {
+        text: 'This computer is not paired with a main Harness yet. Press Pair Again to pair it.',
+        warning: true,
+      };
     case 'connecting':
     case 'registering':
       return { text: `Connecting to your main Harness${at}...`, warning: false };
     case 'reconnecting':
       return { text: `Lost the connection to your main Harness${at}. Reconnecting...`, warning: false };
     case 'unreachable':
+      // macOS names its own setting; the network advice below would mislead.
+      if (connection.message?.startsWith(LOCAL_NETWORK_BLOCKED_PREFIX)) {
+        return { text: `${connection.message} Still trying.`, warning: true };
+      }
       // The network advice is wrong when the fault was on this computer.
       if (connection.message === WORKER_INTERNAL_CONNECT_ERROR) {
         return {

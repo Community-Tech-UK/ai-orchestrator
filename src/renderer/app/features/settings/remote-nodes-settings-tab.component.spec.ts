@@ -13,7 +13,7 @@ import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service
 import { RemoteNodeIpcService, type RemoteNodeServerStatus } from '../../core/services/ipc/remote-node-ipc.service';
 import { PairBothIpcService } from '../../core/services/ipc/pair-both-ipc.service';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
-import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
+import type { RemotePairingCredentialInfo, RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 import type { RemoteNodeDetailAction } from './remote-node-detail.component';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
@@ -291,6 +291,9 @@ describe('RemoteNodesSettingsTabComponent', () => {
 
     expect(connectionConfig['coordinatorUrl']).toBe('ws://studio-mac.tailnet-abcd.ts.net:4878');
     expect(new URL(pairingLink).searchParams.get('host')).toBe('studio-mac.tailnet-abcd.ts.net');
+    // The worker falls back to these when the MagicDNS name does not answer.
+    expect(connectionConfig['coordinatorUrls']).toEqual(['ws://100.101.102.103:4878', 'ws://192.168.1.50:4878']);
+    expect(new URL(pairingLink).searchParams.getAll('fallbackHost')).toEqual(['100.101.102.103', '192.168.1.50']);
   });
 
   it('builds the recommended aio-worker pair command from the pairing link', () => {
@@ -427,6 +430,29 @@ describe('RemoteNodesSettingsTabComponent', () => {
       const pairing = fixture.nativeElement.querySelector('#remote-nodes-panel-pairing');
       expect(pairing?.textContent).toContain('Allow connections in Overview');
     });
+    it('shows which session requested an agent-issued pairing credential', () => {
+      fixture.detectChanges();
+      (component as unknown as { pendingPairings: WritableSignal<RemotePairingCredentialInfo[]> }).pendingPairings.set([
+        {
+          token: 'EXAMPLE_TOKEN',
+          createdAt: Date.now(),
+          expiresAt: Date.now() + 60 * 60_000,
+          label: 'ct-test-mac',
+          issuedBy: { instanceId: 'instance-1', name: 'Set up test Mac' },
+        },
+        { token: 'OTHER_TOKEN', createdAt: Date.now(), expiresAt: Date.now() + 60 * 60_000, label: 'Studio PC' },
+      ]);
+      (fixture.nativeElement.querySelectorAll('[role="tab"]')[1] as HTMLButtonElement).click();
+      fixture.detectChanges();
+
+      const rows = Array.from(
+        fixture.nativeElement.querySelectorAll('#remote-nodes-panel-pairing .node-row') as NodeListOf<HTMLElement>,
+      ).map((row) => row.textContent ?? '');
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toContain('Requested by Set up test Mac');
+      expect(rows[1]).not.toContain('Requested by');
+    });
+
     it('renders four section tabs with matching tab panels, only the active panel visible', () => {
       fixture.detectChanges();
 

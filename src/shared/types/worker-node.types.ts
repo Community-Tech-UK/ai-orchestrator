@@ -136,6 +136,8 @@ export interface WorkerNodeExtensionRelaySummary {
    * means the worker predates that contract (commit e29b41ba).
    */
   forwardsRuntimeEvidence?: boolean;
+  /** Unpacked Chrome extension folder on this computer, shown when the extension has not made contact yet. */
+  extensionFolder?: string;
 }
 
 export interface AndroidDeviceInfo {
@@ -167,6 +169,80 @@ export interface WorkerNodeAndroidAutomationSummary {
   injectMaestroMcp?: boolean;
   appiumMcp?: boolean;
   mobileMcpVersion?: string;
+}
+
+export type IosSigningErrorKind =
+  | 'licence_agreement'
+  | 'no_profiles'
+  | 'no_team'
+  | 'no_certificate'
+  | 'no_account';
+
+export interface IosSimulatorRuntimeInfo {
+  name: string;
+  version: string;
+  isAvailable: boolean;
+}
+
+export interface IosPhysicalDeviceInfo {
+  name: string;
+  udid: string;
+  platform?: string;
+  marketingName?: string;
+  osVersion?: string;
+  /** 'paired' when this Mac trusts the device; other values come straight from Xcode. */
+  pairingState?: string;
+  tunnelState?: string;
+  developerMode?: 'enabled' | 'disabled' | 'unknown';
+}
+
+export interface IosSigningSummary {
+  /** True when Xcode has at least one Apple account signed in. Undefined when the check failed. */
+  appleAccountPresent?: boolean;
+  lastError?: {
+    kind: IosSigningErrorKind;
+    /** Plain words plus the fix. */
+    message: string;
+    seenAt: number;
+    logPath: string;
+  };
+}
+
+/**
+ * Non-secret iOS/iPadOS test readiness of a macOS worker, read by the worker in
+ * its own logged-in session. Never includes keychain contents or account ids.
+ */
+export interface WorkerNodeIosAutomationSummary {
+  xcodePath: string;
+  xcodeVersion?: string;
+  xcodeBuild?: string;
+  licenceAccepted: boolean;
+  runtimes: IosSimulatorRuntimeInfo[];
+  devices: IosPhysicalDeviceInfo[];
+  signing: IosSigningSummary;
+  /** Commands that failed or timed out, so "could not check" is not read as "not installed". */
+  problems: string[];
+  checkedAt: number;
+  /** Xcode present, licence accepted, and an available runtime or a paired physical device. */
+  ready: boolean;
+}
+
+export type HostReadinessStatus = 'ok' | 'problem' | 'note' | 'unknown';
+
+export interface HostReadinessCheck {
+  id: 'sleep_on_power' | 'remote_login_access' | 'local_network' | 'tailscale_running' | 'filevault';
+  status: HostReadinessStatus;
+  /** Plain English. */
+  summary: string;
+  /** Exact steps or command. */
+  fix?: string;
+  /** True when the fix needs an administrator password. */
+  needsAdmin: boolean;
+}
+
+export interface WorkerNodeHostReadiness {
+  checks: HostReadinessCheck[];
+  checkedAt: number;
 }
 
 export interface WorkerNodeFileTransferRoot {
@@ -238,6 +314,12 @@ export interface WorkerNodeCapabilities {
   hasAndroidMcp: boolean;
   /** Present when the node can inspect Android SDK/device state (newer workers). */
   androidAutomation?: WorkerNodeAndroidAutomationSummary;
+  /** macOS workers only: Xcode, simulator, device and signing readiness. Absent on older workers. */
+  iosAutomation?: WorkerNodeIosAutomationSummary;
+  /** macOS workers only: unattended-use checks (sleep, Remote Login, Local Network, Tailscale, FileVault). */
+  hostReadiness?: WorkerNodeHostReadiness;
+  /** Plain-words reason the worker had trouble connecting (for example the macOS Local Network block). */
+  connectionNotice?: string;
   hasDocker: boolean;
   maxConcurrentInstances: number;
   /** WS15 — durable-stream protocol version (1 = seq/ack/replay). Absent = legacy worker. */
@@ -289,6 +371,9 @@ export interface RemoteNodeRosterEntry {
   extensionRelay?: WorkerNodeExtensionRelaySummary;
   hasAndroidMcp: boolean;
   androidAutomation?: WorkerNodeAndroidAutomationSummary;
+  iosAutomation?: WorkerNodeIosAutomationSummary;
+  hostReadiness?: WorkerNodeHostReadiness;
+  connectionNotice?: string;
   hasDocker: boolean;
   gpuName?: string;
   gpuMemoryMB?: number;
@@ -354,6 +439,8 @@ export interface RemoteWorkerRepairDiagnostic {
     | 're_pair';
   availableActions: 'check_service_status'[];
   summary: string;
+  /** Latest host checks the node reported (macOS workers), when it has reported any. */
+  hostReadiness?: WorkerNodeHostReadiness;
 }
 
 export interface RemoteWorkerRepairCommand {
@@ -377,6 +464,8 @@ export interface NodePlacementPrefs {
   requiresBrowser?: boolean;
   requiresAndroid?: boolean;
   androidDeviceKind?: 'emulator' | 'physical' | 'any';
+  /** Explicit only: the node must report iosAutomation.ready. */
+  requiresIos?: boolean;
   requiresGpu?: boolean;
   preferPlatform?: NodePlatform;
   preferNodeId?: string;
@@ -424,9 +513,17 @@ export interface NodeIdentity {
   pairingLabel?: string;
 }
 
+/** The Harness session that asked for a pairing credential (agent-issued pairing). */
+export interface PairingCredentialIssuer {
+  instanceId: string;
+  name: string;
+}
+
 export interface RemotePairingCredentialInfo {
   token: string;
   createdAt: number;
   expiresAt: number;
   label?: string;
+  /** Absent when James created the credential in Settings. */
+  issuedBy?: PairingCredentialIssuer;
 }

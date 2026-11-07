@@ -290,6 +290,12 @@ export class CasStore {
       }));
   }
 
+  hasManifestEntry(workspaceHash: WorkspaceHash, pathFromRoot: string): boolean {
+    return this.db.prepare(
+      'SELECT 1 FROM workspace_manifest WHERE workspace_hash = ? AND path_from_root = ?',
+    ).get(workspaceHash, pathFromRoot) !== undefined;
+  }
+
   deleteManifestEntry(workspaceHash: WorkspaceHash, pathFromRoot: string): void {
     this.db.prepare('DELETE FROM workspace_manifest WHERE workspace_hash = ? AND path_from_root = ?')
       .run(workspaceHash, pathFromRoot);

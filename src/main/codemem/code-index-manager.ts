@@ -2,14 +2,14 @@ import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import ignore, { type Ignore } from 'ignore';
 import { getTreeSitterChunker, type TreeSitterChunker } from '../indexing/tree-sitter-chunker';
 import { getMetadataExtractor } from '../indexing/metadata-extractor';
 import { getLogger } from '../logging/logger';
 import { normalizeAndHash } from './ast-normalize';
 import type { CasStore, CodeIndexStatusRecord, WorkspaceChunkRecord } from './cas-store';
+import { loadCodeIndexIgnoreRules, type CodeIndexIgnoreRules } from './code-index-ignore-rules';
 import { reconcileWorkspaceIndex, type ReconcileResult } from './code-index-reconciler';
-import { CodeIndexWatcher, DEFAULT_CODE_INDEX_IGNORES } from './code-index-watcher';
+import { CodeIndexWatcher } from './code-index-watcher';
 import { symbolId, workspaceHashForPath } from './symbol-id';
 import type {
   Chunk,
@@ -28,6 +28,8 @@ const DEFAULT_MAX_NATIVE_WATCH_FILES = 1_500;
 const DEFAULT_MAX_WATCHED_WORKSPACES = 3;
 const DEFAULT_POLLING_INTERVAL_MS = 30_000;
 const DEFAULT_MAX_INCREMENTAL_MERKLE_RECOMPUTE_MANIFEST_ENTRIES = 50_000;
+// Watcher flushes reload the rules for every changed file; one git call serves a burst of changes.
+const IGNORE_RULES_REUSE_MS = 5_000;
 
 export interface CodeIndexManagerOptions {
   store: CasStore;
@@ -53,6 +55,7 @@ export class CodeIndexManager extends EventEmitter {
   private readonly workspacePaths = new Map<WorkspaceHash, string>();
   private readonly maxIncrementalMerkleRecomputeManifestEntries: number;
   private readonly loggedLargeIncrementalManifests = new Set<WorkspaceHash>();
+  private readonly ignoreRules = new Map<string, { loadedAt: number; rules: Promise<CodeIndexIgnoreRules> }>();
 
   constructor(protected readonly opts: CodeIndexManagerOptions) {
     super();
@@ -281,7 +284,7 @@ export class CodeIndexManager extends EventEmitter {
   protected async walkFiles(
     rootPath: string,
     dirPath: string,
-    ig: Ignore,
+    ig: CodeIndexIgnoreRules,
     shouldStop?: () => boolean,
   ): Promise<string[]> {
     if (shouldStop?.()) {
@@ -423,15 +426,15 @@ export class CodeIndexManager extends EventEmitter {
     return rootHash;
   }
 
-  private async loadIgnoreRules(workspacePath: string): Promise<Ignore> {
-    const ig = ignore().add(['.gitignore', ...DEFAULT_CODE_INDEX_IGNORES]);
-    try {
-      const gitignore = await fs.readFile(path.join(workspacePath, '.gitignore'), 'utf8');
-      ig.add(gitignore);
-    } catch {
-      // Missing .gitignore is expected for some workspaces.
+  private loadIgnoreRules(workspacePath: string): Promise<CodeIndexIgnoreRules> {
+    const now = Date.now();
+    const cached = this.ignoreRules.get(workspacePath);
+    if (cached && now - cached.loadedAt < IGNORE_RULES_REUSE_MS) {
+      return cached.rules;
     }
-    return ig;
+    const rules = loadCodeIndexIgnoreRules(workspacePath);
+    this.ignoreRules.set(workspacePath, { loadedAt: now, rules });
+    return rules;
   }
 
   private currentIndexStatus(
@@ -686,10 +689,15 @@ export class CodeIndexManager extends EventEmitter {
       }
 
       if (ig.ignores(relativePath)) {
-        return null;
+        // A file can become ignored after it was indexed: an ignore rule was added, or build output
+        // was written before git listed its folder. Drop it on its next change.
+        if (!this.opts.store.hasManifestEntry(workspaceHash, relativePath)) {
+          return null;
+        }
+        this.removeFileFromIndex(workspaceHash, relativePath);
+      } else {
+        await this.indexFile(workspacePath, workspaceHash, absoluteFilePath);
       }
-
-      await this.indexFile(workspacePath, workspaceHash, absoluteFilePath);
     } catch (error) {
       this.opts.store.deleteManifestEntry(workspaceHash, relativePath);
       this.opts.store.deleteWorkspaceSymbolsForFile(workspaceHash, relativePath);

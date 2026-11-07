@@ -49,26 +49,85 @@ describe('PlanQueueParkedListComponent', () => {
   let fixture: ComponentFixture<PlanQueueParkedListComponent>;
   const store = { diffstat: vi.fn() };
 
-  it('offers one Sort out button per folder, biggest first, and says what it does', () => {
+  function threeProjects(): HTMLElement {
     fixture.componentRef.setInput('runs', [
       { id: 'run-1', workspaceCwd: '/work/small', config: {}, items: [] },
       { id: 'run-2', workspaceCwd: '/work/big', config: {}, items: [] },
+      { id: 'run-3', workspaceCwd: '/work/middle', config: {}, items: [] },
     ]);
     fixture.componentRef.setInput('items', [
       makeItem({ id: 'a', runId: 'run-1' }),
       makeItem({ id: 'b', runId: 'run-2', documentPath: 'docs/plans/b_plan.md' }),
       makeItem({ id: 'c', runId: 'run-2', documentPath: 'docs/plans/c_plan.md' }),
+      makeItem({ id: 'd', runId: 'run-3', documentPath: 'docs/plans/d_plan.md' }),
     ]);
     fixture.detectChanges();
-    const element = fixture.nativeElement as HTMLElement;
-    const buttons = [...element.querySelectorAll<HTMLButtonElement>('.pq-sort-out-start')];
-    expect(buttons.map((button) => button.textContent?.trim())).toEqual(['Sort out big (2 jobs)', 'Sort out small (1 job)']);
-    expect(element.querySelector('.pq-sort-out p')?.textContent).toContain("It can't merge without checks");
-    expect(element.querySelector('.pq-sort-out p')?.textContent).toContain('uses provider usage');
+    return fixture.nativeElement as HTMLElement;
+  }
+  const projectRows = (element: HTMLElement) => [...element.querySelectorAll<HTMLElement>('.pq-sort-out-project')]
+    .map((row) => [...row.children].map((part) => part.textContent?.trim()).join(' '));
+
+  it('offers one Sort out button per folder, biggest first, and says what it does', () => {
+    const element = threeProjects();
+    expect(projectRows(element)).toEqual(['big (2 jobs) Sort out', 'middle (1 job) Sort out', 'small (1 job) Sort out']);
+    const help = element.querySelector('.pq-sort-out p')?.textContent ?? '';
+    expect(help).toContain('does what it recommends');
+    expect(help).toContain('including bugs in Harness');
+    expect(help).toContain('can merge without the final checks');
+    expect(help).toContain('never pushes');
+    expect(help).toContain('use provider usage');
     const started: string[] = [];
     fixture.componentInstance.sortOut.subscribe((folder) => started.push(folder));
-    buttons[0].click();
+    element.querySelector<HTMLButtonElement>('.pq-sort-out-start')!.click();
     expect(started).toEqual(['/work/big']);
+  });
+
+  it('sorts out every project at once, skipping any whose agent is already working', () => {
+    const element = threeProjects();
+    const all: string[][] = [];
+    fixture.componentInstance.sortOutAll.subscribe((folders) => all.push(folders));
+    const button = () => element.querySelector<HTMLButtonElement>('.pq-sort-out-all');
+    expect(button()?.textContent?.trim()).toBe('Sort out all 3 projects');
+    button()!.click();
+    expect(all).toEqual([['/work/big', '/work/middle', '/work/small']]);
+
+    fixture.componentRef.setInput('agents', new Map([['/work/big', { state: 'working', instanceId: 'agent-big' }]]));
+    fixture.detectChanges();
+    expect(button()?.textContent?.trim()).toBe('Sort out the other 2 projects');
+    button()!.click();
+    expect(all[1]).toEqual(['/work/middle', '/work/small']);
+
+    fixture.componentRef.setInput('agents', new Map([
+      ['/work/big', { state: 'working', instanceId: 'agent-big' }], ['/work/middle', { state: 'starting', instanceId: null }],
+    ]));
+    fixture.detectChanges();
+    expect(button()).toBeNull();
+  });
+
+  it('shows how each agent is getting on, and opens its session only when asked', () => {
+    const element = threeProjects();
+    fixture.componentRef.setInput('agents', new Map([
+      ['/work/big', { state: 'working', instanceId: 'agent-big' }],
+      ['/work/middle', { state: 'starting', instanceId: null }],
+      ['/work/small', { state: 'finished', instanceId: 'agent-small' }],
+    ]));
+    fixture.detectChanges();
+    expect(projectRows(element)).toEqual([
+      'big (2 jobs) Working… Watch it work',
+      'middle (1 job) Starting…',
+      'small (1 job) Finished Read its report Sort out again',
+    ]);
+    expect([...element.querySelectorAll('.pq-sort-out-open, .pq-sort-out-start')].map((button) => button.getAttribute('aria-label')))
+      .toEqual(['Watch it work: big', 'Read its report: small', 'Sort out again: small']);
+    const opened: string[] = [];
+    fixture.componentInstance.openAgent.subscribe((id) => opened.push(id));
+    const openButtons = [...element.querySelectorAll<HTMLButtonElement>('.pq-sort-out-open')];
+    openButtons[1].click();
+    expect(opened).toEqual(['agent-small']);
+
+    fixture.componentRef.setInput('agents', new Map([['/work/big', { state: 'stopped', instanceId: 'agent-big' }]]));
+    fixture.detectChanges();
+    expect(projectRows(element)[0]).toBe('big (2 jobs) Stopped before it finished Open its session Sort out again');
   });
 
   it('offers no Sort out button when nothing is set aside', () => {

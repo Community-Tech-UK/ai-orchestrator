@@ -62,6 +62,34 @@ function makeIdentity(overrides: Partial<NodeIdentity> = {}): NodeIdentity {
 }
 
 describe('buildRemoteNodeRoster', () => {
+  it('copies iOS readiness, host readiness and the connection notice onto the entry', () => {
+    const iosAutomation: WorkerNodeCapabilities['iosAutomation'] = {
+  xcodePath: '/Applications/Xcode.app/Contents/Developer', xcodeVersion: '27.2', xcodeBuild: '27B52', licenceAccepted: true,
+  runtimes: [{ name: 'iOS 27.2', version: '27.2', isAvailable: true }], devices: [],
+  signing: { appleAccountPresent: true }, problems: [], checkedAt: 1_700_000_000_000, ready: true,
+};
+    const hostReadiness: WorkerNodeCapabilities['hostReadiness'] = {
+  checks: [{ id: 'sleep_on_power', status: 'problem', summary: 'This Mac sleeps after 1 minute on power, so jobs stop.', fix: 'sudo pmset -c sleep 0', needsAdmin: true }],
+  checkedAt: 1_700_000_000_000,
+};
+    const [entry] = buildRemoteNodeRoster([
+      makeNode({
+        capabilities: makeCapabilities({ iosAutomation, hostReadiness, connectionNotice: 'macOS is blocking this computer.' }),
+      }),
+    ], []);
+
+    expect(entry?.iosAutomation).toEqual(iosAutomation);
+    expect(entry?.hostReadiness).toEqual(hostReadiness);
+    expect(entry?.connectionNotice).toBe('macOS is blocking this computer.');
+  });
+
+  it('leaves the new fields off entries whose worker does not send them', () => {
+    const [entry] = buildRemoteNodeRoster([makeNode()], []);
+    expect(entry).not.toHaveProperty('iosAutomation');
+    expect(entry).not.toHaveProperty('hostReadiness');
+    expect(entry).not.toHaveProperty('connectionNotice');
+  });
+
   it('merges live node details with persisted identity metadata', () => {
     const roster = buildRemoteNodeRoster([makeNode()], [makeIdentity()]);
 

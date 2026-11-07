@@ -48,7 +48,13 @@ import type { AutomationToolContext } from './orchestrator-automation-tools';
 import type { GetDocReviewResultFn, RequestDocReviewFn } from './doc-review-tools';
 import { isPlanQueueRpcMethod, PLAN_QUEUE_TOOL_NAMES, type PlanQueueToolOperations } from './plan-queue-tools';
 import { dispatchPlanQueueCliRpc, isPlanQueueCliRpcMethod } from './orchestrator-tools-rpc-plan-queue';
-import { ResetNodeConnectionArgsSchema, type NodeConnectionToolContext, type ResetNodeConnectionFn } from './orchestrator-node-connection-tools';
+import {
+  IssueRemoteNodePairingArgsSchema,
+  ResetNodeConnectionArgsSchema,
+  type IssueRemoteNodePairingFn,
+  type NodeConnectionToolContext,
+  type ResetNodeConnectionFn,
+} from './orchestrator-node-connection-tools';
 import type { HostProcessToolContext } from './orchestrator-host-process-tools';
 import {
   ListMessageableSessionsArgsSchema,
@@ -210,6 +216,7 @@ export class OrchestratorToolsRpcServer {
   private readonly readInstanceOutput: ReadInstanceOutputFn | null;
   private readonly terminateNodeInstances: TerminateNodeInstancesFn | null;
   private readonly resetNodeConnection: ResetNodeConnectionFn | null;
+  private readonly issueRemoteNodePairing: IssueRemoteNodePairingFn | null;
   private readonly hostProcessTools: Omit<HostProcessToolContext, 'instanceId'>;
   private readonly settingsManager: SettingsManagerForTools | null;
   private readonly broadcastSettingsChange: SettingsChangeBroadcaster | null;
@@ -272,6 +279,7 @@ export class OrchestratorToolsRpcServer {
     this.readInstanceOutput = options.readInstanceOutput ?? null;
     this.terminateNodeInstances = options.terminateNodeInstances ?? null;
     this.resetNodeConnection = options.resetNodeConnection ?? null;
+    this.issueRemoteNodePairing = options.issueRemoteNodePairing ?? null;
     this.hostProcessTools = { listHostProcesses: options.listHostProcesses ?? null, stopLeftoverProcesses: options.stopLeftoverProcesses ?? null };
     this.settingsManager = options.settingsManager ?? null;
     this.broadcastSettingsChange = options.broadcastSettingsChange ?? null;
@@ -444,6 +452,12 @@ export class OrchestratorToolsRpcServer {
         const validated = ResetNodeConnectionArgsSchema.parse(params.payload);
         const tool = this.getToolsForInstance(params.instanceId, abortSignal).find((t) => t.name === 'reset_node_connection');
         if (!tool) throw new Error('reset_node_connection tool unavailable');
+        return tool.handler(validated);
+      }
+      case 'orchestrator_tools.issue_remote_node_pairing': {
+        const validated = IssueRemoteNodePairingArgsSchema.parse(params.payload);
+        const tool = this.getToolsForInstance(params.instanceId, abortSignal).find((t) => t.name === 'issue_remote_node_pairing');
+        if (!tool) throw new Error('issue_remote_node_pairing tool unavailable');
         return tool.handler(validated);
       }
       case 'orchestrator_tools.list_host_processes':
@@ -726,6 +740,7 @@ export class OrchestratorToolsRpcServer {
         readInstanceOutput: this.readInstanceOutput,
         terminateNodeInstances: this.terminateNodeInstances,
         resetNodeConnection: this.resetNodeConnection,
+        issueRemoteNodePairing: this.issueRemoteNodePairing,
         ...this.hostProcessTools,
         settingsManager: this.settingsManager,
         broadcastSettingsChange: this.broadcastSettingsChange,
@@ -761,6 +776,7 @@ export class OrchestratorToolsRpcServer {
       readInstanceOutput: this.readInstanceOutput,
       terminateNodeInstances: this.terminateNodeInstances,
       resetNodeConnection: this.resetNodeConnection,
+      issueRemoteNodePairing: this.issueRemoteNodePairing,
       ...this.hostProcessTools,
       settingsManager: this.settingsManager,
       broadcastSettingsChange: this.broadcastSettingsChange,

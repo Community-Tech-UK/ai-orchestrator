@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
 import type { WorkerNodeFileTransferRoot } from '../shared/types/worker-node.types';
+import { formatHostPort } from '../shared/remote-node/host-address';
 
 /**
  * Opt-in browser automation for a worker node. When enabled, the worker owns a
@@ -188,9 +189,14 @@ export function normalizeWorkingDirectories(
   return out;
 }
 
+/** The hostname without macOS's `.local` suffix, used until a friendly name is given. */
+export function defaultWorkerName(hostname: string = os.hostname()): string {
+  return hostname.replace(/\.local$/i, '') || hostname;
+}
+
 const DEFAULTS: WorkerConfig = {
   nodeId: '',
-  name: os.hostname(),
+  name: defaultWorkerName(),
   coordinatorUrl: undefined,
   authToken: '',
   nodeToken: undefined,
@@ -263,14 +269,6 @@ export function loadWorkerConfig(configPath = DEFAULT_CONFIG_PATH): WorkerConfig
   return merged;
 }
 
-export function assertWorkerConfigHasCoordinator(config: WorkerConfig): void {
-  if (!getConfiguredCoordinatorUrl(config)) {
-    throw new Error(
-      'Worker config is missing coordinatorUrl. Paste the full Connection Config or run:\n  aio-worker pair <pairing-link>',
-    );
-  }
-}
-
 export function getConfiguredCoordinatorUrl(
   config: Pick<WorkerConfig, 'coordinatorUrl' | 'coordinatorUrls'>,
 ): string | undefined {
@@ -283,6 +281,35 @@ export function getConfiguredCoordinatorUrl(
     .find((url): url is string => Boolean(url));
 }
 
+/**
+ * The coordinator address a config file holds, read without loading (which
+ * rewrites the file). An unpaired worker uses this while it waits, so it never
+ * writes over a pairing `aio-worker pair` is saving at the same moment.
+ */
+export function readConfiguredCoordinatorUrl(configPath: string): string | undefined {
+  const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8').replace(/^\uFEFF/, '')) as Partial<WorkerConfig> & PairingConfigFile;
+  return getConfiguredCoordinatorUrl(coordinatorFields(raw));
+}
+
+function coordinatorFields(
+  fileConfig: Partial<WorkerConfig> & PairingConfigFile,
+): Pick<WorkerConfig, 'coordinatorUrl' | 'coordinatorUrls'> {
+  const fields: Pick<WorkerConfig, 'coordinatorUrl' | 'coordinatorUrls'> = {};
+  if (typeof fileConfig.coordinatorUrl === 'string') {
+    fields.coordinatorUrl = normalizeCoordinatorUrl(fileConfig.coordinatorUrl);
+  }
+  if (Array.isArray(fileConfig.coordinatorUrls)) {
+    fields.coordinatorUrls = fileConfig.coordinatorUrls
+      .map((url) => normalizeCoordinatorUrl(url))
+      .filter((url): url is string => Boolean(url));
+  }
+  if (typeof fileConfig.host === 'string' && isValidPort(fileConfig.port)) {
+    const protocol = fileConfig.requireTls === true ? 'wss' : 'ws';
+    fields.coordinatorUrl = `${protocol}://${formatHostPort(fileConfig.host, fileConfig.port)}`;
+  }
+  return fields;
+}
+
 function normalizeFileConfig(fileConfig: Partial<WorkerConfig> & PairingConfigFile): Partial<WorkerConfig> {
   const normalized: Partial<WorkerConfig> = { ...fileConfig };
 
@@ -290,25 +317,13 @@ function normalizeFileConfig(fileConfig: Partial<WorkerConfig> & PairingConfigFi
     normalized.authToken = fileConfig.token;
   }
 
-  if (typeof fileConfig.coordinatorUrl === 'string') {
-    normalized.coordinatorUrl = normalizeCoordinatorUrl(fileConfig.coordinatorUrl);
-  }
-  if (Array.isArray(fileConfig.coordinatorUrls)) {
-    normalized.coordinatorUrls = fileConfig.coordinatorUrls
-      .map((url) => normalizeCoordinatorUrl(url))
-      .filter((url): url is string => Boolean(url));
-  }
+  Object.assign(normalized, coordinatorFields(fileConfig));
   if (Array.isArray(fileConfig.advertisedCoordinatorUrls)) {
     normalized.advertisedCoordinatorUrls = fileConfig.advertisedCoordinatorUrls
       .map((url) => normalizeCoordinatorUrl(url))
       .filter((url): url is string => Boolean(url));
   } else {
     delete normalized.advertisedCoordinatorUrls;
-  }
-
-  if (typeof fileConfig.host === 'string' && isValidPort(fileConfig.port)) {
-    const protocol = fileConfig.requireTls === true ? 'wss' : 'ws';
-    normalized.coordinatorUrl = `${protocol}://${fileConfig.host}:${fileConfig.port}`;
   }
 
   normalized.browserAutomation = normalizeBrowserAutomation(fileConfig.browserAutomation);

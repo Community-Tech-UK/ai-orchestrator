@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { McpServer } from './mcp-server';
 import type { McpServerToolDefinition } from './mcp-server-tools';
+import { createOrchestratorToolsForwarderTools } from './orchestrator-tools-mcp-forwarder';
 import {
   ORCHESTRATOR_CORE_TOOL_NAMES,
   ORCHESTRATOR_TOOL_DESCRIBE_NAME,
@@ -67,6 +68,18 @@ describe('orchestrator-mcp-deferral', () => {
     };
     expect(result.matches.map((match) => match.name)).toContain('create_automation');
     expect(onReveal).toHaveBeenCalledWith(expect.arrayContaining(['create_automation']));
+  });
+
+  it('finds the deferred pairing tool when an agent searches for pairing a new worker', async () => {
+    const catalog = createOrchestratorToolsForwarderTools({ call: async () => null });
+    const tools = createDeferredOrchestratorTools(catalog, { onReveal: vi.fn() });
+    expect(ORCHESTRATOR_CORE_TOOL_NAMES).not.toContain('issue_remote_node_pairing');
+    const search = tools.find((tool) => tool.name === ORCHESTRATOR_TOOL_SEARCH_NAME)!;
+
+    const result = (await search.handler({ query: 'pair a new remote worker node' })) as {
+      matches: Array<{ name: string }>;
+    };
+    expect(result.matches[0]?.name).toBe('issue_remote_node_pairing');
   });
 
   it('describe returns one schema and reveals it', async () => {

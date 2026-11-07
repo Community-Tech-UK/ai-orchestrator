@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
-import type { Ignore } from 'ignore';
 import { getLogger } from '../logging/logger';
 import type { CasStore } from './cas-store';
+import type { CodeIndexIgnoreRules } from './code-index-ignore-rules';
 import type { WorkspaceHash } from './types';
 
 const logger = getLogger('CodeIndexReconciler');
@@ -17,11 +17,11 @@ export interface ReconcileResult {
 /** Callbacks into CodeIndexManager, mirroring the CodeIndexWatcher host pattern. */
 export interface ReconcileHost {
   store: Pick<CasStore, 'isCancelRequested' | 'listManifestEntries'>;
-  loadIgnoreRules(workspacePath: string): Promise<Ignore>;
+  loadIgnoreRules(workspacePath: string): Promise<CodeIndexIgnoreRules>;
   walkFiles(
     rootPath: string,
     dirPath: string,
-    ig: Ignore,
+    ig: CodeIndexIgnoreRules,
     shouldStop?: () => boolean,
   ): Promise<string[]>;
   toRelativePath(workspacePath: string, absolutePath: string): string;

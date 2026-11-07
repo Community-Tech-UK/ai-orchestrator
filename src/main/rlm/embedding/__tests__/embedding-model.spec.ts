@@ -93,4 +93,12 @@ describe('model definitions', () => {
     expect(similarityFloors['session-search']).toBeGreaterThan(chanceAtP99);
     expect(similarityFloors['pattern-search']).toBeGreaterThan(chanceAtP99);
   });
+
+  // LT-730: real messages scoring 0.629 and 0.639 had unrelated built-in skills injected.
+  it('keeps skill matching above the highest score a real message reached against a wrong skill', () => {
+    const highestWrongSkillScoreOnRealMessages = 0.674;
+
+    expect(LOCAL_EMBEDDING_MODEL.similarityFloors['skill-match'])
+      .toBeGreaterThan(highestWrongSkillScoreOnRealMessages);
+  });
 });

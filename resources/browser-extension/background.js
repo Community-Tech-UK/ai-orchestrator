@@ -4917,10 +4917,11 @@ function credentialFrameOriginProbe() {
 }
 
 /**
- * Sign-in code box evidence for the action guard (probe_one_time_code). Copied
- * byte-for-byte from ONE_TIME_CODE_FIELD_PROBE_SOURCE in
+ * Sign-in code box and password box evidence for the action guard
+ * (probe_one_time_code). Copied byte-for-byte from
+ * ONE_TIME_CODE_FIELD_PROBE_SOURCE in
  * src/main/browser-gateway/browser-one-time-code-field-probe.ts; a spec pins
- * the two together. Returns three booleans only.
+ * the two together. Returns four booleans only.
  */
 function oneTimeCodeFieldProbe(targetSelector) {
   const CODE_TERMS = /(?:^| )(?:otp|mfa|2fa|totp|two factor|one time|verification code|recovery code|passcode|authentication code|auth code)(?: |$)/;
@@ -4985,6 +4986,10 @@ function oneTimeCodeFieldProbe(targetSelector) {
     ].join(' ')));
   };
   const codeFields = candidates.filter(named);
+  // A password box by its own markup: masked, or marked for a saved password.
+  const passwordBox = (element) => element.tagName === 'INPUT'
+    && ((element.getAttribute('type') || '').toLowerCase() === 'password'
+      || /(?:^|\s)(?:current|new)-password(?:\s|$)/.test((element.getAttribute('autocomplete') || '').toLowerCase()));
   const boxesByForm = new Map();
   for (const element of candidates) {
     if (element.maxLength !== 1) continue;
@@ -4996,39 +5001,112 @@ function oneTimeCodeFieldProbe(targetSelector) {
   }
   const filled = codeFields.some((element) => String(element.value || '').trim() !== '');
   let targetIsCodeField = false;
+  let targetIsPasswordField = false;
   if (typeof targetSelector === 'string' && targetSelector) {
     try {
-      targetIsCodeField = roots.some((root) => Array.from(root.querySelectorAll(targetSelector))
-        .some((element) => codeFields.includes(element)));
+      const targets = roots.flatMap((root) => Array.from(root.querySelectorAll(targetSelector)));
+      targetIsCodeField = targets.some((element) => codeFields.includes(element));
+      targetIsPasswordField = targets.some(passwordBox);
     } catch {
       targetIsCodeField = codeFields.length > 0;
+      targetIsPasswordField = candidates.some(passwordBox);
     }
   }
-  return { codeField: codeFields.length > 0, filled, targetIsCodeField };
+  return { codeField: codeFields.length > 0, filled, targetIsCodeField, targetIsPasswordField };
 }
 
 /**
- * Boolean-only code box evidence for one tab, merged across its frames.
- * Deliberately NOT in SECRET_OBSERVATION_COMMANDS: the code page usually sits
- * on the origin a password fill has just protected, where read_control is
- * refused, and this answer carries no page text, value or element identity.
+ * Boolean-only code box and password box evidence for one tab, merged across
+ * its frames. Deliberately NOT in SECRET_OBSERVATION_COMMANDS: the code page
+ * usually sits on the origin a password fill has just protected, where
+ * read_control is refused, and this answer carries no page text, value or
+ * element identity.
+ *
+ * `targetIsPasswordField` is present only when it is known: there is a target,
+ * and every target was checked (a selector answered by at least one frame,
+ * every uid resolved), or one of them is already a password box.
  */
 async function probeOneTimeCodeFields(command) {
   const tabId = requireTargetTabId(command);
   const selector = typeof command.payload?.selector === 'string' ? command.payload.selector : null;
-  const injectionResults = await chrome.scripting.executeScript({
-    target: { tabId, allFrames: true },
-    func: oneTimeCodeFieldProbe,
-    args: [selector],
-  });
+  const rawUids = command.payload?.uids;
+  const uids = probeTargetUids(rawUids);
+  // A uid that was dropped (malformed, or past the cap) was not checked: never "no".
+  const uidsComplete = rawUids === undefined || (Array.isArray(rawUids) && uids.length === rawUids.length);
+  const [injectionResults, uidAnswer] = await Promise.all([
+    chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: oneTimeCodeFieldProbe,
+      args: [selector],
+    }),
+    uids.length ? uidTargetsIncludePasswordBox(tabId, uids) : Promise.resolve(false),
+  ]);
+  const uidPassword = uidAnswer === true || uidsComplete ? uidAnswer : null;
   const frames = (injectionResults ?? [])
     .map((entry) => entry?.result)
     .filter((result) => result && typeof result === 'object');
+  const selectorPassword = selector
+    ? (frames.length ? frames.some((result) => result.targetIsPasswordField === true) : null)
+    : false;
+  const passwordKnown = selectorPassword === true || uidPassword === true
+    || (Boolean(selector || uids.length || !uidsComplete) && selectorPassword !== null && uidPassword !== null);
   return {
     codeField: frames.some((result) => result.codeField === true),
     filled: frames.some((result) => result.filled === true),
     targetIsCodeField: frames.some((result) => result.targetIsCodeField === true),
+    ...(passwordKnown ? { targetIsPasswordField: selectorPassword === true || uidPassword === true } : {}),
   };
+}
+
+const PROBE_MAX_UIDS = 50;
+// Inside the coordinator's 4 s probe budget, leaving room for the frame scan and the reply.
+const PROBE_UID_DEADLINE_MS = 1500;
+
+function probeTargetUids(value) {
+  return Array.isArray(value)
+    ? value.filter((uid) => typeof uid === 'string' && uid).slice(0, PROBE_MAX_UIDS)
+    : [];
+}
+
+// Runs with `this` bound to a uid-resolved element. Same rule as passwordBox in
+// oneTimeCodeFieldProbe: masked, or marked for a saved password.
+function uidPasswordBoxFn() {
+  return this.tagName === 'INPUT'
+    && ((this.getAttribute('type') || '').toLowerCase() === 'password'
+      || /(?:^|\s)(?:current|new)-password(?:\s|$)/.test((this.getAttribute('autocomplete') || '').toLowerCase()));
+}
+
+/**
+ * Whether any accessibility-uid write target is a password box, resolved
+ * through the debugger in one session (a uid cannot be found from page
+ * script). true as soon as one is; otherwise null when any uid could not be
+ * resolved, or the session did not finish in time: unknown, never "no".
+ */
+async function uidTargetsIncludePasswordBox(tabId, uids) {
+  try {
+    return await withCdpDeadline(withDebugger(tabId, async (debuggee) => {
+      await chrome.debugger.sendCommand(debuggee, 'DOM.enable').catch(() => undefined);
+      try {
+        let unresolved = false;
+        for (const uid of uids) {
+          try {
+            if (await resolveAndCallOnDebuggee(debuggee, uid, `(${uidPasswordBoxFn.toString()})`) === true) {
+              return true;
+            }
+          } catch {
+            unresolved = true;
+          }
+        }
+        return unresolved ? null : false;
+      } finally {
+        await chrome.debugger.sendCommand(debuggee, 'Runtime.releaseObjectGroup', {
+          objectGroup: CDP_UID_OBJECT_GROUP,
+        }).catch(() => undefined);
+      }
+    }), 'probe_password_uid', PROBE_UID_DEADLINE_MS);
+  } catch {
+    return null;
+  }
 }
 
 /**

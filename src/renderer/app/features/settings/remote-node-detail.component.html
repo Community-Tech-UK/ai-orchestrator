@@ -52,6 +52,13 @@
     }
   </div>
 
+  @if (connectionNotice(); as notice) {
+    <p class="node-attention connection-notice">{{ notice }}</p>
+  }
+  @if (extensionSetupHint(); as hint) {
+    <p class="field-hint extension-setup-hint">{{ hint }}</p>
+  }
+
   @if (healthEntry().status !== 'disconnected') {
     <p class="field-hint reset-connection-hint">{{ copy('settingsHints.resetConnection') }}</p>
   }

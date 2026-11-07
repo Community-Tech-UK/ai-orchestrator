@@ -11,7 +11,7 @@ import {
 
 const BACKGROUND = readFileSync('resources/browser-extension/background.js', 'utf-8');
 
-interface Evidence { codeField: boolean; filled: boolean; targetIsCodeField: boolean }
+interface Evidence { codeField: boolean; filled: boolean; targetIsCodeField: boolean; targetIsPasswordField: boolean }
 
 /**
  * Run the real page function over an HTML fixture. JSDOM lays nothing out, so
@@ -40,14 +40,14 @@ function probe(html: string, targetSelector?: string, decorate?: (document: Docu
   return run(window.document, window.getComputedStyle.bind(window));
 }
 
-const NONE: Evidence = { codeField: false, filled: false, targetIsCodeField: false };
+const NONE: Evidence = { codeField: false, filled: false, targetIsCodeField: false, targetIsPasswordField: false };
 
 describe('one-time code box page function', () => {
   it('finds the Report MI code box (id "code") and whether it holds a value', () => {
-    expect(probe('<input id="code" type="text">')).toEqual({ codeField: true, filled: false, targetIsCodeField: false });
+    expect(probe('<input id="code" type="text">')).toEqual({ ...NONE, codeField: true });
     // Made-up code.
     expect(probe('<input id="code" type="text" value="604213">', '#code'))
-      .toEqual({ codeField: true, filled: true, targetIsCodeField: true });
+      .toEqual({ ...NONE, codeField: true, filled: true, targetIsCodeField: true });
     expect(probe('<input name="code">')).toMatchObject({ codeField: true });
   });
 
@@ -116,25 +116,84 @@ describe('one-time code box page function', () => {
       const root = document.getElementById('host')!.attachShadow({ mode: 'open' });
       root.innerHTML = '<input id="inner" autocomplete="one-time-code" value="1">';
     });
-    expect(result).toEqual({ codeField: true, filled: true, targetIsCodeField: true });
+    expect(result).toEqual({ ...NONE, codeField: true, filled: true, targetIsCodeField: true });
   });
 
-  it('returns exactly three booleans, never a value', () => {
-    const result = probe('<input id="code" value="604213">');
-    expect(Object.keys(result).sort()).toEqual(['codeField', 'filled', 'targetIsCodeField']);
+  it('returns exactly four booleans, never a value', () => {
+    const result = probe('<input id="code" value="604213"><input type="password" id="p" value="placeholder-pass">', '#p');
+    expect(Object.keys(result).sort()).toEqual(['codeField', 'filled', 'targetIsCodeField', 'targetIsPasswordField']);
     expect(JSON.stringify(result)).not.toContain('604213');
+    expect(JSON.stringify(result)).not.toContain('placeholder-pass');
+  });
+});
+
+// The same boxes are also run through the extension's uid check below, so
+// both copies of the rule are held to one list.
+const PASSWORD_BOXES: Array<[string, string]> = [
+  ['a masked box', '<input id="t" type="password">'],
+  ['an upper-case type', '<input id="t" type="PASSWORD">'],
+  ['a box marked for a new password', '<input id="t" type="text" autocomplete="new-password">'],
+  ['a box marked for the saved password', '<input id="t" autocomplete="section-login current-password">'],
+  ['a hidden masked box the agent is writing to', '<input id="t" type="password" style="display:none">'],
+];
+const NOT_PASSWORD_BOXES: Array<[string, string]> = [
+  ['a username box beside "Forgot password?"', '<input id="t" name="username"><a href="/reset">Forgot password?</a>'],
+  ['a "Client secret" text box', '<label for="t">Client secret</label><input id="t" name="clientSecret">'],
+  ['a "Token name" box', '<label for="t">Token name</label><input id="t">'],
+  ['a password-reset email box', '<label for="t">Email for password reset</label><input id="t" type="email">'],
+  ['a box whose autocomplete only mentions passwords in passing', '<input id="t" autocomplete="password-hint">'],
+  ['a password-named text area', '<textarea id="t" name="password"></textarea>'],
+];
+
+describe('password box answer', () => {
+  it.each(PASSWORD_BOXES)('says yes for %s', (_label, html) => {
+    expect(probe(html, '#t').targetIsPasswordField).toBe(true);
+  });
+
+  it.each(NOT_PASSWORD_BOXES)('says no for %s', (_label, html) => {
+    expect(probe(html, '#t').targetIsPasswordField).toBe(false);
+  });
+
+  it('answers for the targets only: a password box elsewhere on the page does not count', () => {
+    const page = '<input id="user"><input id="pass" type="password">';
+    expect(probe(page, '#user').targetIsPasswordField).toBe(false);
+    expect(probe(page, '#user, #pass').targetIsPasswordField).toBe(true);
+    expect(probe(page).targetIsPasswordField).toBe(false);
+  });
+
+  it('fails closed on a selector the page cannot parse, but only while a password box is visible', () => {
+    expect(probe('<input type="password">', 'text=Password').targetIsPasswordField).toBe(true);
+    expect(probe('<input type="password" style="display:none"><input id="e">', 'text=Password').targetIsPasswordField).toBe(false);
+  });
+
+  it('resolves a target inside an open shadow root', () => {
+    const result = probe('<div id="host"></div>', '#inner', (document) => {
+      const root = document.getElementById('host')!.attachShadow({ mode: 'open' });
+      root.innerHTML = '<input id="inner" type="password">';
+    });
+    expect(result.targetIsPasswordField).toBe(true);
+  });
+
+  it('marks a masked code box as both, so the two-factor rule can take precedence', () => {
+    expect(probe('<input id="t" type="password" name="passcode">', '#t'))
+      .toMatchObject({ targetIsCodeField: true, targetIsPasswordField: true });
   });
 });
 
 describe('parseOneTimeCodeEvidence', () => {
-  it('accepts exactly three booleans and nothing else', () => {
+  it('accepts the three code box booleans, with or without the password box boolean, and nothing else', () => {
+    // An 0.2.50 extension answers three keys: the password box is then unknown.
     expect(parseOneTimeCodeEvidence({ codeField: true, filled: false, targetIsCodeField: true }))
       .toEqual({ codeField: true, filled: false, targetIsCodeField: true });
+    expect(parseOneTimeCodeEvidence({ codeField: false, filled: false, targetIsCodeField: false, targetIsPasswordField: true }))
+      .toEqual({ codeField: false, filled: false, targetIsCodeField: false, targetIsPasswordField: true });
     for (const value of [
       null, undefined, 'x', [], {},
       { codeField: true, filled: false },
       { codeField: 'true', filled: false, targetIsCodeField: false },
       { codeField: true, filled: false, targetIsCodeField: false, value: '1' },
+      { codeField: true, filled: false, targetIsCodeField: false, targetIsPasswordField: 'yes' },
+      { codeField: true, filled: false, targetIsCodeField: false, targetIsPasswordField: true, value: '1' },
     ]) {
       expect(parseOneTimeCodeEvidence(value)).toBeUndefined();
     }
@@ -160,31 +219,122 @@ describe('browser extension probe_one_time_code command', () => {
     expect(observation).not.toContain('probe_one_time_code');
   });
 
-  it('runs in every frame and merges the frames into three booleans', async () => {
-    const source = /async function probeOneTimeCodeFields\(command\) \{[\s\S]*?\n\}/.exec(BACKGROUND)?.[0];
+  /**
+   * The extension's real merge and uid code, from probeOneTimeCodeFields to the
+   * end of uidTargetsIncludePasswordBox, run against fake Chrome and debugger.
+   */
+  function extensionProbe(options: {
+    frames: unknown[];
+    uidAnswers?: Record<string, boolean | Error>;
+  }) {
+    const source = /async function probeOneTimeCodeFields\(command\) \{[\s\S]*?\nasync function uidTargetsIncludePasswordBox\(tabId, uids\) \{[\s\S]*?\n\}/
+      .exec(BACKGROUND)?.[0];
     expect(source).toBeTruthy();
-    const executeScript = vi.fn(async () => [
-      { result: { codeField: false, filled: false, targetIsCodeField: false } },
-      { result: { codeField: true, filled: true, targetIsCodeField: false } },
-      { result: null },
-      {},
-    ]);
-    const chrome = { scripting: { executeScript } };
+    const executeScript = vi.fn(async () => options.frames);
+    const sendCommand = vi.fn(async () => undefined);
+    const resolved: string[] = [];
+    const resolveAndCallOnDebuggee = vi.fn(async (_debuggee: unknown, uid: string) => {
+      resolved.push(uid);
+      const answer = options.uidAnswers?.[uid];
+      if (answer === undefined || answer instanceof Error) throw answer ?? new Error(`Browser element uid could not be resolved: ${uid}`);
+      return answer;
+    });
     const run = new Function(
-      'chrome', 'requireTargetTabId', 'oneTimeCodeFieldProbe',
+      'chrome', 'requireTargetTabId', 'oneTimeCodeFieldProbe', 'withDebugger', 'withCdpDeadline',
+      'resolveAndCallOnDebuggee', 'CDP_UID_OBJECT_GROUP',
       `${source!}\nreturn probeOneTimeCodeFields;`,
-    )(chrome, (command: { target: { tabId: number } }) => command.target.tabId, () => undefined) as (
-      command: unknown,
-    ) => Promise<unknown>;
+    )(
+      { scripting: { executeScript }, debugger: { sendCommand } },
+      (command: { target: { tabId: number } }) => command.target.tabId,
+      () => undefined,
+      (tabId: number, callback: (debuggee: unknown) => Promise<unknown>) => callback({ tabId }),
+      (work: Promise<unknown>) => work,
+      resolveAndCallOnDebuggee,
+      'uid-group',
+    ) as (command: unknown) => Promise<unknown>;
+    return { run, executeScript, resolved };
+  }
+
+  const CODE_ONLY = { codeField: false, filled: false, targetIsCodeField: false };
+
+  it('runs in every frame and merges the frames, answering the password box only for a target', async () => {
+    const { run, executeScript } = extensionProbe({
+      frames: [
+        { result: { ...CODE_ONLY, targetIsPasswordField: false } },
+        { result: { codeField: true, filled: true, targetIsCodeField: false, targetIsPasswordField: true } },
+        { result: null },
+        {},
+      ],
+    });
 
     await expect(run({ target: { tabId: 7 }, payload: { selector: '#code' } }))
-      .resolves.toEqual({ codeField: true, filled: true, targetIsCodeField: false });
+      .resolves.toEqual({ codeField: true, filled: true, targetIsCodeField: false, targetIsPasswordField: true });
     expect(executeScript).toHaveBeenCalledWith(expect.objectContaining({
       target: { tabId: 7, allFrames: true },
       args: ['#code'],
     }));
 
-    await run({ target: { tabId: 7 }, payload: {} });
+    // No target: the code box answer only.
+    await expect(run({ target: { tabId: 7 }, payload: {} }))
+      .resolves.toEqual({ codeField: true, filled: true, targetIsCodeField: false });
     expect(executeScript).toHaveBeenLastCalledWith(expect.objectContaining({ args: [null] }));
+  });
+
+  it('leaves the password box unknown when no frame answered for a selector', async () => {
+    const { run } = extensionProbe({ frames: [] });
+    await expect(run({ target: { tabId: 7 }, payload: { selector: '#p' } })).resolves.toEqual(CODE_ONLY);
+  });
+
+  it('resolves uid targets through the debugger', async () => {
+    const no = extensionProbe({ frames: [{ result: { ...CODE_ONLY, targetIsPasswordField: false } }], uidAnswers: { 41: false, 42: false } });
+    await expect(no.run({ target: { tabId: 7 }, payload: { uids: ['41', '42'] } }))
+      .resolves.toEqual({ ...CODE_ONLY, targetIsPasswordField: false });
+    expect(no.resolved).toEqual(['41', '42']);
+
+    const yes = extensionProbe({ frames: [{ result: CODE_ONLY }], uidAnswers: { 41: false, 42: true } });
+    await expect(yes.run({ target: { tabId: 7 }, payload: { uids: ['41', '42'] } }))
+      .resolves.toEqual({ ...CODE_ONLY, targetIsPasswordField: true });
+  });
+
+  it('says unknown, never no, when a uid cannot be resolved, unless another target is already a password box', async () => {
+    const unknown = extensionProbe({ frames: [{ result: { ...CODE_ONLY, targetIsPasswordField: false } }], uidAnswers: { 41: false } });
+    await expect(unknown.run({ target: { tabId: 7 }, payload: { selector: '#user', uids: ['41', '99'] } }))
+      .resolves.toEqual(CODE_ONLY);
+
+    const known = extensionProbe({ frames: [{ result: { ...CODE_ONLY, targetIsPasswordField: true } }], uidAnswers: {} });
+    await expect(known.run({ target: { tabId: 7 }, payload: { selector: '#pass', uids: ['99'] } }))
+      .resolves.toEqual({ ...CODE_ONLY, targetIsPasswordField: true });
+  });
+
+  it('finds a password uid after one it could not resolve', async () => {
+    const { run, resolved } = extensionProbe({ frames: [{ result: CODE_ONLY }], uidAnswers: { 42: true } });
+    await expect(run({ target: { tabId: 7 }, payload: { uids: ['99', '42'] } }))
+      .resolves.toEqual({ ...CODE_ONLY, targetIsPasswordField: true });
+    expect(resolved).toEqual(['99', '42']);
+  });
+
+  it('never answers "no" for uids it dropped unchecked (malformed, or past the cap)', async () => {
+    const malformed = extensionProbe({ frames: [{ result: { ...CODE_ONLY, targetIsPasswordField: false } }], uidAnswers: { 41: false } });
+    await expect(malformed.run({ target: { tabId: 7 }, payload: { uids: 'not-a-list' } })).resolves.toEqual(CODE_ONLY);
+    await expect(malformed.run({ target: { tabId: 7 }, payload: { selector: '#user', uids: ['41', 7, ''] } }))
+      .resolves.toEqual(CODE_ONLY);
+    expect(malformed.resolved).toEqual(['41']);
+
+    const many = Object.fromEntries(Array.from({ length: 51 }, (_unused, index) => [String(index + 1), false]));
+    const capped = extensionProbe({ frames: [{ result: CODE_ONLY }], uidAnswers: many });
+    await expect(capped.run({ target: { tabId: 7 }, payload: { uids: Object.keys(many) } })).resolves.toEqual(CODE_ONLY);
+    expect(capped.resolved).toHaveLength(50);
+  });
+
+  it('applies the same password box rule to a uid-resolved element', () => {
+    const fnSource = /function uidPasswordBoxFn\(\) \{[\s\S]*?\n\}/.exec(BACKGROUND)?.[0];
+    expect(fnSource).toBeTruthy();
+    const uidPasswordBoxFn = new Function(`return (${fnSource!});`)() as (this: Element) => boolean;
+    for (const [rows, expected] of [[PASSWORD_BOXES, true], [NOT_PASSWORD_BOXES, false]] as const) {
+      for (const [label, html] of rows) {
+        const element = new JSDOM(`<!doctype html><body>${html}</body>`).window.document.getElementById('t')!;
+        expect(uidPasswordBoxFn.call(element), label).toBe(expected);
+      }
+    }
   });
 });

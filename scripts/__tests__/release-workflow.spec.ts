@@ -265,7 +265,10 @@ describe("Harness release workflow", () => {
 
     expect(smokeIndex).toBeGreaterThan(packageIndex);
     expect(smokeIndex).toBeLessThan(collectIndex);
-    expect(steps[smokeIndex]?.run).toBe("node scripts/packaged-startup-smoke.js");
+    // Linux runs the whole smoke under one virtual display (LT-731).
+    expect(steps[smokeIndex]?.run).toBe(
+      "${{ matrix.platform == 'linux' && 'xvfb-run -a node scripts/packaged-startup-smoke.js' || 'node scripts/packaged-startup-smoke.js' }}",
+    );
   });
 
   it("launches the unpacked macOS package in CI", () => {

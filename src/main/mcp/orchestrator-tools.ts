@@ -8,7 +8,7 @@ import { ChatStore } from '../chats/chat-store';
 import { GitBatchCancelledError, GitBatchService, getGitBatchService } from '../operator/git-batch-service';
 import { OperatorRunStore } from '../operator/operator-run-store';
 import type { McpServerToolDefinition } from './mcp-server-tools';
-import type { WorkerAgentBuildSummary, WorkerHostHealthSample, WorkerNodeAndroidAutomationSummary, WorkerNodeBrowserAutomationSummary, WorkerNodeExtensionRelaySummary, WorkerNodeFileTransferSummary } from '../../shared/types/worker-node.types';
+import type { WorkerAgentBuildSummary, WorkerHostHealthSample, WorkerNodeAndroidAutomationSummary, WorkerNodeBrowserAutomationSummary, WorkerNodeExtensionRelaySummary, WorkerNodeFileTransferSummary, WorkerNodeHostReadiness, WorkerNodeIosAutomationSummary } from '../../shared/types/worker-node.types';
 import { createAutomationToolDefinitions } from './orchestrator-automation-tools';
 import { createDocReviewToolDefinitions, type GetDocReviewResultFn, type RequestDocReviewFn } from './doc-review-tools';
 import { createPlanQueueToolDefinitions, type PlanQueueToolOperations } from './plan-queue-tools';
@@ -106,6 +106,9 @@ export interface RemoteNodeToolInfo {
   extensionRelay?: WorkerNodeExtensionRelaySummary;
   hasAndroidMcp: boolean;
   androidAutomation?: WorkerNodeAndroidAutomationSummary;
+  iosAutomation?: WorkerNodeIosAutomationSummary;
+  hostReadiness?: WorkerNodeHostReadiness;
+  connectionNotice?: string;
   hasDocker: boolean;
   gpuName?: string;
   gpuMemoryMB?: number;
@@ -164,6 +167,8 @@ export const RunOnNodeArgsSchema = z.object({
   requiresAndroid: z.boolean().optional(),
   /** Android device preference when requiresAndroid is true. */
   androidDeviceKind: z.enum(['emulator', 'physical', 'any']).optional(),
+  /** Require a Mac that reports iOS readiness. Explicit only; routing, no tools injected. */
+  requiresIos: z.boolean().optional(),
 });
 
 export type RunOnNodeArgs = z.infer<typeof RunOnNodeArgsSchema>;
@@ -646,6 +651,11 @@ export function createOrchestratorToolDefinitions(
             enum: ['emulator', 'physical', 'any'],
             description:
               'Android device preference when requiresAndroid is true. Defaults to any.',
+          },
+          requiresIos: {
+            type: 'boolean',
+            description:
+              'Only run on a Mac that reports iOS readiness (Xcode with the licence accepted, and a simulator runtime or a paired iPhone/iPad). Routing only: no iOS tools are injected. Explicit only; never inferred from the prompt.',
           },
         },
         required: ['prompt'],

@@ -38,11 +38,8 @@ import {
   PairBothDiscoveryPublisher,
 } from '../../remote-node/pair-both-discovery';
 import { PairBothRendezvousService } from '../../remote-node/pair-both-rendezvous-service';
-import {
-  getLocalIpv4Addresses,
-  getTailscaleIpv4Address,
-  getTailscaleMagicDnsName,
-} from '../../util/network-addresses';
+import { listReachableHosts } from '../../remote-node/pair-both-addresses';
+import { formatHostPort } from '../../../shared/remote-node/host-address';
 import {
   parsePairingConfigInput,
   writePairedWorkerConfig,
@@ -57,6 +54,7 @@ import {
 } from '../../../worker-agent/worker-connection-status';
 
 const logger = getLogger('PairBothHandlers');
+
 
 let service: PairBothRendezvousService | null = null;
 let discoveryPublisher: PairBothDiscoveryPublisher | null = null;
@@ -78,17 +76,19 @@ export function registerPairBothHandlers(deps: PairBothHandlerDependencies = {})
         const config = getRemoteNodeConfig();
         await ensureRemoteNodeServerRunning();
 
-        const coordinatorUrl = buildCoordinatorUrlForWorker(config.serverPort);
+        // Every address this computer answers on; the worker keeps the whole list.
+        const hosts = await listReachableHosts(config.serverHost);
+        const [coordinatorUrl, ...coordinatorUrls] = hosts.map(
+          (host) => `ws://${formatHostPort(host, config.serverPort)}`,
+        );
         const state = await getService().startCoordinatorPairing({
           host: validated?.host ?? config.serverHost,
           namespace: config.namespace,
           coordinatorUrl,
+          ...(coordinatorUrls.length > 0 ? { coordinatorUrls } : {}),
           ...(validated?.ttlMs ? { ttlMs: validated.ttlMs } : {}),
         });
-        const candidate = getService().getLocalCandidate(
-          state.sessionId,
-          selectReachableHost(config.serverHost),
-        );
+        const candidate = getService().getLocalCandidate(state.sessionId, hosts);
         const discoveryDisabledReason = isLoopbackHost(config.serverHost)
           ? 'LAN discovery is disabled because the coordinator is bound to this computer only. Use QR or paste pairing instead.'
           : undefined;
@@ -462,20 +462,6 @@ async function ensureRemoteNodeServerRunning(): Promise<void> {
     updateRemoteNodeConfig({ enabled: true });
     getSettingsManager().set('remoteNodesEnabled', true);
   }
-}
-
-function buildCoordinatorUrlForWorker(port: number): string {
-  return `ws://${selectReachableHost(getRemoteNodeConfig().serverHost)}:${port}`;
-}
-
-function selectReachableHost(configuredHost: string): string {
-  if (configuredHost !== '0.0.0.0' && configuredHost !== '::') {
-    return configuredHost;
-  }
-  return getTailscaleMagicDnsName()
-    ?? getTailscaleIpv4Address()
-    ?? getLocalIpv4Addresses()[0]
-    ?? '127.0.0.1';
 }
 
 async function startWorkerRuntimeForMode(

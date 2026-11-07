@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const settings = new Map<string, unknown>();
 const settingsWrites: string[] = [];
+const loggerInfo = vi.hoisted(() => vi.fn());
 
 vi.mock('../logging/logger', () => ({
   getLogger: () => ({
-    info: vi.fn(),
+    info: loggerInfo,
     warn: vi.fn(),
     error: vi.fn(),
   }),
@@ -251,6 +252,45 @@ describe('RemoteAuthService', () => {
     expect(service.listPendingPairings()).toEqual([
       expect.objectContaining({ token: second.token, label: 'Desktop' }),
     ]);
+  });
+
+  it('records which session issued an agent pairing credential, without logging the token', () => {
+    const service = new RemoteAuthService();
+    const issuedBy = { instanceId: 'instance-1', name: 'Set up test Mac' };
+    const pairing = service.issuePairingCredential({ label: 'ct-test-mac', ttlMs: 30 * 60_000, issuedBy });
+
+    expect(pairing.issuedBy).toEqual(issuedBy);
+    expect(service.listPendingPairings()).toEqual([
+      expect.objectContaining({ token: pairing.token, label: 'ct-test-mac', issuedBy }),
+    ]);
+    expect(loggerInfo).toHaveBeenCalledWith('Issued remote node pairing credential', expect.objectContaining({
+      purpose: 'pairing',
+      label: 'ct-test-mac',
+      issuedBy,
+    }));
+    expect(JSON.stringify(loggerInfo.mock.calls)).not.toContain(pairing.token);
+    expect(settings.get('remoteNodesEnrollmentToken')).toBe('legacy-pairing-token');
+  });
+
+  it('accepts an agent pairing credential once and rejects it again or after expiry', () => {
+    vi.useFakeTimers();
+    try {
+      const service = new RemoteAuthService();
+      const issuedBy = { instanceId: 'instance-1', name: 'Set up test Mac' };
+      const used = service.issuePairingCredential({ label: 'one', ttlMs: 60_000, issuedBy });
+      const unused = service.issuePairingCredential({ label: 'two', ttlMs: 60_000, issuedBy });
+
+      expect(service.authenticateRegistration({ nodeId: 'node-1', nodeName: 'One', token: used.token }).status)
+        .toBe('paired');
+      expect(service.authenticateRegistration({ nodeId: 'node-2', nodeName: 'Again', token: used.token }))
+        .toEqual({ status: 'rejected', reason: 'Invalid or expired pairing token' });
+
+      vi.advanceTimersByTime(60_001);
+      expect(service.authenticateRegistration({ nodeId: 'node-3', nodeName: 'Late', token: unused.token }))
+        .toEqual({ status: 'rejected', reason: 'Invalid or expired pairing token' });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects reusing a session token for a different node id', () => {

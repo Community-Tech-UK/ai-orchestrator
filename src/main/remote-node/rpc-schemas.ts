@@ -87,6 +87,52 @@ const WorkerLocalModelCapabilitySchema = z.object({
   healthy: z.boolean(),
 });
 
+// Diagnostic only: a malformed block is dropped rather than failing the heartbeat. Lists are capped.
+const IosAutomationSchema = z.object({
+  xcodePath: z.string().max(4096),
+  xcodeVersion: z.string().max(64).optional(),
+  xcodeBuild: z.string().max(64).optional(),
+  licenceAccepted: z.boolean(),
+  runtimes: z.array(z.object({
+    name: z.string().max(128),
+    version: z.string().max(64),
+    isAvailable: z.boolean(),
+  })).max(64),
+  devices: z.array(z.object({
+    name: z.string().max(256),
+    udid: z.string().max(128),
+    platform: z.string().max(64).optional(),
+    marketingName: z.string().max(256).optional(),
+    osVersion: z.string().max(64).optional(),
+    pairingState: z.string().max(64).optional(),
+    tunnelState: z.string().max(64).optional(),
+    developerMode: z.enum(['enabled', 'disabled', 'unknown']).optional(),
+  })).max(64),
+  signing: z.object({
+    appleAccountPresent: z.boolean().optional(),
+    lastError: z.object({
+      kind: z.enum(['licence_agreement', 'no_profiles', 'no_team', 'no_certificate', 'no_account']),
+      message: z.string().max(1000),
+      seenAt: z.number().int().nonnegative(),
+      logPath: z.string().max(4096),
+    }).optional(),
+  }),
+  problems: z.array(z.string().max(500)).max(32),
+  checkedAt: z.number().int().nonnegative(),
+  ready: z.boolean(),
+}).optional().catch(undefined);
+
+const HostReadinessSchema = z.object({
+  checks: z.array(z.object({
+    id: z.enum(['sleep_on_power', 'remote_login_access', 'local_network', 'tailscale_running', 'filevault']),
+    status: z.enum(['ok', 'problem', 'note', 'unknown']),
+    summary: z.string().max(1000),
+    fix: z.string().max(1000).optional(),
+    needsAdmin: z.boolean(),
+  })).max(16),
+  checkedAt: z.number().int().nonnegative(),
+}).optional().catch(undefined);
+
 const WorkerNodeCapabilitiesSchema = z.object({
   workerAgent: WorkerAgentBuildSummarySchema.optional(),
   platform: z.enum(['darwin', 'win32', 'linux']),
@@ -141,6 +187,9 @@ const WorkerNodeCapabilitiesSchema = z.object({
     appiumMcp: z.boolean().optional(),
     mobileMcpVersion: z.string().optional(),
   }).optional(),
+  iosAutomation: IosAutomationSchema,
+  hostReadiness: HostReadinessSchema,
+  connectionNotice: z.string().max(500).optional().catch(undefined),
   hasDocker: z.boolean(),
   // Drop a malformed placement hint without rejecting worker liveness.
   accountProfileIds: z.object({

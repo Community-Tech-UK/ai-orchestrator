@@ -153,7 +153,7 @@ describe('browser page challenge probe: sign-in code boxes', () => {
       codeProbe: { codeField: true, filled: false, targetIsCodeField: true },
     });
 
-    await expect(probe({ ...TARGET, toolName: 'browser.fill_form', inputTargets: { selectors: ['#email', '#code'], hasUidTarget: false } }))
+    await expect(probe({ ...TARGET, toolName: 'browser.fill_form', inputTargets: { selectors: ['#email', '#code'], uids: [] } }))
       .resolves.toEqual({ detected: false, oneTimeCode: { codeField: true, filled: false, targetIsCodeField: true } });
     expect(sendCommand).toHaveBeenCalledTimes(1);
     expect(sendCommand).toHaveBeenCalledWith(ATTACHMENT, 'probe_one_time_code', { selector: '#email, #code' }, 4_000);
@@ -161,12 +161,45 @@ describe('browser page challenge probe: sign-in code boxes', () => {
 
   it('treats an accessibility uid target as a code box while one is visible', async () => {
     const visible = deps({ attachment: ATTACHMENT, extensionVersion: '0.2.50', codeProbe: { codeField: true, filled: false, targetIsCodeField: false } });
-    await expect(visible.probe({ ...TARGET, toolName: 'browser.type', inputTargets: { selectors: [], hasUidTarget: true } }))
+    await expect(visible.probe({ ...TARGET, toolName: 'browser.type', inputTargets: { selectors: [], uids: ['41'] } }))
       .resolves.toMatchObject({ oneTimeCode: { targetIsCodeField: true } });
 
     const none = deps({ attachment: ATTACHMENT, extensionVersion: '0.2.50' });
-    await expect(none.probe({ ...TARGET, toolName: 'browser.type', inputTargets: { selectors: [], hasUidTarget: true } }))
+    await expect(none.probe({ ...TARGET, toolName: 'browser.type', inputTargets: { selectors: [], uids: ['41'] } }))
       .resolves.toMatchObject({ oneTimeCode: { targetIsCodeField: false } });
+  });
+
+  it('sends uid targets to the extension, which answers the password box question for them', async () => {
+    const { probe, sendCommand } = deps({
+      attachment: ATTACHMENT,
+      extensionVersion: '0.2.51',
+      codeProbe: { codeField: false, filled: false, targetIsCodeField: false, targetIsPasswordField: true },
+    });
+
+    await expect(probe({ ...TARGET, toolName: 'browser.fill_form', inputTargets: { selectors: ['#user'], uids: ['41'] } }))
+      .resolves.toEqual({
+        detected: false,
+        oneTimeCode: { codeField: false, filled: false, targetIsCodeField: false },
+        passwordField: true,
+      });
+    expect(sendCommand).toHaveBeenCalledWith(ATTACHMENT, 'probe_one_time_code', { selector: '#user', uids: ['41'] }, 4_000);
+  });
+
+  it('leaves the password box unknown when an 0.2.50 extension answers only the code box', async () => {
+    const { probe } = deps({ attachment: ATTACHMENT, extensionVersion: '0.2.50' });
+    const evidence = await probe({ ...TARGET, toolName: 'browser.type', inputTargets: { selectors: ['#p'], uids: [] } });
+    expect(evidence).not.toHaveProperty('passwordField');
+  });
+
+  it('takes the managed page function\'s password answer for selector targets only', async () => {
+    const answer = async () => ({ type: 'object', json: '{"codeField":false,"filled":false,"targetIsCodeField":false,"targetIsPasswordField":false}' });
+    const { probe } = deps({ evaluate: answer });
+
+    await expect(probe({ ...TARGET, toolName: 'browser.type', inputTargets: { selectors: ['#user'], uids: [] } }))
+      .resolves.toMatchObject({ passwordField: false });
+    // The page function cannot resolve a uid, so "false" would be a guess.
+    expect(await probe({ ...TARGET, toolName: 'browser.type', inputTargets: { selectors: ['#user'], uids: ['41'] } }))
+      .not.toHaveProperty('passwordField');
   });
 
   it('probes nothing for tools that neither act on the page nor write fields', async () => {
@@ -181,7 +214,7 @@ describe('browser page challenge probe: sign-in code boxes', () => {
       evaluate: async () => ({ type: 'object', json: '{"codeField":true,"filled":false,"targetIsCodeField":true}' }),
     });
 
-    await expect(probe({ ...TARGET, toolName: 'browser.type', inputTargets: { selectors: ['#code'], hasUidTarget: false } }))
+    await expect(probe({ ...TARGET, toolName: 'browser.type', inputTargets: { selectors: ['#code'], uids: [] } }))
       .resolves.toEqual({ detected: false, oneTimeCode: { codeField: true, filled: false, targetIsCodeField: true } });
     expect(evaluate).toHaveBeenCalledTimes(1);
     expect(evaluate).toHaveBeenCalledWith(TARGET.profileId, TARGET.targetId, expect.stringMatching(/oneTimeCodeFieldProbe[\s\S]*\("#code"\)$/), false);
