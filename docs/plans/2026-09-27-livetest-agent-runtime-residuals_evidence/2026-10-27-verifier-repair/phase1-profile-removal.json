@@ -1,0 +1,6 @@
+{
+  "at": "2026-10-27T05:36:28.999782+00:00",
+  "path": "/tmp/aio-lt-queue-3af326de",
+  "removed": true,
+  "reason": "First app stopped with owned-PID and endpoint receipts. Reuse required profile path for fresh AR002 profile, not old loop history."
+}

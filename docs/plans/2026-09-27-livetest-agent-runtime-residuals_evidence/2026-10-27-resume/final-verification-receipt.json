@@ -1,0 +1,53 @@
+{
+  "at": "2026-10-27T03:38:40.491013+00:00",
+  "artifactHashesMatch": true,
+  "sourceHashesMatch": true,
+  "reportAndPlanHashesMatch": true,
+  "runtimePathsAbsent": true,
+  "ownedPidsGone": true,
+  "currentCommandExits": [
+    {
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/context-evidence/context-safety-policy.spec.ts",
+        "src/main/context-evidence/context-policy-integration.spec.ts",
+        "src/main/orchestration/headless-review-runner.spec.ts",
+        "src/main/orchestration/loop-fresh-eyes-reviewer.spec.ts",
+        "src/main/orchestration/loop-coordinator-completion-gates.spec.ts",
+        "src/main/orchestration/loop-review-reuse-anchor.spec.ts"
+      ],
+      "exitCode": 0
+    },
+    {
+      "command": [
+        "npx",
+        "tsc",
+        "--noEmit"
+      ],
+      "exitCode": 0
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "typecheck:spec"
+      ],
+      "exitCode": 0
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "build:main"
+      ],
+      "exitCode": 0
+    }
+  ],
+  "liveEvidenceAssertionsPass": true,
+  "productFixClaimed": false,
+  "independentVerifierPassClaimed": false,
+  "harnessCorrections": "Main init originally requested a nonexistent singleton accessor; switched to the running service reference. UI probe initially ran while setup route hid the dashboard; reached it through the real role choice and route. Error receipts retained, excluded from successful DOM assertions. First final-check selector selected that failed UI receipt; corrected to select successful receipts."
+}

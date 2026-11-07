@@ -1,0 +1,55 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js
+
+  … 69 test file(s) done (full log: _scratch/test-run.pid-16504.log)
+  … 240 test file(s) done (full log: _scratch/test-run.pid-16504.log)
+  … 494 test file(s) done (full log: _scratch/test-run.pid-16504.log)
+  … 780 test file(s) done (full log: _scratch/test-run.pid-16504.log)
+  … 1051 test file(s) done (full log: _scratch/test-run.pid-16504.log)
+  … 1661 test file(s) done (full log: _scratch/test-run.pid-16504.log)
+  … 2361 test file(s) done (full log: _scratch/test-run.pid-16504.log)
+✗ test run failed (exit 1) after 35379 passed / 0 failed (unhandled runner error). Tail of log:
+ ✓ |renderer| src/renderer/app/core/state/remote-node-connectivity.spec.ts (2 tests) 3ms
+(node:61912) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |renderer| src/renderer/app/core/services/clipboard-toast.token.spec.ts (2 tests) 11ms
+(node:62317) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:62354) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |renderer| src/renderer/app/shared/utils/overlay-search.spec.ts (3 tests) 3ms
+ ✓ |renderer| src/renderer/app/shared/remote-node-display.spec.ts (1 test) 2ms
+(node:62615) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |renderer| src/renderer/app/core/utils/tool-activity-map.spec.ts (1 test) 2ms
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯⎯⎯ Test Run Error ⎯⎯⎯⎯⎯⎯⎯
+SyntaxError: Unexpected token '�', "�" is not valid JSON
+ ❯ new Converter node_modules/@vitest/utils/node_modules/convert-source-map/index.js:83:15
+ ❯ Object.exports.fromComment node_modules/@vitest/utils/node_modules/convert-source-map/index.js:181:10
+ ❯ Object.exports.fromSource node_modules/@vitest/utils/node_modules/convert-source-map/index.js:207:22
+ ❯ extractSourcemapFromFile node_modules/@vitest/utils/dist/source-map/node.js:8:32
+ ❯ Object.getSourceMap node_modules/vitest/dist/chunks/cli-api.B0Pz1_R7.js:12703:102
+ ❯ node_modules/@vitest/utils/dist/source-map.js:391:37
+ ❯ parseStacktrace node_modules/@vitest/utils/dist/source-map.js:387:16
+ ❯ parseErrorStacktrace node_modules/@vitest/utils/dist/source-map.js:438:51
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  2791 passed | 1 skipped (2793)
+      Tests  35379 passed | 9 skipped (35390)
+     Errors  1 error
+   Start at  05:02:59
+   Duration  949.91s (transform 55.54s, setup 151.77s, import 319.22s, tests 1211.22s, environment 712.24s)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/test-results.pid-16504.json
+
+full log: _scratch/test-run.pid-16504.log
+
+✗ FAILED — vitest exited 1 after 35379 passed / 0 failed (unhandled runner error; see log).

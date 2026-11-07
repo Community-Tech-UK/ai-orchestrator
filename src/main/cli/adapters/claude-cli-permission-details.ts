@@ -63,9 +63,11 @@ export function isPermissionDenialContent(content: string): boolean {
   ];
   const claudeRequestedPermissionPattern =
     /\bclaude requested permissions? to (?:access|add|change|create|delete|edit|execute|modify|move|open|read|remove|rename|run|update|use|view|write)\b/i;
+  const commandRequiresApprovalPattern = /^\s*this command requires approval\.?\s*$/i;
 
   return patterns.some(p => lower.includes(p))
-    || claudeRequestedPermissionPattern.test(content);
+    || claudeRequestedPermissionPattern.test(content)
+    || commandRequiresApprovalPattern.test(content);
 }
 
 export function extractPermissionDetails(

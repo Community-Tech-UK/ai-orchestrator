@@ -1,0 +1,55 @@
+{
+  "action": "Quarantined only twelve packages absent from the branch lockfile, preserving their bytes until verification/cleanup. No manifest or lockfile change.",
+  "moves": [
+    {
+      "from": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/@hono/node-server",
+      "quarantine": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-final/extraneous/@hono/node-server"
+    },
+    {
+      "from": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/@modelcontextprotocol/sdk",
+      "quarantine": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-final/extraneous/@modelcontextprotocol/sdk"
+    },
+    {
+      "from": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/cors",
+      "quarantine": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-final/extraneous/cors"
+    },
+    {
+      "from": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/eventsource-parser",
+      "quarantine": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-final/extraneous/eventsource-parser"
+    },
+    {
+      "from": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/eventsource",
+      "quarantine": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-final/extraneous/eventsource"
+    },
+    {
+      "from": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/express-rate-limit",
+      "quarantine": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-final/extraneous/express-rate-limit"
+    },
+    {
+      "from": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/hono",
+      "quarantine": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-final/extraneous/hono"
+    },
+    {
+      "from": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/ip-address",
+      "quarantine": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-final/extraneous/ip-address"
+    },
+    {
+      "from": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/jose",
+      "quarantine": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-final/extraneous/jose"
+    },
+    {
+      "from": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/object-assign",
+      "quarantine": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-final/extraneous/object-assign"
+    },
+    {
+      "from": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/pkce-challenge",
+      "quarantine": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-final/extraneous/pkce-challenge"
+    },
+    {
+      "from": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/zod-to-json-schema",
+      "quarantine": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-final/extraneous/zod-to-json-schema"
+    }
+  ],
+  "exit": 0,
+  "problems": []
+}

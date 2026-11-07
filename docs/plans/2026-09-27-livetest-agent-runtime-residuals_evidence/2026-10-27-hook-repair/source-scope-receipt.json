@@ -1,0 +1,9 @@
+{
+  "at": "2026-10-27T07:30:28.044Z",
+  "worktreeReportUnchanged": true,
+  "stagedPaths": "",
+  "currentSourceDiff": [
+    "scripts/__tests__/test-staged.spec.ts",
+    "scripts/test-staged.js"
+  ]
+}

@@ -1,0 +1,143 @@
+{
+  "at": "2026-10-27T08:08:42.928Z",
+  "base": "7e5222cfe773e2fc3edff0c2eade2e77fe7131cc",
+  "head": "62e40762a8cf00f94aa6c7a466f2bc666f4f4dfa",
+  "sources": [
+    {
+      "path": "scripts/__tests__/test-staged.spec.ts",
+      "sha256": "6c874e751005f86dc61edc5ce08693fb3f6ceae1c00f8ecfdd75b1e58be40214"
+    },
+    {
+      "path": "scripts/test-staged.js",
+      "sha256": "5c71c68779701739d1f95fc9014e4ffe2856778c12ec916c32c3fee4cb35a838"
+    },
+    {
+      "path": "src/main/cli/adapters/claude-cli-adapter.permission-approval.spec.ts",
+      "sha256": "c0b0ddb1e4d5ac25d8527926973effef6bacd899c05c0a560a875cd7a700d0b5"
+    },
+    {
+      "path": "src/main/cli/adapters/claude-cli-permission-details.spec.ts",
+      "sha256": "0140738aadd2f337624b3bfbae7d0c9c2165e0b245bd160f2f9f71a29198ee64"
+    },
+    {
+      "path": "src/main/cli/adapters/claude-cli-permission-details.ts",
+      "sha256": "f026a7fbaa4e7cae483a836a2041f297dabaa1cbd863a8e8d96d6dafd8f73e88"
+    },
+    {
+      "path": "src/main/instance/lifecycle/__tests__/instance-spawn-preflight-chain.spec.ts",
+      "sha256": "cd23f9f7a58e8f2d4353084eb033fc7cb1b4045ea129de10cf5f5ac505f713f3"
+    },
+    {
+      "path": "src/main/instance/lifecycle/instance-spawn-preflight-chain.ts",
+      "sha256": "c8d2559597b1ea8c2f6db638b37a3d95842ba7fc88cc922819ce7f8de5ec4a50"
+    },
+    {
+      "path": "src/main/orchestration/headless-review-runner.ts",
+      "sha256": "9a99997d12326999f1f61c2e0a2764a1ffb90862e1c6059ea672b49a886a8bc0"
+    },
+    {
+      "path": "src/main/review/review-execution-host.spec.ts",
+      "sha256": "828b1f80c370525750108d3e160ceca36d96e51138edfc355f09d8ce26506412"
+    },
+    {
+      "path": "src/main/review/review-execution-host.ts",
+      "sha256": "47f0b4f870e9598ba3af8b774268e11ef9f735f542629c85029d4c8e608cda24"
+    },
+    {
+      "path": ".githooks/pre-commit",
+      "sha256": "38accaca02498fb199ddf717ddaa439e758cb686501957cbd674c6da1bbcfa37"
+    },
+    {
+      "path": "scripts/run-git-hook.js",
+      "sha256": "840e6081e6c7ea8db048b76da2a59dd202aebfc724b0ba3c9674f7efabf355d7"
+    },
+    {
+      "path": "scripts/run-related-tests.mjs",
+      "sha256": "7b994e874cde5860d3aaed026ce965dbf3196399e9a58dba529b6c38dcd0c449"
+    },
+    {
+      "path": "docs/generated/architecture-inventory.json",
+      "sha256": "64b84b7f94e0a8f07954792fa791c939cfa6e54a0e6bf781a717aeec49637cd8"
+    },
+    {
+      "path": "docs/plans/livetest-remediation-register.md",
+      "sha256": "135aa79ca81577f4037dcd24b594739e0db1192718e45608743ce1918e510deb"
+    },
+    {
+      "path": "package.json",
+      "sha256": "59b14f077bd607b076e156a9ac9d5f2645306d852039b8e0b6d4f314b7b5e04c"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "a1b0b186b9371516670ba5d12bf387d951bef620ceebc97574473f818f85f891"
+    },
+    {
+      "path": "vitest.config.ts",
+      "sha256": "7f99cc0abe17c60d7df42f6ffc7b206acfe5eef461a0aef1e369463de55b3152"
+    },
+    {
+      "path": "tsconfig.electron.json",
+      "sha256": "94fc9f75f4dd6f7a503487da6aeb7ebf78892ab04f7f4394130f565b87915564"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-27-livetest-agent-runtime-residuals_livetest.md",
+      "sha256": "404b8de6d00ad3b401bc01dc88afc5617a5724d141b5ab6f8b2e7ff75e80992a"
+    }
+  ],
+  "compiled": [
+    {
+      "path": "dist/main/cli/spawn-worker/cli-adapter-worker-args.js",
+      "sha256": "b7b3b3435917f196fb8231816a30ed186fe2d2c793547e05a0c5a421cf7435ec"
+    },
+    {
+      "path": "dist/main/cli/spawn-worker/cli-adapter-worker-input.js",
+      "sha256": "e807cbe2924e3e1b92653d82f1e27339a2a4e20092bf657e9a77ffd89cc72a3c"
+    },
+    {
+      "path": "dist/main/cli/spawn-worker/cli-adapter-worker-output.js",
+      "sha256": "c9cc785caac9679eabe0a7881f05d8c040cb10ba5d9060f2d22dbfa98da1869f"
+    },
+    {
+      "path": "dist/main/cli/spawn-worker/cli-adapter-worker-proxy.js",
+      "sha256": "acdd24c5776f62b662d1fc6b450623d267d4e042209c9dda200546ae625445bd"
+    },
+    {
+      "path": "dist/main/cli/spawn-worker/cli-spawn-worker-gateway.js",
+      "sha256": "cbf8f71cef46712785bcfb6dc45ae0f518097a88066e19c1b529d284541292d1"
+    },
+    {
+      "path": "dist/main/cli/spawn-worker/cli-spawn-worker-main.js",
+      "sha256": "5d4763addb848fb2978f5ed29d347551cb8d59ee4836ea3d18442cf49ac61ea9"
+    },
+    {
+      "path": "dist/main/cli/spawn-worker/cli-spawn-worker-protocol.js",
+      "sha256": "7b18cf4e3ea2412e0cdfcd5f399317e1af5b8679da18feb87091013645d7efe6"
+    },
+    {
+      "path": "dist/main/cli/spawn-worker/cli-worker-process-lifecycle.js",
+      "sha256": "deda1c950bf84bdc5d0c492b7dc9f5fbb6b204edbb801199f462c3ea83ce27c5"
+    },
+    {
+      "path": "dist/main/cli/spawn-worker/cli-worker-turn.js",
+      "sha256": "668c843932410978698d6180ee773d8d5a2e8c0aa96cd731d876d7685f2b099c"
+    }
+  ],
+  "recipes": [
+    {
+      "name": "verify.cjs",
+      "source": "const fs = require('node:fs');\nconst path = require('node:path');\nconst { spawnSync, execFileSync } = require('node:child_process');\n\nconst scratch = path.resolve('_scratch/hook-repair');\nconst runtimeLabel = process.env.HOOK_REPAIR_RUNTIME || 'initial';\nconst commands = [\n  ['typecheck', 'npx', ['tsc', '--noEmit']],\n  ['typecheck-spec', 'npm', ['run', 'typecheck:spec']],\n  ['lint', 'npm', ['run', 'lint']],\n  ['loc', 'npm', ['run', 'check:ts-max-loc']],\n  ['ui-hints', 'npm', ['run', 'check:ui-hints']],\n  ['build-main', 'npm', ['run', 'build:main']],\n  ['build-renderer', 'npm', ['run', 'build:renderer']],\n  ['full-suite', 'npm', ['run', 'test:quiet']],\n];\nfor (const [label, command, args] of commands) {\n  if (label === 'full-suite') {\n    const load = require('node:os').loadavg();\n    fs.writeFileSync(path.join(scratch, `full-preflight-${runtimeLabel}.json`), JSON.stringify({\n      at: new Date().toISOString(), load, uptime: execFileSync('uptime', { encoding: 'utf8' }),\n    }, null, 2));\n    if (load.some(value => value > 30)) throw new Error('Full suite deferred: host load exceeds 30');\n  }\n  const log = path.join(scratch, `${label}-${runtimeLabel}.log`);\n  const fd = fs.openSync(log, 'w');\n  const startedAt = new Date().toISOString();\n  console.log(`Starting ${label}`);\n  const result = spawnSync(command, args, {\n    stdio: ['ignore', fd, fd],\n    env: { ...process.env, AIO_TEST_SUMMARY: '0', AIO_TEST_NO_CACHE: '1', AIO_TEST_OUT_SUFFIX: `hook-full-${runtimeLabel}` },\n  });\n  fs.closeSync(fd);\n  fs.appendFileSync(path.join(scratch, 'commands.jsonl'), JSON.stringify({\n    command: [command, ...args], startedAt, endedAt: new Date().toISOString(),\n    status: result.status, signal: result.signal, error: result.error?.message, log,\n    nodeVersion: process.version, nodeExecutable: process.execPath,\n  }) + '\\n');\n  console.log(`${label}: exit ${result.status}; log ${log}`);\n  if (result.error || result.signal || result.status !== 0) {\n    console.log(fs.readFileSync(log, 'utf8').split('\\n').slice(-100).join('\\n'));\n    process.exitCode = result.status || 1;\n    break;\n  }\n}\n"
+    },
+    {
+      "name": "run-hook.cjs",
+      "source": "const fs = require('node:fs');\nconst path = require('node:path');\nconst crypto = require('node:crypto');\nconst { execFileSync, spawnSync } = require('node:child_process');\n\nconst scratch = path.resolve('_scratch/hook-repair');\nconst realEnv = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };\nconst git = args => execFileSync('git', args, { env: realEnv, encoding: 'utf8' });\nconst hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');\nconst indexPath = git(['rev-parse', '--git-path', 'index']).trim();\nconst base = git(['merge-base', 'main', 'HEAD']).trim();\nconst sourceList = output => output.trim().split('\\n').filter(file => /\\.(ts|js|mjs|cjs)$/.test(file));\nconst files = sourceList(git(['diff', '--name-only', '--diff-filter=ACMR', base, '--', 'src', 'scripts']));\nconst committed = new Set(sourceList(git(['diff', '--name-only', '--diff-filter=ACMR', base, 'HEAD', '--', 'src', 'scripts'])));\nconst beforeBytes = hash(fs.readFileSync(indexPath));\nconst beforeEntries = hash(git(['ls-files', '--stage', '-z']));\nconst beforeSources = files.map(file => ({ file, sha256: hash(fs.readFileSync(file)) }));\nconst temporaryIndex = path.join(scratch, 'hook.index');\nconst env = { ...realEnv, GIT_INDEX_FILE: temporaryIndex, AIO_TEST_SUMMARY: '0' };\nconst prepareOnly = process.argv.includes('--prepare-only');\nconst prefix = prepareOnly ? 'selection-check' : 'pre-commit';\nconst stagedFiles = () => JSON.parse(execFileSync(process.execPath, ['-e',\n  'console.log(JSON.stringify(require(\"./scripts/test-staged.js\").getStagedTestRelatedFiles()))',\n], { env, encoding: 'utf8' }));\nlet status = 1;\nconst startedAt = new Date().toISOString();\ntry {\n  execFileSync('git', ['read-tree', 'HEAD'], { env });\n  const indexFixture = [];\n  for (const file of files) {\n    if (committed.has(file)) {\n      // Selection-only fixture: --cached compares HEAD, so committed paths\n      // must differ from HEAD in the disposable index. Builds/tests still\n      // read the untouched CURRENT working tree. This index is never committed.\n      const baseEntry = git(['ls-tree', base, '--', file]);\n      const headEntry = git(['ls-tree', 'HEAD', '--', file]);\n      const mode = /^(\\d+) /.exec(headEntry)[1];\n      const blob = baseEntry ? /^\\d+ blob ([a-f0-9]+)\\t/.exec(baseEntry)[1]\n        : 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391';\n      execFileSync('git', ['cat-file', '-e', blob], { env });\n      execFileSync('git', ['update-index', '--cacheinfo', `${mode},${blob},${file}`], { env });\n      indexFixture.push({ file, mode, blob, representedBy: baseEntry ? 'base blob' : 'existing empty blob for added path' });\n    } else {\n      execFileSync('git', ['add', '--', file], { env });\n      indexFixture.push({ file, representedBy: 'current uncommitted repair' });\n    }\n  }\n  const actualSelection = stagedFiles();\n  if (JSON.stringify([...actualSelection].sort()) !== JSON.stringify([...files].sort())) {\n    throw new Error('Disposable index did not select every intended source path');\n  }\n  let result = { status: 0, signal: null };\n  let buildDirectoryInitiallyAbsent = null;\n  const log = path.join(scratch, `${prefix}.log`);\n  if (!prepareOnly) {\n    fs.rmSync('dist', { recursive: true, force: true });\n    buildDirectoryInitiallyAbsent = !fs.existsSync('dist');\n    const fd = fs.openSync(log, 'w');\n    result = spawnSync('/bin/sh', ['.githooks/pre-commit'], { env, stdio: ['ignore', fd, fd] });\n    fs.closeSync(fd);\n  }\n  status = result.error || result.signal ? 1 : result.status ?? 1;\n  const afterBytes = hash(fs.readFileSync(indexPath));\n  const afterEntries = hash(git(['ls-files', '--stage', '-z']));\n  const receipt = {\n    command: prepareOnly ? 'selection-only preparation' : ['/bin/sh', '.githooks/pre-commit'],\n    startedAt, endedAt: new Date().toISOString(), status, signal: result.signal, error: result.error?.message,\n    expectedSourceSelection: files, actualSourceSelectionBeforeHook: actualSelection,\n    actualSourceSelectionAfterHook: stagedFiles(), indexFixture, temporaryIndex: true, prepareOnly,\n    fixturePurpose: 'Path selection only; builds and tests read unchanged current source, never the index blobs',\n    buildDirectoryInitiallyAbsent, base, nodeVersion: process.version, nodeExecutable: process.execPath,\n    workerProduced: fs.existsSync('dist/main/cli/spawn-worker/cli-spawn-worker-main.js'),\n    realIndexBytesUnchanged: beforeBytes === afterBytes,\n    realIndexEntriesUnchanged: beforeEntries === afterEntries,\n    realIndexUnchanged: beforeBytes === afterBytes && beforeEntries === afterEntries,\n    realIndexHashes: { beforeBytes, afterBytes, beforeEntries, afterEntries },\n    currentSourceUnchanged: beforeSources.every(row => hash(fs.readFileSync(row.file)) === row.sha256),\n    sourceHashes: beforeSources, log: prepareOnly ? null : log,\n  };\n  fs.writeFileSync(path.join(scratch, `${prefix}-receipt.json`), JSON.stringify(receipt, null, 2));\n  if (!prepareOnly) console.log(fs.readFileSync(log, 'utf8').split('\\n').slice(-24).join('\\n'));\n  console.log(JSON.stringify({ status, selection: actualSelection.length, realIndexUnchanged: receipt.realIndexUnchanged }));\n  if (!receipt.realIndexUnchanged || !receipt.currentSourceUnchanged) status = 1;\n} finally {\n  fs.rmSync(temporaryIndex, { force: true });\n}\nprocess.exitCode = status;\n"
+    },
+    {
+      "name": "retain.cjs",
+      "source": "const fs = require('node:fs');\nconst path = require('node:path');\nconst crypto = require('node:crypto');\nconst zlib = require('node:zlib');\nconst { execFileSync } = require('node:child_process');\n\nconst root = process.cwd();\nconst scratch = path.resolve('_scratch/hook-repair');\nconst evidence = path.resolve('docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-hook-repair');\nconst report = '/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-27-livetest-agent-runtime-residuals_livetest.md';\nconst hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');\nfs.mkdirSync(evidence, { recursive: true });\n\nconst files = [\n  ...fs.readdirSync(scratch).filter(name => /\\.(log|json|jsonl|txt)$/.test(name)).map(name => path.join(scratch, name)),\n  ...fs.readdirSync('_scratch').filter(name => /^test-(run|results)\\.hook-.*\\.(log|json)$/.test(name)).map(name => path.resolve('_scratch', name)),\n];\nconst retention = [];\nfor (const file of files) {\n  const original = fs.readFileSync(file);\n  let replacements = 0;\n  let text = original.toString('utf8');\n  for (const pattern of [\n    /\\b(?:Bearer|Basic)\\s+[A-Za-z0-9_./+=-]+/gi,\n    /\\b(?:sk-|gh[pousr]_|github_pat_|xoxb-|xoxp-)[A-Za-z0-9_-]{16,}\\b/g,\n    /\\beyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\b/g,\n    /\\b(?:AKIA|ASIA)[A-Z0-9]{16}\\b/g,\n    /\\bya29\\.[A-Za-z0-9_-]{12,}\\b/g,\n  ]) {\n    text = text.replace(pattern, () => { replacements++; return '[REDACTED]'; });\n  }\n  text = text.replace(/((?:\"|')?\\b(?:token|accessToken|refreshToken|apiKey|api_key|clientSecret|password|secret|authorization|cookie)\\b(?:\"|')?\\s*[:=]\\s*[\"'])[^\"'\\r\\n]*([\"'])/gi,\n    (_match, prefix, suffix) => { replacements++; return `${prefix}[REDACTED]${suffix}`; });\n  if (file.endsWith('.json')) JSON.parse(text);\n  const retained = Buffer.from(text);\n  const compressed = file.endsWith('.log') || retained.length > 65536;\n  const name = path.basename(file) + (compressed ? '.gz' : '');\n  fs.writeFileSync(path.join(evidence, name), compressed ? zlib.gzipSync(retained) : retained);\n  retention.push({ source: path.relative(root, file), artifact: name, originalBytes: original.length,\n    retainedBytes: retained.length, originalSha256: hash(original), retainedSha256: hash(retained), compressed, redactions: replacements });\n}\nfs.writeFileSync(path.join(evidence, 'retention-receipt.json'), JSON.stringify(retention, null, 2));\n\nconst base = execFileSync('git', ['merge-base', 'main', 'HEAD'], { encoding: 'utf8' }).trim();\nconst sourcePaths = execFileSync('git', ['diff', '--name-only', base, '--', 'src', 'scripts'], { encoding: 'utf8' })\n  .trim().split('\\n').filter(Boolean);\nconst paths = [...new Set([\n  ...sourcePaths, '.githooks/pre-commit', 'scripts/run-git-hook.js', 'scripts/run-related-tests.mjs',\n  'docs/generated/architecture-inventory.json', 'docs/plans/livetest-remediation-register.md',\n  'package.json', 'package-lock.json', 'vitest.config.ts', 'tsconfig.electron.json', report,\n])];\nconst compiledPaths = fs.readdirSync('dist/main/cli/spawn-worker')\n  .filter(name => name.endsWith('.js')).map(name => path.join('dist/main/cli/spawn-worker', name));\nfs.writeFileSync(path.join(evidence, 'pre-cleanup-source-seal.json'), JSON.stringify({\n  at: new Date().toISOString(), base,\n  head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),\n  sources: paths.map(file => ({ path: file, sha256: hash(fs.readFileSync(file)) })),\n  compiled: compiledPaths.map(file => ({ path: file, sha256: hash(fs.readFileSync(file)) })),\n  recipes: ['verify.cjs', 'run-hook.cjs', 'retain.cjs', 'cleanup.cjs'].map(name => ({ name, source: fs.readFileSync(path.join(scratch, name), 'utf8') })),\n}, null, 2));\nconsole.log(JSON.stringify({ evidence, retainedFiles: files.length, redactions: retention.reduce((sum, row) => sum + row.redactions, 0) }));\n"
+    },
+    {
+      "name": "cleanup.cjs",
+      "source": "const fs = require('node:fs');\nconst path = require('node:path');\nconst crypto = require('node:crypto');\nconst zlib = require('node:zlib');\nconst { execFileSync } = require('node:child_process');\n\nconst evidence = path.resolve('docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-hook-repair');\nconst hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');\nconst readJson = file => JSON.parse(fs.readFileSync(path.join(evidence, file), 'utf8'));\nconst seal = readJson('pre-cleanup-source-seal.json');\nif (!fs.readFileSync(path.join(evidence, 'independent-review-final.txt'), 'utf8').startsWith('VERDICT: PASS')) {\n  throw new Error('Independent PASS must be retained before cleanup');\n}\nconst validated = readJson('retention-receipt.json').map(row => {\n  const bytes = fs.readFileSync(path.join(evidence, row.artifact));\n  const plain = row.compressed ? zlib.gunzipSync(bytes) : bytes;\n  if (hash(plain) !== row.retainedSha256) throw new Error(`Retention hash mismatch: ${row.artifact}`);\n  return row.artifact;\n});\nfor (const row of [...seal.sources, ...seal.compiled]) {\n  if (hash(fs.readFileSync(row.path)) !== row.sha256) throw new Error(`Pre-cleanup seal mismatch: ${row.path}`);\n}\nconst preservedCache = 'node_modules/.vite/vitest/57e8a7776d6892a83f2a49678f8141f4fb883e62/results.json';\nconst preservedCacheHash = hash(fs.readFileSync(preservedCache));\nconst removed = [\n  'dist',\n  'node_modules/.vite/vitest/da39a3ee5e6b4b0d3255bfef95601890afd80709',\n  ...fs.readdirSync('_scratch').filter(name => /^test-(run|results)\\.hook-/.test(name)).map(name => path.join('_scratch', name)),\n  '_scratch/hook-repair',\n];\nfor (const file of removed) fs.rmSync(file, { recursive: true, force: true });\nconst git = args => execFileSync('git', args, { encoding: 'utf8', env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } });\nconst stagedPaths = git(['diff', '--cached', '--name-only']).trim();\nif (stagedPaths) throw new Error('Unexpected staged work after cleanup; preserve it for investigation');\nexecFileSync('git', ['diff', '--check'], { env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } });\nconst receipt = {\n  at: new Date().toISOString(), retainedArtifactsValidated: validated,\n  removed: removed.map(file => ({ path: file, absent: !fs.existsSync(file) })),\n  preservedCache: { path: preservedCache, beforeSha256: preservedCacheHash, afterSha256: hash(fs.readFileSync(preservedCache)) },\n  suppliedDependenciesPreserved: fs.existsSync('node_modules'),\n  remainingScratch: fs.readdirSync('_scratch'),\n  stagedPaths, status: git(['status', '--short']), branch: git(['branch', '--show-current']).trim(),\n  head: git(['rev-parse', 'HEAD']).trim(), worktrees: git(['worktree', 'list', '--porcelain']),\n  branches: git(['branch', '--list']),\n  isolatedAppProfileAbsent: !fs.existsSync('/tmp/aio-lt-queue-3af326de'),\n  runtimeScope: 'No app, account session, browser binary, database cluster, dependency install or copied checkout created in this repair; stopped commands exited normally.',\n};\nfs.writeFileSync(path.join(evidence, 'cleanup-receipt.json'), JSON.stringify(receipt, null, 2));\nif (receipt.removed.some(row => !row.absent) || receipt.preservedCache.beforeSha256 !== receipt.preservedCache.afterSha256) {\n  throw new Error('Cleanup invariant failed');\n}\nconsole.log(JSON.stringify({ removedPaths: removed.length, stagedPaths, remainingScratch: receipt.remainingScratch, suppliedDependenciesPreserved: true }));\n"
+    }
+  ]
+}

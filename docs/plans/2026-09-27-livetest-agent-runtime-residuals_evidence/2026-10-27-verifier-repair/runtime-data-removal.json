@@ -1,0 +1,38 @@
+{
+  "at": "2026-10-27T05:45:20.977618+00:00",
+  "reportAndSealWrittenBeforeDeletion": true,
+  "paths": [
+    {
+      "path": "/tmp/aio-lt-queue-3af326de",
+      "existed": true,
+      "removed": true
+    },
+    {
+      "path": "_scratch/ar-final/fixture",
+      "existed": true,
+      "removed": true
+    },
+    {
+      "path": "_scratch/ar-final/recovery-workspace",
+      "existed": true,
+      "removed": true
+    },
+    {
+      "path": "_scratch/ar-final/permission-workspace",
+      "existed": true,
+      "removed": true
+    },
+    {
+      "path": "_scratch/ar-final/legacy-workspace",
+      "existed": true,
+      "removed": true
+    },
+    {
+      "path": "_scratch/ar-final/extraneous",
+      "existed": true,
+      "removed": true
+    }
+  ],
+  "compiledOutput": "retained only until final full suite finishes; will then remove",
+  "preexistingSuppliedDependenciesAndCaches": "retained; no install/download made"
+}

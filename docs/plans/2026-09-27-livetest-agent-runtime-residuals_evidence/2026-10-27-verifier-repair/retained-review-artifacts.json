@@ -1,0 +1,8 @@
+{
+  "source": "read-only isolated loop checkpoint, selected review fields only",
+  "loopRunId": "loop-1793076712253-8b4031b1",
+  "status": "cancelled",
+  "updatedAt": 1793077230468,
+  "reviewArtifacts": {},
+  "reviewCoverageReports": []
+}

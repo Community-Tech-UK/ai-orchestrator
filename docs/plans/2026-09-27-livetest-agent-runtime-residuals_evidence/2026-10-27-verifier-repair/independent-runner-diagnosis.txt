@@ -1,0 +1,22 @@
+Independent follow-up, 2026-10-27. No production/test/config/dependency changes.
+
+Confirmed: two SEA assertions were masked by a reporter crash, not passed.
+scripts/__tests__/sea-build-repeatability.spec.ts:78 expects successful builds.
+Homebrew Node26.12.1 lacks NODE_SEA_FUSE; scripts/sea-build-support.ts:61 rejects it.
+An exact standalone AIO MCP fixture exited1 before build with the missing-fuse diagnostic;
+its temporary directory was removed.
+
+The child's error stack points at tsx/dist/register-B1c7OH6V.cjs. Direct convert-source-map
+extraction from that installed file reproduces the identical JSON error: it mistakes a template
+string for a real inline source map. Vitest parses stacks before recording test failures, leaving
+both assertions pending. The historical pid74924 compressed full log has the same error.
+This predates dependency quarantine and is not evidence that removing extras caused it.
+
+Independent narrow Homebrew SEA run: exit1, two unreported assertions; pid48286 log.
+Independent narrow existing pinned Node24.22.1 run: exit0, two passed; pid74604 log.
+Both nvm Node24.22.1 and22.23.4 contain the fuse; Homebrew26.12.1 does not.
+No further tests running. A fresh full run must succeed before claiming a full-gate pass.
+
+Report review found one wording issue: new evidence directory was untracked, not tracked.
+Coordinator corrected that wording. No new actionable source defect found; whole task remains
+incomplete because open campaigns and full verification remain open.

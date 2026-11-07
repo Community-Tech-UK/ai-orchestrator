@@ -1,0 +1,17 @@
+{
+  "recordedAt": "2026-10-27T07:33:58.990Z",
+  "command": [
+    "node",
+    "-e",
+    "require(\"node:fs\").rmSync(\"dist\",{recursive:true,force:true});process.exitCode=require(\"./scripts/test-staged.js\").runStagedTests({files:[\"src/main/cli/spawn-worker/cli-worker-failed-usage.spec.ts\",\"src/main/cli/spawn-worker/cli-worker-resident-cost.spec.ts\",\"src/main/cli/adapters/claude-direct-failed-usage.spec.ts\",\"src/main/cli/spawn-worker/cli-worker-cancelled-usage.spec.ts\"]})"
+  ],
+  "exitCode": 0,
+  "exitEvidence": "exec session 35075 completion returned exit_code 0",
+  "runnerSummary": {
+    "files": 4,
+    "passed": 55,
+    "failed": 0
+  },
+  "log": "_scratch/hook-repair/clean-staged-runtime.log",
+  "scope": "Real staged-test CLI path with dist initially absent; no source changes during invocation"
+}

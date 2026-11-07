@@ -1,0 +1,4 @@
+ Test Files  14 failed | 2778 passed | 1 skipped (2793)
+      Tests  147 failed | 35243 passed | 9 skipped (35399)
+full suite exit=1 (command: npm run test:quiet, run in this sandboxed session, 19:51-19:58 UTC+)
+failing files: 14, all CLI-adapter/native/sandbox specs; see failing-spec-files.txt

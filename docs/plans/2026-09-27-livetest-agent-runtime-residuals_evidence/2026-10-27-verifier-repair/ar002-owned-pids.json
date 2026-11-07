@@ -1,0 +1,23 @@
+{
+  "at": 1793079480620,
+  "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-final/recovery-workspace",
+  "mainPid": 98231,
+  "parent": {
+    "id": "xb3s6f6cn",
+    "pid": 13058,
+    "adapterPid": 13058,
+    "provider": "codex"
+  },
+  "live": {
+    "id": "xv3avorr6",
+    "pid": 15038,
+    "provider": "codex",
+    "parentId": "xb3s6f6cn"
+  },
+  "dead": {
+    "id": "x7xliveqj",
+    "pid": 15097,
+    "provider": "codex",
+    "parentId": "xb3s6f6cn"
+  }
+}

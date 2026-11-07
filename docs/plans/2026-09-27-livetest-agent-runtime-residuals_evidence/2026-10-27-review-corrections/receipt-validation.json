@@ -1,0 +1,136 @@
+{
+  "at": "2026-10-27T06:49:14.728871+00:00",
+  "scope": "Documentation correction and revalidation of retained evidence; no new live runtime acceptance.",
+  "checks": [
+    "four exact recorded matches",
+    "all fixture targets matched",
+    "all matches absent from pre-fixture baseline",
+    "parent and actual command predicate retained",
+    "only parent and dead child were killed",
+    "survivor and extra excluded",
+    "original kill succeeded with all safety flags",
+    "extra has no retained late-tree identity or individual exit receipt",
+    "forty actually probed PIDs recorded gone",
+    "two retained handoffs share original dispatch",
+    "handoffs do not observe FIFO position",
+    "one successful read audit has null approval request and no dispatch column",
+    "tool result joins audit ID, not dispatch ID",
+    "original receipt unchanged: ar002-kill.json",
+    "original receipt unchanged: ar002-baseline-pids.json",
+    "original receipt unchanged: ar002-owned-pids.json",
+    "original receipt unchanged: ar002-process-tree.json",
+    "original receipt unchanged: ar002-process-cleanup.json",
+    "original receipt unchanged: ar003-attempt.json",
+    "original receipt unchanged: ar003-main-log.txt",
+    "original receipt unchanged: ar003-audit.json",
+    "original receipt unchanged: ar003-final-health.json",
+    "store returns result body",
+    "store inserts head before dispatch",
+    "no source or tests changed this continuation",
+    "register index and anchored detail exist once",
+    "LT712 contains ### Observed behavior",
+    "LT712 contains ### Root cause in the reviewed checkout",
+    "LT712 contains ### Required behavior",
+    "LT712 contains ### Acceptance and implementation status",
+    "active status plan is untracked at root only",
+    "owner and pending implementation present",
+    "AR003 retains direct ID and FIFO acceptance",
+    "procedure links implementation prerequisite",
+    "fourth PID unknown role and exit limits disclosed",
+    "tracked worktree report untouched",
+    "fresh targeted JSON fully green",
+    "whitespace check passes",
+    "nothing staged"
+  ],
+  "inputFingerprints": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar002-kill.json",
+      "sha256": "414363aa535ca499bf30b4002bbcd4a584dc523a851965584c9f6cc8f2e39638",
+      "bytes": 1159
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar002-baseline-pids.json",
+      "sha256": "0038a079746fac3aaa6709298a3730fa0aaceba558a93a2c6e3da13d024ba6d1",
+      "bytes": 361
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar002-owned-pids.json",
+      "sha256": "ac23176407139db709bd1eb625ba6b75a3ff8d0da27dad815323ef7b69e47aa6",
+      "bytes": 526
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar002-process-tree.json",
+      "sha256": "a4cc5c44f0a31015a715800e60f306039f99ee18976b7cbc5e4ddf2d5b72a4ae",
+      "bytes": 2689
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar002-process-cleanup.json",
+      "sha256": "86dad5fbad609d431f41e21d431dac9b57cef6f75955df3ea1b2c0cb9d04b403",
+      "bytes": 2702
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar003-attempt.json",
+      "sha256": "b3dacfc9885501413b4d53a9eaa64c31f434aeda4fc035cc3aee9179eeb7f782",
+      "bytes": 1774
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar003-main-log.txt",
+      "sha256": "8f3b8c9486e7ab90839470ef550b3f1f3b782632edbf4ee36db37354feeadee3",
+      "bytes": 1823
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar003-audit.json",
+      "sha256": "57b02ee1944a50346ae8edc264363f6a46a519c67348156a5a779f7dae6f6974",
+      "bytes": 815
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar003-final-health.json",
+      "sha256": "a2ceaacd6e8454afa7c192d1247885e65eb8a3667e0a93feea7f4d6561f318aa",
+      "bytes": 1328
+    }
+  ],
+  "sourceFingerprints": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/src/main/browser-gateway/browser-extension-command-store.ts",
+      "sha256": "4c2f1e9e3478e8c98c9084a7314c7821f9906506c78417f82eec57d18d5f10d1",
+      "bytes": 27337
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/src/main/browser-gateway/browser-gateway-service.ts",
+      "sha256": "1fb56ba2a993edb7e06b2c653c75074b27c8ce8c6a74d9a7e04b722400336fc8",
+      "bytes": 105051
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/src/main/browser-gateway/browser-gateway-result.ts",
+      "sha256": "97fa4e76ab50d747787d0429a943bc4b1fbafc1a3038cf9d6412ef15b2e2264b",
+      "bytes": 3243
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/src/main/browser-gateway/browser-audit-store.ts",
+      "sha256": "7c7f50b2498505431a263f8ddc98c63b8d64e879dd4b961e2e8f212366d5f737",
+      "bytes": 5005
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/src/main/remote-node/rpc-event-router.ts",
+      "sha256": "f447ef719c1f2de30a307baa9da1b4311e0f18d03f4aa60a5743d765cd00fc2d",
+      "bytes": 27729
+    }
+  ],
+  "pidAccounting": {
+    "matches": [
+      13058,
+      15038,
+      15097,
+      15176
+    ],
+    "fixtureTargets": [
+      13058,
+      15038,
+      15097
+    ],
+    "extraPid": 15176,
+    "extraRole": "not retained; no role inferred",
+    "extraIndividualExitReceipt": false
+  },
+  "status": "PASS"
+}

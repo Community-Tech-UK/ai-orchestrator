@@ -1,0 +1,231 @@
+{
+  "at": "2026-10-27T03:18:28.167Z",
+  "purpose": "Live-test evidence integrity; not a completion or independent-verifier PASS",
+  "worktree": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de",
+  "head": "80412201a07ec93cefb9a4b6ddb06579ad314d75",
+  "source": [
+    {
+      "file": "src/main/main-process-bootstrap.ts",
+      "sha256": "5b1b510e24f8a641e4bd49783b9a52b79789b80b199cf24cccfeb295583931bc"
+    },
+    {
+      "file": "src/main/instance/instance-manager.ts",
+      "sha256": "b4cbd6e29e624221450b3ab876864671fd254df94d88439d155c3ed4a3f45d44"
+    },
+    {
+      "file": "src/main/instance/lifecycle/instance-spawn-preflight-chain.ts",
+      "sha256": "5c646f3f7c477757e6975a62f4445292a1e5fe8cba65b8a2e738baeb70817003"
+    },
+    {
+      "file": "src/main/instance/lifecycle/spawn-config-builder.ts",
+      "sha256": "0819ac45fd39df612477aacec87ff7d9f17c67a48c262eb98c9246aa088180a1"
+    },
+    {
+      "file": "src/main/instance/warm-start-manager.ts",
+      "sha256": "47b4c6ef8de179855bd9cce1e1d509cbdea7044ede5a3089e78c0c4730a2d668"
+    },
+    {
+      "file": "src/main/cli/adapters/claude-cli-adapter.ts",
+      "sha256": "c61e00b505e159bb7935ab208514f5fc7dc21082e7a219f96a5719a83616bc2d"
+    },
+    {
+      "file": "src/main/cli/adapters/claude-cli-permission-details.ts",
+      "sha256": "f779b0d0bd8582a1287fb63dc0bf79f02a1f425c592f538c12dbd70ebc81d4be"
+    },
+    {
+      "file": "src/main/cli/adapters/codex/codex-app-server-context-capabilities.ts",
+      "sha256": "77eac1ff154b590b88c03044ba8a16d183adf782e8f1dfb9b90dfdeb66effea4"
+    },
+    {
+      "file": "src/main/context-evidence/context-safety-policy.ts",
+      "sha256": "65cdd50536eac8d85f16a801b8e1b30e23797f86590feb5c6aed32d7a33a0fa0"
+    },
+    {
+      "file": "src/main/context/context-policy-runtime.ts",
+      "sha256": "cedfff36f5e5ed64642f74261be7884e4455fb8b657b1ea44b934b46a4ef7270"
+    },
+    {
+      "file": "src/main/orchestration/loop-coordinator.ts",
+      "sha256": "ff37c6b41b6a2dc2b2dfea938a83749dfe07e2de9581e3d28e9d7799172af205"
+    },
+    {
+      "file": "src/main/orchestration/loop-coordinator-completion-gates.ts",
+      "sha256": "ea21c8ad45a37ffa420a6a17bb6d80d4aa452a6037b9544bfe81640a023ffd29"
+    },
+    {
+      "file": "src/main/orchestration/loop-review-reuse-anchor.ts",
+      "sha256": "f01e6dc4110b284348d8e54bd9ae448dcf5c98b0a4f035bb723e592a40b01d6f"
+    },
+    {
+      "file": "src/main/orchestration/loop-fresh-eyes-reviewer.ts",
+      "sha256": "1801c72d04b1bed3aab5cba347c5618c88142855dfdb82483c2ac287374229b6"
+    },
+    {
+      "file": "src/main/ipc/handlers/context-evidence.handlers.ts",
+      "sha256": "d71f733dd0203ec31e5b507cecd8cf5822e34f280fde8a30fd60f58a3f213d3a"
+    },
+    {
+      "file": "src/renderer/app/shared/terminate-confirm/terminate-confirm-dialog.component.ts",
+      "sha256": "76e40c602d4a7cb45929ff051bbf703396d2405d8b949b68fd90912dd98152a9"
+    },
+    {
+      "file": "src/renderer/app/shared/utils/focus-trap.ts",
+      "sha256": "d378c6a623b68f23f6ea4dd7be2078560f5719159352f9ebdcc33637dbd4ada2"
+    },
+    {
+      "file": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
+      "sha256": "f65edd4297bd64e280ebf99ef2ec6abee99356ae434be79461bc1680cdb5d36d"
+    },
+    {
+      "file": "src/renderer/app/features/instance-detail/user-action-request.component.html",
+      "sha256": "fecf31c8e31ec7ff1b8fe6565931c41aef7b939b4ab09ba2f3d188a699fe6a4a"
+    },
+    {
+      "file": "src/renderer/app/features/instance-detail/user-action-request.rules.ts",
+      "sha256": "2c2aad89ef5a85dc64716af2c557cab73198cb981521e5c231375d724f56579c"
+    }
+  ],
+  "compiled": [
+    {
+      "file": "dist/main/main-process-bootstrap.js",
+      "sha256": "40db1f9fb1dce0a3659ce30f3c22f50009a685755bc3c54d843823dea2594a7c"
+    },
+    {
+      "file": "dist/main/instance/instance-manager.js",
+      "sha256": "15bb1b0492e2344b5eb7993436128a4cea1b590f93c116ce17bccc83fb155928"
+    },
+    {
+      "file": "dist/main/instance/lifecycle/instance-spawn-preflight-chain.js",
+      "sha256": "63d819944741bdbab7a74e1d10c64cbf1e80fea7b95ed838e3c3bb714acfe1ad"
+    },
+    {
+      "file": "dist/main/instance/lifecycle/spawn-config-builder.js",
+      "sha256": "18e8db00fc49f4739bc37709199bc781d3ef5ca9c6df42fe5c8bb7c2b503e77c"
+    },
+    {
+      "file": "dist/main/instance/warm-start-manager.js",
+      "sha256": "feaeb6a1449253ee18a2e2a327041369194ffc24b514e57c851076929f64b158"
+    },
+    {
+      "file": "dist/main/cli/adapters/claude-cli-adapter.js",
+      "sha256": "bb33c63ee0a38701113f18734ccd69cca5bafed91d25a209f958a722a01f01ea"
+    },
+    {
+      "file": "dist/main/cli/adapters/claude-cli-permission-details.js",
+      "sha256": "f78cd1dfd1a10c59f26e609b50f2831643670437918f9b02fb7286248862ef50"
+    },
+    {
+      "file": "dist/main/cli/adapters/codex/codex-app-server-context-capabilities.js",
+      "sha256": "20dfd26ceee9a3309a5777eb14f0938ec8b0469d908d22928fa7b1d24718f67c"
+    },
+    {
+      "file": "dist/main/context-evidence/context-safety-policy.js",
+      "sha256": "8db81cece0d7ef404ebcb3fcbee0c706b50054aa9210e3bb267d733ed5a0fd7a"
+    },
+    {
+      "file": "dist/main/context/context-policy-runtime.js",
+      "sha256": "d0b8e9df34a5c251f26f64ef9e34b27b2aed09fc0cfd421ba0eda90e74377572"
+    },
+    {
+      "file": "dist/main/orchestration/loop-coordinator.js",
+      "sha256": "24d3a66e5b2e4a835ea8b97cb01e2d2d1409784f93eb4f91070e4039b28b3b71"
+    },
+    {
+      "file": "dist/main/orchestration/loop-coordinator-completion-gates.js",
+      "sha256": "bbd5db7965a8f5572a52aa2e183878401b37866b6b0737e0187ca58024586faf"
+    },
+    {
+      "file": "dist/main/orchestration/loop-review-reuse-anchor.js",
+      "sha256": "afd195d0f8ec327b9132d756ef0fbba1bc2022247e31be2e3570614ac94defed"
+    },
+    {
+      "file": "dist/main/orchestration/loop-fresh-eyes-reviewer.js",
+      "sha256": "6a82430d22309d9274f9eb4b1ec409a73b76e6d8e4bc7ee2166584098971f33c"
+    },
+    {
+      "file": "dist/main/ipc/handlers/context-evidence.handlers.js",
+      "sha256": "ae029fa3381efc72cc978d03dc3c8ddb0581bad687f7cde18bb96e3075ffba64"
+    }
+  ],
+  "report": {
+    "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-27-livetest-agent-runtime-residuals_livetest.md",
+    "sha256": "406c2afa75b255a09c78af7f506274aa32f3986219419a57dbedfa90d23f9add"
+  },
+  "artifacts": [
+    {
+      "file": "build-main.log",
+      "sha256": "045ec631c3ee7f3ab0b773bb5f0fa89fca7fecae1938bd94ec4c64ba15af7f85"
+    },
+    {
+      "file": "build-renderer.log",
+      "sha256": "28a56f515c62ea7cb8ff1b0fa6935932c523272bf40ee023dd64e86173d07bba"
+    },
+    {
+      "file": "cdp-receipts.jsonl",
+      "sha256": "c8d6df22b71c801f8620ed8af0ba1ac5076a14110db67fc94fe866b447f376bb"
+    },
+    {
+      "file": "cleanup-receipt.json",
+      "sha256": "fb296695cded0a4e18c0a90d2d615a21c8a1e19b915aa4cb0c169e7bcaa94aa0"
+    },
+    {
+      "file": "command-receipts.jsonl",
+      "sha256": "7fe503d8a4398e5e0e9906f59b5b7d88faf71daac197d3eecccff1cdec106581"
+    },
+    {
+      "file": "final-verification-receipt.json",
+      "sha256": "6ac9dba6ca4b34c6e309f5540996dbdd4663bac61323e88b66d7efd3334b6f99"
+    },
+    {
+      "file": "focus-receipt.jsonl",
+      "sha256": "05c2215c6eace03ad27020b03ac6606fce34111ba52234542a0dd444cbbebcea"
+    },
+    {
+      "file": "main-log-excerpts.txt",
+      "sha256": "b6584107854c62fef4243686872c8e4aebffe00375235a0d0a1e08876279cc05"
+    },
+    {
+      "file": "other-command-receipts.json",
+      "sha256": "95cdd6872dc78968528a276558c44a5fa82b68d2f40dc93eced6cdc219ada757"
+    },
+    {
+      "file": "probe-command-receipts.json",
+      "sha256": "f1dc6a35ea311dfa64bac57ccf2cafd9cedc3f9ff2a3bec309bd7bcbd0af2662"
+    },
+    {
+      "file": "process-cleanup.json",
+      "sha256": "7ca5b1fa312b0171f5bbda04e402b7ec5e0983e4610cc68c266d275beee50d95"
+    },
+    {
+      "file": "process-start.json",
+      "sha256": "4a69e1a62f9957cf87a8b0ec26000efe07cb05cba33026a7027220ac144c39b3"
+    },
+    {
+      "file": "shutdown-command-receipt.txt",
+      "sha256": "e2164fa24093a58bfeb26e32af710e50666a011d90acfeb71a66fded6e86a955"
+    },
+    {
+      "file": "targeted-tests.log",
+      "sha256": "89c17c2816811552445121bd47ce13c14577766ccd7b6448248cae0c1a175713"
+    },
+    {
+      "file": "typecheck-spec.log",
+      "sha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133"
+    },
+    {
+      "file": "typecheck.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "evidenceDirectory": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27",
+  "documentation": [
+    {
+      "path": "docs/plans/livetest-remediation-register.md",
+      "sha256": "c985901399b96ca6341be33e175ab1df0f565ca13382bee9d57eb03a3ca58eaf"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-27-agent-runtime-permission-remediation_plan.md",
+      "sha256": "d91582b388aab60ded5c08ae87235ac194dd400e7cf2c4b393d493360d370b37"
+    }
+  ]
+}

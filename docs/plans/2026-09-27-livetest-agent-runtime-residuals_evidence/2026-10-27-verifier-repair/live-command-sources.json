@@ -1,0 +1,129 @@
+{
+  "purpose": "Command receipt: exact transient probe sources, retained as data after executable/runtime cleanup. No provider verdict, response or cache value was replaced.",
+  "scripts": [
+    {
+      "file": "cleanup-main.js",
+      "source": "(async()=>{\n const result=await ltCoordinator.cancelLoop(ltRun.id);\n ltRestoreLegacyConfig();\n const service=ltRequire(process.cwd()+'/dist/main/orchestration/cross-model-review-service.js').getCrossModelReviewService();service.runHeadlessReview=ltReviewOriginal;\n for(const {name,fn} of ltGateListeners)ltCoordinator.off(name,fn);\n await ltManager.warmStart.cleanup();\n const current=ltCoordinator.lifecycle.getState(ltRun.id);\n return {at:Date.now(),cancelled:result,status:current?.status,instances:ltManager.getAllInstances().length,pid:process.pid,versions:{electron:process.versions.electron,node:process.versions.node},metrics:ltRequire('electron').app.getAppMetrics().map(m=>({pid:m.pid,type:m.type})),wrappersRestored:true};\n})()\n"
+    },
+    {
+      "file": "cleanup-renderer.js",
+      "source": "(async()=>{const a=window.electronAPI;const before=(await a.listInstances()).data;const out=[];for(const i of before)out.push({id:i.id,result:await a.terminateInstance({instanceId:i.id})});window.ltUnsubscribe?.();await a.setSetting('workerMode',window.ltOriginalRole);return {at:Date.now(),terminated:out,role:await a.getSetting('workerMode'),roleRestored:JSON.stringify((await a.getSetting('workerMode')).data)===JSON.stringify(window.ltOriginalRole),instances:await a.listInstances(),automations:await a.automationList()};})()\n"
+    },
+    {
+      "file": "command.mjs",
+      "source": "import {spawn} from 'node:child_process';\nimport {openSync,appendFileSync} from 'node:fs';\nconst [name,...argv]=process.argv.slice(2);\nconst dir='docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair';\nconst start=new Date().toISOString();\nconst fd=openSync(dir+'/'+name+'.txt','w');\nconst child=spawn('rtk',['proxy',...argv],{stdio:['ignore',fd,fd]});\nchild.on('error',e=>{console.error(e.message);process.exitCode=1;});\nchild.on('exit',(code,signal)=>{appendFileSync(dir+'/commands.jsonl',JSON.stringify({start,end:new Date().toISOString(),argv,code,signal,log:name+'.txt'})+'\\n');console.log(name+': exit '+code);process.exitCode=code??1;});\n"
+    },
+    {
+      "file": "dom-state.js",
+      "source": "(async()=>{const api=window.electronAPI;const list=(await api.listInstances()).data;const id=list.find(i=>i.provider==='claude')?.id??list[0]?.id;if(id)window.ng.getComponent(document.querySelector('app-dashboard')).store.setSelectedInstance(id);await new Promise(r=>setTimeout(r,300));return {at:Date.now(),hidden:document.hidden,visibility:document.visibilityState,instances:list.map(i=>({id:i.id,provider:i.provider,status:i.status})),close:[...document.querySelectorAll('button')].filter(b=>/Close session/.test(b.title+' '+b.getAttribute('aria-label'))).map(b=>({title:b.title,aria:b.getAttribute('aria-label'),class:b.className}))};})()\n"
+    },
+    {
+      "file": "eval.mjs",
+      "source": "import {readFileSync,appendFileSync} from 'node:fs';\nconst mode=process.argv[2],file=process.argv[3];\nconst port=mode==='main'?9736:9735;\nconst targets=await(await fetch('http://127.0.0.1:'+port+'/json/list')).json();\nconst target=targets.find(t=>mode==='main'||t.type==='page');\nconst ws=new WebSocket(target.webSocketDebuggerUrl);await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j;});\nlet id=0;const pending=new Map();\nws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(m.error):p.resolve(m.result);}};\nconst send=(method,params={})=>new Promise((resolve,reject)=>{const i=++id;pending.set(i,{resolve,reject});ws.send(JSON.stringify({id:i,method,params}));});\ntry {\n if(mode!=='main'){await send('Emulation.setFocusEmulationEnabled',{enabled:true});try{await send('Emulation.setPageVisibilityOverride',{visibility:'visible'});}catch{}}\n const expression=readFileSync(file,'utf8');\n const result=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true,timeout:700000});\n const receipt={at:new Date().toISOString(),mode,file,...result};\n appendFileSync('docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/cdp.jsonl',JSON.stringify(receipt)+'\\n');\n if(result.exceptionDetails){console.error(JSON.stringify(result.exceptionDetails));process.exitCode=1;}else console.log(JSON.stringify(result.result.value));\n}finally{ws.close();}\n"
+    },
+    {
+      "file": "fix-probe-listeners.js",
+      "source": "(()=>{\n const names=['loop:fresh-eyes-review-started','loop:fresh-eyes-review-passed','loop:fresh-eyes-review-failed'];let removed=0;\n for(const n of names)for(const fn of ltCoordinator.listeners(n))if(fn.toString().includes('ltGateEvents')){ltCoordinator.off(n,fn);removed++;}\n globalThis.ltGatePriorEvents=ltGateEvents;globalThis.ltGateEvents=[];\n globalThis.ltGateListeners=names.map(name=>{const fn=p=>ltGateEvents.push({event:name,at:Date.now(),...p});ltCoordinator.on(name,fn);return {name,fn};});\n return {removed,attached:ltGateListeners.length,reason:'Remove duplicated passive probe listeners left by the two fixture starts; no product event or result is replaced.'};\n})()\n"
+    },
+    {
+      "file": "focus.mjs",
+      "source": "import {appendFileSync} from 'node:fs';\nimport assert from 'node:assert/strict';\nconst dir='docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair';\nconst tabs=await(await fetch('http://127.0.0.1:9735/json/list')).json();\nconst ws=new WebSocket(tabs.find(t=>t.type==='page').webSocketDebuggerUrl);\nawait new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject;});\nlet id=0;const pending=new Map();\nws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(m.error):p.resolve(m.result);}};\nconst send=(method,params={})=>new Promise((resolve,reject)=>{const i=++id;pending.set(i,{resolve,reject});ws.send(JSON.stringify({id:i,method,params}));});\nconst evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.text);return r.result.value;};\nconst sleep=ms=>new Promise(r=>setTimeout(r,ms));\nconst steps=[];let passed=false;\nconst state=async stage=>{await sleep(100);const d=await evaluate(`(()=>{const d=document.querySelector('.confirm-dialog');const a=document.activeElement;return {dialog:!!d,activeClass:a?.className,activeText:a?.textContent.trim(),inside:!!d?.contains(a),restored:a===window.ltFocusOpener};})()`);steps.push({stage,...d});return d;};\nasync function key(key,code,vk,shift=false){\n await send('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:vk,nativeVirtualKeyCode:vk,modifiers:shift?8:0});\n if(key==='Enter')await send('Input.dispatchKeyEvent',{type:'char',key,code,text:'\\r',unmodifiedText:'\\r',windowsVirtualKeyCode:vk,nativeVirtualKeyCode:vk});\n await send('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:vk,nativeVirtualKeyCode:vk,modifiers:shift?8:0});\n}\ntry{\n await send('Emulation.setFocusEmulationEnabled',{enabled:true});\n try{await send('Emulation.setPageVisibilityOverride',{visibility:'visible'});}catch{}\n const visible=await evaluate(`({hidden:document.hidden,visibility:document.visibilityState})`);steps.push({stage:'visibility',...visible});assert.equal(visible.hidden,false);\n assert.equal(await evaluate(`(()=>{window.ltFocusOpener=document.querySelector('button.action-btn.terminate');window.ltFocusOpener?.focus();return !!window.ltFocusOpener;})()`),true);\n await key('Enter','Enter',13);assert.equal((await state('initial')).activeClass,'confirm-dialog');\n for(const [label,shift,expected] of [['tab1',false,'Keep running'],['tab2',false,'Close session'],['tab3',false,'Keep running'],['shiftTab',true,'Close session']]){\n  await key('Tab','Tab',9,shift);const s=await state(label);assert.equal(s.inside,true);assert.equal(s.activeText,expected);\n }\n await key('Escape','Escape',27);const end=await state('escape');assert.equal(end.dialog,false);assert.equal(end.restored,true);passed=true;\n}finally{\n const receipt={at:new Date().toISOString(),check:'AR-006-focus-current',passed,steps};\n appendFileSync(dir+'/focus.jsonl',JSON.stringify(receipt)+'\\n');console.log(JSON.stringify(receipt));ws.close();\n}\n"
+    },
+    {
+      "file": "gate-after-resume.js",
+      "source": "(()=>{\n const state=ltCoordinator.lifecycle.getState(ltRun.id);\n const iteration=ltCoordinator.getIterations(ltRun.id).at(-1);\n if(!['paused','running'].includes(state.status)||!iteration?.endedAt)throw Error('Non-terminal fixture not settled');\n const start=Date.now();globalThis.ltGateResult=null;\n globalThis.ltGatePromise=ltCoordinator.runFreshEyesReviewGate(state,'self-declared',iteration,'The builder made no further edits; review the one-line explanatory comment.').then(result=>{\n  globalThis.ltGateResult={start,end:Date.now(),result,cached:state.freshEyesCleanForWorkState===true,anchored:!!state.freshEyesCleanWorkspaceDigest};\n  return ltGateResult;\n });\n return {start,status:state.status,budget:state.config.completion.crossModelReview.timeoutSeconds,iteration:iteration.id};\n})()\n"
+    },
+    {
+      "file": "gate-latest.js",
+      "source": "(()=>{const s=ltCoordinator.lifecycle.getState(ltRun.id);return {at:Date.now(),status:s.status,iterations:ltCoordinator.getIterations(ltRun.id).map(i=>({id:i.id,endedAt:i.endedAt,files:i.filesChanged,errors:i.errors})),gate:globalThis.ltGateResult,events:ltGateEvents.slice(-3),dispatchCount:ltReviewReceipts.length,latestDispatch:ltReviewReceipts.at(-1),pendingCount:s.pendingInterventions.length};})()\n"
+    },
+    {
+      "file": "gate-state.js",
+      "source": "(()=>({at:Date.now(),status:ltCoordinator.lifecycle.getState(ltRun.id)?.status,iterations:ltCoordinator.getIterations(ltRun.id).map(i=>({id:i.id,endedAt:i.endedAt,files:i.filesChanged,errors:i.errors})),gate:globalThis.ltGateResult,events:ltGateEvents,dispatches:ltReviewReceipts}))()\n"
+    },
+    {
+      "file": "gate.js",
+      "source": "(()=>{\n const state=ltCoordinator.lifecycle.getState(ltRun.id);\n const iteration=ltCoordinator.getIterations(ltRun.id).at(-1);\n if(state.status!=='paused'||!iteration?.endedAt)throw Error('Non-terminal fixture not settled');\n const start=Date.now();globalThis.ltGateResult=null;\n globalThis.ltGatePromise=ltCoordinator.runFreshEyesReviewGate(state,'self-declared',iteration,'The builder made no further edits; review the one-line explanatory comment.').then(result=>{\n  globalThis.ltGateResult={start,end:Date.now(),result,cached:state.freshEyesCleanForWorkState===true,anchored:!!state.freshEyesCleanWorkspaceDigest};\n  return ltGateResult;\n });\n return {start,status:state.status,budget:state.config.completion.crossModelReview.timeoutSeconds,iteration:iteration.id};\n})()\n"
+    },
+    {
+      "file": "init.js",
+      "source": "(async()=>{const a=window.electronAPI;return {hidden:document.hidden,visibility:document.visibilityState,role:await a.getSetting('workerMode'),instances:await a.listInstances(),url:location.href,tags:[...document.querySelectorAll('*')].filter(e=>e.tagName.startsWith('APP-')).map(e=>e.tagName)};})()"
+    },
+    {
+      "file": "inspect-runtime.js",
+      "source": "(()=>({manager:Object.keys(ltManager),lifecycle:Object.keys(ltManager.lifecycle??{}),parentPid:process.pid,providerPids:ltRequire('node:child_process').execFileSync('/bin/ps',['-axo','pid=,ppid=,comm='],{encoding:'utf8'}).split('\\n').filter(l=>/codex|Electron/.test(l))}))()\n"
+    },
+    {
+      "file": "legacy-config.js",
+      "source": "(()=>{const proto=ltRequire(process.cwd()+'/dist/main/instance/lifecycle/instance-spawn-preflight-chain.js').InstanceSpawnPreflightChain.prototype;const old=proto.prepare;globalThis.ltLegacyConfigCount=0;proto.prepare=async function(input){if(input.provider==='claude'&&input.instance.workingDirectory===\"/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-final/legacy-workspace\"){ltLegacyConfigCount++;input={...input,spawnOptions:{...input.spawnOptions,permissionHookPath:undefined}};}return old.call(this,input);};globalThis.ltRestoreLegacyConfig=()=>{proto.prepare=old;};return {scopedFixture:true,hookOmitted:true,noProviderEventInjection:true};})()"
+    },
+    {
+      "file": "legacy-create.js",
+      "source": "(async()=>{const r=await window.electronAPI.createInstance({workingDirectory:\"/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-final/legacy-workspace\",provider:'claude',yoloMode:false,browserToolsMode:'off',initialPrompt:'Use Bash to run only rtk proxy pwd, then reply with that result. Do not read or write files or use any other tool.'});if(!r.success)throw Error(JSON.stringify(r));window.ltClaudeLegacy=r.data.id;window.ng.getComponent(document.querySelector('app-dashboard')).store.setSelectedInstance(r.data.id);return {created:r.success,id:r.data.id,status:r.data.status};})()"
+    },
+    {
+      "file": "main-init.js",
+      "source": "(()=>{globalThis.ltRequire=process.mainModule.require.bind(process.mainModule); const path=process.cwd()+'/dist/main/';globalThis.ltManager=ltRequire(path+'orchestration/cross-model-review-service.js').getCrossModelReviewService().instanceManager;globalThis.ltCoordinator=ltRequire(path+'orchestration/loop-coordinator.js').getLoopCoordinator();return {cwd:process.cwd(),profile:ltRequire('electron').app.getPath('userData'),pid:process.pid,instances:ltManager.getAllInstances().map(i=>({id:i.id,status:i.status,provider:i.provider})),metrics:ltRequire('electron').app.getAppMetrics().map(m=>({pid:m.pid,type:m.type}))};})()"
+    },
+    {
+      "file": "pause-now.js",
+      "source": "(()=>{const before=ltCoordinator.lifecycle.getState(ltRun.id);const result=ltCoordinator.pauseLoop(ltRun.id);return {at:Date.now(),result,status:before.status,cached:before.freshEyesCleanForWorkState===true,anchor:!!before.freshEyesCleanWorkspaceDigest};})()\n"
+    },
+    {
+      "file": "permission-copy.js",
+      "source": "(async()=>{const s=document.querySelector('.scope-select');if(!s)throw Error('No scope select');s.dispatchEvent(new MouseEvent('mouseenter',{bubbles:false}));await new Promise(r=>setTimeout(r,800));const box=s.closest('.request-card')??s.closest('app-user-action-request');const before={at:Date.now(),hidden:document.hidden,visibility:document.visibilityState,label:s.parentElement.querySelector('label')?.textContent,options:[...s.options].map(o=>o.textContent),selected:s.value,tooltip:[...document.querySelectorAll('[role=tooltip],.tooltip')].map(e=>e.textContent)};s.value='always';s.dispatchEvent(new Event('change',{bubbles:true}));await new Promise(r=>setTimeout(r,200));before.always={button:box?.querySelector('.btn-approve')?.textContent.trim(),hint:box?.querySelector('.scope-write-hint')?.textContent.trim()};s.value='once';s.dispatchEvent(new Event('change',{bubbles:true}));s.dispatchEvent(new MouseEvent('mouseleave'));return before;})()"
+    },
+    {
+      "file": "permission-create.js",
+      "source": "(async()=>{window.ltPermissionEvents=[];window.ltUnsubscribe=window.electronAPI.onInputRequired(p=>window.ltPermissionEvents.push({at:Date.now(),instanceId:p.instanceId,requestId:p.requestId,type:p.metadata?.type}));const r=await window.electronAPI.createInstance({workingDirectory:\"/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-final/permission-workspace\",provider:'claude',yoloMode:false,browserToolsMode:'off',initialPrompt:'Use Bash to run only rtk proxy pwd, then reply with that result. Do not read or write files or use any other tool.'});if(!r.success)throw Error(JSON.stringify(r));window.ltClaudeCold=r.data.id;window.ng.getComponent(document.querySelector('app-dashboard')).store.setSelectedInstance(r.data.id);return {created:r.success,id:r.data.id,status:r.data.status};})()"
+    },
+    {
+      "file": "permission-state.js",
+      "source": "(async()=>{await new Promise(r=>setTimeout(r,300));return {at:Date.now(),hidden:document.hidden,visibility:document.visibilityState,events:window.ltPermissionEvents,instances:(await window.electronAPI.listInstances()).data.map(i=>({id:i.id,status:i.status,provider:i.provider})),panels:[...document.querySelectorAll('app-user-action-request')].map(e=>({text:e.textContent.trim(),buttons:[...e.querySelectorAll('button')].map(b=>b.textContent.trim()),selects:[...e.querySelectorAll('select')].map(s=>({value:s.value,options:[...s.options].map(o=>o.textContent)}))}))};})()"
+    },
+    {
+      "file": "quit.js",
+      "source": "(()=>{setTimeout(()=>ltRequire('electron').app.quit(),300);return {at:Date.now(),quitScheduled:true};})()\n"
+    },
+    {
+      "file": "reject-legacy.js",
+      "source": "(async()=>{const e=window.ltPermissionEvents.find(e=>e.type==='permission_denial');if(!e)throw Error('No real denial request');const result=await window.electronAPI.respondToInputRequired(e.instanceId,e.requestId,'denied');await new Promise(r=>setTimeout(r,300));return {at:Date.now(),result,visibleCards:document.querySelectorAll('app-user-action-request').length,selected:(await window.electronAPI.listInstances()).data.find(i=>i.id===e.instanceId)?.status};})()"
+    },
+    {
+      "file": "reject-permissions.js",
+      "source": "(async()=>{const out=[];for(const e of window.ltPermissionEvents){out.push({instanceId:e.instanceId,result:await window.electronAPI.respondToInputRequired(e.instanceId,e.requestId,'denied',undefined,'deny','once')});}return {at:Date.now(),out};})()"
+    },
+    {
+      "file": "reject-ui.js",
+      "source": "(async()=>{const panel=document.querySelector('app-user-action-request');const b=[...panel.querySelectorAll('button')].find(b=>b.textContent.trim()===\"Don't allow\");if(!b)throw Error('Missing genuine denial button');b.click();await new Promise(r=>setTimeout(r,600));return {at:Date.now(),hidden:document.hidden,visibility:document.visibilityState,remainingPermissionCards:document.querySelectorAll('.request-card').length,visiblePanelText:document.querySelector('app-user-action-request')?.textContent.trim(),instances:(await window.electronAPI.listInstances()).data.map(i=>({id:i.id,status:i.status}))};})()\n"
+    },
+    {
+      "file": "resume-once.js",
+      "source": "(()=>{const pauseAfter=({loopRunId})=>{if(loopRunId===ltRun.id){ltCoordinator.pauseLoop(ltRun.id);ltCoordinator.off('loop:iteration-complete',pauseAfter);}};ltCoordinator.on('loop:iteration-complete',pauseAfter);return ltCoordinator.resumeLoop(ltRun.id);})()\n"
+    },
+    {
+      "file": "resume-only.js",
+      "source": "(()=>{const s=ltCoordinator.lifecycle.getState(ltRun.id);const before={status:s.status,cached:s.freshEyesCleanForWorkState===true,anchor:!!s.freshEyesCleanWorkspaceDigest};const result=ltCoordinator.resumeLoop(ltRun.id);return {at:Date.now(),before,result,after:{status:s.status,cached:s.freshEyesCleanForWorkState===true,anchor:!!s.freshEyesCleanWorkspaceDigest}};})()"
+    },
+    {
+      "file": "review-findings.js",
+      "source": "(()=>{const s=ltCoordinator.lifecycle.getState(ltRun.id);return {at:Date.now(),pending:s.pendingInterventions,lastBlock:s.freshEyesLastBlockingFindings,keys:Object.keys(s).filter(k=>/review|fresh/i.test(k))};})()\n"
+    },
+    {
+      "file": "setup.js",
+      "source": "(async()=>{const a=window.electronAPI;window.ltOriginalRole=(await a.getSetting('workerMode')).data;await a.setSetting('workerMode',{...window.ltOriginalRole,role:'coordinator'});await window.ng.getComponent(document.querySelector('app-root')).router.navigateByUrl('/');return {role:await a.getSetting('workerMode')};})()"
+    },
+    {
+      "file": "start-loop.js",
+      "source": "(async()=>{\n const types=ltRequire(process.cwd()+'/dist/shared/types/loop.types.js');\n const cwd=process.cwd()+'/_scratch/ar-final/fixture';\n const cfg=types.defaultLoopConfig(cwd,'The only requested change is a harmless explanatory comment above formatStorageBytes. The function behavior must remain unchanged. As builder, do not edit anything further, use no tools, and reply ACK only; do not declare completion.');\n cfg.provider='codex';cfg.model='gpt-5.6-terra';cfg.isolateLoopWorkspaces=false;\n cfg.caps.maxIterations=6;cfg.caps.maxWallTimeMs=900000;cfg.caps.capWrapUpIteration=false;\n cfg.completion.crossModelReview={...types.defaultCrossModelReviewConfig(),reviewers:['claude']};cfg.audit.finalAuditMode='off';\n globalThis.ltGateEvents=[];globalThis.ltGateListener=p=>ltGateEvents.push({at:Date.now(),...p});\n for(const n of ['loop:fresh-eyes-review-started','loop:fresh-eyes-review-passed','loop:fresh-eyes-review-failed'])ltCoordinator.on(n,ltGateListener);\n const service=ltRequire(process.cwd()+'/dist/main/orchestration/cross-model-review-service.js').getCrossModelReviewService();\n globalThis.ltReviewOriginal=service.runHeadlessReview;\n globalThis.ltReviewReceipts=[];\n service.runHeadlessReview=async function(request){\n  const receipt={at:Date.now(),target:request.target,cwd:request.cwd,contentChars:request.content.length,timeout:request.timeoutSeconds,reviewers:request.reviewers};\n  ltReviewReceipts.push(receipt);\n  const result=await ltReviewOriginal.call(this,request);\n  Object.assign(receipt,{endedAt:Date.now(),reviewers:result.reviewers,findings:result.findings.length,infrastructureErrors:result.infrastructureErrors});\n  return result;\n };\n globalThis.ltRun=await ltCoordinator.startLoop('ar006-tiny-current',cfg);\n const pause=ltCoordinator.pauseLoop(ltRun.id);\n return {id:ltRun.id,status:ltRun.status,pause,caps:cfg.caps,review:cfg.completion.crossModelReview};\n})()\n"
+    },
+    {
+      "file": "start-reverse.js",
+      "source": "(async()=>{\n const types=ltRequire(process.cwd()+'/dist/shared/types/loop.types.js');\n const cwd=process.cwd()+'/_scratch/ar-final/fixture';\n const cfg=types.defaultLoopConfig(cwd,'The only requested change is a harmless explanatory comment above formatStorageBytes. The function behavior must remain unchanged. As builder, do not edit anything further, use no tools, and reply ACK only; do not declare completion.');\n cfg.provider='claude';cfg.model='sonnet';cfg.isolateLoopWorkspaces=false;\n cfg.caps.maxIterations=6;cfg.caps.maxWallTimeMs=900000;cfg.caps.capWrapUpIteration=false;\n cfg.completion.crossModelReview={...types.defaultCrossModelReviewConfig(),reviewers:['codex']};cfg.audit.finalAuditMode='off';\n globalThis.ltGateEvents=[];globalThis.ltGateListener=p=>ltGateEvents.push({at:Date.now(),...p});\n for(const n of ['loop:fresh-eyes-review-started','loop:fresh-eyes-review-passed','loop:fresh-eyes-review-failed'])ltCoordinator.on(n,ltGateListener);\n await ltCoordinator.cancelLoop(ltRun.id); globalThis.ltRun=await ltCoordinator.startLoop('ar006-reverse-pair',cfg);\n const pause=ltCoordinator.pauseLoop(ltRun.id);\n return {id:ltRun.id,status:ltRun.status,pause,caps:cfg.caps,review:cfg.completion.crossModelReview};\n})()\n"
+    },
+    {
+      "file": "supervise.mjs",
+      "source": "import {spawn} from 'node:child_process';\nimport {openSync,writeFileSync,existsSync} from 'node:fs';\nconst here=process.cwd(), dir=here+'/_scratch/ar-final';\nconst children=[];\nfunction launch(cmd,args,env,log){const p=spawn(cmd,args,{cwd:here,env:{...process.env,...env},stdio:['ignore',openSync(dir+'/'+log,'w'),'pipe']});p.stderr.pipe(process.stderr);children.push(p);return p;}\nconst renderer=launch(process.execPath,['node_modules/@angular/cli/bin/ng.js','serve','--port','4735','--prebundle=false'],{},'renderer.log');\nconst pause=ms=>new Promise(r=>setTimeout(r,ms));\nlet app;\ntry {\n for(let n=0;n<150;n++){try{if((await fetch('http://localhost:4735')).ok)break;}catch{}await pause(1000);if(n===149)throw Error('Renderer startup deadline');}\n app=launch(here+'/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',['.','--no-sandbox','--js-flags=--max-old-space-size=8192','--remote-debugging-port=9735','--inspect=9736'],{AIO_DEV_USER_DATA_PATH:'/tmp/aio-lt-queue-3af326de',PORT:'4735'},'electron.log');\n writeFileSync(dir+'/processes.json',JSON.stringify({at:new Date(),renderer:renderer.pid,app:app.pid,supervisor:process.pid}));\n console.log('Owned app launch',app.pid);\n await new Promise((resolve,reject)=>{app.once('exit',resolve);app.once('error',reject);});\n} finally {\n for(const p of children){if(p.exitCode===null&&p.signalCode===null)p.kill('SIGTERM');}\n await pause(2000);\n writeFileSync(dir+'/process-exits.json',JSON.stringify({at:new Date(),children:children.map(p=>({pid:p.pid,exit:p.exitCode,signal:p.signalCode}))}));\n}\n"
+    }
+  ]
+}

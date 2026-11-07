@@ -1,0 +1,177 @@
+{
+  "sealedBeforeCleanupAt": "2026-10-27T04:39:15.255Z",
+  "head": "256c090b3e6f8aa66708206e11f400437bb5cdd6",
+  "base": "80412201a07ec93cefb9a4b6ddb06579ad314d75",
+  "report": {
+    "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-27-livetest-agent-runtime-residuals_livetest.md",
+    "sha256": "e15100ec6dac7582d497df21399a5d74329149ba5a2e7f3e62ec4b2eb917c743"
+  },
+  "sources": [
+    {
+      "path": "src/main/cli/adapters/claude-cli-adapter.permission-approval.spec.ts",
+      "sha256": "c0b0ddb1e4d5ac25d8527926973effef6bacd899c05c0a560a875cd7a700d0b5"
+    },
+    {
+      "path": "src/main/cli/adapters/claude-cli-permission-details.spec.ts",
+      "sha256": "0140738aadd2f337624b3bfbae7d0c9c2165e0b245bd160f2f9f71a29198ee64"
+    },
+    {
+      "path": "src/main/cli/adapters/claude-cli-permission-details.ts",
+      "sha256": "f026a7fbaa4e7cae483a836a2041f297dabaa1cbd863a8e8d96d6dafd8f73e88"
+    },
+    {
+      "path": "src/main/instance/lifecycle/__tests__/instance-spawn-preflight-chain.spec.ts",
+      "sha256": "cd23f9f7a58e8f2d4353084eb033fc7cb1b4045ea129de10cf5f5ac505f713f3"
+    },
+    {
+      "path": "src/main/instance/lifecycle/instance-spawn-preflight-chain.ts",
+      "sha256": "c8d2559597b1ea8c2f6db638b37a3d95842ba7fc88cc922819ce7f8de5ec4a50"
+    },
+    {
+      "path": "src/main/orchestration/headless-review-runner.ts",
+      "sha256": "9a99997d12326999f1f61c2e0a2764a1ffb90862e1c6059ea672b49a886a8bc0"
+    },
+    {
+      "path": "src/main/review/review-execution-host.spec.ts",
+      "sha256": "828b1f80c370525750108d3e160ceca36d96e51138edfc355f09d8ce26506412"
+    },
+    {
+      "path": "src/main/review/review-execution-host.ts",
+      "sha256": "47f0b4f870e9598ba3af8b774268e11ef9f735f542629c85029d4c8e608cda24"
+    }
+  ],
+  "compiled": [
+    {
+      "path": "dist/main/cli/adapters/claude-cli-permission-details.js",
+      "sha256": "1c04ce33e1ea3d075b7a6f5b2de380f81db929b3df730259186d18d97d65faa6"
+    },
+    {
+      "path": "dist/main/instance/lifecycle/instance-spawn-preflight-chain.js",
+      "sha256": "84c20340ee2ef575471e47f149fd63ebba6d9a6487abf186e7d7ff82175a2308"
+    },
+    {
+      "path": "dist/main/orchestration/headless-review-runner.js",
+      "sha256": "bca372b6129b0ed71a034b13d711e97eb5e927f5190ddca18561c8e1400d1851"
+    },
+    {
+      "path": "dist/main/review/review-execution-host.js",
+      "sha256": "6cd84909fcf12ca9e7b4bb4ff2f4c88c5625f1e3f8f8918c42bb0d1a26a54769"
+    }
+  ],
+  "sourceEditedThisTurn": false,
+  "finalizedAfterCleanupAt": "2026-10-27T04:39:17.018Z",
+  "artifacts": [
+    {
+      "file": "build-main.txt",
+      "sha256": "b4d2fe0b2e1f1c53279c35219bddc403ccc1383114d7d925fd0ddc4f727558f1"
+    },
+    {
+      "file": "build-renderer.txt",
+      "sha256": "f0d79c6fc0794f4c817a25b4087231b3986fba8f6988a8d478af449e71925de6"
+    },
+    {
+      "file": "cdp.jsonl",
+      "sha256": "7f02d0f731d5b79fa4cfcb6cd553b8cff512bb9c3d0f059e16902fdca9c174d1"
+    },
+    {
+      "file": "cleanup-preflight.json",
+      "sha256": "649e05029a9ad54162b6c371ff279c36c9400a349988815e1486e5844417432b"
+    },
+    {
+      "file": "cleanup-receipt.json",
+      "sha256": "492f268aac1ca6eb5ac404ff6e17fdbde23cca2672ed426686b0797ac7a648ee"
+    },
+    {
+      "file": "commands.jsonl",
+      "sha256": "64720a6359e3d3c23c1dc2dc2b983d9d9532f10997375c948393094edf7f0030"
+    },
+    {
+      "file": "dependency-investigation.json",
+      "sha256": "53aed76cf93a38d1ead5c21aa07157c63c961c19aa75b012dbc3cc80e3eab49b"
+    },
+    {
+      "file": "dependency-isolated.txt",
+      "sha256": "fbef7339ceb8367fde4e16d5c9d3618a64c7fd2322e8b37a3b159a21bbed2b49"
+    },
+    {
+      "file": "focused.txt",
+      "sha256": "154a2b51c731bed8836f8dc4cd3558236e3126c5034429d323d9cce7005ccc97"
+    },
+    {
+      "file": "full-log-receipts.json",
+      "sha256": "55d306bb42152986ff746abc062629e97b21ef3401dd0f01b3ab11f33cb5f284"
+    },
+    {
+      "file": "full-suite-summary.json",
+      "sha256": "d9cbbfee26cc4354f5313667653c75856e8cdbdc72d1fa242b8455727c484fee"
+    },
+    {
+      "file": "full-suite.txt",
+      "sha256": "fcf53e5f2ab9f679e292c497c914efd54564be13e0fc0ec1193a1316fe4bd136"
+    },
+    {
+      "file": "independent-review.txt",
+      "sha256": "3267bd60cd690d0b6c82eca3aa3c880ffcf593ad2f090d07b10288b5e6bc74ef"
+    },
+    {
+      "file": "iteration.txt",
+      "sha256": "add4adff26d91fd83941a3396e09abe6a2cf3763eb904741bce62974fd64e400"
+    },
+    {
+      "file": "lint.txt",
+      "sha256": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98"
+    },
+    {
+      "file": "loc.txt",
+      "sha256": "9c598a87741fbe6420206e858ee42eb64f8dd179deb1eceb3af9424dcd2d78e2"
+    },
+    {
+      "file": "log-provider-pids.json",
+      "sha256": "e802ff9d262508576c48e74cc69a59e6c40e4b898ea2f5f9a5432daea0a1ec7b"
+    },
+    {
+      "file": "main-log-excerpts.txt",
+      "sha256": "255017f354c5efb80d7e103415f29c318c805ce2f07e73ce66c146f19ef0d25f"
+    },
+    {
+      "file": "preflight.json",
+      "sha256": "dde90ff749b49837b85386c8f0cbba9c8e66466d5f75167a3f99bf3c425fc88e"
+    },
+    {
+      "file": "probe-sources.json",
+      "sha256": "db381c7355f6805de0e07febb51ca2fc1cd950a96e3915825f89bb3277c0fb00"
+    },
+    {
+      "file": "process-exits.json",
+      "sha256": "d90c8c27c097d60666045a3ef1caf97f567e509b43c02bf0375f487725538367"
+    },
+    {
+      "file": "test-run.pid-22085.log.gz",
+      "sha256": "c14ade4874f1d167effd023696105ea6bcb9cffc1b18b359123f70ae050f9ec0"
+    },
+    {
+      "file": "test-run.pid-74924.log.gz",
+      "sha256": "0f8ae346b7323a3dacc344c702cbed3aa9ef56ccade4767ca3b289aed9b3d8d1"
+    },
+    {
+      "file": "test-run.pid-96741.log.gz",
+      "sha256": "fe529e50597be090700fe29569f881d92f37061024eb3b936b9aa0c5a961966f"
+    },
+    {
+      "file": "typecheck-spec.txt",
+      "sha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133"
+    },
+    {
+      "file": "typecheck.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "file": "ui-hints.txt",
+      "sha256": "5e2ddb12cfeb4fb5abfa1700ff1f5e7fbc01c84f4ac7b28160c8b55fdf21ab90"
+    },
+    {
+      "file": "final-state.json",
+      "sha256": "5c91e9534fce5bb7c611a26fb873938bf474325b4a235a97deb5ab15f10e5ee5"
+    }
+  ]
+}

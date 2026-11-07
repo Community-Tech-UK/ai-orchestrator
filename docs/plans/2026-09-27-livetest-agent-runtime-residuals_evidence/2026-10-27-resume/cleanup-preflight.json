@@ -1,0 +1,71 @@
+{
+  "at": "2026-10-27T03:37:13.293Z",
+  "liveness": [
+    {
+      "pid": 18950,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 18962,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 23667,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 23745,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 23746,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 24320,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 48647,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 48809,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 65327,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 9891,
+      "state": "gone",
+      "code": "ESRCH"
+    }
+  ],
+  "endpoints": [
+    {
+      "port": 4735,
+      "state": "closed"
+    },
+    {
+      "port": 9735,
+      "state": "closed"
+    },
+    {
+      "port": 9736,
+      "state": "closed"
+    }
+  ],
+  "priorRemovalError": "ENOTEMPTY removing dist; subsequent inspection showed only a newly written .DS_Store. Retry is bounded.",
+  "sourceSealWrittenBeforeRemoval": "2026-10-27T03:36:38.845Z"
+}

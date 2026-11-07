@@ -1,0 +1,30 @@
+{
+  "command": [
+    "/bin/sh",
+    ".githooks/pre-commit"
+  ],
+  "startedAt": "2026-10-27T07:47:07.616Z",
+  "endedAt": "2026-10-27T07:48:16.093Z",
+  "status": 0,
+  "signal": null,
+  "sourceSelection": [
+    "scripts/__tests__/test-staged.spec.ts",
+    "scripts/test-staged.js",
+    "src/main/cli/adapters/claude-cli-adapter.permission-approval.spec.ts",
+    "src/main/cli/adapters/claude-cli-permission-details.spec.ts",
+    "src/main/cli/adapters/claude-cli-permission-details.ts",
+    "src/main/instance/lifecycle/__tests__/instance-spawn-preflight-chain.spec.ts",
+    "src/main/instance/lifecycle/instance-spawn-preflight-chain.ts",
+    "src/main/orchestration/headless-review-runner.ts",
+    "src/main/review/review-execution-host.spec.ts",
+    "src/main/review/review-execution-host.ts"
+  ],
+  "temporaryIndex": true,
+  "buildDirectoryInitiallyAbsent": true,
+  "base": "7e5222cfe773e2fc3edff0c2eade2e77fe7131cc",
+  "nodeVersion": "v24.22.1",
+  "nodeExecutable": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+  "workerProduced": true,
+  "realIndexUnchanged": false,
+  "log": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/hook-repair/pre-commit.log"
+}

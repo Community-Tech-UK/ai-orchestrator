@@ -1,0 +1,27 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js
+
+  … 10 test file(s) done (full log: _scratch/test-run.pid-74924.log)
+  … 43 test file(s) done (full log: _scratch/test-run.pid-74924.log)
+  … 155 test file(s) done (full log: _scratch/test-run.pid-74924.log)
+  … 555 test file(s) done (full log: _scratch/test-run.pid-74924.log)
+  … 1117 test file(s) done (full log: _scratch/test-run.pid-74924.log)
+  … 1755 test file(s) done (full log: _scratch/test-run.pid-74924.log)
+  … 2364 test file(s) done (full log: _scratch/test-run.pid-74924.log)
+✗ 1 of 35390 tests failed in 956.5s:
+
+  ✗ scripts/__tests__/dependency-compatibility.spec.ts › dependency compatibility keeps the installed production tree valid
+    AssertionError: extraneous: @hono/node-server@2.1.5 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/@hono/node-server
+    extraneous: @modelcontextprotocol/sdk@1.32.2 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/@modelcontextprotocol/sdk
+    extraneous: cors@2.8.6 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/cors
+    extraneous: eventsource-parser@3.1.1 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/eventsource-parser
+    extraneous: eventsource@3.0.7 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/eventsource
+    extraneous: express-rate-limit@8.7.1 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/express-rate-limit
+    extraneous: hono@4.13.14 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/hono
+    extraneous: ip-address@10.7.5 /Users/suas/work/or
+        …(truncated — see log)
+
+full log: _scratch/test-run.pid-74924.log
+
+✗ FAILED — 1 of 35390 tests failed (exit 1).

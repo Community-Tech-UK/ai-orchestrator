@@ -1,0 +1,158 @@
+{
+  "at": "2026-10-27T06:50:51.513006+00:00",
+  "head": "07eb040464daf6bc2f78e15eca5120f572fbd3e0",
+  "scope": "Final documentation correction seal after scoped independent PASS and cleanup; not new live-build proof.",
+  "reportAndPlanAndRegister": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-27-livetest-agent-runtime-residuals_livetest.md",
+      "sha256": "939bb0243ac428f470c1a3ba9b99c136c5b5da7773981b964e03610e347e1234",
+      "bytes": 103745
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-27-browser-handoff-observability_plan.md",
+      "sha256": "f4154b6d3a946d3194c5939ad95c224737b2e78eac003ce429c3250a2d7da3f5",
+      "bytes": 1904
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/livetest-remediation-register.md",
+      "sha256": "135aa79ca81577f4037dcd24b594739e0db1192718e45608743ce1918e510deb",
+      "bytes": 1080674
+    }
+  ],
+  "source": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/src/main/browser-gateway/browser-extension-command-store.ts",
+      "sha256": "4c2f1e9e3478e8c98c9084a7314c7821f9906506c78417f82eec57d18d5f10d1",
+      "bytes": 27337
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/src/main/browser-gateway/browser-gateway-service.ts",
+      "sha256": "1fb56ba2a993edb7e06b2c653c75074b27c8ce8c6a74d9a7e04b722400336fc8",
+      "bytes": 105051
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/src/main/browser-gateway/browser-gateway-result.ts",
+      "sha256": "97fa4e76ab50d747787d0429a943bc4b1fbafc1a3038cf9d6412ef15b2e2264b",
+      "bytes": 3243
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/src/main/browser-gateway/browser-audit-store.ts",
+      "sha256": "7c7f50b2498505431a263f8ddc98c63b8d64e879dd4b961e2e8f212366d5f737",
+      "bytes": 5005
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/src/main/remote-node/rpc-event-router.ts",
+      "sha256": "f447ef719c1f2de30a307baa9da1b4311e0f18d03f4aa60a5743d765cd00fc2d",
+      "bytes": 27729
+    }
+  ],
+  "originalInputs": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar002-kill.json",
+      "sha256": "414363aa535ca499bf30b4002bbcd4a584dc523a851965584c9f6cc8f2e39638",
+      "bytes": 1159
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar002-baseline-pids.json",
+      "sha256": "0038a079746fac3aaa6709298a3730fa0aaceba558a93a2c6e3da13d024ba6d1",
+      "bytes": 361
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar002-owned-pids.json",
+      "sha256": "ac23176407139db709bd1eb625ba6b75a3ff8d0da27dad815323ef7b69e47aa6",
+      "bytes": 526
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar002-process-tree.json",
+      "sha256": "a4cc5c44f0a31015a715800e60f306039f99ee18976b7cbc5e4ddf2d5b72a4ae",
+      "bytes": 2689
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar002-process-cleanup.json",
+      "sha256": "86dad5fbad609d431f41e21d431dac9b57cef6f75955df3ea1b2c0cb9d04b403",
+      "bytes": 2702
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar003-attempt.json",
+      "sha256": "b3dacfc9885501413b4d53a9eaa64c31f434aeda4fc035cc3aee9179eeb7f782",
+      "bytes": 1774
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar003-main-log.txt",
+      "sha256": "8f3b8c9486e7ab90839470ef550b3f1f3b782632edbf4ee36db37354feeadee3",
+      "bytes": 1823
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar003-audit.json",
+      "sha256": "57b02ee1944a50346ae8edc264363f6a46a519c67348156a5a779f7dae6f6974",
+      "bytes": 815
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/ar003-final-health.json",
+      "sha256": "a2ceaacd6e8454afa7c192d1247885e65eb8a3667e0a93feea7f4d6561f318aa",
+      "bytes": 1328
+    }
+  ],
+  "receipts": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-review-corrections/cleanup-receipt.json",
+      "sha256": "4a2cc66dd3aa518aa1cef47ebfd35e7e469d54a41831a160e5edb84a6331d403",
+      "bytes": 1521
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-review-corrections/commands.jsonl",
+      "sha256": "2dc34308fa006b827d6b4644fad120ec2d2d10f8c2b74bfd544d233fbbb72fe0",
+      "bytes": 1130
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-review-corrections/final-git-receipts.json",
+      "sha256": "e05079d53495050a22967aced620965a565d165cc626f9b5b481fa695fdd6b79",
+      "bytes": 10555
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-review-corrections/independent-review.txt",
+      "sha256": "a56d14cf23e4db312f984a1ae5be4da12c9c6fcd1b3b34a51ca59bfd5c2bff8b",
+      "bytes": 1455
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-review-corrections/pre-cleanup-seal.json",
+      "sha256": "559b9bdb63c12e664011be65d685310ba57aa785a6c367191dbf804244a9d9c4",
+      "bytes": 8449
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-review-corrections/preflight.json",
+      "sha256": "67e60a9e6bf600249672393bdf6b331aa832319d074b4b249ac3b9d9269db0ab",
+      "bytes": 172
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-review-corrections/receipt-validation.json",
+      "sha256": "b1fa2a838f76a92f1724096167b93e25288298148eb025e032dcc5d62f2c530a",
+      "bytes": 7048
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-review-corrections/retention-receipt.json",
+      "sha256": "48677be81ee3030c1ff2f4d874a2b66558cd104b64e63e6406400aa6d6b932a8",
+      "bytes": 1497
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-review-corrections/targeted-tests.txt",
+      "sha256": "1b033804043bd15e2f412802e19cd7c2edba2999ec5f8ca78d37ca6bbade33f0",
+      "bytes": 82
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-review-corrections/test-results.pid-405.json.gz",
+      "sha256": "bfe4d4170c9d5ef577e0fe8c551ffedb3c1af04e25b8febb5a2efdef3711ad5d",
+      "bytes": 4595
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-review-corrections/test-run.pid-405.log.gz",
+      "sha256": "22e97fac9540a4960f6f54e101b035f81d33354ebe8ce8a1eab575f8afb2c016",
+      "bytes": 942
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-review-corrections/verification-source.json",
+      "sha256": "7a601f982bb46716ccdfb343b0db6b69f30da3cde31eb684ec035d1c468d1dac",
+      "bytes": 8031
+    }
+  ]
+}

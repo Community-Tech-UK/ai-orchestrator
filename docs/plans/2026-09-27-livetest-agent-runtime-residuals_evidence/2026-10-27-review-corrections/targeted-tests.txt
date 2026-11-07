@@ -1,0 +1,2 @@
+✓ 2 files · 93 tests passed in 10.1s
+  full log: _scratch/test-run.pid-405.log

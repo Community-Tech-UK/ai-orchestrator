@@ -1,0 +1,28 @@
+{
+  "exit": 1,
+  "reportedCounts": {
+    "numTotalTests": 35390,
+    "numPassedTests": 35379,
+    "numFailedTests": 0,
+    "numPendingTests": 9,
+    "success": true
+  },
+  "assertionStatusCounts": {
+    "passed": 35379,
+    "pending": 2,
+    "skipped": 9
+  },
+  "pending": [
+    {
+      "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/scripts/__tests__/sea-build-repeatability.spec.ts",
+      "name": "SEA build repeatability replaces a read-only previous 'AIO MCP' executable",
+      "status": "pending"
+    },
+    {
+      "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/scripts/__tests__/sea-build-repeatability.spec.ts",
+      "name": "SEA build repeatability replaces a read-only previous 'loop control' executable",
+      "status": "pending"
+    }
+  ],
+  "interpretation": "Unhandled reporter error masked two SEA build assertions. No full pass; JSON success alone is insufficient."
+}

@@ -1,0 +1,42 @@
+{
+  "at": 1793079531308,
+  "parent": {
+    "id": "xb3s6f6cn",
+    "status": "idle",
+    "pid": 28801
+  },
+  "matches": [
+    {
+      "at": 1793079504629,
+      "resume": true,
+      "instanceId": "xb3s6f6cn",
+      "workspaceMatches": true,
+      "spawnAt": 1793079504629,
+      "suppressionObservedAt": 1793079504629,
+      "parentStatus": "respawning",
+      "suppressionObserved": true,
+      "thrownAt": 1793079504629
+    }
+  ],
+  "notice": "[SESSION DEGRADATION NOTICE]\nA brand-new provider session was started because the previous one could not be resumed (auto-respawn-fallback).\nBackground and in-flight work from the prior session — subagents, running tools, pending tasks — was NOT carried over and no longer exists.\nRe-establish the current state (re-check files, task status, and outputs) before continuing; do not assume prior background work finished.\nOrchestration child instances still alive and attached to you:\n- xv3avorr6 (## Child Instance, busy)\nOrchestration child instances lost in the restart (no longer running): x7xliveqj\n[END SESSION DEGRADATION NOTICE]",
+  "liveNamedAttached": true,
+  "deadNamedLost": true,
+  "completed": [
+    "x7xliveqj"
+  ],
+  "instances": [
+    {
+      "id": "xb3s6f6cn",
+      "parentId": null,
+      "status": "idle",
+      "pid": 28801
+    },
+    {
+      "id": "xv3avorr6",
+      "parentId": "xb3s6f6cn",
+      "status": "busy",
+      "pid": 15038
+    }
+  ],
+  "responses": []
+}

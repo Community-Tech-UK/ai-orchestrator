@@ -1,0 +1,24 @@
+{
+  "recordedAt": "2026-10-27T03:14:45.698Z",
+  "note": "Recorded from completed tool outputs; start/end times not collected by these original wrappers.",
+  "commands": [
+    {
+      "command": "npm run build:main",
+      "exitCode": 0,
+      "evidence": "build-main.log",
+      "observedVia": "exec session 34240, final exit 0"
+    },
+    {
+      "command": "npm run test:quiet -- src/main/context-evidence/context-safety-policy.spec.ts src/main/orchestration/loop-coordinator-completion-gates.spec.ts src/main/orchestration/loop-review-reuse-anchor.spec.ts src/renderer/app/shared/terminate-confirm/terminate-confirm-dialog.component.spec.ts src/renderer/app/features/instance-detail/user-action-request.rules.spec.ts",
+      "exitCode": 0,
+      "evidence": "targeted-tests.log",
+      "observedVia": "exec session 1534, final exit 0"
+    },
+    {
+      "command": "npx tsc --noEmit",
+      "exitCode": 0,
+      "evidence": "typecheck.log",
+      "observedVia": "exec session 79656, final exit 0"
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+[
+  {
+    "original": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27/build-renderer.log",
+    "retained": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27/build-renderer.log.txt",
+    "sha256": "28a56f515c62ea7cb8ff1b0fa6935932c523272bf40ee023dd64e86173d07bba",
+    "bytes": 5447
+  },
+  {
+    "original": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27/build-main.log",
+    "retained": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27/build-main.log.txt",
+    "sha256": "045ec631c3ee7f3ab0b773bb5f0fa89fca7fecae1938bd94ec4c64ba15af7f85",
+    "bytes": 284
+  },
+  {
+    "original": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27/typecheck-spec.log",
+    "retained": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27/typecheck-spec.log.txt",
+    "sha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133",
+    "bytes": 129
+  },
+  {
+    "original": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27/typecheck.log",
+    "retained": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27/typecheck.log.txt",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  {
+    "original": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27/targeted-tests.log",
+    "retained": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27/targeted-tests.log.txt",
+    "sha256": "89c17c2816811552445121bd47ce13c14577766ccd7b6448248cae0c1a175713",
+    "bytes": 486
+  },
+  {
+    "original": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-resume/build-main.log",
+    "retained": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-resume/build-main.log.txt",
+    "sha256": "4a504cdb47b3fb73d805d19ef9f5280220588f11429b858c653b238a93e0cc9d",
+    "bytes": 284
+  },
+  {
+    "original": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-resume/typecheck-spec.log",
+    "retained": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-resume/typecheck-spec.log.txt",
+    "sha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133",
+    "bytes": 129
+  },
+  {
+    "original": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-resume/tests-full.log",
+    "retained": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-resume/tests-full.log.txt",
+    "sha256": "585c5850cf33ded47215dc9d5c4d75aff62c4f5bed11a89107c43fca9a4803e9",
+    "bytes": 37510
+  },
+  {
+    "original": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-resume/typecheck.log",
+    "retained": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-resume/typecheck.log.txt",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  {
+    "original": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-resume/targeted-tests.log",
+    "retained": "docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-resume/targeted-tests.log.txt",
+    "sha256": "c4fd5114d33dc57040ff2f9dc84535893a34dca3630e6bce320a6f825b696174",
+    "bytes": 496
+  }
+]

@@ -13,6 +13,7 @@ describe('isPermissionDenialContent', () => {
       'You must grant permission to use this tool first.',
       'This command requires approval',
       'This command requires approval.',
+      '  This command requires approval.\n',
       '  THIS COMMAND REQUIRES APPROVAL\n',
     ])('matches: %s', (content) => {
       expect(isPermissionDenialContent(content)).toBe(true);

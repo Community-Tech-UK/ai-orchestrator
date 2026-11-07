@@ -1,0 +1,2 @@
+Captured from exec output chunk 97d812 before the disposable runtime log was removed.
+[2026-10-27T03:13:49.589Z] [INFO] [App] Cleanup complete { phaseCount: 8, incompletePhaseCount: 0 }

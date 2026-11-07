@@ -1,0 +1,10 @@
+{"start":"2026-10-27T04:14:21.171Z","end":"2026-10-27T04:14:41.306Z","argv":["npm","run","build:main"],"code":0,"signal":null,"log":"build-main.txt"}
+{"start":"2026-10-27T04:16:38.025Z","end":"2026-10-27T04:16:54.720Z","argv":["npm","run","test:quiet","--","src/main/cli/adapters/claude-cli-permission-details.spec.ts","src/main/cli/adapters/claude-cli-adapter.permission-approval.spec.ts","src/main/instance/lifecycle/__tests__/instance-spawn-preflight-chain.spec.ts","src/main/review/review-execution-host.spec.ts","src/main/review/review-cancelled-usage.spec.ts","src/main/orchestration/headless-review-runner.spec.ts","src/main/orchestration/loop-coordinator-completion-gates.spec.ts","src/main/orchestration/loop-review-reuse-anchor.spec.ts"],"code":0,"signal":null,"log":"focused.txt"}
+{"start":"2026-10-27T04:17:51.567Z","end":"2026-10-27T04:18:18.841Z","argv":["npx","tsc","--noEmit"],"code":0,"signal":null,"log":"typecheck.txt"}
+{"start":"2026-10-27T04:19:35.511Z","end":"2026-10-27T04:19:50.293Z","argv":["npm","run","lint"],"code":0,"signal":null,"log":"lint.txt"}
+{"start":"2026-10-27T04:19:52.064Z","end":"2026-10-27T04:19:53.284Z","argv":["npm","run","check:ts-max-loc"],"code":0,"signal":null,"log":"loc.txt"}
+{"start":"2026-10-27T04:19:09.398Z","end":"2026-10-27T04:19:59.479Z","argv":["npm","run","typecheck:spec"],"code":0,"signal":null,"log":"typecheck-spec.txt"}
+{"start":"2026-10-27T04:20:57.098Z","end":"2026-10-27T04:21:00.728Z","argv":["npm","run","check:ui-hints"],"code":0,"signal":null,"log":"ui-hints.txt"}
+{"start":"2026-10-27T04:21:07.541Z","end":"2026-10-27T04:21:30.107Z","argv":["npm","run","build:renderer"],"code":0,"signal":null,"log":"build-renderer.txt"}
+{"start":"2026-10-27T04:21:08.678Z","end":"2026-10-27T04:37:07.220Z","argv":["npm","run","test:quiet"],"code":1,"signal":null,"log":"full-suite.txt"}
+{"start":"2026-10-27T04:37:54.773Z","end":"2026-10-27T04:38:01.304Z","argv":["npm","run","test:quiet","--","scripts/__tests__/dependency-compatibility.spec.ts"],"code":1,"signal":null,"log":"dependency-isolated.txt"}

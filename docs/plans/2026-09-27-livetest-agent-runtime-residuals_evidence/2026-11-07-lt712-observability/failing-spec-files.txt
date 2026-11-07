@@ -1,0 +1,14 @@
+|main| src/main/cli/adapters/claude-direct-failed-usage.spec.ts (20 tests | 3 failed) 10449ms
+|main| src/main/cli/adapters/__tests__/provider-source-logging-notification.native.spec.ts (14 tests | 10 failed) 5511ms
+|main| src/main/cli/adapters/__tests__/copilot-usage-diagnostics.native.spec.ts (55 tests | 54 failed) 678ms
+|main| src/main/cli/adapters/__tests__/provider-source-logging-extra.native.spec.ts (21 tests | 21 failed) 1631ms
+|main| src/main/cli/adapters/codex-exec-native-outcome.spec.ts (8 tests | 8 failed) 5113ms
+|main| src/main/cli/spawn-worker/cli-worker-resident-cost.spec.ts (18 tests | 5 failed) 29353ms
+|main| src/main/cli/adapters/__tests__/acp-available-commands-diagnostics.native.spec.ts (16 tests | 13 failed) 160ms
+|main| src/main/cli/adapters/__tests__/provider-source-logging.native.spec.ts (11 tests | 5 failed) 91ms
+|main| src/main/instance/codex-exec-input-receipt.spec.ts (4 tests | 4 failed) 2355ms
+|main| src/main/cli/__tests__/out-of-process-fixture-adapter.spec.ts (8 tests | 8 failed) 111ms
+|main| src/main/cli/spawn-worker/cli-worker-failed-usage.spec.ts (10 tests | 10 failed) 25402ms
+|main| src/main/cli/spawn-worker/cli-worker-cancelled-usage.spec.ts (7 tests | 3 failed) 9549ms
+|main| src/main/sandbox/signal-fence.spec.ts (6 tests | 1 failed) 25ms
+|main| src/main/cli/adapters/base-cli-stdin-write.spec.ts (2 tests | 2 failed) 34ms

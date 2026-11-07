@@ -1,0 +1,25 @@
+{
+  "success": false,
+  "numTotalTests": 35390,
+  "numPassedTests": 35378,
+  "numFailedTests": 1,
+  "numPendingTests": 9,
+  "numTotalTestSuites": 8502,
+  "failures": [
+    {
+      "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/scripts/__tests__/dependency-compatibility.spec.ts",
+      "assertions": [
+        {
+          "title": "dependency compatibility keeps the installed production tree valid",
+          "messages": [
+            "AssertionError: extraneous: @hono/node-server@2.1.5 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/@hono/node-server\nextraneous: @modelcontextprotocol/sdk@1.32.2 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/@modelcontextprotocol/sdk\nextraneous: cors@2.8.6 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/cors\nextraneous: eventsource-parser@3.1.1 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/eventsource-parser\nextraneous: eventsource@3.0.7 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/eventsource\nextraneous: express-rate-limit@8.7.1 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/express-rate-limit\nextraneous: hono@4.13.14 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/hono\nextraneous: ip-address@10.7.5 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/ip-address\nextraneous: jose@6.2.13 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/jose\nextraneous: object-assign@4.1.1 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/object-assign\nextraneous: pkce-challenge@5.0.1 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/pkce-challenge\nextraneous: zod-to-json-schema@3.25.2 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/zod-to-json-schema: expected [ \u2026(12) ] to deeply equal []\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/scripts/__tests__/dependency-compatibility.spec.ts:202:49\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new ZoneAwarePromise (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/zone.js/fesm2015/zone.js:2238:23)\n    at runWithCancel (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new ZoneAwarePromise (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/zone.js/fesm2015/zone.js:2238:23)\n    at runWithTimeout (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/scripts/__tests__/sea-build-repeatability.spec.ts",
+      "assertions": []
+    }
+  ]
+}

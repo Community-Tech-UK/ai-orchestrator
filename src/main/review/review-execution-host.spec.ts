@@ -4,6 +4,7 @@ import { subscribeCostAttribution, type CostAttributionRecord } from '../core/sy
 import { CLAUDE_REVIEWER_MAX_TURNS } from '../cli/adapters/claude-machine-session-policy';
 import { ProviderReviewExecutionHost, resolveReviewerModelOverride, sendAbortableReviewerMessage } from './review-execution-host';
 import { pauseConsults } from '../work-admission/consult-admission';
+import { runHeadlessReviewCommand } from '../orchestration/headless-review-runner';
 
 // Mutable holder so each test can configure the per-reviewer model override.
 const hostTestState = vi.hoisted(() => ({
@@ -129,6 +130,43 @@ describe('ProviderReviewExecutionHost', () => {
     await expect(new ProviderReviewExecutionHost().dispatchReviewerPrompt('claude', 'review', '/repo', abort.signal)).rejects.toBe(deadline);
     expect(sendMessage).not.toHaveBeenCalled();
     expect(terminate).toHaveBeenCalledExactlyOnceWith(false);
+  });
+
+  it.each(['deadline', 'caller'] as const)('distinguishes a headless %s abort and stops its reviewer', async kind => {
+    vi.useFakeTimers();
+    try {
+      const caller = new AbortController();
+      let rejectSend!: (error: Error) => void;
+      const sendMessage = vi.fn(() => new Promise<never>((_resolve, reject) => { rejectSend = reject; }));
+      const terminate = vi.fn(async () => { rejectSend(new Error('Native process closed')); });
+      const interrupt = vi.fn();
+      hostTestState.createAdapter.mockReturnValue({ sendMessage, interrupt, terminate });
+      const pending = runHeadlessReviewCommand({
+        target: 'HEAD', cwd: process.cwd(), content: 'No changes.', taskDescription: 'Review the change.',
+        timeoutSeconds: 1, signal: caller.signal,
+      }, {
+        host: new ProviderReviewExecutionHost(),
+        resolveReviewers: async () => [{ provider: 'claude', rationale: 'unchanged' }],
+        localEnabled: false,
+        createLocalPlan: () => ({
+          run: async () => ({ status: 'skipped', reason: 'No local reviewer configured.' }),
+          participant: () => ({ reviewerId: 'local-model', source: 'local', status: 'skipped' }),
+        }),
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(sendMessage).toHaveBeenCalledOnce();
+      if (kind === 'caller') caller.abort();
+      else await vi.advanceTimersByTimeAsync(1000);
+      const result = await pending;
+      const reason = kind === 'deadline' ? 'Review timed out after 1 second' : 'Review cancelled';
+      expect(result.reviewers).toEqual([expect.objectContaining({ status: 'failed', reason })]);
+      expect(result.infrastructureErrors).toEqual([`claude: ${reason}`]);
+      expect(interrupt).toHaveBeenCalledOnce();
+      expect(terminate).toHaveBeenCalledWith(false);
+      expect(caller.signal.aborted).toBe(kind === 'caller');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('keeps cancellation immediate but waits for actual adapter teardown before restart is safe', async () => {

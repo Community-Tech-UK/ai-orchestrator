@@ -1,0 +1,71 @@
+{
+  "start": "2026-10-27T04:46:25.998Z",
+  "end": "2026-10-27T04:46:30.187Z",
+  "preflight": {
+    "at": "2026-10-27T04:46:17.130Z",
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "auditId": "04eeabe6-40d6-457c-84eb-448b564ca798",
+    "hasData": true
+  },
+  "remotePreflight": {
+    "total": 1,
+    "ready": 1,
+    "silent": 0,
+    "nodes": [
+      {
+        "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+        "nodeName": "windows-pc",
+        "enabled": true,
+        "running": true,
+        "silent": false,
+        "channelState": "fresh",
+        "commandsDeliverable": true,
+        "lastContactAt": 1793076337983,
+        "contactAgeMs": 3443,
+        "coordinatorPollAgeMs": 3443,
+        "relayContactAgeMs": 13687,
+        "connectionFlap": {
+          "stormActive": false,
+          "replacesInWindow": 0,
+          "windowMs": 300000
+        },
+        "queue": {
+          "queuedCount": 0,
+          "inFlightCount": 0,
+          "waitingPollerCount": 2
+        },
+        "contactGaps": {
+          "gapCount": 2,
+          "longestGapMs": 146459,
+          "lastGapMs": 146459,
+          "lastGapEndedAt": 1793033852670
+        },
+        "serviceWorkerRestarts": 0,
+        "registration": "ok",
+        "lastRegistrationCheckAt": 1793076331670,
+        "secretObservation": {
+          "reported": true,
+          "protectionEnabled": false,
+          "taintedOriginCount": 0,
+          "taintedTabCount": 0,
+          "observedAt": 1793075026165,
+          "ageMs": 1315261
+        }
+      }
+    ]
+  },
+  "results": [
+    {
+      "reset": true
+    },
+    {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "auditId": "f50a00d6-2058-49b6-af91-7dbab5c7f682",
+      "dataSummary": {
+        "count": 1
+      }
+    }
+  ]
+}

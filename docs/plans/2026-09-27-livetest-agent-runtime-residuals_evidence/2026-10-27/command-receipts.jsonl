@@ -1,0 +1,2 @@
+{"label":"typecheck-spec","command":["npm","run","typecheck:spec"],"startedAt":"2026-10-27T03:07:52.783Z","endedAt":"2026-10-27T03:08:50.895Z","exitCode":0,"signal":null,"log":"_scratch/lt-queue-runtime/evidence/typecheck-spec.log"}
+{"label":"build-renderer","command":["npm","run","build:renderer"],"startedAt":"2026-10-27T03:09:47.647Z","endedAt":"2026-10-27T03:10:13.682Z","exitCode":0,"signal":null,"log":"_scratch/lt-queue-runtime/evidence/build-renderer.log"}

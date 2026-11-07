@@ -1,0 +1,30 @@
+{
+  "at": "2026-10-27T06:31:30.531221+00:00",
+  "command": {
+    "start": "2026-10-27T05:43:25.706Z",
+    "end": "2026-10-27T06:30:02.510Z",
+    "argv": [
+      "env",
+      "AIO_TEST_NO_CACHE=1",
+      "AIO_TEST_SUMMARY=0",
+      "npm",
+      "run",
+      "test:quiet"
+    ],
+    "code": 0,
+    "signal": null,
+    "log": "full-suite-pinned-final.txt"
+  },
+  "numTotalTests": 35390,
+  "numPassedTests": 35381,
+  "numFailedTests": 0,
+  "numPendingTests": 9,
+  "success": true,
+  "assertionStatuses": {
+    "passed": 35381,
+    "skipped": 9
+  },
+  "files": 2793,
+  "startTime": 1793079811868,
+  "endTime": 1793082601014.0986
+}

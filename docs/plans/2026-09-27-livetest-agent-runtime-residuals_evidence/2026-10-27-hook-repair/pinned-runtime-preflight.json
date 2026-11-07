@@ -1,0 +1,38 @@
+{
+  "at": "2026-10-27T07:04:46.451Z",
+  "node": "v24.22.1",
+  "execPath": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+  "load": [
+    13.80029296875,
+    11.30126953125,
+    17.78125
+  ],
+  "uptime": " 7:04  up 2 days,  6:52, 2 users, load averages: 13.80 11.30 17.78\n",
+  "abortedPids": [
+    {
+      "pid": 44359,
+      "alive": false,
+      "code": "ESRCH"
+    },
+    {
+      "pid": 44399,
+      "alive": false,
+      "code": "ESRCH"
+    },
+    {
+      "pid": 60513,
+      "alive": false,
+      "code": "ESRCH"
+    },
+    {
+      "pid": 60530,
+      "alive": false,
+      "code": "ESRCH"
+    },
+    {
+      "pid": 60554,
+      "alive": false,
+      "code": "ESRCH"
+    }
+  ]
+}

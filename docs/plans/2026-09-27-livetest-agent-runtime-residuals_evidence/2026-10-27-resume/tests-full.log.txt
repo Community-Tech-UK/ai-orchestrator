@@ -1,0 +1,720 @@
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de
+
+(node:37818) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/orchestration/loop-review-reuse-anchor.spec.ts (90 tests) 13730ms
+     ✓ is stable while nothing changes  351ms
+     ✓ is unmoved by the display setting core.abbrev=40  423ms
+     ✓ is unmoved by the display setting diff.noprefix=true  369ms
+     ✓ is unmoved by the display setting diff.renames=false  343ms
+     ✓ is unmoved by the display setting diff.algorithm=histogram  368ms
+     ✓ is unmoved by the display setting core.quotepath=true  709ms
+     ✓ is unmoved by the display setting diff.relative=true  518ms
+     ✓ is unmoved by the display setting status.showUntrackedFiles=normal  434ms
+     ✓ moves when the work is committed rather than left dirty  429ms
+     ✓ moves for a staged-only change  552ms
+     ✓ moves for a deletion  641ms
+     ✓ moves for an equal-length edit past the reviewer payload’s 60 KB cap  360ms
+     ✓ moves for a binary change of identical size  356ms
+     ✓ does NOT see gitignored paths — the one accepted blind spot  478ms
+     ✓ ignores the loop’s own state files even when they are not gitignored  446ms
+     ✓ ignores only the exact bookkeeping directories, not names that merely contain them  610ms
+     ✓ ignores a NEW loop-bookkeeping file, not just appends to an existing one  362ms
+     ✓ sees a symlink retargeted to a file with identical content  400ms
+     ✓ sees a mode change on an already-modified file  419ms
+     ✓ sees a TRACKED file under a bookkeeping prefix, because the reviewer does  429ms
+     ✓ sees content when the workspace is a subdirectory of the repo  372ms
+     ✓ sees an EDIT to an untracked file outside the workspace subtree  349ms
+     ✓ sees a TRACKED change outside the workspace subtree, because the reviewer does  453ms
+     ✓ resists a NUL-in-content collision between different trees  393ms
+     ✓ does not let a regular file impersonate a symlink  461ms
+     ✓ distinguishes a symlink from a file whose contents equal the link target  479ms
+     ✓ distinguishes trees whose file contents concatenate identically  573ms
+     ✓ holds for index-only divergence, which the reviewer also cannot see  469ms
+     ✓ does not warn about a tracked deletion  324ms
+(node:73533) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns > reuses a cached clean verdict for a non-edit iteration without invoking the reviewer
+[2026-10-27T03:30:36.275Z] [INFO] [LoopCoordinator] Fresh-eyes gate: instant ALLOW — clean verdict cached, no production changes since { loopRunId: 'loop-1', signal: 'declared-complete' }
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns > runs the reviewer when the iteration changed production files despite a cached verdict
+[2026-10-27T03:30:36.653Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'stub' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns > reuses the cached verdict at the shipped default, with antiSelfGrading off
+[2026-10-27T03:30:36.954Z] [INFO] [LoopCoordinator] Fresh-eyes gate: instant ALLOW — clean verdict cached, no production changes since { loopRunId: 'loop-1', signal: 'declared-complete' }
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns > still runs the reviewer for a production edit with antiSelfGrading off
+[2026-10-27T03:30:37.280Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'stub' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns > still runs a contradiction-forced review with antiSelfGrading off
+[2026-10-27T03:30:37.588Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'stub' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns > runs the reviewer when the tree moved unobserved between attempts
+[2026-10-27T03:30:37.908Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'stub' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns > reuses only when the tree matches, not merely when nothing was observed
+[2026-10-27T03:30:38.197Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'stub' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns > reuses only when the tree matches, not merely when nothing was observed
+[2026-10-27T03:30:38.313Z] [INFO] [LoopCoordinator] Fresh-eyes gate: instant ALLOW — clean verdict cached, no production changes since { loopRunId: 'loop-1', signal: 'declared-complete' }
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns > never reuses in a workspace that cannot produce a diff
+[2026-10-27T03:30:38.544Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'stub' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns > runs the reviewer when the work was committed rather than left dirty
+[2026-10-27T03:30:39.047Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'stub' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns > runs the reviewer when no clean verdict is cached
+[2026-10-27T03:30:39.313Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'stub' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns > a contradiction-forced review bypasses the cache and runs for real
+[2026-10-27T03:30:39.600Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'stub' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns > caches the clean verdict after a real clean review
+[2026-10-27T03:30:39.835Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'stub' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns > invalidates the cached verdict when a review blocks
+[2026-10-27T03:30:40.159Z] [INFO] [LoopCoordinator] Fresh-eyes review blocked completion - injected interventions {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  blocking: 1,
+  severities: [ 'critical' ],
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns > does not treat loop-state-dir noise as a production change
+[2026-10-27T03:30:40.463Z] [INFO] [LoopCoordinator] Fresh-eyes gate: instant ALLOW — clean verdict cached, no production changes since { loopRunId: 'loop-1', signal: 'declared-complete' }
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns > WS6 Task 4: fires captureReviewLesson with the blocking verdict on a block
+[2026-10-27T03:30:40.849Z] [INFO] [LoopCoordinator] Fresh-eyes review blocked completion - injected interventions {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  blocking: 1,
+  severities: [ 'critical' ],
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate — D6 instant ALLOW for non-edit turns > WS6 Task 4: does NOT fire captureReviewLesson on a clean pass
+[2026-10-27T03:30:41.189Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'stub' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate (WS-A3 demotion visibility, end to end) > passes (nothing blocks) but still surfaces a demoted finding on the pass event
+[2026-10-27T03:30:41.538Z] [INFO] [LoopCoordinator] Fresh-eyes review: severity-blocking finding(s) demoted to advisory - evidence not verified {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewAttemptId: 'fer_e9850ff5-6c9a-4943-ab59-c6786b1f9d47',
+  demotedCount: 1,
+  reasons: [
+    'No locatable evidence quote was supplied for this severity-blocking finding. Demoted to advisory; it will not block completion on its own.'
+  ]
+}
+[2026-10-27T03:30:41.538Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'stub' ],
+  findings: 1,
+  demoted: 1
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate (WS-A3 demotion visibility, end to end) > blocks on the deterministic-gate finding while a co-occurring unverifiable finding is demoted, not dropped
+[2026-10-27T03:30:41.887Z] [INFO] [LoopCoordinator] Fresh-eyes review: severity-blocking finding(s) demoted to advisory - evidence not verified {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewAttemptId: 'fer_b9bc0009-ecb9-4a6e-9f23-4f0fdc0add47',
+  demotedCount: 1,
+  reasons: [
+    'No locatable evidence quote was supplied for this severity-blocking finding. Demoted to advisory; it will not block completion on its own.'
+  ]
+}
+[2026-10-27T03:30:41.887Z] [INFO] [LoopCoordinator] Fresh-eyes review blocked completion - injected interventions {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  blocking: 1,
+  severities: [ 'critical' ],
+  demoted: 1
+}
+
+stderr | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate (WS-B9 exact reviewer coverage + per-angle cache) > a required angle that parse_failed forces errored:true, not a clean pass, even though something ran
+[2026-10-27T03:30:42.207Z] [WARN] [LoopCoordinator] Fresh-eyes review: required reviewer/angle coverage was incomplete - treating as unavailable, not a clean pass {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewAttemptId: 'fer_170f55be-3f11-4db8-9cf4-51f660aae7c6',
+  shortfall: [ 'security:parse_failed' ]
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate (WS-B9 exact reviewer coverage + per-angle cache) > full required coverage (all used) stays a clean pass and carries coverage on the result/event
+[2026-10-27T03:30:42.456Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'gemini' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate (WS-B9 exact reviewer coverage + per-angle cache) > a reviewer implementation that reports no coverage at all is unaffected (backward compatible)
+[2026-10-27T03:30:42.690Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'stub' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate (WS-B9 exact reviewer coverage + per-angle cache) > binds the per-angle cache to this run's LoopState: a second attempt with an identical key reuses it
+[2026-10-27T03:30:42.915Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'gemini' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > runFreshEyesReviewGate (WS-B9 exact reviewer coverage + per-angle cache) > binds the per-angle cache to this run's LoopState: a second attempt with an identical key reuses it
+[2026-10-27T03:30:43.004Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'gemini' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > fresh-eyes review budget > stops at the spend cap even if the reviewer approves
+[2026-10-27T03:30:43.255Z] [INFO] [LoopStore] LoopStoreService initialized 
+
+stderr | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > fresh-eyes review budget > stops at the spend cap even if the reviewer approves
+sqlite3_step() rc= 787 SQLITE_CONSTRAINT_FOREIGNKEY SQL = INSERT INTO loop_run_spend (id, loop_run_id, iteration_seq, purpose, detail, provider, model, tokens, cache_read_tokens, cache_write_tokens, cost_cents, basis, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+[2026-10-27T03:30:43.255Z] [WARN] [LoopSpendLedger] Could not persist loop spend; budget still includes it {
+  loopRunId: 'loop-1',
+  error: 'SQLite3Error: SQLITE_CONSTRAINT_FOREIGNKEY: sqlite3 result code 787: FOREIGN KEY constraint failed'
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > fresh-eyes review effort > limits a small safe change to one reviewer and permanently escalates on sensitive code
+[2026-10-27T03:30:43.479Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'stub' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > fresh-eyes review effort > limits a small safe change to one reviewer and permanently escalates on sensitive code
+[2026-10-27T03:30:43.571Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'stub' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > fresh-eyes review effort > limits a small safe change to one reviewer and permanently escalates on sensitive code
+[2026-10-27T03:30:43.669Z] [INFO] [LoopCoordinator] Fresh-eyes review passed {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  reviewersUsed: [ 'stub' ],
+  findings: 0,
+  demoted: 0
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > trackRepeatedCompletionEvidence > climbs repeatedEvidenceCount and surfaces a stuck note on identical evidence
+[2026-10-27T03:30:43.793Z] [INFO] [LoopCoordinator] Loop completion attempt re-presented identical evidence {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  repeatCount: 2,
+  outcome: 'rename-gate'
+}
+
+stdout | src/main/orchestration/loop-coordinator-completion-gates.spec.ts > trackRepeatedCompletionEvidence > resets the repeat count when the evidence changes
+[2026-10-27T03:30:43.925Z] [INFO] [LoopCoordinator] Loop completion attempt re-presented identical evidence {
+  loopRunId: 'loop-1',
+  signal: 'declared-complete',
+  repeatCount: 2,
+  outcome: 'rename-gate'
+}
+
+ ✓ |main| src/main/orchestration/loop-coordinator-completion-gates.spec.ts (33 tests) 8455ms
+     ✓ reuses a cached clean verdict for a non-edit iteration without invoking the reviewer  491ms
+     ✓ runs the reviewer when the iteration changed production files despite a cached verdict  374ms
+     ✓ reuses the cached verdict at the shipped default, with antiSelfGrading off  301ms
+     ✓ still runs the reviewer for a production edit with antiSelfGrading off  326ms
+     ✓ still runs a contradiction-forced review with antiSelfGrading off  308ms
+     ✓ runs the reviewer when the tree moved unobserved between attempts  320ms
+     ✓ reuses only when the tree matches, not merely when nothing was observed  405ms
+     ✓ runs the reviewer when the work was committed rather than left dirty  503ms
+     ✓ invalidates the cached verdict when a review blocks  324ms
+     ✓ does not treat loop-state-dir noise as a production change  304ms
+     ✓ WS6 Task 4: fires captureReviewLesson with the blocking verdict on a block  387ms
+     ✓ WS6 Task 4: does NOT fire captureReviewLesson on a clean pass  339ms
+     ✓ passes (nothing blocks) but still surfaces a demoted finding on the pass event  347ms
+     ✓ blocks on the deterministic-gate finding while a co-occurring unverifiable finding is demoted, not dropped  349ms
+     ✓ a required angle that parse_failed forces errored:true, not a clean pass, even though something ran  321ms
+     ✓ binds the per-angle cache to this run's LoopState: a second attempt with an identical key reuses it  313ms
+     ✓ limits a small safe change to one reviewer and permanently escalates on sensitive code  413ms
+(node:89926) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > keeps the Codex controller from independently deciding on the same cumulative sample
+[2026-10-27T03:30:44.787Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-1',
+  trigger: 'cumulative-4x',
+  action: 'controlled-recovery',
+  reasonCode: 'CUMULATIVE_RECOVERY_REQUIRED',
+  occupancyPercentage: 55.00000000000001
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > keeps the Codex controller from independently deciding on the same cumulative sample
+[2026-10-27T03:30:44.790Z] [INFO] [ProviderContextAction] Provider context action completed {
+  instanceId: 'codex-1',
+  status: 'executed',
+  action: 'controlled-recovery',
+  proof: 'acknowledged'
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > leaves a Codex session that compacts inline alone at every occupancy and spend
+[2026-10-27T03:30:44.791Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-inline',
+  trigger: 'cumulative-2x',
+  action: 'convergence-review',
+  reasonCode: 'CUMULATIVE_CHECKPOINT_REQUIRED',
+  occupancyPercentage: 32
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > leaves a Codex session that compacts inline alone at every occupancy and spend
+[2026-10-27T03:30:44.791Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-inline',
+  trigger: 'manual',
+  action: 'none',
+  reasonCode: 'NO_ACTION',
+  occupancyPercentage: 32
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > leaves a Codex session that compacts inline alone at every occupancy and spend
+[2026-10-27T03:30:44.791Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-inline',
+  trigger: 'manual',
+  action: 'none',
+  reasonCode: 'NO_ACTION',
+  occupancyPercentage: 60
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > leaves a Codex session that compacts inline alone at every occupancy and spend
+[2026-10-27T03:30:44.792Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-inline',
+  trigger: 'manual',
+  action: 'none',
+  reasonCode: 'NO_ACTION',
+  occupancyPercentage: 60
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > leaves a Codex session that compacts inline alone at every occupancy and spend
+[2026-10-27T03:30:44.792Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-inline',
+  trigger: 'manual',
+  action: 'none',
+  reasonCode: 'NO_ACTION',
+  occupancyPercentage: 70
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > leaves a Codex session that compacts inline alone at every occupancy and spend
+[2026-10-27T03:30:44.792Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-inline',
+  trigger: 'manual',
+  action: 'none',
+  reasonCode: 'NO_ACTION',
+  occupancyPercentage: 70
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > leaves a Codex session that compacts inline alone at every occupancy and spend
+[2026-10-27T03:30:44.793Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-inline',
+  trigger: 'manual',
+  action: 'none',
+  reasonCode: 'NO_ACTION',
+  occupancyPercentage: 75
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > leaves a Codex session that compacts inline alone at every occupancy and spend
+[2026-10-27T03:30:44.793Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-inline',
+  trigger: 'manual',
+  action: 'none',
+  reasonCode: 'NO_ACTION',
+  occupancyPercentage: 75
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > leaves a Codex session that compacts inline alone at every occupancy and spend
+[2026-10-27T03:30:44.794Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-inline',
+  trigger: 'manual',
+  action: 'none',
+  reasonCode: 'NO_ACTION',
+  occupancyPercentage: 80
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > leaves a Codex session that compacts inline alone at every occupancy and spend
+[2026-10-27T03:30:44.794Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-inline',
+  trigger: 'manual',
+  action: 'none',
+  reasonCode: 'NO_ACTION',
+  occupancyPercentage: 80
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > leaves a Codex session that compacts inline alone at every occupancy and spend
+[2026-10-27T03:30:44.794Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-inline',
+  trigger: 'manual',
+  action: 'none',
+  reasonCode: 'NO_ACTION',
+  occupancyPercentage: 95
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > leaves a Codex session that compacts inline alone at every occupancy and spend
+[2026-10-27T03:30:44.794Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-inline',
+  trigger: 'manual',
+  action: 'none',
+  reasonCode: 'NO_ACTION',
+  occupancyPercentage: 95
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > records one content-free decision and distinct proof stages per threshold and epoch
+[2026-10-27T03:30:44.795Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-2',
+  trigger: 'known-occupancy-75',
+  action: 'native-compaction',
+  reasonCode: 'OBSERVED_NATIVE_COMPACTION_REQUIRED',
+  occupancyPercentage: 75
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > records one content-free decision and distinct proof stages per threshold and epoch
+[2026-10-27T03:30:44.796Z] [INFO] [ProviderContextAction] Provider context action completed {
+  instanceId: 'codex-2',
+  status: 'executed',
+  action: 'native-compaction',
+  proof: 'observed'
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > steers a live Codex turn at 75% instead of compacting
+[2026-10-27T03:30:44.797Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-live',
+  trigger: 'known-occupancy-70',
+  action: 'steer-turn',
+  reasonCode: 'MID_TURN_STEER_REQUIRED',
+  occupancyPercentage: 75
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > steers a live Codex turn at 75% instead of compacting
+[2026-10-27T03:30:44.798Z] [INFO] [ProviderContextAction] Provider context action completed {
+  instanceId: 'codex-live',
+  status: 'executed',
+  action: 'steer-turn',
+  proof: 'acknowledged'
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > caps 80% recoveries per outer user send and restores the allowance on the next send
+[2026-10-27T03:30:44.798Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-loop',
+  trigger: 'known-occupancy-80',
+  action: 'controlled-interrupt',
+  reasonCode: 'CONTROLLED_CONTINUATION_REQUIRED',
+  occupancyPercentage: 85
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > caps 80% recoveries per outer user send and restores the allowance on the next send
+[2026-10-27T03:30:44.799Z] [INFO] [ProviderContextAction] Provider context action completed {
+  instanceId: 'codex-loop',
+  status: 'executed',
+  action: 'controlled-interrupt',
+  proof: 'acknowledged'
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > caps 80% recoveries per outer user send and restores the allowance on the next send
+[2026-10-27T03:30:44.799Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-loop',
+  trigger: 'known-occupancy-80',
+  action: 'controlled-interrupt',
+  reasonCode: 'CONTROLLED_CONTINUATION_REQUIRED',
+  occupancyPercentage: 85
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > caps 80% recoveries per outer user send and restores the allowance on the next send
+[2026-10-27T03:30:44.799Z] [INFO] [ProviderContextAction] Provider context action completed {
+  instanceId: 'codex-loop',
+  status: 'executed',
+  action: 'controlled-interrupt',
+  proof: 'acknowledged'
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > caps 80% recoveries per outer user send and restores the allowance on the next send
+[2026-10-27T03:30:44.799Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-loop',
+  trigger: 'known-occupancy-80',
+  action: 'controlled-interrupt',
+  reasonCode: 'CONTROLLED_CONTINUATION_REQUIRED',
+  occupancyPercentage: 85
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > caps 80% recoveries per outer user send and restores the allowance on the next send
+[2026-10-27T03:30:44.800Z] [INFO] [ProviderContextAction] Provider context action completed {
+  instanceId: 'codex-loop',
+  status: 'executed',
+  action: 'controlled-interrupt',
+  proof: 'acknowledged'
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > caps 80% recoveries per outer user send and restores the allowance on the next send
+[2026-10-27T03:30:44.800Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-loop',
+  trigger: 'known-occupancy-80',
+  action: 'pause',
+  reasonCode: 'RECOVERY_CEILING_REACHED',
+  occupancyPercentage: 85
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > caps 80% recoveries per outer user send and restores the allowance on the next send
+[2026-10-27T03:30:44.800Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-loop',
+  trigger: 'known-occupancy-80',
+  action: 'pause',
+  reasonCode: 'RECOVERY_CEILING_REACHED',
+  occupancyPercentage: 85
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > caps 80% recoveries per outer user send and restores the allowance on the next send
+[2026-10-27T03:30:44.801Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-loop',
+  trigger: 'known-occupancy-80',
+  action: 'controlled-interrupt',
+  reasonCode: 'CONTROLLED_CONTINUATION_REQUIRED',
+  occupancyPercentage: 85
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > caps 80% recoveries per outer user send and restores the allowance on the next send
+[2026-10-27T03:30:44.801Z] [INFO] [ProviderContextAction] Provider context action completed {
+  instanceId: 'codex-loop',
+  status: 'executed',
+  action: 'controlled-interrupt',
+  proof: 'acknowledged'
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > does not count steers skipped for a finished turn toward the circuit breaker
+[2026-10-27T03:30:44.802Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-steer',
+  trigger: 'known-occupancy-70',
+  action: 'steer-turn',
+  reasonCode: 'TURN_STEER_REQUIRED',
+  occupancyPercentage: 72
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > does not count steers skipped for a finished turn toward the circuit breaker
+[2026-10-27T03:30:44.802Z] [INFO] [ProviderContextAction] Provider context action completed {
+  instanceId: 'codex-steer',
+  status: 'skipped',
+  action: 'steer-turn',
+  proof: 'none',
+  errorCode: 'TURN_NOT_ACTIVE'
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > does not count steers skipped for a finished turn toward the circuit breaker
+[2026-10-27T03:30:44.802Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-steer',
+  trigger: 'known-occupancy-70',
+  action: 'steer-turn',
+  reasonCode: 'TURN_STEER_REQUIRED',
+  occupancyPercentage: 72
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > does not count steers skipped for a finished turn toward the circuit breaker
+[2026-10-27T03:30:44.803Z] [INFO] [ProviderContextAction] Provider context action completed {
+  instanceId: 'codex-steer',
+  status: 'skipped',
+  action: 'steer-turn',
+  proof: 'none',
+  errorCode: 'TURN_NOT_ACTIVE'
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > does not count steers skipped for a finished turn toward the circuit breaker
+[2026-10-27T03:30:44.803Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-steer',
+  trigger: 'known-occupancy-70',
+  action: 'steer-turn',
+  reasonCode: 'TURN_STEER_REQUIRED',
+  occupancyPercentage: 72
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > does not count steers skipped for a finished turn toward the circuit breaker
+[2026-10-27T03:30:44.803Z] [INFO] [ProviderContextAction] Provider context action completed {
+  instanceId: 'codex-steer',
+  status: 'skipped',
+  action: 'steer-turn',
+  proof: 'none',
+  errorCode: 'TURN_NOT_ACTIVE'
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > does not count steers skipped for a finished turn toward the circuit breaker
+[2026-10-27T03:30:44.804Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-steer',
+  trigger: 'known-occupancy-70',
+  action: 'steer-turn',
+  reasonCode: 'TURN_STEER_REQUIRED',
+  occupancyPercentage: 72
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > does not count steers skipped for a finished turn toward the circuit breaker
+[2026-10-27T03:30:44.804Z] [INFO] [ProviderContextAction] Provider context action completed {
+  instanceId: 'codex-steer',
+  status: 'skipped',
+  action: 'steer-turn',
+  proof: 'none',
+  errorCode: 'TURN_NOT_ACTIVE'
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > ignores post-compaction placeholder readings until a fresh measurement arrives
+[2026-10-27T03:30:44.805Z] [INFO] [ContextSafetyPolicy] Context policy decision {
+  instanceId: 'codex-placeholder',
+  trigger: 'known-occupancy-80',
+  action: 'native-compaction',
+  reasonCode: 'IDLE_NATIVE_COMPACTION_REQUIRED',
+  occupancyPercentage: 85
+}
+
+stdout | src/main/context-evidence/context-policy-integration.spec.ts > shared context policy integration > ignores post-compaction placeholder readings until a fresh measurement arrives
+[2026-10-27T03:30:44.805Z] [INFO] [ProviderContextAction] Provider context action completed {
+  instanceId: 'codex-placeholder',
+  status: 'executed',
+  action: 'native-compaction',
+  proof: 'observed'
+}
+
+ ✓ |main| src/main/context-evidence/context-policy-integration.spec.ts (7 tests) 22ms
+(node:90712) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | src/main/orchestration/headless-review-runner.spec.ts > runHeadlessReviewCommand — WS-B9 coverage + cache > reports a reviewer whose output cannot be parsed as parse_failed, never cached
+[2026-10-27T03:30:47.654Z] [WARN] [CrossModelReviewService] Failed to extract JSON from review response {
+  reviewerId: 'gemini',
+  responseLength: 15,
+  responsePreview: 'not json at all'
+}
+
+ ✓ |main| src/main/orchestration/headless-review-runner.spec.ts (13 tests) 23ms
+(node:94314) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stdout | src/main/context-evidence/context-safety-policy.spec.ts > ProviderContextActionExecutor > returns structured unavailable without inferring proof
+[2026-10-27T03:30:48.170Z] [INFO] [ProviderContextAction] Provider context action completed {
+  instanceId: undefined,
+  status: 'unavailable',
+  action: 'native-compaction',
+  proof: 'none',
+  errorCode: 'ACTION_UNAVAILABLE'
+}
+
+stdout | src/main/context-evidence/context-safety-policy.spec.ts > ProviderContextActionExecutor > passes through only the handler proof stage and maps failures content-free
+[2026-10-27T03:30:48.173Z] [INFO] [ProviderContextAction] Provider context action completed {
+  instanceId: undefined,
+  status: 'executed',
+  action: 'native-compaction',
+  proof: 'acknowledged'
+}
+
+stdout | src/main/context-evidence/context-safety-policy.spec.ts > ProviderContextActionExecutor > passes through only the handler proof stage and maps failures content-free
+[2026-10-27T03:30:48.174Z] [INFO] [ProviderContextAction] Provider context action completed {
+  instanceId: undefined,
+  status: 'failed',
+  action: 'controlled-interrupt',
+  proof: 'none',
+  errorCode: 'ACTION_FAILED',
+  error: 'secret fixture detail'
+}
+
+stdout | src/main/context-evidence/context-safety-policy.spec.ts > ProviderContextActionExecutor > does not upgrade requested or acknowledged execution into observed proof
+[2026-10-27T03:30:48.174Z] [INFO] [ProviderContextAction] Provider context action completed {
+  instanceId: undefined,
+  status: 'executed',
+  action: 'controlled-interrupt',
+  proof: 'requested'
+}
+
+stdout | src/main/context-evidence/context-safety-policy.spec.ts > ProviderContextActionExecutor > does not upgrade requested or acknowledged execution into observed proof
+[2026-10-27T03:30:48.175Z] [INFO] [ProviderContextAction] Provider context action completed {
+  instanceId: undefined,
+  status: 'executed',
+  action: 'same-thread-continuation',
+  proof: 'acknowledged'
+}
+
+ ✓ |main| src/main/context-evidence/context-safety-policy.spec.ts (25 tests) 13ms
+(node:94795) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/orchestration/loop-fresh-eyes-reviewer.spec.ts (9 tests) 9ms
+
+ Test Files  6 passed (6)
+      Tests  177 passed (177)
+   Start at  03:30:20
+   Duration  28.14s (transform 2.30s, setup 262ms, import 2.95s, tests 22.25s, environment 1.62s)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/test-results.pid-25121.json

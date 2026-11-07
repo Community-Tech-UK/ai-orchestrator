@@ -1,0 +1,120 @@
+{
+  "at": "2026-10-27T03:37:13.395Z",
+  "liveness": [
+    {
+      "pid": 18950,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 18962,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 23667,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 23745,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 23746,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 24320,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 48647,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 48809,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 65327,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 9891,
+      "state": "gone",
+      "code": "ESRCH"
+    }
+  ],
+  "endpoints": [
+    {
+      "port": 4735,
+      "state": "closed"
+    },
+    {
+      "port": 9735,
+      "state": "closed"
+    },
+    {
+      "port": 9736,
+      "state": "closed"
+    }
+  ],
+  "removed": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/dist",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "path": "/tmp/aio-lt-queue-3af326de",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "path": "/var/folders/0n/fs5yys3d0vg0c838h75hyrm00000gn/T/codex-aio-MLPaPg",
+      "existed": false,
+      "absent": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/test-run.pid-25121.log",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/test-results.pid-25121.json",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-resume",
+      "existed": true,
+      "absent": true
+    }
+  ],
+  "processExits": {
+    "at": "2026-10-27T03:30:01.845Z",
+    "children": [
+      {
+        "pid": 18962,
+        "exit": 143,
+        "signal": null
+      },
+      {
+        "pid": 23667,
+        "exit": 0,
+        "signal": null
+      }
+    ]
+  },
+  "dependencies": "No installs or browser downloads. Pre-existing coordinator-supplied dependency and cache symlinks retained.",
+  "copies": "No copied checkout or dependencies; no new branch or worktree",
+  "runtimeStopped": true,
+  "firstRemovalAttempt": "ENOTEMPTY from dist with only .DS_Store remaining; bounded retry completed"
+}

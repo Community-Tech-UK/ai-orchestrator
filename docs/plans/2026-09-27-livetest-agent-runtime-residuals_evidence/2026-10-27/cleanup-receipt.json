@@ -1,0 +1,116 @@
+{
+  "at": "2026-10-27T03:15:50.895Z",
+  "liveness": [
+    {
+      "pid": 14402,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 15804,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 15823,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 15881,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 15882,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 15883,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 17256,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 17258,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 30791,
+      "state": "gone",
+      "code": "ESRCH"
+    }
+  ],
+  "processReceipt": {
+    "at": "2026-10-27T03:14:01.381Z",
+    "children": [
+      {
+        "pid": 14402,
+        "exitCode": 143,
+        "signal": null
+      },
+      {
+        "pid": 15804,
+        "exitCode": 0,
+        "signal": null
+      }
+    ]
+  },
+  "removed": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/dist",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/.angular",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/.aio-loop-state/loop-1793070031371-562275f3",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "path": "/tmp/aio-lt-queue-3af326de",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "path": "/var/folders/0n/fs5yys3d0vg0c838h75hyrm00000gn/T/codex-aio-nyfFEm",
+      "existed": false,
+      "absent": true
+    },
+    {
+      "path": "/var/folders/0n/fs5yys3d0vg0c838h75hyrm00000gn/T/codex-aio-5vGEGo",
+      "existed": false,
+      "absent": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/test-results.pid-43341.json",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/test-run.pid-43341.log",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/lt-queue-runtime",
+      "existed": true,
+      "absent": true
+    }
+  ],
+  "nodeModules": "Pre-existing coordinator-supplied symlinks retained; this worker installed no dependencies.",
+  "browserBinaries": "No browser binary downloaded or installed.",
+  "copies": "No source checkout or dependency tree copied.",
+  "shutdown": "App quit cleanly; owned renderer stopped; zero fixture sessions/automations and restored settings confirmed before shutdown."
+}

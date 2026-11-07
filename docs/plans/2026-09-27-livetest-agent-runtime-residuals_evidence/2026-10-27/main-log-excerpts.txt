@@ -1,0 +1,36 @@
+[2026-10-27T02:57:57.487Z] [INFO] [ClaudeCliAdapter] Tool use deferred by hook {
+  toolName: { textChars: 4, textHash: 'd1e9567da9a8a4b0' },
+  toolUseId: 'toolu_01UNrsuUDbWTdCS5Ecq5A96p',
+  sessionId: 'd129722d-2681-4cb8-8dc7-451fd5e34b8f'
+}
+[2026-10-27T03:00:32.703Z] [INFO] [WarmStartManager] Consumed warm process {
+  provider: 'claude',
+  workingDirectory: '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/lt-queue-runtime/workspace'
+}
+[2026-10-27T03:00:32.706Z] [INFO] [InstanceLifecycle] Warm-start instance ready { instanceId: 'c2px3fafl' }
+[2026-10-27T03:02:28.738Z] [INFO] [LoopCoordinator] Loop paused (manual) { loopRunId: 'loop-1793070031371-562275f3' }
+Debugger ending on ws://127.0.0.1:9736/3b4ec28e-0871-4e02-a262-0fc4235cd121
+For help, see: https://nodejs.org/learn/getting-started/debugging
+Debugger attached.
+[2026-10-27T03:02:39.114Z] [INFO] [ClaudeCliAdapter] Tool use deferred by hook {
+  toolName: { textChars: 4, textHash: 'd1e9567da9a8a4b0' },
+  toolUseId: 'toolu_019tPeDYmprYrc3G7SxdiqnU',
+  sessionId: '8c44cf18-d203-40b2-9687-7a92ac424844'
+}
+[2026-10-27T03:04:04.682Z] [WARN] [LoopCoordinator] Fresh-eyes review returned no reviewers - treating as unavailable, not a clean pass {
+  loopRunId: 'loop-1793070031371-562275f3',
+  signal: 'self-declared',
+  infrastructureError: 'claude: Review cancelled'
+}
+[2026-10-27T03:04:29.449Z] [WARN] [LoopCoordinator] Fresh-eyes review returned no reviewers - treating as unavailable, not a clean pass {
+  loopRunId: 'loop-1793070031371-562275f3',
+  signal: 'live-nonterminal-clean-claim',
+  infrastructureError: 'claude: Review cancelled'
+}
+Debugger ending on ws://127.0.0.1:9736/3b4ec28e-0871-4e02-a262-0fc4235cd121
+For help, see: https://nodejs.org/learn/getting-started/debugging
+[2026-10-27T03:05:48.476Z] [INFO] [WarmStartManager] Consumed warm process {
+  provider: 'claude',
+  workingDirectory: '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/lt-queue-runtime/workspace/fresh'
+}
+[2026-10-27T03:05:48.477Z] [INFO] [InstanceLifecycle] Warm-start instance ready { instanceId: 'cbmfl0p2y' }

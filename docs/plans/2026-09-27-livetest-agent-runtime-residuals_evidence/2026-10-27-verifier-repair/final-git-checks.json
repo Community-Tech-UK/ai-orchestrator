@@ -1,0 +1,67 @@
+{
+  "at": "2026-10-27T06:32:26.477534+00:00",
+  "checks": {
+    "final-worktrees": {
+      "argv": [
+        "git",
+        "worktree",
+        "list",
+        "--porcelain"
+      ],
+      "exit": 0,
+      "log": "final-worktrees.txt"
+    },
+    "final-branches": {
+      "argv": [
+        "git",
+        "branch",
+        "--list"
+      ],
+      "exit": 0,
+      "log": "final-branches.txt"
+    },
+    "final-branch": {
+      "argv": [
+        "git",
+        "branch",
+        "--show-current"
+      ],
+      "exit": 0,
+      "log": "final-branch.txt"
+    },
+    "staged-paths": {
+      "argv": [
+        "git",
+        "diff",
+        "--cached",
+        "--name-only"
+      ],
+      "exit": 0,
+      "log": "staged-paths.txt"
+    },
+    "source-diff": {
+      "argv": [
+        "git",
+        "diff",
+        "--name-only",
+        "--",
+        "src",
+        "scripts",
+        "packages",
+        "package.json",
+        "package-lock.json"
+      ],
+      "exit": 0,
+      "log": "source-diff.txt"
+    },
+    "whitespace": {
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit": 0,
+      "log": "whitespace.txt"
+    }
+  }
+}

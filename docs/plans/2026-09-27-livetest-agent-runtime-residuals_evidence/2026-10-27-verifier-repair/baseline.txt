@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/cli/adapters/claude-cli-permission-details.spec.ts src/main/cli/adapters/claude-cli-adapter.permission-approval.spec.ts src/main/instance/lifecycle/__tests__/instance-spawn-preflight-chain.spec.ts src/main/review/review-execution-host.spec.ts src/main/orchestration/__tests__/headless-review-command.spec.ts
+
+✓ 4 files · 46 tests passed in 7.5s
+  full log: _scratch/test-run.pid-42528.log

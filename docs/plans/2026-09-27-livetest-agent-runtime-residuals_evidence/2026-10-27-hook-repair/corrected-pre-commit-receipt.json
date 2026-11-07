@@ -1,0 +1,165 @@
+{
+  "command": [
+    "/bin/sh",
+    ".githooks/pre-commit"
+  ],
+  "startedAt": "2026-10-27T07:54:19.733Z",
+  "endedAt": "2026-10-27T07:57:25.278Z",
+  "status": 0,
+  "signal": null,
+  "expectedSourceSelection": [
+    "scripts/__tests__/test-staged.spec.ts",
+    "scripts/test-staged.js",
+    "src/main/cli/adapters/claude-cli-adapter.permission-approval.spec.ts",
+    "src/main/cli/adapters/claude-cli-permission-details.spec.ts",
+    "src/main/cli/adapters/claude-cli-permission-details.ts",
+    "src/main/instance/lifecycle/__tests__/instance-spawn-preflight-chain.spec.ts",
+    "src/main/instance/lifecycle/instance-spawn-preflight-chain.ts",
+    "src/main/orchestration/headless-review-runner.ts",
+    "src/main/review/review-execution-host.spec.ts",
+    "src/main/review/review-execution-host.ts"
+  ],
+  "actualSourceSelectionBeforeHook": [
+    "scripts/__tests__/test-staged.spec.ts",
+    "scripts/test-staged.js",
+    "src/main/cli/adapters/claude-cli-adapter.permission-approval.spec.ts",
+    "src/main/cli/adapters/claude-cli-permission-details.spec.ts",
+    "src/main/cli/adapters/claude-cli-permission-details.ts",
+    "src/main/instance/lifecycle/__tests__/instance-spawn-preflight-chain.spec.ts",
+    "src/main/instance/lifecycle/instance-spawn-preflight-chain.ts",
+    "src/main/orchestration/headless-review-runner.ts",
+    "src/main/review/review-execution-host.spec.ts",
+    "src/main/review/review-execution-host.ts"
+  ],
+  "actualSourceSelectionAfterHook": [
+    "scripts/__tests__/test-staged.spec.ts",
+    "scripts/test-staged.js",
+    "src/main/cli/adapters/claude-cli-adapter.permission-approval.spec.ts",
+    "src/main/cli/adapters/claude-cli-permission-details.spec.ts",
+    "src/main/cli/adapters/claude-cli-permission-details.ts",
+    "src/main/instance/lifecycle/__tests__/instance-spawn-preflight-chain.spec.ts",
+    "src/main/instance/lifecycle/instance-spawn-preflight-chain.ts",
+    "src/main/orchestration/headless-review-runner.ts",
+    "src/main/review/review-execution-host.spec.ts",
+    "src/main/review/review-execution-host.ts"
+  ],
+  "indexFixture": [
+    {
+      "file": "scripts/__tests__/test-staged.spec.ts",
+      "representedBy": "current uncommitted repair"
+    },
+    {
+      "file": "scripts/test-staged.js",
+      "representedBy": "current uncommitted repair"
+    },
+    {
+      "file": "src/main/cli/adapters/claude-cli-adapter.permission-approval.spec.ts",
+      "mode": "100644",
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "representedBy": "existing empty blob for added path"
+    },
+    {
+      "file": "src/main/cli/adapters/claude-cli-permission-details.spec.ts",
+      "mode": "100644",
+      "blob": "d0b6c5cbfc4c8ef3b026af29559176cfd6da60c8",
+      "representedBy": "base blob"
+    },
+    {
+      "file": "src/main/cli/adapters/claude-cli-permission-details.ts",
+      "mode": "100644",
+      "blob": "6d63bccc39a5a79eb220defe8719bbf3fa6c3c93",
+      "representedBy": "base blob"
+    },
+    {
+      "file": "src/main/instance/lifecycle/__tests__/instance-spawn-preflight-chain.spec.ts",
+      "mode": "100644",
+      "blob": "604d2336893a4f1c0509a22a2d259fcc87c0359b",
+      "representedBy": "base blob"
+    },
+    {
+      "file": "src/main/instance/lifecycle/instance-spawn-preflight-chain.ts",
+      "mode": "100644",
+      "blob": "635271afb59842a4c3eec729a4b0be178f3dca8f",
+      "representedBy": "base blob"
+    },
+    {
+      "file": "src/main/orchestration/headless-review-runner.ts",
+      "mode": "100644",
+      "blob": "ee22df743b960ccfd86ab4b3d652cce79c217292",
+      "representedBy": "base blob"
+    },
+    {
+      "file": "src/main/review/review-execution-host.spec.ts",
+      "mode": "100644",
+      "blob": "569f36f333356907859944996d5d87f5abab8daa",
+      "representedBy": "base blob"
+    },
+    {
+      "file": "src/main/review/review-execution-host.ts",
+      "mode": "100644",
+      "blob": "09d640a6475432d444d34375b0aa339a61e9a24d",
+      "representedBy": "base blob"
+    }
+  ],
+  "temporaryIndex": true,
+  "prepareOnly": false,
+  "fixturePurpose": "Path selection only; builds and tests read unchanged current source, never the index blobs",
+  "buildDirectoryInitiallyAbsent": true,
+  "base": "7e5222cfe773e2fc3edff0c2eade2e77fe7131cc",
+  "nodeVersion": "v24.22.1",
+  "nodeExecutable": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+  "workerProduced": true,
+  "realIndexBytesUnchanged": true,
+  "realIndexEntriesUnchanged": true,
+  "realIndexUnchanged": true,
+  "realIndexHashes": {
+    "beforeBytes": "71cb3c97c0847fe856c3deba873714bda1482b56acfa63c54cf6e80507a0d669",
+    "afterBytes": "71cb3c97c0847fe856c3deba873714bda1482b56acfa63c54cf6e80507a0d669",
+    "beforeEntries": "0c42713377df4cbeb6c3e3b96650acf634a55fe98c686ad783ba5c1b32da4e14",
+    "afterEntries": "0c42713377df4cbeb6c3e3b96650acf634a55fe98c686ad783ba5c1b32da4e14"
+  },
+  "currentSourceUnchanged": true,
+  "sourceHashes": [
+    {
+      "file": "scripts/__tests__/test-staged.spec.ts",
+      "sha256": "6c874e751005f86dc61edc5ce08693fb3f6ceae1c00f8ecfdd75b1e58be40214"
+    },
+    {
+      "file": "scripts/test-staged.js",
+      "sha256": "5c71c68779701739d1f95fc9014e4ffe2856778c12ec916c32c3fee4cb35a838"
+    },
+    {
+      "file": "src/main/cli/adapters/claude-cli-adapter.permission-approval.spec.ts",
+      "sha256": "c0b0ddb1e4d5ac25d8527926973effef6bacd899c05c0a560a875cd7a700d0b5"
+    },
+    {
+      "file": "src/main/cli/adapters/claude-cli-permission-details.spec.ts",
+      "sha256": "0140738aadd2f337624b3bfbae7d0c9c2165e0b245bd160f2f9f71a29198ee64"
+    },
+    {
+      "file": "src/main/cli/adapters/claude-cli-permission-details.ts",
+      "sha256": "f026a7fbaa4e7cae483a836a2041f297dabaa1cbd863a8e8d96d6dafd8f73e88"
+    },
+    {
+      "file": "src/main/instance/lifecycle/__tests__/instance-spawn-preflight-chain.spec.ts",
+      "sha256": "cd23f9f7a58e8f2d4353084eb033fc7cb1b4045ea129de10cf5f5ac505f713f3"
+    },
+    {
+      "file": "src/main/instance/lifecycle/instance-spawn-preflight-chain.ts",
+      "sha256": "c8d2559597b1ea8c2f6db638b37a3d95842ba7fc88cc922819ce7f8de5ec4a50"
+    },
+    {
+      "file": "src/main/orchestration/headless-review-runner.ts",
+      "sha256": "9a99997d12326999f1f61c2e0a2764a1ffb90862e1c6059ea672b49a886a8bc0"
+    },
+    {
+      "file": "src/main/review/review-execution-host.spec.ts",
+      "sha256": "828b1f80c370525750108d3e160ceca36d96e51138edfc355f09d8ce26506412"
+    },
+    {
+      "file": "src/main/review/review-execution-host.ts",
+      "sha256": "47f0b4f870e9598ba3af8b774268e11ef9f735f542629c85029d4c8e608cda24"
+    }
+  ],
+  "log": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/hook-repair/pre-commit.log"
+}

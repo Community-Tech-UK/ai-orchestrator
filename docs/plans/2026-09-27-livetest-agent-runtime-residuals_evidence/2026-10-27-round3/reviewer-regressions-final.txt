@@ -1,0 +1,13 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/review/review-execution-host.spec.ts src/main/review/review-cancelled-usage.spec.ts src/main/orchestration/headless-review-runner.spec.ts
+
+✗ 1 of 35 tests failed in 13.5s:
+
+  ✗ src/main/review/review-execution-host.spec.ts › ProviderReviewExecutionHost distinguishes a headless deadline abort and stops its reviewer
+    AssertionError: expected [ { provider: 'claude', …(4) } ] to deeply equal [ ObjectContaining{…} ]
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/src/main/review/review-execution-host.spec.ts:111:32
+
+full log: _scratch/test-run.pid-86892.log
+
+✗ FAILED — 1 of 35 tests failed (exit 1).

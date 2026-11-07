@@ -1,0 +1,31 @@
+{
+  "at": "2026-10-27T06:49:14.907671+00:00",
+  "files": [
+    {
+      "original": {
+        "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/test-run.pid-405.log",
+        "sha256": "5e29ad9617960b446e74cb01cb499f683a7fa0d20b76d7541a62c61221a9dd40",
+        "bytes": 10641
+      },
+      "retained": {
+        "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-review-corrections/test-run.pid-405.log.gz",
+        "sha256": "22e97fac9540a4960f6f54e101b035f81d33354ebe8ce8a1eab575f8afb2c016",
+        "bytes": 942
+      },
+      "losslessGzipRoundTrip": true
+    },
+    {
+      "original": {
+        "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/test-results.pid-405.json",
+        "sha256": "31e7345a701307c072715d227ca520105191b8ba7a1ec06794222b9b2520c808",
+        "bytes": 32927
+      },
+      "retained": {
+        "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-review-corrections/test-results.pid-405.json.gz",
+        "sha256": "bfe4d4170c9d5ef577e0fe8c551ffedb3c1af04e25b8febb5a2efdef3711ad5d",
+        "bytes": 4595
+      },
+      "losslessGzipRoundTrip": true
+    }
+  ]
+}

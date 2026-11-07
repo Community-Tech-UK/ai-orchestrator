@@ -1,0 +1,55 @@
+{
+  "at": "2026-10-27T05:38:22.662065+00:00",
+  "baselineExcluded": true,
+  "distinctPids": true,
+  "parentAndActualCommandPredicate": {
+    "argv": [
+      "pgrep",
+      "-P",
+      "98231",
+      "-f",
+      "[c]odex.*app-server"
+    ],
+    "exit": 0,
+    "matchedPids": [
+      13058,
+      15038,
+      15097,
+      15176
+    ]
+  },
+  "allTargetsAlive": true,
+  "ownedSnapshot": {
+    "at": 1793079480620,
+    "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/ar-final/recovery-workspace",
+    "mainPid": 98231,
+    "parent": {
+      "id": "xb3s6f6cn",
+      "pid": 13058,
+      "adapterPid": 13058,
+      "provider": "codex"
+    },
+    "live": {
+      "id": "xv3avorr6",
+      "pid": 15038,
+      "provider": "codex",
+      "parentId": "xb3s6f6cn"
+    },
+    "dead": {
+      "id": "x7xliveqj",
+      "pid": 15097,
+      "provider": "codex",
+      "parentId": "xb3s6f6cn"
+    }
+  },
+  "killArgv": [
+    "/bin/kill",
+    "-9",
+    "13058",
+    "15097"
+  ],
+  "status": "gates-passed-before-one-kill",
+  "killExit": 0,
+  "killStderr": "",
+  "endedAt": "2026-10-27T05:38:22.678757+00:00"
+}

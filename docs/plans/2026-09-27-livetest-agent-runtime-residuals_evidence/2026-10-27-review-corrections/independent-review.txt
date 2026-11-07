@@ -1,0 +1,28 @@
+Independent reviewer: review_corrections_fresh, 2026-10-27.
+VERDICT: PASS
+
+Task: Documentation and evidence corrections for AR-002 and AR-003.
+Range: checkpoint 07eb04046 to current working documents, including the designated
+root report and untracked follow-up plan.
+
+Independently reproduced receipt assertions and original-byte comparisons. Both
+compressed outputs match their recorded original hashes; retained test JSON confirms
+93 passed, zero failed or pending, exit 0. All 25 pre-cleanup seal fingerprints match.
+Recorded cleanup paths are absent. git diff --check exits 0.
+
+No unresolved actionable findings within this scope.
+
+AR-003: LT-712 records missing command-to-audit and queue-position observations,
+owner, required implementation and live rerun. Source supports the diagnosis.
+Original procedure/pass condition compared against root HEAD: acceptance unchanged.
+AR-003 remains open.
+
+AR-002: all four matches disclosed, fourth role unknown and individual exit receipt
+missing. Original evidence confirms only 13058 and 15097 were kill targets.
+
+Nine original receipts remain byte-identical to HEAD. No source, test, configuration
+or dependency changes. Active plan untracked; stale worktree report untouched.
+
+Scope limit: PASS covers these corrections only. Reviewer did not rerun builds,
+full canonical verification or live runtime/browser checks. Whole campaign remains
+unverified, with AR-003, AR-004 and AR-005 open. No escalation.

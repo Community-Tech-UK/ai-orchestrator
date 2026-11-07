@@ -1,0 +1,37 @@
+{
+  "columns": [
+    "id",
+    "instance_id",
+    "provider",
+    "profile_id",
+    "target_id",
+    "action",
+    "tool_name",
+    "action_class",
+    "origin",
+    "url",
+    "decision",
+    "outcome",
+    "summary",
+    "redaction_applied",
+    "screenshot_artifact_id",
+    "request_id",
+    "created_at",
+    "grant_id",
+    "autonomous",
+    "reason"
+  ],
+  "queryStart": 1793076385998,
+  "queryEnd": 1793076391000,
+  "rows": [
+    [
+      "f50a00d6-2058-49b6-af91-7dbab5c7f682",
+      "browser.query_elements",
+      "succeeded",
+      1793076390185,
+      null
+    ]
+  ],
+  "commandIdColumnExists": false,
+  "limitation": "Audit request_id is an approval request reference, not the extension dispatch command ID (browser-audit-store.ts). FIFO head not logged; no direct dispatch-to-audit mapping claimed."
+}

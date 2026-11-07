@@ -1,0 +1,29 @@
+{
+  "at": "2026-10-27T04:59:44.486752+00:00",
+  "historicalRawDirectory": {
+    "root": false,
+    "worktree": false
+  },
+  "shellProcessSnapshot": {
+    "argv": [
+      "ps",
+      "-axo",
+      "pid=,ppid=,comm="
+    ],
+    "exit": 1,
+    "stderr": "rtk: Failed to execute command: ps: Operation not permitted (os error 1)"
+  },
+  "mainProcessSnapshot": {
+    "argv": [
+      "/bin/ps",
+      "-axo",
+      "pid=,ppid=,comm="
+    ],
+    "error": "spawnSync /bin/ps EPERM"
+  },
+  "AR002": "Open. Safety prerequisite cannot prove baseline provider PID ownership/PPID, so no fixture child processes were created or killed. Automated recovery tests retained, not a live pass.",
+  "AR003": "Open. Fresh live reset/requeue/success and audit row captured; no direct dispatch-command ID column/FIFO-position proof.",
+  "AR004": "All six assertions open; exclusive installed coordinator shutdown/current production corpus ownership is excluded by the recorded scope. No shutdown or real corpus data touched.",
+  "AR005": "All six assertions open; protected lawrencj enterprise-account campaign is excluded by recorded scope. No account, model probe, profile policy or EBRD directory touched.",
+  "AR007": "James explicitly retired this fallback clause on 2026-10-05; not re-exercised. Separate historical Cursor report filed LT-711, attribution and missing raw proof retained."
+}

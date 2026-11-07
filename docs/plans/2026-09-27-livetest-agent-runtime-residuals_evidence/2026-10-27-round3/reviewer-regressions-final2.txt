@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/review/review-execution-host.spec.ts src/main/review/review-cancelled-usage.spec.ts src/main/orchestration/headless-review-runner.spec.ts
+
+✓ 3 files · 35 tests passed in 7.6s
+  full log: _scratch/test-run.pid-93348.log

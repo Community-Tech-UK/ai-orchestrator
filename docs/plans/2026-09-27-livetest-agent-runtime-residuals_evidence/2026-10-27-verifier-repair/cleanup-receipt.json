@@ -1,0 +1,57 @@
+{
+  "at": "2026-10-27T06:35:32.035280+00:00",
+  "reportSealAndCommandReceiptsWrittenBeforeRemoval": true,
+  "paths": [
+    {
+      "path": "dist",
+      "existed": true,
+      "removed": true
+    },
+    {
+      "path": ".angular",
+      "existed": false,
+      "removed": true
+    },
+    {
+      "path": "_scratch",
+      "existed": true,
+      "removed": true
+    }
+  ],
+  "earlierRuntimePathsAbsent": [
+    "/tmp/aio-lt-queue-3af326de",
+    "_scratch/ar-final/fixture",
+    "_scratch/ar-final/recovery-workspace",
+    "_scratch/ar-final/permission-workspace",
+    "_scratch/ar-final/legacy-workspace",
+    "_scratch/ar-final/extraneous"
+  ],
+  "removedTaskWrittenCacheFiles": [
+    "node_modules/.vite/vitest/da39a3ee5e6b4b0d3255bfef95601890afd80709/results.json"
+  ],
+  "preexistingSuppliedDependencyTreeRetained": true,
+  "newInstallsOrDownloads": [],
+  "endpoints": [
+    {
+      "port": 9735,
+      "connectCode": 61,
+      "closed": true
+    },
+    {
+      "port": 9736,
+      "connectCode": 61,
+      "closed": true
+    },
+    {
+      "port": 4735,
+      "connectCode": 61,
+      "closed": true
+    }
+  ],
+  "processEvidence": [
+    "process-cleanup.json",
+    "ar002-process-cleanup.json",
+    "full-suite-process-cleanup.json"
+  ],
+  "managedWorktreeRetained": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de"
+}

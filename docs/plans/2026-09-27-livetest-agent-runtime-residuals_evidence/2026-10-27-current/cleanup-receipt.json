@@ -1,0 +1,147 @@
+{
+  "at": "2026-10-27T04:39:17.017Z",
+  "liveness": [
+    {
+      "pid": 17630,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 17631,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 30062,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 13029,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 32829,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 32830,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 35666,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 50012,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 50257,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 75298,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 41775,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 43321,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 44771,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 71554,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 83581,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 83755,
+      "state": "gone",
+      "code": "ESRCH"
+    }
+  ],
+  "endpoints": [
+    {
+      "port": 4735,
+      "state": "closed"
+    },
+    {
+      "port": 9735,
+      "state": "closed"
+    },
+    {
+      "port": 9736,
+      "state": "closed"
+    }
+  ],
+  "removed": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/dist",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "path": "/tmp/aio-lt-queue-3af326de",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "path": "/var/folders/0n/fs5yys3d0vg0c838h75hyrm00000gn/T/codex-aio-IynzUJ",
+      "existed": false,
+      "absent": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/.aio-loop-state/loop-1793074597371-1cfc02db",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch",
+      "existed": true,
+      "absent": true
+    }
+  ],
+  "processExits": {
+    "at": "2026-10-27T04:20:35.851Z",
+    "children": [
+      {
+        "pid": 17631,
+        "exit": 143,
+        "signal": null
+      },
+      {
+        "pid": 30062,
+        "exit": 0,
+        "signal": null
+      }
+    ]
+  },
+  "settingsRestored": true,
+  "instancesRemaining": 0,
+  "automationsRemaining": 0,
+  "dependencies": "No dependency installs or browser downloads in this continuation. Pre-existing coordinator-supplied node_modules and cache trees retained.",
+  "copies": "No copied checkout, source tree or dependency tree; no branch/worktree/commit/stash created",
+  "limitations": "Host denies ps; recorded app/utility/warm/provider PIDs checked by kill(pid,0). No global process-list claim."
+}

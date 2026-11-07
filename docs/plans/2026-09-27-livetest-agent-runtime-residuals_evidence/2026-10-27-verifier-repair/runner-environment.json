@@ -1,0 +1,37 @@
+{
+  "at": "2026-10-27T05:27:27.964248+00:00",
+  "firstFullSuite": {
+    "exit": 1,
+    "unreportedAssertions": 2,
+    "error": "convert-source-map parsed tsx template literal as inline source map while Vitest processed SEA build failure stacks. Same error observed in historical full run."
+  },
+  "runtimes": [
+    {
+      "path": "/opt/homebrew/Cellar/node/26.12.1/bin/node",
+      "seaFuse": false
+    },
+    {
+      "path": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+      "seaFuse": true
+    }
+  ],
+  "narrowPinnedSea": {
+    "worker": "sea-pinned.txt",
+    "independentLog": "_scratch/test-run.pid-74604.log",
+    "result": "Both runs exited0; two normal assertions passed."
+  },
+  "abortedFullRetry": {
+    "reason": "Started before reading high-load preflight result55.97; intentionally stopped and will wait. Not an assertion failure or pass.",
+    "quietRunnerPid": 153,
+    "verifiedVitestChild": 332,
+    "childLookup": [
+      "pgrep",
+      "-P",
+      "153"
+    ],
+    "stopSignal": "SIGTERM",
+    "exit": 143,
+    "remainingChildrenLookupExit": 1
+  },
+  "installation": "Existing pinned runtime used per command only. No download/install/global configuration change."
+}

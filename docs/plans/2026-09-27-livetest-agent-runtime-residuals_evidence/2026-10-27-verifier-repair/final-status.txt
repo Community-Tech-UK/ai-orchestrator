@@ -1,0 +1,2 @@
+ M docs/plans/livetest-remediation-register.md
+?? docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/

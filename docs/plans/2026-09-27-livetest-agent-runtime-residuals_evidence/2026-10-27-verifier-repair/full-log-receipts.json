@@ -1,0 +1,177 @@
+{
+  "at": "2026-10-27T06:31:39.673969+00:00",
+  "scope": "All test logs/reports created in this task checkout; full contents retained with potential-secret redaction, no test or outcome changes.",
+  "files": [
+    {
+      "source": "_scratch/test-run.pid-153.log",
+      "retained": "test-run.pid-153.log.gz",
+      "sourceBytes": 446766,
+      "sourceSha256": "fd2476c51436951fc9dffdc604d89405365616a4bf35c6fed25100562e28c962",
+      "redactions": 0,
+      "retainedUncompressedSha256": "fd2476c51436951fc9dffdc604d89405365616a4bf35c6fed25100562e28c962",
+      "gzipSha256": "9e631fa09185198b89c4058fc3fac7bb30c212cda9708e55ed0b441ecd4ae46a"
+    },
+    {
+      "source": "_scratch/test-run.pid-16504.log",
+      "retained": "test-run.pid-16504.log.gz",
+      "sourceBytes": 4844937,
+      "sourceSha256": "a717f52580680f4cb0614a47a637c00bc2014d27239daa396112d8259a1a2e74",
+      "redactions": 0,
+      "retainedUncompressedSha256": "a717f52580680f4cb0614a47a637c00bc2014d27239daa396112d8259a1a2e74",
+      "gzipSha256": "136e6b483acb5d5a4a48c7e864137c0d05ac97e9d95a956fd07b56f4e38561e3"
+    },
+    {
+      "source": "_scratch/test-run.pid-32380.log",
+      "retained": "test-run.pid-32380.log.gz",
+      "sourceBytes": 25750,
+      "sourceSha256": "f9065cf153eee3f2714214817f5850b155c0012505a30acee11e6b27e3fe3fb8",
+      "redactions": 0,
+      "retainedUncompressedSha256": "f9065cf153eee3f2714214817f5850b155c0012505a30acee11e6b27e3fe3fb8",
+      "gzipSha256": "8a53e6027042dc87143b4e80fde77dfbd7f95341a0d66790cecb7a1e17e818cc"
+    },
+    {
+      "source": "_scratch/test-run.pid-42528.log",
+      "retained": "test-run.pid-42528.log.gz",
+      "sourceBytes": 20411,
+      "sourceSha256": "d413ae434f00d3d996bc21eebe8d2192ac4e62cdf67bc5637cd10ba49bdc813d",
+      "redactions": 0,
+      "retainedUncompressedSha256": "d413ae434f00d3d996bc21eebe8d2192ac4e62cdf67bc5637cd10ba49bdc813d",
+      "gzipSha256": "0222c8344f4735c99499a1ceca52bbe684c09b93f329ef38d7c4655f08fc061f"
+    },
+    {
+      "source": "_scratch/test-run.pid-48286.log",
+      "retained": "test-run.pid-48286.log.gz",
+      "sourceBytes": 1753,
+      "sourceSha256": "fdd2d32ba9074785708e9ca68a5be802576cc0e3c301715fd75a0787304ca049",
+      "redactions": 0,
+      "retainedUncompressedSha256": "fdd2d32ba9074785708e9ca68a5be802576cc0e3c301715fd75a0787304ca049",
+      "gzipSha256": "d5fab84a7fd58a77bb82d6c2849405eaad75ed80bb420b81041af1089e190c0a"
+    },
+    {
+      "source": "_scratch/test-run.pid-74207.log",
+      "retained": "test-run.pid-74207.log.gz",
+      "sourceBytes": 768,
+      "sourceSha256": "042502ab3438ba2da073281cd1ec348ed4f8da8edde9cbecf15994c67d2f3594",
+      "redactions": 0,
+      "retainedUncompressedSha256": "042502ab3438ba2da073281cd1ec348ed4f8da8edde9cbecf15994c67d2f3594",
+      "gzipSha256": "049327758df73808f3a2f3f8869f38c0de228ead21588a09c23d34207d026ff9"
+    },
+    {
+      "source": "_scratch/test-run.pid-74604.log",
+      "retained": "test-run.pid-74604.log.gz",
+      "sourceBytes": 671,
+      "sourceSha256": "8177676f9cb614ede698bf471124e8ba4e4406941e9a3bca1004c06b729e4da5",
+      "redactions": 0,
+      "retainedUncompressedSha256": "8177676f9cb614ede698bf471124e8ba4e4406941e9a3bca1004c06b729e4da5",
+      "gzipSha256": "34c6160c1725ca2300b067c75421ff01d1eece3d66bcd42337aa10f418ed735b"
+    },
+    {
+      "source": "_scratch/test-run.pid-83435.log",
+      "retained": "test-run.pid-83435.log.gz",
+      "sourceBytes": 669,
+      "sourceSha256": "92c87bf065f3c65c5bf31fb4c020bf321ca3c2a3e05e947d3922ef378e2f6865",
+      "redactions": 0,
+      "retainedUncompressedSha256": "92c87bf065f3c65c5bf31fb4c020bf321ca3c2a3e05e947d3922ef378e2f6865",
+      "gzipSha256": "65f9a058bd762000ed84022cd46e112247fb8daa542c6bd57bb03d44587a907a"
+    },
+    {
+      "source": "_scratch/test-run.pid-90022.log",
+      "retained": "test-run.pid-90022.log.gz",
+      "sourceBytes": 4326729,
+      "sourceSha256": "b849df4ea4c967c4be0c6b14cfe305a8dfc17cd4c3125435655f651f4b468118",
+      "redactions": 0,
+      "retainedUncompressedSha256": "b849df4ea4c967c4be0c6b14cfe305a8dfc17cd4c3125435655f651f4b468118",
+      "gzipSha256": "933c9f9bf3882b878746ead19c3c7b7fbff05f50531f20c83ad2532d6b473cfb"
+    },
+    {
+      "source": "_scratch/test-run.pid-93466.log",
+      "retained": "test-run.pid-93466.log.gz",
+      "sourceBytes": 27090,
+      "sourceSha256": "d45089ed15e0385a68eab4793c4a246e0264c876b68b0c7c8f1a4a27cc34e510",
+      "redactions": 0,
+      "retainedUncompressedSha256": "d45089ed15e0385a68eab4793c4a246e0264c876b68b0c7c8f1a4a27cc34e510",
+      "gzipSha256": "369110b9f57404ea0b1bcd6ce9b850f91eb311e5813463563664823a5e2c5261"
+    },
+    {
+      "source": "_scratch/test-results.pid-16504.json",
+      "retained": "test-results.pid-16504.json.gz",
+      "sourceBytes": 12604594,
+      "sourceSha256": "057aa953405adafd24701183d11bff55efcbc1bae084d15b236c918380f08f08",
+      "redactions": 4,
+      "retainedUncompressedSha256": "48c5f98c536717840652004ee4df7fed0f68f37c4baacb04aa9ceb25127745b7",
+      "gzipSha256": "e521084f66351f064c0792119bb1468b4e47372a2a47d457975ece34bffce80d"
+    },
+    {
+      "source": "_scratch/test-results.pid-32380.json",
+      "retained": "test-results.pid-32380.json.gz",
+      "sourceBytes": 22870,
+      "sourceSha256": "13fdb9962be703fc064d45249dc56dff9376ec9911e4de6f172193768dbdcb0a",
+      "redactions": 0,
+      "retainedUncompressedSha256": "34bb37fcc2ed398ee96eb97310b49a0edbe3ee8e1c835902f860c3e142eb139d",
+      "gzipSha256": "23081a569833503fcc90be95ad4f7601c7e0bc7030ce3a95abc38dd95671acc0"
+    },
+    {
+      "source": "_scratch/test-results.pid-42528.json",
+      "retained": "test-results.pid-42528.json.gz",
+      "sourceBytes": 17345,
+      "sourceSha256": "b7a85751cc41d3b9f02be68100266e0f7621314007c115c0d69b72f94be7deb0",
+      "redactions": 0,
+      "retainedUncompressedSha256": "b7a85751cc41d3b9f02be68100266e0f7621314007c115c0d69b72f94be7deb0",
+      "gzipSha256": "e96b10671e13f37c363a4cd01d64375d81deab42b684d76f4100a352b7ca23f7"
+    },
+    {
+      "source": "_scratch/test-results.pid-48286.json",
+      "retained": "test-results.pid-48286.json.gz",
+      "sourceBytes": 1267,
+      "sourceSha256": "c4d380417a7014e7b3df95ff22e052d776b349d7b66f545d79401abe64aa31c3",
+      "redactions": 0,
+      "retainedUncompressedSha256": "c4d380417a7014e7b3df95ff22e052d776b349d7b66f545d79401abe64aa31c3",
+      "gzipSha256": "c1bbb2d022fc84fdfef865a34bb1f95910df2738bf727164d73464cbbc29d498"
+    },
+    {
+      "source": "_scratch/test-results.pid-74207.json",
+      "retained": "test-results.pid-74207.json.gz",
+      "sourceBytes": 2213,
+      "sourceSha256": "270ff4d603d2c7691d8187a5fe298c5e1a1e15a5d8e0ac7b9fa29eafed166846",
+      "redactions": 0,
+      "retainedUncompressedSha256": "270ff4d603d2c7691d8187a5fe298c5e1a1e15a5d8e0ac7b9fa29eafed166846",
+      "gzipSha256": "8c0ca1517f94b0e1a142805f7f4782fb95979b69121c4d0254e564a5fb087985"
+    },
+    {
+      "source": "_scratch/test-results.pid-74604.json",
+      "retained": "test-results.pid-74604.json.gz",
+      "sourceBytes": 1315,
+      "sourceSha256": "7054dc1e3de97a19aba6b7a56fedff25d05651643e0289f77098919d4a947c9f",
+      "redactions": 0,
+      "retainedUncompressedSha256": "7054dc1e3de97a19aba6b7a56fedff25d05651643e0289f77098919d4a947c9f",
+      "gzipSha256": "16479b8359a34dd1adc35be6a13b2cc3f12b797f141644c131e67d3ab8cabaae"
+    },
+    {
+      "source": "_scratch/test-results.pid-83435.json",
+      "retained": "test-results.pid-83435.json.gz",
+      "sourceBytes": 1316,
+      "sourceSha256": "6607876e6abb508d55a20a590a158f832c5966a72252b38e33f66ef37c9e9f90",
+      "redactions": 0,
+      "retainedUncompressedSha256": "6607876e6abb508d55a20a590a158f832c5966a72252b38e33f66ef37c9e9f90",
+      "gzipSha256": "7227b31b6bb264cb18c81ba511f234aab19a3a85d4c9faa1d1a92af5316e231f"
+    },
+    {
+      "source": "_scratch/test-results.pid-90022.json",
+      "retained": "test-results.pid-90022.json.gz",
+      "sourceBytes": 12603515,
+      "sourceSha256": "b6102093469a6a08e3c07aaf6d464566132565fb8099103c42556d5a33269429",
+      "redactions": 4,
+      "retainedUncompressedSha256": "fc7d9efee9c17a91e5ca91186b671de24c3783500849f139e27259cc2d21ce0f",
+      "gzipSha256": "e7be06ab54146be63ca05bb62b19dcd954a0462bb9de7b947a09f095bef7419a"
+    },
+    {
+      "source": "_scratch/test-results.pid-93466.json",
+      "retained": "test-results.pid-93466.json.gz",
+      "sourceBytes": 57340,
+      "sourceSha256": "46198328575919e8e732efee13c16de61c21dca1cc85688d9e2dd7654f57c736",
+      "redactions": 0,
+      "retainedUncompressedSha256": "e1fb9f8eb8bc42d5ec92ee46138f8e81018339bf098dd9abd9a505e5ada495c3",
+      "gzipSha256": "ab7b719a6180cded9bebcc3aa47b035f78310f546f8f80d92bcd80e50650609b"
+    }
+  ]
+}

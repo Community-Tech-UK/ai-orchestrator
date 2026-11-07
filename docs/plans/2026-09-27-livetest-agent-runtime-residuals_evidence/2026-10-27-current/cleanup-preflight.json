@@ -1,0 +1,99 @@
+{
+  "at": "2026-10-27T04:39:15.205Z",
+  "liveness": [
+    {
+      "pid": 17630,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 17631,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 30062,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 13029,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 32829,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 32830,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 35666,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 50012,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 50257,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 75298,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 41775,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 43321,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 44771,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 71554,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 83581,
+      "state": "gone",
+      "code": "ESRCH"
+    },
+    {
+      "pid": 83755,
+      "state": "gone",
+      "code": "ESRCH"
+    }
+  ],
+  "endpoints": [
+    {
+      "port": 4735,
+      "state": "closed"
+    },
+    {
+      "port": 9735,
+      "state": "closed"
+    },
+    {
+      "port": 9736,
+      "state": "closed"
+    }
+  ]
+}

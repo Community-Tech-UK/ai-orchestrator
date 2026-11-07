@@ -1,0 +1,40 @@
+{
+  "at": "2026-10-27T06:49:14.918814+00:00",
+  "removedAfterPreCleanupSeal": [
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/test-run.pid-405.log",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/test-results.pid-405.json",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/_scratch/review-corrections-verify.py"
+  ],
+  "runtimePaths": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/dist",
+      "exists": false
+    },
+    {
+      "path": "/tmp/aio-lt-queue-3af326de",
+      "exists": false
+    }
+  ],
+  "endpointObservations": [
+    {
+      "port": 9735,
+      "connectCode": 61
+    },
+    {
+      "port": 9736,
+      "connectCode": 61
+    },
+    {
+      "port": 4735,
+      "connectCode": 61
+    }
+  ],
+  "runtimeLaunchesThisContinuation": 0,
+  "dependencyInstallsThisContinuation": 0,
+  "browserDownloadsThisContinuation": 0,
+  "preservedOldCache": {
+    "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/node_modules/.vite/vitest/57e8a7776d6892a83f2a49678f8141f4fb883e62/results.json",
+    "mtime": "2026-10-26T02:08:57.001289+00:00"
+  },
+  "retention": "Complete logs and JSON retained losslessly compressed; verification command source retained as data in verification-source.json."
+}

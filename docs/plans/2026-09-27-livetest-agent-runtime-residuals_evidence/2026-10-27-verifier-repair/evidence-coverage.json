@@ -1,0 +1,97 @@
+[
+  {
+    "check": "AR002",
+    "files": [
+      {
+        "name": "ar002-baseline-pids.json",
+        "exists": true,
+        "bytes": 361
+      },
+      {
+        "name": "ar002-owned-pids.json",
+        "exists": true,
+        "bytes": 526
+      },
+      {
+        "name": "ar002-kill.json",
+        "exists": true,
+        "bytes": 1159
+      },
+      {
+        "name": "ar002-recovery-state.json",
+        "exists": true,
+        "bytes": 1443
+      },
+      {
+        "name": "ar002-query-state.json",
+        "exists": true,
+        "bytes": 3543
+      },
+      {
+        "name": "ar002-log-excerpts.txt",
+        "exists": true,
+        "bytes": 704
+      },
+      {
+        "name": "ar002-process-cleanup.json",
+        "exists": true,
+        "bytes": 2702
+      }
+    ]
+  },
+  {
+    "check": "AR003",
+    "files": [
+      {
+        "name": "ar003-attempt.json",
+        "exists": true,
+        "bytes": 1774
+      },
+      {
+        "name": "ar003-main-log.txt",
+        "exists": true,
+        "bytes": 1823
+      },
+      {
+        "name": "ar003-audit.json",
+        "exists": true,
+        "bytes": 815
+      },
+      {
+        "name": "ar003-final-health.json",
+        "exists": true,
+        "bytes": 1328
+      }
+    ]
+  },
+  {
+    "check": "AR006",
+    "files": [
+      {
+        "name": "cdp.jsonl",
+        "exists": true,
+        "bytes": 73106
+      },
+      {
+        "name": "focus.jsonl",
+        "exists": true,
+        "bytes": 1067
+      },
+      {
+        "name": "fixture-receipts.json",
+        "exists": true,
+        "bytes": 11572
+      },
+      {
+        "name": "main-log-excerpts.txt",
+        "exists": true,
+        "bytes": 3485
+      },
+      {
+        "name": "runtime-data-removal.json",
+        "exists": true,
+        "bytes": 923
+      }
+    ]
+  }
+]

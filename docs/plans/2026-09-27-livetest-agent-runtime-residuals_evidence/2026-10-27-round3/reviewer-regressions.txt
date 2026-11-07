@@ -1,0 +1,27 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/review/review-execution-host.spec.ts src/main/review/review-cancelled-usage.spec.ts src/main/orchestration/headless-review-runner.spec.ts
+
+✗ 2 of 35 tests failed in 12.9s:
+
+  ✗ src/main/review/review-execution-host.spec.ts › ProviderReviewExecutionHost distinguishes a headless deadline abort and stops its reviewer
+    AssertionError: expected [ { provider: 'claude', …(4) } ] to deeply equal [ ObjectContaining{…} ]
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/src/main/review/review-execution-host.spec.ts:111:32
+
+  ✗ src/main/review/review-execution-host.spec.ts › ProviderReviewExecutionHost preserves an already-expired deadline without spawning a reviewer
+    Error: expected [Function] to throw error including 'Review timed out after 90 seconds' but got 'Review cancelled'
+        at Assertion.__VITEST_REJECTS__ (file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@vitest/expect/dist/index.js:1747:17)
+        at Assertion.propertyGetter (file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/chai/index.js:1607:27)
+        at Reflect.get (<anonymous>)
+        at Object.proxyGetter [as get] (file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/chai/index.js:1696:22)
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de/src/main/review/review-execution-host.spec.ts:124:117
+        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11
+        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26
+        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20
+        at new ZoneAwarePromise (/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/zone.js/fesm2015/zone.js:2238:23)
+        at runWithCancel (fi
+        …(truncated — see log)
+
+full log: _scratch/test-run.pid-66815.log
+
+✗ FAILED — 2 of 35 tests failed (exit 1).

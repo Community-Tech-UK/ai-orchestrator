@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js scripts/__tests__/sea-build-repeatability.spec.ts
+
+✓ 1 files · 2 tests passed in 22.2s
+  full log: _scratch/test-run.pid-83435.log

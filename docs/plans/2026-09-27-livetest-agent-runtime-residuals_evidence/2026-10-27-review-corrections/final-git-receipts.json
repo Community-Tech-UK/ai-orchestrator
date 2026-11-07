@@ -1,0 +1,84 @@
+{
+  "at": "2026-10-27T06:49:56.678675+00:00",
+  "commands": [
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exitCode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--cached",
+        "--name-only"
+      ],
+      "exitCode": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "git",
+        "status",
+        "--short"
+      ],
+      "exitCode": 0,
+      "stdout": " M docs/plans/livetest-remediation-register.md\n?? docs/plans/2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-review-corrections/\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "git",
+        "worktree",
+        "list",
+        "--porcelain"
+      ],
+      "exitCode": 0,
+      "stdout": "worktree /Users/suas/work/orchestrat0r/ai-orchestrator\nHEAD 7e5222cfe773e2fc3edff0c2eade2e77fe7131cc\nbranch refs/heads/main\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.claude/worktrees/agent-a1d7bb162fd56b4c6\nHEAD 460a2ef8558e98cb841ba11da51de15c1d44dcc2\nbranch refs/heads/worktree-agent-a1d7bb162fd56b4c6\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.claude/worktrees/agent-a4d6deb10e35abdd8\nHEAD 8b3db8bb660354aad210fa8aa0b2f9e4e5cbe733\nbranch refs/heads/worktree-agent-a4d6deb10e35abdd8\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/composer-resize-verification\nHEAD e4a99cbb5effd385374291e11bc91fc5facf7dc5\nbranch refs/heads/rescue/composer-resize-verification\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-24-codex-compaction-tu-23ae4a\nHEAD ec3a440a2749128671ea337a5e2be513c0bbf160\nbranch refs/heads/queue/2026-09-24-codex-compaction-tu-23ae4a\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81\nHEAD 30ca17928415518ececab6adc00c9d8e3c9322aa\nbranch refs/heads/queue/2026-09-25-mimo-session-resili-493f81\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-codex-compaction-re-434b3e\nHEAD 4f7090771c3a3c5d0a6941311c1d2d0b1cf55f3b\nbranch refs/heads/queue/2026-09-27-codex-compaction-re-434b3e\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de\nHEAD 07eb040464daf6bc2f78e15eca5120f572fbd3e0\nbranch refs/heads/queue/2026-09-27-livetest-agent-runt-f326de\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985\nHEAD 7abf0cb5a021adc89eeb138a12c92149d18da526\nbranch refs/heads/queue/2026-09-27-livetest-human-exte-185985\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-can-you-work-through-all-the-p-mt76ztv1\nHEAD 1f230732cc738928ab24b30f748fb15e1202327f\nbranch refs/heads/task-can-you-work-through-all-the-p-mt76ztv1\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-i-said-keep-going-uintil-it-s-mtovfbpg\nHEAD 33fe2d5dccea5e4789fe3e2f43a80e7d28f431b5\nbranch refs/heads/task-i-said-keep-going-uintil-it-s-mtovfbpg\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-investigate-all-the-pla-mtl9icld\nHEAD b332edf734934ca2fe9547d1dde98e616f407642\nbranch refs/heads/task-please-investigate-all-the-pla-mtl9icld\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-look-at-all-the-untrack-mtjeyorh\nHEAD bb5ad1f2687bd7a4b6f0ad3b137b1cff4803daf4\nbranch refs/heads/task-please-look-at-all-the-untrack-mtjeyorh\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-look-at-all-the-untrack-mtjvhjeh\nHEAD ae88a599a11231b5c75ac023d0eb407d814f22e0\nbranch refs/heads/task-please-look-at-all-the-untrack-mtjvhjeh\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-look-at-all-the-untrack-mtkdez2p\nHEAD f965e960edbed6a51c342875ff06cf550bb9fb50\nbranch refs/heads/task-please-look-at-all-the-untrack-mtkdez2p\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-work-through-all-the-li-mtkqr41h\nHEAD d24a421b9448e31088b752ff0e5bcefd8f744039\nbranch refs/heads/task-please-work-through-all-the-li-mtkqr41h\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-work-through-all-the-li-mu4ui30h\nHEAD 322cef61b985f3b6a9523d832d422d4602d99958\nbranch refs/heads/task-please-work-through-all-the-li-mu4ui30h\n\nworktree /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-so-finish-the-work-please-mtklsatd\nHEAD 07403ee118aecce63e4f4138d5f7c62f04ab5efe\nbranch refs/heads/task-so-finish-the-work-please-mtklsatd\n\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "git",
+        "branch",
+        "--list"
+      ],
+      "exitCode": 0,
+      "stdout": "  codex/provider-agnostic-context-evidence\n  integration/main\n+ main\n  queue/2026-07-13-codex-context-press-a9dfe8\n  queue/2026-07-13-fable-ws13-1b04f4\n  queue/2026-07-13-fable-ws15-332c74\n  queue/2026-07-17-browser-gateway-rel-72bff1\n  queue/2026-07-17-browser-permission-6802a7\n  queue/2026-07-17-resilient-threads-s-d4428b\n  queue/2026-07-19-livetest-failure-re-17f273\n  queue/2026-07-19-livetest-failure-re-9dc40b\n  queue/2026-07-19-livetest-failure-re-ffb4df\n  queue/2026-07-21-in-session-auth-rep-044894\n  queue/2026-07-23-skill-observability-b8464f\n  queue/2026-07-26-local-ai-guard-plan-58373b\n  queue/2026-08-23-workspace-secret-ca-4b8813\n  queue/2026-08-28-settings-ux-remedia-525f75\n  queue/2026-08-30-session-restart-rec-0ca9ca\n  queue/2026-09-01-browser-approval-co-ad14db\n  queue/2026-09-02-loop-issue-diagnosi-4c3b38\n  queue/2026-09-03-enhancements-backlo-451811\n  queue/2026-09-05-history-preview-mod-b54a87\n  queue/2026-09-05-token-efficiency-re-a43677\n  queue/2026-09-06-lt196-correction-mi-b4d3fd\n  queue/2026-09-08-interrupt-stuck-wat-880ccb\n  queue/2026-09-18-plan-queue-447127\n  queue/2026-09-22-opencode-provider-b4548c\n  queue/2026-09-22-worker-offline-resi-fc99ca\n  queue/2026-09-23-browser-login-recip-09a658\n  queue/2026-09-23-outstanding-plans-s-8512b0\n+ queue/2026-09-24-codex-compaction-tu-23ae4a\n+ queue/2026-09-25-mimo-session-resili-493f81\n+ queue/2026-09-27-codex-compaction-re-434b3e\n* queue/2026-09-27-livetest-agent-runt-f326de\n+ queue/2026-09-27-livetest-human-exte-185985\n  queue/2026-09-28-crash-turn-auto-con-6e570b\n  queue/2026-09-30-session-title-quali-b6f1a9\n  queue/2026-10-01-hidden-resource-gov-973997\n  queue/2026-10-02-provider-hardening-2dd65a\n  queue/2026-10-02-session-sidechats-c9f650\n  queue/2026-10-03-aux-llm-lmstudio-du-f17dc6\n  queue/2026-10-04-local-ai-cli-parity-39d4ca\n  queue/2026-10-04-localhost-browser-a-a36a87\n  queue/2026-10-05-livetest-campaign-d-c9429d\n  queue/2026-10-10-oct-housekeeping-c2ff86\n  queue/2026-10-10-oct-phase0-confirme-6dc50c\n  queue/2026-10-10-oct-phase0-confirme-73f6a1\n  queue/2026-10-10-oct-phase0-confirme-e4d864\n  queue/2026-10-10-oct-phase0-confirme-fcba5f\n  queue/2026-10-10-oct-phase1-token-le-4a3cd3\n  queue/2026-10-10-oct-phase1-token-le-528c17\n  queue/2026-10-10-oct-phase1-token-le-7072dd\n  queue/2026-10-10-oct-phase1-token-le-984b0c\n  queue/2026-10-10-oct-phase1-token-le-ea3105\n  queue/2026-10-10-oct-phase2-loops-co-5c8c24\n  queue/2026-10-10-oct-phase3-calm-scr-546537\n  queue/2026-10-10-oct-phase3-calm-scr-5d08d9\n  queue/2026-10-10-oct-phase3-calm-scr-754b95\n  queue/2026-10-10-oct-phase3-calm-scr-86c383\n  queue/2026-10-10-oct-phase3-calm-scr-a4427f\n  queue/2026-10-10-oct-phase4-tooltips-78d48c\n  queue/2026-10-10-oct-phase4b-tooltip-0b85c5\n  queue/2026-10-10-oct-phase4b-tooltip-6a2506\n  queue/2026-10-10-oct-phase4b-tooltip-7e68e3\n  queue/2026-10-10-oct-phase4b-tooltip-8b1f09\n  queue/2026-10-10-oct-phase4b-tooltip-a7d5c4\n  queue/2026-10-10-oct-phase4c-tooltip-4995f5\n  queue/2026-10-10-oct-phase4c-tooltip-7562c5\n  queue/2026-10-10-oct-phase4c-tooltip-a4525a\n  queue/2026-10-10-oct-phase4c-tooltip-ca8754\n  queue/2026-10-10-oct-phase4c-tooltip-ef4ea2\n  queue/2026-10-10-oct-phase5-later-33e309\n  queue/2026-10-10-oct-phase5-later-3e8047\n  queue/2026-10-10-oct-phase5-later-da028b\n  queue/2026-10-10-oct-phase5-later-e9f577\n  queue/2026-10-11-oct-followups-546c7e\n  queue/2026-10-11-oct-followups-6f4138\n  queue/2026-10-11-oct-followups-bad1a7\n  queue/2026-10-11-oct-followups-e59e4d\n  queue/2026-10-13-evidence-startup-de-94a931\n  queue/2026-10-13-mimo-quota-banner-a-f48038\n  queue/2026-10-13-oct-parked-followup-4a5986\n  queue/2026-10-13-plan-queue-large-st-0cdb54\n  queue/2026-10-13-plan-queue-large-st-37952b\n  queue/2026-10-14-local-model-plan-ex-01472a\n  queue/2026-10-14-local-model-plan-ex-2b95ea\n  queue/2026-10-14-local-model-plan-ex-b0e04e\n  queue/2026-10-14-local-model-plan-ex-ca2605\n  queue/2026-10-20-oct2-later-fae157\n  queue/2026-10-20-oct2-phasea-safety-d0099e\n  queue/2026-10-20-oct2-phaseb-land-bu-863a90\n  queue/2026-10-20-oct2-phasec-queue-t-cf5944\n  queue/2026-10-20-oct2-phased-tokens-0e371d\n  queue/2026-10-20-oct2-phasee-calm-sc-bc8207\n  queue/2026-10-20-oct2-phasef-tooltip-094153\n  queue/2026-10-22-aio-tidies-up-after-b3eba2\n  queue/2026-10-26-closed-login-approv-26dc4e\n  queue/2026-10-27-copilot-model-detec-76304c\n  release/harness-auto-update-v0.1.0\n+ rescue/composer-resize-verification\n  task-can-you-please-run-through-the-mu4t322o\n  task-can-you-please-run-through-the-mu4t4fi1\n+ task-can-you-work-through-all-the-p-mt76ztv1\n+ task-i-said-keep-going-uintil-it-s-mtovfbpg\n+ task-please-investigate-all-the-pla-mtl9icld\n+ task-please-look-at-all-the-untrack-mtjeyorh\n+ task-please-look-at-all-the-untrack-mtjvhjeh\n  task-please-look-at-all-the-untrack-mtk4ivln\n+ task-please-look-at-all-the-untrack-mtkdez2p\n  task-please-test-all-the-livetest-f-msi8ip9e\n+ task-please-work-through-all-the-li-mtkqr41h\n+ task-please-work-through-all-the-li-mu4ui30h\n+ task-so-finish-the-work-please-mtklsatd\n+ worktree-agent-a1d7bb162fd56b4c6\n+ worktree-agent-a4d6deb10e35abdd8\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "exitCode": 0,
+      "stdout": "07eb040464daf6bc2f78e15eca5120f572fbd3e0\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--name-only",
+        "HEAD",
+        "--",
+        "src",
+        "packages",
+        "scripts",
+        "package.json",
+        "package-lock.json"
+      ],
+      "exitCode": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ]
+}

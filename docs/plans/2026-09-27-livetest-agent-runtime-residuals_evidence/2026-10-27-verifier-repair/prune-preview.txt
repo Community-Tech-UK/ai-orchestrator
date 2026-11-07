@@ -1,0 +1,10 @@
+npm error code ENOTCACHED
+npm error request to https://registry.npmjs.org/@angular-devkit%2fbuild-angular failed: cache mode is 'only-if-cached' but no cached response is available.
+{
+  "error": {
+    "code": "ENOTCACHED",
+    "summary": "request to https://registry.npmjs.org/@angular-devkit%2fbuild-angular failed: cache mode is 'only-if-cached' but no cached response is available.",
+    "detail": ""
+  }
+}
+npm error A complete log of this run can be found in: /Users/suas/.npm/_logs/2026-10-27T04_49_46_386Z-debug-0.log

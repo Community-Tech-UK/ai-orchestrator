@@ -1,0 +1,9 @@
+# Iteration Log
+
+Per-iteration record written by the loop. Older entries are trimmed past 64 KB.
+
+## Iteration 1 — IMPLEMENT — OK
+- duration: 8.0s
+- tokens: 27738
+- files changed: 0
+

@@ -1,0 +1,51 @@
+{
+  "at": "2026-10-27T04:52:45.751Z",
+  "outcome": "succeeded",
+  "remote": {
+    "total": 1,
+    "ready": 1,
+    "silent": 0,
+    "nodes": [
+      {
+        "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+        "nodeName": "windows-pc",
+        "enabled": true,
+        "running": true,
+        "silent": false,
+        "channelState": "fresh",
+        "commandsDeliverable": true,
+        "lastContactAt": 1793076763758,
+        "contactAgeMs": 1977,
+        "coordinatorPollAgeMs": 1976,
+        "relayContactAgeMs": 5400,
+        "connectionFlap": {
+          "stormActive": false,
+          "replacesInWindow": 0,
+          "windowMs": 300000
+        },
+        "queue": {
+          "queuedCount": 0,
+          "inFlightCount": 0,
+          "waitingPollerCount": 2
+        },
+        "contactGaps": {
+          "gapCount": 2,
+          "longestGapMs": 146459,
+          "lastGapMs": 146459,
+          "lastGapEndedAt": 1793033852670
+        },
+        "serviceWorkerRestarts": 0,
+        "registration": "ok",
+        "lastRegistrationCheckAt": 1793076750307,
+        "secretObservation": {
+          "reported": true,
+          "protectionEnabled": false,
+          "taintedOriginCount": 0,
+          "taintedTabCount": 0,
+          "observedAt": 1793076599061,
+          "ageMs": 166674
+        }
+      }
+    ]
+  }
+}

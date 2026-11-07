@@ -69,6 +69,16 @@ in [the campaign livetest](2026-10-05-livetest-campaign-defects_livetest.md).
 | LT-701 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** App shutdown suppresses failure and settlement outcomes at the tracker's status/error/exit/removal/completion boundaries and is signalled before synchronous provider kills as well as async termination, so mid-turn items survive a normal quit. Live re-check (Plan Queue check 3) pending in the campaign livetest. |
 | LT-702 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** The settled predicate is re-evaluated on an interval so a finished, valid reviewer verdict releases the round. Live acceptance (ping-pong loop) pending in the campaign livetest. |
 
+### Current status corrections — 2026-10-27 verifier follow-up
+
+| ID | Current status |
+| --- | --- |
+| LT-603 | **Current runtime assertions confirmed 2026-10-27.** Fresh isolated AR-002 run retained exact PID gates, real suppressed completion, kept/dropped reconciliation, explicit degradation notice and successful completed-child summary queries. Fixtures/profile removed; canonical gates including the pinned full suite pass. |
+| LT-708 | Implementation and focused regressions present; dated cold/warm refusal, genuine denial UI and current rejection have live evidence. Canonical gates now pass; independent implementation closure remains with the coordinator. No global allow-rule write is authorized just to verify wording. |
+| LT-728 | Renumbered from LT-710 on 2026-11-07. Timeout diagnostic implemented and observed live. The 4,874-character timed-out sample included an accidental fixture deletion, so it does not isolate no-op latency. The earlier delay investigation remains open; no outage or fix is inferred. AR-006 cache reuse and both invalidations pass with the real reverse Claude-builder/Codex-reviewer pair. |
+| LT-711 | **OPEN — historical report awaiting independent reproduction.** Cursor was reported on 2026-10-04 to emit empty `completed` updates for real read/permission failures. Raw historical receipts are missing. Distinct from LT-612's exit-code handling and AR-007's retired `failed`-without-output clause. [Detail](#lt-711). |
+| LT-712 | **IMPLEMENTED on main (handoff-observability plan, merged 2026-11-07); live proof open.** The 2026-10-27 AR-003 run could not join its requeued command to its audit row or observe FIFO-head reinsertion. Audit rows now carry the queued command ID, and requeued commands are logged at the FIFO head with that ID and the queue depth. AR-003 stays open for the identified-build repeat. [Detail](#lt-712). |
+
 ### Current status corrections — 2026-09-24
 
 These supersede the status phrase in the matching index rows. Evidence lives in the owning
@@ -319,6 +329,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-705 | P1 | **MACHINE REPAIR + CODE VERIFIED 2026-10-13 — gates and full suite pass, independent reviews PASS; queue re-verified 2026-10-14; packaged smoke pending.** OpenCode 1 failed in `~/work/communitytech` (`no such column: project_id`) after OpenCode 2 rebuilt the shared `workspace` table, so selection fell back to OpenCode 2, whose `acp` ignores the per-spawn overlay and lacked the second account's key. Added nullable `workspace.project_id` (backed up); selection now refuses OpenCode 2 and explains why. The install/restart prerequisite is satisfied as for LT-704; the communitytech packaged smoke remains unrun and its exact deferred procedure is recorded inline in [LT-705 detail](#lt-705-deferred-packaged-acceptance) (branch-resident) and mirrored in the untracked root-checkout [startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md). | [LT-705 detail](#lt-705) | [Plan-owned packaged checks](2026-10-13-opencode-launch-environment_livetest.md) |
 | LT-706 | P2 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); live re-check pending.** A MiMo step that spends the whole combined cap on reasoning (OpenCode `finish: "length"`, ACP `end_turn`) was classified `completed` (or `dangling_tool_result`), so the session stopped silently. LT-690's saturation check skipped empty text, judged from whole-turn text while usage covers only the final step, and the shared observation layer could not see the cap. MiMo cap raised 16384 → 32000 at James's request. | [LT-706 detail](#lt-706) | [MiMo reasoning-cap live checks](2026-10-14-mimo-reasoning-cap-cutoff_livetest.md) |
 | LT-707 | P2 | **FIXED + REGRESSION-TESTED 2026-10-24 (working tree); live cell re-run pending (Windows PC outage #5).** `finalizeScoredRun` persists the record before best-effort cleanup and `cleanupWorkspace` retries transient ENOTEMPTY/EBUSY; regression tests cover record-survives-cleanup-throw and the retry paths. Implementation status lives in [the active plan](2026-10-14-local-model-plan-execute-ab_plan.md). Original report: reproduced 2026-10-24 (benchmark campaign harness, `benchmarks/plan-execute-ab/` — experiment tooling, not app code; owned by plan 2026-10-14-local-model-plan-execute-ab).** A completed scored pilot run is discarded when workspace cleanup flakes: `runArm` calls `cleanupWorkspace` (bare `rmSync` recursive) BEFORE `appendRunRecord`, so a transient `ENOTEMPTY` (macOS removal race) lost the AIO-05 C1 run after coding, patch capture and scoring — the batch logged `run failed: ENOTEMPTY, Directory not empty` and the leftover workspace then blocks re-export (`workspace already exists`). | [LT-707 detail](#lt-707) | [Local-model plan/execute deferred checks A5/A6](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
+| LT-708 | P1 | **OPEN — reproduced live 2026-10-27.** A non-YOLO Claude session consuming a warm adapter has no defer hook. The genuine CLI error `This command requires approval` is not recognised as a permission denial, so the session becomes idle without an approval card. A fresh adapter shows the deferred-permission card for the same harmless command. | [LT-708 detail](#lt-708) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-plan-queue-worker) |
 | LT-710 | P2 | **REPRODUCED 2026-10-27; not fixed in this checkout.** Main and context-worker startup can collide on fresh-profile migration discovery. Reusing the migrated isolated profile reaches the renderer. This reuses the existing saved-login/housekeeping defect identifier; the housekeeping worker owns its fix. | [LT-710 detail](#lt-710) | [Worker auto-update live checks](2026-10-14-worker-auto-update_livetest.md#evidence-run--2026-10-27-plan-queue-worker); [active remediation follow-up](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-710) |
 | LT-709 | P2 | **OPEN — reproduced in the compiled runtime 2026-10-26; unimplemented.** A provider-slot runtime package installs, but its worker fails on a compiled `require('file://...')` before provider registration; the normal session-create schema also rejects its plugin provider identifier. Phase 1 records the failure and omits the custom-provider claim. | [LT-709 detail](#lt-709) | [Plugins cleanup Phase 1](2026-10-26-plugins-cleanup-and-global-connectors_plan_completed.md#phase-1-plugins-page-cleanup); [implementation status](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-709) |
 | LT-722 | P2 | **OPEN — reproduced live 2026-10-27 (1 of 3 triage runs that day); unimplemented.** A Plan Queue triage agent looked for `plan_queue_report_triage` only in its provider's own tool list, never in Harness's `orchestrator_tool_search`, so it could not report; both the Claude attempt and the Codex retry ended without answering and the document parked `triage-failed`. The triage prompt has no tool-discovery steps (the verifier prompt gained them separately). | [LT-722 detail](#lt-722) | [Implementation status](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-722) |
@@ -328,6 +339,9 @@ sections below. The historical reproduction remains unchanged.
 | LT-726 | P2 | **SOURCE FIX VERIFIED 2026-11-06 in a Linux container; first AppImage release build pending.** Linux packages could not finish building, because `scripts/set-electron-fuses.js` opened `Harness` when the binary is `harness`, so the security fuses were never set. | [LT-726 detail](#lt-726) | [Fixing plan](2026-11-06-code-context-precision_plan_completed.md); [installed check 9](2026-11-06-search-and-memory-repair_plan_livetest.md#9-windows-and-linux-packages-hold-only-their-own-runtime) |
 | LT-727 | P1 | **SOURCE FIX VERIFIED 2026-11-06; rebuilt-app check pending.** Every Microsoft 365 connector tool call was refused before reaching Microsoft, because the connector rejected the standard `_meta` field that MCP clients add to a call. | [LT-727 detail](#lt-727) | [Check 3](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md#3-microsoft-365-account-routing-and-write-policy) |
 
+| LT-728 | P2 | **OPEN — reproduced live 2026-10-27 (recorded as LT-710 on the agent-runtime branch; renumbered 2026-11-07 because main uses LT-710 for the fresh-profile migration race).** The required Claude fresh-eyes checker stays active without a verdict until the headless deadline expires, then reports `Review cancelled`. The deadline is the headless request budget, not the ordinary cross-model timeout/floor. Clean-cache and invalidation live checks remain blocked by this reproduced failure, not an established provider outage. | [LT-728 detail](#lt-728) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-verifier-follow-up) |
+| LT-711 | P3 | **OPEN — historical report, awaiting independent reproduction.** Cursor was reported on 2026-10-04 to emit empty `completed` updates for real failed reads and rejected shell permissions. The raw receipt is absent, so no current miner or provider behaviour is claimed. Distinct from LT-612 and from AR-007’s retired clause. The detail section sets no priority; P3 is assigned for an unreproduced historical report. | [LT-711 detail](#lt-711) | [Agent runtime residuals 2026-10-04 batch report](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-04-orchestrating-session-and-batch-agents) |
+| LT-712 | P3 | **IMPLEMENTED on main (handoff-observability plan, merged 2026-11-07); live proof open.** Audit rows now carry the queued command ID, and head reinsertion is logged with that ID and the queue depth; the LT-616 handoff log is unchanged. AR-003 stays open until an identified rebuilt coordinator repeats the handoff run and the audit join is observed live. | [LT-712 detail](#lt-712) | [Agent runtime residuals AR-003](2026-09-27-livetest-agent-runtime-residuals_livetest.md#ar-003--lt-371-live-browser-command-socket-handoff-correlation) |
 
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
@@ -9564,6 +9578,146 @@ turn's capture has finished tearing down; status stays `busy` throughout.
 - Live: a 14-turn goal run repeated several times shows no `Following` gap and no `idle` span between goal
   turns longer than the turn gap.
 
+<a id="lt-708"></a>
+
+## LT-708 — warm Claude sessions lose the actionable permission request
+
+### Observed behavior
+
+2026-10-27, rebuilt dev app from `80412201a07ec93cefb9a4b6ddb06579ad314d75`, isolated profile
+`/tmp/aio-lt-queue-3af326de`, Electron 42.11.18 and Claude Code 2.1.310. In a disposable workspace,
+fresh non-YOLO session `c214qtk5p` requested the harmless `rtk proxy pwd` command. At
+03:02:39.114 UTC the real CLI deferred it; the renderer showed a `deferred_permission` card,
+duration label, three choices and tooltip. No permission decision or settings rule was submitted.
+
+At 03:05:46.663 UTC passive main-inspector observation showed the matching spare Claude adapter
+had `permissionHookPath` absent. The next otherwise equivalent session `cbmfl0p2y` consumed that
+warm adapter (application log 03:05:48.476–477 UTC). Its real stdout at 03:05:57.891 UTC contained
+a `user` message with `tool_result { is_error: true, content: "This command requires approval" }`.
+At 03:06:03.168 UTC it ended with `stop_reason: "end_turn"`, without `deferred_tool_use`.
+The denial classifier returned false for that exact provider text. The session became idle and
+the selected session's permission component had no pending card. The assistant said approval was
+needed, but supplied no actionable approval surface. An earlier warm session `c2px3fafl` showed
+the same outcome; the second run captured the raw provider shape. No explicit deny rule was added
+and no provider output was fabricated or replaced.
+
+Evidence: the owning [2026-10-27 run](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-plan-queue-worker)
+and its linked command/runtime receipts. Implementation status:
+[active follow-up](2026-10-27-agent-runtime-permission-remediation_plan.md), untracked in the root checkout.
+
+### Root cause
+
+The `WarmStartManager` composition in `src/main/instance/instance-manager.ts:267` constructs
+adapters with working directory and reasoning effort only. It does not supply the non-YOLO
+permission hook prepared by `src/main/instance/lifecycle/spawn-config-builder.ts:631`.
+`InstanceSpawnPreflightChain.prepare` at `instance-spawn-preflight-chain.ts:82` does not compare
+the requested permission hook with a warm adapter; at line 116 it returns the already-running
+adapter without applying those spawn options. Live inspection confirmed the omitted hook on the
+actual adapter used by the failing session.
+
+Independently, `isPermissionDenialContent` in
+`src/main/cli/adapters/claude-cli-permission-details.ts:21` recognises “requires permission” but
+not the CLI's current “requires approval”. The real `tool_result` path in
+`claude-cli-adapter.ts:1342` therefore never emits `permission_denial` for this response. These
+two executing paths explain why neither supported permission flow reaches the renderer.
+
+### Required behavior
+
+1. A reused non-YOLO Claude adapter must preserve the same actionable permission contract as a
+   fresh adapter, or be rejected for reuse when its launch configuration cannot do so.
+2. Genuine current CLI approval-denial text must be recognised without converting a command's
+   own permission-related output into an override prompt.
+3. Respect explicit deny rules; never add an allow rule, restart the session or broaden authority
+   without the corresponding user decision.
+
+### Acceptance
+
+- Pin cold and warm non-YOLO creation with the same harmless command: each either pauses with an
+  actionable request or refuses an incompatible warm adapter before adoption.
+- Cover the genuine `This command requires approval` tool-result shape, retaining negative cases
+  for executed-command error output and the existing explicit-deny protections.
+- Repeat AR-006 permission wording on the rebuilt runtime, including duration choices, tooltip,
+  rejection cleanup and the legitimate legacy-rule consequence if that request is emitted.
+- Run focused regressions, the canonical gates and independent completion review. Existing
+  focused tests passed during discovery; they do not prove this defect fixed. No fix was made.
+
+
+<a id="lt-728"></a>
+
+## LT-728 — active Claude fresh-eyes review expires as an unexplained cancellation
+
+Renumbered from LT-710 on 2026-11-07. Main's register uses LT-710 for the fresh-profile migration race, so the agent-runtime reviewer-deadline defect keeps its own identifier here.
+
+### Observed behavior
+
+The original AR-006 run on 2026-10-27 recorded two overlapping attempts ending at +120 seconds
+with `claude: Review cancelled`. It did not establish a provider outage and should not have called
+this merely an unavailable prerequisite. See the historical receipts in the owning live-test file.
+
+A separate, non-overlapping diagnostic against the rebuilt queue checkout at
+`44d247209` reproduced the failure from **03:26:22.626 to 03:28:22.629 UTC**. The real
+`CrossModelReviewService.runHeadlessReview` used the installed `ProviderReviewExecutionHost`,
+a Codex implementer, the Claude `sonnet` correctness checker, structured output, and an explicitly
+recorded **120-second** request budget. No provider, host, result, verdict or deadline was replaced.
+The no-op review request asked for no repository survey and no edits. Claude emitted thinking,
+Read/Grep/ToolSearch activity but no result or structured verdict before the deadline. Thinking
+continued until **03:28:21.751 UTC**; the deadline settled at +120.004 s and the owned CLI closed
+10 ms later. The only required reviewer was failed, the local advisory was skipped, and no clean
+verdict/cache was produced. This is an active-review deadline failure; no provider outage was
+established. It is not a reproduction of LT-702's already-produced-verdict stall: this trace has
+no result event at all.
+
+Evidence: [verifier follow-up](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-verifier-follow-up),
+with content-redacted wire shapes, exact dispatch request, receipts and source seal in
+`2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-resume/`.
+Implementation status: [active review follow-up](2026-10-27-agent-runtime-review-remediation_plan.md)
+(untracked in the root checkout).
+
+### Root cause and limits of the diagnosis
+
+The loop's default reviewer forwards `input.config.timeoutSeconds` to the headless request
+(`loop-fresh-eyes-reviewer.ts`, `defaultFreshEyesReviewer`). The executing service delegates to
+`runHeadlessReviewCommand` (`cross-model-review-service.ts:685`). That runner creates an operation
+controller and installs `setTimeout(() => abort.abort(), timeoutMs)` from the request budget
+(`headless-review-runner.ts:54`, `:80`). The host passes this signal to
+`sendAbortableReviewerMessage`, which stops the adapter and rejects **every** abort as
+`Review cancelled` (`review-execution-host.ts:147-153`). The runner preserves that generic text as
+the failed reviewer's reason (`headless-review-runner.ts:192-206`). Therefore an elapsed deadline
+is indistinguishable from caller cancellation in the returned failure. The actual startup wiring
+installs this host at `late-runtime-initialization-steps.ts:435-438`; the live adapter and wire
+shape confirm it executed.
+
+`CrossModelReviewService.executeOneReview` and its ordinary-review provider timeout floors are a
+separate path, never called by this headless operation. They cannot explain or prevent this timer.
+The previous run did not retain its configured timeout value; its exact +120 s result is consistent
+with this path, while this new request records the value explicitly. The current loop config's
+factory default is 90 s, the headless fallback is 60 s, and the ordinary-review fallback is 30 s;
+none should be silently substituted for the observed effective request budget.
+
+The immediate cancellation cause and misleading classification are proven. The reason this no-op
+review consumed the entire budget without a verdict is **not fully established**. The retained
+shape trace proves continued thinking and read-tool activity, not what each read meant or a remote
+service outage. Do not claim a transport hang, provider outage, or a fixed-by-longer-timeout result.
+The review adapter also has existing read-only, eight-turn and $1 caps; do not remove those merely
+to make a live check pass.
+
+### Required behavior
+
+- Preserve deadline expiry versus actual caller cancellation in the review result and gate event,
+  with the effective budget visible in diagnostics. A failed reviewer must never become a clean pass.
+- Investigate the no-op checker's unnecessary work under the actual instructions/model, and obtain
+  a real bounded verdict before declaring the cache prerequisite available. Do not fabricate an
+  approval, skip a required reviewer, or apply an unexplained timeout increase.
+
+### Acceptance
+
+- Focused tests distinguish internal timeout from upstream cancel, retain adapter cleanup and
+  failure-not-clean behavior, and cover the actual headless path rather than only ordinary reviews.
+- On a rebuilt app, a genuine required reviewer returns a parsed clean verdict for the no-op fixture;
+  then unchanged-tree reuse and both external-edit/pause-resume invalidations pass AR-006 live.
+- Run the canonical gates and independent review for the eventual implementation. This discovery
+  run changes documentation/evidence only and claims no product fix.
+
 ## LT-700 — Plan Queue restart recovery spawns a verifier before the orchestrator-tools socket exists
 
 ### Observed behaviour
@@ -10124,6 +10278,108 @@ scoring".
 - The AIO-05 C1 cell is re-run and recorded normally after the fix; the benchmark suite and the
   canonical static gates stay green.
 
+
+<a id="lt-711"></a>
+
+## LT-711 — historical Cursor empty-completed failure reports lack correction evidence
+
+### Observed behavior and evidence limit
+
+The owning agent-runtime residual document's 2026-10-04 batch C report says real failed reads
+and rejected shell permissions were emitted by Cursor as `completed` with no renderable output.
+It states that this would make correction mining treat them as successes. The raw receipt cited
+by that historical report is now absent. This item records that attributed historical observation;
+it does not claim a new reproduction, confirmed current miner behavior, or a verified fix.
+See [the original report](2026-09-27-livetest-agent-runtime-residuals_livetest.md#ar-007--inconclusive-leaning-towards-retirement-copilot-not-run)
+and the 2026-10-27 verifier-repair evidence section in that document.
+
+### Root cause
+
+Not established. A provider `completed` label alone does not prove tool success or actual miner
+behavior. Retain genuine provider update shapes and trace adapter normalization, durable transcript
+metadata, `extractToolInvocations` and `findCorrectionPairs` before attributing the failure to AIO.
+LT-612 covers reported nonzero exit codes; this report concerns empty updates without such a code.
+James's AR-007 retirement covers the `failed`-without-output fallback clause, not this report.
+
+### Required behavior
+
+Known failed tools must not be mined as successful corrections. Unknown outcomes must not be
+invented as failures or successes. Keep permission rejection and cancellation distinctions intact.
+
+### Acceptance and implementation status
+
+- Reproduce with a bounded genuine current Cursor read/permission failure and retain redacted raw
+  event shapes, exact failure context and durable outcome metadata.
+- Trace the real correction-miner result. If no actionable failure signal exists on the wire,
+  document that limit; never fabricate provider failure from an empty payload alone.
+- If AIO discards a genuine failure signal, fix its executing normalization path and verify live
+  before updating regressions; run canonical gates and independent review.
+- No implementation is claimed. Active untracked follow-up:
+  [Cursor outcome investigation](2026-10-27-cursor-empty-completed-investigation_plan.md).
+
+<a id="lt-712"></a>
+
+## LT-712 — read-only browser handoff cannot be correlated to its audit or FIFO position
+
+**Priority:** P3. **Status:** OPEN, recorded 2026-10-27; no fix claimed. Follow-up to LT-616,
+whose poll-request/command-ID log remains implemented. Owner: browser command delivery and
+Gateway audit pipeline. Implementation status is recorded under *Acceptance and implementation
+status* below and in the AR-003 evidence run; the closed
+`2026-10-27-browser-handoff-observability_plan_completed.md` record is not edited.
+Origin: [AR-003](2026-09-27-livetest-agent-runtime-residuals_livetest.md#ar-003--lt-371-live-browser-command-socket-handoff-correlation).
+
+### Observed behavior
+
+The installed coordinator's 2026-10-27 04:46:25.998–04:46:30.187 UTC run logged two failed
+poll handoffs/requeues for dispatch `bff39b44-734c-4a0a-8b3a-c17652338bb9` and one successful
+`browser.query_elements` audit `f50a00d6-2058-49b6-af91-7dbab5c7f682`. The retained schema/row
+receipt has no dispatch-command column and a null `request_id`. Neither requeue log records
+queue position. Those records cannot prove AR-003 step 4's direct join, FIFO-head reinsertion
+or absence of duplicate execution. This is an evidence gap, not proof of lost, duplicated or
+misordered browser work. The installed binary's source fingerprint was not captured, so this
+runtime observation is not represented as a current-checkout build reproduction.
+
+Raw evidence: `2026-09-27-livetest-agent-runtime-residuals_evidence/2026-10-27-verifier-repair/`
+(`ar003-attempt.json`, `ar003-main-log.txt`, `ar003-audit.json`, `ar003-final-health.json`).
+The review-corrections receipt independently revalidates these inputs and seals the current source.
+
+### Root cause in the reviewed checkout
+
+`browser-extension-command-store.ts:344` resolves only `result.result`; its dispatch ID is not
+returned to the read caller. `browser-gateway-service.ts:1288` normalizes that result and records
+the query through `BrowserGatewayResultRecorder`, which has no dispatch-ID input.
+`browser-audit-store.ts:50` persists the audit fields without a dispatch ID. The store reinserts
+with `unshift` at line 397, while `rpc-event-router.ts:641` logs only node, command, poll request
+and a requeued boolean. Source proves intended head insertion, not a live queue-position event.
+The mutation-journal hook is not a substitute on this read-only path.
+
+### Required behavior
+
+Retain content-free evidence joining the original read command ID, failed poll handoff, actual
+head reinsertion and final successful audit ID. Preserve approval-request identity separately;
+do not repurpose `request_id` or log page content, selectors, credentials or query results.
+Keep the original delivery deadline, receipt safety and single-execution guarantees.
+
+### Acceptance and implementation status
+
+**2026-11-07 implementation (merged from main).** The implementation landed on main under the closed
+[browser handoff observability plan](2026-10-27-browser-handoff-observability_plan_completed.md), with
+`browser-handoff-observability.spec.ts`. A parallel log-only version on the agent-runtime branch was dropped in the
+merge because main already provides the same evidence. Browser command queueing reports each command ID through an
+`onQueued` callback. The command store logs `Browser command requeued at FIFO head` with the command ID, queue
+position and queue depth. The result recorder persists `command_id` on every audit row
+(`browser-audit-store.ts`), and the existing-tab query path passes its command ID to the result. The audit join is
+therefore durable, not a log-line join. Live observation on an identified rebuilt coordinator is still open.
+
+- Add the missing read-dispatch/audit correlation and queue-order observation on the executing
+  delivery path, with focused regressions. If durable audit storage changes, migrate existing data.
+- Run canonical gates and independent implementation review; no existing expectation is weakened.
+- Repeat AR-003 on an identified rebuilt coordinator through Gateway targeting `windows-pc`,
+  retaining the exact source/build identity and direct evidence required by all four steps.
+  Require one successful audit for the same original dispatch ID, observed FIFO head, no receipt
+  failure or duplicate execution, original budget, and ready health afterward.
+- Until that live run passes, keep AR-003 and LT-712 open as a technical implementation
+  prerequisite. Repeating resets on an unchanged unobservable build cannot supply the missing proof.
 <a id="lt-710"></a>
 
 ## LT-710 — fresh-profile app startup can collide with the context worker's migrations

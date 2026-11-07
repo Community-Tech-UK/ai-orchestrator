@@ -1,0 +1,16 @@
+Independent source/receipt review, 2026-10-27.
+Scoped AR-002 runtime assertions: PASS.
+
+Baseline excludes three distinct target PIDs; owned snapshot aligns IDs/getPid. Native pgrep
+parent+command predicate matches all. One exact kill targets only parent and designated dead child.
+Hook matches one native-resume attempt and observes real suppressed completion before rejection.
+Reconciliation, queued notice, survivor-only children/completed IDs and real stored-summary
+retrieval all have direct evidence. Two normal response rounds are retained, not collapsed.
+The summary's success:false is killed-task failure, not query failure.
+
+No substituted output/result/completion state found. Both children genuinely ran foreground waits;
+this does not claim the full six-minute workload completed. Hook/listener restored, normal
+termination/settings restore/empty runtime/closed endpoints and PID cleanup have receipts.
+
+Disposable workspace/profile removal still requires final cleanup receipt. Whole-campaign and
+full verification remain open. No tests/processes/files changed by this reviewer.

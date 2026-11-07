@@ -1,0 +1,52 @@
+{
+  "at": 1793079594065,
+  "matches": [
+    {
+      "at": 1793079504629,
+      "resume": true,
+      "instanceId": "xb3s6f6cn",
+      "workspaceMatches": true,
+      "spawnAt": 1793079504629,
+      "suppressionObservedAt": 1793079504629,
+      "parentStatus": "respawning",
+      "suppressionObserved": true,
+      "thrownAt": 1793079504629
+    }
+  ],
+  "responses": [
+    {
+      "at": 1793079567071,
+      "response": "\n[Orchestrator Response]\nSource: Harness orchestrator (automated; not a message from the user)\nAction: get_children\nStatus: SUCCESS\n{\n  \"children\": [\n    {\n      \"id\": \"xv3avorr6\",\n      \"name\": \"## Child Instance\",\n      \"status\": \"busy\",\n      \"createdAt\": 1793079432474\n    }\n  ],\n  \"completedChildIds\": [\n    \"x7xliveqj\"\n  ],\n  \"activeConsensusQueries\": 0\n}\n[/Orchestrator Response]\n"
+    },
+    {
+      "at": 1793079567280,
+      "response": "\n[Orchestrator Response]\nSource: Harness orchestrator (automated; not a message from the user)\nAction: get_child_summary\nStatus: SUCCESS\n{\n  \"resultId\": \"result-1793079502797-c7fzof4\",\n  \"childId\": \"x7xliveqj\",\n  \"summary\": \"I’ll complete the eighteen required foreground waits in sequence.\",\n  \"success\": false,\n  \"artifactCount\": 0,\n  \"artifactTypes\": [],\n  \"conclusions\": [],\n  \"hasMoreDetails\": true,\n  \"commands\": {\n    \"getArtifacts\": \"{\\\"action\\\": \\\"get_child_artifacts\\\", \\\"childId\\\": \\\"x7xliveqj\\\"}\",\n    \"getDecisions\": \"{\\\"action\\\": \\\"get_child_section\\\", \\\"childId\\\": \\\"x7xliveqj\\\", \\\"section\\\": \\\"decisions\\\"}\",\n    \"getFull\": \"{\\\"action\\\": \\\"get_child_section\\\", \\\"childId\\\": \\\"x7xliveqj\\\", \\\"section\\\": \\\"full\\\"}\"\n  }\n}\n[/Orchestrator Response]\n"
+    },
+    {
+      "at": 1793079567574,
+      "response": "\n[Orchestrator Response]\nSource: Harness orchestrator (automated; not a message from the user)\nAction: get_children\nStatus: SUCCESS\n{\n  \"children\": [\n    {\n      \"id\": \"xv3avorr6\",\n      \"name\": \"## Child Instance\",\n      \"status\": \"busy\",\n      \"createdAt\": 1793079432474\n    }\n  ],\n  \"completedChildIds\": [\n    \"x7xliveqj\"\n  ],\n  \"activeConsensusQueries\": 0\n}\n[/Orchestrator Response]\n"
+    },
+    {
+      "at": 1793079567576,
+      "response": "\n[Orchestrator Response]\nSource: Harness orchestrator (automated; not a message from the user)\nAction: get_child_summary\nStatus: SUCCESS\n{\n  \"resultId\": \"result-1793079502797-c7fzof4\",\n  \"childId\": \"x7xliveqj\",\n  \"summary\": \"I’ll complete the eighteen required foreground waits in sequence.\",\n  \"success\": false,\n  \"artifactCount\": 0,\n  \"artifactTypes\": [],\n  \"conclusions\": [],\n  \"hasMoreDetails\": true,\n  \"commands\": {\n    \"getArtifacts\": \"{\\\"action\\\": \\\"get_child_artifacts\\\", \\\"childId\\\": \\\"x7xliveqj\\\"}\",\n    \"getDecisions\": \"{\\\"action\\\": \\\"get_child_section\\\", \\\"childId\\\": \\\"x7xliveqj\\\", \\\"section\\\": \\\"decisions\\\"}\",\n    \"getFull\": \"{\\\"action\\\": \\\"get_child_section\\\", \\\"childId\\\": \\\"x7xliveqj\\\", \\\"section\\\": \\\"full\\\"}\"\n  }\n}\n[/Orchestrator Response]\n"
+    }
+  ],
+  "parentStatus": "idle",
+  "completed": [
+    "x7xliveqj"
+  ],
+  "instances": [
+    {
+      "id": "xb3s6f6cn",
+      "parentId": null,
+      "status": "idle",
+      "pid": 28801
+    },
+    {
+      "id": "xv3avorr6",
+      "parentId": "xb3s6f6cn",
+      "status": "busy",
+      "pid": 15038
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "role": "unset",
+  "contextEvidenceModeByProvider": {
+    "claude": "off",
+    "codex": "off",
+    "gemini": "off",
+    "antigravity": "off",
+    "copilot": "off",
+    "cursor": "off",
+    "grok": "off",
+    "opencode": "off"
+  }
+}

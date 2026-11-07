@@ -1,0 +1,5 @@
+
+> harness@0.1.0 check:ts-max-loc
+> tsx scripts/check-ts-max-loc.ts
+
+TypeScript file size ratchet passed. Checked 3749 production files (limit: 700 lines, 172 allowlisted legacy files (+50 tolerance), 2872 test files skipped).

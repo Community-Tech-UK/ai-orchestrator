@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/context-evidence/context-safety-policy.spec.ts src/main/context-evidence/context-policy-integration.spec.ts src/main/orchestration/headless-review-runner.spec.ts src/main/orchestration/loop-fresh-eyes-reviewer.spec.ts src/main/orchestration/loop-coordinator-completion-gates.spec.ts src/main/orchestration/loop-review-reuse-anchor.spec.ts
+
+✓ 6 files · 177 tests passed in 34.9s
+  full log: _scratch/test-run.pid-25121.log

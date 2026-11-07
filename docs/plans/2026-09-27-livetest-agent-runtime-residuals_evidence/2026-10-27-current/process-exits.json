@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-27T04:20:35.851Z",
+  "children": [
+    {
+      "pid": 17631,
+      "exit": 143,
+      "signal": null
+    },
+    {
+      "pid": 30062,
+      "exit": 0,
+      "signal": null
+    }
+  ]
+}

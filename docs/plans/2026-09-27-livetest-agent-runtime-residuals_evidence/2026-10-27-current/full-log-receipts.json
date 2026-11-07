@@ -1,0 +1,20 @@
+[
+  {
+    "original": "test-run.pid-22085.log",
+    "retained": "test-run.pid-22085.log.gz",
+    "bytes": 37792,
+    "sha256": "e2c032eefda0958387757e5020d70177da3369154e2b8efc415dd92291cdb685"
+  },
+  {
+    "original": "test-run.pid-74924.log",
+    "retained": "test-run.pid-74924.log.gz",
+    "bytes": 4842649,
+    "sha256": "506b75f21e89f3a23619d322bd12c29320c3e72ee1460e357d29cded5b7c4f45"
+  },
+  {
+    "original": "test-run.pid-96741.log",
+    "retained": "test-run.pid-96741.log.gz",
+    "bytes": 5773,
+    "sha256": "835680e7693594fefb8d365cdd313e1cdb80c61f1255c673e5b8ee6524b01d8a"
+  }
+]

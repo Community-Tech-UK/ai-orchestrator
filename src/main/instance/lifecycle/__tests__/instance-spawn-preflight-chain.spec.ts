@@ -155,6 +155,27 @@ describe('InstanceSpawnPreflightChain', () => {
     expect(deps.consumeWarmAdapter).not.toHaveBeenCalled();
   });
 
+  it('fresh-spawns Claude with its permission hook instead of adopting an unconfigured warm adapter', async () => {
+    const deps = makeDeps();
+    deps.consumeWarmAdapter.mockReturnValue({ getName: () => 'claude' } as CliAdapter);
+    const spawnOptions = makeSpawnOptions({
+      browserGatewayMcp: undefined,
+      permissionHookPath: '/tmp/defer-permission-hook.mjs',
+      yoloMode: false,
+    });
+
+    const result = await new InstanceSpawnPreflightChain(deps).prepare({
+      config: { workingDirectory: '/tmp/project', provider: 'claude', yoloMode: false },
+      instance: { workingDirectory: '/tmp/project', bareMode: false },
+      provider: 'claude',
+      spawnOptions,
+    });
+
+    expect(result).toEqual({ kind: 'fresh', executionLocation: { type: 'local' }, spawnOptions });
+    expect(deps.consumeWarmAdapter).not.toHaveBeenCalled();
+    expect(deps.warmCodememWorkspace).toHaveBeenCalledWith('/tmp/project');
+  });
+
   it('refuses the warm adapter for an explicit provider-decide effort', async () => {
     const deps = makeDeps();
     deps.consumeWarmAdapter.mockReturnValue({ getName: () => 'claude' } as CliAdapter);

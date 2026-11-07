@@ -1,0 +1,24 @@
+
+> harness@0.1.0 lint:fast
+> oxlint --config .oxlintrc.json src/main src/shared src/preload packages/contracts/src packages/sdk/src
+
+src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts:3363:28: warning eslint(no-unsafe-optional-chaining): Unsafe usage of optional chaining help: If this short-circuits with 'undefined' the evaluation will throw TypeError
+src/main/work-admission/consult-admission.spec.ts:7:9: warning eslint(prefer-const): `stop` is never reassigned. help: Use `const` instead.
+src/main/orchestration/review-artifact-anchor.ts:257:110: warning unicorn(prefer-string-starts-ends-with): Prefer String#startsWith over a regex with a caret. help: Replace `/^@@ /.test(line)` with `line.startsWith('@@ ')`.
+src/main/ipc/handlers/__tests__/loop-handlers.spec.ts:537:64: warning eslint(no-useless-escape): Unnecessary escape character '\'' help: Replace `\'` with `'`.
+src/main/cli/adapters/claude-output-parser.ts:138:24: warning unicorn(no-useless-fallback-in-spread): Empty fallbacks in spreads are unnecessary help: Spreading falsy values in object literals won't add any unexpected properties, so it's unnecessary to add an empty object as fallback.
+src/main/cli/adapters/claude-output-parser.ts:138:54: warning unicorn(no-useless-fallback-in-spread): Empty fallbacks in spreads are unnecessary help: Spreading falsy values in object literals won't add any unexpected properties, so it's unnecessary to add an empty object as fallback.
+packages/contracts/src/schemas/loop-questions.schemas.spec.ts:1:10: warning eslint(no-unused-vars): Identifier 'describe' is imported but never used. help: Consider removing this import.
+src/shared/utils/opencode-additional-directories.spec.ts:12:114: warning unicorn(no-new-array): Do not use `new Array(singleArgument)`. help: It's not clear whether the argument is meant to be the length of the array or the only element. If the argument is the array's length, consider using `Array.from({ length: n })`. If the argument is the only element, use `[element]`.
+src/main/plan-queue/plan-queue-store.spec.ts:351:65: warning unicorn(no-useless-spread): Using a spread operator here creates a new array unnecessarily. help: `snapshot.map` returns a new array. Spreading it into an array expression to create a new array is redundant.
+src/main/plan-queue/plan-queue-store.spec.ts:387:68: warning unicorn(no-useless-spread): Using a spread operator here creates a new array unnecessarily. help: `overlapping.map` returns a new array. Spreading it into an array expression to create a new array is redundant.
+src/main/plan-queue/plan-queue-pause-control.spec.ts:101:61: warning unicorn(no-useless-spread): Using a spread operator here creates a new array unnecessarily. help: `snapshot.map` returns a new array. Spreading it into an array expression to create a new array is redundant.
+src/main/remote-node/worker-sign-in-task.ts:402:123: warning eslint(no-useless-escape): Unnecessary escape character 's' help: Replace `\s` with `s`.
+src/main/app/compaction-runtime.ts:433:13: warning unicorn(no-useless-fallback-in-spread): Empty fallbacks in spreads are unnecessary help: Spreading falsy values in object literals won't add any unexpected properties, so it's unnecessary to add an empty object as fallback.
+src/main/browser-gateway/browser-extension-assets.spec.ts:3657:52: warning eslint(no-unused-vars): Parameter 'params' is declared but never used. Unused parameters should start with a '_'. help: Consider removing this parameter.
+src/main/browser-gateway/browser-extension-assets.spec.ts:3683:15: warning eslint(no-unsafe-optional-chaining): Unsafe usage of optional chaining help: If this short-circuits with 'undefined' the evaluation will throw TypeError
+src/main/storage/storage-files.ts:14:19: warning unicorn(no-new-array): Do not use `new Array(singleArgument)`. help: It's not clear whether the argument is meant to be the length of the array or the only element. If the argument is the array's length, consider using `Array.from({ length: n })`. If the argument is the only element, use `[element]`.
+src/main/browser-gateway/browser-mcp-tools.spec.ts:295:22: warning eslint(no-unsafe-optional-chaining): Unsafe usage of optional chaining help: If this short-circuits with 'undefined' the evaluation will throw TypeError
+src/main/orchestration/loop-pingpong-completion.ts:28:8: warning eslint(no-unused-vars): Type 'PingPongReviewFinding' is imported but never used. help: Consider removing this import.
+src/main/orchestration/loop-pingpong-completion.ts:34:8: warning eslint(no-unused-vars): Type 'FreshEyesFinding' is imported but never used. help: Consider removing this import.
+src/main/conversation-ledger/ledger-space-reclaim.spec.ts:71:26: warning unicorn(no-useless-spread): Using a spread operator here creates a new array unnecessarily. help: `for…of` can iterate over iterable, it's unnecessary to convert to an array.

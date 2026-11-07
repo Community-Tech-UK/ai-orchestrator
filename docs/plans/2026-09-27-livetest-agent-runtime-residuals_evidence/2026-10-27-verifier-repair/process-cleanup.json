@@ -1,0 +1,78 @@
+{
+  "processes": {
+    "at": "2026-10-27T04:46:27.348Z",
+    "renderer": 32586,
+    "app": 59100,
+    "supervisor": 32570
+  },
+  "exits": {
+    "at": "2026-10-27T05:00:34.482Z",
+    "children": [
+      {
+        "pid": 32586,
+        "exit": 143,
+        "signal": null
+      },
+      {
+        "pid": 59100,
+        "exit": 0,
+        "signal": null
+      }
+    ]
+  },
+  "liveness": [
+    {
+      "pid": 59100,
+      "status": "gone"
+    },
+    {
+      "pid": 32586,
+      "status": "gone"
+    },
+    {
+      "pid": 32570,
+      "status": "gone"
+    },
+    {
+      "pid": 60337,
+      "status": "gone"
+    },
+    {
+      "pid": 60342,
+      "status": "gone"
+    },
+    {
+      "pid": 60406,
+      "status": "gone"
+    },
+    {
+      "pid": 69038,
+      "status": "gone"
+    },
+    {
+      "pid": 69076,
+      "status": "gone"
+    },
+    {
+      "pid": 98754,
+      "status": "gone"
+    }
+  ],
+  "endpoints": [
+    {
+      "port": 9735,
+      "connectCode": 61,
+      "closed": true
+    },
+    {
+      "port": 9736,
+      "connectCode": 61,
+      "closed": true
+    },
+    {
+      "port": 4735,
+      "connectCode": 61,
+      "closed": true
+    }
+  ]
+}

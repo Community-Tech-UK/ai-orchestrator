@@ -1,0 +1,15 @@
+[2026-10-27T05:38:22.832Z] [WARN] [OrchestrationResponseDelivery] Orchestration response injection suppressed pending instance readiness {
+  instanceId: 'xb3s6f6cn',
+  action: 'child_completed',
+  reason: 'respawning',
+  admissionId: 'de4c8686-6f3b-422c-adb5-815396fca12c'
+}
+[2026-10-27T05:38:24.629Z] [WARN] [RuntimeReconciler] Resume failed during recovery respawn, falling back to fresh session {
+  instanceId: 'xb3s6f6cn',
+  error: 'AR002 fixture: one scoped native resume refusal after child completion window'
+}
+[2026-10-27T05:38:25.550Z] [INFO] [OrchestrationHandler] Reconciled orchestration children after restart {
+  parentId: 'xb3s6f6cn',
+  kept: [ 'xv3avorr6' ],
+  dropped: [ 'x7xliveqj' ]
+}

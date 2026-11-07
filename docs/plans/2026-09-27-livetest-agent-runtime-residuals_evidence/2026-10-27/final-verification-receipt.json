@@ -1,0 +1,69 @@
+{
+  "at": "2026-10-27T03:18:01.902Z",
+  "ok": true,
+  "hashesChecked": 38,
+  "hashFailures": [],
+  "ports": [
+    {
+      "port": 4735,
+      "closed": true,
+      "code": "ECONNREFUSED"
+    },
+    {
+      "port": 9735,
+      "closed": true,
+      "code": "ECONNREFUSED"
+    },
+    {
+      "port": 9736,
+      "closed": true,
+      "code": "ECONNREFUSED"
+    }
+  ],
+  "absent": [
+    {
+      "file": "dist",
+      "absent": true
+    },
+    {
+      "file": ".angular",
+      "absent": true
+    },
+    {
+      "file": "_scratch",
+      "absent": true
+    },
+    {
+      "file": ".aio-loop-state/loop-1793070031371-562275f3",
+      "absent": true
+    },
+    {
+      "file": "/tmp/aio-lt-queue-3af326de",
+      "absent": true
+    }
+  ],
+  "currentOpen": [
+    {
+      "id": "AR-001",
+      "hasDatedSection": true
+    },
+    {
+      "id": "AR-004",
+      "hasDatedSection": true
+    },
+    {
+      "id": "AR-005",
+      "hasDatedSection": true
+    },
+    {
+      "id": "AR-006",
+      "hasDatedSection": true
+    }
+  ],
+  "headUnchanged": true,
+  "branch": "queue/2026-09-27-livetest-agent-runt-f326de",
+  "branchCount": 107,
+  "worktreeCount": 18,
+  "nothingStaged": true,
+  "scope": "Evidence consistency and cleanup check only; not independent completion PASS"
+}

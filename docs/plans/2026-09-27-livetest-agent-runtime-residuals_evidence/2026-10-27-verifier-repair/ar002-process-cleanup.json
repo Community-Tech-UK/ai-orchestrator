@@ -1,0 +1,189 @@
+{
+  "at": "2026-10-27T05:42:02.186719+00:00",
+  "liveness": [
+    {
+      "pid": 2376,
+      "status": "gone"
+    },
+    {
+      "pid": 11171,
+      "status": "gone"
+    },
+    {
+      "pid": 11177,
+      "status": "gone"
+    },
+    {
+      "pid": 15038,
+      "status": "gone"
+    },
+    {
+      "pid": 15055,
+      "status": "gone"
+    },
+    {
+      "pid": 15175,
+      "status": "gone"
+    },
+    {
+      "pid": 15181,
+      "status": "gone"
+    },
+    {
+      "pid": 16447,
+      "status": "gone"
+    },
+    {
+      "pid": 16561,
+      "status": "gone"
+    },
+    {
+      "pid": 17776,
+      "status": "gone"
+    },
+    {
+      "pid": 28782,
+      "status": "gone"
+    },
+    {
+      "pid": 28793,
+      "status": "gone"
+    },
+    {
+      "pid": 28801,
+      "status": "gone"
+    },
+    {
+      "pid": 28817,
+      "status": "gone"
+    },
+    {
+      "pid": 28940,
+      "status": "gone"
+    },
+    {
+      "pid": 28949,
+      "status": "gone"
+    },
+    {
+      "pid": 28951,
+      "status": "gone"
+    },
+    {
+      "pid": 28952,
+      "status": "gone"
+    },
+    {
+      "pid": 28962,
+      "status": "gone"
+    },
+    {
+      "pid": 28972,
+      "status": "gone"
+    },
+    {
+      "pid": 28974,
+      "status": "gone"
+    },
+    {
+      "pid": 28988,
+      "status": "gone"
+    },
+    {
+      "pid": 29000,
+      "status": "gone"
+    },
+    {
+      "pid": 29030,
+      "status": "gone"
+    },
+    {
+      "pid": 29042,
+      "status": "gone"
+    },
+    {
+      "pid": 29044,
+      "status": "gone"
+    },
+    {
+      "pid": 29047,
+      "status": "gone"
+    },
+    {
+      "pid": 29080,
+      "status": "gone"
+    },
+    {
+      "pid": 29097,
+      "status": "gone"
+    },
+    {
+      "pid": 29104,
+      "status": "gone"
+    },
+    {
+      "pid": 29115,
+      "status": "gone"
+    },
+    {
+      "pid": 29116,
+      "status": "gone"
+    },
+    {
+      "pid": 29355,
+      "status": "gone"
+    },
+    {
+      "pid": 29420,
+      "status": "gone"
+    },
+    {
+      "pid": 29784,
+      "status": "gone"
+    },
+    {
+      "pid": 29860,
+      "status": "gone"
+    },
+    {
+      "pid": 98231,
+      "status": "gone"
+    },
+    {
+      "pid": 99901,
+      "status": "gone"
+    },
+    {
+      "pid": 99904,
+      "status": "gone"
+    },
+    {
+      "pid": 98081,
+      "status": "gone"
+    }
+  ],
+  "endpoints": [
+    {
+      "port": 9735,
+      "closed": true,
+      "connectCode": 61
+    },
+    {
+      "port": 9736,
+      "closed": true,
+      "connectCode": 61
+    },
+    {
+      "port": 4735,
+      "closed": true,
+      "connectCode": 61
+    }
+  ],
+  "supervisor": {
+    "at": "2026-10-27T05:41:19.337Z",
+    "pid": 98231,
+    "code": 0,
+    "signal": null,
+    "serverClosed": true
+  }
+}

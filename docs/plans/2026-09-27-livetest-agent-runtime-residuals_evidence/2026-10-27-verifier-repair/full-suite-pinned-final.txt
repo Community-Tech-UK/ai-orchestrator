@@ -1,0 +1,29 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js
+
+  … 4 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 70 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 95 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 166 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 240 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 293 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 416 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 482 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 552 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 653 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 743 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 857 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 966 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 1126 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 1301 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 1463 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 1646 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 1834 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 2050 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 2291 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 2396 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 2534 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+  … 2725 test file(s) done (full log: _scratch/test-run.pid-90022.log)
+✓ 2793 files · 35381 tests passed in 2795.0s
+  full log: _scratch/test-run.pid-90022.log
