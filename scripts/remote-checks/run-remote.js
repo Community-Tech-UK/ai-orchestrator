@@ -21,6 +21,7 @@ const SSH_UNREACHABLE = 255;
 const SETUP_LIMIT_MS = 5 * 60_000;
 /** A little over the far machine's own limit, for a run that goes quiet without the connection dropping. */
 const RUN_LIMIT_MS = 62 * 60_000;
+const LOCK_FILE = 'package-lock.json';
 const SSH_OPTIONS = [
   '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=4',
 ];
@@ -80,7 +81,7 @@ function sharedBases(root, env, listed) {
 }
 
 /** Streams the snapshot's missing objects into the far repository. Never a `git push`. */
-async function sendSnapshot(root, snapshot, config, script, listedBases) {
+async function sendSnapshot(root, snapshot, config, script, listedBases, prefix) {
   const bases = sharedBases(root, snapshot.env, listedBases);
   const pack = spawn('git', ['pack-objects', '--revs', '--thin', '--stdout', '--quiet'], {
     cwd: root, env: snapshot.env, stdio: ['pipe', 'pipe', 'ignore'],
@@ -88,7 +89,7 @@ async function sendSnapshot(root, snapshot, config, script, listedBases) {
   pack.stdin.on('error', () => { /* pack-objects died; its exit code reports it */ });
   const packDone = new Promise(resolve => pack.on('close', resolve));
   pack.stdin.end(`${snapshot.commit}\n${bases.map(base => `^${base}\n`).join('')}`);
-  const sent = await sshCommand(config, `bash ${script} receive ${snapshot.commit} ${snapshot.head ?? 'none'}`, {
+  const sent = await sshCommand(config, `${prefix}bash ${script} receive ${snapshot.commit} ${snapshot.head ?? 'none'}`, {
     inputStream: pack.stdout,
   });
   // If the far end stopped early, nothing reads the pack any more, and it would block on a full pipe forever.
@@ -139,6 +140,12 @@ function streamRun(config, remoteCommand, logPath) {
   });
 }
 
+/** A project may leave off the `v`, or name only a major version, like `24`. */
+function sameNode(wanted, actual) {
+  const version = wanted.replace(/^v/, '');
+  return actual === `v${version}` || (/^\d+$/.test(version) && actual.startsWith(`v${version}.`));
+}
+
 function escapeForJson(text) {
   return JSON.stringify(text).slice(1, -1);
 }
@@ -178,8 +185,11 @@ async function fetchReport(config, script, id, remoteRoot, root, jsonPath) {
  * @param {string|undefined} options.ci value of `CI` to pass through
  * @param {(root: string) => object} [options.take] how to capture the code; the files on disk by default
  * @param {string[]} [options.relatedTo] run only the tests related to these files, not the whole suite
+ * @param {{id: string, suite: string, nodeFile: string, lockFile: string}} [options.project] another repository's
+ *   recipe, from projects.js. Its own runner reports on the far machine, so no report comes back: the result
+ *   line's test count is the proof instead, and `jsonPath` is unused.
  */
-async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take = takeSnapshot, relatedTo }) {
+async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take = takeSnapshot, relatedTo, project }) {
   let snapshot;
   try {
     snapshot = take(root);
@@ -193,9 +203,11 @@ async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take 
   try {
     const expected = {
       tree: snapshot.tree,
-      node: snapshotFileText(root, snapshot, '.nvmrc'),
-      lock: snapshotFileHash(root, snapshot, 'package-lock.json'),
+      node: snapshotFileText(root, snapshot, project?.nodeFile ?? '.nvmrc'),
+      lock: snapshotFileHash(root, snapshot, project?.lockFile ?? LOCK_FILE),
     };
+    // The id and suite are fixed names from projects.js, never anything a run supplied.
+    const prefix = project ? `AIO_PROJECT=${project.id} AIO_SUITE=${project.suite} ` : '';
 
     const scriptText = fs.readFileSync(path.join(__dirname, 'remote-run.sh'));
     const scriptName = `remote-run-${crypto.createHash('sha256').update(scriptText).digest('hex').slice(0, 12)}.sh`;
@@ -203,12 +215,12 @@ async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take 
     const prepared = await sshCommand(
       config,
       // Renamed into place: other runs may be starting from this same file.
-      `mkdir -p remote-checks && cat > ${script}.$$ && mv ${script}.$$ ${script} && bash ${script} bases`,
+      `mkdir -p remote-checks && cat > ${script}.$$ && mv ${script}.$$ ${script} && ${prefix}bash ${script} bases`,
       { input: scriptText },
     );
     if (prepared.code !== 0 || prepared.timedOut) return { ok: false, reason: `${config.label} could not be reached` };
 
-    const sendFault = await sendSnapshot(root, snapshot, config, script, prepared.stdout.split('\n').filter(Boolean));
+    const sendFault = await sendSnapshot(root, snapshot, config, script, prepared.stdout.split('\n').filter(Boolean), prefix);
     if (sendFault) return { ok: false, reason: sendFault };
 
     const id = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}`;
@@ -218,18 +230,19 @@ async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take 
       if (listed.code !== 0 || listed.timedOut) return { ok: false, reason: `${config.label} could not be reached` };
     }
     const flag = value => (value ? '1' : '0');
-    const result = await streamRun(config, `bash ${script} run ${id} ${snapshot.commit} ${flag(ci)} ${flag(noCache)}`, logPath);
+    const result = await streamRun(config, `${prefix}bash ${script} run ${id} ${snapshot.commit} ${flag(ci)} ${flag(noCache)}`, logPath);
 
     if (!result) return { ok: false, reason: `the connection to ${config.label} was lost during the run` };
     if (result.status === 'no-slot') return { ok: false, reason: `${config.label} had no free slot` };
     if (result.status !== 'ok') return { ok: false, reason: `${config.label} could not set up: ${result.reason || 'unknown fault'}` };
-    if (result.tree !== expected.tree || result.node !== expected.node || result.lock !== expected.lock) {
+    if (result.tree !== expected.tree || !sameNode(expected.node, result.node) || result.lock !== expected.lock) {
       return { ok: false, reason: `the result from ${config.label} did not match the code sent` };
     }
-    if (!await fetchReport(config, script, id, result.root, root, jsonPath)) {
-      return { ok: false, reason: `${config.label} sent back no usable report` };
-    }
-    return { ok: true, exitCode: result.exit, fingerprint: snapshot.tree, waitedMs: (result.waited ?? 0) * 1000 };
+    const reported = project ? result.tests > 0 : await fetchReport(config, script, id, result.root, root, jsonPath);
+    if (!reported) return { ok: false, reason: `${config.label} sent back no usable report` };
+    return {
+      ok: true, exitCode: result.exit, fingerprint: snapshot.tree, waitedMs: (result.waited ?? 0) * 1000, farRoot: result.root, tests: result.tests,
+    };
   } catch (err) {
     return { ok: false, reason: `the run could not be sent: ${err.message}` };
   } finally {

@@ -8,6 +8,9 @@
 #   run <id> <commit> <ci> <no-cache>        run the suite, streaming output; last line is the result
 #   fetch <id>                               send the JSON report, gzipped, then tidy up
 #
+# With AIO_PROJECT and AIO_SUITE set, each of those works on that repository instead, in its own
+# store and checkouts, using a recipe at the bottom of this file. It shares the same slots.
+#
 # A run lives in its own systemd scope, so stopping it kills everything it started,
 # including detached children, which closing SSH alone would leave running. The caller
 # holds stdin open for the whole run: when that closes, the connection has gone.
@@ -15,7 +18,10 @@ set -u
 
 SELF="$(readlink -f "$0")"
 BASE="$(dirname "$SELF")"
-REPO="$BASE/repo.git"
+PROJECT="${AIO_PROJECT:-}"
+SUITE="${AIO_SUITE:-}"
+HOME_OF_PROJECT="$BASE${PROJECT:+/projects/$PROJECT}"
+REPO="$HOME_OF_PROJECT/repo.git"
 RUNS="$BASE/runs"
 SLOT_COUNT=3
 SLOT_WAIT_SECONDS=180
@@ -28,7 +34,7 @@ RESULT_PREFIX='AIO_REMOTE_RESULT '
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
 ensure_repo() {
-  [ -d "$REPO" ] || git init -q --bare "$REPO"
+  [ -d "$REPO" ] || { mkdir -p "$HOME_OF_PROJECT" && git init -q --bare "$REPO"; }
 }
 
 cmd_bases() {
@@ -50,9 +56,9 @@ tidy() {
   find "$RUNS" -mindepth 1 -maxdepth 1 -type d -mmin +1440 -exec rm -rf {} + 2>/dev/null
   # Every run rewrites its own version, so only retired versions get this old.
   find "$BASE" -maxdepth 1 -name 'remote-run-*' -mtime +7 -delete 2>/dev/null
-  if [ -z "$(find "$BASE/last-gc" -mmin -1440 2>/dev/null)" ]; then
-    touch "$BASE/last-gc"
-    flock -n -o "$BASE/gc.lock" git -C "$REPO" gc --quiet --prune=2.days.ago
+  if [ -z "$(find "$HOME_OF_PROJECT/last-gc" -mmin -1440 2>/dev/null)" ]; then
+    touch "$HOME_OF_PROJECT/last-gc"
+    flock -n -o "$HOME_OF_PROJECT/gc.lock" git -C "$REPO" gc --quiet --prune=2.days.ago
   fi
 }
 
@@ -69,9 +75,9 @@ cmd_receive() {
 
 # The run's outcome, as one line of JSON. Every value here is hex, a number, or a fixed word.
 write_result() {
-  local dir="$1" status="$2" reason="$3" exit_code="$4" tree="$5" node="$6" lock="$7" root="$8" waited="${9:-0}"
-  printf '{"status":"%s","reason":"%s","exit":%s,"tree":"%s","node":"%s","lock":"%s","root":"%s","waited":%s}\n' \
-    "$status" "$reason" "$exit_code" "$tree" "$node" "$lock" "$root" "$waited" > "$dir/result.tmp"
+  local dir="$1" status="$2" reason="$3" exit_code="$4" tree="$5" node="$6" lock="$7" root="$8" waited="${9:-0}" tests="${10:-0}"
+  printf '{"status":"%s","reason":"%s","exit":%s,"tree":"%s","node":"%s","lock":"%s","root":"%s","waited":%s,"tests":%s}\n' \
+    "$status" "$reason" "$exit_code" "$tree" "$node" "$lock" "$root" "$waited" "$tests" > "$dir/result.tmp"
   mv "$dir/result.tmp" "$dir/result"
 }
 
@@ -81,8 +87,26 @@ setup_failed() {
   exit 0
 }
 
+# A project may name only a major version. Any we already have will do; the newest otherwise.
+full_node_version() {
+  case "$1" in
+    v*.*.*) echo "$1" ;;
+    *.*.*) echo "v$1" ;;
+    *)
+      local major="${1#v}" have
+      have="$(ls -d "$BASE/node/v$major".* 2>/dev/null | sort -V | tail -n 1)"
+      if [ -n "$have" ]; then basename "$have"
+      else curl -fsSL "https://nodejs.org/dist/latest-v$major.x/" | grep -o "node-v$major\.[0-9.]*-linux-x64" | head -n 1 | sed -e 's/^node-//' -e 's/-linux-x64$//'
+      fi
+      ;;
+  esac
+}
+
 ensure_node() {
-  local version="$1" dir="$BASE/node/$1"
+  local version dir
+  version="$(full_node_version "$1")"
+  [ -n "$version" ] || return 1
+  dir="$BASE/node/$version"
   if [ ! -x "$dir/bin/node" ]; then
     mkdir -p "$BASE/node"
     local staging
@@ -102,7 +126,7 @@ install_stamp() {
 # Runs inside a held slot. Output goes to the run's log, which `run` streams back.
 cmd_slot_job() {
   local slot="$1" dir="$2" commit="$3" ci="$4" no_cache="$5" waited="$6"
-  local work="$BASE/slots/$slot/repo"
+  local work="$HOME_OF_PROJECT/slots/$slot/repo"
   echo "[remote checks] slot $slot on $(hostname)"
 
   mkdir -p "$work" || setup_failed "$dir" 'could not make the checkout folder'
@@ -114,10 +138,16 @@ cmd_slot_job() {
 
   local tree version lock
   tree="$(git rev-parse 'HEAD^{tree}')"
-  version="$(cat .nvmrc 2>/dev/null)"
-  [ -n "$version" ] || setup_failed "$dir" 'the snapshot has no .nvmrc'
+  [ -z "$PROJECT" ] || load_recipe || setup_failed "$dir" 'this repository has no recipe here'
+  version="$(cat "${NODE_FILE:-.nvmrc}" 2>/dev/null)"
+  [ -n "$version" ] || setup_failed "$dir" 'the snapshot has no Node version file'
   ensure_node "$version" || setup_failed "$dir" 'could not fetch the Node version'
-  lock="$(sha256sum package-lock.json 2>/dev/null | cut -d' ' -f1)"
+  lock="$(sha256sum "${LOCK_FILE:-package-lock.json}" 2>/dev/null | cut -d' ' -f1)"
+
+  if [ -n "$PROJECT" ]; then
+    project_job "$slot" "$dir" "$tree" "$lock" "$work" "$waited"
+    return
+  fi
 
   local stamp_file="$BASE/slots/$slot/install-stamp" stamp
   stamp="$(install_stamp)"
@@ -152,6 +182,30 @@ cmd_slot_job() {
     code=$?
   fi
   write_result "$dir" ok '' "$code" "$tree" "$(node -v)" "$lock" "$work" "$waited"
+}
+
+# Installs once per lockfile, then runs the project's own quiet runner, which prints what a person
+# would read. It's the run's exit code that counts, and a test count proves tests really ran.
+project_job() {
+  local slot="$1" dir="$2" tree="$3" lock="$4" work="$5" waited="$6"
+  local stamp_file="$HOME_OF_PROJECT/slots/$slot/install-stamp-$SUITE" stamp
+  # The recipe counts too: changing how a project installs has to take effect.
+  stamp="$( (cat $INSTALL_INPUTS 2>/dev/null; declare -f recipe_install) | sha256sum | cut -d' ' -f1)-$(node -v)"
+  if [ "$stamp" != "$(cat "$stamp_file" 2>/dev/null)" ]; then
+    echo "[remote checks] installing packages"
+    rm -f "$stamp_file"
+    recipe_install > "$dir/install.log" 2>&1 || { tail -n 30 "$dir/install.log"; setup_failed "$dir" 'the install failed'; }
+    printf '%s\n' "$stamp" > "$stamp_file"
+  fi
+  echo "[remote checks] running tests"
+  recipe_test
+  local code=$?
+  # A failure's detail is in the project's own log, which is gone once the next run cleans up.
+  if [ "$code" -ne 0 ]; then
+    echo '[remote checks] full log follows'
+    cat "$RECIPE_LOG" 2>/dev/null
+  fi
+  write_result "$dir" ok '' "$code" "$tree" "$(node -v)" "$lock" "$work" "$waited" "$(recipe_test_count)"
 }
 
 # The scope's main program: waits for a free slot, holding nothing while it waits.
@@ -211,6 +265,33 @@ cmd_run() {
   else
     printf '%s{"status":"setup-failed","reason":"the run stopped before it finished","exit":1}\n' "$RESULT_PREFIX"
   fi
+  # A project's report stays with its own runner, so nothing will come to fetch this.
+  [ -z "$PROJECT" ] || rm -rf "$dir"
+}
+
+# Every repository that may run here, by the names in scripts/remote-checks/projects.js. Anything
+# else is refused. Each one sets NODE_FILE, LOCK_FILE, INSTALL_INPUTS and RECIPE_LOG, and defines
+# recipe_install, recipe_test and recipe_test_count. AIO_REMOTE_CHECKS=off stops a project's runner sending itself here.
+load_recipe() {
+  case "$PROJECT/$SUITE" in
+    work-finding/desk)
+      NODE_FILE=apps/desk/.nvmrc
+      LOCK_FILE=apps/desk/package-lock.json
+      INSTALL_INPUTS='apps/desk/package-lock.json apps/desk/package.json apps/radar/package-lock.json'
+      # Desk's tests load Radar's native addon.
+      recipe_install() { npm --prefix apps/radar ci && npm --prefix apps/desk ci && (cd apps/desk && npx playwright install chromium chromium-headless-shell); }
+      # panelLayoutCss measures pixels with the system font, and the Mac's isn't here, so it stays
+      # on the Mac. Its runner holds to 4 files at a time for the Mac's sake. This machine has room.
+      # The usual umask here lets a group write, which the installer tests rightly refuse.
+      recipe_test() {
+        (umask 022 && cd apps/desk && AIO_REMOTE_CHECKS=off npm run test:quiet -- --test-concurrency=8 \
+          $(ls test/unit/*.test.ts test/unit/*.test.mjs work-finder/*.test.mjs | grep -v '/panelLayoutCss\.test\.ts$'))
+      }
+      RECIPE_LOG=apps/desk/_scratch/test-run.log
+      recipe_test_count() { sed -n 's/^# tests \([0-9][0-9]*\)$/\1/p' "$RECIPE_LOG" 2>/dev/null | tail -n 1 | grep . || echo 0; }
+      ;;
+    *) return 1 ;;
+  esac
 }
 
 cmd_fetch() {
@@ -218,6 +299,12 @@ cmd_fetch() {
   gzip -c "$dir/results.json" || exit 1
   rm -rf "$dir"
 }
+
+# Refused before anything is stored: a name the recipes don't know never gets a folder here.
+if [ -n "$PROJECT" ] && ! load_recipe; then
+  echo "remote-run.sh: $PROJECT/$SUITE is not a known repository" >&2
+  exit 3
+fi
 
 command_name="${1:-}"
 [ $# -gt 0 ] && shift

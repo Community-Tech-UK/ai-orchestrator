@@ -82,10 +82,15 @@ async function main() {
 
   log(`about ${specs} spec files are related, so testing what is staged on ${config.label}`);
   const progress = setInterval(() => log(`still running on ${config.label} (full log: ${path.relative(ROOT, logPath)})`), PROGRESS_INTERVAL_MS);
-  const remote = await runOnRemote({
-    config, root: ROOT, logPath, jsonPath, noCache: false, ci: process.env.CI, take: takeStagedSnapshot, relatedTo: files,
-  });
-  clearInterval(progress);
+  let remote;
+  try {
+    remote = await runOnRemote({
+      config, root: ROOT, logPath, jsonPath, noCache: false, ci: process.env.CI, take: takeStagedSnapshot, relatedTo: files,
+    });
+  } finally {
+    // With exitCode rather than exit(), a timer left running would hold the commit open.
+    clearInterval(progress);
+  }
   if (!remote.ok) return fellBack(started, remote.reason);
 
   const report = readReport(jsonPath);
@@ -106,11 +111,12 @@ async function main() {
   return exitCode;
 }
 
+// exitCode, not exit(): a run's failures can be longer than a pipe holds, and exit() would cut them off.
 main().then(
-  code => process.exit(code),
+  (code) => { process.exitCode = code; },
   (err) => {
     // Nothing above has judged the code by now, so the tests still have to run.
     log(`running on the Mac because the far machine's route failed: ${err.message}`);
-    process.exit(STAY_ON_THE_MAC);
+    process.exitCode = STAY_ON_THE_MAC;
   },
 );

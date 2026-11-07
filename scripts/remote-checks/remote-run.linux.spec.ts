@@ -132,6 +132,142 @@ function startRun(script: string, name: string, commit: string) {
 
 const LIMIT = 60_000;
 
+/** Stands in for `npm` in a project run. `behaviour` in the project says how it acts. */
+const FAKE_NPM = `#!/usr/bin/env bash
+case "$*" in
+  *' ci'*)
+    echo "$*" >> "$FAKE_LOG"
+    [ "$(cat "$FAKE_BEHAVIOUR")" != install-fails ] || { echo 'npm says no'; exit 1; }
+    ;;
+  *test:quiet*)
+    { echo "umask $(umask)"; echo "off=$AIO_REMOTE_CHECKS"; echo "$*"; } >> "$FAKE_LOG"
+    mkdir -p _scratch
+    case "$(cat "$FAKE_BEHAVIOUR")" in
+      no-log) ;;
+      fails) printf '%s\\n' 'not ok 1 - a real detail' '# tests 7' > _scratch/test-run.log; echo 'short summary'; exit 2 ;;
+      *) echo '# tests 7' > _scratch/test-run.log; echo 'short summary' ;;
+    esac
+    ;;
+esac
+`;
+
+/** The real work-finding recipe against a stub repository, with `npm` and `npx` faked. */
+function setUpProject() {
+  const machine = setUp();
+  const desk = join(machine.project, 'apps/desk');
+  const bin = join(machine.base, 'fake-bin');
+  mkdirSync(join(desk, 'test/unit'), { recursive: true });
+  mkdirSync(join(machine.project, 'apps/radar'), { recursive: true });
+  mkdirSync(join(desk, 'work-finder'));
+  mkdirSync(bin);
+  writeFileSync(join(desk, '.nvmrc'), process.version.split('.')[0]!.slice(1));
+  writeFileSync(join(desk, 'package.json'), '{}\n');
+  writeFileSync(join(desk, 'package-lock.json'), '{}\n');
+  writeFileSync(join(machine.project, 'apps/radar/package-lock.json'), '{}\n');
+  for (const name of ['a.test.ts', 'panelLayoutCss.test.ts', 'b.test.mjs']) writeFileSync(join(desk, 'test/unit', name), '');
+  writeFileSync(join(desk, 'work-finder/c.test.mjs'), '');
+  for (const tool of ['npm', 'npx']) {
+    writeFileSync(join(bin, tool), FAKE_NPM);
+    chmodSync(join(bin, tool), 0o755);
+  }
+  const behaviourFile = join(machine.base, 'npm-behaviour');
+  const logFile = join(machine.base, 'npm-log');
+  writeFileSync(behaviourFile, 'pass');
+  writeFileSync(logFile, '');
+  const env = {
+    ...process.env, AIO_PROJECT: 'work-finding', AIO_SUITE: 'desk', FAKE_BEHAVIOUR: behaviourFile, FAKE_LOG: logFile,
+    PATH: `${bin}:${process.env['PATH']}`,
+  };
+
+  git(machine.project, 'init', '-q', '-b', 'main');
+  git(machine.project, 'add', '-A');
+  git(machine.project, 'commit', '-qm', 'project');
+  const commit = git(machine.project, 'rev-parse', 'HEAD');
+  const pack = execFileSync('git', ['pack-objects', '--revs', '--stdout', '--quiet'], {
+    cwd: machine.project, input: `${commit}\n`, maxBuffer: 64 * 1024 * 1024,
+  });
+  execFileSync('bash', [machine.script, 'receive', commit, 'none'], { input: pack, env });
+
+  const runProject = async (name: string, behaviour = 'pass') => {
+    writeFileSync(behaviourFile, behaviour);
+    const id = `${name}-${process.pid}`;
+    const child = spawn('bash', [machine.script, 'run', id, commit, '0', '0'], { stdio: 'pipe', env });
+    children.push(child);
+    let output = '';
+    child.stdout.on('data', (chunk) => { output += String(chunk); });
+    await new Promise<void>(resolve => child.on('close', () => resolve()));
+    const line = output.split('\n').find(text => text.startsWith('AIO_REMOTE_RESULT '));
+    return { id, output, result: line ? JSON.parse(line.slice('AIO_REMOTE_RESULT '.length)) as Record<string, unknown> : null };
+  };
+  const calls = (): string => readFileSync(logFile, 'utf8');
+  return { ...machine, commit, runProject, calls };
+}
+
+describe.runIf(hasUserSystemd())('remote-run.sh running another project', () => {
+  it('keeps to its own store and checkout, and leaves the default ones alone', async () => {
+    const machine = setUpProject();
+    const run = await machine.runProject('own-store');
+    expect(run.result).toMatchObject({ status: 'ok', exit: 0, tests: 7 });
+    expect(String(run.result?.['root'])).toContain('/projects/work-finding/slots/1/repo');
+    expect(existsSync(join(machine.base, 'projects/work-finding/repo.git'))).toBe(true);
+    expect(existsSync(join(machine.base, 'repo.git'))).toBe(false);
+    expect(existsSync(join(machine.base, 'slots/1/repo'))).toBe(false);
+  }, LIMIT);
+
+  it('accepts a Node version given only as a major', async () => {
+    const run = await setUpProject().runProject('major-node');
+    expect(run.result).toMatchObject({ status: 'ok', node: process.version });
+  }, LIMIT);
+
+  it('leaves the file that stays on the Mac out, stops the project sending itself here, and sets the umask', async () => {
+    const machine = setUpProject();
+    await machine.runProject('recipe');
+    const calls = machine.calls();
+    expect(calls).toContain('umask 0022');
+    expect(calls).toContain('off=off');
+    expect(calls).toContain('test/unit/a.test.ts');
+    expect(calls).toContain('work-finder/c.test.mjs');
+    expect(calls).not.toContain('panelLayoutCss');
+  }, LIMIT);
+
+  it('installs once, not on every run', async () => {
+    const machine = setUpProject();
+    await machine.runProject('install-one');
+    await machine.runProject('install-two');
+    expect(machine.calls().split('\n').filter(line => line.includes('apps/desk ci'))).toHaveLength(1);
+  }, LIMIT);
+
+  it('names a failed install, with its output, and tries it again next time', async () => {
+    const machine = setUpProject();
+    const failed = await machine.runProject('no-install', 'install-fails');
+    expect(failed.result).toMatchObject({ status: 'setup-failed', reason: 'the install failed' });
+    expect(failed.output).toContain('npm says no');
+    const next = await machine.runProject('after-no-install');
+    expect(next.result).toMatchObject({ status: 'ok', exit: 0 });
+  }, LIMIT);
+
+  it('passes on the runner\'s exit code and follows it with the full log', async () => {
+    const run = await setUpProject().runProject('failing', 'fails');
+    expect(run.result).toMatchObject({ status: 'ok', exit: 2, tests: 7 });
+    const [shown, log] = run.output.split('[remote checks] full log follows');
+    expect(shown).toContain('short summary');
+    expect(log).toContain('not ok 1 - a real detail');
+  }, LIMIT);
+
+  it('reports no tests when the runner wrote no log, whatever an earlier run left', async () => {
+    const machine = setUpProject();
+    expect((await machine.runProject('leaves-a-log')).result).toMatchObject({ tests: 7 });
+    expect((await machine.runProject('writes-none', 'no-log')).result).toMatchObject({ status: 'ok', exit: 0, tests: 0 });
+  }, LIMIT);
+
+  it('tidies its run folder and frees its slot', async () => {
+    const machine = setUpProject();
+    const first = await machine.runProject('tidy');
+    expect(existsSync(join(machine.base, 'runs', first.id))).toBe(false);
+    expect((await machine.runProject('tidy-next')).output).toContain('slot 1');
+  }, LIMIT);
+});
+
 describe.runIf(hasUserSystemd())('remote-run.sh on a real machine', () => {
   it('runs a snapshot and reports its fingerprint, then hands back the report', async () => {
     const machine = setUp();

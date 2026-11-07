@@ -57,9 +57,9 @@ function splitNul(text) {
 }
 
 /** Refuses what shouldn't be sent before anything is hashed. */
-function checkUntracked(root, env, maxBytes) {
+function checkUntracked(root, env, maxBytes, folders) {
   const untracked = splitNul(runGit(
-    ['ls-files', '--others', '--exclude-standard', '-z', '--', '.', ...SECRET_EXCLUSIONS],
+    ['ls-files', '--others', '--exclude-standard', '-z', '--', ...folders, ...SECRET_EXCLUSIONS],
     { cwd: root, env },
   ));
   let total = 0;
@@ -144,12 +144,15 @@ function snapshotFrom(root, baseEnv, sourceIndex, fill) {
   }
 }
 
-/** The exact files on disk, including uncommitted ones. */
-function takeSnapshot(root, { maxUntrackedBytes = MAX_UNTRACKED_BYTES, baseEnv = process.env } = {}) {
+/**
+ * The exact files on disk, including uncommitted ones. With `folders`, unstaged and untracked
+ * files outside them are left out, and the rest goes as the index has it.
+ */
+function takeSnapshot(root, { maxUntrackedBytes = MAX_UNTRACKED_BYTES, baseEnv = process.env, folders = ['.'] } = {}) {
   return snapshotFrom(root, baseEnv, null, (env) => {
-    checkUntracked(root, env, maxUntrackedBytes);
+    checkUntracked(root, env, maxUntrackedBytes, folders);
     const knownGitlinks = gitlinks(root, env);
-    runGit(['add', '-A', '--', '.', ...SECRET_EXCLUSIONS], { cwd: root, env });
+    runGit(['add', '-A', '--', ...folders, ...SECRET_EXCLUSIONS], { cwd: root, env });
     for (const gitlink of gitlinks(root, env)) {
       if (!knownGitlinks.has(gitlink)) {
         throw new SnapshotRefused(`${gitlink} is a separate git repository, so its files would be left out`);
@@ -194,4 +197,4 @@ function snapshotFileText(root, snapshot, name) {
   return runGit(['cat-file', 'blob', `${snapshot.tree}:${name}`], { cwd: root, env: snapshot.env }).trim();
 }
 
-module.exports = { SnapshotRefused, snapshotFileHash, snapshotFileText, takeSnapshot, takeStagedSnapshot };
+module.exports = { SnapshotRefused, cleanGitEnv, snapshotFileHash, snapshotFileText, takeSnapshot, takeStagedSnapshot };

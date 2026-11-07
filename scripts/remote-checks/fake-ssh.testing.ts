@@ -19,19 +19,31 @@ case "$cmd" in
     ;;
   *' run '*)
     set -- $cmd
-    commit="$5"
+    id="${'$'}{@: -4:1}"
+    commit="${'$'}{@: -3:1}"
     echo "$cmd" > "$FAKE_DIR/run-args"
-    [ -f "remote-checks/runs/$4/related.json" ] && cp "remote-checks/runs/$4/related.json" "$FAKE_DIR/related-list"
+    [ -f "remote-checks/runs/$id/related.json" ] && cp "remote-checks/runs/$id/related.json" "$FAKE_DIR/related-list"
     repo=remote-checks/repo.git
+    node_file=.nvmrc
+    lock_file=package-lock.json
+    case "$cmd" in
+      AIO_PROJECT=*)
+        project="${'$'}{1#AIO_PROJECT=}"
+        repo="remote-checks/projects/$project/repo.git"
+        node_file=apps/desk/.nvmrc
+        lock_file=apps/desk/package-lock.json
+        ;;
+    esac
     tree="$(git -C "$repo" rev-parse "$commit^{tree}")"
-    node="$(git -C "$repo" cat-file blob "$commit:.nvmrc")"
-    lock="$(git -C "$repo" cat-file blob "$commit:package-lock.json" | sha | cut -d' ' -f1)"
+    node="$(git -C "$repo" cat-file blob "$commit:$node_file")"
+    lock="$(git -C "$repo" cat-file blob "$commit:$lock_file" | sha | cut -d' ' -f1)"
     code=0
     case "$scenario" in
       wrong-tree) tree=0000000000000000000000000000000000000000 ;;
       wrong-node) node=v0.0.0 ;;
       wrong-lock) lock=0000 ;;
-      tests-fail|crash-clean-report) code=1 ;;
+      wrong-major) node=v22.0.0 ;;
+      tests-fail|crash-clean-report|failed-with-log) code=1 ;;
       exit-75) code=75 ;;
     esac
     echo '[test pool] 8 test worker(s); far machine output'
@@ -41,7 +53,17 @@ case "$cmd" in
       no-slot) echo 'AIO_REMOTE_RESULT {"status":"no-slot","exit":1}'; exit 0 ;;
       setup-failed) echo 'AIO_REMOTE_RESULT {"status":"setup-failed","reason":"npm ci failed","exit":1}'; exit 0 ;;
     esac
-    echo "AIO_REMOTE_RESULT {\"status\":\"ok\",\"reason\":\"\",\"exit\":$code,\"tree\":\"$tree\",\"node\":\"$node\",\"lock\":\"$lock\",\"root\":\"/far/slots/1/repo\"}"
+    tests=5
+    [ "$scenario" = no-tests ] && tests=0
+    [ "$node" = 24 ] && node=v24.1.0
+    echo "PASS at /far/slots/1/repo/apps/desk/x.test.ts"
+    [ "$scenario" = big-output ] && seq 1 60000 | sed 's/^/far output line /'
+    if [ "$scenario" = failed-with-log ]; then
+      echo 'short summary'
+      echo '[remote checks] full log follows'
+      echo 'the long far log /far/slots/1/repo/apps/desk/b.test.ts'
+    fi
+    echo "AIO_REMOTE_RESULT {\"status\":\"ok\",\"reason\":\"\",\"exit\":$code,\"tree\":\"$tree\",\"node\":\"$node\",\"lock\":\"$lock\",\"root\":\"/far/slots/1/repo\",\"tests\":$tests}"
     ;;
   *' fetch '*)
     case "$scenario" in
