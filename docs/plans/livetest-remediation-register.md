@@ -39,6 +39,19 @@ evidence records.
 
 ## Remediation Index
 
+### New sidechat findings — 2026-10-27
+
+Implementation status and acceptance are recorded in each tracked detail section below, so this
+register remains usable when landed independently of the queue's root-checkout working documents.
+The coordinator retains the active follow-up plan and per-check evidence until independent verification.
+
+| ID | Priority | Current status | Detail | Origin |
+| --- | --- | --- | --- | --- |
+| LT-732 | P1 | **FIXED ON MAIN; re-verify after landing.** Warm Claude processes could keep a sidechat's inherited tool denials and approval hook missing. Main refuses warm reuse when either is set (`src/main/instance/lifecycle/instance-spawn-preflight-chain.ts:83-96`). A 2026-11-07 live run on the pre-merge branch showed a restricted sidechat spawn fresh and unable to write; the warm-adoption step was not reproduced there. | [LT-732 detail](#lt-732) | LT-SC-5 |
+| LT-733 | P1 | **FIXED ON MAIN; live check passed 2026-11-07 on the pre-merge branch build; re-verify after landing.** A CLI approval that arrives while the sidechat panel is closed is kept by the event bus and shown as one card on reopen. | [LT-733 detail](#lt-733) | LT-SC-4 |
+| LT-734 | P2 | **FIXED ON MAIN; live check passed 2026-11-07 on the pre-merge branch build; re-verify after landing.** Archived parent rows (History and project history) show the unread sidechat badge and open the exact chat. | [LT-734 detail](#lt-734) | LT-SC-3 |
+| LT-735 | P2 | **FIXED ON MAIN.** Sidechat policy and parent resolution read `executionLocation` (`src/main/chats/side-chat-parent-resolver.ts`), not the supervising `workerNodeId`. The Windows live check was not re-run on this branch. | [LT-735 detail](#lt-735) | LT-SC-7 |
+
 ### Current status corrections — 2026-10-14
 
 These supersede the status phrase in the matching index rows. All 17 defects from the 2026-10-04
@@ -10667,6 +10680,219 @@ The source investigation recorded in the active repair plan identifies synchroni
 **Required behaviour:** connector tool calls succeed when the client adds protocol fields, those fields never reach the tool, and each connector stays bound to its account with its write and approval checks unchanged.
 
 **Acceptance:** after a rebuild and restart, a new Claude session and a new Codex session each list folders through `m365-communitytech` and `m365-fortitude` using the ordinary connector tools. A regression test in `connector-rpc.spec.ts` covers the `_meta` call. Check 3 in the [owning live-test document](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md) stays open for the rest of its steps.
+
+<a id="lt-732"></a>
+## LT-732 — a warm Claude process bypasses a sidechat's inherited tool denials
+
+**Status:** fixed on main. Live-checked 2026-11-07 on the pre-merge branch build; re-verify after landing. Pending independent verification.
+Origin: session-sidechats live test, LT-SC-5. Original observation retained below.
+
+### Implementation status — 2026-10-27, queue round 2
+
+`InstanceSpawnPreflightChain.prepare` now refuses a warm process when the requested spawn has
+allowed tools, disallowed tools or a permission hook. The existing fresh-spawn path keeps the
+requested options intact. Three new admission regressions failed against the original code and
+pass with the guard. No provider metadata or inherited policy was broadened.
+
+Live: at 08:19:38 UTC a matching Claude workspace warm process was ready. A high-effort Plan-parent
+sidechat subsequently spawned fresh (`cm9jt7owm`), reported Write unavailable, and created neither
+blocked.txt nor high-blocked.txt. The authority inspector retained write=deny. The YOLO-off live
+probe replaced the runtime and paused a harmless Bash operation for approval before execution.
+Full command receipts and per-check provenance remain in the coordinator-owned live-test document.
+
+### Live status — 2026-11-07 (queue resume, pre-merge branch build)
+
+Build, production renderer build, `tsc --noEmit`, `typecheck:spec` and the focused specs for the
+changed areas all pass on this branch. In an isolated dev profile, a restricted Plan parent's
+sidechat set to Opus with high effort spawned a fresh runtime (`cd20whylw`, no warm-start log line),
+reported that its Write tool was unavailable, and created no file. Evidence:
+the owning live-test document, section 2026-11-07.
+
+Not reproduced in this run: the warm-adoption bypass itself. `preWarm` skips every warm spawn while
+`providerSignalFenceEnabled` is off (`src/main/instance/warm-start-manager.ts`), and the fence cannot
+start under the nested sandbox used for this run. A warm candidate therefore never existed. Rerun the
+warm step on a host where the fence can start.
+
+### Observed behaviour
+
+In the isolated dev app, a real Claude/Sonnet sidechat of a built-in Plan parent reported
+`toolPermissionsOverride.write = deny`. Its inspector said Editing files: blocked, and its
+metadata denied Edit, Write and NotebookEdit. Nonetheless runtime `cp0gq0hg3` made a successful
+Write call and created `restricted/blocked.txt` containing `BLOCKED_WRITE_TEST` (18 bytes).
+The provider reported that writing was not blocked. No permission was approved by the worker.
+At `2026-10-27T07:38:40.104Z` the app logged `Using warm-start adapter (skipping spawn)` for that
+runtime. A second warm adoption occurred for the YOLO-off replacement `cejsp2sds` at 07:40:03.127Z.
+Evidence receipts and the log excerpt are linked from the owning live-test document.
+
+### Root cause
+
+`instance-manager.ts:267-282` pre-starts adapters with workingDirectory and the default reasoning
+effort, without the eventual instance's authority. `instance-lifecycle.ts:1650-1692` constructs
+correct allowedTools, disallowedTools and permissionHookPath, then discards those spawn options
+when `InstanceSpawnPreflightChain.prepare()` returns a warm adapter. Its admission predicate
+(`instance-spawn-preflight-chain.ts:82-102`) checks YOLO/hardening/model/node and other launch
+properties, but does not compare inherited tool denials or the permission-hook configuration.
+The Instance metadata therefore describes a policy the adopted process never received.
+This extends the class previously seen in LT-528/LT-539 to tool-category enforcement.
+
+### Required behaviour
+
+A warm process is reusable only when its launch-bound authority matches the requested session.
+Otherwise spawn fresh with all inherited denials, approval hooks and runtime settings. Do not
+repair this by changing metadata, adding prompt-only restrictions or broadening the parent.
+
+### Acceptance
+
+Reproduce with an already warmed Claude workspace and a Plan-parent sidechat. The real process
+must be unable to call Write/Edit/NotebookEdit and no file may be created. Test admission through
+the actual adapter wiring, plus policy refresh with a warm candidate. Rerun LT-SC-5, the applicable
+LT-SC-8 approval operation and canonical gates, then obtain independent verification.
+
+<a id="lt-733"></a>
+## LT-733 — an approval arriving while the sidechat panel is closed cannot be answered on reopen
+
+**Status:** fixed on main. Live-checked 2026-11-07 on the pre-merge branch build; re-verify after landing. Pending independent verification.
+Origin: session-sidechats live test, LT-SC-4. Original observation retained below.
+
+### Implementation status — 2026-10-27, queue round 2
+
+The startup-created renderer IPC event bus retains unresolved runtime payloads and deduplicates
+them before delivery. Resolution, instance removal, exit and invalidating runtime generations
+clear only their owning requests. UserActionRequestComponent projects these payloads into cards
+on mount and selection changes; it no longer owns their lifetime. Successful replies dismiss the
+instance-qualified request. Regression coverage includes sibling ID collisions, stale generations,
+resolved requests, closed panels, failed list loads and preservation of secret-card behaviour.
+
+Live: `csenln0jb` requested `printf LATE_PANEL_APPROVAL` while the panel was absent. Reopening,
+closing and reopening again showed one matching Permission Required card. Allow once produced the
+actual shell marker, cleared the card and left the parent's transcript byte-for-byte unchanged.
+The separate YOLO-off sidechat approval was scoped to `c2kovytrk`, not its parent.
+
+### Live status — 2026-11-07 (queue resume, pre-merge branch build)
+
+With the sidechat panel closed, runtime `co6pxphji` asked for Bash `printf LT_SC4_CLOSED_PANEL_MARK2`.
+The rail and parent row showed Awaiting approval. Reopening the panel showed one Permission Required
+card for that runtime with Allow once. Allow once ran the command, the tool group recorded 25
+characters, and the runtime returned to Idle. The parent had no messages before the approval.
+Evidence: the owning live-test document, section 2026-11-07.
+
+### Observed behaviour
+
+A real Claude/Sonnet sidechat requested Bash for `printf PANEL_APPROVAL_CHECK` while its panel was
+closed. Runtime `ctbmo0hvo` entered waiting_for_permission. Its parent badge and rail showed Needs
+action. Reopening chat `a8e329cf-04c2-4de0-be00-db312d6e9643` showed the Bash tool call and Needs
+action, but no Permission Required card or Allow button. The mounted component's pendingRequests
+was empty; `listUserActionRequestsForInstance`, permissionRegistryListPending and the permission
+batch query also returned no pending requests for the supported owners queried.
+
+Control: a fresh low-effort Claude sidechat with the panel continuously mounted (`cmeocyck4`)
+showed its actual request, Allow once executed `printf OPEN_PANEL_APPROVAL`, and the parent
+transcript was unchanged. This rules out absence of approval support and focus/rendering issues.
+Both probes had CDP focus emulation enabled; no forced Angular rendering was used.
+
+### Root cause
+
+`user-action-request.component.ts:145-180` consumes CLI input-required events while mounted.
+The cached CLI requests are in a component-owned Map (`getCachedInputRequiredForInstance`,
+lines 321-330). `loadPendingRequests` (280-317) merges that map with server-side user action
+requests, but this CLI hook request was absent from the server list. A newly mounted component
+has neither the old event nor the old component's map, so the runtime's waiting state survives
+without the actionable UI. The sidechat panel itself is created/destroyed on close/reopen.
+
+### Required behaviour
+
+Unresolved CLI approvals must outlive the panel and be recoverable for the exact runtime.
+Reopen, session switching and late mounting must restore them; resolution, replacement and
+cancellation must remove them without transferring grants to the parent or another sidechat.
+
+### Acceptance
+
+Ask a harmless approval-gated command with the panel closed; reopen via Needs action and approve
+it in that conversation. Also exercise open-panel delivery, close/reopen of an existing card,
+resolution deduplication and runtime replacement. Preserve parent isolation. Keep original
+LT-SC-4 uses a harmless Bash operation: ordinary Write remains auto-approved by the established
+acceptEdits convention. This reconciles the test example without changing product permissions.
+
+<a id="lt-734"></a>
+## LT-734 — archived parent rows omit a persisted unread sidechat after restart
+
+**Status:** fixed on main. Live-checked 2026-11-07 on the pre-merge branch build; re-verify after landing. Pending independent verification.
+Origin: session-sidechats live test, LT-SC-3. Original observation retained below.
+
+### Implementation status — 2026-10-27, queue round 2
+
+Both archived-row presentations now use HistorySideChatBadgeComponent, keyed only by the stable
+history thread. Live and archived rows share badge priority and wording. Archived requests open
+SideChatPanel under their original parent, retaining the existing focused/visible/bottom-of-answer
+read acknowledgement. The previous fallback to the main chat view did not acknowledge sidechat
+reads; the live round reproduced that extension and the dashboard regression now covers it.
+The archived override resets on another selection or panel closure and never restores its parent.
+
+Live: a normal isolated-app restart preserved all 17 selected ledger messages by ID, sequence,
+role and content, with zero live or attached runtimes. Both history presentations showed the
+unread badge for the archived toggle parent. Clicking its sidebar badge opened exactly
+`832289e4-80a6-4a05-a15a-1b9a26b95738` with the correct parent/title, closed the overlay and left
+live runtime count at zero. Viewing the answer at the focused bottom cleared unread to zero.
+
+### Live status — 2026-11-07 (queue resume, pre-merge branch build)
+
+An unread answer (chat `70b32294…`) was stored under parent `ctbh51ewx`. After that parent was
+terminated, its History sidebar row and project-history row both showed the unread badge. A normal
+SIGTERM shutdown and relaunch on the same profile kept unread=1 on the same chat, with zero live
+runtimes and no spawn or send in the restart log. The History badge opened the exact chat, which
+contained `RESTART_UNREAD_OK`, and unread cleared to 0. Evidence: the owning live-test document,
+section 2026-11-07.
+
+### Observed behaviour
+
+A real Codex sidechat completed an unopened answer ending RESTART_UNREAD_982. A normal SIGTERM
+shutdown exited 0, and the same isolated profile was relaunched. The six ledger messages were
+identical by id, sequence, role and content; unread=1 survived, the rail showed 1 need a look,
+and no runtime or resend appeared. However the standalone parent was now archived. Its project
+history row and the History sidebar row showed no sidechat unread badge. A DOM inspection found
+only the rail's sidechat button, while both parent history rows were rendered.
+
+### Root cause
+
+The live row has the sidechat badge (`instance-row.component.html:128`). The project history
+row in `instance-list.component.html:424-600` renders history entries separately without a
+sidechat attention binding. `history-sidebar.component.ts` consults SideChatStore for deletion
+wording, but does not render sidechat attention on its history rows. Normal restart removes the
+live parent row, leaving neither archived representation with the expected badge.
+
+### Required behaviour
+
+Render and route persisted sidechat attention by stable parent history identity on archived
+rows as well as live rows. Opening the badge must select the exact unread conversation without
+reviving or resending work to the parent.
+
+### Acceptance
+
+Restart with an unread answer under a standalone session. Verify unread and the exact target on
+both the rail and parent history row, no provider resend, and badge clearing only after viewing.
+Cover both existing history row presentations and rerun LT-SC-3 live.
+
+<a id="lt-735"></a>
+## LT-735 — sidechat policy reads the supervising worker instead of the execution location
+
+**Status:** fixed on main. Main reads `executionLocation` in the sidechat parent resolver (`src/main/chats/side-chat-parent-resolver.ts`). Not live-checked on the merged build.
+Origin: session-sidechats live test, LT-SC-7 (Windows workspace routing).
+
+### Observed behaviour
+
+On the pre-merge branch the Windows routing check could not pass. The sidechat's authority and parent resolution take the node from `workerNodeId`, which the instance type defines as the worker node in the supervision tree (`src/shared/types/instance.types.ts:419`). Where the CLI actually runs is `executionLocation` (`instance.types.ts:615`). A parent running on a Windows worker therefore gets a sidechat treated as local, so it tries to spawn in the Windows path. This is established by reading the source. The branch was not run against a live disposable Windows worker.
+
+### Root cause
+
+`src/main/chats/side-chat-authority.ts:109` sets `workspaceNode` from `instance.workerNodeId`. `src/main/chats/side-chat-parent-resolver.ts` sets `originNodeId` from `workerNodeId` at lines 109, 121, 165, 200 and 220. Only `src/main/chats/side-chat-service.ts:660` reads `executionLocation`.
+
+### Required behaviour
+
+Sidechat policy, parent resolution and renderer parent references use the node where the parent executes. A forced worker that is unavailable is refused with an explicit error and makes no local spawn.
+
+### Acceptance
+
+On a connected disposable worker, a Windows-path parent's sidechat answers from the parent's Windows directory with a matching remote execution location. Then disconnect only that disposable worker and send again: the send returns the explicit forced-worker refusal and makes no local adapter spawn. The production worker must not be touched. Rerun on this branch after the fix is landed.
 
 ## LT-997 — shared-tab native named keys have no default effect
 

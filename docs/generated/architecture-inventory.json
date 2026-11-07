@@ -6229,7 +6229,7 @@
   "largeFiles": [
     {
       "path": "docs/plans/livetest-remediation-register.md",
-      "lines": 10889
+      "lines": 11115
     },
     {
       "path": "resources/browser-extension/background.js",
