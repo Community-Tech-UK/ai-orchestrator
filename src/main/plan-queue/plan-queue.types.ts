@@ -74,6 +74,8 @@ export interface PlanQueueItem {
    */
   landingWaitSince?: number | null;
   landingWaitPaths?: string[];
+  /** Harness retried this landing by itself (step 3.2): anything a worker would fix sets it aside instead. Cleared off `landing`. */
+  landingAutomatic?: boolean;
   /** Set by Discard. The job stays parked but leaves the Set aside list. */
   discardedAt?: number | null;
   discardedBy?: string | null;

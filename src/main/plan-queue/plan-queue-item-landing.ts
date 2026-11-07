@@ -31,12 +31,13 @@ import {
 import { recoverDocumentMergeForItem } from './plan-queue-doc-merge';
 import { assertDocumentReview, readDocumentReview, type DocumentReview } from './plan-queue-document-review';
 import type { PlanQueueFlowHost } from './plan-queue-host';
-import { mergeCheckStillOwed, recordMergeCheckTimeout } from './plan-queue-check-timeouts';
+import { mergeCheckStillOwed, recordMergeCheckOwed } from './plan-queue-check-timeouts';
 import { landItemBranch, runPostMergeGate, syncItemWithBase } from './plan-queue-landing';
 import { landingBlockers, overlapReason, type PlanQueueLandingWaits } from './plan-queue-landing-wait';
 import { buildActiveDocumentsPrompt, buildConflictPrompt, buildGateFailurePrompt } from './plan-queue-prompts';
 import { clearPlanningMoveRecord, planningMoveNote } from './plan-queue-planning-files';
 import { returnToItemCheckout } from './plan-queue-squash';
+import { mergeInProgress } from './plan-queue-git';
 import { PlanQueueCheckoutOwnershipError, rescueNote } from './plan-queue-worktree';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import type { PlanQueueGateReceipt } from './plan-queue-gate-receipts';
@@ -97,7 +98,13 @@ export class PlanQueueItemLanding {
     try { await this.landActive(itemId, options, controller.signal); }
     catch (error) {
       const item = this.ctx.host.getItem(itemId);
-      if (controller.signal.aborted && error === controller.signal.reason) {
+      if (controller.signal.aborted && error === controller.signal.reason && item.landingAutomatic) {
+        // Back to how it was before Harness's own retry: checking it again could hand a failure to a worker. It may have
+        // merged the base already, so the check after merging is owed whenever it lands.
+        recordMergeCheckOwed(this.ctx.host, item);
+        this.ctx.host.transition(item, 'parked', { parkReason: 'land-blocked', verifiedMainCommit: null, landedCommit: null,
+          detail: 'Harness\'s own retry stopped before landing because the run was paused or changed. Once the run is running, Try merging again tries it.' });
+      } else if (controller.signal.aborted && error === controller.signal.reason) {
         this.ctx.host.transition(item, 'awaiting-slot', { verifiedMainCommit: null, landedCommit: null,
           heldAt: item.heldAt ?? Date.now(), detail: 'Paused before landing.' });
       } else {
@@ -166,8 +173,9 @@ export class PlanQueueItemLanding {
         await this.ctx.park(item, 'land-blocked', 'Nothing was landed: a newer attempt at this document merged first.');
         return;
       }
-      // Land anyway cannot wait: the pump's later attempt would not know it was an override.
-      const landed = await this.buildAndPromote(item, run, baseTip, closeDocuments, signal, !options.operatorOverride);
+      // Land anyway can't wait: the pump's later attempt wouldn't know it was an override. Nor does Harness's own retry:
+      // its run has usually ended, and a wait would hold one of the few job places for a day. It tries again tomorrow.
+      const landed = await this.buildAndPromote(item, run, baseTip, closeDocuments, signal, !options.operatorOverride && !item.landingAutomatic);
       if (!landed) return;
       item = landed;
     }
@@ -385,17 +393,20 @@ export class PlanQueueItemLanding {
     const repoRoot = run.workspaceCwd;
     const baseBranch = requireBaseBranch(run);
     const item = merged ? await host.worktrees.checkpoint(start, `merge ${baseBranch} before landing`) : start;
-    // A timed-out check left the merge in place, so Try merging again finds nothing to merge but still owes the check.
+    // A check that didn't pass left the merge in place, so the next try finds nothing to merge but still owes the check.
     if (!merged && !mergeCheckStillOwed(host, item)) return item;
     const covered = group && await gitExec(['rev-parse', `refs/heads/${baseBranch}`], repoRoot) === baseTip
       && groupRoundStillIntact(group, host);
     const gate = covered ? { ok: true } as const : await timer.measure('mergeCheck', () => runPostMergeGate(run.config.postMergeGate, item.worktreePath!, signal));
     if (gate.ok) return item;
+    // Whatever happens next, the merged work hasn't passed this check; only a new verdict on it settles that.
+    recordMergeCheckOwed(host, item);
     if (gate.timedOut) {
-      recordMergeCheckTimeout(host, item);
       await this.ctx.park(item, 'land-blocked', `Not landed: \`${gate.command}\` ran out of time after merging ${baseBranch}, so nothing changed on ${baseBranch}. A worker cannot fix a timeout; press Try merging again once the machine is quieter.`);
-      // Parking saves anything the killed check left behind, which makes a new commit: record that one too.
-      recordMergeCheckTimeout(host, host.getItem(item.id));
+      return null;
+    }
+    if (item.landingAutomatic) {
+      await this.setAsideAgain(item, 'land-blocked', `\`${gate.command}\` failed after merging ${baseBranch}`);
       return null;
     }
     await this.returnForBase(item, baseBranch, buildGateFailurePrompt(gate.command, gate.output),
@@ -406,12 +417,21 @@ export class PlanQueueItemLanding {
   /** The root checkout's uncommitted code is in the way: wait for it to clear, or park when waiting is not allowed. Lock held. */
   private async waitOrPark(item: PlanQueueItem, paths: readonly string[], canWait: boolean): Promise<void> {
     const reason = overlapReason(paths);
-    const parkNote = canWait ? this.ctx.waits.begin(item, paths, reason) : `Not landed. ${reason} Land anyway works once these are committed or put away.`;
+    const parkNote = canWait ? this.ctx.waits.begin(item, paths, reason)
+      : `Not landed. ${reason} ${item.landingAutomatic ? 'Try merging again' : 'Land anyway'} works once these are committed or put away.`;
     if (parkNote !== null) await this.ctx.park(item, 'land-blocked', parkNote);
+  }
+
+  /** Harness's own retry starts no worker: what would need one sets the job aside again with its pass, for a later try or James. */
+  private async setAsideAgain(item: PlanQueueItem, reason: PlanQueueParkReason, summary: string): Promise<void> {
+    if (item.worktreePath && await mergeInProgress(item.worktreePath)) await gitExec(['merge', '--abort'], item.worktreePath);
+    await this.ctx.park(item, reason, `Not landed when Harness tried again by itself: ${summary}. `
+      + (reason === 'merge-conflict' ? 'Resume hands it back to a worker, which drops its passed check.' : 'Try merging again once that is fixed.'));
   }
 
   /** Back to the worker while the base branch keeps moving under the item; parked on the fourth return, so it cannot loop. */
   private async returnForBase(item: PlanQueueItem, baseBranch: string, prompt: string, summary: string): Promise<void> {
+    if (item.landingAutomatic) return this.setAsideAgain(item, 'merge-conflict', summary);
     const count = item.baseConflicts + 1;
     if (count > MAX_BASE_RETURNS) {
       await this.ctx.park({ ...item, baseConflicts: 0 }, 'merge-conflict',
@@ -423,6 +443,7 @@ export class PlanQueueItemLanding {
 
   /** Back to the worker the first time; parked the second, so a refusal cannot loop. */
   private async refused(item: PlanQueueItem, summary: string, prompt: string, evidence: string): Promise<void> {
+    if (item.landingAutomatic) return this.setAsideAgain(item, 'land-blocked', `${summary}. ${evidence.slice(-2000)}`);
     const count = item.landingRefusals + 1;
     if (count >= MAX_LANDING_REFUSALS) {
       await this.ctx.park({ ...item, landingRefusals: 0 }, 'land-blocked', `Not landed: ${summary} again. ${evidence.slice(-2000)}`);

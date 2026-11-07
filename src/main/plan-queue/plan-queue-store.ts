@@ -75,6 +75,7 @@ interface ItemRow {
   base_conflicts: number;
   landing_wait_since: number | null;
   landing_wait_paths: string | null;
+  landing_automatic: number;
   discarded_at: number | null;
   discarded_by: string | null;
   discard_ref_expires_at: number | null;
@@ -281,8 +282,8 @@ export class PlanQueueStore {
         base_commit, checkpoint_commit, verified_main_commit, landed_commit,
         worker_instance_id, verifier_instance_id, question_json, answer, park_reason, detail,
         verdict_json, created_at, updated_at, held_at, pending_instruction, worker_provider, worker_model, stepped_up_at, worker_session_json, livetest_port, base_conflicts, discarded_at, discarded_by, discard_ref_expires_at,
-        landing_wait_since, landing_wait_paths
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        landing_wait_since, landing_wait_paths, landing_automatic
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         state                = excluded.state,
         round                = excluded.round,
@@ -311,6 +312,7 @@ export class PlanQueueStore {
         base_conflicts       = excluded.base_conflicts,
         landing_wait_since   = excluded.landing_wait_since,
         landing_wait_paths   = excluded.landing_wait_paths,
+        landing_automatic    = excluded.landing_automatic,
         discarded_at         = excluded.discarded_at,
         discarded_by         = excluded.discarded_by,
         discard_ref_expires_at = excluded.discard_ref_expires_at,
@@ -352,6 +354,7 @@ export class PlanQueueStore {
       // A wait only means something while the item is landing; leaving that state ends it.
       item.state === 'landing' ? item.landingWaitSince ?? null : null,
       item.state === 'landing' && item.landingWaitPaths?.length ? JSON.stringify(item.landingWaitPaths) : null,
+      item.state === 'landing' && item.landingAutomatic ? 1 : 0,
     );
   }
 
@@ -447,6 +450,26 @@ export class PlanQueueStore {
   }
 
   /** Parked or landed items that still record a worktree folder, across all runs. */
+  /** Passed jobs set aside at landing, across every run: Harness retries these by itself (step 3.2). */
+  listPassedLandingParks(): PlanQueueItem[] {
+    // A cancelled run stays cancelled: its work waits for a person.
+    return this.db.prepare(`SELECT item.* FROM plan_queue_items item JOIN plan_queue_runs run ON run.id = item.run_id
+      WHERE item.state = 'parked' AND item.park_reason IN ('land-blocked', 'merge-conflict') AND run.status != 'cancelled'
+      AND item.branch_name IS NOT NULL AND item.discarded_at IS NULL ORDER BY item.created_at, item.id`).all<ItemRow>().map(rowToItem)
+      .filter(item => item.verdict?.verdict === 'PASS');
+  }
+
+  /** Landings Harness started by itself in runs that have ended, which restart recovery's pass over open runs misses. */
+  listAutomaticLandingsInEndedRuns(): PlanQueueItem[] {
+    return this.db.prepare(`SELECT item.* FROM plan_queue_items item JOIN plan_queue_runs run ON run.id = item.run_id
+      WHERE item.state = 'landing' AND item.landing_automatic = 1 AND run.status NOT IN ${ACTIVE_RUN_STATUSES}`).all<ItemRow>().map(rowToItem);
+  }
+
+  /** Landings Harness started by itself that haven't finished. */
+  countAutomaticLandings(): number {
+    return this.db.prepare(`SELECT COUNT(*) AS count FROM plan_queue_items WHERE state = 'landing' AND landing_automatic = 1`).get<{ count: number }>()?.count ?? 0;
+  }
+
   listItemsWithKeptFolders(): PlanQueueItem[] {
     return this.db
       .prepare(`
@@ -575,6 +598,7 @@ function rowToItem(row: ItemRow): PlanQueueItem {
     baseConflicts: row.base_conflicts ?? 0,
     ...(row.landing_wait_since === null || row.landing_wait_since === undefined ? {} : { landingWaitSince: row.landing_wait_since }),
     ...(row.landing_wait_paths ? { landingWaitPaths: JSON.parse(row.landing_wait_paths) as string[] } : {}),
+    ...(row.landing_automatic ? { landingAutomatic: true } : {}),
     ...(row.discarded_at ? { discardedAt: row.discarded_at, discardedBy: row.discarded_by } : {}),
     ...(row.discard_ref_expires_at ? { discardRefExpiresAt: row.discard_ref_expires_at } : {}),
     branchName: row.branch_name,

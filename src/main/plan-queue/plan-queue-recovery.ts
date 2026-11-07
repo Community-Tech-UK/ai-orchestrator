@@ -63,6 +63,8 @@ export async function recoverPlanQueue(host: PlanQueueRecoveryHost, flow: PlanQu
       }
     }
   }
+  // Harness's own landing retries run without reopening their ended runs, so the pass above doesn't see them.
+  for (const item of host.store.listAutomaticLandingsInEndedRuns()) void flow.enqueueLanding(item.id);
 }
 
 async function recoverItem(host: PlanQueueRecoveryHost, flow: PlanQueueItemFlow, item: PlanQueueItem): Promise<void> {

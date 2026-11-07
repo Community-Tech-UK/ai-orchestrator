@@ -52,7 +52,7 @@ beforeEach(() => {
   roles = new Map([['worker', { role: 'worker', runId: run.id, itemId: item.id }], ['checker', { role: 'verifier', runId: run.id, itemId: item.id }]]);
   host = {
     store: { listActiveRuns: () => [run], listItems: () => [item], listWorkspaceRoots: () => [directory],
-      listRunsWithRelaxation: () => [] } as unknown as PlanQueueFlowHost['store'],
+      listAutomaticLandingsInEndedRuns: () => [], listRunsWithRelaxation: () => [] } as unknown as PlanQueueFlowHost['store'],
     history: { getPin: () => null, recordPinIfAbsent: vi.fn(), listEvents: () => [], listVerdicts: () => [] } as unknown as PlanQueueFlowHost['history'],
     checksAdmitted: () => true, setRunHold: vi.fn(),
     getRun: () => run, getItem: () => item,
@@ -414,7 +414,7 @@ describe('paused runs never continue work or park it', () => {
     item = { ...item, state, worktreePath: null, verifierInstanceId: null };
     vi.mocked(host.instances.getInstance).mockReturnValue(undefined);
     const recoveryHost = Object.assign(host, {
-      store: { listRunsWithRelaxation: () => [], listActiveRuns: () => [run], listItems: () => [item], listWorkspaceRoots: () => [directory] },
+      store: { listAutomaticLandingsInEndedRuns: () => [], listRunsWithRelaxation: () => [], listActiveRuns: () => [run], listItems: () => [item], listWorkspaceRoots: () => [directory] },
       refreshAlerts: vi.fn(), applyRelaxation: vi.fn(), restoreRelaxation: (r: PlanQueueRun) => r,
     }) as unknown as PlanQueueRecoveryHost;
     await recoverPlanQueue(recoveryHost, flow);
@@ -429,7 +429,7 @@ describe('paused runs never continue work or park it', () => {
     vi.spyOn(queueGit, 'isOwnCheckout').mockResolvedValueOnce(true);
     vi.mocked(queueGit.revertToSnapshot).mockRejectedValueOnce(new Error('The saved queue checkout is invalid'));
     const recoveryHost = Object.assign(host, {
-      store: { listRunsWithRelaxation: () => [], listActiveRuns: () => [run], listItems: () => [item], listWorkspaceRoots: () => [directory] },
+      store: { listAutomaticLandingsInEndedRuns: () => [], listRunsWithRelaxation: () => [], listActiveRuns: () => [run], listItems: () => [item], listWorkspaceRoots: () => [directory] },
       refreshAlerts: vi.fn(), applyRelaxation: vi.fn(), restoreRelaxation: (r: PlanQueueRun) => r,
     }) as unknown as PlanQueueRecoveryHost;
     await recoverPlanQueue(recoveryHost, flow);
@@ -446,7 +446,7 @@ describe('paused runs never continue work or park it', () => {
     host.history.recordEvent = vi.fn();
     vi.mocked(host.instances.terminateInstance).mockRejectedValueOnce(new Error('checker stop failed'));
     const recoveryHost = Object.assign(host, {
-      store: { listRunsWithRelaxation: () => [], listActiveRuns: () => [run], listItems: () => [item], listWorkspaceRoots: () => [directory] },
+      store: { listAutomaticLandingsInEndedRuns: () => [], listRunsWithRelaxation: () => [], listActiveRuns: () => [run], listItems: () => [item], listWorkspaceRoots: () => [directory] },
       refreshAlerts: vi.fn(), applyRelaxation: vi.fn(), restoreRelaxation: (r: PlanQueueRun) => r,
     }) as unknown as PlanQueueRecoveryHost;
     await recoverPlanQueue(recoveryHost, flow);

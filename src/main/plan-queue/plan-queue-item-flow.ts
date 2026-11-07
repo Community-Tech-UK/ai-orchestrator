@@ -46,6 +46,7 @@ import { isLandingWait } from './plan-queue-state';
 import { startQueueVerification } from './plan-queue-start-verification';
 import { hasCheckout, InvalidQueueCheckoutError, retainedQueuePathExists } from './plan-queue-orphan-checkout';
 import { discardParkedItem, PlanQueueDiscardedRefs, restoreBeforeResume, restoreDiscardedWork } from './plan-queue-discard';
+import { PlanQueueLandingRetries } from './plan-queue-landing-retries';
 import { PlanQueueKeptFolders } from './plan-queue-kept-folders';
 import { PlanQueueRunBreaker } from './plan-queue-run-breaker';
 import { planQueueBranchName } from './plan-queue-worktree';
@@ -101,6 +102,7 @@ export class PlanQueueItemFlow {
   /** Folders an earlier park or landing had to keep; the scheduler retries them. */
   readonly keptFolders: PlanQueueKeptFolders;
   readonly discardedRefs: PlanQueueDiscardedRefs;
+  readonly landingRetries: PlanQueueLandingRetries;
   /** Jobs running a Harness checklist now. Held in memory, so a restart starts with none. */
   readonly checklistTurns = new Set<string>();
   readonly breaker: PlanQueueRunBreaker;
@@ -115,6 +117,7 @@ export class PlanQueueItemFlow {
     this.retries = new PlanQueueTurnRetries(host);
     this.keptFolders = new PlanQueueKeptFolders(host, (id, action) => this.withItemLock(id, action));
     this.discardedRefs = new PlanQueueDiscardedRefs(host, (id, action) => this.withItemLock(id, action));
+    this.landingRetries = new PlanQueueLandingRetries(host, id => this.retryLanding(id, { automatic: true }));
     this.workerSessions = new PlanQueueWorkerSessions({
       host, lock: (id, action) => this.withItemLock(id, action),
       stop: (id) => this.stopInstance(id), spawn: (item, prompt) => this.spawnWorker(item, prompt, null),
@@ -714,11 +717,12 @@ export class PlanQueueItemFlow {
     });
   }
 
-  /** Retry only a verified landing blockage; preserve its PASS, round and recorded commit. */
-  retryLanding(itemId: string): Promise<void> {
+  /** Retry only a verified landing blockage; preserve its PASS and round. `automatic`: Harness's own retry (step 3.2). */
+  retryLanding(itemId: string, options: { automatic?: boolean } = {}): Promise<void> {
     return this.withItemLock(itemId, async () => {
       const item = this.host.getItem(itemId);
-      if (item.state !== 'parked' || item.parkReason !== 'land-blocked' || item.verdict?.verdict !== 'PASS' || !item.branchName) {
+      const blocked = item.parkReason === 'land-blocked' || (options.automatic === true && item.parkReason === 'merge-conflict');
+      if (item.state !== 'parked' || !blocked || item.verdict?.verdict !== 'PASS' || !item.branchName) {
         throw new Error('Only a land-blocked parked item with a verifier PASS can retry landing');
       }
       const run = this.host.getRun(item.runId);
@@ -728,7 +732,8 @@ export class PlanQueueItemFlow {
       // A commit not yet on the base carries the document as it was before the note, which no longer matches: build it again.
       const stale = change && reattached.landedCommit
         && !await isAncestor(reattached.landedCommit, `refs/heads/${run.config.baseBranch}`, run.workspaceCwd);
-      this.host.transition(reattached, 'landing', { parkReason: null, detail: null, ...(stale ? { landedCommit: null } : {}) });
+      this.host.transition(reattached, 'landing', { parkReason: null, detail: null, landingAutomatic: options.automatic === true,
+        ...(stale ? { landedCommit: null } : {}) });
       void this.enqueueLanding(itemId);
     });
   }

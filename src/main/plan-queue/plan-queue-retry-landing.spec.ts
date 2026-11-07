@@ -15,6 +15,7 @@ import { appendParkedNote } from './plan-queue-doc-close';
 import { createDocumentOverlapResolver } from './plan-queue-doc-merge';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { PlanQueueGateRunner } from './plan-queue-gate-receipts';
+import { mergeCheckStillOwed } from './plan-queue-check-timeouts';
 import { PlanQueueItemFlow } from './plan-queue-item-flow';
 import { newPlanQueueItem } from './plan-queue-state';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
@@ -270,6 +271,110 @@ describe('verified retry landing', () => {
     await test.flow.retryLanding('item-1');
 
     expect(landings).toEqual([base]);
+  });
+
+  it.each([false, true])('a clash during landing goes to a worker only when a person retried it (automatic: %s)', async (automatic) => {
+    git(['init', '-q', '-b', 'main']); git(['config', 'user.name', 'Queue Test']);
+    git(['config', 'user.email', 'queue@example.invalid']); git(['config', 'commit.gpgsign', 'false']);
+    await writeFile(join(repo, 'a.txt'), 'base\n'); git(['add', 'a.txt']); git(['commit', '-qm', 'base']);
+    const base = git(['rev-parse', 'HEAD']);
+    git(['checkout', '-qb', 'queue/item-1']); await writeFile(join(repo, 'a.txt'), 'worker\n');
+    git(['add', 'a.txt']); git(['commit', '-qm', 'worker']); const checkpoint = git(['rev-parse', 'HEAD']);
+    git(['checkout', '-q', 'main']); await writeFile(join(repo, 'a.txt'), 'main moved\n'); git(['commit', '-qam', 'main moved']);
+    const test = fixture({ baseCommit: base, checkpointCommit: checkpoint, verifiedMainCommit: base, landedCommit: null });
+    test.worktrees.reattach.mockImplementation(async (next) => {
+      git(['worktree', 'add', '-q', join(repo, 'wt'), next.branchName!]);
+      return test.save({ ...next, worktreePath: join(repo, 'wt') });
+    });
+    const toFixing: string[] = [];
+    vi.spyOn(test.flow as unknown as { toFixing: (item: PlanQueueItem) => Promise<void> }, 'toFixing').mockImplementation(async (item: PlanQueueItem) => { toFixing.push(item.id); });
+
+    await test.flow.retryLanding('item-1', { automatic }); await test.flow.whenSettled();
+
+    if (automatic) {
+      expect(toFixing).toEqual([]);
+      expect(test.get()).toMatchObject({ state: 'parked', parkReason: 'merge-conflict', verdict: { verdict: 'PASS' } });
+      expect(test.get().detail).toContain('tried again by itself');
+      expect(git(['status', '--porcelain'], join(repo, 'wt'))).toBe('');
+    } else {
+      expect(toFixing).toEqual(['item-1']);
+    }
+    expect(git(['rev-parse', 'main'])).not.toBe(base);
+  });
+
+  it('sets its own retry aside when the check after merging fails, and owes that check next time', async () => {
+    git(['init', '-q', '-b', 'main']); git(['config', 'user.name', 'Queue Test']);
+    git(['config', 'user.email', 'queue@example.invalid']); git(['config', 'commit.gpgsign', 'false']);
+    await writeFile(join(repo, 'a.txt'), 'base\n'); git(['add', 'a.txt']); git(['commit', '-qm', 'base']);
+    const base = git(['rev-parse', 'HEAD']);
+    git(['checkout', '-qb', 'queue/item-1']); await writeFile(join(repo, 'b.txt'), 'worker\n');
+    git(['add', 'b.txt']); git(['commit', '-qm', 'worker']); const checkpoint = git(['rev-parse', 'HEAD']);
+    git(['checkout', '-q', 'main']); await writeFile(join(repo, 'c.txt'), 'main moved\n'); git(['add', 'c.txt']); git(['commit', '-qm', 'main moved']);
+    const test = fixture({ baseCommit: base, checkpointCommit: checkpoint, verifiedMainCommit: base, landedCommit: null });
+    // The failed check leaves a file behind, so parking commits it and the job's commit changes.
+    test.run.config = { ...test.run.config, postMergeGate: ['echo partial > left-by-check.txt; exit 3'] };
+    test.worktrees.reattach.mockImplementation(async (next) => {
+      git(['worktree', 'add', '-q', join(repo, 'wt'), next.branchName!]);
+      return test.save({ ...next, worktreePath: join(repo, 'wt') });
+    });
+    test.worktrees.checkpoint = async (next) => {
+      const wt = join(repo, 'wt');
+      if (git(['status', '--porcelain'], wt)) { git(['add', '-A'], wt); git(['commit', '-qm', 'checkpoint'], wt); }
+      return test.save({ ...next, checkpointCommit: git(['rev-parse', 'HEAD'], wt) });
+    };
+    const toFixing = vi.spyOn(test.flow as unknown as { toFixing: (item: PlanQueueItem) => Promise<void> }, 'toFixing').mockResolvedValue(undefined);
+
+    await test.flow.retryLanding('item-1', { automatic: true }); await test.flow.whenSettled();
+
+    expect(toFixing).not.toHaveBeenCalled();
+    expect(test.get()).toMatchObject({ state: 'parked', parkReason: 'land-blocked', verdict: { verdict: 'PASS' } });
+    expect(test.get().detail).toContain('Try merging again');
+    expect(git(['log', '-1', '--format=%s'], join(repo, 'wt'))).toBe('checkpoint');
+    expect(mergeCheckStillOwed(test.host, test.get())).toBe(true);
+  });
+
+  it('owes the check after merging when it fails on a person\'s retry too, until a worker\'s round is checked', async () => {
+    git(['init', '-q', '-b', 'main']); git(['config', 'user.name', 'Queue Test']);
+    git(['config', 'user.email', 'queue@example.invalid']); git(['config', 'commit.gpgsign', 'false']);
+    await writeFile(join(repo, 'a.txt'), 'base\n'); git(['add', 'a.txt']); git(['commit', '-qm', 'base']);
+    const base = git(['rev-parse', 'HEAD']);
+    git(['checkout', '-qb', 'queue/item-1']); await writeFile(join(repo, 'b.txt'), 'worker\n');
+    git(['add', 'b.txt']); git(['commit', '-qm', 'worker']); const checkpoint = git(['rev-parse', 'HEAD']);
+    git(['checkout', '-q', 'main']); await writeFile(join(repo, 'c.txt'), 'main moved\n'); git(['add', 'c.txt']); git(['commit', '-qm', 'main moved']);
+    const test = fixture({ baseCommit: base, checkpointCommit: checkpoint, verifiedMainCommit: base, landedCommit: null });
+    // The failed check leaves a file behind, so parking commits it and the job's commit changes.
+    test.run.config = { ...test.run.config, postMergeGate: ['echo partial > left-by-check.txt; exit 3'] };
+    test.worktrees.reattach.mockImplementation(async (next) => {
+      git(['worktree', 'add', '-q', join(repo, 'wt'), next.branchName!]);
+      return test.save({ ...next, worktreePath: join(repo, 'wt') });
+    });
+    test.worktrees.checkpoint = async (next) => {
+      const wt = join(repo, 'wt');
+      if (git(['status', '--porcelain'], wt)) { git(['add', '-A'], wt); git(['commit', '-qm', 'checkpoint'], wt); }
+      return test.save({ ...next, checkpointCommit: git(['rev-parse', 'HEAD'], wt) });
+    };
+    const toFixing = vi.spyOn(test.flow as unknown as { toFixing: (item: PlanQueueItem) => Promise<void> }, 'toFixing').mockResolvedValue(undefined);
+
+    await test.flow.retryLanding('item-1'); await test.flow.whenSettled();
+
+    expect(toFixing).toHaveBeenCalled();
+    expect(mergeCheckStillOwed(test.host, test.get())).toBe(true);
+  });
+
+  it('puts its own retry back where it was when the run is paused, rather than checking it again', async () => {
+    git(['init', '-q', '-b', 'main']); git(['config', 'user.name', 'Queue Test']);
+    git(['config', 'user.email', 'queue@example.invalid']); git(['config', 'commit.gpgsign', 'false']);
+    await writeFile(join(repo, 'a.txt'), 'base\n'); git(['add', 'a.txt']); git(['commit', '-qm', 'base']);
+    git(['branch', 'queue/item-1']);
+    const test = fixture({ landedCommit: null });
+    test.run.status = 'paused';
+    vi.spyOn(test.flow as unknown as { toFixing: (item: PlanQueueItem) => Promise<void> }, 'toFixing').mockResolvedValue(undefined);
+
+    await test.flow.retryLanding('item-1', { automatic: true }); await test.flow.whenSettled();
+
+    expect(test.get()).toMatchObject({ state: 'parked', parkReason: 'land-blocked', verdict: { verdict: 'PASS' } });
+    expect(test.get().detail).toContain('Try merging again');
+    expect(mergeCheckStillOwed(test.host, test.get())).toBe(true);
   });
 
   it('lands real branch work and a completed document without the override or parked note', async () => {

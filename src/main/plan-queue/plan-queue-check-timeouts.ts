@@ -7,15 +7,19 @@ export const CHECK_TIMEOUT_REASON = 'check-timeout';
 const MERGE_CHECK_TIMEOUT_REASON = 'merge-check-timeout';
 export const CHECK_HUNG_DETAIL = 'The checks ran out of time twice in a row on the same work, so one may hang. Press Resume to send it back to a worker and check it again.';
 
-/** The check after merging didn't finish. The commit it was checking stays unproved until a later run passes. */
-export function recordMergeCheckTimeout(host: Pick<PlanQueueFlowHost, 'history'>, item: PlanQueueItem): void {
+/** The base was merged in but its check didn't pass (it timed out, failed or was stopped), so the next landing runs it. */
+export function recordMergeCheckOwed(host: Pick<PlanQueueFlowHost, 'history'>, item: PlanQueueItem): void {
   host.history.recordEvent({ itemId: item.id, runId: item.runId, fromState: item.state, toState: item.state,
     reason: MERGE_CHECK_TIMEOUT_REASON, detailHead: item.checkpointCommit, round: item.round, tokens: 0 });
 }
 
-/** True when the last attempt merged this exact commit but its check never finished. */
+/**
+ * True until the work is checked again: a worker's round ends in a new verdict. Saving what a stopped check left behind
+ * makes new commits, so a commit can't say whether the check still stands.
+ */
 export function mergeCheckStillOwed(host: Pick<PlanQueueFlowHost, 'history'>, item: PlanQueueItem): boolean {
-  return host.history.listEvents(item.id).find(event => event.reason === MERGE_CHECK_TIMEOUT_REASON)?.detailHead === item.checkpointCommit;
+  const owed = host.history.listEvents(item.id).find(event => event.reason === MERGE_CHECK_TIMEOUT_REASON);
+  return owed !== undefined && owed.at > (host.history.listVerdicts(item.id).at(-1)?.at ?? 0);
 }
 
 /** The run's last progress line, which says how far it got and on how many test workers. */

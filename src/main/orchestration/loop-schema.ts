@@ -9,7 +9,7 @@
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { PLAN_QUEUE_MIGRATIONS } from '../plan-queue/plan-queue-migrations';
 
-export const LOOP_SCHEMA_VERSION = 51;
+export const LOOP_SCHEMA_VERSION = 52;
 
 export interface LoopMigration {
   version: number;
@@ -590,6 +590,12 @@ export const LOOP_MIGRATIONS: readonly LoopMigration[] = [
     version: 51,
     name: '051_plan_queue_run_hold_reason',
     up: `ALTER TABLE plan_queue_runs ADD COLUMN hold_reason TEXT;`,
+  },
+  {
+    // Plan Queue: a landing Harness retried by itself, which must never start a worker turn, even after a restart.
+    version: 52,
+    name: '052_plan_queue_item_landing_automatic',
+    up: `ALTER TABLE plan_queue_items ADD COLUMN landing_automatic INTEGER NOT NULL DEFAULT 0;`,
   },
 ];
 
