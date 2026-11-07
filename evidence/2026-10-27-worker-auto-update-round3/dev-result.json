@@ -1,0 +1,17 @@
+{
+  "observedAt": "2026-10-27T16:04:39.491Z",
+  "pid": 89150,
+  "profile": "/tmp/aio-lt-queue-d4bee785",
+  "visibilityOverride": "'Emulation.setPageVisibilityOverride' wasn't found",
+  "cdp": {
+    "api": "function",
+    "appRoot": true,
+    "frames": true,
+    "hidden": false,
+    "instances": {
+      "data": [],
+      "success": true
+    },
+    "visibility": "visible"
+  }
+}

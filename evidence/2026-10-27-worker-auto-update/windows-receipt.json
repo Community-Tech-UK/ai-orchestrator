@@ -1,0 +1,444 @@
+{
+  "capturedUtc": "2026-10-27T14:24:29.7266372Z",
+  "logMatchesPerFileLimit": 50,
+  "logs": [
+    {
+      "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log",
+      "matches": [
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log",
+          "lineNumber": 1742,
+          "text": "2026-10-27T08:06:59.700Z [LOG] [WorkerSelfUpdate] Automatic updates are off: turned off in worker config"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log",
+          "lineNumber": 1772,
+          "text": "2026-10-27T08:07:55.321Z [LOG] [WorkerSelfUpdate] Automatic updates are off: turned off in worker config"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log",
+          "lineNumber": 1793,
+          "text": "2026-10-27T08:08:30.418Z [LOG] [WorkerSelfUpdate] Automatic updates are off: turned off in worker config"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log",
+          "lineNumber": 1954,
+          "text": "2026-10-27T08:19:59.660Z [LOG] [WorkerSelfUpdate] Automatic updates are off: turned off in worker config"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+      "matches": [
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 2712,
+          "text": "2026-10-18T09:06:32.012Z [LOG] [WorkerSelfUpdate] Updating worker { from: 'f1f5653c', to: '81755b3f' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 2713,
+          "text": "2026-10-18T09:06:40.055Z [LOG] [WorkerSelfUpdate] New bundle in place { commit: '81755b3f' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 2714,
+          "text": "2026-10-18T09:06:40.056Z [LOG] [WorkerSelfUpdate] Restarting onto the new bundle { commit: '81755b3f' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 2728,
+          "text": "2026-10-18T09:06:50.864Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '81755b3f' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 3445,
+          "text": "2026-10-18T13:16:28.307Z [LOG] [WorkerSelfUpdate] Updating worker { from: '81755b3f', to: 'bca871e7' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 3446,
+          "text": "2026-10-18T13:16:36.290Z [LOG] [WorkerSelfUpdate] New bundle in place { commit: 'bca871e7' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 3447,
+          "text": "2026-10-18T13:16:36.291Z [LOG] [WorkerSelfUpdate] Restarting onto the new bundle { commit: 'bca871e7' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 3461,
+          "text": "2026-10-18T13:16:47.473Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: 'bca871e7' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 5836,
+          "text": "2026-10-19T10:17:19.096Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: 'bca871e7' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 9056,
+          "text": "2026-10-20T17:25:03.752Z [LOG] [WorkerSelfUpdate] Updating worker { from: 'bca871e7', to: '542f1f69' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 9057,
+          "text": "2026-10-20T17:25:12.398Z [LOG] [WorkerSelfUpdate] New bundle in place { commit: '542f1f69' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 9058,
+          "text": "2026-10-20T17:25:12.399Z [LOG] [WorkerSelfUpdate] Restarting onto the new bundle { commit: '542f1f69' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 9072,
+          "text": "2026-10-20T17:25:23.394Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '542f1f69' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 10648,
+          "text": "2026-10-21T09:08:39.421Z [LOG] [WorkerSelfUpdate] Updating worker { from: '542f1f69', to: '86970a6b' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 10650,
+          "text": "2026-10-21T09:08:48.756Z [LOG] [WorkerSelfUpdate] New bundle in place { commit: '86970a6b' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 10651,
+          "text": "2026-10-21T09:08:48.757Z [LOG] [WorkerSelfUpdate] Restarting onto the new bundle { commit: '86970a6b' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 10665,
+          "text": "2026-10-21T09:09:02.903Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '86970a6b' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 13739,
+          "text": "2026-10-22T23:48:02.079Z [LOG] [WorkerSelfUpdate] Updating worker { from: '86970a6b', to: '68a187c3' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 13740,
+          "text": "2026-10-22T23:48:10.694Z [LOG] [WorkerSelfUpdate] New bundle in place { commit: '68a187c3' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 13741,
+          "text": "2026-10-22T23:48:10.695Z [LOG] [WorkerSelfUpdate] Restarting onto the new bundle { commit: '68a187c3' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 13755,
+          "text": "2026-10-22T23:48:24.207Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '68a187c3' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 13855,
+          "text": "2026-10-23T00:03:12.403Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '68a187c3' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 14691,
+          "text": "2026-10-23T04:30:50.701Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '68a187c3' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 15079,
+          "text": "2026-10-23T09:18:42.873Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '68a187c3' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 16384,
+          "text": "2026-10-24T00:19:13.132Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '68a187c3' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 16580,
+          "text": "2026-10-24T08:48:34.865Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '68a187c3' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.1",
+          "lineNumber": 16606,
+          "text": "2026-10-24T09:37:55.643Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '68a187c3' }"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+      "matches": [
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 25445,
+          "text": "2026-10-14T16:25:38.872Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: 'bed58972' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 25487,
+          "text": "2026-10-14T17:02:46.469Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: 'bed58972' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 25507,
+          "text": "2026-10-14T17:04:20.831Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: 'bed58972' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 25801,
+          "text": "2026-10-14T19:37:59.622Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: 'bed58972' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 25879,
+          "text": "2026-10-14T19:51:01.289Z [LOG] [WorkerSelfUpdate] Updating worker { from: 'bed58972', to: '99369788' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 25880,
+          "text": "2026-10-14T19:51:01.899Z [LOG] [WorkerSelfUpdate] New bundle in place { commit: '99369788' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 25881,
+          "text": "2026-10-14T19:51:01.900Z [LOG] [WorkerSelfUpdate] Restarting onto the new bundle { commit: '99369788' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 25892,
+          "text": "2026-10-14T19:51:03.056Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '99369788' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 26428,
+          "text": "2026-10-15T02:54:31.421Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '99369788' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 26948,
+          "text": "2026-10-15T09:31:01.121Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '99369788' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 29239,
+          "text": "2026-10-15T17:59:16.043Z [LOG] [WorkerSelfUpdate] Updating worker { from: '99369788', to: '06201b4b' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 29240,
+          "text": "2026-10-15T17:59:25.334Z [LOG] [WorkerSelfUpdate] New bundle in place { commit: '06201b4b' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 29241,
+          "text": "2026-10-15T17:59:25.334Z [LOG] [WorkerSelfUpdate] Restarting onto the new bundle { commit: '06201b4b' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 29252,
+          "text": "2026-10-15T17:59:26.508Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '06201b4b' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 29484,
+          "text": "2026-10-15T23:11:30.615Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '06201b4b' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 29705,
+          "text": "2026-10-16T00:31:20.225Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '06201b4b' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 29802,
+          "text": "2026-10-16T08:16:56.733Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '06201b4b' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 29881,
+          "text": "2026-10-16T10:49:16.113Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '06201b4b' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 30624,
+          "text": "2026-10-16T19:00:49.455Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '06201b4b' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 30744,
+          "text": "2026-10-16T22:00:26.846Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '06201b4b' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 31069,
+          "text": "2026-10-17T01:31:31.621Z [LOG] [WorkerSelfUpdate] Updating worker { from: '06201b4b', to: 'f1f5653c' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 31070,
+          "text": "2026-10-17T01:31:39.634Z [LOG] [WorkerSelfUpdate] New bundle in place { commit: 'f1f5653c' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 31071,
+          "text": "2026-10-17T01:31:39.634Z [LOG] [WorkerSelfUpdate] Restarting onto the new bundle { commit: 'f1f5653c' }"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.2",
+          "lineNumber": 31085,
+          "text": "2026-10-17T01:31:50.431Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: 'f1f5653c' }"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.3",
+      "matches": []
+    },
+    {
+      "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-agent.log.4",
+      "matches": []
+    },
+    {
+      "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-supervisor.log",
+      "matches": [
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-supervisor.log",
+          "lineNumber": 135,
+          "text": "2026-10-14T19:51:01.929Z [LOG] [Supervisor] Worker child exited to load an update \u2014 restarting {\"ranMs\":782916,\"restarts\":3}"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-supervisor.log",
+          "lineNumber": 141,
+          "text": "2026-10-15T17:59:25.358Z [LOG] [Supervisor] Worker child exited to load an update \u2014 restarting {\"ranMs\":30504872,\"restarts\":6}"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-supervisor.log",
+          "lineNumber": 155,
+          "text": "2026-10-17T01:31:39.670Z [LOG] [Supervisor] Worker child exited to load an update \u2014 restarting {\"ranMs\":12678561,\"restarts\":1}"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-supervisor.log",
+          "lineNumber": 157,
+          "text": "2026-10-18T09:06:40.087Z [LOG] [Supervisor] Worker child exited to load an update \u2014 restarting {\"ranMs\":113699910,\"restarts\":2}"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-supervisor.log",
+          "lineNumber": 159,
+          "text": "2026-10-18T13:16:36.319Z [LOG] [Supervisor] Worker child exited to load an update \u2014 restarting {\"ranMs\":14995718,\"restarts\":3}"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-supervisor.log",
+          "lineNumber": 163,
+          "text": "2026-10-20T17:25:12.457Z [LOG] [Supervisor] Worker child exited to load an update \u2014 restarting {\"ranMs\":112089124,\"restarts\":1}"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-supervisor.log",
+          "lineNumber": 165,
+          "text": "2026-10-21T09:08:48.792Z [LOG] [Supervisor] Worker child exited to load an update \u2014 restarting {\"ranMs\":56615819,\"restarts\":2}"
+        },
+        {
+          "path": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-supervisor.log",
+          "lineNumber": 167,
+          "text": "2026-10-22T23:48:10.743Z [LOG] [Supervisor] Worker child exited to load an update \u2014 restarting {\"ranMs\":139161436,\"restarts\":3}"
+        }
+      ]
+    }
+  ],
+  "git": [
+    {
+      "repository": "C:\\Users\\shutu\\Documents\\Work\\orchestrat0r\\ai-orchestrator",
+      "head": {
+        "exitCode": 0,
+        "output": [
+          "68a187c3f4a858ee399ab4e56922430a0d1eca46"
+        ]
+      },
+      "upstream": {
+        "exitCode": 0,
+        "output": [
+          "d21fdce4bba6200699f55fd339788c2e6d8583f1"
+        ]
+      },
+      "reflogLast10HashTimeSubject": {
+        "exitCode": 0,
+        "output": [
+          "68a187c3f4a858ee399ab4e56922430a0d1eca46\tHEAD@{2026-10-23T00:48:02+01:00}\tmerge 68a187c3f4a858ee399ab4e56922430a0d1eca46: Fast-forward",
+          "86970a6b97c11fe0b9aeb462fa18063c0332cd01\tHEAD@{2026-10-21T10:08:39+01:00}\tmerge 86970a6b97c11fe0b9aeb462fa18063c0332cd01: Fast-forward",
+          "542f1f690fae155ecec3e6dddfc901c008fec3b7\tHEAD@{2026-10-20T18:25:04+01:00}\tmerge 542f1f690fae155ecec3e6dddfc901c008fec3b7: Fast-forward",
+          "bca871e729210811d1910a595398c9eef99b8cc5\tHEAD@{2026-10-18T14:16:28+01:00}\tmerge bca871e729210811d1910a595398c9eef99b8cc5: Fast-forward",
+          "81755b3fa441c8c741e13db4c894f61a0de4620b\tHEAD@{2026-10-18T10:06:32+01:00}\tmerge 81755b3fa441c8c741e13db4c894f61a0de4620b: Fast-forward",
+          "f1f5653c85ec18a9dec95353fd1bd7144ac1f42a\tHEAD@{2026-10-17T02:31:32+01:00}\tmerge f1f5653c85ec18a9dec95353fd1bd7144ac1f42a: Fast-forward",
+          "06201b4b0c592b4b1d9cf8fcd7993bcdd28f1030\tHEAD@{2026-10-15T18:59:16+01:00}\tmerge 06201b4b0c592b4b1d9cf8fcd7993bcdd28f1030: Fast-forward",
+          "993697888b9f57cf0b90b82f87006386d4d1f5f0\tHEAD@{2026-10-14T20:37:38+01:00}\tpull: Fast-forward",
+          "bed58972c235afcbb511c5727747ff08bd9a2f16\tHEAD@{2026-10-14T14:35:22+01:00}\tpull --ff-only: Fast-forward",
+          "941f349c6161ed9d25c91211b2a22beb15728b66\tHEAD@{2026-10-13T23:35:21+01:00}\tpull --ff-only: Fast-forward"
+        ]
+      }
+    }
+  ],
+  "sourceCommitStamps": [
+    {
+      "path": "C:\\Users\\shutu\\Documents\\Work\\orchestrat0r\\ai-orchestrator\\dist\\worker-agent\\.source-commit",
+      "lines": [
+        {
+          "path": "C:\\Users\\shutu\\Documents\\Work\\orchestrat0r\\ai-orchestrator\\dist\\worker-agent\\.source-commit",
+          "lineNumber": 1,
+          "text": "68a187c3f4a858ee399ab4e56922430a0d1eca46"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Users\\shutu\\Documents\\Work\\orchestrat0r\\ai-orchestrator\\dist\\worker-agent\\.source-commit.prev",
+      "lines": [
+        {
+          "path": "C:\\Users\\shutu\\Documents\\Work\\orchestrat0r\\ai-orchestrator\\dist\\worker-agent\\.source-commit.prev",
+          "lineNumber": 1,
+          "text": "86970a6b97c11fe0b9aeb462fa18063c0332cd01"
+        }
+      ]
+    },
+    {
+      "path": "C:\\Users\\shutu\\Documents\\Work\\orchestrat0r\\ai-orchestrator\\dist\\worker-agent\\.source-commit.swapped",
+      "lines": [
+        {
+          "path": "C:\\Users\\shutu\\Documents\\Work\\orchestrat0r\\ai-orchestrator\\dist\\worker-agent\\.source-commit.swapped",
+          "lineNumber": 1,
+          "text": "68a187c3f4a858ee399ab4e56922430a0d1eca46"
+        }
+      ]
+    }
+  ],
+  "manifestVersions": [
+    {
+      "path": "C:\\Users\\shutu\\Documents\\Work\\orchestrat0r\\ai-orchestrator\\resources\\browser-extension\\manifest.json",
+      "version": "0.2.43"
+    }
+  ],
+  "launcherGitPullLines": [
+    {
+      "path": "C:\\Users\\shutu\\.orchestrator\\start-worker-autoupdate.bat",
+      "lineNumber": 12,
+      "text": "REM by byte offset. If \"git pull\" rewrote this file mid-run, cmd would resume at a"
+    },
+    {
+      "path": "C:\\Users\\shutu\\.orchestrator\\start-worker-autoupdate.bat",
+      "lineNumber": 37,
+      "text": "git pull --ff-only"
+    },
+    {
+      "path": "C:\\Users\\shutu\\.orchestrator\\start-worker-autoupdate.bat",
+      "lineNumber": 38,
+      "text": "if errorlevel 1 echo git pull failed or skipped - continuing with current code."
+    }
+  ],
+  "scheduledTask": [
+    {
+      "name": "AI Orchestrator Worker",
+      "state": "Running",
+      "nextRunUtc": "2026-10-27T14:25:18.0000000Z"
+    }
+  ],
+  "issues": []
+}

@@ -1,0 +1,158 @@
+{
+  "sealedAt": "2026-10-27T15:40:04.333699+00:00",
+  "head": "2b060ca49d109facab04f4f64e799afd422a4e64",
+  "sourceMatchesPreviousRun": true,
+  "source": [
+    {
+      "path": "src/worker-agent/worker-self-update.ts",
+      "sha256": "4269f8258e4a3016084b6b1c8d38dfb0bad0e4ed6a99839d54998e0b2625ff3b"
+    },
+    {
+      "path": "src/worker-agent/worker-self-update-wiring.ts",
+      "sha256": "e97dcbc3b2a0b088d74f0dc60f0d364b0db2d0b556c51a9eb44257f915af300d"
+    },
+    {
+      "path": "src/worker-agent/worker-supervisor.ts",
+      "sha256": "b0ad2fc241380d92e9df177144e305858c5de9fdfe222b67faddce1755bb097e"
+    },
+    {
+      "path": "src/worker-agent/worker-activity.ts",
+      "sha256": "2fd8ce9e0cbc523898b5468d07007cde01e4e2570268ad4a4c1ea29d800445ac"
+    },
+    {
+      "path": "src/worker-agent/index.ts",
+      "sha256": "e2be6e1e5ac6fbe72a5df1eb32227229356ee1ba035cebe47d892e9eb64d1174"
+    },
+    {
+      "path": "build-worker-agent.ts",
+      "sha256": "193ac9d383efc7aeb8baf85930bd3e1fe8cacbe738927a675dc263df292cfef3"
+    },
+    {
+      "path": "src/main/persistence/rlm/rlm-schema.ts",
+      "sha256": "02349f52b1188c1f1fea6e3e3a48ed1691de555ac107fa8222654171dfb7a9db"
+    },
+    {
+      "path": "src/main/instance/context-worker-main.ts",
+      "sha256": "781b21cebd79aa909f8a8e59de8e15caba4e67703a4fee6bd1d46ede861499cd"
+    }
+  ],
+  "document": {
+    "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-14-worker-auto-update_livetest.md",
+    "sha256": "1a12b531f84f2b59f55e79b54b93acd84b34693a02286bace16902310f0f253e"
+  },
+  "files": [
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/browser-preflight.json",
+      "sha256": "95ac1d3e9a22bbeccf987ed9f22af309f3ea80fb670115fe171fad9b95342121"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/browser-selection.json",
+      "sha256": "8d91556971e63c94c1f5d935506eee872f810ab820c91776b31d7733b4e85e95"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/browser-snapshot.json",
+      "sha256": "877de4cd9a04f6afbcc52582c6a87a53e1ac02d58892dfd658282429e40b9218"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/build-main.log.txt",
+      "sha256": "4841cbc151e54690fecf27a22f2e0da62a5c4ed96368a66e6a702499d931aa09"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/build-renderer.log.txt",
+      "sha256": "9005511e8bad04a6c341e9d5c617ff9532680b2f2b3731804bacc4751a76f929"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/cleanup-receipt.json",
+      "sha256": "d1e62b664496d9b1cc2d7c8e14a155bf2e91d5ba0db3766958401b0b494e7a29"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/command-receipts.jsonl",
+      "sha256": "20f73b863be42d880454904300a30c4ca4ead11f84380b002ea226e46a630d4d"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/coordinator-grace.json",
+      "sha256": "1fc851c902541b1e666fb8b92f74ac0418c0a677cbc296aace645cb76077305f"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/dev-exit.json",
+      "sha256": "dfd26647fb3998a2cffadd495d1fc2aaef4cf80f5cb3c208447f33e3e6236855"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/dev-result.json",
+      "sha256": "167404ec217aa6bf2fb4ea352cf91f19f95de0bb302731e8de70475ec388cc3f"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/dev-smoke.cjs",
+      "sha256": "b17fc0dcf19382cdb35f3441eba1f881dce943cb004266b13b2389789e625ffe"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/dev-smoke.log.txt",
+      "sha256": "1f145098dc1587a5cd40e9f016d027da9128559fd666945d58dacc92dbf69f0c"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/final-live-observation.json",
+      "sha256": "02156159a0b8b54f14f1cf804aac1fba816d78f7dff900e19caca7561743b037"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/final-verification.json",
+      "sha256": "e06e396f313496179fb770dffce46e6a8f641ea3eff2df24cab260b15d1e20dd"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/focused-tests.log.txt",
+      "sha256": "89f49a101b12e1a58b9923bd867ff268e5d7218b1bac53178c74ba746ee45956"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/isolated-runtime-result.json",
+      "sha256": "aa89f904905dc30bdfeadf61f3ad7e01fccb8aff1bf748457531e6bef0fe9750"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/isolated-runtime.log.txt",
+      "sha256": "7d3fa79df32ca170ad068307df89279bd64116ee6b6013f218b0fd679abd56cf"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/isolated-runtime.ts",
+      "sha256": "3874eedf7ce36cc17c69b23f3ec5d7cada1358a669982c925c4cb3412cdec56a"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/live-observation.json",
+      "sha256": "4e509339970bb6fd496401e4740e2074036d70881d3eaca1de2e8cde4563afad"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/report.json",
+      "sha256": "c66c319c71df90dc55827f0d93cdc103e068c55938649801e934465e365afa70"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/run-dev-smoke.cjs",
+      "sha256": "605f6658c6a997cc861fbc556a151282c0500e222c2a463977c3980da9ef5a6c"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/run.cjs",
+      "sha256": "781b4a127d5614a77a7d90d8bf9014478a2959bf282772173079dc133437fb24"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/setup-receipt.json",
+      "sha256": "a8aa28ba11a4da41ab580424c14f1dfb53f2ace14b1920e23275753033249753"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/test-results.pid-3776.json",
+      "sha256": "3e4851d7bf574d807a582df1d8332213309c629f0ee1e9c7057d2c230e947d66"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/test-run.pid-3776.log.txt",
+      "sha256": "db3038fa0908eba79c744cd0ae83633079174319eb31e900a4d252b0723d1fc6"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/typecheck-spec.log.txt",
+      "sha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/typecheck.log.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "evidence/2026-10-27-worker-auto-update-resume/windows-receipt.json",
+      "sha256": "64e172f9c219571d32f6cd18db771a2dd1cf61d45f050a6fbf5242fe1df21938"
+    }
+  ],
+  "finalizedAt": "2026-10-27T15:41:18.869214+00:00"
+}

@@ -1,0 +1,28 @@
+{
+  "observedAt": "2026-10-27T16:17:38.531921+00:00",
+  "mode": "Coordinator-roster-only passive observation",
+  "otherSessionsStopped": 0,
+  "diagnosticInstancesExplicitlyTerminated": [
+    "x5avo62hv",
+    "xqiljca8r"
+  ],
+  "sourceTrace": [
+    {
+      "path": "src/main/app/orchestrator-tools-step.ts",
+      "line": 199
+    },
+    {
+      "path": "src/main/remote-node/remote-node-roster-service.ts",
+      "line": 37
+    },
+    {
+      "path": "src/main/remote-node/worker-node-registry.ts",
+      "line": 60
+    }
+  ],
+  "intervalMs": 45000,
+  "scheduledAdditionalSamples": 14,
+  "limits": "We control only this observer. Other users and scheduled work may stay active. Retained counts do not prove currently executing turns.",
+  "observerWorkerCommandsDuringWindow": 0,
+  "observerBrowserCommandsDuringWindow": 0
+}

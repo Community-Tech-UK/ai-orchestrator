@@ -1,0 +1,28 @@
+{
+  "observedAt": "2026-10-27T14:25:23.528Z",
+  "connected": true,
+  "activeInstances": 9,
+  "workerAgent": {
+    "version": "0.1.0",
+    "startedAt": 1792834652614,
+    "hostBootedAt": 1792834589193,
+    "buildCommit": "68a187c3f4a858ee399ab4e56922430a0d1eca46",
+    "autoUpdate": {
+      "state": "waiting_for_idle",
+      "targetCommit": "d21fdce4bba6200699f55fd339788c2e6d8583f1",
+      "lastCheckedAt": 1793110792524
+    }
+  },
+  "extensionRelay": {
+    "enabled": true,
+    "running": true,
+    "socketPath": "\\\\.\\pipe\\ai-orchestrator-browser-gateway",
+    "registration": "ok",
+    "lastRegistrationCheckAt": 1793111100716,
+    "manifestPath": "C:\\Users\\shutu\\AppData\\Local\\Google\\Chrome\\NativeMessagingHosts\\com.ai_orchestrator.browser_gateway_relay.json",
+    "extensionVersion": "0.2.43",
+    "extensionReloadedAt": 1793096731491,
+    "lastExtensionContactAt": 1793111093582,
+    "forwardsRuntimeEvidence": true
+  }
+}

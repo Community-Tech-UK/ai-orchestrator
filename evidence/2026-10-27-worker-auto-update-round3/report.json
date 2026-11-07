@@ -1,0 +1,106 @@
+{
+  "observedAt": "2026-10-27T16:19:44.870424+00:00",
+  "status": "INCOMPLETE_LIVE_COVERAGE",
+  "assessed": 5,
+  "fullyPassed": 0,
+  "documentMayClose": false,
+  "window": {
+    "start": "2026-10-27T16:06:46.358Z",
+    "end": "2026-10-27T16:17:51.719Z",
+    "durationSeconds": 665.361,
+    "samples": 15,
+    "retainedCounts": [
+      6,
+      7,
+      8
+    ],
+    "states": [
+      "waiting_for_idle"
+    ],
+    "builds": [
+      "68a187c3f4a858ee399ab4e56922430a0d1eca46"
+    ],
+    "allConnected": true,
+    "checkTimes": [
+      1793117068957,
+      1793117399205,
+      1793117729415
+    ]
+  },
+  "checks": [
+    {
+      "check": 1,
+      "status": "partial/open",
+      "evidence": "Live build, checkout HEAD and bundle stamp agree; manifest and extension 0.2.43 agree. No literal idle sample.",
+      "remaining": "Observe idle naturally after retained sessions release and pending update settles. Agent-observable workload prerequisite."
+    },
+    {
+      "check": 2,
+      "status": "open optional maintenance",
+      "evidence": "Executable deployed git pull remains at line 37. Current process not elevated; task RunLevel Limited. No replacement permission test.",
+      "remaining": "Separate authority for stopping shared keep-alive/worker and replacing deployed launcher. Human-only claim removed; any real elevation/identity boundary must be observed before escalation."
+    },
+    {
+      "check": 3,
+      "status": "partial/open",
+      "evidence": "Before-update shared-tab read succeeded. No new build or matching update/reconnect/extension transition during window.",
+      "remaining": "One natural update with correlated build/swap/restart/coordinator grace and applicable extension/native-host transition, then successful browser read."
+    },
+    {
+      "check": 4,
+      "status": "partial/open",
+      "evidence": "Retained-session deferral persisted across coordinator-only observations. Isolated quiet boundary passes with injected clock.",
+      "remaining": "Observe real sessions release plus quiet period and eventual update. This was not a controlled busy-to-idle experiment."
+    },
+    {
+      "check": 5,
+      "status": "isolated pass; live skipped/open",
+      "evidence": "Real failed build and filesystem marker/rollback/recovery in isolated probe; git/time/restart injected. No live broken push.",
+      "remaining": "Check explicitly permits skip. Current task forbids commits, pushes and branch changes. A destructive scratch-branch live campaign requires different authority."
+    }
+  ],
+  "findings": [
+    {
+      "finding": 1,
+      "status": "unresolved",
+      "reason": "No fully passing live check; closure remains blocked."
+    },
+    {
+      "finding": 2,
+      "status": "unresolved",
+      "reason": "Literal idle not observed despite passive retry; retained counts never zero."
+    },
+    {
+      "finding": 3,
+      "status": "partly addressed, deployment unresolved",
+      "reason": "Unsupported human-only/elevation assertion corrected with current identity evidence. Launcher still contains pull; no maintenance interruption authorised."
+    },
+    {
+      "finding": 4,
+      "status": "unresolved",
+      "reason": "No new update and correlated post-update transitions/browser proof."
+    },
+    {
+      "finding": 5,
+      "status": "unresolved",
+      "reason": "Live post-quiet completion not observed; isolated clock probe remains explicitly supplementary."
+    },
+    {
+      "finding": 6,
+      "status": "live scenario skipped under explicit check allowance",
+      "reason": "Broken push and fix not performed; no-commit/no-push/no-branch instructions remain in force."
+    },
+    {
+      "finding": 7,
+      "status": "retry performed; workload prerequisite persists",
+      "reason": "Observed passively for 665.361s without our worker/browser commands. Counts changed naturally 8 to 6, never zero."
+    }
+  ],
+  "verification": "verification-receipt.json",
+  "sourceComparison": "source-comparison.json",
+  "cleanup": "cleanup-receipt.json",
+  "noProductionSourceOrExistingTestChanges": true,
+  "noCommitsPushesStashesBranchesWorktreesCreated": true,
+  "noOtherSessionsStopped": true,
+  "noNewDefectReproduced": true
+}

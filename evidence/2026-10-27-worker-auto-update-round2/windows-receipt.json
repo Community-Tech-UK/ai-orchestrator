@@ -1,0 +1,76 @@
+{
+  "utc_time": "2026-10-27T15:46:25.2149484Z",
+  "git": {
+    "HEAD": "68a187c3f4a858ee399ab4e56922430a0d1eca46",
+    "upstream": "ef10afff5943421098f5df6dc33edcffb53f84eb"
+  },
+  "source_commit": {
+    "file": "C:\\Users\\shutu\\Documents\\Work\\orchestrat0r\\ai-orchestrator\\dist\\worker-agent\\.source-commit",
+    "value": "68a187c3f4a858ee399ab4e56922430a0d1eca46"
+  },
+  "extension_version": {
+    "value": "0.2.43",
+    "file": "C:\\Users\\shutu\\Documents\\Work\\orchestrat0r\\ai-orchestrator\\resources\\browser-extension\\manifest.json"
+  },
+  "executable_git_pull_lines": [
+    {
+      "file": "C:\\Users\\shutu\\.orchestrator\\start-worker-autoupdate.bat",
+      "line": 37,
+      "text": "git pull --ff-only"
+    }
+  ],
+  "scheduled_task": {
+    "name": "AI Orchestrator Worker",
+    "state": "Running",
+    "last_run_utc": "2026-10-27T15:45:19.0000000Z",
+    "next_run_utc": "2026-10-27T15:50:18.0000000Z"
+  },
+  "auto_update_failed": {
+    "file": "C:\\Users\\shutu\\Documents\\Work\\orchestrat0r\\ai-orchestrator\\dist\\worker-agent\\.auto-update-failed",
+    "exists": false
+  },
+  "supervisor_update_lines": [
+    {
+      "file": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-supervisor.log",
+      "line": 135,
+      "text": "2026-10-14T19:51:01.929Z [LOG] [Supervisor] Worker child exited to load an update — restarting {\"ranMs\":782916,\"restarts\":3}"
+    },
+    {
+      "file": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-supervisor.log",
+      "line": 141,
+      "text": "2026-10-15T17:59:25.358Z [LOG] [Supervisor] Worker child exited to load an update — restarting {\"ranMs\":30504872,\"restarts\":6}"
+    },
+    {
+      "file": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-supervisor.log",
+      "line": 155,
+      "text": "2026-10-17T01:31:39.670Z [LOG] [Supervisor] Worker child exited to load an update — restarting {\"ranMs\":12678561,\"restarts\":1}"
+    },
+    {
+      "file": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-supervisor.log",
+      "line": 157,
+      "text": "2026-10-18T09:06:40.087Z [LOG] [Supervisor] Worker child exited to load an update — restarting {\"ranMs\":113699910,\"restarts\":2}"
+    },
+    {
+      "file": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-supervisor.log",
+      "line": 159,
+      "text": "2026-10-18T13:16:36.319Z [LOG] [Supervisor] Worker child exited to load an update — restarting {\"ranMs\":14995718,\"restarts\":3}"
+    },
+    {
+      "file": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-supervisor.log",
+      "line": 163,
+      "text": "2026-10-20T17:25:12.457Z [LOG] [Supervisor] Worker child exited to load an update — restarting {\"ranMs\":112089124,\"restarts\":1}"
+    },
+    {
+      "file": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-supervisor.log",
+      "line": 165,
+      "text": "2026-10-21T09:08:48.792Z [LOG] [Supervisor] Worker child exited to load an update — restarting {\"ranMs\":56615819,\"restarts\":2}"
+    },
+    {
+      "file": "C:\\Users\\shutu\\.orchestrator\\logs\\worker-supervisor.log",
+      "line": 167,
+      "text": "2026-10-22T23:48:10.743Z [LOG] [Supervisor] Worker child exited to load an update — restarting {\"ranMs\":139161436,\"restarts\":3}"
+    }
+  ],
+  "source": "Raw remote execution results, messages seq 5 and 7 in remote-command-output.json",
+  "limits": "Original message 5 truncated after metadata; updater lines not re-certified from this truncated response. Message 7 (launcher/supervisor) complete. Diagnostic did not write optional receipt file, confirmed by file_not_found; no file claimed retained on Windows."
+}

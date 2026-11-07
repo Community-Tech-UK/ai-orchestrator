@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/browser-gateway/browser-extension-assets.spec.ts src/main/browser-gateway/browser-extension-native-host.spec.ts
+
+✓ 2 files · 170 tests passed in 5.7s
+  full log: _scratch/test-run.pid-91374.log

@@ -1,0 +1,16 @@
+{
+  "at": "2026-10-27T16:10:04.333091+00:00",
+  "processes": [
+    {
+      "pid": 89150,
+      "group": false,
+      "alive": false
+    },
+    {
+      "pid": 89150,
+      "group": true,
+      "alive": false
+    }
+  ],
+  "debugPortClosed": true
+}

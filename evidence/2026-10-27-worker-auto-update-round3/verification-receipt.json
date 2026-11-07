@@ -1,0 +1,181 @@
+{
+  "observedAt": "2026-10-27T16:08:50.545751+00:00",
+  "commands": [
+    {
+      "startedAt": "2026-10-27T16:01:55.148Z",
+      "finishedAt": "2026-10-27T16:03:20.048Z",
+      "executable": "npm",
+      "args": [
+        "run",
+        "build:main"
+      ],
+      "envOverrides": {},
+      "exitCode": 0,
+      "signal": null,
+      "log": "build-main.log.txt"
+    },
+    {
+      "startedAt": "2026-10-27T16:03:20.050Z",
+      "finishedAt": "2026-10-27T16:04:02.473Z",
+      "executable": "npm",
+      "args": [
+        "run",
+        "build:renderer"
+      ],
+      "envOverrides": {},
+      "exitCode": 0,
+      "signal": null,
+      "log": "build-renderer.log.txt"
+    },
+    {
+      "startedAt": "2026-10-27T16:04:02.474Z",
+      "finishedAt": "2026-10-27T16:04:39.887Z",
+      "executable": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+      "args": [
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/worker-auto-update-round3/run-dev-smoke.cjs"
+      ],
+      "envOverrides": {
+        "AIO_LT_REUSE_OWN_PROFILE": "1"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "log": "dev-smoke.log.txt"
+    },
+    {
+      "startedAt": "2026-10-27T16:04:39.888Z",
+      "finishedAt": "2026-10-27T16:04:42.670Z",
+      "executable": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+      "args": [
+        "--import",
+        "tsx",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/worker-auto-update-round3/isolated-runtime.ts"
+      ],
+      "envOverrides": {},
+      "exitCode": 0,
+      "signal": null,
+      "log": "isolated-runtime.log.txt"
+    },
+    {
+      "startedAt": "2026-10-27T16:04:42.670Z",
+      "finishedAt": "2026-10-27T16:05:04.905Z",
+      "executable": "npm",
+      "args": [
+        "run",
+        "test:quiet",
+        "--",
+        "src/worker-agent/worker-self-update.spec.ts",
+        "src/worker-agent/worker-self-update-wiring.spec.ts",
+        "src/worker-agent/worker-supervisor.spec.ts",
+        "src/worker-agent/worker-activity.spec.ts"
+      ],
+      "envOverrides": {
+        "AIO_TEST_MAX_FORKS": "1",
+        "AIO_TEST_SUMMARY": "0"
+      },
+      "exitCode": 0,
+      "signal": null,
+      "log": "focused-tests.log.txt"
+    },
+    {
+      "startedAt": "2026-10-27T16:05:04.906Z",
+      "finishedAt": "2026-10-27T16:05:57.429Z",
+      "executable": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+      "args": [
+        "node_modules/typescript/bin/tsc",
+        "--noEmit"
+      ],
+      "envOverrides": {},
+      "exitCode": 0,
+      "signal": null,
+      "log": "typecheck.log.txt"
+    },
+    {
+      "startedAt": "2026-10-27T16:05:57.430Z",
+      "finishedAt": "2026-10-27T16:07:37.597Z",
+      "executable": "npm",
+      "args": [
+        "run",
+        "typecheck:spec"
+      ],
+      "envOverrides": {},
+      "exitCode": 0,
+      "signal": null,
+      "log": "typecheck-spec.log.txt"
+    }
+  ],
+  "allExitZero": true,
+  "dev": {
+    "observedAt": "2026-10-27T16:04:39.491Z",
+    "pid": 89150,
+    "profile": "/tmp/aio-lt-queue-d4bee785",
+    "visibilityOverride": "'Emulation.setPageVisibilityOverride' wasn't found",
+    "cdp": {
+      "api": "function",
+      "appRoot": true,
+      "frames": true,
+      "hidden": false,
+      "instances": {
+        "data": [],
+        "success": true
+      },
+      "visibility": "visible"
+    }
+  },
+  "devExit": {
+    "observedAt": "2026-10-27T16:04:39.880Z",
+    "pid": 89150,
+    "code": 0,
+    "signal": null,
+    "timedOut": false,
+    "residualGroupSignalled": true
+  },
+  "load": [
+    48.4384765625,
+    47.94873046875,
+    42.068359375
+  ],
+  "sourceHashes": [
+    {
+      "path": "src/worker-agent/worker-self-update.ts",
+      "sha256": "4269f8258e4a3016084b6b1c8d38dfb0bad0e4ed6a99839d54998e0b2625ff3b"
+    },
+    {
+      "path": "src/worker-agent/worker-self-update-wiring.ts",
+      "sha256": "e97dcbc3b2a0b088d74f0dc60f0d364b0db2d0b556c51a9eb44257f915af300d"
+    },
+    {
+      "path": "src/worker-agent/worker-supervisor.ts",
+      "sha256": "b0ad2fc241380d92e9df177144e305858c5de9fdfe222b67faddce1755bb097e"
+    },
+    {
+      "path": "src/worker-agent/worker-activity.ts",
+      "sha256": "2fd8ce9e0cbc523898b5468d07007cde01e4e2570268ad4a4c1ea29d800445ac"
+    },
+    {
+      "path": "src/worker-agent/worker-agent.ts",
+      "sha256": "39d505378188a07466538489e9f9f858b4a083b85089b57c49677d1176f31711"
+    },
+    {
+      "path": "src/worker-agent/local-instance-manager.ts",
+      "sha256": "5e77eadc5bbda4f004b5c7cabfe0991a38a046f166fa7aa2792f8f81b64d05ab"
+    },
+    {
+      "path": "src/main/app/orchestrator-tools-step.ts",
+      "sha256": "be1b3a5bd928061f28bd29d917625fef756a43045888b30422bc02adb6aeec6b"
+    },
+    {
+      "path": "src/main/remote-node/remote-node-roster-service.ts",
+      "sha256": "b811f513b05a967823e00da7ec0feca17c89c7f34ee90faab60434897fdfcbb6"
+    }
+  ],
+  "productionDiff": "",
+  "workingProductionDiff": "",
+  "notRun": [
+    "full suite",
+    "lint",
+    "size gate",
+    "UI hint gate",
+    "extension/native-host suites"
+  ],
+  "notRunReason": "Evidence-only retry, no production source or existing test changes, shared host load above runbook threshold; no whole-repository pass claim."
+}

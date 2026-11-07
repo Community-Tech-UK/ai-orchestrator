@@ -1,0 +1,30 @@
+{
+  "observedAt": "2026-10-27T15:48:35.532240+00:00",
+  "directory": "/Users/suas/Library/Application Support/harness/logs",
+  "filesSearched": [
+    "app.log",
+    "app.log.1",
+    "app.log.2",
+    "app.log.3",
+    "app.log.4"
+  ],
+  "literalMessage": "Node re-registered within disconnect grace",
+  "matches": [
+    {
+      "file": "app.log.4",
+      "line": 52649,
+      "record": {
+        "timestamp": 1793076389937,
+        "level": "info",
+        "subsystem": "WorkerNodeConnection",
+        "message": "Node re-registered within disconnect grace \u2014 treating as continuous session",
+        "data": {
+          "node": "windows-pc",
+          "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be"
+        }
+      }
+    }
+  ],
+  "errors": [],
+  "limit": "Only retained current and rotated local logs; cannot prove no historical grace event."
+}

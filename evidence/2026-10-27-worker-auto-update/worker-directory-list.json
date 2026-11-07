@@ -1,0 +1,143 @@
+{
+  "observedAt": "2026-10-27T14:25:56.532Z",
+  "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+  "nodeName": "windows-pc",
+  "entries": [
+    {
+      "name": "cli",
+      "size": 0,
+      "isDirectory": true
+    },
+    {
+      "name": "service",
+      "size": 0,
+      "isDirectory": true
+    },
+    {
+      "name": ".source-commit",
+      "size": 42,
+      "isDirectory": false
+    },
+    {
+      "name": ".source-commit.prev",
+      "size": 41,
+      "isDirectory": false
+    },
+    {
+      "name": ".source-commit.swapped",
+      "size": 41,
+      "isDirectory": false
+    },
+    {
+      "name": "index.js",
+      "size": 4400859,
+      "isDirectory": false
+    },
+    {
+      "name": "index.prev.js",
+      "size": 4385024,
+      "isDirectory": false
+    },
+    {
+      "name": "local-model-config.d.ts",
+      "size": 1484,
+      "isDirectory": false
+    },
+    {
+      "name": "local-model-config.d.ts.map",
+      "size": 356,
+      "isDirectory": false
+    },
+    {
+      "name": "local-model-config.js",
+      "size": 1658,
+      "isDirectory": false
+    },
+    {
+      "name": "local-model-config.js.map",
+      "size": 357,
+      "isDirectory": false
+    },
+    {
+      "name": "worker-config.d.ts",
+      "size": 7499,
+      "isDirectory": false
+    },
+    {
+      "name": "worker-config.d.ts.map",
+      "size": 2907,
+      "isDirectory": false
+    },
+    {
+      "name": "worker-config.js",
+      "size": 18384,
+      "isDirectory": false
+    },
+    {
+      "name": "worker-config.js.map",
+      "size": 14918,
+      "isDirectory": false
+    },
+    {
+      "name": "worker-local-ai-health.d.ts",
+      "size": 2180,
+      "isDirectory": false
+    },
+    {
+      "name": "worker-local-ai-health.d.ts.map",
+      "size": 1710,
+      "isDirectory": false
+    },
+    {
+      "name": "worker-local-ai-health.js",
+      "size": 23158,
+      "isDirectory": false
+    },
+    {
+      "name": "worker-local-ai-health.js.map",
+      "size": 17993,
+      "isDirectory": false
+    },
+    {
+      "name": "worker-local-ai-model-capacity.d.ts",
+      "size": 1029,
+      "isDirectory": false
+    },
+    {
+      "name": "worker-local-ai-model-capacity.d.ts.map",
+      "size": 859,
+      "isDirectory": false
+    },
+    {
+      "name": "worker-local-ai-model-capacity.js",
+      "size": 3932,
+      "isDirectory": false
+    },
+    {
+      "name": "worker-local-ai-model-capacity.js.map",
+      "size": 3729,
+      "isDirectory": false
+    },
+    {
+      "name": "worker-local-ai-repair.d.ts",
+      "size": 946,
+      "isDirectory": false
+    },
+    {
+      "name": "worker-local-ai-repair.d.ts.map",
+      "size": 1045,
+      "isDirectory": false
+    },
+    {
+      "name": "worker-local-ai-repair.js",
+      "size": 3876,
+      "isDirectory": false
+    },
+    {
+      "name": "worker-local-ai-repair.js.map",
+      "size": 3368,
+      "isDirectory": false
+    }
+  ],
+  "truncated": false
+}

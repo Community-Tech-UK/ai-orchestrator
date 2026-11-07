@@ -1,0 +1,17 @@
+[
+  {
+    "instanceId": "x5avo62hv",
+    "terminated": true
+  },
+  {
+    "instanceId": "xqiljca8r",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"terminated\":[{\"instanceId\":\"xqiljca8r\"}],\"skipped\":[]}"
+        }
+      ]
+    }
+  }
+]

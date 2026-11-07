@@ -1,0 +1,7 @@
+{
+  "taskId": "bmjjrdzox",
+  "command": "rtk proxy env NG_BUILD_MAX_WORKERS=1 node evidence/2026-10-27-worker-auto-update-round2/run.cjs",
+  "method": "Harness background Bash, absolute runner path; runner changes cwd to this assigned worktree",
+  "receipt": "command-receipts.jsonl",
+  "limits": "Background acceptance alone is not passing evidence; every child exit is recorded separately."
+}

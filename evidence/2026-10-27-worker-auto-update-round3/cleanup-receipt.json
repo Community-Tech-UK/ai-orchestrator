@@ -1,0 +1,75 @@
+{
+  "recordedAt": "2026-10-27T16:20:21.050184+00:00",
+  "reportAndSealWrittenBeforeRuntimeRemoval": true,
+  "initialAttempt": {
+    "exitCode": 1,
+    "step": "remove owned dist directory",
+    "error": "OSError: [Errno 66] Directory not empty",
+    "followupInspection": "Only dist/.DS_Store remained; observed directly with rg --files --hidden --no-ignore dist and directory enumeration. No writer attribution inferred."
+  },
+  "retryExitCode": 0,
+  "processChecks": [
+    {
+      "kind": "pid",
+      "id": 89150,
+      "alive": false
+    },
+    {
+      "kind": "group",
+      "id": 89150,
+      "alive": false
+    }
+  ],
+  "debugPort9767Closed": true,
+  "removed": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/node_modules",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/.angular",
+      "existed": false,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/worker-auto-update-round3",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/tmp/aio-lt-queue-d4bee785",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/test-run.pid-2713.log",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/test-results.pid-2713.json",
+      "existed": true,
+      "absentAfter": true
+    }
+  ],
+  "sharedDependencyTargetPreserved": true,
+  "remoteRuntimeCreated": false,
+  "remoteDiagnosticsTerminated": [
+    "x5avo62hv",
+    "xqiljca8r"
+  ],
+  "otherSessionsTerminated": 0,
+  "browserBinariesInstalled": false,
+  "dependencyInstalls": false,
+  "automationsCreated": 0,
+  "productionSettingsChanged": 0,
+  "gitStatus": "?? evidence/2026-10-27-worker-auto-update-round3/\n",
+  "stagedPaths": "",
+  "worktreeDocumentUnchanged": true
+}

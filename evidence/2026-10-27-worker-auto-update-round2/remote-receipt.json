@@ -1,0 +1,22 @@
+{
+  "startResult": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"instanceId\":\"x1nsi1hgn\",\"nodeId\":\"bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be\",\"nodeName\":\"windows-pc\",\"workingDirectory\":\"C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator\",\"status\":\"idle\"}"
+      }
+    ]
+  },
+  "instanceId": "x1nsi1hgn",
+  "terminated": true,
+  "fileDownload": {
+    "outcome": "file_not_found",
+    "reason": "Diagnostic did not create its optional JSON file; no missing file is cited as evidence."
+  },
+  "rawExecutionEvidence": "remote-command-output.json",
+  "parsedEvidence": "windows-receipt.json",
+  "firstInvocation": {
+    "outcome": "rejected_by_routing_check",
+    "reason": "Prompt mentioned Browser Gateway, which run_on_node cannot access. Corrected to filesystem-only diagnostic. Browser reads stayed on coordinator with windows-pc explicitly selected."
+  }
+}

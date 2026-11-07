@@ -1,0 +1,17 @@
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785
+
+stdout | src/worker-agent/worker-self-update-wiring.spec.ts > worker self-update wiring > stays off under service mode and still reports the build commit
+[2026-10-27T15:36:54.395Z] [INFO] [ProjectDiscovery] Scan complete { count: 0, changed: true }
+
+ ✓ |main| src/worker-agent/worker-self-update-wiring.spec.ts (10 tests) 144ms
+ ✓ |main| src/worker-agent/worker-self-update.spec.ts (41 tests) 34ms
+ ✓ |main| src/worker-agent/worker-supervisor.spec.ts (18 tests) 8ms
+ ✓ |main| src/worker-agent/worker-activity.spec.ts (18 tests) 5ms
+
+ Test Files  4 passed (4)
+      Tests  87 passed (87)
+   Start at  15:36:53
+   Duration  2.03s (transform 219ms, setup 164ms, import 239ms, tests 190ms, environment 1.12s)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/test-results.pid-3776.json

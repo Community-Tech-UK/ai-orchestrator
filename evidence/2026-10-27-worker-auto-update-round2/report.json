@@ -1,0 +1,64 @@
+{
+  "recordedAt": "2026-10-27T15:54:33.688789+00:00",
+  "outcome": "INCOMPLETE: live closure blocked",
+  "findings": {
+    "1": {
+      "status": "unresolved",
+      "reason": "No complete live passes; session release/natural update unobserved; maintenance interruption and deliberately broken push outside observation authority."
+    },
+    "2": {
+      "status": "corrected",
+      "evidence": "Root document references actual first-run files and explicitly links resume cleanup/seal."
+    },
+    "3": {
+      "status": "corrected",
+      "evidence": "Status header dated 2026-10-27; honest open/closed counts retained."
+    }
+  },
+  "checks": [
+    {
+      "number": 1,
+      "status": "partial/open",
+      "residual": "Observe literal idle after real pending update settles; matching running build/stamp/manifest."
+    },
+    {
+      "number": 2,
+      "status": "optional/open",
+      "residual": "Authorised maintenance window to retire actual deployed git pull; no task stopped."
+    },
+    {
+      "number": 3,
+      "status": "partial/open",
+      "residual": "New natural update with correlated worker/supervisor/coordinator/extension or host evidence, then browser success."
+    },
+    {
+      "number": 4,
+      "status": "partial/open",
+      "residual": "Live session release, quiet period and successful pending update; controlled isolated sequence passed only."
+    },
+    {
+      "number": 5,
+      "status": "isolated pass; live skipped/open",
+      "residual": "Explicitly allowed skip exercised. No authority for scratch branch/broken push; injected git/time/restart do not prove live safety."
+    }
+  ],
+  "liveSources": [
+    "live-observation.json",
+    "post-diagnostic-observation.json",
+    "final-live-observation.json",
+    "windows-receipt.json",
+    "remote-command-output.json",
+    "coordinator-grace.json",
+    "browser-preflight.json",
+    "browser-selection.json",
+    "browser-snapshot.json"
+  ],
+  "verification": "verification-receipt.json",
+  "devSmokeScope": "Real isolated app startup/preload only; profile not paired with the production worker. Does not prove any live updater criterion.",
+  "fullyPassed": 0,
+  "assessed": 5,
+  "readyForClosure": false,
+  "document": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-14-worker-auto-update_livetest.md",
+  "cleanup": "cleanup-receipt.json (written after runtime removal)",
+  "authority": "Observe existing updater and run isolated checks. No commits, pushes, branch/worktree changes, production settings or unrelated sessions changed."
+}

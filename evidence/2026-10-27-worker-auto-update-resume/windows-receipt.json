@@ -1,0 +1,169 @@
+{
+  "capturedAtUtc": "2026-10-27T15:35:29.6808529Z",
+  "success": true,
+  "repository": "C:\\Users\\shutu\\Documents\\Work\\orchestrat0r\\ai-orchestrator",
+  "git": {
+    "head": "68a187c3f4a858ee399ab4e56922430a0d1eca46",
+    "upstream": "d21fdce4bba6200699f55fd339788c2e6d8583f1"
+  },
+  "sourceCommit": {
+    "path": "C:\\Users\\shutu\\Documents\\Work\\orchestrat0r\\ai-orchestrator\\dist\\worker-agent\\.source-commit",
+    "value": "68a187c3f4a858ee399ab4e56922430a0d1eca46"
+  },
+  "extensionManifest": {
+    "path": "C:\\Users\\shutu\\Documents\\Work\\orchestrat0r\\ai-orchestrator\\resources\\browser-extension\\manifest.json",
+    "version": "0.2.43"
+  },
+  "gitPullLines": [
+    {
+      "filename": "C:\\Users\\shutu\\.orchestrator\\start-worker-autoupdate.bat",
+      "lineNumber": 12,
+      "text": "REM by byte offset. If \"git pull\" rewrote this file mid-run, cmd would resume at a"
+    },
+    {
+      "filename": "C:\\Users\\shutu\\.orchestrator\\start-worker-autoupdate.bat",
+      "lineNumber": 37,
+      "text": "git pull --ff-only"
+    },
+    {
+      "filename": "C:\\Users\\shutu\\.orchestrator\\start-worker-autoupdate.bat",
+      "lineNumber": 38,
+      "text": "if errorlevel 1 echo git pull failed or skipped - continuing with current code."
+    }
+  ],
+  "scheduledTask": {
+    "name": "AI Orchestrator Worker",
+    "results": [
+      {
+        "state": "Running",
+        "nextRun": "2026-10-27T15:40:18.0000000+00:00",
+        "nextRunUtc": "2026-10-27T15:40:18.0000000Z"
+      }
+    ]
+  },
+  "autoUpdateFailed": {
+    "path": "C:\\Users\\shutu\\Documents\\Work\\orchestrat0r\\ai-orchestrator\\dist\\worker-agent\\.auto-update-failed",
+    "present": false,
+    "content": null
+  },
+  "logs": {
+    "worker-agent.log": [
+      {
+        "filename": "worker-agent.log",
+        "lineNumber": 1742,
+        "text": "2026-10-27T08:06:59.700Z [LOG] [WorkerSelfUpdate] Automatic updates are off: turned off in worker config"
+      },
+      {
+        "filename": "worker-agent.log",
+        "lineNumber": 1772,
+        "text": "2026-10-27T08:07:55.321Z [LOG] [WorkerSelfUpdate] Automatic updates are off: turned off in worker config"
+      },
+      {
+        "filename": "worker-agent.log",
+        "lineNumber": 1793,
+        "text": "2026-10-27T08:08:30.418Z [LOG] [WorkerSelfUpdate] Automatic updates are off: turned off in worker config"
+      },
+      {
+        "filename": "worker-agent.log",
+        "lineNumber": 1954,
+        "text": "2026-10-27T08:19:59.660Z [LOG] [WorkerSelfUpdate] Automatic updates are off: turned off in worker config"
+      }
+    ],
+    "worker-agent.log.1": [
+      {
+        "filename": "worker-agent.log.1",
+        "lineNumber": 10651,
+        "text": "2026-10-21T09:08:48.757Z [LOG] [WorkerSelfUpdate] Restarting onto the new bundle { commit: '86970a6b' }"
+      },
+      {
+        "filename": "worker-agent.log.1",
+        "lineNumber": 10665,
+        "text": "2026-10-21T09:09:02.903Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '86970a6b' }"
+      },
+      {
+        "filename": "worker-agent.log.1",
+        "lineNumber": 13739,
+        "text": "2026-10-22T23:48:02.079Z [LOG] [WorkerSelfUpdate] Updating worker { from: '86970a6b', to: '68a187c3' }"
+      },
+      {
+        "filename": "worker-agent.log.1",
+        "lineNumber": 13740,
+        "text": "2026-10-22T23:48:10.694Z [LOG] [WorkerSelfUpdate] New bundle in place { commit: '68a187c3' }"
+      },
+      {
+        "filename": "worker-agent.log.1",
+        "lineNumber": 13741,
+        "text": "2026-10-22T23:48:10.695Z [LOG] [WorkerSelfUpdate] Restarting onto the new bundle { commit: '68a187c3' }"
+      },
+      {
+        "filename": "worker-agent.log.1",
+        "lineNumber": 13755,
+        "text": "2026-10-22T23:48:24.207Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '68a187c3' }"
+      },
+      {
+        "filename": "worker-agent.log.1",
+        "lineNumber": 13855,
+        "text": "2026-10-23T00:03:12.403Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '68a187c3' }"
+      },
+      {
+        "filename": "worker-agent.log.1",
+        "lineNumber": 14691,
+        "text": "2026-10-23T04:30:50.701Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '68a187c3' }"
+      },
+      {
+        "filename": "worker-agent.log.1",
+        "lineNumber": 15079,
+        "text": "2026-10-23T09:18:42.873Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '68a187c3' }"
+      },
+      {
+        "filename": "worker-agent.log.1",
+        "lineNumber": 16384,
+        "text": "2026-10-24T00:19:13.132Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '68a187c3' }"
+      },
+      {
+        "filename": "worker-agent.log.1",
+        "lineNumber": 16580,
+        "text": "2026-10-24T08:48:34.865Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '68a187c3' }"
+      },
+      {
+        "filename": "worker-agent.log.1",
+        "lineNumber": 16606,
+        "text": "2026-10-24T09:37:55.643Z [LOG] [WorkerSelfUpdate] Automatic updates are on { repoRoot: 'C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\orchestrat0r\\\\ai-orchestrator', buildCommit: '68a187c3' }"
+      }
+    ],
+    "worker-supervisor.log": [
+      {
+        "filename": "worker-supervisor.log",
+        "lineNumber": 155,
+        "text": "2026-10-17T01:31:39.670Z [LOG] [Supervisor] Worker child exited to load an update — restarting {\"ranMs\":12678561,\"restarts\":1}"
+      },
+      {
+        "filename": "worker-supervisor.log",
+        "lineNumber": 157,
+        "text": "2026-10-18T09:06:40.087Z [LOG] [Supervisor] Worker child exited to load an update — restarting {\"ranMs\":113699910,\"restarts\":2}"
+      },
+      {
+        "filename": "worker-supervisor.log",
+        "lineNumber": 159,
+        "text": "2026-10-18T13:16:36.319Z [LOG] [Supervisor] Worker child exited to load an update — restarting {\"ranMs\":14995718,\"restarts\":3}"
+      },
+      {
+        "filename": "worker-supervisor.log",
+        "lineNumber": 163,
+        "text": "2026-10-20T17:25:12.457Z [LOG] [Supervisor] Worker child exited to load an update — restarting {\"ranMs\":112089124,\"restarts\":1}"
+      },
+      {
+        "filename": "worker-supervisor.log",
+        "lineNumber": 165,
+        "text": "2026-10-21T09:08:48.792Z [LOG] [Supervisor] Worker child exited to load an update — restarting {\"ranMs\":56615819,\"restarts\":2}"
+      },
+      {
+        "filename": "worker-supervisor.log",
+        "lineNumber": 167,
+        "text": "2026-10-22T23:48:10.743Z [LOG] [Supervisor] Worker child exited to load an update — restarting {\"ranMs\":139161436,\"restarts\":3}"
+      }
+    ]
+  },
+  "redactions": [],
+  "errors": []
+}

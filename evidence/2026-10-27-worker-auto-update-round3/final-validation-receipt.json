@@ -1,0 +1,16 @@
+{
+  "observedAt": "2026-10-27T16:20:56.641537+00:00",
+  "fiveCheckAndSevenFindingStatusesPresent": true,
+  "fullyPassed": 0,
+  "documentMustStayOpen": true,
+  "allSevenVerificationCommandsExitZero": true,
+  "cleanupPathsActuallyAbsent": true,
+  "sharedDependencyTargetExists": true,
+  "noProductionDiffAgainstMain": true,
+  "worktreeDocumentStillUnchanged": true,
+  "diffCheckExitCode": 0,
+  "head": "79a3f08a58d23b493068b69cb046d54f5fc368b0",
+  "branch": "queue/2026-10-14-worker-auto-update-bee785",
+  "gitStatus": "?? evidence/2026-10-27-worker-auto-update-round3/\n",
+  "notRun": "Full suite/lint/size/UI-hint and extension/native-host reruns; evidence-only retry, no production change, high shared-host load. Independent coordinator verification remains outstanding."
+}

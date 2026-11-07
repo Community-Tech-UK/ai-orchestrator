@@ -1,0 +1,33 @@
+{
+  "observedAt": "2026-10-27T15:52:49.670Z",
+  "node": {
+    "id": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+    "name": "windows-pc",
+    "connected": true,
+    "workerAgent": {
+      "version": "0.1.0",
+      "startedAt": 1792834652614,
+      "hostBootedAt": 1792834589193,
+      "buildCommit": "68a187c3f4a858ee399ab4e56922430a0d1eca46",
+      "autoUpdate": {
+        "state": "waiting_for_idle",
+        "targetCommit": "ef10afff5943421098f5df6dc33edcffb53f84eb",
+        "lastCheckedAt": 1793116078241
+      }
+    },
+    "extensionRelay": {
+      "enabled": true,
+      "running": true,
+      "socketPath": "\\\\.\\pipe\\ai-orchestrator-browser-gateway",
+      "registration": "ok",
+      "lastRegistrationCheckAt": 1793116322326,
+      "manifestPath": "C:\\Users\\shutu\\AppData\\Local\\Google\\Chrome\\NativeMessagingHosts\\com.ai_orchestrator.browser_gateway_relay.json",
+      "extensionVersion": "0.2.43",
+      "extensionReloadedAt": 1793096731491,
+      "lastExtensionContactAt": 1793116361828,
+      "forwardsRuntimeEvidence": true
+    },
+    "activeInstances": 7
+  },
+  "limit": "Read-only heartbeat observation. Active instance count is retained sessions, not a claim that each is executing. No unrelated sessions terminated."
+}

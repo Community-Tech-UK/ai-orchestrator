@@ -1,0 +1,436 @@
+{
+  "observedAt": "2026-10-27T15:50:01.118Z",
+  "result": "PASS",
+  "limits": "Git responses, clock and restart callback injected; real production esbuild, Node self-check, filesystem swaps and rollback. Not a real pushed commit, running worker restart or Windows filesystem check.",
+  "states": [
+    {
+      "step": "busy with target",
+      "clock": 1000000,
+      "state": "waiting_for_idle",
+      "targetCommit": "2222222222222222222222222222222222222222",
+      "lastCheckedAt": 1000000,
+      "restarts": 0
+    },
+    {
+      "step": "quiet 179999ms",
+      "clock": 1179999,
+      "state": "waiting_for_idle",
+      "targetCommit": "2222222222222222222222222222222222222222",
+      "lastCheckedAt": 1179999,
+      "restarts": 0
+    },
+    {
+      "step": "quiet 180000ms real build/self-check/swap",
+      "clock": 1180000,
+      "state": "restart_pending",
+      "targetCommit": "2222222222222222222222222222222222222222",
+      "lastCheckedAt": 1180000,
+      "restarts": 1
+    },
+    {
+      "step": "broken build",
+      "clock": 1360000,
+      "state": "blocked",
+      "reason": "build failed (exit 1): /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/worker-auto-update-round2/runtime/broken-build.cjs:1",
+      "targetCommit": "3333333333333333333333333333333333333333",
+      "lastCheckedAt": 1360000,
+      "restarts": 1
+    },
+    {
+      "step": "same failed target not rebuilt",
+      "clock": 1360000,
+      "state": "blocked",
+      "reason": "update to 33333333 failed earlier (retrying after 1970-01-01T02:22:40.000Z): build failed (exit 1): /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/worker-auto-update-round2/runtime/broken-build.cjs:1",
+      "targetCommit": "3333333333333333333333333333333333333333",
+      "lastCheckedAt": 1360000,
+      "restarts": 1
+    },
+    {
+      "step": "fixed target real build/self-check/swap",
+      "clock": 1360000,
+      "state": "restart_pending",
+      "targetCommit": "4444444444444444444444444444444444444444",
+      "lastCheckedAt": 1360000,
+      "restarts": 2
+    }
+  ],
+  "events": [
+    {
+      "message": "[WorkerSelfUpdate] Updating worker",
+      "meta": {
+        "from": "11111111",
+        "to": "22222222"
+      }
+    },
+    {
+      "message": "[WorkerSelfUpdate] New bundle in place",
+      "meta": {
+        "commit": "22222222"
+      }
+    },
+    {
+      "message": "[WorkerSelfUpdate] Restarting onto the new bundle",
+      "meta": {
+        "commit": "22222222"
+      }
+    },
+    {
+      "message": "[WorkerSelfUpdate] Updating worker",
+      "meta": {
+        "from": "22222222",
+        "to": "33333333"
+      }
+    },
+    {
+      "message": "[WorkerSelfUpdate] Update failed; the running worker is unchanged",
+      "meta": {
+        "target": "33333333",
+        "reason": "build failed (exit 1): /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/worker-auto-update-round2/runtime/broken-build.cjs:1"
+      }
+    },
+    {
+      "message": "[WorkerSelfUpdate] Updating worker",
+      "meta": {
+        "from": "22222222",
+        "to": "44444444"
+      }
+    },
+    {
+      "message": "[WorkerSelfUpdate] New bundle in place",
+      "meta": {
+        "commit": "44444444"
+      }
+    },
+    {
+      "message": "[WorkerSelfUpdate] Restarting onto the new bundle",
+      "meta": {
+        "commit": "44444444"
+      }
+    }
+  ],
+  "commands": [
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "config",
+        "--get",
+        "core.sshCommand"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "fetch",
+        "--quiet"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "@{u}"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "merge-base",
+        "--is-ancestor",
+        "1111111111111111111111111111111111111111",
+        "2222222222222222222222222222222222222222"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "fetch",
+        "--quiet"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "@{u}"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "merge-base",
+        "--is-ancestor",
+        "1111111111111111111111111111111111111111",
+        "2222222222222222222222222222222222222222"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "fetch",
+        "--quiet"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "@{u}"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "merge-base",
+        "--is-ancestor",
+        "1111111111111111111111111111111111111111",
+        "2222222222222222222222222222222222222222"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "merge",
+        "--ff-only",
+        "--quiet",
+        "2222222222222222222222222222222222222222"
+      ]
+    },
+    {
+      "kind": "REAL_PRODUCTION_BUILD",
+      "file": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+      "args": [
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/node_modules/tsx/dist/cli.mjs",
+        "build-worker-agent.ts"
+      ],
+      "code": 0,
+      "stdout": "Worker agent built -> /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/worker-auto-update-round2/runtime/index.next.js\nWorker axe runner built -> dist/worker-tools/axe-audit.mjs\n",
+      "stderr": "\n  dist/worker-tools/axe-audit.mjs  2.3mb ⚠️\n\n⚡ Done in 168ms\n\n  _scratch/worker-auto-update-round2/runtime/index.next.js  4.6mb ⚠️\n\n⚡ Done in 235ms\n"
+    },
+    {
+      "kind": "REAL_SELF_CHECK",
+      "file": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+      "args": [
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/worker-auto-update-round2/runtime/index.next.js",
+        "--self-check",
+        "--config",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/worker-auto-update-round2/runtime/config.json"
+      ],
+      "code": 0,
+      "stdout": "Worker self-check ok\n",
+      "stderr": ""
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "config",
+        "--get",
+        "core.sshCommand"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "fetch",
+        "--quiet"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "@{u}"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "merge-base",
+        "--is-ancestor",
+        "2222222222222222222222222222222222222222",
+        "3333333333333333333333333333333333333333"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "merge",
+        "--ff-only",
+        "--quiet",
+        "3333333333333333333333333333333333333333"
+      ]
+    },
+    {
+      "kind": "REAL_INVALID_FIXTURE_BUILD",
+      "file": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+      "args": [
+        "--check",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/worker-auto-update-round2/runtime/broken-build.cjs"
+      ],
+      "code": 1,
+      "stdout": "",
+      "stderr": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/worker-auto-update-round2/runtime/broken-build.cjs:1\nconst = ;\n      ^\n\nSyntaxError: Unexpected token '='\n    at wrapSafe (node:internal/modules/cjs/loader:1861:18)\n    at checkSyntax (node:internal/main/check_syntax:88:3)\n\nNode.js v24.22.1\n"
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "reset",
+        "--keep",
+        "2222222222222222222222222222222222222222"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "fetch",
+        "--quiet"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "@{u}"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "merge-base",
+        "--is-ancestor",
+        "2222222222222222222222222222222222222222",
+        "3333333333333333333333333333333333333333"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "fetch",
+        "--quiet"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "HEAD"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "@{u}"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "merge-base",
+        "--is-ancestor",
+        "2222222222222222222222222222222222222222",
+        "4444444444444444444444444444444444444444"
+      ]
+    },
+    {
+      "kind": "INJECTED_GIT_NO_REPOSITORY_MUTATION",
+      "args": [
+        "merge",
+        "--ff-only",
+        "--quiet",
+        "4444444444444444444444444444444444444444"
+      ]
+    },
+    {
+      "kind": "REAL_PRODUCTION_BUILD",
+      "file": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+      "args": [
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/node_modules/tsx/dist/cli.mjs",
+        "build-worker-agent.ts"
+      ],
+      "code": 0,
+      "stdout": "Worker agent built -> /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/worker-auto-update-round2/runtime/index.next.js\nWorker axe runner built -> dist/worker-tools/axe-audit.mjs\n",
+      "stderr": "\n  dist/worker-tools/axe-audit.mjs  2.3mb ⚠️\n\n⚡ Done in 143ms\n\n  _scratch/worker-auto-update-round2/runtime/index.next.js  4.6mb ⚠️\n\n⚡ Done in 281ms\n"
+    },
+    {
+      "kind": "REAL_SELF_CHECK",
+      "file": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+      "args": [
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/worker-auto-update-round2/runtime/index.next.js",
+        "--self-check",
+        "--config",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/worker-auto-update-round2/runtime/config.json"
+      ],
+      "code": 0,
+      "stdout": "Worker self-check ok\n",
+      "stderr": ""
+    }
+  ]
+}

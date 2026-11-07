@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/worker-agent/worker-self-update.spec.ts src/worker-agent/worker-self-update-wiring.spec.ts src/worker-agent/worker-supervisor.spec.ts src/worker-agent/worker-activity.spec.ts
+
+✓ 4 files · 87 tests passed in 13.2s
+  full log: _scratch/test-run.pid-42081.log

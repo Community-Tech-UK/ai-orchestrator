@@ -1,0 +1,1 @@
+PASS: isolated busy/quiet, real build/self-check/swap, broken build rollback, retry suppression, fixed target and startup restore

@@ -1,0 +1,81 @@
+{
+  "at": "2026-10-27T15:52:50.094479+00:00",
+  "sevenCommandExits": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "sourceMatchesPrevious": [
+    {
+      "path": "src/worker-agent/worker-self-update.ts",
+      "sha256": "4269f8258e4a3016084b6b1c8d38dfb0bad0e4ed6a99839d54998e0b2625ff3b",
+      "matchesPrevious": true
+    },
+    {
+      "path": "src/worker-agent/worker-self-update-wiring.ts",
+      "sha256": "e97dcbc3b2a0b088d74f0dc60f0d364b0db2d0b556c51a9eb44257f915af300d",
+      "matchesPrevious": true
+    },
+    {
+      "path": "src/worker-agent/worker-supervisor.ts",
+      "sha256": "b0ad2fc241380d92e9df177144e305858c5de9fdfe222b67faddce1755bb097e",
+      "matchesPrevious": true
+    },
+    {
+      "path": "src/worker-agent/worker-activity.ts",
+      "sha256": "2fd8ce9e0cbc523898b5468d07007cde01e4e2570268ad4a4c1ea29d800445ac",
+      "matchesPrevious": true
+    },
+    {
+      "path": "src/worker-agent/index.ts",
+      "sha256": "e2be6e1e5ac6fbe72a5df1eb32227229356ee1ba035cebe47d892e9eb64d1174",
+      "matchesPrevious": true
+    },
+    {
+      "path": "build-worker-agent.ts",
+      "sha256": "193ac9d383efc7aeb8baf85930bd3e1fe8cacbe738927a675dc263df292cfef3",
+      "matchesPrevious": true
+    },
+    {
+      "path": "src/main/persistence/rlm/rlm-schema.ts",
+      "sha256": "02349f52b1188c1f1fea6e3e3a48ed1691de555ac107fa8222654171dfb7a9db",
+      "matchesPrevious": true
+    },
+    {
+      "path": "src/main/instance/context-worker-main.ts",
+      "sha256": "781b21cebd79aa909f8a8e59de8e15caba4e67703a4fee6bd1d46ede861499cd",
+      "matchesPrevious": true
+    }
+  ],
+  "dev": {
+    "observedAt": "2026-10-27T15:49:58.813Z",
+    "pid": 29785,
+    "profile": "/tmp/aio-lt-queue-d4bee785",
+    "visibilityOverride": "'Emulation.setPageVisibilityOverride' wasn't found",
+    "cdp": {
+      "api": "function",
+      "appRoot": true,
+      "frames": true,
+      "hidden": false,
+      "instances": {
+        "data": [],
+        "success": true
+      },
+      "visibility": "visible"
+    }
+  },
+  "isolatedLimits": "Git responses, clock and restart callback injected; real production esbuild, Node self-check, filesystem swaps and rollback. Not a real pushed commit, running worker restart or Windows filesystem check.",
+  "sourceOrExistingTestsChanged": false,
+  "notRun": [
+    "full suite",
+    "lint",
+    "check:ts-max-loc",
+    "check:ui-hints",
+    "extension/native-host suites"
+  ],
+  "notRunReason": "Evidence/document corrections only; no production source or existing tests changed, no whole-repository green claim. Full suite also unsuitable during current shared-host load >40."
+}

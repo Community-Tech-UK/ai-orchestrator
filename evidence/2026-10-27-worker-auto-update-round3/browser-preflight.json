@@ -1,0 +1,15 @@
+{
+  "decision": "allowed",
+  "outcome": "succeeded",
+  "selected": {
+    "channel": "remote-extension",
+    "computer": "windows-pc",
+    "usesRealUserSession": true,
+    "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588886:target",
+    "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588886",
+    "url": "https://jump24.co.uk/privacy-policy",
+    "title": "Privacy Policy | Jump24"
+  },
+  "summary": "Selected a remote-extension tab on \"windows-pc\" at the exact origin; rejected 92 other target(s).",
+  "auditId": "26e9c3cf-5ae3-4380-9d63-8ccc74b9dd16"
+}

@@ -1,0 +1,37 @@
+{
+  "source": "mcp__orchestrator__list_remote_nodes (coordinator registry read; no worker request sent)",
+  "readAt": "2026-11-07 (coordinator heartbeat epoch ms 1794072786526 for ct-test-mac; windows-pc lastHeartbeat 1794072784678)",
+  "windowsPc": {
+    "name": "windows-pc",
+    "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+    "status": "connected",
+    "workerAgent": {
+      "version": "0.1.0",
+      "startedAt": 1794054005905,
+      "hostBootedAt": 1794043860921,
+      "buildCommit": "4ff3d6dcd47afe027c59e63b6c2a900572689682",
+      "autoUpdate": { "state": "idle", "lastCheckedAt": 1794072643471 }
+    },
+    "activeInstances": 0,
+    "maxConcurrentInstances": 10,
+    "extensionRelay": {
+      "extensionVersion": "0.2.50",
+      "extensionReloadedAt": 1794044044424,
+      "lastExtensionContactAt": 1794072779544,
+      "registration": "ok"
+    },
+    "connectedAt": 1794054035290
+  },
+  "priorRoundForComparison": {
+    "runningBuild": "68a187c3f4a858ee399ab4e56922430a0d1eca46",
+    "pendingTarget": "ef10afff5943421098f5df6dc33edcffb53f84eb",
+    "state": "waiting_for_idle",
+    "extensionVersion": "0.2.43",
+    "source": "evidence/2026-10-27-worker-auto-update-round3 (final observation, 16:17 UTC 2026-10-27)"
+  },
+  "notes": [
+    "buildCommit and autoUpdate.state are self-reported by the worker heartbeat. Checkout HEAD, bundle stamp and manifest version still need a direct Windows read to confirm.",
+    "windows-pc reports activeInstances 0 at this reading. No instance was started by this observation.",
+    "ct-test-mac (a separate Mac test node) also reports buildCommit 4ff3d6dc and state idle. It is recorded only for context and is not the subject of any check."
+  ]
+}

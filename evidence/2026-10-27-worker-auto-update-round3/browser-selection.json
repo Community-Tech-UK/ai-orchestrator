@@ -1,0 +1,25 @@
+{
+  "decision": "allowed",
+  "outcome": "succeeded",
+  "data": {
+    "id": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588886:target",
+    "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588886",
+    "pageId": "771588886",
+    "mode": "existing-tab",
+    "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+    "nodeName": "windows-pc",
+    "title": "Privacy Policy | Jump24",
+    "url": "https://jump24.co.uk/privacy-policy",
+    "origin": "https://jump24.co.uk",
+    "driver": "extension",
+    "status": "selected",
+    "lastSeenAt": 1793117186301,
+    "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588886:target",
+    "inspectionState": "readable",
+    "windowId": 771587906,
+    "tabIndex": 1,
+    "pinned": false,
+    "active": true
+  },
+  "auditId": "2b7beab6-9d65-4542-a781-604be97e94af"
+}

@@ -1,0 +1,8 @@
+{
+  "at": "2026-10-27T16:10:03.770854+00:00",
+  "worktreeDocumentUnchanged": true,
+  "rootDocumentStatus": " M docs/plans/2026-10-14-worker-auto-update_livetest.md\n",
+  "worktreeStatus": "?? evidence/2026-10-27-worker-auto-update-round3/\n?? node_modules\n",
+  "newEvidenceCount": 27,
+  "branches": "queue/2026-10-14-worker-auto-update-bee785"
+}

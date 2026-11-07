@@ -1,0 +1,17 @@
+{
+  "at": "2026-10-27T15:47:29.481003+00:00",
+  "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785",
+  "sharedDependencySource": "/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules",
+  "lockfilesMatch": true,
+  "dependencyLinksCreated": true,
+  "newPackageInstalls": false,
+  "profilePreviouslyExisted": false,
+  "distPreviouslyExisted": false,
+  "baselineGitStatus": "?? evidence/2026-10-27-worker-auto-update-round2/\n",
+  "load": [
+    36.36962890625,
+    32.28125,
+    21.0224609375
+  ],
+  "firstSetupAttempt": "Failed parent path assertion before dependency/profile/runtime mutation; corrected to worktree parents[2]."
+}

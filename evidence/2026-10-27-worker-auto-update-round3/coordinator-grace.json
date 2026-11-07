@@ -1,0 +1,27 @@
+{
+  "observedAt": "2026-10-27T16:19:44.869901+00:00",
+  "searched": [
+    "app.log",
+    "app.log.1",
+    "app.log.2",
+    "app.log.3",
+    "app.log.4"
+  ],
+  "pattern": "Node re-registered within disconnect grace plus windows-pc node id",
+  "thisRunLowerBound": "2026-10-27T16:00:00Z",
+  "thisRunMatches": [],
+  "allRetainedMatches": [
+    {
+      "file": "app.log.4",
+      "line": 52649,
+      "observedEventAt": "2026-10-27T04:46:29.937000Z",
+      "entry": {
+        "timestamp": 1793076389937,
+        "level": "info",
+        "message": "Node re-registered within disconnect grace \u2014 treating as continuous session"
+      }
+    }
+  ],
+  "errors": [],
+  "limits": "Only retained logs searched; a historical reconnect is not update evidence. Numeric timestamps normalized as epoch milliseconds."
+}

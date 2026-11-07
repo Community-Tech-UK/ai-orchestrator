@@ -1,0 +1,25 @@
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785
+
+(node:43365) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stdout | src/worker-agent/worker-self-update-wiring.spec.ts > worker self-update wiring > stays off under service mode and still reports the build commit
+[2026-10-27T14:15:48.036Z] [INFO] [ProjectDiscovery] Scan complete { count: 0, changed: true }
+
+ ✓ |main| src/worker-agent/worker-self-update-wiring.spec.ts (10 tests) 111ms
+(node:43856) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/worker-agent/worker-self-update.spec.ts (41 tests) 26ms
+(node:43864) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/worker-agent/worker-supervisor.spec.ts (18 tests) 8ms
+(node:43899) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/worker-agent/worker-activity.spec.ts (18 tests) 6ms
+
+ Test Files  4 passed (4)
+      Tests  87 passed (87)
+   Start at  14:15:47
+   Duration  1.83s (transform 198ms, setup 149ms, import 220ms, tests 152ms, environment 734ms)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/test-results.pid-42087.json

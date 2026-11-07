@@ -1,0 +1,11 @@
+{
+  "observedAt": "2026-10-27T15:48:24.835Z",
+  "decision": "allowed",
+  "outcome": "succeeded",
+  "auditId": "3fdf1636-426b-401a-b9a7-32c3483501d4",
+  "title": "Privacy Policy | Jump24",
+  "url": "https://jump24.co.uk/privacy-policy",
+  "textLength": 8401,
+  "textContainsPrivacyPolicy": true,
+  "limit": "Read succeeded before any new update; does not prove a reload or post-update command."
+}

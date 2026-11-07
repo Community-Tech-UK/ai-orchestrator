@@ -1,0 +1,12 @@
+{
+  "decision": "allowed",
+  "outcome": "succeeded",
+  "auditId": "59fe92e9-0e76-4310-a8c8-61f2003d33af",
+  "selected": {
+    "computer": "windows-pc",
+    "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588886",
+    "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588886:target",
+    "url": "https://jump24.co.uk/privacy-policy",
+    "title": "Privacy Policy | Jump24"
+  }
+}

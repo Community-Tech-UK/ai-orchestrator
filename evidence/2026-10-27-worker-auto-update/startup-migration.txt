@@ -1,0 +1,48 @@
+
+DevTools listening on ws://127.0.0.1:9767/devtools/browser/adec406b-4332-4fe7-ad46-0d93aa24c3ec
+[2026-10-27T14:19:23.826Z] [INFO] [ContextWorkerClient] Context worker started 
+[2026-10-27T14:19:23.859Z] [INFO] [SettingsMigrations] Switched observation memory off by default 
+[2026-10-27T14:19:23.983Z] [INFO] [SettingsMigrations] Created the legacy GitHub Copilot account profile { authenticated: false }
+[2026-10-27T14:19:24.007Z] [INFO] [SettingsMigrations] Created the legacy Claude and Codex account profiles 
+[2026-10-27T14:19:24.028Z] [INFO] [SettingsMigrations] Created the legacy MiMo account profile 
+[2026-10-27T14:19:24.036Z] [INFO] [App] Initializing Harness 
+[2026-10-27T14:19:24.037Z] [INFO] [App] Initializing: Work controls 
+[2026-10-27T14:19:24.056Z] [ERROR] [App] Failed to initialize: Work controls  {
+  name: 'Error',
+  message: 'Failed to apply migration "001_add_optimized_indices": UNIQUE constraint failed: _migrations.name',
+  stack: 'Error: Failed to apply migration "001_add_optimized_indices": UNIQUE constraint failed: _migrations.name\n' +
+    '    at ~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm/rlm-schema.js:337:23\n' +
+    '    at sqliteTransaction (~/work/orchestrat0r/ai-orchestrator/node_modules/better-sqlite3/lib/methods/transaction.js:65:24)\n' +
+    '    at runMigrations (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm/rlm-schema.js:341:5)\n' +
+    '    at RLMDatabase.initializeDatabase (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm-database.js:139:40)\n' +
+    '    at new RLMDatabase (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm-database.js:108:24)\n' +
+    '    at RLMDatabase.getInstance (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm-database.js:113:29)\n' +
+    '    at getRLMDatabase (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm-database.js:427:24)\n' +
+    '    at initializeGlobalPauseRuntime (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/global-pause/global-pause-bootstrap.js:23:160)\n' +
+    '    at Object.fn (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/app/initialization-steps.js:133:120)\n' +
+    '    at HarnessApp.initialize (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/index.js:196:32)'
+}
+[2026-10-27T14:19:24.060Z] [ERROR] [App] Unhandled rejection {
+  reason: 'Error: Failed to apply migration "001_add_optimized_indices": UNIQUE constraint failed: _migrations.name'
+} {
+  name: 'Error',
+  message: 'Failed to apply migration "001_add_optimized_indices": UNIQUE constraint failed: _migrations.name',
+  stack: 'Error: Failed to apply migration "001_add_optimized_indices": UNIQUE constraint failed: _migrations.name\n' +
+    '    at ~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm/rlm-schema.js:337:23\n' +
+    '    at sqliteTransaction (~/work/orchestrat0r/ai-orchestrator/node_modules/better-sqlite3/lib/methods/transaction.js:65:24)\n' +
+    '    at runMigrations (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm/rlm-schema.js:341:5)\n' +
+    '    at RLMDatabase.initializeDatabase (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm-database.js:139:40)\n' +
+    '    at new RLMDatabase (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm-database.js:108:24)\n' +
+    '    at RLMDatabase.getInstance (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm-database.js:113:29)\n' +
+    '    at getRLMDatabase (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm-database.js:427:24)\n' +
+    '    at initializeGlobalPauseRuntime (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/global-pause/global-pause-bootstrap.js:23:160)\n' +
+    '    at Object.fn (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/app/initialization-steps.js:133:120)\n' +
+    '    at HarnessApp.initialize (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/index.js:196:32)'
+}
+[2026-10-27T14:19:24.066Z] [INFO] [RLMContextManager] RLM persistence load summary {
+  processRole: 'context-worker',
+  discoveredStores: 0,
+  activeSessions: 0,
+  startupContentBytes: 0,
+  residentMetadataSections: 0,
+  deferredMetadataSections: 0,

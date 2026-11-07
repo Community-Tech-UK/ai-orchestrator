@@ -1,0 +1,6 @@
+{
+  "exitCode": 1,
+  "step": "remove owned dist directory",
+  "error": "OSError: [Errno 66] Directory not empty",
+  "followupInspection": "Only dist/.DS_Store remained; observed directly with rg --files --hidden --no-ignore dist and directory enumeration. No writer attribution inferred."
+}

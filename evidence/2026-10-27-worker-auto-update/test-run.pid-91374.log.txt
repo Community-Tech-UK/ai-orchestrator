@@ -1,0 +1,16 @@
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785
+
+(node:94277) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/browser-gateway/browser-extension-assets.spec.ts (150 tests) 513ms
+(node:95806) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/browser-gateway/browser-extension-native-host.spec.ts (20 tests) 14ms
+
+ Test Files  2 passed (2)
+      Tests  170 passed (170)
+   Start at  14:24:31
+   Duration  2.41s (transform 944ms, setup 86ms, import 1.20s, tests 527ms, environment 342ms)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/test-results.pid-91374.json

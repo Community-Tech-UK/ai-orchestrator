@@ -1,0 +1,44 @@
+[
+  {
+    "tool": "browser.health / browser.preflight_target",
+    "target": "windows-pc",
+    "outcome": "ready; preflight inspected remote shared-tab inventory"
+  },
+  {
+    "tool": "browser.find_or_open / browser.snapshot",
+    "target": "existing Windows Jump24 privacy-policy tab",
+    "outcome": "allowed/succeeded; selected existing tab, no new tab or navigation"
+  },
+  {
+    "tool": "run_on_node / read_node_output / terminate_node_instance",
+    "instance": "i0qzzn3xy",
+    "outcome": "diagnosis returned; narrative used for leads only; terminated"
+  },
+  {
+    "tool": "run_on_node / read_node_output / terminate_node_instance",
+    "instance": "itepss8te",
+    "outcome": "300s tool timeout; initial prompt Antigravity CLI timeout; no evidence file; terminated"
+  },
+  {
+    "tool": "download_from_node (before successful collection)",
+    "outcome": "file_not_found; not treated as permission denial or evidence of worker outage"
+  },
+  {
+    "tool": "run_on_node / read_node_output / download_from_node / terminate_node_instance",
+    "instance": "xpa0trh1n",
+    "outcome": "raw Windows evidence collected and downloaded; terminated",
+    "downloadedBytes": 31374,
+    "downloadedRawSha256": "2d66af36cb2f39b0a6c242cc407588030d08063f7d50afa1274b7eef597bdd57",
+    "retained": "windows-receipt.json; unrelated manifest/launcher entries removed, matching raw lines retained"
+  },
+  {
+    "tool": "list_node_files",
+    "target": "Windows dist/worker-agent; includeHidden=true",
+    "outcome": "non-truncated; no .auto-update-failed entry",
+    "evidence": "worker-directory-list.json"
+  },
+  {
+    "tool": "exec_command / ps",
+    "outcome": "Operation not permitted; no process-list claims based on that failure; own PIDs checked with kill(pid,0) instead"
+  }
+]

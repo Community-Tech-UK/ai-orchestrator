@@ -1,0 +1,71 @@
+{
+  "recordedAt": "2026-10-27T15:55:07.335148+00:00",
+  "appChecks": [
+    {
+      "kind": "pid",
+      "id": 29785,
+      "exists": false
+    },
+    {
+      "kind": "processGroup",
+      "id": 29785,
+      "exists": false
+    },
+    {
+      "kind": "debugPort",
+      "port": 9767,
+      "connectResult": 61,
+      "closed": true
+    },
+    {
+      "kind": "runnerExit",
+      "allChildExitsZero": true
+    }
+  ],
+  "removed": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/node_modules",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/.angular",
+      "existed": false,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/worker-auto-update-round2",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/tmp/aio-lt-queue-d4bee785",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/test-run.pid-42081.log",
+      "existed": true,
+      "absentAfter": true
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/_scratch/test-results.pid-42081.json",
+      "existed": true,
+      "absentAfter": true
+    }
+  ],
+  "remoteDiagnosticTerminated": "x1nsi1hgn",
+  "remoteRuntimeCreated": false,
+  "browserBinariesInstalled": false,
+  "dependencyInstalls": false,
+  "sharedDependenciesPreserved": true,
+  "automationsCreated": 0,
+  "productionSettingsChanged": 0,
+  "noCommitsStashesBranchesWorktreesCreated": true,
+  "gitStatus": "?? evidence/2026-10-27-worker-auto-update-round2/\n"
+}

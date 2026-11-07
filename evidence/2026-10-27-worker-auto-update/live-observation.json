@@ -1,0 +1,40 @@
+{
+  "worker": {
+    "observedAt": "2026-10-27T14:16:12.274Z",
+    "node": "windows-pc",
+    "connected": true,
+    "activeInstances": 7,
+    "workerAgent": {
+      "version": "0.1.0",
+      "startedAt": 1792834652614,
+      "hostBootedAt": 1792834589193,
+      "buildCommit": "68a187c3f4a858ee399ab4e56922430a0d1eca46",
+      "autoUpdate": {
+        "state": "waiting_for_idle",
+        "targetCommit": "d21fdce4bba6200699f55fd339788c2e6d8583f1",
+        "lastCheckedAt": 1793110462626
+      }
+    },
+    "extensionRelay": {
+      "enabled": true,
+      "running": true,
+      "socketPath": "\\\\.\\pipe\\ai-orchestrator-browser-gateway",
+      "registration": "ok",
+      "lastRegistrationCheckAt": 1793110559748,
+      "manifestPath": "C:\\Users\\shutu\\AppData\\Local\\Google\\Chrome\\NativeMessagingHosts\\com.ai_orchestrator.browser_gateway_relay.json",
+      "extensionVersion": "0.2.43",
+      "extensionReloadedAt": 1793096731491,
+      "lastExtensionContactAt": 1793110566247,
+      "forwardsRuntimeEvidence": true
+    }
+  },
+  "browser": {
+    "observedAt": "2026-10-27T14:19:04.041Z",
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "title": "Privacy Policy | Jump24",
+    "url": "https://jump24.co.uk/privacy-policy",
+    "auditId": "4a119aa1-17ab-484e-96f1-d60742e68f44",
+    "textPresent": true
+  }
+}

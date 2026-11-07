@@ -1,0 +1,15 @@
+{
+  "observedAt": "2026-10-27T15:37:32.049Z",
+  "decision": "allowed",
+  "outcome": "succeeded",
+  "selected": {
+    "channel": "remote-extension",
+    "computer": "windows-pc",
+    "usesRealUserSession": true,
+    "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588886:target",
+    "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588886",
+    "url": "https://jump24.co.uk/privacy-policy",
+    "title": "Privacy Policy | Jump24"
+  },
+  "auditId": "bb6e655b-c79a-451b-ae4b-2d610ca03a06"
+}

@@ -1,0 +1,371 @@
+
+DevTools listening on ws://127.0.0.1:9767/devtools/browser/1f527efb-37df-4b75-9ed3-b8e249479da3
+sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.[2026-10-27T14:18:31.700Z] [INFO] [ContextWorkerClient] Context worker started 
+[2026-10-27T14:18:31.719Z] [INFO] [SettingsMigrations] Switched observation memory off by default 
+[2026-10-27T14:18:31.773Z] [INFO] [SettingsMigrations] Created the legacy GitHub Copilot account profile { authenticated: false }
+[2026-10-27T14:18:31.782Z] [INFO] [SettingsMigrations] Created the legacy Claude and Codex account profiles 
+[2026-10-27T14:18:31.792Z] [INFO] [SettingsMigrations] Created the legacy MiMo account profile 
+[2026-10-27T14:18:31.799Z] [INFO] [App] Initializing Harness 
+[2026-10-27T14:18:31.800Z] [INFO] [App] Initializing: Work controls 
+[2026-10-27T14:18:31.830Z] [INFO] [App] Initialized: Work controls 
+[2026-10-27T14:18:31.831Z] [INFO] [App] Initializing: Conversation ledger 
+[2026-10-27T14:18:31.831Z] [INFO] [ConversationLedgerWorkerClient] Conversation ledger worker started 
+/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm/rlm-schema.js:337
+                throw new Error(`Failed to apply migration "${migration.name}": ${error instanceof Error ? error.message : String(error)}`);
+                      ^
+
+Error: Failed to apply migration "001_add_optimized_indices": UNIQUE constraint failed: _migrations.name
+    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm/rlm-schema.js:337:23
+    at sqliteTransaction (/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/better-sqlite3/lib/methods/transaction.js:65:24)
+    at runMigrations (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm/rlm-schema.js:341:5)
+    at RLMDatabase.initializeDatabase (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm-database.js:139:40)
+    at new RLMDatabase (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm-database.js:108:24)
+    at RLMDatabase.getInstance (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/persistence/rlm-database.js:113:29)
+    at Object.<anonymous> (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/instance/context-worker-main.js:160:28)
+    at Module._compile (node:internal/modules/cjs/loader:1880:14)
+    at Object..js (node:internal/modules/cjs/loader:2013:10)
+    at Module.load (node:internal/modules/cjs/loader:1601:32)
+
+Node.js v24.19.0
+[2026-10-27T14:18:31.831Z] [INFO] [ConversationLedgerService] ConversationLedgerService initialized 
+[2026-10-27T14:18:31.831Z] [INFO] [App] Initialized: Conversation ledger 
+[2026-10-27T14:18:31.831Z] [INFO] [App] Initializing: Context evidence 
+[66194:1027/141831.838905:ERROR:content/browser/network_service_instance_impl.cc:703] Network service crashed or was terminated, restarting service.
+[66194:1027/141831.839136:ERROR:content/browser/gpu/gpu_process_host.cc:1017] GPU process exited unexpectedly: exit_code=6
+[2026-10-27T14:18:31.839Z] [WARN] [ContextWorkerClient] Context worker crashed; scheduling restart {
+  error: 'Context worker exited with code 1',
+  attempt: 1,
+  maxAttempts: 3,
+  backoffMs: 2000
+}
+sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.[66194:1027/141831.880282:ERROR:content/browser/gpu/gpu_process_host.cc:1017] GPU process exited unexpectedly: exit_code=6
+sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.[66194:1027/141831.881082:ERROR:content/browser/network_service_instance_impl.cc:703] Network service crashed or was terminated, restarting service.
+[2026-10-27T14:18:31.906Z] [INFO] [ContextEvidenceRuntime] Context evidence runtime ready { durationMs: 75.08858299999997 }
+[2026-10-27T14:18:31.907Z] [INFO] [App] Initialized: Context evidence 
+[2026-10-27T14:18:31.907Z] [INFO] [App] Initializing: Provider event capture 
+[2026-10-27T14:18:31.907Z] [INFO] [App] Initialized: Provider event capture 
+[2026-10-27T14:18:31.907Z] [INFO] [App] Initializing: Context analytics 
+[2026-10-27T14:18:31.907Z] [INFO] [App] Initialized: Context analytics 
+[2026-10-27T14:18:31.907Z] [INFO] [App] Initializing: Operator database 
+[2026-10-27T14:18:31.916Z] [INFO] [App] Initialized: Operator database 
+[2026-10-27T14:18:31.916Z] [INFO] [App] Initializing: Chat service 
+[2026-10-27T14:18:31.917Z] [INFO] [App] Initialized: Chat service 
+[2026-10-27T14:18:31.917Z] [INFO] [App] Initializing: Cross-session messaging 
+[2026-10-27T14:18:31.917Z] [INFO] [App] Initialized: Cross-session messaging 
+[2026-10-27T14:18:31.917Z] [INFO] [App] Initializing: Unified model catalog 
+[2026-10-27T14:18:31.918Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 76, triggerSources: [] }
+[2026-10-27T14:18:31.918Z] [INFO] [ModelsDev] models.dev offline snapshot seeded {
+  models: 120,
+  source: 'https://models.dev/api.json',
+  overlaySize: 120
+}
+[2026-10-27T14:18:31.918Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 164, triggerSources: [ 'user-custom' ] }
+[2026-10-27T14:18:31.919Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 164, triggerSources: [ 'catalog-override' ] }
+sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.[66194:1027/141831.922825:ERROR:content/browser/network_service_instance_impl.cc:703] Network service crashed or was terminated, restarting service.
+[66194:1027/141831.923058:ERROR:content/browser/gpu/gpu_process_host.cc:1017] GPU process exited unexpectedly: exit_code=6
+[2026-10-27T14:18:31.924Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 164, triggerSources: [ 'local-model' ] }
+[2026-10-27T14:18:31.936Z] [INFO] [CopilotSdkLoader] Copilot bundled SDK loaded {
+  sdkPath: '~/.nvm/versions/node/v24.22.1/lib/node_modules/@github/copilot/copilot-sdk/index.js',
+  packageVersion: '1.0.62'
+}
+sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.[2026-10-27T14:18:31.969Z] [INFO] [App] Initialized: Unified model catalog 
+[2026-10-27T14:18:31.969Z] [INFO] [App] Initializing: Auxiliary LLM service 
+[2026-10-27T14:18:31.970Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'local-first', endpointCount: 0 }
+[2026-10-27T14:18:31.970Z] [INFO] [App] Initialized: Auxiliary LLM service 
+[2026-10-27T14:18:31.971Z] [INFO] [App] Initializing: Local AI Guard 
+[2026-10-27T14:18:31.972Z] [INFO] [App] Initialized: Local AI Guard 
+[2026-10-27T14:18:31.972Z] [INFO] [App] Initializing: Quota pacing 
+[2026-10-27T14:18:31.972Z] [INFO] [App] Initialized: Quota pacing 
+[2026-10-27T14:18:31.972Z] [INFO] [App] Initializing: Operator event relay 
+[2026-10-27T14:18:31.972Z] [INFO] [App] Initialized: Operator event relay 
+[2026-10-27T14:18:31.972Z] [INFO] [App] Initializing: IPC handlers 
+[2026-10-27T14:18:32.299Z] [INFO] [AutoUpdate] Auto-update disabled (not packaged or explicitly off) 
+[2026-10-27T14:18:32.311Z] [INFO] [DiagnosticsHandlers] Diagnostics IPC handlers registered 
+[2026-10-27T14:18:32.312Z] [INFO] [RtkHandlers] RTK IPC handlers registered 
+[2026-10-27T14:18:32.316Z] [INFO] [LoopStore] LoopStoreService initialized 
+[2026-10-27T14:18:32.319Z] [INFO] [CostEntriesA0Repair] A0 historical cost repair complete {
+  status: 'repaired',
+  rows: 0,
+  beforeUsd: 0,
+  afterUsd: 0,
+  cutoff: 1793110711827
+}
+[2026-10-27T14:18:32.319Z] [INFO] [CostTracker] CostTracker persistence enabled { loaded: 0 }
+[2026-10-27T14:18:32.322Z] [INFO] [CliVerification] Setting up coordinator event forwarding 
+[2026-10-27T14:18:32.323Z] [INFO] [SupervisorTree] Initialized root supervisor 
+[2026-10-27T14:18:32.323Z] [INFO] [TokenStats] TokenStatsService initialized 
+[2026-10-27T14:18:32.328Z] [INFO] [RemoteNodeHandlers] Remote node IPC handlers registered 
+[2026-10-27T14:18:32.329Z] [INFO] [TerminalHandlers] Terminal IPC handlers registered 
+[2026-10-27T14:18:32.329Z] [INFO] [MobileGatewayHandlers] Mobile gateway IPC handlers registered 
+[2026-10-27T14:18:32.329Z] [INFO] [ChannelHandlers] Channel IPC handlers registered 
+[2026-10-27T14:18:32.329Z] [INFO] [KnowledgeGraphService] KnowledgeGraphService initialized 
+[2026-10-27T14:18:32.329Z] [INFO] [KnowledgeGraphHandlers] Knowledge graph IPC handlers registered 
+[2026-10-27T14:18:32.329Z] [INFO] [ConversationMiningHandlers] Conversation mining IPC handlers registered 
+[2026-10-27T14:18:32.329Z] [INFO] [WakeContextBuilder] WakeContextBuilder initialized 
+[2026-10-27T14:18:32.329Z] [INFO] [WakeContextHandlers] Wake context IPC handlers registered 
+[2026-10-27T14:18:32.331Z] [INFO] [ConversationMiner] ConversationMiner initialized 
+[2026-10-27T14:18:32.331Z] [INFO] [IpcMainHandler] IPC handlers registered 
+[2026-10-27T14:18:32.332Z] [INFO] [App] Initialized: IPC handlers 
+[2026-10-27T14:18:32.332Z] [INFO] [App] Initializing: Runtime diagnostics 
+[2026-10-27T14:18:32.332Z] [INFO] [App] Initialized: Runtime diagnostics 
+[2026-10-27T14:18:32.332Z] [INFO] [App] Initializing: Main process watchdog 
+[2026-10-27T14:18:32.333Z] [INFO] [App] Initialized: Main process watchdog 
+[2026-10-27T14:18:32.333Z] [INFO] [App] Initializing: Leftover process sweeper 
+[2026-10-27T14:18:32.334Z] [INFO] [App] Initialized: Leftover process sweeper 
+[2026-10-27T14:18:32.334Z] [INFO] [App] Initializing: Pause feature 
+[2026-10-27T14:18:32.336Z] [INFO] [PauseFeatureBootstrap] Pause feature activated 
+[2026-10-27T14:18:32.336Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T14:18:32.336Z] [INFO] [App] Initialized: Pause feature 
+[2026-10-27T14:18:32.336Z] [INFO] [App] Initializing: Worker mode autostart 
+[2026-10-27T14:18:32.337Z] [INFO] [App] Initialized: Worker mode autostart 
+[2026-10-27T14:18:32.337Z] [INFO] [App] Initializing: Hook approvals 
+[2026-10-27T14:18:32.337Z] [INFO] [App] Initialized: Hook approvals 
+[2026-10-27T14:18:32.337Z] [INFO] [App] Initializing: Remote observer 
+[2026-10-27T14:18:32.337Z] [INFO] [App] Initialized: Remote observer 
+[2026-10-27T14:18:32.337Z] [INFO] [App] Initializing: Event forwarding 
+[2026-10-27T14:18:32.342Z] [INFO] [OrchestrationActivityBridge] Initialized — forwarding orchestration activity to renderer 
+[2026-10-27T14:18:32.343Z] [INFO] [App] Initialized: Event forwarding 
+[2026-10-27T14:18:32.343Z] [INFO] [App] Initializing: Background task publisher 
+[2026-10-27T14:18:32.343Z] [INFO] [App] Initialized: Background task publisher 
+[2026-10-27T14:18:32.343Z] [INFO] [App] Initializing: Provider turn-ending continuation 
+[2026-10-27T14:18:32.343Z] [INFO] [App] Initialized: Provider turn-ending continuation 
+[2026-10-27T14:18:32.343Z] [INFO] [App] Initializing: Verification invokers 
+[2026-10-27T14:18:32.343Z] [INFO] [App] Initialized: Verification invokers 
+[2026-10-27T14:18:32.343Z] [INFO] [App] Initializing: Automations 
+[2026-10-27T14:18:32.344Z] [INFO] [App] Initialized: Automations 
+[2026-10-27T14:18:32.344Z] [INFO] [App] Initializing: Review invokers 
+[2026-10-27T14:18:32.344Z] [INFO] [App] Initialized: Review invokers 
+[2026-10-27T14:18:32.344Z] [INFO] [App] Initializing: Debate invokers 
+[2026-10-27T14:18:32.344Z] [INFO] [App] Initialized: Debate invokers 
+[2026-10-27T14:18:32.344Z] [INFO] [App] Initializing: Workflow invokers 
+[2026-10-27T14:18:32.344Z] [INFO] [App] Initialized: Workflow invokers 
+[2026-10-27T14:18:32.344Z] [INFO] [App] Initializing: Loop store 
+(node:66194) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 instance:removed listeners added to [InstanceManager]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `Electron --trace-warnings ...` to show where the warning was created)
+[2026-10-27T14:18:32.346Z] [WARN] [RuntimeDiagnostics] Process warning emitted {
+  name: 'MaxListenersExceededWarning',
+  message: 'Possible EventEmitter memory leak detected. 11 instance:removed listeners added to [InstanceManager]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit',
+  stack: 'MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 instance:removed listeners added to [InstanceManager]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit\n' +
+    '    at genericNodeError (node:internal/errors:985:15)\n' +
+    '    at wrappedFn (node:internal/errors:539:14)\n' +
+    '    at _addListener (node:events:590:17)\n' +
+    '    at InstanceManager.addListener (node:events:608:10)\n' +
+    '    at AutomationRunner.initialize (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/automations/automation-runner.js:89:25)\n' +
+    '    at initializeAutomations (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/automations/index.js:58:22)\n' +
+    '    at Object.fn (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/app/initialization-steps.js:416:82)\n' +
+    '    at HarnessApp.initialize (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/index.js:196:32)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n' +
+    '    at async ~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-worker-auto-update-bee785/dist/main/index.js:324:5'
+}
+[2026-10-27T14:18:32.347Z] [INFO] [ObserverAgent] ObserverAgent initialized 
+[2026-10-27T14:18:32.347Z] [ERROR] [RuntimeDiagnostics] Electron child process exited unexpectedly {
+  type: 'Utility',
+  reason: 'crashed',
+  exitCode: 6,
+  name: 'Network Service',
+  serviceName: 'network.mojom.NetworkService'
+} 
+[66194:1027/141832.347517:ERROR:content/browser/network_service_instance_impl.cc:703] Network service crashed or was terminated, restarting service.
+[66194:1027/141832.347734:ERROR:content/browser/gpu/gpu_process_host.cc:1017] GPU process exited unexpectedly: exit_code=6
+[2026-10-27T14:18:32.347Z] [ERROR] [RuntimeDiagnostics] Electron child process exited unexpectedly {
+  type: 'GPU',
+  reason: 'crashed',
+  exitCode: 6,
+  name: undefined,
+  serviceName: 'GPU'
+} 
+[2026-10-27T14:18:32.348Z] [INFO] [App] Initialized: Loop store 
+[2026-10-27T14:18:32.348Z] [INFO] [App] Initializing: Campaign coordinator 
+[2026-10-27T14:18:32.348Z] [INFO] [CampaignCoordinator] CampaignCoordinator initialized 
+[2026-10-27T14:18:32.349Z] [INFO] [App] Initialized: Campaign coordinator 
+[2026-10-27T14:18:32.349Z] [INFO] [App] Initializing: Plan queue coordinator 
+[2026-10-27T14:18:32.349Z] [INFO] [PlanQueueBootstrap] Plan queue recovery is waiting for the orchestrator-tools RPC server 
+[2026-10-27T14:18:32.349Z] [INFO] [PlanQueueCoordinator] PlanQueueCoordinator initialized 
+[2026-10-27T14:18:32.349Z] [INFO] [App] Initialized: Plan queue coordinator 
+[2026-10-27T14:18:32.350Z] [INFO] [App] Initializing: Keep awake 
+[2026-10-27T14:18:32.350Z] [INFO] [App] Initialized: Keep awake 
+[2026-10-27T14:18:32.350Z] [INFO] [App] Initializing: Loop invokers 
+[2026-10-27T14:18:32.350Z] [INFO] [DefaultInvokers] Wired durable loop memory { path: '/tmp/aio-lt-queue-d4bee785/loop-learnings.json' }
+[2026-10-27T14:18:32.351Z] [INFO] [App] Initialized: Loop invokers 
+[2026-10-27T14:18:32.351Z] [INFO] [App] Initializing: Child auto-announce 
+[2026-10-27T14:18:32.351Z] [INFO] [App] Initialized: Child auto-announce 
+[2026-10-27T14:18:32.351Z] [INFO] [App] Initializing: Plugin manager 
+[2026-10-27T14:18:32.351Z] [INFO] [App] Initialized: Plugin manager 
+[2026-10-27T14:18:32.352Z] [INFO] [App] Initializing: Reaction engine 
+[2026-10-27T14:18:32.352Z] [INFO] [ReactionEngine] Reaction engine initialized { enabled: true, pollIntervalMs: 60000, trackedReactions: 8 }
+[2026-10-27T14:18:32.352Z] [INFO] [App] Initialized: Reaction engine 
+[2026-10-27T14:18:32.352Z] [INFO] [App] Initializing: Provider concurrency limits 
+[2026-10-27T14:18:32.352Z] [INFO] [App] Initialized: Provider concurrency limits 
+[2026-10-27T14:18:32.352Z] [INFO] [App] Initializing: Observation memory and expiry cleanup 
+[2026-10-27T14:18:32.353Z] [INFO] [ObservationIngestor] Configuration updated {
+  config: {
+    enabled: false,
+    observeTokenThreshold: 30000,
+    observeTimeThresholdMs: 300000,
+    ringBufferSize: 500,
+    reflectObservationThreshold: 10,
+    observationTtlMs: 604800000,
+    reflectionTtlMs: 2592000000,
+    policyTokenBudget: 1500,
+    maxReflectionsPerPrompt: 3,
+    promotionConfidenceThreshold: 0.8,
+    promotionUsageThreshold: 5,
+    promotionEffectivenessThreshold: 0.7,
+    enablePrivacyFiltering: true,
+    minLevel: 'event'
+  }
+}
+[2026-10-27T14:18:32.353Z] [INFO] [ObserverAgent] Configuration updated {
+  config: {
+    enabled: false,
+    observeTokenThreshold: 30000,
+    observeTimeThresholdMs: 300000,
+    ringBufferSize: 500,
+    reflectObservationThreshold: 10,
+    observationTtlMs: 604800000,
+    reflectionTtlMs: 2592000000,
+    policyTokenBudget: 1500,
+    maxReflectionsPerPrompt: 3,
+    promotionConfidenceThreshold: 0.8,
+    promotionUsageThreshold: 5,
+    promotionEffectivenessThreshold: 0.7,
+    enablePrivacyFiltering: true,
+    minLevel: 'event'
+  }
+}
+[2026-10-27T14:18:32.353Z] [INFO] [ReflectorAgent] ReflectorAgent initialized 
+[2026-10-27T14:18:32.353Z] [INFO] [ReflectorAgent] ReflectorAgent configured {
+  config: {
+    enabled: false,
+    observeTokenThreshold: 30000,
+    observeTimeThresholdMs: 300000,
+    ringBufferSize: 500,
+    reflectObservationThreshold: 10,
+    observationTtlMs: 604800000,
+    reflectionTtlMs: 2592000000,
+    policyTokenBudget: 1500,
+    maxReflectionsPerPrompt: 3,
+    promotionConfidenceThreshold: 0.8,
+    promotionUsageThreshold: 5,
+    promotionEffectivenessThreshold: 0.7,
+    enablePrivacyFiltering: true,
+    minLevel: 'event'
+  }
+}
+[2026-10-27T14:18:32.353Z] [INFO] [ObservationStore] Configuration updated { config: { enabled: false } }
+[2026-10-27T14:18:32.353Z] [INFO] [ObservationIngestor] Initializing ObservationIngestor 
+[2026-10-27T14:18:32.353Z] [INFO] [ObservationIngestor] ObservationIngestor initialized successfully 
+[2026-10-27T14:18:32.353Z] [INFO] [ObservationStore] Applied decay { expiredObservations: 0, expiredReflections: 0 }
+[2026-10-27T14:18:32.353Z] [INFO] [App] Initialized: Observation memory and expiry cleanup 
+[2026-10-27T14:18:32.353Z] [INFO] [App] Initializing: Path validator 
+[2026-10-27T14:18:32.353Z] [INFO] [App] Initialized: Path validator 
+[2026-10-27T14:18:32.353Z] [INFO] [App] Initializing: Compaction coordinator 
+[2026-10-27T14:18:32.354Z] [INFO] [App] Initialized: Compaction coordinator 
+[2026-10-27T14:18:32.354Z] [INFO] [App] Initializing: Truncation cleanup 
+[2026-10-27T14:18:32.354Z] [INFO] [App] Initialized: Truncation cleanup 
+[2026-10-27T14:18:32.354Z] [INFO] [App] Initializing: Codex command-output archive cleanup 
+[2026-10-27T14:18:32.354Z] [INFO] [App] Initialized: Codex command-output archive cleanup 
+[2026-10-27T14:18:32.354Z] [INFO] [App] Initializing: ACP attachment store cleanup 
+[2026-10-27T14:18:32.354Z] [INFO] [App] Initialized: ACP attachment store cleanup 
+[2026-10-27T14:18:32.354Z] [INFO] [App] Initializing: Leaked AIO Codex thread cleanup 
+[2026-10-27T14:18:32.363Z] [INFO] [App] Initialized: Leaked AIO Codex thread cleanup 
+[2026-10-27T14:18:32.363Z] [INFO] [App] Initializing: Private Codex rollout-path reconcile 
+[2026-10-27T14:18:32.371Z] [INFO] [App] Initialized: Private Codex rollout-path reconcile 
+[2026-10-27T14:18:32.371Z] [INFO] [App] Initializing: Codex state backup pruning 
+[2026-10-27T14:18:32.372Z] [INFO] [App] Initialized: Codex state backup pruning 
+[2026-10-27T14:18:32.372Z] [INFO] [App] Initializing: Stale Codex temp home sweep 
+sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.[2026-10-27T14:18:32.439Z] [INFO] [App] Initialized: Stale Codex temp home sweep 
+[2026-10-27T14:18:32.440Z] [INFO] [App] Initializing: Artifact cleanup maintenance 
+[2026-10-27T14:18:32.440Z] [INFO] [App] Initialized: Artifact cleanup maintenance 
+[2026-10-27T14:18:32.440Z] [INFO] [App] Initializing: Low disk space watcher 
+[2026-10-27T14:18:32.440Z] [INFO] [App] Initialized: Low disk space watcher 
+[2026-10-27T14:18:32.440Z] [INFO] [App] Initializing: Scratch folder sweep 
+[2026-10-27T14:18:32.440Z] [INFO] [App] Initialized: Scratch folder sweep 
+[2026-10-27T14:18:32.440Z] [INFO] [App] Initializing: Resource governor 
+[2026-10-27T14:18:32.440Z] [INFO] [ResourceGovernor] Resource governor started {
+  config: {
+    maxInstanceMemoryMB: 512,
+    creationPausedAtPressure: 'critical',
+    terminateIdleAtCritical: true,
+    idleThresholdMs: 300000,
+    gcOnWarning: true,
+    maxTotalInstances: 0,
+    maxReclaimsPerCriticalEpisode: 3
+  }
+}
+[2026-10-27T14:18:32.440Z] [INFO] [App] Initialized: Resource governor 
+[2026-10-27T14:18:32.440Z] [INFO] [App] Initializing: CLI auto-update 
+[2026-10-27T14:18:32.441Z] [INFO] [App] Initialized: CLI auto-update 
+[2026-10-27T14:18:32.441Z] [INFO] [App] Initializing: Hibernation manager 
+[2026-10-27T14:18:32.441Z] [INFO] [HibernationManager] Hibernation manager started {
+  config: {
+    idleThresholdMs: 1800000,
+    enableAutoHibernation: true,
+    checkIntervalMs: 60000,
+    maxHibernated: 20,
+    memoryPressureTrigger: true,
+    contextStalenessThresholdMs: 4500000
+  }
+}
+[2026-10-27T14:18:32.441Z] [INFO] [App] Initialized: Hibernation manager 
+[2026-10-27T14:18:32.441Z] [INFO] [App] Initializing: Instance pool 
+[2026-10-27T14:18:32.441Z] [INFO] [App] Initialized: Instance pool 
+[2026-10-27T14:18:32.441Z] [INFO] [App] Initializing: Load balancer 
+[2026-10-27T14:18:32.441Z] [INFO] [App] Initialized: Load balancer 
+[2026-10-27T14:18:32.441Z] [INFO] [App] Initializing: Thin-client WebSocket 
+[2026-10-27T14:18:32.442Z] [ERROR] [App] Failed to initialize: Thin-client WebSocket  {
+  name: 'Error',
+  message: 'listen EADDRINUSE: address already in use 127.0.0.1:4880',
+  stack: 'Error: listen EADDRINUSE: address already in use 127.0.0.1:4880\n' +
+    '    at Server.setupListenHandle [as _listen2] (node:net:2167:16)\n' +
+    '    at listenInCluster (node:net:2224:12)\n' +
+    '    at node:net:2448:7\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)'
+}
+[2026-10-27T14:18:32.442Z] [INFO] [App] Initializing: Worker node subsystem 
+[2026-10-27T14:18:32.443Z] [INFO] [AppInitialization] Remote node subsystem initialized; server disabled 
+[2026-10-27T14:18:32.443Z] [INFO] [App] Initialized: Worker node subsystem 
+[2026-10-27T14:18:32.443Z] [INFO] [App] Initializing: Mobile gateway 
+[2026-10-27T14:18:32.443Z] [INFO] [AppInitialization] Mobile gateway disabled (initialized, not started) 
+[2026-10-27T14:18:32.443Z] [INFO] [App] Initialized: Mobile gateway 
+[2026-10-27T14:18:32.443Z] [INFO] [App] Initializing: Cross-model review 
+[2026-10-27T14:18:32.467Z] [ERROR] [RuntimeDiagnostics] Electron child process exited unexpectedly {
+  type: 'Utility',
+  reason: 'crashed',
+  exitCode: 6,
+  name: 'Network Service',
+  serviceName: 'network.mojom.NetworkService'
+} 
+[66194:1027/141832.467947:ERROR:content/browser/network_service_instance_impl.cc:703] Network service crashed or was terminated, restarting service.
+[66194:1027/141832.468252:ERROR:content/browser/gpu/gpu_process_host.cc:1017] GPU process exited unexpectedly: exit_code=6
+[2026-10-27T14:18:32.468Z] [ERROR] [RuntimeDiagnostics] Electron child process exited unexpectedly {
+  type: 'GPU',
+  reason: 'crashed',
+  exitCode: 6,
+  name: undefined,
+  serviceName: 'GPU'
+} 
+[2026-10-27T14:18:32.475Z] [INFO] [LLMService] Ollama health check failed; will skip Ollama provider { error: 'fetch failed' }
+[2026-10-27T14:18:32.479Z] [INFO] [CodexCliDiscovery] Codex CLI models refreshed into unified catalog { count: 8 }
+sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.sandbox initialization failed: Operation not permitted
+Failed to initialize sandbox.[2026-10-27T14:18:32.517Z] [ERROR] [RuntimeDiagnostics] Electron child process exited unexpectedly {
+  type: 'Utility',
+  reason: 'crashed',
+  exitCode: 6,
+  name: 'Network Service',
+  serviceName: 'network.mojom.NetworkService'
+} 
+[66194:1027/141832.518169:ERROR:content/browser/network_service_instance_impl.cc:703] Network service crashed or was terminated, restarting service.
+[66194:1027/141832.518597:ERROR:content/browser/gpu/gpu_process_host.cc:1017] GPU process exited unexpectedly: exit_code=6
+[66194:1027/141832.518613:FATAL:content/browser/gpu/gpu_data_manager_impl_private.cc:418] GPU process isn't usable. Goodbye.

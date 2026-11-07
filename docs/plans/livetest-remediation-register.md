@@ -319,6 +319,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-705 | P1 | **MACHINE REPAIR + CODE VERIFIED 2026-10-13 — gates and full suite pass, independent reviews PASS; queue re-verified 2026-10-14; packaged smoke pending.** OpenCode 1 failed in `~/work/communitytech` (`no such column: project_id`) after OpenCode 2 rebuilt the shared `workspace` table, so selection fell back to OpenCode 2, whose `acp` ignores the per-spawn overlay and lacked the second account's key. Added nullable `workspace.project_id` (backed up); selection now refuses OpenCode 2 and explains why. The install/restart prerequisite is satisfied as for LT-704; the communitytech packaged smoke remains unrun and its exact deferred procedure is recorded inline in [LT-705 detail](#lt-705-deferred-packaged-acceptance) (branch-resident) and mirrored in the untracked root-checkout [startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md). | [LT-705 detail](#lt-705) | [Plan-owned packaged checks](2026-10-13-opencode-launch-environment_livetest.md) |
 | LT-706 | P2 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); live re-check pending.** A MiMo step that spends the whole combined cap on reasoning (OpenCode `finish: "length"`, ACP `end_turn`) was classified `completed` (or `dangling_tool_result`), so the session stopped silently. LT-690's saturation check skipped empty text, judged from whole-turn text while usage covers only the final step, and the shared observation layer could not see the cap. MiMo cap raised 16384 → 32000 at James's request. | [LT-706 detail](#lt-706) | [MiMo reasoning-cap live checks](2026-10-14-mimo-reasoning-cap-cutoff_livetest.md) |
 | LT-707 | P2 | **FIXED + REGRESSION-TESTED 2026-10-24 (working tree); live cell re-run pending (Windows PC outage #5).** `finalizeScoredRun` persists the record before best-effort cleanup and `cleanupWorkspace` retries transient ENOTEMPTY/EBUSY; regression tests cover record-survives-cleanup-throw and the retry paths. Implementation status lives in [the active plan](2026-10-14-local-model-plan-execute-ab_plan.md). Original report: reproduced 2026-10-24 (benchmark campaign harness, `benchmarks/plan-execute-ab/` — experiment tooling, not app code; owned by plan 2026-10-14-local-model-plan-execute-ab).** A completed scored pilot run is discarded when workspace cleanup flakes: `runArm` calls `cleanupWorkspace` (bare `rmSync` recursive) BEFORE `appendRunRecord`, so a transient `ENOTEMPTY` (macOS removal race) lost the AIO-05 C1 run after coding, patch capture and scoring — the batch logged `run failed: ENOTEMPTY, Directory not empty` and the leftover workspace then blocks re-export (`workspace already exists`). | [LT-707 detail](#lt-707) | [Local-model plan/execute deferred checks A5/A6](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
+| LT-710 | P2 | **REPRODUCED 2026-10-27; not fixed in this checkout.** Main and context-worker startup can collide on fresh-profile migration discovery. Reusing the migrated isolated profile reaches the renderer. This reuses the existing saved-login/housekeeping defect identifier; the housekeeping worker owns its fix. | [LT-710 detail](#lt-710) | [Worker auto-update live checks](2026-10-14-worker-auto-update_livetest.md#evidence-run--2026-10-27-plan-queue-worker); [active remediation follow-up](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-710) |
 | LT-709 | P2 | **OPEN — reproduced in the compiled runtime 2026-10-26; unimplemented.** A provider-slot runtime package installs, but its worker fails on a compiled `require('file://...')` before provider registration; the normal session-create schema also rejects its plugin provider identifier. Phase 1 records the failure and omits the custom-provider claim. | [LT-709 detail](#lt-709) | [Plugins cleanup Phase 1](2026-10-26-plugins-cleanup-and-global-connectors_plan_completed.md#phase-1-plugins-page-cleanup); [implementation status](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-709) |
 | LT-722 | P2 | **OPEN — reproduced live 2026-10-27 (1 of 3 triage runs that day); unimplemented.** A Plan Queue triage agent looked for `plan_queue_report_triage` only in its provider's own tool list, never in Harness's `orchestrator_tool_search`, so it could not report; both the Claude attempt and the Codex retry ended without answering and the document parked `triage-failed`. The triage prompt has no tool-discovery steps (the verifier prompt gained them separately). | [LT-722 detail](#lt-722) | [Implementation status](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-722) |
 | LT-723 | P2 | **CONFIRMED FIXED LIVE 2026-11-06. Source fix verified 2026-11-04; installed provisioning passed 2026-11-05; shared receipts and saving passed 2026-11-06.** Preparing a shared Plan Queue check parks the leader when a scripts-only Node project triggers unnecessary `npm ci` with the packaged app's stripped PATH. Dependency setup must be required by the checked-out project, use the discovered CLI environment, and choose `ci` only for an npm lockfile/shrinkwrap. | [LT-723 detail](#lt-723) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-04-balanced-rerun-failure); [verified source repair](2026-11-04-plan-queue-check-copy-provisioning_plan_completed.md); [installed evidence](2026-11-04-plan-queue-check-copy-provisioning_livetest_completed.md#evidence--2026-11-05-real-shared-check-and-later-member-recheck) |
@@ -10122,6 +10123,48 @@ scoring".
   failure that persists is surfaced as a note/warning without dropping the record.
 - The AIO-05 C1 cell is re-run and recorded normally after the fix; the benchmark suite and the
   canonical static gates stay green.
+
+<a id="lt-710"></a>
+
+## LT-710 — fresh-profile app startup can collide with the context worker's migrations
+
+Additional reproduction, 2026-10-27 worker auto-update campaign. This is the same defect already
+recorded by the saved-login/automation campaigns in the root checkout's active remediation
+follow-up and by the housekeeping worker. Preserve that ownership and its newer implementation
+status when integrating; this branch contains no database fix.
+
+### Observed behaviour
+
+The freshly built app, using only `/tmp/aio-lt-queue-d4bee785`, failed at `Work controls` at
+`2026-10-27T14:19:24.056Z` with `Failed to apply migration "001_add_optimized_indices": UNIQUE
+constraint failed: _migrations.name`. It never created a renderer on that attempt. A subsequent
+launch using the same worker-owned profile reached the real renderer and preload at
+`2026-10-27T14:21:56.707Z`; focus emulation was enabled and two animation frames completed.
+Receipts: `evidence/2026-10-27-worker-auto-update/startup-migration.txt` and `dev-result.json`.
+
+### Root cause investigation
+
+The executing stack enters `initializeGlobalPauseRuntime` (`global-pause-bootstrap.ts:22`),
+then `RLMDatabase.initializeDatabase` (`rlm-database.ts:148`) and `runMigrations`
+(`rlm/rlm-schema.ts:284`). Applied migration names are read before the write transaction
+(`rlm-schema.ts:289-317`); the context worker also opens the same profile's database
+(`instance/context-worker-main.ts:157`). Concurrent stale discovery is consistent with the
+observed duplicate row. This run did not capture the exact interleaving or independently verify
+the housekeeping worker's fix.
+
+### Required behaviour
+
+Concurrent normal database owners must apply every migration once on first startup and reach
+the renderer. Checksum mismatches and genuine migration SQL errors must remain visible.
+
+### Acceptance and implementation status
+
+The existing LT-710 owner must verify a deterministic two-owner regression, checksum rejection,
+SQL rollback/retry, native concurrent owners and fresh-profile app startup, then complete the
+normal gates and independent review. No new human authority is needed for that isolated work.
+The matching status is already recorded under LT-710 in the root-owned active
+`2026-07-19-livetest-failure-remediation-followup_plan.md`; the historical `_completed` July plan
+is left unchanged. This campaign adds reproduction evidence only and does not duplicate the fix.
 
 <a id="lt-709"></a>
 

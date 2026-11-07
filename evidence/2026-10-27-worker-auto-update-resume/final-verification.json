@@ -1,0 +1,11 @@
+{
+  "recordedAt": "2026-10-27T15:41:18.869214+00:00",
+  "evidenceHashesMatch": true,
+  "jsonValid": true,
+  "assignedBranchAndWorktreeRetained": true,
+  "nothingStaged": true,
+  "rootDocumentHashMatches": true,
+  "preexistingTrackedWorktreeDocumentUnchangedFromHEAD": true,
+  "documentRenamed": false,
+  "auditCorrection": "The first final audit incorrectly assumed the document had no pre-existing tracked copy in this worktree. It does; exact byte comparison to HEAD passes. Only the supplied root-checkout document was edited."
+}

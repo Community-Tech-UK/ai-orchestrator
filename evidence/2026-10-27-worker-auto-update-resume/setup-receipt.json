@@ -1,0 +1,19 @@
+{
+  "initialBackgroundLaunch": {
+    "task": "bz2e9oy6j",
+    "outcome": "failed before any build or app launch",
+    "error": "MODULE_NOT_FOUND",
+    "reason": "Background Bash began in /Users/suas; the relative runner path did not exist there."
+  },
+  "correctedBackgroundLaunch": {
+    "task": "brf2ks8xb",
+    "method": "Absolute runner path; runner changes working directory to its own assigned worktree. Results are recorded by each child command, not inferred from background acceptance."
+  },
+  "remoteDiagnostic": {
+    "instance": "x2ep8mkea",
+    "outcome": "finished; raw JSON downloaded and inspected; instance terminated",
+    "sha256": "64e172f9c219571d32f6cd18db771a2dd1cf61d45f050a6fbf5242fe1df21938",
+    "remoteFile": "worker-auto-update-resume.json",
+    "scope": "Read-only git refs, selected updater/supervisor log lines, launcher matching lines, scheduled-task status and failed-marker presence. No remote runtime was installed or created. The small JSON receipt remains on the worker."
+  }
+}
