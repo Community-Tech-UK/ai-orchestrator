@@ -1,0 +1,234 @@
+{
+  "sourceHashes": {
+    "scorer.ts": "2f7214ae591d44041be6628ab5f9bd4b72b16574058e914817c8be2c336e0127",
+    "scoring-setup.ts": "2efdae0dce8bc5e7af9d430c2efe79dbe88d6ae07481bc51fc7d4c5891cc4f11",
+    "task-export.ts": "9ac6c1a14a6e5a742d8a38e63b005424a5e8266568257f7f50c79de35f838f6e",
+    "types.ts": "1926f7d2b93482ddfd0c9fd25518eaab94080d7c9bd29e1cff2d4858e47ff75f",
+    "tasks/task-bank.json": "376c4cf8ecb838eed8f5bcaaea6ead9b04b85eeaad0b0e70da9c5e9c8e7b892a",
+    "tasks/aio-01-scoring-v2.patch": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468"
+  },
+  "dependencyReceipt": {
+    "fingerprint": "b962068a845cbf165da877724742e43a208fa7fa5766d00d3a8bf87b473c86d5",
+    "files": {
+      "apps/mobile/package.json": "d97e9e262c3d2d339dfd4081baf2056effbf00b3979cc0b57f3ad0fe23d23038",
+      "benchmarks/external-benchmarks/bfcl/package.json": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+      "benchmarks/orchestrator-benchmark/package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+      "package-lock.json": "021e5949e51e8dd7847f514cf4142baf8d4e18e818a450ea3d41045fd1691d97",
+      "package.json": "6adee217290061578d1afd43e4ccbbd71097b1d3a10574f014822f4bf1591298",
+      "packages/archiver-compat/package.json": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+      "packages/contracts/package.json": "c20adf5e2edb10101f0c42fccf4e2131c336204a26df832dcbd8e0130ab1fb96",
+      "packages/sdk/package.json": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a"
+    },
+    "command": [
+      "npm",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "exitCode": 0,
+    "timedOut": false,
+    "nodeVersion": "v26.12.1",
+    "runtimePreparation": [
+      {
+        "command": [
+          "/opt/homebrew/Cellar/node/26.12.1/bin/node",
+          "node_modules/electron/install.js"
+        ],
+        "exitCode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timedOut": false,
+        "durationMs": 2019
+      },
+      {
+        "command": [
+          "npm",
+          "rebuild",
+          "better-sqlite3"
+        ],
+        "exitCode": 0,
+        "stdout": "rebuilt dependencies successfully\n",
+        "stderr": "npm warn rebuild 11 packages have install scripts not yet covered by allowScripts. Run `npm install-scripts ls` to review.\n",
+        "timedOut": false,
+        "durationMs": 2763
+      }
+    ]
+  },
+  "repeats": [
+    {
+      "variant": "parent",
+      "repeat": 1,
+      "score": {
+        "contract": {
+          "version": "aio-01-startup-order-v2",
+          "amendmentSha256": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468",
+          "dependencyFingerprint": "b962068a845cbf165da877724742e43a208fa7fa5766d00d3a8bf87b473c86d5"
+        },
+        "hiddenTests": {
+          "passed": false,
+          "command": [
+            "npm",
+            "run",
+            "test:quiet",
+            "--",
+            "src/main/history/history-manager.spec.ts"
+          ],
+          "exitCode": 1,
+          "timedOut": false,
+          "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/history/history-manager.spec.ts\n\n✗ 1 of 41 tests failed in 17.5s:\n\n  ✗ src/main/history/history-manager.spec.ts › HistoryManager does not begin the safety backup before the pending startup writers settle\n    AssertionError: clearAll entered the safety backup while the startup write was blocked: expected 'backup-entry' to be 'startup-wait' // Object.is equality\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:370:9\n        at processTicksAndRejections (node:internal/process/task_queues:104:5)\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20\n\nfull log: _scratch/test-run.pid-72517.log\n\n✗ FAILED — 1 of 41 tests failed (exit 1).\n\n"
+        },
+        "damage": [],
+        "damageOk": true
+      },
+      "damageChecksOmitted": true
+    },
+    {
+      "variant": "parent",
+      "repeat": 2,
+      "score": {
+        "contract": {
+          "version": "aio-01-startup-order-v2",
+          "amendmentSha256": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468",
+          "dependencyFingerprint": "b962068a845cbf165da877724742e43a208fa7fa5766d00d3a8bf87b473c86d5"
+        },
+        "hiddenTests": {
+          "passed": false,
+          "command": [
+            "npm",
+            "run",
+            "test:quiet",
+            "--",
+            "src/main/history/history-manager.spec.ts"
+          ],
+          "exitCode": 1,
+          "timedOut": false,
+          "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/history/history-manager.spec.ts\n\n✗ 2 of 41 tests failed in 16.2s:\n\n  ✗ src/main/history/history-manager.spec.ts › HistoryManager creates a safety backup before clearing conversation history\n    AssertionError: expected true to be false // Object.is equality\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:209:73\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20\n\n  ✗ src/main/history/history-manager.spec.ts › HistoryManager does not begin the safety backup before the pending startup writers settle\n    AssertionError: clearAll entered the safety backup while the startup write was blocked: expected 'backup-entry' to be 'startup-wait' // Object.is equality\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:370:9\n        at processTicksAndRejections (node:internal/process/task_queues:104:5)\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20\n\nfull log: _scratch/test-run.pid-81513.log\n\n✗ FAILED — 2 of 41 tests failed (exit 1).\n\n"
+        },
+        "damage": [],
+        "damageOk": true
+      },
+      "damageChecksOmitted": true
+    },
+    {
+      "variant": "fixed",
+      "repeat": 1,
+      "score": {
+        "contract": {
+          "version": "aio-01-startup-order-v2",
+          "amendmentSha256": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468",
+          "dependencyFingerprint": "b962068a845cbf165da877724742e43a208fa7fa5766d00d3a8bf87b473c86d5"
+        },
+        "hiddenTests": {
+          "passed": true,
+          "command": [
+            "npm",
+            "run",
+            "test:quiet",
+            "--",
+            "src/main/history/history-manager.spec.ts"
+          ],
+          "exitCode": 0,
+          "timedOut": false,
+          "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/history/history-manager.spec.ts\n\n✓ 1 files · 41 tests passed in 16.3s\n  full log: _scratch/test-run.pid-85307.log\n\n"
+        },
+        "damage": [],
+        "damageOk": true
+      },
+      "damageChecksOmitted": true
+    },
+    {
+      "variant": "fixed",
+      "repeat": 2,
+      "score": {
+        "contract": {
+          "version": "aio-01-startup-order-v2",
+          "amendmentSha256": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468",
+          "dependencyFingerprint": "b962068a845cbf165da877724742e43a208fa7fa5766d00d3a8bf87b473c86d5"
+        },
+        "hiddenTests": {
+          "passed": true,
+          "command": [
+            "npm",
+            "run",
+            "test:quiet",
+            "--",
+            "src/main/history/history-manager.spec.ts"
+          ],
+          "exitCode": 0,
+          "timedOut": false,
+          "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/history/history-manager.spec.ts\n\n✓ 1 files · 41 tests passed in 15.3s\n  full log: _scratch/test-run.pid-90125.log\n\n"
+        },
+        "damage": [],
+        "damageOk": true
+      },
+      "damageChecksOmitted": true
+    },
+    {
+      "variant": "bogus-delay",
+      "repeat": 1,
+      "mutation": {
+        "file": "src/main/history/history-manager.ts",
+        "parentSha256": "89e026b0e26eca09067234605a32b9aa6d6fd24f91661cdf7d0b9755b5b58a6c",
+        "mutatedSha256": "072b70f410b153959f2d2500a685b6031189da10f3538d3ef3c32bde25b3a5e4",
+        "addition": "    for (let delay = 0; delay < 100; delay += 1) await Promise.resolve();"
+      },
+      "score": {
+        "contract": {
+          "version": "aio-01-startup-order-v2",
+          "amendmentSha256": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468",
+          "dependencyFingerprint": "b962068a845cbf165da877724742e43a208fa7fa5766d00d3a8bf87b473c86d5"
+        },
+        "hiddenTests": {
+          "passed": false,
+          "command": [
+            "npm",
+            "run",
+            "test:quiet",
+            "--",
+            "src/main/history/history-manager.spec.ts"
+          ],
+          "exitCode": 1,
+          "timedOut": false,
+          "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/history/history-manager.spec.ts\n\n✗ 1 of 41 tests failed in 18.5s:\n\n  ✗ src/main/history/history-manager.spec.ts › HistoryManager does not begin the safety backup before the pending startup writers settle\n    AssertionError: clearAll entered the safety backup while the startup write was blocked: expected 'backup-entry' to be 'startup-wait' // Object.is equality\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:370:9\n        at processTicksAndRejections (node:internal/process/task_queues:104:5)\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20\n\nfull log: _scratch/test-run.pid-98562.log\n\n✗ FAILED — 1 of 41 tests failed (exit 1).\n\n"
+        },
+        "damage": [],
+        "damageOk": true
+      },
+      "damageChecksOmitted": true
+    },
+    {
+      "variant": "bogus-delay",
+      "repeat": 2,
+      "mutation": {
+        "file": "src/main/history/history-manager.ts",
+        "parentSha256": "89e026b0e26eca09067234605a32b9aa6d6fd24f91661cdf7d0b9755b5b58a6c",
+        "mutatedSha256": "072b70f410b153959f2d2500a685b6031189da10f3538d3ef3c32bde25b3a5e4",
+        "addition": "    for (let delay = 0; delay < 100; delay += 1) await Promise.resolve();"
+      },
+      "score": {
+        "contract": {
+          "version": "aio-01-startup-order-v2",
+          "amendmentSha256": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468",
+          "dependencyFingerprint": "b962068a845cbf165da877724742e43a208fa7fa5766d00d3a8bf87b473c86d5"
+        },
+        "hiddenTests": {
+          "passed": false,
+          "command": [
+            "npm",
+            "run",
+            "test:quiet",
+            "--",
+            "src/main/history/history-manager.spec.ts"
+          ],
+          "exitCode": 1,
+          "timedOut": false,
+          "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/history/history-manager.spec.ts\n\n✗ 2 of 41 tests failed in 14.0s:\n\n  ✗ src/main/history/history-manager.spec.ts › HistoryManager waits for startup backfill before snapshotting and clearing history\n    Error: ENOENT: no such file or directory, copyfile '/var/folders/0n/fs5yys3d0vg0c838h75hyrm00000gn/T/history-manager-IzItVY/conversation-history.bak-20261027-160514-153/entry-startup-race.json.gz.155987e6-af85-4224-a1d8-5dc9bf1a333d.tmp'\n\n  ✗ src/main/history/history-manager.spec.ts › HistoryManager does not begin the safety backup before the pending startup writers settle\n    AssertionError: clearAll entered the safety backup while the startup write was blocked: expected 'backup-entry' to be 'startup-wait' // Object.is equality\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:370:9\n        at processTicksAndRejections (node:internal/process/task_queues:104:5)\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20\n\nfull log: _scratch/test-run.pid-7763.log\n\n✗ FAILED — 2 of 41 tests failed (exit 1).\n\n"
+        },
+        "damage": [],
+        "damageOk": true
+      },
+      "damageChecksOmitted": true
+    }
+  ]
+}

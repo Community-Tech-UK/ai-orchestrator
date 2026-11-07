@@ -1,0 +1,286 @@
+diff --git a/src/main/automations/automation-provider-limit-outcome.spec.ts b/src/main/automations/automation-provider-limit-outcome.spec.ts
+new file mode 100644
+index 0000000..6b640b9
+--- /dev/null
++++ b/src/main/automations/automation-provider-limit-outcome.spec.ts
+@@ -0,0 +1,22 @@
++import { describe, expect, it } from 'vitest';
++import type { OutputMessage } from '../../shared/types/instance.types';
++import { detectAutomationProviderLimit } from './automation-provider-limit-outcome';
++
++describe('detectAutomationProviderLimit', () => {
++  it('returns null for ordinary output', () => {
++    expect(detectAutomationProviderLimit({ lastAssistantOutput: 'All done, resets at 6pm' })).toBeNull();
++  });
++
++  it('reports a final limit notice', () => {
++    expect(detectAutomationProviderLimit({ lastAssistantOutput: "You've hit your session limit · resets 6:30pm" }))
++      .toMatch(/^Provider limit reached: You've hit/);
++  });
++
++  it('reports a parked session', () => {
++    const outputBuffer = [
++      { id: '1', type: 'system', content: 'x', timestamp: 1, metadata: { providerLimitParked: true } },
++    ] as OutputMessage[];
++    expect(detectAutomationProviderLimit({ lastAssistantOutput: 'fine', outputBuffer }))
++      .toContain('parked');
++  });
++});
+diff --git a/src/main/automations/automation-provider-limit-outcome.ts b/src/main/automations/automation-provider-limit-outcome.ts
+new file mode 100644
+index 0000000..c699fee
+--- /dev/null
++++ b/src/main/automations/automation-provider-limit-outcome.ts
+@@ -0,0 +1,21 @@
++import { isProviderLimitNotice } from '../cli/provider-notice';
++import type { OutputMessage } from '../../shared/types/instance.types';
++
++/**
++ * Decide whether an automation run that looked like a clean finish actually
++ * ended on a provider usage/spend limit. Returns a failure reason, or null.
++ * Automation runs always start a fresh session, so any parked-session marker in
++ * the buffer belongs to this run.
++ */
++export function detectAutomationProviderLimit(input: {
++  lastAssistantOutput?: string | null;
++  outputBuffer?: readonly OutputMessage[] | null;
++}): string | null {
++  if (input.outputBuffer?.some((m) => m.metadata?.['providerLimitParked'] === true)) {
++    return 'Provider limit reached: session parked until the limit resets';
++  }
++  if (isProviderLimitNotice(input.lastAssistantOutput)) {
++    return `Provider limit reached: ${input.lastAssistantOutput!.trim().slice(0, 200)}`;
++  }
++  return null;
++}
+diff --git a/src/main/automations/automation-runner.spec.ts b/src/main/automations/automation-runner.spec.ts
+index 429f0f4..cd55b69 100644
+--- a/src/main/automations/automation-runner.spec.ts
++++ b/src/main/automations/automation-runner.spec.ts
+@@ -509,11 +509,11 @@ describe('AutomationRunner thread wakeups', () => {
+       expect(metadata['automationHidden']).toBeUndefined();
+     });
+-    async function fireHiddenRun(instanceId: string) {
++    async function fireHiddenRun(instanceId: string, outputBuffer?: unknown[]) {
+       const run = newInstanceRun(true);
+       const instance = {
+         id: instanceId,
+-        outputBuffer: [{ type: 'assistant', content: 'done', timestamp: 1 }],
++        outputBuffer: outputBuffer ?? [{ type: 'assistant', content: 'done', timestamp: 1 }],
+         status: 'working',
+         metadata: { automationId: 'automation-1', automationHidden: true } as Record<string, unknown>,
+       };
+@@ -568,6 +568,71 @@ describe('AutomationRunner thread wakeups', () => {
+       expect(instance.metadata['automationRunSucceeded']).toBeUndefined();
+     });
++
++    describe('provider limit endings', () => {
++      async function endRun(instanceId: string, outputBuffer: unknown[]) {
++        const instance = await fireHiddenRun(instanceId, outputBuffer);
++        manager.emit('instance:event', {
++          instanceId,
++          event: { kind: 'status_changed', status: 'idle' },
++        });
++        return instance;
++      }
++
++      it('records a final limit notice as failed, not retryable and unstamped', async () => {
++        const instance = await endRun('i-limit', [
++          { type: 'assistant', content: "You've hit your session limit · resets 6:30pm", timestamp: 1 },
++        ]);
++
++        expect(store.terminalizeRun).toHaveBeenCalledWith(
++          expect.anything(),
++          'failed',
++          expect.stringContaining('Provider limit reached'),
++          expect.anything(),
++          expect.anything(),
++        );
++        expect(store.recordRunOutcome).toHaveBeenCalledWith(
++          'automation-1',
++          'failed',
++          expect.stringContaining('Provider limit reached'),
++          expect.anything(),
++        );
++        expect(instance.metadata['automationRunSucceeded']).toBeUndefined();
++      });
++
++      it('records a parked session as failed even after earlier normal output', async () => {
++        await endRun('i-parked', [
++          { type: 'assistant', content: 'Working on it', timestamp: 1 },
++          { type: 'system', content: 'Paused', timestamp: 2, metadata: { providerLimitParked: true } },
++        ]);
++
++        expect(store.terminalizeRun).toHaveBeenCalledWith(
++          expect.anything(),
++          'failed',
++          expect.stringContaining('Provider limit reached'),
++          expect.anything(),
++          expect.anything(),
++        );
++      });
++
++      it('keeps ordinary output that mentions reset times and rate limits as succeeded', async () => {
++        await endRun('i-ordinary', [
++          {
++            type: 'assistant',
++            content: 'Done — note the token resets at 6pm and we handle Too Many Requests',
++            timestamp: 1,
++          },
++        ]);
++
++        expect(store.terminalizeRun).toHaveBeenCalledWith(
++          expect.anything(),
++          'succeeded',
++          undefined,
++          expect.anything(),
++          expect.anything(),
++        );
++      });
++    });
+   });
+ });
+diff --git a/src/main/automations/automation-runner.ts b/src/main/automations/automation-runner.ts
+index 6d71b58..ec9df5d 100644
+--- a/src/main/automations/automation-runner.ts
++++ b/src/main/automations/automation-runner.ts
+@@ -14,6 +14,7 @@ import type {
+ import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
+ import type { InstanceEventEnvelope } from '@contracts/types/instance-events';
+ import { AutomationStore } from './automation-store';
++import { detectAutomationProviderLimit } from './automation-provider-limit-outcome';
+ import { getAutomationEvents } from './automation-events';
+ import { ThreadWakeupRunner } from './thread-wakeup-runner';
+ import { SessionRevivalService } from '../session/session-revival-service';
+@@ -497,15 +498,30 @@ export class AutomationRunner {
+   private completeTrackedInstance(
+     instanceId: string,
+-    status: Exclude<AutomationRunStatus, 'pending' | 'running'>,
+-    error?: string,
+-    options?: { retryable?: boolean },
++    requestedStatus: Exclude<AutomationRunStatus, 'pending' | 'running'>,
++    requestedError?: string,
++    requestedOptions?: { retryable?: boolean },
+   ): void {
+     const tracking = this.trackingByInstance.get(instanceId);
+     if (!tracking) {
+       return;
+     }
++    // A provider at its usage/spend limit prints a notice and exits cleanly, so
++    // a "success" may really be a blocked run. Retrying would hit the same limit.
++    const limitReason = requestedStatus === 'succeeded'
++      ? detectAutomationProviderLimit({
++        lastAssistantOutput: tracking.lastAssistantOutput,
++        outputBuffer: this.instanceManager?.getInstance(instanceId)?.outputBuffer,
++      })
++      : null;
++    if (limitReason) {
++      logger.warn('Automation run ended on provider limit', { runId: tracking.runId });
++    }
++    const status = limitReason ? 'failed' : requestedStatus;
++    const error = limitReason ?? requestedError;
++    const options = limitReason ? { retryable: false } : requestedOptions;
++
+     this.trackingByInstance.delete(instanceId);
+     this.instanceByRun.delete(tracking.runId);
+diff --git a/src/main/cli/provider-notice.spec.ts b/src/main/cli/provider-notice.spec.ts
+index 571c3f2..73ffcad 100644
+--- a/src/main/cli/provider-notice.spec.ts
++++ b/src/main/cli/provider-notice.spec.ts
+@@ -1,6 +1,6 @@
+ import { describe, expect, it } from 'vitest';
+-import { isProviderNotice } from './provider-notice';
++import { isProviderLimitNotice, isProviderNotice } from './provider-notice';
+ describe('isProviderNotice', () => {
+   it('flags real provider rate/usage-limit notices', () => {
+@@ -43,3 +43,42 @@ describe('isProviderNotice', () => {
+     expect(isProviderNotice(undefined)).toBe(false);
+   });
+ });
++
++describe('isProviderLimitNotice', () => {
++  it('flags real limit and spend notices across providers', () => {
++    const notices = [
++      "You've hit your session limit · resets 6:30pm",
++      'Claude AI usage limit reached',
++      '5-hour limit reached ∙ resets 3am',
++      "You've hit your usage limit. Upgrade to Pro or try again at Jul 21st, 2026 9:37 PM.",
++      "You've hit your monthly spend limit",
++      'Spending limit reached for this organization',
++      'Credit balance is too low',
++      'You exceeded your current quota, please check your plan and billing details.',
++      'Error: You have exceeded your monthly quota',
++      "Quota exceeded for quota metric 'Generate Content API requests'",
++      'API Error: 429 insufficient_quota',
++    ];
++    for (const text of notices) {
++      expect(isProviderLimitNotice(text), text).toBe(true);
++    }
++  });
++
++  it('does not flag ordinary output that mentions limits', () => {
++    const quoted = `${'Summary of the work done today. '.repeat(20)} You've hit your session limit · resets 6:30pm`;
++    const legit = [
++      'Done. The cache now resets at 6:30pm daily.',
++      'Added retry with backoff when the API returns 429 Too Many Requests.',
++      'Updated the quota exceeded banner copy.',
++      'The report job resets 3am UTC.',
++      'Fixed the session-limit retry bug',
++      quoted,
++      '',
++      null,
++      undefined,
++    ];
++    for (const text of legit) {
++      expect(isProviderLimitNotice(text), String(text)).toBe(false);
++    }
++  });
++});
+diff --git a/src/main/cli/provider-notice.ts b/src/main/cli/provider-notice.ts
+index a5d608d..10af0bc 100644
+--- a/src/main/cli/provider-notice.ts
++++ b/src/main/cli/provider-notice.ts
+@@ -38,3 +38,43 @@ export function isProviderNotice(text: string | null | undefined): boolean {
+   if (!text) return false;
+   return PROVIDER_NOTICE_PATTERNS.some((re) => re.test(text));
+ }
++
++/**
++ * Strict limit patterns for {@link isProviderLimitNotice}. Unlike
++ * {@link PROVIDER_NOTICE_PATTERNS}, none of these match on a bare "too many
++ * requests", "quota exceeded", "rate limit" or "resets <time>", because those
++ * phrases routinely appear in genuine task output.
++ */
++export const PROVIDER_LIMIT_NOTICE_PATTERNS: readonly RegExp[] = [
++  /you(?:'?ve|\s+have)\s+(?:hit|reached)\s+your\s+(?:[\w-]+\s+){1,3}limit/i, // "You've hit your monthly spend limit"
++  /\b(?:claude\s+)?(?:ai\s+)?(?:usage|session|message)\s+limit\s+reached\b/i,
++  /\b\d+\s*-?\s*hour\s+limit\s+reached\b/i,
++  /\blimit\s*[·•∙‧]\s*resets?\b/i,
++  /\b(?:spend|spending)\s+(?:limit|cap)\s+(?:reached|exceeded|hit)\b/i,
++  /\bexceeded\s+your\s+(?:spend|spending|usage|budget)\s+limit\b/i,
++  /\bcredit\s+balance\s+is\s+too\s+low\b/i,
++  /\byou\s+exceeded\s+your\s+current\s+quota,?\s+please\s+check\s+your\s+plan\s+and\s+billing\b/i, // OpenAI/Codex
++  /\binsufficient_quota\b/i,
++  /\byou\s+have\s+exceeded\s+your\s+\w+\s+quota\b/i, // Copilot
++  /\b(?:daily|weekly|monthly)\s+quota\s+(?:exceeded|reached)\b/i,
++  /\bquota\s+exceeded\s+for\s+quota\s+metric\b/i, // Gemini
++  /\byou\s+have\s+exhausted\s+your\s+(?:[\w-]+\s+)*quota\b/i, // Gemini
++];
++
++const LIMIT_NOTICE_MAX_LENGTH = 600;
++const LIMIT_NOTICE_MAX_START = 120;
++
++/**
++ * Strict check for a provider usage/spend limit notice used as a run's final
++ * output. A real notice is short and leads the text (allowing prefixes such as
++ * "Error: " or "API Error: 429 "); a long report that merely quotes one, or
++ * mentions limit wording mid-paragraph, is genuine output and is not matched.
++ */
++export function isProviderLimitNotice(text: string | null | undefined): boolean {
++  const trimmed = text?.trim();
++  if (!trimmed || trimmed.length > LIMIT_NOTICE_MAX_LENGTH) return false;
++  return PROVIDER_LIMIT_NOTICE_PATTERNS.some((re) => {
++    const match = re.exec(trimmed);
++    return match !== null && match.index <= LIMIT_NOTICE_MAX_START;
++  });
++}

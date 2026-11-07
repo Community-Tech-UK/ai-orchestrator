@@ -1,0 +1,39 @@
+from pathlib import Path
+import datetime
+import json
+import os
+import subprocess
+import sys
+import time
+
+root = Path.cwd()
+out = root / 'benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-after-timing'
+out.mkdir(parents=True, exist_ok=True)
+env = {**os.environ, 'AIO_TEST_SUMMARY': '0', 'AIO_TEST_MAX_FORKS': '2', 'CI': '1', 'AIO_TEST_NO_CACHE': '1'}
+commands = [
+    ('full-suite', ['npm', 'run', 'test:quiet']),
+    ('typecheck', ['node', 'node_modules/typescript/bin/tsc', '--noEmit']),
+    ('spec-typecheck', ['npm', 'run', 'typecheck:spec']),
+    ('lint', ['npm', 'run', 'lint']),
+    ('max-loc', ['npm', 'run', 'check:ts-max-loc']),
+    ('ui-hints', ['npm', 'run', 'check:ui-hints']),
+    ('main-build', ['npm', 'run', 'build:main']),
+    ('renderer-build', ['npm', 'run', 'build:renderer']),
+]
+results = []
+for label, command in commands:
+    started = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    begin = time.monotonic()
+    log = out / (label + '.log')
+    with log.open('w') as output:
+        result = subprocess.run(['rtk', 'proxy', *command], env=env, stdout=output, stderr=subprocess.STDOUT)
+    receipt = dict(label=label, command=command, startedAt=started,
+                   durationSeconds=round(time.monotonic() - begin, 3), exitCode=result.returncode,
+                   log=str(log.relative_to(root)), load=os.getloadavg())
+    (out / (label + '.receipt.json')).write_text(json.dumps(receipt, indent=2) + '\n')
+    results.append(receipt)
+    print(json.dumps(receipt), flush=True)
+    if result.returncode:
+        print(log.read_text()[-6000:], flush=True)
+    (out / 'summary.json').write_text(json.dumps(results, indent=2) + '\n')
+sys.exit(int(any(result['exitCode'] != 0 for result in results)))

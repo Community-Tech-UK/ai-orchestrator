@@ -352,6 +352,12 @@ sections below. The historical reproduction remains unchanged.
 | LT-726 | P2 | **SOURCE FIX VERIFIED 2026-11-06 in a Linux container; first AppImage release build pending.** Linux packages could not finish building, because `scripts/set-electron-fuses.js` opened `Harness` when the binary is `harness`, so the security fuses were never set. | [LT-726 detail](#lt-726) | [Fixing plan](2026-11-06-code-context-precision_plan_completed.md); [installed check 9](2026-11-06-search-and-memory-repair_plan_livetest.md#9-windows-and-linux-packages-hold-only-their-own-runtime) |
 | LT-727 | P1 | **SOURCE FIX VERIFIED 2026-11-06; rebuilt-app check pending.** Every Microsoft 365 connector tool call was refused before reaching Microsoft, because the connector rejected the standard `_meta` field that MCP clients add to a call. | [LT-727 detail](#lt-727) | [Check 3](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md#3-microsoft-365-account-routing-and-write-policy) |
 
+| LT-1006 | P2 | **REPAIRS WIRED 2026-10-27; clean scoring still OPEN.** Fresh queue dependencies expose Vitest 4 to archived tasks whose quiet runner requires the Vitest 3 export map. Both broken and fixed task commands crash before tests. Temporary historical dependencies remove that crash but reveal LT-1002. Renumbered from this campaign's conflicting LT-709 label. | [LT-1000 detail](#lt-1006) | [Local-model checks A5–A8](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
+| LT-1001 | P1 | **OPEN, reproduced 2026-10-27.** A fresh isolated dev profile fails startup with a duplicate migration-name constraint while main and the context worker initialize the same database. Restarting that owned profile succeeds; no application fix made. | [LT-1001 detail](#lt-1001) | [Local-model campaign startup evidence](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
+| LT-1002 | P1 | **V2 ADOPTED 2026-10-27; clean control/rescoring OPEN.** AIO-01's held-back test suite passes on both the known-broken parent and its fixed commit under the compatible historical test library. The task no longer establishes a valid negative control, so new pilot scoring and recommendations are withheld. | [LT-1002 detail](#lt-1002) | [Local-model checks A5–A8](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
+| LT-1003 | P2 | **SECOND-TURN CACHE BEHAVIOR DEMONSTRATED 2026-10-27.** Preserved structured system blocks yield request-two cache17106/input43 and much shorter client first-response latency; no pure server prompt-time claim. Final independent verification remains separate. | [LT-1003 detail](#lt-1003) | [Local-model check A4](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
+| LT-1004 | P1 | **OPEN evidence loss, confirmed 2026-10-27.** Thirty A/D/G candidates reconstructed with provenance; eight later settled C1 and ten C2 full records remain absent from the portable session mirror. CLI transcripts and printed score summaries survive, but cannot support rescoring or a complete-matrix decision. | [LT-1004 detail](#lt-1004) | [Local-model checks A6–A8](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
+| LT-1005 | P3 | **OPEN, reproduced 2026-11-07.** The benchmark's local translator cannot reach a native server bound to an IPv6 address: it passes the bracketed host to Node's HTTP client, so every request returns 502 (`getaddrinfo ENOTFOUND`). A plain byte forwarder was used instead; the translator is unchanged. | [LT-1005 detail](#lt-1005) | [Local-model check A2](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
 ### New input-controls findings — 2026-10-27
 
 | ID | Priority | Status | Detail | Origin |
@@ -11112,3 +11118,319 @@ emulation is correct.
 - Under 768×1024 emulation at zoom 2, a read returns the emulated mode without a mismatch error.
 - A set at zoom 2 either succeeds with the same check or fails with a reason that explains the zoom.
 - Reset still restores the original zoom and viewport.
+<a id="lt-1006"></a>
+
+## LT-1006 — archived benchmark tasks use an incompatible test installation
+
+**Status: reproduced 27 October 2026; no new scored model runs accepted.** The earlier campaign
+called this LT-709, which collides with another campaign. This campaign's LT-709 is now LT-1006,
+and LT-710 to LT-712 are LT-1001 to LT-1003. LT-1000 was already taken on main by a browser-zoom
+defect. The allocation scanned branch and live-worktree registers; its receipt
+is `benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/id-reservation.receipt.json`.
+Historical raw receipts keep their original labels; these aliases do not reassign other campaigns.
+
+### Observed behaviour
+
+The current runner was recovered unchanged from that checkpoint. `verify-task` for AIO-01,
+using an owned workspace inside the queue worktree, exits 1: both parent and fixed commit fail
+before running tests with `Package subpath './vitest.mjs' is not defined by "exports"`.
+The existing worktree `node_modules/vitest` links to the current root installation. Selecting
+Vitest 3.2.7 in an owned temporary installation lets those tests execute, exposing LT-1002.
+The temporary symlink changes were restored before normal repository verification.
+
+Evidence: `benchmarks/plan-execute-ab/evidence/2026-10-27/historical-task-preflight.log`,
+`historical-task-preflight-compatible.log`, and `scoring-negative-control/`.
+
+### Root cause
+
+`runArm` calls `linkNodeModules(repoPath, workspace.dir)`; `verifyTask` uses that same helper.
+The helper links the checkout's current installation without verifying compatibility with the
+archived task's scripts. The archived quiet runner resolves `vitest/vitest.mjs`, which the
+current major version does not export. The 25 October workaround used an older checkout install
+and exports under `/tmp`. This worker's explicit instructions require source exports inside
+its worktree, so it did not silently reinstate that outside-worktree workaround.
+
+### Required behaviour and acceptance
+
+Before spending inference time, prove the archived task's broken parent fails for the intended
+assertion and its fixed commit passes using one compatible dependency environment. Do not count
+loader/type-resolution failures as model outcomes. Preserve current checkout dependencies and
+remove only the worker-owned historical install after testing. Reconcile LT-1002 before accepting
+AIO-01 as a scoring task. No source or test fix is claimed here.
+
+### 27 October resumed run: exact setup wired; final clean execution pending
+
+The benchmark now installs each exported historical manifest/lockfile before coding (including
+normal native preparation), retains trusted pre-coder hashes and refuses changed/deleted
+manifests. Missing executables/tooling are infrastructure failures, not model scores. Both
+public verify-task and live scoreRun share this contract. Diagnostic controls passed, then
+native esbuild proved that ancestor checkout packages could still satisfy missing imports.
+Those scores and a rejected Node/fs-hook guard are explicitly retracted, with probe receipts.
+The simpler final location preflight rejects installed ancestor/global module paths, sanitizes
+NODE_PATH/PATH, and uses an owned offline npx cache. Actual clean controls/rescores remain open.
+The user's worktree-only-copy instruction conflicts with the necessary clean location; a
+narrow temporary-directory exception was requested and is unanswered. No outside-worktree
+source/dependency copy was made. See `benchmarks/plan-execute-ab/evidence/2026-10-27-resume/`
+under `scoring/` and `review-isolation/`. No model outcome accepted from this diagnostic work.
+
+<a id="lt-1001"></a>
+
+## LT-1001 — first startup of a fresh profile can race database migrations
+
+**Status: open; reproduced in the live dev app on 27 October 2026 at 12:56:01 UTC.**
+
+### Observed behaviour
+
+After successful main and renderer builds, a fresh profile at `/tmp/aio-lt-queue-7ca7a00e`
+logs `Failed to initialize: Work controls` and
+`Failed to apply migration "001_add_optimized_indices": UNIQUE constraint failed: _migrations.name`.
+The context worker had started first. The renderer did not become available on that attempt.
+A subsequent launch against the same disposable profile completes initialization and responds
+through real preload IPC. That restart is a campaign workaround, not a product fix.
+
+Durable evidence: `benchmarks/plan-execute-ab/evidence/2026-10-27/startup-migration-race.log`
+and `dev-ipc-focus.log`. The earlier Chromium `sandbox initialization failed: Operation not
+permitted` is a distinct host restriction; the successful test launch used `--no-sandbox`
+inside the unchanged outer execution restrictions.
+
+### Root cause
+
+The executing path starts `ContextWorkerClient` in its constructor
+(`src/main/instance/context-worker-client.ts:167`), passes the isolated profile path to the
+worker, and pre-initializes that worker's `RLMDatabase` at `context-worker-main.ts:157`.
+Main's Work controls initialization also opens that profile's RLM database through
+`global-pause-bootstrap.ts:22`. `runMigrations` in `persistence/rlm/rlm-schema.ts:279` computes
+its pending list before entering the transaction, then inserts each migration name without
+rechecking that list inside the transaction. This permits the observed duplicate-name race
+when another initializer applies the same pending migrations first. The precise interleaving
+was not instrumented; no broader claim about production frequency is made.
+
+### Required behaviour and acceptance
+
+Concurrent main/worker initialization of a new profile must apply each migration once, without
+aborting startup or weakening checksum validation. Add a deterministic concurrent-initializer
+regression and verify a genuinely fresh live profile reaches working IPC. A restart of an
+already initialized profile is insufficient acceptance. Implementation is pending.
+
+<a id="lt-1002"></a>
+
+## LT-1002 — the benchmark's AIO-01 negative control currently passes
+
+**Status: open; reproduced twice on 27 October 2026. No hidden test was edited.**
+
+### Observed behaviour
+
+With historical Vitest 3.2.7 available, the runner's real `verify-task` path exports AIO-01's
+parent `f04f674859b220b86eeb52662129072008573af9`, copies the fixed commit's held-back tests
+onto it, then also tests fixed commit `8b9721bf3c55e69259b6be4880b3acff91b68b16`.
+Both independent invocations report `failOnParent false (exit 0), passOnCommit true (exit 0)`.
+Both versions run all 40 tests successfully. This is a failed scoring preflight, not a model
+success and not a new defect in the model's patch.
+
+Evidence: `historical-task-preflight-compatible.log`, `historical-task-preflight-repeat.log`,
+and exact parent/fixed output plus `verification.json` under
+`benchmarks/plan-execute-ab/evidence/2026-10-27/scoring-negative-control/`.
+
+### Root cause / investigation limit
+
+The task bank's dated `verification` booleans are historical and `cmdRun` trusts them without
+rerunning a current control. The two exported versions differ by the intended
+`await this.startupTasks` in `HistoryManager.clearAll`; the added test waits only a bounded
+microtask drain before checking whether asynchronous backup I/O started. That scheduling
+assumption is a candidate explanation, not a proven diagnosis. No expectation was weakened,
+no replacement test selected, and no missing record synthesized.
+
+### Required behaviour and acceptance
+
+Establish a reliable held-back test that fails specifically for the missing startup wait and
+passes with it, under the exact scoring environment. Verify every affected archived patch on
+the same repaired scoring contract, preserving old evidence and labelling any revised scores.
+The matched comparison must be valid before pilot decisions, subscription advice or a full-run
+recommendation are accepted. Repair and rescore are technical agent work, not a request for new
+human authority; any new paid benchmark invocation remains within the separate spend boundary.
+
+### 27 October correction run: diagnostic control demonstrated, scoring still open
+
+The scheduling explanation is now confirmed on the archived runtime path: backup calls
+`fs.promises.readdir` before its first await; the original assertion checks `cp` after draining
+only promise callbacks, while directory I/O can still be pending. Under the compatible owned
+Vitest 3.2.7 environment the original parent varies between pass/failure observations; the
+fixed original passes. Preserved original results are not rewritten.
+
+The retained V2 held-back amendment adds a separate ordering test without changing any old
+assertion. It holds the real startup temp write, observes the actual startup wait versus early
+backup entry, then verifies a consistent backup and empty active history. It fails on the parent
+for the intended ordering assertion in two runs, passes on the fixed commit in both, and rejects
+a mutation that adds only a meaningless promise delay (all forty old assertions pass in that
+mutation run). The first exploratory amendment is explicitly superseded by V2.
+
+Evidence: `benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/REPORT.md`,
+`held-back-ordering-amendment-v2.patch`, `summary-v2.json`, exact command receipts and source seals.
+This is a diagnostic test-contract amendment, not adoption by the task bank or runner. No archived
+model patch was rescored; historical dependency/typecheck damage controls remain unresolved.
+Do not close A5–A8 on this evidence alone.
+
+### 27 October resumed run: V2 adopted, accepted candidate rescoring still open
+
+The separate deterministic V2 test is now a task-bank amendment and is applied consistently
+by live scoring and public verify-task. All forty old assertions remain untouched. Diagnostic
+parent/fixed/bogus-delay evidence remains retained, but native dependency isolation findings
+invalidate those environments as final scoring proof. Clean controls and all affected archived
+candidates must still be rescored under the final contract; no old model score was rewritten.
+Evidence: `benchmarks/plan-execute-ab/evidence/2026-10-27-resume/scoring/` and fresh reviews.
+
+<a id="lt-1003"></a>
+
+## LT-1003 — 35B tool smoke misses the specified second-turn cache acceptance
+
+**Status: open acceptance gap, one live smoke on 27 October 2026.**
+
+### Observed behaviour
+
+The 35B on native llama-server 2.60.0, context 65536, parallel 1, through the bundled translator
+completed Read → Edit → Bash/npm-test with zero tool errors. Independent file and test checks
+passed. Nevertheless, its first two assistant requests report zero cached-read tokens and
+16959 / 17083 fresh input tokens. Server prompt evaluation took 1509.08 / 1506.20 ms respectively;
+the second is not substantially faster. Requests three and four report 17243 / 17413 cache-read
+tokens, with only 108 / 29 fresh input tokens and 360.40 / 309.73 ms prompt evaluation.
+Thus caching exists, but A4's explicit second-turn improvement is not demonstrated.
+
+Evidence: `benchmarks/plan-execute-ab/evidence/2026-10-27/smoke-35b.json`,
+`smoke-message-usage.receipt.json`, `server-timings.receipt.txt`, and `proxy.log`.
+
+### Root cause / investigation limit
+
+The measured route is `runClaudeAgent` → local endpoint environment → bundled translator →
+native Windows 2.60.0 server. The translator lifted one system reminder on each request.
+The reason the second request did not reuse its predecessor's prefix has not been isolated.
+Do not turn that observation into a claim that the model cannot cache or that application
+caching is broken. No source/test/config change was made to hide the result.
+
+### Required behaviour and acceptance
+
+Repeat the agreed smoke with request/cache timing evidence. Establish why the second prefix
+is re-evaluated and either meet the current criterion or explicitly revise the benchmark
+protocol with consistent treatment of every local arm. Keep the successful tool-calling
+subcheck separate from the unmet second-turn cache subcheck. Technical investigation remains
+agent work; no human authority is needed to collect another bounded local sample.
+
+### 27 October correction run: reproduced again with request-shape evidence
+
+The same native 2.60.0 35B setup at 65536/parallel 1 completed Read/Edit/Bash and an independent
+test again (four turns, zero tool errors). First and second requests again report zero cached
+reads; third and fourth report 17146 and 17290. Hash-only observation of the normalized request
+shows the third system block changes from 9910 to 9610 serialized bytes between the first two
+requests, then stays identical; the first two system blocks and tool-schema hash stay unchanged.
+That is a concrete changing prefix to investigate, not a controlled proof of the server's cache
+invalidation cause. No second-turn prompt-time measurement was collected on this replay, and
+the zero-cache result alone leaves the existing acceptance unmet. No protocol was relaxed.
+
+Evidence: `benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/cache-retest.receipt.json`
+and the original local-only agent output. No model score or final pilot decision follows.
+
+### 27 October resumed run: second-turn cache behavior demonstrated
+
+The translator preserves lifted structured system content instead of serializing the whole
+block array into text. A real native35B Read/Edit/Bash smoke plus independent npm test pass,
+zero tool errors. Observed request one cache0/input16921, request two cache17106/input43,
+and later requests positive. Client request-to-upstream-message_start falls1252.409→88.576ms
+(14.139x); that includes network and first-token time, not pure server prompt_ms. The latter
+was not measured because native stop/relaunch-with-log was rejected by automatic approval.
+Behavioral cache gap is reproduced as fixed; independent final verification remains recorded
+separately. All ten new C1 cells require translator-v2 setup identity and a fresh session;
+do not merge earlier translator records into this comparison. Evidence:
+`benchmarks/plan-execute-ab/evidence/2026-10-27-resume/cache-observed/cache-retest.receipt.json`
+and `cache-latency-summary.receipt.json`. No model score or pure server-time claim follows.
+
+### 7 November 2026 re-confirmation with native server timing
+
+One smoke on the native 35B (2.60.0, 65536/parallel 1) through the frozen translator measured
+server-side prompt time for the first time. Request one evaluated 17,216 tokens in 1,808.51 ms.
+Request two evaluated 39 new tokens in 106.11 ms, reusing about 17,579 cached tokens (prefix
+similarity 0.998). The tool sequence was Read, Bash, Write, Bash, with the Write standing in for
+the specified Edit; the independent test passed. This supports the second-turn cache result with
+server timing; the Edit-tool deviation and the 35B-only scope keep the acceptance check open.
+Evidence: `benchmarks/plan-execute-ab/evidence/2026-11-07-livetest-resume/native-timing-lines.txt`.
+
+<a id="lt-1004"></a>
+
+## LT-1004 — later local pilot records and patches were not preserved in the portable mirror
+
+**Status: open, confirmed 27 October 2026 during verifier correction.**
+
+### Observed behaviour
+
+The root-checkout portable session's `runs.jsonl` contains 32 records: ten each for A, D and G,
+and two settled C1 records (12ST-01/02). Eight later settled C1 cells and all ten C2 cells are
+described in original 25 October command-output summaries and retained local CLI transcripts,
+but their full records and patch artifacts are missing from that mirror. The original queue
+worktree is absent. Checkpoint `9cc19c6d6` tracks the runner and selected evidence, not the
+ignored session. Searches of the experiment's recorded tool outputs and associated conversation
+ledger found no full later records or patch dumps. This is a bounded recovery result, not proof
+that no backup exists anywhere. Earlier C1 patch files belong to retained/quarantined attempts
+and must not be relabelled as later reruns.
+
+Evidence: `benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/raw-recovery.receipt.json`
+and `raw-recovery.md`; earlier `retained-evidence-manifest.json` and
+`recovered-scoring-receipts.json` remain unchanged under `evidence/2026-10-27/`.
+
+### Root cause / investigation limit
+
+The benchmark stores run JSONL and patches under ignored scratch directories. Its documented
+root mirror is incomplete for these later cells, and those ignored artifacts are not present in
+the checkpoint. The precise deletion or failed-copy event is unconfirmed. A printed score does
+not recover the patch, scoring output, speed probe, configuration or complete run metadata.
+
+### Required behaviour and acceptance
+
+Recover original complete records and matching patch bytes with provenance, or rerun affected
+cells under the same frozen protocol once scoring controls work. Never synthesize patch contents
+or run records from printed aggregates. Preserve records, patches and configuration together in
+a durable, hash-checked evidence bundle before deleting disposable runtime or allowing a queue
+checkout to be replaced. Demonstrate that a copied/moved bundle still supports rescoring and
+report generation after the original scratch runtime is removed. Reconcile all affected cells
+and scoring controls before using the pilot for a subscription or full-run recommendation.
+
+### 27 October resumed recovery: thirty baseline candidates reconstructed
+
+All thirty A/D/G candidate patches were deterministically rebuilt from exact chronological
+original edit actions against recorded parents. Each complete diff after the exact historical
+judge transform matches a complete original judge input including Git hashes/hunks. These are
+transcript reconstructions, not recovered original runner patch bytes. Independent parent
+hash/parse receipt confirms all thirty. Two final C2 tracked-diff snapshots are diagnostic
+only; runner staged capture may have included more. Eight later C1 and ten C2 full records
+remain missing. Bounded Git/CLI/ledger/local Time Machine searches do not exclude every backup.
+No new runner records were synthesized and the historical portable mirror/quarantines stay
+unchanged. Full local reruns and accepted clean rescoring remain open. See
+`benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/REPORT.md` and manifests.
+
+
+<a id="lt-1005"></a>
+
+## LT-1005 — the benchmark translator cannot reach an IPv6 native server
+
+**Status: open, reproduced 7 November 2026. Workaround in use; translator unchanged.**
+
+### Observed behaviour
+
+With the native 2.60.0 server bound to a Tailscale IPv6 address, `local-anthropic-proxy.ts`
+pointed at `http://[fd7a:115c:a1e0::434:5d68]:1235` answered every request with HTTP 502 and
+logged `upstream error: getaddrinfo ENOTFOUND [fd7a:115c:a1e0::434:5d68]`. The same server
+answered 401/401/200 when reached directly, so the failure is in the translator's upstream
+connection, not in the server. Evidence: `benchmarks/plan-execute-ab/evidence/2026-11-07-livetest-resume/translator-8900.log`.
+
+### Root cause
+
+`benchmarks/plan-execute-ab/local-anthropic-proxy.ts` builds the upstream request with
+`hostname: up.hostname` (about line 157). For an IPv6 literal, Node's `URL.hostname` keeps the
+square brackets, and `http.request` then tries to resolve `[fd7a:…]` as a DNS name.
+
+### Required behaviour and acceptance
+
+The upstream connection should accept a bracketed IPv6 literal (strip the brackets before
+`http.request`, or pass the unbracketed address). Acceptance: a unit test that starts the
+translator against an IPv6 loopback upstream and gets the upstream response; and the same
+smoke as the 7 November run passing through the translator with no separate forwarder. The
+change alters the frozen translator's behaviour, so the owning plan must decide whether it
+counts as a new translator identity before any scored cell uses it. Until then, IPv4 upstreams
+and the byte forwarder in that evidence folder are the only tested routes.

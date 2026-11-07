@@ -52,6 +52,7 @@ async function publicLoopIteration(adapter: ClaudeCliAdapter, regular = false) {
 it.each([
   { mode: 'partial-paused', cost: 0.25 },
   { mode: 'partial-unpaused', cost: 0.25 },
+  { mode: 'partial-delayed-startup', cost: 0.25 },
   { mode: 'regular-paused', cost: 0.25 },
   { mode: 'partial-zero', cost: 0 },
   { mode: 'partial-no-native-cost', cost: undefined },
@@ -94,13 +95,15 @@ it.each([
     // The final result and the FINAL_WRITTEN marker are written with
     // synchronous writes in one turn: SIGKILL can only land before or after
     // both, never between the result and its completion marker.
-    child = spawn(process.execPath, ['-e', `process.stdin.once('data',()=>{process.stdout.write(${JSON.stringify(JSON.stringify(paid) + '\n')},()=>setTimeout(()=>{require('fs').writeSync(1,${JSON.stringify(JSON.stringify(result) + (mode === 'partial-no-final-lf' ? '' : '\n'))});require('fs').writeSync(2,'FINAL_WRITTEN');},25));});setInterval(()=>{},1000);`], { stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+    child = spawn(process.execPath, ['-e', `setTimeout(()=>{process.stdin.once('data',()=>{process.stdout.write(${JSON.stringify(JSON.stringify(paid) + '\n')},()=>setTimeout(()=>{require('fs').writeSync(1,${JSON.stringify(JSON.stringify(result) + (mode === 'partial-no-final-lf' ? '' : '\n'))});require('fs').writeSync(2,'FINAL_WRITTEN');},25));});},${mode === 'partial-delayed-startup' ? 500 : 0});setInterval(()=>{},1000);`], { stdio: ['pipe', 'pipe', 'pipe'], detached: true });
     closed = once(child, 'close');
     child.once('close', () => { closeSeen = true; });
     child.once('exit', () => child.stdout.resume());
     child.stdout.on('data', chunk => { drainedRaw += chunk.toString(); });
+    let stderr = '';
     child.stderr.on('data', chunk => {
-      if (chunk.toString().includes('FINAL_WRITTEN')) {
+      stderr += chunk.toString();
+      if (stderr.includes('FINAL_WRITTEN')) {
         finalWritten = true;
         acknowledgeFinal();
       }

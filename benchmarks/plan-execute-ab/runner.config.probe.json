@@ -1,0 +1,22 @@
+{
+  "repoPaths": {
+    "ai-orchestrator": "/Users/suas/work/orchestrat0r/ai-orchestrator",
+    "12steps": "/Users/suas/work/12steps"
+  },
+  "resultsRoot": "_scratch/plan-execute-ab",
+  "workRoot": "_scratch/plan-execute-ab/workspaces",
+  "bankPath": "benchmarks/plan-execute-ab/tasks/task-bank.json",
+  "wallClockMinutes": 60,
+  "turnCap": 75,
+  "fLocalModelKey": "qwen3.8-27b",
+  "localArms": [
+    {
+      "modelKey": "qwen3.8-27b",
+      "servedModelName": "qwen3.8-27b",
+      "baseUrl": "http://127.0.0.1:8900",
+      "apiKeyEnv": "PLAN_EX_AB_LOCAL_KEY",
+      "configDir": "/Users/suas/.claude-plan-ex-ab/local-27b",
+      "apiStyle": "anthropic"
+    }
+  ]
+}

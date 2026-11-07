@@ -1,0 +1,241 @@
+{
+  "parentCommit": "f04f674859b220b86eeb52662129072008573af9",
+  "provenance": "Parent selected from AIO-01 task-bank entry and runner exportWorkspace(task.parentSha); source tool rows retained by hash and complete edit payload.",
+  "results": [
+    {
+      "arm": "A",
+      "classification": "Deterministic replay of captured source edits against known parent; regenerated diff, not recovered original runner patch.",
+      "source": "/Users/suas/.claude/projects/-private-tmp-plan-execute-ab-AIO-01-A-1/f8d40317-469c-46e3-a31c-da425dd05f8c.jsonl",
+      "sourceSha256": "bdb699b65c02bfb58aa7d05bf22ba0b4fea816c9607e334475f8a97a97c8526c",
+      "parentCommit": "f04f674859b220b86eeb52662129072008573af9",
+      "actions": [
+        {
+          "sourceRow": 85,
+          "sourceRowUtf8Sha256": "7725a774a2125d7efd8de27a4c4da28464e09737ec60bd4419046c1a4c36f3c3",
+          "toolId": "toolu_014qP5xogM9NrYpqnDqZTA3b",
+          "kind": "Edit",
+          "input": {
+            "replace_all": false,
+            "file_path": "/private/tmp/plan-execute-ab/AIO-01-A-1/src/main/history/history-manager.ts",
+            "old_string": "  /**\n   * Clear all history\n   */\n  async clearAll(): Promise<void> {\n    await this.createSafetyBackup('clearAll');",
+            "new_string": "  /**\n   * Clear all history.\n   *\n   * Waits for `startupTasks` first: the startup backfill, orphan recovery and\n   * native import all write conversation files and the index, so clearing\n   * mid-flight would snapshot a half-written state and unlink files those\n   * writers are still updating. Unlike archiveInstance, clearAll is a user\n   * action off the quit path, so the unbounded wait is acceptable.\n   */\n  async clearAll(): Promise<void> {\n    await this.startupTasks;\n    await this.createSafetyBackup('clearAll');"
+          }
+        },
+        {
+          "sourceRow": 87,
+          "sourceRowUtf8Sha256": "1bb461ab143262846ff0093b011187d3312aaf14a01112de3d40b8ea164b9dbf",
+          "toolId": "toolu_019LK1cZx2HeF5a6hZK2TP1E",
+          "kind": "Edit",
+          "input": {
+            "replace_all": false,
+            "file_path": "/private/tmp/plan-execute-ab/AIO-01-A-1/src/main/history/history-manager.spec.ts",
+            "old_string": "  it('creates a safety backup before clearing conversation history', async () => {",
+            "new_string": "  it('waits for startup writers to settle before snapshotting and clearing history', async () => {\n    const { HistoryManager } = await import('./history-manager');\n    const manager = track(new HistoryManager());\n    await manager.startupTasks;\n    const startup = deferred();\n    Object.defineProperty(manager, 'startupTasks', { value: startup.promise });\n    const backupSpy = vi.spyOn(\n      manager as unknown as { createSafetyBackup: (reason: 'clearAll') => Promise<string | null> },\n      'createSafetyBackup',\n    );\n\n    let settled = false;\n    const pendingClear = manager.clearAll().then(() => { settled = true; });\n    await drainMicrotasks();\n    expect(backupSpy).not.toHaveBeenCalled();\n    expect(settled).toBe(false);\n\n    startup.resolve();\n    await pendingClear;\n    expect(backupSpy).toHaveBeenCalledWith('clearAll');\n    expect(settled).toBe(true);\n  });\n\n  it('creates a safety backup before clearing conversation history', async () => {"
+          }
+        },
+        {
+          "sourceRow": 132,
+          "sourceRowUtf8Sha256": "6bdc99c293f1433b990f8c2fe102aca808dfaeb0dc9bba108b41ece5957aad04",
+          "toolId": "toolu_01Uh9KnUX4GgPVs63sAtC16n",
+          "kind": "Edit",
+          "input": {
+            "replace_all": false,
+            "file_path": "/private/tmp/plan-execute-ab/AIO-01-A-1/src/main/history/history-manager.ts",
+            "old_string": "  /**\n   * Clear all history.\n   *\n   * Waits for `startupTasks` first: the startup backfill, orphan recovery and\n   * native import all write conversation files and the index, so clearing\n   * mid-flight would snapshot a half-written state and unlink files those\n   * writers are still updating. Unlike archiveInstance, clearAll is a user\n   * action off the quit path, so the unbounded wait is acceptable.\n   */\n  async clearAll(): Promise<void> {\n    await this.startupTasks;\n    await this.createSafetyBackup('clearAll');",
+            "new_string": "  /**\n   * Clear all history. Waits for the startup writers first so the backup never snapshots, nor the unlinks race, a half-written state (off the quit path, so the wait is safe).\n   */\n  async clearAll(): Promise<void> {\n    await this.startupTasks; await this.createSafetyBackup('clearAll');"
+          }
+        },
+        {
+          "sourceRow": 185,
+          "sourceRowUtf8Sha256": "cd3b8eb24eaba0a8166421ba5d2e2f03c46d1f2b0c9ec0e2c9c52124f1b88e05",
+          "toolId": "toolu_01EWkQAzD7ZUNHFmR9QE6wCQ",
+          "kind": "Edit",
+          "input": {
+            "replace_all": false,
+            "file_path": "/private/tmp/plan-execute-ab/AIO-01-A-1/src/main/history/history-manager.ts",
+            "old_string": "   * Clear all history. Waits for the startup writers first so the backup never snapshots, nor the unlinks race, a half-written state (off the quit path, so the wait is safe).",
+            "new_string": "   * Clear all history. Waits for `startupTasks` so the backup and unlinks never race the startup writers (safe: clearAll is off the quit path)."
+          }
+        }
+      ],
+      "candidateFiles": [
+        {
+          "sourcePath": "src/main/history/history-manager.spec.ts",
+          "sha256": "b09fc155e33b5d4b094ec64b9ba87158c5761a30a794a1ce5e8bed2412603668",
+          "bytes": 79662,
+          "newFile": false
+        },
+        {
+          "sourcePath": "src/main/history/history-manager.ts",
+          "sha256": "b4eccb279e61b87175d9302df74e78d95bd646ceb8c0e817961d5cdca133c5cb",
+          "bytes": 65331,
+          "newFile": false
+        }
+      ],
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/AIO-01-A-transcript-reconstructed.patch",
+      "patchSha256": "f0e925aedad6cc5737bf466ca7cfe156a150e8e7e2e921d41f93e5f36f122ba8",
+      "patchBytes": 2092,
+      "gitApplyNumstat": {
+        "exitCode": 0,
+        "stdout": "23\t0\tsrc/main/history/history-manager.spec.ts\n2\t2\tsrc/main/history/history-manager.ts\n",
+        "stderr": ""
+      },
+      "blankLineStrippedDiffExactlyMatchesOriginalJudgeEmbedding": true,
+      "normalizedDiffSha256": "06396546f2b857b6a120ef01f1f027cfd1c7e137ffe201ccd8e82f14c35dd602",
+      "originalJudgeEmbeddingSha256": "06396546f2b857b6a120ef01f1f027cfd1c7e137ffe201ccd8e82f14c35dd602",
+      "limitations": [
+        "No historical shell commands executed. Temporary stash/check/pop cycles are omitted as net no-ops; final judge-input equality checks the resulting full diff.",
+        "No original runner patch hash survives for direct byte comparison. Reconstructed source and regenerated patch are not labelled original."
+      ]
+    },
+    {
+      "arm": "D",
+      "classification": "Deterministic replay of captured source edits against known parent; regenerated diff, not recovered original runner patch.",
+      "source": "/Users/suas/.claude/projects/-private-tmp-plan-execute-ab-AIO-01-D-1/ae7f6bab-a813-46aa-a54e-1d472eb7542a.jsonl",
+      "sourceSha256": "d57d84744485eca0d2105e0ddc776325e38316d49ec56a458326708639da266b",
+      "parentCommit": "f04f674859b220b86eeb52662129072008573af9",
+      "actions": [
+        {
+          "sourceRow": 36,
+          "sourceRowUtf8Sha256": "db9e1f9af58fee07f2b2dd6b924d47b6152a15cb57a17701a811dc592c023514",
+          "toolId": "toolu_01C4yRohgUhFFhvS8m1WNFxA",
+          "kind": "restricted-python-text-edits",
+          "directory": "src/main/history",
+          "script": "p='history-archive-serialization.ts'\ns=open(p).read()\ns=s.rstrip()[:-1].rstrip()+'''\n\n  /** Resolves once every turn queued at call time has finished. Later turns are not awaited. */\n  async whenIdle(): Promise<void> {\n    await Promise.all([...this.tails.values()]);\n  }\n}\n'''\nopen(p,'w').write(s)\np='history-manager.ts'\ns=open(p).read()\ns=s.replace('''   * scan would trade this race for silently dropping a user's conversation.\n''','''   * scan would trade this race for silently dropping a user's conversation.\n   * clearAll is a user action off the quit path, so it does wait for\n   * `startupTasks` and this queue before it takes its backup.\n''',1)\ns=s.replace('''  async clearAll(): Promise<void> {\n''','''  async clearAll(): Promise<void> {\n    // Startup backfill, orphan recovery and the native import all write here, and\n    // nothing awaits them before this IPC handler is reachable. Snapshotting or\n    // unlinking mid-run would back up a half-written state and race their\n    // rename/index push. This is a user action, not on the quit path, so the\n    // unbounded import is an acceptable wait (unlike archiveInstance).\n    await this.startupTasks;\n    await this.conversationWrites.whenIdle();\n''',1)\nopen(p,'w').write(s)"
+        },
+        {
+          "sourceRow": 47,
+          "sourceRowUtf8Sha256": "282eb82ef4a87d4ca9ae8f6187ade8729315a4c3c9c28e7232d6b875cefe5d2f",
+          "toolId": "toolu_01QVDqcFuJWFYeeZuNANxW4B",
+          "kind": "restricted-python-text-edits",
+          "directory": "src/main/history",
+          "script": "p='history-manager.spec.ts'\ns=open(p).read()\nmarker=\"  it('LT-196: folds tool-outcome records\"\nnew='''  describe('clearAll waits for startup writers', () => {\n    function seedEntry(): { storageDir: string; entryId: string; conversationPath: string } {\n      const storageDir = path.join(userDataDir, 'conversation-history');\n      fs.mkdirSync(storageDir, { recursive: true });\n      const entry = {\n        id: 'entry-race',\n        displayName: 'Example',\n        createdAt: 1,\n        endedAt: 2,\n        workingDirectory: '/tmp/example',\n        messageCount: 1,\n        firstUserMessage: 'hello',\n        lastUserMessage: 'hello',\n        status: 'completed' as const,\n        originalInstanceId: 'instance-race',\n        sessionId: 'session-race',\n      };\n      fs.writeFileSync(\n        path.join(storageDir, 'index.json'),\n        JSON.stringify({ version: 1, lastUpdated: Date.now(), entries: [entry] }),\n      );\n      const conversationPath = path.join(storageDir, `${entry.id}.json.gz`);\n      fs.writeFileSync(\n        conversationPath,\n        zlib.gzipSync(\n          JSON.stringify({\n            entry,\n            messages: [{ id: 'message-1', timestamp: 1, type: 'user', content: 'hello' }],\n          }),\n        ),\n      );\n      return { storageDir, entryId: entry.id, conversationPath };\n    }\n\n    function backupDirs(): string[] {\n      return fs.readdirSync(userDataDir).filter((name) => name.startsWith('conversation-history.bak-'));\n    }\n\n    it('takes no backup and deletes nothing until startupTasks settles', async () => {\n      const { storageDir, conversationPath } = seedEntry();\n      const { HistoryManager } = await import('./history-manager');\n      const manager = track(new HistoryManager());\n      await manager.startupTasks;\n\n      const held = deferred();\n      Object.defineProperty(manager, 'startupTasks', { value: held.promise });\n\n      const clearing = manager.clearAll();\n      await drainMicrotasks();\n      expect(backupDirs()).toHaveLength(0);\n      expect(fs.existsSync(conversationPath)).toBe(true);\n\n      held.resolve();\n      await clearing;\n\n      expect(backupDirs()).toHaveLength(1);\n      expect(fs.existsSync(path.join(userDataDir, backupDirs()[0], 'entry-race.json.gz'))).toBe(true);\n      const activeIndex = JSON.parse(\n        fs.readFileSync(path.join(storageDir, 'index.json'), 'utf-8'),\n      ) as { entries: unknown[] };\n      expect(activeIndex.entries).toEqual([]);\n      expect(fs.existsSync(conversationPath)).toBe(false);\n    });\n\n    it('backs up the fully backfilled file when clearing races the startup backfill', async () => {\n      const { storageDir, conversationPath } = seedEntry();\n      const gate = deferred();\n      const realWriteFile = fs.promises.writeFile.bind(fs.promises);\n      const writeSpy = vi\n        .spyOn(fs.promises, 'writeFile')\n        .mockImplementation(async (file, data, options) => {\n          if (String(file).startsWith(conversationPath)) {\n            await gate.promise;\n          }\n          return realWriteFile(file, data as never, options as never);\n        });\n      const cpSpy = vi.spyOn(fs.promises, 'cp');\n\n      try {\n        const { HistoryManager } = await import('./history-manager');\n        const manager = track(new HistoryManager());\n\n        const clearing = manager.clearAll();\n        await drainMicrotasks();\n        expect(cpSpy).not.toHaveBeenCalled();\n\n        gate.resolve();\n        await clearing;\n\n        const backupFile = path.join(userDataDir, backupDirs()[0], 'entry-race.json.gz');\n        const backedUp = JSON.parse(zlib.gunzipSync(fs.readFileSync(backupFile)).toString()) as {\n          entry: { historyThreadId?: string };\n        };\n        expect(backedUp.entry.historyThreadId).toBeTruthy();\n\n        const leftovers = fs\n          .readdirSync(storageDir)\n          .filter((name) => name.endsWith('.json.gz') || name.endsWith('.tmp'));\n        expect(leftovers).toEqual([]);\n        const activeIndex = JSON.parse(\n          fs.readFileSync(path.join(storageDir, 'index.json'), 'utf-8'),\n        ) as { entries: unknown[] };\n        expect(activeIndex.entries).toEqual([]);\n      } finally {\n        writeSpy.mockRestore();\n        cpSpy.mockRestore();\n      }\n    });\n  });\n\n'''\ns=s.replace(marker,new+marker,1)\nopen(p,'w').write(s)\np='history-archive-serialization.spec.ts'\ns=open(p).read()\ns=s.replace(\"import { getArchiveSerializationKey }\",\"import { KeyedSerialTaskQueue, getArchiveSerializationKey }\")\ns+='''\ndescribe('KeyedSerialTaskQueue.whenIdle', () => {\n  it('stays pending until queued tasks finish, including failed ones', async () => {\n    const queue = new KeyedSerialTaskQueue();\n    let release!: () => void;\n    const gate = new Promise<void>((resolve) => {\n      release = resolve;\n    });\n    const failing = queue.run('key', async () => {\n      await gate;\n      throw new Error('boom');\n    });\n    const failed = expect(failing).rejects.toThrow('boom');\n\n    let idle = false;\n    const idlePromise = queue.whenIdle().then(() => {\n      idle = true;\n    });\n    await Promise.resolve();\n    await Promise.resolve();\n    expect(idle).toBe(false);\n\n    release();\n    await failed;\n    await idlePromise;\n    expect(idle).toBe(true);\n  });\n\n  it('resolves immediately when nothing is queued', async () => {\n    await expect(new KeyedSerialTaskQueue().whenIdle()).resolves.toBeUndefined();\n  });\n});\n'''\nopen(p,'w').write(s)"
+        },
+        {
+          "sourceRow": 73,
+          "sourceRowUtf8Sha256": "dcf00e25df3dc5b21c44badcb0d4ee4612bb15f0111f067d3a4e79bb7335054b",
+          "toolId": "toolu_015dRwgBntuuvq8SWmKQV6nn",
+          "kind": "restricted-python-text-edits",
+          "directory": "",
+          "script": "p='src/main/history/history-manager.ts'\ns=open(p).read()\na=s.index(\"    // Startup backfill, orphan\")\nb=s.index(\"    await this.startupTasks;\\n    await this.conversationWrites\")\ns=s[:a]+\"    // Settle startup writers first so the backup is not half-written (user action, not the quit path).\\n\"+s[b:]\ns=s.replace('''   * clearAll is a user action off the quit path, so it does wait for\n   * `startupTasks` and this queue before it takes its backup.\n''','')\ns=s.replace('''   * Keyed by entry id and held for exactly one file rewrite. Waiting on the whole\n   * `startupTasks` chain instead would be wrong: archiveInstance runs on the quit\n   * path under the 8s `terminate-instances` budget, which does not cancel its\n   * handler, so blocking it behind the unbounded `importNativeClaudeTranscripts`\n   * scan would trade this race for silently dropping a user's conversation.''','''   * Keyed by entry id, held for one file rewrite. archiveInstance must not wait on\n   * `startupTasks`: it runs on the quit path under the 8s `terminate-instances`\n   * budget, so the unbounded native import would silently drop a conversation.\n   * clearAll (a user action) does wait for `startupTasks` and this queue.''')\nopen(p,'w').write(s)"
+        },
+        {
+          "sourceRow": 86,
+          "sourceRowUtf8Sha256": "810c30231fcacb8aa32b60ac84855db6a726bad00f6f968366292e62bf022e2f",
+          "toolId": "toolu_01HgCZqGHdiQF8b18zujRDG2",
+          "kind": "restricted-python-text-edits",
+          "directory": "",
+          "script": "p='src/main/history/history-manager.ts'\ns=open(p).read()\ns=s.replace(\"    // Settle startup writers first so the backup is not half-written (user action, not the quit path).\\n\",\"\")\ns=s.replace(\"   * budget, so the unbounded native import would silently drop a conversation.\\n   * clearAll (a user action) does wait for `startupTasks` and this queue.\",\"   * budget, so the unbounded native import would drop a conversation. clearAll (a\\n   * user action, so it can wait) awaits `startupTasks` and this queue before its backup.\")\nopen(p,'w').write(s)"
+        },
+        {
+          "sourceRow": 94,
+          "sourceRowUtf8Sha256": "eb78b8f472ac361f61c57b3dde397206a3125311826d74c5a23612c4bfc40a1f",
+          "toolId": "toolu_012aTqPJLm71rnWV9P4GgzLU",
+          "kind": "restricted-python-text-edits",
+          "directory": "",
+          "script": "p='src/main/history/history-manager.ts'\ns=open(p).read()\ns=s.replace(\"   * budget, so the unbounded native import would drop a conversation. clearAll (a\\n   * user action, so it can wait) awaits `startupTasks` and this queue before its backup.\",\"   * budget. clearAll is a user action, so it awaits `startupTasks` and this queue.\")\nopen(p,'w').write(s)"
+        }
+      ],
+      "candidateFiles": [
+        {
+          "sourcePath": "src/main/history/history-archive-serialization.spec.ts",
+          "sha256": "c9003dc0707a1fd75faa8dc91038819ac281be4b62e9204830db944f6cba9c2e",
+          "bytes": 3248,
+          "newFile": false
+        },
+        {
+          "sourcePath": "src/main/history/history-archive-serialization.ts",
+          "sha256": "04c879bd75c9b8606b63bf27ecb705cf33da2c37ed5616b2d4a7cad3071df569",
+          "bytes": 1687,
+          "newFile": false
+        },
+        {
+          "sourcePath": "src/main/history/history-manager.spec.ts",
+          "sha256": "ea9c512ca8611591c196ac1bbe45307426e4efd08f619ca097ee8b7502083da9",
+          "bytes": 82917,
+          "newFile": false
+        },
+        {
+          "sourcePath": "src/main/history/history-manager.ts",
+          "sha256": "6de34a22f723779131a30050c2b328761349dd9e22c082b18f0bd27ecc20b5a0",
+          "bytes": 65104,
+          "newFile": false
+        }
+      ],
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/AIO-01-D-transcript-reconstructed.patch",
+      "patchSha256": "02199268012d48ba0c2f66d5dfb484194038f805ed0dcf3ecd8c0de545590e8f",
+      "patchBytes": 8511,
+      "gitApplyNumstat": {
+        "exitCode": 0,
+        "stdout": "33\t1\tsrc/main/history/history-archive-serialization.spec.ts\n5\t0\tsrc/main/history/history-archive-serialization.ts\n110\t0\tsrc/main/history/history-manager.spec.ts\n5\t5\tsrc/main/history/history-manager.ts\n",
+        "stderr": ""
+      },
+      "blankLineStrippedDiffExactlyMatchesOriginalJudgeEmbedding": true,
+      "normalizedDiffSha256": "df629c61879c672fa36e171d3558e2d30052f2843677aa38d1c48968a8dad815",
+      "originalJudgeEmbeddingSha256": "df629c61879c672fa36e171d3558e2d30052f2843677aa38d1c48968a8dad815",
+      "limitations": [
+        "No historical shell commands executed. Temporary stash/check/pop cycles are omitted as net no-ops; final judge-input equality checks the resulting full diff.",
+        "No original runner patch hash survives for direct byte comparison. Reconstructed source and regenerated patch are not labelled original."
+      ]
+    },
+    {
+      "arm": "G",
+      "classification": "Deterministic replay of captured source edits against known parent; regenerated diff, not recovered original runner patch.",
+      "source": "/Users/suas/.codex/sessions/2026/10/15/rollout-2026-10-15T21-42-14-01a1414d-1953-7791-bf23-04cc0f78ea77.jsonl.zst",
+      "sourceSha256": "ef563692ba3553b9f717787db63ee93426f5f2d1c3bd4acf3f221f80471e8ee5",
+      "parentCommit": "f04f674859b220b86eeb52662129072008573af9",
+      "actions": [
+        {
+          "sourceRow": 80,
+          "sourceRowUtf8Sha256": "6dced8ffb9315071a0b146a0c519274689bc29c894b7582e151d109a93d6fe94",
+          "toolId": "call_4fb9539079374a85874289018b354f66",
+          "kind": "apply_patch",
+          "patch": "*** Begin Patch\n*** Add File: /tmp/plan-execute-ab/AIO-01-G-1/src/main/history/history-manager-clear-all.spec.ts\n+import * as fs from 'fs';\n+import * as path from 'path';\n+import * as zlib from 'zlib';\n+import { describe, expect, it, vi } from 'vitest';\n+import type { ConversationData, HistoryIndex } from '../../shared/types/history.types';\n+\n+vi.mock('../logging/logger', () => ({\n+  getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),\n+}));\n+\n+describe('HistoryManager clearAll startup ordering', () => {\n+  it.each(['indexed', 'orphaned'])('waits for an %s startup writer before backing up and deleting', async (source) => {\n+    const scratchDir = path.resolve('_scratch');\n+    fs.mkdirSync(scratchDir, { recursive: true });\n+    const userDataDir = fs.mkdtempSync(path.join(scratchDir, 'history-clear-all-'));\n+    const storageDir = path.join(userDataDir, 'conversation-history');\n+    fs.mkdirSync(storageDir);\n+    const conversation: ConversationData = {\n+      entry: {\n+        id: 'entry-placeholder',\n+        displayName: 'Legacy conversation',\n+        createdAt: 1,\n+        endedAt: 2,\n+        workingDirectory: process.cwd(),\n+        messageCount: 1,\n+        firstUserMessage: 'hello',\n+        lastUserMessage: 'hello',\n+        status: 'completed',\n+        originalInstanceId: 'instance-placeholder',\n+        parentId: null,\n+        sessionId: 'session-placeholder',\n+      },\n+      messages: [{ id: 'message-placeholder', type: 'user', timestamp: 1, content: 'hello' }],\n+    };\n+    const conversationPath = path.join(storageDir, `${conversation.entry.id}.json.gz`);\n+    fs.writeFileSync(conversationPath, zlib.gzipSync(JSON.stringify(conversation)));\n+    fs.writeFileSync(path.join(storageDir, 'index.json'), JSON.stringify({\n+      version: 1,\n+      lastUpdated: 2,\n+      entries: source === 'indexed' ? [conversation.entry] : [],\n+    } satisfies HistoryIndex));\n+\n+    vi.resetModules();\n+    vi.doMock('electron', () => ({ app: { getPath: () => userDataDir } }));\n+    const { HistoryManager } = await import('./history-manager');\n+    let releaseWriter!: () => void;\n+    const writerBlocked = new Promise<void>((resolve) => { releaseWriter = resolve; });\n+    let signalWriterStarted!: () => void;\n+    const writerStarted = new Promise<void>((resolve) => { signalWriterStarted = resolve; });\n+    const realRename = fs.promises.rename.bind(fs.promises);\n+    const renameSpy = vi.spyOn(fs.promises, 'rename').mockImplementation(async (from, to) => {\n+      if (String(to) === conversationPath) {\n+        signalWriterStarted();\n+        await writerBlocked;\n+      }\n+      return realRename(from, to);\n+    });\n+    const manager = new HistoryManager();\n+    let clearing: Promise<void> | undefined;\n+    try {\n+      await writerStarted;\n+      const readdirSpy = vi.spyOn(fs.promises, 'readdir');\n+      const backupSpy = vi.spyOn(fs.promises, 'cp');\n+      const unlinkSpy = vi.spyOn(fs.promises, 'unlink');\n+      clearing = manager.clearAll();\n+      await Promise.resolve();\n+\n+      // Even the backup's initial directory scan must wait for startup.\n+      expect(readdirSpy).not.toHaveBeenCalled();\n+      expect(backupSpy).not.toHaveBeenCalled();\n+      expect(unlinkSpy).not.toHaveBeenCalled();\n+      expect(fs.existsSync(conversationPath)).toBe(true);\n+\n+      releaseWriter();\n+      await clearing;\n+      expect(backupSpy).toHaveBeenCalledOnce();\n+      const backups = fs.readdirSync(userDataDir).filter((name) => name.startsWith('conversation-history.bak-'));\n+      expect(backups).toHaveLength(1);\n+      const backupDir = path.join(userDataDir, backups[0]);\n+      const backupIndex = JSON.parse(fs.readFileSync(path.join(backupDir, 'index.json'), 'utf8')) as HistoryIndex;\n+      const backupConversation = JSON.parse(zlib.gunzipSync(\n+        fs.readFileSync(path.join(backupDir, `${conversation.entry.id}.json.gz`))\n+      ).toString()) as ConversationData;\n+      expect(backupIndex.entries).toHaveLength(1);\n+      expect(backupIndex.entries[0].historyThreadId).toEqual(expect.any(String));\n+      expect(backupConversation.entry.historyThreadId).toBe(backupIndex.entries[0].historyThreadId);\n+      expect(backupConversation.messages).toEqual(conversation.messages);\n+      expect(fs.readdirSync(backupDir).filter((name) => name.endsWith('.tmp'))).toEqual([]);\n+      expect(manager.getEntries()).toEqual([]);\n+      const activeIndex = JSON.parse(fs.readFileSync(path.join(storageDir, 'index.json'), 'utf8')) as HistoryIndex;\n+      expect(activeIndex.entries).toEqual([]);\n+      expect(fs.existsSync(conversationPath)).toBe(false);\n+    } finally {\n+      releaseWriter();\n+      await Promise.allSettled([manager.startupTasks, clearing]);\n+      renameSpy.mockRestore();\n+      vi.restoreAllMocks();\n+      vi.doUnmock('electron');\n+      vi.resetModules();\n+      fs.rmSync(userDataDir, { recursive: true, force: true });\n+    }\n+  });\n+});\n*** End Patch"
+        },
+        {
+          "sourceRow": 99,
+          "sourceRowUtf8Sha256": "04b6beb6af467b58da91eaaf2f4509fda369072b6dfbfe5c92a81227ca0cf237",
+          "toolId": "call_d158e4c61b6d42e48ca31c2b37bbd036",
+          "kind": "apply_patch",
+          "patch": "*** Begin Patch\n*** Update File: /tmp/plan-execute-ab/AIO-01-G-1/src/main/history/history-manager.ts\n@@\n   async clearAll(): Promise<void> {\n+    // Let startup writers settle before snapshotting or deleting their files.\n+    await this.startupTasks;\n     await this.createSafetyBackup('clearAll');\n*** End Patch"
+        },
+        {
+          "sourceRow": 117,
+          "sourceRowUtf8Sha256": "659645a24d4e0b37363b3424b1d13cd213b5dfc616b9ea81aed2149acb02233e",
+          "toolId": "call_ff878aed6fcd465187d03497e9f0844e",
+          "kind": "apply_patch",
+          "patch": "*** Begin Patch\n*** Update File: /tmp/plan-execute-ab/AIO-01-G-1/src/main/history/history-manager.ts\n@@\n-   * Clear all history\n+   * Clear all history after startup writers settle.\n@@\n-    // Let startup writers settle before snapshotting or deleting their files.\n     await this.startupTasks;\n     await this.createSafetyBackup('clearAll');\n-\n*** End Patch"
+        }
+      ],
+      "candidateFiles": [
+        {
+          "sourcePath": "src/main/history/history-manager-clear-all.spec.ts",
+          "sha256": "d19c6a0c41795a5741f085c4f1d9bb74d5f9ea7567e5510a2c1db7992a8cc3ef",
+          "bytes": 4734,
+          "newFile": true
+        },
+        {
+          "sourcePath": "src/main/history/history-manager.ts",
+          "sha256": "bcf4e4f6d1a2c52f298f510dad06cb6212e1e0e01f6b1a8f3423280bdc14a408",
+          "bytes": 65242,
+          "newFile": false
+        }
+      ],
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/AIO-01-G-transcript-reconstructed.patch",
+      "patchSha256": "a08c4d58b195cffb00592de7480473911b303d8b6f2e5bac17c191984ff0c781",
+      "patchBytes": 5709,
+      "gitApplyNumstat": {
+        "exitCode": 0,
+        "stdout": "103\t0\tsrc/main/history/history-manager-clear-all.spec.ts\n2\t2\tsrc/main/history/history-manager.ts\n",
+        "stderr": ""
+      },
+      "blankLineStrippedDiffExactlyMatchesOriginalJudgeEmbedding": true,
+      "normalizedDiffSha256": "e3e3b818246038d63e3d634e4f3f0908ca616ca1cc7cccb19272cfa6944eb09b",
+      "originalJudgeEmbeddingSha256": "e3e3b818246038d63e3d634e4f3f0908ca616ca1cc7cccb19272cfa6944eb09b",
+      "limitations": [
+        "No historical shell commands executed. Temporary stash/check/pop cycles are omitted as net no-ops; final judge-input equality checks the resulting full diff.",
+        "No original runner patch hash survives for direct byte comparison. Reconstructed source and regenerated patch are not labelled original."
+      ]
+    }
+  ]
+}

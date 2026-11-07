@@ -1,0 +1,17 @@
+{
+  "label": "renderer-build",
+  "command": [
+    "npm",
+    "run",
+    "build:renderer"
+  ],
+  "startedAt": "2026-10-27T17:35:26.944457+00:00",
+  "durationSeconds": 19.285,
+  "exitCode": 0,
+  "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-after-timing/renderer-build.log",
+  "load": [
+    62.59423828125,
+    53.01953125,
+    56.53466796875
+  ]
+}

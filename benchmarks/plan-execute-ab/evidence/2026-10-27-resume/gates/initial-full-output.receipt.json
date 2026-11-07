@@ -1,0 +1,19 @@
+{
+  "at": "2026-10-27T16:21:30.091917+00:00",
+  "files": [
+    {
+      "source": "_scratch/test-run.pid-57157.log",
+      "retained": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates/initial-test-run.pid-57157.log.gz",
+      "originalBytes": 4803096,
+      "retainedUncompressedSha256": "d74eb116a9d47f593c9a45d731500f2fc8049dc591e77a091be43cc0eb0c6fb6",
+      "redactedEnvironmentKeys": []
+    },
+    {
+      "source": "_scratch/test-results.pid-57157.json",
+      "retained": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates/initial-test-results.pid-57157.json.gz",
+      "originalBytes": 12597900,
+      "retainedUncompressedSha256": "c81415b746e023d65c525b3abe1325f2a8192f060ed62013dfdfa0b4b4576904",
+      "redactedEnvironmentKeys": []
+    }
+  ]
+}

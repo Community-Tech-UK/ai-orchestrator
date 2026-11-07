@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-27T14:24:25.558635+00:00",
+  "command": [
+    "node",
+    "node_modules/typescript/bin/tsc",
+    "--noEmit"
+  ],
+  "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+  "exitCode": 0,
+  "durationSeconds": 14.517,
+  "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/fixed-typecheck.log.gz"
+}

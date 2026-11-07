@@ -1,0 +1,5 @@
+{
+  "runnerOutputOriginal": "benchmarks/plan-execute-ab/benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/benchmark-before.json",
+  "retainedAt": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/benchmark-before.json",
+  "reason": "Vitest resolves outputFile relative to benchmark config root; original bytes moved unchanged"
+}

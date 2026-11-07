@@ -1,0 +1,4 @@
+{
+  "taskId": "12ST-02",
+  "error": "Error: Command failed: tar -xf /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/export.tar -C /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps\napps/api/src/lib/meeting-ingest/scheduling.ts: Truncated tar archive: Unknown error: -1\ntar: Error exit delayed from previous errors.\n"
+}

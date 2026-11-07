@@ -1,0 +1,111 @@
+diff --git a/.github/workflows/model-catalog-watch.yml b/.github/workflows/model-catalog-watch.yml
+index 38ac2e8..a390ef0 100644
+--- a/.github/workflows/model-catalog-watch.yml
++++ b/.github/workflows/model-catalog-watch.yml
+@@ -54,6 +54,10 @@ jobs:
+             } >> "$GITHUB_STEP_SUMMARY"
+           fi
+ 
++      # Green on drift is deliberate: a permanently red run was ignored for weeks
++      # without driving the sync. The tracking issue is the signal, and the run
++      # only goes red on real failures (models.dev unreachable or empty, install
++      # failure, or a GitHub API failure while filing the issue).
+       - name: Open or update drift issue
+         if: steps.refresh.outputs.drift == 'true'
+         env:
+@@ -62,29 +66,37 @@ jobs:
+         run: |
+           issue_title='Model catalog drift detected'
+           snapshot='src/main/providers/models-dev-snapshot.generated.ts'
++          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
++          max_diff_bytes=60000
++          diff_file="$(mktemp)"
+           issue_body_file="$(mktemp)"
++          git diff --unified=2 -- "$snapshot" > "$diff_file"
+           {
+             echo 'The scheduled model-catalog watcher found drift between the committed offline snapshot and live models.dev.'
+             echo
+             echo 'Run `npm run sync:model-catalog`, review every added/removed/changed model, and update curated metadata plus `PROVIDER_MODEL_REPLACEMENTS` when a model is intentionally replaced.'
+             echo
+-            echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
++            echo "Workflow run: $run_url"
+             echo
+             echo '<details><summary>Generated snapshot diff</summary>'
+             echo
+             echo '```diff'
+-            git diff --unified=2 -- "$snapshot"
++            # GitHub rejects issue bodies over 65,536 characters; cap the diff.
++            # head reads a file (not a pipe), so truncation cannot trip pipefail.
++            head -c "$max_diff_bytes" "$diff_file"
+             echo '```'
++            if [[ "$(wc -c < "$diff_file")" -gt "$max_diff_bytes" ]]; then
++              echo
++              echo "_Diff truncated to fit GitHub's issue size limit. The full diff is in the job summary of the [workflow run]($run_url)._"
++            fi
+             echo '</details>'
+           } > "$issue_body_file"
+ 
+           issue_number="$(gh issue list --state open --search "\"$issue_title\" in:title" --limit 100 --json number,title --jq 'map(select(.title == "Model catalog drift detected")) | .[0].number // empty')"
+           if [[ -n "$issue_number" ]]; then
+             gh issue edit "$issue_number" --body-file "$issue_body_file"
++            issue_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/issues/$issue_number"
+           else
+-            gh issue create --title "$issue_title" --body-file "$issue_body_file"
++            issue_url="$(gh issue create --title "$issue_title" --body-file "$issue_body_file")"
+           fi
+-
+-      - name: Fail until catalog drift is reviewed
+-        if: steps.refresh.outputs.drift == 'true'
+-        run: exit 1
++          echo "::warning title=Model catalog drift::$issue_url"
+diff --git a/docs/architecture.md b/docs/architecture.md
+index a0e3eb0..8b23f5d 100644
+--- a/docs/architecture.md
++++ b/docs/architecture.md
+@@ -130,7 +130,7 @@ Located in `src/main/providers/`:
+ - **ProviderRegistry** — registers all available providers
+ - **FailoverManager** — automatic failover between providers on error
+ - **ModelDiscovery** — detects available models across providers
+-- **UnifiedModelCatalogService** — the authoritative available-model surface for desktop and mobile pickers. It merges static provider defaults, models.dev enrichment, local/remote catalog overrides, user custom models, and CLI-discovered models; stale stored selections are resolved lazily to provider defaults with a visible session note. `npm run sync:model-catalog` refreshes the committed models.dev offline snapshot for pricing/context metadata and offline safety. The scheduled `model-catalog-watch.yml` workflow runs that refresh every six hours, opens or updates one durable issue with the exact diff, and fails on drift so catalogue changes cannot disappear as a transient CI warning. It remains unnecessary for a newly available model to appear when the CLI, custom-model, or override sources report it.
++- **UnifiedModelCatalogService** — the authoritative available-model surface for desktop and mobile pickers. It merges static provider defaults, models.dev enrichment, local/remote catalog overrides, user custom models, and CLI-discovered models; stale stored selections are resolved lazily to provider defaults with a visible session note. `npm run sync:model-catalog` refreshes the committed models.dev offline snapshot for pricing/context metadata and offline safety. The scheduled `model-catalog-watch.yml` workflow runs that refresh every six hours, opens or updates one durable issue carrying the sync instructions and the exact snapshot diff (truncated with a pointer to the job summary when it is too large for an issue). The run stays green on drift because a permanently red run was ignored; the issue is the signal. It goes red only on real errors: models.dev unreachable or empty, install failure, or a GitHub API failure. It remains unnecessary for a newly available model to appear when the CLI, custom-model, or override sources report it.
+ - **Model replacements** — `PROVIDER_MODEL_REPLACEMENTS` records deliberate, provider-scoped migrations; AIO never infers them from names or release dates. Persisted automation definitions, defaults, favourites, run snapshots, and history retain their original IDs for auditability, while automation spawn, local/remote instance creation, runtime changes, and general alias normalization resolve replacement chains lazily before catalogue validation. This keeps existing scheduled work executable when AIO retires an old model ID.
+ - Providers: Anthropic API (direct), Claude CLI, Codex CLI, Gemini CLI
+ 
+diff --git a/scripts/__tests__/release-workflow.spec.ts b/scripts/__tests__/release-workflow.spec.ts
+index e6a1d45..0949d12 100644
+--- a/scripts/__tests__/release-workflow.spec.ts
++++ b/scripts/__tests__/release-workflow.spec.ts
+@@ -84,7 +84,6 @@ describe("Harness release workflow", () => {
+     const install = steps.find((step) => step.name === "Install dependencies");
+     const refresh = steps.find((step) => step.name === "Refresh model-catalog snapshot");
+     const issue = steps.find((step) => step.name === "Open or update drift issue");
+-    const fail = steps.find((step) => step.name === "Fail until catalog drift is reviewed");
+ 
+     expect(checkout?.with).toEqual({ "persist-credentials": false });
+     expect(install?.run).toBe("npm ci --ignore-scripts");
+@@ -97,8 +96,23 @@ describe("Harness release workflow", () => {
+     expect(issue?.run).toContain("gh issue create");
+     expect(issue?.run).toContain("gh issue edit");
+     expect(issue?.run).toContain("Model catalog drift detected");
+-    expect(fail?.if).toContain("steps.refresh.outputs.drift == 'true'");
+-    expect(fail?.run).toBe("exit 1");
++    expect(issue?.run).toContain("npm run sync:model-catalog");
++    expect(issue?.run).toContain("PROVIDER_MODEL_REPLACEMENTS");
++    expect(issue?.run).toContain("Generated snapshot diff");
++    expect(issue?.run).toContain("git diff");
++    expect(issue?.run).toContain("```diff");
++    expect(issue?.run).toContain("::warning");
++    expect(issue).not.toHaveProperty("continue-on-error");
++
++    // Drift must not fail the run: the issue is the signal, not a red run.
++    expect(steps.find((step) => step.name === "Fail until catalog drift is reviewed")).toBeUndefined();
++    expect(
++      steps.filter(
++        (step) =>
++          String(step.if ?? "").includes("steps.refresh.outputs.drift == 'true'") &&
++          /\bexit 1\b/u.test(step.run ?? ""),
++      ),
++    ).toEqual([]);
+   });
+ 
+   it("grants write permission only to the final publish job", () => {

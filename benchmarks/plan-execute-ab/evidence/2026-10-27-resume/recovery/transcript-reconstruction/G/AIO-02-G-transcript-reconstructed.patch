@@ -1,0 +1,67 @@
+diff --git a/.github/workflows/model-catalog-watch.yml b/.github/workflows/model-catalog-watch.yml
+index 38ac2e8..39095e3 100644
+--- a/.github/workflows/model-catalog-watch.yml
++++ b/.github/workflows/model-catalog-watch.yml
+@@ -84,7 +84,3 @@ jobs:
+           else
+             gh issue create --title "$issue_title" --body-file "$issue_body_file"
+           fi
+-
+-      - name: Fail until catalog drift is reviewed
+-        if: steps.refresh.outputs.drift == 'true'
+-        run: exit 1
+diff --git a/docs/plans/2026-10-15-model-catalog-watch-status_plan.md b/docs/plans/2026-10-15-model-catalog-watch-status_plan.md
+new file mode 100644
+index 0000000..303dd4f
+--- /dev/null
++++ b/docs/plans/2026-10-15-model-catalog-watch-status_plan.md
+@@ -0,0 +1,20 @@
++# Model catalog watch status
++
++Status: active; working-tree patch only.
++
++- [x] Investigate refresh, issue reporting, and existing workflow tests; reproduce the explicit drift failure.
++- [x] Remove the final drift-only failure without suppressing operational failures.
++- [x] Update the workflow contract to preserve issue instructions and generated diff.
++- [x] Verify drift/no-drift and refresh/issue failure paths; attempt available repository gates.
++- [x] Obtain an independent task-completion-gate review and record verification results.
++- [ ] Resolve repository-wide verification blockers and obtain an overall completion-gate PASS (outside this patch's scope).
++
++Risk: accidentally masking refresh or issue-reporting errors. Keep their normal Bash failure propagation.
++
++Verification so far:
++- Focused workflow and snapshot-parser specs: 23 tests passed.
++- Local execution of actual workflow Bash with stubbed commands: drift creates/updates issues with instructions and diff, no drift skips issues, and refresh/list/create/edit errors fail (7 scenarios passed). The same check rejects the original workflow on drift.
++- Passed: application typecheck, spec typecheck, lint, main build, renderer build, and diff whitespace check.
++- Baseline blocker: `check:ts-max-loc` rejects unchanged `src/main/mobile-gateway/mobile-gateway-server.ts` (798 lines; ceiling 732 plus tolerance 50). No change to that file is in scope.
++- Full suite attempted with two forks; reported unrelated failures in worker process handling, capability probing, and dependency compatibility before being stopped (exit 130). It did not complete and is not a passing gate. Logs: `_scratch/catalog-watch-tests.log` and `_scratch/test-run.pid-93825.log`.
++- Independent completion-gate review reproduced 23 focused tests, 7 Bash scenarios, application typecheck, and the unchanged size violation. No task-specific actionable findings; overall VERDICT: FAIL because repository-wide gates remain blocked. Keep this plan active; no completion claim or documentation closure.
+diff --git a/scripts/__tests__/release-workflow.spec.ts b/scripts/__tests__/release-workflow.spec.ts
+index e6a1d45..58d75c9 100644
+--- a/scripts/__tests__/release-workflow.spec.ts
++++ b/scripts/__tests__/release-workflow.spec.ts
+@@ -71,7 +71,7 @@ function stepIndex(job: WorkflowJob | undefined, name: string): number {
+ }
+ 
+ describe("Harness release workflow", () => {
+-  it("checks model-catalog drift on a schedule and raises one durable issue", () => {
++  it("reports scheduled model-catalog drift in one durable issue without failing the run", () => {
+     expect(modelCatalogWorkflow.on.schedule).toEqual([{ cron: "23 */6 * * *" }]);
+     expect(modelCatalogWorkflow.on.workflow_dispatch).toEqual({});
+     expect(modelCatalogWorkflow.permissions).toEqual({
+@@ -97,8 +97,13 @@ describe("Harness release workflow", () => {
+     expect(issue?.run).toContain("gh issue create");
+     expect(issue?.run).toContain("gh issue edit");
+     expect(issue?.run).toContain("Model catalog drift detected");
+-    expect(fail?.if).toContain("steps.refresh.outputs.drift == 'true'");
+-    expect(fail?.run).toBe("exit 1");
++    expect(issue?.run).toContain("npm run sync:model-catalog");
++    expect(issue?.run).toContain("PROVIDER_MODEL_REPLACEMENTS");
++    expect(issue?.run).toContain("Generated snapshot diff");
++    expect(issue?.run).toContain('git diff --unified=2 -- "$snapshot"');
++    expect(fail).toBeUndefined();
++    expect(steps.some((step) => step.run?.includes("exit 1"))).toBe(false);
++    expect(modelCatalogWorkflowSource).not.toContain("continue-on-error");
+   });
+ 
+   it("grants write permission only to the final publish job", () => {

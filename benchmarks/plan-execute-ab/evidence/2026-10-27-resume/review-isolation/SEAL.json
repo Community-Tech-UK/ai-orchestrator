@@ -1,0 +1,31 @@
+{
+  "files": {
+    "REPORT.md": "1f4f4323d2a4596da70a1b3a0e9c1fec513dd06cb9227e7b799b7c79038054d7",
+    "benchmark-tests-correct-config.log": "c23ef4897e9bc21fdf13048dc2fa62e397d17177493794ca0e7382af88e408ab",
+    "benchmark-tests-correct-config.receipt.json": "7de30ad369281728e8aab46119c5a37604b04bb25958346968fffa07650aa1c8",
+    "benchmark-tests.log": "3854528ff93fd269f3796187777e88b42a438930cd30b01f88664d91fe41aa5e",
+    "benchmark-tests.receipt.json": "b953cf03e7225f9610e9f7e321c497052c0b9127f4b249e2d5e11e34b7ddde25",
+    "benchmark-tsc.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "benchmark-tsc.receipt.json": "89fa473274636d71bc86f63c881128f082eda49e1bef0692843c7f4057f8b73b",
+    "changed-lint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "changed-lint.receipt.json": "e802bd08ab0c19dd651c0043c857bb2d2867ca18fe1d24d5c6055d0d92498455",
+    "fs-promise.json": "70999d9d1d0cc40d6dfd067a02e75e791b22074ec3d13f43a25b8c18f354562d",
+    "host-tool-score.json": "6f51fdfb5253aad832d6eeaff6b432b19ddc9b346abce719ab09d6725ad90f5b",
+    "host-tool-scoring/hidden-tests.json": "85ee0eebcbc55885c35eba4155117cb1736dc2f57f1ed4b5201a38ceda6962e0",
+    "integrity.json": "e9f7dba8df8d1d40c131f1565d138f7ed37a41387bad8e67bdce7f60437529e4",
+    "native-bundler.json": "31581e86915ea43b9c84a417ebfda2495b2631b794d386caefd2f06a6eb7cd51",
+    "native-scored-command/hidden-tests.json": "40ce6f131134b5bcdbf0736c2ad2ec36add9468892f171ef4b14005cc9295333",
+    "native-scored-outcome.json": "040c5ba112cdd38fa1644b41a0946045bb3c59a37d3fe37af26d361b0cff71c5",
+    "native-scored-setup/dependencies.json": "3a2968afed13ef30cfa72d102cff8c3110c775c22cd2b836d509e6400a8f584f",
+    "native-scored-setup/dependencies.log": "fee4bb014d4796cff2eb0d0e770dbdda99e4b2233e4ef8cc60ea1bdbf26ea184",
+    "npm-esbuild.json": "ac0e39756171ab2d89a7e6a10ae3de94fc84f93c58c639730cbdb88d9cfdfcd9",
+    "npm-oxlint.json": "6953544e5cd0517e3578307ae2cc0b61505002a974ca7e0988f6325e4bdd3d44",
+    "npm-tsx.json": "b19720a23ff39aeaa77544c3f4e0fa5b05ed756a80ec369df05983c4a25ae5ed",
+    "probe-native-scoring.mjs": "9d3be3ff8e3cf9c6eae97dda4db7725ad189ea1cddb187cba62ff878b6962e3a",
+    "probe-scoring.mjs": "607fea9369e2f38d2c405d39c8481e4eb0b99430f7afc42f2ee6720c0fb3288d",
+    "readstream.json": "e8cd71a6f7ec26fbcaed6b4807c07d31fb709071eab715aa82710c374fec7561",
+    "snapshot-after.json": "a211b37b219856718b983b5d23f01d4d2ab543ab0067e9e28b5c3a30ec38f08d",
+    "snapshot-before.json": "c827b05d29b59968ff35a13f95e7c6804ccf47f926a011e4da3d6b6f6f930260",
+    "tracked.diff": "e4bed707fd251ab6a4cb50348930d16a175ef58e8cc52f1485d7f8fa91eb2180"
+  }
+}

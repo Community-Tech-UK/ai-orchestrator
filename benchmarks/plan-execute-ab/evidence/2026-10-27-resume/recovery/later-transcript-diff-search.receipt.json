@@ -1,0 +1,164 @@
+{
+  "query": "All top-level Claude tool_use commands with git diff and corresponding tool_result outputs containing diff --git in the eighteen manifest transcripts",
+  "sources": [
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-12ST-04-C1-1/49f7fa48-b878-4928-88bc-18fb192f8aa2.jsonl",
+      "sha256": "ce409bc0e53eb9c99ad05412a9baa6d269535d735e4b23adec58e360864dcb98",
+      "rows": 80,
+      "diffOutputs": []
+    },
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-01-C1-1/328a9d0f-e361-4229-8fff-5c33ad8e272a.jsonl",
+      "sha256": "ef8fa0b841e920be7801ab4b63fb22ac628c47cc45c1eab54317ed6039fcb090",
+      "rows": 84,
+      "diffOutputs": []
+    },
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-06-C1-1/9d3d38c4-8611-4938-a730-d794da50819c.jsonl",
+      "sha256": "fdc4da608414544979d5b87fb24a05e28078aad54173db3cf8ad3b3e1ab0ee6f",
+      "rows": 179,
+      "diffOutputs": []
+    },
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-12ST-03-C1-1/007a9500-a3ce-4b96-8c37-bf60a3b272fd.jsonl",
+      "sha256": "e46328e55cc864343d1aa98194eda71e13ca833c182b9f74e47924fffd934aab",
+      "rows": 195,
+      "diffOutputs": []
+    },
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-04-C1-1/1af52093-586c-431f-96ef-070f2c696569.jsonl",
+      "sha256": "2423619dfd4db097a4d686326a6f5cac5e179b817bdf8b9483345a3b13dd1b11",
+      "rows": 68,
+      "diffOutputs": []
+    },
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-05-C1-1/51b5519d-f37d-4ca1-8ff1-ed4f866aa50a.jsonl",
+      "sha256": "0395af5b118ea9635ef11dc1c222eb10ccbd620956d63343b75cc7867e3dc388",
+      "rows": 131,
+      "diffOutputs": []
+    },
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-02-C1-1/b28f9c7b-6fb3-4c16-a7a2-194bd496381d.jsonl",
+      "sha256": "982059d576c008999eaa9e1870b3a6c86cbfabd5c64751dc3d16bcc7fc68d600",
+      "rows": 59,
+      "diffOutputs": []
+    },
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-03-C1-1/ecb964e6-90a8-41f4-8864-b9b17f1f72b8.jsonl",
+      "sha256": "042d91dfb869c6ed2bbc3a6b3011bfa4d64570e4a6877a3dadcbc4cbddd3761e",
+      "rows": 60,
+      "diffOutputs": []
+    },
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-12ST-02-C2-1/46af98a0-0377-46af-be6c-0158acbaea4a.jsonl",
+      "sha256": "f15cfc7803beb8d7d3bcc547e1d9b536557bd958554fcfa9f89fa0dfaf859379",
+      "rows": 119,
+      "diffOutputs": [
+        {
+          "row": 108,
+          "toolId": "4x5yz7CbyB1RLPJS9gtLv8UqP2MbTWog",
+          "command": "git diff --stat && git status --porcelain",
+          "resultBytes": 271,
+          "hasDiff": false,
+          "hasTruncationMarker": false
+        },
+        {
+          "row": 112,
+          "toolId": "Cn8nXxIniKRbsrOsd0puRMAxClEQEHqc",
+          "command": "git diff",
+          "resultBytes": 3372,
+          "hasDiff": true,
+          "hasTruncationMarker": false
+        }
+      ]
+    },
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-06-C2-1/98fa5c0b-893a-4017-9561-6cc8f20b5632.jsonl",
+      "sha256": "5a774d893ad96c7c2ba19ab7f8572234fb46a8db8a40a5485f3784dfcbe983c5",
+      "rows": 139,
+      "diffOutputs": []
+    },
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-12ST-03-C2-1/1a113a5a-f408-4823-af95-9a1dde5587e4.jsonl",
+      "sha256": "0f3dd87573900946798cbbe1faa8465794b1192b1767715b548f461b9f18a836",
+      "rows": 176,
+      "diffOutputs": []
+    },
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-12ST-04-C2-1/ffdac120-e056-48d1-bf16-59194435c10a.jsonl",
+      "sha256": "44703f0fad2b6e6e0a2b5d568bdcb2f2cb839c712781759403f59e010eff30f2",
+      "rows": 112,
+      "diffOutputs": []
+    },
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-01-C2-1/cb3b9c47-9bca-4791-a457-2789ebf4183b.jsonl",
+      "sha256": "6f361c5e1b42f1392083dddd05e8e8e2a4a7604158d8fc99a8a2d76cf0775813",
+      "rows": 272,
+      "diffOutputs": [
+        {
+          "row": 99,
+          "toolId": "vAJ6nYHQWGXaWoOkfoSepBw88ItLUCo2",
+          "command": "git -C /private/tmp/plan-execute-ab/AIO-01-C2-1 log --oneline -5 -- scripts/check-ts-max-loc.ts 2>/dev/null; git -C /private/tmp/plan-execute-ab/AIO-01-C2-1 log -p --follow -S \"history-manager.ts': 17\" -- scripts/check-ts-max-loc.ts 2>/dev/",
+          "resultBytes": 2796,
+          "hasDiff": true,
+          "hasTruncationMarker": false
+        },
+        {
+          "row": 259,
+          "toolId": "8MKFZiJI5ZHM8ZBLh2FBAfvhlnom6GdG",
+          "command": "diff <(sed 's/ [0-9]*ms$//' /tmp/full-fails.txt) <(sed 's/ [0-9]*ms$//' /tmp/baseline-fails.txt) && echo \"IDENTICAL failure sets\"; git diff",
+          "resultBytes": 11937,
+          "hasDiff": true,
+          "hasTruncationMarker": false
+        }
+      ]
+    },
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-02-C2-1/f4659e08-8cd6-49cb-ae14-6b249890414f.jsonl",
+      "sha256": "5521e2ccf73399088e72f41cb437f287542fcce9f2028cc71caa3c19f8fc20ff",
+      "rows": 188,
+      "diffOutputs": [
+        {
+          "row": 116,
+          "toolId": "SlPxRpnpvrim9LrZD9JV7mJjGhiPcpvu",
+          "command": "git status --short; echo ---; git diff --name-only; echo ---; git show HEAD:src/main/mobile-gateway/mobile-gateway-server.ts | wc -l; git show HEAD:scripts/__tests__/release-workflow.spec.ts | wc -l",
+          "resultBytes": 246,
+          "hasDiff": false,
+          "hasTruncationMarker": false
+        },
+        {
+          "row": 181,
+          "toolId": "yjNw36pRCYTjF002P0WWP9WojOQm2Wn5",
+          "command": "git diff",
+          "resultBytes": 8275,
+          "hasDiff": true,
+          "hasTruncationMarker": true
+        }
+      ]
+    },
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-03-C2-1/87b3f4b8-a407-466e-b6f8-119126ca013a.jsonl",
+      "sha256": "a2d4941b0592010a5f6a030397136323799cfc9c8ab46943fc44edd350f1b4a1",
+      "rows": 129,
+      "diffOutputs": []
+    },
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-04-C2-1/2931d2d4-6533-42af-8be0-04468d3c7027.jsonl",
+      "sha256": "9cab8106f6617d253e57729f07324f009299dad2e96b0d4b5e8f50dc89115a1e",
+      "rows": 78,
+      "diffOutputs": []
+    },
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-05-C2-1/ad36090e-db28-4e8e-b3c8-2a0b4ac2f971.jsonl",
+      "sha256": "d52d9b57fe79cb8df3a193f5f6699d03fd32f04c55816ffb385ead8674ac0b5d",
+      "rows": 107,
+      "diffOutputs": []
+    },
+    {
+      "source": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-12ST-01-C2-1/6c86ae4a-7cc7-4ae3-8932-3348a0e878c1.jsonl",
+      "sha256": "0a076abbab21f80e3d4c92b83f76f31ed24e685b9e98f2a52bb5b7151be0b6e8",
+      "rows": 139,
+      "diffOutputs": []
+    }
+  ]
+}

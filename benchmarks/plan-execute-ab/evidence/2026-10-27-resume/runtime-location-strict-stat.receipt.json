@@ -1,0 +1,41 @@
+{
+  "at": "2026-10-27T16:53:42.230Z",
+  "checks": [
+    {
+      "path": "/tmp/aio-lt-queue-7ca7a00e-workspaces",
+      "present": false,
+      "errorCode": "ENOENT"
+    },
+    {
+      "path": "/private/tmp/node_modules",
+      "present": false,
+      "errorCode": "ENOENT"
+    },
+    {
+      "path": "/private/node_modules",
+      "present": false,
+      "errorCode": "ENOENT"
+    },
+    {
+      "path": "/node_modules",
+      "present": false,
+      "errorCode": "ENOENT"
+    },
+    {
+      "path": "/Users/suas/.node_modules",
+      "present": false,
+      "errorCode": "ENOENT"
+    },
+    {
+      "path": "/Users/suas/.node_libraries",
+      "present": false,
+      "errorCode": "ENOENT"
+    },
+    {
+      "path": "/opt/homebrew/Cellar/node/26.12.1/lib/node",
+      "present": false,
+      "errorCode": "ENOENT"
+    }
+  ],
+  "createdFiles": false
+}

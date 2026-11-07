@@ -1,0 +1,99 @@
+{
+  "taskId": "AIO-04",
+  "parentSha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+  "commitSha": "da0bb47ffb259413c40f076ca53c4d09e27c8e61",
+  "setup": {
+    "fingerprint": "358fb1d47cf631b483b17620ed42df68f4dcb19334df3a7aafad3327bbda24c2",
+    "files": {
+      "apps/mobile/package-lock.json": "df4a47c1cd8fdb37380b501f748c19b8f3a5a3d553f11d234e71844b3eefb7c9",
+      "apps/mobile/package.json": "4d3d14c54f950a895b1b7998b8c3deb02811bda1a49a7fd42f4122ca47d70a95",
+      "benchmarks/external-benchmarks/bfcl/package.json": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+      "benchmarks/orchestrator-benchmark/package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+      "package-lock.json": "5d658e310c870e7e307f5d428ddfae851855eb0c37bdd08ccabd2915b4d60412",
+      "package.json": "869bde4f336ac90531456341f857cd172c03d813f426fc01e9723eb37c18b7a6",
+      "packages/archiver-compat/package.json": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+      "packages/contracts/package.json": "98a513bfc08c8a15513a7a15ac2dcf6d0ee99dff8bf9b44d2ec68f85e68c8e97",
+      "packages/sdk/package.json": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a"
+    },
+    "command": [
+      "npm",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "exitCode": 0,
+    "timedOut": false,
+    "nodeVersion": "v26.12.1"
+  },
+  "parent": {
+    "contract": {
+      "version": "historical-v1",
+      "dependencyFingerprint": "358fb1d47cf631b483b17620ed42df68f4dcb19334df3a7aafad3327bbda24c2"
+    },
+    "hiddenTests": {
+      "passed": false,
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/history/archive-message-merge.spec.ts",
+        "src/main/history/history-manager-archive-coverage-integrity.spec.ts",
+        "src/main/instance/instance-persistence.spec.ts"
+      ],
+      "exitCode": 1,
+      "timedOut": false,
+      "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/history/archive-message-merge.spec.ts src/main/history/history-manager-archive-coverage-integrity.spec.ts src/main/instance/instance-persistence.spec.ts\n\n✗ 2 of 26 tests failed in 12.4s:\n\n  ✗ src/main/history/history-manager-archive-coverage-integrity.spec.ts › HistoryManager archive coverage integrity keeps the full archive when a trimmed revival of the same thread is re-archived\n    AssertionError: expected 3 to be 5 // Object.is equality\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager-archive-coverage-integrity.spec.ts:271:41\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20\n\n  ✗ src/main/instance/instance-persistence.spec.ts › InstancePersistenceManager does not copy the crash-revival marker onto a fork\n    AssertionError: expected \"spy\" to be called with arguments: [ ObjectContaining{…} ]\n    \n    Received: \n    \n      1st spy call:\n    \n      [\n    -   ObjectContaining {\n    +   {\n    +     \"agentId\": \"build\",\n    +     \"attachments\": undefined,\n    +     \"displayName\": \"Fork of Test Instance\",\n    +     \"forceNodeId\": undefined,\n    +     \"historyThreadId\": \"thread-1\",\n    +     \"initialContextBlock\": undefined,\n    +     \"initialOutputBuffer\": [\n    +       {\n    +         \"content\": \"live-1\",\n    +         \"id\": \"live-1\",\n    +         \"timestamp\": 1793116088780,\n    +         \"type\": \"assistant\",\n    +       },\n    +     ],\n    +     \"initialPrompt\": undefined,\n    +     \"initialRetainedPrompts\": [],\n          \"metadata\": {\n    +       \"continuityRevival\": true,\n            \"custom\": true,\n            \"reason\": \"crash-recovery\",\n          },\n    +     \"modelOverride\": undefined,\n    +     \"provider\": \"claude\",\n    +     \"reasoningEffort\": null,\n    +     \"workingDirectory\": \"/tmp/project\",\n    +     \"yoloMode\": false,\n        },\n      ]\n    \n    \n    Number of calls: 1\n    \n        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/expect/dist/index.js:1355:10)\n        at Proxy.<anonymous> (file:///Users/suas/wo\n        …(truncated — see log)\n\nfull log: _scratch/test-run.pid-83215.log\n\n✗ FAILED — 2 of 26 tests failed (exit 1).\n\n"
+    },
+    "damage": [],
+    "damageOk": true
+  },
+  "fixed": {
+    "contract": {
+      "version": "historical-v1",
+      "dependencyFingerprint": "358fb1d47cf631b483b17620ed42df68f4dcb19334df3a7aafad3327bbda24c2"
+    },
+    "hiddenTests": {
+      "passed": true,
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/history/archive-message-merge.spec.ts",
+        "src/main/history/history-manager-archive-coverage-integrity.spec.ts",
+        "src/main/instance/instance-persistence.spec.ts"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/history/archive-message-merge.spec.ts src/main/history/history-manager-archive-coverage-integrity.spec.ts src/main/instance/instance-persistence.spec.ts\n\n✓ 3 files · 43 tests passed in 13.5s\n  full log: _scratch/test-run.pid-2210.log\n\n"
+    },
+    "damage": [
+      {
+        "ok": true,
+        "command": [
+          "node",
+          "--max-old-space-size=8192",
+          "node_modules/typescript/bin/tsc",
+          "--noEmit"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "\n"
+      },
+      {
+        "ok": true,
+        "command": [
+          "npm",
+          "run",
+          "lint:fast"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "\n> harness@0.1.0 lint:fast\n> oxlint --config .oxlintrc.json src/main src/shared src/preload packages/contracts/src packages/sdk/src\n\nsrc/main/instance/instance-continuation-codex-boundary.spec.ts:74:29: warning unicorn(no-useless-spread): Using a spread operator here creates a new array unnecessarily. help: `for…of` can iterate over iterable, it's unnecessary to convert to an array.\nsrc/main/cli/turn-ending-classifier.ts:76:158: warning unicorn(no-useless-spread): Using a spread operator here creates a new object unnecessarily. help: This expression returns a new object. Spreading it into an object expression to create a new object is redundant.\nsrc/main/instance/instance-continuation-overflow-boundary.spec.ts:36:106: warning unicorn(no-useless-spread): Using a spread operator here creates a new array unnecessarily. help: `for…of` can iterate over iterable, it's unnecessary to convert to an array.\n\n"
+      }
+    ],
+    "damageOk": true
+  }
+}

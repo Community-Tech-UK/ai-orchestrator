@@ -1,0 +1,815 @@
+{
+  "observedAt": "2026-10-27T15:43:15.521683+00:00",
+  "sourceRoot": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15",
+  "sourceRunsSha256": "f4d94f61b750e6d84602d0af063bd3db15e6b06b3c18c46bc00f2dbcf5206cad",
+  "classification": "Exact bytes copied from retained reconstructed session; older patches are attribution-stripped judge embeddings, not original runner patch files. Later C1 patch provenance remains as documented by retained mirror. Copies preserve existing evidence without repair.",
+  "summary": {
+    "scoredRecords": 32,
+    "patchFilesPresent": 32,
+    "nonemptyParsePass": 0,
+    "emptyCandidates": 2,
+    "nonemptyParseFail": 30
+  },
+  "results": [
+    {
+      "taskId": "12ST-01",
+      "armId": "A",
+      "runNumber": 1,
+      "sourceName": "12ST-01-A-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-01-A-run1.patch",
+      "bytes": 7362,
+      "sha256": "4c3dcb34ddc963c0875b243ec1af4c61deca26c94b2b3a620470a3620b150b87",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-01-A-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-01-A-run1.patch:12\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "12ST-02",
+      "armId": "A",
+      "runNumber": 1,
+      "sourceName": "12ST-02-A-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-02-A-run1.patch",
+      "bytes": 2700,
+      "sha256": "4572c72c92d8fdb498a1a7da7658a4eb60d6f5361eada19263d55b32adc09803",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-02-A-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-02-A-run1.patch:19\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "12ST-03",
+      "armId": "A",
+      "runNumber": 1,
+      "sourceName": "12ST-03-A-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-03-A-run1.patch",
+      "bytes": 12611,
+      "sha256": "86e56adcb5a4c4a7bcb31cc82941dd20842f0c897ff0b9985b63663734b68189",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-03-A-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-03-A-run1.patch:34\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "12ST-04",
+      "armId": "A",
+      "runNumber": 1,
+      "sourceName": "12ST-04-A-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-04-A-run1.patch",
+      "bytes": 10478,
+      "sha256": "3b66f7b9b262773885821feb4f14a526bc53ab2442273c13560e6090ea2fda52",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-04-A-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-04-A-run1.patch:12\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-01",
+      "armId": "A",
+      "runNumber": 1,
+      "sourceName": "AIO-01-A-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-01-A-run1.patch",
+      "bytes": 2085,
+      "sha256": "06396546f2b857b6a120ef01f1f027cfd1c7e137ffe201ccd8e82f14c35dd602",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-01-A-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-01-A-run1.patch:34\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-02",
+      "armId": "A",
+      "runNumber": 1,
+      "sourceName": "AIO-02-A-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-02-A-run1.patch",
+      "bytes": 5615,
+      "sha256": "ebc22592711344a6ff4309c4c2c717921c30be43439d5cf87f78905b759bef0c",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-02-A-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-02-A-run1.patch:25\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-03",
+      "armId": "A",
+      "runNumber": 1,
+      "sourceName": "AIO-03-A-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-03-A-run1.patch",
+      "bytes": 16584,
+      "sha256": "13fb17641894519fdf3d72fd4fc3668a057ebf105c858b67f257f42ace82ef0f",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-03-A-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-03-A-run1.patch:281\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-04",
+      "armId": "A",
+      "runNumber": 1,
+      "sourceName": "AIO-04-A-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-04-A-run1.patch",
+      "bytes": 28050,
+      "sha256": "96a21f29c5cc3f77d3d85bb61c4bee8180bf0c7413d5b89379358f807239198b",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-04-A-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-04-A-run1.patch:493\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-05",
+      "armId": "A",
+      "runNumber": 1,
+      "sourceName": "AIO-05-A-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-05-A-run1.patch",
+      "bytes": 28291,
+      "sha256": "c46dc4fd12a7d0b85085bc5b2972bdcb6797a4a8e1d4efc47a4e9ab9675c0cff",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-05-A-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-05-A-run1.patch:12\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-06",
+      "armId": "A",
+      "runNumber": 1,
+      "sourceName": "AIO-06-A-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-06-A-run1.patch",
+      "bytes": 41116,
+      "sha256": "1b105403aa526583e7b8258838f6322503c9d0a4266d69abc676e17a878bb699",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-06-A-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-06-A-run1.patch:55\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "12ST-01",
+      "armId": "D",
+      "runNumber": 1,
+      "sourceName": "12ST-01-D-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-01-D-run1.patch",
+      "bytes": 7763,
+      "sha256": "76f8fc3773a91db04d566acf6e3977222bcef6e3fd05dc863e476027e002c25e",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-01-D-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-01-D-run1.patch:12\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "12ST-02",
+      "armId": "D",
+      "runNumber": 1,
+      "sourceName": "12ST-02-D-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-02-D-run1.patch",
+      "bytes": 3072,
+      "sha256": "ab5accecd587a6fe639e6509d9011ee23bb1c8f2b9888b85a4eda75e0a1dc6e6",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-02-D-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-02-D-run1.patch:21\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "12ST-03",
+      "armId": "D",
+      "runNumber": 1,
+      "sourceName": "12ST-03-D-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-03-D-run1.patch",
+      "bytes": 10629,
+      "sha256": "f3911ab2cd7eb3bbc761444d84018b84c11e5918ed50d8e500da4b865f26acb1",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-03-D-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-03-D-run1.patch:22\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "12ST-04",
+      "armId": "D",
+      "runNumber": 1,
+      "sourceName": "12ST-04-D-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-04-D-run1.patch",
+      "bytes": 22364,
+      "sha256": "ba83e5782255d3ecb98f8892a92caf6017231d799889a90ca1041bd1c31f6e2a",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-04-D-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-04-D-run1.patch:26\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-01",
+      "armId": "D",
+      "runNumber": 1,
+      "sourceName": "AIO-01-D-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-01-D-run1.patch",
+      "bytes": 8502,
+      "sha256": "df629c61879c672fa36e171d3558e2d30052f2843677aa38d1c48968a8dad815",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-01-D-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-01-D-run1.patch:12\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-02",
+      "armId": "D",
+      "runNumber": 1,
+      "sourceName": "AIO-02-D-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-02-D-run1.patch",
+      "bytes": 1794,
+      "sha256": "65603108218610d823ab5602ead8bde41f8f2807b533f5a5fb92d4c801cceb8e",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-02-D-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-02-D-run1.patch:15\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-03",
+      "armId": "D",
+      "runNumber": 1,
+      "sourceName": "AIO-03-D-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-03-D-run1.patch",
+      "bytes": 19036,
+      "sha256": "1830c866bc860de8ad69d9ce385b98a85c32f54de629738d2098d3ec5bf144ae",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-03-D-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-03-D-run1.patch:266\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-04",
+      "armId": "D",
+      "runNumber": 1,
+      "sourceName": "AIO-04-D-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-04-D-run1.patch",
+      "bytes": 25092,
+      "sha256": "a1e4c0865b5049aaef8ee632b51181b3b879623ed72124347697d072b684bb4a",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-04-D-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-04-D-run1.patch:520\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-05",
+      "armId": "D",
+      "runNumber": 1,
+      "sourceName": "AIO-05-D-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-05-D-run1.patch",
+      "bytes": 12625,
+      "sha256": "146d930596bf5e3d315b1ad9dfe6909b926c97a370f02c73398a21f52053bb4c",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-05-D-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-05-D-run1.patch:73\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-06",
+      "armId": "D",
+      "runNumber": 1,
+      "sourceName": "AIO-06-D-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-06-D-run1.patch",
+      "bytes": 32686,
+      "sha256": "4bfae2e3b42501895978715efe0c4b5d3d5315c399c5de9fcbade03dd19e26fc",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-06-D-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: git diff header lacks filename information at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-06-D-run1.patch:4\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "12ST-01",
+      "armId": "G",
+      "runNumber": 1,
+      "sourceName": "12ST-01-G-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-01-G-run1.patch",
+      "bytes": 7843,
+      "sha256": "6742d6f0a439913f4a165f080fd63ad4ce467050e2c09e75ae89ac9f9656dc39",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-01-G-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-01-G-run1.patch:12\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "12ST-02",
+      "armId": "G",
+      "runNumber": 1,
+      "sourceName": "12ST-02-G-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-02-G-run1.patch",
+      "bytes": 1924,
+      "sha256": "9bdf9f5ff76acf400da92343198e64363023251a6c71023530e0c1a12d5ef3d1",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-02-G-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-02-G-run1.patch:13\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "12ST-03",
+      "armId": "G",
+      "runNumber": 1,
+      "sourceName": "12ST-03-G-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-03-G-run1.patch",
+      "bytes": 9584,
+      "sha256": "a150070fed51e0d6ca844955b4ac22b8c02705f22ab54317cd1adb7ee5538895",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-03-G-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-03-G-run1.patch:22\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "12ST-04",
+      "armId": "G",
+      "runNumber": 1,
+      "sourceName": "12ST-04-G-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-04-G-run1.patch",
+      "bytes": 26853,
+      "sha256": "75e2f44c9b4f40e3ed3e8273efbd8dd2794ad4d5d1cb5be2e1abad11e7b33793",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-04-G-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-04-G-run1.patch:33\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-01",
+      "armId": "G",
+      "runNumber": 1,
+      "sourceName": "AIO-01-G-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-01-G-run1.patch",
+      "bytes": 5706,
+      "sha256": "e3e3b818246038d63e3d634e4f3f0908ca616ca1cc7cccb19272cfa6944eb09b",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-01-G-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-01-G-run1.patch:126\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-02",
+      "armId": "G",
+      "runNumber": 1,
+      "sourceName": "AIO-02-G-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-02-G-run1.patch",
+      "bytes": 4457,
+      "sha256": "9ec8458644e8fd865974347f0c59498b3f02c98b92a7f3a6acdb47a41248bb61",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-02-G-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-02-G-run1.patch:51\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-03",
+      "armId": "G",
+      "runNumber": 1,
+      "sourceName": "AIO-03-G-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-03-G-run1.patch",
+      "bytes": 32664,
+      "sha256": "a984d2e6a4577e6897cc5395e4396fab275e093720439ccda25131c835921c87",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-03-G-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-03-G-run1.patch:36\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-04",
+      "armId": "G",
+      "runNumber": 1,
+      "sourceName": "AIO-04-G-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-04-G-run1.patch",
+      "bytes": 22021,
+      "sha256": "5c63cf8b224644c4e942bfffef7cd0f8072c65586908fb468247c9b5fc4e8c16",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-04-G-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-04-G-run1.patch:343\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-05",
+      "armId": "G",
+      "runNumber": 1,
+      "sourceName": "AIO-05-G-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-05-G-run1.patch",
+      "bytes": 15008,
+      "sha256": "3f7d663edadcfd0edd0a92c8e6b770aa8b7c9537dc648c9cd09bdbf3862cca70",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-05-G-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-05-G-run1.patch:113\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "AIO-06",
+      "armId": "G",
+      "runNumber": 1,
+      "sourceName": "AIO-06-G-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-06-G-run1.patch",
+      "bytes": 28057,
+      "sha256": "a2839eaa12c0c50920cbaeb53be846c1a027aa69445827b735eb450a42789b8c",
+      "emptyPatch": false,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-06-G-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/AIO-06-G-run1.patch:48\n"
+      },
+      "interpretation": "Retained candidate is structurally invalid as a unified diff; cannot be replayed directly."
+    },
+    {
+      "taskId": "12ST-01",
+      "armId": "C1",
+      "runNumber": 1,
+      "sourceName": "12ST-01-C1-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-01-C1-run1.patch",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "emptyPatch": true,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-01-C1-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: No valid patches in input (allow with \"--allow-empty\")\n"
+      },
+      "interpretation": "Empty candidate; no changes to apply."
+    },
+    {
+      "taskId": "12ST-02",
+      "armId": "C1",
+      "runNumber": 1,
+      "sourceName": "12ST-02-C1-run1.patch",
+      "exists": true,
+      "retainedPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-02-C1-run1.patch",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "emptyPatch": true,
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-02-C1-run1.patch"
+        ],
+        "exitCode": 128,
+        "stdout": "",
+        "stderr": "error: No valid patches in input (allow with \"--allow-empty\")\n"
+      },
+      "interpretation": "Empty candidate; no changes to apply."
+    }
+  ]
+}

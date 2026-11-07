@@ -1,0 +1,27 @@
+{
+  "modelInvocations": 0,
+  "results": [
+    {
+      "command": [
+        "claude",
+        "--version"
+      ],
+      "exitCode": 0,
+      "stdout": "2.1.311 (Claude Code)\n",
+      "stderr": "",
+      "timedOut": false,
+      "durationMs": 17
+    },
+    {
+      "command": [
+        "codex",
+        "--version"
+      ],
+      "exitCode": 0,
+      "stdout": "codex-cli 0.164.0\n",
+      "stderr": "",
+      "timedOut": false,
+      "durationMs": 166
+    }
+  ]
+}

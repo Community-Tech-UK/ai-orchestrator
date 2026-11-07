@@ -1,0 +1,45 @@
+[
+  {
+    "name": "benchmark-tests",
+    "command": [
+      "npx",
+      "vitest",
+      "run",
+      "--config",
+      "benchmarks/plan-execute-ab/vitest.config.ts",
+      "--maxWorkers",
+      "1",
+      "--reporter=json",
+      "--outputFile=benchmarks/plan-execute-ab/evidence/2026-10-27-resume/review-fresh/benchmark-tests.json"
+    ],
+    "exitCode": 0,
+    "durationSeconds": 66.16106295585632,
+    "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/review-fresh/benchmark-tests.log"
+  },
+  {
+    "name": "benchmark-typecheck",
+    "command": [
+      "npx",
+      "tsc",
+      "--noEmit",
+      "-p",
+      "benchmarks/plan-execute-ab/tsconfig.json"
+    ],
+    "exitCode": 0,
+    "durationSeconds": 3.697705030441284,
+    "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/review-fresh/benchmark-typecheck.log"
+  },
+  {
+    "name": "benchmark-lint",
+    "command": [
+      "npx",
+      "eslint",
+      "benchmarks/plan-execute-ab",
+      "--ext",
+      ".ts"
+    ],
+    "exitCode": 0,
+    "durationSeconds": 5.2838051319122314,
+    "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/review-fresh/benchmark-lint.log"
+  }
+]

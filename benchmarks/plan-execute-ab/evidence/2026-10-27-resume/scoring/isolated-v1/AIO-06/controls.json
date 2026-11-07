@@ -1,0 +1,128 @@
+{
+  "taskId": "AIO-06",
+  "parentSha": "8fee5d5fb0115ab923d9527bc08319aa6e7b2467",
+  "commitSha": "0497f14cfc97cc49f9473a4514d9c6f484013024",
+  "setup": {
+    "fingerprint": "e1d133c807c93f19e3a829999735a3035d38a034ed022bddf18eee8799df94ec",
+    "files": {
+      "apps/mobile/package.json": "d97e9e262c3d2d339dfd4081baf2056effbf00b3979cc0b57f3ad0fe23d23038",
+      "benchmarks/external-benchmarks/bfcl/package.json": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+      "benchmarks/orchestrator-benchmark/package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+      "package-lock.json": "b68a717d0c9283c256b57c98f468b26d861d13bb9a712c661c2912a10e6220d6",
+      "package.json": "dfe320a249f995f318aee0f4d063c14cd00bbe6c619ca060d40b28a24c914e7c",
+      "packages/archiver-compat/package.json": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+      "packages/contracts/package.json": "c20adf5e2edb10101f0c42fccf4e2131c336204a26df832dcbd8e0130ab1fb96",
+      "packages/sdk/package.json": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a"
+    },
+    "command": [
+      "npm",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "exitCode": 0,
+    "timedOut": false,
+    "nodeVersion": "v26.12.1",
+    "runtimePreparation": [
+      {
+        "command": [
+          "/opt/homebrew/Cellar/node/26.12.1/bin/node",
+          "node_modules/electron/install.js"
+        ],
+        "exitCode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timedOut": false,
+        "durationMs": 1085
+      },
+      {
+        "command": [
+          "npm",
+          "rebuild",
+          "better-sqlite3"
+        ],
+        "exitCode": 0,
+        "stdout": "rebuilt dependencies successfully\n",
+        "stderr": "npm warn rebuild 11 packages have install scripts not yet covered by allowScripts. Run `npm install-scripts ls` to review.\n",
+        "timedOut": false,
+        "durationMs": 1533
+      }
+    ],
+    "boundarySha256": "909889cb32d332e8b504eeef6a94417b2879b8dd17e3e8db2bf6da07b908eecf"
+  },
+  "parent": {
+    "contract": {
+      "version": "historical-v1",
+      "dependencyFingerprint": "e1d133c807c93f19e3a829999735a3035d38a034ed022bddf18eee8799df94ec",
+      "dependencyBoundarySha256": "909889cb32d332e8b504eeef6a94417b2879b8dd17e3e8db2bf6da07b908eecf"
+    },
+    "hiddenTests": {
+      "passed": false,
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
+        "src/main/instance/instance-communication.spec.ts",
+        "src/main/instance/instance-provider-limit-handler.spec.ts",
+        "src/main/providers/account-pool/account-telemetry-bridge.spec.ts"
+      ],
+      "exitCode": 1,
+      "timedOut": false,
+      "outputTail": "dules/zone.js/fesm2015/zone.js:2226:23)\n        at runWithTimeout (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026\n        …(truncated — see log)\n\n  ✗ src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts › createInstance spawn transaction rollback hands an initial-prompt usage-limit error to the provider-limit funnel instead of the failure notice\n    AssertionError: expected \"spy\" to be called with arguments: [ { id: 'xvwisphit', …(47) }, …(1) ]\n    \n    Number of calls: 0\n    \n        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/expect/dist/index.js:1355:10)\n        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/expect/dist/index.js:1029:14)\n        at Proxy.methodWrapper (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/chai/index.js:1686:25)\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts:629:33\n        at processTicksAndRejections (node:internal/process/task_queues:104:5)\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical\n        …(truncated — see log)\n\n  ✗ src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts › createInstance spawn transaction rollback does not dispatch the initial prompt when a known provider limit takes the turn\n    AssertionError: expected \"spy\" to be called once, but got 0 times\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts:652:33\n        at processTicksAndRejections (node:internal/process/task_queues:104:5)\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20\n\n  ✗ src/main/providers/account-pool/account-telemetry-bridge.spec.ts › account telemetry bridge parses a raw app-server update that carries rateLimitReachedType instead of mistaking it for a parsed snapshot\n    AssertionError: expected { ordinaryUsageAllowed: null, …(2) } to match object { ordinaryUsageAllowed: null, …(1) }\n    (1 matching property omitted from actual)\n        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/expect/dist/index.js:1155:10)\n        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/expect/dist/index.js:1029:14)\n        at Proxy.methodWrapper (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/chai/index.js:1686:25)\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/providers/account-pool/account-telemetry-bridge.spec.ts:85:35\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chun\n        …(truncated — see log)\n\nfull log: _scratch/test-run.pid-75180.log\n\n✗ FAILED — 8 of 207 tests failed (exit 1).\n\n"
+    },
+    "damage": [],
+    "damageOk": true
+  },
+  "fixed": {
+    "contract": {
+      "version": "historical-v1",
+      "dependencyFingerprint": "e1d133c807c93f19e3a829999735a3035d38a034ed022bddf18eee8799df94ec",
+      "dependencyBoundarySha256": "909889cb32d332e8b504eeef6a94417b2879b8dd17e3e8db2bf6da07b908eecf"
+    },
+    "hiddenTests": {
+      "passed": true,
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
+        "src/main/instance/instance-communication.spec.ts",
+        "src/main/instance/instance-provider-limit-handler.spec.ts",
+        "src/main/providers/account-pool/account-telemetry-bridge.spec.ts"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts src/main/instance/instance-communication.spec.ts src/main/instance/instance-provider-limit-handler.spec.ts src/main/providers/account-pool/account-telemetry-bridge.spec.ts\n\n✓ 4 files · 207 tests passed in 21.2s\n  full log: _scratch/test-run.pid-87914.log\n\n"
+    },
+    "damage": [
+      {
+        "ok": true,
+        "command": [
+          "node",
+          "--max-old-space-size=8192",
+          "node_modules/typescript/bin/tsc",
+          "--noEmit"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "\n"
+      },
+      {
+        "ok": true,
+        "command": [
+          "npm",
+          "run",
+          "lint:fast"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "cted `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/orchestration/response-analysis.ts:82:60: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/orchestration/response-analysis.ts:103:72: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/orchestration/child-result-storage.ts:21:3: warning eslint(no-unused-vars): Type 'ChildResultSummary' is imported but never used. help: Consider removing this import.\nsrc/main/api/prompt-cache.integration.spec.ts:13:3: warning eslint(no-unused-vars): Identifier 'CacheControl' is imported but never used. help: Consider removing this import.\nsrc/main/api/context-editing.integration.spec.ts:17:3: warning eslint(no-unused-vars): Identifier 'ContextManagementResponse' is imported but never used. help: Consider removing this import.\nsrc/main/api/context-editing.integration.spec.ts:411:11: warning eslint(no-unused-vars): Variable 'thinkingStrategyAll' is declared but never used. Unused variables should start with a '_'. help: Consider removing this declaration.\nsrc/main/api/context-editing.integration.spec.ts:73:55: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/api/context-editing.integration.spec.ts:122:55: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/api/context-editing.integration.spec.ts:174:57: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/api/context-editing.integration.spec.ts:194:23: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/api/context-editing.integration.spec.ts:211:57: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/api/context-editing.integration.spec.ts:231:23: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/api/context-editing.integration.spec.ts:244:57: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/api/context-editing.integration.spec.ts:285:23: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/api/context-editing.integration.spec.ts:309:55: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/api/context-editing.integration.spec.ts:350:55: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/orchestration/loop-coordinator-terminal-intents.spec.ts:2:22: warning eslint(no-unused-vars): Identifier 'mkdirSync' is imported but never used. help: Consider removing this import.\n\n"
+      }
+    ],
+    "damageOk": true
+  }
+}

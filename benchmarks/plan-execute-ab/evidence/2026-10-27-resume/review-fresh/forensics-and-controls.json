@@ -1,0 +1,134 @@
+{
+  "skip_only": {
+    "rawMatch": "xit(",
+    "classification": "false positive: process.exit(3) inside amendment negative-control fixture; no skipped tests"
+  },
+  "suppressions": [],
+  "stubs": [],
+  "secret_markers": [],
+  "changedPaths": [
+    "benchmarks/plan-execute-ab/README.md",
+    "benchmarks/plan-execute-ab/config.spec.ts",
+    "benchmarks/plan-execute-ab/runner.config.json",
+    "benchmarks/plan-execute-ab/runner.spec.ts",
+    "benchmarks/plan-execute-ab/runner.ts",
+    "benchmarks/plan-execute-ab/scorer.ts",
+    "benchmarks/plan-execute-ab/task-bank.ts",
+    "benchmarks/plan-execute-ab/task-export.spec.ts",
+    "benchmarks/plan-execute-ab/tasks/task-bank.json",
+    "benchmarks/plan-execute-ab/types.ts"
+  ],
+  "controls": [
+    {
+      "task": "AIO-01",
+      "parentExit": 1,
+      "fixedExit": 0,
+      "errors": [],
+      "receiptSha256": "79e3edacd17bc89e2656256d21d58ddf7a899efb6b1eec783cd3561cbace970f"
+    },
+    {
+      "task": "AIO-02",
+      "parentExit": 1,
+      "fixedExit": 0,
+      "errors": [],
+      "receiptSha256": "2c8a7ec2f244385605b478b3cfbca2d0c5c8d0a4f2c488f2af0584caf61dfc83"
+    },
+    {
+      "task": "AIO-03",
+      "parentExit": 1,
+      "fixedExit": 0,
+      "errors": [],
+      "receiptSha256": "19ccb6d36e43d4a47345f221f690f2f207d84afcadb68f8f21eb809354701276"
+    },
+    {
+      "task": "AIO-04",
+      "parentExit": 1,
+      "fixedExit": 0,
+      "errors": [],
+      "receiptSha256": "7fb457aaadb4a5b08fb78c0a3c07676fcaa09363001e6384fdbc00da191f164b"
+    },
+    {
+      "task": "AIO-05",
+      "parentExit": 1,
+      "fixedExit": 0,
+      "errors": [],
+      "receiptSha256": "c7e7d56c3bb5ca816068d22c6791c405c718a406e2847e8024ce978f835161ce"
+    },
+    {
+      "task": "AIO-06",
+      "parentExit": 1,
+      "fixedExit": 0,
+      "errors": [],
+      "receiptSha256": "48193cb00475c3b52de4a8d2cb16a17a5a43dc39534b035e38d4581899bc3ad4"
+    },
+    {
+      "task": "12ST-01",
+      "parentExit": 1,
+      "fixedExit": 0,
+      "errors": [],
+      "receiptSha256": "a39048103bc5d6532713be4e1689a5d89aa0447952add851866e2c705bcd9c7f"
+    },
+    {
+      "task": "12ST-02",
+      "parentExit": 1,
+      "fixedExit": 0,
+      "errors": [],
+      "receiptSha256": "d095af96cc306347d76656c9db81a047777161ef51befa7ed473f74a17d51e4a"
+    },
+    {
+      "task": "12ST-03",
+      "parentExit": 1,
+      "fixedExit": 0,
+      "errors": [],
+      "receiptSha256": "262fbabb56ac4b84be569140c35c05f5088e4df450804fe4777f8173bcf4f809"
+    },
+    {
+      "task": "12ST-04",
+      "parentExit": 1,
+      "fixedExit": 0,
+      "errors": [],
+      "receiptSha256": "ce94b96e720578a04c3d675960326e12376cccb10a816f13ba89e944f7ae081a"
+    }
+  ],
+  "amendmentHashMatches": true,
+  "amendmentRemovesLines": false,
+  "repeatedOrderingControls": [
+    {
+      "variant": "parent",
+      "repeat": 1,
+      "exitCode": 1,
+      "timedOut": false
+    },
+    {
+      "variant": "parent",
+      "repeat": 2,
+      "exitCode": 1,
+      "timedOut": false
+    },
+    {
+      "variant": "fixed",
+      "repeat": 1,
+      "exitCode": 0,
+      "timedOut": false
+    },
+    {
+      "variant": "fixed",
+      "repeat": 2,
+      "exitCode": 0,
+      "timedOut": false
+    },
+    {
+      "variant": "bogus-delay",
+      "repeat": 1,
+      "exitCode": 1,
+      "timedOut": false
+    },
+    {
+      "variant": "bogus-delay",
+      "repeat": 2,
+      "exitCode": 1,
+      "timedOut": false
+    }
+  ],
+  "repeatedControlSourceHashesMatch": true
+}

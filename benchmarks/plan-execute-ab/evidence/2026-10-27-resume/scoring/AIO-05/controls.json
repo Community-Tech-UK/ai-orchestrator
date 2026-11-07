@@ -1,0 +1,119 @@
+{
+  "taskId": "AIO-05",
+  "parentSha": "fbe537aed4d6d94e72600064d32d95e535c3ee2e",
+  "commitSha": "0c475238a4cd7729d4a1bc1870d2adab003182f3",
+  "setup": {
+    "fingerprint": "e08e78a4c088762e053c474e08842aac7023dfe1b89a17ca3264a9c4caabfe13",
+    "files": {
+      "apps/mobile/package.json": "14c8bc22b563de684261e4a2b7f3a3e637335fc014e01b741d6791fdea23c776",
+      "benchmarks/external-benchmarks/bfcl/package.json": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+      "benchmarks/orchestrator-benchmark/package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+      "package-lock.json": "5697814fc40bb1dec3bf8ce7c26491373f792f557f8057a60db4c181a36339bd",
+      "package.json": "18f5a55b6f6e0f7530ee016092c4c332711511a1ed9ca4b6b1964f6fe0a79f54",
+      "packages/archiver-compat/package.json": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+      "packages/contracts/package.json": "a7497e7f003f2e259acbf02cc2d65dd196161c9d0269b2710f812f918194f1f0",
+      "packages/sdk/package.json": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a"
+    },
+    "command": [
+      "npm",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "exitCode": 0,
+    "timedOut": false,
+    "nodeVersion": "v26.12.1",
+    "runtimePreparation": [
+      {
+        "command": [
+          "/opt/homebrew/Cellar/node/26.12.1/bin/node",
+          "node_modules/electron/install.js"
+        ],
+        "exitCode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timedOut": false,
+        "durationMs": 1533
+      },
+      {
+        "command": [
+          "npm",
+          "rebuild",
+          "better-sqlite3"
+        ],
+        "exitCode": 0,
+        "stdout": "rebuilt dependencies successfully\n",
+        "stderr": "npm warn rebuild 11 packages have install scripts not yet covered by allowScripts. Run `npm install-scripts ls` to review.\n",
+        "timedOut": false,
+        "durationMs": 1757
+      }
+    ]
+  },
+  "parent": {
+    "contract": {
+      "version": "historical-v1",
+      "dependencyFingerprint": "e08e78a4c088762e053c474e08842aac7023dfe1b89a17ca3264a9c4caabfe13"
+    },
+    "hiddenTests": {
+      "passed": false,
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/automations/automation-run-provider-limit.spec.ts"
+      ],
+      "exitCode": 1,
+      "timedOut": false,
+      "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/automations/automation-run-provider-limit.spec.ts\n\n✗ test run failed (exit 1) and produced no JSON report. Tail of log:\n\n RUN  v3.2.7 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio\n\n(node:18831) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\n⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  |main| src/main/automations/automation-run-provider-limit.spec.ts [ src/main/automations/automation-run-provider-limit.spec.ts ]\nError: Failed to resolve import \"./automation-run-provider-limit\" from \"src/main/automations/automation-run-provider-limit.spec.ts\". Does the file exist?\n  Plugin: vite:import-analysis\n  File: /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/automations/automation-run-provider-limit.spec.ts:12:0\n  16 |  const __vi_import_4__ = await import(\"./automation-runner\");\n  17 |  const __vi_import_5__ = await import(\"./automation-events\");\n  18 |  const __vi_import_6__ = await import(\"./automation-run-provider-limit\");\n     |                                       ^\n  19 |  import { afterEach, beforeEach, describe, expect, it, vi } from \"vitest\";\n  20 |  \n ❯ TransformPluginContext._formatLog node_modules/vite/dist/node/chunks/config.js:29079:43\n ❯ TransformPluginContext.error node_modules/vite/dist/node/chunks/config.js:29076:14\n ❯ normalizeUrl node_modules/vite/dist/node/chunks/config.js:27199:18\n ❯ node_modules/vite/dist/node/chunks/config.js:27257:32\n ❯ TransformPluginContext.transform node_modules/vite/dist/node/chunks/config.js:27225:4\n ❯ EnvironmentPluginContainer.transform node_modules/vite/dist/node/chunks/config.js:28877:14\n ❯ loadAndTransform node_modules/vite/dist/node/chunks/config.js:22746:26\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\n\n Test Files  1 failed (1)\n      Tests  no tests\n   Start at  15:56:45\n   Duration  1.01s (transform 42ms, setup 88ms, collect 0ms, tests 0ms, environment 566ms, prepare 63ms)\n\nJSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/_scratch/test-results.pid-17742.json\n\nfull log: _scratch/test-run.pid-17742.log\n\n✗ FAILED — the run produced no usable JSON report (exit 1).\n\n"
+    },
+    "damage": [],
+    "damageOk": true
+  },
+  "fixed": {
+    "contract": {
+      "version": "historical-v1",
+      "dependencyFingerprint": "e08e78a4c088762e053c474e08842aac7023dfe1b89a17ca3264a9c4caabfe13"
+    },
+    "hiddenTests": {
+      "passed": true,
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/automations/automation-run-provider-limit.spec.ts"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/automations/automation-run-provider-limit.spec.ts\n\n✓ 1 files · 8 tests passed in 14.3s\n  full log: _scratch/test-run.pid-19849.log\n\n"
+    },
+    "damage": [
+      {
+        "ok": true,
+        "command": [
+          "node",
+          "--max-old-space-size=8192",
+          "node_modules/typescript/bin/tsc",
+          "--noEmit"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "\n"
+      },
+      {
+        "ok": true,
+        "command": [
+          "npm",
+          "run",
+          "lint:fast"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "correct.\nsrc/main/indexing/file-watcher.spec.ts:233:17: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/indexing/file-watcher.spec.ts:239:49: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/indexing/file-watcher.spec.ts:256:17: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/indexing/file-watcher.spec.ts:270:28: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/indexing/file-watcher.spec.ts:280:17: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/indexing/file-watcher.spec.ts:298:17: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/indexing/file-watcher.spec.ts:315:17: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/indexing/file-watcher.spec.ts:341:17: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/indexing/file-watcher.spec.ts:357:31: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/indexing/file-watcher.spec.ts:367:17: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/indexing/file-watcher.spec.ts:373:49: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/indexing/file-watcher.spec.ts:408:17: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/chats/chat-transcript-bridge.ts:501:11: warning unicorn(no-useless-fallback-in-spread): Empty fallbacks in spreads are unnecessary help: Spreading falsy values in object literals won't add any unexpected properties, so it's unnecessary to add an empty object as fallback.\nsrc/main/event-bus/state-sync-snapshot.ts:82:56: warning eslint(eqeqeq): Expected !== and instead saw != help: Prefer !== operator\nsrc/main/learning/strategy-learner.ts:19:3: warning eslint(no-unused-vars): Identifier 'PatternType' is imported but never used. help: Consider removing this import.\nsrc/main/learning/strategy-learner.ts:92:5: warning eslint(no-unused-vars): Parameter 'context' is declared but never used. Unused parameters should start with a '_'. help: Consider removing this parameter.\nsrc/main/learning/strategy-learner.ts:202:5: warning eslint(no-unused-vars): Parameter 'experience' is declared but never used. Unused parameters should start with a '_'. help: Consider removing this parameter.\nsrc/main/learning/strategy-learner.ts:333:30: warning eslint(no-unused-vars): Parameter 'taskType' is declared but never used. Unused parameters should start with a '_'. help: Consider removing this parameter.\n\n"
+      }
+    ],
+    "damageOk": true
+  }
+}

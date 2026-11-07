@@ -1,0 +1,25 @@
+{
+  "observedAt": "2026-10-27T15:38:05.401072+00:00",
+  "query": "git cat-file --batch for every tree and blob reported by git fsck --unreachable --no-reflogs --no-progress; byte predicates recorded below",
+  "inputInventory": "unreachable-inventory.receipt.json",
+  "checkedCounts": {
+    "tree": 10220,
+    "blob": 4071
+  },
+  "checkedBytes": 310975727,
+  "predicates": {
+    "tree": [
+      "runs.jsonl",
+      "runs-quarantined.jsonl",
+      "run1.patch",
+      "pilot-2026-10-15"
+    ],
+    "blob": [
+      "literal double-quoted patchPath and either literal double-quoted C1 or C2",
+      "starts with diff --git and contains history-manager"
+    ]
+  },
+  "matches": [],
+  "catFileExitCode": 0,
+  "limit": "fsck exited 8 due to malformed refs/.DS_Store; this scans every object fsck did report, not a claim that malformed refs did not affect enumeration."
+}

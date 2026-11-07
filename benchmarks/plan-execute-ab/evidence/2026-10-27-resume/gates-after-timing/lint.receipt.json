@@ -1,0 +1,17 @@
+{
+  "label": "lint",
+  "command": [
+    "npm",
+    "run",
+    "lint"
+  ],
+  "startedAt": "2026-10-27T17:34:30.262975+00:00",
+  "durationSeconds": 13.62,
+  "exitCode": 0,
+  "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-after-timing/lint.log",
+  "load": [
+    71.0830078125,
+    52.1005859375,
+    56.49951171875
+  ]
+}

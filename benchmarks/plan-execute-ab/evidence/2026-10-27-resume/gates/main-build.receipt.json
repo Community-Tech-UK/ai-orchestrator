@@ -1,0 +1,17 @@
+{
+  "label": "main-build",
+  "command": [
+    "npm",
+    "run",
+    "build:main"
+  ],
+  "startedAt": "2026-10-27T16:19:26.866342+00:00",
+  "durationSeconds": 39.66,
+  "exitCode": 0,
+  "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates/main-build.log",
+  "load": [
+    21.50244140625,
+    25.9921875,
+    33.67236328125
+  ]
+}

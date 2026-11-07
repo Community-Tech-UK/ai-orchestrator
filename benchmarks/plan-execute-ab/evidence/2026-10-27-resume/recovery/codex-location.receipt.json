@@ -1,0 +1,8 @@
+{
+  "query": "First session_meta line only in ~/.codex/sessions/2026/10/{15,16}/*.jsonl.zst; cwd contains AIO-01-G-1",
+  "checked": 81,
+  "hits": [
+    "/Users/suas/.codex/sessions/2026/10/15/rollout-2026-10-15T21-42-14-01a1414d-1953-7791-bf23-04cc0f78ea77.jsonl.zst",
+    "/Users/suas/.codex/sessions/2026/10/15/rollout-2026-10-15T21-45-13-01a1414f-d501-7fe3-9c4a-98937be8a6ec.jsonl.zst"
+  ]
+}

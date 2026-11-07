@@ -1,0 +1,342 @@
+{
+  "at": "2026-10-27T17:22:50.299323+00:00",
+  "scope": "independent saved-file hashes and structural parsing; no behavioral scoring",
+  "manifestSha256": "7341f00b4a0ad4fa60535d37dea0b8c57615e71e8fe7013959a86efeab6deaf7",
+  "counts": {
+    "A": 10,
+    "D": 10,
+    "G": 10
+  },
+  "rows": [
+    {
+      "task": "AIO-01",
+      "arm": "A",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/AIO-01-A-transcript-reconstructed.patch",
+      "expectedSha256": "f0e925aedad6cc5737bf466ca7cfe156a150e8e7e2e921d41f93e5f36f122ba8",
+      "actualSha256": "f0e925aedad6cc5737bf466ca7cfe156a150e8e7e2e921d41f93e5f36f122ba8",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "23\t0\tsrc/main/history/history-manager.spec.ts\n2\t2\tsrc/main/history/history-manager.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "AIO-01",
+      "arm": "D",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/AIO-01-D-transcript-reconstructed.patch",
+      "expectedSha256": "02199268012d48ba0c2f66d5dfb484194038f805ed0dcf3ecd8c0de545590e8f",
+      "actualSha256": "02199268012d48ba0c2f66d5dfb484194038f805ed0dcf3ecd8c0de545590e8f",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "33\t1\tsrc/main/history/history-archive-serialization.spec.ts\n5\t0\tsrc/main/history/history-archive-serialization.ts\n110\t0\tsrc/main/history/history-manager.spec.ts\n5\t5\tsrc/main/history/history-manager.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "AIO-01",
+      "arm": "G",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/AIO-01-G-transcript-reconstructed.patch",
+      "expectedSha256": "a08c4d58b195cffb00592de7480473911b303d8b6f2e5bac17c191984ff0c781",
+      "actualSha256": "a08c4d58b195cffb00592de7480473911b303d8b6f2e5bac17c191984ff0c781",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "103\t0\tsrc/main/history/history-manager-clear-all.spec.ts\n2\t2\tsrc/main/history/history-manager.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "AIO-02",
+      "arm": "A",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/AIO-02-A-transcript-reconstructed.patch",
+      "expectedSha256": "25cfb7c87b04b1aba1d78469cb09104e556920cbc293fb218b6e3e35b8d57546",
+      "actualSha256": "25cfb7c87b04b1aba1d78469cb09104e556920cbc293fb218b6e3e35b8d57546",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "0\t4\t.github/workflows/model-catalog-watch.yml\n1\t1\tdocs/architecture.md\n12\t4\tscripts/__tests__/release-workflow.spec.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "AIO-03",
+      "arm": "A",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/AIO-03-A-transcript-reconstructed.patch",
+      "expectedSha256": "f5dad4ead2674c07b7c8a3374d1c3ef39cc899679dd02038e36b34f47b8d2078",
+      "actualSha256": "f5dad4ead2674c07b7c8a3374d1c3ef39cc899679dd02038e36b34f47b8d2078",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "116\t0\tsrc/main/session/continuity-payload-serializer.spec.ts\n142\t0\tsrc/main/session/continuity-payload-serializer.ts\n31\t6\tsrc/main/session/continuity-recovery-metadata.ts\n2\t1\tsrc/main/session/session-continuity-persistence-operations.ts\n6\t4\tsrc/main/session/session-continuity.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "AIO-04",
+      "arm": "A",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/AIO-04-A-transcript-reconstructed.patch",
+      "expectedSha256": "13ac96650c2d78b39d448d67960a57e4b02a82b21090163633c6d6218daec879",
+      "actualSha256": "13ac96650c2d78b39d448d67960a57e4b02a82b21090163633c6d6218daec879",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "2\t2\tscripts/check-ts-max-loc.ts\n218\t0\tsrc/main/history/history-archive-merge.spec.ts\n157\t0\tsrc/main/history/history-archive-merge.ts\n80\t0\tsrc/main/history/history-manager.spec.ts\n6\t2\tsrc/main/history/history-manager.ts\n14\t0\tsrc/main/instance/instance-persistence.spec.ts\n12\t1\tsrc/main/instance/instance-persistence.ts\n5\t0\tsrc/main/instance/lifecycle/continuity-revival.spec.ts\n5\t0\tsrc/main/instance/lifecycle/continuity-revival.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "AIO-05",
+      "arm": "A",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/AIO-05-A-transcript-reconstructed.patch",
+      "expectedSha256": "1417339ddf322fa22f947e33a4b0e13dcfb1c03c66073db92bca07429b28ddef",
+      "actualSha256": "1417339ddf322fa22f947e33a4b0e13dcfb1c03c66073db92bca07429b28ddef",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "17\t0\tsrc/main/automations/automation-runner-helpers.ts\n182\t0\tsrc/main/automations/automation-runner.spec.ts\n19\t0\tsrc/main/automations/automation-runner.ts\n105\t1\tsrc/main/cli/provider-notice.spec.ts\n123\t0\tsrc/main/cli/provider-notice.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "AIO-06",
+      "arm": "A",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/AIO-06-A-transcript-reconstructed.patch",
+      "expectedSha256": "d6a78ee79cbb8d203bc1c516377fddab18c54d33886df6e6bff44a2797652f3b",
+      "actualSha256": "d6a78ee79cbb8d203bc1c516377fddab18c54d33886df6e6bff44a2797652f3b",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "44\t0\tsrc/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts\n33\t0\tsrc/main/instance/instance-communication-provider-limit.ts\n144\t0\tsrc/main/instance/instance-communication.spec.ts\n29\t1\tsrc/main/instance/instance-communication.ts\n6\t0\tsrc/main/instance/instance-lifecycle.ts\n7\t0\tsrc/main/instance/instance-lifecycle.types.ts\n2\t0\tsrc/main/instance/instance-manager.ts\n44\t0\tsrc/main/instance/instance-provider-limit-handler.spec.ts\n26\t15\tsrc/main/instance/instance-provider-limit-handler.ts\n95\t0\tsrc/main/instance/lifecycle/initial-prompt-recovery.spec.ts\n48\t1\tsrc/main/instance/lifecycle/initial-prompt-recovery.ts\n13\t0\tsrc/main/providers/account-pool/account-telemetry-bridge.spec.ts\n9\t1\tsrc/main/providers/account-pool/account-telemetry-bridge.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "12ST-01",
+      "arm": "A",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/12ST-01-A-transcript-reconstructed.patch",
+      "expectedSha256": "30709f0e6470b7a1677d9067ded2ba3fd6c547c58c5d8164f86f4f2af144a34c",
+      "actualSha256": "30709f0e6470b7a1677d9067ded2ba3fd6c547c58c5d8164f86f4f2af144a34c",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "63\t1\tapps/web/src/app/shared/components/turnstile-widget.component.spec.ts\n36\t5\tapps/web/src/app/shared/components/turnstile-widget.component.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "12ST-02",
+      "arm": "A",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/12ST-02-A-transcript-reconstructed.patch",
+      "expectedSha256": "288ebc2d912c7717f0d5784758be4471196432c0f4012f95c9450fc9575d905a",
+      "actualSha256": "288ebc2d912c7717f0d5784758be4471196432c0f4012f95c9450fc9575d905a",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "8\t0\tapps/web/src/app/prayers/models/prayers.spec.ts\n1\t1\tapps/web/src/app/prayers/models/prayers.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "12ST-03",
+      "arm": "A",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/12ST-03-A-transcript-reconstructed.patch",
+      "expectedSha256": "6432847c901e08c728963b6a8407213d0e8a2b0c4a756b413e8a0ea3b564dee1",
+      "actualSha256": "6432847c901e08c728963b6a8407213d0e8a2b0c4a756b413e8a0ea3b564dee1",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "23\t0\tapps/web/src/app/a11y.spec.ts\n22\t0\tapps/web/src/app/home/home.component.html\n90\t1\tapps/web/src/app/home/home.component.spec.ts\n24\t0\tapps/web/src/app/home/home.component.ts\n5\t0\tapps/web/src/app/i18n/home/en-GB.json\n5\t0\tapps/web/src/app/i18n/home/es.json\n5\t0\tapps/web/src/app/i18n/home/pt-BR.json\n26\t0\tapps/web/src/styles/_landing.scss\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "12ST-04",
+      "arm": "A",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/12ST-04-A-transcript-reconstructed.patch",
+      "expectedSha256": "649f4d0f625aea0b10be6fbc07dae22362edbb4240e779ffa70c7236d3b7dbc3",
+      "actualSha256": "649f4d0f625aea0b10be6fbc07dae22362edbb4240e779ffa70c7236d3b7dbc3",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "20\t0\tapps/web/src/app/shared/components/autosave-indicator.component.spec.ts\n6\t1\tapps/web/src/app/shared/components/autosave-indicator.component.ts\n29\t0\tapps/web/src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts\n4\t3\tapps/web/src/app/shared/services/autosave.ts\n21\t0\tapps/web/src/app/shared/services/save-feedback.service.spec.ts\n13\t4\tapps/web/src/app/shared/services/save-feedback.service.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "AIO-02",
+      "arm": "D",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/AIO-02-D-transcript-reconstructed.patch",
+      "expectedSha256": "0bb9d349dc9c54a9df0c74a0ffc77b17609a30cc902b5ae36993de8433409ce7",
+      "actualSha256": "0bb9d349dc9c54a9df0c74a0ffc77b17609a30cc902b5ae36993de8433409ce7",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "19\t7\t.github/workflows/model-catalog-watch.yml\n1\t1\tdocs/architecture.md\n17\t3\tscripts/__tests__/release-workflow.spec.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "AIO-03",
+      "arm": "D",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/AIO-03-D-transcript-reconstructed.patch",
+      "expectedSha256": "a4be9aea0b252d3746d25dee3f8d8381adf724365690e1c79500a13b91767352",
+      "actualSha256": "a4be9aea0b252d3746d25dee3f8d8381adf724365690e1c79500a13b91767352",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "79\t0\tsrc/main/session/continuity-json-chunks.spec.ts\n158\t0\tsrc/main/session/continuity-json-chunks.ts\n25\t6\tsrc/main/session/continuity-recovery-metadata.ts\n2\t2\tsrc/main/session/session-continuity-persistence-operations.ts\n78\t0\tsrc/main/session/session-continuity.spec.ts\n24\t5\tsrc/main/session/session-continuity.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "AIO-04",
+      "arm": "D",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/AIO-04-D-transcript-reconstructed.patch",
+      "expectedSha256": "1ed8f07d4f55cf147fe0ccc00e9eee0c0ee8e5e493d6347bf387df2099317111",
+      "actualSha256": "1ed8f07d4f55cf147fe0ccc00e9eee0c0ee8e5e493d6347bf387df2099317111",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "1\t1\tscripts/check-ts-max-loc.ts\n101\t0\tsrc/main/history/archive-transcript-merge.spec.ts\n145\t0\tsrc/main/history/archive-transcript-merge.ts\n221\t0\tsrc/main/history/history-manager-archive-merge.spec.ts\n18\t3\tsrc/main/history/history-manager.ts\n1\t1\tsrc/main/session/recovery-transcript-reconciler.ts\n7\t0\tsrc/shared/types/history.types.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "AIO-05",
+      "arm": "D",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/AIO-05-D-transcript-reconstructed.patch",
+      "expectedSha256": "cef20ed13584790a962f3a743ab4a7695a99a95739304c8a5e3af482b21af3fd",
+      "actualSha256": "cef20ed13584790a962f3a743ab4a7695a99a95739304c8a5e3af482b21af3fd",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "22\t0\tsrc/main/automations/automation-provider-limit-outcome.spec.ts\n21\t0\tsrc/main/automations/automation-provider-limit-outcome.ts\n67\t2\tsrc/main/automations/automation-runner.spec.ts\n19\t3\tsrc/main/automations/automation-runner.ts\n40\t1\tsrc/main/cli/provider-notice.spec.ts\n40\t0\tsrc/main/cli/provider-notice.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "AIO-06",
+      "arm": "D",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/AIO-06-D-transcript-reconstructed.patch",
+      "expectedSha256": "c0b82ca4854b616b6b924465049daf1cc49cb477d6793bbc5517afabd2eb95ee",
+      "actualSha256": "c0b82ca4854b616b6b924465049daf1cc49cb477d6793bbc5517afabd2eb95ee",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "21\t0\tsrc/main/cli/adapters/codex/account-rate-limits.ts\n55\t0\tsrc/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts\n51\t0\tsrc/main/instance/instance-communication-initial-prompt-limit.spec.ts\n39\t0\tsrc/main/instance/instance-communication-provider-limit.ts\n13\t13\tsrc/main/instance/instance-communication.ts\n23\t0\tsrc/main/instance/instance-lifecycle.ts\n8\t0\tsrc/main/instance/instance-lifecycle.types.ts\n2\t0\tsrc/main/instance/instance-manager.ts\n65\t0\tsrc/main/instance/instance-provider-limit-handler.spec.ts\n16\t5\tsrc/main/instance/instance-provider-limit-handler.ts\n9\t0\tsrc/main/instance/instance-provider-limit-resume-prompt.ts\n35\t0\tsrc/main/instance/lifecycle/initial-prompt-recovery.spec.ts\n20\t0\tsrc/main/instance/lifecycle/initial-prompt-recovery.ts\n28\t0\tsrc/main/providers/account-pool/account-telemetry-bridge.spec.ts\n2\t5\tsrc/main/providers/account-pool/account-telemetry-bridge.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "12ST-01",
+      "arm": "D",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/12ST-01-D-transcript-reconstructed.patch",
+      "expectedSha256": "2d1b17888980bb432a40ed34f892487ae3ca199ef83f56ef87c9c0ed06e758d5",
+      "actualSha256": "2d1b17888980bb432a40ed34f892487ae3ca199ef83f56ef87c9c0ed06e758d5",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "111\t1\tapps/web/src/app/shared/components/turnstile-widget.component.spec.ts\n34\t2\tapps/web/src/app/shared/components/turnstile-widget.component.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "12ST-02",
+      "arm": "D",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/12ST-02-D-transcript-reconstructed.patch",
+      "expectedSha256": "62b01c2e93b1b4b613286fe5ff3f095f923ca0763ea4918b6390ea90bbdd9eaf",
+      "actualSha256": "62b01c2e93b1b4b613286fe5ff3f095f923ca0763ea4918b6390ea90bbdd9eaf",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "11\t0\tapps/web/src/app/prayers/models/prayers.spec.ts\n1\t1\tapps/web/src/app/prayers/models/prayers.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "12ST-03",
+      "arm": "D",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/12ST-03-D-transcript-reconstructed.patch",
+      "expectedSha256": "cf135a29e8784bb996d6dc0c9f7007e60715ba560adcf14bb0844892f31c0cf1",
+      "actualSha256": "cf135a29e8784bb996d6dc0c9f7007e60715ba560adcf14bb0844892f31c0cf1",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "18\t1\tapps/web/src/app/a11y.spec.ts\n18\t0\tapps/web/src/app/home/home.component.html\n40\t1\tapps/web/src/app/home/home.component.spec.ts\n5\t0\tapps/web/src/app/home/home.component.ts\n5\t0\tapps/web/src/app/i18n/home/en-GB.json\n29\t0\tapps/web/src/app/shared/util/android-device.spec.ts\n10\t0\tapps/web/src/app/shared/util/android-device.ts\n20\t0\tapps/web/src/styles/_landing.scss\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "12ST-04",
+      "arm": "D",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/12ST-04-D-transcript-reconstructed.patch",
+      "expectedSha256": "a5e5fec8bd0b70a38e6c47d3247eef8675ef56a60360ebfc22fe0702f791e75a",
+      "actualSha256": "a5e5fec8bd0b70a38e6c47d3247eef8675ef56a60360ebfc22fe0702f791e75a",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "36\t0\tapps/web/src/app/content/content-offline.spec.ts\n39\t0\tapps/web/src/app/content/content-outbox.service.spec.ts\n31\t0\tapps/web/src/app/content/content-outbox.service.ts\n7\t4\tapps/web/src/app/content/content.service.ts\n18\t0\tapps/web/src/app/shared/components/app-shell/app-shell.component.spec.ts\n1\t0\tapps/web/src/app/shared/components/app-shell/app-shell.component.ts\n14\t1\tapps/web/src/app/shared/components/autosave-indicator.component.spec.ts\n6\t2\tapps/web/src/app/shared/components/autosave-indicator.component.ts\n28\t0\tapps/web/src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts\n1\t0\tapps/web/src/app/shared/components/bottom-nav/bottom-nav.component.ts\n3\t3\tapps/web/src/app/shared/services/autosave.ts\n48\t0\tapps/web/src/app/shared/services/save-feedback.service.spec.ts\n24\t3\tapps/web/src/app/shared/services/save-feedback.service.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "AIO-02",
+      "arm": "G",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/AIO-02-G-transcript-reconstructed.patch",
+      "expectedSha256": "13a12584aaaec9cbc6b9f7f7e493022df76cec6eb93e05f051bdf1dbcdbb6001",
+      "actualSha256": "13a12584aaaec9cbc6b9f7f7e493022df76cec6eb93e05f051bdf1dbcdbb6001",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "0\t4\t.github/workflows/model-catalog-watch.yml\n20\t0\tdocs/plans/2026-10-15-model-catalog-watch-status_plan.md\n8\t3\tscripts/__tests__/release-workflow.spec.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "AIO-03",
+      "arm": "G",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/AIO-03-G-transcript-reconstructed.patch",
+      "expectedSha256": "a413d2699a74e443ce6f16e7441bd905ee6569a06778d16c564438db9d84d506",
+      "actualSha256": "a413d2699a74e443ce6f16e7441bd905ee6569a06778d16c564438db9d84d506",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "17\t0\tdocs/plans/2026-10-15-large-session-save_plan.md\n13\t8\tsrc/main/session/continuity-recovery-metadata.ts\n167\t0\tsrc/main/session/session-continuity-large-save.spec.ts\n1\t1\tsrc/main/session/session-continuity-persistence-operations.ts\n7\t24\tsrc/main/session/session-continuity.ts\n100\t0\tsrc/main/session/session-payload-serializer.spec.ts\n144\t0\tsrc/main/session/session-payload-serializer.ts\n4\t2\tsrc/main/session/session-repair.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "AIO-04",
+      "arm": "G",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/AIO-04-G-transcript-reconstructed.patch",
+      "expectedSha256": "b8088c5a4e94e925131165185aff55fff86d1e91fb8e85eec65b565e6f731e24",
+      "actualSha256": "b8088c5a4e94e925131165185aff55fff86d1e91fb8e85eec65b565e6f731e24",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "37\t0\tdocs/plans/2026-10-15-rearchive-transcript-merge_plan.md\n85\t0\tsrc/main/history/history-archive-merge.spec.ts\n97\t0\tsrc/main/history/history-archive-merge.ts\n80\t0\tsrc/main/history/history-manager-archive-coverage-integrity.spec.ts\n9\t14\tsrc/main/history/history-manager.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "AIO-05",
+      "arm": "G",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/AIO-05-G-transcript-reconstructed.patch",
+      "expectedSha256": "6248cc43fd9399dafe40d8c47493fda5b2a0877fad9a1ba548b01c24bdd99a52",
+      "actualSha256": "6248cc43fd9399dafe40d8c47493fda5b2a0877fad9a1ba548b01c24bdd99a52",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "21\t0\tdocs/plans/2026-10-15-automation-provider-limit-outcomes_plan.md\n75\t0\tsrc/main/automations/automation-runner.spec.ts\n16\t3\tsrc/main/automations/automation-runner.ts\n20\t0\tsrc/main/cli/provider-notice.spec.ts\n18\t13\tsrc/main/cli/provider-notice.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "AIO-06",
+      "arm": "G",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/AIO-06-G-transcript-reconstructed.patch",
+      "expectedSha256": "6a10bfd9556de26a63016e69396a4f7adc6203d13f474757080e1bdda908771f",
+      "actualSha256": "6a10bfd9556de26a63016e69396a4f7adc6203d13f474757080e1bdda908771f",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "22\t0\tdocs/plans/2026-10-15-initial-provider-limit_plan.md\n107\t1\tsrc/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts\n20\t0\tsrc/main/instance/instance-lifecycle.ts\n54\t0\tsrc/main/instance/instance-provider-limit-handler.spec.ts\n20\t16\tsrc/main/instance/instance-provider-limit-handler.ts\n54\t0\tsrc/main/instance/lifecycle/initial-prompt-recovery.spec.ts\n10\t0\tsrc/main/instance/lifecycle/initial-prompt-recovery.ts\n20\t0\tsrc/main/providers/account-pool/account-telemetry-bridge.spec.ts\n3\t1\tsrc/main/providers/account-pool/account-telemetry-bridge.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "12ST-01",
+      "arm": "G",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/12ST-01-G-transcript-reconstructed.patch",
+      "expectedSha256": "d6a4fc4301bda2078d2949be74e0f078ba442ae72c4d66a7336ae3eeb7893d41",
+      "actualSha256": "d6a4fc4301bda2078d2949be74e0f078ba442ae72c4d66a7336ae3eeb7893d41",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "103\t1\tapps/web/src/app/shared/components/turnstile-widget.component.spec.ts\n20\t3\tapps/web/src/app/shared/components/turnstile-widget.component.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "12ST-02",
+      "arm": "G",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/12ST-02-G-transcript-reconstructed.patch",
+      "expectedSha256": "d3fe8c3457d2fcdbda13a0294a8f6a1a93186daa5164bc56b703256cdf28ddc4",
+      "actualSha256": "d3fe8c3457d2fcdbda13a0294a8f6a1a93186daa5164bc56b703256cdf28ddc4",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "1\t1\tapps/web/src/app/prayers/models/prayers.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "12ST-03",
+      "arm": "G",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/12ST-03-G-transcript-reconstructed.patch",
+      "expectedSha256": "a1614aa40bd13929211160d25d40f07c662bd1f2fcdacdf44a7af26e705826ca",
+      "actualSha256": "a1614aa40bd13929211160d25d40f07c662bd1f2fcdacdf44a7af26e705826ca",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "16\t1\tapps/web/src/app/a11y.spec.ts\n11\t0\tapps/web/src/app/home/home.component.html\n18\t1\tapps/web/src/app/home/home.component.scss\n65\t2\tapps/web/src/app/home/home.component.spec.ts\n9\t0\tapps/web/src/app/home/home.component.ts\n",
+      "parserStderr": ""
+    },
+    {
+      "task": "12ST-04",
+      "arm": "G",
+      "patch": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/12ST-04-G-transcript-reconstructed.patch",
+      "expectedSha256": "21fb51644f9b33ca61346f728e027ee67e42fc846a6ac22d6213ab83fa498b42",
+      "actualSha256": "21fb51644f9b33ca61346f728e027ee67e42fc846a6ac22d6213ab83fa498b42",
+      "hashMatches": true,
+      "parserExitCode": 0,
+      "parserStdout": "10\t3\tapps/web/src/app/shared/components/app-shell/app-shell.component.spec.ts\n5\t9\tapps/web/src/app/shared/components/app-shell/app-shell.component.ts\n23\t5\tapps/web/src/app/shared/components/autosave-indicator.component.spec.ts\n6\t19\tapps/web/src/app/shared/components/autosave-indicator.component.ts\n65\t5\tapps/web/src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts\n12\t29\tapps/web/src/app/shared/components/bottom-nav/bottom-nav.component.ts\n1\t1\tapps/web/src/app/shared/components/save-snake.component.ts\n6\t3\tapps/web/src/app/shared/services/autosave.ts\n24\t1\tapps/web/src/app/shared/services/save-feedback.service.spec.ts\n13\t7\tapps/web/src/app/shared/services/save-feedback.service.ts\n",
+      "parserStderr": ""
+    }
+  ]
+}

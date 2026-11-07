@@ -1,0 +1,26 @@
+{
+  "threw": false,
+  "workspaceHasZod": false,
+  "frozenDependencies": {
+    "esbuild": "0.28.2"
+  },
+  "score": {
+    "contract": {
+      "version": "historical-v1",
+      "dependencyFingerprint": "dbe4df02c8d91cc6600ed9821c514d2958595640edf72c9771fb5167290df6a2",
+      "dependencyBoundarySha256": "909889cb32d332e8b504eeef6a94417b2879b8dd17e3e8db2bf6da07b908eecf"
+    },
+    "hiddenTests": {
+      "passed": true,
+      "command": [
+        "npm",
+        "test"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "outputTail": "\n> native-boundary-fixture@1.0.0 test\n> esbuild fixture.js --bundle --platform=node --outfile=bundle.cjs && node bundle.cjs\n\nHOST_DEPENDENCY_LOADED\n\n\n  bundle.cjs  739.1kb\n\n⚡ Done in 23ms\n"
+    },
+    "damage": [],
+    "damageOk": true
+  }
+}

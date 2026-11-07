@@ -1,0 +1,81 @@
+{
+  "taskId": "12ST-04",
+  "parentSha": "65872c8b5da2a5c241cfafb845e131b0d6756b55",
+  "commitSha": "755a63449dc717a7c568eed2d6d29b5298ea873b",
+  "setup": {
+    "fingerprint": "598dc6c3283436556ddffe789e4cc20ab579daa350f0618028b1300b43bfcdce",
+    "files": {
+      ".npmrc": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+      "apps/api/package.json": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+      "apps/web/package.json": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+      "package.json": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+      "packages/crypto/package.json": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+      "packages/meeting-data/package.json": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+      "pnpm-lock.yaml": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+      "pnpm-workspace.yaml": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7"
+    },
+    "command": [
+      "pnpm",
+      "install",
+      "--frozen-lockfile",
+      "--ignore-scripts"
+    ],
+    "exitCode": 0,
+    "timedOut": false,
+    "nodeVersion": "v26.12.1",
+    "runtimePreparation": [],
+    "boundarySha256": "909889cb32d332e8b504eeef6a94417b2879b8dd17e3e8db2bf6da07b908eecf"
+  },
+  "parent": {
+    "contract": {
+      "version": "historical-v1",
+      "dependencyFingerprint": "598dc6c3283436556ddffe789e4cc20ab579daa350f0618028b1300b43bfcdce",
+      "dependencyBoundarySha256": "909889cb32d332e8b504eeef6a94417b2879b8dd17e3e8db2bf6da07b908eecf"
+    },
+    "hiddenTests": {
+      "passed": false,
+      "command": [
+        "sh",
+        "-c",
+        "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/shared/components/app-shell/app-shell.component.spec.ts\" --include=\"src/app/shared/components/autosave-indicator.component.spec.ts\" --include=\"src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts\" --include=\"src/app/shared/services/save-feedback.service.spec.ts\" --watch=false"
+      ],
+      "exitCode": 1,
+      "timedOut": false,
+      "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n❯ Building...\n✔ Building...\nApplication bundle generation failed. [16.012 seconds] - 2026-10-27T16:28:08.332Z\n\n\n✘ [ERROR] TS2345: Argument of type '\"pending\"' is not assignable to parameter of type 'SaveFeedbackSourceState'. [plugin angular-compiler]\n\n    src/app/shared/components/autosave-indicator.component.spec.ts:66:15:\n      66 │     source.set('pending');\n         ╵                ~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/components/autosave-indicator.component.spec.ts:69:20:\n      69 │     expect(feedback.showSaving()).toBe(false);\n         ╵                     ~~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/components/autosave-indicator.component.spec.ts:92:20:\n      92 │     expect(feedback.showSaving()).toBe(true);\n         ╵                     ~~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts:78:20:\n      78 │     expect(feedback.showSaving()).toBe(false);\n         ╵                     ~~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts:83:20:\n      83 │     expect(feedback.showSaving()).toBe(true);\n         ╵                     ~~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:86:20:\n      86 │     expect(feedback.showSaving()).toBe(false);\n         ╵                     ~~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:88:20:\n      88 │     expect(feedback.showSaving()).toBe(false);\n         ╵                     ~~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:90:20:\n      90 │     expect(feedback.showSaving()).toBe(true);\n         ╵                     ~~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:92:20:\n      92 │     expect(feedback.showSaving()).toBe(false);\n         ╵                     ~~~~~~~~~~\n\n\n✘ [ERROR] TS2345: Argument of type '\"pending\"' is not assignable to parameter of type 'SaveFeedbackSourceState'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:98:15:\n      98 │     source.set('pending');\n         ╵                ~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:102:20:\n      102 │     expect(feedback.showSaving()).toBe(false);\n          ╵                     ~~~~~~~~~~\n\n\n"
+    },
+    "damage": [],
+    "damageOk": true
+  },
+  "fixed": {
+    "contract": {
+      "version": "historical-v1",
+      "dependencyFingerprint": "598dc6c3283436556ddffe789e4cc20ab579daa350f0618028b1300b43bfcdce",
+      "dependencyBoundarySha256": "909889cb32d332e8b504eeef6a94417b2879b8dd17e3e8db2bf6da07b908eecf"
+    },
+    "hiddenTests": {
+      "passed": true,
+      "command": [
+        "sh",
+        "-c",
+        "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/shared/components/app-shell/app-shell.component.spec.ts\" --include=\"src/app/shared/components/autosave-indicator.component.spec.ts\" --include=\"src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts\" --include=\"src/app/shared/services/save-feedback.service.spec.ts\" --watch=false"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n❯ Building...\n✔ Building...\nApplication bundle generation complete. [11.102 seconds] - 2026-10-27T16:28:24.174Z\n\n\n RUN  v4.0.18 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n\n ✓ |web| src/app/shared/services/save-feedback.service.spec.ts (9 tests) 66ms\n ✓ |web| src/app/shared/components/autosave-indicator.component.spec.ts (8 tests) 150ms\n ✓ |web| src/app/shared/components/app-shell/app-shell.component.spec.ts (3 tests) 179ms\n ✓ |web| src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts (13 tests) 474ms\n\n Test Files  4 passed (4)\n      Tests  33 passed (33)\n   Start at  16:28:24\n   Duration  2.62s (transform 2.34s, setup 2.80s, import 1.62s, tests 869ms, environment 3.21s)\n\n\n(node:9708) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:9713) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:9710) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:9711) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    },
+    "damage": [
+      {
+        "ok": true,
+        "command": [
+          "sh",
+          "-c",
+          "cd apps/web && pnpm run generate:locales && npx tsc -p tsconfig.spec.json --noEmit"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n\n"
+      }
+    ],
+    "damageOk": true
+  }
+}

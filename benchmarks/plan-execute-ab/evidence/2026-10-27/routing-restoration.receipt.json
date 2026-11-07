@@ -1,0 +1,8 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"key\":\"auxiliaryLlmRoutingMode\",\"value\":\"local-first\",\"restartRequired\":false,\"writable\":true,\"policyTier\":\"open\"}"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+from pathlib import Path
+import os,subprocess,sys
+root=Path.cwd()
+env={**os.environ,'NODE_OPTIONS':(os.environ.get('NODE_OPTIONS','')+' --require '+str(root/'_scratch/lt-resume/observe-http.cjs')).strip()}
+result=subprocess.run(['rtk','proxy','node','node_modules/tsx/dist/cli.mjs','_scratch/lt-resume/cache-observed.mts'],env=env)
+sys.exit(result.returncode)

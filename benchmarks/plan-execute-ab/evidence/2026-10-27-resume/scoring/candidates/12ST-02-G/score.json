@@ -1,0 +1,81 @@
+{
+  "candidate": {
+    "taskId": "12ST-02",
+    "armId": "G",
+    "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/12ST-02-G-transcript-reconstructed.patch",
+    "sha256": "d3fe8c3457d2fcdbda13a0294a8f6a1a93186daa5164bc56b703256cdf28ddc4",
+    "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+    "classification": "transcript-reconstruction",
+    "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+    "diagnosticOnly": false
+  },
+  "sourceHashes": {
+    "scorer.ts": "2f7214ae591d44041be6628ab5f9bd4b72b16574058e914817c8be2c336e0127",
+    "scoring-setup.ts": "2efdae0dce8bc5e7af9d430c2efe79dbe88d6ae07481bc51fc7d4c5891cc4f11",
+    "task-export.ts": "9ac6c1a14a6e5a742d8a38e63b005424a5e8266568257f7f50c79de35f838f6e",
+    "types.ts": "1926f7d2b93482ddfd0c9fd25518eaab94080d7c9bd29e1cff2d4858e47ff75f",
+    "tasks/task-bank.json": "376c4cf8ecb838eed8f5bcaaea6ead9b04b85eeaad0b0e70da9c5e9c8e7b892a",
+    "tasks/aio-01-scoring-v2.patch": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468"
+  },
+  "parentSha": "c0572735c39ff2fd75798d32894be301f01c9961",
+  "fixedSha": "00ac9cf9a890590ba418dcbce11001f35bc97be9",
+  "dependencyReceipt": {
+    "fingerprint": "598dc6c3283436556ddffe789e4cc20ab579daa350f0618028b1300b43bfcdce",
+    "files": {
+      ".npmrc": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+      "apps/api/package.json": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+      "apps/web/package.json": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+      "package.json": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+      "packages/crypto/package.json": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+      "packages/meeting-data/package.json": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+      "pnpm-lock.yaml": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+      "pnpm-workspace.yaml": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7"
+    },
+    "command": [
+      "pnpm",
+      "install",
+      "--frozen-lockfile",
+      "--ignore-scripts"
+    ],
+    "exitCode": 0,
+    "timedOut": false,
+    "nodeVersion": "v26.12.1",
+    "runtimePreparation": []
+  },
+  "manifestSha256": "7341f00b4a0ad4fa60535d37dea0b8c57615e71e8fe7013959a86efeab6deaf7",
+  "isolatedGitRoot": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps",
+  "appliedFiles": {
+    "apps/web/src/app/prayers/models/prayers.ts": "da4c3065ae17d9b0112b46743d649b229ff99189"
+  },
+  "score": {
+    "contract": {
+      "version": "historical-v1",
+      "dependencyFingerprint": "598dc6c3283436556ddffe789e4cc20ab579daa350f0618028b1300b43bfcdce"
+    },
+    "hiddenTests": {
+      "passed": true,
+      "command": [
+        "sh",
+        "-c",
+        "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/prayers/models/prayers.spec.ts\" --watch=false"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n❯ Building...\n✔ Building...\nApplication bundle generation complete. [16.502 seconds] - 2026-10-27T16:13:28.886Z\n\n\n RUN  v4.0.18 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n\n ✓ |web| src/app/prayers/models/prayers.spec.ts (23 tests) 16ms\n\n Test Files  1 passed (1)\n      Tests  23 passed (23)\n   Start at  16:13:29\n   Duration  2.97s (transform 302ms, setup 770ms, import 45ms, tests 16ms, environment 1.47s)\n\n\n(node:52180) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    },
+    "damage": [
+      {
+        "ok": true,
+        "command": [
+          "sh",
+          "-c",
+          "cd apps/web && pnpm run generate:locales && npx tsc -p tsconfig.spec.json --noEmit"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n\n"
+      }
+    ],
+    "damageOk": true
+  }
+}

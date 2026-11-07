@@ -1,0 +1,191 @@
+diff --git a/apps/web/src/app/shared/components/turnstile-widget.component.spec.ts b/apps/web/src/app/shared/components/turnstile-widget.component.spec.ts
+index f1ed61a..746eb8b 100644
+--- a/apps/web/src/app/shared/components/turnstile-widget.component.spec.ts
++++ b/apps/web/src/app/shared/components/turnstile-widget.component.spec.ts
+@@ -1,6 +1,6 @@
+ import { signal } from '@angular/core';
+ import { TestBed } from '@angular/core/testing';
+-import { beforeEach, describe, expect, it, vi } from 'vitest';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { ThemeService } from '../services/theme.service';
+ import { TurnstileWidgetComponent } from './turnstile-widget.component';
+ 
+@@ -117,4 +117,106 @@ describe('TurnstileWidgetComponent', () => {
+       expect.objectContaining({ size: 'normal' }),
+     );
+   });
++
++  describe('column resizing', () => {
++    let notifyResize: () => void;
++    const observe = vi.fn();
++    const disconnect = vi.fn();
++
++    beforeEach(() => {
++      observe.mockClear();
++      disconnect.mockClear();
++      notifyResize = () => undefined;
++      vi.stubGlobal('ResizeObserver', class {
++        observe = observe;
++        disconnect = disconnect;
++
++        constructor(callback: ResizeObserverCallback) {
++          notifyResize = () => callback([], this as unknown as ResizeObserver);
++        }
++      });
++    });
++
++    afterEach(() => vi.unstubAllGlobals());
++
++    it('switches sizes when the column crosses 300px and clears the old token', async () => {
++      const render = vi.fn<NonNullable<Window['turnstile']>['render']>()
++        .mockReturnValueOnce('widget-1')
++        .mockReturnValueOnce('widget-2')
++        .mockReturnValue('widget-3');
++      const remove = vi.fn();
++      window.turnstile = { render, remove, reset: vi.fn() };
++      const fixture = TestBed.createComponent(TurnstileWidgetComponent);
++      fixture.componentRef.setInput('siteKey', 'site-key');
++      const emitted: string[] = [];
++      fixture.componentInstance.tokenChange.subscribe((value) => emitted.push(value));
++      fixture.detectChanges();
++      const host = fixture.nativeElement.querySelector('.turnstile-widget') as HTMLElement;
++      let width = 360;
++      Object.defineProperty(host, 'clientWidth', { get: () => width });
++      await fixture.whenStable();
++      expect(render).toHaveBeenLastCalledWith(host, expect.objectContaining({ size: 'normal' }));
++      const options = render.mock.calls[0][1];
++      options.callback?.('old-token');
++
++      width = 299;
++      notifyResize();
++      await fixture.whenStable();
++
++      expect(remove).toHaveBeenCalledWith('widget-1');
++      expect(render).toHaveBeenCalledTimes(2);
++      expect(render).toHaveBeenLastCalledWith(host, expect.objectContaining({ size: 'compact' }));
++      expect(fixture.componentInstance.token()).toBe('');
++      expect(emitted).toEqual(['old-token', '']);
++
++      width = 300;
++      notifyResize();
++      await fixture.whenStable();
++      expect(remove).toHaveBeenCalledWith('widget-2');
++      expect(render).toHaveBeenCalledTimes(3);
++      expect(render).toHaveBeenLastCalledWith(host, expect.objectContaining({ size: 'normal' }));
++    });
++
++    it('keeps the widget for notifications that do not require a different size', async () => {
++      const render = vi.fn(() => 'widget-1');
++      const remove = vi.fn();
++      window.turnstile = { render, remove, reset: vi.fn() };
++      const fixture = TestBed.createComponent(TurnstileWidgetComponent);
++      fixture.componentRef.setInput('siteKey', 'site-key');
++      fixture.detectChanges();
++      const host = fixture.nativeElement.querySelector('.turnstile-widget') as HTMLElement;
++      let width = 360;
++      Object.defineProperty(host, 'clientWidth', { get: () => width });
++      // The initial observation can arrive before the first mount finishes.
++      notifyResize();
++      await fixture.whenStable();
++      width = 320;
++      notifyResize();
++      await fixture.whenStable();
++      notifyResize();
++      await fixture.whenStable();
++
++      expect(render).toHaveBeenCalledTimes(1);
++      expect(remove).not.toHaveBeenCalled();
++    });
++
++    it('disconnects on destruction and ignores queued resize notifications', async () => {
++      const render = vi.fn(() => 'widget-1');
++      const remove = vi.fn();
++      window.turnstile = { render, remove, reset: vi.fn() };
++      const fixture = TestBed.createComponent(TurnstileWidgetComponent);
++      fixture.componentRef.setInput('siteKey', 'site-key');
++      fixture.detectChanges();
++      await fixture.whenStable();
++      expect(observe).toHaveBeenCalledWith(fixture.nativeElement.querySelector('.turnstile-widget'));
++
++      fixture.destroy();
++      notifyResize();
++      await Promise.resolve();
++
++      expect(disconnect).toHaveBeenCalledTimes(1);
++      expect(remove).toHaveBeenCalledWith('widget-1');
++      expect(render).toHaveBeenCalledTimes(1);
++    });
++  });
+ });
+diff --git a/apps/web/src/app/shared/components/turnstile-widget.component.ts b/apps/web/src/app/shared/components/turnstile-widget.component.ts
+index 225aee3..33b448b 100644
+--- a/apps/web/src/app/shared/components/turnstile-widget.component.ts
++++ b/apps/web/src/app/shared/components/turnstile-widget.component.ts
+@@ -103,14 +103,22 @@ export class TurnstileWidgetComponent implements AfterViewInit, OnDestroy {
+   private readonly locale = inject(LocaleService);
+   private widgetId: string | null = null;
+   private mountedKey: string | null = null;
++  private mountedSize: 'normal' | 'compact' | null = null;
++  private resizeObserver: ResizeObserver | null = null;
+   private destroyed = false;
+ 
+   ngAfterViewInit(): void {
++    const el = this.host()?.nativeElement;
++    if (el && typeof ResizeObserver !== 'undefined') {
++      this.resizeObserver = new ResizeObserver(() => void this.mount());
++      this.resizeObserver.observe(el);
++    }
+     void this.mount();
+   }
+ 
+   ngOnDestroy(): void {
+     this.destroyed = true;
++    this.resizeObserver?.disconnect();
+     this.removeWidget();
+   }
+ 
+@@ -125,8 +133,7 @@ export class TurnstileWidgetComponent implements AfterViewInit, OnDestroy {
+   private async mount(): Promise<void> {
+     const key = this.siteKey();
+     const el = this.host()?.nativeElement;
+-    if (!key || !el || this.mountedKey === key) return;
+-    this.removeWidget();
++    if (this.destroyed || !key || !el) return;
+     try {
+       await loadTurnstileScript();
+     } catch {
+@@ -139,10 +146,18 @@ export class TurnstileWidgetComponent implements AfterViewInit, OnDestroy {
+       this.loadError.set(true);
+       return;
+     }
++    // Re-check after loading: resize notifications can arrive while a mount is pending.
++    const size = el.clientWidth > 0 && el.clientWidth < 300 ? 'compact' : 'normal';
++    if (this.mountedKey === key && this.mountedSize === size) return;
++    if (this.widgetId !== null) {
++      this.token.set('');
++      this.tokenChange.emit('');
++    }
++    this.removeWidget();
+     this.widgetId = window.turnstile.render(el, {
+       sitekey: key,
+       // The normal widget is 300px wide and overflows a 320px screen.
+-      size: el.clientWidth > 0 && el.clientWidth < 300 ? 'compact' : 'normal',
++      size,
+       theme: this.theme.theme() === 'dark' ? 'dark' : 'light',
+       language: TURNSTILE_LANGUAGES[this.locale.active()] ?? 'auto',
+       callback: (value) => {
+@@ -160,6 +175,7 @@ export class TurnstileWidgetComponent implements AfterViewInit, OnDestroy {
+       },
+     });
+     this.mountedKey = key;
++    this.mountedSize = size;
+   }
+ 
+   private removeWidget(): void {
+@@ -168,5 +184,6 @@ export class TurnstileWidgetComponent implements AfterViewInit, OnDestroy {
+     }
+     this.widgetId = null;
+     this.mountedKey = null;
++    this.mountedSize = null;
+   }
+ }

@@ -1,0 +1,10 @@
+{
+  "argv": [
+    "git",
+    "apply",
+    "--reverse",
+    "--check",
+    "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/translator-cache-fix.patch"
+  ],
+  "exitCode": 0
+}

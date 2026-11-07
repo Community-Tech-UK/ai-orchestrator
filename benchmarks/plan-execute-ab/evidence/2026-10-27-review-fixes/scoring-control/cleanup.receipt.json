@@ -1,0 +1,38 @@
+{
+  "timestamp": "2026-10-27T14:01:54.482004+00:00",
+  "attempts": [
+    {
+      "attempt": 1,
+      "exitCode": 1,
+      "error": "OSError: [Errno 66] Directory not empty: microtask-only-parent/src",
+      "observedRemainingEntries": [
+        ".DS_Store"
+      ]
+    },
+    {
+      "attempt": 2,
+      "exitCode": 0
+    }
+  ],
+  "ownedScratchRemoved": true,
+  "paths": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/parent",
+      "existsAfterCleanup": false
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/fixed",
+      "existsAfterCleanup": false
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/microtask-only-parent",
+      "existsAfterCleanup": false
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling",
+      "existsAfterCleanup": false
+    }
+  ],
+  "assignedRootDependenciesPreserved": true,
+  "archivedEvidencePreserved": true
+}

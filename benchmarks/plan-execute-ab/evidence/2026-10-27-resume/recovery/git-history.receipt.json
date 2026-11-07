@@ -1,0 +1,302 @@
+{
+  "observedAt": "2026-10-27T15:36:12.989261+00:00",
+  "queries": [
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "log",
+        "--format=%H",
+        "9cc19c6d6c57267566cace5dac0d1999beb57780",
+        "--",
+        "benchmarks/plan-execute-ab"
+      ],
+      "exitCode": 0,
+      "stdout": "9cc19c6d6c57267566cace5dac0d1999beb57780\nd40809018bd7dc79b5841c202cd0c4c98ca98906\n5be81fd28450b7abae9590a6155f3d0caf4b2483\nf97b26f33265fbdf7cddeb0bc84bba213baec758\n31b0fad3cde3653ba66a530782deae19d852be48\nb4588fa9c02a49b37780a03dc947f8fd80c3ddb8\ndb270a386d81dc7a4a04d2c040ddd10d0e762da0\n14d606f2641b69d337633c266fccb603e52f0aa7\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "9cc19c6d6c57267566cace5dac0d1999beb57780",
+        "--",
+        "_scratch",
+        "benchmarks/plan-execute-ab"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "pathCount": 129,
+      "candidatePaths": []
+    },
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "d40809018bd7dc79b5841c202cd0c4c98ca98906",
+        "--",
+        "_scratch",
+        "benchmarks/plan-execute-ab"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "pathCount": 125,
+      "candidatePaths": []
+    },
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "5be81fd28450b7abae9590a6155f3d0caf4b2483",
+        "--",
+        "_scratch",
+        "benchmarks/plan-execute-ab"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "pathCount": 125,
+      "candidatePaths": []
+    },
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "f97b26f33265fbdf7cddeb0bc84bba213baec758",
+        "--",
+        "_scratch",
+        "benchmarks/plan-execute-ab"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "pathCount": 121,
+      "candidatePaths": []
+    },
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "31b0fad3cde3653ba66a530782deae19d852be48",
+        "--",
+        "_scratch",
+        "benchmarks/plan-execute-ab"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "pathCount": 117,
+      "candidatePaths": []
+    },
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "b4588fa9c02a49b37780a03dc947f8fd80c3ddb8",
+        "--",
+        "_scratch",
+        "benchmarks/plan-execute-ab"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "pathCount": 113,
+      "candidatePaths": []
+    },
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "db270a386d81dc7a4a04d2c040ddd10d0e762da0",
+        "--",
+        "_scratch",
+        "benchmarks/plan-execute-ab"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "pathCount": 109,
+      "candidatePaths": []
+    },
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "14d606f2641b69d337633c266fccb603e52f0aa7",
+        "--",
+        "_scratch",
+        "benchmarks/plan-execute-ab"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "pathCount": 99,
+      "candidatePaths": []
+    },
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "log",
+        "--format=%H",
+        "2aedbb10dbd6c3f172950e145d48619f22f5d4d6",
+        "--",
+        "benchmarks/plan-execute-ab"
+      ],
+      "exitCode": 0,
+      "stdout": "2aedbb10dbd6c3f172950e145d48619f22f5d4d6\naf75e1440d82df47e79e7fa76b6f4f86892de5cb\nc0fd6a026f12aaeb0bc9641ddc5765604588f8e1\n15b6021c4552965a6082ce8dec54f43966a05c79\n92a0af5faf3629c420fedbb249d6f9a821675f8a\n26e8b0117daa30a781d24ca6fff3a15b1b5b7c4f\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "2aedbb10dbd6c3f172950e145d48619f22f5d4d6",
+        "--",
+        "_scratch",
+        "benchmarks/plan-execute-ab"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "pathCount": 41,
+      "candidatePaths": []
+    },
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "af75e1440d82df47e79e7fa76b6f4f86892de5cb",
+        "--",
+        "_scratch",
+        "benchmarks/plan-execute-ab"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "pathCount": 41,
+      "candidatePaths": []
+    },
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "c0fd6a026f12aaeb0bc9641ddc5765604588f8e1",
+        "--",
+        "_scratch",
+        "benchmarks/plan-execute-ab"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "pathCount": 40,
+      "candidatePaths": []
+    },
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "15b6021c4552965a6082ce8dec54f43966a05c79",
+        "--",
+        "_scratch",
+        "benchmarks/plan-execute-ab"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "pathCount": 39,
+      "candidatePaths": []
+    },
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "92a0af5faf3629c420fedbb249d6f9a821675f8a",
+        "--",
+        "_scratch",
+        "benchmarks/plan-execute-ab"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "pathCount": 35,
+      "candidatePaths": []
+    },
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "26e8b0117daa30a781d24ca6fff3a15b1b5b7c4f",
+        "--",
+        "_scratch",
+        "benchmarks/plan-execute-ab"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "pathCount": 35,
+      "candidatePaths": []
+    },
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "rev-list",
+        "--objects",
+        "9cc19c6d6c57267566cace5dac0d1999beb57780",
+        "2aedbb10dbd6c3f172950e145d48619f22f5d4d6"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "objectCount": 51028,
+      "pathsOfInterest": []
+    }
+  ]
+}

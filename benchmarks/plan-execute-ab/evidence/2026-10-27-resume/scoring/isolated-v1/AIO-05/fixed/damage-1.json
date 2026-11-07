@@ -1,0 +1,13 @@
+{
+  "command": [
+    "node",
+    "--max-old-space-size=8192",
+    "node_modules/typescript/bin/tsc",
+    "--noEmit"
+  ],
+  "exitCode": 0,
+  "stdout": "",
+  "stderr": "",
+  "timedOut": false,
+  "durationMs": 25904
+}

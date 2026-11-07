@@ -1,0 +1,24 @@
+import datetime
+import json
+import pathlib
+import subprocess
+import sys
+import time
+
+evidence = pathlib.Path('benchmarks/plan-execute-ab/evidence/2026-10-27-round3')
+evidence.mkdir(parents=True, exist_ok=True)
+label, *command = sys.argv[1:]
+started = datetime.datetime.now(datetime.timezone.utc).isoformat()
+begin = time.monotonic()
+log = evidence / (label + '.log')
+with log.open('w') as output:
+    result = subprocess.run(['rtk', 'proxy', *command], stdout=output, stderr=subprocess.STDOUT)
+receipt = dict(label=label, command=command, cwd=str(pathlib.Path.cwd()), startedAt=started,
+               durationSeconds=round(time.monotonic()-begin, 3), exitCode=result.returncode,
+               log=str(log))
+with (evidence / 'receipts.jsonl').open('a') as output:
+    output.write(json.dumps(receipt) + '\n')
+print(json.dumps(receipt))
+if result.returncode:
+    print(log.read_text()[-10000:])
+sys.exit(result.returncode if result.returncode >= 0 else 128 - result.returncode)

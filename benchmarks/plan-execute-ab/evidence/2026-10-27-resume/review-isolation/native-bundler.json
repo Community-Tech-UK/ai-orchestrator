@@ -1,0 +1,21 @@
+{
+  "workspaceHasZod": false,
+  "bundleCommand": [
+    "node",
+    "node_modules/esbuild/bin/esbuild",
+    "fixture.js",
+    "--bundle",
+    "--platform=node",
+    "--outfile=bundle.cjs"
+  ],
+  "bundle": {
+    "exitCode": 0,
+    "stdout": "",
+    "stderr": "\n  bundle.cjs  739.1kb\n\n\u26a1 Done in 18ms\n"
+  },
+  "execute": {
+    "exitCode": 0,
+    "stdout": "HOST_DEPENDENCY_LOADED\n",
+    "stderr": ""
+  }
+}

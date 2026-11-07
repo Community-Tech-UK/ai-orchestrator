@@ -1,0 +1,25 @@
+{
+  "purpose": "Exact branch install; manifests only, no source checkout copy",
+  "files": [
+    {
+      "path": "package.json",
+      "sha256": "59b14f077bd607b076e156a9ac9d5f2645306d852039b8e0b6d4f314b7b5e04c"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "a1b0b186b9371516670ba5d12bf387d951bef620ceebc97574473f818f85f891"
+    },
+    {
+      "path": "packages/contracts/package.json",
+      "sha256": "b94437dd008883f83f3ce48726d10e76302081cf7e39f95313e3f944a5265d38"
+    },
+    {
+      "path": "packages/sdk/package.json",
+      "sha256": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a"
+    },
+    {
+      "path": "packages/archiver-compat/package.json",
+      "sha256": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e"
+    }
+  ]
+}

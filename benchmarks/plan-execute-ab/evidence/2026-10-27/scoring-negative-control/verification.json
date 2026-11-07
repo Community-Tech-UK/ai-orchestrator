@@ -1,0 +1,13 @@
+{
+  "failOnParent": false,
+  "passOnCommit": true,
+  "parentExit": 0,
+  "commitExit": 0,
+  "evidenceDir": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-local-model-2026-10-27/results/mining/AIO-01",
+  "log": [
+    "node_modules link state: linked",
+    "parent run exit 0 (expect non-zero)",
+    "node_modules link state: linked",
+    "commit run exit 0 (expect zero)"
+  ]
+}

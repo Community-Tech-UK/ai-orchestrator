@@ -1,0 +1,35 @@
+[
+  {
+    "name": "benchmark-typecheck",
+    "command": "rtk proxy ./node_modules/.bin/tsc --noEmit -p benchmarks/plan-execute-ab/tsconfig.json",
+    "result": {
+      "chunk_id": "68f2d7",
+      "wall_time_seconds": 1.4171168330000001,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    }
+  },
+  {
+    "name": "scoring-lint",
+    "command": "rtk proxy ./node_modules/.bin/oxlint benchmarks/plan-execute-ab/scoring-boundary.cjs benchmarks/plan-execute-ab/scoring-runtime.ts benchmarks/plan-execute-ab/scoring-setup.ts benchmarks/plan-execute-ab/scoring-setup.spec.ts benchmarks/plan-execute-ab/scorer.ts benchmarks/plan-execute-ab/scorer.spec.ts benchmarks/plan-execute-ab/task-export.spec.ts benchmarks/plan-execute-ab/runner.ts benchmarks/plan-execute-ab/runner.spec.ts benchmarks/plan-execute-ab/config.spec.ts",
+    "result": {
+      "chunk_id": "98b7f8",
+      "wall_time_seconds": 0.161057875,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    }
+  },
+  {
+    "name": "diff-whitespace",
+    "command": "rtk proxy git diff --check",
+    "result": {
+      "chunk_id": "b658f3",
+      "wall_time_seconds": 0.000008791,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    }
+  }
+]

@@ -1,0 +1,339 @@
+{
+  "observedAt": "2026-10-27T13:53:59.341051+00:00",
+  "scope": "Read-only recovery investigation; only this receipt and its Markdown companion written.",
+  "result": "No original full runner records or patches recovered for eight later C1 and ten C2 cells. This is a bounded negative result, not proof of universal absence.",
+  "sourceFiles": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/runs.jsonl",
+      "bytes": 70340,
+      "sha256": "f4d94f61b750e6d84602d0af063bd3db15e6b06b3c18c46bc00f2dbcf5206cad",
+      "observedAt": "2026-10-27T13:53:59.341051+00:00"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/runs-quarantined.jsonl",
+      "bytes": 93240,
+      "sha256": "6b9b91d460b209ad264e97b5ebd70b6cab62504c3a9b486c541544285af945d6",
+      "observedAt": "2026-10-27T13:53:59.341051+00:00"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27/retained-evidence-manifest.json",
+      "bytes": 16353,
+      "sha256": "009bf126d592efe8df33d853c9c5c003c40a96c887374296524ccc31269afa63",
+      "observedAt": "2026-10-27T13:53:59.341051+00:00"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27/recovered-scoring-receipts.json",
+      "bytes": 14833,
+      "sha256": "975ecdab886933f2d4ffad088574f994d48c7058e406d98b5d1e27525cbd4121",
+      "observedAt": "2026-10-27T13:53:59.341051+00:00"
+    }
+  ],
+  "sourceQueries": {
+    "openCodeDatabase": "/Users/suas/.local/share/opencode/opencode.db",
+    "allExperimentPartsSql": "SELECT p.id,p.session_id,p.time_created,p.data FROM part p JOIN session s ON s.id=p.session_id WHERE s.directory LIKE '%local-model-plan-ex%' ORDER BY p.time_created,p.id",
+    "laterPartsSql": "SELECT p.id,p.session_id,p.time_created,p.data FROM part p JOIN session s ON s.id=p.session_id WHERE s.directory LIKE '%local-model-plan-ex%' AND p.time_created>=1792882800000 ORDER BY p.time_created,p.id",
+    "laterThresholdUtc": "2026-10-24T23:00:00Z",
+    "originalRowsSql": "SELECT id,session_id,time_created,data FROM part WHERE id=?",
+    "ledgerDatabase": "/Users/suas/Library/Application Support/harness/conversation-ledger/conversation-ledger.db",
+    "ledgerSql": "SELECT m.id,m.thread_id,m.created_at,m.content,m.raw_json FROM conversation_messages m JOIN conversation_threads t ON t.id=m.thread_id WHERE t.workspace_path LIKE '%local-model-plan-ex-01472a' ORDER BY m.created_at,m.id"
+  },
+  "queryResults": {
+    "experimentParts": 9040,
+    "laterExperimentParts": 1567,
+    "originalOutputSearch": {
+      "C2PatchOutput": [],
+      "C1OrC2FullRecordOutput": []
+    },
+    "laterOutputSearch": {
+      "C2PatchOutput": [],
+      "C1OrC2FullRecordOutput": []
+    },
+    "ledgerMessages": 807,
+    "ledgerFullRecordOrC2PatchHits": []
+  },
+  "retainedMirror": {
+    "runs": 32,
+    "runsByArm": {
+      "A": 10,
+      "D": 10,
+      "G": 10,
+      "C1": 2
+    },
+    "quarantinedRuns": 14,
+    "quarantinedByArm": {
+      "C1": 14
+    },
+    "retainedC1Records": [
+      {
+        "taskId": "12ST-01",
+        "armId": "C1",
+        "startedAt": "2026-10-24T19:46:45.977Z",
+        "completedAt": "2026-10-24T20:49:24.213Z",
+        "durationMs": 3600388,
+        "patchPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-01472a/_scratch/plan-execute-ab/pilot-2026-10-15/patches/12ST-01-C1-run1.patch"
+      },
+      {
+        "taskId": "12ST-02",
+        "armId": "C1",
+        "startedAt": "2026-10-24T20:49:24.452Z",
+        "completedAt": "2026-10-24T21:52:12.705Z",
+        "durationMs": 3600490,
+        "patchPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-01472a/_scratch/plan-execute-ab/pilot-2026-10-15/patches/12ST-02-C1-run1.patch"
+      }
+    ],
+    "directorySearch": {
+      "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab": {
+        "C2Patches": [],
+        "jsonl": [
+          "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/runs.jsonl",
+          "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/runs-quarantined.jsonl"
+        ]
+      },
+      "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab-recovery": {
+        "C2Patches": [],
+        "jsonl": []
+      }
+    }
+  },
+  "checkpointInspection": {
+    "argv": [
+      "rtk",
+      "proxy",
+      "git",
+      "ls-tree",
+      "-r",
+      "--name-only",
+      "9cc19c6d6c57267566cace5dac0d1999beb57780",
+      "--",
+      "_scratch"
+    ],
+    "exitCode": 0,
+    "stdout": "",
+    "interpretation": "Checkpoint tree contains no tracked _scratch files; does not inspect unnamed unreachable blobs."
+  },
+  "originalSourceRows": [
+    {
+      "id": "prt_170838ed0001tezDVv1L54VLFb",
+      "sessionId": "ses_e8f90a3bdffeORIN8zOXpCFVtl",
+      "createdAt": "2026-10-25T00:43:52.400000+00:00",
+      "sourceDataUtf8Sha256": "65cef0c70126a12f352d2323e98bf93a4c9fd41f04422a540a4ecb44fb7d027b",
+      "tool": "bash",
+      "input": {
+        "command": "node -e \"\nconst fs=require('fs');\nconst lines=fs.readFileSync('_scratch/plan-execute-ab/pilot-2026-10-15/runs.jsonl','utf8').trim().split('\\n');\nconst r=JSON.parse(lines[lines.length-1]);\nconsole.log(JSON.stringify({task:r.taskId,arm:r.armId,run:r.runNumber,ms:r.durationMs,turns:r.turns,flags:r.flags,score:r.score,setup:r.servingSetupId,speed:r.localSpeed,err:r.error,coder:r.coderUsage},null,1));\nconsole.log('total records:', lines.length);\n\"",
+        "workdir": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-01472a"
+      },
+      "output": "{\n \"task\": \"AIO-01\",\n \"arm\": \"C1\",\n \"run\": 1,\n \"ms\": 154057,\n \"turns\": 13,\n \"flags\": {\n  \"looped\": false,\n  \"toolCallErrors\": 0,\n  \"hitTurnCap\": false,\n  \"gaveUp\": true\n },\n \"score\": {\n  \"hiddenTests\": {\n   \"passed\": false,\n   \"command\": [\n    \"npm\",\n    \"run\",\n    \"test:quiet\",\n    \"--\",\n    \"src/main/history/history-manager.spec.ts\"\n   ],\n   \"exitCode\": 1,\n   \"timedOut\": false,\n   \"outputTail\": \"\\n> harness@0.1.0 test:quiet\\n> node scripts/run-tests-quiet.js src/main/history/history-manager.spec.ts\\n\\n\u2717 run-tests-quiet crashed: Package subpath './vitest.mjs' is not defined by \\\"exports\\\" in /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-01472a/_scratch/plan-execute-ab/workspaces/AIO-01-C1-1/node_modules/vitest/package.json\\n\\n\"\n  },\n  \"damage\": [\n   {\n    \"ok\": false,\n    \"command\": [\n     \"npx\",\n     \"tsc\",\n     \"--noEmit\"\n    ],\n    \"exitCode\": 2,\n    \"timedOut\": false,\n    \"outputTail\": \"src/main/graph/graph-auth.ts(110,9): error TS2353: Object literal may only specify known properties, and 'loopbackClient' does not exist in type 'InteractiveRequest'.\\nsrc/main/graph/graph-loopback-client.ts(2,15): error TS2305: Module '\\\"@azure/msal-node\\\"' has no exported member 'ILoopbackClient'.\\nsrc/main/plugins/plugin-source-resolver.ts(70,46): error TS2345: Argument of type 'import(\\\"/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-01472a/node_modules/@types/yauzl/index\\\").Entry' is not assignable to parameter of type 'import(\\\"/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@types/yauzl/index\\\").Entry'.\\n  Type 'Entry' is missing the following properties from type 'Entry': extraFieldRaw, fileComment, fileCommentRaw, fileNameRaw, canDecodeFileData\\nvitest.slow.config.ts(26,5): error TS2769: No overload matches this call.\\n  The last overload gave the following error.\\n    Object literal may only specify known properties, and 'poolOptions' does not exist in type 'InlineConfig'.\\n\\n\"\n   },\n   {\n    \"ok\": true,\n    \"command\": [\n     \"npm\",\n     \"run\",\n     \"lint:fast\"\n    ],\n    \"exitCode\": 0,\n    \"timedOut\": false,\n    \"outputTail\": \"ests__/instance-manager.send-input.spec.ts:878:10: warning eslint(no-unused-vars): Function 'registerWindowsWorkerNode' is declared but never used. help: Consider removing this declaration.\\nsrc/main/instance/__tests__/instance-manager.send-input.spec.ts:889:10: warning eslint(no-unused-vars): Function 'seedThisDeviceLocalModel' is declared but never used. help: Consider removing this declaration.\\nsrc/main/indexing/indexing-service.spec.ts:9:32: warning eslint(no-unused-vars): Identifier 'beforeEach' is imported but never used. help: Consider removing this import.\\nsrc/main/indexing/indexing-service.spec.ts:9:48: warning eslint(no-unused-vars): Identifier 'afterEach' is imported but never used. help: Consider removing this import.\\nsrc/main/history/transcript-snippet-service.ts:151:7: warning eslint(prefer-const): `end` is never reassigned. help: Use `const` instead.\\nsrc/main/instance/__tests__/instance-manager.create.spec.ts:859:10: warning eslint(no-unused-vars): Identifier 'generateChildPrompt' is imported but never used. help: Consider removing this import.\\nsrc/main/instance/__tests__/instance-manager.create.spec.ts:861:15: warning eslint(no-unused-vars): Type 'RoutingDecision' is imported but never used. help: Consider removing this import.\\nsrc/main/instance/__tests__/instance-manager.create.spec.ts:862:15: warning eslint(no-unused-vars): Type 'SpawnChildCommand' is imported but never used. help: Consider removing this import.\\nsrc/main/instance/__tests__/instance-manager.create.spec.ts:874:10: warning eslint(no-unused-vars): Function 'registerWindowsWorkerNode' is declared but never used. help: Consider removing this declaration.\\nsrc/main/instance/__tests__/instance-manager.create.spec.ts:885:10: warning eslint(no-unused-vars): Function 'seedThisDeviceLocalModel' is declared but never used. help: Consider removing this declaration.\\nsrc/main/cli/adapters/ollama-cli-adapter.ts:588:23: warning eslint(eqeqeq): Expected === and instead saw == help: Prefer === operator\\nsrc/main/cli/adapters/cli-status-probe.ts:80:9: warning eslint(prefer-const): `timeout` is never reassigned. help: Use `const` instead.\\nsrc/main/ipc/handlers/settings-handlers.ts:16:10: warning eslint(no-unused-vars): Identifier 'getRemoteConfigManager' is imported but never used. help: Consider removing this import.\\nsrc/main/ipc/handlers/renderer-telemetry-handlers.ts:35:11: warning unicorn(no-useless-fallback-in-spread): Empty fallbacks in spreads are unnecessary help: Spreading falsy values in object literals won't add any unexpected properties, so it's unnecessary to add an empty object as fallback.\\nsrc/main/cli/adapters/claude-cli-feature-probes.ts:47:9: warning eslint(prefer-const): `timeoutHandle` is never reassigned. help: Use `const` instead.\\nsrc/main/orchestration/__tests__/sibling-abort.spec.ts:36:11: warning eslint(no-unused-vars): Variable 'child1' is declared but never used. Unused variables should start with a '_'. help: Consider removing this declaration.\\nsrc/main/orchestration/__tests__/campaign-coordinator.spec.ts:13:10: warning eslint(no-unused-vars): Identifier 'createLoopMigrationsTable' is imported but never used. help: Consider removing this import.\\nsrc/main/orchestration/__tests__/campaign-coordinator.spec.ts:14:67: warning eslint(no-unused-vars): Type 'CampaignNodeStatus' is imported but never used. help: Consider removing this import.\\nsrc/main/orchestration/__tests__/campaign-coordinator.spec.ts:1211:15: warning eslint(eqeqeq): Expected === and instead saw == help: Prefer === operator\\nsrc/main/orchestration/__tests__/campaign-coordinator.spec.ts:1212:15: warning eslint(eqeqeq): Expected === and instead saw == help: Prefer === operator\\nsrc/main/cli/adapters/acp-cli-adapter.ts:39:3: warning eslint(no-unused-vars): Type 'AcpAvailableCommandsUpdate' is imported but never used. help: Consider removing this import.\\nsrc/main/cli/adapters/acp-cli-adapter.ts:1285:29: warning eslint(eqeqeq): Expected === and instead saw == help: Prefer === operator\\n\\n\"\n   }\n  ],\n  \"damageOk\": false\n },\n \"setup\": \"llama-server-2.60.0-27b-65536\",\n \"speed\": {\n  \"promptTokensPerSec\": 3403.0167597765367,\n  \"writeTokensPerSec\": 51.42627561269587,\n  \"source\": \"wall-clock\"\n },\n \"err\": \"API Error: 400 request (75642 tokens) exceeds the available context size (65536 tokens), try increasing it\",\n \"coder\": {\n  \"inputTokens\": 81609,\n  \"outputTokens\": 4376,\n  \"cacheReadTokens\": 377068,\n  \"cacheWriteTokens\": 0\n }\n}\ntotal records: 33\n"
+    },
+    {
+      "id": "prt_17091cea6001lJ4j3I7qi0uCCC",
+      "sessionId": "ses_e8f90a3bdffeORIN8zOXpCFVtl",
+      "createdAt": "2026-10-25T00:59:26.246000+00:00",
+      "sourceDataUtf8Sha256": "e4aa32ff4541addc60566abf5e60c49fa08f3cb00d7f191d46c2b3bd81455549",
+      "tool": "bash",
+      "input": {
+        "command": "node -e \"\nconst fs=require('fs');\nconst runsPath='_scratch/plan-execute-ab/pilot-2026-10-15/runs.jsonl';\nconst quarPath='_scratch/plan-execute-ab/pilot-2026-10-15/runs-quarantined.jsonl';\nconst lines=fs.readFileSync(runsPath,'utf8').trim().split('\\n');\nconst last=JSON.parse(lines[lines.length-1]);\nif(last.taskId!=='AIO-01'||last.armId!=='C1') throw new Error('unexpected last record: '+last.taskId+'/'+last.armId);\nlast.quarantineReason='Scoring environment defect (LT-709, registered before fixing): hidden tests crashed (run-tests-quiet could not resolve vitest/vitest.mjs against the root checkout divergent vitest 4 install linked into the workspace) and tsc damage checks mixed two node_modules trees, so hiddenTests.passed=false is a crash, not a verdict \u2014 the score is void regardless of the models work. The run itself also died at turn 13 with a 400 (request 75,642 tokens exceeds the 65,536 context) after large file reads; that outcome stands to be observed again on the re-run with working scoring. Re-run planned after the LT-709 fix (workspaces back under /tmp, linking the benchmark checkout install).';\nfs.writeFileSync(runsPath, lines.slice(0,-1).join('\\n')+'\\n');\nfs.appendFileSync(quarPath, JSON.stringify(last)+'\\n');\nconsole.log('quarantined; runs.jsonl now', lines.length-1, 'records');\n\" && rm -rf _scratch/plan-execute-ab/workspaces/* /tmp/plan-execute-ab 2>/dev/null; ls /tmp/plan-execute-ab 2>/dev/null | wc -l",
+        "workdir": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-01472a"
+      },
+      "output": "quarantined; runs.jsonl now 32 records\n       0\n"
+    },
+    {
+      "id": "prt_1718ff1280010Jyq6v3PN6nnhy",
+      "sessionId": "ses_e8f90a3bdffeORIN8zOXpCFVtl",
+      "createdAt": "2026-10-25T05:37:01.224000+00:00",
+      "sourceDataUtf8Sha256": "415fd9178437643f4853a333da1ddf29b8cfe11c0904073168ec4a20afa8ab6f",
+      "tool": "bash",
+      "input": {
+        "command": "node -e \"\nconst fs=require('fs');\nconst l=fs.readFileSync('_scratch/plan-execute-ab/pilot-2026-10-15/runs.jsonl','utf8').trim().split('\\n');\nconst rows=[];\nfor(const x of l){const r=JSON.parse(x);\nif(r.armId==='C1'&&r.completedAt>'2026-10-25'){\nconst err=(r.error||'none').replace(/\\|/g,'/');\nrows.push('| '+r.taskId+' | '+(Math.round(r.durationMs/60000))+' min | '+r.turns+' | '+(r.score.hiddenTests.passed?'pass':'FAIL')+' | '+(r.score.damageOk?'clean':'DAMAGE')+' | '+(r.error?(r.error.startsWith('API Error: 400')?'context overflow ('+(r.error.match(/\\((\\d+) tokens\\)/)[1])+' > 65,536)':'wall clock'):'\u2014')+' |');\n}}\nconsole.log(rows.join('\\n'));\n\"",
+        "workdir": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-01472a"
+      },
+      "output": "| AIO-01 | 60 min | 9 | FAIL | clean | wall clock |\n| AIO-02 | 60 min | 4 | FAIL | clean | wall clock |\n| AIO-03 | 4 min | 7 | FAIL | clean | context overflow (81350 > 65,536) |\n| AIO-04 | 7 min | 10 | FAIL | clean | context overflow (76232 > 65,536) |\n| AIO-05 | 15 min | 24 | FAIL | clean | context overflow (75825 > 65,536) |\n| AIO-06 | 18 min | 33 | FAIL | clean | context overflow (76998 > 65,536) |\n| 12ST-03 | 49 min | 39 | FAIL | DAMAGE | context overflow (79971 > 65,536) |\n| 12ST-04 | 7 min | 14 | FAIL | DAMAGE | context overflow (83047 > 65,536) |\n"
+    },
+    {
+      "id": "prt_172313cf2001B9dqS3P76TcCBN",
+      "sessionId": "ses_e8f90a3bdffeORIN8zOXpCFVtl",
+      "createdAt": "2026-10-25T08:33:11.922000+00:00",
+      "sourceDataUtf8Sha256": "c92929a9e627d3631bd064918520e909819ba6592e2ba96e43ed25b17a7c3f6b",
+      "tool": "bash",
+      "input": {
+        "command": "node -e \"\nconst fs=require('fs');\nconst l=fs.readFileSync('_scratch/plan-execute-ab/pilot-2026-10-15/runs.jsonl','utf8').trim().split('\\n');\nfor(const x of l){const r=JSON.parse(x); if(r.armId==='C2') console.log(r.taskId, 'ms', Math.round(r.durationMs/60000)+'min', 'turns', r.turns, 'hidden', r.score.hiddenTests.passed, 'damageOk', r.score.damageOk);}\nconsole.log('--- report rules:');\nconst rep=JSON.parse(fs.readFileSync('_scratch/plan-execute-ab/pilot-2026-10-15/report.json','utf8'));\nfor(const rule of rep.decisionRules) console.log('['+(rule.triggered?'TRIGGERED':'not triggered')+']', rule.rule.slice(0,70), '\\n   ', rule.detail);\nfor(const a of rep.arms) console.log(a.armId, 'runs', a.runs, 'solved', a.solved, 'hidden', a.hiddenTestPass, 'rate', (a.solvedRate*100).toFixed(0)+'%');\n\"",
+        "workdir": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-01472a"
+      },
+      "output": "AIO-01 ms 27min turns 52 hidden true damageOk true\nAIO-02 ms 23min turns 34 hidden true damageOk true\nAIO-03 ms 35min turns 24 hidden false damageOk true\nAIO-04 ms 3min turns 11 hidden false damageOk true\nAIO-05 ms 8min turns 20 hidden false damageOk true\nAIO-06 ms 5min turns 27 hidden false damageOk true\n12ST-01 ms 18min turns 21 hidden false damageOk true\n12ST-02 ms 15min turns 19 hidden true damageOk true\n12ST-03 ms 16min turns 34 hidden false damageOk false\n12ST-04 ms 8min turns 20 hidden false damageOk false\n--- report rules:\n[not triggered] speed gate (setup): C2 needs 300+ prompt tok/s and 15+ write tok/s on  \n    prompt 797 tok/s and write 21.0 tok/s both clear the gate\n[not triggered] pilot stop rule: stop if the better of C1/C2 is more than 25 points be \n    A 30% vs better of C1/C2 30% (gap 0 points)\n[not triggered] C1 vs C2: keep C2 in the full run only if it beats C1 clearly (>= 20 p \n    C1 solved 0/10, C2 solved 3/10 \u2014 full run keeps C2 (and C1)\nA runs 10 solved 3 hidden 3 rate 30%\nD runs 10 solved 3 hidden 3 rate 30%\nG runs 10 solved 3 hidden 3 rate 30%\nC1 runs 10 solved 0 hidden 0 rate 0%\nC2 runs 10 solved 3 hidden 3 rate 30%\n"
+    },
+    {
+      "id": "prt_1716bd747001ldTvZXVo8t8eEs",
+      "sessionId": "ses_e8f90a3bdffeORIN8zOXpCFVtl",
+      "createdAt": "2026-10-25T04:57:35.303000+00:00",
+      "sourceDataUtf8Sha256": "9a155a67e452d8f41c1f32cc36d8b74519a1a7a9f9822f11c4462f19ed658cf7",
+      "tool": "bash",
+      "input": {
+        "command": "node -e \"\nconst fs=require('fs');\nconst l=fs.readFileSync('_scratch/plan-execute-ab/pilot-2026-10-15/runs.jsonl','utf8').trim().split('\\n');\nfor(const x of l){const r=JSON.parse(x); if(r.taskId==='12ST-03'&&r.armId==='C1'&&r.completedAt>'2026-10-25'){\nfor(const d of r.score.damage) console.log('damage:', d.command.join(' '), 'exit', d.exitCode, '|', d.outputTail.slice(0,250).replace(/\\n/g,' '));\nconsole.log('hidden tail:', r.score.hiddenTests.outputTail.slice(0,150).replace(/\\n/g,' '));\n}}\n\"",
+        "workdir": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-01472a"
+      },
+      "output": "damage: sh -c cd apps/web && pnpm run generate:locales && npx tsc -p tsconfig.spec.json --noEmit exit 2 |  > @12steps/web@0.0.0 generate:locales /private/tmp/plan-execute-ab/12ST-03-C1-1/apps/web > node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs  src/app/home/home.component.spec.ts(19,8): error TS2307: Cannot find\nhidden tail:  > @12steps/web@0.0.0 generate:locales /private/tmp/plan-execute-ab/12ST-03-C1-1/apps/web > node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON script\n"
+    }
+  ],
+  "parsedInterpretations": {
+    "richAio01": {
+      "sourceId": "prt_170838ed0001tezDVv1L54VLFb",
+      "task": "AIO-01",
+      "arm": "C1",
+      "durationMs": 154057,
+      "turns": 13,
+      "classification": "Earlier scoring-environment-defective attempt, subsequently quarantined; not the later settled rerun.",
+      "quarantineSourceId": "prt_17091cea6001lJ4j3I7qi0uCCC",
+      "quarantineObservedOutput": "quarantined; runs.jsonl now 32 records",
+      "laterBatchSourceId": "prt_1718ff1280010Jyq6v3PN6nnhy",
+      "laterAio01Summary": "60 min, 9 turns, hidden FAIL, clean damage, wall clock",
+      "consequence": "The earlier vitest/vitest.mjs crash cannot be attributed to the later 0/10 C1 matrix using this receipt."
+    },
+    "missingCells": {
+      "laterC1": 8,
+      "C2": 10
+    },
+    "recordVsSummary": "Original database rows are preserved as captured tool commands/outputs. They project selected fields from records; the later batch outputs are summaries, not full records. No synthetic records or patches created."
+  },
+  "survivingAgentTranscripts": [
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-12ST-04-C1-1/49f7fa48-b878-4928-88bc-18fb192f8aa2.jsonl",
+      "bytes": 690175,
+      "sha256": "ce409bc0e53eb9c99ad05412a9baa6d269535d735e4b23adec58e360864dcb98",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-01-C1-1/328a9d0f-e361-4229-8fff-5c33ad8e272a.jsonl",
+      "bytes": 524665,
+      "sha256": "ef8fa0b841e920be7801ab4b63fb22ac628c47cc45c1eab54317ed6039fcb090",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-06-C1-1/9d3d38c4-8611-4938-a730-d794da50819c.jsonl",
+      "bytes": 774622,
+      "sha256": "fdc4da608414544979d5b87fb24a05e28078aad54173db3cf8ad3b3e1ab0ee6f",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-12ST-03-C1-1/007a9500-a3ce-4b96-8c37-bf60a3b272fd.jsonl",
+      "bytes": 780642,
+      "sha256": "e46328e55cc864343d1aa98194eda71e13ca833c182b9f74e47924fffd934aab",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-04-C1-1/1af52093-586c-431f-96ef-070f2c696569.jsonl",
+      "bytes": 646594,
+      "sha256": "2423619dfd4db097a4d686326a6f5cac5e179b817bdf8b9483345a3b13dd1b11",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-05-C1-1/51b5519d-f37d-4ca1-8ff1-ed4f866aa50a.jsonl",
+      "bytes": 697019,
+      "sha256": "0395af5b118ea9635ef11dc1c222eb10ccbd620956d63343b75cc7867e3dc388",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-02-C1-1/b28f9c7b-6fb3-4c16-a7a2-194bd496381d.jsonl",
+      "bytes": 400243,
+      "sha256": "982059d576c008999eaa9e1870b3a6c86cbfabd5c64751dc3d16bcc7fc68d600",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-03-C1-1/ecb964e6-90a8-41f4-8864-b9b17f1f72b8.jsonl",
+      "bytes": 663512,
+      "sha256": "042d91dfb869c6ed2bbc3a6b3011bfa4d64570e4a6877a3dadcbc4cbddd3761e",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-12ST-02-C2-1/46af98a0-0377-46af-be6c-0158acbaea4a.jsonl",
+      "bytes": 494094,
+      "sha256": "f15cfc7803beb8d7d3bcc547e1d9b536557bd958554fcfa9f89fa0dfaf859379",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-06-C2-1/98fa5c0b-893a-4017-9561-6cc8f20b5632.jsonl",
+      "bytes": 732970,
+      "sha256": "5a774d893ad96c7c2ba19ab7f8572234fb46a8db8a40a5485f3784dfcbe983c5",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-12ST-03-C2-1/1a113a5a-f408-4823-af95-9a1dde5587e4.jsonl",
+      "bytes": 779713,
+      "sha256": "0f3dd87573900946798cbbe1faa8465794b1192b1767715b548f461b9f18a836",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-12ST-04-C2-1/ffdac120-e056-48d1-bf16-59194435c10a.jsonl",
+      "bytes": 741599,
+      "sha256": "44703f0fad2b6e6e0a2b5d568bdcb2f2cb839c712781759403f59e010eff30f2",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-01-C2-1/cb3b9c47-9bca-4791-a457-2789ebf4183b.jsonl",
+      "bytes": 862437,
+      "sha256": "6f361c5e1b42f1392083dddd05e8e8e2a4a7604158d8fc99a8a2d76cf0775813",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-02-C2-1/f4659e08-8cd6-49cb-ae14-6b249890414f.jsonl",
+      "bytes": 608922,
+      "sha256": "5521e2ccf73399088e72f41cb437f287542fcce9f2028cc71caa3c19f8fc20ff",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-03-C2-1/87b3f4b8-a407-466e-b6f8-119126ca013a.jsonl",
+      "bytes": 783710,
+      "sha256": "a2d4941b0592010a5f6a030397136323799cfc9c8ab46943fc44edd350f1b4a1",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-04-C2-1/2931d2d4-6533-42af-8be0-04468d3c7027.jsonl",
+      "bytes": 661114,
+      "sha256": "9cab8106f6617d253e57729f07324f009299dad2e96b0d4b5e8f50dc89115a1e",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-05-C2-1/ad36090e-db28-4e8e-b3c8-2a0b4ac2f971.jsonl",
+      "bytes": 621670,
+      "sha256": "d52d9b57fe79cb8df3a193f5f6699d03fd32f04c55816ffb385ead8674ac0b5d",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-12ST-01-C2-1/6c86ae4a-7cc7-4ae3-8932-3348a0e878c1.jsonl",
+      "bytes": 610936,
+      "sha256": "0a076abbab21f80e3d4c92b83f76f31ed24e685b9e98f2a52bb5b7151be0b6e8",
+      "matchesManifestSha256": true,
+      "classification": "Original agent transcript; not a runner record or final patch"
+    }
+  ],
+  "pathChecks": {
+    "original01472aWorktreeExists": false,
+    "currentPilotScratchExists": false,
+    "temporaryWorkspaceChildren": [
+      "AIO-03-B-1"
+    ]
+  },
+  "limits": [
+    "Did not inspect every unreachable or unnamed Git blob.",
+    "Did not inspect external backups or remote machines.",
+    "Did not reconstruct final patches by replaying CLI tool calls or infer missing runner fields from summaries.",
+    "SQLite databases were read using mode=ro; row hashes fingerprint exact data text at observation time, not a stable hash of a live database/WAL.",
+    "The no-full-record search identifies literal patchPath with literal C1/C2 in captured output; it is not an exhaustive detector for arbitrary encodings or compressed payloads.",
+    "Existing C1 patch filenames alone do not establish identity with later missing attempts."
+  ]
+}

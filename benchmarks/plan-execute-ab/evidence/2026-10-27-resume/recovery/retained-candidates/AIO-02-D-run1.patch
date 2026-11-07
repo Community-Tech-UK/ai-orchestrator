@@ -1,0 +1,34 @@
+diff --git a/.github/workflows/model-catalog-watch.yml b/.github/workflows/model-catalog-watch.yml
+index 38ac2e8..a390ef0 100644
+--- a/.github/workflows/model-catalog-watch.yml
++++ b/.github/workflows/model-catalog-watch.yml
+@@ -54,6 +54,10 @@ jobs:
+             } >> "$GITHUB_STEP_SUMMARY"
+           fi
++      # Green on drift is deliberate: a permanently red run was ignored for weeks
++      # without driving the sync. The tracking issue is the signal, and the run
++      # only goes red on real failures (models.dev unreachable or empty, install
++      # failure, or a GitHub API failure while filing the issue).
+       - name: Open or update drift issue
+         if: steps.refresh.outputs.drift == 'true'
+         env:
+@@ -62,29 +66,37 @@ jobs:
+         run: |
+           issue_title='Model catalog drift detected'
+           snapshot='src/main/providers/models-dev-snapshot.generated.ts'
++          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
++          max_diff_bytes=60000
++          diff_file="$(mktemp)"
+           issue_body_file="$(mktemp)"
++          git diff --unified=2 -- "$snapshot" > "$diff_file"
+           {
+             echo 'The scheduled model-catalog watcher found drift between the committed offline snapshot and live models.dev.'
+             echo
+             echo 'Run `npm run sync:model-catalog`, review every added/removed/changed model, and update curated metadata plus `PROVIDER_MODEL_REPLACEMENTS` when a model is intentionally replaced.'
+             echo
+-            echo "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
++            echo "Workflow run: $run_url"
+             echo
+             echo '<details><summary>Generated snapshot diff</summary>'
+             echo
+             echo '

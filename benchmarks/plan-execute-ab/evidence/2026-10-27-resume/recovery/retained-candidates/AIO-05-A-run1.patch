@@ -1,0 +1,528 @@
+diff --git a/src/main/automations/automation-runner-helpers.ts b/src/main/automations/automation-runner-helpers.ts
+index 858aece..f3a58cc 100644
+--- a/src/main/automations/automation-runner-helpers.ts
++++ b/src/main/automations/automation-runner-helpers.ts
+@@ -5,6 +5,7 @@ import { app } from 'electron';
+ import { getLogger } from '../logging/logger';
+ import { getArtifactAttributionStore } from '../session/artifact-attribution-store';
+ import { getChannelManager } from '../channels/channel-manager';
++import { isProviderLimitExitNotice } from '../cli/provider-notice';
+ import type { AutomationRun } from '../../shared/types/automation.types';
+ import type { ChannelPlatform } from '../../shared/types/channels';
+@@ -16,6 +17,8 @@ export interface RunTracking {
+   automationId: string;
+   seenAssistantOutput: boolean;
+   lastAssistantOutput?: string;
++  /** Set when the instance parked the turn on a provider rate/usage limit. */
++  providerLimitParked?: boolean;
+   outputChunks: {
+     kind: string;
+     content?: string;
+@@ -23,6 +26,20 @@ export interface RunTracking {
+   }[];
+ }
++/**
++ * Failure reason when a run that looked finished actually stopped on a
++ * provider usage/spend limit (its final output is the limit notice, or the
++ * session was parked on the limit); undefined for a genuine completion.
++ */
++export function getProviderLimitExitReason(tracking: RunTracking): string | undefined {
++  if (isProviderLimitExitNotice(tracking.lastAssistantOutput)) {
++    return `Provider limit reached: ${tracking.lastAssistantOutput!.trim().slice(0, 300)}`;
++  }
++  return tracking.providerLimitParked
++    ? 'Provider limit reached: the session was parked until the limit resets'
++    : undefined;
++}
++
+ function getUserDataPath(): string {
+   const electronApp = app as { getPath?: (name: string) => string } | undefined;
+   return typeof electronApp?.getPath === 'function'
+diff --git a/src/main/automations/automation-runner.spec.ts b/src/main/automations/automation-runner.spec.ts
+index 429f0f4..524e8f4 100644
+--- a/src/main/automations/automation-runner.spec.ts
++++ b/src/main/automations/automation-runner.spec.ts
+@@ -569,6 +569,188 @@ describe('AutomationRunner thread wakeups', () => {
+       expect(instance.metadata['automationRunSucceeded']).toBeUndefined();
+     });
+   });
++
++  describe('provider-limit exits', () => {
++    async function fireRunEndingWith(
++      content: string,
++      extra: Record<string, unknown>[] = [],
++      before: Record<string, unknown>[] = [],
++    ) {
++      const run = makeRun();
++      run.configSnapshot = {
++        ...run.configSnapshot!,
++        destination: { kind: 'newInstance' },
++        action: { prompt: 'Check', workingDirectory: '/repo/current' },
++      };
++      const instance = {
++        id: 'i-limit',
++        outputBuffer: [...before, { type: 'assistant', content, timestamp: 1 }, ...extra],
++        status: 'working',
++        metadata: { automationId: 'automation-1' } as Record<string, unknown>,
++      };
++      vi.mocked(store.get).mockResolvedValue(makeAutomation({ destination: { kind: 'newInstance' } }));
++      vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
++      manager.createInstance.mockResolvedValue(instance);
++
++      const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
++      runner.initialize(manager);
++      await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
++      manager.emit('instance:event', {
++        instanceId: 'i-limit',
++        event: { kind: 'status_changed', status: 'idle' },
++      });
++      return instance;
++    }
++
++    it.each([
++      "You've hit your usage limit. Upgrade to Pro or try again at Jul 21st, 2026 9:37 PM.",
++      "You've hit your spend limit. Raise it in your account settings to keep going.",
++      'Your organization has reached its monthly spending limit.',
++    ])('records a run that ended on a provider limit notice as failed: %s', async (notice) => {
++      const instance = await fireRunEndingWith(notice);
++
++      expect(store.terminalizeRun).toHaveBeenCalledWith(
++        'run-1',
++        'failed',
++        expect.stringContaining('Provider limit reached'),
++        notice,
++        expect.anything(),
++      );
++      expect(store.recordRunOutcome).toHaveBeenCalledWith(
++        'automation-1',
++        'failed',
++        expect.stringContaining('Provider limit reached'),
++        2_000,
++      );
++      expect(instance.metadata['automationRunSucceeded']).toBeUndefined();
++    });
++
++    it('records a run whose session was parked on a provider limit as failed', async () => {
++      await fireRunEndingWith('Halfway through the review.', [{
++        type: 'system',
++        content: 'Provider limit reached. This session is parked.',
++        metadata: { providerLimitParked: true },
++        timestamp: 2,
++      }]);
++
++      expect(store.terminalizeRun).toHaveBeenCalledWith(
++        'run-1',
++        'failed',
++        expect.stringContaining('parked'),
++        'Halfway through the review.',
++        expect.anything(),
++      );
++    });
++
++    it('records a run as failed when the live event stream reports a provider-limit park', async () => {
++      const run = makeRun();
++      run.configSnapshot = {
++        ...run.configSnapshot!,
++        destination: { kind: 'newInstance' },
++        action: { prompt: 'Check', workingDirectory: '/repo/current' },
++      };
++      vi.mocked(store.get).mockResolvedValue(makeAutomation({ destination: { kind: 'newInstance' } }));
++      vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
++      manager.createInstance.mockResolvedValue({ id: 'i-live', outputBuffer: [], status: 'working' });
++
++      const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
++      runner.initialize(manager);
++      await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
++      manager.emit('provider:normalized-event', {
++        instanceId: 'i-live',
++        event: { kind: 'output', messageType: 'assistant', content: 'Starting the review.' },
++      });
++      manager.emit('provider:normalized-event', {
++        instanceId: 'i-live',
++        event: {
++          kind: 'output',
++          messageType: 'system',
++          content: 'Provider limit reached. This session is parked.',
++          metadata: { providerLimitParked: true },
++        },
++      });
++      manager.emit('instance:event', {
++        instanceId: 'i-live',
++        event: { kind: 'status_changed', status: 'idle' },
++      });
++
++      expect(store.terminalizeRun).toHaveBeenCalledWith(
++        'run-1',
++        'failed',
++        expect.stringContaining('parked'),
++        'Starting the review.',
++        expect.anything(),
++      );
++    });
++
++    it('keeps a run that was parked, resumed and then finished a success', async () => {
++      const run = makeRun();
++      run.configSnapshot = {
++        ...run.configSnapshot!,
++        destination: { kind: 'newInstance' },
++        action: { prompt: 'Check', workingDirectory: '/repo/current' },
++      };
++      vi.mocked(store.get).mockResolvedValue(makeAutomation({ destination: { kind: 'newInstance' } }));
++      vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
++      manager.createInstance.mockResolvedValue({ id: 'i-resumed', outputBuffer: [], status: 'working' });
++
++      const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
++      runner.initialize(manager);
++      await runner.fire('automation-1', { trigger: 'scheduled', scheduledAt: 2_000 });
++      manager.emit('provider:normalized-event', {
++        instanceId: 'i-resumed',
++        event: {
++          kind: 'output',
++          messageType: 'system',
++          content: 'Provider limit reached. This session is parked.',
++          metadata: { providerLimitParked: true },
++        },
++      });
++      manager.emit('provider:normalized-event', {
++        instanceId: 'i-resumed',
++        event: { kind: 'output', messageType: 'assistant', content: 'All 240 records imported.' },
++      });
++      manager.emit('provider:normalized-event', { instanceId: 'i-resumed', event: { kind: 'complete' } });
++
++      expect(store.terminalizeRun).toHaveBeenCalledWith(
++        'run-1',
++        'succeeded',
++        undefined,
++        'All 240 records imported.',
++        expect.anything(),
++      );
++    });
++
++    it('keeps a reconciled run whose buffer shows a reply after the park a success', async () => {
++      await fireRunEndingWith('All 240 records imported.', [], [{
++        type: 'system',
++        content: 'Provider limit reached. This session is parked.',
++        metadata: { providerLimitParked: true },
++        timestamp: 0,
++      }]);
++
++      expect(store.terminalizeRun).toHaveBeenCalledWith(
++        'run-1',
++        'succeeded',
++        undefined,
++        'All 240 records imported.',
++        expect.anything(),
++      );
++    });
++
++    it('keeps genuine output that mentions resets, quotas or throttling a success', async () => {
++      const summary = 'Done. Too many requests were hitting the API, so I added backoff; the quota resets at 6pm.';
++      await fireRunEndingWith(summary);
++
++      expect(store.terminalizeRun).toHaveBeenCalledWith(
++        'run-1',
++        'succeeded',
++        undefined,
++        summary,
++        expect.anything(),
++      );
++    });
++  });
+ });
+ describe('AutomationRunner WS-C7 contained execution profile', () => {
+diff --git a/src/main/automations/automation-runner.ts b/src/main/automations/automation-runner.ts
+index 6d71b58..36adf80 100644
+--- a/src/main/automations/automation-runner.ts
++++ b/src/main/automations/automation-runner.ts
+@@ -24,6 +24,7 @@ import {
+   DEFAULT_RETRY_BASE_DELAY_MS,
+ } from './automation-retry';
+ import {
++  getProviderLimitExitReason,
+   writeFullOutput,
+   type RunTracking,
+ } from './automation-runner-helpers';
+@@ -331,7 +332,11 @@ export class AutomationRunner {
+           content: envelope.event.content,
+           timestamp: Date.now(),
+         });
++        if (envelope.event.metadata?.['providerLimitParked'] === true) {
++          tracking.providerLimitParked = true;
++        }
+         if (envelope.event.messageType === 'assistant' && envelope.event.content.trim().length > 0) {
++          tracking.providerLimitParked = false; // the session resumed after any park
+           tracking.seenAssistantOutput = true;
+           tracking.lastAssistantOutput = envelope.event.content;
+         }
+@@ -463,6 +468,10 @@ export class AutomationRunner {
+       tracking.seenAssistantOutput = true;
+       tracking.lastAssistantOutput = assistant.content;
+     }
++    // Parked on a limit only if no assistant reply followed the park notice.
++    tracking.providerLimitParked = [...instance.outputBuffer].reverse().find((message) =>
++      message === assistant || message.metadata?.['providerLimitParked'] === true
++    )?.metadata?.['providerLimitParked'] === true;
+     // LT-196: miner-only records are not automation output.
+     tracking.outputChunks.push(...instance.outputBuffer
+       .filter(isVisibleOutputMessage)
+@@ -509,6 +518,16 @@ export class AutomationRunner {
+     this.trackingByInstance.delete(instanceId);
+     this.instanceByRun.delete(tracking.runId);
++    // A provider usage/spend limit ends the session looking idle and finished;
++    // record it as failed so schedules and dashboards do not count it as done.
++    // Retrying immediately would only hit the same limit.
++    const limitReason = status === 'succeeded' ? getProviderLimitExitReason(tracking) : undefined;
++    if (limitReason) {
++      status = 'failed';
++      error = limitReason;
++      options = { ...options, retryable: false };
++    }
++
+     if (status === 'succeeded') {
+       // Durably record the *good* outcome on the instance. Archival hides a
+       // hidden automation's thread only when this stamp is present, so every
+diff --git a/src/main/cli/provider-notice.spec.ts b/src/main/cli/provider-notice.spec.ts
+index 571c3f2..a5e45ca 100644
+--- a/src/main/cli/provider-notice.spec.ts
++++ b/src/main/cli/provider-notice.spec.ts
+@@ -1,6 +1,6 @@
+ import { describe, expect, it } from 'vitest';
+-import { isProviderNotice } from './provider-notice';
++import { isProviderLimitExitNotice, isProviderNotice } from './provider-notice';
+ describe('isProviderNotice', () => {
+   it('flags real provider rate/usage-limit notices', () => {
+@@ -43,3 +43,107 @@ describe('isProviderNotice', () => {
+     expect(isProviderNotice(undefined)).toBe(false);
+   });
+ });
++
++describe('isProviderLimitExitNotice', () => {
++  it('recognises usage, session and spend-limit notices across providers', () => {
++    const notices = [
++      "You've hit your session limit · resets 6:30pm",
++      "You've hit your limit · resets 3pm (Europe/London)",
++      '5-hour limit reached ∙ resets 3am',
++      'Claude AI usage limit reached|1760000000',
++      "You're out of extra usage · resets 9pm",
++      "You've hit your spend limit. Raise it in your account settings to keep going.",
++      'Spend limit reached. Increase your monthly spend limit to continue.',
++      'Your organization has reached its monthly spending limit.',
++      'API Error: 400 Your credit balance is too low to access the Anthropic API.',
++      'You have reached your specified API usage limits. You will regain access on 2026-11-01 at 00:00 UTC.',
++      "You've hit your usage limit. Upgrade to Pro or try again at Jul 21st, 2026 9:37 PM.",
++      'You exceeded your current quota, please check your plan and billing details.',
++      'Error: You have exceeded your monthly quota (Request ID: <redacted>)',
++      "You've reached your monthly premium request limit.",
++      'You have exhausted your capacity on this model. Your quota will reset after 2s.',
++      "Quota exceeded for quota metric 'Gemini 2.5 Pro Requests' and limit 'Requests per day'",
++      "You've run out of credits.",
++      "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 5:01 PM. - [codex_error_info: usageLimitExceeded]",
++      "You've hit your usage limit. To get more access now, send a request to your admin or try again at Oct 20th, 2026 9:00 AM.",
++      'Monthly spend limit reached. Your billing cycle resets on the 1st.',
++      "You've reached your Copilot premium request limit for this month. It resets on Nov 1.",
++      'Usage limit reached; quota resets at 2026-01-01T00:20:00.000Z.',
++      'Grok Build: usage limit reached for your subscription',
++      'Session limit reached. Try again later.',
++      'Usage limit reached for gemini-2.5-pro. Access resets at 5:00 PM.',
++      'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.',
++      'Your included usage has been used up. Upgrade to Pro for more.',
++      "You've hit your limit · resets Oct 20, 3pm (Europe/London)",
++      'Weekly limit reached ∙ resets Jan 5, 2pm',
++      "You've hit your usage limit. Upgrade to Plus to continue using Codex (https://openai.com/chatgpt/pricing), or try again in 3 days 4 hours.",
++      'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits.',
++      'Your included usage has been used up. Enable usage-based pricing to continue.',
++      'Usage limit reached for credits. Add more credits to continue.',
++      "You've reached your included usage limit for this billing cycle. Enable usage-based pricing to continue.",
++      'Gemini: 429 RESOURCE_EXHAUSTED. You exceeded your current quota, please check your plan and billing details.',
++      'Monthly quota exceeded. Please wait for the quota to reset.',
++      'Usage limit reached for 5 hour window.',
++      "**You've hit your limit** · resets 6pm",
++      "You've hit your org's monthly usage limit",
++      "You've reached your usage limit for Claude Opus.",
++      'You have exhausted your daily Gemini 2.5 Pro quota.',
++    ];
++    for (const text of notices) {
++      expect(isProviderLimitExitNotice(text), text).toBe(true);
++    }
++  });
++
++  it('keeps ordinary final output that mentions resets, quotas or throttling a success', () => {
++    const genuine = [
++      'Deployed the fix. The nightly job resets at 6pm, so the dashboard will refresh then.',
++      'Your limit resets at 6pm',
++      'Too many requests were hitting the API, so I added a retry with backoff.',
++      'Added a 429 Too many requests handler.',
++      'Build the monthly quota dashboard',
++      'Monthly quota reached alerts now fire correctly.',
++      'Error handling for quota exceeded responses is in place.',
++      'Summary: checked the Copilot quota; you have 40% of your monthly allowance left.',
++      `Report:\n${'All checks passed. '.repeat(20)}\nOne user saw "You've hit your usage limit" yesterday.`,
++      `${"You've hit your usage limit was the message users saw. ".repeat(15)}`,
++      'Fix the session-limit retry bug',
++      'Rate limit exceeded. I added exponential backoff so the job retries.',
++      'Rate limit reached. Added a retry with backoff to the sync job.',
++      'Quota exceeded: the retry loop was hammering the API, now fixed.',
++      'Quota exceeded for the export endpoint; it now paginates.',
++      'You have exceeded the limit of 3 retries, so I raised it to 5.',
++      "You've hit your limit on retries, so I raised the cap to 5.",
++      "You're out of credits for the demo account, so I switched to the sandbox.",
++      'Your organization has reached its limit of 10 seats; I removed the extra invite.',
++      'Quota exceeded. 3 retries succeeded and the batch is complete.',
++      'Quota exceeded. Please see the attached report for the 2 skipped items.',
++      'Rate limit exceeded. You can resume the job from checkpoint.json.',
++      'Usage limit reached. Increase the batch size to avoid it.',
++      'Quota exceeded. Add more caching so repeat calls are skipped.',
++      'Rate limit reached. Try again later with a smaller batch.',
++      'Quota exceeded. Upgrade the SDK to the latest version to fix it.',
++      'Spend limit reached. Visit the settings page to review the default.',
++      'Quota exceeded. Reset the cache and rerun.',
++      'Quota exceeded. To continue the migration I rewrote the loader.',
++      'Quota exceeded. Request ID handling now logs the header value.',
++      'Quota exceeded. Upgrade to pro-tier batching in the code and the run passed.',
++      'Quota exceeded. /reports/summary.md now has the full table.',
++      'Usage limit reached. Check your usage report: 2 items pending.',
++      'Quota exceeded. You can retry the failed items with --resume.',
++      'Quota exceeded. You will regain the lost minutes on the next run.',
++      'Usage limit reached (retried 3 times).',
++      'Token limit reached',
++      'context_length_exceeded: token limit reached',
++    ];
++    for (const text of genuine) {
++      expect(isProviderLimitExitNotice(text), text).toBe(false);
++    }
++  });
++
++  it('treats empty/nullish input as not a notice', () => {
++    expect(isProviderLimitExitNotice('')).toBe(false);
++    expect(isProviderLimitExitNotice('   ')).toBe(false);
++    expect(isProviderLimitExitNotice(null)).toBe(false);
++    expect(isProviderLimitExitNotice(undefined)).toBe(false);
++  });
++});
+diff --git a/src/main/cli/provider-notice.ts b/src/main/cli/provider-notice.ts
+index a5d608d..6dc455d 100644
+--- a/src/main/cli/provider-notice.ts
++++ b/src/main/cli/provider-notice.ts
+@@ -38,3 +38,126 @@ export function isProviderNotice(text: string | null | undefined): boolean {
+   if (!text) return false;
+   return PROVIDER_NOTICE_PATTERNS.some((re) => re.test(text));
+ }
++
++/**
++ * Longest text treated as a standalone limit notice. Real notices are a line
++ * or two; a longer final answer is the model's own work even when it quotes a
++ * notice somewhere inside it.
++ */
++const PROVIDER_LIMIT_EXIT_MAX_CHARS = 600;
++
++/** Leading decoration and labels a CLI may print before the notice itself. */
++const PROVIDER_LIMIT_EXIT_PREFIX_RE =
++  /^[\s>*_`"'[(⎿●•·-]*(?:(?:api\s+)?error(?:\s+\d{3})?\s*[:\-–—]\s*(?:\d{3}\b\s*)?|(?:claude(?:\s+ai)?|anthropic|codex|openai|gemini|(?:github\s+)?copilot|cursor|grok(?:\s+build)?)\s*[:\-–—]?\s*|(?:\d{3}\s+)?(?:resource_exhausted|too\s+many\s+requests)\s*[.:\-–—]\s*)*/i;
++
++/** Clause breaks inside a notice: sentence ends, commas, and the `·`/`|` separators CLIs use. */
++const PROVIDER_LIMIT_EXIT_CLAUSE_SPLIT_RE = /[.!?](?:\s+|$)|[,;·•∙|\n]/;
++
++const LIMIT_NOUN = String.raw`(?:limits?|quota|cap|credits|allowance|budget|capacity)`;
++/** A qualifier word before the limit noun: "monthly", "org's", "2.5", "5-hour". */
++const WORD = String.raw`[\w'’.-]+`;
++const MODEL_NAME = String.raw`(?:claude|opus|sonnet|haiku|gemini|gpt|o\d|codex|grok)\b[\w .-]{0,30}`;
++const REQUEST_ID_SUFFIX = String.raw`(?:\s*\(request\s+id[^)]*\))?`;
++
++/**
++ * The opening clause of an ended-run limit notice. Each pattern must match the
++ * whole clause, so "You've hit your limit on retries" or "Quota exceeded for
++ * the export endpoint" (genuine work) do not count. Covers usage, session and
++ * wording. Bare mentions ("resets at 6pm", "too many requests") are absent.
++ */
++export const PROVIDER_LIMIT_EXIT_PATTERNS: readonly RegExp[] = [
++  // "You've hit your limit", "You have exceeded your monthly quota", "You've
++  // reached your spend limit", "You exceeded your current quota", "You have
++  // exhausted your capacity on this model", "You've run out of credits"
++  new RegExp(
++    String.raw`^you(?:'ve|’ve|\s+have)?\s+(?:hit|reached|exceeded|exhausted|used\s+up|run\s+out\s+of)\s+(?:all\s+(?:of\s+)?)?(?:your\s+)?(?:${WORD}\s+){0,4}${LIMIT_NOUN}(?:\s+(?:on|for)\s+(?:this\s+(?:model|month|week|day|billing\s+(?:period|cycle))|${MODEL_NAME}))?${REQUEST_ID_SUFFIX}$`,
++    'i',
++  ),
++  // "You're out of extra usage", "You are out of credits"
++  /^you(?:'re|’re|\s+are)\s+out\s+of\s+(?:[\w-]+\s+){0,2}(?:usage|credits|quota)$/i,
++  // reached", "Monthly spending cap exceeded", "Quota exceeded for quota metric …".
++  // Token/context limits are not usage limits, so they are excluded.
++  new RegExp(
++    String.raw`^(?!.*\b(?:token|context|length|output|scan|iteration|turn|step|time|retry|retries)\b)(?:[\w-]+\s+){0,3}${LIMIT_NOUN}\s+(?:has\s+been\s+)?(?:reached|exceeded|exhausted)(?:\s+for\s+(?:quota\s+metric\b.*|your\s+(?:subscription|plan|account|organi[sz]ation)|credits|(?:the\s+)?\d+[\s-]*hour\s+window|(?:model\s+)?[\w.:/-]*\d[\w.:/-]*))?${REQUEST_ID_SUFFIX}$`,
++    'i',
++  ),
++  // "Your organization has reached its monthly spend limit"
++  new RegExp(
++    String.raw`^(?:your|the)\s+(?:organization|organisation|org|workspace|account|team|enterprise)\s+has\s+(?:hit|reached|exceeded|exhausted)\s+(?:its|their|your|the)\s+(?:${WORD}\s+){0,3}${LIMIT_NOUN}$`,
++    'i',
++  ),
++  // "Your included usage has been used up"
++  /^your\s+(?:[\w-]+\s+){0,2}(?:usage|credits|quota|allowance|budget)\s+(?:has|have)\s+been\s+(?:used\s+up|exhausted|reached|exceeded)$/i,
++  /^(?:your\s+)?credit\s+balance\s+is\s+too\s+low(?:\s+to\s+access\s+the\s+[\w\s]+?api)?$/i,
++];
++
++/**
++ * Follow-on clauses a provider prints after the limit line: the reset time,
++ * a retry/upgrade/billing pointer, a URL or a request id. A clause outside
++ * this vocabulary ("I added backoff") means the message is the model's work.
++ */
++const PROVIDER_LIMIT_EXIT_DETAIL_RE = new RegExp([
++  String.raw`^(?:`,
++  // Reset times: "resets 3pm", "Your billing cycle resets on the 1st", "Access resets at 5:00 PM"
++  // ("Reset the cache" is an instruction, not a reset time, so a bare clause needs "resets".)
++  String.raw`(?:resets|renews)\b`,
++  String.raw`|(?:it|access|the\s+limit|quota|limit|usage|your\s+(?:limit|quota|usage|access|billing\s+cycle|plan))\s+(?:will\s+)?(?:resets?|renews?)\b`,
++  String.raw`|\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?(?:\s*\(.*\))?$`, // "3pm (Europe/London)" after "resets Oct 20,"
++  String.raw`|(?:or\s+)?(?:please\s+)?(?:try\s+again|retry)(?:\s+(?:at|in|after|on)\b.*|\s+later|\s+tomorrow)?$`,
++  String.raw`|(?:please\s+)?wait\s+(?:until\b.*\breset|for\s+(?:the|your)\s+(?:quota|limit|usage)\s+to\s+reset|(?:a\s+(?:few\s+)?|\d+\s*)(?:moments?|minutes?|mins?|hours?|hrs?|seconds?|secs?)\b)`,
++  // Billing pointers, gated on a billing object so "Upgrade the SDK" or
++  // "Add more caching" stay ordinary work.
++  String.raw`|(?:please\s+)?upgrade(?:\s+(?:to\s+(?:a\s+)?(?:pro|plus|max|team|business|enterprise|premium|paid|ultra|higher)|your\s+(?:plan|subscription|account)|now)\b|$)`,
++  String.raw`|(?:please\s+)?(?:raise|increase)\s+(?:it|your\s+(?:[\w-]+\s+){0,2}(?:limit|quota|cap|budget|spend\w*))\b`,
++  String.raw`|(?:please\s+)?(?:add|purchase|buy)\s+(?:more\s+)?(?:funds|credits|usage|quota|requests|a\s+payment)\b`,
++  String.raw`|(?:please\s+)?(?:visit|go\s+to|see)\s+(?:https?:|plans\s*(?:&|and)\s*billing|your\s+(?:billing|account|usage|plan|dashboard))`,
++  String.raw`|(?:please\s+)?check\s+your\s+(?:plan|billing|usage)(?:\s+(?:and|&)\s+billing)?(?:\s+details)?(?:\s+at\b.*)?$`,
++  String.raw`|enable\s+(?:usage-based\s+pricing|(?:extra|additional|overage)\s+usage)\b`,
++  String.raw`|for\s+more\s+information\b|head\s+to:?\s*https?:`, // Gemini 429 trailer
++  String.raw`|you(?:\s+will|'ll|’ll)\s+regain\s+access\b`,
++  String.raw`|you\s+can\s+(?:(?:try\s+again|retry)(?:\s+(?:at|in|after|on)\b.*|\s+later)?$|upgrade\s+(?:to|your)|purchase|buy|add\s+(?:funds|credits)|continue\s+(?:at|after|in|on|when))`,
++  String.raw`|your\s+(?:quota|limit|credits?|access|balance|spend\w*)\s+(?:will\s+(?:reset|renew)|is\s+(?:exhausted|empty|depleted))\b`,
++  String.raw`|to\s+(?:continue|keep\s+going|keep\s+using(?:\s+[\w-]+){0,2}|get\s+more(?:\s+[\w-]+){0,3})$`,
++  String.raw`|(?:please\s+)?(?:contact|ask|send\s+a\s+request\s+to)\s+your\s+(?:admin|administrator|organi[sz]ation|workspace\s+owner)\b`,
++  // URLs and slash commands ("/usage", "/upgrade") are only ever pointers in a notice.
++  String.raw`|learn\s+more(?:\s+at)?\s*(?:https?:|$)|request\s+id\s*[:#]|https?:\/\/|(?:run\s+)?\/[a-z-]+(?:\s+to\b.*)?$`,
++  String.raw`|-?\s*\[[\w\s:.-]+\]$`, // Codex "- [codex_error_info: usageLimitExceeded]"
++  String.raw`|\(.*\)$`, // "(Europe/London)", "(Request ID: …)"
++  String.raw`|\d+$|\d{4}\s+\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?$`, // epoch after "|", "2026 9:37 PM" after a comma
++  String.raw`)`,
++].join(''), 'i');
++
++/**
++ * A follow-on clause that reports the model's own work ("I added", "now has",
++ * "the run passed", a CLI flag) is never notice detail, whatever it opens with.
++ */
++const PROVIDER_LIMIT_EXIT_WORK_REPORT_RE =
++  /\b(?:i|i've|i'm|we|we've|my|our|now\s+(?:has|is|works|passes|runs)|passed|fixed|added|updated|created|wrote|rewrote|ran|implemented|completed|finished|succeeded|pending|items?|files?|tests?|code)\b|(?:^|\s)--\w/i;
++
++/**
++ * True when an automation's final output *is* a provider usage/spend-limit
++ * notice, meaning the run stopped on the limit rather than finishing its task.
++ *
++ * Stricter than {@link isProviderNotice}: a misclassified run is recorded as
++ * failed, so ordinary output that merely mentions a reset time, quota wording
++ * or "too many requests" must not match. The message has to be notice-sized,
++ * open with a whole limit clause, and contain nothing but notice detail after.
++ */
++export function isProviderLimitExitNotice(text: string | null | undefined): boolean {
++  const trimmed = text?.trim();
++  if (!trimmed || trimmed.length > PROVIDER_LIMIT_EXIT_MAX_CHARS) return false;
++  const clauses = trimmed
++    .replace(/\*\*|__/g, '')
++    .replace(PROVIDER_LIMIT_EXIT_PREFIX_RE, '')
++    .split(PROVIDER_LIMIT_EXIT_CLAUSE_SPLIT_RE)
++    .map((clause) => clause.trim())
++    .filter((clause) => clause.length > 0);
++  const [head, ...details] = clauses;
++  if (!head || !PROVIDER_LIMIT_EXIT_PATTERNS.some((re) => re.test(head))) return false;
++  return details.every((clause) =>
++    PROVIDER_LIMIT_EXIT_DETAIL_RE.test(clause) && !PROVIDER_LIMIT_EXIT_WORK_REPORT_RE.test(clause));
++}

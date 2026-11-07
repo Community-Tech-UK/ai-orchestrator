@@ -1,0 +1,17 @@
+{
+  "label": "full-suite",
+  "command": [
+    "npm",
+    "run",
+    "test:quiet"
+  ],
+  "startedAt": "2026-10-27T16:27:03.654867+00:00",
+  "durationSeconds": 1828.252,
+  "exitCode": 1,
+  "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-final/full-suite.log",
+  "load": [
+    15.73046875,
+    26.72998046875,
+    33.2626953125
+  ]
+}

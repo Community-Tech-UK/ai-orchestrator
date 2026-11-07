@@ -1,0 +1,5 @@
+{
+  "status": "SUPERSEDED_DIAGNOSTICS",
+  "reason": "Initial ignore-scripts native preparation gap, export-helper nested dependency removal, and shared temporary archive collision. No resulting failed fixed control is accepted as a model outcome.",
+  "currentSummary": "../all10-controls-summary.json"
+}

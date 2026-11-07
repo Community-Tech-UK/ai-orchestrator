@@ -1,0 +1,245 @@
+diff --git a/apps/web/src/app/a11y.spec.ts b/apps/web/src/app/a11y.spec.ts
+index 2e00ebd..7c51a3a 100644
+--- a/apps/web/src/app/a11y.spec.ts
++++ b/apps/web/src/app/a11y.spec.ts
+@@ -5,7 +5,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
+ import { RouterTestingModule } from '@angular/router/testing';
+ import type { Type } from '@angular/core';
+ import axe, { type AxeResults } from 'axe-core';
+-import { beforeEach, describe, expect, it, vi } from 'vitest';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { AuthService } from './auth/auth.service';
+ import { LoginComponent } from './auth/login/login.component';
+ import { SignupComponent } from './auth/signup/signup.component';
+@@ -84,6 +84,8 @@ async function expectNoViolations(component: Type<unknown>): Promise<void> {
+ }
+ describe('accessibility (axe-core)', () => {
++  afterEach(() => vi.restoreAllMocks());
++
+   beforeEach(async () => {
+     localStorage.clear();
+     await TestBed.configureTestingModule({
+@@ -161,6 +163,21 @@ describe('accessibility (axe-core)', () => {
+     await expectNoViolations(HomeComponent);
+   });
++  it('landing page with the Android closed-test banner has no axe violations', async () => {
++    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
++      'Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/126 Mobile Safari/537.36',
++    );
++    const fixture = TestBed.createComponent(HomeComponent);
++    fixture.detectChanges();
++    await fixture.whenStable();
++    await new Promise((resolve) => setTimeout(resolve));
++    fixture.detectChanges();
++    const root = fixture.nativeElement as Element;
++    expect(root.querySelector('[data-testid="android-test-banner"]')).not.toBeNull();
++    const results = await runAxe(root);
++    expect(results.violations, formatViolations(results)).toEqual([]);
++  });
++
+   it('tool catalogue has no axe violations', async () => {
+     // /tools is the only route to Timeline, Challenges, Insights and every
+     // fellowship tool, so it carries an axe check even though the rest of the
+diff --git a/apps/web/src/app/home/home.component.html b/apps/web/src/app/home/home.component.html
+index a851d91..72c97a2 100644
+--- a/apps/web/src/app/home/home.component.html
++++ b/apps/web/src/app/home/home.component.html
+@@ -4,6 +4,24 @@
+   <app-language-suggestion />
+   <main id="main-content" tabindex="-1" class="landing__main">
++    @if (showAndroidTestBanner) {
++      <aside
++        class="android-test-banner"
++        [attr.aria-label]="'home.androidBanner.label' | transloco"
++        data-testid="android-test-banner"
++      >
++        <p class="android-test-banner__text">{{ 'home.androidBanner.text' | transloco }}</p>
++        <a
++          class="btn-secondary"
++          [routerLink]="[]"
++          queryParamsHandling="preserve"
++          fragment="android-interest"
++          data-testid="android-test-banner-link"
++        >
++          {{ 'home.androidBanner.cta' | transloco }}
++        </a>
++      </aside>
++    }
+     <!-- HERO ------------------------------------------------------------ -->
+     <section class="hero" aria-labelledby="hero-headline" data-testid="hero">
+       <div aria-hidden="true" class="hero__glow hero__glow--primary"></div>
+diff --git a/apps/web/src/app/home/home.component.spec.ts b/apps/web/src/app/home/home.component.spec.ts
+index 9330d6e..0a27ba5 100644
+--- a/apps/web/src/app/home/home.component.spec.ts
++++ b/apps/web/src/app/home/home.component.spec.ts
+@@ -6,7 +6,8 @@ import { provideHttpClient } from '@angular/common/http';
+ import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
+ import { Router } from '@angular/router';
+ import { RouterTestingModule } from '@angular/router/testing';
+-import { beforeEach, describe, expect, it, vi } from 'vitest';
++import { Capacitor } from '@capacitor/core';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { AuthService } from '../auth/auth.service';
+ import { MetricsService } from '../shared/services/metrics.service';
+ import { ThemeService } from '../shared/services/theme.service';
+@@ -259,4 +260,42 @@ describe('HomeComponent', () => {
+     volunteer.flush({ ok: true });
+     await volunteerPromise;
+   });
++
++  describe('Android closed-test banner', () => {
++    const ANDROID_UA = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/126 Mobile Safari/537.36';
++    const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148';
++    const DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126 Safari/537.36';
++
++    afterEach(() => vi.restoreAllMocks());
++
++    function renderWithUserAgent(ua: string): HTMLElement {
++      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(ua);
++      return render();
++    }
++
++    it('shows on Android and links to the volunteer form', () => {
++      const el = renderWithUserAgent(ANDROID_UA);
++      const banner = el.querySelector('[data-testid="android-test-banner"]');
++      expect(banner).not.toBeNull();
++      expect(banner?.textContent).toContain('Join the closed test');
++      const link = el.querySelector('[data-testid="android-test-banner-link"]');
++      expect(link?.getAttribute('href')).toMatch(/#android-interest$/);
++      expect(el.querySelector('#android-interest')).not.toBeNull();
++    });
++
++    it.each([
++      ['iPhone', IPHONE_UA],
++      ['desktop', DESKTOP_UA],
++    ])('does not show on %s', (_name, ua) => {
++      expect(
++        renderWithUserAgent(ua).querySelector('[data-testid="android-test-banner"]'),
++      ).toBeNull();
++    });
++
++    it('does not show inside the native app', () => {
++      vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
++      const el = renderWithUserAgent(ANDROID_UA);
++      expect(el.querySelector('[data-testid="android-test-banner"]')).toBeNull();
++    });
++  });
+ });
+diff --git a/apps/web/src/app/home/home.component.ts b/apps/web/src/app/home/home.component.ts
+index 1154149..edae3bb 100644
+--- a/apps/web/src/app/home/home.component.ts
++++ b/apps/web/src/app/home/home.component.ts
+@@ -21,6 +21,7 @@ import { UNTRANSLATED_GUIDE_SLUGS } from '../i18n/locale-paths';
+ import { LocaleService } from '../i18n/locale.service';
+ import { SOURCE_LOCALE } from '../i18n/resolve-locale';
+ import { injectTranslate } from '../i18n/translate';
++import { isAndroidBrowser } from '../shared/util/android-device';
+ import { MetricsService } from '../shared/services/metrics.service';
+ import { TurnstileWidgetComponent } from '../shared/components/turnstile-widget.component';
+ import { FELLOWSHIPS, FELLOWSHIP_SHORT_NAMES } from '../shared/models/fellowship';
+@@ -221,6 +222,10 @@ export class HomeComponent implements OnInit {
+   /** True while Android is not publicly listed — drives the register-interest UI. */
+   readonly showAndroidInterest = this.androidPlatform?.state !== 'available';
++  /** Android browser visitors (not the native app, which already has the test build). */
++  readonly showAndroidTestBanner =
++    this.showAndroidInterest && !this.isNativePlatform && isAndroidBrowser();
++
+   storeLinkTestId(platform: PlatformAvailability): string {
+     return `store-link-${platform.id}`;
+   }
+diff --git a/apps/web/src/app/i18n/home/en-GB.json b/apps/web/src/app/i18n/home/en-GB.json
+index 2005ec7..760260c 100644
+--- a/apps/web/src/app/i18n/home/en-GB.json
++++ b/apps/web/src/app/i18n/home/en-GB.json
+@@ -1,6 +1,11 @@
+ {
+   "home": {
+     "skipLink": "Skip to main content",
++    "androidBanner": {
++      "label": "Android closed test",
++      "text": "On Android? The app is in closed testing on Google Play and we need testers.",
++      "cta": "Join the closed test"
++    },
+     "hero": {
+       "eyebrow": "Private 12-step recovery app",
+       "headline": "Your step work stays yours.",
+diff --git a/apps/web/src/app/shared/util/android-device.spec.ts b/apps/web/src/app/shared/util/android-device.spec.ts
+new file mode 100644
+index 0000000..0328b50
+--- /dev/null
++++ b/apps/web/src/app/shared/util/android-device.spec.ts
+@@ -0,0 +1,29 @@
++import { describe, expect, it } from 'vitest';
++import { isAndroidBrowser } from './android-device';
++
++describe('isAndroidBrowser', () => {
++  it('detects an Android Chrome user agent', () => {
++    expect(
++      isAndroidBrowser({
++        userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126 Mobile',
++      }),
++    ).toBe(true);
++  });
++
++  it('rejects iPhone and desktop user agents', () => {
++    expect(
++      isAndroidBrowser({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)' }),
++    ).toBe(false);
++    expect(
++      isAndroidBrowser({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126' }),
++    ).toBe(false);
++  });
++
++  it('uses userAgentData.platform when present', () => {
++    expect(isAndroidBrowser({ userAgent: '', userAgentData: { platform: 'Android' } })).toBe(true);
++  });
++
++  it('is false without a navigator', () => {
++    expect(isAndroidBrowser(null)).toBe(false);
++  });
++});
+diff --git a/apps/web/src/app/shared/util/android-device.ts b/apps/web/src/app/shared/util/android-device.ts
+new file mode 100644
+index 0000000..f1c3f8f
+--- /dev/null
++++ b/apps/web/src/app/shared/util/android-device.ts
+@@ -0,0 +1,10 @@
++interface AndroidNavigator {
++  readonly userAgent?: string;
++  readonly userAgentData?: { readonly platform?: string };
++}
++
++/** True when the visitor is browsing from an Android device. */
++export function isAndroidBrowser(nav: AndroidNavigator | null = globalThis.navigator): boolean {
++  if (!nav) return false;
++  return nav.userAgentData?.platform === 'Android' || /Android/i.test(nav.userAgent ?? '');
++}
+diff --git a/apps/web/src/styles/_landing.scss b/apps/web/src/styles/_landing.scss
+index df92afd..eb25529 100644
+--- a/apps/web/src/styles/_landing.scss
++++ b/apps/web/src/styles/_landing.scss
+@@ -495,6 +495,26 @@
+   height: 40px;
+ }
++/* ----- Android closed-test banner (top of <main>, Android browsers only) ----- */
++
++.android-test-banner {
++  display: flex;
++  flex-wrap: wrap;
++  align-items: center;
++  justify-content: center;
++  gap: var(--space-sm) var(--space-md);
++  padding: var(--space-sm) var(--space-md);
++  background-color: var(--color-surface-alt);
++  border-bottom: 1px solid var(--color-input-border);
++}
++
++.android-test-banner__text {
++  margin: 0;
++  font-size: var(--font-size-sm);
++  line-height: var(--line-height-base);
++  color: var(--color-text-primary);
++}
++
+ /* ----- Android interest capture (inside the Android cross-device card) ----- */
+ .android-interest {

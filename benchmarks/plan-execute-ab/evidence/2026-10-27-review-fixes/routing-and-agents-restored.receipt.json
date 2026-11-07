@@ -1,0 +1,42 @@
+{
+  "restored": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"ok\":true,\"key\":\"auxiliaryLlmRoutingMode\",\"oldValue\":\"off\",\"newValue\":\"local-first\",\"restartRequired\":false}"
+      }
+    ]
+  },
+  "readback": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"key\":\"auxiliaryLlmRoutingMode\",\"value\":\"local-first\",\"restartRequired\":false,\"writable\":true,\"policyTier\":\"open\"}"
+      }
+    ]
+  },
+  "terminations": [
+    {
+      "status": "fulfilled",
+      "value": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"terminated\":[{\"instanceId\":\"xt079w928\"}],\"skipped\":[]}"
+          }
+        ]
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"terminated\":[{\"instanceId\":\"xfn119wg9\"}],\"skipped\":[]}"
+          }
+        ]
+      }
+    }
+  ]
+}

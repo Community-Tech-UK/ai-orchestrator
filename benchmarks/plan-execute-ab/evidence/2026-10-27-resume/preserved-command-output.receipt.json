@@ -1,0 +1,185 @@
+{
+  "at": "2026-10-27T17:38:57.637549+00:00",
+  "records": [
+    {
+      "source": "_scratch/lt-resume/cache-observed.mts",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/cache-observed.mts.source.txt",
+      "bytes": 5932,
+      "sha256": "820884166d0460a9a87f02789ad136801f5703655ebbb0e41dcebafcf378a95f",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/lt-resume/cache-smoke.mts",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/cache-smoke.mts.source.txt",
+      "bytes": 5810,
+      "sha256": "4579405d4be4763622e3bb8239f34e80062c98c3e9beeb40156a6c2855bda8a3",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/lt-resume/cache-timing.mts",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/cache-timing.mts.source.txt",
+      "bytes": 5928,
+      "sha256": "86dd2e57981b121560e46af826a1eeb8cc18d07ab32718f93f7a3be066ad8803",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/lt-resume/cli-boundary-smoke.mts",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/cli-boundary-smoke.mts.source.txt",
+      "bytes": 762,
+      "sha256": "9716ae4d5794e85a170d58ff464c5236d2fcc74e852167700b28031292196aa0",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/lt-resume/dev-probe.mjs",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/dev-probe.mjs.source.txt",
+      "bytes": 5722,
+      "sha256": "300834544b9db1182248921cfe135828c062cdb576b28f2b71fb0ec8af7a243c",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/lt-resume/doc-preflight.mts",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/doc-preflight.mts.source.txt",
+      "bytes": 1196,
+      "sha256": "aec917a2b000acec93758f7770872af34c1e255696093c6e955badcebfa0dd53",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/lt-resume/final-preflight-repro.mts",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/final-preflight-repro.mts.source.txt",
+      "bytes": 3865,
+      "sha256": "64d4699f44c2299f400615a72f50e42e8e297ec1d2a4b107496fd7f1edf7165f",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/lt-resume/observe-http.cjs",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/observe-http.cjs.source.txt",
+      "bytes": 1860,
+      "sha256": "23b0f6402413aac337f834d06933de9e3f5a432a2af5f7f6a7b0de67f21926ef",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/lt-resume/preserve-final.py",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/preserve-final.py.source.txt",
+      "bytes": 2121,
+      "sha256": "600295853e4358a741fc4800363d62968d217507dd2df3305ab5e747312bd29d",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/lt-resume/preserve-rejected.py",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/preserve-rejected.py.source.txt",
+      "bytes": 3322,
+      "sha256": "b8407dfefb26f242b0ed9e4f581638f836ffc29574a859d3c7c7421cffe75682",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/lt-resume/record-resume.py",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/record-resume.py.source.txt",
+      "bytes": 24988,
+      "sha256": "504b1b360f95ababe77d25101dc1028d1a4ecd140435097ac15388cd978eaa65",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/lt-resume/rescore-candidates.mts",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/rescore-candidates.mts.source.txt",
+      "bytes": 8619,
+      "sha256": "f6fe27a786ab40ba9d1c5f22e5cd8fb461ade28bb996ebf329c6cba50d631db4",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/lt-resume/run-command.py",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/run-command.py.source.txt",
+      "bytes": 978,
+      "sha256": "41b8ba7d402f890f43425541812a80bce80ea136fb8cc2bb998cd1debaa3526b",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/lt-resume/run-observed.py",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/run-observed.py.source.txt",
+      "bytes": 360,
+      "sha256": "6ffda9df870e8e5b9dbf5cca4e1a4cc31530562c99034f679339f9a2f505e986",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/lt-resume/scoring-controls.mts",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/scoring-controls.mts.source.txt",
+      "bytes": 4218,
+      "sha256": "1bb3b056139cf7a1186dfe78c26b02954a4118e2be71f28d9cd509c5369e6d4b",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/lt-resume/verify-after-timing.py",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/verify-after-timing.py.source.txt",
+      "bytes": 1749,
+      "sha256": "b2e010aa421f05549dcdfa877cc6f280a15ee74bb213dfffeff13fb597674d09",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/lt-resume/verify-final.py",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/verify-final.py.source.txt",
+      "bytes": 1742,
+      "sha256": "8689b763d2803eed55ad6b247f65d91c42240b76a23c28d9b6bab57f3cfe937d",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/lt-resume/verify.py",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/command-sources/verify.py.source.txt",
+      "bytes": 1710,
+      "sha256": "50f29011352a368452b29771ee5c45d8850464b2343dfb500b626e08bab4e3ef",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/test-run.pid-57697.log",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-final/test-run.pid-57697.log.gz",
+      "originalBytes": 4851637,
+      "redactedBytes": 4851637,
+      "sha256": "66e655f8fe669cb58284483fac4a0d2632d91e0d05971d2d4c05d71000bd10bf",
+      "compressedSha256": "40de6839c2c9796299a55f976bc4fd710c83c838d1ee29523781fc6e50633020",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/test-results.pid-57697.json",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-final/test-results.pid-57697.json.gz",
+      "originalBytes": 12597018,
+      "redactedBytes": 12597018,
+      "sha256": "79ebeec0598fe9c4eed2067bf85d7ced9af60ab44bc2a8a8d79c55f4dd6dbd8e",
+      "compressedSha256": "2211952c4b094d980279e4bbc662c6928fc8dd7d2b13cd24053fe50f71743320",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/test-run.pid-95469.log",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-after-timing/test-run.pid-95469.log.gz",
+      "originalBytes": 4833280,
+      "redactedBytes": 4833280,
+      "sha256": "f442edb78f0cf96e0662fc64f1d68096150916073aebad355e63f847761f3663",
+      "compressedSha256": "bbe48960a3f8260e4d7cc71ec13eb2feec78b75bc2284e3011b135ad7cdcc77b",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/test-results.pid-95469.json",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-after-timing/test-results.pid-95469.json.gz",
+      "originalBytes": 12601739,
+      "redactedBytes": 12601739,
+      "sha256": "d1d6012151dc50b2377219caa7a89949c34853b158729aeeaa0e8162da1795e9",
+      "compressedSha256": "492b7f48e3c3de4724fbc24cab7059a45bb10f190299ca944d2f042a671bfb38",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/test-run.pid-20639.log",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-after-timing/test-run.pid-20639.log.gz",
+      "originalBytes": 1305,
+      "redactedBytes": 1305,
+      "sha256": "2c3461312f7fed196d69126cf23231cce06b55088810137ce3132495a22fe5bd",
+      "compressedSha256": "13b5fa0ac367ba8665c439b2621e86018347abcb1bb9e53b34e56367cafed44e",
+      "redactedEnvNames": []
+    },
+    {
+      "source": "_scratch/test-results.pid-20639.json",
+      "destination": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-after-timing/test-results.pid-20639.json.gz",
+      "originalBytes": 3070,
+      "redactedBytes": 3070,
+      "sha256": "bfaad2a7387f3cb14cb5c975454fb99727425cdbdf33101435aca66c1ee4b1cf",
+      "compressedSha256": "8a852a48bf02880acd6635bb6a38164545ebe01f7c68763c733ad3dac3389591",
+      "redactedEnvNames": []
+    }
+  ]
+}

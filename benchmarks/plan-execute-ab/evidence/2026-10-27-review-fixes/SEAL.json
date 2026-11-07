@@ -1,0 +1,720 @@
+{
+  "at": "2026-10-27T14:06:54.645473+00:00",
+  "head": "83dfc5d89842020498f27d27c1c00e64939e7e3c",
+  "sources": [
+    {
+      "path": "benchmarks/plan-execute-ab/README.md",
+      "sha256": "56988696568196f481108c272427ca7bfa0e62d298e6694e93740c0279261f09",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/agent-cli.spec.ts",
+      "sha256": "5757a071445124171d7a2f9dda88e19700ab871c7b22c6ca0524fe148cd4d7ef",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/agent-cli.ts",
+      "sha256": "8dfe574a362382183add506d09d9124a76c4ee718b25c6c4a1b319f0ebac3f40",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/arms.spec.ts",
+      "sha256": "b591d0c90c3ba1c2caa6f2849df8041f5271796933037edc9e8dc942bff46b56",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/arms.ts",
+      "sha256": "43a949ed8f4d455cd12c5ed3e3e6269ac23da96748339dd83f90d32de4fb2c98",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/cli-util.ts",
+      "sha256": "2102112e2cc8e0a75a80f8a512aa60d46f3c11e9b7c70660da01b4b13aa0422f",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/config.spec.ts",
+      "sha256": "a15647042d5b8a76b253e6f98236a5e5a1f26ec9b03f72bd9699f5587f75ea72",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/config.ts",
+      "sha256": "e2d2f18ae1070c1ef50a27fe3181cdf3f9bb27dbc98e84f21265c093a536bad6",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/cost.spec.ts",
+      "sha256": "30f71229548fb558308a3232b701a340038fa15c7674cf757b975122bb1cbbeb",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/cost.ts",
+      "sha256": "d0339cc56a4d2c930f32df0c66e611fad774d0c9ccb8139f6fe13b6a2fea60f0",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/decision-rules.spec.ts",
+      "sha256": "652f38ecfd4e0a952a98f023639a08528e3cd1573702b9a1672c0a93bd156f51",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/decision-rules.ts",
+      "sha256": "0a8a64443b4872e03550fe1bee5d56482182520e0705bb88107b4e8c227c567a",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/exec.ts",
+      "sha256": "64907c2ec13e43acbef87f1f4da7044488cd68ecd377fc6fa7d22a9376754205",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/judge.spec.ts",
+      "sha256": "003b7af3c91448b840da17ac835acbce1b20609e8147fcd4a9658c581d11fc32",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/judge.ts",
+      "sha256": "61a00a28fc5bac5df21d48b55d04734ff160aa7ffb934c8e6728f7a3722b7bf8",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/local-anthropic-proxy.spec.ts",
+      "sha256": "6d6418d5343312e115e153b0f4c3f80b442fb857c1a14c44b8d1486c43f95901",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/local-anthropic-proxy.ts",
+      "sha256": "01f14c252e3ceb940cb92b59151ec1a26dc9e431b966440820d29c91a0e553ac",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/mine-tasks.spec.ts",
+      "sha256": "646474e2ec95d1cfa4fb8b96f9e011ec7bfabf2a1931d74adea332098d554643",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/mine-tasks.ts",
+      "sha256": "093bc449277199a6632748bff091d620ac900923625720aec683d641a803f68a",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/model-control.ts",
+      "sha256": "d35bc4d9d15dc8128d7b812e7f306cb3de1d2ac18a85ec4f8b9d3030114d7452",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/monitor.spec.ts",
+      "sha256": "eee7cfd55f561088bf667454dff1374695b9f8f7fa1b023e0e03052b343a17b5",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/monitor.ts",
+      "sha256": "addbce131aae872bf257d0337deea52ef42f03323c9c6807b13be1ece13a75b6",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/package.json",
+      "sha256": "c3960eb0a5234e31fdbf73c11014158c256b6913fa7dd217463db89abe688df0",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/report.spec.ts",
+      "sha256": "38d4df8eca1195eee78ccc92d2888683ab855d2ab8d0b939530f9bc7c6a68b81",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/report.ts",
+      "sha256": "04fd4f2862e4c0a0fe872b650ddff238260c809cb4510906c83f53b0101c5eef",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/runner-tools.ts",
+      "sha256": "48ea6938f9b16c16a47bbdd5acc8533fc511e4cbe5fb80700f56c548da15a9ca",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/runner.config.json",
+      "sha256": "9cf480341eb088afdbf7aa8a4b92e4b193eebf6416070c29e56c1fcc266cb69c",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/runner.config.probe.json",
+      "sha256": "92869ff462305e8dd5948555b559ee9cdeb394817110a45259c52f28c47b1e28",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/runner.spec.ts",
+      "sha256": "a5cf36019cdbb81213c808819db4bb501214d3ed3b5c2569492d46985c9c790d",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/runner.ts",
+      "sha256": "3a02f2616c3ee4d0d0193e67c13c8e0597e5ca0ad12dd22b31d69c5a904070b9",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/scorer.ts",
+      "sha256": "1097006e033f7ab9c14187bd902a68a0a623845cc610bec1c0fd113e8c821e6e",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/self-test.spec.ts",
+      "sha256": "a725996a3b1c3074123b2a200b8ee7af3ca0d7617bf785549cafc4ade23c5403",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/self-test.ts",
+      "sha256": "05a60f10ff882684875ccb573252ad978f7798a40f4dd53b4327d3433a751d73",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/session.ts",
+      "sha256": "2e96677475708f1dc941a07cf8ac462612c0a36b46b814e5143f569cb3858e09",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/speed-gate.spec.ts",
+      "sha256": "ba4e0c725041f5e365fd2e55eb80f3a13e9ba88cec24a4d610417057a286ba6b",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/speed-gate.ts",
+      "sha256": "52c60386e1a098eb79478b6c2062e3af5a22491c2c767567cde0078c1b9ab73f",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/stats.spec.ts",
+      "sha256": "8bb1a917c1c20ba7a1b92acacf6984deab65553e7c2d4c336735779cfb1dd987",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/stats.ts",
+      "sha256": "2b0076a2ee176f11608705c9bbf09eff182a87e2734f7f8ead865c68c0e51226",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/task-bank.spec.ts",
+      "sha256": "1b5b8b0f96260273e8458f9bc6e50f1f6ea80ed78ce2f5a38e899d08e6f7b0a6",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/task-bank.ts",
+      "sha256": "6453feb435c7d640c9b2255a2a223dea18c02db549b97b2277eeb80f4a381f58",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/task-export.spec.ts",
+      "sha256": "bbaca3f6faaa048a66ffa275a906928574f5c4cd56d8b93d18ca6eacd8c6437d",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/task-export.ts",
+      "sha256": "9ac6c1a14a6e5a742d8a38e63b005424a5e8266568257f7f50c79de35f838f6e",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/tasks/README.md",
+      "sha256": "bdf1e5e4c3abe2087f0e8e782c6a55f372f2cbfa11ef379f04162cafffb7c460",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/tasks/task-bank.json",
+      "sha256": "9c31115733aca0a1d9bd108afa187e4a474d102f045a0355c0bae05237813d6a",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/tsconfig.json",
+      "sha256": "f5796cfeba986d451bc76ba4c723e8d03ed64f13622f846b8e086b0a3076ba00",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/types.ts",
+      "sha256": "a0af7aebdb6b94c8074d81da03e1b3fcd44653bbd22e3742d34b299c9c6543a1",
+      "unchangedFrom": "9cc19c6d6"
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/vitest.config.ts",
+      "sha256": "8ef7070cf5cf024e37cd17fb8057711f90ad98f6a3c22f068c5d48bdcd0c0802",
+      "unchangedFrom": "9cc19c6d6"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/REPORT.md",
+      "sha256": "4c4770aa846c11f05c1091a75ed11cbe6ffac86bc09d3a90a71a60e95f23db94",
+      "bytes": 8067
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/artifact-validation.receipt.json",
+      "sha256": "69226eed20fca52ab284bc89a6f0b19fac5e947219ab93075714fe4fec51ad9c",
+      "bytes": 774
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/benchmark-before.json",
+      "sha256": "699eddfc774a91215eeddbee2d80bcd8036178d9580d1f41b94ae9ecd16e65b3",
+      "bytes": 59744
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/benchmark-before.log",
+      "sha256": "c8dcf5f0c13bc15d19e98be6ab4dbe78d917f5f6daceb9d67ebfd854aea3485a",
+      "bytes": 12318
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/benchmark-output-location.receipt.json",
+      "sha256": "4724f8ac56db5300c304cb4b5654d4abc748f046ce1d9ec0a83fd3f98555b76c",
+      "bytes": 350
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/build-main.log",
+      "sha256": "e71a3237a51004eb322b620687ed6d45a2bf58d3d33469ebd2961b425dc90a6b",
+      "bytes": 284
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/build-renderer.log",
+      "sha256": "602e0d508197afdeb70ac65001a168fdbcda49584b95869d04bce4a0cbf967d1",
+      "bytes": 5447
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/cache-inventory.receipt.json",
+      "sha256": "15b7479e9e8cf8fcc3f7c09db46f0d9ef9533afce8028ddeba3b0a787f9183f9",
+      "bytes": 880
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/cache-retest.log",
+      "sha256": "035c869c2ddd4ebddb0fc9cadd3d084b06bfdebe08484ef9da0c9781061c347c",
+      "bytes": 650
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/cache-retest.receipt.json",
+      "sha256": "b0a28442a653d2e208b7cf3bb2593b28d3bd5f841561d5fb21335e06dce99d5a",
+      "bytes": 4502
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/cache-smoke.mts.source.txt",
+      "sha256": "353793c46611f9cbb6a0b26d4ae2ff0ef19b8365233468acba396275f5f6d7b5",
+      "bytes": 4902
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/cleanup-agent-termination.receipt.json",
+      "sha256": "dc2e8f984a7a7696cd541b6d687efaae3e85593f8085b9fc68e282684d41cf2d",
+      "bytes": 404
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/cleanup.receipt.json",
+      "sha256": "ae6af646c329573691014e1b72e5e832f4541750ee22c558e96b5de3d7860b22",
+      "bytes": 4242
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/dev-app-1.log",
+      "sha256": "4775dd76e698f71df686e98c0e86aed66f7546f3ac0926b788ea0697546f829e",
+      "bytes": 42726
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/dev-app.log",
+      "sha256": "33179139d2b4340af602be4559c81b0f46278232210ffecfc416eebcbbd05d89",
+      "bytes": 537
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/dev-app.receipt.json",
+      "sha256": "139c582141036b0c576d14b9bfaa878632558cebccc89026861caf6726250f9b",
+      "bytes": 729
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/dev-probe.mjs.source.txt",
+      "sha256": "e154717c3c1d6516161a19ac8fca83d6709f61b7cc741b03c36c7a1e48c644d2",
+      "bytes": 5737
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/final-git-state.receipt.json",
+      "sha256": "5ad026756c6e10a8de195ccfcebe914e968ea99bdb1fb762744562b0ba0114cd",
+      "bytes": 4672
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/id-reservation.receipt.json",
+      "sha256": "7415583788c9fd5b8f440dba20fde5873d90e8a6805b3243a70ac924a41ef538",
+      "bytes": 10815
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/independent-review.md",
+      "sha256": "b2270237e081d5f0360060d91883d43abcd1ce498746ab9cebcd7796d470fe79",
+      "bytes": 9588
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/mac-auth-retest.receipt.json",
+      "sha256": "2f26187ce7cfcacc65d0cb746e07cbcc0ddbeacd2b323f550a5d241956cb4b90",
+      "bytes": 113
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/proxy-retest.log",
+      "sha256": "4f7a810a790073182ef80c628db1f420f27386a0016f9a8464ea6c302f5c6767",
+      "bytes": 316
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/raw-recovery.md",
+      "sha256": "20a70f0655618f8dd90064b6cc8e6823d61f4bfe8cb650f2fd9791c369d5a74c",
+      "bytes": 5730
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/raw-recovery.receipt.json",
+      "sha256": "31cb93dd93cce418b9c168301ebf46dc601386f5d4b727778c3a06993a0c3f14",
+      "bytes": 29701
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/receipts.jsonl",
+      "sha256": "606ecaf1276fd242c95d9cd93bf4c699774dfa7f821a4435150909280a0f6e06",
+      "bytes": 2028
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/remote-cache-setup.receipt.json",
+      "sha256": "8254df934c3e4247e72db424c55c326f40c528c6204fc81da11a5bbc99441aff",
+      "bytes": 5945
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/remote-cleanup.receipt.json",
+      "sha256": "c452106512443664d69c576b102ddea804a289b400ed9515b222c58923abf745",
+      "bytes": 10063
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/remote-restoration.receipt.json",
+      "sha256": "98322f4cb2bacb32383493f2a8bf376a4ef053a3c6b42b3e28be3cf77e0538b5",
+      "bytes": 6186
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/routing-and-agents-restored.receipt.json",
+      "sha256": "758e0342c43ddcc82518f7e11a3c956aa14557c2e5e61ff0953a41a9683e5d58",
+      "bytes": 963
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/routing-before-probe.receipt.json",
+      "sha256": "cb99ca0a4934d55928608041cbeba65b28258ab2cc7d125bacf60c3e251033de",
+      "bytes": 255
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/run-command.py.source.txt",
+      "sha256": "cf080b9aeb7bd4ac295a984d5ab89815982dbf80f5bbc4080a65758d1e03004c",
+      "bytes": 984
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/REPORT.md",
+      "sha256": "063816150ed8c2d2c737bffda27b519f2475f6f88befb210ae52d60194554205",
+      "bytes": 9298
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/SEAL.json",
+      "sha256": "1cb0818483ac24286d5e7799f7c76c8842edde37b08a7c5d170178a0b609da8e",
+      "bytes": 9297
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/amended-test-v2.ts.txt",
+      "sha256": "b98f5b12eb6e440a2a3f32b8e59f1f51467067c789b634d3fba0b2fc27e04d97",
+      "bytes": 5617
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/amended-test.ts.txt",
+      "sha256": "139fd0d43e5308ff002dcec6dac480a1909812fdf288b07b402da1467cbfe777",
+      "bytes": 3925
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/cleanup.receipt.json",
+      "sha256": "fd0ad8de5ef9ff259ebbab17360776ddc7551342481fe32eac098596fecf5693",
+      "bytes": 1271
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/control-contract-check.json",
+      "sha256": "b63c94beaae4cb76a68b5a89815026099a84e9ee5accf8c59da896889c223db4",
+      "bytes": 592
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/dependency-context.json",
+      "sha256": "a06c2c98af0ee9e11a7a0850b4aedf9fac242e5bfea68a4d676ade9330f62c23",
+      "bytes": 2319
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-amended-1.json",
+      "sha256": "4504ceeac88b4955f523e402712e4d0c40fb38efb5f4725cdb5ceb5adffc0bfe",
+      "bytes": 13236
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-amended-1.log",
+      "sha256": "70ddf49f5e1ba8f0b3d66dad8be769e8a335d88eaa05546b86d4c5b7f7afec0a",
+      "bytes": 418
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-amended-1.receipt.json",
+      "sha256": "f3250235532c11d58ca0c3c29fa1c75f5bb018cd732d3e50e3fa0203ccd1fd37",
+      "bytes": 1034
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-amended-2.json",
+      "sha256": "63aa0c0e5fb7216e92dd27fc70cb1a7fcddafb772dd1ced8ea72e5bfe53abbd4",
+      "bytes": 13220
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-amended-2.log",
+      "sha256": "2b4d9cacfd91c76374ca7aef6fb55722733fa5dddf1ab2d8ca4437606ff6c903",
+      "bytes": 419
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-amended-2.receipt.json",
+      "sha256": "3094d322f08a485ae8355255b4c8626072478ede0029df8b123877ee2184b297",
+      "bytes": 1034
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-amended-v2-1.json",
+      "sha256": "4198bebad32a88250bd8d0eab00c41c6416a6dcccb6ea92db50804f757628124",
+      "bytes": 13213
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-amended-v2-1.log",
+      "sha256": "66b61d54257db4baa4e3ef99351536c7c0e8a38f89256ec1bb27a4ecb8962ab6",
+      "bytes": 422
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-amended-v2-1.receipt.json",
+      "sha256": "4d83b84aecf9acfddb1f53a9329554194f56448944776d2132d4508d2906ec29",
+      "bytes": 1038
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-amended-v2-2.json",
+      "sha256": "cfafe62c98c00313e5f8a9ee238e16970d1a0d16086f61a8311c8d37c08fa5b9",
+      "bytes": 13212
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-amended-v2-2.log",
+      "sha256": "2bb54221c52cb26ca46544bc54a21d5451ba698341ca6940077dacf4b8659f4d",
+      "bytes": 422
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-amended-v2-2.receipt.json",
+      "sha256": "2428db5a2ad2185876f2d74d08e3e3de67b8d119d52b8501792ed4fe86a34f5d",
+      "bytes": 1037
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-original-1.json",
+      "sha256": "325e65c329109f5a073c2a3c63fc4810b34a4d0eb917a07a6abdfbec8d59734e",
+      "bytes": 12913
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-original-1.log",
+      "sha256": "35092502e6ec13cf13bfaeed298119e692dd72b07d58bd6665349016dd405b36",
+      "bytes": 420
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-original-1.receipt.json",
+      "sha256": "b8e82ccdb257da1c683d879e850b569fd905613e5728b8ac667c9ed9d17455b1",
+      "bytes": 1035
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-original-2.json",
+      "sha256": "5c3cda6ee03ee93c0d87c2f8efd0c77bbea7bc3e59d424e8bc838b97d7595c8a",
+      "bytes": 12933
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-original-2.log",
+      "sha256": "54cdcfa361718f815b547c2adc30c2cacdf32988a84bae9d2fd2f038a0b3dcbf",
+      "bytes": 420
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-original-2.receipt.json",
+      "sha256": "cdbd1a6f092f720cb70a731a1e64c23a5494db026ab7644646e1c8332f75db6b",
+      "bytes": 1035
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/held-back-ordering-amendment-v2.patch",
+      "sha256": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468",
+      "bytes": 5981
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/held-back-ordering-amendment.patch",
+      "sha256": "fc54b9d571d4337ee9cad7294ccb8757f71360f5f038603cb7af03e49d1ff30e",
+      "bytes": 4250
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/microtask-only-bogus-fix.patch",
+      "sha256": "f56422f656616f9badd958e5c04faac92a1c6257a61979c2a4ce33a9e944b16c",
+      "bytes": 290
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/microtask-only-parent-amended-v2-1.json",
+      "sha256": "29013b837879eb531e627a8660e2c7f1162b423187947d4133af899488195c56",
+      "bytes": 13886
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/microtask-only-parent-amended-v2-1.log",
+      "sha256": "9ae17881e289d24667a86c06ea1e5ca36ccb66d8e9bffe81e108af2e6fa00ee0",
+      "bytes": 438
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/microtask-only-parent-amended-v2-1.receipt.json",
+      "sha256": "fcdc9857c92e7bf7a55719275089883999c4e1d29d5557db3745a4384e9b1629",
+      "bytes": 2107
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-amended-1.json",
+      "sha256": "5ed69624bee03f766ce3720145cd0e720d501eebb8eadf8fbff87d5ebe8c1920",
+      "bytes": 15180
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-amended-1.log",
+      "sha256": "d646674c01386f5743b765003d46b997fba049d7cd8addf44203c8728a8ea5f6",
+      "bytes": 420
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-amended-1.receipt.json",
+      "sha256": "0098f783de6c03025e3707ba2d2785b536340a38b4e3b376e30d9fa04a842164",
+      "bytes": 3759
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-amended-2.json",
+      "sha256": "4ee6044e2b93c77482a154a9d0664aacec14644851af3713b2fdf4ce01cbbe0a",
+      "bytes": 14706
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-amended-2.log",
+      "sha256": "b1db9b45914d6c07a4cf4a94a707de72909e0892ce6477373699b7dc97a5d013",
+      "bytes": 420
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-amended-2.receipt.json",
+      "sha256": "f55f732ef449b671552b410c213ce09a02e68c3bd9df3e2b57f0536483ffc21c",
+      "bytes": 2922
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-amended-v2-1.json",
+      "sha256": "1e7fd990b4298c04f61b99af43f9f565a80ea8495241af1e22ae0eae239f5c10",
+      "bytes": 14504
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-amended-v2-1.log",
+      "sha256": "2e25d2d26a46096a45ce5ff282f05c1be45b57569fb9c78fc40676b595755b97",
+      "bytes": 423
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-amended-v2-1.receipt.json",
+      "sha256": "424adbc17bedb5b2a2daaeb6003c2d446ee83f549f3a7b7a280c54c5b4b58fad",
+      "bytes": 3484
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-amended-v2-2.json",
+      "sha256": "10835bbca6cdcf84ad1e06a9640047cb5ca98c55adf3137a0f72e18c78c592fe",
+      "bytes": 14302
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-amended-v2-2.log",
+      "sha256": "e16010c91166ed8b387fb9948bae07bb97925191a141adeccaed952fe466f4fa",
+      "bytes": 423
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-amended-v2-2.receipt.json",
+      "sha256": "3551425b867aac69accfd3961ff7f065dcdf4ab933dc7734fa96d84acfad6179",
+      "bytes": 2899
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-original-1.json",
+      "sha256": "a2f28cbd115e6972667ccf8053e35b9ae8268d95f1e6888f0c212c7f2314291b",
+      "bytes": 13406
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-original-1.log",
+      "sha256": "0cf19472fb02f5f5a00fd9912fd37a1fea92184cc54fcf89799e544970145daf",
+      "bytes": 421
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-original-1.receipt.json",
+      "sha256": "2acd602f8ae25a93e99da7d5cbafc51d90c39162cba210f939b9eb3d9ae913dc",
+      "bytes": 1876
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-original-2.json",
+      "sha256": "246124a7f3d60d515b5f55668ab65b3214589556eb5458204e102d0c33db5e51",
+      "bytes": 13635
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-original-2.log",
+      "sha256": "33d79c61939466e7e7b57468569b71fb898f8d19cf05dc9f606b01d3f996363b",
+      "bytes": 421
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-original-2.receipt.json",
+      "sha256": "6d33546be24b6328fc05f56088c22598e38b693eeb39db4f0c88f4e599c31dce",
+      "bytes": 2503
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/run-control-v2.py",
+      "sha256": "8db05df6fe432d63cca8f6f41a1f5d1999dcbf8a6c6914f550152db8dad3fdfc",
+      "bytes": 11975
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/run-control.py",
+      "sha256": "6e36f77ca1d5b658ed2f8760c065e5485d9195f24009f10311b47088e917eee7",
+      "bytes": 9344
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/source-seal-v2.json",
+      "sha256": "2445d859c2deed7ae32c8eb234501a268c1ee7d522817ff9496361cc1f7a1291",
+      "bytes": 746
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/source-seal.json",
+      "sha256": "cb8544d95301029d3c510d880c90ae6c579952ea01b7b8b425eadc8d5e07cce7",
+      "bytes": 746
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/summary-v2.json",
+      "sha256": "6d1da278a90490c243594d619633283930c5151e0d831afaf1737dc845868703",
+      "bytes": 12146
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/summary.json",
+      "sha256": "1d8a16fc1523b1257e20064c17669a1ab7d326163178a2e4a1fd1355d33d29c8",
+      "bytes": 17050
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/tooling-install.log",
+      "sha256": "bb2bfb8479b9704ef0200c9c68826b8d97f8f3f77154d5a68b9e0202a799af4b",
+      "bytes": 41
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/tooling-install.receipt.json",
+      "sha256": "c376e95d5f77d7a7c59e397cff4ce6c462e5217eced89936f8fb28f589e023b7",
+      "bytes": 333
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/tooling-package-lock.json",
+      "sha256": "c61612964460df9fc69e6f64c21af70d376543434f8b04ecb70a5cca45a528c7",
+      "bytes": 50189
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/tooling-package.json",
+      "sha256": "01d10f0d10d96975e0afdf2fc56a0b7ce6f64c4840c68d5202689e296fea8088",
+      "bytes": 108
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/secret-pattern-check.receipt.json",
+      "sha256": "80cda48b0646374941d5efc090ddc85b9c52d4c63bbff874213c5a564b36c1e3",
+      "bytes": 188
+    },
+    {
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/smoke-retest.raw.log",
+      "sha256": "8c2b12c74f1f401136338bfce61a39ca31fca0929319c4867fa78c463e9ffb42",
+      "bytes": 35460
+    }
+  ],
+  "finalizedAt": "2026-10-27T14:13:13.777812+00:00",
+  "recoverableSourceRef": "refs/heads/queue/2026-10-14-local-model-plan-ex-01472a (contains checkpoint 9cc19c6d6)",
+  "sourceRuntimeRemoved": true,
+  "documentHashesAtFinalization": [
+    {
+      "path": "docs/plans/livetest-remediation-register.md",
+      "sha256": "2a1301f7bfdbaeffc956268a8f2fb17ae3ad1a68fd0c4e2b2e73e42e483af661"
+    },
+    {
+      "path": "docs/plans/2026-07-19-livetest-failure-remediation-followup_plan.md",
+      "sha256": "4ce777bc8d3265eca2422005e3bb969a952d7a40be56d83d47e061f11aa3c3db"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-14-local-model-plan-execute-ab_plan_livetest.md",
+      "sha256": "658371515898637241b4e1017663cb65fccabde3ce1ebf2731920e6ef4c65a23"
+    }
+  ]
+}

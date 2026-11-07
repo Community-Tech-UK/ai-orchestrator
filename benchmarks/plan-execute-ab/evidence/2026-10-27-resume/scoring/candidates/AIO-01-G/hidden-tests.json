@@ -1,0 +1,14 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "src/main/history/history-manager.spec.ts"
+  ],
+  "exitCode": 0,
+  "stdout": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/history/history-manager.spec.ts\n\n✓ 1 files · 41 tests passed in 7.4s\n  full log: _scratch/test-run.pid-13907.log\n",
+  "stderr": "",
+  "timedOut": false,
+  "durationMs": 7823
+}

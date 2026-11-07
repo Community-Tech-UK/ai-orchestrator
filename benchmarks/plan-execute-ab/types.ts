@@ -1,0 +1,431 @@
+/**
+ * Shared types for the plan/execute A-B benchmark (docs/plans/2026-10-14-local-model-plan-execute-ab_plan.md).
+ */
+
+export type ArmId = 'A' | 'B' | 'C1' | 'C2' | 'D' | 'E' | 'G' | 'F';
+
+export type LocalModelKey = 'qwen3.6-35b-a3b' | 'qwen3.8-27b' | 'qwen3.8-flash-next';
+
+export type TaskSize = 'small' | 'medium' | 'large';
+
+export type CoderKind = 'claude' | 'local-claude-code' | 'codex';
+
+export interface ArmSpec {
+  id: ArmId;
+  /** Human label used in reports. */
+  label: string;
+  planner: 'none' | 'claude-opus-5-5';
+  coderKind: CoderKind;
+  /** Cloud Claude model id for claude coders, or the served model name for local arms. */
+  coderModel: string;
+  localModelKey?: LocalModelKey;
+  /** C1/C2/D/E/F all receive the identical frozen plan file for the task. */
+  usesFrozenPlan: boolean;
+  /** F only runs in the full run (phase 3 of the plan). */
+  phase: 'pilot' | 'full';
+  /** Why the arm exists (mirrors the plan's arm table). */
+  rationale: string;
+}
+
+export interface TaskSourceRepo {
+  id: string;
+  /** Where the task was mined from (local clone used for export + verification). */
+  localPath: string;
+  stack: string;
+  notes: string;
+}
+
+export interface TaskVerification {
+  failOnParent: boolean;
+  passOnCommit: boolean;
+  checkedAt: string;
+  /** _scratch directory holding the mining evidence for this task. */
+  evidenceDir: string;
+  notes?: string;
+}
+
+export interface TaskDefinition {
+  id: string;
+  repoId: string;
+  commitSha: string;
+  parentSha: string;
+  /** Provenance only; never shown to the coder. */
+  commitMessage: string;
+  size: TaskSize;
+  /** Outcome-framed task text. Must not give away the solution. */
+  prompt: string;
+  /** Test files added/changed by the commit; withheld from the coder, applied at scoring. */
+  hiddenTests: string[];
+  /** Command run for hidden-test scoring; run in the workspace after hidden tests are applied. */
+  hiddenTestCommand: string[];
+  /** Versioned scoring-only addition; original hidden tests are preserved. */
+  hiddenTestAmendment?: { version: string; patchFile: string; sha256: string };
+  /** No-damage checks: typecheck / lint / neighbouring tests. */
+  damageCommands: string[][];
+  /** Source files changed by the commit (analysis only; must not appear in the prompt). */
+  sourceFiles: string[];
+  verification: TaskVerification;
+}
+
+export interface TaskBank {
+  version: number;
+  createdAt: string;
+  repos: TaskSourceRepo[];
+  tasks: TaskDefinition[];
+}
+
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
+export function emptyUsage(): TokenUsage {
+  return { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+}
+
+export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
+    cacheWriteTokens: a.cacheWriteTokens + b.cacheWriteTokens,
+  };
+}
+
+export interface AgentRunResult {
+  finalText: string;
+  usage: TokenUsage;
+  turns: number;
+  toolErrors: string[];
+  hitTurnCap: boolean;
+  durationMs: number;
+  exitCode: number | null;
+  timedOut: boolean;
+  error?: string;
+  /** Absolute path of the raw stream log kept in the session directory. */
+  rawLogPath: string;
+}
+
+export interface CommandResult {
+  command: string[];
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+  durationMs: number;
+}
+
+export interface HiddenTestScore {
+  passed: boolean;
+  command: string[];
+  exitCode: number | null;
+  timedOut: boolean;
+  outputTail: string;
+}
+
+export interface DamageCheckResult {
+  ok: boolean;
+  command: string[];
+  exitCode: number | null;
+  timedOut: boolean;
+  outputTail: string;
+}
+
+export interface ScoreBundle {
+  /** Absent on historical records; never infer an amended score from those records. */
+  contract?: { version: string; amendmentSha256?: string; dependencyFingerprint: string };
+  hiddenTests: HiddenTestScore;
+  damage: DamageCheckResult[];
+  damageOk: boolean;
+}
+
+export type JudgeSide = 'x' | 'y';
+
+export interface JudgeScore {
+  correctBeyondTests: number;
+  fitsCodebaseStyle: number;
+  noUnrequestedChanges: number;
+  wouldMergeAsIs: boolean;
+  notes: string;
+}
+
+export interface JudgeOrderResult {
+  /** Which side showed the arm-under-test's diff in this order. */
+  subjectSide: JudgeSide;
+  scores: Record<JudgeSide, JudgeScore>;
+  winner: JudgeSide | 'tie';
+  rawText: string;
+}
+
+export type PairVerdict = 'arm-win' | 'baseline-win' | 'tie' | 'judge-unavailable';
+
+export interface JudgePairResult {
+  taskId: string;
+  armId: ArmId;
+  judge: 'claude' | 'codex';
+  orders: JudgeOrderResult[];
+  verdict: PairVerdict;
+  error?: string;
+  /**
+   * Identity of the two runs whose patches were judged (their numbered repeat
+   * slots; patch paths are `patches/<taskId>-<armId>-run<n>.patch`). The judge
+   * compares ONE arm patch against ONE baseline patch, so hidden-test conflict
+   * metrics must use these runs' own outcomes, never a majority over other
+   * repeats. Absent on pairs judged before these fields existed — those align
+   * with the run `judgeSession` picked for them (the cell's first record).
+   */
+  subjectRunNumber?: number;
+  baselineRunNumber?: number;
+}
+
+export interface RunFlags {
+  looped: boolean;
+  toolCallErrors: number;
+  hitTurnCap: boolean;
+  gaveUp: boolean;
+}
+
+/**
+ * One run cell in the coverage matrix: a task + arm's numbered repeat slot.
+ * Repeat-run completeness (the plan's fairness control: 3 cloud / 2 local runs
+ * per task in the full run) is checked on DISTINCT run numbers per task — two
+ * records sharing a run number occupy one slot, not two.
+ */
+export interface RunCoverageCell {
+  taskId: string;
+  runNumber: number;
+}
+
+export interface RunRecord {
+  taskId: string;
+  armId: ArmId;
+  runNumber: number;
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  workspaceDir: string;
+  planUsed: boolean;
+  plannerUsage: TokenUsage;
+  coderUsage: TokenUsage;
+  /** Takeover (arm F) usage is recorded separately. */
+  takeoverUsage: TokenUsage;
+  turns: number;
+  flags: RunFlags;
+  score?: ScoreBundle;
+  patchPath: string;
+  error?: string;
+  /** Local-server speed capture for local arms (per-second figures from the server). */
+  localSpeed?: LocalSpeedSample;
+  /**
+   * Identity of the serving stack behind a local coder (server build + model +
+   * context/settings), recorded at run time. The fairness control requires one
+   * setup per arm ("same model files, server build and settings throughout;
+   * restart that arm if anything updates mid-test"), so arm summaries flag
+   * mixes and decision rules refuse mixed arms. 'unrecorded' when a local run
+   * was made without the config's servingSetup field; absent for cloud arms.
+   */
+  servingSetupId?: string;
+}
+
+export interface LocalSpeedSample {
+  promptTokensPerSec: number | null;
+  writeTokensPerSec: number | null;
+  source: 'server-timings' | 'wall-clock' | 'unmeasured';
+  /** Why the figures are null (e.g. the run probe failed), when they are. */
+  note?: string;
+}
+
+export interface SpeedGateSample {
+  promptTokensPerSec: number;
+  writeTokensPerSec: number;
+  promptTokens: number;
+  writeTokens: number;
+  durationMs: number;
+  measuredPromptSpeed: boolean;
+  /** How the numbers were obtained (server timings vs wall-clock derivation). */
+  source?: 'server-timings' | 'wall-clock' | 'unmeasured';
+}
+
+export interface SpeedGateDecision {
+  keepC2: boolean;
+  sample: SpeedGateSample;
+  reasons: string[];
+}
+
+/** One persisted measurement from `runner.ts speed-gate` (kept per local model). */
+export interface SpeedGateRecord {
+  modelKey: LocalModelKey;
+  measuredAt: string;
+  sample: SpeedGateSample;
+  /** The C2 keep/drop decision; null for models the gate does not apply to. */
+  decision: SpeedGateDecision | null;
+  /** Provenance (evidence path, caveats). */
+  note?: string;
+}
+
+/** `speed-gate.json` under the results root: every gate measurement, in order. */
+export interface SpeedGateLog {
+  version: 1;
+  entries: SpeedGateRecord[];
+}
+
+/** Per-run local probe aggregates for one arm; absent when the arm has no local runs. */
+export interface ArmSpeedSummary {
+  measuredRuns: number;
+  unmeasuredRuns: number;
+  avgPromptTokensPerSec: number | null;
+  avgWriteTokensPerSec: number | null;
+}
+
+/** 95% interval on a rate (both ends are proportions in 0..1). */
+export interface RateInterval {
+  low: number;
+  high: number;
+}
+
+/** Solved-rate gap against baseline arm A; all figures are percentage points. */
+export interface BaselineGap {
+  armId: ArmId;
+  /** arm − A, in percentage points. */
+  gapPoints: number;
+  /** 95% range on that gap (Newcombe), in percentage points. */
+  ci95Points: RateInterval;
+  /** True when the 95% range excludes 0 — the gap is bigger than noise at this sample size. */
+  excludesZero: boolean;
+}
+
+/** Metered-USD figures read back from a session's agent logs. */
+export interface CostEvidence {
+  /** Per coder run, keyed `taskId|armId|runNumber`. Quarantined runs are included: the money was spent. */
+  coderUsdByRun: Record<string, number>;
+  /** Per takeover run (arm F), same keys. */
+  takeoverUsdByRun: Record<string, number>;
+  /** Per task, from `plans/<taskId>.planner.log`. */
+  plannerUsdByTask: Record<string, number>;
+  /** Claude judge calls in the session. Codex judging is plan-limited: no metered cost. */
+  judgeMeteredUsd: number;
+}
+
+export interface ArmCostSummary {
+  armId: ArmId;
+  /** Anthropic-billed coder runs only (local, Codex and hosted-plan coders cost $0 metered). */
+  coderMeteredUsd: number;
+  /** Opus planner runs for this arm's tasks (shared per task across plan arms, counted in full). */
+  plannerMeteredUsd: number;
+  /** Opus takeover runs (arm F). */
+  takeoverMeteredUsd: number;
+  totalMeteredUsd: number;
+  solved: number;
+  /** totalMeteredUsd / solved; null when the arm solved nothing. */
+  costPerSolvedUsd: number | null;
+  notes: string[];
+}
+
+export interface CostReport {
+  arms: ArmCostSummary[];
+  /** Every planner run in the session (shared: one plan per task feeds all plan arms). */
+  plannerMeteredUsd: number;
+  judgeMeteredUsd: number;
+  notes: string[];
+}
+
+export interface ArmSummary {
+  armId: ArmId;
+  runs: number;
+  solved: number;
+  solvedRate: number;
+  hiddenTestPass: number;
+  damageClean: number;
+  avgDurationMs: number;
+  avgCoderOutputTokens: number;
+  /**
+   * Avg Claude tokens per run — planner + takeover always, plus the coder when
+   * it is Anthropic-billed (arms A/D). All token classes count (input, output,
+   * cache read/write): the plan's "Claude tokens (planner + coder + takeover)"
+   * is the volume the Claude model actually processes. The >= 60% saving rule
+   * compares this figure, never the local model's tokens.
+   */
+  avgClaudeTokens: number;
+  /** Avg local-model tokens per run (local coders only), same token classes. */
+  avgLocalTokens: number;
+  judgeWins: number;
+  judgeLosses: number;
+  judgeTies: number;
+  judgeUnavailable: number;
+  failureModes: {
+    looped: number;
+    toolCallErrors: number;
+    hitTurnCap: number;
+    gaveUp: number;
+    error: number;
+  };
+  localSpeed?: ArmSpeedSummary;
+  /** Distinct tasks with at least one run — the unit the uncertainty ranges use. */
+  tasks: number;
+  /** 95% range on solvedRate (Wilson score over tasks; repeat runs of one task are not independent). */
+  solvedRateCI95: RateInterval;
+  /** 95% range on the hidden-test pass rate, same method. */
+  hiddenTestPassRateCI95: RateInterval;
+  /**
+   * Distinct serving setups recorded on this arm's local runs ('unrecorded'
+   * for local runs without one); always empty for cloud arms.
+   */
+  servingSetups: string[];
+  /** True when the arm's runs mix serving setups — unfair per the fairness control. */
+  mixedServingSetup: boolean;
+}
+
+export interface BenchmarkReport {
+  sessionDir: string;
+  createdAt: string;
+  arms: ArmSummary[];
+  judgeAgreement: {
+    bothJudgesCalled: number;
+    sameVerdict: number;
+    conflictsWithHiddenTests: number;
+  };
+  /** The C2 gate decision fed to the decision rules; null until measured. */
+  speedGate: SpeedGateDecision | null;
+  /** Every speed-gate measurement retained from `speed-gate` runs. */
+  speedSamples: SpeedGateRecord[];
+  /** Solved-rate gaps vs arm A with 95% ranges; empty when arm A has no runs in the session. */
+  baselineGaps: BaselineGap[];
+  /** Metered cost per arm ("cost per solved task", plan step 13); null without cost evidence. */
+  cost: CostReport | null;
+  decisionRules: DecisionRuleOutcome[];
+  notes: string[];
+}
+
+export interface DecisionRuleOutcome {
+  rule: string;
+  triggered: boolean;
+  detail: string;
+}
+
+export interface LocalArmEndpoint {
+  modelKey: LocalModelKey;
+  servedModelName: string;
+  baseUrl: string;
+  apiKeyEnv: string;
+  /**
+   * Identity of the serving stack for this endpoint (server build + model +
+   * context/settings), e.g. 'llama-server-2.60.0-27b-65536'. Copied into every
+   * run record so a mid-arm serving change is detectable. Update it BEFORE
+   * changing the serving stack; the fairness control then restarts the arm.
+   */
+  servingSetup?: string;
+  /** Separate Claude Code config folder so the Anthropic login is never sent to the local server. */
+  configDir: string;
+  apiStyle: 'openai' | 'anthropic';
+}
+
+export interface ModelControlConfig {
+  /** Template argv; "{cmd}" is replaced with the shell command to run on the PC. */
+  remoteArgv: string[];
+  loadCommands: Record<string, string>;
+  unloadCommands: Record<string, string>;
+  /** Decision 8: reload Harness's helper models when local runs finish or the runner stops. */
+  helperReloadCommand: string;
+}

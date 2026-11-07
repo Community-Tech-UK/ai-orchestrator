@@ -1,0 +1,685 @@
+diff --git a/benchmarks/plan-execute-ab/README.md b/benchmarks/plan-execute-ab/README.md
+index 348102578..4a37750aa 100644
+--- a/benchmarks/plan-execute-ab/README.md
++++ b/benchmarks/plan-execute-ab/README.md
+@@ -5,6 +5,37 @@ Runner for the experiment in
+ execute plans that Claude writes? Nothing here touches app code; it is a
+ self-contained benchmark folder.
+ 
++## Historical scoring dependencies and contract versions
++
++The runner installs each exported parent tree with its own frozen lockfile before
++starting the coder: `npm ci --ignore-scripts --no-audit --no-fund` or
++`pnpm install --frozen-lockfile --ignore-scripts`. It never links the current
++repository's dependencies into a historical coding workspace. Setup failure
++stops that cell before coding/scoring and does not become a model failure.
++Dependency manifests, lockfile hashes, Node version, command and install exit are
++retained under the session's `scoring/<task>-<arm>-run<n>/` directory with full
++scoring command results. Scoring refuses missing or stale install receipts.
++Root install scripts stay disabled. When the frozen install contains Electron
++or better-sqlite3, setup explicitly materializes Electron's executable and
++rebuilds only better-sqlite3 for the Node test runtime. Those commands and exits
++are retained too. This prepares tests without running the app or the repository's
++global Git-hook/ignore installers; it is not an Electron packaging environment.
++
++The ten pilot parents require five different AIO lockfiles and two 12steps
++lockfiles. Parent and fixed revisions share identical dependency inputs within
++each task, so both controls use the same frozen install. A single present-day
++install is not a valid substitute for those seven historical dependency sets.
++
++Bank version 2 declares AIO-01's `aio-01-startup-order-v2` amendment. The scorer
++checks its SHA-256, preserves the complete original hidden spec, and applies the
++additions-only patch immediately before running the hidden command. Its new
++ordering assertion observes a blocked startup writer and rejects entering the
++safety backup first, including a bogus fix that merely delays by microtasks.
++New score records carry the contract version, amendment hash and dependency
++fingerprint. Old records without those fields remain historical results; loading
++the new bank does not reclassify or rescore them. AIO typechecks retain the same
++TypeScript program while allowing an 8 GiB heap for the historical graph.
++
+ ## What it measures
+ 
+ Eight arms (see `arms.ts`) run the same coding tasks:
+diff --git a/benchmarks/plan-execute-ab/config.spec.ts b/benchmarks/plan-execute-ab/config.spec.ts
+index 25c6faa99..fcd9fc291 100644
+--- a/benchmarks/plan-execute-ab/config.spec.ts
++++ b/benchmarks/plan-execute-ab/config.spec.ts
+@@ -22,6 +22,10 @@ afterEach(() => {
+ });
+ 
+ describe('readConfig', () => {
++  it('keeps the committed default export workspace inside its checkout', () => {
++    const path = join(process.cwd(), 'benchmarks/plan-execute-ab/runner.config.json');
++    expect(readConfig(path).workRoot).toBe(join(process.cwd(), '_scratch/plan-execute-ab/workspaces'));
++  });
+   it('resolves relative repoPaths against the checkout that carries the config (LT-709)', () => {
+     // Regression: workspaces linked a foreign checkout's node_modules whenever
+     // repoPaths named one, and a worktree-internal workRoot let ancestor
+diff --git a/benchmarks/plan-execute-ab/runner.config.json b/benchmarks/plan-execute-ab/runner.config.json
+index 20e8e1a68..44d8e00c1 100644
+--- a/benchmarks/plan-execute-ab/runner.config.json
++++ b/benchmarks/plan-execute-ab/runner.config.json
+@@ -4,7 +4,7 @@
+     "12steps": "/Users/suas/work/12steps"
+   },
+   "resultsRoot": "_scratch/plan-execute-ab",
+-  "workRoot": "/tmp/plan-execute-ab",
++  "workRoot": "_scratch/plan-execute-ab/workspaces",
+   "bankPath": "benchmarks/plan-execute-ab/tasks/task-bank.json",
+   "wallClockMinutes": 60,
+   "turnCap": 75,
+diff --git a/benchmarks/plan-execute-ab/runner.spec.ts b/benchmarks/plan-execute-ab/runner.spec.ts
+index 84544536d..c25607e22 100644
+--- a/benchmarks/plan-execute-ab/runner.spec.ts
++++ b/benchmarks/plan-execute-ab/runner.spec.ts
+@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { cmdPlan, cmdRun, cmdSpeedGate, type CliOptions } from './runner';
+ import { finalizeScoredRun } from './session';
+ import * as agentCli from './agent-cli';
++import * as scoringSetup from './scoring-setup';
++import { ModelControl } from './model-control';
+ import { createFixtureRepo } from './self-test';
+ import { emptyUsage, type AgentRunResult, type BenchmarkReport, type RunRecord } from './types';
+ 
+@@ -95,6 +97,40 @@ beforeEach(() => {
+ });
+ 
+ describe('runner cmdRun', () => {
++  it.each(['rejects', 'returns-failure', 'succeeds'])('unloads a local model only after its load succeeds: %s', async (outcome) => {
++    const fixture = fixtureRepoSandbox({});
++    const plans = join(fixture.resultsRoot, 'load-ownership/plans');
++    mkdirSync(plans, { recursive: true });
++    writeFileSync(join(plans, 'SELF-TEST-1.md'), 'frozen fixture plan');
++    const config = JSON.parse(readFileSync(fixture.configPath, 'utf8'));
++    config.modelControl = { remoteArgv: ['fixture', '{cmd}'], loadCommands: {}, unloadCommands: {}, helperReloadCommand: 'fixture' };
++    writeFileSync(fixture.configPath, JSON.stringify(config));
++    const load = vi.spyOn(ModelControl.prototype, 'loadModel');
++    if (outcome === 'rejects') load.mockRejectedValue(new Error('fixture load rejected'));
++    else load.mockResolvedValue({ ok: outcome === 'succeeds', command: 'fixture' });
++    const unload = vi.spyOn(ModelControl.prototype, 'unloadModel').mockResolvedValue({ ok: true, command: 'fixture' });
++    vi.spyOn(ModelControl.prototype, 'reloadHelperModels').mockResolvedValue({ ok: true, command: 'fixture' });
++    const code = await cmdRun(fixture.options({ session: 'load-ownership', arms: ['C1'], runs: 1, tasks: ['SELF-TEST-1'], phase: 'pilot', localOnly: true }));
++    expect(code).toBe(outcome === 'succeeds' ? 0 : 1);
++    expect(unload).toHaveBeenCalledTimes(outcome === 'succeeds' ? 1 : 0);
++    expect(existsSync(join(config.workRoot, 'SELF-TEST-1-C1-1'))).toBe(false);
++  });
++  it('cleans a failed dependency setup so the unscored cell can retry', async () => {
++    const fixture = fixtureRepoSandbox({});
++    const plans = join(fixture.resultsRoot, 'setup-retry/plans');
++    mkdirSync(plans, { recursive: true });
++    writeFileSync(join(plans, 'SELF-TEST-1.md'), 'frozen fixture plan');
++    const prepare = vi.spyOn(scoringSetup, 'prepareScoringDependencies');
++    prepare.mockRejectedValueOnce(new Error('fixture frozen install failed'));
++    const options = fixture.options({ session: 'setup-retry', arms: ['C1'], runs: 1, tasks: ['SELF-TEST-1'], phase: 'pilot', localOnly: true });
++    expect(await cmdRun(options)).toBe(1);
++    expect(agentCli.runClaudeAgent).not.toHaveBeenCalled();
++    const config = JSON.parse(readFileSync(fixture.configPath, 'utf8'));
++    expect(existsSync(join(config.workRoot, 'SELF-TEST-1-C1-1'))).toBe(false);
++    expect(existsSync(join(fixture.resultsRoot, 'setup-retry/runs.jsonl'))).toBe(false);
++    expect(await cmdRun(options)).toBe(0);
++    expect(agentCli.runClaudeAgent).toHaveBeenCalledOnce();
++  });
+   it('rejects a local-only plan command before creating a session', async () => {
+     const { options, resultsRoot } = sandbox();
+     const code = await cmdPlan(options({ command: 'plan', session: 'bounded', localOnly: true }));
+diff --git a/benchmarks/plan-execute-ab/runner.ts b/benchmarks/plan-execute-ab/runner.ts
+index 762fab360..83c8a1ed6 100644
+--- a/benchmarks/plan-execute-ab/runner.ts
++++ b/benchmarks/plan-execute-ab/runner.ts
+@@ -18,8 +18,9 @@ import {
+   takeoverPrompt,
+ } from './arms';
+ import { loadTaskBank, selectArms, selectTasks } from './task-bank';
+-import { applyHiddenTests, capturePatch, exportWorkspace, linkNodeModules, writePlanFile } from './task-export';
++import { applyHiddenTests, capturePatch, exportWorkspace, writePlanFile } from './task-export';
+ import { scoreRun } from './scorer';
++import { prepareScoringDependencies } from './scoring-setup';
+ import { claudeJudgeRunner, codexJudgeRunner, judgePair, stripIdentifyingText } from './judge';
+ import { buildReport, writeReport } from './report';
+ import { COMPLETE_TASKS } from './decision-rules';
+@@ -112,164 +113,167 @@ async function runArm(options: RunArmOptions): Promise<RunRecord> {
+   if (isLocal && !endpoint) {
+     throw new Error(`arm ${armId} needs a local endpoint (model ${localModelKey}) in runner.config.json`);
+   }
+-  if (isLocal && modelControl && localModelKey) {
+-    const loaded = await modelControl.loadModel(localModelKey);
+-    if (!loaded.ok) {
+-      throw new Error(`model load failed for ${localModelKey}: ${loaded.error ?? 'unknown'}`);
+-    }
+-  }
+-
+   const workspace = await exportWorkspace({
+     repoPath,
+     commitSha: task.parentSha,
+     workRoot: config.workRoot,
+     workspaceName: `${task.id}-${armId}-${runNumber}`,
+   });
+-  const linkState = linkNodeModules(repoPath, workspace.dir);
+-  if (linkState === 'missing') {
+-    throw new Error(`node_modules missing at ${repoPath}; workspace tests and scoring would be meaningless`);
+-  }
+-  if (arm.usesFrozenPlan) {
+-    const plan = await ensureFrozenPlan(task, session, config, wallClockMs, workspace.dir);
+-    frozenPlan = plan.planText;
+-    // A reused plan keeps its recorded planner usage: every preplanned workflow
+-    // (C1/C2/D/E/F) stands alone as plan+code, so its run must carry the task's
+-    // full Opus planning tokens (same per-task accounting as cost.ts) or the
+-    // report's Claude-token saving is inflated by silently free plans.
+-    plannerUsage = plan.usage;
+-  }
+-  if (frozenPlan) {
+-    writePlanFile(workspace.dir, frozenPlan);
+-  }
++  try {
++    const scoringDir = join(session.dir, 'scoring', `${task.id}-${armId}-run${runNumber}`);
++    await prepareScoringDependencies(workspace.dir, scoringDir);
++    if (arm.usesFrozenPlan) {
++      const plan = await ensureFrozenPlan(task, session, config, wallClockMs, workspace.dir);
++      frozenPlan = plan.planText;
++      // A reused plan keeps its recorded planner usage: every preplanned workflow
++      // (C1/C2/D/E/F) stands alone as plan+code, so its run must carry the task's
++      // full Opus planning tokens (same per-task accounting as cost.ts) or the
++      // report's Claude-token saving is inflated by silently free plans.
++      plannerUsage = plan.usage;
++    }
++    if (frozenPlan) {
++      writePlanFile(workspace.dir, frozenPlan);
++    }
+ 
+-  const logPath = join(session.dir, `${task.id}-${armId}-run${runNumber}.agent.log`);
+-  const prompt = coderPrompt(task, frozenPlan, arm.label);
+-  const monitor = armId === 'F'
+-    ? createTakeoverMonitor({ maxFailedTestRuns: 2, maxTurnsWithoutProgress: 15 })
+-    : null;
+-  let takeoverReason = '';
+-  const onEvent = monitor
+-    ? (event: Record<string, unknown>): 'abort' | undefined => {
+-        const decision = monitor.onEvent(event);
+-        if (decision.abort) {
+-          takeoverReason = decision.reason;
+-          return 'abort';
++    const logPath = join(session.dir, `${task.id}-${armId}-run${runNumber}.agent.log`);
++    const prompt = coderPrompt(task, frozenPlan, arm.label);
++    const monitor = armId === 'F'
++      ? createTakeoverMonitor({ maxFailedTestRuns: 2, maxTurnsWithoutProgress: 15 })
++      : null;
++    let takeoverReason = '';
++    const onEvent = monitor
++      ? (event: Record<string, unknown>): 'abort' | undefined => {
++          const decision = monitor.onEvent(event);
++          if (decision.abort) {
++            takeoverReason = decision.reason;
++            return 'abort';
++          }
++          return undefined;
+         }
+-        return undefined;
+-      }
+-    : undefined;
++      : undefined;
+ 
+-  // Per-run speed capture (plan: "prompt-read and write speeds" per run). Probed
+-  // after the model is loaded and before it can be unloaded; failures never hold up the run.
+-  const localSpeed = endpoint
+-    ? await probeLocalSpeed(endpoint, process.env[endpoint.apiKeyEnv] ?? 'local-benchmark-key')
+-    : undefined;
+-
+-  let agentResult;
+-  try {
+-    if (arm.coderKind === 'codex') {
+-      agentResult = await runCodexAgent({
+-        prompt,
+-        cwd: workspace.dir,
+-        logPath,
+-        timeoutMs: wallClockMs,
+-        // Same turn cap as every arm (plan fairness controls); `codex exec`
+-        // has no flag for it, so runCodexAgent enforces it on the stream.
+-        maxTurns: config.turnCap,
+-        onEvent,
+-      });
+-    } else {
+-      agentResult = await runClaudeAgent({
+-        prompt,
+-        cwd: workspace.dir,
+-        logPath,
+-        timeoutMs: wallClockMs,
+-        // Local arms must ask the server for the model name it actually serves;
+-        // cloud arms use the arm's cloud model id.
+-        model: isLocal
+-          ? (endpoint?.servedModelName ?? arm.coderModel ?? undefined)
+-          : (arm.coderModel || undefined),
+-        maxTurns: config.turnCap,
+-        env: endpoint ? localEndpointEnv(endpoint) : process.env,
+-        onEvent,
+-      });
+-    }
+-  } finally {
+-    if (isLocal && modelControl && localModelKey) {
+-      await modelControl.unloadModel(localModelKey);
++    // Per-run speed capture (plan: "prompt-read and write speeds" per run). Probed
++    // after the model is loaded and before it can be unloaded; failures never hold up the run.
++    let localSpeed: Awaited<ReturnType<typeof probeLocalSpeed>> | undefined;
++    let agentResult;
++    let modelLoaded = false;
++    try {
++      if (isLocal && modelControl && localModelKey) {
++        const loaded = await modelControl.loadModel(localModelKey);
++        if (!loaded.ok) {
++          throw new Error(`model load failed for ${localModelKey}: ${loaded.error ?? 'unknown'}`);
++        }
++        modelLoaded = true;
++      }
++      localSpeed = endpoint
++        ? await probeLocalSpeed(endpoint, process.env[endpoint.apiKeyEnv] ?? 'local-benchmark-key')
++        : undefined;
++      if (arm.coderKind === 'codex') {
++        agentResult = await runCodexAgent({
++          prompt,
++          cwd: workspace.dir,
++          logPath,
++          timeoutMs: wallClockMs,
++          // Same turn cap as every arm (plan fairness controls); `codex exec`
++          // has no flag for it, so runCodexAgent enforces it on the stream.
++          maxTurns: config.turnCap,
++          onEvent,
++        });
++      } else {
++        agentResult = await runClaudeAgent({
++          prompt,
++          cwd: workspace.dir,
++          logPath,
++          timeoutMs: wallClockMs,
++          // Local arms must ask the server for the model name it actually serves;
++          // cloud arms use the arm's cloud model id.
++          model: isLocal
++            ? (endpoint?.servedModelName ?? arm.coderModel ?? undefined)
++            : (arm.coderModel || undefined),
++          maxTurns: config.turnCap,
++          env: endpoint ? localEndpointEnv(endpoint) : process.env,
++          onEvent,
++        });
++      }
++    } finally {
++      if (modelLoaded && modelControl && localModelKey) {
++        await modelControl.unloadModel(localModelKey);
++      }
+     }
+-  }
+ 
+-  let takeoverUsage = emptyUsage();
+-  if (armId === 'F' && (takeoverReason !== '' || agentResult.error !== undefined)) {
+-    const reason = takeoverReason || agentResult.error || 'coder did not finish';
+-    // Fairness control ("same limits for every arm: 60-minute wall clock …
+-    // same turn cap"): the coder and the Opus takeover are one run, so the
+-    // takeover gets what the coder left, never a fresh full budget.
+-    const takeoverTimeoutMs = wallClockMs - agentResult.durationMs;
+-    const takeoverTurns = config.turnCap - agentResult.turns;
+-    if (takeoverTimeoutMs <= 0 || takeoverTurns <= 0) {
+-      const skipNote = `takeover skipped: no budget remained (wall-clock left ${takeoverTimeoutMs}ms, turns left ${takeoverTurns})`;
+-      agentResult = summarizeAgentResult({
+-        ...agentResult,
+-        error: agentResult.error ? `${agentResult.error} | ${skipNote}` : skipNote,
+-      });
+-    } else {
+-      const takeover = await runClaudeAgent({
+-        prompt: takeoverPrompt(task, agentResult.finalText, reason),
+-        cwd: workspace.dir,
+-        logPath: join(session.dir, `${task.id}-${armId}-run${runNumber}.takeover.log`),
+-        timeoutMs: takeoverTimeoutMs,
+-        model: CLAUDE_OPS_MODEL,
+-        maxTurns: takeoverTurns,
+-      });
+-      takeoverUsage = takeover.usage;
+-      agentResult = summarizeAgentResult({
+-        ...agentResult,
+-        finalText: takeover.finalText || agentResult.finalText,
+-        turns: agentResult.turns + takeover.turns,
+-        durationMs: agentResult.durationMs + takeover.durationMs,
+-        error: takeover.error,
+-      });
++    let takeoverUsage = emptyUsage();
++    if (armId === 'F' && (takeoverReason !== '' || agentResult.error !== undefined)) {
++      const reason = takeoverReason || agentResult.error || 'coder did not finish';
++      // Fairness control ("same limits for every arm: 60-minute wall clock …
++      // same turn cap"): the coder and the Opus takeover are one run, so the
++      // takeover gets what the coder left, never a fresh full budget.
++      const takeoverTimeoutMs = wallClockMs - agentResult.durationMs;
++      const takeoverTurns = config.turnCap - agentResult.turns;
++      if (takeoverTimeoutMs <= 0 || takeoverTurns <= 0) {
++        const skipNote = `takeover skipped: no budget remained (wall-clock left ${takeoverTimeoutMs}ms, turns left ${takeoverTurns})`;
++        agentResult = summarizeAgentResult({
++          ...agentResult,
++          error: agentResult.error ? `${agentResult.error} | ${skipNote}` : skipNote,
++        });
++      } else {
++        const takeover = await runClaudeAgent({
++          prompt: takeoverPrompt(task, agentResult.finalText, reason),
++          cwd: workspace.dir,
++          logPath: join(session.dir, `${task.id}-${armId}-run${runNumber}.takeover.log`),
++          timeoutMs: takeoverTimeoutMs,
++          model: CLAUDE_OPS_MODEL,
++          maxTurns: takeoverTurns,
++        });
++        takeoverUsage = takeover.usage;
++        agentResult = summarizeAgentResult({
++          ...agentResult,
++          finalText: takeover.finalText || agentResult.finalText,
++          turns: agentResult.turns + takeover.turns,
++          durationMs: agentResult.durationMs + takeover.durationMs,
++          error: takeover.error,
++        });
++      }
+     }
+-  }
+ 
+-  const patch = await capturePatch(workspace);
+-  const patchPath = join(session.patchesDir, `${task.id}-${armId}-run${runNumber}.patch`);
+-  writeFileSync(patchPath, patch);
++    const patch = await capturePatch(workspace);
++    const patchPath = join(session.patchesDir, `${task.id}-${armId}-run${runNumber}.patch`);
++    writeFileSync(patchPath, patch);
+ 
+-  applyHiddenTests(repoPath, task.commitSha, task.hiddenTests, workspace.dir);
+-  const score = await scoreRun(task, { workspaceDir: workspace.dir, timeoutMs: wallClockMs });
++    applyHiddenTests(repoPath, task.commitSha, task.hiddenTests, workspace.dir);
++    const score = await scoreRun(task, { workspaceDir: workspace.dir, timeoutMs: wallClockMs, logDir: scoringDir });
+ 
+-  const record: RunRecord = {
+-    taskId: task.id,
+-    armId,
+-    runNumber,
+-    startedAt: startedAt.toISOString(),
+-    completedAt: new Date().toISOString(),
+-    durationMs: agentResult.durationMs,
+-    workspaceDir: workspace.dir,
+-    planUsed: arm.usesFrozenPlan,
+-    plannerUsage,
+-    coderUsage: agentResult.usage,
+-    takeoverUsage,
+-    turns: agentResult.turns,
+-    flags: {
+-      looped: agentResult.toolErrors.length >= 5 && agentResult.turns >= config.turnCap * 0.8,
+-      toolCallErrors: agentResult.toolErrors.length,
+-      hitTurnCap: agentResult.hitTurnCap,
+-      gaveUp: Boolean(agentResult.error) && agentResult.finalText.length < 200,
+-    },
+-    score,
+-    patchPath,
+-    error: agentResult.error,
+-    localSpeed,
+-    // Fairness control provenance: which serving stack backed a local coder,
+-    // so a mid-arm server/settings change is detectable in the report.
+-    servingSetupId: isLocal ? (endpoint?.servingSetup ?? 'unrecorded') : undefined,
+-  };
+-  finalizeScoredRun(session, record, workspace.dir);
+-  return record;
++    const record: RunRecord = {
++      taskId: task.id,
++      armId,
++      runNumber,
++      startedAt: startedAt.toISOString(),
++      completedAt: new Date().toISOString(),
++      durationMs: agentResult.durationMs,
++      workspaceDir: workspace.dir,
++      planUsed: arm.usesFrozenPlan,
++      plannerUsage,
++      coderUsage: agentResult.usage,
++      takeoverUsage,
++      turns: agentResult.turns,
++      flags: {
++        looped: agentResult.toolErrors.length >= 5 && agentResult.turns >= config.turnCap * 0.8,
++        toolCallErrors: agentResult.toolErrors.length,
++        hitTurnCap: agentResult.hitTurnCap,
++        gaveUp: Boolean(agentResult.error) && agentResult.finalText.length < 200,
++      },
++      score,
++      patchPath,
++      error: agentResult.error,
++      localSpeed,
++      // Fairness control provenance: which serving stack backed a local coder,
++      // so a mid-arm server/settings change is detectable in the report.
++      servingSetupId: isLocal ? (endpoint?.servingSetup ?? 'unrecorded') : undefined,
++    };
++    finalizeScoredRun(session, record, workspace.dir);
++    return record;
++  } finally {
++    bestEffortCleanup(workspace.dir);
++  }
+ }
+ 
+ async function judgeSession(
+@@ -541,7 +545,6 @@ export async function cmdPlan(options: CliOptions): Promise<number> {
+       workRoot: config.workRoot,
+       workspaceName: `${task.id}-plan-only`,
+     });
+-    linkNodeModules(repoPath, workspace.dir);
+     let plan;
+     try {
+       plan = await ensureFrozenPlan(task, session, config, wallClockMs, workspace.dir);
+diff --git a/benchmarks/plan-execute-ab/scorer.ts b/benchmarks/plan-execute-ab/scorer.ts
+index 5b9307ebf..e287e3023 100644
+--- a/benchmarks/plan-execute-ab/scorer.ts
++++ b/benchmarks/plan-execute-ab/scorer.ts
+@@ -1,10 +1,28 @@
+ import { runCommand, tail } from './exec';
++import { createHash } from 'crypto';
++import { mkdirSync, readFileSync, writeFileSync } from 'fs';
++import { join, resolve } from 'path';
++import { fileURLToPath } from 'url';
++import { verifyScoringDependencies } from './scoring-setup';
+ import type { CommandResult, DamageCheckResult, HiddenTestScore, ScoreBundle, TaskDefinition } from './types';
+ 
+ export interface ScoreOptions {
+   workspaceDir: string;
+   timeoutMs?: number;
+   env?: NodeJS.ProcessEnv;
++  /** Full local command evidence, alongside the compact score output. */
++  logDir?: string;
++}
++
++async function scoringCommand(command: string[], options: ScoreOptions, label: string): Promise<CommandResult> {
++  const result = await runCommand(command, {
++    cwd: options.workspaceDir, env: options.env, timeoutMs: options.timeoutMs ?? 20 * 60_000,
++  });
++  if (options.logDir) {
++    mkdirSync(options.logDir, { recursive: true });
++    writeFileSync(join(options.logDir, `${label}.json`), JSON.stringify(result, null, 2));
++  }
++  return result;
+ }
+ 
+ function toHiddenTestScore(command: string[], result: CommandResult): HiddenTestScore {
+@@ -28,31 +46,40 @@ function toDamageResult(command: string[], result: CommandResult): DamageCheckRe
+ }
+ 
+ export async function scoreHiddenTests(task: TaskDefinition, options: ScoreOptions): Promise<HiddenTestScore> {
+-  const result = await runCommand(task.hiddenTestCommand, {
+-    cwd: options.workspaceDir,
+-    env: options.env,
+-    timeoutMs: options.timeoutMs ?? 20 * 60_000,
+-  });
++  if (task.hiddenTestAmendment) {
++    const amendment = task.hiddenTestAmendment;
++    const patch = readFileSync(resolve(fileURLToPath(new URL('.', import.meta.url)), amendment.patchFile));
++    if (createHash('sha256').update(patch).digest('hex') !== amendment.sha256) {
++      throw new Error('hidden-test scoring amendment hash mismatch');
++    }
++    const apply = await runCommand(['git', 'apply', '--whitespace=error', '-'], {
++      cwd: options.workspaceDir, stdin: patch.toString(), timeoutMs: 30_000,
++    });
++    if (apply.exitCode !== 0 || apply.timedOut) throw new Error(`hidden-test scoring amendment failed: ${tail(apply.stderr)}`);
++  }
++  const result = await scoringCommand(task.hiddenTestCommand, options, 'hidden-tests');
+   return toHiddenTestScore(task.hiddenTestCommand, result);
+ }
+ 
+ export async function runDamageChecks(task: TaskDefinition, options: ScoreOptions): Promise<DamageCheckResult[]> {
+   const results: DamageCheckResult[] = [];
+   for (const command of task.damageCommands) {
+-    const result = await runCommand(command, {
+-      cwd: options.workspaceDir,
+-      env: options.env,
+-      timeoutMs: options.timeoutMs ?? 20 * 60_000,
+-    });
++    const result = await scoringCommand(command, options, `damage-${results.length + 1}`);
+     results.push(toDamageResult(command, result));
+   }
+   return results;
+ }
+ 
+ export async function scoreRun(task: TaskDefinition, options: ScoreOptions): Promise<ScoreBundle> {
++  const dependencies = verifyScoringDependencies(options.workspaceDir);
+   const hiddenTests = await scoreHiddenTests(task, options);
+   const damage = await runDamageChecks(task, options);
+   return {
++    contract: {
++      version: task.hiddenTestAmendment?.version ?? 'historical-v1',
++      amendmentSha256: task.hiddenTestAmendment?.sha256,
++      dependencyFingerprint: dependencies.fingerprint,
++    },
+     hiddenTests,
+     damage,
+     damageOk: damage.every((check) => check.ok),
+diff --git a/benchmarks/plan-execute-ab/task-bank.ts b/benchmarks/plan-execute-ab/task-bank.ts
+index 83140e53b..6d98e0cc6 100644
+--- a/benchmarks/plan-execute-ab/task-bank.ts
++++ b/benchmarks/plan-execute-ab/task-bank.ts
+@@ -24,6 +24,10 @@ export function validateTaskBank(bank: TaskBank): void {
+     if (!task.prompt.trim()) throw new Error(`task ${task.id}: empty prompt`);
+     if (task.hiddenTests.length === 0) throw new Error(`task ${task.id}: no hidden tests`);
+     if (task.hiddenTestCommand.length === 0) throw new Error(`task ${task.id}: no hidden test command`);
++    if (task.hiddenTestAmendment && (!task.hiddenTestAmendment.version.trim()
++      || !task.hiddenTestAmendment.patchFile.trim() || !/^[a-f0-9]{64}$/.test(task.hiddenTestAmendment.sha256))) {
++      throw new Error(`task ${task.id}: invalid scoring amendment provenance`);
++    }
+     for (const line of task.prompt.split('\n')) {
+       if (line.includes(task.commitSha) || line.includes(task.parentSha)) {
+         throw new Error(`task ${task.id}: prompt leaks a commit sha`);
+diff --git a/benchmarks/plan-execute-ab/task-export.spec.ts b/benchmarks/plan-execute-ab/task-export.spec.ts
+index 39d658dfd..9398a62e1 100644
+--- a/benchmarks/plan-execute-ab/task-export.spec.ts
++++ b/benchmarks/plan-execute-ab/task-export.spec.ts
+@@ -1,4 +1,5 @@
+ import { execFileSync } from 'child_process';
++import { createHash } from 'crypto';
+ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+ import { tmpdir } from 'os';
+ import { join } from 'path';
+@@ -103,6 +104,26 @@ describe('task export and scoring', () => {
+     cleanupWorkspace(workspace.dir);
+   });
+ 
++  it('applies a hash-pinned scoring amendment on the actual hidden-test path', async () => {
++    const workspace = await exportWorkspace({ repoPath, commitSha: parentSha, workRoot, workspaceName: 'amendment' });
++    applyHiddenTests(repoPath, commitSha, task.hiddenTests, workspace.dir);
++    const patch = '--- a/test/double.test.js\n+++ b/test/double.test.js\n@@ -1,3 +1,4 @@\n const assert = require("node:assert");\n const { double } = require("../src/lib.js");\n assert.strictEqual(double(21), 42);\n+process.exit(3);\n';
++    const patchFile = join(workRoot, 'amendment.patch');
++    writeFileSync(patchFile, patch);
++    const amendedTask: TaskDefinition = { ...task, hiddenTestAmendment: {
++      version: 'fixture-v2', patchFile, sha256: createHash('sha256').update(patch).digest('hex'),
++    } };
++    writeFileSync(join(workspace.dir, 'src/lib.js'), 'module.exports = { double: x => 2 * x };');
++    const score = await scoreRun(amendedTask, { workspaceDir: workspace.dir });
++    expect(score.hiddenTests.exitCode).toBe(3);
++    expect(score.contract?.version).toBe('fixture-v2');
++    expect(score.contract?.amendmentSha256).toBe(amendedTask.hiddenTestAmendment?.sha256);
++    applyHiddenTests(repoPath, commitSha, task.hiddenTests, workspace.dir);
++    writeFileSync(patchFile, patch + '\n');
++    await expect(scoreRun(amendedTask, { workspaceDir: workspace.dir })).rejects.toThrow(/hash mismatch/);
++    cleanupWorkspace(workspace.dir);
++  });
++
+   it('links node_modules and keeps links and plan files out of patches', async () => {
+     mkdirSync(join(repoPath, 'node_modules', 'dep'), { recursive: true });
+     writeFileSync(join(repoPath, 'node_modules', 'dep', 'index.js'), 'module.exports = 1;\n');
+diff --git a/benchmarks/plan-execute-ab/tasks/task-bank.json b/benchmarks/plan-execute-ab/tasks/task-bank.json
+index 4afb29723..58f4d4a55 100644
+--- a/benchmarks/plan-execute-ab/tasks/task-bank.json
++++ b/benchmarks/plan-execute-ab/tasks/task-bank.json
+@@ -1,5 +1,5 @@
+ {
+-  "version": 1,
++  "version": 2,
+   "createdAt": "2026-10-14",
+   "repos": [
+     {
+@@ -24,10 +24,11 @@
+       "commitMessage": "Harvest: orchestrator captured session output",
+       "size": "small",
+       "prompt": "Clearing all conversation history can race the startup backfill: if 'clear all history' runs while startup archiving is still writing entries, it can take its safety snapshot of a half-written state and delete files the backfill is still updating. Make 'clear all history' wait until the startup writers have settled before it snapshots and deletes.",
++      "hiddenTestAmendment": {"version": "aio-01-startup-order-v2", "patchFile": "tasks/aio-01-scoring-v2.patch", "sha256": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468"},
+       "hiddenTests": ["src/main/history/history-manager.spec.ts"],
+       "hiddenTestCommand": ["npm", "run", "test:quiet", "--", "src/main/history/history-manager.spec.ts"],
+       "damageCommands": [
+-        ["npx", "tsc", "--noEmit"],
++        ["node", "--max-old-space-size=8192", "node_modules/typescript/bin/tsc", "--noEmit"],
+         ["npm", "run", "lint:fast"]
+       ],
+       "sourceFiles": ["src/main/history/history-manager.ts"],
+@@ -50,7 +51,7 @@
+       "hiddenTests": ["scripts/__tests__/release-workflow.spec.ts"],
+       "hiddenTestCommand": ["npm", "run", "test:quiet", "--", "scripts/__tests__/release-workflow.spec.ts"],
+       "damageCommands": [
+-        ["npx", "tsc", "--noEmit"],
++        ["node", "--max-old-space-size=8192", "node_modules/typescript/bin/tsc", "--noEmit"],
+         ["npm", "run", "lint:fast"]
+       ],
+       "sourceFiles": ["src/main/providers/models-dev-snapshot.generated.ts"],
+@@ -80,7 +81,7 @@
+         "src/main/session/session-continuity.spec.ts"
+       ],
+       "damageCommands": [
+-        ["npx", "tsc", "--noEmit"],
++        ["node", "--max-old-space-size=8192", "node_modules/typescript/bin/tsc", "--noEmit"],
+         ["npm", "run", "lint:fast"]
+       ],
+       "sourceFiles": [
+@@ -115,7 +116,7 @@
+         "src/main/instance/instance-persistence.spec.ts"
+       ],
+       "damageCommands": [
+-        ["npx", "tsc", "--noEmit"],
++        ["node", "--max-old-space-size=8192", "node_modules/typescript/bin/tsc", "--noEmit"],
+         ["npm", "run", "lint:fast"]
+       ],
+       "sourceFiles": [
+@@ -144,7 +145,7 @@
+         "src/main/automations/automation-run-provider-limit.spec.ts"
+       ],
+       "damageCommands": [
+-        ["npx", "tsc", "--noEmit"],
++        ["node", "--max-old-space-size=8192", "node_modules/typescript/bin/tsc", "--noEmit"],
+         ["npm", "run", "lint:fast"]
+       ],
+       "sourceFiles": [
+@@ -182,7 +183,7 @@
+         "src/main/providers/account-pool/account-telemetry-bridge.spec.ts"
+       ],
+       "damageCommands": [
+-        ["npx", "tsc", "--noEmit"],
++        ["node", "--max-old-space-size=8192", "node_modules/typescript/bin/tsc", "--noEmit"],
+         ["npm", "run", "lint:fast"]
+       ],
+       "sourceFiles": [
+diff --git a/benchmarks/plan-execute-ab/types.ts b/benchmarks/plan-execute-ab/types.ts
+index 55b438fc2..c8f5f5a96 100644
+--- a/benchmarks/plan-execute-ab/types.ts
++++ b/benchmarks/plan-execute-ab/types.ts
+@@ -58,6 +58,8 @@ export interface TaskDefinition {
+   hiddenTests: string[];
+   /** Command run for hidden-test scoring; run in the workspace after hidden tests are applied. */
+   hiddenTestCommand: string[];
++  /** Versioned scoring-only addition; original hidden tests are preserved. */
++  hiddenTestAmendment?: { version: string; patchFile: string; sha256: string };
+   /** No-damage checks: typecheck / lint / neighbouring tests. */
+   damageCommands: string[][];
+   /** Source files changed by the commit (analysis only; must not appear in the prompt). */
+@@ -132,6 +134,8 @@ export interface DamageCheckResult {
+ }
+ 
+ export interface ScoreBundle {
++  /** Absent on historical records; never infer an amended score from those records. */
++  contract?: { version: string; amendmentSha256?: string; dependencyFingerprint: string };
+   hiddenTests: HiddenTestScore;
+   damage: DamageCheckResult[];
+   damageOk: boolean;

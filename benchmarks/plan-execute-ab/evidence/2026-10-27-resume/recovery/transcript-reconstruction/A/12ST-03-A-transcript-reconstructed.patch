@@ -1,0 +1,315 @@
+diff --git a/apps/web/src/app/a11y.spec.ts b/apps/web/src/app/a11y.spec.ts
+index 2e00ebd..8041ff4 100644
+--- a/apps/web/src/app/a11y.spec.ts
++++ b/apps/web/src/app/a11y.spec.ts
+@@ -161,6 +161,29 @@ describe('accessibility (axe-core)', () => {
+     await expectNoViolations(HomeComponent);
+   });
+ 
++  it('landing page with the Android closed-test banner has no axe violations', async () => {
++    const userAgent = vi
++      .spyOn(navigator, 'userAgent', 'get')
++      .mockReturnValue('Mozilla/5.0 (Linux; Android 14; Pixel 8) Mobile');
++    try {
++      const fixture = TestBed.createComponent(HomeComponent);
++      fixture.detectChanges();
++      TestBed.inject(HttpTestingController)
++        .expectOne('/api/android-interest/config')
++        .flush({ siteKey: null, submissionsEnabled: true });
++      await fixture.whenStable();
++      await new Promise((resolve) => setTimeout(resolve));
++      fixture.detectChanges();
++
++      const host = fixture.nativeElement as Element;
++      expect(host.querySelector('[data-testid="android-test-banner"]')).not.toBeNull();
++      const results = await runAxe(host);
++      expect(results.violations, formatViolations(results)).toEqual([]);
++    } finally {
++      userAgent.mockRestore();
++    }
++  });
++
+   it('tool catalogue has no axe violations', async () => {
+     // /tools is the only route to Timeline, Challenges, Insights and every
+     // fellowship tool, so it carries an axe check even though the rest of the
+diff --git a/apps/web/src/app/home/home.component.html b/apps/web/src/app/home/home.component.html
+index a851d91..0854097 100644
+--- a/apps/web/src/app/home/home.component.html
++++ b/apps/web/src/app/home/home.component.html
+@@ -4,6 +4,28 @@
+   <app-language-suggestion />
+ 
+   <main id="main-content" tabindex="-1" class="landing__main">
++    @if (showAndroidTestBanner()) {
++      <section
++        class="android-test-banner"
++        [attr.aria-label]="'home.android.banner.label' | transloco"
++        data-testid="android-test-banner"
++      >
++        <div class="max-w-content page-gutter android-test-banner__inner">
++          <p class="android-test-banner__text">
++            {{ 'home.android.banner.text' | transloco }}
++          </p>
++          <a
++            [routerLink]="[]"
++            fragment="android-interest"
++            class="btn-primary android-test-banner__cta"
++            data-testid="android-test-banner-link"
++          >
++            {{ 'home.android.banner.cta' | transloco }}
++          </a>
++        </div>
++      </section>
++    }
++
+     <!-- HERO ------------------------------------------------------------ -->
+     <section class="hero" aria-labelledby="hero-headline" data-testid="hero">
+       <div aria-hidden="true" class="hero__glow hero__glow--primary"></div>
+diff --git a/apps/web/src/app/home/home.component.spec.ts b/apps/web/src/app/home/home.component.spec.ts
+index 9330d6e..790324b 100644
+--- a/apps/web/src/app/home/home.component.spec.ts
++++ b/apps/web/src/app/home/home.component.spec.ts
+@@ -5,8 +5,9 @@ import { TestBed } from '@angular/core/testing';
+ import { provideHttpClient } from '@angular/common/http';
+ import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
+ import { Router } from '@angular/router';
++import { Capacitor } from '@capacitor/core';
+ import { RouterTestingModule } from '@angular/router/testing';
+-import { beforeEach, describe, expect, it, vi } from 'vitest';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { AuthService } from '../auth/auth.service';
+ import { MetricsService } from '../shared/services/metrics.service';
+ import { ThemeService } from '../shared/services/theme.service';
+@@ -259,4 +260,92 @@ describe('HomeComponent', () => {
+     volunteer.flush({ ok: true });
+     await volunteerPromise;
+   });
++
++  describe('Android closed-test banner', () => {
++    const ANDROID_UA =
++      'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36';
++    const DESKTOP_UA =
++      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36';
++
++    afterEach(() => {
++      vi.restoreAllMocks();
++    });
++
++    async function renderWithUserAgent(
++      userAgent: string,
++      config: { siteKey: null; submissionsEnabled: boolean } | 'error' = {
++        siteKey: null,
++        submissionsEnabled: true,
++      },
++    ): Promise<HTMLElement> {
++      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(userAgent);
++      const fixture = TestBed.createComponent(HomeComponent);
++      fixture.detectChanges();
++      const request = TestBed.inject(HttpTestingController).expectOne(
++        '/api/android-interest/config',
++      );
++      if (config === 'error') {
++        request.flush(null, { status: 500, statusText: 'Server Error' });
++      } else {
++        request.flush(config);
++      }
++      await fixture.whenStable();
++      fixture.detectChanges();
++      return fixture.nativeElement as HTMLElement;
++    }
++
++    it('invites Android browser visitors to the Play closed test', async () => {
++      const host = await renderWithUserAgent(ANDROID_UA);
++      const banner = host.querySelector('[data-testid="android-test-banner"]');
++
++      expect(banner).not.toBeNull();
++      expect(banner?.getAttribute('aria-label')).toBe('Android closed test');
++      expect(banner?.textContent).toContain('closed testing on Google Play');
++      const link = host.querySelector<HTMLAnchorElement>(
++        '[data-testid="android-test-banner-link"]',
++      );
++      expect(link?.textContent?.trim()).toBe('Volunteer to test');
++      expect(link?.getAttribute('href')).toContain('#android-interest');
++      expect(host.querySelector('#android-interest')).not.toBeNull();
++    });
++
++    it('shows nothing to non-Android visitors', async () => {
++      const host = await renderWithUserAgent(DESKTOP_UA);
++
++      expect(host.querySelector('[data-testid="android-test-banner"]')).toBeNull();
++    });
++
++    it('waits for the signup config before inviting anyone', async () => {
++      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(ANDROID_UA);
++      const fixture = TestBed.createComponent(HomeComponent);
++      fixture.detectChanges();
++      await fixture.whenStable();
++      fixture.detectChanges();
++      const host = fixture.nativeElement as HTMLElement;
++
++      expect(host.querySelector('[data-testid="android-test-banner"]')).toBeNull();
++    });
++
++    it('shows nothing while closed-test signups are paused', async () => {
++      const host = await renderWithUserAgent(ANDROID_UA, {
++        siteKey: null,
++        submissionsEnabled: false,
++      });
++
++      expect(host.querySelector('[data-testid="android-test-banner"]')).toBeNull();
++    });
++
++    it('shows nothing when the signup config cannot be loaded', async () => {
++      const host = await renderWithUserAgent(ANDROID_UA, 'error');
++
++      expect(host.querySelector('[data-testid="android-test-banner"]')).toBeNull();
++    });
++
++    it('shows nothing inside the native Android app', async () => {
++      vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
++      const host = await renderWithUserAgent(ANDROID_UA);
++
++      expect(host.querySelector('[data-testid="android-test-banner"]')).toBeNull();
++    });
++  });
+ });
+diff --git a/apps/web/src/app/home/home.component.ts b/apps/web/src/app/home/home.component.ts
+index 1154149..568509e 100644
+--- a/apps/web/src/app/home/home.component.ts
++++ b/apps/web/src/app/home/home.component.ts
+@@ -2,6 +2,7 @@ import {
+   ChangeDetectionStrategy,
+   Component,
+   OnInit,
++  afterNextRender,
+   computed,
+   inject,
+   signal,
+@@ -114,8 +115,12 @@ export class HomeComponent implements OnInit {
+   readonly androidHoneypot = signal('');
+   readonly turnstileSiteKey = signal<string | null>(null);
+   readonly androidSubmissionsEnabled = signal(true);
++  readonly androidConfigLoaded = signal(false);
+   readonly turnstileToken = signal('');
+   readonly isNativePlatform = Capacitor.isNativePlatform();
++  /** Browser visitor on an Android device. Set after the first render: the
++   *  page is prerendered in Node, where there is no `navigator`. */
++  readonly isAndroidBrowser = signal(false);
+   readonly turnstileWidget = viewChild(TurnstileWidgetComponent);
+ 
+   /**
+@@ -221,6 +226,24 @@ export class HomeComponent implements OnInit {
+   /** True while Android is not publicly listed — drives the register-interest UI. */
+   readonly showAndroidInterest = this.androidPlatform?.state !== 'available';
+ 
++  /** Invite Android web visitors to the Play closed test. Never shown in the
++   *  native shell (already installed), until the signup config confirms
++   *  volunteer signups are open, or once Android is publicly listed. */
++  readonly showAndroidTestBanner = computed(
++    () =>
++      this.showAndroidInterest &&
++      !this.isNativePlatform &&
++      this.isAndroidBrowser() &&
++      this.androidConfigLoaded() &&
++      this.androidSubmissionsEnabled(),
++  );
++
++  constructor() {
++    afterNextRender(() => {
++      this.isAndroidBrowser.set(/android/i.test(navigator.userAgent));
++    });
++  }
++
+   storeLinkTestId(platform: PlatformAvailability): string {
+     return `store-link-${platform.id}`;
+   }
+@@ -271,6 +294,7 @@ export class HomeComponent implements OnInit {
+     );
+     this.turnstileSiteKey.set(config.siteKey);
+     this.androidSubmissionsEnabled.set(config.submissionsEnabled);
++    this.androidConfigLoaded.set(true);
+   }
+ 
+   private async submitAndroidCapture(source: 'landing' | 'closed-test'): Promise<void> {
+diff --git a/apps/web/src/app/i18n/home/en-GB.json b/apps/web/src/app/i18n/home/en-GB.json
+index 2005ec7..f63ef9d 100644
+--- a/apps/web/src/app/i18n/home/en-GB.json
++++ b/apps/web/src/app/i18n/home/en-GB.json
+@@ -74,6 +74,11 @@
+         "email": "Enter a valid email address.",
+         "spamCheck": "Complete the spam check and try again.",
+         "generic": "Something went wrong. Please try again."
++      },
++      "banner": {
++        "label": "Android closed test",
++        "text": "You’re on Android. The 12steps Android app is in closed testing on Google Play. Want to join the test?",
++        "cta": "Volunteer to test"
+       }
+     },
+     "switching": {
+diff --git a/apps/web/src/app/i18n/home/es.json b/apps/web/src/app/i18n/home/es.json
+index f0b62fe..bdd9dca 100644
+--- a/apps/web/src/app/i18n/home/es.json
++++ b/apps/web/src/app/i18n/home/es.json
+@@ -74,6 +74,11 @@
+         "email": "Escribe un correo electrónico válido.",
+         "spamCheck": "Completa el control contra spam e inténtalo de nuevo.",
+         "generic": "Algo salió mal. Inténtalo de nuevo."
++      },
++      "banner": {
++        "label": "Prueba cerrada de Android",
++        "text": "Estás en Android. La app de 12steps para Android está en prueba cerrada en Google Play. ¿Quieres unirte a la prueba?",
++        "cta": "Ofrecerme para probar"
+       }
+     },
+     "switching": {
+diff --git a/apps/web/src/app/i18n/home/pt-BR.json b/apps/web/src/app/i18n/home/pt-BR.json
+index d70468e..851d964 100644
+--- a/apps/web/src/app/i18n/home/pt-BR.json
++++ b/apps/web/src/app/i18n/home/pt-BR.json
+@@ -74,6 +74,11 @@
+         "email": "Informe um endereço de e-mail válido.",
+         "spamCheck": "Conclua a verificação contra spam e tente de novo.",
+         "generic": "Algo deu errado. Tente de novo."
++      },
++      "banner": {
++        "label": "Teste fechado do Android",
++        "text": "Você está no Android. O app do 12steps para Android está em teste fechado no Google Play. Quer participar do teste?",
++        "cta": "Quero testar"
+       }
+     },
+     "switching": {
+diff --git a/apps/web/src/styles/_landing.scss b/apps/web/src/styles/_landing.scss
+index df92afd..f3d275e 100644
+--- a/apps/web/src/styles/_landing.scss
++++ b/apps/web/src/styles/_landing.scss
+@@ -663,3 +663,29 @@
+   font-size: var(--font-size-sm);
+   color: var(--color-text-secondary);
+ }
++
++.android-test-banner {
++  border-bottom: 1px solid var(--color-border);
++  background-color: var(--color-surface);
++}
++
++.android-test-banner__inner {
++  display: flex;
++  flex-wrap: wrap;
++  align-items: center;
++  justify-content: space-between;
++  gap: var(--space-sm) var(--space-md);
++  padding-block: var(--space-md);
++}
++
++.android-test-banner__text {
++  flex: 1 1 260px;
++  margin: 0;
++  font-size: var(--font-size-sm);
++  line-height: var(--line-height-base);
++  color: var(--color-text-primary);
++}
++
++.android-test-banner__cta {
++  flex-shrink: 0;
++}

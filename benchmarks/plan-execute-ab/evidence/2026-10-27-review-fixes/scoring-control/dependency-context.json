@@ -1,0 +1,49 @@
+{
+  "runner": "owned Vitest3.2.7 overlay, installed with scripts disabled",
+  "otherDependencies": "read-only links to pre-existing assigned worktree packages; not an archived-manifest clean install",
+  "archivedMsalRange": "^5.4.2",
+  "packages": [
+    {
+      "package": "@azure/msal-node",
+      "version": "7.1.1",
+      "resolvedPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@azure/msal-node/package.json",
+      "manifestSha256": "c1dbba16c004a1a222ee5135a563b3a8a35821ea7fad66a1774c3931a0b3d322"
+    },
+    {
+      "package": "vitest",
+      "version": "3.2.7",
+      "resolvedPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/vitest/package.json",
+      "manifestSha256": "3f3dc1ef7acc6ffac8d0a7f10c4460f98e36026837b57f774426d962d546d740"
+    },
+    {
+      "package": "vite",
+      "version": "7.3.7",
+      "resolvedPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/vite/package.json",
+      "manifestSha256": "aae1f593c0e6f320989b60af6e90f8ed4ea5137e5a0b9db663f9b0088333eb3c"
+    },
+    {
+      "package": "typescript",
+      "version": "6.0.3",
+      "resolvedPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/typescript/package.json",
+      "manifestSha256": "9332e97c30d3e53ed54910b89207ed657fb444066484df6e5b6965bf130865e9"
+    },
+    {
+      "package": "jsdom",
+      "version": "27.4.0",
+      "resolvedPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/jsdom/package.json",
+      "manifestSha256": "e8f4906ea5beba475daa5736d0158f1770092c46718dd04aa2bfe2190808bb7e"
+    },
+    {
+      "package": "zone.js",
+      "version": "0.16.3",
+      "resolvedPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/zone.js/package.json",
+      "manifestSha256": "8195927048e4864e8aa1d01f9b24b423c0d8e5fc430b64bfa9b851e247f38b6e"
+    },
+    {
+      "package": "@angular/compiler-cli",
+      "version": "22.2.1",
+      "resolvedPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@angular/compiler-cli/package.json",
+      "manifestSha256": "8de2f2ef67716417c928e513d2d629ad41f272bdc646dcc6330a4e32da16e653"
+    }
+  ]
+}

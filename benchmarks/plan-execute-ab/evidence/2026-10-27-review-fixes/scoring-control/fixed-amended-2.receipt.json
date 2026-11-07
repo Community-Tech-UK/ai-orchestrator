@@ -1,0 +1,22 @@
+{
+  "command": [
+    "node",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/vitest/vitest.mjs",
+    "run",
+    "src/main/history/history-manager.spec.ts",
+    "--project=main",
+    "--reporter=json",
+    "--outputFile=/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-amended-2.json",
+    "--maxWorkers=1",
+    "--minWorkers=1"
+  ],
+  "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/fixed",
+  "exitCode": 0,
+  "elapsedSeconds": 9.762134075164795,
+  "numTotalTests": 41,
+  "numPassedTests": 41,
+  "numFailedTests": 0,
+  "failures": [],
+  "sourceSha256": "0a43dd9c483021d7e5343a031d7acd18eb5dc86df659df61a4ed8113043baf3a",
+  "specSha256": "a464399dcf10d3474b2bff828af59fd884331d482d9801c5dc49185e9f12b18c"
+}

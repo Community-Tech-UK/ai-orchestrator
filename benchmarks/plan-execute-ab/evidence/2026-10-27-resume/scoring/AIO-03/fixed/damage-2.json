@@ -1,0 +1,12 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "lint:fast"
+  ],
+  "exitCode": 0,
+  "stdout": "\n> harness@0.1.0 lint:fast\n> oxlint --config .oxlintrc.json src/main src/shared src/preload packages/contracts/src packages/sdk/src\n\nsrc/main/cli/turn-ending-classifier.ts:76:158: warning unicorn(no-useless-spread): Using a spread operator here creates a new object unnecessarily. help: This expression returns a new object. Spreading it into an object expression to create a new object is redundant.\nsrc/main/instance/instance-continuation-codex-boundary.spec.ts:74:29: warning unicorn(no-useless-spread): Using a spread operator here creates a new array unnecessarily. help: `for…of` can iterate over iterable, it's unnecessary to convert to an array.\nsrc/main/instance/instance-continuation-overflow-boundary.spec.ts:36:106: warning unicorn(no-useless-spread): Using a spread operator here creates a new array unnecessarily. help: `for…of` can iterate over iterable, it's unnecessary to convert to an array.\n",
+  "stderr": "",
+  "timedOut": false,
+  "durationMs": 924
+}

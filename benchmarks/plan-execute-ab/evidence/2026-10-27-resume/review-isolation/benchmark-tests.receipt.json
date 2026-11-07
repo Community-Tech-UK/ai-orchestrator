@@ -1,0 +1,13 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "benchmarks/plan-execute-ab",
+    "--maxWorkers=1"
+  ],
+  "exitCode": 1,
+  "durationSeconds": 6.7,
+  "log": "benchmark-tests.log"
+}

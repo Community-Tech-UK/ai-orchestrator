@@ -1,0 +1,69 @@
+{
+  "observedAt": "2026-10-27T15:39:14.010839+00:00",
+  "recovered": [
+    {
+      "cell": "12ST-02-C2",
+      "source": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-12ST-02-C2-1/46af98a0-0377-46af-be6c-0158acbaea4a.jsonl",
+      "sourceSha256": "f15cfc7803beb8d7d3bcc547e1d9b536557bd958554fcfa9f89fa0dfaf859379",
+      "sourceRow": 112,
+      "sourceRowUtf8Sha256": "3672d82d982dff8eb1305a5e929d76a958d393f300ce4b718eea9f84c6f26ec0",
+      "toolUseId": "Cn8nXxIniKRbsrOsd0puRMAxClEQEHqc",
+      "fullToolResultUtf8Sha256": "7db1d41fdd2a080c738a7a37916dd8476f9f1e9c5e67d0cc1589e68ff18b2a15",
+      "toolResultPrefixRemoved": "",
+      "verbatimDiffPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/12ST-02-C2-final-coder-diff.txt",
+      "verbatimDiffSha256": "7db1d41fdd2a080c738a7a37916dd8476f9f1e9c5e67d0cc1589e68ff18b2a15",
+      "verbatimDiffBytes": 3372,
+      "toolOutputEndsWithNewline": false,
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/12ST-02-C2-final-coder-diff.patch",
+      "patchSha256": "69eeabde79ce3a00cdaff008c3263380de3f21489b1d24934dbdc317fd53c11b",
+      "patchNormalization": "Only add final newline when absent; no hunk content changed. Verbatim tool-output slice retained separately.",
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/12ST-02-C2-final-coder-diff.patch"
+        ],
+        "exitCode": 0,
+        "stdout": "13\t0\tapps/web/src/app/prayers/models/prayers.spec.ts\n1\t1\tapps/web/src/app/prayers/models/prayers.ts\n",
+        "stderr": ""
+      },
+      "laterToolCalls": [],
+      "classification": "Verbatim final coder git-diff snapshot, not recovered runner record or independently matched runner patch file. Runner captures staged plus newly added files using git add -A followed by git diff --cached; this snapshot is git diff. No later tool calls observed."
+    },
+    {
+      "cell": "AIO-01-C2",
+      "source": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-01-C2-1/cb3b9c47-9bca-4791-a457-2789ebf4183b.jsonl",
+      "sourceSha256": "6f361c5e1b42f1392083dddd05e8e8e2a4a7604158d8fc99a8a2d76cf0775813",
+      "sourceRow": 259,
+      "sourceRowUtf8Sha256": "3a5bf070459cb08a8cdbe5fd05cca1429ba8727fbddf83c82bab65505b685118",
+      "toolUseId": "8MKFZiJI5ZHM8ZBLh2FBAfvhlnom6GdG",
+      "fullToolResultUtf8Sha256": "64ce6366f9daf786bcc072672962a334a50d3d0ab7e8cbe3a1560ad9ca9efdea",
+      "toolResultPrefixRemoved": "IDENTICAL failure sets\n",
+      "verbatimDiffPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/AIO-01-C2-final-coder-diff.txt",
+      "verbatimDiffSha256": "0c3f92771e8374f7cc07bb192a69c760dc8359f80cfea80aca000eb7929679d3",
+      "verbatimDiffBytes": 11926,
+      "toolOutputEndsWithNewline": false,
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/AIO-01-C2-final-coder-diff.patch",
+      "patchSha256": "6c4ea551b8a66a5e154939b529fcacb6da0e5b8b782cd07c644ae915590b8002",
+      "patchNormalization": "Only add final newline when absent; no hunk content changed. Verbatim tool-output slice retained separately.",
+      "syntaxValidation": {
+        "argv": [
+          "rtk",
+          "proxy",
+          "git",
+          "apply",
+          "--numstat",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/AIO-01-C2-final-coder-diff.patch"
+        ],
+        "exitCode": 0,
+        "stdout": "3\t1\tscripts/check-ts-max-loc.ts\n48\t1\tsrc/main/history/history-archive-serialization.spec.ts\n5\t0\tsrc/main/history/history-archive-serialization.ts\n165\t0\tsrc/main/history/history-manager.spec.ts\n10\t0\tsrc/main/history/history-manager.ts\n",
+        "stderr": ""
+      },
+      "laterToolCalls": [],
+      "classification": "Verbatim final coder git-diff snapshot, not recovered runner record or independently matched runner patch file. Runner captures staged plus newly added files using git add -A followed by git diff --cached; this snapshot is git diff. No later tool calls observed."
+    }
+  ]
+}

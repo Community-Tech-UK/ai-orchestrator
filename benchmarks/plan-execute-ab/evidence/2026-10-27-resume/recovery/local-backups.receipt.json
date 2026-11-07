@@ -1,0 +1,7 @@
+{
+  "chunk_id": "e31b32",
+  "wall_time_seconds": 0.000009875,
+  "exit_code": 1,
+  "original_token_count": 17,
+  "output": "No machine directory found for host.\nCommand exited with status 1.\n"
+}

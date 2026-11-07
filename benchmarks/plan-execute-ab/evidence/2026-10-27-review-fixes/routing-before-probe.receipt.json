@@ -1,0 +1,11 @@
+{
+  "before": "local-first",
+  "after": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"ok\":true,\"key\":\"auxiliaryLlmRoutingMode\",\"oldValue\":\"local-first\",\"newValue\":\"off\",\"restartRequired\":false}"
+      }
+    ]
+  }
+}

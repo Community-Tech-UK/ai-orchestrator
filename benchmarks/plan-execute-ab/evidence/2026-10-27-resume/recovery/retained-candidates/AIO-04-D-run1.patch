@@ -1,0 +1,595 @@
+diff --git a/scripts/check-ts-max-loc.ts b/scripts/check-ts-max-loc.ts
+index 40e3e42..761fee2 100644
+--- a/scripts/check-ts-max-loc.ts
++++ b/scripts/check-ts-max-loc.ts
+@@ -212,7 +212,7 @@ const ALLOWLIST: Record<string, number> = {
+   // failure: atomic saveConversation write, the conversationWrites per-entry
+   // queue that stops the startup backfill overwriting a fresh archive, and the
+   // stale-temp sweep.
+-  'src/main/history/history-manager.ts': 1735,
++  'src/main/history/history-manager.ts': 1750,
+   'src/main/history/history-restore-coordinator.ts': 708,
+   // Main process — indexing
+   'src/main/indexing/benchmarks/benchmark-utils.ts': 820,
+diff --git a/src/main/history/archive-transcript-merge.spec.ts b/src/main/history/archive-transcript-merge.spec.ts
+new file mode 100644
+index 0000000..d936179
+--- /dev/null
++++ b/src/main/history/archive-transcript-merge.spec.ts
+@@ -0,0 +1,101 @@
++import { describe, expect, it } from 'vitest';
++import type { OutputMessage } from '../../shared/types/instance.types';
++import type { ConversationData } from '../../shared/types/history.types';
++import { canMergePreviousArchive, mergeArchiveTranscripts } from './archive-transcript-merge';
++
++function msg(
++  id: string,
++  type: OutputMessage['type'],
++  content: string,
++  timestamp: number,
++  metadata?: Record<string, unknown>,
++): OutputMessage {
++  return { id, type, content, timestamp, metadata };
++}
++
++describe('mergeArchiveTranscripts', () => {
++  it('keeps old-only messages interleaved by timestamp', () => {
++    const result = mergeArchiveTranscripts(
++      [msg('a', 'user', 'one', 1000), msg('b', 'assistant', 'two', 20000)],
++      [msg('c', 'user', 'three', 10000)],
++    );
++    expect(result.messages.map((m) => m.id)).toEqual(['a', 'c', 'b']);
++    expect(result.preservedCount).toBe(2);
++  });
++
++  it('prefers the newer copy when ids match', () => {
++    const result = mergeArchiveTranscripts(
++      [msg('a', 'user', 'old', 1000)],
++      [msg('a', 'user', 'new', 1000)],
++    );
++    expect(result.messages).toHaveLength(1);
++    expect(result.messages[0]!.content).toBe('new');
++  });
++
++  it('drops a renumbered duplicate once', () => {
++    const result = mergeArchiveTranscripts(
++      [msg('old-1', 'user', 'hello', 1000)],
++      [msg('restored-prompt-msg-1', 'user', 'hello', 1500)],
++    );
++    expect(result.messages.map((m) => m.id)).toEqual(['restored-prompt-msg-1']);
++    expect(result.droppedDuplicates).toBe(1);
++  });
++
++  it('keeps parallel tool calls and results', () => {
++    const calls = [
++      msg('t1', 'tool_use', 'Read', 1000, { toolUseId: 'c1', name: 'Read' }),
++      msg('t2', 'tool_use', 'Read', 1000, { toolUseId: 'c2', name: 'Read' }),
++      msg('r1', 'tool_result', 'x', 1001, { toolUseId: 'c1' }),
++      msg('r2', 'tool_result', 'y', 1001, { toolUseId: 'c2' }),
++    ];
++    const result = mergeArchiveTranscripts(calls, [msg('u', 'user', 'later', 900000)]);
++    expect(result.messages).toHaveLength(5);
++  });
++
++  it('matches duplicates one-for-one', () => {
++    const result = mergeArchiveTranscripts(
++      [msg('x1', 'assistant', 'same', 1000), msg('x2', 'assistant', 'same', 1000)],
++      [msg('y1', 'assistant', 'same', 1000)],
++    );
++    expect(result.messages.map((m) => m.id)).toEqual(['x2', 'y1']);
++  });
++
++  it('does not mutate inputs and skips malformed old messages', () => {
++    const previous = [
++      msg('a', 'user', 'one', 1000),
++      { id: 5, type: 'user', content: 'bad', timestamp: 1 } as unknown as OutputMessage,
++      { id: 'nots', type: 'user', content: 'bad', timestamp: Number.NaN } as OutputMessage,
++    ];
++    const current = [msg('b', 'user', 'two', 2000)];
++    const before = JSON.stringify([previous, current]);
++    const result = mergeArchiveTranscripts(previous, current);
++    expect(result.messages.map((m) => m.id)).toEqual(['a', 'b']);
++    expect(JSON.stringify([previous, current])).toBe(before);
++  });
++});
++
++describe('canMergePreviousArchive', () => {
++  const persisted = (overrides: Partial<ConversationData['entry']> = {}): ConversationData => ({
++    entry: { historyThreadId: 't', ...overrides } as ConversationData['entry'],
++    messages: [],
++  });
++  const base = { instance: {} as never, threadKey: 't', indexEntry: {}, persisted: persisted() };
++
++  it('merges matching lineage', () => {
++    expect(canMergePreviousArchive(base).merge).toBe(true);
++  });
++
++  it.each([
++    ['null persisted', { persisted: null }],
++    ['thread mismatch', { persisted: persisted({ historyThreadId: 'other' }) }],
++    ['superseded instance', { instance: { supersededBy: 'f' } as never }],
++    ['superseded index entry', { indexEntry: { supersededBy: 'f' } }],
++    ['superseded persisted entry', { persisted: persisted({ supersededBy: 'f' }) }],
++    [
++      'original is the superseding id',
++      { instance: { supersededBy: 'f' } as never, indexEntry: { originalInstanceId: 'f' } },
++    ],
++  ])('replaces outright: %s', (_name, overrides) => {
++    expect(canMergePreviousArchive({ ...base, ...overrides }).merge).toBe(false);
++  });
++});
+diff --git a/src/main/history/archive-transcript-merge.ts b/src/main/history/archive-transcript-merge.ts
+new file mode 100644
+index 0000000..49245d5
+--- /dev/null
++++ b/src/main/history/archive-transcript-merge.ts
+@@ -0,0 +1,145 @@
++/**
++ * Merges a previous archive's transcript with a newly archived one so a
++ * trimmed crash-revival cannot erase messages only the earlier archive held.
++ */
++
++import type { OutputMessage, Instance } from '../../shared/types/instance.types';
++import type { ConversationData, ConversationHistoryEntry } from '../../shared/types/history.types';
++import { outputMessagesToContinuityEntries } from '../session/continuity-message-projection';
++import { getLogger } from '../logging/logger';
++import { redactArchiveIdentifier } from './should-archive-instance';
++import { recoveryFingerprint } from '../session/recovery-transcript-reconciler';
++
++export interface ArchiveMergeResult {
++  messages: OutputMessage[];
++  preservedCount: number;
++  droppedDuplicates: number;
++}
++
++function timestampOf(message: OutputMessage): number {
++  return Number.isFinite(message.timestamp) ? message.timestamp : 0;
++}
++
++function isWellFormed(message: unknown): message is OutputMessage {
++  if (!message || typeof message !== 'object') return false;
++  const candidate = message as Partial<OutputMessage>;
++  return typeof candidate.id === 'string' && Number.isFinite(candidate.timestamp);
++}
++
++function fingerprints(messages: readonly OutputMessage[]): string[] {
++  return outputMessagesToContinuityEntries(messages).map(recoveryFingerprint);
++}
++
++/**
++ * Messages only the previous archive holds survive; where both hold the same
++ * id the current copy wins; a renumbered duplicate (same fingerprint, new id)
++ * is dropped one-for-one so repeated messages keep their multiplicity.
++ */
++export function mergeArchiveTranscripts(
++  previous: readonly OutputMessage[],
++  current: readonly OutputMessage[],
++): ArchiveMergeResult {
++  const validPrevious = previous.filter(isWellFormed);
++  const previousIds = new Set(validPrevious.map((message) => message.id));
++  const currentIds = new Set(current.map((message) => message.id));
++
++  const available = new Map<string, number>();
++  const currentPrints = fingerprints(current);
++  current.forEach((message, index) => {
++    if (previousIds.has(message.id)) return;
++    const print = currentPrints[index]!;
++    available.set(print, (available.get(print) ?? 0) + 1);
++  });
++
++  const previousPrints = fingerprints(validPrevious);
++  const kept: OutputMessage[] = [];
++  let droppedDuplicates = 0;
++  validPrevious.forEach((message, index) => {
++    if (currentIds.has(message.id)) return;
++    const print = previousPrints[index]!;
++    const remaining = available.get(print) ?? 0;
++    if (remaining > 0) {
++      available.set(print, remaining - 1);
++      droppedDuplicates++;
++      return;
++    }
++    kept.push(message);
++  });
++
++  const messages = [...kept, ...current].sort((a, b) => timestampOf(a) - timestampOf(b));
++  return { messages, preservedCount: kept.length, droppedDuplicates };
++}
++
++export interface CanMergeInput {
++  instance: Pick<Instance, 'supersededBy' | 'status'>;
++  threadKey: string;
++  indexEntry: { supersededBy?: string; originalInstanceId?: string };
++  persisted: ConversationData | null;
++}
++
++/** Replace outright when the previous archive is from a different runtime generation. */
++export function canMergePreviousArchive(
++  input: CanMergeInput,
++): { merge: boolean; reason: string } {
++  const { instance, threadKey, indexEntry, persisted } = input;
++  if (!persisted || !Array.isArray(persisted.messages)) {
++    return { merge: false, reason: 'previous archive unreadable' };
++  }
++  if (persisted.entry?.historyThreadId?.trim() !== threadKey) {
++    return { merge: false, reason: 'thread mismatch' };
++  }
++  if (instance.supersededBy || (instance.status as string) === 'superseded') {
++    return { merge: false, reason: 'instance superseded' };
++  }
++  if (
++    indexEntry.supersededBy
++    || persisted.entry.supersededBy
++    || (instance.supersededBy !== undefined
++      && indexEntry.originalInstanceId === instance.supersededBy)
++  ) {
++    return { merge: false, reason: 'previous archive from superseded source' };
++  }
++  return { merge: true, reason: 'same lineage' };
++}
++
++const logger = getLogger('HistoryManager');
++
++/** Fold every earlier archive of a thread into the new transcript; unreadable ones are ignored. */
++export async function mergeWithPreviousArchives(args: {
++  instance: Instance;
++  threadKey: string;
++  previousEntries: readonly ConversationHistoryEntry[];
++  currentMessages: OutputMessage[];
++  load: (entryId: string) => Promise<ConversationData | null>;
++}): Promise<OutputMessage[]> {
++  let messages = args.currentMessages;
++  for (const previousEntry of args.previousEntries) {
++    let persisted: ConversationData | null = null;
++    try {
++      persisted = await args.load(previousEntry.id);
++    } catch {
++      persisted = null;
++    }
++    const verdict = canMergePreviousArchive({
++      instance: args.instance,
++      threadKey: args.threadKey,
++      indexEntry: previousEntry,
++      persisted,
++    });
++    if (!verdict.merge || !persisted) {
++      logger.info('Replacing previous archive outright', {
++        entryId: redactArchiveIdentifier(previousEntry.id),
++        reason: verdict.reason,
++      });
++      continue;
++    }
++    const merged = mergeArchiveTranscripts(persisted.messages, messages);
++    logger.info('Merged previous archive', {
++      entryId: redactArchiveIdentifier(previousEntry.id),
++      preserved: merged.preservedCount,
++      droppedDuplicates: merged.droppedDuplicates,
++    });
++    messages = merged.messages;
++  }
++  return messages;
++}
+diff --git a/src/main/history/history-manager-archive-merge.spec.ts b/src/main/history/history-manager-archive-merge.spec.ts
+new file mode 100644
+index 0000000..b7fa002
+--- /dev/null
++++ b/src/main/history/history-manager-archive-merge.spec.ts
+@@ -0,0 +1,221 @@
++import * as fs from 'fs';
++import * as os from 'os';
++import * as path from 'path';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import type { Instance, OutputMessage } from '../../shared/types/instance.types';
++
++vi.mock('../logging/logger', () => ({
++  getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
++}));
++
++function makeInstance(overrides: Partial<Instance> = {}): Instance {
++  return {
++    id: 'instance-1',
++    displayName: 'Thread',
++    createdAt: 100,
++    historyThreadId: 'thread-1',
++    parentId: null,
++    childrenIds: [],
++    supervisorNodeId: '',
++    depth: 0,
++    terminationPolicy: 'terminate-children',
++    launchMode: 'orchestrated',
++    executionLocation: { type: 'local' },
++    contextInheritance: {} as Instance['contextInheritance'],
++    agentId: 'build',
++    agentMode: 'build',
++    planMode: { enabled: false, state: 'off' },
++    status: 'idle',
++    contextUsage: { used: 0, total: 200000, percentage: 0 },
++    lastActivity: 200,
++    processId: null,
++    providerSessionId: 'session-1',
++    sessionId: 'session-1',
++    restartEpoch: 0,
++    workingDirectory: '/tmp/project',
++    yoloMode: false,
++    provider: 'claude',
++    currentModel: 'opus',
++    outputBuffer: [],
++    outputBufferMaxSize: 1000,
++    communicationTokens: new Map(),
++    subscribedTo: [],
++    totalTokensUsed: 0,
++    requestCount: 0,
++    errorCount: 0,
++    restartCount: 0,
++    ...overrides,
++  };
++}
++
++function msg(
++  id: string,
++  type: OutputMessage['type'],
++  content: string,
++  timestamp: number,
++  metadata?: Record<string, unknown>,
++): OutputMessage {
++  return { id, type, content, timestamp, metadata };
++}
++
++const T = 1_000_000;
++const original = [
++  msg('m1', 'user', 'first prompt', T),
++  msg('m2', 'assistant', 'answer one', T + 10_000),
++  msg('m3', 'user', 'second prompt', T + 20_000),
++  msg('m4', 'assistant', 'answer two', T + 30_000),
++  msg('m5', 'user', 'third prompt', T + 40_000),
++  msg('m6', 'assistant', 'answer three', T + 50_000),
++];
++
++describe('HistoryManager re-archive merge', () => {
++  let userDataDir = '';
++  const pending: Promise<void>[] = [];
++
++  function track<M extends { startupTasks: Promise<void> }>(manager: M): M {
++    pending.push(manager.startupTasks);
++    return manager;
++  }
++
++  async function createManager() {
++    const { HistoryManager } = await import('./history-manager');
++    const manager = track(new HistoryManager());
++    await manager.startupTasks;
++    return manager;
++  }
++
++  const storageDir = () => path.join(userDataDir, 'conversation-history');
++  const gzFiles = () => fs.readdirSync(storageDir()).filter((f) => f.endsWith('.json.gz'));
++
++  beforeEach(() => {
++    vi.resetModules();
++    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'history-merge-'));
++    vi.doMock('electron', () => ({
++      app: {
++        getPath: vi.fn((name: string) => {
++          if (name === 'userData') return userDataDir;
++          throw new Error(`Unexpected path lookup: ${name}`);
++        }),
++      },
++    }));
++  });
++
++  afterEach(async () => {
++    await Promise.allSettled(pending.splice(0));
++    vi.doUnmock('electron');
++    vi.resetModules();
++    fs.rmSync(userDataDir, { recursive: true, force: true });
++  });
++
++  it('keeps old-only messages when a trimmed crash revival is re-archived', async () => {
++    const manager = await createManager();
++    await manager.archiveInstance(makeInstance({ outputBuffer: original }), 'completed');
++    const entryId = manager.getEntries()[0]!.id;
++
++    const revival = makeInstance({
++      id: 'instance-2',
++      metadata: { continuityRevival: true },
++      outputBuffer: [
++        msg('r1', 'user', 'third prompt', T + 40_000),
++        msg('r2', 'assistant', 'answer three', T + 50_000),
++        msg('r3', 'user', 'fourth prompt', T + 60_000),
++        msg('r4', 'assistant', 'answer four', T + 70_000),
++      ],
++    });
++    await manager.archiveInstance(revival, 'completed');
++
++    const entries = manager.getEntries();
++    expect(entries).toHaveLength(1);
++    expect(entries[0]!.messageCount).toBe(8);
++    expect(entries[0]!.originalInstanceId).toBe('instance-2');
++    expect(gzFiles()).toHaveLength(1);
++    const conversation = await manager.loadConversation(entries[0]!.id);
++    expect(conversation?.messages.map((m) => m.content)).toEqual([
++      'first prompt', 'answer one', 'second prompt', 'answer two',
++      'third prompt', 'answer three', 'fourth prompt', 'answer four',
++    ]);
++    expect(entries[0]!.id).toBe(entryId);
++  });
++
++  it('stores the newer content when the same id is archived again', async () => {
++    const manager = await createManager();
++    await manager.archiveInstance(makeInstance({ outputBuffer: original }), 'completed');
++    await manager.archiveInstance(makeInstance({
++      id: 'instance-2',
++      outputBuffer: [msg('m6', 'assistant', 'edited answer', T + 50_000), msg('m7', 'user', 'more', T + 60_000)],
++    }), 'completed');
++    const conversation = await manager.loadConversation(manager.getEntries()[0]!.id);
++    expect(conversation?.messages).toHaveLength(7);
++    expect(conversation?.messages.find((m) => m.id === 'm6')?.content).toBe('edited answer');
++  });
++
++  it('does not double-count renumbered prompts', async () => {
++    const manager = await createManager();
++    await manager.archiveInstance(makeInstance({ outputBuffer: original }), 'completed');
++    await manager.archiveInstance(makeInstance({
++      id: 'instance-2',
++      outputBuffer: [
++        msg('restored-prompt-msg-0', 'user', 'first prompt', T),
++        msg('restored-prompt-msg-1', 'user', 'second prompt', T + 20_000),
++        msg('n1', 'assistant', 'fresh', T + 90_000),
++      ],
++    }), 'completed');
++    const entry = manager.getEntries()[0]!;
++    expect(entry.messageCount).toBe(7);
++    const conversation = await manager.loadConversation(entry.id);
++    expect(conversation?.messages.filter((m) => m.content === 'first prompt')).toHaveLength(1);
++  });
++
++  it('preserves parallel tool calls held only in the old archive', async () => {
++    const manager = await createManager();
++    await manager.archiveInstance(makeInstance({
++      outputBuffer: [
++        msg('t1', 'tool_use', 'Read', T, { toolUseId: 'c1', name: 'Read' }),
++        msg('t2', 'tool_use', 'Read', T, { toolUseId: 'c2', name: 'Read' }),
++        msg('tr1', 'tool_result', 'a', T + 1000, { toolUseId: 'c1' }),
++        msg('tr2', 'tool_result', 'b', T + 1000, { toolUseId: 'c2' }),
++      ],
++    }), 'completed');
++    await manager.archiveInstance(makeInstance({
++      id: 'instance-2',
++      outputBuffer: [msg('n1', 'user', 'later', T + 100_000)],
++    }), 'completed');
++    expect(manager.getEntries()[0]!.messageCount).toBe(5);
++  });
++
++  it('archives on its own when the old file is missing', async () => {
++    const manager = await createManager();
++    await manager.archiveInstance(makeInstance({ outputBuffer: original }), 'completed');
++    for (const f of gzFiles()) fs.unlinkSync(path.join(storageDir(), f));
++    await manager.archiveInstance(makeInstance({
++      id: 'instance-2',
++      outputBuffer: [msg('n1', 'user', 'only', T + 100_000), msg('n2', 'assistant', 'new', T + 110_000)],
++    }), 'completed');
++    expect(manager.getEntries()[0]!.messageCount).toBe(2);
++  });
++
++  it('archives on its own when the old file is corrupt', async () => {
++    const manager = await createManager();
++    await manager.archiveInstance(makeInstance({ outputBuffer: original }), 'completed');
++    for (const f of gzFiles()) fs.writeFileSync(path.join(storageDir(), f), 'garbage');
++    await expect(manager.archiveInstance(makeInstance({
++      id: 'instance-2',
++      outputBuffer: [msg('n1', 'user', 'only', T + 100_000), msg('n2', 'assistant', 'new', T + 110_000)],
++    }), 'completed')).resolves.toBeUndefined();
++    expect(manager.getEntries()[0]!.messageCount).toBe(2);
++  });
++
++  it('replaces a superseded source archive outright when a fork archives', async () => {
++    const manager = await createManager();
++    await manager.archiveInstance(makeInstance({
++      id: 'source',
++      status: 'superseded',
++      supersededBy: 'fork',
++      outputBuffer: original,
++    }), 'completed');
++    const forkMessages = [msg('f1', 'user', 'edited prompt', T + 100_000), msg('f2', 'assistant', 'fork reply', T + 110_000)];
++    await manager.archiveInstance(makeInstance({ id: 'fork', outputBuffer: forkMessages }), 'completed');
++    const conversation = await manager.loadConversation(manager.getEntries()[0]!.id);
++    expect(conversation?.messages.map((m) => m.id)).toEqual(['f1', 'f2']);
++  });
++});
+diff --git a/src/main/history/history-manager.ts b/src/main/history/history-manager.ts
+index 1afe1ab..3a4ff92 100644
+--- a/src/main/history/history-manager.ts
++++ b/src/main/history/history-manager.ts
+@@ -5,6 +5,9 @@
+  * Uses a JSON index file and gzipped JSON for conversation data.
+  *
+  * KEY DESIGN DECISIONS:
++ * - archiveInstance() merges with any earlier archive of the same thread (messages only the
++ *   old archive holds survive; the newer copy wins on conflict) and replaces outright when the
++ *   old archive belongs to a different runtime generation (edit/fork supersession).
+  * - archiveInstance() serializes by stable logical identity so concurrent runtime generations
+  *   cannot overwrite a richer archive for the same history thread.
+  * - saveIndex() uses a proper serializing queue (not just a single-promise mutex)
+@@ -43,6 +46,7 @@ import { createArchiveInstanceSummary, getArchiveHistoryIdentity,
+   redactArchiveIdentifier, shouldArchiveInstance, type ArchiveHistoryCoverage } from './should-archive-instance';
+ import { getArchiveSerializationKey, KeyedSerialTaskQueue } from './history-archive-serialization';
+ import { isSameHistoryEntryForIdentityBackfill } from './history-identity-backfill';
++import { mergeWithPreviousArchives } from './archive-transcript-merge';
+ import { isRecoverySuppressedByHistory, tombstoneDeletedHistoryEntry } from './history-recovery-suppression';
+ const gzip = promisify(zlib.gzip);
+@@ -160,7 +164,10 @@ export class HistoryManager {
+    * Archive an instance to history when it terminates.
+    *
+    * Serializes by logical thread so coverage is re-evaluated after any archive
+-   * from a sibling runtime generation has committed.
++   * from a sibling runtime generation has committed. Re-archiving merges with
++   * the previous archive (see archive-transcript-merge.ts) so a trimmed
++   * crash-revival cannot drop earlier messages; archives from a superseded
++   * generation are replaced outright.
+    */
+   async archiveInstance(instance: Instance, status: ConversationEndStatus = 'completed'): Promise<void> {
+     return this.archiveQueue.run(getArchiveSerializationKey(instance), async () => {
+@@ -174,14 +181,14 @@ export class HistoryManager {
+         return;
+       }
+-      const messages = await this.getCompleteArchiveMessages(instance);
++      const currentMessages = await this.getCompleteArchiveMessages(instance);
+       clearToolOutcomes(instance.id); // LT-196: folded in above; done with them.
+       const threadKey = this.getInstanceThreadKey(instance);
+       const previousEntries = this.index.entries.filter(
+         (existingEntry) => this.getEntryThreadKey(existingEntry) === threadKey
+       );
+-      const summary = createArchiveInstanceSummary({ ...instance, outputBuffer: messages });
++      const summary = createArchiveInstanceSummary({ ...instance, outputBuffer: currentMessages });
+       const identity = getArchiveHistoryIdentity(summary);
+       let coverage: ArchiveHistoryCoverage | undefined;
+       if (identity) {
+@@ -199,6 +206,13 @@ export class HistoryManager {
+         return;
+       }
++      // Safe to read outside the `conversationWrites` turn: only archiveInstance
++      // rewrites messages, and it is already serialised per thread by `archiveQueue`.
++      const messages = await mergeWithPreviousArchives({
++        instance, threadKey, previousEntries, currentMessages,
++        load: (id) => this.loadPersistedConversationForCoverage(id),
++      });
++
+       const entryId = previousEntries[0]?.id ?? crypto.randomUUID();
+       const createdAt = previousEntries.reduce(
+         (earliest, existingEntry) => Math.min(earliest, existingEntry.createdAt),
+@@ -261,6 +275,7 @@ export class HistoryManager {
+         lastUserMessage: this.truncatePreview(lastUserMessage),
+         status,
+         originalInstanceId: instance.id,
++        supersededBy: instance.supersededBy,
+         parentId: instance.parentId,
+         sessionId,
+         nativeResumeFailedAt,
+diff --git a/src/main/session/recovery-transcript-reconciler.ts b/src/main/session/recovery-transcript-reconciler.ts
+index 7655f16..920361d 100644
+--- a/src/main/session/recovery-transcript-reconciler.ts
++++ b/src/main/session/recovery-transcript-reconciler.ts
+@@ -33,7 +33,7 @@ function stableValue(value: unknown): unknown {
+   return String(value);
+ }
+-function recoveryFingerprint(entry: ConversationEntry): string {
++export function recoveryFingerprint(entry: ConversationEntry): string {
+   const timestampBucket = Math.floor(
+     entry.timestamp / RECOVERY_FINGERPRINT_TIMESTAMP_BUCKET_MS,
+   );
+diff --git a/src/shared/types/history.types.ts b/src/shared/types/history.types.ts
+index 22a81d1..9baab15 100644
+--- a/src/shared/types/history.types.ts
++++ b/src/shared/types/history.types.ts
+@@ -124,6 +124,13 @@ export interface ConversationHistoryEntry {
+   /** Original instance ID (for reference) */
+   originalInstanceId: string;
++  /**
++   * Replacement instance id when the archived instance had been superseded by
++   * an edit/fork. Marks the archive as belonging to a different runtime
++   * generation, so re-archiving never merges across it.
++   */
++  supersededBy?: string;
++
+   /** Parent instance ID if it was a child instance */
+   parentId: string | null;

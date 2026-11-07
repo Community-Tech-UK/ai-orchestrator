@@ -1,0 +1,182 @@
+diff --git a/apps/web/src/app/shared/components/turnstile-widget.component.spec.ts b/apps/web/src/app/shared/components/turnstile-widget.component.spec.ts
+index f1ed61a..1f457fa 100644
+--- a/apps/web/src/app/shared/components/turnstile-widget.component.spec.ts
++++ b/apps/web/src/app/shared/components/turnstile-widget.component.spec.ts
+@@ -1,6 +1,6 @@
+ import { signal } from '@angular/core';
+ import { TestBed } from '@angular/core/testing';
+-import { beforeEach, describe, expect, it, vi } from 'vitest';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { ThemeService } from '../services/theme.service';
+ import { TurnstileWidgetComponent } from './turnstile-widget.component';
+@@ -18,6 +18,10 @@ describe('TurnstileWidgetComponent', () => {
+     }).compileComponents();
+   });
++  afterEach(() => {
++    vi.unstubAllGlobals();
++  });
++
+   it('renders an explicit widget host', () => {
+     const fixture = TestBed.createComponent(TurnstileWidgetComponent);
+     fixture.componentRef.setInput('siteKey', 'site-key');
+@@ -117,4 +121,62 @@ describe('TurnstileWidgetComponent', () => {
+       expect.objectContaining({ size: 'normal' }),
+     );
+   });
++
++  it('re-renders at the new size when the column narrows after a layout change', async () => {
++    let resizeCallback: ResizeObserverCallback | null = null;
++    const observe = vi.fn();
++    const disconnect = vi.fn();
++    vi.stubGlobal(
++      'ResizeObserver',
++      class {
++        constructor(callback: ResizeObserverCallback) {
++          resizeCallback = callback;
++        }
++        observe = observe;
++        disconnect = disconnect;
++      },
++    );
++    let nextId = 0;
++    const render = vi.fn(() => `widget-${++nextId}`);
++    const remove = vi.fn();
++    window.turnstile = { render, reset: vi.fn(), remove } as NonNullable<Window['turnstile']>;
++
++    const fixture = TestBed.createComponent(TurnstileWidgetComponent);
++    fixture.componentRef.setInput('siteKey', 'site-key');
++    const emitted: string[] = [];
++    fixture.componentInstance.tokenChange.subscribe((value) => emitted.push(value));
++    fixture.detectChanges();
++    const host = fixture.nativeElement.querySelector('.turnstile-widget') as HTMLElement;
++    let width = 360;
++    Object.defineProperty(host, 'clientWidth', { configurable: true, get: () => width });
++    await fixture.whenStable();
++
++    expect(observe).toHaveBeenCalledWith(host);
++    expect(render).toHaveBeenCalledTimes(1);
++    expect(render).toHaveBeenLastCalledWith(host, expect.objectContaining({ size: 'normal' }));
++
++    // A width change that keeps the same size leaves the widget (and any token) alone.
++    width = 340;
++    resizeCallback!([], {} as ResizeObserver);
++    await fixture.whenStable();
++    expect(render).toHaveBeenCalledTimes(1);
++
++    width = 220;
++    resizeCallback!([], {} as ResizeObserver);
++    await fixture.whenStable();
++
++    expect(remove).toHaveBeenCalledWith('widget-1');
++    expect(render).toHaveBeenCalledTimes(2);
++    expect(render).toHaveBeenLastCalledWith(host, expect.objectContaining({ size: 'compact' }));
++    expect(emitted).toContain('');
++
++    width = 360;
++    resizeCallback!([], {} as ResizeObserver);
++    await fixture.whenStable();
++    expect(remove).toHaveBeenCalledWith('widget-2');
++    expect(render).toHaveBeenLastCalledWith(host, expect.objectContaining({ size: 'normal' }));
++
++    fixture.destroy();
++    expect(disconnect).toHaveBeenCalledTimes(1);
++  });
+ });
+diff --git a/apps/web/src/app/shared/components/turnstile-widget.component.ts b/apps/web/src/app/shared/components/turnstile-widget.component.ts
+index 225aee3..9cf84a3 100644
+--- a/apps/web/src/app/shared/components/turnstile-widget.component.ts
++++ b/apps/web/src/app/shared/components/turnstile-widget.component.ts
+@@ -22,7 +22,7 @@ declare global {
+         el: HTMLElement,
+         opts: {
+           sitekey: string;
+-          size?: 'normal' | 'compact';
++          size?: TurnstileSize;
+           theme?: 'light' | 'dark' | 'auto';
+           language?: string;
+           callback?: (token: string) => void;
+@@ -42,6 +42,8 @@ declare global {
+  */
+ const TURNSTILE_LANGUAGES: Readonly<Record<string, string>> = { es: 'es', 'pt-BR': 'pt-br' };
++type TurnstileSize = 'normal' | 'compact';
++
+ let scriptPromise: Promise<void> | null = null;
+ function loadTurnstileScript(): Promise<void> {
+@@ -103,14 +105,19 @@ export class TurnstileWidgetComponent implements AfterViewInit, OnDestroy {
+   private readonly locale = inject(LocaleService);
+   private widgetId: string | null = null;
+   private mountedKey: string | null = null;
++  private renderedSize: TurnstileSize | null = null;
++  private resizeObserver: ResizeObserver | null = null;
+   private destroyed = false;
+   ngAfterViewInit(): void {
+     void this.mount();
++    this.observeWidth();
+   }
+   ngOnDestroy(): void {
+     this.destroyed = true;
++    this.resizeObserver?.disconnect();
++    this.resizeObserver = null;
+     this.removeWidget();
+   }
+@@ -122,10 +129,27 @@ export class TurnstileWidgetComponent implements AfterViewInit, OnDestroy {
+     }
+   }
+-  private async mount(): Promise<void> {
++  /**
++   * Turnstile renders at a fixed width, so a column that narrows (or widens) after a layout
++   * change leaves it clipped or cramped. Re-render when the width calls for a different size.
++   */
++  private observeWidth(): void {
++    const el = this.host()?.nativeElement;
++    if (!el || typeof ResizeObserver === 'undefined') return;
++    this.resizeObserver = new ResizeObserver(() => {
++      if (this.destroyed || !this.widgetId || el.clientWidth === 0) return;
++      if (sizeFor(el) === this.renderedSize) return;
++      this.token.set('');
++      this.tokenChange.emit('');
++      void this.mount(true);
++    });
++    this.resizeObserver.observe(el);
++  }
++
++  private async mount(force = false): Promise<void> {
+     const key = this.siteKey();
+     const el = this.host()?.nativeElement;
+-    if (!key || !el || this.mountedKey === key) return;
++    if (!key || !el || (!force && this.mountedKey === key)) return;
+     this.removeWidget();
+     try {
+       await loadTurnstileScript();
+@@ -139,10 +163,10 @@ export class TurnstileWidgetComponent implements AfterViewInit, OnDestroy {
+       this.loadError.set(true);
+       return;
+     }
++    const size = sizeFor(el);
+     this.widgetId = window.turnstile.render(el, {
+       sitekey: key,
+-      // The normal widget is 300px wide and overflows a 320px screen.
+-      size: el.clientWidth > 0 && el.clientWidth < 300 ? 'compact' : 'normal',
++      size,
+       theme: this.theme.theme() === 'dark' ? 'dark' : 'light',
+       language: TURNSTILE_LANGUAGES[this.locale.active()] ?? 'auto',
+       callback: (value) => {
+@@ -160,6 +184,7 @@ export class TurnstileWidgetComponent implements AfterViewInit, OnDestroy {
+       },
+     });
+     this.mountedKey = key;
++    this.renderedSize = size;
+   }
+   private removeWidget(): void {
+@@ -168,5 +193,11 @@ export class TurnstileWidgetComponent implements AfterViewInit, OnDestroy {
+     }
+     this.widgetId = null;
+     this.mountedKey = null;
++    this.renderedSize = null;
+   }
+ }
++
++/** The normal widget is 300px wide and overflows a 320px screen. */
++function sizeFor(el: HTMLElement): TurnstileSize {
++  return el.clientWidth > 0 && el.clientWidth < 300 ? 'compact' : 'normal';
++}

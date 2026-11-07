@@ -1,0 +1,11 @@
+{
+  "command": [
+    "npm",
+    "test"
+  ],
+  "exitCode": 0,
+  "stdout": "\n> native-boundary-fixture@1.0.0 test\n> esbuild fixture.js --bundle --platform=node --outfile=bundle.cjs && node bundle.cjs\n\nHOST_DEPENDENCY_LOADED\n",
+  "stderr": "\n  bundle.cjs  739.1kb\n\n⚡ Done in 23ms\n",
+  "timedOut": false,
+  "durationMs": 766
+}

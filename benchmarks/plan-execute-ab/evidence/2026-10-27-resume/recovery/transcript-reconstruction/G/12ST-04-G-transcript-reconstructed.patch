@@ -1,0 +1,561 @@
+diff --git a/apps/web/src/app/shared/components/app-shell/app-shell.component.spec.ts b/apps/web/src/app/shared/components/app-shell/app-shell.component.spec.ts
+index 1d264b3..a1265fb 100644
+--- a/apps/web/src/app/shared/components/app-shell/app-shell.component.spec.ts
++++ b/apps/web/src/app/shared/components/app-shell/app-shell.component.spec.ts
+@@ -52,22 +52,29 @@ describe('AppShellComponent save outline', () => {
+   it('mirrors the shared save state on the side menu', async () => {
+     const feedback = TestBed.inject(SaveFeedbackService);
+     const source = TestBed.runInInjectionContext(() => feedback.register(async () => {}));
+-    const { nav } = await render();
++    const { nav, root } = await render();
+     const snake = () => nav().querySelector('.app-shell__nav-snake')!;
++    const indicator = () => {
++      nav();
++      return root.querySelector('app-autosave-indicator app-save-snake')!;
++    };
+ 
+     expect(nav().getAttribute('data-save-state')).toBe('idle');
+     expect(snake().getAttribute('data-state')).toBe('idle');
+ 
+     source.set('saving');
+-    expect(nav().getAttribute('data-save-state')).toBe('saving');
+-    expect(snake().getAttribute('data-state')).toBe('saving');
++    expect(indicator().getAttribute('data-state')).toBe('idle');
++    expect(nav().getAttribute('data-save-state')).toBe('idle');
++    expect(snake().getAttribute('data-state')).toBe('idle');
+ 
+     // Success is the green outline, not the line.
+     source.set('saved');
++    expect(indicator().getAttribute('data-state')).toBe('saved');
+     expect(nav().getAttribute('data-save-state')).toBe('saved');
+     expect(snake().getAttribute('data-state')).toBe('idle');
+ 
+     source.set('error');
++    expect(indicator().getAttribute('data-state')).toBe('error');
+     expect(nav().getAttribute('data-save-state')).toBe('error');
+   });
+ 
+diff --git a/apps/web/src/app/shared/components/app-shell/app-shell.component.ts b/apps/web/src/app/shared/components/app-shell/app-shell.component.ts
+index 4780857..ba46386 100644
+--- a/apps/web/src/app/shared/components/app-shell/app-shell.component.ts
++++ b/apps/web/src/app/shared/components/app-shell/app-shell.component.ts
+@@ -39,8 +39,8 @@ import { LANG_PARAM_DROPPED } from '../../../i18n/locale.service';
+  *     by the backdrop, the close button, Escape, or navigating to a new page.
+  *
+  * On wide screens the sidebar also carries autosave status, as the phone
+- * bottom bar does: a snake runs along its top edge while saving, then the
+- * outline turns green. Page indicators drop their own line there.
++ * bottom bar does: the outline turns green after a save settles. Page
++ * indicators drop their own line there.
+  */
+ @Component({
+   selector: 'app-shell',
+@@ -75,13 +75,10 @@ import { LANG_PARAM_DROPPED } from '../../../i18n/locale.service';
+         id="app-nav-menu"
+         class="app-shell__nav"
+         [class.is-open]="navMenu.isOpen()"
+-        [attr.data-save-state]="saveFeedback.state()"
++        [attr.data-save-state]="saveFeedback.visualState()"
+         tabindex="-1"
+       >
+-        <app-save-snake
+-          class="app-shell__nav-snake"
+-          [state]="saveFeedback.state() === 'saving' ? 'saving' : 'idle'"
+-        />
++        <app-save-snake class="app-shell__nav-snake" state="idle" />
+         <div class="app-shell__nav-head">
+           <p class="app-shell__nav-title">{{ 'common.nav.menu' | transloco }}</p>
+           <button
+@@ -254,8 +251,7 @@ import { LANG_PARAM_DROPPED } from '../../../i18n/locale.service';
+           display: none;
+         }
+ 
+-        /* Autosave: snake along the straight run of the top edge while
+-           saving, then a green outline that fades; red while a save fails. */
++        /* Save feedback stays quiet while writing, then confirms or reports failure. */
+         .app-shell__nav-snake {
+           display: block;
+           position: absolute;
+diff --git a/apps/web/src/app/shared/components/autosave-indicator.component.spec.ts b/apps/web/src/app/shared/components/autosave-indicator.component.spec.ts
+index f92c198..0c90ec6 100644
+--- a/apps/web/src/app/shared/components/autosave-indicator.component.spec.ts
++++ b/apps/web/src/app/shared/components/autosave-indicator.component.spec.ts
+@@ -1,7 +1,8 @@
++import { runInInjectionContext } from '@angular/core';
+ import { TestBed } from '@angular/core/testing';
+ import { beforeEach, describe, expect, it } from 'vitest';
+ import type { AutosaveState } from '../services/autosave';
+-import { SAVE_FEEDBACK_RAIL } from '../services/save-feedback.service';
++import { SAVE_FEEDBACK_RAIL, SaveFeedbackService } from '../services/save-feedback.service';
+ import { AutosaveIndicatorComponent } from './autosave-indicator.component';
+ import { ContentOutboxService } from '../../content/content-outbox.service';
+ import { NetworkStatusService } from '../services/network-status.service';
+@@ -15,25 +16,42 @@ describe('AutosaveIndicatorComponent', () => {
+ 
+   function render(state: AutosaveState) {
+     const fixture = TestBed.createComponent(AutosaveIndicatorComponent);
++    const source = runInInjectionContext(fixture.componentRef.injector, () =>
++      TestBed.inject(SaveFeedbackService).register(async () => {}),
++    );
++    source.set(state === 'pending' ? 'saving' : state);
+     fixture.componentRef.setInput('state', state);
+     fixture.detectChanges();
+     const host = fixture.nativeElement as HTMLElement;
+     return {
++      fixture,
++      source,
+       snake: host.querySelector('app-save-snake')!,
+       status: host.querySelector<HTMLElement>('[role="status"]')!,
+     };
+   }
+ 
+-  it('slides the snake while a change is queued or saving, with words for screen readers only', () => {
++  it('keeps the line and live region quiet while queued or saving', () => {
+     for (const state of ['pending', 'saving'] as const) {
+       const { snake, status } = render(state);
+-      expect(snake.getAttribute('data-state')).toBe('saving');
++      expect(snake.getAttribute('data-state')).toBe('idle');
+       expect(snake.getAttribute('aria-hidden')).toBe('true');
+-      expect(status.textContent?.trim()).toBe('Saving…');
++      expect(status.textContent?.trim()).toBe('');
+       expect(status.classList).toContain('sr-only');
+     }
+   });
+ 
++  it('ignores stale local success while the shared feedback is still saving', () => {
++    const { fixture, source, snake, status } = render('saved');
++    source.set('saving');
++    TestBed.inject(NetworkStatusService).reportUnreachable();
++    TestBed.inject(ContentOutboxService).status.set({ pending: 1, failed: 0 });
++    fixture.detectChanges();
++    expect(snake.getAttribute('data-state')).toBe('idle');
++    expect(status.textContent?.trim()).toBe('');
++    expect(status.classList).not.toContain('status--error');
++  });
++
+   it('turns the snake green once saved without a visible label', () => {
+     const { snake, status } = render('saved');
+     expect(snake.getAttribute('data-state')).toBe('saved');
+@@ -79,7 +97,7 @@ describe('AutosaveIndicatorComponent', () => {
+       imports: [AutosaveIndicatorComponent],
+       providers: [{ provide: SAVE_FEEDBACK_RAIL, useValue: true }],
+     });
+-    const inside = TestBed.createComponent(AutosaveIndicatorComponent);
++    const { fixture: inside } = render('saved');
+     inside.componentRef.setInput('state', 'saved');
+     inside.detectChanges();
+     const host = inside.nativeElement as HTMLElement;
+diff --git a/apps/web/src/app/shared/components/autosave-indicator.component.ts b/apps/web/src/app/shared/components/autosave-indicator.component.ts
+index 9b117f0..babd39f 100644
+--- a/apps/web/src/app/shared/components/autosave-indicator.component.ts
++++ b/apps/web/src/app/shared/components/autosave-indicator.component.ts
+@@ -1,17 +1,14 @@
+ import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+ import { injectTranslate } from '../../i18n/translate';
+-import { ContentOutboxService } from '../../content/content-outbox.service';
+-import { NetworkStatusService } from '../services/network-status.service';
+ import { SAVE_FEEDBACK_RAIL, SaveFeedbackService } from '../services/save-feedback.service';
+ import type { AutosaveState } from '../services/autosave';
+-import { SaveSnakeComponent, type SaveSnakeState } from './save-snake.component';
++import { SaveSnakeComponent } from './save-snake.component';
+ 
+ /**
+  * Quiet status for a debounced autosave (see {@link createAutosave}). Shows a
+- * thin "snake" line that slides while saving and turns green once saved, on
++ * thin "snake" line that stays quiet while writing and turns green once saved, on
+  * its own row beneath the surrounding header text. Only a failure gets visible
+- * words; every state is announced through a persistent `aria-live` region so
+- * screen-reader users still hear "Saving… / Saved".
++ * words; settled feedback is announced through a persistent `aria-live` region.
+  *
+  * Inside the app shell on wide screens the line is dropped: the persistent
+  * side menu outlines itself with the same status instead.
+@@ -65,29 +62,19 @@ import { SaveSnakeComponent, type SaveSnakeState } from './save-snake.component'
+   ],
+ })
+ export class AutosaveIndicatorComponent {
+-  /** The aggregate autosave state from an {@link Autosave} controller. */
++  /** Editor lifecycle input retained for callers; display uses the shared feedback timeline. */
+   readonly state = input.required<AutosaveState>();
+ 
+   protected readonly hasRail = inject(SAVE_FEEDBACK_RAIL, { optional: true }) ?? false;
+-  private readonly network = inject(NetworkStatusService);
+-  private readonly outbox = inject(ContentOutboxService);
+   private readonly feedback = inject(SaveFeedbackService);
+   private readonly t = injectTranslate();
+ 
+-  protected readonly snakeState = computed<SaveSnakeState>(() => {
+-    const state = this.state();
+-    return this.feedback.resolveState(state === 'pending' ? 'saving' : state);
+-  });
++  protected readonly snakeState = this.feedback.visualState;
+ 
+   protected readonly label = computed(() => {
+     switch (this.snakeState()) {
+-      case 'saving':
+-        return this.t('common.saveFeedback.saving');
+       case 'saved':
+-        // Queued for the server rather than delivered: say where it is.
+-        return !this.network.online() || this.outbox.status().pending > 0
+-          ? this.t('common.saveFeedback.savedOnDevice')
+-          : this.t('common.saveFeedback.saved');
++        return this.t('common.saveFeedback.saved');
+       case 'error':
+         return this.t('common.saveFeedback.couldntSaveWillRetry');
+       default:
+diff --git a/apps/web/src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts b/apps/web/src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts
+index 0cc05c0..e1bb7d3 100644
+--- a/apps/web/src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts
++++ b/apps/web/src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts
+@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
+ import { provideRouter } from '@angular/router';
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { createAutosave } from '../../services/autosave';
++import { AutosaveIndicatorComponent } from '../autosave-indicator.component';
+ import { BottomNavComponent } from './bottom-nav.component';
+ import { ContentOutboxService } from '../../../content/content-outbox.service';
+ import { NetworkStatusService } from '../../services/network-status.service';
+@@ -14,7 +15,7 @@ describe('mobile save feedback', () => {
+   beforeEach(() => {
+     vi.useFakeTimers();
+     TestBed.configureTestingModule({
+-      imports: [BottomNavComponent, EditorHost],
++      imports: [BottomNavComponent, AutosaveIndicatorComponent, EditorHost],
+       providers: [provideRouter([])],
+     });
+   });
+@@ -57,7 +58,7 @@ describe('mobile save feedback', () => {
+     expect(element.querySelector('.bottom-nav--saved')).toBeNull();
+   });
+ 
+-  it('runs the snake while saving and keeps progress text for screen readers only', async () => {
++  it('keeps the line and live region quiet until the save settles', async () => {
+     let complete = () => {};
+     const { autosave, element, status } = render(
+       () =>
+@@ -70,8 +71,8 @@ describe('mobile save feedback', () => {
+     expect(status()).toBe('');
+     expect(snake()).toBe('idle');
+     autosave.touch('entry');
+-    expect(status()).toContain('Saving');
+-    expect(snake()).toBe('saving');
++    expect(status()).toBe('');
++    expect(snake()).toBe('idle');
+     expect(label().classList).toContain('sr-only');
+     expect(label().classList).not.toContain('save-feedback__label');
+     await vi.advanceTimersByTimeAsync(100);
+@@ -83,6 +84,65 @@ describe('mobile save feedback', () => {
+     expect(element.querySelector('.bottom-nav--saved')).not.toBeNull();
+   });
+ 
++  it('uses the shared confirmation timeline even after the local indicator expires', async () => {
++    const { autosave, status } = render(async () => {});
++    const indicator = TestBed.createComponent(AutosaveIndicatorComponent);
++    const line = () => {
++      indicator.componentRef.setInput('state', autosave.state());
++      indicator.detectChanges();
++      return (indicator.nativeElement as HTMLElement)
++        .querySelector('app-save-snake')!
++        .getAttribute('data-state');
++    };
++    autosave.touch('entry');
++    expect(line()).toBe('idle');
++    expect(status()).toBe('');
++    await vi.advanceTimersByTimeAsync(100);
++    expect(line()).toBe('saved');
++    expect(status()).toContain('Saved');
++    await vi.advanceTimersByTimeAsync(1800);
++    expect(autosave.state()).toBe('idle');
++    expect(line()).toBe('saved');
++    expect(status()).toContain('Saved');
++    await vi.advanceTimersByTimeAsync(200);
++    expect(line()).toBe('idle');
++    expect(status()).toBe('');
++  });
++
++  it('clears stale failure feedback as soon as typing schedules a retry', async () => {
++    const { autosave, status, element } = render(async () => {
++      throw new Error('rejected');
++    });
++    autosave.touch('entry');
++    await vi.advanceTimersByTimeAsync(100);
++    expect(status()).toContain("Couldn't save");
++    autosave.touch('entry');
++    expect(status()).toBe('');
++    expect(element.querySelector('.bottom-nav--error')).toBeNull();
++    await vi.advanceTimersByTimeAsync(100);
++    expect(status()).toContain("Couldn't save");
++  });
++
++  it('clears an old failure throughout an in-flight manual retry', async () => {
++    let complete = () => {};
++    let attempts = 0;
++    const { autosave, status, element } = render(async () => {
++      if (++attempts === 1) throw new Error('rejected');
++      await new Promise<void>((resolve) => {
++        complete = resolve;
++      });
++    });
++    autosave.touch('entry');
++    await vi.advanceTimersByTimeAsync(100);
++    expect(status()).toContain("Couldn't save");
++    const retry = autosave.flush();
++    expect(status()).toBe('');
++    expect(element.querySelector('.bottom-nav--error')).toBeNull();
++    complete();
++    await retry;
++    expect(status()).toContain('Saved');
++  });
++
+   it('waits for the latest revision when typing continues during a request', async () => {
+     const completions: (() => void)[] = [];
+     const { autosave, status } = render(
+@@ -191,7 +251,7 @@ describe('mobile save feedback', () => {
+       expect(snake()?.getAttribute('data-state')).toBe('idle');
+       autosave.touch('entry');
+       status();
+-      expect(snake()?.getAttribute('data-state')).toBe('saving');
++      expect(snake()?.getAttribute('data-state')).toBe('idle');
+       await vi.advanceTimersByTimeAsync(100);
+       status();
+       expect(snake()?.getAttribute('data-state')).toBe('saved');
+diff --git a/apps/web/src/app/shared/components/bottom-nav/bottom-nav.component.ts b/apps/web/src/app/shared/components/bottom-nav/bottom-nav.component.ts
+index 1f9e8b0..be242c1 100644
+--- a/apps/web/src/app/shared/components/bottom-nav/bottom-nav.component.ts
++++ b/apps/web/src/app/shared/components/bottom-nav/bottom-nav.component.ts
+@@ -12,8 +12,6 @@ import { TranslocoPipe } from '@jsverse/transloco';
+ import { IconComponent } from '../../icons/icon.component';
+ import { NavMenuService } from '../../services/nav-menu.service';
+ import { SaveFeedbackService } from '../../services/save-feedback.service';
+-import { NetworkStatusService } from '../../services/network-status.service';
+-import { ContentOutboxService } from '../../../content/content-outbox.service';
+ import { SaveSnakeComponent, type SaveSnakeState } from '../save-snake.component';
+ import { TourAnchorDirective } from '../../../guided-tours/tour-anchor.directive';
+ 
+@@ -57,26 +55,20 @@ import { TourAnchorDirective } from '../../../guided-tours/tour-anchor.directive
+         aria-live="polite"
+         aria-atomic="true"
+         data-testid="save-feedback"
+-        [class.sr-only]="feedback.state() !== 'error'"
+-        [class.save-feedback__label]="feedback.state() === 'error'"
+-        [class.save-feedback__label--error]="feedback.state() === 'error'"
++        [class.sr-only]="feedback.visualState() !== 'error'"
++        [class.save-feedback__label]="feedback.visualState() === 'error'"
++        [class.save-feedback__label--error]="feedback.visualState() === 'error'"
+       >
+-        @switch (feedback.state()) {
++        @switch (feedback.visualState()) {
+           @case ('saved') {
+-            {{
+-              (savedOnDevice() ? 'common.saveFeedback.savedOnDevice' : 'common.saveFeedback.saved')
+-                | transloco
+-            }}
+-          }
+-          @case ('saving') {
+-            {{ 'common.saveFeedback.saving' | transloco }}
++            {{ 'common.saveFeedback.saved' | transloco }}
+           }
+           @case ('error') {
+             {{ 'common.saveFeedback.couldntSave' | transloco }}
+           }
+         }
+       </span>
+-      @if (feedback.state() === 'error') {
++      @if (feedback.visualState() === 'error') {
+         <button
+           type="button"
+           class="save-feedback__retry"
+@@ -93,15 +85,12 @@ import { TourAnchorDirective } from '../../../guided-tours/tour-anchor.directive
+     </div>
+     <nav
+       class="bottom-nav"
+-      [class.bottom-nav--saved]="feedback.state() === 'saved'"
+-      [class.bottom-nav--error]="feedback.state() === 'error'"
++      [class.bottom-nav--saved]="feedback.visualState() === 'saved'"
++      [class.bottom-nav--error]="feedback.visualState() === 'error'"
+       [attr.aria-label]="'common.nav.primary' | transloco"
+       data-testid="bottom-nav"
+     >
+-      <app-save-snake
+-        class="bottom-nav__snake"
+-        [state]="feedback.state() === 'saving' ? 'saving' : 'idle'"
+-      />
++      <app-save-snake class="bottom-nav__snake" state="idle" />
+       <a
+         routerLink="/dashboard"
+         routerLinkActive="is-active"
+@@ -220,7 +209,7 @@ import { TourAnchorDirective } from '../../../guided-tours/tour-anchor.directive
+         white-space: nowrap;
+       }
+ 
+-      /* Autosave runs a snake along the top edge, then outlines the bar in green. */
++      /* Save confirmation outlines the bar after writing settles. */
+       .bottom-nav__snake {
+         position: absolute;
+         top: -1px;
+@@ -316,16 +305,10 @@ import { TourAnchorDirective } from '../../../guided-tours/tour-anchor.directive
+ export class BottomNavComponent {
+   readonly navMenu = inject(NavMenuService);
+   readonly feedback = inject(SaveFeedbackService);
+-  private readonly network = inject(NetworkStatusService);
+-  private readonly outbox = inject(ContentOutboxService);
+-  /** A save that is queued rather than delivered must not be announced as plain "Saved". */
+-  readonly savedOnDevice = computed(
+-    () => !this.network.online() || this.outbox.status().pending > 0,
+-  );
+   readonly keyboardInset = signal(0);
+-  /** Above a keyboard, keep the same progress, success and failure colours. */
++  /** Above a keyboard, use the same quiet feedback timeline. */
+   readonly keyboardSnakeState = computed<SaveSnakeState>(() => {
+-    return this.feedback.state();
++    return this.feedback.visualState();
+   });
+ 
+   constructor() {
+diff --git a/apps/web/src/app/shared/components/save-snake.component.ts b/apps/web/src/app/shared/components/save-snake.component.ts
+index 9e3c00e..b0e6f11 100644
+--- a/apps/web/src/app/shared/components/save-snake.component.ts
++++ b/apps/web/src/app/shared/components/save-snake.component.ts
+@@ -50,7 +50,7 @@ export type SaveSnakeState = 'idle' | 'saving' | 'saved' | 'error';
+         background-color: var(--color-success);
+         animation:
+           snake-fill 300ms ease-out,
+-          snake-fade 1800ms ease-out forwards;
++          snake-fade 2000ms ease-out forwards;
+       }
+       :host([data-state='error']) .bar {
+         background-color: var(--color-error);
+diff --git a/apps/web/src/app/shared/services/autosave.ts b/apps/web/src/app/shared/services/autosave.ts
+index 0737516..4d8b504 100644
+--- a/apps/web/src/app/shared/services/autosave.ts
++++ b/apps/web/src/app/shared/services/autosave.ts
+@@ -171,9 +171,9 @@ export function createAutosave(
+   function reportFeedback(confirm = false): void {
+     const entries = [...keys.values()];
+     hasError.set(entries.some((entry) => entry.failed));
+-    const dirty = entries.some((entry) => entry.dirty || entry.inFlight);
+-    if (hasError()) feedback?.set('error');
+-    else if (dirty) feedback?.set('saving');
++    const active = entries.some((entry) => entry.inFlight || (entry.dirty && !entry.failed));
++    if (active) feedback?.set('saving');
++    else if (hasError()) feedback?.set('error');
+     else if (entries.some((entry) => entry.skipped)) feedback?.set('unsaved');
+     else if (confirm) {
+       flagSaved();
+@@ -200,6 +200,7 @@ export function createAutosave(
+     st.inFlight = true;
+     st.dirty = false;
+     savingCount.update((n) => n + 1);
++    reportFeedback();
+ 
+     const promise = (async () => {
+       let succeeded = false;
+@@ -232,6 +233,8 @@ export function createAutosave(
+   function touch(key: string): void {
+     if (destroyed) return;
+     const st = ensure(key);
++    // A new revision is pending, rather than a settled failure of the old one.
++    st.failed = false;
+     st.dirty = true;
+     justSaved.set(false);
+     reportFeedback();
+diff --git a/apps/web/src/app/shared/services/save-feedback.service.spec.ts b/apps/web/src/app/shared/services/save-feedback.service.spec.ts
+index 267b946..b594599 100644
+--- a/apps/web/src/app/shared/services/save-feedback.service.spec.ts
++++ b/apps/web/src/app/shared/services/save-feedback.service.spec.ts
+@@ -42,15 +42,38 @@ describe('SaveFeedbackService delivery status', () => {
+     expect(feedback.state()).toBe('error');
+   });
+ 
+-  it('keeps a server-rejected change red while a different editor saves', () => {
++  it('hides a server-rejected change until the active editor settles', () => {
+     const { feedback, source, outbox } = editor();
+     outbox.status.set({ pending: 0, failed: 1 });
+     source.set('saved');
+     expect(feedback.state()).toBe('error');
+     source.set('saving');
++    expect(feedback.state()).toBe('saving');
++    source.set('saved');
++    expect(feedback.state()).toBe('error');
++  });
++
++  it('waits for all active editors before showing a settled editor failure', () => {
++    const { feedback, source } = editor();
++    const other = TestBed.runInInjectionContext(() => feedback.register(async () => {}));
++    source.set('error');
++    other.set('saving');
++    expect(feedback.state()).toBe('saving');
++    other.set('saved');
+     expect(feedback.state()).toBe('error');
+   });
+ 
++  it('does not flash a failure when connectivity changes during a delivered save', () => {
++    const { feedback, source, outbox } = editor();
++    source.set('saving');
++    outbox.status.set({ pending: 1, failed: 0 });
++    TestBed.inject(NetworkStatusService).reportUnreachable();
++    expect(feedback.state()).toBe('saving');
++    outbox.status.set({ pending: 0, failed: 0 });
++    source.set('saved');
++    expect(feedback.state()).toBe('saved');
++  });
++
+   it('does not treat losing the connection as a failed save when no changes are waiting', () => {
+     const { feedback } = editor();
+     TestBed.inject(NetworkStatusService).reportUnreachable();
+diff --git a/apps/web/src/app/shared/services/save-feedback.service.ts b/apps/web/src/app/shared/services/save-feedback.service.ts
+index ba0a1b2..5033100 100644
+--- a/apps/web/src/app/shared/services/save-feedback.service.ts
++++ b/apps/web/src/app/shared/services/save-feedback.service.ts
+@@ -9,7 +9,6 @@ import {
+ } from '@angular/core';
+ import { ContentOutboxService } from '../../content/content-outbox.service';
+ import { ContentService } from '../../content/content.service';
+-import { NetworkStatusService } from './network-status.service';
+ 
+ /**
+  * Provided as `true` by the app shell, whose persistent desktop menu outlines
+@@ -31,9 +30,13 @@ export interface SaveFeedbackSource {
+ export class SaveFeedbackService {
+   private readonly editorState = signal<SaveFeedbackState>('idle');
+   private readonly outbox = inject(ContentOutboxService);
+-  private readonly network = inject(NetworkStatusService);
+   private readonly injector = inject(Injector);
+   readonly state = computed(() => this.resolveState(this.editorState()));
++  /** All save surfaces stay quiet during writing and share the confirmation timer. */
++  readonly visualState = computed(() => {
++    const state = this.state();
++    return state === 'saving' ? 'idle' : state;
++  });
+   readonly retrying = signal(false);
+   private readonly sources = new Map<
+     symbol,
+@@ -68,9 +71,12 @@ export class SaveFeedbackService {
+ 
+   /** A durable device copy is not confirmation that the server accepted a save. */
+   resolveState(state: SaveFeedbackState): SaveFeedbackState {
++    // Outbox counts and connectivity can change before the request settles.
++    // A previous error must not turn an active write (or retry) red.
++    if (state === 'saving' || this.editorState() === 'saving' || this.retrying()) return 'saving';
+     const { pending, failed } = this.outbox.status();
+     if (state === 'error' || this.editorState() === 'error' || failed > 0) return 'error';
+-    if (pending > 0 && (state !== 'saving' || !this.network.online())) return 'error';
++    if (pending > 0) return 'error';
+     return state;
+   }
+ 
+@@ -102,10 +108,10 @@ export class SaveFeedbackService {
+ 
+   private refresh(confirm: boolean): void {
+     const states = [...this.sources.values()].map((source) => source.state);
+-    const blocked = states.includes('error')
+-      ? 'error'
+-      : states.includes('saving')
+-        ? 'saving'
++    const blocked = states.includes('saving')
++      ? 'saving'
++      : states.includes('error')
++        ? 'error'
+         : null;
+     if (blocked || states.includes('unsaved') || !confirm) {
+       this.clearTimer();

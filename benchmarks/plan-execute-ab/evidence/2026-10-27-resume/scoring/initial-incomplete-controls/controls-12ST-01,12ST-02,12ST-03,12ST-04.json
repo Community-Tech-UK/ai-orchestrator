@@ -1,0 +1,313 @@
+[
+  {
+    "taskId": "12ST-01",
+    "parentSha": "81317c8fd7e864545851b820a2542707f631dfa7",
+    "commitSha": "bbb61bb92605d5bf36932a557b9201341d733b64",
+    "setup": {
+      "fingerprint": "598dc6c3283436556ddffe789e4cc20ab579daa350f0618028b1300b43bfcdce",
+      "files": {
+        ".npmrc": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "apps/api/package.json": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+        "apps/web/package.json": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+        "package.json": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+        "packages/crypto/package.json": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "packages/meeting-data/package.json": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+        "pnpm-lock.yaml": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+        "pnpm-workspace.yaml": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7"
+      },
+      "command": [
+        "pnpm",
+        "install",
+        "--frozen-lockfile",
+        "--ignore-scripts"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "nodeVersion": "v26.12.1",
+      "runtimePreparation": []
+    },
+    "parent": {
+      "contract": {
+        "version": "historical-v1",
+        "dependencyFingerprint": "598dc6c3283436556ddffe789e4cc20ab579daa350f0618028b1300b43bfcdce"
+      },
+      "hiddenTests": {
+        "passed": false,
+        "command": [
+          "sh",
+          "-c",
+          "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/shared/components/turnstile-widget.component.spec.ts\" --watch=false"
+        ],
+        "exitCode": 1,
+        "timedOut": false,
+        "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n❯ Building...\n✔ Building...\nApplication bundle generation complete. [20.227 seconds] - 2026-10-27T15:56:47.196Z\n\n\n RUN  v4.0.18 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n\n ❯ |web| src/app/shared/components/turnstile-widget.component.spec.ts (6 tests | 2 failed) 95ms\n     ✓ renders an explicit widget host 41ms\n     ✓ emits a token from the Turnstile callback and clears it on reset 9ms\n     ✓ does not render a widget if the host is destroyed while the script loads 9ms\n     × uses the compact widget when the column is narrower than 300px 20ms\n     ✓ uses the normal widget when the column is at least 300px 8ms\n     × re-renders the compact widget when a wide column narrows 7ms\n\n Test Files  1 failed (1)\n      Tests  2 failed | 4 passed (6)\n   Start at  15:56:47\n   Duration  1.66s (transform 364ms, setup 619ms, import 84ms, tests 95ms, environment 608ms)\n\n\n(node:19710) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  |web| src/app/shared/components/turnstile-widget.component.spec.ts > TurnstileWidgetComponent > uses the compact widget when the column is narrower than 300px\nAssertionError: expected \"vi.fn()\" to be called with arguments: [ <div …(3)></div>, …(1) ]\n\nReceived: \n\n  1st vi.fn() call:\n\n@@ -2,9 +2,15 @@\n    <div\n      _ngcontent-a-c443707418=\"\"\n      class=\"turnstile-widget\"\n      data-testid=\"turnstile-widget\"\n    />,\n-   ObjectContaining {\n-     \"size\": \"compact\",\n+   {\n+     \"callback\": [Function callback],\n+     \"error-callback\": [Function error-callback],\n+     \"expired-callback\": [Function expired-callback],\n+     \"language\": \"auto\",\n+     \"sitekey\": \"site-key\",\n+     \"size\": \"normal\",\n+     \"theme\": \"light\",\n    },\n  ]\n\n\nNumber of calls: 1\n\n ❯ src/app/shared/components/turnstile-widget.component.spec.ts:101:20\n     99|     await fixture.whenStable();\n    100| \n    101|     expect(render).toHaveBeenCalledWith(\n       |                    ^\n    102|       host,\n    103|       expect.objectContaining({ size: 'compact' }),\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯\n\n FAIL  |web| src/app/shared/components/turnstile-widget.component.spec.ts > TurnstileWidgetComponent > re-renders the compact widget when a wide column narrows\nTypeError: onResize is not a function\n ❯ src/app/shared/components/turnstile-widget.component.spec.ts:170:5\n    168| \n    169|     width = 220;\n    170|     onResize!([], {} as ResizeObserver);\n       |     ^\n    171| \n    172|     expect(remove).toHaveBeenCalledWith('widget-1');\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯\n\n"
+      },
+      "damage": [],
+      "damageOk": true
+    },
+    "fixed": {
+      "contract": {
+        "version": "historical-v1",
+        "dependencyFingerprint": "598dc6c3283436556ddffe789e4cc20ab579daa350f0618028b1300b43bfcdce"
+      },
+      "hiddenTests": {
+        "passed": true,
+        "command": [
+          "sh",
+          "-c",
+          "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/shared/components/turnstile-widget.component.spec.ts\" --watch=false"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n❯ Building...\n✔ Building...\nApplication bundle generation complete. [18.344 seconds] - 2026-10-27T15:57:11.940Z\n\n\n RUN  v4.0.18 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n\n ✓ |web| src/app/shared/components/turnstile-widget.component.spec.ts (6 tests) 80ms\n\n Test Files  1 passed (1)\n      Tests  6 passed (6)\n   Start at  15:57:12\n   Duration  1.55s (transform 189ms, setup 420ms, import 81ms, tests 80ms, environment 715ms)\n\n\n(node:21325) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+      },
+      "damage": [
+        {
+          "ok": true,
+          "command": [
+            "sh",
+            "-c",
+            "cd apps/web && pnpm run generate:locales && npx tsc -p tsconfig.spec.json --noEmit"
+          ],
+          "exitCode": 0,
+          "timedOut": false,
+          "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n\n"
+        }
+      ],
+      "damageOk": true
+    }
+  },
+  {
+    "taskId": "12ST-02",
+    "parentSha": "c0572735c39ff2fd75798d32894be301f01c9961",
+    "commitSha": "00ac9cf9a890590ba418dcbce11001f35bc97be9",
+    "setup": {
+      "fingerprint": "598dc6c3283436556ddffe789e4cc20ab579daa350f0618028b1300b43bfcdce",
+      "files": {
+        ".npmrc": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "apps/api/package.json": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+        "apps/web/package.json": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+        "package.json": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+        "packages/crypto/package.json": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "packages/meeting-data/package.json": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+        "pnpm-lock.yaml": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+        "pnpm-workspace.yaml": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7"
+      },
+      "command": [
+        "pnpm",
+        "install",
+        "--frozen-lockfile",
+        "--ignore-scripts"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "nodeVersion": "v26.12.1",
+      "runtimePreparation": []
+    },
+    "parent": {
+      "contract": {
+        "version": "historical-v1",
+        "dependencyFingerprint": "598dc6c3283436556ddffe789e4cc20ab579daa350f0618028b1300b43bfcdce"
+      },
+      "hiddenTests": {
+        "passed": false,
+        "command": [
+          "sh",
+          "-c",
+          "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/prayers/models/prayers.spec.ts\" --watch=false"
+        ],
+        "exitCode": 1,
+        "timedOut": false,
+        "outputTail": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n❯ Building...\n✔ Building...\nApplication bundle generation complete. [33.262 seconds] - 2026-10-27T15:58:26.325Z\n\n\n RUN  v4.0.18 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n\n ❯ |web| src/app/prayers/models/prayers.spec.ts (23 tests | 1 failed) 19ms\n     ✓ keeps prayer ids unique 2ms\n     ✓ includes a promises collection 1ms\n     ✓ adds a few short original prayers beyond the original library 0ms\n     ✓ includes older public prayers and new originals in the thin categories 1ms\n     ✓ draws two different ids 0ms\n     ✓ never repeats the previous pair, in either order, even from a pool of three 2ms\n     ✓ returns every id when the pool is two or fewer 0ms\n     ✓ gives every prayer a source line 1ms\n     ✓ does not claim the Serenity Prayer is public domain 0ms\n     ✓ credits the Acceptance passage to Grapevine, not A.A. World Services 0ms\n     × keeps Merton’s trust line in the published word order 6ms\n     ✓ names a rights holder on every in-copyright quotation 0ms\n     ✓ does not attribute the Prayer of St. Francis to St. Francis 0ms\n     ✓ shows the unscoped prayers to everyone, including before a profile loads 0ms\n     ✓ keeps \"my alcoholism\" away from members it would misdescribe 0ms\n     ✓ still shows them to the fellowships whose basic text is the Big Book 0ms\n     ✓ includes a scoped prayer when any one of the reader’s fellowships qualifies 0ms\n     ✓ leaves the Third and Seventh Step prayers universal 0ms\n     ✓ has a title for every prayer, and text only for our own prayers 1ms\n     ✓ carries only a title for other authors' prayers in es 1ms\n     ✓ never repeats another author's English text inside es copy 0ms\n     ✓ carries only a title for other authors' prayers in pt-BR 1ms\n     ✓ never repeats another author's English text inside pt-BR copy 0ms\n\n Test Files  1 failed (1)\n      Tests  1 failed | 22 passed (23)\n   Start at  15:58:27\n   Duration  4.85s (transform 2.13s, setup 2.63s, import 28ms, tests 19ms, environment 1.60s)\n\n\n(node:27243) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  |web| src/app/prayers/models/prayers.spec.ts > prayer credits > keeps Merton’s trust line in the published word order\nAssertionError: expected 'My Lord God, I have no idea where I a…' to contain 'Therefore will I trust you always'\n\n- Expected\n+ Received\n\n- Therefore will I trust you always\n+ My Lord God, I have no idea where I am going. I do not see the road ahead of me. I cannot know for certain where it will end. Nor do I really know myself, and the fact that I think I am following your will does not mean that I am actually doing so.\n+\n+ But I believe that the desire to please you does in fact please you. And I hope I have that desire in all that I am doing. I hope that I will never do anything apart from that desire. And I know that if I do this you will lead me by the right road, though I may know nothing about it. Therefore I will trust you always, though I may seem to be lost and in the shadow of death. I will not fear, for you are ever with me, and you will never leave me to face my perils alone.\n\n ❯ src/app/prayers/models/prayers.spec.ts:132:26\n    130|     // I will trust\" is a later smoothing, and it is the one readers n…\n    131|     const merton = PRAYERS.find((p) => p.id === 'thomas_merton');\n    132|     expect(merton?.text).toContain('Therefore will I trust you always'…\n       |                          ^\n    133|     expect(merton?.text).not.toContain('Therefore I will trust');\n    134|   });\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\n"
+      },
+      "damage": [],
+      "damageOk": true
+    },
+    "fixed": {
+      "contract": {
+        "version": "historical-v1",
+        "dependencyFingerprint": "598dc6c3283436556ddffe789e4cc20ab579daa350f0618028b1300b43bfcdce"
+      },
+      "hiddenTests": {
+        "passed": true,
+        "command": [
+          "sh",
+          "-c",
+          "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/prayers/models/prayers.spec.ts\" --watch=false"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n❯ Building...\n✔ Building...\nApplication bundle generation complete. [12.477 seconds] - 2026-10-27T15:58:56.713Z\n\n\n RUN  v4.0.18 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n\n ✓ |web| src/app/prayers/models/prayers.spec.ts (23 tests) 12ms\n\n Test Files  1 passed (1)\n      Tests  23 passed (23)\n   Start at  15:58:57\n   Duration  1.30s (transform 174ms, setup 425ms, import 37ms, tests 12ms, environment 526ms)\n\n\n(node:30662) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+      },
+      "damage": [
+        {
+          "ok": true,
+          "command": [
+            "sh",
+            "-c",
+            "cd apps/web && pnpm run generate:locales && npx tsc -p tsconfig.spec.json --noEmit"
+          ],
+          "exitCode": 0,
+          "timedOut": false,
+          "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n\n"
+        }
+      ],
+      "damageOk": true
+    }
+  },
+  {
+    "taskId": "12ST-03",
+    "parentSha": "d07a841446ef03b6e851151ced29b272369a47ad",
+    "commitSha": "7297291103d578aef8022347dd73773f9b3f23f0",
+    "setup": {
+      "fingerprint": "547eb848308b49f8c7f2f80f331f1c8c05ee8cee4b2ee9d4f202711d35e63a58",
+      "files": {
+        ".npmrc": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "apps/api/package.json": "213797e1fc92828831eb1121779f1b65ad5fa7c53b4d2ec87c2bdd35df01b035",
+        "apps/web/package.json": "e3b696c50e69b8b279a683b90881d5d13e5eee6b649559199abf0f631c0b4500",
+        "package.json": "23f43a95605e4c9d007965a1d654b25494d4b10d67d63ee8bd4a5a3e57348897",
+        "packages/crypto/package.json": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "pnpm-lock.yaml": "d666cf0ee3a7932a01e20f5e17a5f66375be4d89bcf59026f43f5928e0d42758",
+        "pnpm-workspace.yaml": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7"
+      },
+      "command": [
+        "pnpm",
+        "install",
+        "--frozen-lockfile",
+        "--ignore-scripts"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "nodeVersion": "v26.12.1",
+      "runtimePreparation": []
+    },
+    "parent": {
+      "contract": {
+        "version": "historical-v1",
+        "dependencyFingerprint": "547eb848308b49f8c7f2f80f331f1c8c05ee8cee4b2ee9d4f202711d35e63a58"
+      },
+      "hiddenTests": {
+        "passed": false,
+        "command": [
+          "sh",
+          "-c",
+          "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/home/home.component.spec.ts\" --include=\"src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts\" --watch=false"
+        ],
+        "exitCode": 1,
+        "timedOut": false,
+        "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n❯ Building...\n✔ Building...\nApplication bundle generation failed. [21.930 seconds] - 2026-10-27T15:59:57.014Z\n\n\n✘ [ERROR] Could not resolve \"../shared/components/android-test-banner/android-test-banner.component\"\n\n    src/app/home/home.component.spec.ts:19:7:\n      19 │ } from '../shared/components/android-test-banner/android-test-bann...\n         ╵        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n\n✘ [ERROR] TS2307: Cannot find module '../shared/components/android-test-banner/android-test-banner.component' or its corresponding type declarations. [plugin angular-compiler]\n\n    src/app/home/home.component.spec.ts:19:7:\n      19 │ } from '../shared/components/android-test-banner/android-test-bann...\n         ╵        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n\n✘ [ERROR] TS18046: 'banner' is of type 'unknown'. [plugin angular-compiler]\n\n    src/app/home/home.component.spec.ts:270:4:\n      270 │     banner.closed.set(false);\n          ╵     ~~~~~~\n\n\n✘ [ERROR] TS18046: 'banner' is of type 'unknown'. [plugin angular-compiler]\n\n    src/app/home/home.component.spec.ts:282:11:\n      282 │     expect(banner.closed()).toBe(false);\n          ╵            ~~~~~~\n\n\n✘ [ERROR] TS18046: 'banner' is of type 'unknown'. [plugin angular-compiler]\n\n    src/app/home/home.component.spec.ts:289:13:\n      289 │       expect(banner.closed()).toBe(true);\n          ╵              ~~~~~~\n\n\n✘ [ERROR] Could not resolve \"./android-test-banner.component\"\n\n    src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts:5:122:\n      5 │ ...uldShowAndroidTestBanner, } from './android-test-banner.component';\n        ╵                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n\n✘ [ERROR] TS2307: Cannot find module './android-test-banner.component' or its corresponding type declarations. [plugin angular-compiler]\n\n    src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts:10:7:\n      10 │ } from './android-test-banner.component';\n         ╵        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n\n✘ [ERROR] TS2571: Object is of type 'unknown'. [plugin angular-compiler]\n\n    src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts:216:4:\n      216 │     TestBed.inject(AndroidTestBannerState).markDone();\n          ╵     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n\n"
+      },
+      "damage": [],
+      "damageOk": true
+    },
+    "fixed": {
+      "contract": {
+        "version": "historical-v1",
+        "dependencyFingerprint": "547eb848308b49f8c7f2f80f331f1c8c05ee8cee4b2ee9d4f202711d35e63a58"
+      },
+      "hiddenTests": {
+        "passed": true,
+        "command": [
+          "sh",
+          "-c",
+          "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/home/home.component.spec.ts\" --include=\"src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts\" --watch=false"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n❯ Building...\n✔ Building...\nApplication bundle generation complete. [18.381 seconds] - 2026-10-27T16:00:20.857Z\n\n\n RUN  v4.0.18 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n\n ✓ |web| src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts (16 tests) 335ms\n ✓ |web| src/app/home/home.component.spec.ts (16 tests) 1051ms\n\n Test Files  2 passed (2)\n      Tests  32 passed (32)\n   Start at  16:00:21\n   Duration  3.85s (transform 2.27s, setup 2.56s, import 788ms, tests 1.39s, environment 1.59s)\n\n\n(node:50573) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:50572) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+      },
+      "damage": [
+        {
+          "ok": true,
+          "command": [
+            "sh",
+            "-c",
+            "cd apps/web && pnpm run generate:locales && npx tsc -p tsconfig.spec.json --noEmit"
+          ],
+          "exitCode": 0,
+          "timedOut": false,
+          "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n\n"
+        }
+      ],
+      "damageOk": true
+    }
+  },
+  {
+    "taskId": "12ST-04",
+    "parentSha": "65872c8b5da2a5c241cfafb845e131b0d6756b55",
+    "commitSha": "755a63449dc717a7c568eed2d6d29b5298ea873b",
+    "setup": {
+      "fingerprint": "598dc6c3283436556ddffe789e4cc20ab579daa350f0618028b1300b43bfcdce",
+      "files": {
+        ".npmrc": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "apps/api/package.json": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+        "apps/web/package.json": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+        "package.json": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+        "packages/crypto/package.json": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "packages/meeting-data/package.json": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+        "pnpm-lock.yaml": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+        "pnpm-workspace.yaml": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7"
+      },
+      "command": [
+        "pnpm",
+        "install",
+        "--frozen-lockfile",
+        "--ignore-scripts"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "nodeVersion": "v26.12.1",
+      "runtimePreparation": []
+    },
+    "parent": {
+      "contract": {
+        "version": "historical-v1",
+        "dependencyFingerprint": "598dc6c3283436556ddffe789e4cc20ab579daa350f0618028b1300b43bfcdce"
+      },
+      "hiddenTests": {
+        "passed": false,
+        "command": [
+          "sh",
+          "-c",
+          "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/shared/components/app-shell/app-shell.component.spec.ts\" --include=\"src/app/shared/components/autosave-indicator.component.spec.ts\" --include=\"src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts\" --include=\"src/app/shared/services/save-feedback.service.spec.ts\" --watch=false"
+        ],
+        "exitCode": 1,
+        "timedOut": false,
+        "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n❯ Building...\n✔ Building...\nApplication bundle generation failed. [20.338 seconds] - 2026-10-27T16:01:24.479Z\n\n\n✘ [ERROR] TS2345: Argument of type '\"pending\"' is not assignable to parameter of type 'SaveFeedbackSourceState'. [plugin angular-compiler]\n\n    src/app/shared/components/autosave-indicator.component.spec.ts:66:15:\n      66 │     source.set('pending');\n         ╵                ~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/components/autosave-indicator.component.spec.ts:69:20:\n      69 │     expect(feedback.showSaving()).toBe(false);\n         ╵                     ~~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/components/autosave-indicator.component.spec.ts:92:20:\n      92 │     expect(feedback.showSaving()).toBe(true);\n         ╵                     ~~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts:78:20:\n      78 │     expect(feedback.showSaving()).toBe(false);\n         ╵                     ~~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts:83:20:\n      83 │     expect(feedback.showSaving()).toBe(true);\n         ╵                     ~~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:86:20:\n      86 │     expect(feedback.showSaving()).toBe(false);\n         ╵                     ~~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:88:20:\n      88 │     expect(feedback.showSaving()).toBe(false);\n         ╵                     ~~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:90:20:\n      90 │     expect(feedback.showSaving()).toBe(true);\n         ╵                     ~~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:92:20:\n      92 │     expect(feedback.showSaving()).toBe(false);\n         ╵                     ~~~~~~~~~~\n\n\n✘ [ERROR] TS2345: Argument of type '\"pending\"' is not assignable to parameter of type 'SaveFeedbackSourceState'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:98:15:\n      98 │     source.set('pending');\n         ╵                ~~~~~~~~~\n\n\n✘ [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:102:20:\n      102 │     expect(feedback.showSaving()).toBe(false);\n          ╵                     ~~~~~~~~~~\n\n\n"
+      },
+      "damage": [],
+      "damageOk": true
+    },
+    "fixed": {
+      "contract": {
+        "version": "historical-v1",
+        "dependencyFingerprint": "598dc6c3283436556ddffe789e4cc20ab579daa350f0618028b1300b43bfcdce"
+      },
+      "hiddenTests": {
+        "passed": true,
+        "command": [
+          "sh",
+          "-c",
+          "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/shared/components/app-shell/app-shell.component.spec.ts\" --include=\"src/app/shared/components/autosave-indicator.component.spec.ts\" --include=\"src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts\" --include=\"src/app/shared/services/save-feedback.service.spec.ts\" --watch=false"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n❯ Building...\n✔ Building...\nApplication bundle generation complete. [22.718 seconds] - 2026-10-27T16:01:55.387Z\n\n\n RUN  v4.0.18 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n\n ✓ |web| src/app/shared/services/save-feedback.service.spec.ts (9 tests) 92ms\n ✓ |web| src/app/shared/components/autosave-indicator.component.spec.ts (8 tests) 242ms\n ✓ |web| src/app/shared/components/app-shell/app-shell.component.spec.ts (3 tests) 399ms\n ✓ |web| src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts (13 tests) 742ms\n\n Test Files  4 passed (4)\n      Tests  33 passed (33)\n   Start at  16:01:56\n   Duration  4.35s (transform 3.38s, setup 4.83s, import 1.58s, tests 1.47s, environment 5.23s)\n\n\n(node:62642) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:62646) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:62645) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:62643) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+      },
+      "damage": [
+        {
+          "ok": true,
+          "command": [
+            "sh",
+            "-c",
+            "cd apps/web && pnpm run generate:locales && npx tsc -p tsconfig.spec.json --noEmit"
+          ],
+          "exitCode": 0,
+          "timedOut": false,
+          "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n\n"
+        }
+      ],
+      "damageOk": true
+    }
+  }
+]

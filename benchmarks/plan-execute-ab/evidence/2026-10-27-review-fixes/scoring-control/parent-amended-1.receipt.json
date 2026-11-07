@@ -1,0 +1,49 @@
+{
+  "command": [
+    "node",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/vitest/vitest.mjs",
+    "run",
+    "src/main/history/history-manager.spec.ts",
+    "--project=main",
+    "--reporter=json",
+    "--outputFile=/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-amended-1.json",
+    "--maxWorkers=1",
+    "--minWorkers=1"
+  ],
+  "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/parent",
+  "exitCode": 1,
+  "elapsedSeconds": 9.974521160125732,
+  "numTotalTests": 41,
+  "numPassedTests": 39,
+  "numFailedTests": 2,
+  "failures": [
+    {
+      "ancestorTitles": [
+        "HistoryManager"
+      ],
+      "fullName": "HistoryManager creates a safety backup before clearing conversation history",
+      "status": "failed",
+      "title": "creates a safety backup before clearing conversation history",
+      "duration": 258.77699999999993,
+      "failureMessages": [
+        "AssertionError: expected true to be false // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/parent/src/main/history/history-manager.spec.ts:209:73\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+      ],
+      "meta": {}
+    },
+    {
+      "ancestorTitles": [
+        "HistoryManager"
+      ],
+      "fullName": "HistoryManager LT-711: does not enter the safety backup while startup backfill is blocked",
+      "status": "failed",
+      "title": "LT-711: does not enter the safety backup while startup backfill is blocked",
+      "duration": 57.712291999999934,
+      "failureMessages": [
+        "AssertionError: clearAll entered the safety backup while the startup write was blocked: expected \"readdir\" to not be called at all, but actually been called 1 times\n\nReceived: \n\n  1st readdir call:\n\n    Array [\n      \"/var/folders/0n/fs5yys3d0vg0c838h75hyrm00000gn/T/history-manager-nOTzay/conversation-history\",\n    ]\n\n\nNumber of calls: 1\n\n    at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/@vitest/expect/dist/index.js:1335:10)\n    at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/@vitest/expect/dist/index.js:1029:14)\n    at Proxy.methodWrapper (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/chai/index.js:1686:25)\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/parent/src/main/history/history-manager.spec.ts:336:13\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+      ],
+      "meta": {}
+    }
+  ],
+  "sourceSha256": "89e026b0e26eca09067234605a32b9aa6d6fd24f91661cdf7d0b9755b5b58a6c",
+  "specSha256": "a464399dcf10d3474b2bff828af59fd884331d482d9801c5dc49185e9f12b18c"
+}

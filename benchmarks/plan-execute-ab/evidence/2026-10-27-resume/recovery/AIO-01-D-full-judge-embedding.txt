@@ -1,0 +1,207 @@
+diff --git a/src/main/history/history-archive-serialization.spec.ts b/src/main/history/history-archive-serialization.spec.ts
+index 4c2d3a8..5060174 100644
+--- a/src/main/history/history-archive-serialization.spec.ts
++++ b/src/main/history/history-archive-serialization.spec.ts
+@@ -1,6 +1,6 @@
+ import { describe, expect, it } from 'vitest';
+ import type { Instance } from '../../shared/types/instance.types';
+-import { getArchiveSerializationKey } from './history-archive-serialization';
++import { KeyedSerialTaskQueue, getArchiveSerializationKey } from './history-archive-serialization';
+ function identity(overrides: Partial<Instance> = {}) {
+   return {
+@@ -65,3 +65,35 @@ describe('getArchiveSerializationKey', () => {
+     expect(other).not.toBe(first);
+   });
+ });
++
++describe('KeyedSerialTaskQueue.whenIdle', () => {
++  it('stays pending until queued tasks finish, including failed ones', async () => {
++    const queue = new KeyedSerialTaskQueue();
++    let release!: () => void;
++    const gate = new Promise<void>((resolve) => {
++      release = resolve;
++    });
++    const failing = queue.run('key', async () => {
++      await gate;
++      throw new Error('boom');
++    });
++    const failed = expect(failing).rejects.toThrow('boom');
++
++    let idle = false;
++    const idlePromise = queue.whenIdle().then(() => {
++      idle = true;
++    });
++    await Promise.resolve();
++    await Promise.resolve();
++    expect(idle).toBe(false);
++
++    release();
++    await failed;
++    await idlePromise;
++    expect(idle).toBe(true);
++  });
++
++  it('resolves immediately when nothing is queued', async () => {
++    await expect(new KeyedSerialTaskQueue().whenIdle()).resolves.toBeUndefined();
++  });
++});
+diff --git a/src/main/history/history-archive-serialization.ts b/src/main/history/history-archive-serialization.ts
+index bbfb47e..6f16e6f 100644
+--- a/src/main/history/history-archive-serialization.ts
++++ b/src/main/history/history-archive-serialization.ts
+@@ -46,4 +46,9 @@ export class KeyedSerialTaskQueue {
+       }
+     }
+   }
++
++  /** Resolves once every turn queued at call time has finished. Later turns are not awaited. */
++  async whenIdle(): Promise<void> {
++    await Promise.all([...this.tails.values()]);
++  }
+ }
+diff --git a/src/main/history/history-manager.spec.ts b/src/main/history/history-manager.spec.ts
+index 41e51a3..f0c065c 100644
+--- a/src/main/history/history-manager.spec.ts
++++ b/src/main/history/history-manager.spec.ts
+@@ -209,6 +209,116 @@ describe('HistoryManager', () => {
+     expect(fs.existsSync(path.join(storageDir, `${entry.id}.json.gz`))).toBe(false);
+   });
++  describe('clearAll waits for startup writers', () => {
++    function seedEntry(): { storageDir: string; entryId: string; conversationPath: string } {
++      const storageDir = path.join(userDataDir, 'conversation-history');
++      fs.mkdirSync(storageDir, { recursive: true });
++      const entry = {
++        id: 'entry-race',
++        displayName: 'Example',
++        createdAt: 1,
++        endedAt: 2,
++        workingDirectory: '/tmp/example',
++        messageCount: 1,
++        firstUserMessage: 'hello',
++        lastUserMessage: 'hello',
++        status: 'completed' as const,
++        originalInstanceId: 'instance-race',
++        sessionId: 'session-race',
++      };
++      fs.writeFileSync(
++        path.join(storageDir, 'index.json'),
++        JSON.stringify({ version: 1, lastUpdated: Date.now(), entries: [entry] }),
++      );
++      const conversationPath = path.join(storageDir, `${entry.id}.json.gz`);
++      fs.writeFileSync(
++        conversationPath,
++        zlib.gzipSync(
++          JSON.stringify({
++            entry,
++            messages: [{ id: 'message-1', timestamp: 1, type: 'user', content: 'hello' }],
++          }),
++        ),
++      );
++      return { storageDir, entryId: entry.id, conversationPath };
++    }
++
++    function backupDirs(): string[] {
++      return fs.readdirSync(userDataDir).filter((name) => name.startsWith('conversation-history.bak-'));
++    }
++
++    it('takes no backup and deletes nothing until startupTasks settles', async () => {
++      const { storageDir, conversationPath } = seedEntry();
++      const { HistoryManager } = await import('./history-manager');
++      const manager = track(new HistoryManager());
++      await manager.startupTasks;
++
++      const held = deferred();
++      Object.defineProperty(manager, 'startupTasks', { value: held.promise });
++
++      const clearing = manager.clearAll();
++      await drainMicrotasks();
++      expect(backupDirs()).toHaveLength(0);
++      expect(fs.existsSync(conversationPath)).toBe(true);
++
++      held.resolve();
++      await clearing;
++
++      expect(backupDirs()).toHaveLength(1);
++      expect(fs.existsSync(path.join(userDataDir, backupDirs()[0], 'entry-race.json.gz'))).toBe(true);
++      const activeIndex = JSON.parse(
++        fs.readFileSync(path.join(storageDir, 'index.json'), 'utf-8'),
++      ) as { entries: unknown[] };
++      expect(activeIndex.entries).toEqual([]);
++      expect(fs.existsSync(conversationPath)).toBe(false);
++    });
++
++    it('backs up the fully backfilled file when clearing races the startup backfill', async () => {
++      const { storageDir, conversationPath } = seedEntry();
++      const gate = deferred();
++      const realWriteFile = fs.promises.writeFile.bind(fs.promises);
++      const writeSpy = vi
++        .spyOn(fs.promises, 'writeFile')
++        .mockImplementation(async (file, data, options) => {
++          if (String(file).startsWith(conversationPath)) {
++            await gate.promise;
++          }
++          return realWriteFile(file, data as never, options as never);
++        });
++      const cpSpy = vi.spyOn(fs.promises, 'cp');
++
++      try {
++        const { HistoryManager } = await import('./history-manager');
++        const manager = track(new HistoryManager());
++
++        const clearing = manager.clearAll();
++        await drainMicrotasks();
++        expect(cpSpy).not.toHaveBeenCalled();
++
++        gate.resolve();
++        await clearing;
++
++        const backupFile = path.join(userDataDir, backupDirs()[0], 'entry-race.json.gz');
++        const backedUp = JSON.parse(zlib.gunzipSync(fs.readFileSync(backupFile)).toString()) as {
++          entry: { historyThreadId?: string };
++        };
++        expect(backedUp.entry.historyThreadId).toBeTruthy();
++
++        const leftovers = fs
++          .readdirSync(storageDir)
++          .filter((name) => name.endsWith('.json.gz') || name.endsWith('.tmp'));
++        expect(leftovers).toEqual([]);
++        const activeIndex = JSON.parse(
++          fs.readFileSync(path.join(storageDir, 'index.json'), 'utf-8'),
++        ) as { entries: unknown[] };
++        expect(activeIndex.entries).toEqual([]);
++      } finally {
++        writeSpy.mockRestore();
++        cpSpy.mockRestore();
++      }
++    });
++  });
++
+   it('LT-196: folds tool-outcome records into the archive so the miner can read them back', async () => {
+     // This is the seam the whole feature rests on. The record is deliberately
+     // kept out of `outputBuffer` (see `tool-outcome-store.ts`), so the ONLY
+diff --git a/src/main/history/history-manager.ts b/src/main/history/history-manager.ts
+index bd1840b..5759c00 100644
+--- a/src/main/history/history-manager.ts
++++ b/src/main/history/history-manager.ts
+@@ -107,11 +107,9 @@ export class HistoryManager {
+    * importNativeClaudeTranscripts repair paths are a pre-existing hazard this
+    * change neither closes nor widens.
+    *
+-   * Keyed by entry id and held for exactly one file rewrite. Waiting on the whole
+-   * `startupTasks` chain instead would be wrong: archiveInstance runs on the quit
+-   * path under the 8s `terminate-instances` budget, which does not cancel its
+-   * handler, so blocking it behind the unbounded `importNativeClaudeTranscripts`
+-   * scan would trade this race for silently dropping a user's conversation.
++   * Keyed by entry id, held for one file rewrite. archiveInstance must not wait on
++   * `startupTasks`: it runs on the quit path under the 8s `terminate-instances`
++   * budget. clearAll is a user action, so it awaits `startupTasks` and this queue.
+    */
+   private conversationWrites = new KeyedSerialTaskQueue();
+@@ -701,6 +699,8 @@ export class HistoryManager {
+    * Clear all history
+    */
+   async clearAll(): Promise<void> {
++    await this.startupTasks;
++    await this.conversationWrites.whenIdle();
+     await this.createSafetyBackup('clearAll');
+     // Delete all conversation files

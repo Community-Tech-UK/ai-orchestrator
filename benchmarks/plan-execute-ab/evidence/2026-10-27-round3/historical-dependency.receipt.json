@@ -1,0 +1,11 @@
+{
+  "revision": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+  "install": "npm ci --ignore-scripts --no-audit --no-fund",
+  "packages": {
+    "vitest": "3.2.7",
+    "typescript": "6.0.3",
+    "@azure/msal-node": "5.6.0",
+    "@angular/core": "22.1.7"
+  },
+  "note": "Clean archive lockfile install, scripts disabled, no existing package links"
+}

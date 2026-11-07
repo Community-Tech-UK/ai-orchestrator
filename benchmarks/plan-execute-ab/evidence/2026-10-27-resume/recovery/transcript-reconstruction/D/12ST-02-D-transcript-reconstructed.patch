@@ -1,0 +1,35 @@
+diff --git a/apps/web/src/app/prayers/models/prayers.spec.ts b/apps/web/src/app/prayers/models/prayers.spec.ts
+index e9381d0..24d843d 100644
+--- a/apps/web/src/app/prayers/models/prayers.spec.ts
++++ b/apps/web/src/app/prayers/models/prayers.spec.ts
+@@ -10,6 +10,17 @@ describe('prayer library content', () => {
+     expect(new Set(ids).size).toBe(ids.length);
+   });
+ 
++  it('keeps the Merton prayer in its published word order', () => {
++    const text = PRAYERS.find((prayer) => prayer.id === 'thomas_merton')?.text ?? '';
++
++    expect(text).toContain('Therefore will I trust you always though I may seem to be lost');
++    expect(text).toContain('the fact that I think that I am following your will');
++    expect(text).toContain('lead me by the right road though I may know nothing about it');
++    expect(text).not.toContain('Therefore I will trust');
++    expect(text.startsWith('My Lord God, I have no idea where I am going.')).toBe(true);
++    expect(text.endsWith('face my perils alone.')).toBe(true);
++  });
++
+   it('includes a promises collection', () => {
+     const promises = PRAYERS.filter((prayer) => prayer.category === 'promises');
+ 
+diff --git a/apps/web/src/app/prayers/models/prayers.ts b/apps/web/src/app/prayers/models/prayers.ts
+index ad32cb7..703a3e4 100644
+--- a/apps/web/src/app/prayers/models/prayers.ts
++++ b/apps/web/src/app/prayers/models/prayers.ts
+@@ -434,7 +434,7 @@ export const PRAYERS: Prayer[] = [
+   },
+   {
+     id: 'thomas_merton',
+-    text: 'My Lord God, I have no idea where I am going. I do not see the road ahead of me. I cannot know for certain where it will end. Nor do I really know myself, and the fact that I think I am following your will does not mean that I am actually doing so.\n\nBut I believe that the desire to please you does in fact please you. And I hope I have that desire in all that I am doing. I hope that I will never do anything apart from that desire. And I know that if I do this you will lead me by the right road, though I may know nothing about it. Therefore I will trust you always, though I may seem to be lost and in the shadow of death. I will not fear, for you are ever with me, and you will never leave me to face my perils alone.',
++    text: 'My Lord God, I have no idea where I am going. I do not see the road ahead of me. I cannot know for certain where it will end. Nor do I really know myself, and the fact that I think that I am following your will does not mean that I am actually doing so.\n\nBut I believe that the desire to please you does in fact please you. And I hope I have that desire in all that I am doing. I hope that I will never do anything apart from that desire. And I know that if I do this you will lead me by the right road though I may know nothing about it. Therefore will I trust you always though I may seem to be lost and in the shadow of death. I will not fear, for you are ever with me, and you will never leave me to face my perils alone.',
+     category: 'general',
+     source:
+       'Thomas Merton, Thoughts in Solitude (Farrar, Straus and Cudahy, 1958). ' +

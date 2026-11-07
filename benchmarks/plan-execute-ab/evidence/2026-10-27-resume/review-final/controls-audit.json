@@ -1,0 +1,1276 @@
+[
+  {
+    "task": "AIO-01",
+    "matches": [
+      {
+        "file": "apps/mobile/package.json",
+        "sha": "f04f674859b220b86eeb52662129072008573af9",
+        "expected": "d97e9e262c3d2d339dfd4081baf2056effbf00b3979cc0b57f3ad0fe23d23038",
+        "actual": "d97e9e262c3d2d339dfd4081baf2056effbf00b3979cc0b57f3ad0fe23d23038",
+        "match": true
+      },
+      {
+        "file": "apps/mobile/package.json",
+        "sha": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+        "expected": "d97e9e262c3d2d339dfd4081baf2056effbf00b3979cc0b57f3ad0fe23d23038",
+        "actual": "d97e9e262c3d2d339dfd4081baf2056effbf00b3979cc0b57f3ad0fe23d23038",
+        "match": true
+      },
+      {
+        "file": "benchmarks/external-benchmarks/bfcl/package.json",
+        "sha": "f04f674859b220b86eeb52662129072008573af9",
+        "expected": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "actual": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "match": true
+      },
+      {
+        "file": "benchmarks/external-benchmarks/bfcl/package.json",
+        "sha": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+        "expected": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "actual": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "match": true
+      },
+      {
+        "file": "benchmarks/orchestrator-benchmark/package.json",
+        "sha": "f04f674859b220b86eeb52662129072008573af9",
+        "expected": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "actual": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "match": true
+      },
+      {
+        "file": "benchmarks/orchestrator-benchmark/package.json",
+        "sha": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+        "expected": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "actual": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "match": true
+      },
+      {
+        "file": "package-lock.json",
+        "sha": "f04f674859b220b86eeb52662129072008573af9",
+        "expected": "021e5949e51e8dd7847f514cf4142baf8d4e18e818a450ea3d41045fd1691d97",
+        "actual": "021e5949e51e8dd7847f514cf4142baf8d4e18e818a450ea3d41045fd1691d97",
+        "match": true
+      },
+      {
+        "file": "package-lock.json",
+        "sha": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+        "expected": "021e5949e51e8dd7847f514cf4142baf8d4e18e818a450ea3d41045fd1691d97",
+        "actual": "021e5949e51e8dd7847f514cf4142baf8d4e18e818a450ea3d41045fd1691d97",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "f04f674859b220b86eeb52662129072008573af9",
+        "expected": "6adee217290061578d1afd43e4ccbbd71097b1d3a10574f014822f4bf1591298",
+        "actual": "6adee217290061578d1afd43e4ccbbd71097b1d3a10574f014822f4bf1591298",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+        "expected": "6adee217290061578d1afd43e4ccbbd71097b1d3a10574f014822f4bf1591298",
+        "actual": "6adee217290061578d1afd43e4ccbbd71097b1d3a10574f014822f4bf1591298",
+        "match": true
+      },
+      {
+        "file": "packages/archiver-compat/package.json",
+        "sha": "f04f674859b220b86eeb52662129072008573af9",
+        "expected": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "actual": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "match": true
+      },
+      {
+        "file": "packages/archiver-compat/package.json",
+        "sha": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+        "expected": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "actual": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "match": true
+      },
+      {
+        "file": "packages/contracts/package.json",
+        "sha": "f04f674859b220b86eeb52662129072008573af9",
+        "expected": "c20adf5e2edb10101f0c42fccf4e2131c336204a26df832dcbd8e0130ab1fb96",
+        "actual": "c20adf5e2edb10101f0c42fccf4e2131c336204a26df832dcbd8e0130ab1fb96",
+        "match": true
+      },
+      {
+        "file": "packages/contracts/package.json",
+        "sha": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+        "expected": "c20adf5e2edb10101f0c42fccf4e2131c336204a26df832dcbd8e0130ab1fb96",
+        "actual": "c20adf5e2edb10101f0c42fccf4e2131c336204a26df832dcbd8e0130ab1fb96",
+        "match": true
+      },
+      {
+        "file": "packages/sdk/package.json",
+        "sha": "f04f674859b220b86eeb52662129072008573af9",
+        "expected": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "actual": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "match": true
+      },
+      {
+        "file": "packages/sdk/package.json",
+        "sha": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+        "expected": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "actual": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "match": true
+      }
+    ],
+    "parentExit": 1,
+    "parentTimedOut": false,
+    "parentTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/history/history-manager.spec.ts\n\n\u2717 2 of 41 tests failed in 8.4s:\n\n  \u2717 src/main/history/history-manager.spec.ts \u203a HistoryManager creates a safety backup before clearing conversation history\n    AssertionError: expected true to be false // Object.is equality\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:209:73\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20\n\n  \u2717 src/main/history/history-manager.spec.ts \u203a HistoryManager does not begin the safety backup before the pending startup writers settle\n    AssertionError: clearAll entered the safety backup while the startup write was blocked: expected 'backup-entry' to be 'startup-wait' // Object.is equality\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:370:9\n        at processTicksAndRejections (node:internal/process/task_queues:104:5)\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20\n\nfull log: _scratch/test-run.pid-89751.log\n\n\u2717 FAILED \u2014 2 of 41 tests failed (exit 1).\n",
+    "fixedExit": 0,
+    "fixedDamage": [
+      0,
+      0
+    ]
+  },
+  {
+    "task": "AIO-02",
+    "matches": [
+      {
+        "file": "apps/mobile/package-lock.json",
+        "sha": "b7114a8e4d1b4a484d59543c54d95eb27c472e91",
+        "expected": "df4a47c1cd8fdb37380b501f748c19b8f3a5a3d553f11d234e71844b3eefb7c9",
+        "actual": "df4a47c1cd8fdb37380b501f748c19b8f3a5a3d553f11d234e71844b3eefb7c9",
+        "match": true
+      },
+      {
+        "file": "apps/mobile/package-lock.json",
+        "sha": "4ab0681fb8b8bd18b64b25e2c11e67c819d7ce3d",
+        "expected": "df4a47c1cd8fdb37380b501f748c19b8f3a5a3d553f11d234e71844b3eefb7c9",
+        "actual": "df4a47c1cd8fdb37380b501f748c19b8f3a5a3d553f11d234e71844b3eefb7c9",
+        "match": true
+      },
+      {
+        "file": "apps/mobile/package.json",
+        "sha": "b7114a8e4d1b4a484d59543c54d95eb27c472e91",
+        "expected": "4d3d14c54f950a895b1b7998b8c3deb02811bda1a49a7fd42f4122ca47d70a95",
+        "actual": "4d3d14c54f950a895b1b7998b8c3deb02811bda1a49a7fd42f4122ca47d70a95",
+        "match": true
+      },
+      {
+        "file": "apps/mobile/package.json",
+        "sha": "4ab0681fb8b8bd18b64b25e2c11e67c819d7ce3d",
+        "expected": "4d3d14c54f950a895b1b7998b8c3deb02811bda1a49a7fd42f4122ca47d70a95",
+        "actual": "4d3d14c54f950a895b1b7998b8c3deb02811bda1a49a7fd42f4122ca47d70a95",
+        "match": true
+      },
+      {
+        "file": "benchmarks/external-benchmarks/bfcl/package.json",
+        "sha": "b7114a8e4d1b4a484d59543c54d95eb27c472e91",
+        "expected": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "actual": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "match": true
+      },
+      {
+        "file": "benchmarks/external-benchmarks/bfcl/package.json",
+        "sha": "4ab0681fb8b8bd18b64b25e2c11e67c819d7ce3d",
+        "expected": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "actual": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "match": true
+      },
+      {
+        "file": "benchmarks/orchestrator-benchmark/package.json",
+        "sha": "b7114a8e4d1b4a484d59543c54d95eb27c472e91",
+        "expected": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "actual": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "match": true
+      },
+      {
+        "file": "benchmarks/orchestrator-benchmark/package.json",
+        "sha": "4ab0681fb8b8bd18b64b25e2c11e67c819d7ce3d",
+        "expected": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "actual": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "match": true
+      },
+      {
+        "file": "package-lock.json",
+        "sha": "b7114a8e4d1b4a484d59543c54d95eb27c472e91",
+        "expected": "c6b1221fdd7a69a6dbdc3ae0ab3cb374e09626c7573ce2d279a0d8acde366940",
+        "actual": "c6b1221fdd7a69a6dbdc3ae0ab3cb374e09626c7573ce2d279a0d8acde366940",
+        "match": true
+      },
+      {
+        "file": "package-lock.json",
+        "sha": "4ab0681fb8b8bd18b64b25e2c11e67c819d7ce3d",
+        "expected": "c6b1221fdd7a69a6dbdc3ae0ab3cb374e09626c7573ce2d279a0d8acde366940",
+        "actual": "c6b1221fdd7a69a6dbdc3ae0ab3cb374e09626c7573ce2d279a0d8acde366940",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "b7114a8e4d1b4a484d59543c54d95eb27c472e91",
+        "expected": "6adee217290061578d1afd43e4ccbbd71097b1d3a10574f014822f4bf1591298",
+        "actual": "6adee217290061578d1afd43e4ccbbd71097b1d3a10574f014822f4bf1591298",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "4ab0681fb8b8bd18b64b25e2c11e67c819d7ce3d",
+        "expected": "6adee217290061578d1afd43e4ccbbd71097b1d3a10574f014822f4bf1591298",
+        "actual": "6adee217290061578d1afd43e4ccbbd71097b1d3a10574f014822f4bf1591298",
+        "match": true
+      },
+      {
+        "file": "packages/archiver-compat/package.json",
+        "sha": "b7114a8e4d1b4a484d59543c54d95eb27c472e91",
+        "expected": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "actual": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "match": true
+      },
+      {
+        "file": "packages/archiver-compat/package.json",
+        "sha": "4ab0681fb8b8bd18b64b25e2c11e67c819d7ce3d",
+        "expected": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "actual": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "match": true
+      },
+      {
+        "file": "packages/contracts/package.json",
+        "sha": "b7114a8e4d1b4a484d59543c54d95eb27c472e91",
+        "expected": "98a513bfc08c8a15513a7a15ac2dcf6d0ee99dff8bf9b44d2ec68f85e68c8e97",
+        "actual": "98a513bfc08c8a15513a7a15ac2dcf6d0ee99dff8bf9b44d2ec68f85e68c8e97",
+        "match": true
+      },
+      {
+        "file": "packages/contracts/package.json",
+        "sha": "4ab0681fb8b8bd18b64b25e2c11e67c819d7ce3d",
+        "expected": "98a513bfc08c8a15513a7a15ac2dcf6d0ee99dff8bf9b44d2ec68f85e68c8e97",
+        "actual": "98a513bfc08c8a15513a7a15ac2dcf6d0ee99dff8bf9b44d2ec68f85e68c8e97",
+        "match": true
+      },
+      {
+        "file": "packages/sdk/package.json",
+        "sha": "b7114a8e4d1b4a484d59543c54d95eb27c472e91",
+        "expected": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "actual": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "match": true
+      },
+      {
+        "file": "packages/sdk/package.json",
+        "sha": "4ab0681fb8b8bd18b64b25e2c11e67c819d7ce3d",
+        "expected": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "actual": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "match": true
+      }
+    ],
+    "parentExit": 1,
+    "parentTimedOut": false,
+    "parentTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js scripts/__tests__/release-workflow.spec.ts\n\n\u2717 1 of 11 tests failed in 7.7s:\n\n  \u2717 scripts/__tests__/release-workflow.spec.ts \u203a Harness release workflow checks model-catalog drift on a schedule and raises one durable issue\n    AssertionError: expected true to be false // Object.is equality\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/scripts/__tests__/release-workflow.spec.ts:102:57\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n        at new ZoneAwarePromise (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/zone.js/fesm2015/zone.js:2238:23)\n        at runWithTimeout (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan\n        \u2026(truncated \u2014 see log)\n\nfull log: _scratch/test-run.pid-17590.log\n\n\u2717 FAILED \u2014 1 of 11 tests failed (exit 1).\n",
+    "fixedExit": 0,
+    "fixedDamage": [
+      0,
+      0
+    ]
+  },
+  {
+    "task": "AIO-03",
+    "matches": [
+      {
+        "file": "apps/mobile/package-lock.json",
+        "sha": "270129d2c29516f5c1abd9247842539b41fb36f9",
+        "expected": "df4a47c1cd8fdb37380b501f748c19b8f3a5a3d553f11d234e71844b3eefb7c9",
+        "actual": "df4a47c1cd8fdb37380b501f748c19b8f3a5a3d553f11d234e71844b3eefb7c9",
+        "match": true
+      },
+      {
+        "file": "apps/mobile/package-lock.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "df4a47c1cd8fdb37380b501f748c19b8f3a5a3d553f11d234e71844b3eefb7c9",
+        "actual": "df4a47c1cd8fdb37380b501f748c19b8f3a5a3d553f11d234e71844b3eefb7c9",
+        "match": true
+      },
+      {
+        "file": "apps/mobile/package.json",
+        "sha": "270129d2c29516f5c1abd9247842539b41fb36f9",
+        "expected": "4d3d14c54f950a895b1b7998b8c3deb02811bda1a49a7fd42f4122ca47d70a95",
+        "actual": "4d3d14c54f950a895b1b7998b8c3deb02811bda1a49a7fd42f4122ca47d70a95",
+        "match": true
+      },
+      {
+        "file": "apps/mobile/package.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "4d3d14c54f950a895b1b7998b8c3deb02811bda1a49a7fd42f4122ca47d70a95",
+        "actual": "4d3d14c54f950a895b1b7998b8c3deb02811bda1a49a7fd42f4122ca47d70a95",
+        "match": true
+      },
+      {
+        "file": "benchmarks/external-benchmarks/bfcl/package.json",
+        "sha": "270129d2c29516f5c1abd9247842539b41fb36f9",
+        "expected": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "actual": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "match": true
+      },
+      {
+        "file": "benchmarks/external-benchmarks/bfcl/package.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "actual": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "match": true
+      },
+      {
+        "file": "benchmarks/orchestrator-benchmark/package.json",
+        "sha": "270129d2c29516f5c1abd9247842539b41fb36f9",
+        "expected": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "actual": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "match": true
+      },
+      {
+        "file": "benchmarks/orchestrator-benchmark/package.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "actual": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "match": true
+      },
+      {
+        "file": "package-lock.json",
+        "sha": "270129d2c29516f5c1abd9247842539b41fb36f9",
+        "expected": "5d658e310c870e7e307f5d428ddfae851855eb0c37bdd08ccabd2915b4d60412",
+        "actual": "5d658e310c870e7e307f5d428ddfae851855eb0c37bdd08ccabd2915b4d60412",
+        "match": true
+      },
+      {
+        "file": "package-lock.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "5d658e310c870e7e307f5d428ddfae851855eb0c37bdd08ccabd2915b4d60412",
+        "actual": "5d658e310c870e7e307f5d428ddfae851855eb0c37bdd08ccabd2915b4d60412",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "270129d2c29516f5c1abd9247842539b41fb36f9",
+        "expected": "869bde4f336ac90531456341f857cd172c03d813f426fc01e9723eb37c18b7a6",
+        "actual": "869bde4f336ac90531456341f857cd172c03d813f426fc01e9723eb37c18b7a6",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "869bde4f336ac90531456341f857cd172c03d813f426fc01e9723eb37c18b7a6",
+        "actual": "869bde4f336ac90531456341f857cd172c03d813f426fc01e9723eb37c18b7a6",
+        "match": true
+      },
+      {
+        "file": "packages/archiver-compat/package.json",
+        "sha": "270129d2c29516f5c1abd9247842539b41fb36f9",
+        "expected": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "actual": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "match": true
+      },
+      {
+        "file": "packages/archiver-compat/package.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "actual": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "match": true
+      },
+      {
+        "file": "packages/contracts/package.json",
+        "sha": "270129d2c29516f5c1abd9247842539b41fb36f9",
+        "expected": "98a513bfc08c8a15513a7a15ac2dcf6d0ee99dff8bf9b44d2ec68f85e68c8e97",
+        "actual": "98a513bfc08c8a15513a7a15ac2dcf6d0ee99dff8bf9b44d2ec68f85e68c8e97",
+        "match": true
+      },
+      {
+        "file": "packages/contracts/package.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "98a513bfc08c8a15513a7a15ac2dcf6d0ee99dff8bf9b44d2ec68f85e68c8e97",
+        "actual": "98a513bfc08c8a15513a7a15ac2dcf6d0ee99dff8bf9b44d2ec68f85e68c8e97",
+        "match": true
+      },
+      {
+        "file": "packages/sdk/package.json",
+        "sha": "270129d2c29516f5c1abd9247842539b41fb36f9",
+        "expected": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "actual": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "match": true
+      },
+      {
+        "file": "packages/sdk/package.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "actual": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "match": true
+      }
+    ],
+    "parentExit": 1,
+    "parentTimedOut": false,
+    "parentTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/session/continuity-payload-envelope.spec.ts src/main/session/session-continuity.spec.ts\n\n\u2717 test run failed (exit 1) and produced no JSON report. Tail of log:\n  7  |  const SAMPLES = [\n  8  |    \"\",\n \u276f TransformPluginContext._formatLog node_modules/vite/dist/node/chunks/config.js:29079:43\n \u276f TransformPluginContext.error node_modules/vite/dist/node/chunks/config.js:29076:14\n \u276f normalizeUrl node_modules/vite/dist/node/chunks/config.js:27199:18\n \u276f node_modules/vite/dist/node/chunks/config.js:27257:32\n \u276f TransformPluginContext.transform node_modules/vite/dist/node/chunks/config.js:27225:4\n \u276f EnvironmentPluginContainer.transform node_modules/vite/dist/node/chunks/config.js:28877:14\n \u276f loadAndTransform node_modules/vite/dist/node/chunks/config.js:22746:26\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/2]\u23af\n\n FAIL  |main| src/main/session/session-continuity.spec.ts [ src/main/session/session-continuity.spec.ts ]\nError: Failed to resolve import \"./continuity-payload-envelope\" from \"src/main/session/session-continuity.spec.ts\". Does the file exist?\n  Plugin: vite:import-analysis\n  File: /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/session/session-continuity.spec.ts:72:0\n  44 |  const __vi_import_12__ = await import(\"../cli/adapters/codex/compaction-presentation\");\n  45 |  const __vi_import_13__ = await import(\"./continuity-recovery-metadata\");\n  46 |  const __vi_import_14__ = await import(\"./continuity-payload-envelope\");\n     |                                        ^\n  47 |  \n  48 |  \n \u276f TransformPluginContext._formatLog node_modules/vite/dist/node/chunks/config.js:29079:43\n \u276f TransformPluginContext.error node_modules/vite/dist/node/chunks/config.js:29076:14\n \u276f normalizeUrl node_modules/vite/dist/node/chunks/config.js:27199:18\n \u276f node_modules/vite/dist/node/chunks/config.js:27257:32\n \u276f TransformPluginContext.transform node_modules/vite/dist/node/chunks/config.js:27225:4\n \u276f EnvironmentPluginContainer.transform node_modules/vite/dist/node/chunks/config.js:28877:14\n \u276f loadAndTransform node_modules/vite/dist/node/chunks/config.js:22746:26\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[2/2]\u23af\n\n\n Test Files  2 failed (2)\n      Tests  no tests\n   Start at  15:46:22\n   Duration  1.71s (transform 59ms, setup 178ms, collect 0ms, tests 0ms, environment 807ms, prepare 113ms)\n\nJSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/_scratch/test-results.pid-3851.json\n\nfull log: _scratch/test-run.pid-3851.log\n\n\u2717 FAILED \u2014 the run produced no usable JSON report (exit 1).\n",
+    "fixedExit": 0,
+    "fixedDamage": [
+      0,
+      0
+    ]
+  },
+  {
+    "task": "AIO-04",
+    "matches": [
+      {
+        "file": "apps/mobile/package-lock.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "df4a47c1cd8fdb37380b501f748c19b8f3a5a3d553f11d234e71844b3eefb7c9",
+        "actual": "df4a47c1cd8fdb37380b501f748c19b8f3a5a3d553f11d234e71844b3eefb7c9",
+        "match": true
+      },
+      {
+        "file": "apps/mobile/package-lock.json",
+        "sha": "da0bb47ffb259413c40f076ca53c4d09e27c8e61",
+        "expected": "df4a47c1cd8fdb37380b501f748c19b8f3a5a3d553f11d234e71844b3eefb7c9",
+        "actual": "df4a47c1cd8fdb37380b501f748c19b8f3a5a3d553f11d234e71844b3eefb7c9",
+        "match": true
+      },
+      {
+        "file": "apps/mobile/package.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "4d3d14c54f950a895b1b7998b8c3deb02811bda1a49a7fd42f4122ca47d70a95",
+        "actual": "4d3d14c54f950a895b1b7998b8c3deb02811bda1a49a7fd42f4122ca47d70a95",
+        "match": true
+      },
+      {
+        "file": "apps/mobile/package.json",
+        "sha": "da0bb47ffb259413c40f076ca53c4d09e27c8e61",
+        "expected": "4d3d14c54f950a895b1b7998b8c3deb02811bda1a49a7fd42f4122ca47d70a95",
+        "actual": "4d3d14c54f950a895b1b7998b8c3deb02811bda1a49a7fd42f4122ca47d70a95",
+        "match": true
+      },
+      {
+        "file": "benchmarks/external-benchmarks/bfcl/package.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "actual": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "match": true
+      },
+      {
+        "file": "benchmarks/external-benchmarks/bfcl/package.json",
+        "sha": "da0bb47ffb259413c40f076ca53c4d09e27c8e61",
+        "expected": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "actual": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "match": true
+      },
+      {
+        "file": "benchmarks/orchestrator-benchmark/package.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "actual": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "match": true
+      },
+      {
+        "file": "benchmarks/orchestrator-benchmark/package.json",
+        "sha": "da0bb47ffb259413c40f076ca53c4d09e27c8e61",
+        "expected": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "actual": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "match": true
+      },
+      {
+        "file": "package-lock.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "5d658e310c870e7e307f5d428ddfae851855eb0c37bdd08ccabd2915b4d60412",
+        "actual": "5d658e310c870e7e307f5d428ddfae851855eb0c37bdd08ccabd2915b4d60412",
+        "match": true
+      },
+      {
+        "file": "package-lock.json",
+        "sha": "da0bb47ffb259413c40f076ca53c4d09e27c8e61",
+        "expected": "5d658e310c870e7e307f5d428ddfae851855eb0c37bdd08ccabd2915b4d60412",
+        "actual": "5d658e310c870e7e307f5d428ddfae851855eb0c37bdd08ccabd2915b4d60412",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "869bde4f336ac90531456341f857cd172c03d813f426fc01e9723eb37c18b7a6",
+        "actual": "869bde4f336ac90531456341f857cd172c03d813f426fc01e9723eb37c18b7a6",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "da0bb47ffb259413c40f076ca53c4d09e27c8e61",
+        "expected": "869bde4f336ac90531456341f857cd172c03d813f426fc01e9723eb37c18b7a6",
+        "actual": "869bde4f336ac90531456341f857cd172c03d813f426fc01e9723eb37c18b7a6",
+        "match": true
+      },
+      {
+        "file": "packages/archiver-compat/package.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "actual": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "match": true
+      },
+      {
+        "file": "packages/archiver-compat/package.json",
+        "sha": "da0bb47ffb259413c40f076ca53c4d09e27c8e61",
+        "expected": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "actual": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "match": true
+      },
+      {
+        "file": "packages/contracts/package.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "98a513bfc08c8a15513a7a15ac2dcf6d0ee99dff8bf9b44d2ec68f85e68c8e97",
+        "actual": "98a513bfc08c8a15513a7a15ac2dcf6d0ee99dff8bf9b44d2ec68f85e68c8e97",
+        "match": true
+      },
+      {
+        "file": "packages/contracts/package.json",
+        "sha": "da0bb47ffb259413c40f076ca53c4d09e27c8e61",
+        "expected": "98a513bfc08c8a15513a7a15ac2dcf6d0ee99dff8bf9b44d2ec68f85e68c8e97",
+        "actual": "98a513bfc08c8a15513a7a15ac2dcf6d0ee99dff8bf9b44d2ec68f85e68c8e97",
+        "match": true
+      },
+      {
+        "file": "packages/sdk/package.json",
+        "sha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+        "expected": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "actual": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "match": true
+      },
+      {
+        "file": "packages/sdk/package.json",
+        "sha": "da0bb47ffb259413c40f076ca53c4d09e27c8e61",
+        "expected": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "actual": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "match": true
+      }
+    ],
+    "parentExit": 1,
+    "parentTimedOut": false,
+    "parentTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/history/archive-message-merge.spec.ts src/main/history/history-manager-archive-coverage-integrity.spec.ts src/main/instance/instance-persistence.spec.ts\n\n\u2717 2 of 26 tests failed in 12.4s:\n\n  \u2717 src/main/history/history-manager-archive-coverage-integrity.spec.ts \u203a HistoryManager archive coverage integrity keeps the full archive when a trimmed revival of the same thread is re-archived\n    AssertionError: expected 3 to be 5 // Object.is equality\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager-archive-coverage-integrity.spec.ts:271:41\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20\n\n  \u2717 src/main/instance/instance-persistence.spec.ts \u203a InstancePersistenceManager does not copy the crash-revival marker onto a fork\n    AssertionError: expected \"spy\" to be called with arguments: [ ObjectContaining{\u2026} ]\n    \n    Received: \n    \n      1st spy call:\n    \n      [\n    -   ObjectContaining {\n    +   {\n    +     \"agentId\": \"build\",\n    +     \"attachments\": undefined,\n    +     \"displayName\": \"Fork of Test Instance\",\n    +     \"forceNodeId\": undefined,\n    +     \"historyThreadId\": \"thread-1\",\n    +     \"initialContextBlock\": undefined,\n    +     \"initialOutputBuffer\": [\n    +       {\n    +         \"content\": \"live-1\",\n    +         \"id\": \"live-1\",\n    +         \"timestamp\": 1793116088780,\n    +         \"type\": \"assistant\",\n    +       },\n    +     ],\n    +     \"initialPrompt\": undefined,\n    +     \"initialRetainedPrompts\": [],\n          \"metadata\": {\n    +       \"continuityRevival\": true,\n            \"custom\": true,\n            \"reason\": \"crash-recovery\",\n          },\n    +     \"modelOverride\": undefined,\n    +     \"provider\": \"claude\",\n    +     \"reasoningEffort\": null,\n    +     \"workingDirectory\": \"/tmp/project\",\n    +     \"yoloMode\": false,\n        },\n      ]\n    \n    \n    Number of calls: 1\n    \n        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/expect/dist/index.js:1355:10)\n        at Proxy.<anonymous> (file:///Users/suas/wo\n        \u2026(truncated \u2014 see log)\n\nfull log: _scratch/test-run.pid-83215.log\n\n\u2717 FAILED \u2014 2 of 26 tests failed (exit 1).\n",
+    "fixedExit": 0,
+    "fixedDamage": [
+      0,
+      0
+    ]
+  },
+  {
+    "task": "AIO-05",
+    "matches": [
+      {
+        "file": "apps/mobile/package.json",
+        "sha": "fbe537aed4d6d94e72600064d32d95e535c3ee2e",
+        "expected": "14c8bc22b563de684261e4a2b7f3a3e637335fc014e01b741d6791fdea23c776",
+        "actual": "14c8bc22b563de684261e4a2b7f3a3e637335fc014e01b741d6791fdea23c776",
+        "match": true
+      },
+      {
+        "file": "apps/mobile/package.json",
+        "sha": "0c475238a4cd7729d4a1bc1870d2adab003182f3",
+        "expected": "14c8bc22b563de684261e4a2b7f3a3e637335fc014e01b741d6791fdea23c776",
+        "actual": "14c8bc22b563de684261e4a2b7f3a3e637335fc014e01b741d6791fdea23c776",
+        "match": true
+      },
+      {
+        "file": "benchmarks/external-benchmarks/bfcl/package.json",
+        "sha": "fbe537aed4d6d94e72600064d32d95e535c3ee2e",
+        "expected": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "actual": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "match": true
+      },
+      {
+        "file": "benchmarks/external-benchmarks/bfcl/package.json",
+        "sha": "0c475238a4cd7729d4a1bc1870d2adab003182f3",
+        "expected": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "actual": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "match": true
+      },
+      {
+        "file": "benchmarks/orchestrator-benchmark/package.json",
+        "sha": "fbe537aed4d6d94e72600064d32d95e535c3ee2e",
+        "expected": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "actual": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "match": true
+      },
+      {
+        "file": "benchmarks/orchestrator-benchmark/package.json",
+        "sha": "0c475238a4cd7729d4a1bc1870d2adab003182f3",
+        "expected": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "actual": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "match": true
+      },
+      {
+        "file": "package-lock.json",
+        "sha": "fbe537aed4d6d94e72600064d32d95e535c3ee2e",
+        "expected": "5697814fc40bb1dec3bf8ce7c26491373f792f557f8057a60db4c181a36339bd",
+        "actual": "5697814fc40bb1dec3bf8ce7c26491373f792f557f8057a60db4c181a36339bd",
+        "match": true
+      },
+      {
+        "file": "package-lock.json",
+        "sha": "0c475238a4cd7729d4a1bc1870d2adab003182f3",
+        "expected": "5697814fc40bb1dec3bf8ce7c26491373f792f557f8057a60db4c181a36339bd",
+        "actual": "5697814fc40bb1dec3bf8ce7c26491373f792f557f8057a60db4c181a36339bd",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "fbe537aed4d6d94e72600064d32d95e535c3ee2e",
+        "expected": "18f5a55b6f6e0f7530ee016092c4c332711511a1ed9ca4b6b1964f6fe0a79f54",
+        "actual": "18f5a55b6f6e0f7530ee016092c4c332711511a1ed9ca4b6b1964f6fe0a79f54",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "0c475238a4cd7729d4a1bc1870d2adab003182f3",
+        "expected": "18f5a55b6f6e0f7530ee016092c4c332711511a1ed9ca4b6b1964f6fe0a79f54",
+        "actual": "18f5a55b6f6e0f7530ee016092c4c332711511a1ed9ca4b6b1964f6fe0a79f54",
+        "match": true
+      },
+      {
+        "file": "packages/archiver-compat/package.json",
+        "sha": "fbe537aed4d6d94e72600064d32d95e535c3ee2e",
+        "expected": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "actual": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "match": true
+      },
+      {
+        "file": "packages/archiver-compat/package.json",
+        "sha": "0c475238a4cd7729d4a1bc1870d2adab003182f3",
+        "expected": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "actual": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "match": true
+      },
+      {
+        "file": "packages/contracts/package.json",
+        "sha": "fbe537aed4d6d94e72600064d32d95e535c3ee2e",
+        "expected": "a7497e7f003f2e259acbf02cc2d65dd196161c9d0269b2710f812f918194f1f0",
+        "actual": "a7497e7f003f2e259acbf02cc2d65dd196161c9d0269b2710f812f918194f1f0",
+        "match": true
+      },
+      {
+        "file": "packages/contracts/package.json",
+        "sha": "0c475238a4cd7729d4a1bc1870d2adab003182f3",
+        "expected": "a7497e7f003f2e259acbf02cc2d65dd196161c9d0269b2710f812f918194f1f0",
+        "actual": "a7497e7f003f2e259acbf02cc2d65dd196161c9d0269b2710f812f918194f1f0",
+        "match": true
+      },
+      {
+        "file": "packages/sdk/package.json",
+        "sha": "fbe537aed4d6d94e72600064d32d95e535c3ee2e",
+        "expected": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "actual": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "match": true
+      },
+      {
+        "file": "packages/sdk/package.json",
+        "sha": "0c475238a4cd7729d4a1bc1870d2adab003182f3",
+        "expected": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "actual": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "match": true
+      }
+    ],
+    "parentExit": 1,
+    "parentTimedOut": false,
+    "parentTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/automations/automation-run-provider-limit.spec.ts\n\n\u2717 test run failed (exit 1) and produced no JSON report. Tail of log:\n\n RUN  v3.2.7 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio\n\n(node:18831) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\n\u23af\u23af\u23af\u23af\u23af\u23af Failed Suites 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |main| src/main/automations/automation-run-provider-limit.spec.ts [ src/main/automations/automation-run-provider-limit.spec.ts ]\nError: Failed to resolve import \"./automation-run-provider-limit\" from \"src/main/automations/automation-run-provider-limit.spec.ts\". Does the file exist?\n  Plugin: vite:import-analysis\n  File: /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/automations/automation-run-provider-limit.spec.ts:12:0\n  16 |  const __vi_import_4__ = await import(\"./automation-runner\");\n  17 |  const __vi_import_5__ = await import(\"./automation-events\");\n  18 |  const __vi_import_6__ = await import(\"./automation-run-provider-limit\");\n     |                                       ^\n  19 |  import { afterEach, beforeEach, describe, expect, it, vi } from \"vitest\";\n  20 |  \n \u276f TransformPluginContext._formatLog node_modules/vite/dist/node/chunks/config.js:29079:43\n \u276f TransformPluginContext.error node_modules/vite/dist/node/chunks/config.js:29076:14\n \u276f normalizeUrl node_modules/vite/dist/node/chunks/config.js:27199:18\n \u276f node_modules/vite/dist/node/chunks/config.js:27257:32\n \u276f TransformPluginContext.transform node_modules/vite/dist/node/chunks/config.js:27225:4\n \u276f EnvironmentPluginContainer.transform node_modules/vite/dist/node/chunks/config.js:28877:14\n \u276f loadAndTransform node_modules/vite/dist/node/chunks/config.js:22746:26\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af\n\n\n Test Files  1 failed (1)\n      Tests  no tests\n   Start at  15:56:45\n   Duration  1.01s (transform 42ms, setup 88ms, collect 0ms, tests 0ms, environment 566ms, prepare 63ms)\n\nJSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/_scratch/test-results.pid-17742.json\n\nfull log: _scratch/test-run.pid-17742.log\n\n\u2717 FAILED \u2014 the run produced no usable JSON report (exit 1).\n",
+    "fixedExit": 0,
+    "fixedDamage": [
+      0,
+      0
+    ]
+  },
+  {
+    "task": "AIO-06",
+    "matches": [
+      {
+        "file": "apps/mobile/package.json",
+        "sha": "8fee5d5fb0115ab923d9527bc08319aa6e7b2467",
+        "expected": "d97e9e262c3d2d339dfd4081baf2056effbf00b3979cc0b57f3ad0fe23d23038",
+        "actual": "d97e9e262c3d2d339dfd4081baf2056effbf00b3979cc0b57f3ad0fe23d23038",
+        "match": true
+      },
+      {
+        "file": "apps/mobile/package.json",
+        "sha": "0497f14cfc97cc49f9473a4514d9c6f484013024",
+        "expected": "d97e9e262c3d2d339dfd4081baf2056effbf00b3979cc0b57f3ad0fe23d23038",
+        "actual": "d97e9e262c3d2d339dfd4081baf2056effbf00b3979cc0b57f3ad0fe23d23038",
+        "match": true
+      },
+      {
+        "file": "benchmarks/external-benchmarks/bfcl/package.json",
+        "sha": "8fee5d5fb0115ab923d9527bc08319aa6e7b2467",
+        "expected": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "actual": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "match": true
+      },
+      {
+        "file": "benchmarks/external-benchmarks/bfcl/package.json",
+        "sha": "0497f14cfc97cc49f9473a4514d9c6f484013024",
+        "expected": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "actual": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+        "match": true
+      },
+      {
+        "file": "benchmarks/orchestrator-benchmark/package.json",
+        "sha": "8fee5d5fb0115ab923d9527bc08319aa6e7b2467",
+        "expected": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "actual": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "match": true
+      },
+      {
+        "file": "benchmarks/orchestrator-benchmark/package.json",
+        "sha": "0497f14cfc97cc49f9473a4514d9c6f484013024",
+        "expected": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "actual": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+        "match": true
+      },
+      {
+        "file": "package-lock.json",
+        "sha": "8fee5d5fb0115ab923d9527bc08319aa6e7b2467",
+        "expected": "b68a717d0c9283c256b57c98f468b26d861d13bb9a712c661c2912a10e6220d6",
+        "actual": "b68a717d0c9283c256b57c98f468b26d861d13bb9a712c661c2912a10e6220d6",
+        "match": true
+      },
+      {
+        "file": "package-lock.json",
+        "sha": "0497f14cfc97cc49f9473a4514d9c6f484013024",
+        "expected": "b68a717d0c9283c256b57c98f468b26d861d13bb9a712c661c2912a10e6220d6",
+        "actual": "b68a717d0c9283c256b57c98f468b26d861d13bb9a712c661c2912a10e6220d6",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "8fee5d5fb0115ab923d9527bc08319aa6e7b2467",
+        "expected": "dfe320a249f995f318aee0f4d063c14cd00bbe6c619ca060d40b28a24c914e7c",
+        "actual": "dfe320a249f995f318aee0f4d063c14cd00bbe6c619ca060d40b28a24c914e7c",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "0497f14cfc97cc49f9473a4514d9c6f484013024",
+        "expected": "dfe320a249f995f318aee0f4d063c14cd00bbe6c619ca060d40b28a24c914e7c",
+        "actual": "dfe320a249f995f318aee0f4d063c14cd00bbe6c619ca060d40b28a24c914e7c",
+        "match": true
+      },
+      {
+        "file": "packages/archiver-compat/package.json",
+        "sha": "8fee5d5fb0115ab923d9527bc08319aa6e7b2467",
+        "expected": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "actual": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "match": true
+      },
+      {
+        "file": "packages/archiver-compat/package.json",
+        "sha": "0497f14cfc97cc49f9473a4514d9c6f484013024",
+        "expected": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "actual": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+        "match": true
+      },
+      {
+        "file": "packages/contracts/package.json",
+        "sha": "8fee5d5fb0115ab923d9527bc08319aa6e7b2467",
+        "expected": "c20adf5e2edb10101f0c42fccf4e2131c336204a26df832dcbd8e0130ab1fb96",
+        "actual": "c20adf5e2edb10101f0c42fccf4e2131c336204a26df832dcbd8e0130ab1fb96",
+        "match": true
+      },
+      {
+        "file": "packages/contracts/package.json",
+        "sha": "0497f14cfc97cc49f9473a4514d9c6f484013024",
+        "expected": "c20adf5e2edb10101f0c42fccf4e2131c336204a26df832dcbd8e0130ab1fb96",
+        "actual": "c20adf5e2edb10101f0c42fccf4e2131c336204a26df832dcbd8e0130ab1fb96",
+        "match": true
+      },
+      {
+        "file": "packages/sdk/package.json",
+        "sha": "8fee5d5fb0115ab923d9527bc08319aa6e7b2467",
+        "expected": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "actual": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "match": true
+      },
+      {
+        "file": "packages/sdk/package.json",
+        "sha": "0497f14cfc97cc49f9473a4514d9c6f484013024",
+        "expected": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "actual": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a",
+        "match": true
+      }
+    ],
+    "parentExit": 1,
+    "parentTimedOut": false,
+    "parentTail": " /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/instance/instance-provider-limit-handler.spec.ts:361:39\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n        at new ZoneAwarePromise (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/zone.js/fesm2015/zone.js:2226:23)\n        at runWithTimeout (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026\n        \u2026(truncated \u2014 see log)\n\n  \u2717 src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts \u203a createInstance spawn transaction rollback hands an initial-prompt usage-limit error to the provider-limit funnel instead of the failure notice\n    AssertionError: expected \"spy\" to be called with arguments: [ { id: 'x0k4a5e7x', \u2026(47) }, \u2026(1) ]\n    \n    Number of calls: 0\n    \n        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/expect/dist/index.js:1355:10)\n        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/expect/dist/index.js:1029:14)\n        at Proxy.methodWrapper (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/chai/index.js:1686:25)\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts:629:33\n        at processTicksAndRejections (node:internal/process/task_queues:104:5)\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical\n        \u2026(truncated \u2014 see log)\n\n  \u2717 src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts \u203a createInstance spawn transaction rollback does not dispatch the initial prompt when a known provider limit takes the turn\n    AssertionError: expected \"spy\" to be called once, but got 0 times\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts:652:33\n        at processTicksAndRejections (node:internal/process/task_queues:104:5)\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20\n\n  \u2717 src/main/providers/account-pool/account-telemetry-bridge.spec.ts \u203a account telemetry bridge parses a raw app-server update that carries rateLimitReachedType instead of mistaking it for a parsed snapshot\n    AssertionError: expected { ordinaryUsageAllowed: null, \u2026(2) } to match object { ordinaryUsageAllowed: null, \u2026(1) }\n    (1 matching property omitted from actual)\n        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/expect/dist/index.js:1155:10)\n        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/expect/dist/index.js:1029:14)\n        at Proxy.methodWrapper (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/chai/index.js:1686:25)\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/providers/account-pool/account-telemetry-bridge.spec.ts:85:35\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chun\n        \u2026(truncated \u2014 see log)\n\nfull log: _scratch/test-run.pid-30313.log\n\n\u2717 FAILED \u2014 8 of 207 tests failed (exit 1).\n",
+    "fixedExit": 0,
+    "fixedDamage": [
+      0,
+      0
+    ]
+  },
+  {
+    "task": "12ST-01",
+    "matches": [
+      {
+        "file": ".npmrc",
+        "sha": "81317c8fd7e864545851b820a2542707f631dfa7",
+        "expected": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "actual": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "match": true
+      },
+      {
+        "file": ".npmrc",
+        "sha": "bbb61bb92605d5bf36932a557b9201341d733b64",
+        "expected": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "actual": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "match": true
+      },
+      {
+        "file": "apps/api/package.json",
+        "sha": "81317c8fd7e864545851b820a2542707f631dfa7",
+        "expected": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+        "actual": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+        "match": true
+      },
+      {
+        "file": "apps/api/package.json",
+        "sha": "bbb61bb92605d5bf36932a557b9201341d733b64",
+        "expected": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+        "actual": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+        "match": true
+      },
+      {
+        "file": "apps/web/package.json",
+        "sha": "81317c8fd7e864545851b820a2542707f631dfa7",
+        "expected": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+        "actual": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+        "match": true
+      },
+      {
+        "file": "apps/web/package.json",
+        "sha": "bbb61bb92605d5bf36932a557b9201341d733b64",
+        "expected": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+        "actual": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "81317c8fd7e864545851b820a2542707f631dfa7",
+        "expected": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+        "actual": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "bbb61bb92605d5bf36932a557b9201341d733b64",
+        "expected": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+        "actual": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+        "match": true
+      },
+      {
+        "file": "packages/crypto/package.json",
+        "sha": "81317c8fd7e864545851b820a2542707f631dfa7",
+        "expected": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "actual": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "match": true
+      },
+      {
+        "file": "packages/crypto/package.json",
+        "sha": "bbb61bb92605d5bf36932a557b9201341d733b64",
+        "expected": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "actual": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "match": true
+      },
+      {
+        "file": "packages/meeting-data/package.json",
+        "sha": "81317c8fd7e864545851b820a2542707f631dfa7",
+        "expected": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+        "actual": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+        "match": true
+      },
+      {
+        "file": "packages/meeting-data/package.json",
+        "sha": "bbb61bb92605d5bf36932a557b9201341d733b64",
+        "expected": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+        "actual": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+        "match": true
+      },
+      {
+        "file": "pnpm-lock.yaml",
+        "sha": "81317c8fd7e864545851b820a2542707f631dfa7",
+        "expected": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+        "actual": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+        "match": true
+      },
+      {
+        "file": "pnpm-lock.yaml",
+        "sha": "bbb61bb92605d5bf36932a557b9201341d733b64",
+        "expected": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+        "actual": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+        "match": true
+      },
+      {
+        "file": "pnpm-workspace.yaml",
+        "sha": "81317c8fd7e864545851b820a2542707f631dfa7",
+        "expected": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7",
+        "actual": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7",
+        "match": true
+      },
+      {
+        "file": "pnpm-workspace.yaml",
+        "sha": "bbb61bb92605d5bf36932a557b9201341d733b64",
+        "expected": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7",
+        "actual": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7",
+        "match": true
+      }
+    ],
+    "parentExit": 1,
+    "parentTimedOut": false,
+    "parentTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n\u276f Building...\n\u2714 Building...\nApplication bundle generation complete. [20.227 seconds] - 2026-10-27T15:56:47.196Z\n\n\n RUN  v4.0.18 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n\n \u276f |web| src/app/shared/components/turnstile-widget.component.spec.ts (6 tests | 2 failed) 95ms\n     \u2713 renders an explicit widget host 41ms\n     \u2713 emits a token from the Turnstile callback and clears it on reset 9ms\n     \u2713 does not render a widget if the host is destroyed while the script loads 9ms\n     \u00d7 uses the compact widget when the column is narrower than 300px 20ms\n     \u2713 uses the normal widget when the column is at least 300px 8ms\n     \u00d7 re-renders the compact widget when a wide column narrows 7ms\n\n Test Files  1 failed (1)\n      Tests  2 failed | 4 passed (6)\n   Start at  15:56:47\n   Duration  1.66s (transform 364ms, setup 619ms, import 84ms, tests 95ms, environment 608ms)\n\n(node:19710) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 2 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |web| src/app/shared/components/turnstile-widget.component.spec.ts > TurnstileWidgetComponent > uses the compact widget when the column is narrower than 300px\nAssertionError: expected \"vi.fn()\" to be called with arguments: [ <div \u2026(3)></div>, \u2026(1) ]\n\nReceived: \n\n  1st vi.fn() call:\n\n@@ -2,9 +2,15 @@\n    <div\n      _ngcontent-a-c443707418=\"\"\n      class=\"turnstile-widget\"\n      data-testid=\"turnstile-widget\"\n    />,\n-   ObjectContaining {\n-     \"size\": \"compact\",\n+   {\n+     \"callback\": [Function callback],\n+     \"error-callback\": [Function error-callback],\n+     \"expired-callback\": [Function expired-callback],\n+     \"language\": \"auto\",\n+     \"sitekey\": \"site-key\",\n+     \"size\": \"normal\",\n+     \"theme\": \"light\",\n    },\n  ]\n\n\nNumber of calls: 1\n\n \u276f src/app/shared/components/turnstile-widget.component.spec.ts:101:20\n     99|     await fixture.whenStable();\n    100| \n    101|     expect(render).toHaveBeenCalledWith(\n       |                    ^\n    102|       host,\n    103|       expect.objectContaining({ size: 'compact' }),\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/2]\u23af\n\n FAIL  |web| src/app/shared/components/turnstile-widget.component.spec.ts > TurnstileWidgetComponent > re-renders the compact widget when a wide column narrows\nTypeError: onResize is not a function\n \u276f src/app/shared/components/turnstile-widget.component.spec.ts:170:5\n    168| \n    169|     width = 220;\n    170|     onResize!([], {} as ResizeObserver);\n       |     ^\n    171| \n    172|     expect(remove).toHaveBeenCalledWith('widget-1');\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[2/2]\u23af\n\n",
+    "fixedExit": 0,
+    "fixedDamage": [
+      0
+    ]
+  },
+  {
+    "task": "12ST-02",
+    "matches": [
+      {
+        "file": ".npmrc",
+        "sha": "c0572735c39ff2fd75798d32894be301f01c9961",
+        "expected": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "actual": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "match": true
+      },
+      {
+        "file": ".npmrc",
+        "sha": "00ac9cf9a890590ba418dcbce11001f35bc97be9",
+        "expected": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "actual": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "match": true
+      },
+      {
+        "file": "apps/api/package.json",
+        "sha": "c0572735c39ff2fd75798d32894be301f01c9961",
+        "expected": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+        "actual": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+        "match": true
+      },
+      {
+        "file": "apps/api/package.json",
+        "sha": "00ac9cf9a890590ba418dcbce11001f35bc97be9",
+        "expected": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+        "actual": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+        "match": true
+      },
+      {
+        "file": "apps/web/package.json",
+        "sha": "c0572735c39ff2fd75798d32894be301f01c9961",
+        "expected": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+        "actual": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+        "match": true
+      },
+      {
+        "file": "apps/web/package.json",
+        "sha": "00ac9cf9a890590ba418dcbce11001f35bc97be9",
+        "expected": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+        "actual": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "c0572735c39ff2fd75798d32894be301f01c9961",
+        "expected": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+        "actual": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "00ac9cf9a890590ba418dcbce11001f35bc97be9",
+        "expected": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+        "actual": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+        "match": true
+      },
+      {
+        "file": "packages/crypto/package.json",
+        "sha": "c0572735c39ff2fd75798d32894be301f01c9961",
+        "expected": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "actual": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "match": true
+      },
+      {
+        "file": "packages/crypto/package.json",
+        "sha": "00ac9cf9a890590ba418dcbce11001f35bc97be9",
+        "expected": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "actual": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "match": true
+      },
+      {
+        "file": "packages/meeting-data/package.json",
+        "sha": "c0572735c39ff2fd75798d32894be301f01c9961",
+        "expected": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+        "actual": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+        "match": true
+      },
+      {
+        "file": "packages/meeting-data/package.json",
+        "sha": "00ac9cf9a890590ba418dcbce11001f35bc97be9",
+        "expected": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+        "actual": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+        "match": true
+      },
+      {
+        "file": "pnpm-lock.yaml",
+        "sha": "c0572735c39ff2fd75798d32894be301f01c9961",
+        "expected": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+        "actual": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+        "match": true
+      },
+      {
+        "file": "pnpm-lock.yaml",
+        "sha": "00ac9cf9a890590ba418dcbce11001f35bc97be9",
+        "expected": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+        "actual": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+        "match": true
+      },
+      {
+        "file": "pnpm-workspace.yaml",
+        "sha": "c0572735c39ff2fd75798d32894be301f01c9961",
+        "expected": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7",
+        "actual": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7",
+        "match": true
+      },
+      {
+        "file": "pnpm-workspace.yaml",
+        "sha": "00ac9cf9a890590ba418dcbce11001f35bc97be9",
+        "expected": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7",
+        "actual": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7",
+        "match": true
+      }
+    ],
+    "parentExit": 1,
+    "parentTimedOut": false,
+    "parentTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n\u276f Building...\n\u2714 Building...\nApplication bundle generation complete. [33.262 seconds] - 2026-10-27T15:58:26.325Z\n\n\n RUN  v4.0.18 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n\n \u276f |web| src/app/prayers/models/prayers.spec.ts (23 tests | 1 failed) 19ms\n     \u2713 keeps prayer ids unique 2ms\n     \u2713 includes a promises collection 1ms\n     \u2713 adds a few short original prayers beyond the original library 0ms\n     \u2713 includes older public prayers and new originals in the thin categories 1ms\n     \u2713 draws two different ids 0ms\n     \u2713 never repeats the previous pair, in either order, even from a pool of three 2ms\n     \u2713 returns every id when the pool is two or fewer 0ms\n     \u2713 gives every prayer a source line 1ms\n     \u2713 does not claim the Serenity Prayer is public domain 0ms\n     \u2713 credits the Acceptance passage to Grapevine, not A.A. World Services 0ms\n     \u00d7 keeps Merton\u2019s trust line in the published word order 6ms\n     \u2713 names a rights holder on every in-copyright quotation 0ms\n     \u2713 does not attribute the Prayer of St. Francis to St. Francis 0ms\n     \u2713 shows the unscoped prayers to everyone, including before a profile loads 0ms\n     \u2713 keeps \"my alcoholism\" away from members it would misdescribe 0ms\n     \u2713 still shows them to the fellowships whose basic text is the Big Book 0ms\n     \u2713 includes a scoped prayer when any one of the reader\u2019s fellowships qualifies 0ms\n     \u2713 leaves the Third and Seventh Step prayers universal 0ms\n     \u2713 has a title for every prayer, and text only for our own prayers 1ms\n     \u2713 carries only a title for other authors' prayers in es 1ms\n     \u2713 never repeats another author's English text inside es copy 0ms\n     \u2713 carries only a title for other authors' prayers in pt-BR 1ms\n     \u2713 never repeats another author's English text inside pt-BR copy 0ms\n\n Test Files  1 failed (1)\n      Tests  1 failed | 22 passed (23)\n   Start at  15:58:27\n   Duration  4.85s (transform 2.13s, setup 2.63s, import 28ms, tests 19ms, environment 1.60s)\n\n(node:27243) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af\n\n FAIL  |web| src/app/prayers/models/prayers.spec.ts > prayer credits > keeps Merton\u2019s trust line in the published word order\nAssertionError: expected 'My Lord God, I have no idea where I a\u2026' to contain 'Therefore will I trust you always'\n\n- Expected\n+ Received\n\n- Therefore will I trust you always\n+ My Lord God, I have no idea where I am going. I do not see the road ahead of me. I cannot know for certain where it will end. Nor do I really know myself, and the fact that I think I am following your will does not mean that I am actually doing so.\n+\n+ But I believe that the desire to please you does in fact please you. And I hope I have that desire in all that I am doing. I hope that I will never do anything apart from that desire. And I know that if I do this you will lead me by the right road, though I may know nothing about it. Therefore I will trust you always, though I may seem to be lost and in the shadow of death. I will not fear, for you are ever with me, and you will never leave me to face my perils alone.\n\n \u276f src/app/prayers/models/prayers.spec.ts:132:26\n    130|     // I will trust\" is a later smoothing, and it is the one readers n\u2026\n    131|     const merton = PRAYERS.find((p) => p.id === 'thomas_merton');\n    132|     expect(merton?.text).toContain('Therefore will I trust you always'\u2026\n       |                          ^\n    133|     expect(merton?.text).not.toContain('Therefore I will trust');\n    134|   });\n\n\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af\u23af[1/1]\u23af\n\n",
+    "fixedExit": 0,
+    "fixedDamage": [
+      0
+    ]
+  },
+  {
+    "task": "12ST-03",
+    "matches": [
+      {
+        "file": ".npmrc",
+        "sha": "d07a841446ef03b6e851151ced29b272369a47ad",
+        "expected": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "actual": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "match": true
+      },
+      {
+        "file": ".npmrc",
+        "sha": "7297291103d578aef8022347dd73773f9b3f23f0",
+        "expected": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "actual": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "match": true
+      },
+      {
+        "file": "apps/api/package.json",
+        "sha": "d07a841446ef03b6e851151ced29b272369a47ad",
+        "expected": "213797e1fc92828831eb1121779f1b65ad5fa7c53b4d2ec87c2bdd35df01b035",
+        "actual": "213797e1fc92828831eb1121779f1b65ad5fa7c53b4d2ec87c2bdd35df01b035",
+        "match": true
+      },
+      {
+        "file": "apps/api/package.json",
+        "sha": "7297291103d578aef8022347dd73773f9b3f23f0",
+        "expected": "213797e1fc92828831eb1121779f1b65ad5fa7c53b4d2ec87c2bdd35df01b035",
+        "actual": "213797e1fc92828831eb1121779f1b65ad5fa7c53b4d2ec87c2bdd35df01b035",
+        "match": true
+      },
+      {
+        "file": "apps/web/package.json",
+        "sha": "d07a841446ef03b6e851151ced29b272369a47ad",
+        "expected": "e3b696c50e69b8b279a683b90881d5d13e5eee6b649559199abf0f631c0b4500",
+        "actual": "e3b696c50e69b8b279a683b90881d5d13e5eee6b649559199abf0f631c0b4500",
+        "match": true
+      },
+      {
+        "file": "apps/web/package.json",
+        "sha": "7297291103d578aef8022347dd73773f9b3f23f0",
+        "expected": "e3b696c50e69b8b279a683b90881d5d13e5eee6b649559199abf0f631c0b4500",
+        "actual": "e3b696c50e69b8b279a683b90881d5d13e5eee6b649559199abf0f631c0b4500",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "d07a841446ef03b6e851151ced29b272369a47ad",
+        "expected": "23f43a95605e4c9d007965a1d654b25494d4b10d67d63ee8bd4a5a3e57348897",
+        "actual": "23f43a95605e4c9d007965a1d654b25494d4b10d67d63ee8bd4a5a3e57348897",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "7297291103d578aef8022347dd73773f9b3f23f0",
+        "expected": "23f43a95605e4c9d007965a1d654b25494d4b10d67d63ee8bd4a5a3e57348897",
+        "actual": "23f43a95605e4c9d007965a1d654b25494d4b10d67d63ee8bd4a5a3e57348897",
+        "match": true
+      },
+      {
+        "file": "packages/crypto/package.json",
+        "sha": "d07a841446ef03b6e851151ced29b272369a47ad",
+        "expected": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "actual": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "match": true
+      },
+      {
+        "file": "packages/crypto/package.json",
+        "sha": "7297291103d578aef8022347dd73773f9b3f23f0",
+        "expected": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "actual": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "match": true
+      },
+      {
+        "file": "pnpm-lock.yaml",
+        "sha": "d07a841446ef03b6e851151ced29b272369a47ad",
+        "expected": "d666cf0ee3a7932a01e20f5e17a5f66375be4d89bcf59026f43f5928e0d42758",
+        "actual": "d666cf0ee3a7932a01e20f5e17a5f66375be4d89bcf59026f43f5928e0d42758",
+        "match": true
+      },
+      {
+        "file": "pnpm-lock.yaml",
+        "sha": "7297291103d578aef8022347dd73773f9b3f23f0",
+        "expected": "d666cf0ee3a7932a01e20f5e17a5f66375be4d89bcf59026f43f5928e0d42758",
+        "actual": "d666cf0ee3a7932a01e20f5e17a5f66375be4d89bcf59026f43f5928e0d42758",
+        "match": true
+      },
+      {
+        "file": "pnpm-workspace.yaml",
+        "sha": "d07a841446ef03b6e851151ced29b272369a47ad",
+        "expected": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7",
+        "actual": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7",
+        "match": true
+      },
+      {
+        "file": "pnpm-workspace.yaml",
+        "sha": "7297291103d578aef8022347dd73773f9b3f23f0",
+        "expected": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7",
+        "actual": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7",
+        "match": true
+      }
+    ],
+    "parentExit": 1,
+    "parentTimedOut": false,
+    "parentTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n\u276f Building...\n\u2714 Building...\nApplication bundle generation failed. [21.930 seconds] - 2026-10-27T15:59:57.014Z\n\n\u2718 [ERROR] Could not resolve \"../shared/components/android-test-banner/android-test-banner.component\"\n\n    src/app/home/home.component.spec.ts:19:7:\n      19 \u2502 } from '../shared/components/android-test-banner/android-test-bann...\n         \u2575        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n\n\u2718 [ERROR] TS2307: Cannot find module '../shared/components/android-test-banner/android-test-banner.component' or its corresponding type declarations. [plugin angular-compiler]\n\n    src/app/home/home.component.spec.ts:19:7:\n      19 \u2502 } from '../shared/components/android-test-banner/android-test-bann...\n         \u2575        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n\n\u2718 [ERROR] TS18046: 'banner' is of type 'unknown'. [plugin angular-compiler]\n\n    src/app/home/home.component.spec.ts:270:4:\n      270 \u2502     banner.closed.set(false);\n          \u2575     ~~~~~~\n\n\n\u2718 [ERROR] TS18046: 'banner' is of type 'unknown'. [plugin angular-compiler]\n\n    src/app/home/home.component.spec.ts:282:11:\n      282 \u2502     expect(banner.closed()).toBe(false);\n          \u2575            ~~~~~~\n\n\n\u2718 [ERROR] TS18046: 'banner' is of type 'unknown'. [plugin angular-compiler]\n\n    src/app/home/home.component.spec.ts:289:13:\n      289 \u2502       expect(banner.closed()).toBe(true);\n          \u2575              ~~~~~~\n\n\n\u2718 [ERROR] Could not resolve \"./android-test-banner.component\"\n\n    src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts:5:122:\n      5 \u2502 ...uldShowAndroidTestBanner, } from './android-test-banner.component';\n        \u2575                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n\n\u2718 [ERROR] TS2307: Cannot find module './android-test-banner.component' or its corresponding type declarations. [plugin angular-compiler]\n\n    src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts:10:7:\n      10 \u2502 } from './android-test-banner.component';\n         \u2575        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n\n\u2718 [ERROR] TS2571: Object is of type 'unknown'. [plugin angular-compiler]\n\n    src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts:216:4:\n      216 \u2502     TestBed.inject(AndroidTestBannerState).markDone();\n          \u2575     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n\n",
+    "fixedExit": 0,
+    "fixedDamage": [
+      0
+    ]
+  },
+  {
+    "task": "12ST-04",
+    "matches": [
+      {
+        "file": ".npmrc",
+        "sha": "65872c8b5da2a5c241cfafb845e131b0d6756b55",
+        "expected": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "actual": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "match": true
+      },
+      {
+        "file": ".npmrc",
+        "sha": "755a63449dc717a7c568eed2d6d29b5298ea873b",
+        "expected": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "actual": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+        "match": true
+      },
+      {
+        "file": "apps/api/package.json",
+        "sha": "65872c8b5da2a5c241cfafb845e131b0d6756b55",
+        "expected": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+        "actual": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+        "match": true
+      },
+      {
+        "file": "apps/api/package.json",
+        "sha": "755a63449dc717a7c568eed2d6d29b5298ea873b",
+        "expected": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+        "actual": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+        "match": true
+      },
+      {
+        "file": "apps/web/package.json",
+        "sha": "65872c8b5da2a5c241cfafb845e131b0d6756b55",
+        "expected": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+        "actual": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+        "match": true
+      },
+      {
+        "file": "apps/web/package.json",
+        "sha": "755a63449dc717a7c568eed2d6d29b5298ea873b",
+        "expected": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+        "actual": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "65872c8b5da2a5c241cfafb845e131b0d6756b55",
+        "expected": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+        "actual": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+        "match": true
+      },
+      {
+        "file": "package.json",
+        "sha": "755a63449dc717a7c568eed2d6d29b5298ea873b",
+        "expected": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+        "actual": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+        "match": true
+      },
+      {
+        "file": "packages/crypto/package.json",
+        "sha": "65872c8b5da2a5c241cfafb845e131b0d6756b55",
+        "expected": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "actual": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "match": true
+      },
+      {
+        "file": "packages/crypto/package.json",
+        "sha": "755a63449dc717a7c568eed2d6d29b5298ea873b",
+        "expected": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "actual": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+        "match": true
+      },
+      {
+        "file": "packages/meeting-data/package.json",
+        "sha": "65872c8b5da2a5c241cfafb845e131b0d6756b55",
+        "expected": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+        "actual": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+        "match": true
+      },
+      {
+        "file": "packages/meeting-data/package.json",
+        "sha": "755a63449dc717a7c568eed2d6d29b5298ea873b",
+        "expected": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+        "actual": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+        "match": true
+      },
+      {
+        "file": "pnpm-lock.yaml",
+        "sha": "65872c8b5da2a5c241cfafb845e131b0d6756b55",
+        "expected": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+        "actual": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+        "match": true
+      },
+      {
+        "file": "pnpm-lock.yaml",
+        "sha": "755a63449dc717a7c568eed2d6d29b5298ea873b",
+        "expected": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+        "actual": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+        "match": true
+      },
+      {
+        "file": "pnpm-workspace.yaml",
+        "sha": "65872c8b5da2a5c241cfafb845e131b0d6756b55",
+        "expected": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7",
+        "actual": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7",
+        "match": true
+      },
+      {
+        "file": "pnpm-workspace.yaml",
+        "sha": "755a63449dc717a7c568eed2d6d29b5298ea873b",
+        "expected": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7",
+        "actual": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7",
+        "match": true
+      }
+    ],
+    "parentExit": 1,
+    "parentTimedOut": false,
+    "parentTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n\u276f Building...\n\u2714 Building...\nApplication bundle generation failed. [20.338 seconds] - 2026-10-27T16:01:24.479Z\n\n\u2718 [ERROR] TS2345: Argument of type '\"pending\"' is not assignable to parameter of type 'SaveFeedbackSourceState'. [plugin angular-compiler]\n\n    src/app/shared/components/autosave-indicator.component.spec.ts:66:15:\n      66 \u2502     source.set('pending');\n         \u2575                ~~~~~~~~~\n\n\n\u2718 [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/components/autosave-indicator.component.spec.ts:69:20:\n      69 \u2502     expect(feedback.showSaving()).toBe(false);\n         \u2575                     ~~~~~~~~~~\n\n\n\u2718 [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/components/autosave-indicator.component.spec.ts:92:20:\n      92 \u2502     expect(feedback.showSaving()).toBe(true);\n         \u2575                     ~~~~~~~~~~\n\n\n\u2718 [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts:78:20:\n      78 \u2502     expect(feedback.showSaving()).toBe(false);\n         \u2575                     ~~~~~~~~~~\n\n\n\u2718 [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts:83:20:\n      83 \u2502     expect(feedback.showSaving()).toBe(true);\n         \u2575                     ~~~~~~~~~~\n\n\n\u2718 [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:86:20:\n      86 \u2502     expect(feedback.showSaving()).toBe(false);\n         \u2575                     ~~~~~~~~~~\n\n\n\u2718 [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:88:20:\n      88 \u2502     expect(feedback.showSaving()).toBe(false);\n         \u2575                     ~~~~~~~~~~\n\n\n\u2718 [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:90:20:\n      90 \u2502     expect(feedback.showSaving()).toBe(true);\n         \u2575                     ~~~~~~~~~~\n\n\n\u2718 [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:92:20:\n      92 \u2502     expect(feedback.showSaving()).toBe(false);\n         \u2575                     ~~~~~~~~~~\n\n\n\u2718 [ERROR] TS2345: Argument of type '\"pending\"' is not assignable to parameter of type 'SaveFeedbackSourceState'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:98:15:\n      98 \u2502     source.set('pending');\n         \u2575                ~~~~~~~~~\n\n\n\u2718 [ERROR] TS2339: Property 'showSaving' does not exist on type 'SaveFeedbackService'. [plugin angular-compiler]\n\n    src/app/shared/services/save-feedback.service.spec.ts:102:20:\n      102 \u2502     expect(feedback.showSaving()).toBe(false);\n          \u2575                     ~~~~~~~~~~\n\n\n",
+    "fixedExit": 0,
+    "fixedDamage": [
+      0
+    ]
+  }
+]

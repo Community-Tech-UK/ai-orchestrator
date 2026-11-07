@@ -1,0 +1,14 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "src/main/automations/automation-run-provider-limit.spec.ts"
+  ],
+  "exitCode": 1,
+  "stdout": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/automations/automation-run-provider-limit.spec.ts\n\n✗ test run failed (exit 1) and produced no JSON report. Tail of log:\n\n RUN  v3.2.7 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio\n\n(node:94055) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\n⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  |main| src/main/automations/automation-run-provider-limit.spec.ts [ src/main/automations/automation-run-provider-limit.spec.ts ]\nError: Failed to resolve import \"./automation-run-provider-limit\" from \"src/main/automations/automation-run-provider-limit.spec.ts\". Does the file exist?\n  Plugin: vite:import-analysis\n  File: /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/automations/automation-run-provider-limit.spec.ts:12:0\n  16 |  const __vi_import_4__ = await import(\"./automation-runner\");\n  17 |  const __vi_import_5__ = await import(\"./automation-events\");\n  18 |  const __vi_import_6__ = await import(\"./automation-run-provider-limit\");\n     |                                       ^\n  19 |  import { afterEach, beforeEach, describe, expect, it, vi } from \"vitest\";\n  20 |  \n ❯ TransformPluginContext._formatLog node_modules/vite/dist/node/chunks/config.js:29079:43\n ❯ TransformPluginContext.error node_modules/vite/dist/node/chunks/config.js:29076:14\n ❯ normalizeUrl node_modules/vite/dist/node/chunks/config.js:27199:18\n ❯ node_modules/vite/dist/node/chunks/config.js:27257:32\n ❯ TransformPluginContext.transform node_modules/vite/dist/node/chunks/config.js:27225:4\n ❯ EnvironmentPluginContainer.transform node_modules/vite/dist/node/chunks/config.js:28877:14\n ❯ loadAndTransform node_modules/vite/dist/node/chunks/config.js:22746:26\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\n\n Test Files  1 failed (1)\n      Tests  no tests\n   Start at  16:31:06\n   Duration  755ms (transform 39ms, setup 75ms, collect 0ms, tests 0ms, environment 348ms, prepare 57ms)\n\nJSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/_scratch/test-results.pid-91145.json\n\nfull log: _scratch/test-run.pid-91145.log\n\n✗ FAILED — the run produced no usable JSON report (exit 1).\n",
+  "stderr": "",
+  "timedOut": false,
+  "durationMs": 6889
+}

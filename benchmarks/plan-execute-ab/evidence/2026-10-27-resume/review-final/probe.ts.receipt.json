@@ -1,0 +1,7 @@
+{
+  "argv": [
+    "node_modules/.bin/tsx",
+    "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/review-final/probe.ts"
+  ],
+  "exitCode": 0
+}

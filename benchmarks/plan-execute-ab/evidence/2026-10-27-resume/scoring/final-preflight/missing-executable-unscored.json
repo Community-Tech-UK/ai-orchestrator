@@ -1,0 +1,4 @@
+{
+  "error": "Error: scoring infrastructure failure: missing-benchmark-fixture-executable (exit null): \nspawn error: spawn missing-benchmark-fixture-executable ENOENT",
+  "unscoredInfrastructureError": true
+}

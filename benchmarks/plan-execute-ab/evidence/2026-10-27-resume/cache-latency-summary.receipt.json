@@ -1,0 +1,19 @@
+{
+  "evidence": "cache-observed/cache-retest.receipt.json",
+  "metric": "client request to first upstream message_start; includes network and first-token latency, not pure server prompt_ms",
+  "firstMs": 1252.40925,
+  "secondMs": 88.57558400000016,
+  "firstToSecondRatio": 14.13944106764227,
+  "firstUsage": {
+    "cache_read_input_tokens": 0,
+    "input_tokens": 16921,
+    "output_tokens": 0
+  },
+  "secondUsage": {
+    "cache_read_input_tokens": 17106,
+    "input_tokens": 43,
+    "output_tokens": 0
+  },
+  "noToolErrors": true,
+  "independentTestExitCode": 0
+}

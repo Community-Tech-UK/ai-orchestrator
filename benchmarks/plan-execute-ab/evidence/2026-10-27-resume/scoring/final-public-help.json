@@ -1,0 +1,10 @@
+{
+  "command": "rtk proxy ./node_modules/.bin/tsx benchmarks/plan-execute-ab/runner.ts help",
+  "result": {
+    "chunk_id": "cd3838",
+    "wall_time_seconds": 0.284643167,
+    "exit_code": 0,
+    "original_token_count": 120,
+    "output": "commands: run | plan | speed-gate | self-test | mine | verify-task | report\nflags: --session --tasks --arms --runs --dry-run --include-optional --config --wall-minutes --turn-cap --phase pilot|full\n       --local-only (pilot B/C1/C2, existing plans, no judges or cloud calls)\n       --bank <task-bank.json> --task-file <task.json> --repo-id <id> --since YYYY-MM-DD --limit N\n       --prompt-file <text> (speed-gate: real agent prompt; the C2 gate only decides on real prompts)\n"
+  }
+}

@@ -5,6 +5,7 @@
     "apps",
     "_scratch",
     "docs",
+    "benchmarks/plan-execute-ab/evidence",
     "vitest.config.ts",
     "src/**/*.spec.ts",
     "src/**/*.test.ts",

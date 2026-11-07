@@ -1,0 +1,26 @@
+{
+  "files": {
+    "README.md": "d4fb45694f2778cca791f055c0235f4c9036a262bf6b537bf0024a6e85a6a66b",
+    "runner.config.json": "367750bbb5d8f58109aed26ccaf921974bbd23823d71f00a63c8756b0faf36c8",
+    "config.spec.ts": "51a0a8c21ab8e6dcb30b899c74b95a98183b7e6027d05ad48bf36c513e251f5c",
+    "runner.ts": "3ea5241b1416f3612b8309f48a4ab45b042ee5415546cb2a231846f0594530dc",
+    "runner.spec.ts": "5c572d004ffd888e34ba20330a3eafb0cebfc6d71f6add57371dbf3b81d0ca08",
+    "scorer.ts": "d4f0756abbea5db2f09fd823be091a0f9f0e77e3921abe4a797302dd0e60e20a",
+    "scorer.spec.ts": "e6879ca0c6fa581495b1c235a690836d3d8dc82bcbbd52c7e0e68983b5496856",
+    "scoring-setup.ts": "438343cb1fb80e62ff01d473b7fb53fb3ca14848eaf835aeea246460e075b29c",
+    "scoring-setup.spec.ts": "ec23de34176662b6a0fd70fcefc26fb0ca69fcb0840ad1a2b6d68705f3c0191d",
+    "scoring-runtime.ts": "95ea5a0521c04ddb24e33d2da7e99b9c27a1df16d3748177de29aa6e45a1e530",
+    "scoring-boundary.cjs": "909889cb32d332e8b504eeef6a94417b2879b8dd17e3e8db2bf6da07b908eecf",
+    "task-bank.ts": "8ae91ed4273e63845db3f917abe1c24de353b8fea9b097d040a8eed5b8a5f0f6",
+    "task-export.spec.ts": "549fa0ed93f71d5cae2384abb37819f8149a99f95e4eea141eb504e313a3243b",
+    "types.ts": "c88957b438fa258a8ec0b2e67be544daa674ccf2014438d15287039c343c6e62",
+    "tasks/task-bank.json": "376c4cf8ecb838eed8f5bcaaea6ead9b04b85eeaad0b0e70da9c5e9c8e7b892a",
+    "tasks/aio-01-scoring-v2.patch": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468"
+  },
+  "benchmarkTests": {
+    "report": "source-verification/benchmark-tests.json",
+    "passed": 202
+  },
+  "additionalChecks": "source-checks.json",
+  "scope": "Benchmark scoring repair only; root canonical gates owned by coordinator."
+}

@@ -1,0 +1,4 @@
+{
+  "taskId": "12ST-03",
+  "error": "Error: ENOENT: no such file or directory, lstat '/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/export.tar'"
+}

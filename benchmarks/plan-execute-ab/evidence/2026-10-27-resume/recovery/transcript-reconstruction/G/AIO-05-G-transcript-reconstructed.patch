@@ -1,0 +1,253 @@
+diff --git a/docs/plans/2026-10-15-automation-provider-limit-outcomes_plan.md b/docs/plans/2026-10-15-automation-provider-limit-outcomes_plan.md
+new file mode 100644
+index 0000000..43ff3d0
+--- /dev/null
++++ b/docs/plans/2026-10-15-automation-provider-limit-outcomes_plan.md
+@@ -0,0 +1,21 @@
++# Automation provider-limit outcomes
++
++Status: implementation applied; completion gate blocked by unrelated full-suite failures. Scope: provider notices returned as successful assistant output.
++
++- [x] Reproduce provider-limit completions being recorded as successful runs (34 regression failures before the fix).
++- [x] Recognise usage/spend notices without matching ordinary output discussing limits.
++- [x] Fail tracked automation runs before success bookkeeping on every completion path.
++- [ ] Verify focused regressions, project gates, and an independent fresh-agent review.
++
++Implementation: tighten the shared notice detector and check it at the runner's common success boundary. Preserve output summaries and existing failure/retry bookkeeping. Do not alter thread-delivery or loop lifecycle semantics.
++
++As-built: the runner uses provider `accumulatedContent` when present, including empty terminal flushes, so a raw streaming suffix cannot determine the run outcome. The common success boundary classifies the complete message before success stamps, persistence, outcome streaks and retries. The shared detector requires notice-shaped statements, supports usage/quota/spend/credit refusals, and ignores ordinary reset/quota/request prose.
++
++Verification:
++
++- 154 focused tests passed, including streaming complete/idle, empty flush, reconciliation and retry coverage. Streaming regressions reproduced 39 failures before the accumulation fix.
++- Both TypeScript checks, lint, LOC ratchet, main build and renderer build passed on the final patch.
++- Final full suite: 24,520 tests, 14 failures in 6 unrelated files; command exited 1. Failures: `worker-node-exec-policy.spec.ts` (1), `worker-rpc-dispatcher.node-ops.spec.ts` (3), `check-ts-max-loc.spec.ts` (5), `dependency-compatibility.spec.ts` (1), `sea-build-repeatability.spec.ts` (2), `capability-probe.spec.ts` (2). Observed causes include restricted process operations, missing `tsx/dist/cli.cjs`, installed dependency-tree mismatches, and capability readiness assertions.
++- A fresh completion review found the streaming issue; it was fixed and reviewed by another fresh agent. The second verifier independently passed 154 focused tests, 155 adjacent tests, both typechecks and lint, and found no actionable patch issues. Its strict overall verdict remains FAIL because full-suite Gate 0 is not green.
++
++Evidence is in ignored `_scratch/provider-limit-final-*.log` and `_scratch/independent-provider-gate-*.log` files. The plan remains active and untracked because full verification has not passed; no live-test deferral or completion claim applies.
+diff --git a/src/main/automations/automation-runner.spec.ts b/src/main/automations/automation-runner.spec.ts
+index 429f0f4..c1460d7 100644
+--- a/src/main/automations/automation-runner.spec.ts
++++ b/src/main/automations/automation-runner.spec.ts
+@@ -446,6 +446,81 @@ describe('AutomationRunner thread wakeups', () => {
+     }));
+   });
+ 
++  describe.each(['complete', 'idle', 'reconcile', 'retry', 'stream-complete', 'stream-idle', 'flush'] as const)('provider-limit outcomes via %s', (completionPath) => {
++    it.each([
++      ["You've hit your session limit · resets 6:30pm", 'failed'],
++      ["You've hit your usage limit. Try again at 5:01 PM.", 'failed'],
++      ['Error: You have exceeded your monthly quota (Request ID: <redacted>)', 'failed'],
++      ['Quota exceeded for quota metric: generate_content_requests.', 'failed'],
++      ['Too many requests', 'failed'],
++      ['You have reached your spending limit.', 'failed'],
++      ['Monthly spend limit exceeded.', 'failed'],
++      ['Your credit balance is too low to access the Anthropic API.', 'failed'],
++      ['Done. The counter resets at 6pm.', 'succeeded'],
++      ['Added handling for quota exceeded errors.', 'succeeded'],
++      ['The API returned too many requests; backoff is fixed and tests pass.', 'succeeded'],
++      ['Implemented backoff for Too many requests', 'succeeded'],
++      ['Completed successfully.', 'succeeded'],
++    ] as const)('records "%s" as %s', async (content, status) => {
++      const run = makeRun();
++      run.configSnapshot = { ...run.configSnapshot!, destination: { kind: 'newInstance' }, hidden: true };
++      const buffered = completionPath === 'reconcile' || completionPath === 'retry';
++      const instance = {
++        id: 'instance-limit-test',
++        status: buffered ? 'idle' : 'working',
++        outputBuffer: buffered ? [{ type: 'assistant', content, timestamp: 1 }] : [],
++        metadata: { automationHidden: true } as Record<string, unknown>,
++      };
++      const eventManager = Object.assign(new EventEmitter(), {
++        createInstance: vi.fn().mockResolvedValue(instance),
++        getInstance: vi.fn().mockReturnValue(instance),
++      });
++      vi.mocked(store.decideAndInsertRun).mockReturnValue({ kind: 'started', run });
++      const runner = new AutomationRunner(store, undefined, () => 2_000, threadWakeupFactory);
++      runner.initialize(eventManager as unknown as InstanceManager);
++
++      if (completionPath === 'retry') {
++        await runner.dispatchRetryRun(run);
++      } else {
++        await runner.fire('automation-1', { trigger: 'scheduled' });
++      }
++      if (!buffered) {
++        const splitAt = content.indexOf('Too many requests') > 0
++          ? content.indexOf('Too many requests') : Math.floor(content.length / 2);
++        const chunks = completionPath.startsWith('stream-')
++          ? [content.slice(0, splitAt), content.slice(splitAt)]
++          : [completionPath === 'flush' ? '' : content];
++        let accumulatedContent = '';
++        for (const chunk of chunks) {
++          accumulatedContent += chunk;
++          eventManager.emit('provider:normalized-event', {
++            instanceId: instance.id,
++            event: {
++              kind: 'output', messageType: 'assistant', messageId: 'message-1', content: chunk,
++              ...(completionPath.startsWith('stream-') || completionPath === 'flush' ? {
++                metadata: { streaming: completionPath !== 'flush', accumulatedContent: completionPath === 'flush' ? content : accumulatedContent },
++              } : {}),
++            },
++          });
++        }
++        const idle = completionPath === 'idle' || completionPath === 'stream-idle';
++        eventManager.emit(idle ? 'instance:event' : 'provider:normalized-event', {
++          instanceId: instance.id,
++          event: idle ? { kind: 'status_changed', status: 'idle' } : { kind: 'complete' },
++        });
++      }
++
++      expect(store.terminalizeRun).toHaveBeenCalledExactlyOnceWith(
++        run.id, status, status === 'failed' ? expect.stringMatching(/provider limit/i) : undefined,
++        content, expect.objectContaining({ now: 2_000 }),
++      );
++      expect(store.recordRunOutcome).toHaveBeenCalledWith(
++        run.automationId, status, status === 'failed' ? expect.any(String) : undefined, 2_000,
++      );
++      expect(instance.metadata['automationRunSucceeded']).toBe(status === 'succeeded' ? true : undefined);
++    });
++  });
++
+   describe('hidden automation provenance', () => {
+     function newInstanceRun(hidden?: boolean): AutomationRun {
+       const run = makeRun();
+diff --git a/src/main/automations/automation-runner.ts b/src/main/automations/automation-runner.ts
+index 6d71b58..5e15e12 100644
+--- a/src/main/automations/automation-runner.ts
++++ b/src/main/automations/automation-runner.ts
+@@ -2,6 +2,7 @@ import { getLogger } from '../logging/logger';
+ import { isVisibleOutputMessage } from '../../shared/types/tool-outcome';
+ import type { InstanceManager } from '../instance/instance-manager';
+ import type { Instance } from '../../shared/types/instance.types';
++import { detectCompletionProviderLimit } from '../instance/instance-provider-limit-detection';
+ import type {
+   Automation,
+   AutomationAction,
+@@ -325,17 +326,21 @@ export class AutomationRunner {
+     }
+ 
+     switch (envelope.event.kind) {
+-      case 'output':
++      case 'output': {
+         tracking.outputChunks.push({
+           kind: envelope.event.messageType ?? 'output',
+           content: envelope.event.content,
+           timestamp: Date.now(),
+         });
+-        if (envelope.event.messageType === 'assistant' && envelope.event.content.trim().length > 0) {
++        // Streaming adapters send deltas, and may finish with an empty flush.
++        const content = typeof envelope.event.metadata?.['accumulatedContent'] === 'string'
++          ? envelope.event.metadata['accumulatedContent'] : envelope.event.content;
++        if (envelope.event.messageType === 'assistant' && content.trim().length > 0) {
+           tracking.seenAssistantOutput = true;
+-          tracking.lastAssistantOutput = envelope.event.content;
++          tracking.lastAssistantOutput = content;
+         }
+         break;
++      }
+       case 'complete':
+         if (tracking.seenAssistantOutput) {
+           this.completeTrackedInstance(envelope.instanceId, 'succeeded');
+@@ -506,6 +511,14 @@ export class AutomationRunner {
+       return;
+     }
+ 
++    if (status === 'succeeded') {
++      const limit = detectCompletionProviderLimit({ content: tracking.lastAssistantOutput });
++      if (limit) {
++        status = 'failed';
++        error = limit.reason;
++      }
++    }
++
+     this.trackingByInstance.delete(instanceId);
+     this.instanceByRun.delete(tracking.runId);
+ 
+diff --git a/src/main/cli/provider-notice.spec.ts b/src/main/cli/provider-notice.spec.ts
+index 571c3f2..a7cd267 100644
+--- a/src/main/cli/provider-notice.spec.ts
++++ b/src/main/cli/provider-notice.spec.ts
+@@ -15,6 +15,16 @@ describe('isProviderNotice', () => {
+       'quota exceeded',
+       'Error: You have exceeded your monthly quota (Request ID: <redacted>)',
+       'Monthly quota reached. Try again later.',
++      'You’ve hit your spending limit. Please upgrade your plan.',
++      'You have reached your spend limit.',
++      'Your organization has reached its monthly spending limit.',
++      'Monthly spend limit exceeded. Update your billing settings.',
++      'Spending limit reached',
++      'Spend limit exceeded',
++      'API Error: Your credit balance is too low to access the Anthropic API.',
++      'You exceeded your current quota, please check your plan and billing details.',
++      'Error: Quota exceeded for quota metric: generate_content_requests.',
++      'Error: 429 Too many requests. Please retry later.',
+     ];
+     for (const text of notices) {
+       expect(isProviderNotice(text), text).toBe(true);
+@@ -30,6 +40,16 @@ describe('isProviderNotice', () => {
+       'Investigate the broken deployment',
+       'Refactor the AuthService session cache',
+       'Implement loopfixex.md',
++      'The counter resets at 6pm; the fix is complete.',
++      'Done. Your limit resets at 6pm.',
++      'Added handling for quota exceeded errors.',
++      'The API returned too many requests, so I added backoff. All tests pass.',
++      'Fixed the error: You have exceeded your monthly quota.',
++      'Documented the notice: You have reached your spend limit.',
++      'Too many requests handling is now covered by tests.',
++      'Quota exceeded errors are now retried.',
++      'Monthly quota reached notifications now link to settings.',
++      'Spending limit reached handling is implemented.',
+     ];
+     for (const text of legit) {
+       expect(isProviderNotice(text), text).toBe(false);
+diff --git a/src/main/cli/provider-notice.ts b/src/main/cli/provider-notice.ts
+index a5d608d..b42fbd2 100644
+--- a/src/main/cli/provider-notice.ts
++++ b/src/main/cli/provider-notice.ts
+@@ -12,21 +12,23 @@
+  *
+  * {@link isProviderNotice} matches the distinctive *shape* of those notices
+  * rather than a bare mention of "limit", so a genuine task ("Fix the
+- * session-limit retry bug") is not caught. A false positive only costs the
+- * affected one-shot its result — callers fall back to a safe default — so the
+- * detector is intentionally biased toward catching notices.
++ * session-limit retry bug") is not caught. Match a notice at the start of the
++ * response, with a statement boundary after the limit wording, so completed
++ * work discussing reset times or quota errors is still usable output.
+  */
+ 
+-/** Patterns matching the distinctive shape of provider rate/usage-limit notices. */
++/** Patterns matching provider rate/usage/spend-limit statements, not mentions. */
+ export const PROVIDER_NOTICE_PATTERNS: readonly RegExp[] = [
+-  /you(?:'?ve|\s+have)\s+hit\s+your\s+\w+\s+limit/i, // "You've / You have hit your session limit"
+-  /\b(?:usage|session|rate|message)\s+limit\s+reached\b/i,
+-  /\b\d+\s*-?\s*hour\s+limit\s+reached\b/i,          // "5-hour limit reached"
+-  /\blimit\s*[·•∙‧]\s*resets?\b/i,                   // "limit · resets"
+-  /\bresets?\s+(?:at\s+)?\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?/i, // "resets 6:30pm"
+-  /\byou\s+have\s+exceeded\s+your\s+\w+\s+quota\b/i,  // Copilot: "You have exceeded your monthly quota"
+-  /\b(?:daily|weekly|monthly)\s+quota\s+(?:exceeded|reached)\b/i,
+-  /\b(?:too many requests|quota exceeded)\b/i,
++  /^you(?:['’]?ve|\s+have)?\s+(?:hit|reached|exceeded)\s+your\s+(?:\w+[ -]){0,3}(?:limit|quota)(?=\s*(?:$|[.,:;·•∙‧(]))/i,
++  /^your\s+(?:organi[sz]ation|account)\s+has\s+(?:reached|exceeded)\s+its\s+(?:\w+[ -]){0,3}(?:limit|quota)(?=\s*(?:$|[.,:;·•∙‧(]))/i,
++  /^(?:(?:daily|weekly|monthly)\s+)?(?:usage|session|rate|message|spend(?:ing)?|cost)\s+limit\s+(?:reached|exceeded)(?=\s*(?:$|[.,:;·•∙‧(]))/i,
++  /^\d+\s*-?\s*hour\s+limit\s+reached(?=\s*(?:$|[.,:;·•∙‧(]))/i,
++  /^(?:your\s+)?limit\s*(?:[·•∙‧]\s*)?resets?\s+(?:at\s+)?\d{1,2}(?::\d{2})?\s*[ap]\.?m\.?(?=\s*(?:$|[.,:;·•∙‧(]))/i,
++  /^(?:daily|weekly|monthly)\s+quota\s+(?:exceeded|reached)(?=\s*(?:$|[.,:;·•∙‧(]))/i,
++  /^too many requests(?=\s*(?:$|[.,:;·•∙‧(]))/i,
++  /^quota\s+(?:exceeded|exhausted)(?=\s*(?:$|[.,:;·•∙‧(]|for\b))/i,
++  /^your\s+credit\s+balance\s+is\s+too\s+low\b/i,
++  /^insufficient\s+(?:credits|quota)(?=\s*(?:$|[.,:;·•∙‧(]))/i,
+ ];
+ 
+ /**
+@@ -36,5 +38,8 @@ export const PROVIDER_NOTICE_PATTERNS: readonly RegExp[] = [
+  */
+ export function isProviderNotice(text: string | null | undefined): boolean {
+   if (!text) return false;
+-  return PROVIDER_NOTICE_PATTERNS.some((re) => re.test(text));
++  // Provider/error wrappers carry no model prose. Do not strip arbitrary text
++  // before a match: "Fixed the error: quota exceeded" is a valid final answer.
++  const notice = text.trim().replace(/^(?:(?:api\s+)?error\s*:\s*|(?:claude|codex|gemini|antigravity|copilot|cursor|grok)\s*:?\s+|429\s*:?\s*)+/i, '');
++  return PROVIDER_NOTICE_PATTERNS.some((re) => re.test(notice));
+ }

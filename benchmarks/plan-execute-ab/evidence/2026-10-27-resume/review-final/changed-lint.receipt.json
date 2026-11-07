@@ -1,0 +1,19 @@
+{
+  "argv": [
+    "node_modules/.bin/eslint",
+    "--no-cache",
+    "benchmarks/plan-execute-ab/config.spec.ts",
+    "benchmarks/plan-execute-ab/runner.spec.ts",
+    "benchmarks/plan-execute-ab/runner.ts",
+    "benchmarks/plan-execute-ab/scorer.ts",
+    "benchmarks/plan-execute-ab/task-bank.ts",
+    "benchmarks/plan-execute-ab/task-export.spec.ts",
+    "benchmarks/plan-execute-ab/types.ts",
+    "benchmarks/plan-execute-ab/scoring-setup.ts",
+    "benchmarks/plan-execute-ab/scoring-setup.spec.ts",
+    "benchmarks/plan-execute-ab/local-anthropic-proxy.ts",
+    "benchmarks/plan-execute-ab/local-anthropic-proxy.spec.ts"
+  ],
+  "exitCode": 0,
+  "durationSeconds": 1.7340540885925293
+}

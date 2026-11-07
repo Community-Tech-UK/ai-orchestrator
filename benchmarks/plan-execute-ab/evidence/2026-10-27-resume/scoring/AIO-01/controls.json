@@ -1,0 +1,96 @@
+{
+  "taskId": "AIO-01",
+  "parentSha": "f04f674859b220b86eeb52662129072008573af9",
+  "commitSha": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+  "setup": {
+    "fingerprint": "b962068a845cbf165da877724742e43a208fa7fa5766d00d3a8bf87b473c86d5",
+    "files": {
+      "apps/mobile/package.json": "d97e9e262c3d2d339dfd4081baf2056effbf00b3979cc0b57f3ad0fe23d23038",
+      "benchmarks/external-benchmarks/bfcl/package.json": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+      "benchmarks/orchestrator-benchmark/package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+      "package-lock.json": "021e5949e51e8dd7847f514cf4142baf8d4e18e818a450ea3d41045fd1691d97",
+      "package.json": "6adee217290061578d1afd43e4ccbbd71097b1d3a10574f014822f4bf1591298",
+      "packages/archiver-compat/package.json": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+      "packages/contracts/package.json": "c20adf5e2edb10101f0c42fccf4e2131c336204a26df832dcbd8e0130ab1fb96",
+      "packages/sdk/package.json": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a"
+    },
+    "command": [
+      "npm",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "exitCode": 0,
+    "timedOut": false,
+    "nodeVersion": "v26.12.1"
+  },
+  "parent": {
+    "contract": {
+      "version": "aio-01-startup-order-v2",
+      "amendmentSha256": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468",
+      "dependencyFingerprint": "b962068a845cbf165da877724742e43a208fa7fa5766d00d3a8bf87b473c86d5"
+    },
+    "hiddenTests": {
+      "passed": false,
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/history/history-manager.spec.ts"
+      ],
+      "exitCode": 1,
+      "timedOut": false,
+      "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/history/history-manager.spec.ts\n\n✗ 2 of 41 tests failed in 8.4s:\n\n  ✗ src/main/history/history-manager.spec.ts › HistoryManager creates a safety backup before clearing conversation history\n    AssertionError: expected true to be false // Object.is equality\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:209:73\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20\n\n  ✗ src/main/history/history-manager.spec.ts › HistoryManager does not begin the safety backup before the pending startup writers settle\n    AssertionError: clearAll entered the safety backup while the startup write was blocked: expected 'backup-entry' to be 'startup-wait' // Object.is equality\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:370:9\n        at processTicksAndRejections (node:internal/process/task_queues:104:5)\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20\n\nfull log: _scratch/test-run.pid-89751.log\n\n✗ FAILED — 2 of 41 tests failed (exit 1).\n\n"
+    },
+    "damage": [],
+    "damageOk": true
+  },
+  "fixed": {
+    "contract": {
+      "version": "aio-01-startup-order-v2",
+      "amendmentSha256": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468",
+      "dependencyFingerprint": "b962068a845cbf165da877724742e43a208fa7fa5766d00d3a8bf87b473c86d5"
+    },
+    "hiddenTests": {
+      "passed": true,
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/history/history-manager.spec.ts"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/history/history-manager.spec.ts\n\n✓ 1 files · 41 tests passed in 8.2s\n  full log: _scratch/test-run.pid-7143.log\n\n"
+    },
+    "damage": [
+      {
+        "ok": true,
+        "command": [
+          "node",
+          "--max-old-space-size=8192",
+          "node_modules/typescript/bin/tsc",
+          "--noEmit"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "\n"
+      },
+      {
+        "ok": true,
+        "command": [
+          "npm",
+          "run",
+          "lint:fast"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": ":7: warning eslint(no-unused-vars): Variable 'ConfigPathSchema' is declared but never used. Unused variables should start with a '_'. help: Consider removing this declaration.\nsrc/shared/types/plugin.types.ts:13:3: warning eslint(no-unused-vars): Type 'PluginCapability' is imported but never used. help: Consider removing this import.\nsrc/shared/types/plugin.types.ts:15:3: warning eslint(no-unused-vars): Type 'PluginIsolation' is imported but never used. help: Consider removing this import.\nsrc/main/orchestration/loop-stream.ts:184:28: warning eslint(eqeqeq): Expected === and instead saw == help: Prefer === operator\nsrc/main/orchestration/supervisor.ts:14:3: warning eslint(no-unused-vars): Identifier 'RestartAction' is imported but never used. help: Consider removing this import.\nsrc/main/orchestration/supervisor.ts:16:3: warning eslint(no-unused-vars): Identifier 'BackoffState' is imported but never used. help: Consider removing this import.\nsrc/main/orchestration/supervisor.ts:18:3: warning eslint(no-unused-vars): Identifier 'HealthStatus' is imported but never used. help: Consider removing this import.\nsrc/main/orchestration/supervisor.ts:632:5: warning eslint(no-unused-vars): Parameter 'parent' is declared but never used. Unused parameters should start with a '_'. help: Consider removing this parameter.\nsrc/main/orchestration/loop-progress-detector.ts:338:31: warning eslint(eqeqeq): Expected === and instead saw == help: Prefer === operator\nsrc/main/orchestration/loop-progress-detector.ts:412:26: warning unicorn(no-useless-spread): Using a spread operator here creates a new array unnecessarily. help: `for…of` can iterate over iterable, it's unnecessary to convert to an array.\nsrc/shared/types/model-token-guard.spec.ts:28:72: warning eslint(no-useless-escape): Unnecessary escape character '-' help: Replace `\\-` with `-`.\nsrc/main/indexing/indexed-codebase-context.ts:217:5: warning eslint(no-unused-vars): Parameter 'workspacePath' is declared but never used. Unused parameters should start with a '_'. help: Consider removing this parameter.\nsrc/main/orchestration/review-prompts.ts:259:9: warning eslint(no-unused-vars): Variable 'totalChars' is declared but never used. Unused variables should start with a '_'. help: Consider removing this declaration.\nsrc/main/orchestration/loop-resume.ts:102:58: warning eslint(eqeqeq): Expected !== and instead saw != help: Prefer !== operator\nsrc/main/orchestration/default-invokers.ts:980:65: warning eslint(eqeqeq): Expected !== and instead saw != help: Prefer !== operator\nsrc/main/instance/lifecycle/runtime-change-notices.spec.ts:25:7: warning eslint(no-unused-vars): Variable 'instance' is declared but never used. Unused variables should start with a '_'. help: Consider removing this declaration.\nsrc/main/instance/lifecycle/runtime-change-notices.spec.ts:27:10: warning eslint(no-unused-vars): Function 'makeAdapter' is declared but never used. help: Consider removing this declaration.\nsrc/main/orchestration/loop-store-iterations.ts:98:15: warning eslint(eqeqeq): Expected !== and instead saw != help: Prefer !== operator\nsrc/main/orchestration/loop-store-iterations.ts:102:13: warning eslint(eqeqeq): Expected !== and instead saw != help: Prefer !== operator\nsrc/main/orchestration/loop-memory.ts:164:46: warning eslint(eqeqeq): Expected !== and instead saw != help: Prefer !== operator\nsrc/main/orchestration/loop-runtime-status.ts:51:26: warning eslint(eqeqeq): Expected !== and instead saw != help: Prefer !== operator\nsrc/main/orchestration/loop-runtime-status.ts:60:57: warning eslint(eqeqeq): Expected === and instead saw == help: Prefer === operator\nsrc/main/orchestration/loop-runtime-status.ts:67:57: warning eslint(eqeqeq): Expected === and instead saw == help: Prefer === operator\nsrc/main/orchestration/loop-audit-runtime.ts:205:7: warning unicorn(no-useless-length-check): Found a useless array length check help: The non-empty check is useless as `Array#some()` returns `false` for an empty array.\n\n"
+      }
+    ],
+    "damageOk": true
+  }
+}

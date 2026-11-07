@@ -1,0 +1,12 @@
+{
+  "command": [
+    "sh",
+    "-c",
+    "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/prayers/models/prayers.spec.ts\" --watch=false"
+  ],
+  "exitCode": 0,
+  "stdout": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n❯ Building...\n✔ Building...\nApplication bundle generation complete. [16.624 seconds] - 2026-10-27T16:32:46.927Z\n\n\n RUN  v4.0.18 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n\n ✓ |web| src/app/prayers/models/prayers.spec.ts (23 tests) 10ms\n\n Test Files  1 passed (1)\n      Tests  23 passed (23)\n   Start at  16:32:47\n   Duration  1.41s (transform 138ms, setup 420ms, import 23ms, tests 10ms, environment 723ms)\n\n",
+  "stderr": "(node:86337) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n",
+  "timedOut": false,
+  "durationMs": 20826
+}

@@ -1,0 +1,4 @@
+{
+  "status": "INVALIDATED_HELPER_DIAGNOSTICS",
+  "reason": "historical-aio had an empty .git directory so git apply could return success while skipping candidate paths via enclosing repository;12steps had valid isolated Git but is rerun too for explicit per-file applied-index proof. No score here is accepted as a candidate outcome."
+}

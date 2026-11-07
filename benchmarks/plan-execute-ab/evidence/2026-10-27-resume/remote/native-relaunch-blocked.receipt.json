@@ -1,0 +1,8 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"instanceId\":\"xcxql9eyi\",\"status\":\"idle\",\"done\":true,\"messageCount\":27,\"truncated\":true,\"lastSeq\":26,\"messages\":[{\"type\":\"assistant\",\"content\":\"Preparation is partial; the native relaunch is blocked.\\n\\n- ✓ Recorded API configuration, stopped localhost:1234, unloaded helpers; `lms ps` is empty.\\n- ✓ Original PID **82752** remains running, with matching backend 2.60.0, model, flags and start time. Health **200**; port 1235 listens only on Tailscale.\\n- ✓ Tailscale forwarding and credentials left unchanged.\\n- ✗ No new PID or server logs. New-server authentication checks remain unperformed.\\n\\n[Nonsecret receipts](C:/Users/shutu/Documents/Work/_scratch/queue-7ca7a00e-resume/blocked-handover.json) · [Restore command](C:/Users/shutu/Documents/Work/_scratch/queue-7ca7a00e-resume/restore-command.txt). Restore only after the native pilot server is confirmed idle and stopped.\\n\\nThe shell policy rejected the native stop-and-relaunch command with “blocked by policy”; it supplied no further reason. That command did not execute.\",\"timestamp\":1793117135877,\"seq\":26}]}"
+    }
+  ]
+}

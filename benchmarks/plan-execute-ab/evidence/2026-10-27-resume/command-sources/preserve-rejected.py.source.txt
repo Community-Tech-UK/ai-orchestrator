@@ -1,0 +1,37 @@
+import hashlib
+import json
+from pathlib import Path
+
+root = Path('benchmarks/plan-execute-ab')
+snapshot = json.loads((root / 'evidence/2026-10-27-resume/review-isolation/snapshot-before.json').read_text())
+destination = root / 'evidence/2026-10-27-resume/scoring/rejected-node-boundary'
+sources = {name: (destination / (name + '.source.txt')).read_text() for name in ['scoring-boundary.cjs', 'scoring-runtime.ts']}
+scorer = (root / 'scorer.ts').read_text()
+scorer = scorer.replace("import { scoringEnvironment, verifyScoringDependencies, type DependencyReceipt } from './scoring-setup';", "import { verifyScoringDependencies, type DependencyReceipt } from './scoring-setup';\nimport { scoringEnvironment } from './scoring-runtime';")
+scorer = scorer.replace("|| result.exitCode === 127) {", "|| result.exitCode === 127\n    || result.stderr.includes('SCORING_BOUNDARY_UNAVAILABLE:')) {")
+scorer = scorer.replace('      dependencyFingerprint: dependencies.fingerprint,\n', '      dependencyFingerprint: dependencies.fingerprint,\n      dependencyBoundarySha256: dependencies.boundarySha256,\n')
+sources['scorer.ts'] = scorer
+setup = (root / 'scoring-setup.ts').read_text()
+setup = setup.replace('readdirSync, realpathSync, rmSync', 'readdirSync, rmSync')
+setup = setup.replace("import { delimiter, dirname, join, resolve } from 'path';", "import { join } from 'path';")
+setup = setup.replace("import type { CommandResult } from './types';", "import type { CommandResult } from './types';\nimport { boundarySha256 } from './scoring-runtime';")
+setup = setup.replace('  runtimePreparation: CommandResult[];\n', '  runtimePreparation: CommandResult[];\n  boundarySha256: string;\n')
+start = setup.index('/** Node and native bundlers')
+end = setup.index('function manifests', start)
+setup = setup[:start] + setup[end:]
+setup = setup.replace('  assertNoAncestorDependencies(dir);\n', '')
+setup = setup.replace('nodeVersion: process.version, runtimePreparation,\n', 'nodeVersion: process.version, runtimePreparation, boundarySha256,\n')
+setup = setup.replace('nodeVersion: process.version, runtimePreparation: [],\n', 'nodeVersion: process.version, runtimePreparation: [], boundarySha256,\n')
+setup = setup.replace("    throw new Error('scoring dependency manifests or Node version changed after setup');\n  }", "    throw new Error('scoring dependency manifests or Node version changed after setup');\n  }\n  if (receipt.boundarySha256 !== boundarySha256) throw new Error('scoring dependency boundary changed after setup');")
+sources['scoring-setup.ts'] = setup
+sources['types.ts'] = (root / 'types.ts').read_text().replace('dependencyFingerprint: string };', 'dependencyFingerprint: string; dependencyBoundarySha256: string };')
+receipts = {}
+for name, source in sources.items():
+    actual = hashlib.sha256(source.encode()).hexdigest()
+    expected = snapshot['files'][str(root / name)]['sha256']
+    if actual != expected:
+        raise SystemExit(f'{name}: snapshot hash mismatch {actual} != {expected}')
+    (destination / (name + '.source.txt')).write_text(source)
+    receipts[name] = {'sha256': actual, 'matchesIndependentSnapshot': True}
+(destination / 'preserved-snapshot.json').write_text(json.dumps(receipts, indent=2) + '\n')
+print('All five rejected implementation snapshots match the independent review hashes.')

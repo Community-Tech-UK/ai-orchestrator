@@ -1,0 +1,38 @@
+{
+  "startedAt": "2026-10-27T14:24:50.180Z",
+  "profile": "/tmp/aio-lt-queue-7ca7a00e",
+  "port": 9800,
+  "attempts": [
+    {
+      "attempt": 1,
+      "pid": 97665,
+      "exitCode": 0,
+      "signalCode": null
+    },
+    {
+      "attempt": 2,
+      "pid": 1745
+    }
+  ],
+  "focusEmulationEnabled": true,
+  "visibilityOverride": "{\"code\":-32601,\"message\":\"'Emulation.setPageVisibilityOverride' wasn't found\"}",
+  "probe": {
+    "result": {
+      "type": "object",
+      "value": {
+        "hidden": false,
+        "visibility": "visible",
+        "appRoot": true,
+        "ipc": {
+          "success": true,
+          "data": []
+        }
+      }
+    }
+  },
+  "passed": true,
+  "finalExitCode": 0,
+  "finalSignalCode": null,
+  "stopped": true,
+  "finishedAt": "2026-10-27T14:26:32.822Z"
+}

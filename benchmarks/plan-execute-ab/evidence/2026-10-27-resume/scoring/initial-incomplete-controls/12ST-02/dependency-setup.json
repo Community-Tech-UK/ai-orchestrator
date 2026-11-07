@@ -1,0 +1,22 @@
+{
+  "fingerprint": "598dc6c3283436556ddffe789e4cc20ab579daa350f0618028b1300b43bfcdce",
+  "files": {
+    ".npmrc": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+    "apps/api/package.json": "63d8840486693f9bf97d96993a24577655c9401c6798ba0afdcfd3a69eae9961",
+    "apps/web/package.json": "296bf90229acfe1bca150bcb4b7a2052c4e283ee1f6b218759b85274d08efe4a",
+    "package.json": "eb4b89ec70a26c62e22fa732b0616bfb1ee598b1f5f954d986f83ac63caa77f6",
+    "packages/crypto/package.json": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+    "packages/meeting-data/package.json": "337262ec439c933f5c66a67be8c824fbebece99e1aa2f099b2296f87df1b98eb",
+    "pnpm-lock.yaml": "52914de737b6f50f6bce36ce9f59d5bbf486c297f869ca715931e31b36dcbdee",
+    "pnpm-workspace.yaml": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7"
+  },
+  "command": [
+    "pnpm",
+    "install",
+    "--frozen-lockfile",
+    "--ignore-scripts"
+  ],
+  "exitCode": 0,
+  "timedOut": false,
+  "nodeVersion": "v26.12.1"
+}

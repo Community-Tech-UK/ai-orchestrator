@@ -1,0 +1,34 @@
+{
+  "status": "SOURCE_FROZEN_RUNTIME_LOCATION_APPROVAL_PENDING",
+  "files": {
+    "README.md": "acc8b1cb290b2173c0900a9a0572c1e3889eb3130ab402af400e3f78485f2a81",
+    "runner.config.json": "bff56831cf1fdd0058dc5f446f4e8027094143a814e7c5d4b53878512010be2b",
+    "config.spec.ts": "51a0a8c21ab8e6dcb30b899c74b95a98183b7e6027d05ad48bf36c513e251f5c",
+    "runner.ts": "100ee3899cf2164e9b693a6887502795a4ca66dd961106701071029864b790ed",
+    "runner.spec.ts": "5c572d004ffd888e34ba20330a3eafb0cebfc6d71f6add57371dbf3b81d0ca08",
+    "runner-tools.ts": "38557bf9409ac84b99a217e86ef55d642c18d1e5ecd70d0f099d0c09370ad441",
+    "mine-tasks.ts": "e5581ccf266d7a42e6c4d3595f53bf08e7f75430056d66c84376dc80813408a4",
+    "mine-tasks.spec.ts": "3a0733054b3323bffea464af7afc3cf58290535b550e93b6c9720fccb9d94805",
+    "scorer.ts": "973d293a6c21280cee48b143a1ca44d91d4767a16dddd6fcaf3fea425e643bc5",
+    "scorer.spec.ts": "7da177d1cc25120c83c048504b8a84561d8c006267107bc3c78c94660ffad816",
+    "scoring-setup.ts": "a7a51cf3a7f235492eabcbd0aacddeb772ce397ac96994943557a2c952f60b2f",
+    "scoring-setup.spec.ts": "ab02f2cf39889a695fd62f78185159ba62088329154874b5a650ecf37ee0d81e",
+    "task-bank.ts": "8ae91ed4273e63845db3f917abe1c24de353b8fea9b097d040a8eed5b8a5f0f6",
+    "task-export.ts": "7cef9bb7d9644af9b8a38ea9b8f79df9773d9c88c6cfc94a9ff4822fa08f0340",
+    "task-export.spec.ts": "95869d087b699f82f3d8d7c03afede644c4e707d5d63b406789546d8c85a4650",
+    "types.ts": "1926f7d2b93482ddfd0c9fd25518eaab94080d7c9bd29e1cff2d4858e47ff75f",
+    "tasks/task-bank.json": "376c4cf8ecb838eed8f5bcaaea6ead9b04b85eeaad0b0e70da9c5e9c8e7b892a",
+    "tasks/aio-01-scoring-v2.patch": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468"
+  },
+  "benchmarkTests": {
+    "report": "final-source-verification/benchmark-tests.json",
+    "passed": 212,
+    "failed": 0
+  },
+  "scope": "Scoring repair source only. Actual clean-location pilot controls and candidates remain unaccepted until the copy-location exception is authorised and current source reruns them.",
+  "lastChange": {
+    "file": "runner.ts",
+    "change": "Removed retired --setup option from public help",
+    "verification": "final-public-help.json; real public verify-task regression7 passed; changed-file lint passed"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "error": "Error: scoring infrastructure: export has ancestor node_modules: /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/node_modules; choose a dependency-free export location",
+  "setupBlockedAtAncestorPreflight": true,
+  "nodeModulesCreated": false,
+  "dependencyReceiptCreated": false
+}

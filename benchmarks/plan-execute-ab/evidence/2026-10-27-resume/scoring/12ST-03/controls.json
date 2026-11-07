@@ -1,0 +1,77 @@
+{
+  "taskId": "12ST-03",
+  "parentSha": "d07a841446ef03b6e851151ced29b272369a47ad",
+  "commitSha": "7297291103d578aef8022347dd73773f9b3f23f0",
+  "setup": {
+    "fingerprint": "547eb848308b49f8c7f2f80f331f1c8c05ee8cee4b2ee9d4f202711d35e63a58",
+    "files": {
+      ".npmrc": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+      "apps/api/package.json": "213797e1fc92828831eb1121779f1b65ad5fa7c53b4d2ec87c2bdd35df01b035",
+      "apps/web/package.json": "e3b696c50e69b8b279a683b90881d5d13e5eee6b649559199abf0f631c0b4500",
+      "package.json": "23f43a95605e4c9d007965a1d654b25494d4b10d67d63ee8bd4a5a3e57348897",
+      "packages/crypto/package.json": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+      "pnpm-lock.yaml": "d666cf0ee3a7932a01e20f5e17a5f66375be4d89bcf59026f43f5928e0d42758",
+      "pnpm-workspace.yaml": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7"
+    },
+    "command": [
+      "pnpm",
+      "install",
+      "--frozen-lockfile",
+      "--ignore-scripts"
+    ],
+    "exitCode": 0,
+    "timedOut": false,
+    "nodeVersion": "v26.12.1",
+    "runtimePreparation": []
+  },
+  "parent": {
+    "contract": {
+      "version": "historical-v1",
+      "dependencyFingerprint": "547eb848308b49f8c7f2f80f331f1c8c05ee8cee4b2ee9d4f202711d35e63a58"
+    },
+    "hiddenTests": {
+      "passed": false,
+      "command": [
+        "sh",
+        "-c",
+        "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/home/home.component.spec.ts\" --include=\"src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts\" --watch=false"
+      ],
+      "exitCode": 1,
+      "timedOut": false,
+      "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n❯ Building...\n✔ Building...\nApplication bundle generation failed. [21.930 seconds] - 2026-10-27T15:59:57.014Z\n\n\n✘ [ERROR] Could not resolve \"../shared/components/android-test-banner/android-test-banner.component\"\n\n    src/app/home/home.component.spec.ts:19:7:\n      19 │ } from '../shared/components/android-test-banner/android-test-bann...\n         ╵        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n\n✘ [ERROR] TS2307: Cannot find module '../shared/components/android-test-banner/android-test-banner.component' or its corresponding type declarations. [plugin angular-compiler]\n\n    src/app/home/home.component.spec.ts:19:7:\n      19 │ } from '../shared/components/android-test-banner/android-test-bann...\n         ╵        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n\n✘ [ERROR] TS18046: 'banner' is of type 'unknown'. [plugin angular-compiler]\n\n    src/app/home/home.component.spec.ts:270:4:\n      270 │     banner.closed.set(false);\n          ╵     ~~~~~~\n\n\n✘ [ERROR] TS18046: 'banner' is of type 'unknown'. [plugin angular-compiler]\n\n    src/app/home/home.component.spec.ts:282:11:\n      282 │     expect(banner.closed()).toBe(false);\n          ╵            ~~~~~~\n\n\n✘ [ERROR] TS18046: 'banner' is of type 'unknown'. [plugin angular-compiler]\n\n    src/app/home/home.component.spec.ts:289:13:\n      289 │       expect(banner.closed()).toBe(true);\n          ╵              ~~~~~~\n\n\n✘ [ERROR] Could not resolve \"./android-test-banner.component\"\n\n    src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts:5:122:\n      5 │ ...uldShowAndroidTestBanner, } from './android-test-banner.component';\n        ╵                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n\n✘ [ERROR] TS2307: Cannot find module './android-test-banner.component' or its corresponding type declarations. [plugin angular-compiler]\n\n    src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts:10:7:\n      10 │ } from './android-test-banner.component';\n         ╵        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n\n✘ [ERROR] TS2571: Object is of type 'unknown'. [plugin angular-compiler]\n\n    src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts:216:4:\n      216 │     TestBed.inject(AndroidTestBannerState).markDone();\n          ╵     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n\n"
+    },
+    "damage": [],
+    "damageOk": true
+  },
+  "fixed": {
+    "contract": {
+      "version": "historical-v1",
+      "dependencyFingerprint": "547eb848308b49f8c7f2f80f331f1c8c05ee8cee4b2ee9d4f202711d35e63a58"
+    },
+    "hiddenTests": {
+      "passed": true,
+      "command": [
+        "sh",
+        "-c",
+        "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/home/home.component.spec.ts\" --include=\"src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts\" --watch=false"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n❯ Building...\n✔ Building...\nApplication bundle generation complete. [18.381 seconds] - 2026-10-27T16:00:20.857Z\n\n\n RUN  v4.0.18 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n\n ✓ |web| src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts (16 tests) 335ms\n ✓ |web| src/app/home/home.component.spec.ts (16 tests) 1051ms\n\n Test Files  2 passed (2)\n      Tests  32 passed (32)\n   Start at  16:00:21\n   Duration  3.85s (transform 2.27s, setup 2.56s, import 788ms, tests 1.39s, environment 1.59s)\n\n\n(node:50573) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:50572) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+    },
+    "damage": [
+      {
+        "ok": true,
+        "command": [
+          "sh",
+          "-c",
+          "cd apps/web && pnpm run generate:locales && npx tsc -p tsconfig.spec.json --noEmit"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n\n"
+      }
+    ],
+    "damageOk": true
+  }
+}

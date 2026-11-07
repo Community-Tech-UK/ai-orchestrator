@@ -1,0 +1,68 @@
+Native-finality fixture timing investigation, 2026-10-27
+
+Scope
+Only src/main/orchestration/default-loop-native-finality.spec.ts changed.
+No production code, timeout configuration, original assertion, branch, index, or commit was changed.
+No CPU load generation, busy loops, browser, remote host, cloud, or model calls.
+All quiet runs set AIO_TEST_SUMMARY=0 and AIO_TEST_NO_CACHE=1.
+
+Observed before changes
+Command: rtk proxy env AIO_TEST_SUMMARY=0 AIO_TEST_OUT_SUFFIX=native-finality-before AIO_TEST_NO_CACHE=1 npm run test:quiet -- src/main/orchestration/default-loop-native-finality.spec.ts
+Exit 0: 1 file, 8 tests passed in 6.4s.
+Raw output/report: native-finality-before.log and native-finality-before.json.
+
+Controlled failing reproduction before synchronization
+Added one 500 ms idle child-startup delay case and temporary raw trace output.
+Ran the same public-loop path and real ClaudeCliAdapter with unchanged 150 ms timeout.
+Command: rtk proxy env AIO_TEST_SUMMARY=0 AIO_TEST_OUT_SUFFIX=native-finality-delayed-before AIO_TEST_NO_CACHE=1 AIO_NATIVE_FINALITY_TRACE=1 npm run test:quiet -- src/main/orchestration/default-loop-native-finality.spec.ts
+Exit 1: 2 of 9 failed in 9.8s.
+Raw output/report: native-finality-delayed-before.log and native-finality-delayed-before.json.
+Delayed-startup trace: paused=false, finalWritten=false, drainedRaw="", SIGKILL, Claude CLI timeout, complete after close, duration 409 ms, unknown cost.
+The non-delayed partial-unpaused case independently failed: assistant reached stdout, but finalWritten=false; raw final result absent, duration 167 ms; cost fell back to pricing because the child had not written native cost.
+The runtime did not receive a native result to parse in either failure.
+
+Executing path
+Public event handler: src/main/orchestration/default-invokers.ts:1390 onward calls invokeCliTextResponse with allowPartialOnTimeout, continueWhileActiveOnTimeout and activeTimeoutMs.
+src/main/orchestration/default-invokers.ts:389 calls sendRecordedOrchestrationCall with adapter.sendMessage.
+src/main/cli/adapters/claude-cli-adapter.ts:712 spawns; line 830 schedules the timeout immediately, without a child-readiness handshake.
+That timeout uses Date.now (lines 655-656), not only timer scheduling.
+With no raw protocol, line 703 fails input. src/main/cli/adapters/claude-one-shot-lifecycle.ts:106-108 grants the existing 250 ms result drain before termination, explaining the delayed case's approximately 400 ms total.
+Result parsing and settlement happen at the real child close (claude-cli-adapter.ts:807-825).
+
+Test-only fix
+The test keeps real child startup, child timers, pipes, process signals, close, parser, and accounting.
+It controls only parent Date/setTimeout/clearTimeout. It first awaits the real child's FINAL_WRITTEN stderr marker and then advances the existing 150 ms watchdog. The regular-timeout control additionally advances the existing 250 ms error-drain timer.
+All original assertions remain. The added 500 ms startup case guards the startup assumption. No production deadline was increased.
+The final-write marker accumulates stderr so split IO chunks are handled. Early child error/close rejects the readiness wait.
+Fake timers are restored after each case.
+
+Diagnostic after synchronization
+Command: rtk proxy env AIO_TEST_SUMMARY=0 AIO_TEST_OUT_SUFFIX=native-finality-delayed-after-trace AIO_TEST_NO_CACHE=1 AIO_NATIVE_FINALITY_TRACE=1 npm run test:quiet -- src/main/orchestration/default-loop-native-finality.spec.ts
+Exit 0: 1 file, 9 tests passed in 12.4s (Vitest test duration 1.849s).
+Raw output/report: native-finality-delayed-after-trace.log and native-finality-delayed-after-trace.json.
+Delayed-startup trace now has paused=true, finalWritten=true, complete raw assistant and native result, SIGKILL, complete after close, provider cost 0.25, watchdog duration 150 ms.
+Regular control still rejects with Claude CLI timeout, retains native cost 0.25, and settles after real close at simulated duration 400 ms.
+Zero-cost, absent-native-cost, native-error and missing-final-linefeed cases retain their original expected behavior.
+Temporary trace output and unused READY marker were removed from final source.
+
+Final exact source verification
+Command: rtk proxy env AIO_TEST_SUMMARY=0 AIO_TEST_OUT_SUFFIX=native-finality-final AIO_TEST_NO_CACHE=1 npm run test:quiet -- src/main/orchestration/default-loop-native-finality.spec.ts
+Exit 0: 1 file, 9 tests passed in 7.8s.
+Raw output/report: native-finality-final.log and native-finality-final.json.
+Command: rtk proxy npx eslint src/main/orchestration/default-loop-native-finality.spec.ts
+Exit 0, no findings.
+Command: rtk proxy git diff --check -- src/main/orchestration/default-loop-native-finality.spec.ts
+Exit 0, no whitespace errors.
+
+Remaining verification
+Full suite, project-wide canonical gates and independent fresh-eyes review belong to the parent session. They were not run or claimed passed by this subtask.
+
+Cleanup refinement, final frozen source
+Parent requested restoring real timers before adapter teardown as well as afterEach.
+The afterEach restoration was already present; vi.useRealTimers() now also runs immediately before await adapter.terminate(false) in the real-child case's finally block.
+No assertions or deadlines changed.
+Command: rtk proxy env AIO_TEST_SUMMARY=0 AIO_TEST_OUT_SUFFIX=native-finality-cleanup-final AIO_TEST_NO_CACHE=1 npm run test:quiet -- src/main/orchestration/default-loop-native-finality.spec.ts
+Exit 0: 1 file, 9 tests passed in 10.9s.
+Raw output/report: native-finality-cleanup-final.log and native-finality-cleanup-final.json.
+Targeted ESLint and git diff --check both exit 0.
+Frozen source SHA-256 at 2026-10-27T17:09:16Z: 5e9705fc3ccbbb3637809a7468f551a5adde2a7eedb533677069c3b9ecfa1930

@@ -1,0 +1,296 @@
+diff --git a/scripts/check-ts-max-loc.ts b/scripts/check-ts-max-loc.ts
+index 0829681..3e422b6 100644
+--- a/scripts/check-ts-max-loc.ts
++++ b/scripts/check-ts-max-loc.ts
+@@ -211,7 +211,9 @@ const ALLOWLIST: Record<string, number> = {
+   // failure: atomic saveConversation write, the conversationWrites per-entry
+   // queue that stops the startup backfill overwriting a fresh archive, and the
+   // stale-temp sweep.
+-  'src/main/history/history-manager.ts': 1735,
++  // Raised 1735 -> 1745 for clearAll waiting on startupTasks + conversationWrites
++  // before its safety backup (startup-backfill/clearAll race fix).
++  'src/main/history/history-manager.ts': 1745,
+   'src/main/history/history-restore-coordinator.ts': 708,
+   // Main process — indexing
+   'src/main/indexing/benchmarks/benchmark-utils.ts': 820,
+diff --git a/src/main/history/history-archive-serialization.spec.ts b/src/main/history/history-archive-serialization.spec.ts
+index 4c2d3a8..3c8104b 100644
+--- a/src/main/history/history-archive-serialization.spec.ts
++++ b/src/main/history/history-archive-serialization.spec.ts
+@@ -1,6 +1,6 @@
+ import { describe, expect, it } from 'vitest';
+ import type { Instance } from '../../shared/types/instance.types';
+-import { getArchiveSerializationKey } from './history-archive-serialization';
++import { getArchiveSerializationKey, KeyedSerialTaskQueue } from './history-archive-serialization';
+ 
+ function identity(overrides: Partial<Instance> = {}) {
+   return {
+@@ -65,3 +65,50 @@ describe('getArchiveSerializationKey', () => {
+     expect(other).not.toBe(first);
+   });
+ });
++
++describe('KeyedSerialTaskQueue.whenIdle', () => {
++  it('stays pending while a turn queued before the call is open, then resolves', async () => {
++    const queue = new KeyedSerialTaskQueue();
++    let releaseGate!: () => void;
++    const gate = new Promise<void>((resolve) => {
++      releaseGate = resolve;
++    });
++
++    const running = queue.run('key-a', async () => gate);
++
++    let idle = false;
++    const idleSettled = queue.whenIdle().then(() => {
++      idle = true;
++    });
++    await Promise.resolve();
++    await Promise.resolve();
++    expect(idle).toBe(false);
++
++    releaseGate();
++    await Promise.all([running, idleSettled]);
++    expect(idle).toBe(true);
++  });
++
++  it('resolves when the open turn throws, since each turn releases in its finally', async () => {
++    const queue = new KeyedSerialTaskQueue();
++    let releaseGate!: () => void;
++    const gate = new Promise<void>((resolve) => {
++      releaseGate = resolve;
++    });
++
++    const failing = queue.run('key-a', async () => {
++      await gate;
++      throw new Error('task failed');
++    });
++
++    let idle = false;
++    const idleSettled = queue.whenIdle().then(() => {
++      idle = true;
++    });
++    releaseGate();
++
++    await expect(failing).rejects.toThrow('task failed');
++    await idleSettled;
++    expect(idle).toBe(true);
++  });
++});
+diff --git a/src/main/history/history-archive-serialization.ts b/src/main/history/history-archive-serialization.ts
+index bbfb47e..6f16e6f 100644
+--- a/src/main/history/history-archive-serialization.ts
++++ b/src/main/history/history-archive-serialization.ts
+@@ -46,4 +46,9 @@ export class KeyedSerialTaskQueue {
+       }
+     }
+   }
++
++  /** Resolves once every turn queued at call time has finished. Later turns are not awaited. */
++  async whenIdle(): Promise<void> {
++    await Promise.all([...this.tails.values()]);
++  }
+ }
+diff --git a/src/main/history/history-manager.spec.ts b/src/main/history/history-manager.spec.ts
+index 41e51a3..808c262 100644
+--- a/src/main/history/history-manager.spec.ts
++++ b/src/main/history/history-manager.spec.ts
+@@ -209,6 +209,171 @@ describe('HistoryManager', () => {
+     expect(fs.existsSync(path.join(storageDir, `${entry.id}.json.gz`))).toBe(false);
+   });
+ 
++  it('clearAll waits for startup writers to settle before backing up and deleting', async () => {
++    const storageDir = path.join(userDataDir, 'conversation-history');
++    fs.mkdirSync(storageDir, { recursive: true });
++
++    const entry = {
++      id: 'entry-1',
++      displayName: 'Example',
++      createdAt: 1,
++      endedAt: 2,
++      workingDirectory: '/tmp/example',
++      messageCount: 1,
++      firstUserMessage: 'hello',
++      lastUserMessage: 'hello',
++      status: 'completed' as const,
++      originalInstanceId: 'instance-1',
++      sessionId: 'session-1',
++    };
++
++    fs.writeFileSync(
++      path.join(storageDir, 'index.json'),
++      JSON.stringify({ version: 1, lastUpdated: Date.now(), entries: [entry] }, null, 2)
++    );
++    fs.writeFileSync(
++      path.join(storageDir, `${entry.id}.json.gz`),
++      zlib.gzipSync(JSON.stringify({
++        entry,
++        messages: [{ id: 'message-1', timestamp: 1, type: 'user', content: 'hello' }],
++      }))
++    );
++
++    const { HistoryManager } = await import('./history-manager');
++    const manager = track(new HistoryManager());
++    await manager.startupTasks;
++
++    // Hold startup open on a promise the test controls — same seam as the
++    // getRecoveryCoverage readiness test — so clearAll is provably gated.
++    const held = deferred();
++    Object.defineProperty(manager, 'startupTasks', { value: held.promise });
++
++    const clearing = manager.clearAll();
++    // Readdir/cp are libuv operations, so real timer ticks — not just drained
++    // microtasks — have to pass before an unguarded clearAll could take its
++    // backup. Post-fix the held promise blocks clearAll before any of that.
++    await drainMicrotasks();
++    for (let tick = 0; tick < 3; tick += 1) {
++      await new Promise((resolve) => setTimeout(resolve, 5));
++    }
++
++    expect(
++      fs.readdirSync(userDataDir).filter((name) => name.startsWith('conversation-history.bak-'))
++    ).toEqual([]);
++    expect(fs.existsSync(path.join(storageDir, `${entry.id}.json.gz`))).toBe(true);
++
++    held.resolve();
++    await clearing;
++
++    const backupDirs = fs
++      .readdirSync(userDataDir)
++      .filter(name => name.startsWith('conversation-history.bak-'));
++    expect(backupDirs).toHaveLength(1);
++    expect(fs.existsSync(path.join(userDataDir, backupDirs[0], `${entry.id}.json.gz`))).toBe(true);
++
++    const activeIndex = JSON.parse(
++      fs.readFileSync(path.join(storageDir, 'index.json'), 'utf-8')
++    ) as { entries: unknown[] };
++    expect(activeIndex.entries).toEqual([]);
++    expect(fs.existsSync(path.join(storageDir, `${entry.id}.json.gz`))).toBe(false);
++  });
++
++  it('clearAll lets the startup historyThreadId backfill finish before its backup and deletes', async () => {
++    const storageDir = path.join(userDataDir, 'conversation-history');
++    fs.mkdirSync(storageDir, { recursive: true });
++
++    // No historyThreadId -> requiresHistoryThreadIdBackfill() -> startup rewrites this file.
++    const entry = {
++      id: 'entry-race',
++      displayName: 'Race',
++      createdAt: 10,
++      endedAt: 20,
++      workingDirectory: '/tmp/race',
++      messageCount: 1,
++      firstUserMessage: 'hello',
++      lastUserMessage: 'hello',
++      status: 'completed' as const,
++      originalInstanceId: 'instance-race',
++      parentId: null,
++      sessionId: 'session-race',
++    };
++
++    fs.writeFileSync(
++      path.join(storageDir, 'index.json'),
++      JSON.stringify({ version: 1, lastUpdated: Date.now(), entries: [entry] }, null, 2)
++    );
++    const conversationPath = path.join(storageDir, `${entry.id}.json.gz`);
++    fs.writeFileSync(
++      conversationPath,
++      zlib.gzipSync(JSON.stringify({
++        entry,
++        messages: [{ id: 'message-1', timestamp: 10, type: 'user', content: 'hello' }],
++      }))
++    );
++
++    // Gate the backfill's atomic save so startup is provably mid-file when
++    // clearAll runs: the rewrite stalls inside writeFile on a test-controlled
++    // promise, exactly where a pre-fix backup or unlink would catch it half-done.
++    const realWriteFile = fs.promises.writeFile.bind(fs.promises);
++    const gate = deferred();
++    const writeSpy = vi
++      .spyOn(fs.promises, 'writeFile')
++      .mockImplementation(async (file, data, options) => {
++        // The atomic save writes `<conversationPath>.<uuid>.tmp`, so match the prefix.
++        if (String(file).startsWith(conversationPath)) {
++          await gate.promise;
++        }
++        return realWriteFile(file, data as never, options as never);
++      });
++    const cpSpy = vi.spyOn(fs.promises, 'cp');
++
++    const { HistoryManager } = await import('./history-manager');
++    const manager = track(new HistoryManager());
++
++    try {
++      // Do not await startupTasks first — racing them is the point.
++      const clearing = manager.clearAll();
++      // Timer ticks, not just microtasks: the pre-fix backup goes through
++      // readdir/cp, which need the event loop to turn before they would fire.
++      await drainMicrotasks();
++      for (let tick = 0; tick < 3; tick += 1) {
++        await new Promise((resolve) => setTimeout(resolve, 5));
++      }
++
++      expect(cpSpy).not.toHaveBeenCalled();
++
++      gate.resolve();
++      await clearing;
++
++      const backupDirs = fs
++        .readdirSync(userDataDir)
++        .filter(name => name.startsWith('conversation-history.bak-'));
++      expect(backupDirs).toHaveLength(1);
++
++      // The backup must hold the fully backfilled file, not the half-written state.
++      const backedUp = JSON.parse(
++        zlib
++          .gunzipSync(fs.readFileSync(path.join(userDataDir, backupDirs[0], `${entry.id}.json.gz`)))
++          .toString()
++      ) as ConversationData;
++      expect(backedUp.entry.historyThreadId).toEqual(expect.any(String));
++      expect(backedUp.entry.historyThreadId).not.toBe('');
++
++      // Nothing reappears after the deletion sweep, and the index stays cleared.
++      const leftovers = fs
++        .readdirSync(storageDir)
++        .filter((file) => file.endsWith('.json.gz') || file.endsWith('.tmp'));
++      expect(leftovers).toEqual([]);
++      const activeIndex = JSON.parse(
++        fs.readFileSync(path.join(storageDir, 'index.json'), 'utf-8')
++      ) as { entries: unknown[] };
++      expect(activeIndex.entries).toEqual([]);
++    } finally {
++      writeSpy.mockRestore();
++      cpSpy.mockRestore();
++    }
++  });
++
+   it('LT-196: folds tool-outcome records into the archive so the miner can read them back', async () => {
+     // This is the seam the whole feature rests on. The record is deliberately
+     // kept out of `outputBuffer` (see `tool-outcome-store.ts`), so the ONLY
+diff --git a/src/main/history/history-manager.ts b/src/main/history/history-manager.ts
+index bd1840b..fe2df9f 100644
+--- a/src/main/history/history-manager.ts
++++ b/src/main/history/history-manager.ts
+@@ -112,6 +112,8 @@ export class HistoryManager {
+    * path under the 8s `terminate-instances` budget, which does not cancel its
+    * handler, so blocking it behind the unbounded `importNativeClaudeTranscripts`
+    * scan would trade this race for silently dropping a user's conversation.
++   * clearAll is the exception: before its safety backup it awaits `startupTasks`
++   * and this queue, because a user click carries no quit-path deadline.
+    */
+   private conversationWrites = new KeyedSerialTaskQueue();
+ 
+@@ -701,6 +703,14 @@ export class HistoryManager {
+    * Clear all history
+    */
+   async clearAll(): Promise<void> {
++    // Startup backfill, orphan recovery and the native import all write here, and
++    // nothing awaits them before this IPC handler is reachable. Snapshotting or
++    // unlinking mid-run would back up a half-written state and race their
++    // rename/index push. This is a user action, not on the quit path, so the
++    // unbounded import is an acceptable wait (unlike archiveInstance).
++    await this.startupTasks;
++    await this.conversationWrites.whenIdle();
++
+     await this.createSafetyBackup('clearAll');
+ 
+     // Delete all conversation files

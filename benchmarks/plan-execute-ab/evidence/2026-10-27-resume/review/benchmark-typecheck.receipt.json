@@ -1,0 +1,9 @@
+{
+  "command": [
+    "node_modules/.bin/tsc",
+    "--noEmit",
+    "-p",
+    "benchmarks/plan-execute-ab/tsconfig.json"
+  ],
+  "exitCode": 0
+}

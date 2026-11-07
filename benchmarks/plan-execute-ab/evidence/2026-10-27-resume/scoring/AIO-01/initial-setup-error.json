@@ -1,0 +1,4 @@
+{
+  "taskId": "AIO-01",
+  "error": "Error: scoring dependency setup failed (exit 190, timedOut false); see _scratch/scoring-dependencies.log"
+}

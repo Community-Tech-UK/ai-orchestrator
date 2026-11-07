@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-27T16:22:18.922196+00:00",
+  "action": "Installed exact owned branch dependencies; originals moved, never deleted",
+  "restoreMoves": [
+    {
+      "saved": "_scratch/lt-resume/original-node-modules",
+      "restore": "node_modules"
+    }
+  ],
+  "manifestHashes": {
+    "package.json": "59b14f077bd607b076e156a9ac9d5f2645306d852039b8e0b6d4f314b7b5e04c",
+    "package-lock.json": "a1b0b186b9371516670ba5d12bf387d951bef620ceebc97574473f818f85f891"
+  },
+  "markerIsSymlink": false
+}

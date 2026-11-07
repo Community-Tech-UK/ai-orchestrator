@@ -1,0 +1,15 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "src/main/session/continuity-payload-envelope.spec.ts",
+    "src/main/session/session-continuity.spec.ts"
+  ],
+  "exitCode": 0,
+  "stdout": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/session/continuity-payload-envelope.spec.ts src/main/session/session-continuity.spec.ts\n\n✓ 2 files · 56 tests passed in 12.5s\n  full log: _scratch/test-run.pid-17979.log\n",
+  "stderr": "",
+  "timedOut": false,
+  "durationMs": 12969
+}

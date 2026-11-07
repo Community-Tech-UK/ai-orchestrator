@@ -1,0 +1,326 @@
+{
+  "version": 2,
+  "createdAt": "2026-10-14",
+  "repos": [
+    {
+      "id": "ai-orchestrator",
+      "localPath": "/Users/suas/work/orchestrat0r/ai-orchestrator",
+      "stack": "typescript-electron-angular",
+      "notes": "Primary repo. Decision 3's 'one large TypeScript codebase'."
+    },
+    {
+      "id": "12steps",
+      "localPath": "/Users/suas/work/12steps",
+      "stack": "typescript-angular-pnpm",
+      "notes": "Second repo: a different product and scale (full-stack web app with deploy scripts and i18n). Decision 3 recommended a Python or PHP project; no local Python/PHP repo has commit history pairing test changes with fixes (checked: token-usage-monitor has pytest but no git history; screenshot-api/property-manager/communitytech-plugin/ca-district-shop are PHP with no test suites; guywp-elementor is Python with no tests). 12steps is the closest usable second codebase. Recorded for James to redirect if he wants a different repo."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "AIO-01",
+      "repoId": "ai-orchestrator",
+      "commitSha": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+      "parentSha": "f04f674859b220b86eeb52662129072008573af9",
+      "commitMessage": "Harvest: orchestrator captured session output",
+      "size": "small",
+      "prompt": "Clearing all conversation history can race the startup backfill: if 'clear all history' runs while startup archiving is still writing entries, it can take its safety snapshot of a half-written state and delete files the backfill is still updating. Make 'clear all history' wait until the startup writers have settled before it snapshots and deletes.",
+      "hiddenTestAmendment": {"version": "aio-01-startup-order-v2", "patchFile": "tasks/aio-01-scoring-v2.patch", "sha256": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468"},
+      "hiddenTests": ["src/main/history/history-manager.spec.ts"],
+      "hiddenTestCommand": ["npm", "run", "test:quiet", "--", "src/main/history/history-manager.spec.ts"],
+      "damageCommands": [
+        ["node", "--max-old-space-size=8192", "node_modules/typescript/bin/tsc", "--noEmit"],
+        ["npm", "run", "lint:fast"]
+      ],
+      "sourceFiles": ["src/main/history/history-manager.ts"],
+      "verification": {
+        "failOnParent": true,
+        "passOnCommit": true,
+        "checkedAt": "2026-10-14",
+        "evidenceDir": "_scratch/plan-execute-ab/mining/AIO-01",
+        "notes": "One test file added to an existing suite; hidden command runs the whole spec file, so pre-existing tests also guard against damage."
+      }
+    },
+    {
+      "id": "AIO-02",
+      "repoId": "ai-orchestrator",
+      "commitSha": "4ab0681fb8b8bd18b64b25e2c11e67c819d7ce3d",
+      "parentSha": "b7114a8e4d1b4a484d59543c54d95eb27c472e91",
+      "commitMessage": "chore(model-catalog): refresh snapshot to 113 models; stop failing watch on drift",
+      "size": "small",
+      "prompt": "The model-catalog drift watch fails the whole workflow run whenever the generated snapshot drifts from the live catalog. A permanently-red Actions tab was ignored for weeks without driving the sync, so the tracking issue is the signal, not the red run. Change the watch so drift opens or updates the tracking issue while the run itself stays green on drift and only goes red on real failures. The issue must keep carrying the sync instructions and the generated snapshot diff.",
+      "hiddenTests": ["scripts/__tests__/release-workflow.spec.ts"],
+      "hiddenTestCommand": ["npm", "run", "test:quiet", "--", "scripts/__tests__/release-workflow.spec.ts"],
+      "damageCommands": [
+        ["node", "--max-old-space-size=8192", "node_modules/typescript/bin/tsc", "--noEmit"],
+        ["npm", "run", "lint:fast"]
+      ],
+      "sourceFiles": ["src/main/providers/models-dev-snapshot.generated.ts"],
+      "verification": {
+        "failOnParent": true,
+        "passOnCommit": true,
+        "checkedAt": "2026-10-14",
+        "evidenceDir": "_scratch/plan-execute-ab/mining/AIO-02",
+        "notes": "The commit also refreshed the generated model snapshot (network-sourced); the hidden test covers the watch behaviour, which is the solvable task. The generated file change is not required to pass."
+      }
+    },
+    {
+      "id": "AIO-03",
+      "repoId": "ai-orchestrator",
+      "commitSha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+      "parentSha": "270129d2c29516f5c1abd9247842539b41fb36f9",
+      "commitMessage": "Fix main-process crash when saving very large session state",
+      "size": "medium",
+      "prompt": "Restoring a very large conversation (a 19k-message thread) and switching it to another provider can abort the main process with a V8 allocation failure while the session state is saved. Make session-state saving robust for payloads far larger than one JSON stringify pass: the save must not hand the whole payload to the JavaScript engine in one chunk, and ordinary-sized sessions must round-trip exactly as before.",
+      "hiddenTests": [
+        "src/main/session/continuity-payload-envelope.spec.ts",
+        "src/main/session/session-continuity.spec.ts"
+      ],
+      "hiddenTestCommand": [
+        "npm", "run", "test:quiet", "--",
+        "src/main/session/continuity-payload-envelope.spec.ts",
+        "src/main/session/session-continuity.spec.ts"
+      ],
+      "damageCommands": [
+        ["node", "--max-old-space-size=8192", "node_modules/typescript/bin/tsc", "--noEmit"],
+        ["npm", "run", "lint:fast"]
+      ],
+      "sourceFiles": [
+        "src/main/session/continuity-payload-envelope.ts",
+        "src/main/session/session-continuity.ts",
+        "src/main/session/session-repair.ts"
+      ],
+      "verification": {
+        "failOnParent": true,
+        "passOnCommit": true,
+        "checkedAt": "2026-10-14",
+        "evidenceDir": "_scratch/plan-execute-ab/mining/AIO-03"
+      }
+    },
+    {
+      "id": "AIO-04",
+      "repoId": "ai-orchestrator",
+      "commitSha": "da0bb47ffb259413c40f076ca53c4d09e27c8e61",
+      "parentSha": "ae7aa89c27e5d2d724424833f8855aed40d457a2",
+      "commitMessage": "Keep full history when a trimmed crash revival is re-archived",
+      "size": "medium",
+      "prompt": "When a trimmed crash-revival is re-archived, the trimmed archive replaces the fuller earlier one and the missing messages disappear from history permanently. Make re-archiving merge with any previous archive instead: messages that exist only in the old archive survive in time order, the newer transcript wins where both have the same message, renumbered duplicates are not double-counted, parallel tool calls are preserved, and a missing or unreadable old archive never breaks the merge while an archive from a different runtime generation is replaced outright.",
+      "hiddenTests": [
+        "src/main/history/archive-message-merge.spec.ts",
+        "src/main/history/history-manager-archive-coverage-integrity.spec.ts",
+        "src/main/instance/instance-persistence.spec.ts"
+      ],
+      "hiddenTestCommand": [
+        "npm", "run", "test:quiet", "--",
+        "src/main/history/archive-message-merge.spec.ts",
+        "src/main/history/history-manager-archive-coverage-integrity.spec.ts",
+        "src/main/instance/instance-persistence.spec.ts"
+      ],
+      "damageCommands": [
+        ["node", "--max-old-space-size=8192", "node_modules/typescript/bin/tsc", "--noEmit"],
+        ["npm", "run", "lint:fast"]
+      ],
+      "sourceFiles": [
+        "src/main/history/archive-message-merge.ts",
+        "src/main/history/history-manager.ts",
+        "src/main/instance/instance-persistence.ts"
+      ],
+      "verification": {
+        "failOnParent": true,
+        "passOnCommit": true,
+        "checkedAt": "2026-10-14",
+        "evidenceDir": "_scratch/plan-execute-ab/mining/AIO-04"
+      }
+    },
+    {
+      "id": "AIO-05",
+      "repoId": "ai-orchestrator",
+      "commitSha": "0c475238a4cd7729d4a1bc1870d2adab003182f3",
+      "parentSha": "fbe537aed4d6d94e72600064d32d95e535c3ee2e",
+      "commitMessage": "fix(automations): record provider-limit exits as failed, not succeeded",
+      "size": "medium",
+      "prompt": "When an automation run ends because the provider hit a usage or spend limit, the run is recorded as succeeded, so schedules and dashboards treat a blocked run as complete. Record provider-limit exits as failed outcomes instead. Genuine completions must not be misclassified: ordinary final output that merely mentions a reset time, quota wording or 'too many requests' must stay a success, while real provider limit notices (including spend-limit notices across the providers' wording) are recognised as limits.",
+      "hiddenTests": ["src/main/automations/automation-run-provider-limit.spec.ts"],
+      "hiddenTestCommand": [
+        "npm", "run", "test:quiet", "--",
+        "src/main/automations/automation-run-provider-limit.spec.ts"
+      ],
+      "damageCommands": [
+        ["node", "--max-old-space-size=8192", "node_modules/typescript/bin/tsc", "--noEmit"],
+        ["npm", "run", "lint:fast"]
+      ],
+      "sourceFiles": [
+        "src/main/automations/automation-run-provider-limit.ts",
+        "src/main/automations/automation-runner-terminal.ts",
+        "src/main/automations/automation-runner.ts",
+        "src/main/automations/automation-store-outcome-ops.ts"
+      ],
+      "verification": {
+        "failOnParent": true,
+        "passOnCommit": true,
+        "checkedAt": "2026-10-14",
+        "evidenceDir": "_scratch/plan-execute-ab/mining/AIO-05"
+      }
+    },
+    {
+      "id": "AIO-06",
+      "repoId": "ai-orchestrator",
+      "commitSha": "0497f14cfc97cc49f9473a4514d9c6f484013024",
+      "parentSha": "8fee5d5fb0115ab923d9527bc08319aa6e7b2467",
+      "commitMessage": "architecture refactor",
+      "size": "large",
+      "prompt": "When a session's very first message hits a provider usage limit, the turn dies as a generic failure instead of entering the provider-limit park-and-resume flow, so the prompt is lost and nothing resumes when the limit resets. Two more gaps sit around it: raw app-server rate-limit updates that carry a rate-limit-reached type are mistaken for parsed snapshots, and continuation turns after a park can be sent twice or dropped entirely. Make initial-prompt limit errors route through the provider-limit funnel like later turns (parking the initial prompt itself), keep the initial prompt undelivered once a known limit takes the turn, still surface the failure notice when the funnel declines the error, parse raw rate-limit updates correctly, and make continuation re-sends prefer the parked prompt, send nothing when there is nothing to send, and never double-send.",
+      "hiddenTests": [
+        "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
+        "src/main/instance/instance-communication.spec.ts",
+        "src/main/instance/instance-provider-limit-handler.spec.ts",
+        "src/main/providers/account-pool/account-telemetry-bridge.spec.ts"
+      ],
+      "hiddenTestCommand": [
+        "npm", "run", "test:quiet", "--",
+        "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
+        "src/main/instance/instance-communication.spec.ts",
+        "src/main/instance/instance-provider-limit-handler.spec.ts",
+        "src/main/providers/account-pool/account-telemetry-bridge.spec.ts"
+      ],
+      "damageCommands": [
+        ["node", "--max-old-space-size=8192", "node_modules/typescript/bin/tsc", "--noEmit"],
+        ["npm", "run", "lint:fast"]
+      ],
+      "sourceFiles": [
+        "src/main/instance/instance-communication.ts",
+        "src/main/instance/instance-lifecycle.ts",
+        "src/main/instance/instance-lifecycle.types.ts",
+        "src/main/instance/instance-manager.ts",
+        "src/main/instance/instance-provider-limit-handler.ts",
+        "src/main/instance/instance-provider-limit-resume-scheduler.ts",
+        "src/main/instance/lifecycle/initial-prompt-recovery.ts",
+        "src/main/providers/account-pool/account-telemetry-bridge.ts"
+      ],
+      "verification": {
+        "failOnParent": true,
+        "passOnCommit": true,
+        "checkedAt": "2026-10-14",
+        "evidenceDir": "_scratch/plan-execute-ab/mining/AIO-06",
+        "notes": "Largest task in the bank (8 source files across instance lifecycle, provider-limit handling and account telemetry). Source list is the commit's non-test code files as mined; the commit subject 'architecture refactor' is uninformative, so the prompt is written from the changed behaviour and test intent."
+      }
+    },
+    {
+      "id": "12ST-01",
+      "repoId": "12steps",
+      "commitSha": "bbb61bb92605d5bf36932a557b9201341d733b64",
+      "parentSha": "81317c8fd7e864545851b820a2542707f631dfa7",
+      "commitMessage": "fix(web): re-render Turnstile when a wide column narrows",
+      "size": "small",
+      "prompt": "The Cloudflare Turnstile widget is not re-rendered when its grid column narrows after a layout change, so it keeps its old size and ends up clipped or overflowing. Make the widget re-render when the width available to it changes.",
+      "hiddenTests": ["apps/web/src/app/shared/components/turnstile-widget.component.spec.ts"],
+      "hiddenTestCommand": [
+        "sh", "-c",
+        "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/shared/components/turnstile-widget.component.spec.ts\" --watch=false"
+      ],
+      "damageCommands": [
+        ["sh", "-c", "cd apps/web && pnpm run generate:locales && npx tsc -p tsconfig.spec.json --noEmit"]
+      ],
+      "sourceFiles": ["apps/web/src/app/shared/components/turnstile-widget.component.ts"],
+      "verification": {
+        "failOnParent": true,
+        "passOnCommit": true,
+        "checkedAt": "2026-10-14",
+        "evidenceDir": "_scratch/plan-execute-ab/mining/12ST-01",
+        "notes": "12steps web specs run under the Angular unit-test builder (vitest). Verification exports use `pnpm install --prefer-offline` in the throwaway copy."
+      }
+    },
+    {
+      "id": "12ST-02",
+      "repoId": "12steps",
+      "commitSha": "00ac9cf9a890590ba418dcbce11001f35bc97be9",
+      "parentSha": "c0572735c39ff2fd75798d32894be301f01c9961",
+      "commitMessage": "fix(web): restore the published word order in the Merton prayer",
+      "size": "small",
+      "prompt": "The Merton prayer's English text has drifted away from the officially published word order. Restore the exact published wording and order, keeping every translation and the prayer data model intact.",
+      "hiddenTests": ["apps/web/src/app/prayers/models/prayers.spec.ts"],
+      "hiddenTestCommand": [
+        "sh", "-c",
+        "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/prayers/models/prayers.spec.ts\" --watch=false"
+      ],
+      "damageCommands": [
+        ["sh", "-c", "cd apps/web && pnpm run generate:locales && npx tsc -p tsconfig.spec.json --noEmit"]
+      ],
+      "sourceFiles": ["apps/web/src/app/prayers/models/prayers.ts"],
+      "verification": {
+        "failOnParent": true,
+        "passOnCommit": true,
+        "checkedAt": "2026-10-14",
+        "evidenceDir": "_scratch/plan-execute-ab/mining/12ST-02"
+      }
+    },
+    {
+      "id": "12ST-03",
+      "repoId": "12steps",
+      "commitSha": "7297291103d578aef8022347dd73773f9b3f23f0",
+      "parentSha": "d07a841446ef03b6e851151ced29b272369a47ad",
+      "commitMessage": "feat(web): ask Android visitors to join the Play closed test",
+      "size": "medium",
+      "prompt": "Android visitors are never told there is a closed Play test they can join. Add a banner that asks Android visitors to join the Play closed test: it appears in the home experience only for Android devices, does nothing for other visitors, and its markup passes the accessibility suite.",
+      "hiddenTests": [
+        "apps/web/src/app/home/home.component.spec.ts",
+        "apps/web/src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts"
+      ],
+      "hiddenTestCommand": [
+        "sh", "-c",
+        "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/home/home.component.spec.ts\" --include=\"src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts\" --watch=false"
+      ],
+      "damageCommands": [
+        ["sh", "-c", "cd apps/web && pnpm run generate:locales && npx tsc -p tsconfig.spec.json --noEmit"]
+      ],
+      "sourceFiles": [
+        "apps/web/src/app/app.ts",
+        "apps/web/src/app/home/home.component.ts",
+        "apps/web/src/app/shared/components/android-test-banner/android-test-banner.component.ts"
+      ],
+      "verification": {
+        "failOnParent": true,
+        "passOnCommit": true,
+        "checkedAt": "2026-10-14",
+        "evidenceDir": "_scratch/plan-execute-ab/mining/12ST-03",
+        "notes": "The commit also touched two Playwright e2e specs (apps/web/e2e/accessibility.spec.ts, apps/web/e2e/android-test-banner.spec.ts). They are excluded from the hidden tests because e2e runs need a built app and browsers; the two unit specs are the held-back scoring tests. Recorded so the full run can widen this if James wants e2e coverage scored."
+      }
+    },
+    {
+      "id": "12ST-04",
+      "repoId": "12steps",
+      "commitSha": "755a63449dc717a7c568eed2d6d29b5298ea873b",
+      "parentSha": "65872c8b5da2a5c241cfafb845e131b0d6756b55",
+      "commitMessage": "fix(web): keep autosave quiet while writing",
+      "size": "large",
+      "prompt": "Save feedback is noisy while a user is typing: the app shell, the autosave indicator and the bottom-nav save line all flash progress and failure states for saves that are still in flight, and a save that was delivered successfully can still flash the sidebar red. Keep autosave quiet while writing: in-flight saves must not flash failure states, delivered saves must never show the red failure state, and every save surface must settle from one shared feedback timeline.",
+      "hiddenTests": [
+        "apps/web/src/app/shared/components/app-shell/app-shell.component.spec.ts",
+        "apps/web/src/app/shared/components/autosave-indicator.component.spec.ts",
+        "apps/web/src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts",
+        "apps/web/src/app/shared/services/save-feedback.service.spec.ts"
+      ],
+      "hiddenTestCommand": [
+        "sh", "-c",
+        "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/shared/components/app-shell/app-shell.component.spec.ts\" --include=\"src/app/shared/components/autosave-indicator.component.spec.ts\" --include=\"src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts\" --include=\"src/app/shared/services/save-feedback.service.spec.ts\" --watch=false"
+      ],
+      "damageCommands": [
+        ["sh", "-c", "cd apps/web && pnpm run generate:locales && npx tsc -p tsconfig.spec.json --noEmit"]
+      ],
+      "sourceFiles": [
+        "apps/web/src/app/shared/components/app-shell/app-shell.component.ts",
+        "apps/web/src/app/shared/components/autosave-indicator.component.ts",
+        "apps/web/src/app/shared/components/bottom-nav/bottom-nav.component.ts",
+        "apps/web/src/app/shared/components/save-snake.component.ts",
+        "apps/web/src/app/shared/services/autosave.ts",
+        "apps/web/src/app/shared/services/save-feedback.service.ts"
+      ],
+      "verification": {
+        "failOnParent": true,
+        "passOnCommit": true,
+        "checkedAt": "2026-10-14",
+        "evidenceDir": "_scratch/plan-execute-ab/mining/12ST-04",
+        "notes": "Largest 12steps task (6 source files across the shell, indicators and the save-feedback service)."
+      }
+    }
+  ]
+}

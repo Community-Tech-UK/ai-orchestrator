@@ -1,0 +1,28 @@
+{
+  "measuredAt": "2026-10-27T13:09:59.023Z",
+  "result": {
+    "usage": {
+      "inputTokens": 34179,
+      "outputTokens": 432,
+      "cacheReadTokens": 34656,
+      "cacheWriteTokens": 0
+    },
+    "turns": 4,
+    "toolErrors": [],
+    "hitTurnCap": false,
+    "durationMs": 30823,
+    "exitCode": 0,
+    "timedOut": false
+  },
+  "tools": [
+    "Read",
+    "Edit",
+    "Bash"
+  ],
+  "answer": "42",
+  "independentTest": {
+    "exitCode": 0,
+    "output": "\n> test\n> node verify.cjs\n\nsmoke test passed\n"
+  },
+  "cacheObserved": true
+}

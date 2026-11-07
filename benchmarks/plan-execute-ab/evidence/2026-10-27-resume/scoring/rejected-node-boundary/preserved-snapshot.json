@@ -1,0 +1,22 @@
+{
+  "scoring-boundary.cjs": {
+    "sha256": "909889cb32d332e8b504eeef6a94417b2879b8dd17e3e8db2bf6da07b908eecf",
+    "matchesIndependentSnapshot": true
+  },
+  "scoring-runtime.ts": {
+    "sha256": "95ea5a0521c04ddb24e33d2da7e99b9c27a1df16d3748177de29aa6e45a1e530",
+    "matchesIndependentSnapshot": true
+  },
+  "scorer.ts": {
+    "sha256": "d4f0756abbea5db2f09fd823be091a0f9f0e77e3921abe4a797302dd0e60e20a",
+    "matchesIndependentSnapshot": true
+  },
+  "scoring-setup.ts": {
+    "sha256": "438343cb1fb80e62ff01d473b7fb53fb3ca14848eaf835aeea246460e075b29c",
+    "matchesIndependentSnapshot": true
+  },
+  "types.ts": {
+    "sha256": "c88957b438fa258a8ec0b2e67be544daa674ccf2014438d15287039c343c6e62",
+    "matchesIndependentSnapshot": true
+  }
+}

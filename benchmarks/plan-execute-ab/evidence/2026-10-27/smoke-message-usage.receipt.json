@@ -1,0 +1,40 @@
+[
+  {
+    "usage": {
+      "cache_read_input_tokens": 0,
+      "input_tokens": 16959,
+      "output_tokens": 0
+    },
+    "tools": [
+      "Read"
+    ]
+  },
+  {
+    "usage": {
+      "cache_read_input_tokens": 0,
+      "input_tokens": 17083,
+      "output_tokens": 0
+    },
+    "tools": [
+      "Edit"
+    ]
+  },
+  {
+    "usage": {
+      "cache_read_input_tokens": 17243,
+      "input_tokens": 108,
+      "output_tokens": 0
+    },
+    "tools": [
+      "Bash"
+    ]
+  },
+  {
+    "usage": {
+      "cache_read_input_tokens": 17413,
+      "input_tokens": 29,
+      "output_tokens": 0
+    },
+    "tools": []
+  }
+]

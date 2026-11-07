@@ -1,0 +1,7 @@
+{
+  "name": "aio-owned-scoring-control",
+  "private": true,
+  "dependencies": {
+    "vitest": "3.2.7"
+  }
+}

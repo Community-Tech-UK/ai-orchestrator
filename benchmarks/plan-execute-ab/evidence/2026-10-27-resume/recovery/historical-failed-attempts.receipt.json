@@ -1,0 +1,40 @@
+[
+  {
+    "cell": "12ST-04-D",
+    "issue": "AssertionError: ('shared/services/save-feedback.service.ts', '  private timer: Rea')",
+    "source": "/Users/suas/.claude/projects/-private-tmp-plan-execute-ab-12ST-04-D-1/b6e8d931-b59a-4578-89e7-aaca87f6566f.jsonl",
+    "originalResults": [
+      {
+        "sourceRow": 47,
+        "sourceRowUtf8Sha256": "c6a7b0932027a7629d50100cffafdeec3e21fbccd519dcd81ea26d499c81e7fa",
+        "isError": false,
+        "failureMarkers": [
+          "AssertionError",
+          "Traceback",
+          "Error"
+        ],
+        "outputSha256": "840c01c78690ce88538eb8e75ae31939967eda06f336c9cedd88a6d1d337a5a3",
+        "failureExcerpt": "Traceback (most recent call last):\n  File \"<stdin>\", line 76, in <module>\n  File \"<stdin>\", line 3, in sub\nAssertionError: ('shared/services/save-feedback.service.ts', '  private timer: Rea')\n apps/web/src/app/content/content-outbox.service.ts | 31 ++++++++++++++++++++++\n apps/web/src/app/content/content.service.ts        | 11 +++++---\n apps/web/src/app/shared/services/autosave.ts       |  6 ++---\n .../app/shared/services/save-feedback.service.ts   |  3 +++\n 4 files changed, 44 insertions(+), 7 deletions(-)\n\n> @12steps/web@0.0.0 typecheck /private/tmp/plan-execute-ab/12ST-04-D-1/apps/web\n> pnp"
+      }
+    ]
+  },
+  {
+    "cell": "AIO-06-G",
+    "issue": "ValueError: Patch context absent: - Expanded final focused run: 261 tests across 8 files passed (`_scratch/test-run.pid-40702.log`).\n",
+    "source": "/Users/suas/.codex/sessions/2026/10/15/rollout-2026-10-15T23-24-12-01a141aa-7447-7ea3-985d-bd88112a48ce.jsonl.zst",
+    "originalResults": [
+      {
+        "sourceRow": 789,
+        "sourceRowUtf8Sha256": "c8241b482e301878ff5b6ac60abeadd022c895919ba8da93ba6d354ed1af5c86",
+        "failureMarkers": [
+          "Failed to find expected lines",
+          "error",
+          "failed",
+          "Failed"
+        ],
+        "outputSha256": "6a72dae9eaf32d3196345b3e689fadb2440a620eef895192f1bdaaa862d4d2f1",
+        "failureExcerpt": "[{'type': 'input_text', 'text': 'Script failed\\nWall time 0.0 seconds\\nOutput:\\n'}, {'type': 'input_text', 'text': 'Script error:\\napply_patch verification failed: Failed to find expected lines in /tmp/plan-execute-ab/AIO-06-G-1/docs/plans/2026-10-15-initial-provider-limit_plan.md:\\n- Expanded final focused run: 261 tests across 8 files passed (`_scratch/test-run.pid-40702.log`).'}]"
+      }
+    ]
+  }
+]

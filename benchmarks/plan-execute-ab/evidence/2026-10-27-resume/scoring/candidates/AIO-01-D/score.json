@@ -1,0 +1,124 @@
+{
+  "candidate": {
+    "taskId": "AIO-01",
+    "armId": "D",
+    "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/AIO-01-D-transcript-reconstructed.patch",
+    "sha256": "02199268012d48ba0c2f66d5dfb484194038f805ed0dcf3ecd8c0de545590e8f",
+    "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+    "classification": "transcript-reconstruction",
+    "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/aio01-transcript-reconstruction.receipt.json",
+    "diagnosticOnly": false
+  },
+  "sourceHashes": {
+    "scorer.ts": "2f7214ae591d44041be6628ab5f9bd4b72b16574058e914817c8be2c336e0127",
+    "scoring-setup.ts": "2efdae0dce8bc5e7af9d430c2efe79dbe88d6ae07481bc51fc7d4c5891cc4f11",
+    "task-export.ts": "9ac6c1a14a6e5a742d8a38e63b005424a5e8266568257f7f50c79de35f838f6e",
+    "types.ts": "1926f7d2b93482ddfd0c9fd25518eaab94080d7c9bd29e1cff2d4858e47ff75f",
+    "tasks/task-bank.json": "376c4cf8ecb838eed8f5bcaaea6ead9b04b85eeaad0b0e70da9c5e9c8e7b892a",
+    "tasks/aio-01-scoring-v2.patch": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468"
+  },
+  "parentSha": "f04f674859b220b86eeb52662129072008573af9",
+  "fixedSha": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+  "dependencyReceipt": {
+    "fingerprint": "b962068a845cbf165da877724742e43a208fa7fa5766d00d3a8bf87b473c86d5",
+    "files": {
+      "apps/mobile/package.json": "d97e9e262c3d2d339dfd4081baf2056effbf00b3979cc0b57f3ad0fe23d23038",
+      "benchmarks/external-benchmarks/bfcl/package.json": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+      "benchmarks/orchestrator-benchmark/package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+      "package-lock.json": "021e5949e51e8dd7847f514cf4142baf8d4e18e818a450ea3d41045fd1691d97",
+      "package.json": "6adee217290061578d1afd43e4ccbbd71097b1d3a10574f014822f4bf1591298",
+      "packages/archiver-compat/package.json": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+      "packages/contracts/package.json": "c20adf5e2edb10101f0c42fccf4e2131c336204a26df832dcbd8e0130ab1fb96",
+      "packages/sdk/package.json": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a"
+    },
+    "command": [
+      "npm",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "exitCode": 0,
+    "timedOut": false,
+    "nodeVersion": "v26.12.1",
+    "runtimePreparation": [
+      {
+        "command": [
+          "/opt/homebrew/Cellar/node/26.12.1/bin/node",
+          "node_modules/electron/install.js"
+        ],
+        "exitCode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timedOut": false,
+        "durationMs": 2019
+      },
+      {
+        "command": [
+          "npm",
+          "rebuild",
+          "better-sqlite3"
+        ],
+        "exitCode": 0,
+        "stdout": "rebuilt dependencies successfully\n",
+        "stderr": "npm warn rebuild 11 packages have install scripts not yet covered by allowScripts. Run `npm install-scripts ls` to review.\n",
+        "timedOut": false,
+        "durationMs": 2763
+      }
+    ]
+  },
+  "manifestSha256": "7341f00b4a0ad4fa60535d37dea0b8c57615e71e8fe7013959a86efeab6deaf7",
+  "isolatedGitRoot": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+  "appliedFiles": {
+    "src/main/history/history-archive-serialization.spec.ts": "5060174d839a99e61e408c3289c22152bce04685",
+    "src/main/history/history-archive-serialization.ts": "6f16e6fa2b98875e06042228fd0b3045dfffd656",
+    "src/main/history/history-manager.spec.ts": "f0c065c2ef16fa40d81bdc1f061dd079f3f8d49c",
+    "src/main/history/history-manager.ts": "5759c003855dc9cb30c2fb05d707448dc096588b"
+  },
+  "score": {
+    "contract": {
+      "version": "aio-01-startup-order-v2",
+      "amendmentSha256": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468",
+      "dependencyFingerprint": "b962068a845cbf165da877724742e43a208fa7fa5766d00d3a8bf87b473c86d5"
+    },
+    "hiddenTests": {
+      "passed": true,
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/history/history-manager.spec.ts"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/history/history-manager.spec.ts\n\n✓ 1 files · 41 tests passed in 8.1s\n  full log: _scratch/test-run.pid-81846.log\n\n"
+    },
+    "damage": [
+      {
+        "ok": true,
+        "command": [
+          "node",
+          "--max-old-space-size=8192",
+          "node_modules/typescript/bin/tsc",
+          "--noEmit"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "\n"
+      },
+      {
+        "ok": true,
+        "command": [
+          "npm",
+          "run",
+          "lint:fast"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "i-provider.ts:308:19: warning eslint(no-unused-vars): Parameter 'graceful' is declared but never used. Unused parameters should start with a '_'. help: Consider removing this parameter.\nsrc/main/learning/metrics-collector.spec.ts:11:3: warning eslint(no-unused-vars): Type 'SessionMetrics' is imported but never used. help: Consider removing this import.\nsrc/main/learning/metrics-collector.spec.ts:12:3: warning eslint(no-unused-vars): Type 'MetricsReport' is imported but never used. help: Consider removing this import.\nsrc/main/learning/metrics-collector.spec.ts:13:3: warning eslint(no-unused-vars): Type 'BaselineSnapshot' is imported but never used. help: Consider removing this import.\nsrc/main/learning/strategy-learner.ts:19:3: warning eslint(no-unused-vars): Identifier 'PatternType' is imported but never used. help: Consider removing this import.\nsrc/main/learning/strategy-learner.ts:92:5: warning eslint(no-unused-vars): Parameter 'context' is declared but never used. Unused parameters should start with a '_'. help: Consider removing this parameter.\nsrc/main/learning/strategy-learner.ts:202:5: warning eslint(no-unused-vars): Parameter 'experience' is declared but never used. Unused parameters should start with a '_'. help: Consider removing this parameter.\nsrc/main/learning/strategy-learner.ts:333:30: warning eslint(no-unused-vars): Parameter 'taskType' is declared but never used. Unused parameters should start with a '_'. help: Consider removing this parameter.\nsrc/main/core/system/provider-quota-service.ts:128:33: warning unicorn(no-useless-spread): Using a spread operator here creates a new array unnecessarily. help: `for…of` can iterate over iterable, it's unnecessary to convert to an array.\nsrc/main/core/system/provider-quota-service.ts:268:18: warning eslint(eqeqeq): Expected === and instead saw == help: Prefer === operator\nsrc/main/core/system/provider-quota-service.ts:424:26: warning unicorn(no-useless-spread): Using a spread operator here creates a new array unnecessarily. help: `for…of` can iterate over iterable, it's unnecessary to convert to an array.\nsrc/main/core/system/provider-quota-service.ts:427:26: warning unicorn(no-useless-spread): Using a spread operator here creates a new array unnecessarily. help: `for…of` can iterate over iterable, it's unnecessary to convert to an array.\nsrc/main/core/system/health-checker.ts:350:32: warning typescript(no-require-imports): Expected \"import\" statement instead of \"require\" call help: Do not use CommonJS `require` calls\nsrc/main/core/system/health-checker.ts:351:18: warning typescript(no-require-imports): Expected \"import\" statement instead of \"require\" call help: Do not use CommonJS `require` calls\nsrc/main/core/system/health-checker.ts:352:20: warning typescript(no-require-imports): Expected \"import\" statement instead of \"require\" call help: Do not use CommonJS `require` calls\nsrc/main/providers/anthropic-api-provider.spec.ts:7:10: warning eslint(no-unused-vars): Identifier 'PromptCacheManager' is imported but never used. help: Consider removing this import.\nsrc/main/providers/anthropic-api-provider.spec.ts:8:10: warning eslint(no-unused-vars): Identifier 'ContextEditingFallback' is imported but never used. help: Consider removing this import.\nsrc/main/providers/anthropic-api-provider.spec.ts:9:15: warning eslint(no-unused-vars): Type 'ProviderConfig' is imported but never used. help: Consider removing this import.\nsrc/main/core/config/claude-md-loader.ts:308:16: warning eslint(no-unused-vars): Catch parameter 'error' is caught but never used. help: Consider handling this error.\nsrc/main/core/config/remote-config.ts:349:16: warning eslint(no-unused-vars): Catch parameter 'error' is caught but never used. help: Consider handling this error.\nsrc/main/core/config/remote-config.ts:416:23: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\n\n"
+      }
+    ],
+    "damageOk": true
+  }
+}

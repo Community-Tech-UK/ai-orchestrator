@@ -1,0 +1,12 @@
+[
+  {
+    "id": "ab222501-1828-4310-8d7d-3188a156a17c",
+    "sequence": 6,
+    "content": "index, name, pcie.link.gen.current, pcie.link.gen.max, pcie.link.width.current, pcie.link.width.max, memory.used [MiB], memory.total [MiB]\r\n0, NVIDIA GeForce RTX 5090, 5, 5, 16, 16, 31968 MiB, 32607 MiB\r\n"
+  },
+  {
+    "id": "cb0980a1-00c8-430e-9d73-5297b69fd7bf",
+    "sequence": 10,
+    "content": "llama-server:absent\ncmake:absent\nnvcc:absent\n"
+  }
+]

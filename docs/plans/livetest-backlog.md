@@ -15,6 +15,8 @@ Current ownership is split across:
   — seven expensive or exclusive but agent-runnable campaigns.
 - Every other unsuffixed `*_livetest.md` owner created after or not absorbed by that consolidation.
   Discover those files from the checkout rather than copying a static count from this document.
+- The [local-model plan/execute pilot](2026-10-14-local-model-plan-execute-ab_plan_livetest.md)
+  owns its per-check evidence and remaining actions; keep its current results in that document.
 
 The fifteen dated `*-livetest-backlog-status-report.md` files were deleted on 2026-09-06 after
 their content — including items that had quietly stopped being restated — was merged here. Closed

@@ -1,0 +1,8 @@
+{
+  "checkedAt": "2026-10-27T13:07:22.699448+00:00",
+  "statuses": {
+    "missing": 401,
+    "wrong": 401,
+    "configured": 200
+  }
+}

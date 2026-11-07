@@ -1,0 +1,17 @@
+{
+  "measuredAt": "2026-10-27T13:09:27.982Z",
+  "promptPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/phase0/real-prompt-30k.txt",
+  "promptChars": 117387,
+  "endpoint": "127.0.0.1:18900 -> tailnet native 2.60.0:1235",
+  "context": 65536,
+  "parallel": 1,
+  "sample": {
+    "promptTokensPerSec": 2774.6153846153848,
+    "writeTokensPerSec": 51.32317562149157,
+    "promptTokens": 36071,
+    "writeTokens": 256,
+    "durationMs": 30988,
+    "measuredPromptSpeed": true,
+    "source": "wall-clock"
+  }
+}

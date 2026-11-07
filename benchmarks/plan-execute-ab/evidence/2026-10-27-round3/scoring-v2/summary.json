@@ -1,0 +1,260 @@
+{
+  "version": "ordering-v2-historical-lockfile",
+  "parent": "f04f674859b220b86eeb52662129072008573af9",
+  "fixed": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+  "amendmentSha256": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468",
+  "runs": {
+    "parent": {
+      "hidden1": {
+        "at": "2026-10-27T14:23:56.577089+00:00",
+        "command": [
+          "npm",
+          "run",
+          "test:quiet",
+          "--",
+          "src/main/history/history-manager.spec.ts"
+        ],
+        "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "exitCode": 1,
+        "durationSeconds": 3.874,
+        "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/parent-hidden-1.log.gz",
+        "counts": {
+          "numTotalTests": 41,
+          "numPassedTests": 40,
+          "numFailedTests": 1
+        },
+        "failures": [
+          {
+            "ancestorTitles": [
+              "HistoryManager"
+            ],
+            "fullName": "HistoryManager does not begin the safety backup before the pending startup writers settle",
+            "status": "failed",
+            "title": "does not begin the safety backup before the pending startup writers settle",
+            "duration": 10.860207999999943,
+            "failureMessages": [
+              "AssertionError: clearAll entered the safety backup while the startup write was blocked: expected 'backup-entry' to be 'startup-wait' // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:370:9\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+            ],
+            "meta": {}
+          }
+        ],
+        "rawLogs": [
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/parent-1-test-run.pid-70434.log.gz"
+        ]
+      },
+      "hidden2": {
+        "at": "2026-10-27T14:24:00.124145+00:00",
+        "command": [
+          "npm",
+          "run",
+          "test:quiet",
+          "--",
+          "src/main/history/history-manager.spec.ts"
+        ],
+        "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "exitCode": 1,
+        "durationSeconds": 3.546,
+        "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/parent-hidden-2.log.gz",
+        "counts": {
+          "numTotalTests": 41,
+          "numPassedTests": 40,
+          "numFailedTests": 1
+        },
+        "failures": [
+          {
+            "ancestorTitles": [
+              "HistoryManager"
+            ],
+            "fullName": "HistoryManager does not begin the safety backup before the pending startup writers settle",
+            "status": "failed",
+            "title": "does not begin the safety backup before the pending startup writers settle",
+            "duration": 12.470916999999986,
+            "failureMessages": [
+              "AssertionError: clearAll entered the safety backup while the startup write was blocked: expected 'backup-entry' to be 'startup-wait' // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:370:9\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+            ],
+            "meta": {}
+          }
+        ],
+        "rawLogs": [
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/parent-2-test-run.pid-70612.log.gz",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/parent-2-test-run.pid-70434.log.gz"
+        ]
+      },
+      "sourceSha256": "89e026b0e26eca09067234605a32b9aa6d6fd24f91661cdf7d0b9755b5b58a6c",
+      "specSha256": "20c5a3cbebbca623c5e176cefc03602434f964408d51a4a0048b7f18f89e4a4b"
+    },
+    "fixed": {
+      "hidden1": {
+        "at": "2026-10-27T14:24:06.721195+00:00",
+        "command": [
+          "npm",
+          "run",
+          "test:quiet",
+          "--",
+          "src/main/history/history-manager.spec.ts"
+        ],
+        "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "exitCode": 0,
+        "durationSeconds": 4.376,
+        "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/fixed-hidden-1.log.gz",
+        "counts": {
+          "numTotalTests": 41,
+          "numPassedTests": 41,
+          "numFailedTests": 0
+        },
+        "failures": [],
+        "rawLogs": [
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/fixed-1-test-run.pid-70804.log.gz"
+        ]
+      },
+      "hidden2": {
+        "at": "2026-10-27T14:24:11.039180+00:00",
+        "command": [
+          "npm",
+          "run",
+          "test:quiet",
+          "--",
+          "src/main/history/history-manager.spec.ts"
+        ],
+        "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "exitCode": 0,
+        "durationSeconds": 4.317,
+        "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/fixed-hidden-2.log.gz",
+        "counts": {
+          "numTotalTests": 41,
+          "numPassedTests": 41,
+          "numFailedTests": 0
+        },
+        "failures": [],
+        "rawLogs": [
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/fixed-2-test-run.pid-70804.log.gz",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/fixed-2-test-run.pid-73799.log.gz"
+        ]
+      },
+      "typecheck": {
+        "at": "2026-10-27T14:24:25.558635+00:00",
+        "command": [
+          "node",
+          "node_modules/typescript/bin/tsc",
+          "--noEmit"
+        ],
+        "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "exitCode": 0,
+        "durationSeconds": 14.517,
+        "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/fixed-typecheck.log.gz"
+      },
+      "lint": {
+        "at": "2026-10-27T14:24:25.671474+00:00",
+        "command": [
+          "node_modules/.bin/oxlint",
+          "--no-ignore",
+          "--config",
+          ".oxlintrc.json",
+          "src/main",
+          "src/shared",
+          "src/preload",
+          "packages/contracts/src",
+          "packages/sdk/src"
+        ],
+        "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "exitCode": 1,
+        "durationSeconds": 0.112,
+        "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/fixed-lint.log.gz"
+      },
+      "sourceSha256": "0a43dd9c483021d7e5343a031d7acd18eb5dc86df659df61a4ed8113043baf3a",
+      "specSha256": "20c5a3cbebbca623c5e176cefc03602434f964408d51a4a0048b7f18f89e4a4b"
+    },
+    "microtask-only-parent": {
+      "hidden1": {
+        "at": "2026-10-27T14:24:33.090159+00:00",
+        "command": [
+          "npm",
+          "run",
+          "test:quiet",
+          "--",
+          "src/main/history/history-manager.spec.ts"
+        ],
+        "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "exitCode": 1,
+        "durationSeconds": 4.492,
+        "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/microtask-only-parent-hidden-1.log.gz",
+        "counts": {
+          "numTotalTests": 41,
+          "numPassedTests": 40,
+          "numFailedTests": 1
+        },
+        "failures": [
+          {
+            "ancestorTitles": [
+              "HistoryManager"
+            ],
+            "fullName": "HistoryManager does not begin the safety backup before the pending startup writers settle",
+            "status": "failed",
+            "title": "does not begin the safety backup before the pending startup writers settle",
+            "duration": 20.90062499999999,
+            "failureMessages": [
+              "AssertionError: clearAll entered the safety backup while the startup write was blocked: expected 'backup-entry' to be 'startup-wait' // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:370:9\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+            ],
+            "meta": {}
+          }
+        ],
+        "rawLogs": [
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/microtask-only-parent-1-test-run.pid-92302.log.gz"
+        ]
+      },
+      "hidden2": {
+        "at": "2026-10-27T14:24:36.911421+00:00",
+        "command": [
+          "npm",
+          "run",
+          "test:quiet",
+          "--",
+          "src/main/history/history-manager.spec.ts"
+        ],
+        "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "exitCode": 1,
+        "durationSeconds": 3.82,
+        "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/microtask-only-parent-hidden-2.log.gz",
+        "counts": {
+          "numTotalTests": 41,
+          "numPassedTests": 39,
+          "numFailedTests": 2
+        },
+        "failures": [
+          {
+            "ancestorTitles": [
+              "HistoryManager"
+            ],
+            "fullName": "HistoryManager waits for startup backfill before snapshotting and clearing history",
+            "status": "failed",
+            "title": "waits for startup backfill before snapshotting and clearing history",
+            "duration": 11.460666000000003,
+            "failureMessages": [
+              "Error: ENOENT: no such file or directory, copyfile '/var/folders/0n/fs5yys3d0vg0c838h75hyrm00000gn/T/history-manager-h7BJql/conversation-history.bak-20261027-142436-458/entry-startup-race.json.gz.e288157e-9574-4f80-a9e1-29b5ed0cc333.tmp'"
+            ],
+            "meta": {}
+          },
+          {
+            "ancestorTitles": [
+              "HistoryManager"
+            ],
+            "fullName": "HistoryManager does not begin the safety backup before the pending startup writers settle",
+            "status": "failed",
+            "title": "does not begin the safety backup before the pending startup writers settle",
+            "duration": 14.944834000000014,
+            "failureMessages": [
+              "AssertionError: clearAll entered the safety backup while the startup write was blocked: expected 'backup-entry' to be 'startup-wait' // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:370:9\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+            ],
+            "meta": {}
+          }
+        ],
+        "rawLogs": [
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/microtask-only-parent-2-test-run.pid-95501.log.gz",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2/microtask-only-parent-2-test-run.pid-92302.log.gz"
+        ]
+      },
+      "sourceSha256": "cbb1baae7dc995c7474af69e3ee420e9ff15cf97fa0e887409d804f9aca8fc15",
+      "specSha256": "20c5a3cbebbca623c5e176cefc03602434f964408d51a4a0048b7f18f89e4a4b"
+    }
+  }
+}

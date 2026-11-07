@@ -1,0 +1,60 @@
+--- a/benchmarks/plan-execute-ab/local-anthropic-proxy.ts
++++ b/benchmarks/plan-execute-ab/local-anthropic-proxy.ts
+@@ -25,23 +25,25 @@
+ /** Move in-array system messages into the top-level system blocks. */
+ export function normalizeBody(parsed: NormalizedBody): NormalizedBody {
+   const messages = Array.isArray(parsed.messages) ? parsed.messages : [];
+-  const lifted: string[] = [];
++  const lifted: unknown[] = [];
+   const kept: MessageLike[] = [];
+   for (const message of messages) {
+     if (message && message.role === 'system') {
+-      const content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content ?? '');
+-      lifted.push(content);
++      const content = Array.isArray(message.content)
++        ? message.content
++        : [{ type: 'text', text: typeof message.content === 'string' ? message.content : JSON.stringify(message.content ?? '') }];
++      lifted.push(...content);
+     } else {
+       kept.push(message);
+     }
+   }
+   if (lifted.length === 0) return parsed;
+-  const system: { type: string; text: string }[] = Array.isArray(parsed.system)
+-    ? [...(parsed.system as { type: string; text: string }[])]
++  const system: unknown[] = Array.isArray(parsed.system)
++    ? [...parsed.system]
+     : parsed.system
+       ? [{ type: 'text', text: String(parsed.system) }]
+       : [];
+-  for (const text of lifted) system.push({ type: 'text', text });
++  system.push(...lifted);
+   return { ...parsed, system, messages: kept };
+ }
+ 
+--- a/benchmarks/plan-execute-ab/local-anthropic-proxy.spec.ts
++++ b/benchmarks/plan-execute-ab/local-anthropic-proxy.spec.ts
+@@ -125,6 +125,23 @@
+     expect(out).toEqual(body);
+   });
+ 
++  it('preserves the same system prefix when the CLI switches text blocks to a string', () => {
++    const request = (content: unknown) => ({
++      system: [{ type: 'text', text: 'main system' }],
++      messages: [{ role: 'system', content }, { role: 'user', content: 'task' }],
++    });
++    const text = '# Environment\nWorking directory: /tmp/example';
++    expect(normalizeBody(request([{ type: 'text', text }]))).toEqual(normalizeBody(request(text)));
++  });
++
++  it('preserves lifted block boundaries and cache metadata without encoding JSON as text', () => {
++    const blocks = [
++      { type: 'text', text: 'environment' },
++      { type: 'text', text: 'reminder', cache_control: { type: 'ephemeral' } },
++    ];
++    expect(normalizeBody({ messages: [{ role: 'system', content: blocks }] }).system).toEqual(blocks);
++  });
++
+   it('classifies connect-level upstream failures as retryable', () => {
+     expect(isConnectClassError('connect ETIMEDOUT 100.113.93.104:1234')).toBe(true);
+     expect(isConnectClassError('read ETIMEDOUT')).toBe(true);

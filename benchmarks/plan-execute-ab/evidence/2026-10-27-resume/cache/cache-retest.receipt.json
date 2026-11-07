@@ -1,0 +1,170 @@
+{
+  "at": "2026-10-27T15:54:13.643Z",
+  "servingSetup": "llama-server-2.60.0-35b-65536",
+  "result": {
+    "finalText": "Done:\n\n1. **Read** — `answer.txt` contained `41`\n2. **Edit** — Changed to `42`\n3. **Test** — `npm test` passed (`answer verified`)",
+    "usage": {
+      "inputTokens": 17062,
+      "outputTokens": 394,
+      "cacheReadTokens": 51618,
+      "cacheWriteTokens": 0
+    },
+    "turns": 4,
+    "toolErrors": [],
+    "hitTurnCap": false,
+    "durationMs": 38764,
+    "exitCode": 0,
+    "timedOut": false,
+    "rawLogPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/cache/smoke-retest.raw.log"
+  },
+  "answer": "42\n",
+  "independent": {
+    "command": [
+      "npm",
+      "test"
+    ],
+    "exitCode": 0,
+    "stdout": "\n> test\n> node check.cjs\n\nanswer verified\n",
+    "stderr": "",
+    "timedOut": false,
+    "durationMs": 785
+  },
+  "requestShapes": [
+    {
+      "differences": [],
+      "at": "2026-10-27T15:53:35.148Z",
+      "systemBlocks": [
+        {
+          "bytes": 124,
+          "sha256": "30d02993d788fda05e0558b10cb5672258e53af7e98350dbca2da249d3571939"
+        },
+        {
+          "bytes": 6265,
+          "sha256": "0eeb4eace51f1aeedca01ef2d4e0050518d6f8e6564342fb58a2ed21e7b0bfc0"
+        },
+        {
+          "bytes": 9705,
+          "sha256": "90dd4224dab045b361bb91a7c2e2c26bd51a3e61b5c1f529c38966aabee17822"
+        }
+      ],
+      "sameSystemAsPrevious": false,
+      "toolsHash": "d380dcbc184b700a4ec1dbb3fe62bc693ff2b92799fc27a4eeb95b9eb6586f9d",
+      "messageCount": 1
+    },
+    {
+      "differences": [
+        {
+          "index": 2,
+          "commonPrefixBytes": 9667,
+          "commonSuffixBytes": 1,
+          "changedBefore": ",\"cache_control\":{\"type\":\"ephemeral\"}",
+          "changedAfter": ""
+        }
+      ],
+      "at": "2026-10-27T15:53:51.141Z",
+      "systemBlocks": [
+        {
+          "bytes": 124,
+          "sha256": "30d02993d788fda05e0558b10cb5672258e53af7e98350dbca2da249d3571939"
+        },
+        {
+          "bytes": 6265,
+          "sha256": "0eeb4eace51f1aeedca01ef2d4e0050518d6f8e6564342fb58a2ed21e7b0bfc0"
+        },
+        {
+          "bytes": 9668,
+          "sha256": "60d225330a5f62f26ed3eff49de21d467836336995b19d7b26a3523205067fda"
+        }
+      ],
+      "sameSystemAsPrevious": false,
+      "toolsHash": "d380dcbc184b700a4ec1dbb3fe62bc693ff2b92799fc27a4eeb95b9eb6586f9d",
+      "messageCount": 3
+    },
+    {
+      "differences": [],
+      "at": "2026-10-27T15:54:00.308Z",
+      "systemBlocks": [
+        {
+          "bytes": 124,
+          "sha256": "30d02993d788fda05e0558b10cb5672258e53af7e98350dbca2da249d3571939"
+        },
+        {
+          "bytes": 6265,
+          "sha256": "0eeb4eace51f1aeedca01ef2d4e0050518d6f8e6564342fb58a2ed21e7b0bfc0"
+        },
+        {
+          "bytes": 9668,
+          "sha256": "60d225330a5f62f26ed3eff49de21d467836336995b19d7b26a3523205067fda"
+        }
+      ],
+      "sameSystemAsPrevious": true,
+      "toolsHash": "d380dcbc184b700a4ec1dbb3fe62bc693ff2b92799fc27a4eeb95b9eb6586f9d",
+      "messageCount": 5
+    },
+    {
+      "differences": [],
+      "at": "2026-10-27T15:54:08.721Z",
+      "systemBlocks": [
+        {
+          "bytes": 124,
+          "sha256": "30d02993d788fda05e0558b10cb5672258e53af7e98350dbca2da249d3571939"
+        },
+        {
+          "bytes": 6265,
+          "sha256": "0eeb4eace51f1aeedca01ef2d4e0050518d6f8e6564342fb58a2ed21e7b0bfc0"
+        },
+        {
+          "bytes": 9668,
+          "sha256": "60d225330a5f62f26ed3eff49de21d467836336995b19d7b26a3523205067fda"
+        }
+      ],
+      "sameSystemAsPrevious": true,
+      "toolsHash": "d380dcbc184b700a4ec1dbb3fe62bc693ff2b92799fc27a4eeb95b9eb6586f9d",
+      "messageCount": 7
+    }
+  ],
+  "messages": [
+    {
+      "id": "chatcmpl-k4wRIHq9dRvPwdmpFHyeYhDJBoc7xlhu",
+      "usage": {
+        "cache_read_input_tokens": 0,
+        "input_tokens": 16918,
+        "output_tokens": 0
+      },
+      "tools": [
+        "Read"
+      ]
+    },
+    {
+      "id": "chatcmpl-SpfiZLfvtKqADzmg7rq7c9Q6ye93eOSg",
+      "usage": {
+        "cache_read_input_tokens": 17041,
+        "input_tokens": 22,
+        "output_tokens": 0
+      },
+      "tools": [
+        "Edit"
+      ]
+    },
+    {
+      "id": "chatcmpl-V6tWRjrIm4PLxcaQtEXY6w3il8xSePR8",
+      "usage": {
+        "cache_read_input_tokens": 17214,
+        "input_tokens": 95,
+        "output_tokens": 0
+      },
+      "tools": [
+        "Bash"
+      ]
+    },
+    {
+      "id": "chatcmpl-cGVBt5TAm1PXgPH3JWmOi8tsCyRApKXF",
+      "usage": {
+        "cache_read_input_tokens": 17363,
+        "input_tokens": 27,
+        "output_tokens": 0
+      },
+      "tools": []
+    }
+  ]
+}

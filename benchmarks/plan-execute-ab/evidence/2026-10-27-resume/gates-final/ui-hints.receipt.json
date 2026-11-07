@@ -1,0 +1,17 @@
+{
+  "label": "ui-hints",
+  "command": [
+    "npm",
+    "run",
+    "check:ui-hints"
+  ],
+  "startedAt": "2026-10-27T16:59:07.352831+00:00",
+  "durationSeconds": 2.397,
+  "exitCode": 0,
+  "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-final/ui-hints.log",
+  "load": [
+    21.375,
+    25.80078125,
+    32.17578125
+  ]
+}

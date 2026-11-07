@@ -1,0 +1,57 @@
+{
+  "at": "2026-10-27T16:16:15.891Z",
+  "endpoints": {
+    "/slots": {
+      "status": 200,
+      "rootKeys": [
+        "0"
+      ],
+      "items": [
+        {
+          "keys": [
+            "id",
+            "n_ctx",
+            "speculative",
+            "is_processing",
+            "id_task",
+            "n_prompt_tokens",
+            "n_prompt_tokens_processed",
+            "n_prompt_tokens_cache",
+            "params",
+            "next_token"
+          ]
+        }
+      ]
+    },
+    "/metrics": {
+      "status": 501,
+      "rootKeys": [
+        "error"
+      ]
+    },
+    "/props": {
+      "status": 200,
+      "rootKeys": [
+        "default_generation_settings",
+        "total_slots",
+        "model_alias",
+        "model_ftype",
+        "model_path",
+        "modalities",
+        "media_marker",
+        "endpoint_slots",
+        "endpoint_props",
+        "endpoint_metrics",
+        "ui",
+        "ui_settings",
+        "chat_template",
+        "chat_template_caps",
+        "bos_token",
+        "eos_token",
+        "build_info",
+        "is_sleeping",
+        "cors_proxy_enabled"
+      ]
+    }
+  }
+}

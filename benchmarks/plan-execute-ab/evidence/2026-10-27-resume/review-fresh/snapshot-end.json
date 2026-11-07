@@ -1,0 +1,25 @@
+{
+  "at": "2026-10-27T16:07:17.791776+00:00",
+  "files": {
+    "benchmarks/plan-execute-ab/README.md": "85fcb65df34f50b57b03ae65c4c5ef86e1c0355da0dd2141748ffb1a68125816",
+    "benchmarks/plan-execute-ab/config.spec.ts": "51a0a8c21ab8e6dcb30b899c74b95a98183b7e6027d05ad48bf36c513e251f5c",
+    "benchmarks/plan-execute-ab/runner.config.json": "367750bbb5d8f58109aed26ccaf921974bbd23823d71f00a63c8756b0faf36c8",
+    "benchmarks/plan-execute-ab/runner.spec.ts": "5c572d004ffd888e34ba20330a3eafb0cebfc6d71f6add57371dbf3b81d0ca08",
+    "benchmarks/plan-execute-ab/runner.ts": "a718984f452549ebf7738468b52d68e1ea41fa991095aebba8d0ca6657c153c3",
+    "benchmarks/plan-execute-ab/scorer.ts": "2f7214ae591d44041be6628ab5f9bd4b72b16574058e914817c8be2c336e0127",
+    "benchmarks/plan-execute-ab/task-bank.ts": "8ae91ed4273e63845db3f917abe1c24de353b8fea9b097d040a8eed5b8a5f0f6",
+    "benchmarks/plan-execute-ab/task-export.spec.ts": "549fa0ed93f71d5cae2384abb37819f8149a99f95e4eea141eb504e313a3243b",
+    "benchmarks/plan-execute-ab/tasks/task-bank.json": "376c4cf8ecb838eed8f5bcaaea6ead9b04b85eeaad0b0e70da9c5e9c8e7b892a",
+    "benchmarks/plan-execute-ab/types.ts": "1926f7d2b93482ddfd0c9fd25518eaab94080d7c9bd29e1cff2d4858e47ff75f",
+    "benchmarks/plan-execute-ab/scoring-setup.ts": "2efdae0dce8bc5e7af9d430c2efe79dbe88d6ae07481bc51fc7d4c5891cc4f11",
+    "benchmarks/plan-execute-ab/scoring-setup.spec.ts": "d331c8357037d20f3651f863462f8c8ff4ffc89c2a8412199c2947a44711b637",
+    "benchmarks/plan-execute-ab/tasks/aio-01-scoring-v2.patch": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468",
+    "benchmarks/plan-execute-ab/local-anthropic-proxy.ts": "9fc57ebf66af002afe75d4eb72c9fd8a558a622c8247bcfa9646331eff0f3769",
+    "benchmarks/plan-execute-ab/local-anthropic-proxy.spec.ts": "8dc0dbfb993da74a7e09ea03df1003e7ee617d7284254f3ec8273969b1b93bca",
+    "_scratch/lt-round3/local-anthropic-proxy.ts.before": "01f14c252e3ceb940cb92b59151ec1a26dc9e431b966440820d29c91a0e553ac"
+  },
+  "changedSinceStart": [
+    "benchmarks/plan-execute-ab/runner.spec.ts",
+    "benchmarks/plan-execute-ab/runner.ts"
+  ]
+}

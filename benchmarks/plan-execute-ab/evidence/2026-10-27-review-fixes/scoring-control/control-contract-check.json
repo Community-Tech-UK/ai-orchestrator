@@ -1,0 +1,28 @@
+{
+  "checks": [
+    {
+      "fixture": "parent",
+      "passedIntendedControlContract": true
+    },
+    {
+      "fixture": "fixed",
+      "passedIntendedControlContract": true
+    },
+    {
+      "fixture": "parent",
+      "passedIntendedControlContract": true
+    },
+    {
+      "fixture": "fixed",
+      "passedIntendedControlContract": true
+    },
+    {
+      "fixture": "microtask-only-parent",
+      "passedIntendedControlContract": true
+    }
+  ],
+  "originalArchivedSpecPreserved": true,
+  "amendmentAddsOnly": true,
+  "globalScoringFixed": false,
+  "archivedAgentPatchesRescored": 0
+}

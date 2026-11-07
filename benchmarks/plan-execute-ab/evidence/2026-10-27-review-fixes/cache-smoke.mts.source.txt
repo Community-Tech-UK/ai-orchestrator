@@ -1,0 +1,62 @@
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { startProxy, normalizeBody } from '../../benchmarks/plan-execute-ab/local-anthropic-proxy';
+import { localEndpointEnv } from '../../benchmarks/plan-execute-ab/arms';
+import { runClaudeAgent } from '../../benchmarks/plan-execute-ab/agent-cli';
+import { runCommand } from '../../benchmarks/plan-execute-ab/exec';
+
+const evidence = resolve('benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes');
+const cwd = resolve('_scratch/lt-review-fixes/smoke-workspace');
+mkdirSync(cwd, { recursive: true });
+writeFileSync(join(cwd, 'answer.txt'), '41\n');
+writeFileSync(join(cwd, 'package.json'), JSON.stringify({ private: true, scripts: { test: 'node check.cjs' } }));
+writeFileSync(join(cwd, 'check.cjs'), 'const fs=require("node:fs"); require("node:assert/strict").equal(fs.readFileSync("answer.txt","utf8").trim(),"42"); console.log("answer verified");\n');
+const configDir = '/Users/suas/.claude-plan-ex-ab/local-35b';
+if (existsSync(join(configDir, '.credentials.json'))) throw new Error('Local-only config unexpectedly has stored credentials');
+const endpoint = { modelKey: 'qwen3.6-35b-a3b' as const, servedModelName: 'qwen/qwen3.6-35b-a3b', baseUrl: 'http://127.0.0.1:8900', apiKeyEnv: 'PLAN_EX_AB_LOCAL_KEY', configDir, apiStyle: 'anthropic' as const };
+const env = localEndpointEnv(endpoint);
+const upstream = 'http://100.113.93.104:1235';
+const key = env.ANTHROPIC_API_KEY!;
+const auth: Record<string,number> = {};
+for (const [label, headers] of [['none',{}],['wrong',{'x-api-key':'example-invalid-key'}],['configured',{'x-api-key':key}]] as const) {
+  const response = await fetch(upstream+'/v1/models',{headers,signal:AbortSignal.timeout(10000)});
+  auth[label]=response.status; await response.text();
+}
+writeFileSync(join(evidence,'mac-auth-retest.receipt.json'),JSON.stringify({at:new Date().toISOString(),auth},null,2)+'\n');
+if (auth.none!==401 || auth.wrong!==401 || auth.configured!==200) throw new Error('Authentication acceptance failed');
+const proxy=startProxy({port:8900,upstream,logPath:join(evidence,'proxy-retest.log')});
+const original=proxy.listeners('request')[0] as (req: import('node:http').IncomingMessage,res:import('node:http').ServerResponse)=>void;
+proxy.removeAllListeners('request');
+const requestShapes: unknown[]=[];
+let previousBlocks: string[]=[];
+const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
+proxy.on('request',(req,res)=>{
+  const chunks:Buffer[]=[];
+  req.on('data',c=>chunks.push(c));
+  req.on('end',()=>{
+    if (!req.url?.includes('/v1/messages')) return;
+    try {
+      const normalized=normalizeBody(JSON.parse(Buffer.concat(chunks).toString()));
+      const blocks=Array.isArray(normalized.system)?normalized.system.map(x=>JSON.stringify(x)):[JSON.stringify(normalized.system)];
+      requestShapes.push({at:new Date().toISOString(),systemBlocks:blocks.map(x=>({bytes:x.length,sha256:hash(x)})),sameSystemAsPrevious:JSON.stringify(blocks)===JSON.stringify(previousBlocks),toolsHash:hash(JSON.stringify(normalized.tools)),messageCount:normalized.messages?.length});
+      previousBlocks=blocks;
+    } catch(error) { requestShapes.push({error:String(error)}); }
+  });
+  original(req,res);
+});
+try {
+  const result=await runClaudeAgent({prompt:'Complete this three-step tool task in the current directory: first read answer.txt, then edit it to contain 42 and a newline, then run npm test. Use Read, Edit and Bash respectively. Do not change the test or package file. Reply with a brief result.',cwd,logPath:join(evidence,'smoke-retest.raw.log'),timeoutMs:300000,maxTurns:8,model:endpoint.servedModelName,env});
+  const independent=await runCommand(['npm','test'],{cwd,timeoutMs:30000});
+  const messages=new Map<string,unknown>();
+  for(const line of readFileSync(result.rawLogPath,'utf8').split('\n')){
+    let event; try {event=JSON.parse(line);}catch{continue;}
+    if(event.type==='assistant'&&event.message?.id) messages.set(event.message.id,{id:event.message.id,usage:event.message.usage,tools:event.message.content?.filter((x:{type:string})=>x.type==='tool_use').map((x:{name:string})=>x.name)});
+  }
+  writeFileSync(join(evidence,'cache-retest.receipt.json'),JSON.stringify({at:new Date().toISOString(),servingSetup:'llama-server-2.60.0-35b-65536',result,answer:readFileSync(join(cwd,'answer.txt'),'utf8'),independent,requestShapes,messages:[...messages.values()]},null,2)+'\n');
+  if(result.error||result.toolErrors.length||independent.exitCode!==0) process.exitCode=1;
+  console.log(JSON.stringify({exitCode:result.exitCode,turns:result.turns,toolErrors:result.toolErrors,independentExit:independent.exitCode,messages:[...messages.values()]}));
+} finally {
+  proxy.closeAllConnections();
+  await new Promise<void>(r=>proxy.close(()=>r()));
+}

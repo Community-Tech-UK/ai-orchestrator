@@ -1,0 +1,390 @@
+diff --git a/src/main/session/continuity-payload-serializer.spec.ts b/src/main/session/continuity-payload-serializer.spec.ts
+new file mode 100644
+index 0000000..27a6e4c
+--- /dev/null
++++ b/src/main/session/continuity-payload-serializer.spec.ts
+@@ -0,0 +1,116 @@
++import * as fs from 'node:fs';
++import * as os from 'node:os';
++import * as path from 'node:path';
++import { afterEach, beforeEach, describe, expect, it } from 'vitest';
++import {
++  serializePlainEnvelopeChunks,
++  stringifyJsonChunks,
++} from './continuity-payload-serializer';
++import {
++  writeContinuityPayloadAsyncAtomic,
++  writeContinuityPayloadSyncAtomic,
++} from './continuity-recovery-metadata';
++
++const legacyEnvelope = (value: unknown): string =>
++  JSON.stringify({ encrypted: false, data: JSON.stringify(value) });
++
++function makeSession(messageCount: number): Record<string, unknown> {
++  return {
++    instanceId: 'inst-1',
++    displayName: 'Big "thread" \\ with\nnewlines',
++    provider: 'claude',
++    nothing: undefined,
++    fn: () => 1,
++    createdAt: new Date(0),
++    conversationHistory: Array.from({ length: messageCount }, (_, index) => ({
++      id: `m-${index}`,
++      role: index % 2 === 0 ? 'user' : 'assistant',
++      content: `message ${index} 😀 \u2028 é \t "quoted" </script>`,
++      timestamp: index,
++      metadata: index % 3 === 0 ? undefined : { tokens: index * 1.5, flags: [true, null, undefined] },
++    })),
++  };
++}
++
++describe('continuity payload serializer', () => {
++  const fixtures: [string, unknown][] = [
++    ['object', makeSession(25)],
++    ['primitives', [1, -0, 1.5e300, NaN, Infinity, 'x', true, false, null]],
++    ['lone surrogates', { a: '\ud83d', b: '\ude00x', c: 'ok\ud800' }],
++    ['sparse array', [1, , 3]], // eslint-disable-line no-sparse-arrays
++    ['boxed', [new Number(3), new String('s'), new Boolean(false)]],
++    ['toJSON omitted member', { a: { toJSON: () => undefined }, b: 1 }],
++    ['toJSON key', { k: { toJSON: (key: string) => `key:${key}` } }],
++    ['empty', { a: {}, b: [] }],
++    ['string', 'plain'],
++    ['null', null],
++  ];
++
++  it.each(fixtures)('matches JSON.stringify exactly for %s at every chunk size', (_name, value) => {
++    for (const chunkChars of [1, 2, 7, 64, 1 << 20]) {
++      expect(stringifyJsonChunks(value, chunkChars)?.join('')).toBe(JSON.stringify(value));
++      expect(serializePlainEnvelopeChunks(value, chunkChars).join('')).toBe(legacyEnvelope(value));
++    }
++  });
++
++  it('returns undefined where JSON.stringify does', () => {
++    expect(stringifyJsonChunks(undefined)).toBeUndefined();
++    expect(stringifyJsonChunks(() => 1)).toBeUndefined();
++    expect(serializePlainEnvelopeChunks(undefined).join('')).toBe(legacyEnvelope(undefined));
++  });
++
++  it('throws on circular structures and bigint like JSON.stringify', () => {
++    const cyclic: Record<string, unknown> = {};
++    cyclic['self'] = cyclic;
++    expect(() => stringifyJsonChunks(cyclic)).toThrow(TypeError);
++    expect(() => stringifyJsonChunks({ n: 1n })).toThrow(TypeError);
++    expect(() => stringifyJsonChunks({ n: Object(1n) })).toThrow(TypeError);
++  });
++
++  it('allows shared (non-circular) references', () => {
++    const shared = { x: 1 };
++    const value = { a: shared, b: [shared, shared] };
++    expect(stringifyJsonChunks(value, 3)?.join('')).toBe(JSON.stringify(value));
++  });
++
++  it('splits a large session into bounded chunks instead of one string', () => {
++    const chunkChars = 4096;
++    const session = makeSession(19_000);
++    const chunks = serializePlainEnvelopeChunks(session, chunkChars);
++
++    expect(chunks.length).toBeGreaterThan(100);
++    // Escaping can at most ~6x a chunk; no chunk approaches the full payload.
++    const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
++    expect(Math.max(...chunks.map((chunk) => chunk.length))).toBeLessThan(total / 50);
++    expect(chunks.join('')).toBe(legacyEnvelope(session));
++  });
++});
++
++describe('continuity payload writers', () => {
++  let dir: string;
++  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'continuity-payload-')); });
++  afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
++
++  it('streams chunked payloads to disk byte-identically (async and sync)', async () => {
++    const session = makeSession(2_000);
++    const chunks = serializePlainEnvelopeChunks(session, 512);
++    const asyncFile = path.join(dir, 'async.json');
++    const syncFile = path.join(dir, 'sync.json');
++
++    await expect(writeContinuityPayloadAsyncAtomic(asyncFile, chunks)).resolves.toBe(true);
++    writeContinuityPayloadSyncAtomic(syncFile, chunks);
++
++    const expected = legacyEnvelope(session);
++    expect(fs.readFileSync(asyncFile, 'utf8')).toBe(expected);
++    expect(fs.readFileSync(syncFile, 'utf8')).toBe(expected);
++    const envelope = JSON.parse(fs.readFileSync(asyncFile, 'utf8')) as { data: string };
++    expect(JSON.parse(envelope.data)).toEqual(JSON.parse(JSON.stringify(session)));
++    expect(fs.readdirSync(dir).sort()).toEqual(['async.json', 'sync.json']);
++  });
++
++  it('still accepts a single-string payload', async () => {
++    const file = path.join(dir, 'plain.json');
++    await writeContinuityPayloadAsyncAtomic(file, '{"a":1}');
++    expect(fs.readFileSync(file, 'utf8')).toBe('{"a":1}');
++  });
++});
+diff --git a/src/main/session/continuity-payload-serializer.ts b/src/main/session/continuity-payload-serializer.ts
+new file mode 100644
+index 0000000..85e4fb0
+--- /dev/null
++++ b/src/main/session/continuity-payload-serializer.ts
+@@ -0,0 +1,142 @@
++/**
++ * Chunked serializer for session-continuity payloads.
++ *
++ * A single `JSON.stringify` of a very large session (e.g. a restored
++ * 19k-message thread) builds one huge contiguous string, and the legacy
++ * envelope then stringifies that string a second time to escape it. Both
++ * passes can exceed what V8 can allocate and abort the main process.
++ *
++ * This module produces the exact same bytes as
++ * `JSON.stringify({ encrypted: false, data: JSON.stringify(value) })`
++ * but as a list of bounded chunks, so no step materialises the whole
++ * payload as one string. Writers stream the chunks to disk in order.
++ */
++
++/** A serialized payload: either one string or ordered chunks to concatenate. */
++export type ContinuityPayload = string | readonly string[];
++
++/** Target size (UTF-16 code units) at which pending tokens are flushed into a chunk. */
++export const CONTINUITY_PAYLOAD_CHUNK_CHARS = 1 << 20;
++
++class ChunkSink {
++  readonly chunks: string[] = [];
++  private pending: string[] = [];
++  private pendingLength = 0;
++
++  constructor(
++    private readonly chunkChars: number,
++    private readonly transform: (chunk: string) => string = (chunk) => chunk,
++  ) {}
++
++  push(token: string): void {
++    this.pending.push(token);
++    this.pendingLength += token.length;
++    if (this.pendingLength >= this.chunkChars) this.flush();
++  }
++
++  flush(): void {
++    if (this.pending.length === 0) return;
++    this.chunks.push(this.transform(this.pending.join('')));
++    this.pending = [];
++    this.pendingLength = 0;
++  }
++}
++
++/** Apply `toJSON(key)` the way `JSON.stringify` does before serializing a value. */
++function resolveValue(key: string, value: unknown): unknown {
++  if (value !== null && (typeof value === 'object' || typeof value === 'bigint')) {
++    const toJSON = (value as { toJSON?: unknown }).toJSON;
++    if (typeof toJSON === 'function') return toJSON.call(value, key);
++  }
++  return value;
++}
++
++function isOmitted(value: unknown): boolean {
++  return value === undefined || typeof value === 'function' || typeof value === 'symbol';
++}
++
++/**
++ * Append the JSON text of an already-resolved, non-omitted `value` to `sink`,
++ * mirroring `JSON.stringify` semantics (toJSON, boxed primitives, omitted
++ * undefined/function/symbol members, `null` for such array elements,
++ * circular-structure TypeError).
++ *
++ * Chunk boundaries only ever fall between whole tokens, and every token is
++ * well-formed `JSON.stringify` output, so a chunk never splits a surrogate
++ * pair. That keeps per-chunk string escaping identical to escaping the whole.
++ */
++function writeResolved(value: unknown, sink: ChunkSink, stack: Set<object>): void {
++  if (value === null || typeof value !== 'object'
++    || value instanceof Number || value instanceof String || value instanceof Boolean
++    || value instanceof BigInt) {
++    // Primitives and boxed primitives exactly as JSON.stringify (bigint throws).
++    sink.push(JSON.stringify(value));
++    return;
++  }
++
++  if (stack.has(value)) throw new TypeError('Converting circular structure to JSON');
++  stack.add(value);
++  try {
++    if (Array.isArray(value)) {
++      sink.push('[');
++      for (let index = 0; index < value.length; index++) {
++        if (index > 0) sink.push(',');
++        const element = resolveValue(String(index), value[index]);
++        if (isOmitted(element)) sink.push('null');
++        else writeResolved(element, sink, stack);
++      }
++      sink.push(']');
++      return;
++    }
++
++    const record = value as Record<string, unknown>;
++    let first = true;
++    sink.push('{');
++    for (const property of Object.keys(record)) {
++      const member = resolveValue(property, record[property]);
++      if (isOmitted(member)) continue;
++      sink.push(first ? `${JSON.stringify(property)}:` : `,${JSON.stringify(property)}:`);
++      first = false;
++      writeResolved(member, sink, stack);
++    }
++    sink.push('}');
++  } finally {
++    stack.delete(value);
++  }
++}
++
++/**
++ * Serialize `value` to JSON chunks equivalent to `JSON.stringify(value)`.
++ * Returns `undefined` when `JSON.stringify(value)` would return `undefined`.
++ */
++export function stringifyJsonChunks(
++  value: unknown,
++  chunkChars = CONTINUITY_PAYLOAD_CHUNK_CHARS,
++  transform?: (chunk: string) => string,
++): string[] | undefined {
++  const resolved = resolveValue('', value);
++  if (isOmitted(resolved)) return undefined;
++  const sink = new ChunkSink(chunkChars, transform);
++  writeResolved(resolved, sink, new Set<object>());
++  sink.flush();
++  return sink.chunks;
++}
++
++/**
++ * Build the plaintext `{ encrypted: false, data: "<json>" }` envelope as
++ * chunks. Byte-identical to
++ * `JSON.stringify({ encrypted: false, data: JSON.stringify(value) })`.
++ */
++export function serializePlainEnvelopeChunks(
++  value: unknown,
++  chunkChars = CONTINUITY_PAYLOAD_CHUNK_CHARS,
++): string[] {
++  // Escape each chunk as it is flushed so the unescaped JSON is never held in full.
++  const escapedChunks = stringifyJsonChunks(value, chunkChars, (chunk) => JSON.stringify(chunk).slice(1, -1));
++  if (escapedChunks === undefined) return [JSON.stringify({ encrypted: false, data: undefined })];
++  return ['{"encrypted":false,"data":"', ...escapedChunks, '"}'];
++}
++
++export function continuityPayloadChunks(payload: ContinuityPayload): readonly string[] {
++  return typeof payload === 'string' ? [payload] : payload;
++}
+diff --git a/src/main/session/continuity-recovery-metadata.ts b/src/main/session/continuity-recovery-metadata.ts
+index e057d14..cca2be3 100644
+--- a/src/main/session/continuity-recovery-metadata.ts
++++ b/src/main/session/continuity-recovery-metadata.ts
+@@ -19,6 +19,7 @@ import type {
+ import type { SessionState } from './session-continuity.types';
+ import { getSafeStorage } from './safe-storage-accessor';
+ import { getContinuityStagingPath } from './continuity-staging-file';
++import { continuityPayloadChunks, type ContinuityPayload } from './continuity-payload-serializer';
+ export const MAX_LEGACY_RECOVERY_STATE_READS = 50;
+@@ -145,9 +146,31 @@ function fsyncParentDirectory(filePath: string): void {
+   } catch { /* directory fsync is unavailable on some platforms */ }
+ }
++/** Write payload chunks in order so a large payload never becomes one string. */
++async function writePayloadChunks(fh: FileHandle, serialized: ContinuityPayload): Promise<void> {
++  for (const chunk of continuityPayloadChunks(serialized)) {
++    const buffer = Buffer.from(chunk, 'utf8');
++    let offset = 0;
++    while (offset < buffer.length) {
++      const { bytesWritten } = await fh.write(buffer, offset, buffer.length - offset);
++      offset += bytesWritten;
++    }
++  }
++}
++
++function writePayloadChunksSync(fd: number, serialized: ContinuityPayload): void {
++  for (const chunk of continuityPayloadChunks(serialized)) {
++    const buffer = Buffer.from(chunk, 'utf8');
++    let offset = 0;
++    while (offset < buffer.length) {
++      offset += fs.writeSync(fd, buffer, offset, buffer.length - offset);
++    }
++  }
++}
++
+ export async function writeContinuityPayloadAsyncAtomic(
+   filePath: string,
+-  serialized: string,
++  serialized: ContinuityPayload,
+   canCommit: () => boolean = () => true,
+ ): Promise<boolean> {
+   const tmpFile = getContinuityStagingPath(filePath);
+@@ -156,7 +179,7 @@ export async function writeContinuityPayloadAsyncAtomic(
+     return await withLock(`${filePath}.lock`, async () => {
+       const fh = await fs.promises.open(tmpFile, 'w');
+       try {
+-        await fh.writeFile(serialized);
++        await writePayloadChunks(fh, serialized);
+         await fh.sync();
+       } finally {
+         await fh.close();
+@@ -172,12 +195,14 @@ export async function writeContinuityPayloadAsyncAtomic(
+   }
+ }
+-export function writeContinuityPayloadSyncAtomic(filePath: string, serialized: string): void {
++export function writeContinuityPayloadSyncAtomic(filePath: string, serialized: ContinuityPayload): void {
+   const tmpFile = getContinuityStagingPath(filePath);
+   try {
+-    fs.writeFileSync(tmpFile, serialized);
+-    const fd = fs.openSync(tmpFile, 'r');
+-    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
++    const fd = fs.openSync(tmpFile, 'w');
++    try {
++      writePayloadChunksSync(fd, serialized);
++      fs.fsyncSync(fd);
++    } finally { fs.closeSync(fd); }
+     fs.renameSync(tmpFile, filePath);
+     fsyncParentDirectory(filePath);
+   } catch (error) {
+diff --git a/src/main/session/session-continuity-persistence-operations.ts b/src/main/session/session-continuity-persistence-operations.ts
+index 1ffd271..510a190 100644
+--- a/src/main/session/session-continuity-persistence-operations.ts
++++ b/src/main/session/session-continuity-persistence-operations.ts
+@@ -2,11 +2,12 @@ import * as fs from 'node:fs';
+ import type { Stats } from 'node:fs';
+ import { writeContinuityPayloadAsyncAtomic } from './continuity-recovery-metadata';
+ import { getSessionMutex } from './session-mutex';
++import type { ContinuityPayload } from './continuity-payload-serializer';
+ export interface SessionContinuityPersistenceOperations {
+   writePayloadAtomic(
+     filePath: string,
+-    serialized: string,
++    serialized: ContinuityPayload,
+     canCommit?: () => boolean,
+   ): Promise<boolean>;
+   statStateFile(filePath: string): Promise<Stats>;
+diff --git a/src/main/session/session-continuity.ts b/src/main/session/session-continuity.ts
+index b19f1ed..318e967 100644
+--- a/src/main/session/session-continuity.ts
++++ b/src/main/session/session-continuity.ts
+@@ -59,6 +59,7 @@ import {
+   getLastConversationTimestamp,
+   writeContinuityPayloadSyncAtomic,
+ } from './continuity-recovery-metadata';
++import { serializePlainEnvelopeChunks, type ContinuityPayload } from './continuity-payload-serializer';
+ import {
+   buildRuntimeRecoverableSessionList,
+   discardContinuityTracking,
+@@ -1421,18 +1422,19 @@ export class SessionContinuityManager extends EventEmitter {
+     return null;
+   }
+-  private serializePayload(data: unknown): string {
+-    const json = JSON.stringify(data);
++  /** Chunked so huge sessions never hit V8 as one string (see continuity-payload-serializer). */
++  private serializePayload(data: unknown): ContinuityPayload {
+     if (this.config.encryptOnDisk) {
+       // Lazy access to avoid triggering Keychain usage on startup.
+       // See safe-storage-accessor.ts for the why behind the indirection.
+       const safeStorage = getSafeStorage();
+       if (safeStorage.isEncryptionAvailable()) {
+-        const encrypted = safeStorage.encryptString(json).toString('base64');
++        // safeStorage only accepts a whole string, so the opt-in encrypted path cannot stream.
++        const encrypted = safeStorage.encryptString(JSON.stringify(data)).toString('base64');
+         return JSON.stringify({ encrypted: true, data: encrypted });
+       }
+     }
+-    return JSON.stringify({ encrypted: false, data: json });
++    return serializePlainEnvelopeChunks(data);
+   }
+   private deserializePayload<T>(raw: string, filePath?: string): T | null {

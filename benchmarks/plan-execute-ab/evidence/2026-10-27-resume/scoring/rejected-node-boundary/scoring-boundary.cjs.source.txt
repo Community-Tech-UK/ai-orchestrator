@@ -1,0 +1,70 @@
+// Dependency isolation for Node subprocesses in historical exports. This is
+// not a general filesystem or security sandbox: ordinary source/data access
+// remains unchanged. Prevent installed ancestors from supplying dependencies.
+const fs = require('node:fs');
+const path = require('node:path');
+const { fileURLToPath, URL } = require('node:url');
+const { Buffer } = require('node:buffer');
+const { registerHooks, syncBuiltinESMExports } = require('node:module');
+
+if (typeof registerHooks !== 'function') throw new Error('SCORING_BOUNDARY_UNAVAILABLE: Node registerHooks is required');
+const root = process.env['AIO_BENCHMARK_WORKSPACE'];
+if (!root || !path.isAbsolute(root)) throw new Error('SCORING_BOUNDARY_UNAVAILABLE: absolute workspace required');
+const within = (file, directory) => file === directory || file.startsWith(directory + path.sep);
+const forbidden = new Set();
+for (let parent = path.dirname(root); ; parent = path.dirname(parent)) {
+  const modules = path.join(parent, 'node_modules');
+  forbidden.add(modules);
+  try { forbidden.add(fs.realpathSync(modules)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (path.dirname(parent) === parent) break;
+}
+function blocked(file) {
+  if (file instanceof URL) file = fileURLToPath(file);
+  if (Buffer.isBuffer(file)) file = file.toString();
+  if (typeof file !== 'string') return false;
+  const absolute = path.resolve(file);
+  for (const directory of forbidden) if (within(absolute, directory)) return true;
+  return false;
+}
+function missing(file) {
+  return Object.assign(new Error(`ENOENT: dependency outside frozen workspace: ${String(file)}`), { code: 'ENOENT', path: file });
+}
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    const result = nextResolve(specifier, context);
+    if (!result.url.startsWith('file:')) return result;
+    const target = fileURLToPath(result.url);
+    const parent = context.parentURL?.startsWith('file:') ? fileURLToPath(context.parentURL) : undefined;
+    if (blocked(target) || (parent && within(parent, root) && !within(target, root))) {
+      throw Object.assign(new Error(`Dependency outside frozen workspace: ${specifier}`), { code: 'ERR_SCORING_EXTERNAL_DEPENDENCY' });
+    }
+    return result;
+  },
+});
+// TypeScript and Vite also resolve packages through filesystem reads rather
+// than Node's loader. Hide exactly the ancestor dependency directories from
+// their normal filesystem APIs, including promise and ESM fs exports.
+const exists = fs.existsSync;
+fs.existsSync = function (file) { return blocked(file) ? false : exists.call(this, file); };
+for (const name of ['readFile', 'stat', 'lstat', 'access', 'open', 'readdir']) {
+  const sync = fs[`${name}Sync`];
+  fs[`${name}Sync`] = function (file, ...args) {
+    if (blocked(file)) throw missing(file);
+    return sync.call(this, file, ...args);
+  };
+  const promise = fs.promises[name];
+  fs.promises[name] = function (file, ...args) {
+    return blocked(file) ? Promise.reject(missing(file)) : promise.call(this, file, ...args);
+  };
+  const callback = fs[name];
+  fs[name] = function (file, ...args) {
+    if (blocked(file)) {
+      const done = args[args.length - 1];
+      if (typeof done !== 'function') throw missing(file);
+      queueMicrotask(() => done(missing(file)));
+      return;
+    }
+    return callback.call(this, file, ...args);
+  };
+}
+syncBuiltinESMExports();

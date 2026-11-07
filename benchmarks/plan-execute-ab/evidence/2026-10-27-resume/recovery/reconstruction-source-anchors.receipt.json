@@ -1,0 +1,40 @@
+{
+  "observedAt": "2026-10-27T15:58:12.676980+00:00",
+  "historicalCodeSources": [
+    {
+      "gitReference": "9cc19c6d6c57267566cace5dac0d1999beb57780:benchmarks/plan-execute-ab/runner.ts",
+      "gitBlob": "762fab3608968fc83e473df299da16c88163fe89",
+      "bytes": 27029,
+      "sha256": "3a02f2616c3ee4d0d0193e67c13c8e0597e5ca0ad12dd22b31d69c5a904070b9"
+    },
+    {
+      "gitReference": "9cc19c6d6c57267566cace5dac0d1999beb57780:benchmarks/plan-execute-ab/task-export.ts",
+      "gitBlob": "b065ef89557dbc0ee73340600d1304246b9fa59a",
+      "bytes": 7793,
+      "sha256": "9ac6c1a14a6e5a742d8a38e63b005424a5e8266568257f7f50c79de35f838f6e"
+    },
+    {
+      "gitReference": "9cc19c6d6c57267566cace5dac0d1999beb57780:benchmarks/plan-execute-ab/judge.ts",
+      "gitBlob": "e2d56f5a69ea0ede46247930f2a8944ffd0871ea",
+      "bytes": 6934,
+      "sha256": "61a00a28fc5bac5df21d48b55d04734ff160aa7ffb934c8e6728f7a3722b7bf8"
+    },
+    {
+      "gitReference": "9cc19c6d6c57267566cace5dac0d1999beb57780:benchmarks/plan-execute-ab/tasks/task-bank.json",
+      "gitBlob": "4afb29723f6e1b4fd962c28688a37665c74cb874",
+      "bytes": 19108,
+      "sha256": "9c31115733aca0a1d9bd108afa187e4a474d102f045a0355c0bae05237813d6a"
+    }
+  ],
+  "historicalRuntimeAnchors": {
+    "runner.ts": "exportWorkspace(task.parentSha); capturePatch before applyHiddenTests/scoreRun",
+    "task-export.ts": "capturePatch runs git add -A then git diff --cached; writeWorkspaceExclude omits node_modules, PLAN-agent-output.md and _scratch",
+    "judge.ts": "judgeSession reads captured patches through stripIdentifyingText before building the judge prompt"
+  },
+  "formatterUsedForCapturedFormattingOperations": {
+    "repository": "12steps",
+    "installedVersion": "3.8.1",
+    "exitCode": 0,
+    "evidenceRule": "Version is the current formatter used for offline replay, not an assertion about the historical installed version. Complete original judge-input equality gates acceptance."
+  }
+}

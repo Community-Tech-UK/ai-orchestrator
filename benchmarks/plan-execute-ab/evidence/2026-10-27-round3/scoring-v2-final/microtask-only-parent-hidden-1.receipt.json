@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-27T14:28:48.363299+00:00",
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "src/main/history/history-manager.spec.ts"
+  ],
+  "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+  "exitCode": 1,
+  "durationSeconds": 3.855,
+  "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/microtask-only-parent-hidden-1.log.gz"
+}

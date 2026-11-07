@@ -1,0 +1,19 @@
+{
+  "fingerprint": "dbe4df02c8d91cc6600ed9821c514d2958595640edf72c9771fb5167290df6a2",
+  "files": {
+    "package-lock.json": "0d3d07615451a5a51fa5ab83e167def7f1549551535c8e9bccbd5d5474a43428",
+    "package.json": "26bcecc8ec551e2d893ce1180181d89985d5e45ee2ca5513a8a93e0e1daf55b4"
+  },
+  "command": [
+    "npm",
+    "ci",
+    "--ignore-scripts",
+    "--no-audit",
+    "--no-fund"
+  ],
+  "exitCode": 0,
+  "timedOut": false,
+  "nodeVersion": "v26.12.1",
+  "runtimePreparation": [],
+  "boundarySha256": "909889cb32d332e8b504eeef6a94417b2879b8dd17e3e8db2bf6da07b908eecf"
+}

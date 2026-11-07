@@ -1,0 +1,17 @@
+{
+  "label": "spec-typecheck",
+  "command": [
+    "npm",
+    "run",
+    "typecheck:spec"
+  ],
+  "startedAt": "2026-10-27T17:33:28.411835+00:00",
+  "durationSeconds": 61.85,
+  "exitCode": 0,
+  "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-after-timing/spec-typecheck.log",
+  "load": [
+    79.25830078125,
+    52.6455078125,
+    56.76904296875
+  ]
+}

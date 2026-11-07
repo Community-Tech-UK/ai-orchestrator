@@ -1,0 +1,5 @@
+{
+  "script": "scripts/rebuild-native-modules.js",
+  "sha256": "3038dcfe64513e07743eafcde83a9814d3a794dc4688ed3cf36fd99516b74832",
+  "note": "Unmodified normal native preparation script, run against owned exact install; no root postinstall/global hooks"
+}

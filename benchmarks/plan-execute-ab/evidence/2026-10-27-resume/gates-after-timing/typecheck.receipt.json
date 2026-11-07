@@ -1,0 +1,17 @@
+{
+  "label": "typecheck",
+  "command": [
+    "node",
+    "node_modules/typescript/bin/tsc",
+    "--noEmit"
+  ],
+  "startedAt": "2026-10-27T17:33:02.725842+00:00",
+  "durationSeconds": 25.685,
+  "exitCode": 0,
+  "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-after-timing/typecheck.log",
+  "load": [
+    23.49951171875,
+    38.84716796875,
+    52.5244140625
+  ]
+}

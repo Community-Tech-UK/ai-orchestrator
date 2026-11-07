@@ -1,0 +1,60 @@
+{
+  "files": {
+    "README.md": {
+      "lines": 280,
+      "sha256": "6d258e633372f05e839df1f057c88f764afe9714f7809099d2c9c7458c18626b"
+    },
+    "runner.ts": {
+      "lines": 646,
+      "sha256": "415d4fe711a03a2a9ac2b348c565bbd22ea858e5d3f014d2ebbddd1d8f1125b1"
+    },
+    "scorer.ts": {
+      "lines": 91,
+      "sha256": "2f7214ae591d44041be6628ab5f9bd4b72b16574058e914817c8be2c336e0127"
+    },
+    "scoring-setup.ts": {
+      "lines": 88,
+      "sha256": "4b7270d8237247cf1453c14884689c3e7427aad853756f6a5684cb50a9408811"
+    },
+    "scoring-setup.spec.ts": {
+      "lines": 57,
+      "sha256": "15f86e9c59cbc3962e20342041c7d966281b7ad58bc79306229d8aedad05531c"
+    },
+    "task-bank.ts": {
+      "lines": 58,
+      "sha256": "8ae91ed4273e63845db3f917abe1c24de353b8fea9b097d040a8eed5b8a5f0f6"
+    },
+    "task-export.spec.ts": {
+      "lines": 183,
+      "sha256": "549fa0ed93f71d5cae2384abb37819f8149a99f95e4eea141eb504e313a3243b"
+    },
+    "tasks/task-bank.json": {
+      "lines": 326,
+      "sha256": "376c4cf8ecb838eed8f5bcaaea6ead9b04b85eeaad0b0e70da9c5e9c8e7b892a"
+    },
+    "tasks/aio-01-scoring-v2.patch": {
+      "lines": 143,
+      "sha256": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468"
+    },
+    "types.ts": {
+      "lines": 431,
+      "sha256": "1926f7d2b93482ddfd0c9fd25518eaab94080d7c9bd29e1cff2d4858e47ff75f"
+    },
+    "local-anthropic-proxy.ts": {
+      "lines": 231,
+      "sha256": "9fc57ebf66af002afe75d4eb72c9fd8a558a622c8247bcfa9646331eff0f3769"
+    },
+    "local-anthropic-proxy.spec.ts": {
+      "lines": 232,
+      "sha256": "8dc0dbfb993da74a7e09ea03df1003e7ee617d7284254f3ec8273969b1b93bca"
+    }
+  },
+  "addedLineScans": {
+    "test-skips-or-false-success": [
+      "xit("
+    ],
+    "suppressions": [],
+    "stubs": [],
+    "secret-like": []
+  }
+}

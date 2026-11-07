@@ -1,0 +1,101 @@
+{
+  "allPassed": true,
+  "controls": [
+    {
+      "taskId": "AIO-01",
+      "parentHiddenExit": 1,
+      "fixedHiddenExit": 0,
+      "fixedDamageExits": [
+        0,
+        0
+      ],
+      "passed": true
+    },
+    {
+      "taskId": "AIO-02",
+      "parentHiddenExit": 1,
+      "fixedHiddenExit": 0,
+      "fixedDamageExits": [
+        0,
+        0
+      ],
+      "passed": true
+    },
+    {
+      "taskId": "AIO-03",
+      "parentHiddenExit": 1,
+      "fixedHiddenExit": 0,
+      "fixedDamageExits": [
+        0,
+        0
+      ],
+      "passed": true
+    },
+    {
+      "taskId": "AIO-04",
+      "parentHiddenExit": 1,
+      "fixedHiddenExit": 0,
+      "fixedDamageExits": [
+        0,
+        0
+      ],
+      "passed": true
+    },
+    {
+      "taskId": "AIO-05",
+      "parentHiddenExit": 1,
+      "fixedHiddenExit": 0,
+      "fixedDamageExits": [
+        0,
+        0
+      ],
+      "passed": true
+    },
+    {
+      "taskId": "AIO-06",
+      "parentHiddenExit": 1,
+      "fixedHiddenExit": 0,
+      "fixedDamageExits": [
+        0,
+        0
+      ],
+      "passed": true
+    },
+    {
+      "taskId": "12ST-01",
+      "parentHiddenExit": 1,
+      "fixedHiddenExit": 0,
+      "fixedDamageExits": [
+        0
+      ],
+      "passed": true
+    },
+    {
+      "taskId": "12ST-02",
+      "parentHiddenExit": 1,
+      "fixedHiddenExit": 0,
+      "fixedDamageExits": [
+        0
+      ],
+      "passed": true
+    },
+    {
+      "taskId": "12ST-03",
+      "parentHiddenExit": 1,
+      "fixedHiddenExit": 0,
+      "fixedDamageExits": [
+        0
+      ],
+      "passed": true
+    },
+    {
+      "taskId": "12ST-04",
+      "parentHiddenExit": 1,
+      "fixedHiddenExit": 0,
+      "fixedDamageExits": [
+        0
+      ],
+      "passed": true
+    }
+  ]
+}

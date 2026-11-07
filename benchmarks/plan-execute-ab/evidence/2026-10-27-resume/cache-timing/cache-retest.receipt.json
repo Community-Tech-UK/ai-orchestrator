@@ -1,0 +1,139 @@
+{
+  "at": "2026-10-27T16:26:43.060Z",
+  "servingSetup": "llama-server-2.60.0-35b-65536",
+  "result": {
+    "finalText": "Done. Read `answer.txt` (was `41`), edited it to `42`, and `npm test` passed — output: **answer verified**.",
+    "usage": {
+      "inputTokens": 17055,
+      "outputTokens": 372,
+      "cacheReadTokens": 34299,
+      "cacheWriteTokens": 0
+    },
+    "turns": 4,
+    "toolErrors": [],
+    "hitTurnCap": false,
+    "durationMs": 6875,
+    "exitCode": 0,
+    "timedOut": false,
+    "rawLogPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/cache-timing/smoke-retest.raw.log"
+  },
+  "answer": "42\n",
+  "independent": {
+    "command": [
+      "npm",
+      "test"
+    ],
+    "exitCode": 0,
+    "stdout": "\n> test\n> node check.cjs\n\nanswer verified\n",
+    "stderr": "",
+    "timedOut": false,
+    "durationMs": 447
+  },
+  "requestShapes": [
+    {
+      "differences": [],
+      "at": "2026-10-27T16:26:36.359Z",
+      "systemBlocks": [
+        {
+          "bytes": 124,
+          "sha256": "30d02993d788fda05e0558b10cb5672258e53af7e98350dbca2da249d3571939"
+        },
+        {
+          "bytes": 6265,
+          "sha256": "0eeb4eace51f1aeedca01ef2d4e0050518d6f8e6564342fb58a2ed21e7b0bfc0"
+        },
+        {
+          "bytes": 9712,
+          "sha256": "7c863647a7aeb0be41665e8bbef66e7ec6be92af64543352e451cfe51f6d7d3c"
+        }
+      ],
+      "sameSystemAsPrevious": false,
+      "toolsHash": "d380dcbc184b700a4ec1dbb3fe62bc693ff2b92799fc27a4eeb95b9eb6586f9d",
+      "messageCount": 1
+    },
+    {
+      "differences": [
+        {
+          "index": 2,
+          "commonPrefixBytes": 9674,
+          "commonSuffixBytes": 1,
+          "changedBefore": ",\"cache_control\":{\"type\":\"ephemeral\"}",
+          "changedAfter": ""
+        }
+      ],
+      "at": "2026-10-27T16:26:38.191Z",
+      "systemBlocks": [
+        {
+          "bytes": 124,
+          "sha256": "30d02993d788fda05e0558b10cb5672258e53af7e98350dbca2da249d3571939"
+        },
+        {
+          "bytes": 6265,
+          "sha256": "0eeb4eace51f1aeedca01ef2d4e0050518d6f8e6564342fb58a2ed21e7b0bfc0"
+        },
+        {
+          "bytes": 9675,
+          "sha256": "b084b1fab2fc05c2a63a91d701af238a698ff5684ecfb382a1ceabd331c5a730"
+        }
+      ],
+      "sameSystemAsPrevious": false,
+      "toolsHash": "d380dcbc184b700a4ec1dbb3fe62bc693ff2b92799fc27a4eeb95b9eb6586f9d",
+      "messageCount": 3
+    },
+    {
+      "differences": [],
+      "at": "2026-10-27T16:26:41.864Z",
+      "systemBlocks": [
+        {
+          "bytes": 124,
+          "sha256": "30d02993d788fda05e0558b10cb5672258e53af7e98350dbca2da249d3571939"
+        },
+        {
+          "bytes": 6265,
+          "sha256": "0eeb4eace51f1aeedca01ef2d4e0050518d6f8e6564342fb58a2ed21e7b0bfc0"
+        },
+        {
+          "bytes": 9675,
+          "sha256": "b084b1fab2fc05c2a63a91d701af238a698ff5684ecfb382a1ceabd331c5a730"
+        }
+      ],
+      "sameSystemAsPrevious": true,
+      "toolsHash": "d380dcbc184b700a4ec1dbb3fe62bc693ff2b92799fc27a4eeb95b9eb6586f9d",
+      "messageCount": 5
+    }
+  ],
+  "messages": [
+    {
+      "id": "chatcmpl-UepRnnUA6lOV4GSLgwehXZR4WPc50dHr",
+      "usage": {
+        "cache_read_input_tokens": 0,
+        "input_tokens": 16920,
+        "output_tokens": 0
+      },
+      "tools": [
+        "Read"
+      ]
+    },
+    {
+      "id": "chatcmpl-14gi8FGfR1831YvTfwe1m9ivsi9W6k9w",
+      "usage": {
+        "cache_read_input_tokens": 17031,
+        "input_tokens": 22,
+        "output_tokens": 0
+      },
+      "tools": [
+        "Edit",
+        "Bash"
+      ]
+    },
+    {
+      "id": "chatcmpl-roaNsMjJWXgODkaeMPJkyN42ut3NhYyq",
+      "usage": {
+        "cache_read_input_tokens": 17268,
+        "input_tokens": 113,
+        "output_tokens": 0
+      },
+      "tools": []
+    }
+  ]
+}

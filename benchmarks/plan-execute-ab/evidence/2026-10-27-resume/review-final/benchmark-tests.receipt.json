@@ -1,0 +1,13 @@
+{
+  "argv": [
+    "node_modules/.bin/vitest",
+    "run",
+    "--config",
+    "benchmarks/plan-execute-ab/vitest.config.ts",
+    "--maxWorkers=1",
+    "--reporter=json",
+    "--outputFile=/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/review-final/benchmark-tests.json"
+  ],
+  "exitCode": 0,
+  "durationSeconds": 43.632993936538696
+}

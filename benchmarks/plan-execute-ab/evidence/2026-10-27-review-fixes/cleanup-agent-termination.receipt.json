@@ -1,0 +1,13 @@
+{
+  "instanceId": "xhuovlfa5",
+  "note": "Idempotent readback after the earlier successful termination; no other instance is targeted.",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "tool call error: tool call failed for `orchestrator/terminate_node_instance`\n\nCaused by:\n    Mcp error: -32000: Instance not found: xhuovlfa5"
+      }
+    ],
+    "isError": true
+  }
+}

@@ -1,0 +1,349 @@
+{
+  "sessionDir": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-local-model-2026-10-27/results/pilot-2026-10-15",
+  "createdAt": "2026-10-27T13:12:51.276Z",
+  "arms": [
+    {
+      "armId": "A",
+      "runs": 10,
+      "solved": 3,
+      "solvedRate": 0.3,
+      "hiddenTestPass": 3,
+      "damageClean": 8,
+      "avgDurationMs": 1371012.4,
+      "avgCoderOutputTokens": 84591.2,
+      "avgClaudeTokens": 7345191.3,
+      "avgLocalTokens": 0,
+      "judgeWins": 0,
+      "judgeLosses": 0,
+      "judgeTies": 0,
+      "judgeUnavailable": 0,
+      "failureModes": {
+        "looped": 0,
+        "toolCallErrors": 5,
+        "hitTurnCap": 1,
+        "gaveUp": 2,
+        "error": 2
+      },
+      "tasks": 10,
+      "solvedRateCI95": {
+        "low": 0.10779126740630102,
+        "high": 0.6032218525388546
+      },
+      "hiddenTestPassRateCI95": {
+        "low": 0.10779126740630102,
+        "high": 0.6032218525388546
+      },
+      "servingSetups": [],
+      "mixedServingSetup": false
+    },
+    {
+      "armId": "D",
+      "runs": 10,
+      "solved": 3,
+      "solvedRate": 0.3,
+      "hiddenTestPass": 3,
+      "damageClean": 8,
+      "avgDurationMs": 450774.8,
+      "avgCoderOutputTokens": 10123.8,
+      "avgClaudeTokens": 2539624.7,
+      "avgLocalTokens": 0,
+      "judgeWins": 8,
+      "judgeLosses": 10,
+      "judgeTies": 2,
+      "judgeUnavailable": 0,
+      "failureModes": {
+        "looped": 0,
+        "toolCallErrors": 3,
+        "hitTurnCap": 0,
+        "gaveUp": 0,
+        "error": 0
+      },
+      "tasks": 10,
+      "solvedRateCI95": {
+        "low": 0.10779126740630102,
+        "high": 0.6032218525388546
+      },
+      "hiddenTestPassRateCI95": {
+        "low": 0.10779126740630102,
+        "high": 0.6032218525388546
+      },
+      "servingSetups": [],
+      "mixedServingSetup": false
+    },
+    {
+      "armId": "G",
+      "runs": 10,
+      "solved": 3,
+      "solvedRate": 0.3,
+      "hiddenTestPass": 3,
+      "damageClean": 8,
+      "avgDurationMs": 798941.5,
+      "avgCoderOutputTokens": 21525.2,
+      "avgClaudeTokens": 0,
+      "avgLocalTokens": 0,
+      "judgeWins": 7,
+      "judgeLosses": 12,
+      "judgeTies": 1,
+      "judgeUnavailable": 0,
+      "failureModes": {
+        "looped": 0,
+        "toolCallErrors": 10,
+        "hitTurnCap": 0,
+        "gaveUp": 0,
+        "error": 0
+      },
+      "tasks": 10,
+      "solvedRateCI95": {
+        "low": 0.10779126740630102,
+        "high": 0.6032218525388546
+      },
+      "hiddenTestPassRateCI95": {
+        "low": 0.10779126740630102,
+        "high": 0.6032218525388546
+      },
+      "servingSetups": [],
+      "mixedServingSetup": false
+    },
+    {
+      "armId": "C1",
+      "runs": 2,
+      "solved": 0,
+      "solvedRate": 0,
+      "hiddenTestPass": 0,
+      "damageClean": 2,
+      "avgDurationMs": 3600439,
+      "avgCoderOutputTokens": 0,
+      "avgClaudeTokens": 544405.5,
+      "avgLocalTokens": 277694,
+      "judgeWins": 0,
+      "judgeLosses": 2,
+      "judgeTies": 2,
+      "judgeUnavailable": 0,
+      "failureModes": {
+        "looped": 0,
+        "toolCallErrors": 1,
+        "hitTurnCap": 0,
+        "gaveUp": 1,
+        "error": 2
+      },
+      "localSpeed": {
+        "measuredRuns": 2,
+        "unmeasuredRuns": 0,
+        "avgPromptTokensPerSec": 725.0342999389295,
+        "avgWriteTokensPerSec": 4.042677372961852
+      },
+      "tasks": 2,
+      "solvedRateCI95": {
+        "low": 0,
+        "high": 0.6576197724933469
+      },
+      "hiddenTestPassRateCI95": {
+        "low": 0,
+        "high": 0.6576197724933469
+      },
+      "servingSetups": [
+        "llama-server-2.60.0-27b-65536"
+      ],
+      "mixedServingSetup": false
+    }
+  ],
+  "judgeAgreement": {
+    "bothJudgesCalled": 22,
+    "sameVerdict": 17,
+    "conflictsWithHiddenTests": 0
+  },
+  "speedGate": {
+    "keepC2": true,
+    "sample": {
+      "promptTokensPerSec": 796.8549624331125,
+      "writeTokensPerSec": 20.99330955573464,
+      "promptTokens": 36111,
+      "writeTokens": 256,
+      "durationMs": 103338,
+      "measuredPromptSpeed": true,
+      "source": "server-timings"
+    },
+    "reasons": [
+      "prompt 797 tok/s and write 21.0 tok/s both clear the gate"
+    ]
+  },
+  "speedSamples": [
+    {
+      "modelKey": "qwen3.8-27b",
+      "measuredAt": "2026-10-16T17:20:53.507Z",
+      "sample": {
+        "promptTokensPerSec": 894.167450611477,
+        "writeTokensPerSec": 61.65703275529865,
+        "promptTokens": 30417,
+        "writeTokens": 256,
+        "durationMs": 72184,
+        "measuredPromptSpeed": true,
+        "source": "wall-clock"
+      },
+      "decision": null
+    },
+    {
+      "modelKey": "qwen3.8-flash-next",
+      "measuredAt": "2026-10-23T23:58:39.699Z",
+      "sample": {
+        "promptTokensPerSec": 646.9839106025005,
+        "writeTokensPerSec": 341.3333333333333,
+        "promptTokens": 36070,
+        "writeTokens": 256,
+        "durationMs": 112252,
+        "measuredPromptSpeed": true,
+        "source": "wall-clock"
+      },
+      "decision": {
+        "keepC2": true,
+        "sample": {
+          "promptTokensPerSec": 646.9839106025005,
+          "writeTokensPerSec": 341.3333333333333,
+          "promptTokens": 36070,
+          "writeTokens": 256,
+          "durationMs": 112252,
+          "measuredPromptSpeed": true,
+          "source": "wall-clock"
+        },
+        "reasons": [
+          "prompt 647 tok/s and write 341.3 tok/s both clear the gate"
+        ]
+      },
+      "note": "real-prompt probe (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-01472a/_scratch/plan-execute-ab/phase0/real-prompt-30k.txt)"
+    },
+    {
+      "modelKey": "qwen3.8-flash-next",
+      "measuredAt": "2026-10-24T00:04:46.319Z",
+      "sample": {
+        "promptTokensPerSec": 796.8549624331125,
+        "writeTokensPerSec": 20.99330955573464,
+        "promptTokens": 36111,
+        "writeTokens": 256,
+        "durationMs": 103338,
+        "measuredPromptSpeed": true,
+        "source": "server-timings"
+      },
+      "decision": {
+        "keepC2": true,
+        "sample": {
+          "promptTokensPerSec": 796.8549624331125,
+          "writeTokensPerSec": 20.99330955573464,
+          "promptTokens": 36111,
+          "writeTokens": 256,
+          "durationMs": 103338,
+          "measuredPromptSpeed": true,
+          "source": "server-timings"
+        },
+        "reasons": [
+          "prompt 797 tok/s and write 21.0 tok/s both clear the gate"
+        ]
+      },
+      "note": "real-prompt probe (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-01472a/_scratch/plan-execute-ab/phase0/real-prompt-30k.txt)"
+    }
+  ],
+  "baselineGaps": [
+    {
+      "armId": "D",
+      "gapPoints": 0,
+      "ci95Points": {
+        "low": -35.900931567630806,
+        "high": 35.900931567630806
+      },
+      "excludesZero": false
+    },
+    {
+      "armId": "G",
+      "gapPoints": 0,
+      "ci95Points": {
+        "low": -35.900931567630806,
+        "high": 35.900931567630806
+      },
+      "excludesZero": false
+    },
+    {
+      "armId": "C1",
+      "gapPoints": -30,
+      "ci95Points": {
+        "low": -60.322185253885465,
+        "high": 38.51335359325782
+      },
+      "excludesZero": false
+    }
+  ],
+  "cost": {
+    "arms": [
+      {
+        "armId": "A",
+        "coderMeteredUsd": 23.042690705,
+        "plannerMeteredUsd": 0,
+        "takeoverMeteredUsd": 0,
+        "totalMeteredUsd": 23.042690705,
+        "solved": 3,
+        "costPerSolvedUsd": 7.680896901666666,
+        "notes": []
+      },
+      {
+        "armId": "D",
+        "coderMeteredUsd": 4.979704399999999,
+        "plannerMeteredUsd": 12.406914599999999,
+        "takeoverMeteredUsd": 0,
+        "totalMeteredUsd": 17.386618999999996,
+        "solved": 3,
+        "costPerSolvedUsd": 5.795539666666666,
+        "notes": [
+          "includes the Opus planner cost of its tasks (one planner run per task, shared with every plan arm and counted in full, so cost per solved is this workflow standalone)"
+        ]
+      },
+      {
+        "armId": "G",
+        "coderMeteredUsd": 0,
+        "plannerMeteredUsd": 0,
+        "takeoverMeteredUsd": 0,
+        "totalMeteredUsd": 0,
+        "solved": 3,
+        "costPerSolvedUsd": 0,
+        "notes": [
+          "Codex runs on ChatGPT plan limits: no metered USD cost"
+        ]
+      },
+      {
+        "armId": "C1",
+        "coderMeteredUsd": 0,
+        "plannerMeteredUsd": 1.4417259999999998,
+        "takeoverMeteredUsd": 0,
+        "totalMeteredUsd": 1.4417259999999998,
+        "solved": 0,
+        "costPerSolvedUsd": null,
+        "notes": [
+          "local coder: no metered cost (its logs hold a nominal CLI estimate that is never billed)",
+          "includes the Opus planner cost of its tasks (one planner run per task, shared with every plan arm and counted in full, so cost per solved is this workflow standalone)"
+        ]
+      }
+    ],
+    "plannerMeteredUsd": 12.406914599999999,
+    "judgeMeteredUsd": 25.848788799999987,
+    "notes": [
+      "Figures are the CLI-reported total_cost_usd per invocation (what Anthropic billed).",
+      "Plan cost is shared: one Opus planner run per task feeds every plan arm, and each arm is charged its tasks' plans in full — summing arm totals double-counts plans.",
+      "Spend includes runs later quarantined: the money was spent either way."
+    ]
+  },
+  "decisionRules": [
+    {
+      "rule": "speed gate (setup): C2 needs 300+ prompt tok/s and 15+ write tok/s on a real 30k-token prompt",
+      "triggered": false,
+      "detail": "prompt 797 tok/s and write 21.0 tok/s both clear the gate"
+    },
+    {
+      "rule": "pilot stop rule: stop if the better of C1/C2 is more than 25 points behind A on hidden tests",
+      "triggered": false,
+      "detail": "C1/C2 coverage or repeat-run coverage incomplete or unmatched to A — rule not evaluable yet (unless C2 was speed-gated out)"
+    },
+    {
+      "rule": "C1 vs C2: keep C2 in the full run only if it beats C1 clearly (>= 20 points or 2+ tasks)",
+      "triggered": false,
+      "detail": "C1/C2 coverage or repeat-run coverage incomplete or unmatched to A — rule not evaluable yet"
+    }
+  ],
+  "notes": []
+}

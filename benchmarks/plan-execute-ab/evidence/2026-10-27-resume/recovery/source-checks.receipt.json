@@ -1,0 +1,145 @@
+{
+  "observedAt": "2026-10-27T15:40:08.101490+00:00",
+  "queries": [
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "reflog",
+        "show",
+        "--format=%H %gs",
+        "refs/heads/queue/2026-10-14-local-model-plan-ex-01472a"
+      ],
+      "exitCode": 0,
+      "stdout": "9cc19c6d6c57267566cace5dac0d1999beb57780 commit: Plan queue checkpoint: parked: worker-error\nd40809018bd7dc79b5841c202cd0c4c98ca98906 commit: Plan queue checkpoint: before resume\n5be81fd28450b7abae9590a6155f3d0caf4b2483 commit: Plan queue checkpoint: round 2 work\n7079e043055f1b8da06b5ed18e03d6af456ef3f0 commit (merge): Plan queue checkpoint: round 1 work\nf97b26f33265fbdf7cddeb0bc84bba213baec758 commit: Plan queue checkpoint: round 1 work\n31b0fad3cde3653ba66a530782deae19d852be48 commit: Plan queue checkpoint: round 3 work\nb4588fa9c02a49b37780a03dc947f8fd80c3ddb8 commit: Plan queue checkpoint: round 2 work\n0a1ee6e410ae85dced2d8ab464d82a5001a36889 merge main: Merge made by the 'ort' strategy.\ndb270a386d81dc7a4a04d2c040ddd10d0e762da0 commit: Plan queue checkpoint: round 1 work\n14d606f2641b69d337633c266fccb603e52f0aa7 commit: Plan queue checkpoint: round 1 work\n542f1f690fae155ecec3e6dddfc901c008fec3b7 branch: Created from main\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "rtk",
+        "proxy",
+        "git",
+        "reflog",
+        "show",
+        "--format=%H %gs",
+        "refs/heads/queue/2026-10-14-local-model-plan-ex-ca2605"
+      ],
+      "exitCode": 0,
+      "stdout": "2aedbb10dbd6c3f172950e145d48619f22f5d4d6 commit: Plan queue checkpoint: round 3 work\naf75e1440d82df47e79e7fa76b6f4f86892de5cb commit: Plan queue checkpoint: round 2 work\nc0fd6a026f12aaeb0bc9641ddc5765604588f8e1 commit: Plan queue checkpoint: round 1 work\n15b6021c4552965a6082ce8dec54f43966a05c79 commit: Plan queue checkpoint: round 3 work\n92a0af5faf3629c420fedbb249d6f9a821675f8a commit: Plan queue checkpoint: round 2 work\n26e8b0117daa30a781d24ca6fff3a15b1b5b7c4f commit: Plan queue checkpoint: round 1 work\n06201b4b0c592b4b1d9cf8fcd7993bcdd28f1030 branch: Created from main\n",
+      "stderr": ""
+    }
+  ],
+  "retainedMirror": [
+    {
+      "source": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/runs.jsonl",
+      "bytes": 70340,
+      "sha256": "f4d94f61b750e6d84602d0af063bd3db15e6b06b3c18c46bc00f2dbcf5206cad",
+      "records": 32,
+      "byArm": {
+        "A": 10,
+        "D": 10,
+        "G": 10,
+        "C1": 2
+      },
+      "C1Cells": [
+        {
+          "taskId": "12ST-01",
+          "startedAt": "2026-10-24T19:46:45.977Z"
+        },
+        {
+          "taskId": "12ST-02",
+          "startedAt": "2026-10-24T20:49:24.452Z"
+        }
+      ]
+    },
+    {
+      "source": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/runs-quarantined.jsonl",
+      "bytes": 93240,
+      "sha256": "6b9b91d460b209ad264e97b5ebd70b6cab62504c3a9b486c541544285af945d6",
+      "records": 14,
+      "byArm": {
+        "C1": 14
+      },
+      "C1Cells": [
+        {
+          "taskId": "AIO-03",
+          "startedAt": "2026-10-16T01:16:30.836Z"
+        },
+        {
+          "taskId": "AIO-03",
+          "startedAt": "2026-10-16T17:21:23.347Z"
+        },
+        {
+          "taskId": "AIO-03",
+          "startedAt": "2026-10-16T20:05:41.198Z"
+        },
+        {
+          "taskId": "AIO-03",
+          "startedAt": "2026-10-24T00:11:19.863Z"
+        },
+        {
+          "taskId": "AIO-04",
+          "startedAt": "2026-10-24T00:24:10.468Z"
+        },
+        {
+          "taskId": "AIO-06",
+          "startedAt": "2026-10-24T00:30:45.053Z"
+        },
+        {
+          "taskId": "12ST-01",
+          "startedAt": "2026-10-24T00:34:09.514Z"
+        },
+        {
+          "taskId": "12ST-02",
+          "startedAt": "2026-10-24T00:37:13.952Z"
+        },
+        {
+          "taskId": "12ST-03",
+          "startedAt": "2026-10-24T00:40:15.641Z"
+        },
+        {
+          "taskId": "12ST-04",
+          "startedAt": "2026-10-24T00:43:13.268Z"
+        },
+        {
+          "taskId": "AIO-01",
+          "startedAt": "2026-10-16T00:04:25.041Z"
+        },
+        {
+          "taskId": "AIO-02",
+          "startedAt": "2026-10-16T00:14:45.200Z"
+        },
+        {
+          "taskId": "AIO-03",
+          "startedAt": "2026-10-24T00:54:26.738Z"
+        },
+        {
+          "taskId": "AIO-04",
+          "startedAt": "2026-10-24T01:59:19.972Z"
+        }
+      ]
+    }
+  ],
+  "rawAio01CoderChecks": {
+    "claudeSources": [
+      {
+        "source": "/Users/suas/.claude/projects/-private-tmp-plan-execute-ab-AIO-01-A-1/f8d40317-469c-46e3-a31c-da425dd05f8c.jsonl",
+        "sha256": "bdb699b65c02bfb58aa7d05bf22ba0b4fea816c9607e334475f8a97a97c8526c",
+        "bytes": 718734
+      },
+      {
+        "source": "/Users/suas/.claude/projects/-private-tmp-plan-execute-ab-AIO-01-D-1/ae7f6bab-a813-46aa-a54e-1d472eb7542a.jsonl",
+        "sha256": "d57d84744485eca0d2105e0ddc776325e38316d49ec56a458326708639da266b",
+        "bytes": 618118
+      },
+      {
+        "source": "/Users/suas/.claude/projects/-private-tmp-plan-execute-ab-AIO-01-D-1/24a1c3fd-791f-4ea1-8d77-394cebaee307.jsonl",
+        "sha256": "fe45370f7d926f9fe3030638b8a66dc80af62e4bd3ff8bd36dd291bd405d2343",
+        "bytes": 798599
+      }
+    ],
+    "codexSourceLocationReceipt": "codex-location.receipt.json",
+    "observation": "A has a raw git diff restricted to history-manager.ts before later activity; D has no full raw diff output; the two G transcripts contain restricted history-manager diffs and a separately printed spec file. None supplies the original complete final git add -A; git diff --cached stdout. No replay reconstruction was synthesized."
+  }
+}

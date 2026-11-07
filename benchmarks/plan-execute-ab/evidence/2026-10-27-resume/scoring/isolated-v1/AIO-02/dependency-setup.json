@@ -1,0 +1,50 @@
+{
+  "fingerprint": "0d45c4a2a46162a265fc9f833ff74e5fe73299c9ee55b51db9794479533871a0",
+  "files": {
+    "apps/mobile/package-lock.json": "df4a47c1cd8fdb37380b501f748c19b8f3a5a3d553f11d234e71844b3eefb7c9",
+    "apps/mobile/package.json": "4d3d14c54f950a895b1b7998b8c3deb02811bda1a49a7fd42f4122ca47d70a95",
+    "benchmarks/external-benchmarks/bfcl/package.json": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+    "benchmarks/orchestrator-benchmark/package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+    "package-lock.json": "c6b1221fdd7a69a6dbdc3ae0ab3cb374e09626c7573ce2d279a0d8acde366940",
+    "package.json": "6adee217290061578d1afd43e4ccbbd71097b1d3a10574f014822f4bf1591298",
+    "packages/archiver-compat/package.json": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+    "packages/contracts/package.json": "98a513bfc08c8a15513a7a15ac2dcf6d0ee99dff8bf9b44d2ec68f85e68c8e97",
+    "packages/sdk/package.json": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a"
+  },
+  "command": [
+    "npm",
+    "ci",
+    "--ignore-scripts",
+    "--no-audit",
+    "--no-fund"
+  ],
+  "exitCode": 0,
+  "timedOut": false,
+  "nodeVersion": "v26.12.1",
+  "runtimePreparation": [
+    {
+      "command": [
+        "/opt/homebrew/Cellar/node/26.12.1/bin/node",
+        "node_modules/electron/install.js"
+      ],
+      "exitCode": 0,
+      "stdout": "",
+      "stderr": "",
+      "timedOut": false,
+      "durationMs": 1277
+    },
+    {
+      "command": [
+        "npm",
+        "rebuild",
+        "better-sqlite3"
+      ],
+      "exitCode": 0,
+      "stdout": "rebuilt dependencies successfully\n",
+      "stderr": "npm warn rebuild 11 packages have install scripts not yet covered by allowScripts. Run `npm install-scripts ls` to review.\n",
+      "timedOut": false,
+      "durationMs": 1612
+    }
+  ],
+  "boundarySha256": "909889cb32d332e8b504eeef6a94417b2879b8dd17e3e8db2bf6da07b908eecf"
+}

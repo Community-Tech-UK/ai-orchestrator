@@ -1,0 +1,17 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
+    "src/main/instance/instance-communication.spec.ts",
+    "src/main/instance/instance-provider-limit-handler.spec.ts",
+    "src/main/providers/account-pool/account-telemetry-bridge.spec.ts"
+  ],
+  "exitCode": 0,
+  "stdout": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts src/main/instance/instance-communication.spec.ts src/main/instance/instance-provider-limit-handler.spec.ts src/main/providers/account-pool/account-telemetry-bridge.spec.ts\n\n✓ 4 files · 207 tests passed in 21.2s\n  full log: _scratch/test-run.pid-87914.log\n",
+  "stderr": "",
+  "timedOut": false,
+  "durationMs": 22458
+}

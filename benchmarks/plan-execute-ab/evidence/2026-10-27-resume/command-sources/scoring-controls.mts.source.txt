@@ -1,0 +1,68 @@
+import { execFileSync } from 'child_process';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'fs';
+import { join, resolve } from 'path';
+import { loadTaskBank } from '../../benchmarks/plan-execute-ab/task-bank';
+import { prepareScoringDependencies, verifyScoringDependencies } from '../../benchmarks/plan-execute-ab/scoring-setup';
+import { applyHiddenTests } from '../../benchmarks/plan-execute-ab/task-export';
+import { scoreRun } from '../../benchmarks/plan-execute-ab/scorer';
+
+const root = process.cwd();
+const cleanRoot = process.env['AIO_SCORING_CONTROL_ROOT'];
+if (!cleanRoot) throw new Error('Explicit approved AIO_SCORING_CONTROL_ROOT is required; no actual source export started.');
+const evidence = join(root, 'benchmarks/plan-execute-ab/evidence/2026-10-27-resume/scoring/clean-location-v1');
+const bank = loadTaskBank(join(root, 'benchmarks/plan-execute-ab/tasks/task-bank.json'));
+const results: unknown[] = [];
+function exportInto(repo: string, sha: string, dir: string): void {
+  mkdirSync(dir, { recursive: true });
+  function cleanSource(folder: string): void {
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      if (['node_modules', '.git', '_scratch'].includes(entry.name)) continue;
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) { cleanSource(path); if (readdirSync(path).length === 0) rmSync(path, { recursive: true }); }
+      else rmSync(path, { force: true });
+    }
+  }
+  cleanSource(dir);
+  // One disposable export per repository, reused sequentially. Keep dependency
+  // folders in pnpm package directories only while overlaying the next tree.
+  mkdirSync(join(dir, '_scratch'), { recursive: true });
+  const tar = join(dir, '_scratch/export.tar');
+  execFileSync('git', ['-C', repo, 'archive', '-o', tar, sha]);
+  execFileSync('tar', ['-xf', tar, '-C', dir], { stdio: 'pipe' });
+  rmSync(tar);
+}
+for (const task of bank.tasks) {
+  if (process.argv[2] && !process.argv[2].split(',').includes(task.id)) continue;
+  const repo = bank.repos.find(r => r.id === task.repoId)!.localPath;
+  const dir = join(resolve(cleanRoot), task.repoId === 'ai-orchestrator' ? 'historical-aio' : 'historical-12steps');
+  const taskEvidence = join(evidence, task.id);
+  mkdirSync(taskEvidence, { recursive: true });
+  try {
+    console.log(`${task.id}: export parent, frozen install`);
+    exportInto(repo, task.parentSha, dir);
+    const setup = await prepareScoringDependencies(dir);
+    copyFileSync(join(dir, '_scratch/scoring-dependencies.log'), join(taskEvidence, 'dependency-setup.log'));
+    writeFileSync(join(taskEvidence, 'dependency-setup.json'), JSON.stringify(setup, null, 2));
+    applyHiddenTests(repo, task.commitSha, task.hiddenTests, dir);
+    const parent = await scoreRun({ ...task, damageCommands: [] }, { workspaceDir: dir, logDir: join(taskEvidence, 'parent'), dependencies: setup });
+    console.log(`${task.id}: parent hidden ${parent.hiddenTests.exitCode}; export fixed`);
+    exportInto(repo, task.commitSha, dir);
+    verifyScoringDependencies(dir);
+    applyHiddenTests(repo, task.commitSha, task.hiddenTests, dir);
+    const fixed = await scoreRun(task, { workspaceDir: dir, logDir: join(taskEvidence, 'fixed'), dependencies: setup });
+    const result = { taskId: task.id, parentSha: task.parentSha, commitSha: task.commitSha, setup, parent, fixed };
+    results.push(result);
+    writeFileSync(join(taskEvidence, 'controls.json'), JSON.stringify(result, null, 2));
+    console.log(`${task.id}: fixed hidden ${fixed.hiddenTests.exitCode}; damage ${fixed.damage.map(x => x.exitCode).join(',')}`);
+  } catch (error) {
+    for (const name of ['scoring-dependencies.log', 'scoring-dependencies.json']) {
+      const path = join(dir, '_scratch', name);
+      if (existsSync(path)) copyFileSync(path, join(taskEvidence, name));
+    }
+    const result = { taskId: task.id, error: String(error) };
+    results.push(result);
+    writeFileSync(join(taskEvidence, 'controls-error.json'), JSON.stringify(result, null, 2));
+    console.log(`${task.id}: ${String(error)}`);
+  }
+  writeFileSync(join(evidence, `controls-${process.argv[2] ?? 'all'}.json`), JSON.stringify(results, null, 2));
+}

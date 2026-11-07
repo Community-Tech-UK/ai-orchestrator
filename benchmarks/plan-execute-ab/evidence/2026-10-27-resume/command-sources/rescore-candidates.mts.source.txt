@@ -1,0 +1,123 @@
+import { createHash } from 'crypto';
+import { execFileSync } from 'child_process';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'fs';
+import { join, resolve } from 'path';
+import { loadTaskBank } from '../../benchmarks/plan-execute-ab/task-bank';
+import { prepareScoringDependencies, verifyScoringDependencies } from '../../benchmarks/plan-execute-ab/scoring-setup';
+import { applyHiddenTests } from '../../benchmarks/plan-execute-ab/task-export';
+import { scoreRun } from '../../benchmarks/plan-execute-ab/scorer';
+import { runCommand } from '../../benchmarks/plan-execute-ab/exec';
+
+const root = process.cwd();
+const cleanRoot = process.env['AIO_SCORING_CONTROL_ROOT'];
+if (!cleanRoot) throw new Error('Explicit approved AIO_SCORING_CONTROL_ROOT is required; no actual source export started.');
+const evidence = join(root, 'benchmarks/plan-execute-ab/evidence/2026-10-27-resume/scoring/clean-location-v1');
+const manifestPath = join(root, 'benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/candidate-manifest.json');
+const bank = loadTaskBank(join(root, 'benchmarks/plan-execute-ab/tasks/task-bank.json'));
+const sha256 = (bytes: Buffer | string): string => createHash('sha256').update(bytes).digest('hex');
+const sourceHashes = Object.fromEntries(['scorer.ts', 'scoring-setup.ts', 'exec.ts', 'task-export.ts', 'types.ts', 'tasks/task-bank.json', 'tasks/aio-01-scoring-v2.patch'].map(file => [file, sha256(readFileSync(join(root, 'benchmarks/plan-execute-ab', file)))]));
+function exportInto(repo: string, sha: string, dir: string): void {
+  mkdirSync(dir, { recursive: true });
+  function clean(folder: string): void {
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      if (['node_modules', '.git', '_scratch'].includes(entry.name)) continue;
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) { clean(path); if (!readdirSync(path).length) rmSync(path, { recursive: true }); }
+      else rmSync(path, { force: true });
+    }
+  }
+  clean(dir);
+  mkdirSync(join(dir, '_scratch'), { recursive: true });
+  const tar = join(dir, '_scratch/export.tar');
+  execFileSync('git', ['-C', repo, 'archive', '-o', tar, sha], { stdio: 'pipe' });
+  execFileSync('tar', ['-xf', tar, '-C', dir], { stdio: 'pipe' });
+  rmSync(tar);
+  if (!existsSync(join(dir, '.git/HEAD'))) execFileSync('git', ['init', '-q', dir], { stdio: 'pipe' });
+  const gitRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8', stdio: 'pipe' }).trim();
+  if (gitRoot !== realpathSync(dir)) throw new Error('export Git root is not isolated');
+}
+for (const task of bank.tasks) {
+  if (process.argv[2] && !process.argv[2].split(',').includes(task.id)) continue;
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  const candidates = manifest.candidates.filter((candidate: { taskId: string }) => candidate.taskId === task.id);
+  const control = JSON.parse(readFileSync(join(evidence, task.id, 'controls.json'), 'utf8'));
+  if (control.parent.hiddenTests.passed || !control.fixed.hiddenTests.passed || !control.fixed.damageOk) {
+    throw new Error(`${task.id}: parent/fixed controls are not valid; no candidate scoring authorised`);
+  }
+  const repo = bank.repos.find(repo => repo.id === task.repoId)!.localPath;
+  const dir = join(resolve(cleanRoot), task.repoId === 'ai-orchestrator' ? 'historical-aio' : 'historical-12steps');
+  exportInto(repo, task.parentSha, dir);
+  let setup;
+  try {
+    setup = verifyScoringDependencies(dir);
+    if (!Array.isArray(setup.runtimePreparation)) throw new Error('older preparation receipt');
+  } catch { setup = await prepareScoringDependencies(dir, join(evidence, 'candidate-runtime', task.id)); }
+  console.log(`${task.id}: ${candidates.length} candidate(s), frozen runtime ${setup.fingerprint.slice(0, 12)}`);
+  if (task.id === 'AIO-01' && !existsSync(join(evidence, 'AIO-01/repeated-v2/summary.json'))) {
+    const repeats: unknown[] = [];
+    for (const variant of ['parent', 'fixed', 'bogus-delay']) {
+      for (let repeat = 1; repeat <= 2; repeat += 1) {
+        exportInto(repo, variant === 'fixed' ? task.commitSha : task.parentSha, dir);
+        let mutation;
+        if (variant === 'bogus-delay') {
+          const file = join(dir, 'src/main/history/history-manager.ts');
+          const original = readFileSync(file, 'utf8');
+          const anchor = '  async clearAll(): Promise<void> {\n';
+          if (original.split(anchor).length !== 2) throw new Error('bogus control mutation anchor mismatch');
+          const changed = original.replace(anchor, anchor + '    for (let delay = 0; delay < 100; delay += 1) await Promise.resolve();\n');
+          writeFileSync(file, changed);
+          mutation = { file: 'src/main/history/history-manager.ts', parentSha256: sha256(original), mutatedSha256: sha256(changed), addition: '    for (let delay = 0; delay < 100; delay += 1) await Promise.resolve();' };
+        }
+        applyHiddenTests(repo, task.commitSha, task.hiddenTests, dir);
+        const destination = join(evidence, 'AIO-01/repeated-v2', `${variant}-${repeat}`);
+        const score = await scoreRun({ ...task, damageCommands: [] }, { workspaceDir: dir, logDir: destination, dependencies: setup });
+        repeats.push({ variant, repeat, mutation, score, damageChecksOmitted: true });
+        console.log(`AIO-01/${variant}-${repeat}: hidden ${score.hiddenTests.exitCode}`);
+        if (score.hiddenTests.passed !== (variant === 'fixed')) throw new Error(`AIO01 repeated ${variant} control failed`);
+      }
+    }
+    writeFileSync(join(evidence, 'AIO-01/repeated-v2/summary.json'), JSON.stringify({ sourceHashes, dependencyReceipt: setup, repeats }, null, 2));
+  }
+  for (const candidate of candidates) {
+    const destination = join(evidence, 'candidates', `${task.id}-${candidate.armId}`);
+    mkdirSync(destination, { recursive: true });
+    const recordPath = join(destination, 'score.json');
+    if (existsSync(recordPath)) {
+      const prior = JSON.parse(readFileSync(recordPath, 'utf8'));
+      if (prior.score && prior.candidate.sha256 === candidate.sha256 && JSON.stringify(prior.sourceHashes) === JSON.stringify(sourceHashes)) continue;
+    }
+    const record = { candidate, sourceHashes, parentSha: task.parentSha, fixedSha: task.commitSha, dependencyReceipt: setup, manifestSha256: sha256(readFileSync(manifestPath)) };
+    try {
+      exportInto(repo, task.parentSha, dir);
+      const patch = readFileSync(join(root, candidate.patchPath));
+      if (sha256(patch) !== candidate.sha256) throw new Error('candidate patch SHA-256 mismatch');
+      if (patch.length) {
+        for (const args of [['apply', '--check', '-'], ['apply', '-']]) {
+          const applied = await runCommand(['git', ...args], { cwd: dir, stdin: patch.toString(), timeoutMs: 30_000 });
+          if (applied.exitCode !== 0 || applied.timedOut) throw new Error(`candidate patch refused: ${applied.stderr}`);
+        }
+      }
+      const appliedFiles: Record<string, string> = {};
+      for (const section of patch.toString().split(/^diff --git /m).slice(1)) {
+        const file = section.match(/^a\/.+ b\/(.+)\n/)?.[1];
+        const expected = section.match(/^index [a-f0-9]+\.\.([a-f0-9]+)/m)?.[1];
+        if (!file || !expected) throw new Error('candidate lacks exact per-file Git index provenance');
+        if (/^0+$/.test(expected)) {
+          if (existsSync(join(dir, file))) throw new Error(`candidate deletion did not apply: ${file}`);
+          appliedFiles[file] = 'deleted';
+        } else {
+          const actual = execFileSync('git', ['hash-object', '--', file], { cwd: dir, encoding: 'utf8', stdio: 'pipe' }).trim();
+          if (!actual.startsWith(expected)) throw new Error(`candidate new-index hash mismatch: ${file}`);
+          appliedFiles[file] = actual;
+        }
+      }
+      applyHiddenTests(repo, task.commitSha, task.hiddenTests, dir);
+      const score = await scoreRun(task, { workspaceDir: dir, logDir: destination, dependencies: setup });
+      writeFileSync(recordPath, JSON.stringify({ ...record, gitRoot: realpathSync(dir), appliedFiles, score }, null, 2));
+      console.log(`${task.id}/${candidate.armId}: hidden ${score.hiddenTests.exitCode}, damage ${score.damage.map(check => check.exitCode).join(',')}${candidate.diagnosticOnly ? ' (diagnostic only)' : ''}`);
+    } catch (error) {
+      writeFileSync(recordPath, JSON.stringify({ ...record, error: String(error), status: 'unscored' }, null, 2));
+      console.log(`${task.id}/${candidate.armId}: unscored: ${String(error)}`);
+    }
+  }
+}

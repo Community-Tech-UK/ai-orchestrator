@@ -1,0 +1,35 @@
+[
+  {
+    "name": "benchmark-typecheck",
+    "command": "rtk proxy ./node_modules/.bin/tsc --noEmit -p benchmarks/plan-execute-ab/tsconfig.json",
+    "result": {
+      "chunk_id": "d08835",
+      "wall_time_seconds": 1.334017125,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    }
+  },
+  {
+    "name": "scoring-lint",
+    "command": "rtk proxy ./node_modules/.bin/oxlint benchmarks/plan-execute-ab/scoring-setup.ts benchmarks/plan-execute-ab/scoring-setup.spec.ts benchmarks/plan-execute-ab/scorer.ts benchmarks/plan-execute-ab/scorer.spec.ts benchmarks/plan-execute-ab/task-export.spec.ts benchmarks/plan-execute-ab/task-bank.ts benchmarks/plan-execute-ab/types.ts benchmarks/plan-execute-ab/runner.ts benchmarks/plan-execute-ab/runner.spec.ts benchmarks/plan-execute-ab/config.spec.ts",
+    "result": {
+      "chunk_id": "bea350",
+      "wall_time_seconds": 0.168008542,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    }
+  },
+  {
+    "name": "diff-whitespace",
+    "command": "rtk proxy git diff --check",
+    "result": {
+      "chunk_id": "c3eb1e",
+      "wall_time_seconds": 0.000010041,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    }
+  }
+]

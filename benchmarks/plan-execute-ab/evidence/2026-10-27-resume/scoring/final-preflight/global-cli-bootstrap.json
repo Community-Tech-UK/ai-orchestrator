@@ -1,0 +1,60 @@
+{
+  "modelInvocations": 0,
+  "results": [
+    {
+      "command": [
+        "node",
+        "--version"
+      ],
+      "exitCode": 0,
+      "stdout": "v26.12.1\n",
+      "stderr": "",
+      "timedOut": false,
+      "durationMs": 179
+    },
+    {
+      "command": [
+        "npm",
+        "--version"
+      ],
+      "exitCode": 0,
+      "stdout": "11.20.0\n",
+      "stderr": "",
+      "timedOut": false,
+      "durationMs": 311
+    },
+    {
+      "command": [
+        "pnpm",
+        "--version"
+      ],
+      "exitCode": 0,
+      "stdout": "10.28.2\n",
+      "stderr": "",
+      "timedOut": false,
+      "durationMs": 530
+    },
+    {
+      "command": [
+        "claude",
+        "--version"
+      ],
+      "exitCode": 0,
+      "stdout": "2.1.311 (Claude Code)\n",
+      "stderr": "",
+      "timedOut": false,
+      "durationMs": 26
+    },
+    {
+      "command": [
+        "codex",
+        "--version"
+      ],
+      "exitCode": 0,
+      "stdout": "codex-cli 0.164.0\n",
+      "stderr": "",
+      "timedOut": false,
+      "durationMs": 228
+    }
+  ]
+}

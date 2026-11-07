@@ -1,0 +1,496 @@
+diff --git a/apps/web/src/app/content/content-offline.spec.ts b/apps/web/src/app/content/content-offline.spec.ts
+index 0efa0e0..76d3b15 100644
+--- a/apps/web/src/app/content/content-offline.spec.ts
++++ b/apps/web/src/app/content/content-offline.spec.ts
+@@ -70,8 +70,21 @@ class FakeCache implements Partial<ContentCacheService> {
+ class FakeOutbox implements Partial<ContentOutboxService> {
+   readonly ops = new Map<number, OutboxOp>();
+   readonly status = signal<OutboxStatus>({ pending: 0, failed: 0 });
++  readonly delivering = signal(false);
++  private latestDelivery: Promise<void> | null = null;
+   private nextSeq = 1;
+ 
++  trackDelivery(run: Promise<void>): void {
++    this.latestDelivery = run;
++    this.delivering.set(true);
++    const settle = () => {
++      if (this.latestDelivery !== run) return;
++      this.latestDelivery = null;
++      this.delivering.set(false);
++    };
++    run.then(settle, settle);
++  }
++
+   isAvailable(): boolean {
+     return true;
+   }
+@@ -761,6 +774,29 @@ describe('ContentService offline', () => {
+     });
+   });
+ 
++  describe('save feedback timeline', () => {
++    it('is already delivering when a save queued behind others resolves, then settles empty', async () => {
++      const harness = configure({ offline: true });
++      await harness.service.save('journal', 'older');
++      harness.goOnline();
++      const gate = new Subject<unknown>();
++      harness.responders.post = () => gate;
++      const flushing = harness.service.flushOutbox();
++      await vi.waitFor(() => expect(contentWrites(harness.calls)).toHaveLength(1));
++
++      // The replay lock is held, so this save takes the 'busy' path.
++      await harness.service.save('journal', 'newer');
++      expect(harness.outbox.delivering()).toBe(true);
++
++      harness.responders.post = () => of({ id: SERVER_ROW_ID, syncVersion: 1 });
++      gate.next({ id: SERVER_ROW_ID, syncVersion: 1 });
++      gate.complete();
++      await flushing;
++      await vi.waitFor(() => expect(harness.outbox.delivering()).toBe(false));
++      expect(harness.service.outboxStatus().pending).toBe(0);
++    });
++  });
++
+   describe('after review pass 6', () => {
+     it('does not bring back a change discarded while its send was still in flight', async () => {
+       const harness = configure({ offline: true });
+diff --git a/apps/web/src/app/content/content-outbox.service.spec.ts b/apps/web/src/app/content/content-outbox.service.spec.ts
+index ee0e08f..b4f3e1a 100644
+--- a/apps/web/src/app/content/content-outbox.service.spec.ts
++++ b/apps/web/src/app/content/content-outbox.service.spec.ts
+@@ -19,6 +19,45 @@ function op(seq: number, overrides: Partial<OutboxOp>): OutboxOp {
+   };
+ }
+ 
++describe('delivery tracking', () => {
++  function deferred() {
++    let resolve!: () => void;
++    const promise = new Promise<void>((r) => (resolve = r));
++    return { promise, resolve };
++  }
++
++  it('is delivering until the tracked run settles', async () => {
++    const outbox = TestBed.inject(ContentOutboxService);
++    const run = deferred();
++    expect(outbox.delivering()).toBe(false);
++    outbox.trackDelivery(run.promise);
++    expect(outbox.delivering()).toBe(true);
++    const settled = outbox.deliverySettled();
++    run.resolve();
++    await settled;
++    expect(outbox.delivering()).toBe(false);
++  });
++
++  it('resolves deliverySettled immediately when nothing is tracked', async () => {
++    await TestBed.inject(ContentOutboxService).deliverySettled();
++  });
++
++  it('keeps delivering when an older run settles after a newer one starts', async () => {
++    const outbox = TestBed.inject(ContentOutboxService);
++    const older = deferred();
++    const newer = deferred();
++    outbox.trackDelivery(older.promise);
++    outbox.trackDelivery(newer.promise);
++    older.resolve();
++    await older.promise;
++    await Promise.resolve();
++    expect(outbox.delivering()).toBe(true);
++    newer.resolve();
++    await outbox.deliverySettled();
++    expect(outbox.delivering()).toBe(false);
++  });
++});
++
+ describe('supersededOps', () => {
+   it('cancels a queued create together with its later delete', () => {
+     const ops = [
+diff --git a/apps/web/src/app/content/content-outbox.service.ts b/apps/web/src/app/content/content-outbox.service.ts
+index 598d1b0..bb3d412 100644
+--- a/apps/web/src/app/content/content-outbox.service.ts
++++ b/apps/web/src/app/content/content-outbox.service.ts
+@@ -75,6 +75,37 @@ export class ContentOutboxService {
+    */
+   readonly status = signal<OutboxStatus>({ pending: 0, failed: 0 });
+ 
++  /** True while a delivery pass is running; see {@link trackDelivery}. */
++  readonly delivering = signal(false);
++  private latestDelivery: Promise<void> | null = null;
++
++  /** Mark delivery as running until the latest tracked run settles. */
++  trackDelivery(run: Promise<void>): void {
++    this.latestDelivery = run;
++    this.delivering.set(true);
++    const settle = () => {
++      // An older run settling must not clear a newer one.
++      if (this.latestDelivery !== run) return;
++      this.latestDelivery = null;
++      this.delivering.set(false);
++    };
++    run.then(settle, settle);
++  }
++
++  /** Resolves once the latest tracked delivery has settled (immediately if none). */
++  async deliverySettled(): Promise<void> {
++    while (this.latestDelivery) {
++      const run = this.latestDelivery;
++      try {
++        await run;
++      } catch {
++        // Failure is reported through the outbox counts, not here.
++      }
++      // The settle callback is registered first, so it has already run.
++      if (this.latestDelivery === run) this.latestDelivery = null;
++    }
++  }
++
+   /** False under SSR, without IndexedDB, or after a hard failure. */
+   isAvailable(): boolean {
+     return !this.unavailable && typeof indexedDB !== 'undefined';
+diff --git a/apps/web/src/app/content/content.service.ts b/apps/web/src/app/content/content.service.ts
+index da5ee7e..b0a2bd9 100644
+--- a/apps/web/src/app/content/content.service.ts
++++ b/apps/web/src/app/content/content.service.ts
+@@ -1264,15 +1264,17 @@ export class ContentService {
+       // A list loaded while the request was in flight may predate it.
+       this.forget(op.contentType ?? undefined);
+     }
+-    if (generation === this.lifecycleGeneration) {
+-      await this.refreshOutboxStatus();
+-    }
+     if (outcome === 'deferred' || outcome === 'busy') {
+       // Earlier changes are still queued; deliver in order behind them. A
+       // change that could not go at all is left to the backoff retry instead
+-      // of being re-sent straight into the same dead connection.
++      // of being re-sent straight into the same dead connection. Started
++      // before the status refresh so save feedback already sees delivery
++      // running when the editor confirms.
+       void this.flushOutbox();
+     }
++    if (generation === this.lifecycleGeneration) {
++      await this.refreshOutboxStatus();
++    }
+   }
+ 
+   /** The type of a row this account holds, from its queued create or this device's copy. */
+@@ -1496,6 +1498,7 @@ export class ContentService {
+     })().finally(() => {
+       this.flushInFlight = null;
+     });
++    this.outbox.trackDelivery(this.flushInFlight);
+     return this.flushInFlight;
+   }
+ 
+diff --git a/apps/web/src/app/shared/components/app-shell/app-shell.component.spec.ts b/apps/web/src/app/shared/components/app-shell/app-shell.component.spec.ts
+index 1d264b3..73b38bd 100644
+--- a/apps/web/src/app/shared/components/app-shell/app-shell.component.spec.ts
++++ b/apps/web/src/app/shared/components/app-shell/app-shell.component.spec.ts
+@@ -6,6 +6,7 @@ import { TranslocoPipe } from '@jsverse/transloco';
+ import { beforeEach, describe, expect, it } from 'vitest';
+ import { LANG_PARAM_DROPPED } from '../../../i18n/locale.service';
+ import { SaveFeedbackService } from '../../services/save-feedback.service';
++import { ContentOutboxService } from '../../../content/content-outbox.service';
+ import { AutosaveIndicatorComponent } from '../autosave-indicator.component';
+ import { SaveSnakeComponent } from '../save-snake.component';
+ import { AppShellComponent } from './app-shell.component';
+@@ -71,6 +72,23 @@ describe('AppShellComponent save outline', () => {
+     expect(nav().getAttribute('data-save-state')).toBe('error');
+   });
+ 
++  it('never goes red for a confirmation made while delivery is running', async () => {
++    const feedback = TestBed.inject(SaveFeedbackService);
++    const outbox = TestBed.inject(ContentOutboxService);
++    const source = TestBed.runInInjectionContext(() => feedback.register(async () => {}));
++    const { nav } = await render();
++    let finish!: () => void;
++    outbox.trackDelivery(new Promise<void>((resolve) => (finish = resolve)));
++    outbox.status.set({ pending: 1, failed: 0 });
++    source.set('saving');
++    source.set('saved');
++    expect(nav().getAttribute('data-save-state')).toBe('saving');
++    outbox.status.set({ pending: 0, failed: 0 });
++    finish();
++    await new Promise((resolve) => setTimeout(resolve));
++    expect(nav().getAttribute('data-save-state')).toBe('saved');
++  });
++
+   it('tells page indicators that the side menu carries the save line', async () => {
+     const { harness, root } = await render();
+     harness.detectChanges();
+diff --git a/apps/web/src/app/shared/components/app-shell/app-shell.component.ts b/apps/web/src/app/shared/components/app-shell/app-shell.component.ts
+index 4780857..45d3c9f 100644
+--- a/apps/web/src/app/shared/components/app-shell/app-shell.component.ts
++++ b/apps/web/src/app/shared/components/app-shell/app-shell.component.ts
+@@ -264,6 +264,7 @@ import { LANG_PARAM_DROPPED } from '../../../i18n/locale.service';
+           right: var(--radius-lg);
+         }
+         .app-shell__nav[data-save-state='saved'] {
++          /* Duration must match SAVE_CONFIRM_MS. */
+           animation: rail-save-confirmed 2000ms ease-out forwards;
+         }
+         .app-shell__nav[data-save-state='error'] {
+diff --git a/apps/web/src/app/shared/components/autosave-indicator.component.spec.ts b/apps/web/src/app/shared/components/autosave-indicator.component.spec.ts
+index f92c198..dde1122 100644
+--- a/apps/web/src/app/shared/components/autosave-indicator.component.spec.ts
++++ b/apps/web/src/app/shared/components/autosave-indicator.component.spec.ts
+@@ -1,7 +1,7 @@
+ import { TestBed } from '@angular/core/testing';
+ import { beforeEach, describe, expect, it } from 'vitest';
+ import type { AutosaveState } from '../services/autosave';
+-import { SAVE_FEEDBACK_RAIL } from '../services/save-feedback.service';
++import { SAVE_FEEDBACK_RAIL, SaveFeedbackService } from '../services/save-feedback.service';
+ import { AutosaveIndicatorComponent } from './autosave-indicator.component';
+ import { ContentOutboxService } from '../../content/content-outbox.service';
+ import { NetworkStatusService } from '../services/network-status.service';
+@@ -34,7 +34,19 @@ describe('AutosaveIndicatorComponent', () => {
+     }
+   });
+ 
++  function confirmShared() {
++    const feedback = TestBed.inject(SaveFeedbackService);
++    const source = TestBed.runInInjectionContext(() => feedback.register(async () => {}));
++    source.set('saved');
++  }
++
++  it('stays idle on a local saved state with no shared confirmation', () => {
++    const { snake } = render('saved');
++    expect(snake.getAttribute('data-state')).toBe('idle');
++  });
++
+   it('turns the snake green once saved without a visible label', () => {
++    confirmShared();
+     const { snake, status } = render('saved');
+     expect(snake.getAttribute('data-state')).toBe('saved');
+     expect(status.textContent?.trim()).toBe('Saved');
+@@ -79,6 +91,7 @@ describe('AutosaveIndicatorComponent', () => {
+       imports: [AutosaveIndicatorComponent],
+       providers: [{ provide: SAVE_FEEDBACK_RAIL, useValue: true }],
+     });
++    confirmShared();
+     const inside = TestBed.createComponent(AutosaveIndicatorComponent);
+     inside.componentRef.setInput('state', 'saved');
+     inside.detectChanges();
+diff --git a/apps/web/src/app/shared/components/autosave-indicator.component.ts b/apps/web/src/app/shared/components/autosave-indicator.component.ts
+index 9b117f0..3fa70a5 100644
+--- a/apps/web/src/app/shared/components/autosave-indicator.component.ts
++++ b/apps/web/src/app/shared/components/autosave-indicator.component.ts
+@@ -75,8 +75,12 @@ export class AutosaveIndicatorComponent {
+   private readonly t = injectTranslate();
+ 
+   protected readonly snakeState = computed<SaveSnakeState>(() => {
+-    const state = this.state();
+-    return this.feedback.resolveState(state === 'pending' ? 'saving' : state);
++    const local = this.state();
++    const shared = this.feedback.state();
++    if (local === 'error' || shared === 'error') return 'error';
++    if (local === 'pending' || local === 'saving' || shared === 'saving') return 'saving';
++    // Green comes only from the shared confirmation timer.
++    return shared === 'saved' ? 'saved' : 'idle';
+   });
+ 
+   protected readonly label = computed(() => {
+diff --git a/apps/web/src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts b/apps/web/src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts
+index 0cc05c0..da8ecf1 100644
+--- a/apps/web/src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts
++++ b/apps/web/src/app/shared/components/bottom-nav/bottom-nav-save.spec.ts
+@@ -142,6 +142,34 @@ describe('mobile save feedback', () => {
+     expect(element.querySelector('.bottom-nav--error')).not.toBeNull();
+   });
+ 
++  it('never shows the error state for a save delivered behind a busy queue', async () => {
++    let finish!: () => void;
++    const { autosave, element, status } = render(async () => {
++      const outbox = TestBed.inject(ContentOutboxService);
++      outbox.trackDelivery(new Promise<void>((resolve) => (finish = resolve)));
++      outbox.status.set({ pending: 1, failed: 0 });
++    });
++    autosave.touch('entry');
++    await vi.advanceTimersByTimeAsync(100);
++    expect(element.querySelector('.bottom-nav--error')).toBeNull();
++    expect(status()).not.toContain("Couldn't save");
++    TestBed.inject(ContentOutboxService).status.set({ pending: 0, failed: 0 });
++    finish();
++    await vi.advanceTimersByTimeAsync(0);
++    expect(element.querySelector('.bottom-nav--error')).toBeNull();
++    expect(status()).toContain('Saved');
++  });
++
++  it('does not say Couldn’t save while an offline save request is unresolved', async () => {
++    TestBed.inject(NetworkStatusService).reportUnreachable();
++    TestBed.inject(ContentOutboxService).status.set({ pending: 1, failed: 0 });
++    const { autosave, element, status } = render(() => new Promise<void>(() => {}));
++    autosave.touch('entry');
++    await vi.advanceTimersByTimeAsync(100);
++    expect(status()).not.toContain("Couldn't save");
++    expect(element.querySelector('.bottom-nav--error')).toBeNull();
++  });
++
+   it('acknowledges manual Save after autosave has already finished without another write', async () => {
+     let writes = 0;
+     const { autosave, status } = render(async () => {
+diff --git a/apps/web/src/app/shared/components/bottom-nav/bottom-nav.component.ts b/apps/web/src/app/shared/components/bottom-nav/bottom-nav.component.ts
+index 1f9e8b0..2d55daa 100644
+--- a/apps/web/src/app/shared/components/bottom-nav/bottom-nav.component.ts
++++ b/apps/web/src/app/shared/components/bottom-nav/bottom-nav.component.ts
+@@ -229,6 +229,7 @@ import { TourAnchorDirective } from '../../../guided-tours/tour-anchor.directive
+         border-radius: 0;
+       }
+       .bottom-nav--saved {
++        /* Duration must match SAVE_CONFIRM_MS. */
+         animation: save-confirmed 2000ms ease-out forwards;
+       }
+       .bottom-nav--error {
+diff --git a/apps/web/src/app/shared/services/autosave.ts b/apps/web/src/app/shared/services/autosave.ts
+index 0737516..9f1f6d3 100644
+--- a/apps/web/src/app/shared/services/autosave.ts
++++ b/apps/web/src/app/shared/services/autosave.ts
+@@ -1,5 +1,5 @@
+ import { DestroyRef, DOCUMENT, Signal, computed, inject, signal } from '@angular/core';
+-import { SaveFeedbackService } from './save-feedback.service';
++import { SAVE_CONFIRM_MS, SaveFeedbackService } from './save-feedback.service';
+ 
+ /**
+  * Autosave lifecycle state, suitable for driving a small "Saving… / Saved"
+@@ -23,7 +23,7 @@ export interface AutosaveOptions {
+    * continuous typing still persists periodically. Default 8000ms.
+    */
+   maxWaitMs?: number;
+-  /** How long the `saved` state lingers before reverting to `idle`. Default 1800ms. */
++  /** How long the `saved` state lingers before reverting to `idle`. Defaults to SAVE_CONFIRM_MS. */
+   savedLingerMs?: number;
+   /**
+    * Return `true` for errors that should NOT be surfaced as a failed save —
+@@ -97,7 +97,7 @@ export function createAutosave(
+ ): Autosave {
+   const debounceMs = options.debounceMs ?? 300;
+   const maxWaitMs = options.maxWaitMs ?? 8000;
+-  const savedLingerMs = options.savedLingerMs ?? 1800;
++  const savedLingerMs = options.savedLingerMs ?? SAVE_CONFIRM_MS;
+   const isBenign = options.isBenignError ?? (() => false);
+ 
+   const doc = inject(DOCUMENT);
+diff --git a/apps/web/src/app/shared/services/save-feedback.service.spec.ts b/apps/web/src/app/shared/services/save-feedback.service.spec.ts
+index 267b946..2b0d3d9 100644
+--- a/apps/web/src/app/shared/services/save-feedback.service.spec.ts
++++ b/apps/web/src/app/shared/services/save-feedback.service.spec.ts
+@@ -32,6 +32,54 @@ describe('SaveFeedbackService delivery status', () => {
+     expect(feedback.state()).toBe('saved');
+   });
+ 
++  it('shows progress, not red, for an in-flight save while offline with a queued change', () => {
++    const { feedback, source, outbox } = editor();
++    TestBed.inject(NetworkStatusService).reportUnreachable();
++    source.set('saving');
++    outbox.status.set({ pending: 1, failed: 0 });
++    expect(feedback.state()).toBe('saving');
++  });
++
++  it('holds a confirmation as saving until delivery settles, then times it from there', async () => {
++    const { feedback, source, outbox } = editor();
++    let finish!: () => void;
++    outbox.trackDelivery(new Promise<void>((resolve) => (finish = resolve)));
++    outbox.status.set({ pending: 1, failed: 0 });
++    source.set('saving');
++    source.set('saved');
++    expect(feedback.state()).toBe('saving');
++    await vi.advanceTimersByTimeAsync(5000);
++    expect(feedback.state()).toBe('saving');
++    outbox.status.set({ pending: 0, failed: 0 });
++    finish();
++    await vi.advanceTimersByTimeAsync(0);
++    expect(feedback.state()).toBe('saved');
++    await vi.advanceTimersByTimeAsync(1999);
++    expect(feedback.state()).toBe('saved');
++    await vi.advanceTimersByTimeAsync(1);
++    expect(feedback.state()).toBe('idle');
++  });
++
++  it('turns red when delivery ends with the change still queued', async () => {
++    const { feedback, source, outbox } = editor();
++    let finish!: () => void;
++    outbox.trackDelivery(new Promise<void>((resolve) => (finish = resolve)));
++    outbox.status.set({ pending: 1, failed: 0 });
++    source.set('saved');
++    expect(feedback.state()).toBe('saving');
++    finish();
++    await vi.advanceTimersByTimeAsync(0);
++    expect(feedback.state()).toBe('error');
++  });
++
++  it('ignores a delivery attempt while offline when no editor is saving', () => {
++    const { feedback, outbox } = editor();
++    TestBed.inject(NetworkStatusService).reportUnreachable();
++    outbox.trackDelivery(new Promise<void>(() => {}));
++    outbox.status.set({ pending: 1, failed: 0 });
++    expect(feedback.state()).toBe('error');
++  });
++
+   it('rejects local success when a request leaves an undelivered change', async () => {
+     const { feedback, source, outbox } = editor();
+     source.set('saving');
+diff --git a/apps/web/src/app/shared/services/save-feedback.service.ts b/apps/web/src/app/shared/services/save-feedback.service.ts
+index ba0a1b2..f69da55 100644
+--- a/apps/web/src/app/shared/services/save-feedback.service.ts
++++ b/apps/web/src/app/shared/services/save-feedback.service.ts
+@@ -18,6 +18,9 @@ import { NetworkStatusService } from './network-status.service';
+  */
+ export const SAVE_FEEDBACK_RAIL = new InjectionToken<boolean>('SAVE_FEEDBACK_RAIL');
+ 
++/** How long `saved` shows on every surface. CSS keyframes in the shell and bottom nav must match. */
++export const SAVE_CONFIRM_MS = 2000;
++
+ export type SaveFeedbackState = 'idle' | 'saving' | 'saved' | 'error';
+ /** Unsaved drafts suppress success without suggesting a request is still running. */
+ type SaveFeedbackSourceState = SaveFeedbackState | 'unsaved';
+@@ -42,6 +45,7 @@ export class SaveFeedbackService {
+       retry: () => Promise<void>;
+     }
+   >();
++  private confirmToken = 0;
+   private timer: ReturnType<typeof setTimeout> | null = null;
+ 
+   constructor() {
+@@ -70,7 +74,11 @@ export class SaveFeedbackService {
+   resolveState(state: SaveFeedbackState): SaveFeedbackState {
+     const { pending, failed } = this.outbox.status();
+     if (state === 'error' || this.editorState() === 'error' || failed > 0) return 'error';
+-    if (pending > 0 && (state !== 'saving' || !this.network.online())) return 'error';
++    // In-flight work is never red; a delivery attempt while offline is ignored.
++    if (state === 'saving' || (this.outbox.delivering() && this.network.online())) {
++      return 'saving';
++    }
++    if (pending > 0) return 'error';
+     return state;
+   }
+ 
+@@ -112,16 +120,29 @@ export class SaveFeedbackService {
+       this.editorState.set(blocked ?? 'idle');
+       return;
+     }
+-    // Each confirmation holds `saved` for a fresh two seconds.
++    // Each confirmation holds `saved` for a fresh two seconds, counted from
++    // when delivery to the server has settled.
+     this.clearTimer();
+     this.editorState.set('saved');
++    if (this.outbox.delivering()) {
++      const token = this.confirmToken;
++      void this.outbox.deliverySettled().then(() => {
++        if (token === this.confirmToken && this.editorState() === 'saved') this.startTimer();
++      });
++      return;
++    }
++    this.startTimer();
++  }
++
++  private startTimer(): void {
+     this.timer = setTimeout(() => {
+       this.timer = null;
+       this.editorState.set('idle');
+-    }, 2000);
++    }, SAVE_CONFIRM_MS);
+   }
+ 
+   private clearTimer(): void {
++    this.confirmToken++;
+     if (this.timer !== null) clearTimeout(this.timer);
+     this.timer = null;
+   }

@@ -1,0 +1,8 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"instanceId\":\"x8t0185h9\",\"status\":\"idle\",\"done\":true,\"messageCount\":26,\"truncated\":true,\"lastSeq\":25,\"messages\":[{\"type\":\"assistant\",\"content\":\"Native server is running detached, **PID 82752**, pending coordinator restoration.\\n\\n- [x] Helper confirmed **IDLE, queued 0**, then unloaded.\\n- [x] Listener `100.113.93.104:1235` belongs to PID 82752.\\n- [x] Authentication: absent **401**, wrong **401**, configured **200**. Health **200**; context **65536**, slots **1**.\\n- [x] WSL: Ubuntu and Docker originally stopped. Ubuntu reported **91 GiB available**; ` llama-server`, ` cmake`, ` nvcc` absent. Ubuntu stopped again after checks.\\n- [x] No installations, new files, deletions or repository changes. Eight diagnostic files preserved.\\n\\nCommand used, with existing CUDA vendor directories added to the child’s PATH:\\n\\n```powershell\\n& \\\"C:\\\\Users\\\\shutu\\\\.lmstudio\\\\extensions\\\\backends\\\\llama.cpp-win-x86_64-nvidia-cuda12-avx2-2.60.0\\\\llama-server.exe\\\" --model \\\"C:\\\\Users\\\\shutu\\\\.lmstudio\\\\models\\\\lmstudio-community\\\\Qwen3.6-35B-A3B-GGUF\\\\Qwen3.6-35B-A3B-Q4_K_M.gguf\\\" --ctx-size 65536 --parallel 1 --batch-size 4096 --ubatch-size 4096 --threads 12 --threads-batch 12 --n-gpu-layers 999 --flash-attn on --kv-offload --jinja --host 100.113.93.104 --port 1235 --api-key-file \\\"C:\\\\Users\\\\shutu\\\\Documents\\\\Work\\\\_scratch\\\\plan-ex-ab-api-key.txt\\\"\\n```\\n\\nGeneration was not tested. To stop this server during restoration: ` Stop-Process -Id 82752`.\",\"timestamp\":1793111003945,\"seq\":25}]}"
+    }
+  ]
+}

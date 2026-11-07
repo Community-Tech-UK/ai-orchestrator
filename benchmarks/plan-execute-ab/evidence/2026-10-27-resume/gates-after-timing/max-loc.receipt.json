@@ -1,0 +1,17 @@
+{
+  "label": "max-loc",
+  "command": [
+    "npm",
+    "run",
+    "check:ts-max-loc"
+  ],
+  "startedAt": "2026-10-27T17:34:43.883999+00:00",
+  "durationSeconds": 1.364,
+  "exitCode": 0,
+  "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-after-timing/max-loc.log",
+  "load": [
+    71.0830078125,
+    52.1005859375,
+    56.49951171875
+  ]
+}

@@ -1,0 +1,278 @@
+{
+  "sourceSeal": {
+    "parent": "f04f674859b220b86eeb52662129072008573af9",
+    "fixed": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+    "versions": {
+      "node": "v26.12.1",
+      "vitest": "3.2.7"
+    },
+    "originalSpecSha256": "7a22eaa19461b90558e4071bef0b4a4f567ac622e15c0b264f1f0545afd1fa0f",
+    "amendedSpecSha256": "a464399dcf10d3474b2bff828af59fd884331d482d9801c5dc49185e9f12b18c",
+    "patchSha256": "fc54b9d571d4337ee9cad7294ccb8757f71360f5f038603cb7af03e49d1ff30e",
+    "originalArchivedTestPreserved": true,
+    "sourceSha256": {
+      "f04f674859b220b86eeb52662129072008573af9": "89e026b0e26eca09067234605a32b9aa6d6fd24f91661cdf7d0b9755b5b58a6c",
+      "8b9721bf3c55e69259b6be4880b3acff91b68b16": "0a43dd9c483021d7e5343a031d7acd18eb5dc86df659df61a4ed8113043baf3a"
+    }
+  },
+  "runs": [
+    {
+      "command": [
+        "node",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/vitest/vitest.mjs",
+        "run",
+        "src/main/history/history-manager.spec.ts",
+        "--project=main",
+        "--reporter=json",
+        "--outputFile=/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-original-1.json",
+        "--maxWorkers=1",
+        "--minWorkers=1"
+      ],
+      "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/parent",
+      "exitCode": 1,
+      "elapsedSeconds": 8.650877237319946,
+      "numTotalTests": 40,
+      "numPassedTests": 39,
+      "numFailedTests": 1,
+      "failures": [
+        {
+          "ancestorTitles": [
+            "HistoryManager"
+          ],
+          "fullName": "HistoryManager creates a safety backup before clearing conversation history",
+          "status": "failed",
+          "title": "creates a safety backup before clearing conversation history",
+          "duration": 192.96949999999993,
+          "failureMessages": [
+            "AssertionError: expected true to be false // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/parent/src/main/history/history-manager.spec.ts:209:73\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+          ],
+          "meta": {}
+        }
+      ],
+      "sourceSha256": "89e026b0e26eca09067234605a32b9aa6d6fd24f91661cdf7d0b9755b5b58a6c",
+      "specSha256": "7a22eaa19461b90558e4071bef0b4a4f567ac622e15c0b264f1f0545afd1fa0f"
+    },
+    {
+      "command": [
+        "node",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/vitest/vitest.mjs",
+        "run",
+        "src/main/history/history-manager.spec.ts",
+        "--project=main",
+        "--reporter=json",
+        "--outputFile=/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-original-1.json",
+        "--maxWorkers=1",
+        "--minWorkers=1"
+      ],
+      "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/fixed",
+      "exitCode": 0,
+      "elapsedSeconds": 9.478116989135742,
+      "numTotalTests": 40,
+      "numPassedTests": 40,
+      "numFailedTests": 0,
+      "failures": [],
+      "sourceSha256": "0a43dd9c483021d7e5343a031d7acd18eb5dc86df659df61a4ed8113043baf3a",
+      "specSha256": "7a22eaa19461b90558e4071bef0b4a4f567ac622e15c0b264f1f0545afd1fa0f"
+    },
+    {
+      "command": [
+        "node",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/vitest/vitest.mjs",
+        "run",
+        "src/main/history/history-manager.spec.ts",
+        "--project=main",
+        "--reporter=json",
+        "--outputFile=/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-original-2.json",
+        "--maxWorkers=1",
+        "--minWorkers=1"
+      ],
+      "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/parent",
+      "exitCode": 1,
+      "elapsedSeconds": 8.337981939315796,
+      "numTotalTests": 40,
+      "numPassedTests": 38,
+      "numFailedTests": 2,
+      "failures": [
+        {
+          "ancestorTitles": [
+            "HistoryManager"
+          ],
+          "fullName": "HistoryManager creates a safety backup before clearing conversation history",
+          "status": "failed",
+          "title": "creates a safety backup before clearing conversation history",
+          "duration": 225.60241600000006,
+          "failureMessages": [
+            "AssertionError: expected true to be false // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/parent/src/main/history/history-manager.spec.ts:209:73\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+          ],
+          "meta": {}
+        },
+        {
+          "ancestorTitles": [
+            "HistoryManager"
+          ],
+          "fullName": "HistoryManager waits for startup backfill before snapshotting and clearing history",
+          "status": "failed",
+          "title": "waits for startup backfill before snapshotting and clearing history",
+          "duration": 48.33591699999988,
+          "failureMessages": [
+            "Error: ENOENT: no such file or directory, copyfile '/var/folders/0n/fs5yys3d0vg0c838h75hyrm00000gn/T/history-manager-E1gjIW/conversation-history.bak-20261027-135320-292/entry-startup-race.json.gz.789bed04-1980-47c1-ab66-4d852cbef4d6.tmp'"
+          ],
+          "meta": {}
+        }
+      ],
+      "sourceSha256": "89e026b0e26eca09067234605a32b9aa6d6fd24f91661cdf7d0b9755b5b58a6c",
+      "specSha256": "7a22eaa19461b90558e4071bef0b4a4f567ac622e15c0b264f1f0545afd1fa0f"
+    },
+    {
+      "command": [
+        "node",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/vitest/vitest.mjs",
+        "run",
+        "src/main/history/history-manager.spec.ts",
+        "--project=main",
+        "--reporter=json",
+        "--outputFile=/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-original-2.json",
+        "--maxWorkers=1",
+        "--minWorkers=1"
+      ],
+      "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/fixed",
+      "exitCode": 0,
+      "elapsedSeconds": 8.095669984817505,
+      "numTotalTests": 40,
+      "numPassedTests": 40,
+      "numFailedTests": 0,
+      "failures": [],
+      "sourceSha256": "0a43dd9c483021d7e5343a031d7acd18eb5dc86df659df61a4ed8113043baf3a",
+      "specSha256": "7a22eaa19461b90558e4071bef0b4a4f567ac622e15c0b264f1f0545afd1fa0f"
+    },
+    {
+      "command": [
+        "node",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/vitest/vitest.mjs",
+        "run",
+        "src/main/history/history-manager.spec.ts",
+        "--project=main",
+        "--reporter=json",
+        "--outputFile=/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-amended-1.json",
+        "--maxWorkers=1",
+        "--minWorkers=1"
+      ],
+      "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/parent",
+      "exitCode": 1,
+      "elapsedSeconds": 9.974521160125732,
+      "numTotalTests": 41,
+      "numPassedTests": 39,
+      "numFailedTests": 2,
+      "failures": [
+        {
+          "ancestorTitles": [
+            "HistoryManager"
+          ],
+          "fullName": "HistoryManager creates a safety backup before clearing conversation history",
+          "status": "failed",
+          "title": "creates a safety backup before clearing conversation history",
+          "duration": 258.77699999999993,
+          "failureMessages": [
+            "AssertionError: expected true to be false // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/parent/src/main/history/history-manager.spec.ts:209:73\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+          ],
+          "meta": {}
+        },
+        {
+          "ancestorTitles": [
+            "HistoryManager"
+          ],
+          "fullName": "HistoryManager LT-711: does not enter the safety backup while startup backfill is blocked",
+          "status": "failed",
+          "title": "LT-711: does not enter the safety backup while startup backfill is blocked",
+          "duration": 57.712291999999934,
+          "failureMessages": [
+            "AssertionError: clearAll entered the safety backup while the startup write was blocked: expected \"readdir\" to not be called at all, but actually been called 1 times\n\nReceived: \n\n  1st readdir call:\n\n    Array [\n      \"/var/folders/0n/fs5yys3d0vg0c838h75hyrm00000gn/T/history-manager-nOTzay/conversation-history\",\n    ]\n\n\nNumber of calls: 1\n\n    at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/@vitest/expect/dist/index.js:1335:10)\n    at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/@vitest/expect/dist/index.js:1029:14)\n    at Proxy.methodWrapper (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/chai/index.js:1686:25)\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/parent/src/main/history/history-manager.spec.ts:336:13\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+          ],
+          "meta": {}
+        }
+      ],
+      "sourceSha256": "89e026b0e26eca09067234605a32b9aa6d6fd24f91661cdf7d0b9755b5b58a6c",
+      "specSha256": "a464399dcf10d3474b2bff828af59fd884331d482d9801c5dc49185e9f12b18c"
+    },
+    {
+      "command": [
+        "node",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/vitest/vitest.mjs",
+        "run",
+        "src/main/history/history-manager.spec.ts",
+        "--project=main",
+        "--reporter=json",
+        "--outputFile=/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-amended-1.json",
+        "--maxWorkers=1",
+        "--minWorkers=1"
+      ],
+      "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/fixed",
+      "exitCode": 0,
+      "elapsedSeconds": 8.343616724014282,
+      "numTotalTests": 41,
+      "numPassedTests": 41,
+      "numFailedTests": 0,
+      "failures": [],
+      "sourceSha256": "0a43dd9c483021d7e5343a031d7acd18eb5dc86df659df61a4ed8113043baf3a",
+      "specSha256": "a464399dcf10d3474b2bff828af59fd884331d482d9801c5dc49185e9f12b18c"
+    },
+    {
+      "command": [
+        "node",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/vitest/vitest.mjs",
+        "run",
+        "src/main/history/history-manager.spec.ts",
+        "--project=main",
+        "--reporter=json",
+        "--outputFile=/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-amended-2.json",
+        "--maxWorkers=1",
+        "--minWorkers=1"
+      ],
+      "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/parent",
+      "exitCode": 1,
+      "elapsedSeconds": 8.568422079086304,
+      "numTotalTests": 41,
+      "numPassedTests": 40,
+      "numFailedTests": 1,
+      "failures": [
+        {
+          "ancestorTitles": [
+            "HistoryManager"
+          ],
+          "fullName": "HistoryManager LT-711: does not enter the safety backup while startup backfill is blocked",
+          "status": "failed",
+          "title": "LT-711: does not enter the safety backup while startup backfill is blocked",
+          "duration": 42.942750000000046,
+          "failureMessages": [
+            "AssertionError: clearAll entered the safety backup while the startup write was blocked: expected \"readdir\" to not be called at all, but actually been called 1 times\n\nReceived: \n\n  1st readdir call:\n\n    Array [\n      \"/var/folders/0n/fs5yys3d0vg0c838h75hyrm00000gn/T/history-manager-S1oF6V/conversation-history\",\n    ]\n\n\nNumber of calls: 1\n\n    at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/@vitest/expect/dist/index.js:1335:10)\n    at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/@vitest/expect/dist/index.js:1029:14)\n    at Proxy.methodWrapper (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/chai/index.js:1686:25)\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/parent/src/main/history/history-manager.spec.ts:336:13\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+          ],
+          "meta": {}
+        }
+      ],
+      "sourceSha256": "89e026b0e26eca09067234605a32b9aa6d6fd24f91661cdf7d0b9755b5b58a6c",
+      "specSha256": "a464399dcf10d3474b2bff828af59fd884331d482d9801c5dc49185e9f12b18c"
+    },
+    {
+      "command": [
+        "node",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/vitest/vitest.mjs",
+        "run",
+        "src/main/history/history-manager.spec.ts",
+        "--project=main",
+        "--reporter=json",
+        "--outputFile=/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/fixed-amended-2.json",
+        "--maxWorkers=1",
+        "--minWorkers=1"
+      ],
+      "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/fixed",
+      "exitCode": 0,
+      "elapsedSeconds": 9.762134075164795,
+      "numTotalTests": 41,
+      "numPassedTests": 41,
+      "numFailedTests": 0,
+      "failures": [],
+      "sourceSha256": "0a43dd9c483021d7e5343a031d7acd18eb5dc86df659df61a4ed8113043baf3a",
+      "specSha256": "a464399dcf10d3474b2bff828af59fd884331d482d9801c5dc49185e9f12b18c"
+    }
+  ]
+}

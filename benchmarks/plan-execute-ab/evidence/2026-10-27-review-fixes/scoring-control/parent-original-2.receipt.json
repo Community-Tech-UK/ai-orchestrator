@@ -1,0 +1,49 @@
+{
+  "command": [
+    "node",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/vitest/vitest.mjs",
+    "run",
+    "src/main/history/history-manager.spec.ts",
+    "--project=main",
+    "--reporter=json",
+    "--outputFile=/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-original-2.json",
+    "--maxWorkers=1",
+    "--minWorkers=1"
+  ],
+  "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/parent",
+  "exitCode": 1,
+  "elapsedSeconds": 8.337981939315796,
+  "numTotalTests": 40,
+  "numPassedTests": 38,
+  "numFailedTests": 2,
+  "failures": [
+    {
+      "ancestorTitles": [
+        "HistoryManager"
+      ],
+      "fullName": "HistoryManager creates a safety backup before clearing conversation history",
+      "status": "failed",
+      "title": "creates a safety backup before clearing conversation history",
+      "duration": 225.60241600000006,
+      "failureMessages": [
+        "AssertionError: expected true to be false // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/parent/src/main/history/history-manager.spec.ts:209:73\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+      ],
+      "meta": {}
+    },
+    {
+      "ancestorTitles": [
+        "HistoryManager"
+      ],
+      "fullName": "HistoryManager waits for startup backfill before snapshotting and clearing history",
+      "status": "failed",
+      "title": "waits for startup backfill before snapshotting and clearing history",
+      "duration": 48.33591699999988,
+      "failureMessages": [
+        "Error: ENOENT: no such file or directory, copyfile '/var/folders/0n/fs5yys3d0vg0c838h75hyrm00000gn/T/history-manager-E1gjIW/conversation-history.bak-20261027-135320-292/entry-startup-race.json.gz.789bed04-1980-47c1-ab66-4d852cbef4d6.tmp'"
+      ],
+      "meta": {}
+    }
+  ],
+  "sourceSha256": "89e026b0e26eca09067234605a32b9aa6d6fd24f91661cdf7d0b9755b5b58a6c",
+  "specSha256": "7a22eaa19461b90558e4071bef0b4a4f567ac622e15c0b264f1f0545afd1fa0f"
+}

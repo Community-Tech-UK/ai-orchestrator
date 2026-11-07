@@ -1,0 +1,14 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "src/main/automations/automation-run-provider-limit.spec.ts"
+  ],
+  "exitCode": 0,
+  "stdout": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/automations/automation-run-provider-limit.spec.ts\n\n✓ 1 files · 8 tests passed in 9.2s\n  full log: _scratch/test-run.pid-99414.log\n",
+  "stderr": "",
+  "timedOut": false,
+  "durationMs": 9581
+}

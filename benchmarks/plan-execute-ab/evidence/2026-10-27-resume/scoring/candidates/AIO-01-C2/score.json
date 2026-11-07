@@ -1,0 +1,125 @@
+{
+  "candidate": {
+    "taskId": "AIO-01",
+    "armId": "C2",
+    "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/AIO-01-C2-final-coder-diff.patch",
+    "sha256": "6c4ea551b8a66a5e154939b529fcacb6da0e5b8b782cd07c644ae915590b8002",
+    "provenance": "Verbatim final coder git-diff snapshot, not recovered runner record or independently matched runner patch file. Runner captures staged plus newly added files using git add -A followed by git diff --cached; this snapshot is git diff. No later tool calls observed. Final newline added; verbatim snapshot separately retained.",
+    "classification": "final-coder-tracked-diff-snapshot",
+    "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/recovered-coder-diffs.receipt.json",
+    "diagnosticOnly": true
+  },
+  "sourceHashes": {
+    "scorer.ts": "2f7214ae591d44041be6628ab5f9bd4b72b16574058e914817c8be2c336e0127",
+    "scoring-setup.ts": "2efdae0dce8bc5e7af9d430c2efe79dbe88d6ae07481bc51fc7d4c5891cc4f11",
+    "task-export.ts": "9ac6c1a14a6e5a742d8a38e63b005424a5e8266568257f7f50c79de35f838f6e",
+    "types.ts": "1926f7d2b93482ddfd0c9fd25518eaab94080d7c9bd29e1cff2d4858e47ff75f",
+    "tasks/task-bank.json": "376c4cf8ecb838eed8f5bcaaea6ead9b04b85eeaad0b0e70da9c5e9c8e7b892a",
+    "tasks/aio-01-scoring-v2.patch": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468"
+  },
+  "parentSha": "f04f674859b220b86eeb52662129072008573af9",
+  "fixedSha": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+  "dependencyReceipt": {
+    "fingerprint": "b962068a845cbf165da877724742e43a208fa7fa5766d00d3a8bf87b473c86d5",
+    "files": {
+      "apps/mobile/package.json": "d97e9e262c3d2d339dfd4081baf2056effbf00b3979cc0b57f3ad0fe23d23038",
+      "benchmarks/external-benchmarks/bfcl/package.json": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+      "benchmarks/orchestrator-benchmark/package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+      "package-lock.json": "021e5949e51e8dd7847f514cf4142baf8d4e18e818a450ea3d41045fd1691d97",
+      "package.json": "6adee217290061578d1afd43e4ccbbd71097b1d3a10574f014822f4bf1591298",
+      "packages/archiver-compat/package.json": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+      "packages/contracts/package.json": "c20adf5e2edb10101f0c42fccf4e2131c336204a26df832dcbd8e0130ab1fb96",
+      "packages/sdk/package.json": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a"
+    },
+    "command": [
+      "npm",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "exitCode": 0,
+    "timedOut": false,
+    "nodeVersion": "v26.12.1",
+    "runtimePreparation": [
+      {
+        "command": [
+          "/opt/homebrew/Cellar/node/26.12.1/bin/node",
+          "node_modules/electron/install.js"
+        ],
+        "exitCode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timedOut": false,
+        "durationMs": 2019
+      },
+      {
+        "command": [
+          "npm",
+          "rebuild",
+          "better-sqlite3"
+        ],
+        "exitCode": 0,
+        "stdout": "rebuilt dependencies successfully\n",
+        "stderr": "npm warn rebuild 11 packages have install scripts not yet covered by allowScripts. Run `npm install-scripts ls` to review.\n",
+        "timedOut": false,
+        "durationMs": 2763
+      }
+    ]
+  },
+  "manifestSha256": "7341f00b4a0ad4fa60535d37dea0b8c57615e71e8fe7013959a86efeab6deaf7",
+  "isolatedGitRoot": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+  "appliedFiles": {
+    "scripts/check-ts-max-loc.ts": "3e422b6a42f5e702c3dc0fd8266085dfbfc8a901",
+    "src/main/history/history-archive-serialization.spec.ts": "3c8104baaf1d1879574930761340ce5c82929823",
+    "src/main/history/history-archive-serialization.ts": "6f16e6fa2b98875e06042228fd0b3045dfffd656",
+    "src/main/history/history-manager.spec.ts": "808c262e61d3ad8304ebfe2ca8fc68a12c6e9a74",
+    "src/main/history/history-manager.ts": "fe2df9f196ad3666a9fff19d0525ee5ecce0c0f2"
+  },
+  "score": {
+    "contract": {
+      "version": "aio-01-startup-order-v2",
+      "amendmentSha256": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468",
+      "dependencyFingerprint": "b962068a845cbf165da877724742e43a208fa7fa5766d00d3a8bf87b473c86d5"
+    },
+    "hiddenTests": {
+      "passed": true,
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/history/history-manager.spec.ts"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/history/history-manager.spec.ts\n\n✓ 1 files · 41 tests passed in 8.0s\n  full log: _scratch/test-run.pid-33727.log\n\n"
+    },
+    "damage": [
+      {
+        "ok": true,
+        "command": [
+          "node",
+          "--max-old-space-size=8192",
+          "node_modules/typescript/bin/tsc",
+          "--noEmit"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "\n"
+      },
+      {
+        "ok": true,
+        "command": [
+          "npm",
+          "run",
+          "lint:fast"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "rogressTimer` is never reassigned. help: Use `const` instead.\nsrc/main/instance/__tests__/instance-manager.create.spec.ts:859:10: warning eslint(no-unused-vars): Identifier 'generateChildPrompt' is imported but never used. help: Consider removing this import.\nsrc/main/instance/__tests__/instance-manager.create.spec.ts:861:15: warning eslint(no-unused-vars): Type 'RoutingDecision' is imported but never used. help: Consider removing this import.\nsrc/main/instance/__tests__/instance-manager.create.spec.ts:862:15: warning eslint(no-unused-vars): Type 'SpawnChildCommand' is imported but never used. help: Consider removing this import.\nsrc/main/instance/__tests__/instance-manager.create.spec.ts:874:10: warning eslint(no-unused-vars): Function 'registerWindowsWorkerNode' is declared but never used. help: Consider removing this declaration.\nsrc/main/instance/__tests__/instance-manager.create.spec.ts:885:10: warning eslint(no-unused-vars): Function 'seedThisDeviceLocalModel' is declared but never used. help: Consider removing this declaration.\nsrc/main/ipc/cli-verification-ipc-handler.spec.ts:7:5: warning typescript(no-require-imports): Expected \"import\" statement instead of \"require\" call help: Do not use CommonJS `require` calls\nsrc/main/instance/__tests__/instance-manager.lifecycle.spec.ts:887:10: warning eslint(no-unused-vars): Identifier 'generateChildPrompt' is imported but never used. help: Consider removing this import.\nsrc/main/instance/__tests__/instance-manager.lifecycle.spec.ts:889:15: warning eslint(no-unused-vars): Type 'RoutingDecision' is imported but never used. help: Consider removing this import.\nsrc/main/instance/__tests__/instance-manager.lifecycle.spec.ts:890:15: warning eslint(no-unused-vars): Type 'SpawnChildCommand' is imported but never used. help: Consider removing this import.\nsrc/main/instance/__tests__/instance-manager.lifecycle.spec.ts:989:10: warning eslint(no-unused-vars): Function 'registerWindowsWorkerNode' is declared but never used. help: Consider removing this declaration.\nsrc/main/instance/__tests__/instance-manager.lifecycle.spec.ts:1000:10: warning eslint(no-unused-vars): Function 'seedThisDeviceLocalModel' is declared but never used. help: Consider removing this declaration.\nsrc/main/ipc/training-ipc-handler.ts:13:15: warning eslint(no-unused-vars): Type 'GRPOConfig' is imported but never used. help: Consider removing this import.\nsrc/main/instance/lifecycle/copilot-route-preflight.spec.ts:228:29: warning typescript(no-require-imports): Expected \"import\" statement instead of \"require\" call help: Do not use CommonJS `require` calls\nsrc/main/instance/lifecycle/runtime-change-notices.spec.ts:25:7: warning eslint(no-unused-vars): Variable 'instance' is declared but never used. Unused variables should start with a '_'. help: Consider removing this declaration.\nsrc/main/instance/lifecycle/runtime-change-notices.spec.ts:27:10: warning eslint(no-unused-vars): Function 'makeAdapter' is declared but never used. help: Consider removing this declaration.\nsrc/shared/types/loop.types.ts:18:10: warning eslint(no-unused-vars): Identifier 'defaultLoopAuditConfig' is imported but never used. help: Consider removing this import.\nsrc/main/instance/lifecycle/respawn-circuit-breaker.ts:91:12: warning eslint(no-unused-vars): Parameter 'now' is declared but never used. Unused parameters should start with a '_'. help: Consider removing this parameter.\nsrc/main/ipc/memory-ipc-handler.spec.ts:5:3: warning eslint(no-unused-vars): Type 'UnifiedMemoryWorkerPort' is imported but never used. help: Consider removing this import.\nsrc/main/instance/warm-start-manager.spec.ts:61:13: warning eslint(no-unused-vars): Variable 'firstAdapter' is declared but never used. Unused variables should start with a '_'. help: Consider removing this declaration.\nsrc/main/security/permission-manager.ts:840:23: warning typescript(no-require-imports): Expected \"import\" statement instead of \"require\" call help: Do not use CommonJS `require` calls\n\n"
+      }
+    ],
+    "damageOk": true
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"instanceId\":\"xl2bh8qry\",\"status\":\"idle\",\"done\":true,\"messageCount\":14,\"truncated\":true,\"lastSeq\":13,\"messages\":[{\"type\":\"assistant\",\"content\":\"Blocked: idle state could not be verified, so no stop or helper restore was attempted.\\n\\n- Verified PID **82752**, `llama-server.exe`, creation **2026-10-27T14:22:41.870926Z**, matching ownership records.\\n- Verified **35B model**, context **65536**, parallel **1**.\\n- Listener remains **100.113.93.104:1235**, owned by PID **82752**.\\n- Health: **HTTP 200**, ` ok`, with no idle information.\\n- Slots: **HTTP 401**. No credentials accessed or inference sent.\\n- No processes stopped, relaunches, deletions or forwarding changes.\\n\\nWrote and read back [cleanup-result.json](/C:/Users/shutu/Documents/Work/_scratch/queue-7ca7a00e-resume/cleanup-result.json) with full evidence and the unperformed steps.\",\"timestamp\":1793122738871,\"seq\":13}]}"
+    }
+  ]
+}

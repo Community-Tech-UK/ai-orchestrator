@@ -1,0 +1,94 @@
+{
+  "taskId": "AIO-05",
+  "parentSha": "fbe537aed4d6d94e72600064d32d95e535c3ee2e",
+  "commitSha": "0c475238a4cd7729d4a1bc1870d2adab003182f3",
+  "setup": {
+    "fingerprint": "e08e78a4c088762e053c474e08842aac7023dfe1b89a17ca3264a9c4caabfe13",
+    "files": {
+      "apps/mobile/package.json": "14c8bc22b563de684261e4a2b7f3a3e637335fc014e01b741d6791fdea23c776",
+      "benchmarks/external-benchmarks/bfcl/package.json": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+      "benchmarks/orchestrator-benchmark/package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+      "package-lock.json": "5697814fc40bb1dec3bf8ce7c26491373f792f557f8057a60db4c181a36339bd",
+      "package.json": "18f5a55b6f6e0f7530ee016092c4c332711511a1ed9ca4b6b1964f6fe0a79f54",
+      "packages/archiver-compat/package.json": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+      "packages/contracts/package.json": "a7497e7f003f2e259acbf02cc2d65dd196161c9d0269b2710f812f918194f1f0",
+      "packages/sdk/package.json": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a"
+    },
+    "command": [
+      "npm",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "exitCode": 0,
+    "timedOut": false,
+    "nodeVersion": "v26.12.1"
+  },
+  "parent": {
+    "contract": {
+      "version": "historical-v1",
+      "dependencyFingerprint": "e08e78a4c088762e053c474e08842aac7023dfe1b89a17ca3264a9c4caabfe13"
+    },
+    "hiddenTests": {
+      "passed": false,
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/automations/automation-run-provider-limit.spec.ts"
+      ],
+      "exitCode": 1,
+      "timedOut": false,
+      "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/automations/automation-run-provider-limit.spec.ts\n\n✗ test run failed (exit 1) and produced no JSON report. Tail of log:\n\n RUN  v3.2.7 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio\n\n(node:42705) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\n⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  |main| src/main/automations/automation-run-provider-limit.spec.ts [ src/main/automations/automation-run-provider-limit.spec.ts ]\nError: Failed to resolve import \"./automation-run-provider-limit\" from \"src/main/automations/automation-run-provider-limit.spec.ts\". Does the file exist?\n  Plugin: vite:import-analysis\n  File: /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/automations/automation-run-provider-limit.spec.ts:12:0\n  16 |  const __vi_import_4__ = await import(\"./automation-runner\");\n  17 |  const __vi_import_5__ = await import(\"./automation-events\");\n  18 |  const __vi_import_6__ = await import(\"./automation-run-provider-limit\");\n     |                                       ^\n  19 |  import { afterEach, beforeEach, describe, expect, it, vi } from \"vitest\";\n  20 |  \n ❯ TransformPluginContext._formatLog node_modules/vite/dist/node/chunks/config.js:29079:43\n ❯ TransformPluginContext.error node_modules/vite/dist/node/chunks/config.js:29076:14\n ❯ normalizeUrl node_modules/vite/dist/node/chunks/config.js:27199:18\n ❯ node_modules/vite/dist/node/chunks/config.js:27257:32\n ❯ TransformPluginContext.transform node_modules/vite/dist/node/chunks/config.js:27225:4\n ❯ EnvironmentPluginContainer.transform node_modules/vite/dist/node/chunks/config.js:28877:14\n ❯ loadAndTransform node_modules/vite/dist/node/chunks/config.js:22746:26\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\n\n Test Files  1 failed (1)\n      Tests  no tests\n   Start at  15:50:02\n   Duration  1.15s (transform 47ms, setup 142ms, collect 0ms, tests 0ms, environment 440ms, prepare 76ms)\n\nJSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/_scratch/test-results.pid-39121.json\n\nfull log: _scratch/test-run.pid-39121.log\n\n✗ FAILED — the run produced no usable JSON report (exit 1).\n\n"
+    },
+    "damage": [],
+    "damageOk": true
+  },
+  "fixed": {
+    "contract": {
+      "version": "historical-v1",
+      "dependencyFingerprint": "e08e78a4c088762e053c474e08842aac7023dfe1b89a17ca3264a9c4caabfe13"
+    },
+    "hiddenTests": {
+      "passed": false,
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/automations/automation-run-provider-limit.spec.ts"
+      ],
+      "exitCode": 1,
+      "timedOut": false,
+      "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/automations/automation-run-provider-limit.spec.ts\n\n✗ test run failed (exit 1) and produced no JSON report. Tail of log:\n\n RUN  v3.2.7 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio\n\n(node:48867) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\n⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  |main| src/main/automations/automation-run-provider-limit.spec.ts [ src/main/automations/automation-run-provider-limit.spec.ts ]\nError: Electron failed to install correctly, please delete node_modules/electron and try installing again\n ❯ getElectronPath node_modules/electron/index.js:17:11\n     15|     return path.join(__dirname, 'dist', executablePath);\n     16|   } else {\n     17|     throw new Error(\n       |           ^\n     18|       'Electron failed to install correctly, please delete node_module…\n     19|     );\n ❯ Object.<anonymous> node_modules/electron/index.js:23:18\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\n\n Test Files  1 failed (1)\n      Tests  no tests\n   Start at  15:50:17\n   Duration  2.47s (transform 716ms, setup 131ms, collect 0ms, tests 0ms, environment 627ms, prepare 71ms)\n\nJSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/_scratch/test-results.pid-46917.json\n\nfull log: _scratch/test-run.pid-46917.log\n\n✗ FAILED — the run produced no usable JSON report (exit 1).\n\n"
+    },
+    "damage": [
+      {
+        "ok": true,
+        "command": [
+          "node",
+          "--max-old-space-size=8192",
+          "node_modules/typescript/bin/tsc",
+          "--noEmit"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "\n"
+      },
+      {
+        "ok": true,
+        "command": [
+          "npm",
+          "run",
+          "lint:fast"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "d instead saw == help: Prefer === operator\nsrc/main/orchestration/loop-coordinator-state-helpers.ts:55:7: warning unicorn(no-useless-fallback-in-spread): Empty fallbacks in spreads are unnecessary help: Spreading falsy values in object literals won't add any unexpected properties, so it's unnecessary to add an empty object as fallback.\nsrc/main/orchestration/loop-coordinator-state-helpers.ts:56:78: warning unicorn(no-useless-fallback-in-spread): Empty fallbacks in spreads are unnecessary help: Spreading falsy values in object literals won't add any unexpected properties, so it's unnecessary to add an empty object as fallback.\nsrc/main/orchestration/loop-coordinator-state-helpers.ts:57:86: warning unicorn(no-useless-fallback-in-spread): Empty fallbacks in spreads are unnecessary help: Spreading falsy values in object literals won't add any unexpected properties, so it's unnecessary to add an empty object as fallback.\nsrc/main/orchestration/loop-coordinator-state-helpers.ts:59:39: warning unicorn(no-useless-fallback-in-spread): Empty fallbacks in spreads are unnecessary help: Spreading falsy values in object literals won't add any unexpected properties, so it's unnecessary to add an empty object as fallback.\nsrc/main/orchestration/loop-coordinator-state-helpers.ts:60:29: warning unicorn(no-useless-fallback-in-spread): Empty fallbacks in spreads are unnecessary help: Spreading falsy values in object literals won't add any unexpected properties, so it's unnecessary to add an empty object as fallback.\nsrc/main/core/system/debug-commands.ts:112:21: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/core/system/debug-commands.ts:156:23: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/core/system/debug-commands.ts:168:21: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/core/system/debug-commands.ts:181:21: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/core/system/debug-commands.ts:244:23: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/core/system/debug-commands.ts:265:21: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/orchestration/multi-verify-coordinator.ts:1031:39: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/orchestration/multi-verify-coordinator.ts:1050:30: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/orchestration/multi-verify-coordinator.ts:1051:27: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/orchestration/loop-memory.spec.ts:169:17: warning typescript(no-require-imports): Expected \"import\" statement instead of \"require\" call help: Do not use CommonJS `require` calls\nsrc/main/tasks/todo-manager.ts:20:3: warning eslint(no-unused-vars): Identifier 'ParsedTodoInput' is imported but never used. help: Consider removing this import.\n\n"
+      }
+    ],
+    "damageOk": true
+  }
+}

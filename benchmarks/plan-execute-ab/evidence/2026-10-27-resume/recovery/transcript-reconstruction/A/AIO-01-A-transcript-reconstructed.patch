@@ -1,0 +1,51 @@
+diff --git a/src/main/history/history-manager.spec.ts b/src/main/history/history-manager.spec.ts
+index 41e51a3..67b79c8 100644
+--- a/src/main/history/history-manager.spec.ts
++++ b/src/main/history/history-manager.spec.ts
+@@ -139,6 +139,29 @@ describe('HistoryManager', () => {
+     }
+   });
+ 
++  it('waits for startup writers to settle before snapshotting and clearing history', async () => {
++    const { HistoryManager } = await import('./history-manager');
++    const manager = track(new HistoryManager());
++    await manager.startupTasks;
++    const startup = deferred();
++    Object.defineProperty(manager, 'startupTasks', { value: startup.promise });
++    const backupSpy = vi.spyOn(
++      manager as unknown as { createSafetyBackup: (reason: 'clearAll') => Promise<string | null> },
++      'createSafetyBackup',
++    );
++
++    let settled = false;
++    const pendingClear = manager.clearAll().then(() => { settled = true; });
++    await drainMicrotasks();
++    expect(backupSpy).not.toHaveBeenCalled();
++    expect(settled).toBe(false);
++
++    startup.resolve();
++    await pendingClear;
++    expect(backupSpy).toHaveBeenCalledWith('clearAll');
++    expect(settled).toBe(true);
++  });
++
+   it('creates a safety backup before clearing conversation history', async () => {
+     const storageDir = path.join(userDataDir, 'conversation-history');
+     fs.mkdirSync(storageDir, { recursive: true });
+diff --git a/src/main/history/history-manager.ts b/src/main/history/history-manager.ts
+index bd1840b..280df86 100644
+--- a/src/main/history/history-manager.ts
++++ b/src/main/history/history-manager.ts
+@@ -698,10 +698,10 @@ export class HistoryManager {
+   }
+ 
+   /**
+-   * Clear all history
++   * Clear all history. Waits for `startupTasks` so the backup and unlinks never race the startup writers (safe: clearAll is off the quit path).
+    */
+   async clearAll(): Promise<void> {
+-    await this.createSafetyBackup('clearAll');
++    await this.startupTasks; await this.createSafetyBackup('clearAll');
+ 
+     // Delete all conversation files
+     for (const entry of this.index.entries) {

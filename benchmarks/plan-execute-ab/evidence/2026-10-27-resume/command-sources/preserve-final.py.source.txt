@@ -1,0 +1,39 @@
+from pathlib import Path
+import datetime
+import gzip
+import hashlib
+import json
+import os
+import re
+
+work = Path.cwd()
+out = work / 'benchmarks/plan-execute-ab/evidence/2026-10-27-resume'
+sources = out / 'command-sources'
+sources.mkdir(exist_ok=True)
+secrets = [(k, v) for k, v in os.environ.items() if v and len(v) > 5 and re.search(r'TOKEN|API_KEY|PASSWORD|CAPABILITY|SOCKET|INSTANCE_ID|SECRET', k, re.I)]
+def redacted(raw):
+    matched = []
+    for key, value in secrets:
+        b = value.encode()
+        if b in raw:
+            raw = raw.replace(b, ('<REDACTED_ENV_' + key + '>').encode())
+            matched.append(key)
+    return raw, matched
+
+receipts = []
+for p in sorted((work / '_scratch/lt-resume').iterdir()):
+    if p.is_file() and p.suffix in ('.py', '.mts', '.mjs', '.cjs'):
+        raw, names = redacted(p.read_bytes())
+        dest = sources / (p.name + '.source.txt')
+        dest.write_bytes(raw)
+        receipts.append(dict(source=str(p.relative_to(work)), destination=str(dest.relative_to(work)), bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest(), redactedEnvNames=names))
+for pid, dirname in [('57697', 'gates-final'), ('95469', 'gates-after-timing'), ('20639', 'gates-after-timing')]:
+    for stem, ext in [('test-run', 'log'), ('test-results', 'json')]:
+        p = work / '_scratch' / (stem + '.pid-' + pid + '.' + ext)
+        if p.is_file():
+            raw, names = redacted(p.read_bytes())
+            dest = out / dirname / (p.name + '.gz')
+            dest.write_bytes(gzip.compress(raw, mtime=0))
+            receipts.append(dict(source=str(p.relative_to(work)), destination=str(dest.relative_to(work)), originalBytes=p.stat().st_size, redactedBytes=len(raw), sha256=hashlib.sha256(raw).hexdigest(), compressedSha256=hashlib.sha256(dest.read_bytes()).hexdigest(), redactedEnvNames=names))
+(out / 'preserved-command-output.receipt.json').write_text(json.dumps(dict(at=datetime.datetime.now(datetime.timezone.utc).isoformat(), records=receipts), indent=2) + '\n')
+print(json.dumps(dict(records=len(receipts), bytes=sum(x.get('redactedBytes',x.get('bytes',0)) for x in receipts))))

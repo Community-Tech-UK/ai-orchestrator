@@ -1,0 +1,50 @@
+[
+  {
+    "name": "benchmark-typecheck",
+    "command": "rtk proxy ./node_modules/.bin/tsc --noEmit -p benchmarks/plan-execute-ab/tsconfig.json",
+    "expectedExitCode": 0,
+    "result": {
+      "chunk_id": "61c24a",
+      "wall_time_seconds": 1.569827542,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    }
+  },
+  {
+    "name": "scoring-lint",
+    "command": "rtk proxy ./node_modules/.bin/oxlint benchmarks/plan-execute-ab/scoring-setup.ts benchmarks/plan-execute-ab/scoring-setup.spec.ts benchmarks/plan-execute-ab/scorer.ts benchmarks/plan-execute-ab/scorer.spec.ts benchmarks/plan-execute-ab/task-bank.ts benchmarks/plan-execute-ab/types.ts benchmarks/plan-execute-ab/mine-tasks.ts benchmarks/plan-execute-ab/mine-tasks.spec.ts benchmarks/plan-execute-ab/runner-tools.ts benchmarks/plan-execute-ab/task-export.ts benchmarks/plan-execute-ab/task-export.spec.ts benchmarks/plan-execute-ab/runner.ts benchmarks/plan-execute-ab/runner.spec.ts benchmarks/plan-execute-ab/config.spec.ts",
+    "expectedExitCode": 0,
+    "result": {
+      "chunk_id": "fd0885",
+      "wall_time_seconds": 0.155275667,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    }
+  },
+  {
+    "name": "diff-whitespace",
+    "command": "rtk proxy git diff --check",
+    "expectedExitCode": 0,
+    "result": {
+      "chunk_id": "98b80e",
+      "wall_time_seconds": 0.000008708,
+      "exit_code": 0,
+      "original_token_count": 0,
+      "output": ""
+    }
+  },
+  {
+    "name": "no-active-donor-or-hook-paths",
+    "command": "rtk proxy rg -n 'linkNodeModules|RepoSetup|prepareExport|scoring-boundary|scoring-runtime|dependencyBoundary' benchmarks/plan-execute-ab/*.ts benchmarks/plan-execute-ab/runner.config.json benchmarks/plan-execute-ab/tasks/task-bank.json",
+    "expectedExitCode": 1,
+    "result": {
+      "chunk_id": "0985dc",
+      "wall_time_seconds": 0.000008042,
+      "exit_code": 1,
+      "original_token_count": 0,
+      "output": ""
+    }
+  }
+]

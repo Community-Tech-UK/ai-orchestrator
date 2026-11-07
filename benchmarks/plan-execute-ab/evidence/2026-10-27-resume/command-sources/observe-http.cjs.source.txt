@@ -1,0 +1,40 @@
+const http = require('node:http');
+const { syncBuiltinESMExports } = require('node:module');
+const original = http.request;
+globalThis.__pilotHttpObservations = [];
+http.request = function (...args) {
+  const started = performance.now();
+  const request = original.apply(this, args);
+  const options = args[0];
+  if (options?.hostname === '100.113.93.104' && String(options.port) === '1235' && options.path?.includes('/v1/messages')) {
+    const observation = { at: new Date().toISOString(), events: [] };
+    globalThis.__pilotHttpObservations.push(observation);
+    request.once('response', response => {
+      observation.headersMs = performance.now() - started;
+      let buffer = '';
+      response.on('data', chunk => {
+        if (observation.firstByteMs === undefined) observation.firstByteMs = performance.now() - started;
+        buffer += chunk.toString('utf8');
+        const blocks = buffer.split('\n\n');
+        buffer = blocks.pop() ?? '';
+        for (const block of blocks) {
+          for (const line of block.split('\n')) {
+            if (!line.startsWith('data: ')) continue;
+            let value;
+            try { value = JSON.parse(line.slice(6)); } catch { continue; }
+            if (value.type === 'message_start') {
+              observation.messageStartMs = performance.now() - started;
+              observation.usage = value.message?.usage;
+            }
+            if (value.timings) observation.timings = value.timings;
+            if (value.usage?.prompt_ms !== undefined) observation.promptMs = value.usage.prompt_ms;
+            if (observation.events.length < 6) observation.events.push({ type: value.type, keys: Object.keys(value) });
+          }
+        }
+      });
+      response.once('end', () => { observation.completedMs = performance.now() - started; });
+    });
+  }
+  return request;
+};
+syncBuiltinESMExports();

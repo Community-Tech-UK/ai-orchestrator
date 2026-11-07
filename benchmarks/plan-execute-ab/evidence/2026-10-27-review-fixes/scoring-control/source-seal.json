@@ -1,0 +1,16 @@
+{
+  "parent": "f04f674859b220b86eeb52662129072008573af9",
+  "fixed": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+  "versions": {
+    "node": "v26.12.1",
+    "vitest": "3.2.7"
+  },
+  "originalSpecSha256": "7a22eaa19461b90558e4071bef0b4a4f567ac622e15c0b264f1f0545afd1fa0f",
+  "amendedSpecSha256": "a464399dcf10d3474b2bff828af59fd884331d482d9801c5dc49185e9f12b18c",
+  "patchSha256": "fc54b9d571d4337ee9cad7294ccb8757f71360f5f038603cb7af03e49d1ff30e",
+  "originalArchivedTestPreserved": true,
+  "sourceSha256": {
+    "f04f674859b220b86eeb52662129072008573af9": "89e026b0e26eca09067234605a32b9aa6d6fd24f91661cdf7d0b9755b5b58a6c",
+    "8b9721bf3c55e69259b6be4880b3acff91b68b16": "0a43dd9c483021d7e5343a031d7acd18eb5dc86df659df61a4ed8113043baf3a"
+  }
+}

@@ -1,0 +1,12 @@
+[
+  {
+    "id": "783e61ad-391f-4b32-97e0-5ccd54f995f1",
+    "sequence": 18,
+    "content": "[codex] 2026-10-27T13:13:49.411677Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: \"Rejected(\\\"`\\\\\\\"C:\\\\\\\\\\\\\\\\Program Files\\\\\\\\\\\\\\\\PowerShell\\\\\\\\\\\\\\\\7\\\\\\\\\\\\\\\\pwsh.exe\\\\\\\" -Command '$ErrorActionPreference = '\\\\\\\"'Stop'\\\\n\\\\\\\"'$expected = '\\\\\\\"'C:\\\\\\\\\\\\\\\\Users\\\\\\\\\\\\\\\\shutu\\\\\\\\\\\\\\\\Documents\\\\\\\\\\\\\\\\Work\\\\\\\\\\\\\\\\_scratch\\\\\\\\\\\\\\\\queue-7ca7a00e-20261027-130100-5e195fa7'\\\\n\\\\\\\"'$target = Get-Item -LiteralPath $expected -Force\\\\n$resolved = (Resolve-Path -LiteralPath $expected).ProviderPath\\\\\u2026637 chars truncated\u2026h -LiteralPath $expected));preTaskKeyStillPresent=(Test-Path -LiteralPath '\\\\\\\"'C:\\\\\\\\\\\\\\\\Users\\\\\\\\\\\\\\\\shutu\\\\\\\\\\\\\\\\Documents\\\\\\\\\\\\\\\\Work\\\\\\\\\\\\\\\\_scratch\\\\\\\\\\\\\\\\plan-ex-ab-api-key.txt');pid72920Gone=(\\\\\\\"'$null -eq (Get-Process -Id 72920 -ErrorAction SilentlyContinue));port1235NoListener=(@(Get-NetTCPConnection -State Listen -LocalPort 1235 -ErrorAction SilentlyContinue).Count -eq 0)} | ConvertTo-Json -Compress'` rejected: blocked by policy\\\")\" }"
+  },
+  {
+    "id": "c9e29c82-f742-4196-a1ea-ef07784d2789",
+    "sequence": 22,
+    "content": "[codex] 2026-10-27T13:14:21.969280Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: \"Rejected(\\\"`\\\\\\\"C:\\\\\\\\\\\\\\\\Program Files\\\\\\\\\\\\\\\\PowerShell\\\\\\\\\\\\\\\\7\\\\\\\\\\\\\\\\pwsh.exe\\\\\\\" -Command '$ErrorActionPreference = '\\\\\\\"'Stop'\\\\n\\\\\\\"'$runDir = '\\\\\\\"'C:\\\\\\\\\\\\\\\\Users\\\\\\\\\\\\\\\\shutu\\\\\\\\\\\\\\\\Documents\\\\\\\\\\\\\\\\Work\\\\\\\\\\\\\\\\_scratch\\\\\\\\\\\\\\\\queue-7ca7a00e-20261027-130100-5e195fa7'\\\\n\\\\\\\"'$names = @('\\\\\\\"'cleanup-baseline.json','lmstudio-after-unload.json','lmstudio-before.json','manifest.json','restore-\u2026618 chars truncated\u2026ath -LiteralPath $runDir));preTaskKeyStillPresent=(Test-Path -LiteralPath '\\\\\\\"'C:\\\\\\\\\\\\\\\\Users\\\\\\\\\\\\\\\\shutu\\\\\\\\\\\\\\\\Documents\\\\\\\\\\\\\\\\Work\\\\\\\\\\\\\\\\_scratch\\\\\\\\\\\\\\\\plan-ex-ab-api-key.txt');pid72920Gone=(\\\\\\\"'$null -eq (Get-Process -Id 72920 -ErrorAction SilentlyContinue));port1235NoListener=(@(Get-NetTCPConnection -State Listen -LocalPort 1235 -ErrorAction SilentlyContinue).Count -eq 0)} | ConvertTo-Json -Compress'` rejected: blocked by policy\\\")\" }"
+  }
+]

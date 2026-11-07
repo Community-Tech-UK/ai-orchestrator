@@ -1,0 +1,73 @@
+{
+  "head": "d6e363ef4e81108cb562380bbd3845a8d2ec6f6f",
+  "files": {
+    "benchmarks/plan-execute-ab/README.md": {
+      "sha256": "d4fb45694f2778cca791f055c0235f4c9036a262bf6b537bf0024a6e85a6a66b",
+      "gitBlob": "d96ae7d67e77e9e173e3827a57a9c44e093dba7f"
+    },
+    "benchmarks/plan-execute-ab/config.spec.ts": {
+      "sha256": "51a0a8c21ab8e6dcb30b899c74b95a98183b7e6027d05ad48bf36c513e251f5c",
+      "gitBlob": "fcd9fc291ecb8fb5ea92514a85097e6724be4301"
+    },
+    "benchmarks/plan-execute-ab/runner.config.json": {
+      "sha256": "367750bbb5d8f58109aed26ccaf921974bbd23823d71f00a63c8756b0faf36c8",
+      "gitBlob": "44d8e00c1f4acbb461f1522df3810555a44e0e3b"
+    },
+    "benchmarks/plan-execute-ab/runner.spec.ts": {
+      "sha256": "5c572d004ffd888e34ba20330a3eafb0cebfc6d71f6add57371dbf3b81d0ca08",
+      "gitBlob": "c25607e22de28ae62085a0edf0c9b0c246e910f6"
+    },
+    "benchmarks/plan-execute-ab/runner.ts": {
+      "sha256": "3ea5241b1416f3612b8309f48a4ab45b042ee5415546cb2a231846f0594530dc",
+      "gitBlob": "fc046ed1332620caf0c3491f3313f309abe50103"
+    },
+    "benchmarks/plan-execute-ab/scorer.ts": {
+      "sha256": "d4f0756abbea5db2f09fd823be091a0f9f0e77e3921abe4a797302dd0e60e20a",
+      "gitBlob": "b103c9fe5b97287ec40b3b4451c57e8a019c511c"
+    },
+    "benchmarks/plan-execute-ab/task-bank.ts": {
+      "sha256": "8ae91ed4273e63845db3f917abe1c24de353b8fea9b097d040a8eed5b8a5f0f6",
+      "gitBlob": "6d98e0cc6b42c9853b3c42bc5d8b5b24779e9354"
+    },
+    "benchmarks/plan-execute-ab/task-export.spec.ts": {
+      "sha256": "549fa0ed93f71d5cae2384abb37819f8149a99f95e4eea141eb504e313a3243b",
+      "gitBlob": "9398a62e126e465a3546e5a62d182f68a852fc0f"
+    },
+    "benchmarks/plan-execute-ab/tasks/task-bank.json": {
+      "sha256": "376c4cf8ecb838eed8f5bcaaea6ead9b04b85eeaad0b0e70da9c5e9c8e7b892a",
+      "gitBlob": "58f4d4a5500dec44046108e0c3428df3d963ee70"
+    },
+    "benchmarks/plan-execute-ab/types.ts": {
+      "sha256": "c88957b438fa258a8ec0b2e67be544daa674ccf2014438d15287039c343c6e62",
+      "gitBlob": "1a6ac1ccc17333b9c902688eab90f51ffe5beac6"
+    },
+    "benchmarks/plan-execute-ab/scorer.spec.ts": {
+      "sha256": "e6879ca0c6fa581495b1c235a690836d3d8dc82bcbbd52c7e0e68983b5496856",
+      "gitBlob": "807c89a1cee83efddd7e9eda6051acff2af1e1c1"
+    },
+    "benchmarks/plan-execute-ab/scoring-setup.spec.ts": {
+      "sha256": "ec23de34176662b6a0fd70fcefc26fb0ca69fcb0840ad1a2b6d68705f3c0191d",
+      "gitBlob": "3d6e5474f72eaa6922bc3158ac9a16fc6326d012"
+    },
+    "benchmarks/plan-execute-ab/scoring-setup.ts": {
+      "sha256": "438343cb1fb80e62ff01d473b7fb53fb3ca14848eaf835aeea246460e075b29c",
+      "gitBlob": "96269a57828e410a16700aab30613e0d8cff1d93"
+    },
+    "benchmarks/plan-execute-ab/scoring-runtime.ts": {
+      "sha256": "95ea5a0521c04ddb24e33d2da7e99b9c27a1df16d3748177de29aa6e45a1e530",
+      "gitBlob": "d881285847cd799e5b46de389c7961d92272da6f"
+    },
+    "benchmarks/plan-execute-ab/scoring-boundary.cjs": {
+      "sha256": "909889cb32d332e8b504eeef6a94417b2879b8dd17e3e8db2bf6da07b908eecf",
+      "gitBlob": "32231bcfa4988ce80894cbac082ae1962fbbe697"
+    },
+    "benchmarks/plan-execute-ab/tasks/aio-01-scoring-v2.patch": {
+      "sha256": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468",
+      "gitBlob": "883c148c9701b0c29f6c5fd5de92f9101e30bb86"
+    },
+    "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/translator-cache-fix.patch": {
+      "sha256": "23812eb01e9a676bb6e402cd21dbd69718c7ad13e9cf501307a3160320ef83e4",
+      "gitBlob": "7bfad8e247821ce47c65c34a48c64ce453fda03f"
+    }
+  }
+}

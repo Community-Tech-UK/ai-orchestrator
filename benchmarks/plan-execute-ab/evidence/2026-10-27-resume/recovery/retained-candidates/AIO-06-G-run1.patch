@@ -1,0 +1,511 @@
+diff --git a/docs/plans/2026-10-15-initial-provider-limit_plan.md b/docs/plans/2026-10-15-initial-provider-limit_plan.md
+new file mode 100644
+index 0000000..9d25d25
+--- /dev/null
++++ b/docs/plans/2026-10-15-initial-provider-limit_plan.md
+@@ -0,0 +1,22 @@
++# Initial provider-limit recovery
++
++Status: implementation applied; full verification blocked by unrelated infrastructure failures. Active and uncommitted.
++
++1. Route rejected initial prompts through the existing provider-limit funnel, carrying the initial prompt. Preserve the generic failure notice when the funnel declines, and preserve abort rollback.
++2. Apply the known-limit preflight before initial dispatch on both fresh and warm starts.
++3. Distinguish normalized Codex snapshots from raw updates so reset times and credits are parsed once.
++4. Keep continuation dispatch in one resume path, prefer the parked prompt, skip empty sends, and deduplicate actual sends without losing a later fallback.
++5. Run focused regressions and the canonical gates that this environment supports. Obtain a fresh task-completion-gate review before closing this plan.
++
++Risks: swallowing non-limit errors, bypassing deliberate aborts, reset times being converted twice, and timer/automation races losing or repeating a prompt. Cover these at the initial-delivery helper, lifecycle creation, telemetry bridge, and resume handler boundaries.
++
++## Implementation and evidence
++
++- Implemented items 1–4, including fresh and warm creation paths. The initial prompt itself is the replay payload; an empty parked prompt permits a nonempty fallback.
++- Broader tests found that an unavailable optional ledger could prevent normal first sends. The known-limit lookup now logs that read failure and returns `skipped`, allowing normal dispatch. Six unchanged manager creation tests verify this; no existing assertions were weakened.
++- Original-source regression run: 9 of the first 89 tests failed; fixed-source run passed. Final focused run: 262 tests across 8 files passed (`_scratch/test-run.pid-76135.log`).
++- App typecheck, spec typecheck (8 GB Node heap), lint, file-size check, main build, and renderer production build passed, including independent reproduction.
++- Independent reviews found and corrected the optional-ledger lookup regression and an error-funnel callback exception that could trigger spawn rollback. The recovery helper now catches callback failures and preserves the original delivery notice and session. The abort guard still runs first.
++- The final fresh reviewer independently passed 93 tests in the four modified specs and found no unresolved actionable patch findings. Its strict verdict is `FAIL` solely because the full-suite gate is not green; the plan therefore remains active and untracked.
++- Frozen-source full suite: 2,106 files passed, 6 failed; 25,048 tests passed, 14 failed, 2 skipped (exit 1). Evidence: `_scratch/test-run.pid-98156.log` and `_scratch/test-results.pid-98156.json`.
++- Remaining verification blockers are unchanged suites: `check-ts-max-loc` (5 failures), `sea-build-repeatability` (2), `dependency-compatibility` (1), `worker-node-exec-policy` (1), `worker-rpc-dispatcher.node-ops` (3), and `bootstrap/capability-probe` (2). Script suites require an absent local `node_modules/tsx/dist/cli.cjs`; the dependency tree, process cleanup/sampling, and capability readiness checks also fail in the supplied environment. The shared dependency installation was left untouched.
+diff --git a/src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts b/src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts
+index 48083c9..aed719e 100644
+--- a/src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts
++++ b/src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts
+@@ -15,7 +15,7 @@
+  *       session — it settles to idle with a notice so the user can resend)
+  *   4. success                   → commit; nothing is torn down
+  */
+-import { beforeEach, describe, expect, it, vi } from 'vitest';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import type { Instance, InstanceCreateConfig } from '../../../shared/types/instance.types';
+ import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
+ import type { SessionState } from '../../session/session-continuity.types';
+@@ -313,6 +313,7 @@ vi.mock('../lifecycle/memory-pressure-monitor', () => ({
+ import { InstanceLifecycleManager } from '../instance-lifecycle';
+ import { getDefaultAgent } from '../../../shared/types/agent.types';
++import { getInstanceProviderLimitHandler } from '../instance-provider-limit-handler';
+ interface FakeAdapter {
+   spawn: ReturnType<typeof vi.fn>;
+@@ -456,6 +457,8 @@ async function createAndAwaitFailure(
+ }
+ describe('createInstance spawn transaction rollback', () => {
++  afterEach(() => getInstanceProviderLimitHandler()._resetForTesting());
++
+   beforeEach(() => {
+     vi.clearAllMocks();
+     mocks.createAdapter.mockReset();
+@@ -638,6 +641,109 @@ describe('createInstance spawn transaction rollback', () => {
+     expect(adapter.sendInput).toHaveBeenCalledWith('hello world', undefined);
+   });
++  it.each([false, true])('parks the first rejected prompt and resumes it once (warm=%s)', async (warm) => {
++    const harness = makeHarness();
++    const adapter = makeFakeAdapter();
++    const resetAt = Date.now() + 60_000;
++    adapter.sendInput.mockRejectedValue(Object.assign(new Error('Usage limit reached'), {
++      quota: { exhausted: true, resetAt },
++    }));
++    mocks.createAdapter.mockReturnValue(adapter);
++    if (warm) harness.deps.warmStartManager = {
++      consume: () => adapter,
++      preWarm: vi.fn().mockResolvedValue(undefined),
++    } as unknown as LifecycleDependencies['warmStartManager'];
++    const handler = getInstanceProviderLimitHandler();
++    const resend = vi.fn();
++    const schedule = vi.fn(() => vi.fn());
++    handler.configure({
++      isEnabled: () => true,
++      getQuotaSnapshot: () => null,
++      getWorkspaceCwd: () => '/tmp/project',
++      setWaitReason: (id, reason) => { harness.instances.get(id)!.waitReason = reason ?? undefined; },
++      resendInput: resend,
++      scheduleResume: schedule,
++    });
++
++    const instance = await harness.manager.createInstance({
++      workingDirectory: '/tmp/project', provider: 'claude', initialPrompt: 'first ask',
++      initialContextBlock: 'runtime context',
++    });
++    await instance.readyPromise;
++
++    expect(handler.isParked(instance.id)).toBe(true);
++    expect(instance.waitReason).toMatchObject({ kind: 'quota-park', resumeAt: resetAt });
++    expect(schedule).toHaveBeenCalledWith(expect.objectContaining({
++      request: expect.objectContaining({ resumePrompt: 'first ask' }),
++    }));
++    expect(instance.outputBuffer.some((m) => m.metadata?.['initialPromptFailed'])).toBe(false);
++    expect(instance.outputBuffer.some((m) => m.metadata?.['providerLimitParked'])).toBe(true);
++    expect(adapter.terminate).not.toHaveBeenCalled();
++    handler.resumeNow(instance.id);
++    handler.resumeFromAutomation(instance.id, 'stale fallback');
++    expect(resend).toHaveBeenCalledExactlyOnceWith(instance.id, 'first ask');
++  });
++
++  it.each([false, true])('holds the first prompt before dispatch on a known limit (warm=%s)', async (warm) => {
++    const harness = makeHarness();
++    const adapter = makeFakeAdapter();
++    mocks.createAdapter.mockReturnValue(adapter);
++    if (warm) harness.deps.warmStartManager = {
++      consume: () => adapter,
++      preWarm: vi.fn().mockResolvedValue(undefined),
++    } as unknown as LifecycleDependencies['warmStartManager'];
++    const handler = getInstanceProviderLimitHandler();
++    const resend = vi.fn();
++    handler.configure({
++      isEnabled: () => true,
++      getQuotaSnapshot: () => null,
++      getWorkspaceCwd: () => '/tmp/project',
++      setWaitReason: vi.fn(),
++      resendInput: resend,
++      scheduleResume: () => vi.fn(),
++      providerLimitLedger: {
++        getActive: () => ({
++          id: 'known-limit', provider: 'claude', model: null,
++          detectedAt: Date.now(), resumeAt: Date.now() + 60_000,
++          source: 'test', instanceId: null,
++        }),
++        record: vi.fn(), clearActive: vi.fn(),
++      },
++    });
++
++    const instance = await harness.manager.createInstance({
++      workingDirectory: '/tmp/project', provider: 'claude', initialPrompt: 'held first ask',
++    });
++    await instance.readyPromise;
++
++    expect(adapter.sendInput).not.toHaveBeenCalled();
++    expect(handler.isParked(instance.id)).toBe(true);
++    handler.resumeNow(instance.id);
++    expect(resend).toHaveBeenCalledExactlyOnceWith(instance.id, 'held first ask');
++  });
++
++  it('keeps the initial failure notice when parking is disabled', async () => {
++    const harness = makeHarness();
++    const adapter = makeFakeAdapter();
++    adapter.sendInput.mockRejectedValue(new Error("You've hit your usage limit. Try again in 5 minutes."));
++    mocks.createAdapter.mockReturnValue(adapter);
++    getInstanceProviderLimitHandler().configure({
++      isEnabled: () => false,
++      getQuotaSnapshot: () => null,
++      getWorkspaceCwd: () => '/tmp/project',
++      setWaitReason: vi.fn(), resendInput: vi.fn(), scheduleResume: () => vi.fn(),
++    });
++
++    const instance = await harness.manager.createInstance({
++      workingDirectory: '/tmp/project', provider: 'claude', initialPrompt: 'first ask',
++    });
++    await instance.readyPromise;
++
++    expect(getInstanceProviderLimitHandler().isParked(instance.id)).toBe(false);
++    expect(instance.outputBuffer.some((m) => m.metadata?.['initialPromptFailed'])).toBe(true);
++    expect(harness.instances.has(instance.id)).toBe(true);
++  });
++
+   it('does not forward coordinator model defaults through the remote create path', async () => {
+     const harness = makeHarness();
+     const adapter = makeFakeAdapter();
+diff --git a/src/main/instance/instance-lifecycle.ts b/src/main/instance/instance-lifecycle.ts
+index f4e78f8..7dcd53c 100644
+--- a/src/main/instance/instance-lifecycle.ts
++++ b/src/main/instance/instance-lifecycle.ts
+@@ -113,6 +113,8 @@ import { getFailoverManager } from '../providers/failover-manager';
+ import { isProviderParkedForFailover } from '../providers/account-pool/provider-parked-veto';
+ import { getNotificationService } from '../notifications/notification-service';
+ import { getInstanceProviderLimitHandler } from './instance-provider-limit-handler';
++import { createProviderLimitCommunicationCallbacks } from './instance-provider-limit-runtime';
++import { shouldSkipKnownProviderLimitDispatch, tryParkOnProviderLimit } from './instance-communication-provider-limit';
+ import { getInstanceAuthRepairHandler } from './instance-auth-repair-handler';
+ import { detectAvailableClis } from '../cli/cli-detection';
+ import { DesiredRuntimeQueue } from './lifecycle/desired-runtime-queue';
+@@ -1016,6 +1018,11 @@ export class InstanceLifecycleManager extends EventEmitter {
+       : message;
+     let attachments = params.attachments;
++    if (shouldSkipKnownProviderLimitDispatch(
++      createProviderLimitCommunicationCallbacks(this.deps.getInstance).checkKnownProviderLimitBeforeSend,
++      { instanceId: instance.id, provider: instance.provider, model: instance.currentModel ?? null, prompt: message },
++    )) return;
++
+     try {
+       await adapter.sendInput(runtimeMessage, attachments);
+       return;
+@@ -1052,6 +1059,17 @@ export class InstanceLifecycleManager extends EventEmitter {
+     }
+   }
++  private tryParkInitialPrompt(instance: Instance, adapter: CliAdapter, prompt: string, error: unknown): boolean {
++    return tryParkOnProviderLimit({
++      ...createProviderLimitCommunicationCallbacks(this.deps.getInstance),
++      getResumePrompt: () => prompt,
++      addToOutputBuffer: (inst, message) => this.deps.addToOutputBuffer(inst, message),
++      emitOutput: (instanceId, message) => this.emit('output', { instanceId, message }),
++      transitionInstanceStatus: (inst, status) => this.transitionState(inst, status),
++      queueUpdate: (id, status, contextUsage) => this.deps.queueUpdate(id, status, contextUsage),
++    }, instance.id, instance, adapter, error, error instanceof Error ? error.message : String(error));
++  }
++
+   /**
+    * Queue a create-time enricher that exceeded its deadline into the next turn's
+    * continuity preamble instead of dropping it. Multiple late enrichers for the
+@@ -1700,6 +1718,7 @@ export class InstanceLifecycleManager extends EventEmitter {
+                 attachments: config.attachments,
+               }),
+               this.initialPromptRecoveryDeps,
++              (error) => this.tryParkInitialPrompt(instance, adapter, initialUserMessage.content, error),
+             );
+           }
+         } else {
+@@ -1796,6 +1815,7 @@ export class InstanceLifecycleManager extends EventEmitter {
+                   attachments: config.attachments,
+                 }),
+                 this.initialPromptRecoveryDeps,
++                (error) => this.tryParkInitialPrompt(instance, adapter, initialUserMessage.content, error),
+               );
+             }
+           } catch (error) {
+diff --git a/src/main/instance/instance-provider-limit-handler.spec.ts b/src/main/instance/instance-provider-limit-handler.spec.ts
+index 3560431..2d8f4a0 100644
+--- a/src/main/instance/instance-provider-limit-handler.spec.ts
++++ b/src/main/instance/instance-provider-limit-handler.spec.ts
+@@ -231,6 +231,19 @@ describe('InstanceProviderLimitHandler.maybePark', () => {
+ });
+ describe('InstanceProviderLimitHandler.maybeParkKnown', () => {
++  it('does not block dispatch when the optional ledger read is unavailable', () => {
++    const h = makeHarness({ providerLimitLedger: {
++      record: vi.fn(), clearActive: vi.fn(),
++      getActive: () => { throw new Error('database unavailable'); },
++    } });
++
++    expect(h.handler.maybeParkKnown({
++      instanceId: 'i1', provider: CLAUDE, reason: 'preflight', resumePrompt: 'first ask',
++    })).toBe('skipped');
++    expect(h.handler.isParked('i1')).toBe(false);
++    expect(h.scheduleCalls).toBe(0);
++  });
++
+   it('parks from a matching active ledger gate without recording or probing again', () => {
+     const resumeAt = Date.now() + 60_000;
+     const ledger = {
+@@ -292,6 +305,32 @@ describe('InstanceProviderLimitHandler.resumeNow', () => {
+     expect(resumed).toBe(true);
+     expect(h.resends).toEqual([{ instanceId: 'i-restarted', prompt: 'original turn' }]);
+   });
++
++  it('prefers the parked continuation over a different fallback', () => {
++    h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: 'parked continuation' });
++    h.handler.resumeNow('i1', { resumePromptFallback: 'stale fallback' });
++    expect(h.resends).toEqual([{ instanceId: 'i1', prompt: 'parked continuation' }]);
++  });
++
++  it.each([null, ''])('uses the fallback when the parked prompt is %j', (resumePrompt) => {
++    h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt });
++    h.handler.resumeNow('i1', { resumePromptFallback: 'continuation' });
++    expect(h.resends).toEqual([{ instanceId: 'i1', prompt: 'continuation' }]);
++  });
++
++  it('clears an empty park without sending and leaves a later fallback eligible', () => {
++    h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: null });
++    h.fireScheduled('i1');
++    expect(h.resends).toEqual([]);
++    expect(h.handler.isParked('i1')).toBe(false);
++    expect(h.waitReasons.get('i1')).toBeNull();
++
++    h.resumableIds.add('i1');
++    expect(h.handler.resumeFromAutomation('i1', 'durable continuation')).toBe('resent');
++    expect(h.resends).toEqual([{ instanceId: 'i1', prompt: 'durable continuation' }]);
++    h.fireScheduled('i1');
++    expect(h.resends).toHaveLength(1);
++  });
+ });
+ describe('InstanceProviderLimitHandler.resumeFromAutomation', () => {
+@@ -324,6 +363,21 @@ describe('InstanceProviderLimitHandler.resumeFromAutomation', () => {
+     expect(h.handler.resumeFromAutomation('i1', 'captured turn')).toBe('resent');
+     expect(h.resends).toHaveLength(1); // not re-sent again
+   });
++
++  it('does not double-send when the automation beats the local timer', () => {
++    h.handler.maybePark({ instanceId: 'i1', provider: CLAUDE, resetAtHint: Date.now() + 60_000, reason: 'x', resumePrompt: 'parked continuation' });
++    expect(h.handler.resumeFromAutomation('i1', 'stale fallback')).toBe('resent');
++    h.fireScheduled('i1');
++    expect(h.resends).toEqual([{ instanceId: 'i1', prompt: 'parked continuation' }]);
++  });
++
++  it('sends nothing without a prompt and does not suppress a later live fallback', () => {
++    h.resumableIds.add('i-live');
++    expect(h.handler.resumeFromAutomation('i-live')).toBe('resent');
++    expect(h.resends).toEqual([]);
++    expect(h.handler.resumeFromAutomation('i-live', 'continuation')).toBe('resent');
++    expect(h.resends).toEqual([{ instanceId: 'i-live', prompt: 'continuation' }]);
++  });
+ });
+ describe('InstanceProviderLimitHandler.cancel', () => {
+diff --git a/src/main/instance/instance-provider-limit-handler.ts b/src/main/instance/instance-provider-limit-handler.ts
+index 0b1434b..4d9bb89 100644
+--- a/src/main/instance/instance-provider-limit-handler.ts
++++ b/src/main/instance/instance-provider-limit-handler.ts
+@@ -1,6 +1,6 @@
+ import type { InstanceProvider, InstanceWaitReason } from '../../shared/types/instance.types';
+ import type { ProviderId, ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
+-import type { ProviderLimitLedger } from '../core/system/provider-limit-ledger';
++import type { ProviderLimitEvent, ProviderLimitLedger } from '../core/system/provider-limit-ledger';
+ import { getLogger } from '../logging/logger';
+ import type {
+   AccountFailoverCoordinator,
+@@ -264,12 +264,20 @@ export class InstanceProviderLimitHandler {
+     const providerId = toProviderId(params.provider);
+     if (!providerId) return 'skipped';
+     const accountProfileId = params.accountProfileId ?? null;
+-    const knownLimit = deps.providerLimitLedger?.getActive({
+-      provider: providerId,
+-      model: params.model ?? null,
+-      accountProfileId,
+-      now: Date.now(),
+-    }) ?? null;
++    let knownLimit: ProviderLimitEvent | null;
++    try {
++      knownLimit = deps.providerLimitLedger?.getActive({
++        provider: providerId,
++        model: params.model ?? null,
++        accountProfileId,
++        now: Date.now(),
++      }) ?? null;
++    } catch (error) {
++      logger.debug('Known provider-limit lookup unavailable; allowing dispatch', {
++        instanceId: params.instanceId, error: error instanceof Error ? error.message : String(error),
++      });
++      return 'skipped';
++    }
+     if (!knownLimit) return this.maybeSwitchPreemptively(params, providerId, accountProfileId);
+     if (this.clearLimitLiftedSinceRecorded(params, providerId, accountProfileId)) {
+       return this.maybeSwitchPreemptively(params, providerId, accountProfileId);
+@@ -473,9 +481,11 @@ export class InstanceProviderLimitHandler {
+     if (recent !== undefined && now - recent < RESUME_DEDUPE_MS) {
+       return false;
+     }
+-    this.lastResumeAt.set(instanceId, now);
+-
+     const entry = this.parked.get(instanceId);
++    const prompt = entry?.resumePrompt || opts?.resumePromptFallback || null;
++    // A prompt-less timer must not consume the retry slot of a later durable
++    // trigger that actually carries the stopped turn.
++    if (prompt !== null && prompt.length > 0) this.lastResumeAt.set(instanceId, now);
+     this.parked.delete(instanceId);
+     if (entry) {
+       entry.cancel();
+@@ -490,7 +500,6 @@ export class InstanceProviderLimitHandler {
+     deps.setWaitReason(instanceId, null);
+-    const prompt = entry?.resumePrompt ?? opts?.resumePromptFallback ?? null;
+     if (prompt !== null && prompt.length > 0) {
+       deps.resendInput(instanceId, prompt);
+       logger.info('Resumed regular session after provider quota reset', { instanceId });
+@@ -530,12 +539,7 @@ export class InstanceProviderLimitHandler {
+     // No in-memory park (fresh process). Only re-send directly if the instance
+     // is live; otherwise let the automation revive the thread and dispatch.
+     if (deps.isResumable?.(instanceId)) {
+-      this.lastResumeAt.set(instanceId, now);
+-      this.clearKnownLimitGate(instanceId);
+-      deps.setWaitReason(instanceId, null);
+-      if (fallbackPrompt && fallbackPrompt.length > 0) {
+-        deps.resendInput(instanceId, fallbackPrompt);
+-      }
++      this.resumeNow(instanceId, { resumePromptFallback: fallbackPrompt });
+       return 'resent';
+     }
+     return 'fell-through';
+diff --git a/src/main/instance/lifecycle/initial-prompt-recovery.spec.ts b/src/main/instance/lifecycle/initial-prompt-recovery.spec.ts
+index 0b209b0..1431f6e 100644
+--- a/src/main/instance/lifecycle/initial-prompt-recovery.spec.ts
++++ b/src/main/instance/lifecycle/initial-prompt-recovery.spec.ts
+@@ -107,4 +107,58 @@ describe('deliverInitialPromptAfterSpawn', () => {
+     expect(instance.status).toBe('error');
+     expect(deps.buffered).toHaveLength(1);
+   });
++
++  it('lets the provider-limit funnel own a rejected first turn without a failure notice', async () => {
++    const instance = makeInstance('busy');
++    const deps = makeDeps();
++    const error = new Error('usage limit reached');
++    const handleError = vi.fn(() => true);
++
++    await deliverInitialPromptAfterSpawn(instance, new AbortController().signal,
++      () => Promise.reject(error), deps, handleError);
++
++    expect(handleError).toHaveBeenCalledExactlyOnceWith(error);
++    expect(deps.buffered).toEqual([]);
++    expect(deps.transitions).toEqual([]);
++  });
++
++  it('still posts the failure notice when the provider-limit funnel declines', async () => {
++    const instance = makeInstance('busy');
++    const deps = makeDeps();
++    const handleError = vi.fn(() => false);
++
++    await deliverInitialPromptAfterSpawn(instance, new AbortController().signal,
++      () => Promise.reject(new Error('usage limit reached')), deps, handleError);
++
++    expect(handleError).toHaveBeenCalledOnce();
++    expect(deps.buffered[0].metadata?.['initialPromptFailed']).toBe(true);
++    expect(instance.status).toBe('idle');
++  });
++
++  it('does not park an aborted first turn', async () => {
++    const controller = new AbortController();
++    controller.abort();
++    const handleError = vi.fn(() => true);
++
++    await expect(deliverInitialPromptAfterSpawn(makeInstance(), controller.signal,
++      () => Promise.reject(new Error('usage limit reached')), makeDeps(), handleError))
++      .rejects.toThrow('usage limit reached');
++    expect(handleError).not.toHaveBeenCalled();
++  });
++
++  it('preserves the session and original failure notice when the funnel itself throws', async () => {
++    const instance = makeInstance('busy');
++    const deps = makeDeps();
++
++    await expect(deliverInitialPromptAfterSpawn(instance, new AbortController().signal,
++      () => Promise.reject(new Error('usage limit reached')),
++      deps, () => { throw new Error('database unavailable'); }))
++      .resolves.toBeUndefined();
++
++    expect(instance.status).toBe('idle');
++    expect(deps.buffered).toHaveLength(1);
++    expect(deps.buffered[0].metadata?.['initialPromptFailed']).toBe(true);
++    expect(deps.buffered[0].content).toContain('usage limit reached');
++    expect(deps.buffered[0].content).not.toContain('database unavailable');
++  });
+ });
+diff --git a/src/main/instance/lifecycle/initial-prompt-recovery.ts b/src/main/instance/lifecycle/initial-prompt-recovery.ts
+index 10db2ed..a38e10f 100644
+--- a/src/main/instance/lifecycle/initial-prompt-recovery.ts
++++ b/src/main/instance/lifecycle/initial-prompt-recovery.ts
+@@ -22,6 +22,7 @@ export interface InitialPromptRecoveryDeps {
+  * healthy — context-cost recovery pausing on an unconfirmed interrupt, or the
+  * app-server dropping mid-turn. In every such case we keep the session, surface
+  * the reason, and settle it back to idle so the user can simply resend.
++ * A handled onSendError lets provider-limit recovery own the stopped turn.
+  *
+  * An in-flight abort is the one exception: it is a deliberate teardown, so we
+  * rethrow and let the caller's rollback path run as before.
+@@ -31,11 +32,20 @@ export async function deliverInitialPromptAfterSpawn(
+   signal: AbortSignal,
+   send: () => Promise<void>,
+   deps: InitialPromptRecoveryDeps,
++  onSendError?: (error: unknown) => boolean,
+ ): Promise<void> {
+   try {
+     await send();
+   } catch (error) {
+     if (signal.aborted) throw error;
++    try {
++      if (onSendError?.(error)) return;
++    } catch (recoveryError) {
++      logger.warn('Initial prompt recovery failed; preserving session with failure notice', {
++        instanceId: instance.id,
++        error: recoveryError instanceof Error ? recoveryError.message : String(recoveryError),
++      });
++    }
+     const errorMessage = error instanceof Error ? error.message : String(error);
+     logger.error(
+       'Initial prompt failed after successful spawn; preserving session',
+diff --git a/src/main/providers/account-pool/account-telemetry-bridge.spec.ts b/src/main/providers/account-pool/account-telemetry-bridge.spec.ts
+index 77b1b44..37f2336 100644
+--- a/src/main/providers/account-pool/account-telemetry-bridge.spec.ts
++++ b/src/main/providers/account-pool/account-telemetry-bridge.spec.ts
+@@ -7,6 +7,7 @@ vi.mock('../../logging/logger', () => ({
+ import { ProviderQuotaService } from '../../core/system/provider-quota-service';
+ import { attachAccountTelemetryBridge, claudeTelemetryWindow } from './account-telemetry-bridge';
++import { parseCodexRateLimitSnapshot } from '../../cli/adapters/codex/account-rate-limits';
+ let service: ProviderQuotaService;
+@@ -74,4 +75,23 @@ describe('account telemetry bridge', () => {
+     attachAccountTelemetryBridge(adapter, undefined, service);
+     expect(adapter.listenerCount('rate-limit-telemetry')).toBe(0);
+   });
++
++  it('parses raw limit-reached updates and accepts already parsed snapshots without converting twice', () => {
++    const adapter = new EventEmitter();
++    attachAccountTelemetryBridge(adapter, { provider: 'codex', profileId: 'pro-b', source: 'default', executionNodeId: 'local' }, service);
++    const raw = {
++      primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: 2_000 },
++      rateLimitReachedType: 'rate_limit_reached',
++      credits: { hasCredits: true, unlimited: false },
++      spendControlReached: false,
++    };
++
++    adapter.emit('account-rate-limits', raw);
++    expect(service.getSnapshot('codex', 'pro-b')?.windows[0]).toMatchObject({ resetsAt: 2_000_000, used: 100 });
++    expect(service.getSnapshot('codex', 'pro-b')?.usageAccess?.creditsAvailable).toBe(true);
++
++    adapter.emit('account-rate-limits', parseCodexRateLimitSnapshot(raw));
++    expect(service.getSnapshot('codex', 'pro-b')?.windows[0].resetsAt).toBe(2_000_000);
++    expect(service.getSnapshot('codex', 'pro-b')?.usageAccess?.creditsAvailable).toBe(true);
++  });
+ });
+diff --git a/src/main/providers/account-pool/account-telemetry-bridge.ts b/src/main/providers/account-pool/account-telemetry-bridge.ts
+index db4ccf1..78454a6 100644
+--- a/src/main/providers/account-pool/account-telemetry-bridge.ts
++++ b/src/main/providers/account-pool/account-telemetry-bridge.ts
+@@ -139,5 +139,7 @@ export function attachAccountTelemetryBridge(
+ }
+ function isParsedCodexSnapshot(value: unknown): value is CodexRateLimitSnapshot {
+-  return Boolean(value && typeof value === 'object' && 'primary' in value && 'rateLimitReachedType' in value);
++  // Raw updates also carry rateLimitReachedType; creditsAvailable is our
++  // normalized field, and distinguishes reset times already converted to ms.
++  return Boolean(value && typeof value === 'object' && 'primary' in value && 'creditsAvailable' in value);
+ }

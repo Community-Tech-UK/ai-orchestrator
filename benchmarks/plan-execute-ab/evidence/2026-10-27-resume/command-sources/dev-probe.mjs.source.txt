@@ -1,0 +1,101 @@
+import { createServer } from 'node:http';
+import { readFile, stat } from 'node:fs/promises';
+import { createWriteStream, writeFileSync, existsSync } from 'node:fs';
+import { resolve, extname } from 'node:path';
+import { spawn } from 'node:child_process';
+import { setTimeout as delay } from 'node:timers/promises';
+
+const evidence = resolve('benchmarks/plan-execute-ab/evidence/2026-10-27-resume/dev');
+const root = resolve('dist/renderer/browser');
+const profile = '/tmp/aio-lt-queue-7ca7a00e';
+const reusingOwnedProfile = existsSync(profile);
+const server = createServer(async (req, res) => {
+  try {
+    let path = resolve(root, '.' + new URL(req.url, 'http://localhost').pathname);
+    if (!path.startsWith(root + '/') && path !== root) throw new Error('invalid path');
+    if (path === root || (await stat(path).catch(() => null))?.isDirectory()) path = resolve(root, 'index.html');
+    const content = await readFile(path);
+    res.setHeader('content-type', ({ '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json' })[extname(path)] ?? 'application/octet-stream');
+    res.end(content);
+  } catch { res.writeHead(404); res.end(); }
+});
+await new Promise((yes, no) => { server.once('error', no); server.listen(4568, '127.0.0.1', yes); });
+const result = { startedAt: new Date().toISOString(), profile, reusingOwnedProfile, port: 9800, attempts: [] };
+let child;
+let socket;
+try {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const log = createWriteStream(`${evidence}/dev-app-${attempt}.log`);
+    child = spawn('node_modules/.bin/electron', ['.', '--remote-debugging-port=9800', '--js-flags=--max-old-space-size=8192', '--no-sandbox'], {
+      env: { ...process.env, AIO_DEV_USER_DATA_PATH: profile, PORT: '4568' }, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    child.stdout.pipe(log, { end: false }); child.stderr.pipe(log, { end: false });
+    result.attempts.push({ attempt, pid: child.pid });
+    const deadline = Date.now() + 90000;
+    let target;
+    while (Date.now() < deadline && child.exitCode === null && child.signalCode === null) {
+      const targets = await fetch('http://127.0.0.1:9800/json/list').then(r => r.json()).catch(() => []);
+      target = targets.find(t => t.type === 'page' && t.url.includes('4568'));
+      if (target) break;
+      await delay(500);
+    }
+    if (target) {
+      socket = new WebSocket(target.webSocketDebuggerUrl);
+      await new Promise((yes,no) => { socket.addEventListener('open', yes, { once: true }); socket.addEventListener('error', no, { once: true }); });
+      let id = 0;
+      const call = (method, params = {}) => new Promise((yes, no) => {
+        const requestId = ++id;
+        const timeout = setTimeout(() => { socket.removeEventListener('message', receive); no(new Error(method+' timeout')); }, 20000);
+        function receive(event) {
+          const data = JSON.parse(event.data);
+          if (data.id !== requestId) return;
+          clearTimeout(timeout); socket.removeEventListener('message', receive);
+          if (data.error) no(new Error(JSON.stringify(data.error))); else yes(data.result);
+        }
+        socket.addEventListener('message', receive); socket.send(JSON.stringify({ id: requestId, method, params }));
+      });
+      await call('Emulation.setFocusEmulationEnabled', { enabled: true });
+      result.focusEmulationEnabled = true;
+      result.visibilityOverride = await call('Emulation.setPageVisibilityOverride', { visibility: 'visible' }).then(() => 'supported').catch(e => e.message);
+      const expression = `(async () => { await new Promise(r=>requestAnimationFrame(r)); return { hidden:document.hidden, visibility:document.visibilityState, appRoot:!!document.querySelector('app-root'), ipc:await window.electronAPI.listInstances() }; })()`;
+      let probe;
+      for (let n=0;n<40;n++) {
+        probe = await call('Runtime.evaluate', { expression, awaitPromise:true, returnByValue:true });
+        if (!probe.exceptionDetails && probe.result?.value?.ipc) break;
+        await delay(500);
+      }
+      result.probe = probe;
+      const value = probe.result?.value;
+      if (value?.hidden !== false || value?.visibility !== 'visible' || !value?.appRoot || !value?.ipc?.success) throw new Error('Focus / IPC acceptance failed');
+      result.passed = true;
+      break;
+    }
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGTERM');
+      await Promise.race([new Promise(r=>child.once('exit',r)), delay(12000)]);
+      if (child.exitCode === null && child.signalCode === null) throw new Error('App did not stop; refusing second launch');
+    }
+    log.end();
+    result.attempts.at(-1).exitCode = child.exitCode;
+    result.attempts.at(-1).signalCode = child.signalCode;
+  }
+  if (!result.passed) throw new Error('Dev app did not reach a page');
+} catch (error) {
+  result.passed = false; result.error = error.message; process.exitCode = 1;
+} finally {
+  socket?.close();
+  if (child && child.exitCode === null && child.signalCode === null) {
+    child.kill('SIGTERM');
+    await Promise.race([new Promise(r=>child.once('exit',r)), delay(15000)]);
+    if (child.exitCode === null && child.signalCode === null) {
+      result.forcedKill = true; child.kill('SIGKILL');
+      await new Promise(r=>child.once('exit',r));
+    }
+  }
+  result.finalExitCode = child?.exitCode; result.finalSignalCode = child?.signalCode;
+  result.stopped = !!child && (child.exitCode !== null || child.signalCode !== null);
+  await new Promise(r=>server.close(r));
+  result.finishedAt = new Date().toISOString();
+  writeFileSync(`${evidence}/dev-app.receipt.json`, JSON.stringify(result,null,2)+'\n');
+  console.log(JSON.stringify(result));
+}

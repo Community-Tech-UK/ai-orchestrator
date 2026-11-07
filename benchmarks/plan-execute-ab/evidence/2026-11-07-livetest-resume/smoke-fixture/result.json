@@ -1,0 +1,16 @@
+{
+  "finalText": "Done:\n\n1. **Read** `answer.txt` — value was `0`.\n2. **Updated** it to `42`.\n3. **Ran `npm test`** — 1 test passed, 0 failures.",
+  "usage": {
+    "inputTokens": 17452,
+    "outputTokens": 488,
+    "cacheReadTokens": 52835,
+    "cacheWriteTokens": 0
+  },
+  "turns": 5,
+  "toolErrors": [],
+  "hitTurnCap": false,
+  "durationMs": 5805,
+  "exitCode": 0,
+  "timedOut": false,
+  "rawLogPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/plan-execute-ab/smoke-6vSDha/agent.log"
+}

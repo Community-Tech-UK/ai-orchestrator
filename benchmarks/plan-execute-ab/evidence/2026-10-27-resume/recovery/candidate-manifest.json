@@ -1,0 +1,350 @@
+{
+  "status": "RECOVERY PASS: all30 paid A/D/G candidates deterministically reconstructed; eighteen later full runner records still missing",
+  "candidates": [
+    {
+      "taskId": "AIO-01",
+      "armId": "A",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/AIO-01-A-transcript-reconstructed.patch",
+      "sha256": "f0e925aedad6cc5737bf466ca7cfe156a150e8e7e2e921d41f93e5f36f122ba8",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/aio01-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "AIO-01",
+      "armId": "D",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/AIO-01-D-transcript-reconstructed.patch",
+      "sha256": "02199268012d48ba0c2f66d5dfb484194038f805ed0dcf3ecd8c0de545590e8f",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/aio01-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "AIO-01",
+      "armId": "G",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/AIO-01-G-transcript-reconstructed.patch",
+      "sha256": "a08c4d58b195cffb00592de7480473911b303d8b6f2e5bac17c191984ff0c781",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/aio01-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "AIO-02",
+      "armId": "A",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/AIO-02-A-transcript-reconstructed.patch",
+      "sha256": "25cfb7c87b04b1aba1d78469cb09104e556920cbc293fb218b6e3e35b8d57546",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "AIO-03",
+      "armId": "A",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/AIO-03-A-transcript-reconstructed.patch",
+      "sha256": "f5dad4ead2674c07b7c8a3374d1c3ef39cc899679dd02038e36b34f47b8d2078",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "AIO-04",
+      "armId": "A",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/AIO-04-A-transcript-reconstructed.patch",
+      "sha256": "13ac96650c2d78b39d448d67960a57e4b02a82b21090163633c6d6218daec879",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "AIO-05",
+      "armId": "A",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/AIO-05-A-transcript-reconstructed.patch",
+      "sha256": "1417339ddf322fa22f947e33a4b0e13dcfb1c03c66073db92bca07429b28ddef",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "AIO-06",
+      "armId": "A",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/AIO-06-A-transcript-reconstructed.patch",
+      "sha256": "d6a78ee79cbb8d203bc1c516377fddab18c54d33886df6e6bff44a2797652f3b",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "12ST-01",
+      "armId": "A",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/12ST-01-A-transcript-reconstructed.patch",
+      "sha256": "30709f0e6470b7a1677d9067ded2ba3fd6c547c58c5d8164f86f4f2af144a34c",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "12ST-02",
+      "armId": "A",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/12ST-02-A-transcript-reconstructed.patch",
+      "sha256": "288ebc2d912c7717f0d5784758be4471196432c0f4012f95c9450fc9575d905a",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "12ST-03",
+      "armId": "A",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/12ST-03-A-transcript-reconstructed.patch",
+      "sha256": "6432847c901e08c728963b6a8407213d0e8a2b0c4a756b413e8a0ea3b564dee1",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "12ST-04",
+      "armId": "A",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/A/12ST-04-A-transcript-reconstructed.patch",
+      "sha256": "649f4d0f625aea0b10be6fbc07dae22362edbb4240e779ffa70c7236d3b7dbc3",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "AIO-02",
+      "armId": "D",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/AIO-02-D-transcript-reconstructed.patch",
+      "sha256": "0bb9d349dc9c54a9df0c74a0ffc77b17609a30cc902b5ae36993de8433409ce7",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "AIO-03",
+      "armId": "D",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/AIO-03-D-transcript-reconstructed.patch",
+      "sha256": "a4be9aea0b252d3746d25dee3f8d8381adf724365690e1c79500a13b91767352",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "AIO-04",
+      "armId": "D",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/AIO-04-D-transcript-reconstructed.patch",
+      "sha256": "1ed8f07d4f55cf147fe0ccc00e9eee0c0ee8e5e493d6347bf387df2099317111",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "AIO-05",
+      "armId": "D",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/AIO-05-D-transcript-reconstructed.patch",
+      "sha256": "cef20ed13584790a962f3a743ab4a7695a99a95739304c8a5e3af482b21af3fd",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "AIO-06",
+      "armId": "D",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/AIO-06-D-transcript-reconstructed.patch",
+      "sha256": "c0b82ca4854b616b6b924465049daf1cc49cb477d6793bbc5517afabd2eb95ee",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "12ST-01",
+      "armId": "D",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/12ST-01-D-transcript-reconstructed.patch",
+      "sha256": "2d1b17888980bb432a40ed34f892487ae3ca199ef83f56ef87c9c0ed06e758d5",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "12ST-02",
+      "armId": "D",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/12ST-02-D-transcript-reconstructed.patch",
+      "sha256": "62b01c2e93b1b4b613286fe5ff3f095f923ca0763ea4918b6390ea90bbdd9eaf",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "12ST-03",
+      "armId": "D",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/12ST-03-D-transcript-reconstructed.patch",
+      "sha256": "cf135a29e8784bb996d6dc0c9f7007e60715ba560adcf14bb0844892f31c0cf1",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "12ST-04",
+      "armId": "D",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/D/12ST-04-D-transcript-reconstructed.patch",
+      "sha256": "a5e5fec8bd0b70a38e6c47d3247eef8675ef56a60360ebfc22fe0702f791e75a",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "AIO-02",
+      "armId": "G",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/AIO-02-G-transcript-reconstructed.patch",
+      "sha256": "13a12584aaaec9cbc6b9f7f7e493022df76cec6eb93e05f051bdf1dbcdbb6001",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "AIO-03",
+      "armId": "G",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/AIO-03-G-transcript-reconstructed.patch",
+      "sha256": "a413d2699a74e443ce6f16e7441bd905ee6569a06778d16c564438db9d84d506",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "AIO-04",
+      "armId": "G",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/AIO-04-G-transcript-reconstructed.patch",
+      "sha256": "b8088c5a4e94e925131165185aff55fff86d1e91fb8e85eec65b565e6f731e24",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "AIO-05",
+      "armId": "G",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/AIO-05-G-transcript-reconstructed.patch",
+      "sha256": "6248cc43fd9399dafe40d8c47493fda5b2a0877fad9a1ba548b01c24bdd99a52",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "AIO-06",
+      "armId": "G",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/AIO-06-G-transcript-reconstructed.patch",
+      "sha256": "6a10bfd9556de26a63016e69396a4f7adc6203d13f474757080e1bdda908771f",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "12ST-01",
+      "armId": "G",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/12ST-01-G-transcript-reconstructed.patch",
+      "sha256": "d6a4fc4301bda2078d2949be74e0f078ba442ae72c4d66a7336ae3eeb7893d41",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "12ST-02",
+      "armId": "G",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/12ST-02-G-transcript-reconstructed.patch",
+      "sha256": "d3fe8c3457d2fcdbda13a0294a8f6a1a93186daa5164bc56b703256cdf28ddc4",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "12ST-03",
+      "armId": "G",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/12ST-03-G-transcript-reconstructed.patch",
+      "sha256": "a1614aa40bd13929211160d25d40f07c662bd1f2fcdacdf44a7af26e705826ca",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "12ST-04",
+      "armId": "G",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/transcript-reconstruction/G/12ST-04-G-transcript-reconstructed.patch",
+      "sha256": "21fb51644f9b33ca61346f728e027ee67e42fc846a6ac22d6213ab83fa498b42",
+      "provenance": "Deterministic original-transcript source-edit replay against recorded task parent; the exact historical judge attribution/blank-line transform matches a complete original judge input, including Git index hashes. Regenerated patch, not recovered original runner bytes.",
+      "classification": "transcript-reconstruction",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/remaining-transcript-reconstruction.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "12ST-01",
+      "armId": "C1",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-01-C1-run1.patch",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "provenance": "Exact retained empty C1 candidate bytes, no changes.",
+      "classification": "retained-empty-candidate",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/all32-patch-validity.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "12ST-02",
+      "armId": "C1",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/retained-candidates/12ST-02-C1-run1.patch",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "provenance": "Exact retained empty C1 candidate bytes, no changes.",
+      "classification": "retained-empty-candidate",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/all32-patch-validity.receipt.json",
+      "diagnosticOnly": false
+    },
+    {
+      "taskId": "12ST-02",
+      "armId": "C2",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/12ST-02-C2-final-coder-diff.patch",
+      "sha256": "69eeabde79ce3a00cdaff008c3263380de3f21489b1d24934dbdc317fd53c11b",
+      "provenance": "Verbatim final coder git-diff snapshot, not recovered runner record or independently matched runner patch file. Runner captures staged plus newly added files using git add -A followed by git diff --cached; this snapshot is git diff. No later tool calls observed. Final newline added; verbatim snapshot separately retained.",
+      "classification": "final-coder-tracked-diff-snapshot",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/recovered-coder-diffs.receipt.json",
+      "diagnosticOnly": true
+    },
+    {
+      "taskId": "AIO-01",
+      "armId": "C2",
+      "patchPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/AIO-01-C2-final-coder-diff.patch",
+      "sha256": "6c4ea551b8a66a5e154939b529fcacb6da0e5b8b782cd07c644ae915590b8002",
+      "provenance": "Verbatim final coder git-diff snapshot, not recovered runner record or independently matched runner patch file. Runner captures staged plus newly added files using git add -A followed by git diff --cached; this snapshot is git diff. No later tool calls observed. Final newline added; verbatim snapshot separately retained.",
+      "classification": "final-coder-tracked-diff-snapshot",
+      "receiptPath": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/recovered-coder-diffs.receipt.json",
+      "diagnosticOnly": true
+    }
+  ],
+  "counts": {
+    "transcriptReconstructions": 30,
+    "emptyRetainedC1": 2,
+    "diagnosticC2Snapshots": 2
+  }
+}

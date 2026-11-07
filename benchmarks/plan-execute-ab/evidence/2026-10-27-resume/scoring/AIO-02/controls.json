@@ -1,0 +1,95 @@
+{
+  "taskId": "AIO-02",
+  "parentSha": "b7114a8e4d1b4a484d59543c54d95eb27c472e91",
+  "commitSha": "4ab0681fb8b8bd18b64b25e2c11e67c819d7ce3d",
+  "setup": {
+    "fingerprint": "0d45c4a2a46162a265fc9f833ff74e5fe73299c9ee55b51db9794479533871a0",
+    "files": {
+      "apps/mobile/package-lock.json": "df4a47c1cd8fdb37380b501f748c19b8f3a5a3d553f11d234e71844b3eefb7c9",
+      "apps/mobile/package.json": "4d3d14c54f950a895b1b7998b8c3deb02811bda1a49a7fd42f4122ca47d70a95",
+      "benchmarks/external-benchmarks/bfcl/package.json": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+      "benchmarks/orchestrator-benchmark/package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+      "package-lock.json": "c6b1221fdd7a69a6dbdc3ae0ab3cb374e09626c7573ce2d279a0d8acde366940",
+      "package.json": "6adee217290061578d1afd43e4ccbbd71097b1d3a10574f014822f4bf1591298",
+      "packages/archiver-compat/package.json": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+      "packages/contracts/package.json": "98a513bfc08c8a15513a7a15ac2dcf6d0ee99dff8bf9b44d2ec68f85e68c8e97",
+      "packages/sdk/package.json": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a"
+    },
+    "command": [
+      "npm",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund"
+    ],
+    "exitCode": 0,
+    "timedOut": false,
+    "nodeVersion": "v26.12.1"
+  },
+  "parent": {
+    "contract": {
+      "version": "historical-v1",
+      "dependencyFingerprint": "0d45c4a2a46162a265fc9f833ff74e5fe73299c9ee55b51db9794479533871a0"
+    },
+    "hiddenTests": {
+      "passed": false,
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "scripts/__tests__/release-workflow.spec.ts"
+      ],
+      "exitCode": 1,
+      "timedOut": false,
+      "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js scripts/__tests__/release-workflow.spec.ts\n\n✗ 1 of 11 tests failed in 7.7s:\n\n  ✗ scripts/__tests__/release-workflow.spec.ts › Harness release workflow checks model-catalog drift on a schedule and raises one durable issue\n    AssertionError: expected true to be false // Object.is equality\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/scripts/__tests__/release-workflow.spec.ts:102:57\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n        at new ZoneAwarePromise (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/zone.js/fesm2015/zone.js:2238:23)\n        at runWithTimeout (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan\n        …(truncated — see log)\n\nfull log: _scratch/test-run.pid-17590.log\n\n✗ FAILED — 1 of 11 tests failed (exit 1).\n\n"
+    },
+    "damage": [],
+    "damageOk": true
+  },
+  "fixed": {
+    "contract": {
+      "version": "historical-v1",
+      "dependencyFingerprint": "0d45c4a2a46162a265fc9f833ff74e5fe73299c9ee55b51db9794479533871a0"
+    },
+    "hiddenTests": {
+      "passed": true,
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "scripts/__tests__/release-workflow.spec.ts"
+      ],
+      "exitCode": 0,
+      "timedOut": false,
+      "outputTail": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js scripts/__tests__/release-workflow.spec.ts\n\n✓ 1 files · 11 tests passed in 6.8s\n  full log: _scratch/test-run.pid-29603.log\n\n"
+    },
+    "damage": [
+      {
+        "ok": true,
+        "command": [
+          "node",
+          "--max-old-space-size=8192",
+          "node_modules/typescript/bin/tsc",
+          "--noEmit"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "\n"
+      },
+      {
+        "ok": true,
+        "command": [
+          "npm",
+          "run",
+          "lint:fast"
+        ],
+        "exitCode": 0,
+        "timedOut": false,
+        "outputTail": "bject literals won't add any unexpected properties, so it's unnecessary to add an empty object as fallback.\nsrc/main/hooks/hook-engine.ts:13:3: warning eslint(no-unused-vars): Identifier 'ConditionOperator' is imported but never used. help: Consider removing this import.\nsrc/main/cli/adapters/acp-cli-adapter.ts:39:3: warning eslint(no-unused-vars): Type 'AcpAvailableCommandsUpdate' is imported but never used. help: Consider removing this import.\nsrc/main/cli/adapters/acp-cli-adapter.ts:1285:29: warning eslint(eqeqeq): Expected === and instead saw == help: Prefer === operator\nsrc/main/mobile-gateway/mobile-gateway-server.ts:299:9: warning typescript(no-require-imports): Expected \"import\" statement instead of \"require\" call help: Do not use CommonJS `require` calls\nsrc/main/mobile-gateway/mobile-gateway-server.ts:315:9: warning typescript(no-require-imports): Expected \"import\" statement instead of \"require\" call help: Do not use CommonJS `require` calls\nsrc/main/mobile-gateway/mobile-gateway-serializers.ts:206:31: warning eslint(eqeqeq): Expected !== and instead saw != help: Prefer !== operator\nsrc/main/mobile-gateway/mobile-gateway-serializers.ts:207:34: warning eslint(eqeqeq): Expected !== and instead saw != help: Prefer !== operator\nsrc/main/orchestration/event-store/coordinator-event-bridge.ts:146:48: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/orchestration/event-store/coordinator-event-bridge.ts:148:51: warning typescript(no-explicit-any): Unexpected `any`. Specify a different type. help: Use `unknown` instead, this will force you to explicitly, and safely, assert the type is correct.\nsrc/main/orchestration/embedding-service.ts:286:20: warning unicorn(no-new-array): Do not use `new Array(singleArgument)`. help: It's not clear whether the argument is meant to be the length of the array or the only element. If the argument is the array's length, consider using `Array.from({ length: n })`. If the argument is the only element, use `[element]`.\nsrc/main/orchestration/embedding-service.ts:314:23: warning unicorn(no-new-array): Do not use `new Array(singleArgument)`. help: It's not clear whether the argument is meant to be the length of the array or the only element. If the argument is the array's length, consider using `Array.from({ length: n })`. If the argument is the only element, use `[element]`.\nsrc/main/orchestration/embedding-service.ts:386:23: warning unicorn(no-new-array): Do not use `new Array(singleArgument)`. help: It's not clear whether the argument is meant to be the length of the array or the only element. If the argument is the array's length, consider using `Array.from({ length: n })`. If the argument is the only element, use `[element]`.\nsrc/main/orchestration/embedding-service.ts:631:23: warning unicorn(no-new-array): Do not use `new Array(singleArgument)`. help: It's not clear whether the argument is meant to be the length of the array or the only element. If the argument is the array's length, consider using `Array.from({ length: n })`. If the argument is the only element, use `[element]`.\nsrc/main/orchestration/embedding-service.ts:751:22: warning unicorn(no-new-array): Do not use `new Array(singleArgument)`. help: It's not clear whether the argument is meant to be the length of the array or the only element. If the argument is the array's length, consider using `Array.from({ length: n })`. If the argument is the only element, use `[element]`.\nsrc/main/mobile-gateway/mobile-apns-sender.ts:128:5: warning unicorn(no-useless-fallback-in-spread): Empty fallbacks in spreads are unnecessary help: Spreading falsy values in object literals won't add any unexpected properties, so it's unnecessary to add an empty object as fallback.\nsrc/main/mobile-gateway/mobile-apns-sender.ts:137:11: warning eslint(prefer-const): `req` is never reassigned. help: Use `const` instead.\n\n"
+      }
+    ],
+    "damageOk": true
+  }
+}

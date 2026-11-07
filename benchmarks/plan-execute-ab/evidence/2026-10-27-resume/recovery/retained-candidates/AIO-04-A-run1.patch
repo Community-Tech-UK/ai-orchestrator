@@ -1,0 +1,611 @@
+diff --git a/scripts/check-ts-max-loc.ts b/scripts/check-ts-max-loc.ts
+index 40e3e42..6318616 100644
+--- a/scripts/check-ts-max-loc.ts
++++ b/scripts/check-ts-max-loc.ts
+@@ -211,8 +211,8 @@ const ALLOWLIST: Record<string, number> = {
+   // Raised from 1582 for the fix to the intermittent "written as 0 bytes" CI
+   // failure: atomic saveConversation write, the conversationWrites per-entry
+   // queue that stops the startup backfill overwriting a fresh archive, and the
+-  // stale-temp sweep.
+-  'src/main/history/history-manager.ts': 1735,
++  // stale-temp sweep. Raised to 1786: had drifted to 1782, +4 for history-archive-merge.ts.
++  'src/main/history/history-manager.ts': 1786,
+   'src/main/history/history-restore-coordinator.ts': 708,
+   // Main process — indexing
+   'src/main/indexing/benchmarks/benchmark-utils.ts': 820,
+diff --git a/src/main/history/history-archive-merge.spec.ts b/src/main/history/history-archive-merge.spec.ts
+new file mode 100644
+index 0000000..b2341d4
+--- /dev/null
++++ b/src/main/history/history-archive-merge.spec.ts
+@@ -0,0 +1,218 @@
++import { describe, expect, it } from 'vitest';
++import type { ConversationData, ConversationHistoryEntry } from '../../shared/types/history.types';
++import type { OutputMessage } from '../../shared/types/instance.types';
++import { mergeArchiveTranscripts, mergeWithPreviousArchives } from './history-archive-merge';
++
++function message(
++  id: string,
++  type: OutputMessage['type'],
++  content: string,
++  timestamp: number,
++  metadata?: Record<string, unknown>,
++): OutputMessage {
++  return { id, type, content, timestamp, ...(metadata ? { metadata } : {}) };
++}
++
++function archive(messages: OutputMessage[], overrides: Partial<ConversationHistoryEntry> = {}): ConversationData {
++  return {
++    entry: {
++      id: 'entry-merge',
++      displayName: 'Merge fixture',
++      createdAt: 1,
++      endedAt: 1_000,
++      historyThreadId: 'thread-merge',
++      workingDirectory: '/tmp/merge',
++      messageCount: messages.length,
++      firstUserMessage: 'first',
++      lastUserMessage: 'last',
++      status: 'completed',
++      originalInstanceId: 'instance-before-crash',
++      parentId: null,
++      sessionId: 'session-shared',
++      provider: 'claude',
++      currentModel: 'opus',
++      ...overrides,
++    },
++    messages,
++  };
++}
++
++const sameGeneration = {
++  provider: 'claude' as const, status: 'idle' as const, sessionId: 'session-shared', providerSessionId: 'session-shared',
++};
++
++describe('mergeArchiveTranscripts', () => {
++  it('keeps old-only messages in time order', () => {
++    const merged = mergeArchiveTranscripts(
++      [message('u1', 'user', 'open', 10), message('a1', 'assistant', 'answer', 20), message('u2', 'user', 'next', 30)],
++      [message('u2', 'user', 'next', 30), message('a2', 'assistant', 'reply', 40)],
++    );
++    expect(merged.map((item) => item.id)).toEqual(['u1', 'a1', 'u2', 'a2']);
++  });
++
++  it('lets the newer transcript win for a shared id', () => {
++    const merged = mergeArchiveTranscripts(
++      [message('a1', 'assistant', 'partial', 20)],
++      [message('a1', 'assistant', 'complete', 20)],
++    );
++    expect(merged).toEqual([message('a1', 'assistant', 'complete', 20)]);
++  });
++
++  it('does not double-count a renumbered duplicate', () => {
++    const merged = mergeArchiveTranscripts(
++      [message('msg-0', 'user', 'open', 10), message('msg-1', 'assistant', 'answer', 20)],
++      [message('continuity-msg-0', 'user', 'open', 10), message('continuity-msg-1', 'assistant', 'answer', 20)],
++    );
++    expect(merged.map((item) => item.id)).toEqual(['continuity-msg-0', 'continuity-msg-1']);
++  });
++
++  it('preserves parallel tool calls that share a timestamp and content', () => {
++    const merged = mergeArchiveTranscripts(
++      [message('t1', 'tool_use', 'Using tool', 50), message('t2', 'tool_use', 'Using tool', 50)],
++      [message('u9', 'user', 'later', 90)],
++    );
++    expect(merged.map((item) => item.id)).toEqual(['t1', 't2', 'u9']);
++
++    const partlyRenumbered = mergeArchiveTranscripts(
++      [message('t1', 'tool_use', 'Using tool', 50), message('t2', 'tool_use', 'Using tool', 50)],
++      [message('r1', 'tool_use', 'Using tool', 50)],
++    );
++    expect(partlyRenumbered).toHaveLength(2);
++  });
++  it('keeps both messages when a renumbered id now names a different message', () => {
++    const merged = mergeArchiveTranscripts(
++      [message('msg-0', 'user', 'open', 10), message('msg-1', 'assistant', 'answer', 20)],
++      [message('msg-0', 'user', 'follow-up', 300), message('msg-1', 'assistant', 'reply', 310)],
++    );
++    expect(merged.map((item) => item.content)).toEqual(['open', 'answer', 'follow-up', 'reply']);
++  });
++
++  it('pairs a renumbered parallel tool call by its call id', () => {
++    const merged = mergeArchiveTranscripts(
++      [
++        message('t1', 'tool_use', 'Using tool', 50, { id: 'call-A' }),
++        message('t2', 'tool_use', 'Using tool', 50, { toolUseId: 'call-B' }),
++      ],
++      [message('continuity-t2', 'tool_use', 'Using tool', 50, { id: 'call-B' })],
++    );
++    expect(merged.map((item) => item.id)).toEqual(['t1', 'continuity-t2']);
++  });
++
++  it('does not pair messages of different kinds that share a timestamp and content', () => {
++    const merged = mergeArchiveTranscripts(
++      [message('a1', 'assistant', 'ok', 60)],
++      [message('r1', 'tool_result', 'ok', 60)],
++    );
++    expect(merged.map((item) => item.id)).toEqual(['a1', 'r1']);
++  });
++
++  it('pairs an error renumbered into a system message by the continuity projection', () => {
++    const merged = mergeArchiveTranscripts(
++      [message('e1', 'error', 'boom', 70)],
++      [message('continuity-e1', 'system', 'boom', 70)],
++    );
++    expect(merged.map((item) => item.id)).toEqual(['continuity-e1']);
++  });
++});
++
++describe('mergeWithPreviousArchives', () => {
++  const current = [message('u3', 'user', 'after revival', 300)];
++
++  it('restores messages only the earlier archive of the same generation holds', () => {
++    const merged = mergeWithPreviousArchives(current, sameGeneration, 'thread-merge', [
++      archive([message('u1', 'user', 'open', 100), message('a1', 'assistant', 'answer', 200)]),
++    ]);
++    expect(merged.map((item) => item.id)).toEqual(['u1', 'a1', 'u3']);
++  });
++
++  it('treats a continuity revival on a fresh session as the same lineage', () => {
++    const merged = mergeWithPreviousArchives(
++      current,
++      {
++        ...sameGeneration, sessionId: 'fresh', providerSessionId: 'fresh',
++        metadata: { continuityRevival: true, revivedFromHistoryEntryId: 'entry-merge' },
++      },
++      'thread-merge',
++      [archive([message('u1', 'user', 'open', 100)])],
++    );
++    expect(merged.map((item) => item.id)).toEqual(['u1', 'u3']);
++  });
++
++  it('does not let a revival absorb an archive it was not rebuilt from', () => {
++    const merged = mergeWithPreviousArchives(
++      current,
++      {
++        ...sameGeneration, sessionId: 'fresh', providerSessionId: 'fresh',
++        metadata: { continuityRevival: true, sourceInstanceId: 'fork-1' },
++      },
++      'thread-merge',
++      [archive([message('pre-edit', 'user', 'replaced ask', 100)], {
++        originalInstanceId: 'superseded-source', sessionId: 'source-session',
++      })],
++    );
++    expect(merged).toBe(current);
++  });
++
++  it('does not let a superseded revival absorb the archive of the fork that replaced it', () => {
++    const merged = mergeWithPreviousArchives(
++      current,
++      {
++        ...sameGeneration, status: 'superseded', supersededBy: 'fork-1',
++        sessionId: 'fresh', providerSessionId: 'fresh',
++        metadata: { continuityRevival: true, sourceInstanceId: 'instance-before-crash' },
++      },
++      'thread-merge',
++      [archive([message('fork-u1', 'user', 'edited ask', 100)], { sessionId: 'fork-session' })],
++    );
++    expect(merged).toBe(current);
++  });
++
++  it('ignores missing, unreadable, and malformed previous archives', () => {
++    const malformed = { entry: archive([]).entry, messages: 'not-an-array' } as unknown as ConversationData;
++    const partlyCorrupt = archive([
++      { id: 'bad', type: 'user', content: 7, timestamp: 1 } as unknown as OutputMessage,
++      message('u1', 'user', 'open', 100),
++    ]);
++    const merged = mergeWithPreviousArchives(current, sameGeneration, 'thread-merge', [null, malformed, partlyCorrupt]);
++    expect(merged.map((item) => item.id)).toEqual(['u1', 'u3']);
++  });
++
++  it.each([
++    ['session', { sessionId: 'session-other-generation' }],
++    ['thread', { historyThreadId: 'thread-other' }],
++    ['provider', { provider: 'codex' as const }],
++  ])('replaces an archive from a different %s outright', (_label, overrides) => {
++    const merged = mergeWithPreviousArchives(current, sameGeneration, 'thread-merge', [
++      archive([message('u1', 'user', 'open', 100)], overrides),
++    ]);
++    expect(merged).toBe(current);
++  });
++
++  it('ignores a parseable archive with malformed identity fields', () => {
++    const malformed = archive([message('u1', 'user', 'open', 100)]);
++    (malformed.entry as unknown as Record<string, unknown>)['historyThreadId'] = 42;
++    (malformed.entry as unknown as Record<string, unknown>)['sessionId'] = 7;
++    expect(mergeWithPreviousArchives(current, sameGeneration, 'thread-merge', [malformed])).toBe(current);
++  });
++
++  it('ignores an archive whose provider cannot be inferred from malformed fields', () => {
++    const malformed = archive([message('u1', 'user', 'open', 100)]);
++    const entry = malformed.entry as unknown as Record<string, unknown>;
++    delete entry['provider'];
++    entry['sessionId'] = 7;
++    entry['currentModel'] = 5;
++    expect(mergeWithPreviousArchives(current, sameGeneration, 'thread-merge', [malformed])).toBe(current);
++  });
++
++  it('does not link a revival to an archive with no recorded source', () => {
++    const legacy = archive([message('u1', 'user', 'open', 100)], { sessionId: 'other-session' });
++    delete (legacy.entry as Partial<ConversationHistoryEntry>).originalInstanceId;
++    const merged = mergeWithPreviousArchives(
++      current,
++      { ...sameGeneration, sessionId: 'fresh', providerSessionId: 'fresh', metadata: { continuityRevival: true } },
++      'thread-merge',
++      [legacy],
++    );
++    expect(merged).toBe(current);
++  });
++});
+diff --git a/src/main/history/history-archive-merge.ts b/src/main/history/history-archive-merge.ts
+new file mode 100644
+index 0000000..6ed078c
+--- /dev/null
++++ b/src/main/history/history-archive-merge.ts
+@@ -0,0 +1,157 @@
++import type { ConversationData } from '../../shared/types/history.types';
++import { inferConversationHistoryProvider } from '../../shared/types/history.types';
++import type { Instance, OutputMessage } from '../../shared/types/instance.types';
++
++type ArchiveMergeInstance = Pick<
++  Instance,
++  'provider' | 'sessionId' | 'providerSessionId' | 'metadata' | 'status' | 'supersededBy'
++>;
++
++// Same lookup order as continuity-message-projection.ts.
++const TOOL_CALL_ID_KEYS = ['id', 'toolUseId', 'tool_use_id', 'toolCallId'] as const;
++const TOOL_RESULT_FOR_KEYS = ['tool_use_id', 'toolUseId', 'toolCallId', 'id'] as const;
++const OUTPUT_MESSAGE_TYPES = {
++  assistant: true, user: true, system: true, tool_use: true, tool_result: true, tool_outcome: true, error: true,
++} satisfies Record<OutputMessage['type'], true>;
++
++/**
++ * Fold the messages a previous archive of the same thread holds, and the new
++ * transcript no longer does, back into that transcript.
++ *
++ * A re-archived generation does not always carry the whole conversation: a
++ * crash revival or history restore rebuilds its buffer from a bounded window,
++ * and replacing the earlier, fuller archive with it deleted the rest of the
++ * thread from history for good. Archives that cannot be read, or that belong
++ * to a different runtime generation, contribute nothing — the latter is
++ * replaced outright, as before.
++ */
++export function mergeWithPreviousArchives(
++  current: OutputMessage[],
++  instance: ArchiveMergeInstance,
++  threadKey: string,
++  previousArchives: readonly (ConversationData | null)[],
++): OutputMessage[] {
++  let merged = current;
++  for (const previous of previousArchives) {
++    if (!previous || !Array.isArray(previous.messages)) continue;
++    if (!isLinkedArchive(previous, instance, threadKey)) continue;
++    merged = mergeArchiveTranscripts(previous.messages.filter(isValidMessage), merged);
++  }
++  return merged;
++}
++
++/**
++ * Previous-archive messages missing from `current`, merged in time order.
++ *
++ * `current` wins wherever both hold a message. A shared id and timestamp is
++ * the same message; the rest pair one-to-one by content identity, because a
++ * hibernate/wake or revival renumbers ids positionally — so one id can also
++ * name two different messages — and the same message reaches here under a new
++ * id. Pairing (rather than set membership), with the tool call id in the
++ * identity, keeps parallel tool calls from collapsing into one another.
++ */
++export function mergeArchiveTranscripts(
++  previous: readonly OutputMessage[],
++  current: OutputMessage[],
++): OutputMessage[] {
++  const currentIds = new Set(current.map(sameMessageKey));
++  const previousIds = new Set(previous.map(sameMessageKey));
++  const unpairedCurrent = new Map<string, number>();
++  for (const message of current) {
++    if (previousIds.has(sameMessageKey(message))) continue;
++    const key = renumberedIdentity(message);
++    unpairedCurrent.set(key, (unpairedCurrent.get(key) ?? 0) + 1);
++  }
++
++  const survivors: OutputMessage[] = [];
++  for (const message of previous) {
++    if (currentIds.has(sameMessageKey(message))) continue;
++    const key = renumberedIdentity(message);
++    const unpaired = unpairedCurrent.get(key) ?? 0;
++    if (unpaired > 0) {
++      unpairedCurrent.set(key, unpaired - 1);
++      continue;
++    }
++    survivors.push(message);
++  }
++  if (survivors.length === 0) return current;
++
++  // Stable sort: on equal timestamps the older archive's message comes first.
++  return [...survivors, ...current].sort((a, b) => a.timestamp - b.timestamp);
++}
++
++/**
++ * Whether a previous archive is an earlier view of this same runtime lineage.
++ *
++ * The provider session is the generation marker. A continuity revival that
++ * replays onto a fresh session is linked instead to the archive it was rebuilt
++ * from — its source runtime's, or the history entry it restored — and never to
++ * an unrelated archive of the thread, such as the pre-edit source of a fork. A
++ * superseded revival loses even that link: a fork now owns the thread and its
++ * archive must not be absorbed back into the source's.
++ */
++function isSameRuntimeGeneration(
++  previous: ConversationData,
++  instance: ArchiveMergeInstance,
++  threadKey: string,
++): boolean {
++  const entry = previous.entry;
++  if (!entry || typeof entry !== 'object' || trimmed(entry.historyThreadId) !== threadKey) return false;
++  if (inferConversationHistoryProvider(entry) !== instance.provider) return false;
++  const superseded = instance.status === 'superseded' || Boolean(instance.supersededBy);
++  if (instance.metadata?.['continuityRevival'] === true && !superseded && (
++    sameId(entry.id, instance.metadata['revivedFromHistoryEntryId'])
++    || sameId(entry.originalInstanceId, instance.metadata['sourceInstanceId'])
++  )) return true;
++
++  return [instance.sessionId, instance.providerSessionId].some((id) => sameId(entry.sessionId, id));
++}
++
++/** Parsed from disk without validation, so any malformed field reads as unrelated. */
++function isLinkedArchive(previous: ConversationData, instance: ArchiveMergeInstance, threadKey: string): boolean {
++  try {
++    return isSameRuntimeGeneration(previous, instance, threadKey);
++  } catch {
++    return false;
++  }
++}
++
++function trimmed(value: unknown): string | undefined {
++  return typeof value === 'string' ? value.trim() || undefined : undefined;
++}
++
++function sameId(left: unknown, right: unknown): boolean {
++  const id = trimmed(left);
++  return id !== undefined && id === trimmed(right);
++}
++
++function sameMessageKey(message: OutputMessage): string {
++  return `${message.id}\u0000${message.timestamp}`;
++}
++
++/**
++ * Identity that survives renumbering and the continuity projection a revival
++ * round-trips messages through: that projection folds error and system
++ * messages into one role and may move a tool call id between metadata keys.
++ */
++function renumberedIdentity(message: OutputMessage): string {
++  const kind = message.type === 'user' || message.type === 'assistant'
++    || message.type === 'tool_use' || message.type === 'tool_result'
++    ? message.type
++    : 'system';
++  const callIdKeys = message.type === 'tool_result' ? TOOL_RESULT_FOR_KEYS : TOOL_CALL_ID_KEYS;
++  const callId = message.type === 'tool_use' || message.type === 'tool_result'
++    ? callIdKeys.map((key) => trimmed(message.metadata?.[key])).find(Boolean) ?? ''
++    : '';
++  return [kind, message.timestamp, callId, message.content].join('\u0000');
++}
++
++function isValidMessage(message: OutputMessage): boolean {
++  return Boolean(
++    message
++    && typeof message.id === 'string'
++    && typeof message.content === 'string'
++    && Number.isFinite(message.timestamp)
++    && Object.hasOwn(OUTPUT_MESSAGE_TYPES, message.type)
++  );
++}
+diff --git a/src/main/history/history-manager.spec.ts b/src/main/history/history-manager.spec.ts
+index b7f822f..216a4f9 100644
+--- a/src/main/history/history-manager.spec.ts
++++ b/src/main/history/history-manager.spec.ts
+@@ -609,6 +609,86 @@ describe('HistoryManager', () => {
+     expect(conversation?.messages.filter((m) => m.content === 'Opening ask')).toHaveLength(1);
+   });
++  it('merges a trimmed crash revival with the fuller archive it replaces', async () => {
++    const { HistoryManager } = await import('./history-manager');
++    const manager = track(new HistoryManager());
++
++    await manager.archiveInstance(makeInstance({
++      id: 'instance-before-crash',
++      historyThreadId: 'thread-trimmed-revival',
++      outputBuffer: [
++        message('u1', 'user', 'Opening ask', 10),
++        message('a1', 'assistant', 'First answer', 20),
++        message('t1', 'tool_use', 'Using tool', 30),
++        message('t2', 'tool_use', 'Using tool', 30),
++        message('u2', 'user', 'Follow-up', 40),
++      ],
++    }), 'error');
++
++    await manager.archiveInstance(makeInstance({
++      id: 'instance-revived',
++      historyThreadId: 'thread-trimmed-revival',
++      outputBuffer: [
++        message('continuity-msg-4', 'user', 'Follow-up', 40),
++        message('a2', 'assistant', 'Answer after revival', 50),
++      ],
++    }));
++
++    const entries = manager.getEntries().filter((item) => item.historyThreadId === 'thread-trimmed-revival');
++    expect(entries).toHaveLength(1);
++    expect(entries[0]?.messageCount).toBe(6);
++    const conversation = await manager.loadConversation(entries[0]!.id);
++    expect(conversation?.messages.map((item) => item.id)).toEqual(
++      ['u1', 'a1', 't1', 't2', 'continuity-msg-4', 'a2'],
++    );
++  });
++
++  it('merges a continuity revival that replayed onto a fresh session', async () => {
++    const { HistoryManager } = await import('./history-manager');
++    const manager = track(new HistoryManager());
++    await manager.archiveInstance(makeInstance({
++      id: 'instance-crashed',
++      historyThreadId: 'thread-replayed-revival',
++      sessionId: 'session-crashed',
++      outputBuffer: [message('u1', 'user', 'Opening ask', 10), message('a1', 'assistant', 'First answer', 20)],
++    }), 'error');
++    const revivedFrom = manager.getEntries().find((item) => item.historyThreadId === 'thread-replayed-revival');
++
++    await manager.archiveInstance(makeInstance({
++      id: 'instance-replayed',
++      historyThreadId: 'thread-replayed-revival',
++      sessionId: 'session-replayed',
++      metadata: { continuityRevival: true, reason: 'crash-recovery', revivedFromHistoryEntryId: revivedFrom!.id },
++      outputBuffer: [message('a2', 'assistant', 'Answer after revival', 30)],
++    }));
++
++    const entry = manager.getEntries().find((item) => item.historyThreadId === 'thread-replayed-revival');
++    const conversation = await manager.loadConversation(entry!.id);
++    expect(conversation?.messages.map((item) => item.id)).toEqual(['u1', 'a1', 'a2']);
++    expect(entry?.sessionId).toBe('session-replayed');
++  });
++
++  it('archives the new transcript when the previous archive file is unreadable', async () => {
++    const { HistoryManager } = await import('./history-manager');
++    const manager = track(new HistoryManager());
++    await manager.archiveInstance(makeInstance({
++      id: 'instance-before-corruption',
++      historyThreadId: 'thread-corrupt-previous',
++      outputBuffer: [message('u1', 'user', 'Opening ask', 10)],
++    }), 'error');
++    const previous = manager.getEntries().find((item) => item.historyThreadId === 'thread-corrupt-previous');
++    fs.writeFileSync(path.join(userDataDir, 'conversation-history', `${previous!.id}.json.gz`), 'not gzip');
++
++    await manager.archiveInstance(makeInstance({
++      id: 'instance-after-corruption',
++      historyThreadId: 'thread-corrupt-previous',
++      outputBuffer: [message('a2', 'assistant', 'Answer after revival', 30)],
++    }));
++
++    const conversation = await manager.loadConversation(previous!.id);
++    expect(conversation?.messages.map((item) => item.id)).toEqual(['a2']);
++  });
++
+   it('archives an empty complete root transcript through the shared archive decision', async () => {
+     const { HistoryManager } = await import('./history-manager');
+     const manager = track(new HistoryManager());
+diff --git a/src/main/history/history-manager.ts b/src/main/history/history-manager.ts
+index 1afe1ab..cac22a8 100644
+--- a/src/main/history/history-manager.ts
++++ b/src/main/history/history-manager.ts
+@@ -42,6 +42,7 @@ import { resolveHistoryRecoveryCoverage } from './history-recovery-coverage';
+ import { createArchiveInstanceSummary, getArchiveHistoryIdentity,
+   redactArchiveIdentifier, shouldArchiveInstance, type ArchiveHistoryCoverage } from './should-archive-instance';
+ import { getArchiveSerializationKey, KeyedSerialTaskQueue } from './history-archive-serialization';
++import { mergeWithPreviousArchives } from './history-archive-merge';
+ import { isSameHistoryEntryForIdentityBackfill } from './history-identity-backfill';
+ import { isRecoverySuppressedByHistory, tombstoneDeletedHistoryEntry } from './history-recovery-suppression';
+@@ -174,14 +175,14 @@ export class HistoryManager {
+         return;
+       }
+-      const messages = await this.getCompleteArchiveMessages(instance);
++      const transcript = await this.getCompleteArchiveMessages(instance);
+       clearToolOutcomes(instance.id); // LT-196: folded in above; done with them.
+       const threadKey = this.getInstanceThreadKey(instance);
+       const previousEntries = this.index.entries.filter(
+         (existingEntry) => this.getEntryThreadKey(existingEntry) === threadKey
+       );
+-      const summary = createArchiveInstanceSummary({ ...instance, outputBuffer: messages });
++      const summary = createArchiveInstanceSummary({ ...instance, outputBuffer: transcript });
+       const identity = getArchiveHistoryIdentity(summary);
+       let coverage: ArchiveHistoryCoverage | undefined;
+       if (identity) {
+@@ -198,6 +199,9 @@ export class HistoryManager {
+         logger.info('Skipping archive - already covered by history', decision.logData);
+         return;
+       }
++      // A trimmed revival must not erase what only the fuller earlier archive still holds.
++      const messages = mergeWithPreviousArchives(transcript, instance, threadKey, await Promise.all(
++        previousEntries.map((previousEntry) => this.loadPersistedConversationForCoverage(previousEntry.id))));
+       const entryId = previousEntries[0]?.id ?? crypto.randomUUID();
+       const createdAt = previousEntries.reduce(
+diff --git a/src/main/instance/instance-persistence.spec.ts b/src/main/instance/instance-persistence.spec.ts
+index f29e79e..4078a04 100644
+--- a/src/main/instance/instance-persistence.spec.ts
++++ b/src/main/instance/instance-persistence.spec.ts
+@@ -283,6 +283,20 @@ describe('InstancePersistenceManager', () => {
+     );
+   });
++  it('does not carry the continuity-revival marker into a fork', async () => {
++    sourceInstance.metadata = { continuityRevival: true, custom: true };
++    loadMessagesMock.mockResolvedValue([]);
++
++    await manager.forkInstance({
++      instanceId: sourceInstance.id,
++      atMessageIndex: 1,
++      preserveRuntimeSettings: true,
++    });
++
++    const createConfig = createInstanceMock.mock.calls[0]?.[0] as { metadata?: Record<string, unknown> };
++    expect(createConfig.metadata).toEqual({ custom: true });
++  });
++
+   it('inherits the source historyThreadId on supersede-edit forks so the rail collapses to one entry', async () => {
+     // Edit-and-resend forks (supersedeSource: true) are logically the same
+     // conversation thread as the source. Sharing the threadId lets:
+diff --git a/src/main/instance/instance-persistence.ts b/src/main/instance/instance-persistence.ts
+index 6e1dd6b..14aa6e0 100644
+--- a/src/main/instance/instance-persistence.ts
++++ b/src/main/instance/instance-persistence.ts
+@@ -133,7 +133,7 @@ export class InstancePersistenceManager {
+         : sourceInstance.executionLocation.nodeId,
+       metadata: config.preserveRuntimeSettings === false || !sourceInstance.metadata
+         ? undefined
+-        : { ...sourceInstance.metadata },
++        : withoutContinuityRevivalMarker(sourceInstance.metadata),
+       initialOutputBuffer: forkedMessages,
+       initialRetainedPrompts: inheritedPrompts,
+       initialPrompt: config.initialPrompt,
+@@ -366,3 +366,14 @@ export class InstancePersistenceManager {
+     return instance;
+   }
+ }
++
++/**
++ * `continuityRevival` records how one runtime was created, and history merges
++ * that runtime's archive with the thread's earlier one on its strength. A fork
++ * is a new branch, not a revival: inheriting the marker would let an
++ * edit-and-resend fork pull the messages it replaced back into history.
++ */
++function withoutContinuityRevivalMarker(metadata: Record<string, unknown>): Record<string, unknown> {
++  const { continuityRevival: _continuityRevival, ...rest } = metadata;
++  return rest;
++}
+diff --git a/src/main/instance/lifecycle/continuity-revival.spec.ts b/src/main/instance/lifecycle/continuity-revival.spec.ts
+index 633265d..34655fa 100644
+--- a/src/main/instance/lifecycle/continuity-revival.spec.ts
++++ b/src/main/instance/lifecycle/continuity-revival.spec.ts
+@@ -274,6 +274,11 @@ describe('reviveContinuitySession crash recovery', () => {
+       isRestoredSession: true,
+     });
+     expect(config.initialPrompt).toBeUndefined();
++    expect(config.metadata).toMatchObject({
++      continuityRevival: true,
++      revivedFromHistoryEntryId: resolved.historyConversation?.entry.id,
++    });
++    expect(config.metadata).not.toHaveProperty('sourceInstanceId');
+     expect(config.initialOutputBuffer?.map((message) => message.id)).toEqual([
+       'archived-user',
+       'archived-assistant',
+diff --git a/src/main/instance/lifecycle/continuity-revival.ts b/src/main/instance/lifecycle/continuity-revival.ts
+index d46833c..126dd13 100644
+--- a/src/main/instance/lifecycle/continuity-revival.ts
++++ b/src/main/instance/lifecycle/continuity-revival.ts
+@@ -309,6 +309,11 @@ async function reviveCrashRecovery(
+       metadata: {
+         continuityRevival: true,
+         reason: request.reason,
++        // History merges this runtime's archive with the one it was rebuilt
++        // from. Not the source instance id: recovery keeps that out of metadata.
++        ...(resolved.historyConversation?.entry?.id
++          ? { revivedFromHistoryEntryId: resolved.historyConversation.entry.id }
++          : {}),
+       },
+     });
+     replacement = creation.instance;

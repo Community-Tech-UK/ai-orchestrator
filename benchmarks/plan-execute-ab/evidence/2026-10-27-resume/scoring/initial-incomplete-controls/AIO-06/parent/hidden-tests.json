@@ -1,0 +1,17 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
+    "src/main/instance/instance-communication.spec.ts",
+    "src/main/instance/instance-provider-limit-handler.spec.ts",
+    "src/main/providers/account-pool/account-telemetry-bridge.spec.ts"
+  ],
+  "exitCode": 1,
+  "stdout": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts src/main/instance/instance-communication.spec.ts src/main/instance/instance-provider-limit-handler.spec.ts src/main/providers/account-pool/account-telemetry-bridge.spec.ts\n\n✗ 2 of 33 tests failed in 21.0s:\n\n  ✗ src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts › createInstance spawn transaction rollback hands an initial-prompt usage-limit error to the provider-limit funnel instead of the failure notice\n    AssertionError: expected \"spy\" to be called with arguments: [ { id: 'x5ypxvsve', …(47) }, …(1) ]\n    \n    Number of calls: 0\n    \n        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/expect/dist/index.js:1355:10)\n        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/expect/dist/index.js:1029:14)\n        at Proxy.methodWrapper (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/chai/index.js:1686:25)\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts:629:33\n        at processTicksAndRejections (node:internal/process/task_queues:104:5)\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical\n        …(truncated — see log)\n\n  ✗ src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts › createInstance spawn transaction rollback does not dispatch the initial prompt when a known provider limit takes the turn\n    AssertionError: expected \"spy\" to be called once, but got 0 times\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts:652:33\n        at processTicksAndRejections (node:internal/process/task_queues:104:5)\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20\n\nfull log: _scratch/test-run.pid-74865.log\n\n✗ FAILED — 2 of 33 tests failed (exit 1).\n",
+  "stderr": "",
+  "timedOut": false,
+  "durationMs": 21494
+}

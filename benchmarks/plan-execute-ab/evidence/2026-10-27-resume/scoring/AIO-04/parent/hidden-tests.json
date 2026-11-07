@@ -1,0 +1,16 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "src/main/history/archive-message-merge.spec.ts",
+    "src/main/history/history-manager-archive-coverage-integrity.spec.ts",
+    "src/main/instance/instance-persistence.spec.ts"
+  ],
+  "exitCode": 1,
+  "stdout": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/history/archive-message-merge.spec.ts src/main/history/history-manager-archive-coverage-integrity.spec.ts src/main/instance/instance-persistence.spec.ts\n\n✗ 2 of 26 tests failed in 12.4s:\n\n  ✗ src/main/history/history-manager-archive-coverage-integrity.spec.ts › HistoryManager archive coverage integrity keeps the full archive when a trimmed revival of the same thread is re-archived\n    AssertionError: expected 3 to be 5 // Object.is equality\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager-archive-coverage-integrity.spec.ts:271:41\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20\n\n  ✗ src/main/instance/instance-persistence.spec.ts › InstancePersistenceManager does not copy the crash-revival marker onto a fork\n    AssertionError: expected \"spy\" to be called with arguments: [ ObjectContaining{…} ]\n    \n    Received: \n    \n      1st spy call:\n    \n      [\n    -   ObjectContaining {\n    +   {\n    +     \"agentId\": \"build\",\n    +     \"attachments\": undefined,\n    +     \"displayName\": \"Fork of Test Instance\",\n    +     \"forceNodeId\": undefined,\n    +     \"historyThreadId\": \"thread-1\",\n    +     \"initialContextBlock\": undefined,\n    +     \"initialOutputBuffer\": [\n    +       {\n    +         \"content\": \"live-1\",\n    +         \"id\": \"live-1\",\n    +         \"timestamp\": 1793116088780,\n    +         \"type\": \"assistant\",\n    +       },\n    +     ],\n    +     \"initialPrompt\": undefined,\n    +     \"initialRetainedPrompts\": [],\n          \"metadata\": {\n    +       \"continuityRevival\": true,\n            \"custom\": true,\n            \"reason\": \"crash-recovery\",\n          },\n    +     \"modelOverride\": undefined,\n    +     \"provider\": \"claude\",\n    +     \"reasoningEffort\": null,\n    +     \"workingDirectory\": \"/tmp/project\",\n    +     \"yoloMode\": false,\n        },\n      ]\n    \n    \n    Number of calls: 1\n    \n        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/expect/dist/index.js:1355:10)\n        at Proxy.<anonymous> (file:///Users/suas/wo\n        …(truncated — see log)\n\nfull log: _scratch/test-run.pid-83215.log\n\n✗ FAILED — 2 of 26 tests failed (exit 1).\n",
+  "stderr": "",
+  "timedOut": false,
+  "durationMs": 12941
+}

@@ -1,0 +1,12 @@
+{
+  "command": [
+    "node",
+    "node_modules/typescript/bin/tsc",
+    "--noEmit",
+    "-p",
+    "benchmarks/plan-execute-ab/tsconfig.json"
+  ],
+  "exitCode": 0,
+  "durationSeconds": 1.58,
+  "log": "benchmark-tsc.log"
+}

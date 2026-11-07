@@ -1,0 +1,15 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "src/main/session/continuity-payload-envelope.spec.ts",
+    "src/main/session/session-continuity.spec.ts"
+  ],
+  "exitCode": 1,
+  "stdout": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/session/continuity-payload-envelope.spec.ts src/main/session/session-continuity.spec.ts\n\n✗ test run failed (exit 1) and produced no JSON report. Tail of log:\n  7  |  const SAMPLES = [\n  8  |    \"\",\n ❯ TransformPluginContext._formatLog node_modules/vite/dist/node/chunks/config.js:29079:43\n ❯ TransformPluginContext.error node_modules/vite/dist/node/chunks/config.js:29076:14\n ❯ normalizeUrl node_modules/vite/dist/node/chunks/config.js:27199:18\n ❯ node_modules/vite/dist/node/chunks/config.js:27257:32\n ❯ TransformPluginContext.transform node_modules/vite/dist/node/chunks/config.js:27225:4\n ❯ EnvironmentPluginContainer.transform node_modules/vite/dist/node/chunks/config.js:28877:14\n ❯ loadAndTransform node_modules/vite/dist/node/chunks/config.js:22746:26\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯\n\n FAIL  |main| src/main/session/session-continuity.spec.ts [ src/main/session/session-continuity.spec.ts ]\nError: Failed to resolve import \"./continuity-payload-envelope\" from \"src/main/session/session-continuity.spec.ts\". Does the file exist?\n  Plugin: vite:import-analysis\n  File: /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/session/session-continuity.spec.ts:72:0\n  44 |  const __vi_import_12__ = await import(\"../cli/adapters/codex/compaction-presentation\");\n  45 |  const __vi_import_13__ = await import(\"./continuity-recovery-metadata\");\n  46 |  const __vi_import_14__ = await import(\"./continuity-payload-envelope\");\n     |                                        ^\n  47 |  \n  48 |  \n ❯ TransformPluginContext._formatLog node_modules/vite/dist/node/chunks/config.js:29079:43\n ❯ TransformPluginContext.error node_modules/vite/dist/node/chunks/config.js:29076:14\n ❯ normalizeUrl node_modules/vite/dist/node/chunks/config.js:27199:18\n ❯ node_modules/vite/dist/node/chunks/config.js:27257:32\n ❯ TransformPluginContext.transform node_modules/vite/dist/node/chunks/config.js:27225:4\n ❯ EnvironmentPluginContainer.transform node_modules/vite/dist/node/chunks/config.js:28877:14\n ❯ loadAndTransform node_modules/vite/dist/node/chunks/config.js:22746:26\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯\n\n\n Test Files  2 failed (2)\n      Tests  no tests\n   Start at  16:27:57\n   Duration  2.52s (transform 65ms, setup 192ms, collect 0ms, tests 0ms, environment 1.45s, prepare 145ms)\n\nJSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/_scratch/test-results.pid-66961.json\n\nfull log: _scratch/test-run.pid-66961.log\n\n✗ FAILED — the run produced no usable JSON report (exit 1).\n",
+  "stderr": "",
+  "timedOut": false,
+  "durationMs": 10682
+}

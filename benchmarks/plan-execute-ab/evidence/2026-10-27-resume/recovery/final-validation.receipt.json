@@ -1,0 +1,246 @@
+{
+  "observedAt": "2026-10-27T15:57:30.674396+00:00",
+  "manifestCandidates": 34,
+  "checks": [
+    {
+      "taskId": "AIO-01",
+      "armId": "A",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-01",
+      "armId": "D",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-01",
+      "armId": "G",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-02",
+      "armId": "A",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-03",
+      "armId": "A",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-04",
+      "armId": "A",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-05",
+      "armId": "A",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-06",
+      "armId": "A",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "12ST-01",
+      "armId": "A",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "12ST-02",
+      "armId": "A",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "12ST-03",
+      "armId": "A",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "12ST-04",
+      "armId": "A",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-02",
+      "armId": "D",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-03",
+      "armId": "D",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-04",
+      "armId": "D",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-05",
+      "armId": "D",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-06",
+      "armId": "D",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "12ST-01",
+      "armId": "D",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "12ST-02",
+      "armId": "D",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "12ST-03",
+      "armId": "D",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "12ST-04",
+      "armId": "D",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-02",
+      "armId": "G",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-03",
+      "armId": "G",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-04",
+      "armId": "G",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-05",
+      "armId": "G",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-06",
+      "armId": "G",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "12ST-01",
+      "armId": "G",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "12ST-02",
+      "armId": "G",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "12ST-03",
+      "armId": "G",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "12ST-04",
+      "armId": "G",
+      "sha256Matches": true,
+      "classification": "transcript-reconstruction",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "12ST-01",
+      "armId": "C1",
+      "sha256Matches": true,
+      "classification": "retained-empty-candidate",
+      "emptyCandidate": true
+    },
+    {
+      "taskId": "12ST-02",
+      "armId": "C1",
+      "sha256Matches": true,
+      "classification": "retained-empty-candidate",
+      "emptyCandidate": true
+    },
+    {
+      "taskId": "12ST-02",
+      "armId": "C2",
+      "sha256Matches": true,
+      "classification": "final-coder-tracked-diff-snapshot",
+      "syntaxExitCode": 0
+    },
+    {
+      "taskId": "AIO-01",
+      "armId": "C2",
+      "sha256Matches": true,
+      "classification": "final-coder-tracked-diff-snapshot",
+      "syntaxExitCode": 0
+    }
+  ],
+  "reconstructionMatches": 30,
+  "noFullSourceTreesRetained": true
+}

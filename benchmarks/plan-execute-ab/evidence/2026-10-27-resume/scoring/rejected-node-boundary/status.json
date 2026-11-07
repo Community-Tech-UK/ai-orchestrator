@@ -1,0 +1,5 @@
+{
+  "status": "REJECTED",
+  "reason": "Node hooks blocked Node and TypeScript resolution but native esbuild could still bundle an installed ancestor dependency. These source snapshots preserve the rejected implementation, not accepted isolation.",
+  "review": "../../review-isolation/REPORT.md"
+}

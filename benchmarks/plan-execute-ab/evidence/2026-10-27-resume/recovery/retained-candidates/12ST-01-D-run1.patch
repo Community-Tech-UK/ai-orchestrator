@@ -1,0 +1,205 @@
+diff --git a/apps/web/src/app/shared/components/turnstile-widget.component.spec.ts b/apps/web/src/app/shared/components/turnstile-widget.component.spec.ts
+index f1ed61a..fad16c9 100644
+--- a/apps/web/src/app/shared/components/turnstile-widget.component.spec.ts
++++ b/apps/web/src/app/shared/components/turnstile-widget.component.spec.ts
+@@ -1,6 +1,6 @@
+ import { signal } from '@angular/core';
+ import { TestBed } from '@angular/core/testing';
+-import { beforeEach, describe, expect, it, vi } from 'vitest';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { ThemeService } from '../services/theme.service';
+ import { TurnstileWidgetComponent } from './turnstile-widget.component';
+@@ -117,4 +117,114 @@ describe('TurnstileWidgetComponent', () => {
+       expect.objectContaining({ size: 'normal' }),
+     );
+   });
++
++  describe('when the available width changes', () => {
++    let width: number;
++    let fireResize: () => void;
++    const observe = vi.fn();
++    const disconnect = vi.fn();
++    const render = vi.fn();
++    const remove = vi.fn();
++
++    async function setup(initialWidth: number) {
++      width = initialWidth;
++      let n = 0;
++      render.mockImplementation((_el: HTMLElement, opts: { callback?: (t: string) => void }) => {
++        opts.callback?.('t');
++        return `widget-${++n}`;
++      });
++      window.turnstile = { render, reset: vi.fn(), remove } as NonNullable<Window['turnstile']>;
++      const fixture = TestBed.createComponent(TurnstileWidgetComponent);
++      fixture.componentRef.setInput('siteKey', 'site-key');
++      const host = fixture.nativeElement.querySelector('.turnstile-widget') as HTMLElement;
++      Object.defineProperty(host, 'clientWidth', { configurable: true, get: () => width });
++      const emitted: string[] = [];
++      fixture.componentInstance.tokenChange.subscribe((value) => emitted.push(value));
++      fixture.detectChanges();
++      await fixture.whenStable();
++      return { fixture, host, emitted };
++    }
++
++    beforeEach(() => {
++      observe.mockClear();
++      disconnect.mockClear();
++      render.mockReset();
++      remove.mockReset();
++      vi.stubGlobal(
++        'ResizeObserver',
++        class {
++          constructor(callback: () => void) {
++            fireResize = callback;
++          }
++          observe = observe;
++          disconnect = disconnect;
++          unobserve = vi.fn();
++        },
++      );
++    });
++
++    afterEach(() => vi.unstubAllGlobals());
++
++    it('redraws as compact when the column narrows below 300px', async () => {
++      const { fixture, host } = await setup(360);
++      expect(observe).toHaveBeenCalledWith(host);
++      expect(render).toHaveBeenLastCalledWith(host, expect.objectContaining({ size: 'normal' }));
++
++      width = 220;
++      fireResize();
++      await fixture.whenStable();
++
++      expect(remove).toHaveBeenCalledWith('widget-1');
++      expect(render).toHaveBeenCalledTimes(2);
++      expect(render).toHaveBeenLastCalledWith(host, expect.objectContaining({ size: 'compact' }));
++    });
++
++    it('redraws as normal when the column widens to 300px or more', async () => {
++      const { fixture, host } = await setup(220);
++      width = 360;
++      fireResize();
++      await fixture.whenStable();
++
++      expect(render).toHaveBeenCalledTimes(2);
++      expect(render).toHaveBeenLastCalledWith(host, expect.objectContaining({ size: 'normal' }));
++    });
++
++    it('does not redraw while the width stays on the same side of 300px', async () => {
++      const { fixture } = await setup(360);
++      width = 340;
++      fireResize();
++      await fixture.whenStable();
++
++      expect(render).toHaveBeenCalledTimes(1);
++      expect(remove).not.toHaveBeenCalled();
++    });
++
++    it('does not redraw when the column is hidden (zero width)', async () => {
++      const { fixture } = await setup(360);
++      width = 0;
++      fireResize();
++      await fixture.whenStable();
++
++      expect(render).toHaveBeenCalledTimes(1);
++      expect(remove).not.toHaveBeenCalled();
++    });
++
++    it('clears the token when it redraws', async () => {
++      const { fixture, emitted } = await setup(360);
++      expect(emitted).toEqual(['t']);
++
++      width = 220;
++      fireResize();
++
++      expect(emitted.at(-1)).toBe('');
++      expect(fixture.componentInstance.token()).toBe('');
++      await fixture.whenStable();
++    });
++
++    it('stops watching the width when destroyed', async () => {
++      const { fixture } = await setup(360);
++      fixture.destroy();
++      expect(disconnect).toHaveBeenCalledTimes(1);
++    });
++  });
+ });
+diff --git a/apps/web/src/app/shared/components/turnstile-widget.component.ts b/apps/web/src/app/shared/components/turnstile-widget.component.ts
+index 225aee3..fecc590 100644
+--- a/apps/web/src/app/shared/components/turnstile-widget.component.ts
++++ b/apps/web/src/app/shared/components/turnstile-widget.component.ts
+@@ -42,6 +42,13 @@ declare global {
+  */
+ const TURNSTILE_LANGUAGES: Readonly<Record<string, string>> = { es: 'es', 'pt-BR': 'pt-br' };
++type WidgetSize = 'compact' | 'normal';
++
++// The normal widget is 300px wide and overflows a 320px screen.
++function widgetSize(width: number): WidgetSize {
++  return width > 0 && width < 300 ? 'compact' : 'normal';
++}
++
+ let scriptPromise: Promise<void> | null = null;
+ function loadTurnstileScript(): Promise<void> {
+@@ -103,15 +110,38 @@ export class TurnstileWidgetComponent implements AfterViewInit, OnDestroy {
+   private readonly locale = inject(LocaleService);
+   private widgetId: string | null = null;
+   private mountedKey: string | null = null;
++  private mountedSize: WidgetSize | null = null;
++  private resizeObserver: ResizeObserver | null = null;
+   private destroyed = false;
+   ngAfterViewInit(): void {
+     void this.mount();
++    const el = this.host()?.nativeElement;
++    if (typeof ResizeObserver !== 'undefined' && el) {
++      this.resizeObserver = new ResizeObserver(() => this.onResize());
++      this.resizeObserver.observe(el);
++    }
+   }
+   ngOnDestroy(): void {
+     this.destroyed = true;
++    this.resizeObserver?.disconnect();
++    this.resizeObserver = null;
++    this.removeWidget();
++  }
++
++  /**
++   * Turnstile cannot resize a rendered widget, so redraw it when the column crosses the
++   * compact/normal line. Redrawing discards a passed check, so same-side changes are ignored.
++   */
++  private onResize(): void {
++    const el = this.host()?.nativeElement;
++    if (this.destroyed || !this.widgetId || !el || el.clientWidth === 0) return;
++    if (widgetSize(el.clientWidth) === this.mountedSize) return;
++    this.token.set('');
++    this.tokenChange.emit('');
+     this.removeWidget();
++    void this.mount();
+   }
+   reset(): void {
+@@ -139,10 +169,10 @@ export class TurnstileWidgetComponent implements AfterViewInit, OnDestroy {
+       this.loadError.set(true);
+       return;
+     }
++    const size = widgetSize(el.clientWidth);
+     this.widgetId = window.turnstile.render(el, {
+       sitekey: key,
+-      // The normal widget is 300px wide and overflows a 320px screen.
+-      size: el.clientWidth > 0 && el.clientWidth < 300 ? 'compact' : 'normal',
++      size,
+       theme: this.theme.theme() === 'dark' ? 'dark' : 'light',
+       language: TURNSTILE_LANGUAGES[this.locale.active()] ?? 'auto',
+       callback: (value) => {
+@@ -160,6 +190,7 @@ export class TurnstileWidgetComponent implements AfterViewInit, OnDestroy {
+       },
+     });
+     this.mountedKey = key;
++    this.mountedSize = size;
+   }
+   private removeWidget(): void {
+@@ -168,5 +199,6 @@ export class TurnstileWidgetComponent implements AfterViewInit, OnDestroy {
+     }
+     this.widgetId = null;
+     this.mountedKey = null;
++    this.mountedSize = null;
+   }
+ }

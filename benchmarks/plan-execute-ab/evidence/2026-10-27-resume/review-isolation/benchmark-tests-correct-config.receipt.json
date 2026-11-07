@@ -1,0 +1,14 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "--config",
+    "benchmarks/plan-execute-ab/vitest.config.ts",
+    "--maxWorkers=1"
+  ],
+  "exitCode": 0,
+  "durationSeconds": 35.73,
+  "log": "benchmark-tests-correct-config.log"
+}

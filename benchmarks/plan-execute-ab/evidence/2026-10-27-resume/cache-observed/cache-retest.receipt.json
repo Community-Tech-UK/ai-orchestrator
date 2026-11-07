@@ -1,0 +1,416 @@
+{
+  "at": "2026-10-27T16:29:02.229Z",
+  "servingSetup": "llama-server-2.60.0-35b-65536",
+  "result": {
+    "finalText": "Done:\n\n1. **Read** `answer.txt` — contained `41`.\n2. **Edited** it to `42\\n`.\n3. **Ran** `npm test` — passed (\"answer verified\").",
+    "usage": {
+      "inputTokens": 17089,
+      "outputTokens": 519,
+      "cacheReadTokens": 51934,
+      "cacheWriteTokens": 0
+    },
+    "turns": 5,
+    "toolErrors": [],
+    "hitTurnCap": false,
+    "durationMs": 7118,
+    "exitCode": 0,
+    "timedOut": false,
+    "rawLogPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/cache-observed/smoke-retest.raw.log"
+  },
+  "answer": "42\n",
+  "independent": {
+    "command": [
+      "npm",
+      "test"
+    ],
+    "exitCode": 0,
+    "stdout": "\n> test\n> node check.cjs\n\nanswer verified\n",
+    "stderr": "",
+    "timedOut": false,
+    "durationMs": 475
+  },
+  "requestShapes": [
+    {
+      "differences": [],
+      "at": "2026-10-27T16:28:55.101Z",
+      "systemBlocks": [
+        {
+          "bytes": 124,
+          "sha256": "30d02993d788fda05e0558b10cb5672258e53af7e98350dbca2da249d3571939"
+        },
+        {
+          "bytes": 6265,
+          "sha256": "0eeb4eace51f1aeedca01ef2d4e0050518d6f8e6564342fb58a2ed21e7b0bfc0"
+        },
+        {
+          "bytes": 9714,
+          "sha256": "d225812f1eeedae2ca9db33b68e765f119c27e992a8ad270e3fc1ba7e2fc0f1f"
+        }
+      ],
+      "sameSystemAsPrevious": false,
+      "toolsHash": "d380dcbc184b700a4ec1dbb3fe62bc693ff2b92799fc27a4eeb95b9eb6586f9d",
+      "messageCount": 1
+    },
+    {
+      "differences": [
+        {
+          "index": 2,
+          "commonPrefixBytes": 9676,
+          "commonSuffixBytes": 1,
+          "changedBefore": ",\"cache_control\":{\"type\":\"ephemeral\"}",
+          "changedAfter": ""
+        }
+      ],
+      "at": "2026-10-27T16:28:57.154Z",
+      "systemBlocks": [
+        {
+          "bytes": 124,
+          "sha256": "30d02993d788fda05e0558b10cb5672258e53af7e98350dbca2da249d3571939"
+        },
+        {
+          "bytes": 6265,
+          "sha256": "0eeb4eace51f1aeedca01ef2d4e0050518d6f8e6564342fb58a2ed21e7b0bfc0"
+        },
+        {
+          "bytes": 9677,
+          "sha256": "d04f1b70feb2d4b36ae5235a9069f3f0429a3880bbee597856f37372ba1a66e2"
+        }
+      ],
+      "sameSystemAsPrevious": false,
+      "toolsHash": "d380dcbc184b700a4ec1dbb3fe62bc693ff2b92799fc27a4eeb95b9eb6586f9d",
+      "messageCount": 3
+    },
+    {
+      "differences": [],
+      "at": "2026-10-27T16:28:57.984Z",
+      "systemBlocks": [
+        {
+          "bytes": 124,
+          "sha256": "30d02993d788fda05e0558b10cb5672258e53af7e98350dbca2da249d3571939"
+        },
+        {
+          "bytes": 6265,
+          "sha256": "0eeb4eace51f1aeedca01ef2d4e0050518d6f8e6564342fb58a2ed21e7b0bfc0"
+        },
+        {
+          "bytes": 9677,
+          "sha256": "d04f1b70feb2d4b36ae5235a9069f3f0429a3880bbee597856f37372ba1a66e2"
+        }
+      ],
+      "sameSystemAsPrevious": true,
+      "toolsHash": "d380dcbc184b700a4ec1dbb3fe62bc693ff2b92799fc27a4eeb95b9eb6586f9d",
+      "messageCount": 5
+    },
+    {
+      "differences": [],
+      "at": "2026-10-27T16:29:00.926Z",
+      "systemBlocks": [
+        {
+          "bytes": 124,
+          "sha256": "30d02993d788fda05e0558b10cb5672258e53af7e98350dbca2da249d3571939"
+        },
+        {
+          "bytes": 6265,
+          "sha256": "0eeb4eace51f1aeedca01ef2d4e0050518d6f8e6564342fb58a2ed21e7b0bfc0"
+        },
+        {
+          "bytes": 9677,
+          "sha256": "d04f1b70feb2d4b36ae5235a9069f3f0429a3880bbee597856f37372ba1a66e2"
+        }
+      ],
+      "sameSystemAsPrevious": true,
+      "toolsHash": "d380dcbc184b700a4ec1dbb3fe62bc693ff2b92799fc27a4eeb95b9eb6586f9d",
+      "messageCount": 7
+    }
+  ],
+  "httpObservations": [
+    {
+      "at": "2026-10-27T16:28:55.103Z",
+      "events": [
+        {
+          "type": "message_start",
+          "keys": [
+            "type",
+            "message"
+          ]
+        },
+        {
+          "type": "content_block_start",
+          "keys": [
+            "type",
+            "index",
+            "content_block"
+          ]
+        },
+        {
+          "type": "content_block_delta",
+          "keys": [
+            "type",
+            "index",
+            "delta"
+          ]
+        },
+        {
+          "type": "content_block_delta",
+          "keys": [
+            "type",
+            "index",
+            "delta"
+          ]
+        },
+        {
+          "type": "content_block_delta",
+          "keys": [
+            "type",
+            "index",
+            "delta"
+          ]
+        },
+        {
+          "type": "content_block_delta",
+          "keys": [
+            "type",
+            "index",
+            "delta"
+          ]
+        }
+      ],
+      "headersMs": 41.172916999999984,
+      "firstByteMs": 1252.363167,
+      "messageStartMs": 1252.40925,
+      "usage": {
+        "cache_read_input_tokens": 0,
+        "input_tokens": 16921,
+        "output_tokens": 0
+      },
+      "completedMs": 1971.0019579999998
+    },
+    {
+      "at": "2026-10-27T16:28:57.155Z",
+      "events": [
+        {
+          "type": "message_start",
+          "keys": [
+            "type",
+            "message"
+          ]
+        },
+        {
+          "type": "content_block_start",
+          "keys": [
+            "type",
+            "index",
+            "content_block"
+          ]
+        },
+        {
+          "type": "content_block_delta",
+          "keys": [
+            "type",
+            "index",
+            "delta"
+          ]
+        },
+        {
+          "type": "content_block_delta",
+          "keys": [
+            "type",
+            "index",
+            "delta"
+          ]
+        },
+        {
+          "type": "content_block_delta",
+          "keys": [
+            "type",
+            "index",
+            "delta"
+          ]
+        },
+        {
+          "type": "content_block_delta",
+          "keys": [
+            "type",
+            "index",
+            "delta"
+          ]
+        }
+      ],
+      "headersMs": 30.23937500000011,
+      "firstByteMs": 88.54725000000008,
+      "messageStartMs": 88.57558400000016,
+      "usage": {
+        "cache_read_input_tokens": 17106,
+        "input_tokens": 43,
+        "output_tokens": 0
+      },
+      "completedMs": 723.9191250000003
+    },
+    {
+      "at": "2026-10-27T16:28:57.986Z",
+      "events": [
+        {
+          "type": "message_start",
+          "keys": [
+            "type",
+            "message"
+          ]
+        },
+        {
+          "type": "content_block_start",
+          "keys": [
+            "type",
+            "index",
+            "content_block"
+          ]
+        },
+        {
+          "type": "content_block_delta",
+          "keys": [
+            "type",
+            "index",
+            "delta"
+          ]
+        },
+        {
+          "type": "content_block_delta",
+          "keys": [
+            "type",
+            "index",
+            "delta"
+          ]
+        },
+        {
+          "type": "content_block_delta",
+          "keys": [
+            "type",
+            "index",
+            "delta"
+          ]
+        },
+        {
+          "type": "content_block_delta",
+          "keys": [
+            "type",
+            "index",
+            "delta"
+          ]
+        }
+      ],
+      "headersMs": 33.2550839999999,
+      "firstByteMs": 104.7373749999997,
+      "messageStartMs": 104.76258400000006,
+      "usage": {
+        "cache_read_input_tokens": 17312,
+        "input_tokens": 98,
+        "output_tokens": 0
+      },
+      "completedMs": 516.4252499999998
+    },
+    {
+      "at": "2026-10-27T16:29:00.927Z",
+      "events": [
+        {
+          "type": "message_start",
+          "keys": [
+            "type",
+            "message"
+          ]
+        },
+        {
+          "type": "content_block_start",
+          "keys": [
+            "type",
+            "index",
+            "content_block"
+          ]
+        },
+        {
+          "type": "content_block_delta",
+          "keys": [
+            "type",
+            "index",
+            "delta"
+          ]
+        },
+        {
+          "type": "content_block_delta",
+          "keys": [
+            "type",
+            "index",
+            "delta"
+          ]
+        },
+        {
+          "type": "content_block_delta",
+          "keys": [
+            "type",
+            "index",
+            "delta"
+          ]
+        },
+        {
+          "type": "content_block_delta",
+          "keys": [
+            "type",
+            "index",
+            "delta"
+          ]
+        }
+      ],
+      "headersMs": 33.10345899999993,
+      "firstByteMs": 91.41179199999988,
+      "messageStartMs": 91.460959,
+      "usage": {
+        "cache_read_input_tokens": 17516,
+        "input_tokens": 27,
+        "output_tokens": 0
+      },
+      "completedMs": 334.8809170000004
+    }
+  ],
+  "messages": [
+    {
+      "id": "chatcmpl-ruMVN2KOT43vMYjshn94EgBPTgDBd84m",
+      "usage": {
+        "cache_read_input_tokens": 0,
+        "input_tokens": 16921,
+        "output_tokens": 0
+      },
+      "tools": [
+        "Read"
+      ]
+    },
+    {
+      "id": "chatcmpl-ZgjFZaCzmp0JiTTZShW4r7Qf4EbTyMBI",
+      "usage": {
+        "cache_read_input_tokens": 17106,
+        "input_tokens": 43,
+        "output_tokens": 0
+      },
+      "tools": [
+        "Edit"
+      ]
+    },
+    {
+      "id": "chatcmpl-YfOSJzoGeF6YD642GLzlFJsApMxGERuS",
+      "usage": {
+        "cache_read_input_tokens": 17312,
+        "input_tokens": 98,
+        "output_tokens": 0
+      },
+      "tools": [
+        "Bash"
+      ]
+    },
+    {
+      "id": "chatcmpl-LHceZe2KGGox6VOl84Qk8X5Gvbrynpb6",
+      "usage": {
+        "cache_read_input_tokens": 17516,
+        "input_tokens": 27,
+        "output_tokens": 0
+      },
+      "tools": []
+    }
+  ]
+}

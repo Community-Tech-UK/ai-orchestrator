@@ -1,0 +1,21 @@
+{
+  "command": [
+    "node",
+    "node_modules/eslint/bin/eslint.js",
+    "benchmarks/plan-execute-ab/config.spec.ts",
+    "benchmarks/plan-execute-ab/runner.spec.ts",
+    "benchmarks/plan-execute-ab/runner.ts",
+    "benchmarks/plan-execute-ab/scorer.ts",
+    "benchmarks/plan-execute-ab/task-bank.ts",
+    "benchmarks/plan-execute-ab/task-export.spec.ts",
+    "benchmarks/plan-execute-ab/types.ts",
+    "benchmarks/plan-execute-ab/scorer.spec.ts",
+    "benchmarks/plan-execute-ab/scoring-setup.spec.ts",
+    "benchmarks/plan-execute-ab/scoring-setup.ts",
+    "benchmarks/plan-execute-ab/scoring-runtime.ts",
+    "benchmarks/plan-execute-ab/scoring-boundary.cjs"
+  ],
+  "exitCode": 0,
+  "durationSeconds": 3.24,
+  "log": "changed-lint.log"
+}

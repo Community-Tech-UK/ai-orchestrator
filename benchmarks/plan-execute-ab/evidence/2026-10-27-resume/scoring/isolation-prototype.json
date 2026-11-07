@@ -1,0 +1,13 @@
+{
+  "command": [
+    "sandbox-exec",
+    "-f",
+    "_scratch/lt-resume/isolation-fixture/profile.sb",
+    "node",
+    "_scratch/lt-resume/isolation-fixture/probe.cjs"
+  ],
+  "exitCode": 71,
+  "stdout": "",
+  "stderr": "sandbox-exec: sandbox_apply: Operation not permitted\n",
+  "conclusion": "macOS sandbox-exec cannot apply a child sandbox within this outer session. No bypass attempted. Use an explicit Node dependency boundary and validate CJS/ESM/TypeScript resolution before accepting controls."
+}

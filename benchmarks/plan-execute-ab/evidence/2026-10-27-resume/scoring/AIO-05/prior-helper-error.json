@@ -1,0 +1,4 @@
+{
+  "taskId": "AIO-05",
+  "error": "Error: scoring dependency manifests or Node version changed after setup"
+}

@@ -1,0 +1,14 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "scripts/__tests__/release-workflow.spec.ts"
+  ],
+  "exitCode": 0,
+  "stdout": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js scripts/__tests__/release-workflow.spec.ts\n\n✓ 1 files · 11 tests passed in 6.8s\n  full log: _scratch/test-run.pid-29603.log\n",
+  "stderr": "",
+  "timedOut": false,
+  "durationMs": 7166
+}

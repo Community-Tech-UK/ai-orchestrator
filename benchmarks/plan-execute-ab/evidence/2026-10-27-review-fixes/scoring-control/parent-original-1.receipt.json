@@ -1,0 +1,36 @@
+{
+  "command": [
+    "node",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/vitest/vitest.mjs",
+    "run",
+    "src/main/history/history-manager.spec.ts",
+    "--project=main",
+    "--reporter=json",
+    "--outputFile=/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/parent-original-1.json",
+    "--maxWorkers=1",
+    "--minWorkers=1"
+  ],
+  "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/parent",
+  "exitCode": 1,
+  "elapsedSeconds": 8.650877237319946,
+  "numTotalTests": 40,
+  "numPassedTests": 39,
+  "numFailedTests": 1,
+  "failures": [
+    {
+      "ancestorTitles": [
+        "HistoryManager"
+      ],
+      "fullName": "HistoryManager creates a safety backup before clearing conversation history",
+      "status": "failed",
+      "title": "creates a safety backup before clearing conversation history",
+      "duration": 192.96949999999993,
+      "failureMessages": [
+        "AssertionError: expected true to be false // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/parent/src/main/history/history-manager.spec.ts:209:73\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+      ],
+      "meta": {}
+    }
+  ],
+  "sourceSha256": "89e026b0e26eca09067234605a32b9aa6d6fd24f91661cdf7d0b9755b5b58a6c",
+  "specSha256": "7a22eaa19461b90558e4071bef0b4a4f567ac622e15c0b264f1f0545afd1fa0f"
+}

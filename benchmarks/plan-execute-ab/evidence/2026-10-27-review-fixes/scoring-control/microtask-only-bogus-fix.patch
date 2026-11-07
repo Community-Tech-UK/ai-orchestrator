@@ -1,0 +1,10 @@
+--- a/src/main/history/history-manager.ts
++++ b/src/main/history/history-manager.ts
+@@ -701,6 +701,7 @@
+    * Clear all history
+    */
+   async clearAll(): Promise<void> {
++    await Promise.resolve();
+     await this.createSafetyBackup('clearAll');
+ 
+     // Delete all conversation files

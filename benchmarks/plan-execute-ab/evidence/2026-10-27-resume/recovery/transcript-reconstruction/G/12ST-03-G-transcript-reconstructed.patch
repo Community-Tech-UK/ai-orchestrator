@@ -1,0 +1,224 @@
+diff --git a/apps/web/src/app/a11y.spec.ts b/apps/web/src/app/a11y.spec.ts
+index 2e00ebd..000e4eb 100644
+--- a/apps/web/src/app/a11y.spec.ts
++++ b/apps/web/src/app/a11y.spec.ts
+@@ -5,7 +5,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
+ import { RouterTestingModule } from '@angular/router/testing';
+ import type { Type } from '@angular/core';
+ import axe, { type AxeResults } from 'axe-core';
+-import { beforeEach, describe, expect, it, vi } from 'vitest';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { AuthService } from './auth/auth.service';
+ import { LoginComponent } from './auth/login/login.component';
+ import { SignupComponent } from './auth/signup/signup.component';
+@@ -84,6 +84,8 @@ async function expectNoViolations(component: Type<unknown>): Promise<void> {
+ }
+ 
+ describe('accessibility (axe-core)', () => {
++  afterEach(() => vi.restoreAllMocks());
++
+   beforeEach(async () => {
+     localStorage.clear();
+     await TestBed.configureTestingModule({
+@@ -161,6 +163,19 @@ describe('accessibility (axe-core)', () => {
+     await expectNoViolations(HomeComponent);
+   });
+ 
++  it('Android landing page with the closed-test banner has no axe violations', async () => {
++    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 15)');
++    const fixture = TestBed.createComponent(HomeComponent);
++    fixture.detectChanges();
++    await fixture.whenStable();
++    fixture.detectChanges();
++    const host = fixture.nativeElement as HTMLElement;
++
++    expect(host.querySelector('[data-testid="android-test-banner"]')).not.toBeNull();
++    const results = await runAxe(host);
++    expect(results.violations, formatViolations(results)).toEqual([]);
++  });
++
+   it('tool catalogue has no axe violations', async () => {
+     // /tools is the only route to Timeline, Challenges, Insights and every
+     // fellowship tool, so it carries an axe check even though the rest of the
+diff --git a/apps/web/src/app/home/home.component.html b/apps/web/src/app/home/home.component.html
+index a851d91..c3a159a 100644
+--- a/apps/web/src/app/home/home.component.html
++++ b/apps/web/src/app/home/home.component.html
+@@ -4,6 +4,17 @@
+   <app-language-suggestion />
+ 
+   <main id="main-content" tabindex="-1" class="landing__main">
++    @if (showAndroidTestBanner && androidPlatform?.stateNoteKey; as stateNoteKey) {
++      <div class="max-w-content page-gutter">
++        <p class="surface-soft android-test-banner" data-testid="android-test-banner">
++          <span>{{ stateNoteKey | transloco }}</span>
++          <a [routerLink]="[]" fragment="android-interest" queryParamsHandling="preserve">{{
++            'home.android.volunteer' | transloco
++          }}</a>
++        </p>
++      </div>
++    }
++
+     <!-- HERO ------------------------------------------------------------ -->
+     <section class="hero" aria-labelledby="hero-headline" data-testid="hero">
+       <div aria-hidden="true" class="hero__glow hero__glow--primary"></div>
+diff --git a/apps/web/src/app/home/home.component.scss b/apps/web/src/app/home/home.component.scss
+index 525786b..0904f55 100644
+--- a/apps/web/src/app/home/home.component.scss
++++ b/apps/web/src/app/home/home.component.scss
+@@ -1,9 +1,26 @@
+ /* Landing page component-local SCSS.
+    The bulk of layout lives in `styles/_landing.scss` so we stay under the
+-   per-component style budget. Only host-level overrides belong here. */
++   per-component style budget. */
+ 
+ :host {
+   display: block;
+   min-height: 100dvh;
+   background-color: var(--color-background);
+ }
++
++.android-test-banner {
++  display: flex;
++  flex-wrap: wrap;
++  align-items: center;
++  justify-content: space-between;
++  gap: var(--space-sm) var(--space-md);
++  margin: var(--space-md) 0 0;
++  padding: var(--space-md);
++  color: var(--color-text-primary);
++
++  a {
++    color: var(--color-primary);
++    font-weight: var(--font-weight-semibold);
++    text-decoration: underline;
++  }
++}
+diff --git a/apps/web/src/app/home/home.component.spec.ts b/apps/web/src/app/home/home.component.spec.ts
+index 9330d6e..0887080 100644
+--- a/apps/web/src/app/home/home.component.spec.ts
++++ b/apps/web/src/app/home/home.component.spec.ts
+@@ -1,12 +1,13 @@
+ import { existsSync } from 'node:fs';
+ import { resolve } from 'node:path';
+-import { signal } from '@angular/core';
++import { PLATFORM_ID, signal } from '@angular/core';
+ import { TestBed } from '@angular/core/testing';
+ import { provideHttpClient } from '@angular/common/http';
+ import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
+ import { Router } from '@angular/router';
+ import { RouterTestingModule } from '@angular/router/testing';
+-import { beforeEach, describe, expect, it, vi } from 'vitest';
++import { Capacitor } from '@capacitor/core';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+ import { AuthService } from '../auth/auth.service';
+ import { MetricsService } from '../shared/services/metrics.service';
+ import { ThemeService } from '../shared/services/theme.service';
+@@ -21,6 +22,8 @@ describe('HomeComponent', () => {
+   };
+   let record: ReturnType<typeof vi.fn>;
+ 
++  afterEach(() => vi.restoreAllMocks());
++
+   beforeEach(async () => {
+     authService = {
+       isLoggedIn: () => false,
+@@ -56,6 +59,66 @@ describe('HomeComponent', () => {
+     return fixture.nativeElement as HTMLElement;
+   }
+ 
++  it.each([
++    'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36',
++    'Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 Chrome/130.0 Safari/537.36',
++  ])('invites Android visitors to the closed test: %s', (userAgent) => {
++    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(userAgent);
++    const host = render();
++    const banner = host.querySelector('[data-testid="android-test-banner"]');
++    const link = banner?.querySelector<HTMLAnchorElement>('a');
++
++    expect(banner?.textContent).toContain('In closed testing on Google Play');
++    expect(link?.textContent).toContain('Volunteer to test');
++    expect(link?.getAttribute('href')).toBe('/#android-interest');
++    expect(
++      host.querySelector('#android-interest [data-testid="android-tester-email"]'),
++    ).not.toBeNull();
++    expect(host.querySelector('main')?.firstElementChild).toBe(banner?.parentElement);
++  });
++
++  it.each([
++    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)',
++    'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)',
++    'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
++    'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)',
++    '',
++  ])('does not show the closed-test banner to other visitors: %s', (userAgent) => {
++    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(userAgent);
++    expect(render().querySelector('[data-testid="android-test-banner"]')).toBeNull();
++  });
++
++  it.each(['es', 'pt-br'])(
++    'keeps the %s homepage and query when joining the test',
++    async (prefix) => {
++      vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Android');
++      const router = TestBed.inject(Router);
++      router.resetConfig([{ path: prefix, component: HomeComponent }]);
++      await router.navigateByUrl(`/${prefix}?campaign=android`);
++      const link = render().querySelector<HTMLAnchorElement>(
++        '[data-testid="android-test-banner"] a',
++      );
++
++      expect(link?.getAttribute('href')).toBe(`/${prefix}?campaign=android#android-interest`);
++      link!.click();
++      await vi.waitFor(() =>
++        expect(router.url).toBe(`/${prefix}?campaign=android#android-interest`),
++      );
++    },
++  );
++
++  it('does not show the closed-test banner during server rendering', () => {
++    TestBed.overrideProvider(PLATFORM_ID, { useValue: 'server' });
++    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Android');
++    expect(render().querySelector('[data-testid="android-test-banner"]')).toBeNull();
++  });
++
++  it('does not invite native app users to a form that is only available on the website', () => {
++    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Android');
++    vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
++    expect(render().querySelector('[data-testid="android-test-banner"]')).toBeNull();
++  });
++
+   it('records one public home view for an anonymous initial render', () => {
+     render();
+ 
+diff --git a/apps/web/src/app/home/home.component.ts b/apps/web/src/app/home/home.component.ts
+index 1154149..daab1ba 100644
+--- a/apps/web/src/app/home/home.component.ts
++++ b/apps/web/src/app/home/home.component.ts
+@@ -2,11 +2,13 @@ import {
+   ChangeDetectionStrategy,
+   Component,
+   OnInit,
++  PLATFORM_ID,
+   computed,
+   inject,
+   signal,
+   viewChild,
+ } from '@angular/core';
++import { isPlatformBrowser } from '@angular/common';
+ import { HttpClient } from '@angular/common/http';
+ import { FormsModule } from '@angular/forms';
+ import { Router, RouterLink } from '@angular/router';
+@@ -221,6 +223,13 @@ export class HomeComponent implements OnInit {
+   /** True while Android is not publicly listed — drives the register-interest UI. */
+   readonly showAndroidInterest = this.androidPlatform?.state !== 'available';
+ 
++  readonly showAndroidTestBanner =
++    isPlatformBrowser(inject(PLATFORM_ID)) &&
++    typeof navigator !== 'undefined' &&
++    /android/i.test(navigator.userAgent) &&
++    !this.isNativePlatform &&
++    this.androidPlatform?.state === 'testing';
++
+   storeLinkTestId(platform: PlatformAvailability): string {
+     return `store-link-${platform.id}`;
+   }

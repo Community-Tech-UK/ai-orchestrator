@@ -1,0 +1,23 @@
+{
+  "fingerprint": "e1d133c807c93f19e3a829999735a3035d38a034ed022bddf18eee8799df94ec",
+  "files": {
+    "apps/mobile/package.json": "d97e9e262c3d2d339dfd4081baf2056effbf00b3979cc0b57f3ad0fe23d23038",
+    "benchmarks/external-benchmarks/bfcl/package.json": "5e53f95f3d7b8b6e5e6f250b6193332893aec8204f17522bef3d9b27c386bff8",
+    "benchmarks/orchestrator-benchmark/package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+    "package-lock.json": "b68a717d0c9283c256b57c98f468b26d861d13bb9a712c661c2912a10e6220d6",
+    "package.json": "dfe320a249f995f318aee0f4d063c14cd00bbe6c619ca060d40b28a24c914e7c",
+    "packages/archiver-compat/package.json": "cccbcbc0bea3031905d2999255ff941a67ca94b0077dab98fd0f205ed0a94f0e",
+    "packages/contracts/package.json": "c20adf5e2edb10101f0c42fccf4e2131c336204a26df832dcbd8e0130ab1fb96",
+    "packages/sdk/package.json": "65433dc8462066ae6306c8edbacc90db3204c838656d57a69a18a915bf46925a"
+  },
+  "command": [
+    "npm",
+    "ci",
+    "--ignore-scripts",
+    "--no-audit",
+    "--no-fund"
+  ],
+  "exitCode": 0,
+  "timedOut": false,
+  "nodeVersion": "v26.12.1"
+}

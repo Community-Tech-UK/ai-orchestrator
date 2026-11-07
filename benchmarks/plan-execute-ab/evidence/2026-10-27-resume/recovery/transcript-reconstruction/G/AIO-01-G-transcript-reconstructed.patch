@@ -1,0 +1,127 @@
+diff --git a/src/main/history/history-manager-clear-all.spec.ts b/src/main/history/history-manager-clear-all.spec.ts
+new file mode 100644
+index 0000000..cf5ca58
+--- /dev/null
++++ b/src/main/history/history-manager-clear-all.spec.ts
+@@ -0,0 +1,103 @@
++import * as fs from 'fs';
++import * as path from 'path';
++import * as zlib from 'zlib';
++import { describe, expect, it, vi } from 'vitest';
++import type { ConversationData, HistoryIndex } from '../../shared/types/history.types';
++
++vi.mock('../logging/logger', () => ({
++  getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
++}));
++
++describe('HistoryManager clearAll startup ordering', () => {
++  it.each(['indexed', 'orphaned'])('waits for an %s startup writer before backing up and deleting', async (source) => {
++    const scratchDir = path.resolve('_scratch');
++    fs.mkdirSync(scratchDir, { recursive: true });
++    const userDataDir = fs.mkdtempSync(path.join(scratchDir, 'history-clear-all-'));
++    const storageDir = path.join(userDataDir, 'conversation-history');
++    fs.mkdirSync(storageDir);
++    const conversation: ConversationData = {
++      entry: {
++        id: 'entry-placeholder',
++        displayName: 'Legacy conversation',
++        createdAt: 1,
++        endedAt: 2,
++        workingDirectory: process.cwd(),
++        messageCount: 1,
++        firstUserMessage: 'hello',
++        lastUserMessage: 'hello',
++        status: 'completed',
++        originalInstanceId: 'instance-placeholder',
++        parentId: null,
++        sessionId: 'session-placeholder',
++      },
++      messages: [{ id: 'message-placeholder', type: 'user', timestamp: 1, content: 'hello' }],
++    };
++    const conversationPath = path.join(storageDir, `${conversation.entry.id}.json.gz`);
++    fs.writeFileSync(conversationPath, zlib.gzipSync(JSON.stringify(conversation)));
++    fs.writeFileSync(path.join(storageDir, 'index.json'), JSON.stringify({
++      version: 1,
++      lastUpdated: 2,
++      entries: source === 'indexed' ? [conversation.entry] : [],
++    } satisfies HistoryIndex));
++
++    vi.resetModules();
++    vi.doMock('electron', () => ({ app: { getPath: () => userDataDir } }));
++    const { HistoryManager } = await import('./history-manager');
++    let releaseWriter!: () => void;
++    const writerBlocked = new Promise<void>((resolve) => { releaseWriter = resolve; });
++    let signalWriterStarted!: () => void;
++    const writerStarted = new Promise<void>((resolve) => { signalWriterStarted = resolve; });
++    const realRename = fs.promises.rename.bind(fs.promises);
++    const renameSpy = vi.spyOn(fs.promises, 'rename').mockImplementation(async (from, to) => {
++      if (String(to) === conversationPath) {
++        signalWriterStarted();
++        await writerBlocked;
++      }
++      return realRename(from, to);
++    });
++    const manager = new HistoryManager();
++    let clearing: Promise<void> | undefined;
++    try {
++      await writerStarted;
++      const readdirSpy = vi.spyOn(fs.promises, 'readdir');
++      const backupSpy = vi.spyOn(fs.promises, 'cp');
++      const unlinkSpy = vi.spyOn(fs.promises, 'unlink');
++      clearing = manager.clearAll();
++      await Promise.resolve();
++
++      // Even the backup's initial directory scan must wait for startup.
++      expect(readdirSpy).not.toHaveBeenCalled();
++      expect(backupSpy).not.toHaveBeenCalled();
++      expect(unlinkSpy).not.toHaveBeenCalled();
++      expect(fs.existsSync(conversationPath)).toBe(true);
++
++      releaseWriter();
++      await clearing;
++      expect(backupSpy).toHaveBeenCalledOnce();
++      const backups = fs.readdirSync(userDataDir).filter((name) => name.startsWith('conversation-history.bak-'));
++      expect(backups).toHaveLength(1);
++      const backupDir = path.join(userDataDir, backups[0]);
++      const backupIndex = JSON.parse(fs.readFileSync(path.join(backupDir, 'index.json'), 'utf8')) as HistoryIndex;
++      const backupConversation = JSON.parse(zlib.gunzipSync(
++        fs.readFileSync(path.join(backupDir, `${conversation.entry.id}.json.gz`))
++      ).toString()) as ConversationData;
++      expect(backupIndex.entries).toHaveLength(1);
++      expect(backupIndex.entries[0].historyThreadId).toEqual(expect.any(String));
++      expect(backupConversation.entry.historyThreadId).toBe(backupIndex.entries[0].historyThreadId);
++      expect(backupConversation.messages).toEqual(conversation.messages);
++      expect(fs.readdirSync(backupDir).filter((name) => name.endsWith('.tmp'))).toEqual([]);
++      expect(manager.getEntries()).toEqual([]);
++      const activeIndex = JSON.parse(fs.readFileSync(path.join(storageDir, 'index.json'), 'utf8')) as HistoryIndex;
++      expect(activeIndex.entries).toEqual([]);
++      expect(fs.existsSync(conversationPath)).toBe(false);
++    } finally {
++      releaseWriter();
++      await Promise.allSettled([manager.startupTasks, clearing]);
++      renameSpy.mockRestore();
++      vi.restoreAllMocks();
++      vi.doUnmock('electron');
++      vi.resetModules();
++      fs.rmSync(userDataDir, { recursive: true, force: true });
++    }
++  });
++});
+diff --git a/src/main/history/history-manager.ts b/src/main/history/history-manager.ts
+index bd1840b..0c1a223 100644
+--- a/src/main/history/history-manager.ts
++++ b/src/main/history/history-manager.ts
+@@ -698,11 +698,11 @@ export class HistoryManager {
+   }
+ 
+   /**
+-   * Clear all history
++   * Clear all history after startup writers settle.
+    */
+   async clearAll(): Promise<void> {
++    await this.startupTasks;
+     await this.createSafetyBackup('clearAll');
+-
+     // Delete all conversation files
+     for (const entry of this.index.entries) {
+       const conversationPath = this.getConversationPath(entry.id);

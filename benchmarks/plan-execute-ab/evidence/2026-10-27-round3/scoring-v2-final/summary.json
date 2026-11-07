@@ -1,0 +1,305 @@
+{
+  "version": "ordering-v2-historical-lockfile",
+  "parent": "f04f674859b220b86eeb52662129072008573af9",
+  "fixed": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+  "amendmentSha256": "72340e4eced6987fd6272b57632e926780267452d6c4b057c676c1ff5db2d468",
+  "runs": {
+    "parent": {
+      "hidden1": {
+        "at": "2026-10-27T14:28:14.488987+00:00",
+        "command": [
+          "npm",
+          "run",
+          "test:quiet",
+          "--",
+          "src/main/history/history-manager.spec.ts"
+        ],
+        "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "exitCode": 1,
+        "durationSeconds": 4.89,
+        "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/parent-hidden-1.log.gz",
+        "counts": {
+          "numTotalTests": 41,
+          "numPassedTests": 40,
+          "numFailedTests": 1
+        },
+        "failures": [
+          {
+            "ancestorTitles": [
+              "HistoryManager"
+            ],
+            "fullName": "HistoryManager does not begin the safety backup before the pending startup writers settle",
+            "status": "failed",
+            "title": "does not begin the safety backup before the pending startup writers settle",
+            "duration": 15.06108400000005,
+            "failureMessages": [
+              "AssertionError: clearAll entered the safety backup while the startup write was blocked: expected 'backup-entry' to be 'startup-wait' // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:370:9\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+            ],
+            "meta": {}
+          }
+        ],
+        "rawLogs": [
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/parent-1-test-run.pid-42458.log.gz"
+        ]
+      },
+      "hidden2": {
+        "at": "2026-10-27T14:28:18.868557+00:00",
+        "command": [
+          "npm",
+          "run",
+          "test:quiet",
+          "--",
+          "src/main/history/history-manager.spec.ts"
+        ],
+        "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "exitCode": 1,
+        "durationSeconds": 4.378,
+        "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/parent-hidden-2.log.gz",
+        "counts": {
+          "numTotalTests": 41,
+          "numPassedTests": 39,
+          "numFailedTests": 2
+        },
+        "failures": [
+          {
+            "ancestorTitles": [
+              "HistoryManager"
+            ],
+            "fullName": "HistoryManager creates a safety backup before clearing conversation history",
+            "status": "failed",
+            "title": "creates a safety backup before clearing conversation history",
+            "duration": 97.88079099999999,
+            "failureMessages": [
+              "AssertionError: expected true to be false // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:209:73\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+            ],
+            "meta": {}
+          },
+          {
+            "ancestorTitles": [
+              "HistoryManager"
+            ],
+            "fullName": "HistoryManager does not begin the safety backup before the pending startup writers settle",
+            "status": "failed",
+            "title": "does not begin the safety backup before the pending startup writers settle",
+            "duration": 13.070167000000026,
+            "failureMessages": [
+              "AssertionError: clearAll entered the safety backup while the startup write was blocked: expected 'backup-entry' to be 'startup-wait' // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:370:9\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+            ],
+            "meta": {}
+          }
+        ],
+        "rawLogs": [
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/parent-2-test-run.pid-47797.log.gz",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/parent-2-test-run.pid-42458.log.gz"
+        ]
+      },
+      "sourceSha256": "89e026b0e26eca09067234605a32b9aa6d6fd24f91661cdf7d0b9755b5b58a6c",
+      "specSha256": "20c5a3cbebbca623c5e176cefc03602434f964408d51a4a0048b7f18f89e4a4b"
+    },
+    "fixed": {
+      "hidden1": {
+        "at": "2026-10-27T14:28:25.972913+00:00",
+        "command": [
+          "npm",
+          "run",
+          "test:quiet",
+          "--",
+          "src/main/history/history-manager.spec.ts"
+        ],
+        "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "exitCode": 0,
+        "durationSeconds": 4.661,
+        "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/fixed-hidden-1.log.gz",
+        "counts": {
+          "numTotalTests": 41,
+          "numPassedTests": 41,
+          "numFailedTests": 0
+        },
+        "failures": [],
+        "rawLogs": [
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/fixed-1-test-run.pid-54008.log.gz"
+        ]
+      },
+      "hidden2": {
+        "at": "2026-10-27T14:28:29.715889+00:00",
+        "command": [
+          "npm",
+          "run",
+          "test:quiet",
+          "--",
+          "src/main/history/history-manager.spec.ts"
+        ],
+        "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "exitCode": 0,
+        "durationSeconds": 3.742,
+        "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/fixed-hidden-2.log.gz",
+        "counts": {
+          "numTotalTests": 41,
+          "numPassedTests": 41,
+          "numFailedTests": 0
+        },
+        "failures": [],
+        "rawLogs": [
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/fixed-2-test-run.pid-58188.log.gz",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/fixed-2-test-run.pid-54008.log.gz"
+        ]
+      },
+      "typecheck": {
+        "at": "2026-10-27T14:28:42.171429+00:00",
+        "command": [
+          "node",
+          "node_modules/typescript/bin/tsc",
+          "--noEmit"
+        ],
+        "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "exitCode": 0,
+        "durationSeconds": 12.454,
+        "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/fixed-typecheck.log.gz"
+      },
+      "lint": {
+        "at": "2026-10-27T14:28:42.383485+00:00",
+        "command": [
+          "node_modules/.bin/oxlint",
+          "--no-ignore",
+          "--config",
+          ".oxlintrc.json",
+          "src/main",
+          "src/shared",
+          "src/preload",
+          "packages/contracts/src",
+          "packages/sdk/src"
+        ],
+        "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "exitCode": 0,
+        "durationSeconds": 0.212,
+        "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/fixed-lint.log.gz"
+      },
+      "sourceSha256": "0a43dd9c483021d7e5343a031d7acd18eb5dc86df659df61a4ed8113043baf3a",
+      "specSha256": "20c5a3cbebbca623c5e176cefc03602434f964408d51a4a0048b7f18f89e4a4b"
+    },
+    "microtask-only-parent": {
+      "hidden1": {
+        "at": "2026-10-27T14:28:48.363299+00:00",
+        "command": [
+          "npm",
+          "run",
+          "test:quiet",
+          "--",
+          "src/main/history/history-manager.spec.ts"
+        ],
+        "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "exitCode": 1,
+        "durationSeconds": 3.855,
+        "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/microtask-only-parent-hidden-1.log.gz",
+        "counts": {
+          "numTotalTests": 41,
+          "numPassedTests": 40,
+          "numFailedTests": 1
+        },
+        "failures": [
+          {
+            "ancestorTitles": [
+              "HistoryManager"
+            ],
+            "fullName": "HistoryManager does not begin the safety backup before the pending startup writers settle",
+            "status": "failed",
+            "title": "does not begin the safety backup before the pending startup writers settle",
+            "duration": 13.149541999999997,
+            "failureMessages": [
+              "AssertionError: clearAll entered the safety backup while the startup write was blocked: expected 'backup-entry' to be 'startup-wait' // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:370:9\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+            ],
+            "meta": {}
+          }
+        ],
+        "rawLogs": [
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/microtask-only-parent-1-test-run.pid-78325.log.gz"
+        ]
+      },
+      "hidden2": {
+        "at": "2026-10-27T14:28:52.141390+00:00",
+        "command": [
+          "npm",
+          "run",
+          "test:quiet",
+          "--",
+          "src/main/history/history-manager.spec.ts"
+        ],
+        "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "exitCode": 1,
+        "durationSeconds": 3.777,
+        "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/microtask-only-parent-hidden-2.log.gz",
+        "counts": {
+          "numTotalTests": 41,
+          "numPassedTests": 40,
+          "numFailedTests": 1
+        },
+        "failures": [
+          {
+            "ancestorTitles": [
+              "HistoryManager"
+            ],
+            "fullName": "HistoryManager does not begin the safety backup before the pending startup writers settle",
+            "status": "failed",
+            "title": "does not begin the safety backup before the pending startup writers settle",
+            "duration": 13.438165999999967,
+            "failureMessages": [
+              "AssertionError: clearAll entered the safety backup while the startup write was blocked: expected 'backup-entry' to be 'startup-wait' // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:370:9\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+            ],
+            "meta": {}
+          }
+        ],
+        "rawLogs": [
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/microtask-only-parent-2-test-run.pid-82530.log.gz",
+          "benchmarks/plan-execute-ab/evidence/2026-10-27-round3/scoring-v2-final/microtask-only-parent-2-test-run.pid-78325.log.gz"
+        ]
+      },
+      "sourceSha256": "cbb1baae7dc995c7474af69e3ee420e9ff15cf97fa0e887409d804f9aca8fc15",
+      "specSha256": "20c5a3cbebbca623c5e176cefc03602434f964408d51a4a0048b7f18f89e4a4b"
+    },
+    "candidate-A": {
+      "status": "unscored-patch-not-replayable",
+      "command": [
+        "git",
+        "apply",
+        "--check",
+        "--unsafe-paths",
+        "--directory",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/patches/AIO-01-A-run1.patch"
+      ],
+      "exitCode": 128,
+      "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/patches/AIO-01-A-run1.patch:34\n",
+      "candidatePatchSha256": "06396546f2b857b6a120ef01f1f027cfd1c7e137ffe201ccd8e82f14c35dd602"
+    },
+    "candidate-D": {
+      "status": "unscored-patch-not-replayable",
+      "command": [
+        "git",
+        "apply",
+        "--check",
+        "--unsafe-paths",
+        "--directory",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/patches/AIO-01-D-run1.patch"
+      ],
+      "exitCode": 128,
+      "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/patches/AIO-01-D-run1.patch:12\n",
+      "candidatePatchSha256": "df629c61879c672fa36e171d3558e2d30052f2843677aa38d1c48968a8dad815"
+    },
+    "candidate-G": {
+      "status": "unscored-patch-not-replayable",
+      "command": [
+        "git",
+        "apply",
+        "--check",
+        "--unsafe-paths",
+        "--directory",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/patches/AIO-01-G-run1.patch"
+      ],
+      "exitCode": 128,
+      "stderr": "error: corrupt patch at /Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/patches/AIO-01-G-run1.patch:126\n",
+      "candidatePatchSha256": "e3e3b818246038d63e3d634e4f3f0908ca616ca1cc7cccb19272cfa6944eb09b"
+    }
+  }
+}

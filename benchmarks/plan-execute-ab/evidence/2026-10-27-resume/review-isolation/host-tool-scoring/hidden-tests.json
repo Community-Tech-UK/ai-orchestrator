@@ -1,0 +1,11 @@
+{
+  "command": [
+    "npm",
+    "test"
+  ],
+  "exitCode": 1,
+  "stdout": "\n> fixture@1.0.0 test\n> oxlint --version\n\n",
+  "stderr": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/scoring-boundary.cjs:39\n      throw Object.assign(new Error(`Dependency outside frozen workspace: ${specifier}`), { code: 'ERR_SCORING_EXTERNAL_DEPENDENCY' });\n                          ^\n\nError: Dependency outside frozen workspace: file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/node_modules/oxlint/bin/oxlint\n    at resolve (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/scoring-boundary.cjs:39:27)\n    at nextStep (node:internal/modules/customization_hooks:189:26)\n    at resolveWithHooks (node:internal/modules/customization_hooks:417:10)\n    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:754:16)\n    at #resolve (node:internal/modules/esm/loader:690:17)\n    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:610:35)\n    at node:internal/modules/esm/loader:639:32\n    at TracingChannel.tracePromise (node:diagnostics_channel:582:22)\n    at ModuleLoader.import (node:internal/modules/esm/loader:635:21)\n    at node:internal/modules/run_main:179:35 {\n  code: 'ERR_SCORING_EXTERNAL_DEPENDENCY'\n}\n\nNode.js v26.12.1\n",
+  "timedOut": false,
+  "durationMs": 655
+}

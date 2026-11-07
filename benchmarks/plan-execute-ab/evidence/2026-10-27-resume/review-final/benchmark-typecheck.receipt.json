@@ -1,0 +1,10 @@
+{
+  "argv": [
+    "node_modules/.bin/tsc",
+    "--noEmit",
+    "-p",
+    "benchmarks/plan-execute-ab/tsconfig.json"
+  ],
+  "exitCode": 0,
+  "durationSeconds": 2.096553325653076
+}

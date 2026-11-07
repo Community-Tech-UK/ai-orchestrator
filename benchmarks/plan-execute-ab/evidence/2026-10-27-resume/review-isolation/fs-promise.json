@@ -1,0 +1,11 @@
+{
+  "command": [
+    "node",
+    "--input-type=module",
+    "-e",
+    "import { readFile } from \"node:fs/promises\"; await readFile(\"/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/node_modules/vitest/package.json\", \"utf8\"); console.log(\"HOST READ\");"
+  ],
+  "exitCode": 1,
+  "stdout": "",
+  "stderr": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/scoring-boundary.cjs:30\n  return Object.assign(new Error(`ENOENT: dependency outside frozen workspace: ${String(file)}`), { code: 'ENOENT', path: file });\n                       ^\n\nError: ENOENT: dependency outside frozen workspace: /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/node_modules/vitest/package.json\n    at missing (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/scoring-boundary.cjs:30:24)\n    at fs.promises.<computed> (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/scoring-boundary.cjs:57:43)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-resume/review-isolation/probe-workspace/[eval1]:1:52\n    at ModuleJob.run (node:internal/modules/esm/module_job:569:25)\n    at async node:internal/modules/esm/loader:226:26\n    at async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:223:20)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:105:5) {\n  code: 'ENOENT',\n  path: '/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/node_modules/vitest/package.json'\n}\n\nNode.js v26.12.1\n"
+}

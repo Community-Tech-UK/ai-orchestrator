@@ -1,0 +1,16 @@
+{
+  "at": "2026-10-27T14:10:37.671152+00:00",
+  "checks": {
+    "allEvidenceJsonValid": true,
+    "registerEntries": true,
+    "matchingFollowup": true,
+    "noDanglingLT708InOwner": true,
+    "currentHeader": true,
+    "noPrivateKeyJamesMustRequirement": true,
+    "inheritedWorktreeDocumentUnchangedFromHEAD": true,
+    "canonicalRootDocumentHasCorrectionSection": true
+  },
+  "jsonProblems": [],
+  "documentLocationNote": "The worktree inherited a tracked old copy from HEAD. It was not edited, removed or overwritten; all live-test changes are in the explicitly required root-checkout file. Earlier absence-only validation was invalid for an inherited tracked document.",
+  "inheritedDocumentSha256": "99932779148930b464cda6e7d9333a78337abf9bd57aecab1160d4cd194d098f"
+}

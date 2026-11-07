@@ -1,0 +1,347 @@
+{
+  "at": "2026-10-27T13:39:38.094417+00:00",
+  "transcripts": [
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-12ST-04-C1-1/49f7fa48-b878-4928-88bc-18fb192f8aa2.jsonl",
+      "sha256": "ce409bc0e53eb9c99ad05412a9baa6d269535d735e4b23adec58e360864dcb98",
+      "bytes": 690175,
+      "events": 80,
+      "firstTimestamp": "2026-10-25T04:52:42.954Z",
+      "lastTimestamp": "2026-10-25T04:59:54.215Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-01-C1-1/328a9d0f-e361-4229-8fff-5c33ad8e272a.jsonl",
+      "sha256": "ef8fa0b841e920be7801ab4b63fb22ac628c47cc45c1eab54317ed6039fcb090",
+      "bytes": 524665,
+      "events": 84,
+      "firstTimestamp": "2026-10-25T01:03:25.591Z",
+      "lastTimestamp": "2026-10-25T01:59:36.958Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-06-C1-1/9d3d38c4-8611-4938-a730-d794da50819c.jsonl",
+      "sha256": "fdc4da608414544979d5b87fb24a05e28078aad54173db3cf8ad3b3e1ab0ee6f",
+      "bytes": 774622,
+      "events": 179,
+      "firstTimestamp": "2026-10-25T03:40:44.562Z",
+      "lastTimestamp": "2026-10-25T03:59:10.351Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-12ST-03-C1-1/007a9500-a3ce-4b96-8c37-bf60a3b272fd.jsonl",
+      "sha256": "e46328e55cc864343d1aa98194eda71e13ca833c182b9f74e47924fffd934aab",
+      "bytes": 780642,
+      "events": 195,
+      "firstTimestamp": "2026-10-25T04:01:21.160Z",
+      "lastTimestamp": "2026-10-25T04:50:33.046Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-04-C1-1/1af52093-586c-431f-96ef-070f2c696569.jsonl",
+      "sha256": "2423619dfd4db097a4d686326a6f5cac5e179b817bdf8b9483345a3b13dd1b11",
+      "bytes": 646594,
+      "events": 68,
+      "firstTimestamp": "2026-10-25T03:14:44.143Z",
+      "lastTimestamp": "2026-10-25T03:21:24.326Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-05-C1-1/51b5519d-f37d-4ca1-8ff1-ed4f866aa50a.jsonl",
+      "sha256": "0395af5b118ea9635ef11dc1c222eb10ccbd620956d63343b75cc7867e3dc388",
+      "bytes": 697019,
+      "events": 131,
+      "firstTimestamp": "2026-10-25T03:23:56.810Z",
+      "lastTimestamp": "2026-10-25T03:38:33.283Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-02-C1-1/b28f9c7b-6fb3-4c16-a7a2-194bd496381d.jsonl",
+      "sha256": "982059d576c008999eaa9e1870b3a6c86cbfabd5c64751dc3d16bcc7fc68d600",
+      "bytes": 400243,
+      "events": 59,
+      "firstTimestamp": "2026-10-25T02:05:50.240Z",
+      "lastTimestamp": "2026-10-25T02:59:36.129Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-27b/projects/-private-tmp-plan-execute-ab-AIO-03-C1-1/ecb964e6-90a8-41f4-8864-b9b17f1f72b8.jsonl",
+      "sha256": "042d91dfb869c6ed2bbc3a6b3011bfa4d64570e4a6877a3dadcbc4cbddd3761e",
+      "bytes": 663512,
+      "events": 60,
+      "firstTimestamp": "2026-10-25T03:08:05.936Z",
+      "lastTimestamp": "2026-10-25T03:12:34.089Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-35b/projects/-private-tmp-plan-execute-ab-AIO-02-B-1/83fe6de7-2069-48c9-8182-64e5800983ea.jsonl",
+      "sha256": "dd039dcca166f2e9c924cf9e0825e869cad68cef47a52285a9ffd6c98359882d",
+      "bytes": 567259,
+      "events": 183,
+      "firstTimestamp": "2026-10-25T08:52:47.014Z",
+      "lastTimestamp": "2026-10-25T08:54:49.979Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-35b/projects/-private-tmp-plan-execute-ab-AIO-03-B-1/27d0e344-ff50-4de1-9936-6c7f76fe4388.jsonl",
+      "sha256": "ae51d1a385e7d76499d5d19431f25b7d2f7b14161cd419f1c68349e87d936793",
+      "bytes": 274043,
+      "events": 56,
+      "firstTimestamp": "2026-10-25T08:55:29.480Z",
+      "lastTimestamp": "2026-10-25T09:21:18.090Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-35b/projects/-private-tmp-plan-execute-ab-AIO-01-B-1/c88f54d6-99d2-42ea-9fe7-9015798b5a58.jsonl",
+      "sha256": "3c16f44e621b46de6cc801c18ba5bf40cd95f18363950c75712cb96ea19a0647",
+      "bytes": 792876,
+      "events": 194,
+      "firstTimestamp": "2026-10-25T08:43:26.724Z",
+      "lastTimestamp": "2026-10-25T08:51:55.590Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-12ST-02-C2-1/46af98a0-0377-46af-be6c-0158acbaea4a.jsonl",
+      "sha256": "f15cfc7803beb8d7d3bcc547e1d9b536557bd958554fcfa9f89fa0dfaf859379",
+      "bytes": 494094,
+      "events": 119,
+      "firstTimestamp": "2026-10-25T07:49:42.781Z",
+      "lastTimestamp": "2026-10-25T08:05:09.112Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-06-C2-1/98fa5c0b-893a-4017-9561-6cc8f20b5632.jsonl",
+      "sha256": "5a774d893ad96c7c2ba19ab7f8572234fb46a8db8a40a5485f3784dfcbe983c5",
+      "bytes": 732970,
+      "events": 139,
+      "firstTimestamp": "2026-10-25T07:23:15.855Z",
+      "lastTimestamp": "2026-10-25T07:28:16.770Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-12ST-03-C2-1/1a113a5a-f408-4823-af95-9a1dde5587e4.jsonl",
+      "sha256": "0f3dd87573900946798cbbe1faa8465794b1192b1767715b548f461b9f18a836",
+      "bytes": 779713,
+      "events": 176,
+      "firstTimestamp": "2026-10-25T08:06:41.157Z",
+      "lastTimestamp": "2026-10-25T08:22:29.323Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-12ST-04-C2-1/ffdac120-e056-48d1-bf16-59194435c10a.jsonl",
+      "sha256": "44703f0fad2b6e6e0a2b5d568bdcb2f2cb839c712781759403f59e010eff30f2",
+      "bytes": 741599,
+      "events": 112,
+      "firstTimestamp": "2026-10-25T08:24:05.046Z",
+      "lastTimestamp": "2026-10-25T08:31:56.875Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-01-C2-1/cb3b9c47-9bca-4791-a457-2789ebf4183b.jsonl",
+      "sha256": "6f361c5e1b42f1392083dddd05e8e8e2a4a7604158d8fc99a8a2d76cf0775813",
+      "bytes": 862437,
+      "events": 272,
+      "firstTimestamp": "2026-10-25T05:38:17.404Z",
+      "lastTimestamp": "2026-10-25T06:05:07.820Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-02-C2-1/f4659e08-8cd6-49cb-ae14-6b249890414f.jsonl",
+      "sha256": "5521e2ccf73399088e72f41cb437f287542fcce9f2028cc71caa3c19f8fc20ff",
+      "bytes": 608922,
+      "events": 188,
+      "firstTimestamp": "2026-10-25T06:06:46.104Z",
+      "lastTimestamp": "2026-10-25T06:30:00.798Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-03-C2-1/87b3f4b8-a407-466e-b6f8-119126ca013a.jsonl",
+      "sha256": "a2d4941b0592010a5f6a030397136323799cfc9c8ab46943fc44edd350f1b4a1",
+      "bytes": 783710,
+      "events": 129,
+      "firstTimestamp": "2026-10-25T06:31:42.488Z",
+      "lastTimestamp": "2026-10-25T07:06:57.770Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-04-C2-1/2931d2d4-6533-42af-8be0-04468d3c7027.jsonl",
+      "sha256": "9cab8106f6617d253e57729f07324f009299dad2e96b0d4b5e8f50dc89115a1e",
+      "bytes": 661114,
+      "events": 78,
+      "firstTimestamp": "2026-10-25T07:08:45.781Z",
+      "lastTimestamp": "2026-10-25T07:11:54.161Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-AIO-05-C2-1/ad36090e-db28-4e8e-b3c8-2a0b4ac2f971.jsonl",
+      "sha256": "d52d9b57fe79cb8df3a193f5f6699d03fd32f04c55816ffb385ead8674ac0b5d",
+      "bytes": 621670,
+      "events": 107,
+      "firstTimestamp": "2026-10-25T07:13:41.584Z",
+      "lastTimestamp": "2026-10-25T07:21:30.292Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    },
+    {
+      "path": "/Users/suas/.claude-plan-ex-ab/local-flash-next/projects/-private-tmp-plan-execute-ab-12ST-01-C2-1/6c86ae4a-7cc7-4ae3-8932-3348a0e878c1.jsonl",
+      "sha256": "0a076abbab21f80e3d4c92b83f76f31ed24e685b9e98f2a52bb5b7151be0b6e8",
+      "bytes": 610936,
+      "events": 139,
+      "firstTimestamp": "2026-10-25T07:29:53.729Z",
+      "lastTimestamp": "2026-10-25T07:48:09.819Z",
+      "versions": [
+        "2.1.310"
+      ],
+      "note": "transcript provenance only; not a replacement for missing scored records/patches"
+    }
+  ],
+  "portableSourceEvidence": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/runs.jsonl",
+      "sha256": "f4d94f61b750e6d84602d0af063bd3db15e6b06b3c18c46bc00f2dbcf5206cad"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/runs-quarantined.jsonl",
+      "sha256": "6b9b91d460b209ad264e97b5ebd70b6cab62504c3a9b486c541544285af945d6"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/12ST-01.md",
+      "sha256": "8524b8763448b58edec277964ad25c82dede0b5863b39caaee30f30962ac3a9a"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/12ST-02.md",
+      "sha256": "98a825a2de51d82724716c7af38bfd5deea6e74c1c4244432f54718339912eb0"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/12ST-03.md",
+      "sha256": "d5c583f3bcf1b1738c00821e91599e198bc8c600863d1f605800c723b40d0303"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/12ST-04.md",
+      "sha256": "774fe20447fd53d52bdbca4ca5a5922d60b77d1f580b5e7a6f6582401466dd40"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/AIO-01.md",
+      "sha256": "283bbd0076fcd78482accf48dcb567735edf3ba8dc76449a66cf9ae6c617491c"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/AIO-02.md",
+      "sha256": "82cde40d24c4fd3517dd9924530eff27ce86d87389b5d7bbae6391421c7daa23"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/AIO-03.md",
+      "sha256": "8c638d46ec9c2cd0f56ec95e6a701e4b39242e81a5d16b9fd7390472655d154c"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/AIO-04.md",
+      "sha256": "b43f11e4804712aacc02eba0952ad28ec3cc6a0e6c5cfad2931b13bde241079b"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/AIO-05.md",
+      "sha256": "0ad18461e6358f3a580e12aa21d92b99c02c9326faa780bf7e9406fce12962b5"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/AIO-06.md",
+      "sha256": "24b375673a06c85af20629d669d53aea69f10935362d846f8831861fff320980"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/12ST-01.usage.json",
+      "sha256": "03bb21d972bc2d50138900eeaf924a5a42e55e55bfb2431aeee6c7ec55ed8908"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/12ST-02.usage.json",
+      "sha256": "7ec2f44c3717208f60dd9c555c33c36f975a2f85c56d8b8bfe2253d1d942ab55"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/12ST-03.usage.json",
+      "sha256": "8007a2a441db93007ef87eedcf3e669a69733a4fdb267dc6b20f0192b167ff57"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/12ST-04.usage.json",
+      "sha256": "f269c774da8e00f4e6bba06f060c64fd92676bd177ab05415454f2a68d22d48a"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/AIO-01.usage.json",
+      "sha256": "4c94aa3e9fd33bc9854cc1f9d28786fbe6fd58b7805f7c3e4dbaa2843ecb3147"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/AIO-02.usage.json",
+      "sha256": "2810304427c321d1c6f93402c781f5815b283f25ea6756246be2bffd74a1dabf"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/AIO-03.usage.json",
+      "sha256": "0a2edd332228fdcc66c7907b310ac703be44cad9b2461e5e6280bb6e3d83d2eb"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/AIO-04.usage.json",
+      "sha256": "895403706b927c177c0175a0b0f670924e9c16d45b0ff6cbbb353ebf0a765d9b"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/AIO-05.usage.json",
+      "sha256": "c7530acae9b05552022056ca6650827bc272a66cc844a5f77db31f348d102950"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/_scratch/plan-execute-ab/pilot-2026-10-15/plans/AIO-06.usage.json",
+      "sha256": "cca2e6bf01d02c7a9a5f3af6a447eebcd4e0893169be0bb25363cf388dd185ae"
+    }
+  ]
+}

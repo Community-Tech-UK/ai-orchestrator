@@ -1,0 +1,14 @@
+{
+  "name": "plan-execute-ab-benchmark",
+  "version": "1.0.0",
+  "description": "Plan/execute A-B benchmark: do cheaper models execute Claude plans?",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "vitest run --config vitest.config.ts",
+    "runner": "tsx runner.ts",
+    "self-test": "tsx runner.ts self-test",
+    "mine": "tsx runner.ts mine",
+    "typecheck": "tsc --noEmit"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "status": "IN_PROGRESS_FINAL_DEPENDENCY_ISOLATION",
+  "allPassed": false,
+  "controls": [],
+  "priorControls": "pre-isolation-controls-summary.json",
+  "reason": "All ten initial controls passed, but final acceptance also requires ancestor-dependency isolation now added after fresh review. Prior results are retained as pre-isolation diagnostics."
+}

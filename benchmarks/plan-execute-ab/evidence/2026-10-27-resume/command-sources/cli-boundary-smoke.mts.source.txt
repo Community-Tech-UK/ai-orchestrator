@@ -1,0 +1,12 @@
+import { writeFileSync } from 'fs';
+import { resolve } from 'path';
+import { scoringEnvironment } from '../../benchmarks/plan-execute-ab/scoring-runtime';
+import { runCommand } from '../../benchmarks/plan-execute-ab/exec';
+const dir = resolve('_scratch/lt-round3/historical-aio');
+const results = [];
+for (const command of [['claude', '--version'], ['codex', '--version']]) {
+  const result = await runCommand(command, { cwd: dir, env: scoringEnvironment(dir), timeoutMs: 30_000 });
+  results.push(result);
+  console.log(`${command[0]} version with dependency boundary: exit ${result.exitCode}`);
+}
+writeFileSync('benchmarks/plan-execute-ab/evidence/2026-10-27-resume/scoring/cli-boundary-smoke.json', JSON.stringify({ modelInvocations: 0, results }, null, 2));

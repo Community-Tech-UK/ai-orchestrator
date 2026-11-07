@@ -1,0 +1,22 @@
+{
+  "fingerprint": "547eb848308b49f8c7f2f80f331f1c8c05ee8cee4b2ee9d4f202711d35e63a58",
+  "files": {
+    ".npmrc": "4da021f5094d41187c3c55e7cd9c31c86b56f696c798417ed6de14cb18b5695c",
+    "apps/api/package.json": "213797e1fc92828831eb1121779f1b65ad5fa7c53b4d2ec87c2bdd35df01b035",
+    "apps/web/package.json": "e3b696c50e69b8b279a683b90881d5d13e5eee6b649559199abf0f631c0b4500",
+    "package.json": "23f43a95605e4c9d007965a1d654b25494d4b10d67d63ee8bd4a5a3e57348897",
+    "packages/crypto/package.json": "ed35b8a307587283404d17fe7f479a13969b15b3c452ec819f6c76be9dac4613",
+    "pnpm-lock.yaml": "d666cf0ee3a7932a01e20f5e17a5f66375be4d89bcf59026f43f5928e0d42758",
+    "pnpm-workspace.yaml": "08d75840c97ab0e72d1d9b5b84a17e47a2e06cb159a5fbec5ee0a6a56682dad7"
+  },
+  "command": [
+    "pnpm",
+    "install",
+    "--frozen-lockfile",
+    "--ignore-scripts"
+  ],
+  "exitCode": 0,
+  "timedOut": false,
+  "nodeVersion": "v26.12.1",
+  "runtimePreparation": []
+}

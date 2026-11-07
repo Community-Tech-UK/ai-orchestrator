@@ -1,0 +1,12 @@
+{
+  "command": [
+    "sh",
+    "-c",
+    "cd apps/web && pnpm run generate:locales && npx ng test --include=\"src/app/home/home.component.spec.ts\" --include=\"src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts\" --watch=false"
+  ],
+  "exitCode": 0,
+  "stdout": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n❯ Building...\n✔ Building...\nApplication bundle generation complete. [13.668 seconds] - 2026-10-27T16:27:10.446Z\n\n\n RUN  v4.0.18 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n\n ✓ |web| src/app/shared/components/android-test-banner/android-test-banner.component.spec.ts (16 tests) 225ms\n ✓ |web| src/app/home/home.component.spec.ts (16 tests) 921ms\n\n Test Files  2 passed (2)\n      Tests  32 passed (32)\n   Start at  16:27:11\n   Duration  2.81s (transform 945ms, setup 1.08s, import 592ms, tests 1.15s, environment 1.51s)\n\n",
+  "stderr": "(node:57965) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57964) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.\n(Use `node --trace-warnings ...` to show where the warning was created)\n",
+  "timedOut": false,
+  "durationMs": 18886
+}

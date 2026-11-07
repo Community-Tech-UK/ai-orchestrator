@@ -1,0 +1,290 @@
+{
+  "query": "51 historical Claude judge JSONL files; select text containing independent judges, clearAll, and exact Patch X fence; delimit full embeddings at Patch Y and Score EACH patch instead of the first triple backtick; match retained AIO-01 arm patch prefixes",
+  "judgeFilesChecked": 51,
+  "uniqueAio01Embeddings": 6,
+  "recovered": [
+    {
+      "bytes": 8502,
+      "matchingOldArmPrefixes": [
+        "D"
+      ],
+      "sources": [
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/9ee5a97f-dc34-479d-9ed0-c580727ba6e0.jsonl",
+          "row": 3,
+          "side": "x",
+          "sourceFileSha256": "2d0909b30e6ea0d3251eb8b9dd55fbf9aed1b334e4d0ee72790ea4c80c478794",
+          "sourceRowUtf8Sha256": "57d2452ad33eab26325885ab8408d60f4f8ef0b17633fc87080ac31ef647931d"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/9ee5a97f-dc34-479d-9ed0-c580727ba6e0.jsonl",
+          "row": 21,
+          "side": "x",
+          "sourceFileSha256": "2d0909b30e6ea0d3251eb8b9dd55fbf9aed1b334e4d0ee72790ea4c80c478794",
+          "sourceRowUtf8Sha256": "a6458855ad5894f2c68e2c81772df40981239abcd84372dcaed88383c690560a"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/c96a5ba2-1dee-45c4-91a5-e03b9f9edfd2.jsonl",
+          "row": 3,
+          "side": "y",
+          "sourceFileSha256": "2d4e7c52851570b22a27862bb2b2622962fbb02be5b4f9227b9a14f36c429446",
+          "sourceRowUtf8Sha256": "13b6e1569829cf411599d9eeac20407620c849acdb0cde4dd09af8731853e665"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/c96a5ba2-1dee-45c4-91a5-e03b9f9edfd2.jsonl",
+          "row": 21,
+          "side": "y",
+          "sourceFileSha256": "2d4e7c52851570b22a27862bb2b2622962fbb02be5b4f9227b9a14f36c429446",
+          "sourceRowUtf8Sha256": "44374ca2fc996eb45f64af498652e476684442e0fab2f71a0c3237eb8af086c2"
+        }
+      ],
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/AIO-01-D-full-judge-embedding.txt",
+      "sha256": "df629c61879c672fa36e171d3558e2d30052f2843677aa38d1c48968a8dad815",
+      "oldMirrorBytes": 8502,
+      "classification": "Complete attribution-stripped judge input, not the raw captured patch. All blank diff lines were removed by stripIdentifyingText before judging; do not apply as original patch."
+    },
+    {
+      "bytes": 2085,
+      "matchingOldArmPrefixes": [
+        "A"
+      ],
+      "sources": [
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/9ee5a97f-dc34-479d-9ed0-c580727ba6e0.jsonl",
+          "row": 3,
+          "side": "y",
+          "sourceFileSha256": "2d0909b30e6ea0d3251eb8b9dd55fbf9aed1b334e4d0ee72790ea4c80c478794",
+          "sourceRowUtf8Sha256": "57d2452ad33eab26325885ab8408d60f4f8ef0b17633fc87080ac31ef647931d"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/9ee5a97f-dc34-479d-9ed0-c580727ba6e0.jsonl",
+          "row": 21,
+          "side": "y",
+          "sourceFileSha256": "2d0909b30e6ea0d3251eb8b9dd55fbf9aed1b334e4d0ee72790ea4c80c478794",
+          "sourceRowUtf8Sha256": "a6458855ad5894f2c68e2c81772df40981239abcd84372dcaed88383c690560a"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/1484d5c6-271b-4067-9ead-f19bdded3ec8.jsonl",
+          "row": 3,
+          "side": "y",
+          "sourceFileSha256": "004ede6e5f44cecea0287faa81e1db45ca7621e81ca163ac4bdf2ff0b9052985",
+          "sourceRowUtf8Sha256": "20fcd427b65e822b78f1256c21d3ae1e2bdee9ccc851270b317602d4db080d46"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/1484d5c6-271b-4067-9ead-f19bdded3ec8.jsonl",
+          "row": 21,
+          "side": "y",
+          "sourceFileSha256": "004ede6e5f44cecea0287faa81e1db45ca7621e81ca163ac4bdf2ff0b9052985",
+          "sourceRowUtf8Sha256": "8d0b9df29e5b532615bb852b68997f353ae3c39e8a9e711548c9104db2f42eb1"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/73da9261-8b0f-422e-a723-b5a785c4f6ad.jsonl",
+          "row": 3,
+          "side": "x",
+          "sourceFileSha256": "9ec9f19408b133cccb3feec013ede19e1b7713474aa514c1c9fdf9718d68160d",
+          "sourceRowUtf8Sha256": "89b190376ca23d4210d51d8a66ffd4712235d84bff09cd2c0b2e8ac4cb720d64"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/73da9261-8b0f-422e-a723-b5a785c4f6ad.jsonl",
+          "row": 21,
+          "side": "x",
+          "sourceFileSha256": "9ec9f19408b133cccb3feec013ede19e1b7713474aa514c1c9fdf9718d68160d",
+          "sourceRowUtf8Sha256": "773f5407b0f09d8bcf49369206b140ff5e7fa77d1babcf19fe9efd05e26b384b"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/d9ae284c-e51a-4efa-9af8-f2c96894bd85.jsonl",
+          "row": 3,
+          "side": "y",
+          "sourceFileSha256": "f7ffdda7095804f2c88e9cb0d84371feae8bffafffd0a80369e4cd394fcdbcaf",
+          "sourceRowUtf8Sha256": "a7d0a86de95b42f83ace8f9496d2ada0869fd49c0a47297ccd45bad087f40d78"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/d9ae284c-e51a-4efa-9af8-f2c96894bd85.jsonl",
+          "row": 21,
+          "side": "y",
+          "sourceFileSha256": "f7ffdda7095804f2c88e9cb0d84371feae8bffafffd0a80369e4cd394fcdbcaf",
+          "sourceRowUtf8Sha256": "74910a0a08c4916ecf786185691e2e36b64ededbc35d2024e87f9429c8ec6d5d"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/2bf44d59-c793-4e95-bc18-fffef296d977.jsonl",
+          "row": 3,
+          "side": "x",
+          "sourceFileSha256": "ea4ea18e2312535861d5867c556b937da2d18c2ca59429f829edf8f6460ce43a",
+          "sourceRowUtf8Sha256": "2c6e963df925d5a93b6264527f0e3df6459cfc651d4874380e042702be69e001"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/2bf44d59-c793-4e95-bc18-fffef296d977.jsonl",
+          "row": 21,
+          "side": "x",
+          "sourceFileSha256": "ea4ea18e2312535861d5867c556b937da2d18c2ca59429f829edf8f6460ce43a",
+          "sourceRowUtf8Sha256": "5f8db39d4f20d891dd58f8ef4bb22d72082af725823432c669d9b87c79ed2238"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/c96a5ba2-1dee-45c4-91a5-e03b9f9edfd2.jsonl",
+          "row": 3,
+          "side": "x",
+          "sourceFileSha256": "2d4e7c52851570b22a27862bb2b2622962fbb02be5b4f9227b9a14f36c429446",
+          "sourceRowUtf8Sha256": "13b6e1569829cf411599d9eeac20407620c849acdb0cde4dd09af8731853e665"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/c96a5ba2-1dee-45c4-91a5-e03b9f9edfd2.jsonl",
+          "row": 21,
+          "side": "x",
+          "sourceFileSha256": "2d4e7c52851570b22a27862bb2b2622962fbb02be5b4f9227b9a14f36c429446",
+          "sourceRowUtf8Sha256": "44374ca2fc996eb45f64af498652e476684442e0fab2f71a0c3237eb8af086c2"
+        }
+      ],
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/AIO-01-A-full-judge-embedding.txt",
+      "sha256": "06396546f2b857b6a120ef01f1f027cfd1c7e137ffe201ccd8e82f14c35dd602",
+      "oldMirrorBytes": 2085,
+      "classification": "Complete attribution-stripped judge input, not the raw captured patch. All blank diff lines were removed by stripIdentifyingText before judging; do not apply as original patch."
+    },
+    {
+      "bytes": 5706,
+      "matchingOldArmPrefixes": [
+        "G"
+      ],
+      "sources": [
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/1484d5c6-271b-4067-9ead-f19bdded3ec8.jsonl",
+          "row": 3,
+          "side": "x",
+          "sourceFileSha256": "004ede6e5f44cecea0287faa81e1db45ca7621e81ca163ac4bdf2ff0b9052985",
+          "sourceRowUtf8Sha256": "20fcd427b65e822b78f1256c21d3ae1e2bdee9ccc851270b317602d4db080d46"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/1484d5c6-271b-4067-9ead-f19bdded3ec8.jsonl",
+          "row": 21,
+          "side": "x",
+          "sourceFileSha256": "004ede6e5f44cecea0287faa81e1db45ca7621e81ca163ac4bdf2ff0b9052985",
+          "sourceRowUtf8Sha256": "8d0b9df29e5b532615bb852b68997f353ae3c39e8a9e711548c9104db2f42eb1"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/73da9261-8b0f-422e-a723-b5a785c4f6ad.jsonl",
+          "row": 3,
+          "side": "y",
+          "sourceFileSha256": "9ec9f19408b133cccb3feec013ede19e1b7713474aa514c1c9fdf9718d68160d",
+          "sourceRowUtf8Sha256": "89b190376ca23d4210d51d8a66ffd4712235d84bff09cd2c0b2e8ac4cb720d64"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/73da9261-8b0f-422e-a723-b5a785c4f6ad.jsonl",
+          "row": 21,
+          "side": "y",
+          "sourceFileSha256": "9ec9f19408b133cccb3feec013ede19e1b7713474aa514c1c9fdf9718d68160d",
+          "sourceRowUtf8Sha256": "773f5407b0f09d8bcf49369206b140ff5e7fa77d1babcf19fe9efd05e26b384b"
+        }
+      ],
+      "path": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/AIO-01-G-full-judge-embedding.txt",
+      "sha256": "e3e3b818246038d63e3d634e4f3f0908ca616ca1cc7cccb19272cfa6944eb09b",
+      "oldMirrorBytes": 5706,
+      "classification": "Complete attribution-stripped judge input, not the raw captured patch. All blank diff lines were removed by stripIdentifyingText before judging; do not apply as original patch."
+    }
+  ],
+  "unmatchedVariantSummaries": [
+    {
+      "sha256": "1b105403aa526583e7b8258838f6322503c9d0a4266d69abc676e17a878bb699",
+      "bytes": 41116,
+      "matchingOldArmPrefixes": [],
+      "sources": [
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/aa1bf103-6bb6-47ab-a9c7-6b0df9ad41cf.jsonl",
+          "row": 3,
+          "side": "x",
+          "sourceFileSha256": "eeba06f30c9d687ccf180269eb39de41bd222bdbb72a3959fe4a67a95a5df3b1",
+          "sourceRowUtf8Sha256": "527dc87abc36baae7e7b3530a46da32fc55ca259cf18956d7f2200bef60e6fae"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/aa1bf103-6bb6-47ab-a9c7-6b0df9ad41cf.jsonl",
+          "row": 22,
+          "side": "x",
+          "sourceFileSha256": "eeba06f30c9d687ccf180269eb39de41bd222bdbb72a3959fe4a67a95a5df3b1",
+          "sourceRowUtf8Sha256": "488dbc8c5a93c64b7d9dafad18e0af017ec932ada7670b2da632b3271dc2a071"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/408ad611-7d46-4674-af4b-76e659266cff.jsonl",
+          "row": 3,
+          "side": "y",
+          "sourceFileSha256": "1f8d6b28f2c59a068985e3afbd6b2191c9a78acf1502ae0752b125eb883a53fe",
+          "sourceRowUtf8Sha256": "edaa005d3040b9f58553bd34335e4f76071412c2b910e9ce66587e882ec55c91"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/408ad611-7d46-4674-af4b-76e659266cff.jsonl",
+          "row": 22,
+          "side": "y",
+          "sourceFileSha256": "1f8d6b28f2c59a068985e3afbd6b2191c9a78acf1502ae0752b125eb883a53fe",
+          "sourceRowUtf8Sha256": "f85049aada2dacd0928a4032eba31eeec11ddf9185af16b214a5fcd3e67084b2"
+        }
+      ]
+    },
+    {
+      "sha256": "a2839eaa12c0c50920cbaeb53be846c1a027aa69445827b735eb450a42789b8c",
+      "bytes": 28057,
+      "matchingOldArmPrefixes": [],
+      "sources": [
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/aa1bf103-6bb6-47ab-a9c7-6b0df9ad41cf.jsonl",
+          "row": 3,
+          "side": "y",
+          "sourceFileSha256": "eeba06f30c9d687ccf180269eb39de41bd222bdbb72a3959fe4a67a95a5df3b1",
+          "sourceRowUtf8Sha256": "527dc87abc36baae7e7b3530a46da32fc55ca259cf18956d7f2200bef60e6fae"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/aa1bf103-6bb6-47ab-a9c7-6b0df9ad41cf.jsonl",
+          "row": 22,
+          "side": "y",
+          "sourceFileSha256": "eeba06f30c9d687ccf180269eb39de41bd222bdbb72a3959fe4a67a95a5df3b1",
+          "sourceRowUtf8Sha256": "488dbc8c5a93c64b7d9dafad18e0af017ec932ada7670b2da632b3271dc2a071"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/408ad611-7d46-4674-af4b-76e659266cff.jsonl",
+          "row": 3,
+          "side": "x",
+          "sourceFileSha256": "1f8d6b28f2c59a068985e3afbd6b2191c9a78acf1502ae0752b125eb883a53fe",
+          "sourceRowUtf8Sha256": "edaa005d3040b9f58553bd34335e4f76071412c2b910e9ce66587e882ec55c91"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/408ad611-7d46-4674-af4b-76e659266cff.jsonl",
+          "row": 22,
+          "side": "x",
+          "sourceFileSha256": "1f8d6b28f2c59a068985e3afbd6b2191c9a78acf1502ae0752b125eb883a53fe",
+          "sourceRowUtf8Sha256": "f85049aada2dacd0928a4032eba31eeec11ddf9185af16b214a5fcd3e67084b2"
+        }
+      ]
+    },
+    {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "matchingOldArmPrefixes": [],
+      "sources": [
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/d9ae284c-e51a-4efa-9af8-f2c96894bd85.jsonl",
+          "row": 3,
+          "side": "x",
+          "sourceFileSha256": "f7ffdda7095804f2c88e9cb0d84371feae8bffafffd0a80369e4cd394fcdbcaf",
+          "sourceRowUtf8Sha256": "a7d0a86de95b42f83ace8f9496d2ada0869fd49c0a47297ccd45bad087f40d78"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/d9ae284c-e51a-4efa-9af8-f2c96894bd85.jsonl",
+          "row": 21,
+          "side": "x",
+          "sourceFileSha256": "f7ffdda7095804f2c88e9cb0d84371feae8bffafffd0a80369e4cd394fcdbcaf",
+          "sourceRowUtf8Sha256": "74910a0a08c4916ecf786185691e2e36b64ededbc35d2024e87f9429c8ec6d5d"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/2bf44d59-c793-4e95-bc18-fffef296d977.jsonl",
+          "row": 3,
+          "side": "y",
+          "sourceFileSha256": "ea4ea18e2312535861d5867c556b937da2d18c2ca59429f829edf8f6460ce43a",
+          "sourceRowUtf8Sha256": "2c6e963df925d5a93b6264527f0e3df6459cfc651d4874380e042702be69e001"
+        },
+        {
+          "source": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-10-14-local-model-plan-ex-ca2605/2bf44d59-c793-4e95-bc18-fffef296d977.jsonl",
+          "row": 21,
+          "side": "y",
+          "sourceFileSha256": "ea4ea18e2312535861d5867c556b937da2d18c2ca59429f829edf8f6460ce43a",
+          "sourceRowUtf8Sha256": "5f8db39d4f20d891dd58f8ef4bb22d72082af725823432c669d9b87c79ed2238"
+        }
+      ]
+    }
+  ]
+}

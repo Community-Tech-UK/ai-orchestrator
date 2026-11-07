@@ -1,0 +1,17 @@
+import { createHash } from 'crypto';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+import { fileURLToPath } from 'url';
+
+const boundaryPath = fileURLToPath(new URL('./scoring-boundary.cjs', import.meta.url));
+export const boundarySha256 = createHash('sha256').update(readFileSync(boundaryPath)).digest('hex');
+
+/** Inherited by coder tools and test workers; global CLI installations remain usable. */
+export function scoringEnvironment(workspaceDir: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return {
+    ...env,
+    NODE_PATH: '',
+    AIO_BENCHMARK_WORKSPACE: resolve(workspaceDir),
+    NODE_OPTIONS: [env['NODE_OPTIONS'], `--require ${JSON.stringify(boundaryPath)}`].filter(Boolean).join(' '),
+  };
+}

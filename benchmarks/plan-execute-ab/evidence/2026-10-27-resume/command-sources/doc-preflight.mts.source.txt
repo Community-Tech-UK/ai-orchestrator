@@ -1,0 +1,23 @@
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { prepareClosedDocuments } from '../../src/main/plan-queue/plan-queue-doc-close';
+
+const root = '/Users/suas/work/orchestrat0r/ai-orchestrator';
+const relative = 'docs/plans/2026-10-14-local-model-plan-execute-ab_plan_livetest.md';
+const source = readFileSync(`${root}/${relative}`);
+const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
+const prepared = await prepareClosedDocuments(`${root}/${relative}`, root);
+const receipt = {
+  at: new Date().toISOString(),
+  action: 'Read-only coordinator document preparation; no files renamed, written, staged or committed',
+  source: relative,
+  sourceSha256: hash(source),
+  mode: prepared.mode,
+  documents: prepared.mode === 'commit' ? prepared.documents.map(document => ({
+    path: document.relativePath,
+    sha256: hash(document.content),
+    contentMatchesRoot: document.content === source.toString('utf8'),
+  })) : [],
+};
+writeFileSync('benchmarks/plan-execute-ab/evidence/2026-10-27-resume/doc-preparation.receipt.json', JSON.stringify(receipt, null, 2) + '\n');
+console.log(JSON.stringify(receipt));

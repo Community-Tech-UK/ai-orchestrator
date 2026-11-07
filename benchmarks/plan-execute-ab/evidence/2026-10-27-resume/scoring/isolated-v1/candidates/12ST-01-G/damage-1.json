@@ -1,0 +1,12 @@
+{
+  "command": [
+    "sh",
+    "-c",
+    "cd apps/web && pnpm run generate:locales && npx tsc -p tsconfig.spec.json --noEmit"
+  ],
+  "exitCode": 0,
+  "stdout": "\n> @12steps/web@0.0.0 generate:locales /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-resume/historical-12steps/apps/web\n> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-enabled-locales.mjs\n\n",
+  "stderr": "",
+  "timedOut": false,
+  "durationMs": 8666
+}

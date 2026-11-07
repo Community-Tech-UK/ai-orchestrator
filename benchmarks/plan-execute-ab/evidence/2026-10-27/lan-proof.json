@@ -1,0 +1,5 @@
+{
+  "at": "2026-10-27T13:12:53.821221+00:00",
+  "url": "http://192.168.0.2:1235/v1/models",
+  "result": "<urlopen error [Errno 65] No route to host>"
+}

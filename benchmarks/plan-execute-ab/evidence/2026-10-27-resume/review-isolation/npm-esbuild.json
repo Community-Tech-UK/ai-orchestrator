@@ -1,0 +1,10 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "probe"
+  ],
+  "exitCode": 1,
+  "stdout": "\n> isolated-review-fixture@1.0.0 probe\n> esbuild --version\n\n",
+  "stderr": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/scoring-boundary.cjs:39\n      throw Object.assign(new Error(`Dependency outside frozen workspace: ${specifier}`), { code: 'ERR_SCORING_EXTERNAL_DEPENDENCY' });\n      ^\n\nError: Dependency outside frozen workspace: /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/node_modules/.bin/esbuild\n    at resolve (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/scoring-boundary.cjs:39:27)\n    at nextStep (node:internal/modules/customization_hooks:189:26)\n    at resolveWithHooks (node:internal/modules/customization_hooks:417:10)\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1239:25)\n    at Module._load (node:internal/modules/cjs/loader:1370:5)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\n    at node:internal/main/run_main_module:33:47 {\n  code: 'ERR_SCORING_EXTERNAL_DEPENDENCY'\n}\n\nNode.js v26.12.1\n"
+}

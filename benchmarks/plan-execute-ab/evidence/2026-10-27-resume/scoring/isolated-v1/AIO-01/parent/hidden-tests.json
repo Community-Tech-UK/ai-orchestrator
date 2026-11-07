@@ -1,0 +1,14 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "src/main/history/history-manager.spec.ts"
+  ],
+  "exitCode": 1,
+  "stdout": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/history/history-manager.spec.ts\n\n✗ 1 of 41 tests failed in 7.3s:\n\n  ✗ src/main/history/history-manager.spec.ts › HistoryManager does not begin the safety backup before the pending startup writers settle\n    AssertionError: clearAll entered the safety backup while the startup write was blocked: expected 'backup-entry' to be 'startup-wait' // Object.is equality\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/src/main/history/history-manager.spec.ts:370:9\n        at processTicksAndRejections (node:internal/process/task_queues:104:5)\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20\n\nfull log: _scratch/test-run.pid-45982.log\n\n✗ FAILED — 1 of 41 tests failed (exit 1).\n",
+  "stderr": "",
+  "timedOut": false,
+  "durationMs": 7746
+}

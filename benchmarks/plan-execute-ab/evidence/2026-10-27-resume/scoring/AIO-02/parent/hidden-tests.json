@@ -1,0 +1,14 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "scripts/__tests__/release-workflow.spec.ts"
+  ],
+  "exitCode": 1,
+  "stdout": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js scripts/__tests__/release-workflow.spec.ts\n\n✗ 1 of 11 tests failed in 7.7s:\n\n  ✗ scripts/__tests__/release-workflow.spec.ts › Harness release workflow checks model-catalog drift on a schedule and raises one durable issue\n    AssertionError: expected true to be false // Object.is equality\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/scripts/__tests__/release-workflow.spec.ts:102:57\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n        at new ZoneAwarePromise (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3/historical-aio/node_modules/zone.js/fesm2015/zone.js:2238:23)\n        at runWithTimeout (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan\n        …(truncated — see log)\n\nfull log: _scratch/test-run.pid-17590.log\n\n✗ FAILED — 1 of 11 tests failed (exit 1).\n",
+  "stderr": "",
+  "timedOut": false,
+  "durationMs": 8144
+}

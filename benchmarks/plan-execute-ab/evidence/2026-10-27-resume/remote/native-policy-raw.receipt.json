@@ -1,0 +1,16 @@
+{
+  "thread": "a37b6c2d-5860-4048-bf9e-8364db3dee64",
+  "start": 1793116939034,
+  "toolDenials": [
+    {
+      "role": "system",
+      "createdAt": 1793117085027,
+      "content": "[codex] 2026-10-27T16:04:45.026942Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: \"Rejected(\\\"`\\\\\\\"C:\\\\\\\\\\\\\\\\Program Files\\\\\\\\\\\\\\\\PowerShell\\\\\\\\\\\\\\\\7\\\\\\\\\\\\\\\\pwsh.exe\\\\\\\" -Command '$ErrorActionPreference='\\\\\\\"'Stop'\\\\n\\\\\\\"'$run='\\\\\\\"'C:\\\\\\\\\\\\\\\\Users\\\\\\\\\\\\\\\\shutu\\\\\\\\\\\\\\\\Documents\\\\\\\\\\\\\\\\Work\\\\\\\\\\\\\\\\_scratch\\\\\\\\\\\\\\\\queue-7ca7a00e-resume'\\\\n\\\\\\\"'$baseline=Get-Content -LiteralPath (Join-Path $run '\\\\\\\"'preflight.json') -Raw | ConvertFrom-Json\\\\n\\\\\\\"'$exe=$baseline.executable\\\\n$backendD\u20264749 chars truncated\u2026\\\\\\\"'$run '\\\\\\\"'manifest.json') -Encoding utf8\\\\n [pscustomobject]@{OldPIDStopped=82752;NewPID=\\\\\\\"'$started.Id;StartedAt=$new.CreationDate.ToUniversalTime().ToString('\\\\\\\"'o');Executable=\\\\\\\"'$exe;Stdout=$stdout;Stderr=$stderr;KeyFileUnchanged=((Get-FileHash -LiteralPath $keyFile -Algorithm SHA256).Hash -eq $keyHashBefore)} | ConvertTo-Json\\\\n} finally { $env:PATH=$oldPath; $env:CUDA_VISIBLE_DEVICES=$oldCuda }'` rejected: blocked by policy\\\")\" }"
+    }
+  ],
+  "matchingRoles": [
+    "system",
+    "assistant",
+    "assistant"
+  ]
+}

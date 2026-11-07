@@ -1,0 +1,291 @@
+from pathlib import Path
+import datetime
+import hashlib
+import json
+
+root = Path('/Users/suas/work/orchestrat0r/ai-orchestrator')
+work = Path.cwd()
+evidence = work / 'benchmarks/plan-execute-ab/evidence/2026-10-27-resume'
+doc = root / 'docs/plans/2026-10-14-local-model-plan-execute-ab_plan_livetest.md'
+plan = root / 'docs/plans/2026-10-14-local-model-plan-execute-ab_plan.md'
+stamp = '## Evidence run — 27 October 2026 (resumed eligible local checks)'
+body = '''
+## Evidence run — 27 October 2026 (resumed eligible local checks)
+
+**Partial, not eligible for closure.** The evidence directory is
+`benchmarks/plan-execute-ab/evidence/2026-10-27-resume/` (repository-relative,
+preserved on this queue branch). No new accepted pilot cells or subscription conclusions.
+The canonical document and owning plan remain in the root checkout; no completion rename,
+commit, stash, branch switch, nested worktree or landing operation was performed.
+
+### Every check and its current disposition
+
+| Check | Dated evidence | Actual status / next action |
+| --- | --- | --- |
+| A1 | No new download/load. The prior 20 Oct loader acceptance and retained inventory remain historical evidence. | Prior completion retained; no fresh checksum or Flash loader claim. |
+| A2 | Native 2.60.0, 35B at 65536/parallel 1; missing/wrong/configured-key 401/401/200 and exclusive Tailscale listener were rechecked. See `remote/`. | Core route passed. Equivalent WSL2, MTP and batch/thread optimization are **formally waived for this bounded pilot**: the retained native C2 real-prompt gate clears both floors, so tuning cannot decide eligibility. Hold the recorded settings fixed; make no comparative or optimal-tuning claim. No WSL toolchain installation is required for the waived comparison. |
+| A3 | Retain the prior real-prompt 35B server timings and PCIe observation plus historical C2 797/21 keep decision, with their original measurement limits. | Existing gate evidence retained; no fresh C2 or BIOS measurement. |
+| A4 | After preserving lifted system content blocks in the translator, real 35B Read/Edit/Bash smoke again has zero tool errors and an independently passing npm test. `cache-observed/cache-retest.receipt.json`: first request cache 0/input 16921; second cache **17106**/input **43**; subsequent requests also reuse cache. `cache-latency-summary.receipt.json`: client request→upstream message_start **1252.409 ms → 88.576 ms (14.139×)**. | Second-turn cache behavior now demonstrated (LT-1003). The latency is client first-response latency, including network/first-token time, **not pure server prompt_ms**. That narrower server timing remains unmeasured on this replay because the normal stop/relaunch-with-log action was rejected by automatic approval review. No weakened cache criterion or model-score inference. |
+| A5 | Frozen historical dependency installation, native preparation, trusted pre-coder manifest receipts, infrastructure-failure classification and additions-only AIO-01 V2 are wired through both live scoring and public `verify-task`. Diagnostic parent/fixed controls ran, but native esbuild then proved an ancestor dependency bypass; their scores were retracted. See `scoring/` and `review-isolation/`. | **OPEN.** New preflight fails closed for installed ancestor/global module paths. Actual clean controls, thirty baseline rescores and ten B cells await the narrow temporary-folder exception described below. No rejected diagnostic scores are current model outcomes. |
+| A6 + R-A | `recovery/REPORT.md` and hash manifest reconstruct all thirty A/D/G candidates from exact original edit actions; every complete transformed diff equals its original judge input. These are reconstructions, not recovered original runner patches. Eight later C1 full records remain missing. | **OPEN.** New translator behavior is a serving update: run all **ten C1 tasks in a new session** under the `translator-blocks-v2` setup identity, rather than mixing the two old records with eight new ones. Keep original records/quarantines untouched. Missing raw records remain LT-1004; no aggregate-to-record fabrication. |
+| A7 | Two final C2 tracked-diff snapshots recovered (AIO-01, 12ST-02); no subsequent transcript tool calls. They are diagnostic only: runner staged-diff capture may include more. Ten complete C2 records still missing. | **OPEN.** Full ten-task fresh C2 arm required after clean scoring setup, using the retained eligible C2 gate. No paid judges or inferred 3/10 acceptance. |
+| A8 | All thirty baseline patches are structurally replayable with provenance, but accepted clean scoring and local matrix are absent. Historical 32-record report remains separate. | **OPEN.** Final pilot report, stop rule, C1/C2 comparison and subscription advice withheld. Do not treat historical or rejected diagnostic scores as the completed matrix. |
+| B1 | No new hosted sharing authority or request. | Arm E skipped, as specified. Only James can authorize repositories for that provider. |
+| B2 | No personal skim or preference supplied. | Optional James review unperformed; it does not block eligible technical work. |
+| B3 | No separate full-run spend authority and no sound completed pilot. | Not eligible. Later $300–600 run still requires James's authorization; no full-run invocation. |
+| B4 | No sound current C2-vs-C1 comparison establishing the condition. | Not eligible. No firmware action attempted; physical BIOS action would require James if the condition later opens. |
+| C1 finishing | This section and the owning plan record every disposition and limitation. Read-only `prepareClosedDocuments` proves coordinator preparation reads this root document verbatim; no files renamed/staged/integrated. | **OPEN.** Coordinator verification and pilot work remain; root-only document edits are intentional queue ownership, not missing branch documentation. |
+
+### Exact authority boundary and scoring repair
+
+The current queue instruction explicitly forbids source copies/dependency installs outside the
+worktree. Inside the worktree, Node and native esbuild can discover parent `node_modules`, even
+after installing exact historical dependencies. A rejected Node-loader/filesystem guard did not
+contain native resolution; its probes and exact source snapshots are preserved. Final code uses
+the simpler fail-closed location preflight, sanitizes NODE_PATH/PATH and uses an owned offline npx
+cache. Missing executables and changed/deleted manifests are infrastructure errors, never model
+failures. Public `verify-task` uses the same install/scoring/amendment contract as live runs.
+
+At 16:40 UTC James was asked for the smallest necessary exception: disposable task copies in
+`/tmp/aio-lt-queue-7ca7a00e-workspaces`, then remove them after evidence. **No answer has arrived;
+no source or node_modules copy was created there.** Strict lstat receipts find no installed
+ancestor/global module directories. The operating-system sandbox fails with
+`sandbox_apply: Operation not permitted` (exit 71) through both ordinary shell routes; no
+container CLI/standard app binary is available. No bypass or new install was attempted. This
+is an explicit user-scope conflict, not a routine technical choice delegated to James.
+
+The AIO-01 amendment adds one deterministic ordering assertion; all forty original assertions
+remain unchanged. Parent/fixed and bogus-delay controls are retained separately. All earlier
+candidate results, including the initial `git apply` no-op mistake and later native-resolution
+bypass, are diagnostic/retracted. No accepted reconstructed candidate score is claimed.
+
+### Runtime, costs and independent verification
+
+Built and launched the dev app from this worktree with the required isolated profile and port
+9800; focus emulation preceded DOM/IPC. It returned visible/app-root/real listInstances success
+and stopped gracefully with exit 0 (`dev/dev-app.receipt.json`). This reused the owned initialized
+profile; it does **not** fix or freshly disprove LT-1001's first-start migration race.
+
+The latest full suite ran uncached with two workers and returned exit 1: **35379 tests, one
+timeout** in unchanged `loop-verify-baseline.spec.ts`. Its focused rerun passed all eight tests;
+neither result is called a full-suite pass. Earlier full attempts and their failures are also
+preserved. The native-finality fixture's real child startup/final-write race was separately
+reproduced and repaired by waiting for actual child output before advancing only the parent's
+clock; original watchdog values and behavioral assertions remain, plus delayed-startup coverage.
+The final focused nine tests pass. `gates-after-timing/` carries final canonical gate receipts;
+final independent code-review and cleanup outcomes are appended after they finish.
+
+No paid benchmark planner/coder/judge, hosted arm, full run or BIOS operation was invoked.
+Remote diagnostic agents use normal provider tokens; no globally zero-cloud claim. Earlier
+diagnostic failures did not force test-summary disabling, so auxiliary summary attempts cannot
+be excluded; new commands and scorer explicitly set `AIO_TEST_SUMMARY=0`. The prior retained
+explicit benchmark total $66.278098505 is historical evidence, not new invoice confirmation.
+
+Recovery also queried local Time Machine inventories read-only: no snapshots advertised for
+`/`, and `listbackups` returned no machine directory. Those bounded results do not prove that
+no backup exists elsewhere. All thirty reconstructed baseline patches independently rehash and
+parse (`recovery-parent-validation.receipt.json`); eighteen later full records remain missing.
+
+The old eight Windows diagnostic files (13399 bytes) remain behind their recorded automatic
+approval rejection. A later native stop/relaunch-with-log action also returned
+`rejected: blocked by policy`; `remote/native-policy-raw.receipt.json` contains the actual system
+tool denial, with no more specific reason supplied. No alternative route bypassed it. A safer,
+separate stop-only cleanup will be attempted through the same normal review route after the
+pre-cleanup report and seal. Its actual result, helper state and local runtime cleanup are
+recorded in a final addendum; until then, cleanup is not certified.
+'''
+
+text = doc.read_text()
+assert stamp not in text
+start = text.index('Status update (27 Oct, review correction):')
+end = text.index('\nHistorical status (25 Oct', start)
+headline = '''Status update (27 Oct, resumed checks): **IN PROGRESS, not eligible for closure.**
+The second-turn cache behavior now passes on the preserved-system-block translator. Thirty
+A/D/G patches were reconstructed with exact transcript provenance; eighteen later full records
+remain missing. Clean scoring and new B/C1/C2 cells remain open. A narrow exception for clean
+temporary task copies was requested but is unanswered; no outside-worktree copies were made.
+Latest full suite has one timeout (focused rerun passes), not a full-suite pass. Runtime cleanup
+and independent review are recorded in the final dated section. Earlier restoration statements
+below describe their own historical runs, not current state. Hosted sharing/full-run spend
+remain separately unauthorized.
+'''
+text = text[:start] + headline + text[end:]
+text = text.replace('Full queue path:\n`/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27/`.\n', 'The repository-relative path above remains valid after queue landing; absolute command cwd\nfields in raw receipts are historical execution provenance only.\n')
+doc.write_text(text.rstrip() + '\n\n' + body.strip() + '\n')
+
+note = '''
+## As-built update — 27 October 2026, resumed eligible local checks
+
+The pilot is **still incomplete**. Current detailed evidence belongs to the latest dated section
+of [the live-test document](2026-10-14-local-model-plan-execute-ab_plan_livetest.md), edited only
+in the root checkout; portable receipts are under `benchmarks/plan-execute-ab/evidence/2026-10-27-resume/`.
+
+1. The preserved-system-block translator now demonstrates second-request cached reads and much
+   shorter client first-response latency. Pure native server prompt_ms was not measured on this
+   replay; do not equate the two metrics. C1 must restart all ten tasks in a fresh session after
+   this serving update; existing local setup identities now explicitly include translator v2.
+2. Exact historical dependency setup, manifest protection, missing-tool classification and the
+   additions-only deterministic AIO-01 amendment are wired through live scoring and public
+   verify-task. Diagnostic scores were retracted after native esbuild exposed ancestor dependency
+   resolution. Final code fails closed on contaminated locations. Clean control/rescoring awaits
+   an unanswered narrow exception to the current worktree-only task-copy instruction; no copies
+   outside the worktree were created. No accepted new B/C1/C2 cells.
+3. All thirty A/D/G candidate patches are reconstructed from exact original edit actions and
+   match complete original judge inputs after their exact historical transform. These are
+   reconstructions, not original runner patch bytes. Eighteen later C1/C2 full records remain
+   missing. Two final C2 tracked-diff snapshots do not substitute for complete runner records.
+4. Optional WSL2/MTP/batch/thread comparisons are formally waived for this bounded pilot: retain
+   the passing native C2 gate and frozen settings. No optimum or WSL comparison is claimed.
+5. Canonical gates and independent review are in the latest live-test evidence. Full tests
+   returned one unchanged-test timeout; that focused file passed. No full-suite success claim.
+   The repaired native-finality test synchronizes with real child output before moving only the
+   parent clock; assertions and watchdog values remain. No production app behavior changed in
+   this resume's repair. The isolated app was launched with focus emulation and stopped with
+   exit 0 using its initialized profile; LT-1001's fresh-start defect remains open.
+6. No new paid benchmark or hosted/full-run invocation. Runtime cleanup follows report/seal
+   creation, with exact residuals recorded in the live-test document. Automatic approval rejected
+   the native relaunch and prior Windows diagnostic-file deletion; no bypass. Current ownership
+   remains with the queue coordinator: no commit, rename or integration by this worker.
+'''
+assert '## As-built update — 27 October 2026, resumed eligible local checks' not in plan.read_text()
+plan.write_text(plan.read_text().rstrip() + '\n\n' + note.strip() + '\n')
+
+report = '''# Resumed pilot evidence, 27 October 2026
+
+Status: PARTIAL / OPEN. No completed matrix, no new accepted model scores, no subscription advice.
+
+Canonical per-check record is root-checkout
+`docs/plans/2026-10-14-local-model-plan-execute-ab_plan_livetest.md`, latest dated section.
+This evidence directory travels with the queue branch; coordinator preparation reads the root
+document verbatim. Do not copy or rename the source document in the queue worktree.
+
+- Cache: second request reads17106 cached tokens; client first-response1252.409→88.576ms.
+  This is not pure server prompt timing. Real Read/Edit/Bash and independent npm test pass.
+- Recovery:30 transcript-reconstructed A/D/G candidates replayable;18 later full records missing;
+ 2 C2 tracked snapshots diagnostic only. See recovery/REPORT.md and manifest.
+- Scoring: exact setup, trusted manifests, missing tools unscored, AIO01 additions-only v2,
+ public verify-task shared contract. Prior scores diagnostic/retracted due ancestor packages.
+ Final clean-location controls/candidates/local arms held; temp exception requested, unanswered.
+- A2 optional WSL/MTP/tuning formally waived for bounded fixed-setting native pilot.
+- Gates: latest full35379 tests/1 unchanged timeout, focused file8 pass; not full-suite PASS.
+ Other canonical gate receipts in gates-after-timing/; independent fresh code review in
+ review-resume-final/. Final outcomes/addenda recorded after finish.
+- Live app: isolated profile, port9800, focus before DOM/IPC, clean exit0; reused initialized
+ profile, no first-start migration acceptance. No production application fix in this resume.
+- No paid benchmark planner/coder/judge/fullrun/hosted/BIOS action; remote diagnostics have
+ ordinary provider usage and early auxiliary summary attempts cannot be excluded.
+- Report/receipts/seal precede runtime cleanup. Cleanup result to be recorded separately;
+ pre-existing installs/models/credentials/evidence remain preserved.
+
+Interpretation: the pilot remains inconclusive. Retained historical scores and diagnostic
+rescoring cannot decide subscriptions or authorize further spend. Every open check has an
+explicit disposition in its canonical document; absence of permission is not approval.
+'''
+(evidence / 'REPORT.md').write_text(report)
+
+register = work / 'docs/plans/livetest-remediation-register.md'
+reg = register.read_text()
+updates = {
+'lt-1000': '''### 27 October resumed run: exact setup wired; final clean execution pending
+
+The benchmark now installs each exported historical manifest/lockfile before coding (including
+normal native preparation), retains trusted pre-coder hashes and refuses changed/deleted
+manifests. Missing executables/tooling are infrastructure failures, not model scores. Both
+public verify-task and live scoreRun share this contract. Diagnostic controls passed, then
+native esbuild proved that ancestor checkout packages could still satisfy missing imports.
+Those scores and a rejected Node/fs-hook guard are explicitly retracted, with probe receipts.
+The simpler final location preflight rejects installed ancestor/global module paths, sanitizes
+NODE_PATH/PATH, and uses an owned offline npx cache. Actual clean controls/rescores remain open.
+The user's worktree-only-copy instruction conflicts with the necessary clean location; a
+narrow temporary-directory exception was requested and is unanswered. No outside-worktree
+source/dependency copy was made. See `benchmarks/plan-execute-ab/evidence/2026-10-27-resume/`
+under `scoring/` and `review-isolation/`. No model outcome accepted from this diagnostic work.
+''',
+'lt-1002': '''### 27 October resumed run: V2 adopted, accepted candidate rescoring still open
+
+The separate deterministic V2 test is now a task-bank amendment and is applied consistently
+by live scoring and public verify-task. All forty old assertions remain untouched. Diagnostic
+parent/fixed/bogus-delay evidence remains retained, but native dependency isolation findings
+invalidate those environments as final scoring proof. Clean controls and all affected archived
+candidates must still be rescored under the final contract; no old model score was rewritten.
+Evidence: `benchmarks/plan-execute-ab/evidence/2026-10-27-resume/scoring/` and fresh reviews.
+''',
+'lt-1003': '''### 27 October resumed run: second-turn cache behavior demonstrated
+
+The translator preserves lifted structured system content instead of serializing the whole
+block array into text. A real native35B Read/Edit/Bash smoke plus independent npm test pass,
+zero tool errors. Observed request one cache0/input16921, request two cache17106/input43,
+and later requests positive. Client request-to-upstream-message_start falls1252.409→88.576ms
+(14.139x); that includes network and first-token time, not pure server prompt_ms. The latter
+was not measured because native stop/relaunch-with-log was rejected by automatic approval.
+Behavioral cache gap is reproduced as fixed; independent final verification remains recorded
+separately. All ten new C1 cells require translator-v2 setup identity and a fresh session;
+do not merge earlier translator records into this comparison. Evidence:
+`benchmarks/plan-execute-ab/evidence/2026-10-27-resume/cache-observed/cache-retest.receipt.json`
+and `cache-latency-summary.receipt.json`. No model score or pure server-time claim follows.
+''',
+'lt-1004': '''### 27 October resumed recovery: thirty baseline candidates reconstructed
+
+All thirty A/D/G candidate patches were deterministically rebuilt from exact chronological
+original edit actions against recorded parents. Each complete diff after the exact historical
+judge transform matches a complete original judge input including Git hashes/hunks. These are
+transcript reconstructions, not recovered original runner patch bytes. Independent parent
+hash/parse receipt confirms all thirty. Two final C2 tracked-diff snapshots are diagnostic
+only; runner staged capture may have included more. Eight later C1 and ten C2 full records
+remain missing. Bounded Git/CLI/ledger/local Time Machine searches do not exclude every backup.
+No new runner records were synthesized and the historical portable mirror/quarantines stay
+unchanged. Full local reruns and accepted clean rescoring remain open. See
+`benchmarks/plan-execute-ab/evidence/2026-10-27-resume/recovery/REPORT.md` and manifests.
+'''
+}
+for ident, update in updates.items():
+    anchor = '<a id="' + ident + '"></a>'
+    start = reg.index(anchor)
+    end = reg.find('<a id="', start + len(anchor))
+    if end < 0: end = len(reg)
+    assert update.splitlines()[0] not in reg[start:end]
+    reg = reg[:end].rstrip() + '\n\n' + update.strip() + '\n\n' + reg[end:]
+rows = reg.splitlines()
+for i, row in enumerate(rows):
+    if row.startswith('| LT-1000 |'):
+        rows[i] = row.replace('**REPRODUCED 2026-10-27; scoring blocked.**', '**REPAIRS WIRED 2026-10-27; clean scoring still OPEN.**')
+    elif row.startswith('| LT-1002 |'):
+        rows[i] = row.replace('**OPEN, reproduced twice 2026-10-27.**', '**V2 ADOPTED 2026-10-27; clean control/rescoring OPEN.**')
+    elif row.startswith('| LT-1003 |'):
+        rows[i] = '| LT-1003 | P2 | **SECOND-TURN CACHE BEHAVIOR DEMONSTRATED 2026-10-27.** Preserved structured system blocks yield request-two cache17106/input43 and much shorter client first-response latency; no pure server prompt-time claim. Final independent verification remains separate. | [LT-1003 detail](#lt-1003) | [Local-model check A4](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |'
+    elif row.startswith('| LT-1004 |'):
+        rows[i] = row.replace('Eight later settled C1 and ten C2 full records and patches are absent', 'Thirty A/D/G candidates reconstructed with provenance; eight later settled C1 and ten C2 full records remain absent')
+register.write_text('\n'.join(rows) + '\n')
+follow = work / 'docs/plans/2026-07-19-livetest-failure-remediation-followup_plan.md'
+follow.write_text(follow.read_text().rstrip() + '''
+
+### 27 October resumed campaign update
+
+- LT-1000: historical exact install/native preparation and shared public/live scoring are wired;
+  missing-tool/manifest failures unscored. Ancestor native dependency bypass exposed and previous
+  diagnostic scores retracted. Final clean-location control/rescoring pending an unanswered
+  explicit worktree-copy exception. No outside-worktree source/dependency copy created.
+- LT-1001: unchanged, fresh-profile migration fix pending; reused-profile IPC is no acceptance.
+- LT-1002: additions-only deterministic V2 adopted by task bank and both verification/scoring
+  paths; original forty assertions untouched. Clean affected-candidate rescoring remains open.
+- LT-1003: real second-request cached reads now demonstrated on preserved-system-block translator;
+  client first-response improves14.139x. Not a pure server prompt_ms sample. Independent final
+  review outcome is separate; all new C1 cells require full restart under translator v2.
+- LT-1004: all thirty A/D/G candidates reconstructed with complete original-judge-transform
+  equivalence; eighteen later full records still absent. Two C2 final tracked snapshots diagnostic
+  only. No full runner records synthesized or original mirror/quarantines altered.
+
+Evidence is `benchmarks/plan-execute-ab/evidence/2026-10-27-resume/`; canonical current per-check
+status stays in the root-checkout owning livetest. Full-suite timeout and all cleanup/policy
+limits remain explicit there. The historical backlog already points to this owner and explicitly
+forbids adding current statuses, so that current ownership pointer is retained unchanged.
+''')
+
+# Immutable pre-cleanup inventory; final cleanup/review addenda receive a separate final seal.
+files = []
+for p in sorted(evidence.rglob('*')):
+    if p.is_file() and p.name not in ('PRE-CLEANUP-SEAL.json', 'FINAL-SEAL.json'):
+        raw = p.read_bytes()
+        files.append(dict(path=str(p.relative_to(evidence)), bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest()))
+(evidence / 'PRE-CLEANUP-SEAL.json').write_text(json.dumps(dict(at=datetime.datetime.now(datetime.timezone.utc).isoformat(), status='partial; review/gate/cleanup addenda pending', files=files), indent=2) + '\n')
+print(json.dumps(dict(at=datetime.datetime.now(datetime.timezone.utc).isoformat(), document=str(doc), plan=str(plan), filesSealed=len(files), status='partial')))

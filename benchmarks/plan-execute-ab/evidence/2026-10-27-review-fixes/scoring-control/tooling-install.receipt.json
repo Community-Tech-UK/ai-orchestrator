@@ -1,0 +1,13 @@
+{
+  "command": [
+    "npm",
+    "install",
+    "--ignore-scripts",
+    "--no-audit",
+    "--no-fund",
+    "--package-lock"
+  ],
+  "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling",
+  "exitCode": 0,
+  "elapsedSeconds": 2.054555892944336
+}

@@ -1,0 +1,607 @@
+diff --git a/docs/plans/2026-10-15-large-session-save_plan.md b/docs/plans/2026-10-15-large-session-save_plan.md
+new file mode 100644
+index 0000000..de4fbe5
+--- /dev/null
++++ b/docs/plans/2026-10-15-large-session-save_plan.md
+@@ -0,0 +1,17 @@
++# Large session save implementation plan
++
++Goal: Save large restored conversations without a whole-payload JSON.stringify call, preserving existing session round trips and atomic persistence.
++
++Approach: Generate bounded JSON fragments, including long strings and the quoted plaintext envelope. Feed fragments directly to the existing async and synchronous atomic writers. Preserve the legacy encrypted envelope for one-fragment payloads; for larger payloads encrypt each bounded fragment and store ciphertexts in the envelope's data array. Update manager, read-only recovery, repair, and quarantine paths to recognize encrypted arrays.
++
++Risks: JSON omission/toJSON semantics, surrogate pairs at fragment boundaries, generator failures leaving staging files, stale writes, synchronous shutdown durability, and consistent encrypted-array support across readers. Whole-file reads remain outside this save-path change; reading files above V8's string limit still requires a separate streaming-reader change.
++
++- [x] Reproduce the whole-payload stringify in the real session save path with a deterministic allocation-size guard. Old implementation fails the 19k-message test because the rejected serialization leaves no saved file.
++- [x] Add bounded serialization and wire both atomic writers, preserving fsync, rename, epoch checks, and cleanup. Capture fragments synchronously so updates during async I/O cannot alter an in-flight save.
++- [x] Verify normal/encrypted round trips, 19k-message save, long strings, JSON semantics, and interrupted writes. Focused existing suites: 101 tests pass; expanded new suites: 11 tests pass. Standalone compiled-runtime stress: 623,188,946 bytes across 10,858 fragments, above V8 MAX_STRING_LENGTH 536,870,888; async and synchronous atomic writers both pass and clean up their output. Evidence: `_scratch/large-save-stress.log` and `_scratch/large-session-save-stress.cjs`.
++- [x] Run targeted tests and canonical project gates; record any environment failures. Final focused six-file suite: 129 tests pass; final additional three-file suite: 19 tests pass. TypeScript application/spec checks, lint, LOC ratchet, main build and renderer build pass. Full suite exits 1: 29,981 passed, 3 failed, 7 skipped across 2,382 files (2 failed / 2,380 passed), 746.05 seconds. The only failures are unrelated environment problems: supplied linked node_modules owner manifests differ, and the Homebrew Node used by both SEA repeatability tests lacks the SEA fuse. The full run started before the last encryption/quarantine follow-up; focused and independent checks cover the final patch. Do not change the shared dependency install or unrelated build tooling for this task.
++- [ ] Obtain a clean independent fresh-agent task-completion-gate PASS. First pass found whole-plaintext encryption allocation, now fixed. A different fresh verifier independently passed 107 focused tests, adjacent snapshot tests, 300 deterministic native-JSON/Unicode parity cases, both compiled writers on 830,813,601 encrypted bytes in 13,572 bounded fragments, TypeScript and lint. Final independent verdict: FAIL solely on Gate 0's environment blocker; no critical patch issues, warnings, actionable suggestions, or source remediation requested. The literal full-suite gate remains blocked by the supplied environment.
++
++Status: Implementation and focused verification applied; active pending a clean full-suite completion gate. Encrypted writes now use bounded plaintext/ciphertext fragments, and all associated readers, repair and quarantine accept them. Existing small encrypted and plaintext formats round-trip exactly. Full-suite environment failures prevent closing this plan under the required workflow. No branch, worktree, commit, or external application changes.
++
++Evidence: `_scratch/large-save-focused-final.log`, `_scratch/large-save-final-regression.log`, `_scratch/large-save-spec-typecheck-final.log`, `_scratch/large-save-typecheck.log`, `_scratch/large-save-lint.log`, `_scratch/large-save-loc.log`, `_scratch/large-save-build-main.log`, `_scratch/large-save-build-renderer.log`, `_scratch/large-save-stress-encrypted.log`, `_scratch/large-save-fresh-final-focused.log`, `_scratch/large-save-fresh-final-baseline.log`, `_scratch/large-save-full-test.log`.
+diff --git a/src/main/session/continuity-recovery-metadata.ts b/src/main/session/continuity-recovery-metadata.ts
+index e057d14..d0f169e 100644
+--- a/src/main/session/continuity-recovery-metadata.ts
++++ b/src/main/session/continuity-recovery-metadata.ts
+@@ -17,7 +17,7 @@ import type {
+   ContinuityStateFileGeneration,
+ } from './session-recovery-candidate-service';
+ import type { SessionState } from './session-continuity.types';
+-import { getSafeStorage } from './safe-storage-accessor';
++import { decryptSessionData, isEncryptedSessionData } from './session-payload-serializer';
+ import { getContinuityStagingPath } from './continuity-staging-file';
+ export const MAX_LEGACY_RECOVERY_STATE_READS = 50;
+@@ -147,7 +147,7 @@ function fsyncParentDirectory(filePath: string): void {
+ export async function writeContinuityPayloadAsyncAtomic(
+   filePath: string,
+-  serialized: string,
++  serialized: string | Iterable<string>,
+   canCommit: () => boolean = () => true,
+ ): Promise<boolean> {
+   const tmpFile = getContinuityStagingPath(filePath);
+@@ -172,12 +172,16 @@ export async function writeContinuityPayloadAsyncAtomic(
+   }
+ }
+-export function writeContinuityPayloadSyncAtomic(filePath: string, serialized: string): void {
++export function writeContinuityPayloadSyncAtomic(filePath: string, serialized: string | Iterable<string>): void {
+   const tmpFile = getContinuityStagingPath(filePath);
+   try {
+-    fs.writeFileSync(tmpFile, serialized);
+-    const fd = fs.openSync(tmpFile, 'r');
+-    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
++    const fd = fs.openSync(tmpFile, 'w');
++    try {
++      for (const chunk of typeof serialized === 'string' ? [serialized] : serialized) {
++        fs.writeFileSync(fd, chunk);
++      }
++      fs.fsyncSync(fd);
++    } finally { fs.closeSync(fd); }
+     fs.renameSync(tmpFile, filePath);
+     fsyncParentDirectory(filePath);
+   } catch (error) {
+@@ -189,8 +193,9 @@ export function writeContinuityPayloadSyncAtomic(filePath: string, serialized: s
+ function decodeContinuityPayload<T>(raw: string): T | null {
+   try {
+     let parsed = JSON.parse(raw) as Record<string, unknown>;
+-    if (parsed?.['encrypted'] === true && typeof parsed['data'] === 'string') {
+-      const decrypted = getSafeStorage().decryptString(Buffer.from(parsed['data'], 'base64'));
++    if (parsed?.['encrypted'] === true) {
++      if (!isEncryptedSessionData(parsed['data'])) return null;
++      const decrypted = decryptSessionData(parsed['data']);
+       return JSON.parse(decrypted) as T;
+     }
+     if (parsed?.['encrypted'] === false && typeof parsed['data'] === 'string') {
+diff --git a/src/main/session/session-continuity-large-save.spec.ts b/src/main/session/session-continuity-large-save.spec.ts
+new file mode 100644
+index 0000000..09d2783
+--- /dev/null
++++ b/src/main/session/session-continuity-large-save.spec.ts
+@@ -0,0 +1,167 @@
++import * as fs from 'node:fs';
++import * as path from 'node:path';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import type { SessionState } from './session-continuity.types';
++
++const mocks = vi.hoisted(() => ({
++  root: '',
++  encryptionAvailable: false,
++  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
++  encryptString: vi.fn((value: string) => Buffer.from(value)),
++  decryptString: vi.fn((value: Buffer) => value.toString()),
++}));
++vi.mock('../storage/project-storage-paths', () => ({
++  getProjectStoragePaths: () => ({
++    getGlobalDomainRoot: () => mocks.root,
++    getSessionEventLogPath: () => path.join(mocks.root, 'events.jsonl'),
++  }),
++}));
++vi.mock('../logging/logger', () => ({ getLogger: () => mocks.logger }));
++vi.mock('../util/cleanup-registry', () => ({ registerCleanup: () => vi.fn() }));
++vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: vi.fn() }));
++vi.mock('./resume-hint', () => ({ getResumeHintManager: () => ({ saveHint: vi.fn() }) }));
++vi.mock('./safe-storage-accessor', () => ({
++  getSafeStorage: () => ({
++    isEncryptionAvailable: () => mocks.encryptionAvailable,
++    encryptString: mocks.encryptString,
++    decryptString: mocks.decryptString,
++  }),
++}));
++
++import { SessionContinuityManager } from './session-continuity';
++import { getSessionPersistenceQueue, _resetSessionPersistenceQueueForTesting } from './session-persistence-queue';
++import { readContinuityPayloadReadOnly, readContinuityPayloadHandleReadOnly } from './continuity-recovery-metadata';
++import { repairFile } from './session-repair';
++
++let manager: SessionContinuityManager | undefined;
++beforeEach(async () => {
++  mocks.encryptString.mockClear();
++  mocks.decryptString.mockReset().mockImplementation((value: Buffer) => value.toString());
++  await fs.promises.mkdir(path.join(process.cwd(), '_scratch'), { recursive: true });
++});
++afterEach(async () => {
++  vi.restoreAllMocks();
++  manager?.shutdown();
++  manager = undefined;
++  await getSessionPersistenceQueue().shutdown({ drain: true });
++  _resetSessionPersistenceQueueForTesting();
++  if (mocks.root) await fs.promises.rm(mocks.root, { recursive: true, force: true });
++  mocks.encryptionAvailable = false;
++});
++
++function makeState(): SessionState {
++  return {
++    instanceId: 'large-save', displayName: 'Large save', agentId: 'build',
++    modelId: 'placeholder-model', provider: 'claude', workingDirectory: '/workspace',
++    conversationHistory: [], contextUsage: { used: 0, total: 200000 },
++    pendingTasks: [], environmentVariables: {}, activeFiles: [], skillsLoaded: [], hooksActive: [],
++  };
++}
++
++describe('bounded session-state saving', () => {
++  it.each([false, true])('round-trips ordinary sessions with encryption=%s', async (encryptOnDisk) => {
++    mocks.root = await fs.promises.mkdtemp(path.join(process.cwd(), '_scratch/ordinary-save-'));
++    mocks.encryptionAvailable = true;
++    manager = new SessionContinuityManager({ autoSaveEnabled: false, encryptOnDisk });
++    const state = makeState();
++    state.conversationHistory.push({
++      id: 'message', role: 'user', timestamp: 1,
++      content: 'Quotes " slashes \\ newline\n\u0000 emoji 😀 lone surrogate \ud800',
++    });
++    await manager.importSession({ state });
++    const saved = manager.getSessionState(state.instanceId)!;
++    const raw = await fs.promises.readFile(path.join(mocks.root, 'states/large-save.json'), 'utf8');
++    const json = JSON.stringify(saved);
++    expect(raw).toBe(JSON.stringify({
++      encrypted: encryptOnDisk,
++      data: encryptOnDisk ? Buffer.from(json).toString('base64') : json,
++    }));
++    manager.shutdown();
++    manager = new SessionContinuityManager({ autoSaveEnabled: false, encryptOnDisk });
++    await expect(manager.loadRecoveryState(state.instanceId)).resolves.toEqual(saved);
++  });
++
++  it.each([false, true])('saves 19k restored messages and provider identity without whole-payload stringify (encryption=%s)', async (encryptOnDisk) => {
++    mocks.root = await fs.promises.mkdtemp(path.join(process.cwd(), '_scratch/large-save-'));
++    mocks.encryptionAvailable = true;
++    manager = new SessionContinuityManager({ autoSaveEnabled: false, encryptOnDisk, maxConversationEntries: 20000 });
++    const state = makeState();
++    state.conversationHistory = Array.from({ length: 19000 }, (_, index) => ({
++      id: `message-${index}`, role: index % 2 ? 'assistant' : 'user',
++      content: 'Conversation fixture "\\\n😀 '.repeat(10), timestamp: index + 1,
++    }));
++    // Simulate the allocation boundary deterministically without aborting V8.
++    const stringify = JSON.stringify;
++    const guard: typeof JSON.stringify = (value, replacer, space) => {
++      if ((typeof value === 'string' && value.length > 65536)
++        || (value !== null && typeof value === 'object' && stringify(value).length > 65536)) {
++        throw new RangeError('whole-payload stringify allocation');
++      }
++      if (typeof replacer === 'function') return stringify(value, replacer, space);
++      return stringify(value, replacer, space);
++    };
++    JSON.stringify = guard;
++    try {
++      await manager.importSession({ state });
++      const stateFile = path.join(mocks.root, 'states/large-save.json');
++      const readState = async (): Promise<SessionState> => {
++        const envelope = JSON.parse(await fs.promises.readFile(stateFile, 'utf8'));
++        const json = envelope.encrypted
++          ? (Array.isArray(envelope.data) ? envelope.data : [envelope.data])
++            .map((chunk: string) => Buffer.from(chunk, 'base64').toString()).join('')
++          : envelope.data;
++        return JSON.parse(json);
++      };
++      expect((await readState()).conversationHistory).toEqual(state.conversationHistory);
++      await manager.updateState(state.instanceId, { provider: 'codex' });
++      await manager.writeThroughIdentity(state.instanceId, { sessionId: 'placeholder-session' });
++      expect(await readState()).toMatchObject({ provider: 'codex', sessionId: 'placeholder-session' });
++      // Exercise the separate synchronous shutdown writer with the same guard.
++      await manager.addConversationEntry(state.instanceId, {
++        id: 'shutdown-message', role: 'user', content: 'final fixture', timestamp: 19001,
++      });
++      manager.shutdown();
++      const shutdownHistory = (await readState()).conversationHistory;
++      expect(shutdownHistory.at(-1)?.id).toBe('shutdown-message');
++      expect(shutdownHistory).toHaveLength(19001);
++      if (encryptOnDisk) {
++        expect(mocks.encryptString.mock.calls.length).toBeGreaterThan(1);
++        expect(mocks.encryptString.mock.calls.every(([json]) => json.length <= 65536)).toBe(true);
++      }
++    } finally {
++      JSON.stringify = stringify;
++    }
++    manager = new SessionContinuityManager({ autoSaveEnabled: false, encryptOnDisk });
++    const recovered = await manager.loadRecoveryState(state.instanceId);
++    expect(recovered?.conversationHistory).toHaveLength(19001);
++    expect(recovered?.provider).toBe('codex');
++    const file = path.join(mocks.root, 'states/large-save.json');
++    expect(await readContinuityPayloadReadOnly(file)).toEqual(recovered);
++    const handle = await fs.promises.open(file, 'r');
++    try {
++      expect(await readContinuityPayloadHandleReadOnly(handle)).toEqual(recovered);
++    } finally {
++      await handle.close();
++    }
++    expect(repairFile(file, path.join(mocks.root, 'quarantine')).status).toBe('ok');
++  }, 30000);
++
++  it('quarantines an encrypted-fragment file when any fragment cannot be decrypted', async () => {
++    mocks.root = await fs.promises.mkdtemp(path.join(process.cwd(), '_scratch/encrypted-save-'));
++    mocks.encryptionAvailable = true;
++    manager = new SessionContinuityManager({ autoSaveEnabled: false, encryptOnDisk: true });
++    const state = makeState();
++    state.systemPrompt = 'fixture text'.repeat(10000);
++    await manager.importSession({ state });
++    manager.shutdown();
++    const decrypt = mocks.decryptString.getMockImplementation()!;
++    mocks.decryptString.mockImplementation((value: Buffer) => {
++      if (value.includes(Buffer.from('fixture text'))) throw new Error('fixture decryption failure');
++      return decrypt(value);
++    });
++    manager = new SessionContinuityManager({ autoSaveEnabled: false, encryptOnDisk: true });
++    await expect(manager.loadRecoveryState(state.instanceId)).resolves.toBeNull();
++    expect(await fs.promises.readdir(path.join(mocks.root, 'states'))).toEqual([]);
++    expect(await fs.promises.readdir(path.join(mocks.root, 'quarantine'))).toHaveLength(1);
++  });
++});
+diff --git a/src/main/session/session-continuity-persistence-operations.ts b/src/main/session/session-continuity-persistence-operations.ts
+index 1ffd271..2e3bfdf 100644
+--- a/src/main/session/session-continuity-persistence-operations.ts
++++ b/src/main/session/session-continuity-persistence-operations.ts
+@@ -6,7 +6,7 @@ import { getSessionMutex } from './session-mutex';
+ export interface SessionContinuityPersistenceOperations {
+   writePayloadAtomic(
+     filePath: string,
+-    serialized: string,
++    serialized: string | Iterable<string>,
+     canCommit?: () => boolean,
+   ): Promise<boolean>;
+   statStateFile(filePath: string): Promise<Stats>;
+diff --git a/src/main/session/session-continuity.ts b/src/main/session/session-continuity.ts
+index b19f1ed..ab0a460 100644
+--- a/src/main/session/session-continuity.ts
++++ b/src/main/session/session-continuity.ts
+@@ -26,7 +26,7 @@ import { measureAsync } from '../util/slow-operations';
+ import { getResumeHintManager } from './resume-hint';
+ import { getLastStopSnapshotIfInitialized } from './last-stop-snapshot';
+ import type { RecoverableSessionSelectionInput } from './recoverable-session-selection';
+-import { getSafeStorage } from './safe-storage-accessor';
++import { decryptSessionData, isEncryptedSessionData, serializeSessionPayload } from './session-payload-serializer';
+ import { getProjectStoragePaths } from '../storage/project-storage-paths';
+ import { SessionAutoSaveCoordinator } from './autosave-coordinator';
+ import { getSessionPersistenceQueue } from './session-persistence-queue';
+@@ -1380,7 +1380,7 @@ export class SessionContinuityManager extends EventEmitter {
+         parsedEnvelope &&
+         typeof parsedEnvelope === 'object' &&
+         parsedEnvelope['encrypted'] === true &&
+-        typeof parsedEnvelope['data'] === 'string'
++        isEncryptedSessionData(parsedEnvelope['data'])
+       ) {
+         try {
+           const quarantinedPath = quarantineFile(filePath, this.quarantineDir);
+@@ -1421,18 +1421,8 @@ export class SessionContinuityManager extends EventEmitter {
+     return null;
+   }
+-  private serializePayload(data: unknown): string {
+-    const json = JSON.stringify(data);
+-    if (this.config.encryptOnDisk) {
+-      // Lazy access to avoid triggering Keychain usage on startup.
+-      // See safe-storage-accessor.ts for the why behind the indirection.
+-      const safeStorage = getSafeStorage();
+-      if (safeStorage.isEncryptionAvailable()) {
+-        const encrypted = safeStorage.encryptString(json).toString('base64');
+-        return JSON.stringify({ encrypted: true, data: encrypted });
+-      }
+-    }
+-    return JSON.stringify({ encrypted: false, data: json });
++  private serializePayload(data: unknown): Iterable<string> {
++    return serializeSessionPayload(data, this.config.encryptOnDisk);
+   }
+   private deserializePayload<T>(raw: string, filePath?: string): T | null {
+@@ -1454,16 +1444,9 @@ export class SessionContinuityManager extends EventEmitter {
+         'encrypted' in parsed &&
+         'data' in parsed
+       ) {
+-        if (
+-          parsed['encrypted'] === true &&
+-          typeof parsed['data'] === 'string'
+-        ) {
+-          // Lazy access to avoid triggering Keychain usage on startup.
+-          // See safe-storage-accessor.ts for the why behind the indirection.
+-          const safeStorage = getSafeStorage();
+-          const decrypted = safeStorage.decryptString(
+-            Buffer.from(parsed['data'], 'base64')
+-          );
++        if (parsed['encrypted'] === true) {
++          if (!isEncryptedSessionData(parsed['data'])) throw new TypeError('Invalid encrypted session data');
++          const decrypted = decryptSessionData(parsed['data']);
+           return JSON.parse(decrypted) as T;
+         }
+         if (
+diff --git a/src/main/session/session-payload-serializer.spec.ts b/src/main/session/session-payload-serializer.spec.ts
+new file mode 100644
+index 0000000..3a0f307
+--- /dev/null
++++ b/src/main/session/session-payload-serializer.spec.ts
+@@ -0,0 +1,100 @@
++import * as fs from 'node:fs';
++import * as path from 'node:path';
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
++import { serializeSessionPayload } from './session-payload-serializer';
++import { writeContinuityPayloadAsyncAtomic, writeContinuityPayloadSyncAtomic } from './continuity-recovery-metadata';
++
++vi.mock('../util/cleanup-registry', () => ({ registerCleanup: () => vi.fn() }));
++
++beforeEach(async () => {
++  await fs.promises.mkdir(path.join(process.cwd(), '_scratch'), { recursive: true });
++});
++
++describe('session payload serializer', () => {
++  it('matches native JSON semantics for ordinary session values', () => {
++    const shared = { repeated: true };
++    const data = {
++      missing: undefined, fn: () => undefined, symbol: Symbol('omitted'),
++      array: [undefined, , () => undefined, Symbol('null'), NaN, Infinity, -Infinity, -0],
++      nested: { text: '\u0000\b\f\n\r\t"\\😀\ud800\udc00', empty: {}, null: null },
++      date: new Date('2026-01-01T00:00:00Z'),
++      keys: { 10: 'ten', 2: 'two', first: 1 },
++      toJSONValue: { toJSON(key: string) { return { key }; } },
++      boxed: [new Number(2), new String('text'), new Boolean(false)],
++      shared: [shared, shared],
++    };
++    expect(Array.from(serializeSessionPayload(data, false)).join('')).toBe(
++      JSON.stringify({ encrypted: false, data: JSON.stringify(data) }),
++    );
++  });
++
++  it('bounds chunks and preserves long keys, strings, escapes and split surrogate pairs', () => {
++    const text = 'x'.repeat(8191) + '😀' + '\u0000"\\\n\ud800'.repeat(100000);
++    const data = { [text]: text, nested: [text] };
++    const nativeStringify = JSON.stringify;
++    const expected = nativeStringify({ encrypted: false, data: nativeStringify(data) });
++    const guard = vi.spyOn(JSON, 'stringify').mockImplementation((value, replacer, space) => {
++      expect(typeof value).not.toBe('object');
++      if (typeof value === 'string') expect(value.length).toBeLessThanOrEqual(8192);
++      return nativeStringify(value, replacer, space);
++    });
++    let chunks: string[];
++    try {
++      chunks = Array.from(serializeSessionPayload(data, false));
++    } finally {
++      guard.mockRestore();
++    }
++    expect(chunks.length).toBeGreaterThan(1);
++    expect(chunks.every((chunk) => chunk.length <= 65536)).toBe(true);
++    expect(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString()).toBe(expected);
++  });
++
++  it('captures the payload before asynchronous writes can observe mutations', () => {
++    const data = { messages: ['before'] };
++    const chunks = serializeSessionPayload(data, false);
++    data.messages.push('after');
++    const envelope = JSON.parse(Array.from(chunks).join(''));
++    expect(JSON.parse(envelope.data)).toEqual({ messages: ['before'] });
++  });
++
++  it('rejects cycles and BigInt rather than silently losing data', () => {
++    const cycle: Record<string, unknown> = {};
++    cycle['self'] = cycle;
++    for (const value of [cycle, { bigint: 1n }, { boxed: Object(1n) }]) {
++      expect(() => Array.from(serializeSessionPayload(value, false))).toThrow(TypeError);
++    }
++  });
++});
++
++describe('atomic fragmented writes', () => {
++  let directory = '';
++  afterEach(async () => {
++    if (directory) await fs.promises.rm(directory, { recursive: true, force: true });
++  });
++
++  it.each(['async', 'sync'])('keeps the old file and cleans staging files on a failed %s write', async (mode) => {
++    directory = await fs.promises.mkdtemp(path.join(process.cwd(), '_scratch/chunk-write-'));
++    const file = path.join(directory, 'state.json');
++    await fs.promises.writeFile(file, 'previous state');
++    function* failingChunks(): Generator<string> {
++      yield '{"incomplete":';
++      throw new Error('fixture serialization failure');
++    }
++    if (mode === 'async') {
++      await expect(writeContinuityPayloadAsyncAtomic(file, failingChunks())).rejects.toThrow('fixture serialization failure');
++    } else {
++      expect(() => writeContinuityPayloadSyncAtomic(file, failingChunks())).toThrow('fixture serialization failure');
++    }
++    expect(await fs.promises.readFile(file, 'utf8')).toBe('previous state');
++    expect(await fs.promises.readdir(directory)).toEqual(['state.json']);
++  });
++
++  it('does not publish fragmented output after its write epoch becomes stale', async () => {
++    directory = await fs.promises.mkdtemp(path.join(process.cwd(), '_scratch/chunk-write-'));
++    const file = path.join(directory, 'state.json');
++    await fs.promises.writeFile(file, 'previous state');
++    await expect(writeContinuityPayloadAsyncAtomic(file, ['new ', 'state'], () => false)).resolves.toBe(false);
++    expect(await fs.promises.readFile(file, 'utf8')).toBe('previous state');
++    expect(await fs.promises.readdir(directory)).toEqual(['state.json']);
++  });
++});
+diff --git a/src/main/session/session-payload-serializer.ts b/src/main/session/session-payload-serializer.ts
+new file mode 100644
+index 0000000..612cb23
+--- /dev/null
++++ b/src/main/session/session-payload-serializer.ts
+@@ -0,0 +1,144 @@
++import { types } from 'node:util';
++import { getSafeStorage } from './safe-storage-accessor';
++
++const STRING_CHUNK_SIZE = 8192;
++const WRITE_CHUNK_SIZE = 65536;
++
++/** Escape bounded slices, keeping surrogate pairs together for identical JSON/UTF-8. */
++function* stringBody(value: string): Generator<string> {
++  for (let start = 0; start < value.length;) {
++    let end = Math.min(start + STRING_CHUNK_SIZE, value.length);
++    const last = value.charCodeAt(end - 1);
++    const next = value.charCodeAt(end);
++    if (last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) end--;
++    yield JSON.stringify(value.slice(start, end)).slice(1, -1);
++    start = end;
++  }
++}
++
++function* quoted(value: string): Generator<string> {
++  yield '"';
++  yield* stringBody(value);
++  yield '"';
++}
++
++function prepare(value: unknown, key: string): unknown {
++  if (value !== null && (typeof value === 'object' || typeof value === 'function' || typeof value === 'bigint')) {
++    const toJSON: unknown = (value as { toJSON?: unknown }).toJSON;
++    if (typeof toJSON === 'function') value = toJSON.call(value, key);
++  }
++  if (types.isNumberObject(value)) return Number(value);
++  if (types.isStringObject(value)) return String(value);
++  if (types.isBooleanObject(value)) return Boolean.prototype.valueOf.call(value);
++  if (types.isBigIntObject(value)) return BigInt.prototype.valueOf.call(value);
++  return value;
++}
++
++function omitted(value: unknown): boolean {
++  return value === undefined || typeof value === 'function' || typeof value === 'symbol';
++}
++
++/** JSON.stringify semantics for session data, without stringifying a container or long string. */
++function* jsonTokens(value: unknown, ancestors: Set<object>): Generator<string> {
++  if (typeof value === 'string') {
++    yield* quoted(value);
++  } else if (value === null || typeof value !== 'object') {
++    // Native stringify preserves number formatting/non-finite handling and rejects BigInt.
++    yield JSON.stringify(value);
++  } else {
++    if (ancestors.has(value)) throw new TypeError('Converting circular structure to JSON');
++    ancestors.add(value);
++    try {
++      if (Array.isArray(value)) {
++        yield '[';
++        const length = value.length;
++        for (let index = 0; index < length; index++) {
++          if (index > 0) yield ',';
++          const item = prepare(value[index], String(index));
++          yield* jsonTokens(omitted(item) ? null : item, ancestors);
++        }
++        yield ']';
++      } else {
++        yield '{';
++        let first = true;
++        for (const key of Object.keys(value)) {
++          const item = prepare((value as Record<string, unknown>)[key], key);
++          if (omitted(item)) continue;
++          if (!first) yield ',';
++          first = false;
++          yield* quoted(key);
++          yield ':';
++          yield* jsonTokens(item, ancestors);
++        }
++        yield '}';
++      }
++    } finally {
++      ancestors.delete(value);
++    }
++  }
++}
++
++/** Coalesce small tokens so streaming a large history does not issue a write per field. */
++function* buffered(tokens: Iterable<string>): Generator<string> {
++  let parts: string[] = [];
++  let length = 0;
++  for (const token of tokens) {
++    if (length + token.length > WRITE_CHUNK_SIZE) {
++      yield parts.join('');
++      parts = [];
++      length = 0;
++    }
++    parts.push(token);
++    length += token.length;
++  }
++  if (length > 0) yield parts.join('');
++}
++
++function* envelope(data: unknown, encryptOnDisk: boolean): Generator<string> {
++  const prepared = prepare(data, '');
++  const tokens = omitted(prepared) ? [] : jsonTokens(prepared, new Set<object>());
++  if (encryptOnDisk) {
++    const safeStorage = getSafeStorage();
++    if (safeStorage.isEncryptionAvailable()) {
++      const chunks = Array.from(buffered(tokens));
++      if (omitted(prepared)) throw new TypeError('Cannot encrypt an undefined JSON payload');
++      // Retain the original envelope for small payloads; larger saves encrypt bounded fragments.
++      const chunked = chunks.length > 1;
++      yield '{"encrypted":true,"data":';
++      if (chunked) yield '[';
++      for (let index = 0; index < chunks.length; index++) {
++        if (index > 0) yield ',';
++        yield* quoted(safeStorage.encryptString(chunks[index]).toString('base64'));
++      }
++      if (chunked) yield ']';
++      yield '}';
++      return;
++    }
++  }
++  if (omitted(prepared)) {
++    yield '{"encrypted":false}';
++    return;
++  }
++  yield '{"encrypted":false,"data":"';
++  // Keep the legacy JSON-in-a-string envelope, escaping each token instead of the whole JSON.
++  for (const token of tokens) yield* stringBody(token);
++  yield '"}';
++}
++
++export function serializeSessionPayload(data: unknown, encryptOnDisk: boolean): Iterable<string> {
++  // Capture the save synchronously as before: updates may arrive during async disk I/O.
++  // Retain bounded fragments, never a single string containing the whole plaintext envelope.
++  return Array.from(buffered(envelope(data, encryptOnDisk)));
++}
++
++export function isEncryptedSessionData(data: unknown): data is string | string[] {
++  return typeof data === 'string'
++    || Array.isArray(data) && data.length > 0 && data.every((chunk) => typeof chunk === 'string');
++}
++
++/** Decode both the original single ciphertext and the bounded ciphertext array format. */
++export function decryptSessionData(data: string | string[]): string {
++  const safeStorage = getSafeStorage();
++  const decrypt = (chunk: string): string => safeStorage.decryptString(Buffer.from(chunk, 'base64'));
++  return typeof data === 'string' ? decrypt(data) : data.map(decrypt).join('');
++}
+diff --git a/src/main/session/session-repair.ts b/src/main/session/session-repair.ts
+index 8f03eb0..859ca54 100644
+--- a/src/main/session/session-repair.ts
++++ b/src/main/session/session-repair.ts
+@@ -15,6 +15,7 @@ import type { ContinuityRecoveryMetadata } from './session-recovery-candidate-se
+ import { readContinuityPayloadHandleReadOnly } from './continuity-recovery-metadata';
+ import { cleanupOrphanedTmpFiles, type TmpCleanupResult } from './orphaned-tmp-cleanup';
+ import { mergeDuplicateToolEntries } from './continuity-tool-entry-merger';
++import { isEncryptedSessionData } from './session-payload-serializer';
+ export { cleanupOrphanedTmpFiles };
+ export type {
+@@ -353,7 +354,8 @@ function writeRepairedFile(
+ /**
+  * Inspect a single JSON file and quarantine it if it cannot be parsed.
+  *
+- * Expected envelope format: `{ encrypted: boolean, data: string }`.
++ * Expected envelope format: `{ encrypted: boolean, data: string | string[] }`.
++ * An array holds independently encrypted fragments of a large payload.
+  * If the envelope is valid but the inner `data` string is not parseable JSON,
+  * the file is still considered corrupt and is quarantined.
+  */
+@@ -392,7 +394,7 @@ export function repairFile(filePath: string, quarantineDir: string): RepairResul
+   if (payload !== null && typeof payload === 'object' && 'data' in (payload as object)) {
+     const envelopeObj = payload as { encrypted?: unknown; data: unknown };
+-    if (envelopeObj.encrypted === true && typeof envelopeObj.data === 'string') {
++    if (envelopeObj.encrypted === true && isEncryptedSessionData(envelopeObj.data)) {
+       return repairs.length > 0
+         ? writeRepairedFile(filePath, JSON.stringify(envelopeObj), repairs)
+         : { status: 'ok', repairs };

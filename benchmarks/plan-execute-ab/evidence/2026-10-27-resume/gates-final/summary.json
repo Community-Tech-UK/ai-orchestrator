@@ -1,0 +1,138 @@
+[
+  {
+    "label": "full-suite",
+    "command": [
+      "npm",
+      "run",
+      "test:quiet"
+    ],
+    "startedAt": "2026-10-27T16:27:03.654867+00:00",
+    "durationSeconds": 1828.252,
+    "exitCode": 1,
+    "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-final/full-suite.log",
+    "load": [
+      15.73046875,
+      26.72998046875,
+      33.2626953125
+    ]
+  },
+  {
+    "label": "typecheck",
+    "command": [
+      "node",
+      "node_modules/typescript/bin/tsc",
+      "--noEmit"
+    ],
+    "startedAt": "2026-10-27T16:57:31.922362+00:00",
+    "durationSeconds": 30.836,
+    "exitCode": 0,
+    "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-final/typecheck.log",
+    "load": [
+      18.06298828125,
+      25.9931640625,
+      32.7236328125
+    ]
+  },
+  {
+    "label": "spec-typecheck",
+    "command": [
+      "npm",
+      "run",
+      "typecheck:spec"
+    ],
+    "startedAt": "2026-10-27T16:58:02.759682+00:00",
+    "durationSeconds": 52.97,
+    "exitCode": 0,
+    "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-final/spec-typecheck.log",
+    "load": [
+      25.35595703125,
+      26.75244140625,
+      32.6181640625
+    ]
+  },
+  {
+    "label": "lint",
+    "command": [
+      "npm",
+      "run",
+      "lint"
+    ],
+    "startedAt": "2026-10-27T16:58:55.730755+00:00",
+    "durationSeconds": 10.598,
+    "exitCode": 0,
+    "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-final/lint.log",
+    "load": [
+      22.62646484375,
+      26.11865234375,
+      32.32421875
+    ]
+  },
+  {
+    "label": "max-loc",
+    "command": [
+      "npm",
+      "run",
+      "check:ts-max-loc"
+    ],
+    "startedAt": "2026-10-27T16:59:06.330123+00:00",
+    "durationSeconds": 1.022,
+    "exitCode": 0,
+    "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-final/max-loc.log",
+    "load": [
+      21.375,
+      25.80078125,
+      32.17578125
+    ]
+  },
+  {
+    "label": "ui-hints",
+    "command": [
+      "npm",
+      "run",
+      "check:ui-hints"
+    ],
+    "startedAt": "2026-10-27T16:59:07.352831+00:00",
+    "durationSeconds": 2.397,
+    "exitCode": 0,
+    "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-final/ui-hints.log",
+    "load": [
+      21.375,
+      25.80078125,
+      32.17578125
+    ]
+  },
+  {
+    "label": "main-build",
+    "command": [
+      "npm",
+      "run",
+      "build:main"
+    ],
+    "startedAt": "2026-10-27T16:59:09.750219+00:00",
+    "durationSeconds": 35.621,
+    "exitCode": 0,
+    "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-final/main-build.log",
+    "load": [
+      18.40966796875,
+      24.5224609375,
+      31.44921875
+    ]
+  },
+  {
+    "label": "renderer-build",
+    "command": [
+      "npm",
+      "run",
+      "build:renderer"
+    ],
+    "startedAt": "2026-10-27T16:59:45.372470+00:00",
+    "durationSeconds": 22.173,
+    "exitCode": 0,
+    "log": "benchmarks/plan-execute-ab/evidence/2026-10-27-resume/gates-final/renderer-build.log",
+    "load": [
+      20.68359375,
+      24.470703125,
+      31.2236328125
+    ]
+  }
+]

@@ -1,0 +1,41 @@
+{
+  "repoPaths": {
+    "ai-orchestrator": ".",
+    "12steps": "/Users/suas/work/12steps"
+  },
+  "resultsRoot": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-local-model-2026-10-27/results",
+  "workRoot": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-local-model-2026-10-27/workspaces",
+  "bankPath": "benchmarks/plan-execute-ab/tasks/task-bank.json",
+  "wallClockMinutes": 60,
+  "turnCap": 75,
+  "fLocalModelKey": "qwen3.8-27b",
+  "localArms": [
+    {
+      "modelKey": "qwen3.6-35b-a3b",
+      "servedModelName": "qwen/qwen3.6-35b-a3b",
+      "baseUrl": "http://127.0.0.1:8900",
+      "apiKeyEnv": "PLAN_EX_AB_LOCAL_KEY",
+      "configDir": "/Users/suas/.claude-plan-ex-ab/local-35b",
+      "apiStyle": "anthropic",
+      "servingSetup": "llama-server-2.60.0-35b-65536"
+    },
+    {
+      "modelKey": "qwen3.8-27b",
+      "servedModelName": "qwen3.8-27b",
+      "baseUrl": "http://127.0.0.1:8900",
+      "apiKeyEnv": "PLAN_EX_AB_LOCAL_KEY",
+      "configDir": "/Users/suas/.claude-plan-ex-ab/local-27b",
+      "apiStyle": "anthropic",
+      "servingSetup": "llama-server-2.60.0-27b-65536"
+    },
+    {
+      "modelKey": "qwen3.8-flash-next",
+      "servedModelName": "qwen3.8-flash-next",
+      "baseUrl": "http://127.0.0.1:8901",
+      "apiKeyEnv": "PLAN_EX_AB_LOCAL_KEY",
+      "configDir": "/Users/suas/.claude-plan-ex-ab/local-flash-next",
+      "apiStyle": "anthropic",
+      "servingSetup": "llama-server-2.60.0-flash-next-65536-cpu-moe"
+    }
+  ]
+}

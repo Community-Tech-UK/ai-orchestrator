@@ -1,0 +1,10 @@
+{
+  "command": [
+    "node",
+    "-e",
+    "const fs=require(\"fs\"); let n=0; fs.createReadStream(\"/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/node_modules/vitest/package.json\").on(\"data\",x=>n+=x.length).on(\"end\",()=>console.log(\"HOST STREAM BYTES\",n));"
+  ],
+  "exitCode": 1,
+  "stdout": "",
+  "stderr": "node:events:505\n    throw er; // Unhandled 'error' event\n    ^\n\nError: ENOENT: dependency outside frozen workspace: /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/node_modules/vitest/package.json\n    at missing (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/scoring-boundary.cjs:30:24)\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/scoring-boundary.cjs:64:33\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\nEmitted 'error' event on ReadStream instance at:\n    at emitErrorNT (node:internal/streams/destroy:170:8)\n    at emitErrorCloseNT (node:internal/streams/destroy:129:3)\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {\n  code: 'ENOENT',\n  path: '/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/node_modules/vitest/package.json'\n}\n\nNode.js v26.12.1\n"
+}

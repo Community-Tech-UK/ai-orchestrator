@@ -1,0 +1,18 @@
+{
+  "at": "2026-10-27T14:20:08.446429+00:00",
+  "load": [
+    17.11962890625,
+    23.3798828125,
+    48.51611328125
+  ],
+  "revision": "8b9721bf3c55e69259b6be4880b3acff91b68b16",
+  "ownedScratch": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-round3",
+  "initialGitStatus": "?? benchmarks/plan-execute-ab/README.md\n?? benchmarks/plan-execute-ab/agent-cli.spec.ts\n?? benchmarks/plan-execute-ab/agent-cli.ts\n?? benchmarks/plan-execute-ab/arms.spec.ts\n?? benchmarks/plan-execute-ab/arms.ts\n?? benchmarks/plan-execute-ab/cli-util.ts\n?? benchmarks/plan-execute-ab/config.spec.ts\n?? benchmarks/plan-execute-ab/config.ts\n?? benchmarks/plan-execute-ab/cost.spec.ts\n?? benchmarks/plan-execute-ab/cost.ts\n?? benchmarks/plan-execute-ab/decision-rules.spec.ts\n?? benchmarks/plan-execute-ab/decision-rules.ts\n?? benchmarks/plan-execute-ab/evidence/2026-10-27-round3/\n?? benchmarks/plan-execute-ab/exec.ts\n?? benchmarks/plan-execute-ab/judge.spec.ts\n?? benchmarks/plan-execute-ab/judge.ts\n?? benchmarks/plan-execute-ab/local-anthropic-proxy.spec.ts\n?? benchmarks/plan-execute-ab/local-anthropic-proxy.ts\n?? benchmarks/plan-execute-ab/mine-tasks.spec.ts\n?? benchmarks/plan-execute-ab/mine-tasks.ts\n?? benchmarks/plan-execute-ab/model-control.ts\n?? benchmarks/plan-execute-ab/monitor.spec.ts\n?? benchmarks/plan-execute-ab/monitor.ts\n?? benchmarks/plan-execute-ab/package.json\n?? benchmarks/plan-execute-ab/report.spec.ts\n?? benchmarks/plan-execute-ab/report.ts\n?? benchmarks/plan-execute-ab/runner-tools.ts\n?? benchmarks/plan-execute-ab/runner.config.json\n?? benchmarks/plan-execute-ab/runner.config.probe.json\n?? benchmarks/plan-execute-ab/runner.spec.ts\n?? benchmarks/plan-execute-ab/runner.ts\n?? benchmarks/plan-execute-ab/scorer.ts\n?? benchmarks/plan-execute-ab/self-test.spec.ts\n?? benchmarks/plan-execute-ab/self-test.ts\n?? benchmarks/plan-execute-ab/session.ts\n?? benchmarks/plan-execute-ab/speed-gate.spec.ts\n?? benchmarks/plan-execute-ab/speed-gate.ts\n?? benchmarks/plan-execute-ab/stats.spec.ts\n?? benchmarks/plan-execute-ab/stats.ts\n?? benchmarks/plan-execute-ab/task-bank.spec.ts\n?? benchmarks/plan-execute-ab/task-bank.ts\n?? benchmarks/plan-execute-ab/task-export.spec.ts\n?? benchmarks/plan-execute-ab/task-export.ts\n?? benchmarks/plan-execute-ab/tasks/\n?? benchmarks/plan-execute-ab/tsconfig.json\n?? benchmarks/plan-execute-ab/types.ts\n?? benchmarks/plan-execute-ab/vitest.config.ts\n",
+  "historicalDependencyCommand": [
+    "npm",
+    "ci",
+    "--ignore-scripts",
+    "--no-audit",
+    "--no-fund"
+  ]
+}

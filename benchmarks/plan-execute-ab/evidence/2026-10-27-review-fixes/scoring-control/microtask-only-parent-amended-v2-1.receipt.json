@@ -1,0 +1,36 @@
+{
+  "command": [
+    "node",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/vitest/vitest.mjs",
+    "run",
+    "src/main/history/history-manager.spec.ts",
+    "--project=main",
+    "--reporter=json",
+    "--outputFile=/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/benchmarks/plan-execute-ab/evidence/2026-10-27-review-fixes/scoring-control/microtask-only-parent-amended-v2-1.json",
+    "--maxWorkers=1",
+    "--minWorkers=1"
+  ],
+  "cwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/microtask-only-parent",
+  "exitCode": 1,
+  "elapsedSeconds": 9.82752799987793,
+  "numTotalTests": 41,
+  "numPassedTests": 40,
+  "numFailedTests": 1,
+  "failures": [
+    {
+      "ancestorTitles": [
+        "HistoryManager"
+      ],
+      "fullName": "HistoryManager does not begin the safety backup before the pending startup writers settle",
+      "status": "failed",
+      "title": "does not begin the safety backup before the pending startup writers settle",
+      "duration": 62.530125,
+      "failureMessages": [
+        "AssertionError: clearAll entered the safety backup while the startup write was blocked: expected 'backup-entry' to be 'startup-wait' // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/microtask-only-parent/src/main/history/history-manager.spec.ts:370:9\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-14-local-model-plan-ex-a7a00e/_scratch/lt-scoring-review/tooling/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"
+      ],
+      "meta": {}
+    }
+  ],
+  "sourceSha256": "cbb1baae7dc995c7474af69e3ee420e9ff15cf97fa0e887409d804f9aca8fc15",
+  "specSha256": "20c5a3cbebbca623c5e176cefc03602434f964408d51a4a0048b7f18f89e4a4b"
+}
