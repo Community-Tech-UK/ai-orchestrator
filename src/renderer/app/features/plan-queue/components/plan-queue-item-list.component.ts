@@ -1,6 +1,6 @@
 import { planQueueDisplayParkReason } from '../plan-queue-park-reason-help';
 import { isNotReachedItem, PLAN_QUEUE_NOT_REACHED_LABEL } from '../../../../../shared/utils/plan-queue-item-outcome';
-import { foldDetail, planQueueCheckGroupLabel, pluralise } from '../../../../../shared/utils/plan-queue-item-display';
+import { foldDetail, planQueueCheckGroupLabel, pluralise, stripAbsolutePaths } from '../../../../../shared/utils/plan-queue-item-display';
 import { copyFor } from '../../../shared/tooltip/tooltip-copy';
 import { AioTooltipDirective } from '../../../shared/tooltip/aio-tooltip.directive';
 import { queueItemSpendLabel } from './plan-queue-spend-label';
@@ -106,6 +106,8 @@ export class PlanQueueItemListComponent {
   protected readonly foldedDetail = foldDetail;
   protected readonly checkGroupLabel = planQueueCheckGroupLabel;
   protected readonly pluralise = pluralise;
+  /** Report text as the worker wrote it, with absolute paths shortened like the details above. */
+  protected readonly plain = stripAbsolutePaths;
 
   /** The same live line the session list shows while Harness checks or lands this job, or it waits for that. */
   stageText(item: PlanQueueItemDto): string | null {

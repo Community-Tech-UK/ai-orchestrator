@@ -12,6 +12,7 @@ import type {
   PlanQueueRunConfig,
   PlanQueueRunStatus,
   PlanQueueVerdict,
+  PlanQueueWorkerReport,
 } from '@contracts/schemas/plan-queue';
 
 /** Settings the run overrode, with the value to put back and the value applied. */
@@ -103,6 +104,8 @@ export interface PlanQueueItem {
   parkReason: PlanQueueParkReason | null;
   detail: string | null;
   verdict: PlanQueueVerdict | null;
+  /** The worker's completion report for its latest turn. Cleared when a worker turn starts, so a fix round never reuses it. */
+  workerReport?: PlanQueueWorkerReport | null;
   createdAt: number;
   updatedAt: number;
 }

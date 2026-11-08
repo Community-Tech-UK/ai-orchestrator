@@ -13,18 +13,19 @@ import type { PlanQueueFinding, PlanQueueKind } from '@contracts/schemas/plan-qu
 import { derivedLivetestPort } from './plan-queue-livetest-port';
 import type { PlanQueueItem } from './plan-queue.types';
 import type { PlanQueueGateReceipt } from './plan-queue-gate-receipts';
+import { REPORT_READY_TOOL, reportReadyTask, toolDiscoverySteps } from './plan-queue-report-prompts';
 
 export const VERDICT_TOOL = 'plan_queue_report_verdict';
 export const TRIAGE_TOOL = 'plan_queue_report_triage';
 
+/** What a later worker turn ends with: the report, which the coordinator clears when each turn starts. */
+const REPORT_AGAIN = `report again with \`${REPORT_READY_TOOL}\` (the same \`item_id\` as in your first instructions; the report from an earlier turn is cleared), confirm accepted: true,`;
+
 const RUNBOOK_RELATIVE = 'docs/plans/livetest-campaign-runbook.md';
 const MAX_DATA_CHARS = 12_000;
+export const WORKER_WAIT_RULE = 'Your work is handed over when you report, not when your turn ends. A command you start in the background (tests, a build, a gate) must be waited for, polling its output until it exits, before you report; never report or end your turn while one is still running.';
 const VERIFIER_WAIT_RULE = 'Your review ends when your turn ends. A gate you start in the background must be waited for (poll its output until it exits) before you end your turn; never end your turn while a gate is still running.';
-const VERDICT_DISCOVERY_STEPS: readonly string[] = [
-  '- If Harness tools are not already callable, use your provider discovery mechanism to find orchestrator.tool_search or orchestrator.tool_describe. Searching only the provider native tool list is insufficient.',
-  '- Search Harness for plan_queue_report_verdict, or describe that exact name. Follow the returned input schema and invocation route.',
-  '- If the returned invocation names orchestrator.tool_execute, call it with name plan_queue_report_verdict and an arguments object containing your verdict fields; discover tool_execute through the provider mechanism if needed.',
-];
+const VERDICT_DISCOVERY_STEPS = toolDiscoverySteps(VERDICT_TOOL);
 // Dependency installs stay: the verifier runs its gates in this same worktree,
 // and the coordinator deletes the whole worktree when the item ends. Deleting
 // them made every following gate fail on missing packages.
@@ -93,7 +94,7 @@ export function buildWorkerPrompt(ctx: ItemPromptContext): string {
     '- When a check genuinely needs a rebuilt app, a human or an external service, record it in a `_livetest.md` beside the plan, following the Live-Test Deferral rules in AGENTS.md.',
     ...answer,
     '',
-    'Task: implement every unchecked item in the plan in your worktree. When the work is complete, update the plan\'s status and as-built notes (and the spec\'s, if it has one), then stop. Your turn ending is the signal that the work is ready for verification.',
+    'Task: implement every unchecked item in the plan in your worktree. When the work is complete, update the plan\'s status and as-built notes (and the spec\'s, if it has one). ' + WORKER_WAIT_RULE + ' ' + reportReadyTask(ctx.item.id),
   ].join('\n');
 }
 
@@ -114,7 +115,7 @@ function buildLivetestWorkerPrompt(ctx: ItemPromptContext, answer: string[]): st
     '- Stop the dev app you launched before you finish.',
     ...answer,
     '',
-    'Task: work through every open check in the document. When you have recorded evidence for each one, stop. Your turn ending is the signal that the evidence is ready for verification.',
+    'Task: work through every open check in the document. When you have recorded evidence for each one, ' + WORKER_WAIT_RULE + ' ' + reportReadyTask(ctx.item.id),
   ].join('\n');
 }
 
@@ -135,7 +136,7 @@ export function buildFixPrompt(round: number, maxRounds: number, findings: reado
     '',
     WORKER_EVIDENCE_CLEANUP_RULE,
     '',
-    'Task: fix every finding in your worktree, re-run the targeted checks, update the document\'s as-built notes, then stop. The same rules as before apply: no commits, no branch changes, no `_completed` rename.',
+    'Task: fix every finding in your worktree, re-run the targeted checks and update the document\'s as-built notes. ' + WORKER_WAIT_RULE + ' Then ' + REPORT_AGAIN + ' and stop. The same rules as before apply: no commits, no branch changes, no `_completed` rename.',
   ].join('\n');
 }
 
@@ -145,7 +146,7 @@ export function buildConflictPrompt(baseBranch: string, conflictFiles: readonly 
     '',
     dataBlock('conflicted_files', conflictFiles.join('\n')),
     '',
-    'Task: resolve every conflict so both sides\' intent survives, remove all conflict markers, `git add` the resolved files, re-run the targeted checks, then stop. Do not commit and do not abort the merge; the coordinator finishes it.',
+    'Task: resolve every conflict so both sides\' intent survives, remove all conflict markers, `git add` the resolved files, re-run the targeted checks, then ' + REPORT_AGAIN + ' and stop. Do not commit and do not abort the merge; the coordinator finishes it.',
   ].join('\n');
 }
 
@@ -156,7 +157,7 @@ export function buildGateFailurePrompt(command: string, output: string): string 
     dataBlock('failed_command', command),
     dataBlock('command_output', output),
     '',
-    'Task: fix the cause in your worktree, re-run that command until it passes, then stop.',
+    'Task: fix the cause in your worktree, re-run that command until it passes, then ' + REPORT_AGAIN + ' and stop.',
   ].join('\n');
 }
 
@@ -166,7 +167,7 @@ export function buildActiveDocumentsPrompt(paths: readonly string[]): string {
     '',
     dataBlock('active_documents', paths.join('\n')),
     '',
-    'Your own document is closed by the coordinator after the verifier passes, and planning documents stay untracked in the root checkout. The coordinator moves any new planning file it finds in your worktree to the root checkout itself, so do not move or copy these yourself: that could overwrite a root copy. These ones are already on your branch. Task: for each one, make your worktree match the base branch (restore the base version, or delete the file when the base has none; its content stays in your branch history if you need to read it), then make any edit you still need at the same path in the root checkout, then stop.',
+    'Your own document is closed by the coordinator after the verifier passes, and planning documents stay untracked in the root checkout. The coordinator moves any new planning file it finds in your worktree to the root checkout itself, so do not move or copy these yourself: that could overwrite a root copy. These ones are already on your branch. Task: for each one, make your worktree match the base branch (restore the base version, or delete the file when the base has none; its content stays in your branch history if you need to read it), then make any edit you still need at the same path in the root checkout, then ' + REPORT_AGAIN + ' and stop.',
   ].join('\n');
 }
 
@@ -222,7 +223,7 @@ export function buildStepUpInstruction(failedRounds: number, findings: readonly 
     '',
     WORKER_EVIDENCE_CLEANUP_RULE,
     '',
-    'Task: make the document\'s work complete and correct in your worktree, including a fix for every finding, re-run the targeted checks, update the document\'s as-built notes, then stop. The same rules as before apply: no commits, no branch changes, no `_completed` rename.',
+    'Task: make the document\'s work complete and correct in your worktree, including a fix for every finding, re-run the targeted checks and update the document\'s as-built notes. ' + WORKER_WAIT_RULE + ' Then ' + REPORT_AGAIN + ' and stop. The same rules as before apply: no commits, no branch changes, no `_completed` rename.',
   ].join('\n');
 }
 

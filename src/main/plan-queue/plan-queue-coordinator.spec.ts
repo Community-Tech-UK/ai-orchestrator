@@ -25,6 +25,7 @@ import { PlanQueueRelaxation } from './plan-queue-relaxation';
 import * as readiness from './plan-queue-readiness';
 import { SET_ASIDE_FOLDER_METADATA } from './plan-queue-set-aside';
 import { PlanQueueStore } from './plan-queue-store';
+import { _setReportRequiredProvidersForTesting, recordWorkerReport } from './plan-queue-worker-report';
 import type { VerifierSelectInput } from './plan-queue-verifier-select';
 
 const machineGates = vi.hoisted(() => ({ failItem: false, timeOutItem: false }));
@@ -349,6 +350,7 @@ beforeEach(() => {
   installedProviders = ['claude', 'codex', 'cursor', 'copilot', 'opencode', 'gemini'];
   poolProfiles = [];
   verifierInputs = [];
+  _setReportRequiredProvidersForTesting();
   excludedProviders = [];
   archivedEntries = [];
   fake = new FakeInstances();
@@ -3773,5 +3775,197 @@ describe('PlanQueueCoordinator — a saved checklist for the folder', { timeout:
     savedFolderChecklists = [];
     expect(store.getRun(run.id)!.config.verifierGates).toEqual(['npm run saved-check']);
     expect(coordinator.getRun(run.id).config.postMergeGate).toEqual(['npm run saved-merge-check']);
+  });
+});
+
+describe('PlanQueueCoordinator worker completion report', { timeout: 30_000 }, () => {
+  const REPORT_ARGS = { summary: 'Built it.', as_built: 'Edited the feature file.', checks_run: [{ command: 'npm run lint', exitCode: 0 }], deferred_checks: [], follow_ups: [] };
+  const report = (instance: FakeInstance, summary = REPORT_ARGS.summary) =>
+    recordWorkerReport(coordinator, instance.id, { item_id: itemIdOf(instance), ...REPORT_ARGS, summary });
+  const worker = () => fake.created.filter((i) => i.role === 'worker').at(-1)!;
+  const workerInputs = () => fake.inputs.filter((m) => m.instanceId === worker().id).map((m) => m.message);
+  const reportOf = (itemId: string) => store.getItem(itemId)!.workerReport ?? null;
+
+  /** A fresh coordinator whose workers on `claude` (the fake's default provider) must report. */
+  function requireReports(providers: string[] = ['claude']): void {
+    PlanQueueCoordinator._resetForTesting();
+    _setReportRequiredProvidersForTesting(new Set(providers));
+    fake = new FakeInstances();
+    fake.scripts.triage = triageAllReady;
+    fake.scripts.worker = implement;
+    fake.scripts.verifier = pass;
+    coordinator = startCoordinator(fake);
+  }
+
+  it('accepts a report only from the item\'s current worker, while it works', async () => {
+    requireReports();
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    const refused: string[] = [];
+    let seenOnRow: unknown = null;
+    fake.scripts.worker = (instance, message, f) => {
+      implement(instance, message, f);
+      for (const caller of [parent.id, 'someone-else']) {
+        try { recordWorkerReport(coordinator, caller, { item_id: itemIdOf(instance), ...REPORT_ARGS }); } catch (error) { refused.push((error as Error).message); }
+      }
+      expect(reportOf(itemIdOf(instance))).toBeNull();
+      report(instance);
+    };
+    fake.scripts.verifier = (instance, message, f) => {
+      // The report is on the item row while the checker works, and neither checker nor worker can add another then.
+      seenOnRow = coordinator.getRunDto(store.getItem(itemIdOf(instance))!.runId)!.items[0].workerReport;
+      expect(() => report(worker())).toThrow(/Only the worker currently assigned/);
+      expect(() => recordWorkerReport(coordinator, instance.id, { item_id: itemIdOf(instance), ...REPORT_ARGS })).toThrow(/Only the worker currently assigned/);
+      pass(instance, message, f);
+    };
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForRun(run.id);
+    expect(refused).toHaveLength(2);
+    expect(refused.every((message) => /Only the worker currently assigned/.test(message))).toBe(true);
+    expect(seenOnRow).toEqual({ summary: 'Built it.', asBuilt: 'Edited the feature file.', checksRun: [{ command: 'npm run lint', exitCode: 0 }], deferredChecks: [], followUps: [] });
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed', erroredRounds: 0 });
+    // The worker reported, so it was never reminded.
+    expect(workerInputs().filter((message) => message.startsWith('Plan Queue reminder'))).toEqual([]);
+  });
+
+  it('reminds a worker whose turn ends without a report, then counts the turn as failed', async () => {
+    requireReports();
+    planDoc('2026-01-01-alpha');
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await waitForRun(run.id);
+    expect(workerInputs().map((message) => message.split(':')[0])).toEqual(['Plan Queue reminder 1 of 2', 'Plan Queue reminder 2 of 2']);
+    expect(workerInputs()[0]).toContain('orchestrator.tool_search');
+    expect(workerInputs()[0]).toContain('plan_queue_report_ready');
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'parked', parkReason: 'worker-error' });
+    expect(coordinator.getRunDto(run.id)!.items[0].detail).toContain('without reporting its work ready, after 2 reminders');
+    expect(fake.created.some((i) => i.role === 'verifier')).toBe(false);
+  });
+
+  it('hands the work over once a reminder is answered with a report, from the same session', async () => {
+    requireReports();
+    planDoc('2026-01-01-alpha');
+    fake.scripts.worker = (instance, message, f) => {
+      implement(instance, message, f);
+      if (message.startsWith('Plan Queue reminder 1 of 2')) report(instance);
+    };
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await waitForRun(run.id);
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed' });
+    expect(fake.created.filter((i) => i.role === 'worker')).toHaveLength(1);
+    expect(workerInputs()).toHaveLength(1);
+  });
+
+  it('reminds, and does not check, a worker whose background job was still running when its turn ended', async () => {
+    requireReports();
+    planDoc('2026-01-01-alpha');
+    const observed: { state: string; verifiers: number; reminder: string }[] = [];
+    fake.scripts.worker = (instance, message, f) => {
+      implement(instance, message, f);
+      if (!message.startsWith('Plan Queue reminder')) { f.say(instance, 'The tests are still running in the background; I will check them next.'); return; }
+      observed.push({ state: coordinator.getRunDto(store.getItem(itemIdOf(instance))!.runId)!.items[0].state, verifiers: f.created.filter((i) => i.role === 'verifier').length, reminder: message });
+      report(instance);
+    };
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await waitForRun(run.id);
+    expect(observed).toHaveLength(1);
+    expect(observed[0]).toMatchObject({ state: 'working', verifiers: 0 });
+    expect(observed[0].reminder).toContain('A command you start in the background');
+    expect(observed[0].reminder).toContain('Background commands may have stopped when your turn ended');
+    expect(coordinator.getRunDto(run.id)!.items[0].state).toBe('landed');
+  });
+
+  it('clears the report when a worker turn starts, so a fix round never reuses the last one', async () => {
+    requireReports();
+    planDoc('2026-01-01-alpha');
+    let verifications = 0;
+    const atFixStart: unknown[] = [];
+    fake.scripts.worker = (instance, message, f) => {
+      implement(instance, message, f);
+      if (message.includes('An independent verifier failed your work')) atFixStart.push(reportOf(itemIdOf(instance)));
+      // The fix round never reports, so only a reused old report could satisfy the requirement.
+      if (!message.includes('An independent verifier failed your work') && !message.startsWith('Plan Queue reminder')) report(instance, 'Round one.');
+    };
+    fake.scripts.verifier = (instance) => {
+      verifications += 1;
+      coordinator.reportVerdict(instance.id, { item_id: itemIdOf(instance), verdict: 'FAIL', findings: [{ severity: 'high', confidence: 85, summary: 'Missing retry test.' }], gates_run: [], document_complete: true, need_james: [], not_checked: [] });
+    };
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await waitForRun(run.id);
+    expect(verifications).toBe(1);
+    expect(atFixStart).toEqual([null]);
+    expect(workerInputs().filter((message) => message.startsWith('Plan Queue reminder')).map((message) => message.split(':')[0])).toEqual(['Plan Queue reminder 1 of 2', 'Plan Queue reminder 2 of 2']);
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'parked', parkReason: 'worker-error' });
+  });
+
+  it('gives the fix round its own full set of reminders', async () => {
+    requireReports();
+    planDoc('2026-01-01-alpha');
+    let verifications = 0;
+    fake.scripts.worker = (instance, message, f) => {
+      implement(instance, message, f);
+      const fix = message.includes('An independent verifier failed your work');
+      // First turn: report after the second reminder. Fix turn: report only after its own first reminder.
+      if (message.startsWith('Plan Queue reminder 2 of 2') || (fix === false && message.startsWith('Plan Queue reminder 1 of 2') && verifications > 0)) report(instance, 'Fix round.');
+    };
+    fake.scripts.verifier = (instance, message, f) => {
+      verifications += 1;
+      if (verifications === 1) coordinator.reportVerdict(instance.id, { item_id: itemIdOf(instance), verdict: 'FAIL', findings: [{ severity: 'high', confidence: 85, summary: 'Missing retry test.' }], gates_run: [], document_complete: true, need_james: [], not_checked: [] });
+      else pass(instance, message, f);
+    };
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await waitForRun(run.id);
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed' });
+    expect(workerInputs().filter((message) => message.startsWith('Plan Queue reminder 1 of 2'))).toHaveLength(2);
+  });
+
+  it('keeps the turn ending as the signal for a provider that has not passed its live check', async () => {
+    requireReports(['codex']);
+    planDoc('2026-01-01-alpha');
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await waitForRun(run.id);
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed' });
+    expect(workerInputs()).toEqual([]);
+  });
+
+  it('keeps every provider on the turn-ending signal until one is added to the list in code', async () => {
+    planDoc('2026-01-01-alpha');
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' });
+    await waitForRun(run.id);
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed' });
+  });
+
+  it('crash window: a report stored before a restart is cleared for the worker that resumes, which must report again', async () => {
+    requireReports();
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.worker = (instance, message, f) => { implement(instance, message, f); report(instance, 'Before the crash.'); return never(instance, message, f); };
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await vi.waitFor(() => expect(reportOf(run.items[0].id)?.summary).toBe('Before the crash.'));
+    const seenAtResume: unknown[] = [];
+    await restart(null, { scripts: { worker: (instance, message, f) => {
+      implement(instance, message, f);
+      seenAtResume.push(reportOf(itemIdOf(instance)));
+      report(instance, 'After the crash.');
+    } } });
+    await waitForRun(run.id);
+    expect(seenAtResume).toEqual([null]);
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed' });
+    expect(reportOf(run.items[0].id)?.summary).toBe('After the crash.');
+  });
+
+  it('clears a stored report when a resumed item gets a new worker session', async () => {
+    requireReports();
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForRun(run.id);
+    const itemId = run.items[0].id;
+    expect(coordinator.getRunDto(run.id)!.items[0].state).toBe('parked');
+    store.upsertItem({ ...store.getItem(itemId)!, workerReport: { summary: 'Old.', asBuilt: 'Old.', checksRun: [], deferredChecks: [], followUps: [] } });
+    const seen: unknown[] = [];
+    fake.scripts.worker = (instance, message, f) => { implement(instance, message, f); seen.push(reportOf(itemIdOf(instance))); report(instance); };
+    await coordinator.control({ action: 'resume-item', itemId }, parent.id);
+    await waitForRun(run.id);
+    expect(seen).toEqual([null]);
   });
 });

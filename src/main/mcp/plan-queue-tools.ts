@@ -7,10 +7,11 @@
  * exceptions are in plan-queue-control-authority.ts: any non-queue session may discard
  * a parked item, and once the parent no longer exists it may adopt or cancel the run.
  * `plan_queue_status` is read-only and open to every session, including the
- * queue's own. `plan_queue_report_triage` and `plan_queue_report_verdict` are
- * for the instances the queue spawns, and are accepted only from the instance
- * the coordinator registered for that role — a worker can never report its own
- * verdict. `plan_queue_set_aside` and `plan_queue_set_aside_clear` answer only
+ * queue's own. `plan_queue_report_triage`, `plan_queue_report_verdict` and
+ * `plan_queue_report_ready` are for the instances the queue spawns, and are
+ * accepted only from the instance the coordinator registered for that role — a
+ * worker can never report its own verdict, and only an item's current worker can
+ * report it ready. `plan_queue_set_aside` and `plan_queue_set_aside_clear` answer only
  * the agent James starts from the Set aside tab. The coordinator is reached through injected operations (wired in
  * orchestrator-tools-step.ts), so this module stays free of main-process
  * singletons and is safe to load in the aio-mcp forwarder.
@@ -19,12 +20,14 @@
 import {
   PlanQueueAnswerArgsSchema,
   PlanQueueControlArgsSchema,
+  PlanQueueReportReadyArgsSchema,
   PlanQueueReportTriageArgsSchema,
   PlanQueueReportVerdictArgsSchema,
   PlanQueueSetAsideArgsSchema,
   PlanQueueStartArgsSchema,
   PlanQueueStatusArgsSchema,
   type PlanQueueControlArgs,
+  type PlanQueueReportReadyArgs,
   type PlanQueueReportTriageArgs,
   type PlanQueueReportVerdictArgs,
   type PlanQueueStartArgs,
@@ -41,6 +44,7 @@ export interface PlanQueueToolOperations {
   discardItems(callerInstanceId: string, itemIds: readonly string[]): Promise<{ discarded: string[]; leftInPlace: { itemId: string; what: string[] }[]; failed: { itemId: string; error: string }[] }>;
   reportVerdict(callerInstanceId: string, args: PlanQueueReportVerdictArgs): unknown;
   reportTriage(callerInstanceId: string, args: PlanQueueReportTriageArgs): unknown;
+  reportReady(callerInstanceId: string, args: PlanQueueReportReadyArgs): unknown;
   setAside(callerInstanceId: string, offset: number): Promise<unknown>;
   clearSetAside(callerInstanceId: string): Promise<unknown>;
   /** `aio-mcp plan-queue move`: hands the run to the target with James's authority, as the panel does. */
@@ -239,6 +243,45 @@ export const PLAN_QUEUE_TOOL_SPECS = {
       additionalProperties: false,
     },
   },
+  plan_queue_report_ready: {
+    description: 'Plan Queue workers only: report that the work on your item is complete. Call it once when you have finished, after every command you started has ended, instead of just ending your turn. Rejected from any other session, including a worker of a different item.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        item_id: { type: 'string' },
+        summary: { type: 'string', description: 'Two or three plain sentences for a human: what was done and what it means.' },
+        as_built: { type: 'string', description: 'Notes on what was built.' },
+        checks_run: {
+          type: 'array',
+          description: 'Each command you ran and its exit code. Use [] when you ran none.',
+          items: {
+            type: 'object',
+            properties: { command: { type: 'string' }, exitCode: { type: 'integer' } },
+            required: ['command', 'exitCode'],
+            additionalProperties: false,
+          },
+        },
+        deferred_checks: {
+          type: 'array',
+          description: 'Checks that need a rebuilt or restarted app, a human or an outside service, each written down with its reason. Use [] when none.',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              steps: { type: 'string', description: 'The exact steps to run the check.' },
+              expectedResult: { type: 'string' },
+              whyDeferred: { type: 'string', description: 'Why it cannot run now.' },
+            },
+            required: ['title', 'steps', 'expectedResult', 'whyDeferred'],
+            additionalProperties: false,
+          },
+        },
+        follow_ups: { type: 'array', maxItems: 50, items: { type: 'string', minLength: 1, maxLength: 2000 }, description: 'Problems you found outside this job\'s scope. Use [] when none.' },
+      },
+      required: ['item_id', 'summary', 'as_built', 'checks_run', 'deferred_checks', 'follow_ups'],
+      additionalProperties: false,
+    },
+  },
   plan_queue_report_verdict: {
     description: 'Plan Queue verifiers only: report the verdict on the item you were asked to verify. Rejected from any other session, including the item\'s own worker.',
     inputSchema: {
@@ -304,6 +347,7 @@ const HANDLERS: Record<PlanQueueToolName, Handler> = {
   plan_queue_set_aside: (caller, ops, args) => ops.setAside(caller, PlanQueueSetAsideArgsSchema.parse(args ?? {}).offset ?? 0),
   plan_queue_set_aside_clear: (caller, ops) => ops.clearSetAside(caller),
   plan_queue_report_triage: (caller, ops, args) => ops.reportTriage(caller, PlanQueueReportTriageArgsSchema.parse(args)),
+  plan_queue_report_ready: (caller, ops, args) => ops.reportReady(caller, PlanQueueReportReadyArgsSchema.parse(args)),
   plan_queue_report_verdict: (caller, ops, args) => ops.reportVerdict(caller, PlanQueueReportVerdictArgsSchema.parse(args)),
 };
 

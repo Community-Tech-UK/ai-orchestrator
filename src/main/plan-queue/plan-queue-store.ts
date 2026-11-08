@@ -21,6 +21,7 @@ import type {
   PlanQueueRunDto,
   PlanQueueRunStatus,
   PlanQueueVerdict,
+  PlanQueueWorkerReport,
 } from '@contracts/schemas/plan-queue';
 import { upgradePlanQueueRouting, type StoredPlanQueueRouting } from '../../shared/utils/plan-queue-routing-upgrade';
 import type { PlanQueueItem, PlanQueueRelaxationSnapshot, PlanQueueRun, PlanQueueSpendEntry } from './plan-queue.types';
@@ -79,6 +80,7 @@ interface ItemRow {
   discarded_at: number | null;
   discarded_by: string | null;
   discard_ref_expires_at: number | null;
+  worker_report_json: string | null;
   question_json: string | null;
   answer: string | null;
   park_reason: string | null;
@@ -282,8 +284,8 @@ export class PlanQueueStore {
         base_commit, checkpoint_commit, verified_main_commit, landed_commit,
         worker_instance_id, verifier_instance_id, question_json, answer, park_reason, detail,
         verdict_json, created_at, updated_at, held_at, pending_instruction, worker_provider, worker_model, stepped_up_at, worker_session_json, livetest_port, base_conflicts, discarded_at, discarded_by, discard_ref_expires_at,
-        landing_wait_since, landing_wait_paths, landing_automatic
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        landing_wait_since, landing_wait_paths, landing_automatic, worker_report_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         state                = excluded.state,
         round                = excluded.round,
@@ -316,6 +318,7 @@ export class PlanQueueStore {
         discarded_at         = excluded.discarded_at,
         discarded_by         = excluded.discarded_by,
         discard_ref_expires_at = excluded.discard_ref_expires_at,
+        worker_report_json   = excluded.worker_report_json,
         updated_at           = excluded.updated_at
     `).run(
       item.id,
@@ -355,6 +358,7 @@ export class PlanQueueStore {
       item.state === 'landing' ? item.landingWaitSince ?? null : null,
       item.state === 'landing' && item.landingWaitPaths?.length ? JSON.stringify(item.landingWaitPaths) : null,
       item.state === 'landing' && item.landingAutomatic ? 1 : 0,
+      item.workerReport ? JSON.stringify(item.workerReport) : null,
     );
   }
 
@@ -617,6 +621,7 @@ function rowToItem(row: ItemRow): PlanQueueItem {
     parkReason: row.park_reason as PlanQueueParkReason | null,
     detail: row.detail,
     verdict: row.verdict_json ? (JSON.parse(row.verdict_json) as PlanQueueVerdict) : null,
+    ...(row.worker_report_json ? { workerReport: JSON.parse(row.worker_report_json) as PlanQueueWorkerReport } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

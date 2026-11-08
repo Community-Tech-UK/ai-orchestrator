@@ -50,6 +50,7 @@ export function itemToDto(item: PlanQueueItem, stage: PlanQueueItemStage | undef
     discardedBy: item.discardedBy ?? null,
     discardRefExpiresAt: item.discardRefExpiresAt ?? null,
     verdict: item.verdict,
+    workerReport: item.workerReport ?? null,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };

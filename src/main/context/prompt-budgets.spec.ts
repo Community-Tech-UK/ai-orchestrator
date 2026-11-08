@@ -59,22 +59,26 @@ const BUDGET = {
   reviewLoopReanchor: { chars: 5000, render: () => loop(10, true, true) },
   // Oct-30 merge: main's cleanup rule now preserves installed dependencies for the
   // verifier. Actual worker/livetest/fix renders are 3,368 / 3,333 / 919 characters.
-  queueWorker: { chars: 3800, render: () => buildWorkerPrompt(queue) },
-  queueLivetestWorker: { chars: 4300, render: () => buildWorkerPrompt({ ...queue, kind: 'livetests' }) },
-  queueFix: { chars: 1000, render: () => buildFixPrompt(1, 3, [{ severity: 'high', confidence: 90, summary: 'The fixture retry is missing.', file: 'fixture.ts:1', evidence: 'Pinned evidence.' }]) },
-  queueConflict: { chars: 500, render: () => buildConflictPrompt('main', ['fixture.ts']) },
-  queueGateFailure: { chars: 300, render: () => buildGateFailurePrompt('npm run lint', 'Pinned failure output') },
-  queueActiveDocuments: { chars: 900, render: () => buildActiveDocumentsPrompt(['/workspace/docs/fixture_plan.md']) },
+  queueWorker: { chars: 4600, render: () => buildWorkerPrompt(queue) },
+  queueLivetestWorker: { chars: 5100, render: () => buildWorkerPrompt({ ...queue, kind: 'livetests' }) },
+  queueFix: { chars: 1400, render: () => buildFixPrompt(1, 3, [{ severity: 'high', confidence: 90, summary: 'The fixture retry is missing.', file: 'fixture.ts:1', evidence: 'Pinned evidence.' }]) },
+  queueConflict: { chars: 600, render: () => buildConflictPrompt('main', ['fixture.ts']) },
+  queueGateFailure: { chars: 500, render: () => buildGateFailurePrompt('npm run lint', 'Pinned failure output') },
+  queueActiveDocuments: { chars: 1000, render: () => buildActiveDocumentsPrompt(['/workspace/docs/fixture_plan.md']) },
   // The resumed worker carries that same dependency-preserving rule (3,759 chars).
-  queueResume: { chars: 4200, render: () => buildResumePrompt(queue, 'Continue verified earlier work') },
+  queueResume: { chars: 5000, render: () => buildResumePrompt(queue, 'Continue verified earlier work') },
+  // Nov-07: every worker turn now ends with the plan_queue_report_ready instruction (about 650 characters; later turns
+  // add a shorter "report again" clause). Renders: worker 4,510, livetest worker 5,010, fix 1,352, conflict 574,
+  // gate failure 452, active documents 983, resume 4,901, continue + conflicts 743, resume + conflicts 5,477,
+  // step-up 6,463, livetest step-up 6,963; ceilings round up to 100.
   // Newly accounted complete queue turns, measured Oct-31 and rounded to 100:
   // continue 167, continue + conflicts 575, resume + conflicts 4,167,
   // step-up 4,888 (livetest 4,853), verifier reminder 1,284. Existing caps stay.
   queueContinue: { chars: 200, render: () => buildContinuePrompt(queue, 'Continue verified earlier work') },
-  queueContinueConflict: { chars: 600, render: () => buildContinuePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
-  queueResumeConflict: { chars: 4600, render: () => buildResumePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
-  queueStepUp: { chars: 5300, render: () => buildStepUpPrompt(queue, 3, findings) },
-  queueLivetestStepUp: { chars: 5800, render: () => buildStepUpPrompt({ ...queue, kind: 'livetests' }, 3, findings) },
+  queueContinueConflict: { chars: 800, render: () => buildContinuePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
+  queueResumeConflict: { chars: 5500, render: () => buildResumePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
+  queueStepUp: { chars: 6500, render: () => buildStepUpPrompt(queue, 3, findings) },
+  queueLivetestStepUp: { chars: 7000, render: () => buildStepUpPrompt({ ...queue, kind: 'livetests' }, 3, findings) },
   queueVerifierReminder: { chars: 1300, render: () => buildVerifierReminderPrompt(item.id, 1, 2) },
   // Main's verifier handoff requires waiting for background gates, Harness tool
   // discovery, an accepted verdict receipt and (Oct-30) installing missing dependencies

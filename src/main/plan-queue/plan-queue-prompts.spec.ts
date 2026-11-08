@@ -5,6 +5,7 @@ import {
   buildConflictPrompt,
   buildContinuePrompt,
   buildFixPrompt,
+  buildGateFailurePrompt,
   buildParkedCarryOver,
   buildResumePrompt,
   buildStepUpInstruction,
@@ -17,6 +18,7 @@ import {
   TRIAGE_TOOL,
   VERDICT_TOOL,
 } from './plan-queue-prompts';
+import { buildWorkerReminderPrompt, toolDiscoverySteps } from './plan-queue-report-prompts';
 import type { PlanQueueItem } from './plan-queue.types';
 import { blockingGateReceipts, PlanQueueGateRunner } from './plan-queue-gate-receipts';
 
@@ -102,6 +104,34 @@ describe('plan queue prompts', () => {
       expect(prompt).not.toMatch(/delete[^.]*dependency installs/);
       expect(prompt).toContain('Keep dependency installs inside the worktree');
     }
+  });
+
+  it.each(['plans', 'livetests'] as const)('ends %s worker instructions with the completion report, after background commands have ended', (kind) => {
+    const prompt = buildWorkerPrompt({ item, kind, repoRoot: '/repo', worktreePath: '/w' });
+    expect(prompt).toContain('call the `plan_queue_report_ready` tool once with `item_id` "item-0123456789"');
+    for (const field of ['summary', 'as_built', 'checks_run', 'deferred_checks', 'follow_ups']) expect(prompt).toContain(`\`${field}\``);
+    expect(prompt).toContain('never report or end your turn while one is still running');
+    expect(prompt).not.toContain('Your turn ending is the signal');
+  });
+
+  it('tells every later worker turn to report again, and says the earlier report is cleared', () => {
+    const findings = [{ severity: 'high' as const, confidence: 85, summary: 'Missing retry test.' }];
+    for (const prompt of [
+      buildFixPrompt(1, 3, findings), buildStepUpInstruction(3, findings), buildConflictPrompt('main', ['a.ts']),
+      buildGateFailurePrompt('npm run lint', 'error'), buildActiveDocumentsPrompt(['docs/plans/a_history.md']),
+    ]) {
+      expect(prompt).toContain('report again with `plan_queue_report_ready`');
+      expect(prompt).toContain('the report from an earlier turn is cleared');
+    }
+  });
+
+  it('builds the worker reminder from the same discovery steps as the checker reminder', () => {
+    const worker = buildWorkerReminderPrompt('item-1', 1, 2, 'Wait for commands.');
+    expect(worker).toContain('Plan Queue reminder 1 of 2: your turn ended without a recorded report for item "item-1"');
+    expect(worker).toContain('Search Harness for plan_queue_report_ready');
+    expect(worker).toContain('call it with name plan_queue_report_ready and an arguments object containing your report fields');
+    expect(buildVerifierReminderPrompt('item-1', 1, 2)).toContain('call it with name plan_queue_report_verdict and an arguments object containing your verdict fields');
+    expect(toolDiscoverySteps(VERDICT_TOOL)).toHaveLength(3);
   });
 
   it('tells the worker where the document and the worktree are, and what it must never do', () => {

@@ -551,9 +551,15 @@ export const LOOP_MIGRATIONS: readonly LoopMigration[] = [
     `,
   },
   {
-    // Plan Queue: a landing blocked by the root checkout's uncommitted code waits instead of parking. 43 and 44
-    // stay held for the worker report and the source columns (`PLAN_QUEUE_RESERVED_MIGRATIONS`); the array keeps
-    // them in order when they land, and the runner applies by version, so landing 45 first is safe.
+    // Plan Queue: the worker's completion report (`plan_queue_report_ready`), stored as JSON on the item row.
+    version: 43,
+    name: '043_plan_queue_item_worker_report',
+    up: `ALTER TABLE plan_queue_items ADD COLUMN worker_report_json TEXT;`,
+  },
+  {
+    // Plan Queue: a landing blocked by the root checkout's uncommitted code waits instead of parking. 44
+    // stays held for the source columns (`PLAN_QUEUE_RESERVED_MIGRATIONS`); the array keeps it in order when it
+    // lands, and the runner applies by version, so landing 45 first is safe.
     version: 45,
     name: '045_plan_queue_item_landing_wait',
     up: `

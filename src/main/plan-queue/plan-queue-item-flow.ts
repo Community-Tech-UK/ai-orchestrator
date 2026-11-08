@@ -61,6 +61,7 @@ import {
 import { canStepUp, stepUpItem } from './plan-queue-step-up';
 import { PlanQueueWorkerSessions, askJamesForWorker } from './plan-queue-worker-sessions';
 import { PlanQueueVerifierReminders } from './plan-queue-verifier-reminder';
+import { PlanQueueWorkerReports } from './plan-queue-worker-report';
 import type { VerifierSelection } from './plan-queue-verifier-select';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
@@ -86,6 +87,7 @@ export class PlanQueueItemFlow {
   /** Verdicts reported during the verifier's current turn, keyed by item. */
   private readonly pendingVerdicts = new Map<string, { verifierId: string; verdict: PlanQueueVerdict }>();
   private readonly reminders: PlanQueueVerifierReminders;
+  private readonly workerReports: PlanQueueWorkerReports;
   /** Per-item operation chain: one side-effecting operation per item at a time. */
   private readonly locks = new Map<string, Promise<void>>();
   private readonly stopping = new Map<string, Promise<void>>();
@@ -125,6 +127,7 @@ export class PlanQueueItemFlow {
       failed: (id, reason) => this.onWorkerOutcome(id, { kind: 'failed', reason }),
     });
     this.reminders = new PlanQueueVerifierReminders(host, (id, outcome) => void this.onVerifierOutcome(id, outcome).catch((error: unknown) => logger.warn('Plan queue: handling checker reminder failure failed', { instanceId: id, error: errorMessage(error) })));
+    this.workerReports = new PlanQueueWorkerReports(host, (id, outcome) => void this.onWorkerOutcome(id, outcome).catch((error: unknown) => logger.warn('Plan queue: handling worker reminder failure failed', { instanceId: id, error: errorMessage(error) })));
     this.landingWaits = new PlanQueueLandingWaits({
       host, lock: (id, action) => this.withItemLock(id, action), enqueueLanding: (id) => this.enqueueLanding(id),
       park: (item, reason, detail) => this.parkUnlocked(item, reason, detail),
@@ -311,7 +314,7 @@ export class PlanQueueItemFlow {
         logger.info('Plan queue worker runs under relaxed settings', { itemId: item.id, runId: run.id, settings: relaxed });
       }
       const current = this.host.getItem(item.id);
-      const patch = { workerInstanceId: instance.id, question: null, heldAt: null, pendingInstruction: null,
+      const patch = { workerInstanceId: instance.id, question: null, heldAt: null, pendingInstruction: null, workerReport: null,
         detail: isHoldNote(current.detail) || /^(?:Waiting for a free work folder|Waiting for the provider or machine)/.test(current.detail ?? '') ? null : current.detail };
       if (nextState && current.state !== nextState) this.host.transition(current, nextState, patch);
       else this.host.save({ ...current, ...patch });
@@ -340,7 +343,7 @@ export class PlanQueueItemFlow {
 
   /** Send the worker its next turn, respawning it with a resume prompt if its session is gone. */
   private async runWorkerTurn(item: PlanQueueItem, prompt: string): Promise<void> {
-    item = this.host.save({ ...item, pendingInstruction: prompt });
+    item = this.host.save({ ...item, pendingInstruction: prompt, workerReport: null });
     if (this.host.getRun(item.runId).status === 'paused') { await this.holdUnlocked(item); return; }
     const workerId = item.workerInstanceId;
     const worker = workerId ? this.host.instances.getInstance(workerId) : undefined;
@@ -356,6 +359,7 @@ export class PlanQueueItemFlow {
       if (this.host.getRun(item.runId).status === 'paused') { await this.holdUnlocked(this.host.getItem(item.id)); return; }
       this.host.registerRole(workerId, { role: 'worker', runId: item.runId, itemId: item.id });
       this.host.tracker.beginTurn(workerId);
+      this.workerReports.beginTurn(workerId);
       worker.metadata = { ...worker.metadata, planQueueRound: item.round };
       try {
         await this.host.instances.sendInput(workerId, prompt, undefined, { automatedInput: true, internalSource: 'plan-queue' });
@@ -392,6 +396,12 @@ export class PlanQueueItemFlow {
         await this.parkUnlocked(item, 'cancelled', 'Stopped: you closed its session. Resume carries on from the same branch.'); return;
       }
       if (this.host.getRun(item.runId).status === 'paused') { await this.holdUnlocked(item); return; }
+      if (outcome.kind === 'turn-complete') {
+        // A turn that ended without its report is reminded; once the reminders are spent it is a failed turn.
+        const gate = this.workerReports.afterTurn(item, instanceId);
+        if (gate === 'reminded') return;
+        if (gate !== 'ok') outcome = { kind: 'failed', reason: gate.failed };
+      }
       if (outcome.kind === 'failed' && await this.retries.retry(item, instanceId, outcome.reason)) return;
       if (outcome.kind === 'failed') await this.stopInstance(instanceId);
       switch (outcome.kind) {
@@ -773,6 +783,7 @@ export class PlanQueueItemFlow {
     recordSessionEnd(this.host, instanceId);
     this.pendingRetirements.add(instanceId);
     this.reminders.forget(instanceId);
+    this.workerReports.forget(instanceId);
     this.host.tracker.untrack(instanceId);
     this.host.unregisterRole(instanceId);
     releaseReclaimHold(instanceId);

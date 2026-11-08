@@ -106,6 +106,31 @@ describe('PlanQueueItemListComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('base-tip');
   });
 
+  it('shows the worker\'s report on the row, with its deferred checks and follow-ups behind the full report', () => {
+    fixture.componentRef.setInput('items', [makeItem({ workerReport: {
+      summary: 'Added the report tool.', asBuilt: 'Edited /Users/example/work/repo/src/tool.ts and its tests.',
+      checksRun: [{ command: 'npm run lint', exitCode: 0 }, { command: 'npm run build:main', exitCode: 1 }],
+      deferredChecks: [{ title: 'Claude calls the tool', steps: 'Start a queue run on Claude.', expectedResult: 'A report appears on the row.', whyDeferred: 'It needs a rebuilt app.' }],
+      followUps: ['The old signal is still used by other providers.'],
+    } })]);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('.pq-item-report-summary')?.textContent).toContain('Added the report tool.');
+    const details = root.querySelector('.pq-item-report details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.textContent).toContain('npm run lint: Passed');
+    expect(details.textContent).toContain('npm run build:main: Failed');
+    expect(details.textContent).toContain('Claude calls the tool: It needs a rebuilt app.');
+    expect(details.textContent).toContain('The old signal is still used by other providers.');
+    expect(details.textContent).not.toContain('/Users/');
+  });
+
+  it('shows no report block until the worker has reported', () => {
+    fixture.componentRef.setInput('items', [makeItem({ workerReport: null }), makeItem({ id: 'item-2' })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-item-report')).toBeNull();
+  });
+
   it('shows the same live step line as the session list while Harness checks the job', async () => {
     vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
     try {

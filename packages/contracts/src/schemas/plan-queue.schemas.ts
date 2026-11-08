@@ -113,6 +113,25 @@ export const PlanQueueVerdictSchema = z.object({
   notChecked: z.array(z.string().trim().min(1).max(2000)).max(200).optional(),
 });
 
+/** What a worker says it did when it reports its work ready (`plan_queue_report_ready`). */
+export const PlanQueueWorkerReportSchema = z.object({
+  /** Two or three plain sentences for a human. */
+  summary: z.string().trim().min(1).max(4000),
+  /** Notes on what was built. */
+  asBuilt: z.string().trim().min(1).max(20000),
+  /** The commands the worker ran, with their exit codes. */
+  checksRun: z.array(z.object({ command: z.string().min(1).max(2000), exitCode: z.number().int() })).max(100),
+  /** Checks that need a rebuilt app, a person or an outside service, written down with their reason. */
+  deferredChecks: z.array(z.object({
+    title: z.string().trim().min(1).max(500),
+    steps: z.string().trim().min(1).max(8000),
+    expectedResult: z.string().trim().min(1).max(4000),
+    whyDeferred: z.string().trim().min(1).max(4000),
+  })).max(50),
+  /** Problems found outside the job's scope. */
+  followUps: z.array(z.string().trim().min(1).max(2000)).max(50),
+});
+
 /** A recommendation records reasoning, never new permission to take an action. */
 export const PlanQueueDecisionSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -369,6 +388,8 @@ export const PlanQueueItemDtoSchema = z.object({
   /** Present only while the item is in a step with no session (PlanQueueItemStageSchema). */
   stage: PlanQueueItemStageSchema.nullable().optional(),
   verdict: PlanQueueVerdictSchema.nullable(),
+  /** The worker's own completion report for its latest turn; null until it reports. */
+  workerReport: PlanQueueWorkerReportSchema.nullable().optional(),
   createdAt: z.number().int(),
   updatedAt: z.number().int(),
 });
@@ -512,6 +533,16 @@ export const PlanQueueReportVerdictArgsSchema = z.object({
   )).max(200),
 });
 
+/** `plan_queue_report_ready` arguments (snake_case at the top level, like the other MCP tools). */
+export const PlanQueueReportReadyArgsSchema = z.object({
+  item_id: IdSchema,
+  summary: PlanQueueWorkerReportSchema.shape.summary,
+  as_built: PlanQueueWorkerReportSchema.shape.asBuilt,
+  checks_run: PlanQueueWorkerReportSchema.shape.checksRun,
+  deferred_checks: PlanQueueWorkerReportSchema.shape.deferredChecks,
+  follow_ups: PlanQueueWorkerReportSchema.shape.followUps,
+});
+
 export const PlanQueueReportTriageArgsSchema = z.object({
   run_id: IdSchema,
   records: z.array(PlanQueueTriageRecordSchema).min(1).max(500),
@@ -590,6 +621,7 @@ export type PlanQueueParkReason = z.infer<typeof PlanQueueParkReasonSchema>;
 export type PlanQueueRole = z.infer<typeof PlanQueueRoleSchema>;
 export type PlanQueueFinding = z.infer<typeof PlanQueueFindingSchema>;
 export type PlanQueueVerdict = z.infer<typeof PlanQueueVerdictSchema>;
+export type PlanQueueWorkerReport = z.infer<typeof PlanQueueWorkerReportSchema>;
 export type PlanQueueQuestion = z.infer<typeof PlanQueueQuestionSchema>;
 export type PlanQueueDecision = z.infer<typeof PlanQueueDecisionSchema>;
 export type PlanQueueTriageRecord = z.infer<typeof PlanQueueTriageRecordSchema>;
@@ -611,6 +643,7 @@ export type PlanQueueControlPayload = z.infer<typeof PlanQueueControlPayloadSche
 export type PlanQueueStateChangedEvent = z.infer<typeof PlanQueueStateChangedEventSchema>;
 export type PlanQueueNeedJamesEntry = z.infer<typeof PlanQueueNeedJamesEntrySchema>;
 export type PlanQueueReportVerdictArgs = z.infer<typeof PlanQueueReportVerdictArgsSchema>;
+export type PlanQueueReportReadyArgs = z.infer<typeof PlanQueueReportReadyArgsSchema>;
 export type PlanQueueReportTriageArgs = z.infer<typeof PlanQueueReportTriageArgsSchema>;
 export type PlanQueueStartArgs = z.infer<typeof PlanQueueStartArgsSchema>;
 export type PlanQueueControlArgs = z.infer<typeof PlanQueueControlArgsSchema>;

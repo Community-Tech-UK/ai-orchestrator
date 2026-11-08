@@ -21,7 +21,9 @@ const BUDGET = {
   browserFull: { bytes: 72704, render: () => createBrowserMcpTools(client), measure: measureToolSchemaBytes },
   browserDeferred: { bytes: 12288, render: () => createDeferredBrowserMcpTools(client, { onReveal: () => undefined }), measure: measureToolSchemaBytes },
   browserStable: { bytes: 12288, render: () => createStableBrowserMcpTools(client), measure: measureToolSchemaBytes },
-  orchestratorFull: { bytes: 73728, render: all, measure: measureOrchestratorToolSchemaBytes },
+  // Nov-07: plan_queue_report_ready (the worker completion report, roughly 2 KB of schema)
+  // takes the full set to 74,770 bytes; next 1 KiB ceiling is 75,776.
+  orchestratorFull: { bytes: 75776, render: all, measure: measureOrchestratorToolSchemaBytes },
   orchestratorDeferredConnected: { bytes: 10240, render: () => deferred(true), measure: measureOrchestratorToolSchemaBytes },
   orchestratorDeferredOffline: { bytes: 4096, render: () => deferred(false), measure: measureOrchestratorToolSchemaBytes },
   orchestratorStableConnected: { bytes: 11264, render: () => stable(true), measure: measureOrchestratorToolSchemaBytes },

@@ -6284,12 +6284,12 @@
       "lines": 4013
     },
     {
-      "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
-      "lines": 3817
+      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
+      "lines": 3972
     },
     {
-      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 3778
+      "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
+      "lines": 3817
     },
     {
       "path": "src/main/instance/rlm-process-ownership.spec.ts",
@@ -7425,7 +7425,7 @@
     },
     {
       "path": "docs/AIO_MCP_CLI.md",
-      "lines": 880
+      "lines": 881
     },
     {
       "path": "src/renderer/app/features/instance-detail/output-stream.component.scss",

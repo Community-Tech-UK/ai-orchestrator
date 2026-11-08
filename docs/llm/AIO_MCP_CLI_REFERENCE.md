@@ -117,9 +117,10 @@ the queue did not start may `discard-item` a parked item or `restore-discarded` 
 (do it only when James asked or you have checked its work is on the base branch; the
 item records who discarded it). Once the starting
 session no longer exists, another session may also `cancel` the stranded run. To take over a run whose owner is still there but
-will not hand it over, use `$AIO_MCP plan-queue move <run_id>` (see Main Commands). `plan_queue_report_triage` and
-`plan_queue_report_verdict` belong to the queue's own triage and verifier
-sessions and are refused from anyone else. These are MCP tools, not `$AIO_MCP` CLI
+will not hand it over, use `$AIO_MCP plan-queue move <run_id>` (see Main Commands). `plan_queue_report_triage`,
+`plan_queue_report_verdict` and `plan_queue_report_ready` belong to the queue's own triage,
+verifier and worker sessions and are refused from anyone else (a worker may report
+only its own item). These are MCP tools, not `$AIO_MCP` CLI
 subcommands, though `plan-queue discard` does the same as `discard-item`.
 
 `plan_queue_status` shows an `accountRules` line with account labels when James has set

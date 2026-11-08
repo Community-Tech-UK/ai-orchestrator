@@ -49,6 +49,7 @@ describe('createOrchestratorToolsForwarderTools', () => {
       'plan_queue_set_aside',
       'plan_queue_set_aside_clear',
       'plan_queue_report_triage',
+      'plan_queue_report_ready',
       'plan_queue_report_verdict',
       'build_release_operational_readiness_report',
       'build_ios_release_plan',

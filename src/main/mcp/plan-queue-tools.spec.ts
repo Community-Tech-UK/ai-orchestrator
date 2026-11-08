@@ -30,6 +30,7 @@ function fakeOps(): PlanQueueToolOperations & { calls: unknown[][] } {
     control: vi.fn(async (...args: unknown[]) => record('control')(...args)),
     reportVerdict: record('reportVerdict'),
     reportTriage: record('reportTriage'),
+    reportReady: record('reportReady'),
     setAside: vi.fn(async (...args: unknown[]) => record('setAside')(...args)),
     clearSetAside: vi.fn(async (...args: unknown[]) => record('clearSetAside')(...args)),
     discardItems: vi.fn(async () => ({ discarded: [], leftInPlace: [], failed: [] })),
@@ -120,6 +121,7 @@ describe('plan queue MCP tools', () => {
     const forWorker = createPlanQueueToolDefinitions({ instanceId: WORKER, planQueueTools: ops }).map((t) => t.name);
     expect(forWorker).not.toContain('plan_queue_start');
     expect(forWorker).toContain('plan_queue_report_verdict');
+    expect(forWorker).toContain('plan_queue_report_ready');
     expect(createPlanQueueToolDefinitions({ instanceId: PARENT, planQueueTools: ops }).map((t) => t.name)).toEqual(PLAN_QUEUE_TOOL_NAMES);
     expect(createPlanQueueToolDefinitions({ instanceId: PARENT, planQueueTools: null })).toEqual([]);
   });
@@ -131,6 +133,19 @@ describe('plan queue MCP tools', () => {
     expect(ops.calls[0]).toEqual(['reportVerdict', WORKER, {
       item_id: 'item-1', verdict: 'PASS', findings: [], gates_run: [], document_complete: true, need_james: [], not_checked: [],
     }]);
+  });
+
+  it('passes a worker\'s report to the coordinator under the authenticated caller, and rejects an incomplete one', async () => {
+    const ops = fakeOps();
+    const s = server(ops);
+    const report = { item_id: 'item-1', summary: 'Done.', as_built: 'Built it.', checks_run: [{ command: 'npm run lint', exitCode: 0 }], deferred_checks: [], follow_ups: [] };
+    await call(s, WORKER, 'plan_queue_report_ready', { ...report, instanceId: PARENT });
+    expect(ops.calls).toEqual([['reportReady', WORKER, report]]);
+    await expect(call(s, WORKER, 'plan_queue_report_ready', { ...report, as_built: undefined })).rejects.toThrow();
+    await expect(call(s, WORKER, 'plan_queue_report_ready', { ...report, summary: '  ' })).rejects.toThrow();
+    expect(ops.calls).toHaveLength(1);
+    const tool = createPlanQueueToolDefinitions({ instanceId: WORKER, planQueueTools: ops }).find((t) => t.name === 'plan_queue_report_ready')!;
+    expect(tool.inputSchema['required']).toEqual(['item_id', 'summary', 'as_built', 'checks_run', 'deferred_checks', 'follow_ups']);
   });
 
   it('refuses plan_queue_start from a queue-spawned instance at dispatch', async () => {

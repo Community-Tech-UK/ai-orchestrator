@@ -10,6 +10,7 @@ import { getLogger } from '../logging/logger';
 import type { PlanQueueCoordinator } from './plan-queue-coordinator';
 import { describeAccountRules, copilotLabel, poolLabel } from './plan-queue-account-rules';
 import { describeRouting, routeChoiceFromArgs } from './plan-queue-routing';
+import { recordWorkerReport } from './plan-queue-worker-report';
 import { describeRunEvidence, PLAN_QUEUE_EVIDENCE_EVENT_LIMIT } from './plan-queue-run-evidence';
 import { describeQueueHealth } from '../../shared/utils/plan-queue-health-lines';
 import { planQueueRunCanMove } from '../../shared/utils/plan-queue-run-movable';
@@ -164,6 +165,7 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
     clearSetAside: (callerInstanceId) => coordinator().setAsideAgents.clear(callerInstanceId),
     reportVerdict: (callerInstanceId, args) => coordinator().reportVerdict(callerInstanceId, args),
     reportTriage: (callerInstanceId, args) => coordinator().reportTriage(callerInstanceId, args),
+    reportReady: (callerInstanceId, args) => recordWorkerReport(coordinator(), callerInstanceId, args),
     async moveRun(callerInstanceId, runId, targetInstanceId) {
       const queue = coordinator();
       // Neither may own a run (see startRun and requireSession), so neither may take or give one.

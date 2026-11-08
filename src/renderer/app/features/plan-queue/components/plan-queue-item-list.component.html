@@ -47,6 +47,40 @@
           }
         }
 
+        @if (item.workerReport; as report) {
+          <div class="pq-item-report">
+            <div class="pq-item-report-summary">Worker's summary: {{ plain(report.summary) }}</div>
+            <details>
+              <summary>Worker's full report</summary>
+              <p>What was built: {{ plain(report.asBuilt) }}</p>
+              @if (report.checksRun.length) {
+                <p>Checks it ran ({{ report.checksRun.length }}):</p>
+                <ul>
+                  @for (check of report.checksRun; track $index) {
+                    <li>{{ plain(check.command) }}: {{ check.exitCode === 0 ? 'Passed' : 'Failed' }}</li>
+                  }
+                </ul>
+              }
+              @if (report.deferredChecks.length) {
+                <p>Left for a later live check ({{ report.deferredChecks.length }}):</p>
+                <ul>
+                  @for (deferred of report.deferredChecks; track $index) {
+                    <li>{{ plain(deferred.title) }}: {{ plain(deferred.whyDeferred) }} Steps: {{ plain(deferred.steps) }} Expected: {{ plain(deferred.expectedResult) }}</li>
+                  }
+                </ul>
+              }
+              @if (report.followUps.length) {
+                <p>Problems it found outside this job ({{ report.followUps.length }}):</p>
+                <ul>
+                  @for (followUp of report.followUps; track $index) {
+                    <li>{{ plain(followUp) }}</li>
+                  }
+                </ul>
+              }
+            </details>
+          </div>
+        }
+
         @if (parkHelp(item, { maxRounds: maxRounds() }); as help) {
           <div class="pq-item-park-reason">Set aside: {{ help.label }}</div>
           <p>{{ help.meaning }} {{ help.next }}</p>

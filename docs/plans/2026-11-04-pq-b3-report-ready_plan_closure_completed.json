@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-04-pq-b3-report-ready_plan.md",
+      "sha256": "40fbee11d008dcfc878ff1d877b632bc70e8e2b9d0fdc6271415a1e258edc58d",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-04-pq-b3-report-ready_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-04-pq-b3-report-ready_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-04-pq-b3-report-ready_plan_completed.md",
+      "sha256": "a54f8db4aed314c4a341089ac842379a71a573156c88fecb0fd381a626c3e97d"
+    },
+    {
+      "relativePath": "2026-11-04-pq-b3-report-ready_plan_history_da825bb16ac1b5425e47024f8b04f715ace354a40fcddc707e9376cbf1a1e589_completed.md",
+      "sha256": "daeebcbc4a942c4e3a4761ef494a6b64be51f70e899532043fbf64d9bcf09aba"
+    }
+  ]
+}
