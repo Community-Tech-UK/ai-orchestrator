@@ -110,6 +110,30 @@ describe('ThreadWakeupRunner', () => {
     );
   });
 
+  it('bounds the turn a delivered wake-up starts, but not a provider-limit resume', async () => {
+    const destination: AutomationDestination = { kind: 'thread', instanceId: 'instance-1', reviveIfArchived: false };
+    const waitForInstanceSettled = vi.fn(() => new Promise(() => undefined));
+    const bounded = new ThreadWakeupRunner(
+      { sendInput, getInstance, waitForInstanceSettled, interruptInstance: vi.fn() } as unknown as InstanceManager,
+      { revive } as unknown as SessionRevivalService,
+      { attachInstance, terminalizeRun } as unknown as AutomationStore,
+      () => 3_000,
+    );
+    revive.mockResolvedValue({ status: 'live', instanceId: 'instance-1' });
+    terminalizeRun.mockReturnValue(makeRun());
+    sendInput.mockImplementation(async (_id, _message, _attachments, options) => {
+      options.beforeProviderDispatch();
+      options.onProviderInputDelivered();
+    });
+    const automation = makeAutomation(destination);
+    await bounded.fireThreadWakeup({ run: makeRun(), automation, destination });
+    expect(waitForInstanceSettled).toHaveBeenCalledWith('instance-1', expect.objectContaining({ afterTimestamp: 3_000, timeoutMs: 90 * 60_000 }));
+    waitForInstanceSettled.mockClear();
+    const resume = { ...automation, action: { ...automation.action, systemAction: 'provider-limit-resume' } } as unknown as Automation;
+    await bounded.fireThreadWakeup({ run: makeRun(), automation: resume, destination });
+    expect(waitForInstanceSettled).not.toHaveBeenCalled();
+  });
+
   it('sends the scheduled prompt to a live thread and marks the run succeeded', async () => {
     const destination: AutomationDestination = {
       kind: 'thread',

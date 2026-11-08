@@ -11,6 +11,7 @@ import type { SessionRevivalService } from '../session/session-revival-service';
 import type { AutomationStore } from './automation-store';
 import { getSessionAdmissionService, type RedeliveryContext, type SuppressReason } from '../session/session-admission-service';
 import { isBusyConversationSendError } from './automation-run-failure-class';
+import { boundThreadWakeupTurn } from './automation-thread-turn-limit';
 
 import { GlobalPauseService } from '../global-pause/global-pause-service';
 import type { AutomaticStartup } from '../work-admission/automatic-startup';
@@ -119,6 +120,7 @@ export class ThreadWakeupRunner {
       const delivery = automatedResendInput(automation.action.prompt);
       let dispatched = false;
       let delivered = false;
+      const sentAt = this.now();
       const beforeProviderDispatch = (): void => {
         request.startup?.signal.throwIfAborted();
         dispatched = true;
@@ -136,8 +138,11 @@ export class ThreadWakeupRunner {
           onProviderInputDelivered: () => { delivered = true; },
         },
       );
-      if (dispatched && delivered) this.recordDelivery(run.id, instanceId);
-      else this.recordAttempt(run.id, instanceId, !dispatched);
+      if (dispatched && delivered) {
+        this.recordDelivery(run.id, instanceId);
+        // A provider-limit resume continues the person's own turn; only scheduled work is bounded.
+        if (!isResume) this.boundTurn(run, automation, instanceId, sentAt);
+      } else this.recordAttempt(run.id, instanceId, !dispatched);
       getSessionAdmissionService().markDelivered(admission.admissionId);
       const summary = `Wakeup prompt delivered to thread ${instanceId}.`;
       return this.terminalize(run, 'succeeded', undefined, summary);
@@ -241,6 +246,15 @@ export class ThreadWakeupRunner {
           error: error instanceof Error ? error.message : String(error),
         });
       });
+  }
+
+  private boundTurn(run: AutomationRun, automation: Automation, instanceId: string, sentAt: number): void {
+    try {
+      boundThreadWakeupTurn(this.instanceManager, instanceId, sentAt, run.configSnapshot?.action ?? automation.action, run.configSnapshot?.schedule ?? automation.schedule);
+    } catch (error) {
+      // A delivered prompt must never become a send failure/retry because its limit watch could not start.
+      logger.warn('Could not start the thread turn limit', { runId: run.id, instanceId, error });
+    }
   }
 
   private recordAttempt(runId: string, instanceId: string, notDelivered = false, publish = false): void {
