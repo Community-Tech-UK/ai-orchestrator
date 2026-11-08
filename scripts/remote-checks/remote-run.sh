@@ -44,7 +44,7 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 # macOS has neither systemd nor flock, and its date, sha256sum, tail and mv lack the GNU options used
 # here. These stand in on a Mac; on Linux each is the command it always was.
 if [ "$(uname -s)" = Darwin ]; then MAC=1; NODE_PLATFORM=darwin-arm64; else MAC=0; NODE_PLATFORM=linux-x64; fi
-# An ssh command on a Mac reads no login profile, so it sees only the system's folders. Tests need rg, which comes from
+# An ssh command on a Mac reads no login profile, so it sees only the system's folders. Tests need rg and flock, from
 # Homebrew there; after the system's own, so bash, perl and tar stay the ones above.
 [ "$MAC" = 1 ] && [ -d /opt/homebrew/bin ] && PATH="$PATH:/opt/homebrew/bin"
 
@@ -449,6 +449,30 @@ load_recipe() {
       }
       RECIPE_LOG=apps/desk/_scratch/test-run.log
       recipe_test_count() { sed -n 's/^# tests \([0-9][0-9]*\)$/\1/p' "$RECIPE_LOG" 2>/dev/null | tail -n 1 | grep . || echo 0; }
+      ;;
+    undistilled/all)
+      # Its backend tests are built for macOS, so it is unknown anywhere else.
+      [ "$MAC" = 1 ] || return 1
+      NODE_FILE=.nvmrc
+      LOCK_FILE=package-lock.json
+      INSTALL_INPUTS='package-lock.json package.json'
+      recipe_install() { npm ci --no-audit --no-fund; }
+      # Its runner names each run's log by time and ends by printing the path; its own tests start nested runs that
+      # leave more, so the printed one is this run's. Its report sits beside it.
+      recipe_test() {
+        rm -f _scratch/vitest-* _scratch/test-machine-run.*
+        mkdir -p _scratch
+        AIO_REMOTE_CHECKS=off npm run test:quiet 2>&1 | tee _scratch/test-machine-run.out
+        local code=${PIPESTATUS[0]} log
+        log="$(sed -n 's/.*Full log: \(.*\.log\)$/\1/p' _scratch/test-machine-run.out | tail -n 1)"
+        if [ -n "$log" ]; then
+          cp "$log" "$RECIPE_LOG" 2>/dev/null
+          cp "${log%.log}.json" _scratch/test-machine-run.json 2>/dev/null
+        fi
+        return "$code"
+      }
+      RECIPE_LOG=_scratch/test-machine-run.log
+      recipe_test_count() { node -p 'require(process.argv[1]).numTotalTests' "$PWD/_scratch/test-machine-run.json" 2>/dev/null | grep . || echo 0; }
       ;;
     *) return 1 ;;
   esac

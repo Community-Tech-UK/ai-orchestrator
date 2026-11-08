@@ -280,6 +280,83 @@ describe.runIf(canRunHere())('remote-run.sh running another project', () => {
   }, LIMIT);
 });
 
+/** Stands in for `npm` in Undistilled: its runner names each run's log and report by time. */
+const FAKE_UNDISTILLED_NPM = `#!/usr/bin/env bash
+case "$1" in
+  ci) echo "$*" >> "$FAKE_LOG" ;;
+  run)
+    echo "off=$AIO_REMOTE_CHECKS" >> "$FAKE_LOG"
+    mkdir -p _scratch
+    stamp="$(date +%s)$RANDOM"
+    echo 'the whole run log' > "_scratch/vitest-$stamp-1.log"
+    printf '{"numTotalTests":%s}' "$(cat "$FAKE_TESTS")" > "_scratch/vitest-$stamp-1.json"
+    # Its own tests start the runner again, leaving newer files beside this run's.
+    sleep 1
+    echo 'a nested run' > "_scratch/vitest-$stamp-2.log"
+    printf '{"numTotalTests":1}' > "_scratch/vitest-$stamp-2.json"
+    [ "$(cat "$FAKE_BEHAVIOUR")" = fails ] && { echo "Runner exit: 1. Full log: $PWD/_scratch/vitest-$stamp-1.log" >&2; exit 1; }
+    echo "9 tests passed. Full log: $PWD/_scratch/vitest-$stamp-1.log"
+    ;;
+esac
+`;
+
+describe.runIf(process.platform === 'darwin')('remote-run.sh running Undistilled on a Mac', () => {
+  function setUpUndistilled() {
+    const machine = setUp();
+    const bin = join(machine.base, 'fake-bin');
+    mkdirSync(bin);
+    writeFileSync(join(bin, 'npm'), FAKE_UNDISTILLED_NPM);
+    chmodSync(join(bin, 'npm'), 0o755);
+    const files = { behaviour: join(machine.base, 'behaviour'), tests: join(machine.base, 'tests'), log: join(machine.base, 'npm-log') };
+    writeFileSync(files.behaviour, 'pass');
+    writeFileSync(files.tests, '9');
+    writeFileSync(files.log, '');
+    const env = {
+      ...process.env, AIO_PROJECT: 'undistilled', AIO_SUITE: 'all', FAKE_BEHAVIOUR: files.behaviour, FAKE_TESTS: files.tests,
+      FAKE_LOG: files.log, PATH: `${bin}:${process.env['PATH']}`,
+    };
+    git(machine.project, 'init', '-q', '-b', 'main');
+    git(machine.project, 'add', '-A');
+    git(machine.project, 'commit', '-qm', 'project');
+    const commit = git(machine.project, 'rev-parse', 'HEAD');
+    const pack = execFileSync('git', ['pack-objects', '--revs', '--stdout', '--quiet'], {
+      cwd: machine.project, input: `${commit}\n`, maxBuffer: 64 * 1024 * 1024,
+    });
+    execFileSync('bash', [machine.script, 'receive', commit, 'none'], { input: pack, env });
+    const runOnce = async (name: string) => {
+      const id = `${name}-${process.pid}`;
+      const child = spawn('bash', [machine.script, 'run', id, commit, '0', '0'], { stdio: 'pipe', env });
+      children.push(child);
+      let output = '';
+      child.stdout.on('data', (chunk) => { output += String(chunk); });
+      await new Promise<void>(resolve => child.on('close', () => resolve()));
+      const line = output.split('\n').find(text => text.startsWith('AIO_REMOTE_RESULT '));
+      return { output, result: line ? JSON.parse(line.slice('AIO_REMOTE_RESULT '.length)) as Record<string, unknown> : null };
+    };
+    return { files, runOnce, calls: () => readFileSync(files.log, 'utf8') };
+  }
+
+  it('installs, runs its own runner with remote checks off, and counts the tests from its report', async () => {
+    const machine = setUpUndistilled();
+    const run = await machine.runOnce('undistilled-pass');
+    expect(run.result).toMatchObject({ status: 'ok', exit: 0, tests: 9 });
+    expect(machine.calls()).toContain('ci --no-audit --no-fund');
+    expect(machine.calls()).toContain('off=off');
+  }, LIMIT);
+
+  it('counts this run\'s report rather than a nested run\'s, and passes on a failure with this run\'s whole log', async () => {
+    const machine = setUpUndistilled();
+    await machine.runOnce('undistilled-first');
+    writeFileSync(machine.files.behaviour, 'fails');
+    writeFileSync(machine.files.tests, '4');
+    const run = await machine.runOnce('undistilled-second');
+    expect(run.result).toMatchObject({ status: 'ok', exit: 1, tests: 4 });
+    const [, log] = run.output.split('[remote checks] full log follows');
+    expect(log).toContain('the whole run log');
+    expect(log).not.toContain('a nested run');
+  }, LIMIT);
+});
+
 describe.runIf(canRunHere())('remote-run.sh on a real machine', () => {
   it('runs a snapshot and reports its fingerprint, then hands back the report', async () => {
     const machine = setUp();

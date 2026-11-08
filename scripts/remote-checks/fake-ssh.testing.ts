@@ -33,8 +33,10 @@ case "$cmd" in
       AIO_PROJECT=*)
         project="${'$'}{1#AIO_PROJECT=}"
         repo="remote-checks/projects/$project/repo.git"
-        node_file=apps/desk/.nvmrc
-        lock_file=apps/desk/package-lock.json
+        if [ "$project" = work-finding ]; then
+          node_file=apps/desk/.nvmrc
+          lock_file=apps/desk/package-lock.json
+        fi
         ;;
     esac
     tree="$(git -C "$repo" rev-parse "$commit^{tree}")"
@@ -60,6 +62,8 @@ case "$cmd" in
     tests=5
     [ "$scenario" = no-tests ] && tests=0
     [ "$node" = 24 ] && node=v24.1.0
+    # As node -v prints a full version that a file gives without its v.
+    case "$node" in v*) ;; *.*.*) node="v$node" ;; esac
     echo "PASS at /far/slots/1/repo/apps/desk/x.test.ts"
     [ "$scenario" = big-output ] && seq 1 60000 | sed 's/^/far output line /'
     if [ "$scenario" = failed-with-log ]; then

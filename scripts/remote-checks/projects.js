@@ -5,8 +5,12 @@
  * Nothing under ~/work/ebrd ever goes. Adding a repository here needs James to name it, and a
  * matching recipe in remote-run.sh, which refuses anything it doesn't know.
  *
- * Undistilled and 12steps were measured on 7 November 2026 and stay on the Mac: see "Stage 5"
- * in docs/plans/2026-11-06-offload-heavy-work_plan*.md.
+ * 12steps was measured on 7 November 2026 and stays on the Mac: see "Stage 5" in
+ * docs/plans/2026-11-06-offload-heavy-work_plan*.md. Undistilled's backend tests are built for
+ * macOS (205 failed on Linux), so it may go only to a test Mac. Its runner doesn't call
+ * harness-remote-check.js yet: on 8 November 2026 two of its browser tests ("failure output of a
+ * browser test") passed only in James's working copy and failed in any fresh checkout, this Mac's
+ * included, so a run on the test Mac would have reported them.
  */
 
 const { execFileSync } = require('child_process');
@@ -15,7 +19,10 @@ const os = require('os');
 const path = require('path');
 const { cleanGitEnv } = require('./snapshot');
 
-/** `folder` is where the runner lives, relative to the repository. `sends` limits uncommitted files to the folders the tests read. */
+/**
+ * `folder` is where the runner lives, relative to the repository. `sends` limits uncommitted files to the folders the
+ * tests read. `needsMac` keeps a suite off Linux test machines. `macOnly` is run here after a run on Linux.
+ */
 const PROJECTS = [
   {
     id: 'work-finding',
@@ -29,6 +36,19 @@ const PROJECTS = [
         sends: ['apps'],
         // Run from `folder` after a run elsewhere, as remote-run.sh leaves these out.
         macOnly: ['scripts/run-tests-quiet.mjs', 'test/unit/panelLayoutCss.test.ts'],
+      },
+    ],
+  },
+  {
+    id: 'undistilled',
+    repository: 'work/undistilled',
+    suites: [
+      {
+        suite: 'all',
+        folder: '.',
+        nodeFile: '.nvmrc',
+        lockFile: 'package-lock.json',
+        needsMac: true,
       },
     ],
   },

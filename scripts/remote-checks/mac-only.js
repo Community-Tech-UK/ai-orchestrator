@@ -12,6 +12,9 @@ const MAC_ONLY_SPECS = [
   'src/main/cli/adapters/base-cli-adapter-hardened-spawn.spec.ts',
   'src/main/cli/rtk/__tests__/rtk-tracking-reader.spec.ts',
   'scripts/remote-checks/run-tests-quiet-remote.spec.ts',
+  // Undistilled's recipe exists only on a Mac.
+  'scripts/remote-checks/harness-remote-check.spec.ts',
+  'scripts/remote-checks/remote-run.linux.spec.ts',
   // Needs the plan lifecycle guard from James's home folder; a test Mac needs a copy at the same path.
   'src/main/plan-queue/plan-queue-history-landing.spec.ts',
 ];

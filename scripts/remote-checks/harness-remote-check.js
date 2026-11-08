@@ -44,11 +44,12 @@ async function main() {
   const scratch = path.resolve('_scratch');
   fs.mkdirSync(scratch, { recursive: true });
   const logPath = path.join(scratch, `test-machine.pid-${process.pid}.log`);
-  const machines = machinesFor(config, 'testRuns');
+  const machines = machinesFor(config, 'testRuns').filter(machine => !project.needsMac || machine.platform === 'darwin');
+  if (!machines.length) return fellBack(project, started, 'no test machine taking test runs is a Mac', logPath);
   const progress = setInterval(() => say('still running elsewhere'), PROGRESS_INTERVAL_MS);
   let remote;
   try {
-    say(`running on ${machines[0].label}`);
+    say(`running on ${machines.length === 1 ? machines[0].label : 'your test machines'}`);
     remote = await runOnMachines(machines, {
       root: project.root, logPath, noCache: false, ci: process.env.CI, project,
       take: root => takeSnapshot(root, { folders: project.sends }),
@@ -63,7 +64,8 @@ async function main() {
   fs.writeFileSync(logPath, output);
   process.stdout.write(output.split(FULL_LOG_MARK)[0]);
 
-  const macExit = spawnSync(process.execPath, project.macOnly, { stdio: 'inherit' }).status ?? 1;
+  // A recipe leaves its Mac-only tests out wherever it runs, so they run here; a suite may have none.
+  const macExit = project.macOnly ? spawnSync(process.execPath, project.macOnly, { stdio: 'inherit' }).status ?? 1 : 0;
   const failed = remote.exitCode || macExit;
   const exitCode = !failed ? 0 : (remote.exitCode !== STAY_HERE && remote.exitCode) || 1;
   appendRunLog({
@@ -73,7 +75,7 @@ async function main() {
   const took = `Ran on ${remote.machine.label} in ${Math.round((Date.now() - started) / 1000)}s`;
   if (exitCode === 0) {
     fs.rmSync(logPath, { force: true });
-    say(`passed: ${remote.tests} tests. ${took}, and the Mac-only tests here.`);
+    say(`passed: ${remote.tests} tests. ${took}${project.macOnly ? ', and the Mac-only tests here' : ''}.`);
   } else {
     // Last, because the Mac-only run's own summary above can read as a pass.
     say(`FAILED: ${remote.exitCode ? `tests failed on ${remote.machine.label}` : 'the Mac-only tests failed'}. ${took}. Its full log: ${logPath}`);

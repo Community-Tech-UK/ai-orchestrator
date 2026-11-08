@@ -124,7 +124,7 @@ describe('findProject', () => {
     ['a copy with the same name', 'work/copies/work-finding'],
     ['a name that starts the same', 'work/communitytech/work-finding-old'],
     ['anything under ebrd', 'work/ebrd/work/communitytech/work-finding'],
-    ['undistilled, measured and left on the Mac', 'work/undistilled'],
+    ['a folder of undistilled other than its root', 'work/undistilled/apps'],
     ['12steps, measured and left on the Mac', 'work/12steps'],
   ])('refuses %s', (_label, path) => {
     const base = home();
@@ -144,9 +144,16 @@ describe('findProject', () => {
     expect(findProject(join(base, 'work/communitytech/work-finding/apps/desk'), base)).toBeNull();
   });
 
+  it('knows undistilled only at its root, and as needing a Mac', () => {
+    const base = home();
+    const root = join(base, 'work/undistilled');
+    repository(root);
+    expect(findProject(root, base)).toMatchObject({ id: 'undistilled', suite: 'all', root, needsMac: true });
+  });
+
   it('lists nothing under ebrd, and only what James named', () => {
     const { PROJECTS } = require('./projects.js') as { PROJECTS: { repository: string }[] };
-    expect(PROJECTS.map(project => project.repository)).toEqual(['work/communitytech/work-finding']);
+    expect(PROJECTS.map(project => project.repository)).toEqual(['work/communitytech/work-finding', 'work/undistilled']);
     expect(PROJECTS.some(project => project.repository.split('/').includes('ebrd'))).toBe(false);
   });
 
@@ -290,7 +297,7 @@ describe('harness-remote-check', () => {
 
   it('sends nothing from a repository that is not listed', () => {
     const setup = setUp();
-    const other = join(setup.base, 'work/undistilled');
+    const other = join(setup.base, 'work/12steps');
     repository(other);
     const result = run(setup, { cwd: other });
     expect(result.code).toBe(STAY_HERE);
@@ -305,6 +312,55 @@ describe('harness-remote-check', () => {
   }, LIMIT);
 });
 
+describe('a suite that needs a Mac', () => {
+  /** Undistilled beside the usual set-up, with a second machine that can be made a Mac. */
+  function setUpUndistilled(withMac: boolean) {
+    const setup = setUp();
+    const root = join(setup.base, 'work/undistilled');
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, '.gitignore'), 'node_modules\n_scratch\n');
+    writeFileSync(join(root, '.nvmrc'), '24.22.1\n');
+    writeFileSync(join(root, 'package-lock.json'), '{}\n');
+    git(root, 'init', '-q', '-b', 'main');
+    git(root, 'add', '-A');
+    git(root, 'commit', '-qm', 'base');
+    const macFake = join(setup.base, 'fake-mac');
+    mkdirSync(join(macFake, 'home/remote-checks'), { recursive: true });
+    writeFileSync(join(macFake, 'scenario'), 'pass');
+    const macSsh = join(macFake, 'ssh');
+    writeFileSync(macSsh, `#!/bin/bash\nFAKE_DIR=${JSON.stringify(macFake)} exec ${JSON.stringify(join(setup.fake, 'ssh'))} "$@"\n`);
+    chmodSync(macSsh, 0o755);
+    const first = JSON.parse(readFileSync(join(setup.dir, 'config.json'), 'utf8')) as Record<string, unknown>;
+    const second = { host: 'far-mac', label: 'the test Mac', ssh: macSsh, ...(withMac ? { platform: 'darwin' } : {}) };
+    writeFileSync(join(setup.dir, 'config.json'), JSON.stringify({ ...first, moreMachines: [second] }));
+    const macCalls = (): string[] => (existsSync(join(macFake, 'ssh.log')) ? readFileSync(join(macFake, 'ssh.log'), 'utf8').split('\n').filter(Boolean) : []);
+    return { setup, root, macCalls };
+  }
+
+  // The stand-in far side stores the snapshot with the real remote-run.sh, which knows Undistilled only on a Mac.
+  it.runIf(process.platform === 'darwin')('goes only to a Mac in the list, passing over the PC, and has nothing to run here afterwards', () => {
+    const { setup, root, macCalls } = setUpUndistilled(true);
+    const result = run(setup, { cwd: root });
+    expect(result.code).toBe(0);
+    expect(result.sshCalls).toEqual([]);
+    expect(macCalls().filter(call => call.includes(' run ')).every(call => call.startsWith('AIO_PROJECT=undistilled AIO_SUITE=all '))).toBe(true);
+    expect(macCalls().some(call => call.includes(' run '))).toBe(true);
+    expect(result.stderr).toMatch(/passed: 5 tests\. Ran on the test Mac in \d+s\./);
+    expect(result.macOnly).toEqual([]);
+    expect(result.runLog[0]).toMatchObject({ project: 'undistilled', ranOn: 'far-mac', exitCode: 0 });
+  }, LIMIT);
+
+  it('stays here, saying why, when no machine taking test runs is a Mac', () => {
+    const { setup, root, macCalls } = setUpUndistilled(false);
+    const result = run(setup, { cwd: root });
+    expect(result.code).toBe(STAY_HERE);
+    expect(result.sshCalls).toEqual([]);
+    expect(macCalls()).toEqual([]);
+    expect(result.stderr).toContain('running here because no test machine taking test runs is a Mac');
+    expect(result.runLog[0]).toMatchObject({ project: 'undistilled', ranOn: 'mac', fellBackBecause: 'no test machine taking test runs is a Mac' });
+  }, LIMIT);
+});
+
 describe('remote-run.sh and unlisted repositories', () => {
   it.each([['undistilled', 'unit'], ['work-finding', 'radar'], ['../escape', 'desk']])('refuses %s/%s before storing anything', (project, suite) => {
     const base = home();
@@ -314,6 +370,16 @@ describe('remote-run.sh and unlisted repositories', () => {
     });
     expect(result.status).toBe(3);
     expect(result.stderr).toContain('not a known repository');
+    expect(existsSync(join(base, 'projects'))).toBe(false);
+  });
+
+  it.runIf(process.platform === 'linux')('refuses undistilled anywhere but a Mac', () => {
+    const base = home();
+    cpSync(join(__dirname, 'remote-run.sh'), join(base, 'remote-run.sh'));
+    const result = spawnSync('bash', [join(base, 'remote-run.sh'), 'bases'], {
+      encoding: 'utf8', env: { ...process.env, AIO_PROJECT: 'undistilled', AIO_SUITE: 'all' },
+    });
+    expect(result.status).toBe(3);
     expect(existsSync(join(base, 'projects'))).toBe(false);
   });
 
