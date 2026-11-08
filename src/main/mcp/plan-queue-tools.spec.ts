@@ -148,6 +148,24 @@ describe('plan queue MCP tools', () => {
     expect(tool.inputSchema['required']).toEqual(['item_id', 'summary', 'as_built', 'checks_run', 'deferred_checks', 'follow_ups']);
   });
 
+  it('advertises finding kinds and deferred checks, and passes them to the coordinator', async () => {
+    const ops = fakeOps();
+    const s = server(ops);
+    const tool = createPlanQueueToolDefinitions({ instanceId: WORKER, planQueueTools: ops }).find((t) => t.name === 'plan_queue_report_verdict')!;
+    const properties = tool.inputSchema['properties'] as Record<string, { items?: { properties?: Record<string, { enum?: string[] }> } }>;
+    expect(properties['findings'].items!.properties!['kind'].enum).toEqual(['code', 'environment', 'needs-human']);
+    expect(properties['findings'].items!.properties).toHaveProperty('missing');
+    expect(properties).toHaveProperty('deferred_checks');
+    expect(properties).toHaveProperty('criteria_total');
+    await call(s, WORKER, 'plan_queue_report_verdict', {
+      item_id: 'item-1', verdict: 'PASS', not_checked: [], criteria_total: 4,
+      findings: [{ severity: 'low', confidence: 80, summary: 'No Node 22 here.', kind: 'environment', missing: 'Node 22 on the PATH' }],
+      deferred_checks: [{ title: 'Each provider calls the tool', whyDeferred: 'Needs a rebuilt app.' }],
+    });
+    expect(ops.calls[0][2]).toMatchObject({ criteria_total: 4, deferred_checks: [{ title: 'Each provider calls the tool' }], findings: [{ kind: 'environment', missing: 'Node 22 on the PATH' }] });
+    await expect(call(s, WORKER, 'plan_queue_report_verdict', { item_id: 'item-1', verdict: 'PASS', not_checked: [], findings: [{ severity: 'low', confidence: 80, summary: 'x', kind: 'maybe' }] })).rejects.toThrow();
+  });
+
   it('refuses plan_queue_start from a queue-spawned instance at dispatch', async () => {
     const ops = fakeOps();
     await expect(call(server(ops), WORKER, 'plan_queue_start', { kind: 'plans' })).rejects.toThrow(/plan_queue_start tool unavailable/);

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   PlanQueueAlertSchema, PlanQueueQuestionSchema, PlanQueueReportTriageArgsSchema, PlanQueueControlPayloadSchema, PlanQueueControlArgsSchema,
   PlanQueueItemDtoSchema, PlanQueueRoutingSchema, PlanQueueStartArgsSchema,
-  PlanQueueReportVerdictArgsSchema,
+  PlanQueueReportVerdictArgsSchema, PlanQueueParkReasonSchema,
   PlanQueueFolderChecklistsSchema, normalizeChecklistFolder, isAbsoluteChecklistFolder,
   DEFAULT_PLAN_QUEUE_CONFIG, PlanQueueRunConfigSchema, PlanQueueGateRunSchema, PlanQueueRunDtoSchema,
 } from '../plan-queue.schemas';
@@ -49,6 +49,25 @@ describe('Plan Queue verification coverage', () => {
     }
     expect(PlanQueueReportVerdictArgsSchema.parse({ ...args, not_checked: ['Windows sign-in requires an authenticated worker.'] }).not_checked)
       .toEqual(['Windows sign-in requires an authenticated worker.']);
+  });
+});
+
+describe('Plan Queue finding kinds and deferred checks', () => {
+  const base = { item_id: 'item', verdict: 'FAIL', not_checked: [] };
+  const finding = { severity: 'high', confidence: 90, summary: 'The gate cannot run.' };
+
+  it('accepts a finding with no kind (stored verdicts) and each of the three kinds', () => {
+    expect(PlanQueueReportVerdictArgsSchema.safeParse({ ...base, findings: [finding] }).success).toBe(true);
+    expect(PlanQueueReportVerdictArgsSchema.safeParse({ ...base, findings: [{ ...finding, kind: 'code' }] }).success).toBe(true);
+    for (const kind of ['environment', 'needs-human']) {
+      expect(PlanQueueReportVerdictArgsSchema.safeParse({ ...base, findings: [{ ...finding, kind, missing: 'The signing certificate' }] }).success).toBe(true);
+    }
+    expect(PlanQueueReportVerdictArgsSchema.safeParse({ ...base, findings: [{ ...finding, kind: 'unknown' }] }).success).toBe(false);
+  });
+
+  it('has a park reason for each way a non-code stop can end', () => {
+    expect(PlanQueueParkReasonSchema.safeParse('needs-setup').success).toBe(true);
+    expect(PlanQueueParkReasonSchema.safeParse('needs-james').success).toBe(true);
   });
 });
 

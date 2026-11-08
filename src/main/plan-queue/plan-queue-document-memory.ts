@@ -7,7 +7,7 @@ import type { PlanQueueItem } from './plan-queue.types';
 
 /** Stops that say something about the computer or a provider, whatever their wording. */
 const NOT_ABOUT_THE_CODE: ReadonlySet<PlanQueueParkReason> = new Set<PlanQueueParkReason>([
-  'triage-failed', 'worktree-error', 'provider-limit', 'check-hung', 'restart-loop', 'stopped-by-harness',
+  'triage-failed', 'worktree-error', 'provider-limit', 'check-hung', 'restart-loop', 'stopped-by-harness', 'needs-setup', 'needs-james',
 ]);
 
 function stoppedTheSameWay(last: PlanQueueItem, before: PlanQueueItem): boolean {

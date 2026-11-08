@@ -126,6 +126,18 @@ export const PARK_REASON_HELP: Record<PlanQueueParkReason, PlanQueueParkReasonHe
     next: 'Resume would likely spend the same again. To allow bigger rounds, raise "Stop point for Harness work" in Settings, Advanced, under Codex round limits & checker skills.',
     actions: ['resume', 'discard'],
   },
+  'needs-setup': {
+    label: 'Something is missing on this computer',
+    meaning: 'The checker could not pass the work because something it needs is not set up here. It is not a code problem, so no new worker round was started.',
+    next: 'The details name what is missing. Set it up, then Resume. Merge without checks adds the work as it is.',
+    actions: ['see-findings', 'resume', 'merge-without-checks', 'discard'],
+  },
+  'needs-james': {
+    label: 'Waiting for your answer',
+    meaning: 'The work needs an approval or a fact only you can give, or the checker left more than half of its checks to be run live. A worker cannot settle either.',
+    next: 'The details say what is needed. Provide it, then Resume. Merge without checks adds the work as it is.',
+    actions: ['see-findings', 'resume', 'merge-without-checks', 'discard'],
+  },
 };
 
 /**
@@ -207,7 +219,7 @@ export function planQueueDisplayParkReason(
     const lastFinding = item.verdict?.findings[0]?.summary ?? null;
     return { ...fallback, extra: lastFinding ? `Last finding: ${stripAbsolutePaths(lastFinding)}` : null };
   }
-  if (reason === 'no-diverse-verifier') {
+  if (reason === 'no-diverse-verifier' || reason === 'needs-setup' || reason === 'needs-james') {
     return { ...fallback, extra: item.detail ? stripAbsolutePaths(item.detail.trim()) : null };
   }
   if (reason === 'worker-error' && isHistoricalClassificationDetail(item.detail)) {

@@ -59,14 +59,14 @@ const BUDGET = {
   reviewLoopReanchor: { chars: 5000, render: () => loop(10, true, true) },
   // Oct-30 merge: main's cleanup rule now preserves installed dependencies for the
   // verifier. Actual worker/livetest/fix renders are 3,368 / 3,333 / 919 characters.
-  queueWorker: { chars: 4600, render: () => buildWorkerPrompt(queue) },
-  queueLivetestWorker: { chars: 5100, render: () => buildWorkerPrompt({ ...queue, kind: 'livetests' }) },
+  queueWorker: { chars: 4700, render: () => buildWorkerPrompt(queue) },
+  queueLivetestWorker: { chars: 5200, render: () => buildWorkerPrompt({ ...queue, kind: 'livetests' }) },
   queueFix: { chars: 1400, render: () => buildFixPrompt(1, 3, [{ severity: 'high', confidence: 90, summary: 'The fixture retry is missing.', file: 'fixture.ts:1', evidence: 'Pinned evidence.' }]) },
   queueConflict: { chars: 600, render: () => buildConflictPrompt('main', ['fixture.ts']) },
   queueGateFailure: { chars: 500, render: () => buildGateFailurePrompt('npm run lint', 'Pinned failure output') },
   queueActiveDocuments: { chars: 1000, render: () => buildActiveDocumentsPrompt(['/workspace/docs/fixture_plan.md']) },
   // The resumed worker carries that same dependency-preserving rule (3,759 chars).
-  queueResume: { chars: 5000, render: () => buildResumePrompt(queue, 'Continue verified earlier work') },
+  queueResume: { chars: 5100, render: () => buildResumePrompt(queue, 'Continue verified earlier work') },
   // Nov-07: every worker turn now ends with the plan_queue_report_ready instruction (about 650 characters; later turns
   // add a shorter "report again" clause). Renders: worker 4,510, livetest worker 5,010, fix 1,352, conflict 574,
   // gate failure 452, active documents 983, resume 4,901, continue + conflicts 743, resume + conflicts 5,477,
@@ -76,15 +76,18 @@ const BUDGET = {
   // step-up 4,888 (livetest 4,853), verifier reminder 1,284. Existing caps stay.
   queueContinue: { chars: 200, render: () => buildContinuePrompt(queue, 'Continue verified earlier work') },
   queueContinueConflict: { chars: 800, render: () => buildContinuePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
-  queueResumeConflict: { chars: 5500, render: () => buildResumePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
-  queueStepUp: { chars: 6500, render: () => buildStepUpPrompt(queue, 3, findings) },
-  queueLivetestStepUp: { chars: 7000, render: () => buildStepUpPrompt({ ...queue, kind: 'livetests' }, 3, findings) },
+  queueResumeConflict: { chars: 5600, render: () => buildResumePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
+  queueStepUp: { chars: 6600, render: () => buildStepUpPrompt(queue, 3, findings) },
+  queueLivetestStepUp: { chars: 7100, render: () => buildStepUpPrompt({ ...queue, kind: 'livetests' }, 3, findings) },
   queueVerifierReminder: { chars: 1300, render: () => buildVerifierReminderPrompt(item.id, 1, 2) },
   // Main's verifier handoff requires waiting for background gates, Harness tool
   // discovery, an accepted verdict receipt and (Oct-30) installing missing dependencies
   // from the lockfile. Actual renders match main: 3,790 / 4,126 chars, rounded to 100.
-  queueVerifier: { chars: 4100, render: () => buildVerifierPrompt(verifier) },
-  queueLivetestVerifier: { chars: 4400, render: () => buildVerifierPrompt({ ...verifier, kind: 'livetests' }) },
+  // 8 Nov (deferred checks): the report instruction now says each deferred check must also be written in the
+  // _livetest.md (~110 chars on every worker prompt; measured: 4,623 / 5,123 / 5,014 / 5,590 / 6,576 / 7,076). The verifier gained
+  // the finding-kind rules, the plan deferral rules and the PASS/FAIL example calls: 7,080 / 5,550.
+  queueVerifier: { chars: 7100, render: () => buildVerifierPrompt(verifier) },
+  queueLivetestVerifier: { chars: 5600, render: () => buildVerifierPrompt({ ...verifier, kind: 'livetests' }) },
   queueTriage: { chars: 4700, render: () => buildTriagePrompt('run-budget', ['/workspace/docs/fixture_plan.md']) },
   structuredReview: { chars: 3700, render: () => buildStructuredReviewPrompt('Review the fixture', 'Pinned implementation', REVIEW_ANGLES[0], ['fixture.ts']) },
   tieredReview: { chars: 4600, render: () => buildTieredReviewPrompt('Review the fixture', 'Pinned implementation', REVIEW_ANGLES[0], ['fixture.ts']) },

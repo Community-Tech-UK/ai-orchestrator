@@ -177,6 +177,47 @@ describe('plan queue prompts', () => {
     expect(() => PlanQueueReportVerdictArgsSchema.parse(lastJsonBlock(prompt))).not.toThrow();
   });
 
+  it('gives a plan checker the finding kinds, the deferral rules, the worker\'s deferred checks and kind-specific examples', () => {
+    const withReport = { ...item, workerReport: { summary: 's', asBuilt: 'a', checksRun: [], followUps: [],
+      deferredChecks: [{ title: 'Each provider calls the tool', steps: 'x', expectedResult: 'y', whyDeferred: 'Needs a rebuilt app.' }] } } as PlanQueueItem;
+    const prompt = buildVerifierPrompt({ item: withReport, kind: 'plans', repoRoot: '/repo', worktreePath: '/w', baseBranch: 'main', gates: [] });
+    expect(prompt).toMatch(/`code`.*`environment`.*`needs-human`/s);
+    expect(prompt).toContain('starts no new worker round');
+    expect(prompt).toContain('A passing plan is always closed');
+    expect(prompt).toContain('`document_complete: false` is refused');
+    expect(prompt).toContain('more than half');
+    expect(prompt).toContain('<worker_deferred_checks>');
+    expect(prompt).toContain('Each provider calls the tool');
+    expect(prompt).not.toContain('need_james');
+    const example = PlanQueueReportVerdictArgsSchema.parse(lastJsonBlock(prompt));
+    expect(example.findings.map((f) => f.kind)).toEqual(['code', 'environment']);
+    expect(example.findings[1].missing).toBeTruthy();
+    expect(example).not.toHaveProperty('document_complete', false);
+    const passExample = JSON.parse(prompt.slice(prompt.indexOf('{', prompt.indexOf('A plan that passes with one deferred check')), prompt.indexOf('A plan that fails, with a code finding')));
+    expect(PlanQueueReportVerdictArgsSchema.parse(passExample)).toMatchObject({ verdict: 'PASS', document_complete: true, criteria_total: 6 });
+  });
+
+  it('keeps the livetest meaning: open checks may pass with document_complete false, and findings still have kinds', () => {
+    const prompt = buildVerifierPrompt({ item, kind: 'livetests', repoRoot: '/repo', worktreePath: '/w', baseBranch: 'main', gates: [] });
+    expect(prompt).not.toContain('A passing plan is always closed');
+    expect(prompt).not.toContain('<worker_deferred_checks>');
+    expect(prompt).toMatch(/`code`.*`environment`.*`needs-human`/s);
+    const example = PlanQueueReportVerdictArgsSchema.parse(lastJsonBlock(prompt));
+    expect(example).toMatchObject({ document_complete: false });
+    expect(example.need_james).toHaveLength(1);
+  });
+
+  it('marks a non-code finding for the worker, and leaves a code finding as before', () => {
+    const fix = buildFixPrompt(1, 3, [
+      { severity: 'high', kind: 'code', confidence: 90, summary: 'Reset the counter.' },
+      { severity: 'medium', kind: 'environment', confidence: 90, summary: 'The signing gate cannot run.', missing: 'The signing certificate' },
+    ]);
+    expect(fix).toContain('1. [high, confidence 90] Reset the counter.');
+    expect(fix).toContain('2. [medium, confidence 90, environment: needs The signing certificate] The signing gate cannot run.');
+    expect(fix).toContain('do not work around it');
+    expect(buildFixPrompt(1, 3, [{ severity: 'high', confidence: 90, summary: 'Reset the counter.' }])).not.toContain('do not work around it');
+  });
+
   it('asks a livetest verifier to classify need-James checks, with a valid example', () => {
     const prompt = buildVerifierPrompt({ item, kind: 'livetests', repoRoot: '/repo', worktreePath: '/w', baseBranch: 'main', gates: [] });
     expect(prompt).toMatch(/`real`.*`policy-gated`.*`stale`/s);

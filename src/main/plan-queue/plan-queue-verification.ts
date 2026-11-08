@@ -12,6 +12,7 @@ import { buildGateFailurePrompt, buildVerifierPrompt } from './plan-queue-prompt
 import { decideNoProgress, documentContentSha256, progressFingerprint, recordRepeatedFindingObservation, repeatedFindingIds } from './plan-queue-progress';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { PlanQueueCheckGroups, type CheckGroupFlow } from './plan-queue-check-groups';
+import { deferredPassProblems } from './plan-queue-deferred-checks';
 
 type Preparation = { kind: 'ready' } | { kind: 'wait'; detail: string }
   | { kind: 'fix'; prompt: string; detail: string } | { kind: 'park'; detail: string; reason: 'no-progress' | 'round-limit' | 'check-hung' };
@@ -114,7 +115,7 @@ export class PlanQueueVerification {
       const red = blockingGateReceipts(receipts).filter(receipt => !receipt.timedOut);
       if (!red.length) return { kind: 'ready' };
       const round = item.round + 1;
-      const verdict: PlanQueueVerdict = { verdict: 'FAIL', findings: red.map(receipt => ({ severity: 'high', confidence: 100,
+      const verdict: PlanQueueVerdict = { verdict: 'FAIL', findings: red.map(receipt => ({ severity: 'high', kind: 'code', confidence: 100,
         summary: `Harness's own gate run failed: ${receipt.command}`, evidence: receipt.tail })),
         gatesRun: receipts, documentComplete: false,
         needJames: [], notChecked: ['Independent review was not started because Harness checks did not pass.'] };
@@ -139,11 +140,15 @@ export class PlanQueueVerification {
     const documentHash = currentReview.documentSha256;
     const checkedHash = this.checkedDocuments.get(item.id);
     const changedDocument = !documentHash || (checkedHash !== undefined && JSON.stringify(checkedHash) !== JSON.stringify(currentReview));
-    const validated: PlanQueueVerdict = reported.verdict === 'PASS' && (red.length || missing || changedDocument || checkedHash === undefined)
-      ? { ...reported, verdict: 'FAIL', documentComplete: false, findings: [...reported.findings, { severity: 'high', confidence: 100,
-        summary: changedDocument ? 'The source document changed while the checker was reviewing it.'
-          : red.length || missing ? `Harness's own gate run failed: ${red[0]?.command ?? 'missing checks for the current commit'}`
-          : 'The checker did not record which source document it reviewed.' }] }
+    const machineProblem = changedDocument ? 'The source document changed while the checker was reviewing it.'
+      : red.length || missing ? `Harness's own gate run failed: ${red[0]?.command ?? 'missing checks for the current commit'}`
+      : checkedHash === undefined ? 'The checker did not record which source document it reviewed.' : null;
+    // A deferred check (plans only) must be in the worker's report and written down beside the plan, or the PASS cannot stand.
+    const deferredProblems = this.host.getRun(item.runId).kind === 'plans'
+      ? await deferredPassProblems(reported, item.workerReport, item.documentPath) : [];
+    const problems = machineProblem ? [{ severity: 'high' as const, kind: 'code' as const, confidence: 100, summary: machineProblem }] : deferredProblems;
+    const validated: PlanQueueVerdict = reported.verdict === 'PASS' && problems.length
+      ? { ...reported, verdict: 'FAIL', documentComplete: false, findings: [...reported.findings, ...problems] }
       : reported;
     const gatesRun = receipts.map(({ failureKeyCounts: _keys, ...receipt }) => receipt);
     const verdict = { ...validated, ...(receipts.length ? { gatesRun } : {}) };

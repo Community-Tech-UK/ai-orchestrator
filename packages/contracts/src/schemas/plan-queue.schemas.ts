@@ -47,11 +47,15 @@ export const PlanQueueParkReasonSchema = z.enum([
   'check-hung',
   'missing-document',
   'stopped-by-harness',
+  'needs-setup', 'needs-james',
 ]);
 
 export const PlanQueueRoleSchema = z.enum(['triage', 'worker', 'verifier']);
 
 export const PlanQueueFindingSeveritySchema = z.enum(['critical', 'high', 'medium', 'low']);
+
+/** What a finding needs: a code fix, missing setup (`environment`), or an answer only James has. Stored findings without one read as `code`. */
+export const PlanQueueFindingKindSchema = z.enum(['code', 'environment', 'needs-human']);
 
 /** Why a check a livetest worker left open is still open. */
 export const PlanQueueNeedJamesClassSchema = z.enum(['real', 'policy-gated', 'stale']);
@@ -65,6 +69,8 @@ const PathSchema = z.string().min(1).max(4000);
 
 export const PlanQueueFindingSchema = z.object({
   severity: PlanQueueFindingSeveritySchema,
+  kind: PlanQueueFindingKindSchema.optional(), // absent = `code`; the flow stores `code` when the verifier gives none
+  missing: z.string().trim().min(1).max(2000).optional(),
   summary: z.string().min(1).max(2000),
   /** How sure the verifier is, 0-100 (docs/prompt-engineering-house-style.md). */
   confidence: z.number().int().min(0).max(100),
@@ -97,6 +103,9 @@ export const PlanQueueNeedJamesEntrySchema = z.object({
   reason: z.string().min(1).max(4000),
 });
 
+/** A check the verifier left for live validation: its title as in the worker's report, and why. */
+export const PlanQueueDeferredCheckRefSchema = z.object({ title: z.string().trim().min(1).max(500), whyDeferred: z.string().trim().min(1).max(4000) });
+
 export const PlanQueueVerdictSchema = z.object({
   verdict: z.enum(['PASS', 'FAIL']),
   findings: z.array(PlanQueueFindingSchema).max(100).default([]),
@@ -111,6 +120,8 @@ export const PlanQueueVerdictSchema = z.object({
   needJames: z.array(PlanQueueNeedJamesEntrySchema).max(200).default([]),
   /** Optional only for verdicts persisted by earlier app versions. */
   notChecked: z.array(z.string().trim().min(1).max(2000)).max(200).optional(),
+  /** Plans only: what a PASS leaves for live validation, and how many criteria it judged (the deferral share). Absent on older verdicts. */
+  deferredChecks: z.array(PlanQueueDeferredCheckRefSchema).max(50).optional(), criteriaTotal: z.number().int().positive().max(1000).optional(),
 });
 
 /** What a worker says it did when it reports its work ready (`plan_queue_report_ready`). */
@@ -527,6 +538,7 @@ export const PlanQueueReportVerdictArgsSchema = z.object({
   gates_run: z.array(PlanQueueGateRunSchema).max(50).default([]),
   document_complete: z.boolean().default(true),
   need_james: z.array(PlanQueueNeedJamesEntrySchema).max(200).default([]),
+  deferred_checks: PlanQueueVerdictSchema.shape.deferredChecks, criteria_total: PlanQueueVerdictSchema.shape.criteriaTotal,
   not_checked: z.array(z.string().trim().min(1).max(2000).refine(
     value => !/^(?:todo|n\/?a|not run)[.!]?$/i.test(value),
     'Explain what was not checked and why.',

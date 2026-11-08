@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-04-pq-c1-deferred-checks_plan.md",
+      "sha256": "93b22c504460312eec6bba1088c09ed06a55ec854c98eec02eb89edccbd11eb9",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-04-pq-c1-deferred-checks_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-04-pq-c1-deferred-checks_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-04-pq-c1-deferred-checks_plan_completed.md",
+      "sha256": "1d18ec6e91417c1bd5a6c9816b71a93487f35b343fec178adfe12593ed52b318"
+    },
+    {
+      "relativePath": "2026-11-04-pq-c1-deferred-checks_plan_history_f41d41a0415b50a8f4fb01c8d64c8750c18bd3267fb91782fc927e09458a0c3e_completed.md",
+      "sha256": "0f552b9c25936d8c6cd0258afa198894e6dedba0586d7194ecb1f039fa8197ea"
+    }
+  ]
+}

@@ -653,7 +653,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       findings: args.findings,
       gatesRun: args.gates_run,
       documentComplete: args.document_complete,
-      needJames: args.need_james,
+      needJames: args.need_james, deferredChecks: args.deferred_checks, criteriaTotal: args.criteria_total,
       notChecked: args.not_checked,
     });
     return { accepted: true, message: 'Verdict recorded. End your turn now; the coordinator acts on it when you stop.' };

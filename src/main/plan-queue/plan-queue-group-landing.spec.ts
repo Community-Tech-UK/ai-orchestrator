@@ -226,7 +226,7 @@ function runtimeFlow() {
   }
   async function pass(id: string) {
     const item = store.getItem(id)!;
-    flow.recordVerdict(item, item.verifierInstanceId!, { verdict: 'PASS', findings: [], gatesRun: [], documentComplete: false, needJames: [] });
+    flow.recordVerdict(item, item.verifierInstanceId!, { verdict: 'PASS', findings: [], gatesRun: [], documentComplete: true, needJames: [] });
     await flow.onVerifierOutcome(item.verifierInstanceId!, { kind: 'turn-complete', lastAssistantOutput: null }); await flow.whenSettled();
     expect(store.getItem(id)?.state, JSON.stringify(store.getItem(id))).toBe('landed');
   }

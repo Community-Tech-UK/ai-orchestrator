@@ -4096,3 +4096,238 @@ describe('PlanQueueCoordinator worker completion report', { timeout: 30_000 }, (
     expect(seen).toEqual([null]);
   });
 });
+
+describe('PlanQueueCoordinator deferred checks and finding kinds (step 5.2)', { timeout: 30_000 }, () => {
+  const DEFERRED = { title: 'Each provider calls the report tool', steps: 'Start a run on each provider.', expectedResult: 'Each reports.', whyDeferred: 'Needs a rebuilt app.' };
+  const STEM = '2026-01-01-alpha';
+  const verdictArgs = (instance: FakeInstance, extra: Record<string, unknown>) => ({
+    item_id: itemIdOf(instance), verdict: 'PASS' as const, findings: [], gates_run: [], document_complete: true, need_james: [], not_checked: [], ...extra,
+  });
+  const failWith = (findings: Array<Record<string, unknown>>): Script => (instance) => {
+    coordinator.reportVerdict(instance.id, verdictArgs(instance, { verdict: 'FAIL', findings }) as Parameters<typeof coordinator.reportVerdict>[1]);
+  };
+  const passDeferring = (titles: string[], criteriaTotal: number): Script => (instance) => {
+    coordinator.reportVerdict(instance.id, verdictArgs(instance, {
+      deferred_checks: titles.map((title) => ({ title, whyDeferred: 'Needs a rebuilt app.' })), criteria_total: criteriaTotal,
+    }) as Parameters<typeof coordinator.reportVerdict>[1]);
+  };
+  /** A worker that reports its deferred checks, and writes them beside the plan when asked to. */
+  const deferringWorker = (options: { writeLivetest?: boolean; report?: boolean } = {}): Script => (instance, message, f) => {
+    implement(instance, message, f);
+    if (options.report !== false) {
+      recordWorkerReport(coordinator, instance.id, { item_id: itemIdOf(instance), summary: 'Built it.', as_built: 'Done.', checks_run: [], deferred_checks: [DEFERRED], follow_ups: [] });
+    }
+    if (options.writeLivetest !== false) writeDoc(`docs/plans/${STEM}_plan_livetest.md`, `# Live checks\n\n## ${DEFERRED.title}\n\nSteps: ${DEFERRED.steps}\n`);
+  };
+  const workers = () => fake.created.filter((i) => i.role === 'worker');
+  const item0 = (runId: string) => coordinator.getRunDto(runId)!.items[0];
+  const startPlans = async () => {
+    planDoc(STEM);
+    return (await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans' })).run;
+  };
+
+  it('refuses PASS with document_complete false for a plan, and says what to do instead', async () => {
+    let refusal = '';
+    fake.scripts.verifier = (instance, message, f) => {
+      try { coordinator.reportVerdict(instance.id, verdictArgs(instance, { document_complete: false }) as Parameters<typeof coordinator.reportVerdict>[1]); } catch (error) { refusal = (error as Error).message; }
+      pass(instance, message, f);
+    };
+    const run = await startPlans();
+    await waitForRun(run.id);
+    expect(refusal).toMatch(/always closed/);
+    expect(refusal).toMatch(/report FAIL with findings/);
+    expect(refusal).toMatch(/deferred_checks/);
+    expect(item0(run.id).state).toBe('landed');
+    expect(existsSync(join(repo, `docs/plans/${STEM}_plan_completed.md`))).toBe(true);
+  });
+
+  it('still lets a livetest pass with checks open and its document left under its active name', async () => {
+    const doc = writeDoc('docs/plans/2026-01-01-beta_livetest.md', '# Livetest\n\n- [ ] check 1\n');
+    fake.scripts.verifier = (instance) => {
+      coordinator.reportVerdict(instance.id, verdictArgs(instance, { document_complete: false,
+        need_james: [{ check: 'Check 2: Face ID unlock', classification: 'real', reason: 'Needs a physical iPhone.' }] }) as Parameters<typeof coordinator.reportVerdict>[1]);
+    };
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'livetests' });
+    await waitForRun(run.id);
+    expect(item0(run.id).state).toBe('landed');
+    expect(existsSync(doc)).toBe(true);
+  });
+
+  it('refuses, through the verdict tool, a non-code finding that names nothing missing and deferred checks without a total', async () => {
+    const refusals: string[] = [];
+    fake.scripts.verifier = (instance, message, f) => {
+      const attempt = (extra: Record<string, unknown>) => {
+        try { coordinator.reportVerdict(instance.id, verdictArgs(instance, extra) as Parameters<typeof coordinator.reportVerdict>[1]); } catch (error) { refusals.push((error as Error).message); }
+      };
+      attempt({ verdict: 'FAIL', findings: [{ severity: 'high', kind: 'needs-human', confidence: 90, summary: 'Needs someone.' }] });
+      attempt({ deferred_checks: [{ title: 'a', whyDeferred: 'b' }] });
+      pass(instance, message, f);
+    };
+    const run = await startPlans();
+    await waitForRun(run.id);
+    expect(refusals).toHaveLength(2);
+    expect(refusals[0]).toContain('exact missing thing');
+    expect(refusals[1]).toContain('criteria_total');
+    expect(item0(run.id).state).toBe('landed');
+  });
+
+  it('lands a plan with deferred checks that are reported and written down, and closes the document', async () => {
+    fake.scripts.worker = deferringWorker();
+    fake.scripts.verifier = passDeferring([DEFERRED.title], 4);
+    const run = await startPlans();
+    await waitForRun(run.id);
+    expect(item0(run.id)).toMatchObject({ state: 'landed', verdict: { verdict: 'PASS', deferredChecks: [{ title: DEFERRED.title }], criteriaTotal: 4 } });
+    expect(existsSync(join(repo, `docs/plans/${STEM}_plan_completed.md`))).toBe(true);
+  });
+
+  it('turns a PASS into a FAIL when a deferred check is not in the worker\'s report, and the next round lands it', async () => {
+    let turn = 0;
+    fake.scripts.worker = (instance, message, f) => { turn += 1; return deferringWorker({ report: turn > 1 })(instance, message, f); };
+    fake.scripts.verifier = passDeferring([DEFERRED.title], 4);
+    const run = await startPlans();
+    await waitForRun(run.id);
+    const rows = store.getItem(run.items[0].id)!;
+    expect(rows.state).toBe('landed');
+    expect(fake.created.filter((i) => i.role === 'verifier')).toHaveLength(2);
+    expect(workers()).toHaveLength(1);
+    const fixPrompt = fake.inputs.filter((m) => m.instanceId === workers()[0].id).map((m) => m.message).find((m) => m.includes('An independent verifier failed your work'))!;
+    expect(fixPrompt).toContain('does not list');
+    expect(fixPrompt).toContain(DEFERRED.title);
+  });
+
+  it('turns a PASS into a FAIL when the livetest document does not hold the deferred check', async () => {
+    let turn = 0;
+    fake.scripts.worker = (instance, message, f) => { turn += 1; return deferringWorker({ writeLivetest: turn > 1 })(instance, message, f); };
+    fake.scripts.verifier = passDeferring([DEFERRED.title], 4);
+    const run = await startPlans();
+    await waitForRun(run.id);
+    expect(item0(run.id).state).toBe('landed');
+    const fixPrompt = fake.inputs.map((m) => m.message).find((m) => m.includes('An independent verifier failed your work'))!;
+    expect(fixPrompt).toContain('No livetest document was found');
+    expect(workers()).toHaveLength(1);
+  });
+
+  it('sets a PASS aside for James, unmerged, when more than half of the criteria are deferred', async () => {
+    fake.scripts.worker = deferringWorker();
+    fake.scripts.verifier = passDeferring([DEFERRED.title], 1);
+    const run = await startPlans();
+    await waitForRun(run.id);
+    expect(item0(run.id)).toMatchObject({ state: 'parked', parkReason: 'needs-james' });
+    expect(item0(run.id).detail).toContain('1 of 1 acceptance criteria');
+    expect(existsSync(join(repo, `docs/plans/${STEM}_plan.md`))).toBe(true);
+    expect(git(['log', '--oneline', 'main']).split('\n')).toHaveLength(1);
+  });
+
+  it('lands a PASS that defers exactly half of its criteria', async () => {
+    fake.scripts.worker = deferringWorker();
+    fake.scripts.verifier = passDeferring([DEFERRED.title], 2);
+    const run = await startPlans();
+    await waitForRun(run.id);
+    expect(item0(run.id).state).toBe('landed');
+  });
+
+  it('sets a FAIL aside as needs-setup, with no new worker round, when every finding is an environment problem', async () => {
+    fake.scripts.verifier = failWith([{ severity: 'high', kind: 'environment', confidence: 95, summary: 'The signing gate cannot run here.', missing: 'The CODESIGN_IDENTITY variable' }]);
+    const run = await startPlans();
+    await waitForRun(run.id);
+    expect(item0(run.id)).toMatchObject({ state: 'parked', parkReason: 'needs-setup', round: 1 });
+    expect(item0(run.id).detail).toContain('The CODESIGN_IDENTITY variable');
+    expect(item0(run.id).verdict?.findings[0].kind).toBe('environment');
+    expect(workers()).toHaveLength(1);
+    expect(fake.inputs.filter((m) => m.instanceId === workers()[0].id)).toHaveLength(0);
+  });
+
+  it('sets a FAIL aside as needs-james when a finding needs a human', async () => {
+    fake.scripts.verifier = failWith([
+      { severity: 'high', kind: 'environment', confidence: 90, summary: 'No test device.', missing: 'A paired iPhone' },
+      { severity: 'high', kind: 'needs-human', confidence: 90, summary: 'The release needs a decision.', missing: 'James\'s approval to publish' },
+    ]);
+    const run = await startPlans();
+    await waitForRun(run.id);
+    expect(item0(run.id)).toMatchObject({ state: 'parked', parkReason: 'needs-james' });
+    expect(item0(run.id).detail).toContain('James\'s approval to publish');
+    expect(item0(run.id).detail).toContain('A paired iPhone');
+    expect(workers()).toHaveLength(1);
+  });
+
+  it('keeps the fix round when any finding is code, and tells the worker the others are not its to fix', async () => {
+    let round = 0;
+    fake.scripts.verifier = (instance, message, f) => {
+      round += 1;
+      if (round > 1) { pass(instance, message, f); return; }
+      failWith([
+        { severity: 'high', kind: 'code', confidence: 90, summary: 'The counter is never reset.' },
+        { severity: 'medium', kind: 'environment', confidence: 90, summary: 'The signing gate cannot run.', missing: 'The signing certificate' },
+      ])(instance, message, f);
+    };
+    const run = await startPlans();
+    await waitForRun(run.id);
+    expect(item0(run.id).state).toBe('landed');
+    const fixPrompt = fake.inputs.map((m) => m.message).find((m) => m.includes('An independent verifier failed your work'))!;
+    expect(fixPrompt).toContain('environment: needs The signing certificate');
+    expect(fixPrompt).toContain('do not work around it');
+  });
+
+  it('reads a FAIL finding with no kind as a code finding, as stored verdicts from before kinds do', async () => {
+    let round = 0;
+    fake.scripts.verifier = (instance, message, f) => {
+      round += 1;
+      if (round > 1) { pass(instance, message, f); return; }
+      failWith([{ severity: 'high', confidence: 90, summary: 'The counter is never reset.' }])(instance, message, f);
+    };
+    const run = await startPlans();
+    await waitForRun(run.id);
+    expect(item0(run.id).state).toBe('landed');
+    expect(workers()).toHaveLength(1);
+    expect(store.getItem(run.items[0].id)!.round).toBe(2);
+    // The verdict is stored with the kind filled in.
+    expect(store.history.listVerdicts(run.items[0].id)[0].findings.map((f) => f.kind)).toEqual(['code']);
+  });
+
+  it('keeps a needs-setup stop across a restart, starts no worker for it, and Resume sends it back to a worker', async () => {
+    fake.scripts.verifier = failWith([{ severity: 'high', kind: 'environment', confidence: 95, summary: 'The gate cannot run here.', missing: 'Node 22 on the PATH' }]);
+    const run = await startPlans();
+    await waitForRun(run.id);
+    const itemId = run.items[0].id;
+    const parentId = fake.created.find((i) => i.role === 'parent')!.id;
+    expect(item0(run.id)).toMatchObject({ state: 'parked', parkReason: 'needs-setup' });
+    const next = await restart();
+    await waitForRun(run.id);
+    expect(store.getItem(itemId)).toMatchObject({ state: 'parked', parkReason: 'needs-setup' });
+    expect(next.created.filter((i) => i.role === 'worker' || i.role === 'verifier')).toHaveLength(0);
+    next.scripts.verifier = pass;
+    await coordinator.control({ action: 'resume-item', itemId }, parentId);
+    await waitForRun(run.id);
+    expect(store.getItem(itemId)!.state).toBe('landed');
+  });
+
+  it('replays stored PASS verdicts with needJames entries and no finding kinds', async () => {
+    const doc = writeDoc('docs/plans/2026-01-01-gamma_livetest.md', '# Livetest\n\n- [ ] check 1\n');
+    fake.scripts.verifier = never;
+    const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'livetests' });
+    // Wait for the verifier session too: the coordinator saves the item again once it exists, and under load that
+    // late save overwrote the stored verdict below, so the restart re-verified instead of replaying it.
+    await vi.waitFor(() => {
+      expect(store.getItem(run.items[0].id)!.state).toBe('verifying');
+      expect(fake.created.some((i) => i.role === 'verifier')).toBe(true);
+      expect(store.getItem(run.items[0].id)!.verifierInstanceId).toBeTruthy();
+    });
+    // What an earlier app version stored: no `kind` on a finding, no deferred checks, open checks classified.
+    const stored = JSON.parse(JSON.stringify({
+      verdict: 'PASS', findings: [{ severity: 'low', confidence: 70, summary: 'A note from before kinds existed.' }], gatesRun: [], documentComplete: false,
+      needJames: [{ check: 'Check 2: Face ID unlock', classification: 'real', reason: 'Needs a physical iPhone.' },
+        { check: 'Check 3: Computer Use click', classification: 'policy-gated', reason: 'Blocked by a setting.' }],
+      notChecked: [],
+    }));
+    store.upsertItem({ ...store.getItem(run.items[0].id)!, state: 'landing', verdict: stored });
+    const next = await restart();
+    next.scripts.verifier = pass;
+    await waitForRun(run.id);
+    const dto = item0(run.id);
+    expect(dto.state).toBe('landed');
+    expect(dto.verdict?.needJames).toHaveLength(2);
+    expect(dto.verdict?.findings[0].kind).toBeUndefined();
+    expect(existsSync(doc)).toBe(true);
+    expect(existsSync(doc.replace('_livetest.md', '_livetest_completed.md'))).toBe(false);
+  });
+});

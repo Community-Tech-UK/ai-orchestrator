@@ -41,6 +41,7 @@ import type { PlanQueueFlowHost } from './plan-queue-host';
 import { relaxedSettingsFor } from './plan-queue-relaxation';
 import { isStoppedByHarnessError, unreportedVerifierReason, type PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
 import { isNeverAutoRetried } from './plan-queue-park-policy';
+import { findingKind, parkingForDeferrals, parkingForFailure, refuseInconsistentVerdict, refuseUnclosedPlanPass } from './plan-queue-deferred-checks';
 import { hasPendingLandingCleanup, PlanQueueItemLanding, isAncestor, type PlanQueueLandingOptions } from './plan-queue-item-landing';
 import type { LandAnywayApproval } from './plan-queue-land-anyway-authority';
 import { PlanQueueLandingWaits } from './plan-queue-landing-wait';
@@ -512,7 +513,11 @@ export class PlanQueueItemFlow {
   }
 
   /** The verdict tool, already caller-checked by the coordinator. */
-  recordVerdict(item: PlanQueueItem, verifierId: string, verdict: PlanQueueVerdict): void { this.pendingVerdicts.set(item.id, { verifierId, verdict }); }
+  recordVerdict(item: PlanQueueItem, verifierId: string, verdict: PlanQueueVerdict): void {
+    refuseInconsistentVerdict(verdict);
+    refuseUnclosedPlanPass(this.host.getRun(item.runId).kind, verdict);
+    this.pendingVerdicts.set(item.id, { verifierId, verdict: { ...verdict, findings: verdict.findings.map(finding => ({ ...finding, kind: findingKind(finding) })) } });
+  }
 
   onVerifierOutcome(instanceId: string, outcome: PlanQueueTurnOutcome): Promise<void> {
     const role = this.host.roleOf(instanceId);
@@ -580,6 +585,9 @@ export class PlanQueueItemFlow {
 
     verdict = await this.verification.record(item, verdict);
     const round = item.round + 1;
+    // Nothing a worker can fix (setup or a human's answer), or too much left for live checks: set aside, no new worker round.
+    const notCode = parkingForFailure(verdict) ?? parkingForDeferrals(verdict);
+    if (notCode) { await this.parkUnlocked({ ...item, round, verdict }, notCode.reason, notCode.detail); return; }
     if (PARK_ON_REPEATED_FINDING && repeatedFindingIds(this.host.history.listVerdicts(item.id)).thrice.size) {
       await this.parkUnlocked({ ...item, round, verdict }, 'stuck-on-same-finding', 'The same finding failed in three rounds. Reproduce it before another fix.'); return;
     }

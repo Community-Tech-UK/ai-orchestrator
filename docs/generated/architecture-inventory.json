@@ -6272,16 +6272,16 @@
       "lines": 4447
     },
     {
+      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
+      "lines": 4334
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-28-wave6-doctor-diagnostics-updates-artifacts-plan_completed.md",
       "lines": 4321
     },
     {
       "path": "docs/plans/2026-10-10-oct-phase2-loops-converge_plan_completed.md",
       "lines": 4301
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 4099
     },
     {
       "path": "src/main/orchestration/loop-coordinator.ts",
@@ -7664,6 +7664,10 @@
       "lines": 814
     },
     {
+      "path": "src/main/plan-queue/plan-queue-item-flow.ts",
+      "lines": 814
+    },
+    {
       "path": "src/renderer/app/features/automations/automations-page.component.ts",
       "lines": 814
     },
@@ -7690,10 +7694,6 @@
     {
       "path": "src/main/browser-gateway/browser-input-control-operations.spec.ts",
       "lines": 807
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-item-flow.ts",
-      "lines": 806
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-conversation-ledger-codex-native-adapter_completed.md",

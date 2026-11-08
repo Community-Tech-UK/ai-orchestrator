@@ -62,6 +62,8 @@ const FINDING_ITEMS = {
   type: 'object',
   properties: {
     severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
+    kind: { type: 'string', enum: ['code', 'environment', 'needs-human'], description: 'code (default): a worker can fix it. environment: missing setup, or a gate that cannot run here. needs-human: only James can give it. No code finding in a FAIL sets the item aside.' },
+    missing: { type: 'string', description: 'Required unless code: the exact missing setting, command, device or approval.' },
     summary: { type: 'string', description: 'One sentence stating the defect.' },
     confidence: { type: 'integer', minimum: 0, maximum: 100, description: 'How sure you are that this is a real defect.' },
     file: { type: 'string', description: 'Evidence location, normally file:line.' },
@@ -299,7 +301,18 @@ export const PLAN_QUEUE_TOOL_SPECS = {
             additionalProperties: false,
           },
         },
-        document_complete: { type: 'boolean', description: 'Whether the document may be renamed to its _completed name. False for a livetest with checks still open.' },
+        document_complete: { type: 'boolean', description: 'Whether the document may be renamed to its _completed name. PASS with false is refused for a plan; false is for a livetest with checks still open.' },
+        deferred_checks: {
+          type: 'array',
+          description: 'Plans, with PASS: checks only a rebuilt app, a person or an outside service can prove. Each must be in the worker\'s report and the _livetest.md, under the same title.',
+          items: {
+            type: 'object',
+            properties: { title: { type: 'string' }, whyDeferred: { type: 'string' } },
+            required: ['title', 'whyDeferred'],
+            additionalProperties: false,
+          },
+        },
+        criteria_total: { type: 'integer', minimum: 1, description: 'With deferred_checks: all acceptance criteria you judged. Over half deferred sets the item aside.' },
         not_checked: { type: 'array', maxItems: 200, items: { type: 'string', minLength: 1, maxLength: 2000 }, description: 'What you did not check and why. Use [] when every required check was performed; TODO, n/a and not run alone are refused.' },
         need_james: {
           type: 'array',

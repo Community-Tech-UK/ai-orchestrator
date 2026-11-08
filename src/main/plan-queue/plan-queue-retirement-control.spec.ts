@@ -68,7 +68,8 @@ beforeEach(() => {
   mkdirSync(join(repo, '.worktrees', 'queue'), { recursive: true });
   git(['worktree', 'add', '-qb', 'queue/example', worktreePath]);
   db = new Database(':memory:') as unknown as SqliteDriver; runLoopMigrations(db); store = new PlanQueueStore(db);
-  run = { id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: repo, status: 'running',
+  // A livetest run: its PASS may leave the document open, which these tests rely on to land without closing documents (a plan's PASS is always closed).
+  run = { id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'livetests', workspaceCwd: repo, status: 'running',
     config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main', verifierGates: [], postMergeGate: [], routing: { workers: [{ provider: 'claude' }], verifiers: [{ provider: 'codex' }] }, startingSessionRoute: { provider: 'claude' } },
     workerProvider: 'claude', workerModel: null, relaxation: null, startedAt: 1, endedAt: null };
   item = newPlanQueueItem('item', run.id, join(repo, 'example_plan.md'), 1, {

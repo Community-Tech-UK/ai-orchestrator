@@ -23,6 +23,11 @@ describe('set-aside finding text', () => {
     expect(help.next).toContain('Settings, Advanced');
     expect(help.next).toContain('Stop point for Harness work');
   });
+  it.each(['needs-setup', 'needs-james'] as const)('shows what is missing under %s, and offers Resume', reason => {
+    const display = planQueueDisplayParkReason({ parkReason: reason, detail: 'Missing setup on this computer:\n- Node 22 on the PATH' });
+    expect(display?.extra).toContain('Node 22 on the PATH');
+    expect(display?.actions).toContain('resume');
+  });
   it('explains a refused restore without claiming that setting up a fresh copy will fix it', () => {
     const display = planQueueDisplayParkReason({ parkReason: 'worktree-error', detail: 'Paused. Could not restore the saved work.' });
     expect(display?.label).toBe('The saved work could not be restored');
