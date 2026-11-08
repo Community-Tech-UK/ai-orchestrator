@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-04-pq-b2-landing-wait_plan.md",
+      "sha256": "e69f874c2150d45c3310320ec483da6609cfe7c5ed5e29695349a12f7e02980e",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-04-pq-b2-landing-wait_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-04-pq-b2-landing-wait_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-04-pq-b2-landing-wait_plan_completed.md",
+      "sha256": "393df4e9cbee814c97247b9777b72a74a44720094f2418ca911eeb68bd8d8fca"
+    },
+    {
+      "relativePath": "2026-11-04-pq-b2-landing-wait_plan_history_ec698b384538d9381fbc8e48c23a751f849ba575ada22c206b635da4591ccd6a_completed.md",
+      "sha256": "7c2a630a462ead88b0c38d74ae7b60488417061460fd834c1d3353c6b750b97b"
+    }
+  ]
+}

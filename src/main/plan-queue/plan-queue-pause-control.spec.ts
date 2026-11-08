@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -60,7 +60,8 @@ const git = (args: string[], cwd = repo) => execFileSync('git', args, { cwd, enc
 beforeEach(() => {
   currentAccountRules = { never: [], last: [] }; persisted.length = 0;
   PlanQueueCoordinator._resetForTesting(); GitWriteQueue._resetForTesting();
-  repo = mkdtempSync(join(tmpdir(), 'queue-pause-control-'));
+  // Real path: macOS's temp folder sits under the /var symlink, which document changes refuse.
+  repo = realpathSync(mkdtempSync(join(tmpdir(), 'queue-pause-control-')));
   git(['init', '-q', '-b', 'main']); git(['config', 'user.name', 'Queue Test']); git(['config', 'user.email', 'queue@example.invalid']);
   git(['config', 'commit.gpgsign', 'false']);
   // Fixture commits must not invoke hooks from the user's global Git config.
