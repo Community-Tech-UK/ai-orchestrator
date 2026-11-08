@@ -36,6 +36,7 @@ import { getInstanceAsyncWorkRegistry } from '../instance-async-work-registry';
 import { globalPauseHoldsAutomaticInput } from '../../global-pause/global-pause-service';
 import { waitForGlobalPauseInput } from '../../global-pause/global-pause-input';
 import { getWorkAdmission } from '../../work-admission/work-admission';
+import { shouldProbeAdapterProcess } from '../stale-runtime-reconciler';
 
 const logger = getLogger('IdleMonitor');
 
@@ -276,7 +277,15 @@ export class IdleMonitor {
               context: {},
               activityState: result.state,
             });
-          } else if (result.state === 'exited' && !isRemote && instance.status !== 'terminated') {
+          } else if (
+            result.state === 'exited'
+            && !isRemote
+            && instance.status !== 'terminated'
+            // Only the PID probe reports `exited`. Exec-per-turn adapters
+            // (Antigravity, Gemini, Cursor, ...) store a synthetic PID, so the
+            // probe says nothing about them and would restart a working turn.
+            && shouldProbeAdapterProcess(this.deps.getAdapter(instanceId), instance.processId)
+          ) {
             failure = createDetectedFailure({
               id: generateId(),
               category: 'process_exited_unexpected',

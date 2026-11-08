@@ -1,9 +1,15 @@
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { describe, expect, it, vi } from 'vitest';
 import { clearInstanceTurnEnding, recordInstanceTurnEnding } from '../../instance-turn-ending-state';
 import { IdleMonitor } from '../idle-monitor';
-import type { ActivityStateDetector } from '../../../providers/activity-state-detector';
+import { ActivityStateDetector } from '../../../providers/activity-state-detector';
 import type { RecoveryRecipeEngine } from '../../../session/recovery-recipe-engine';
 import type { Instance } from '../../../../shared/types/instance.types';
+
+/** Above every platform's PID ceiling, so `process.kill(pid, 0)` always reports it dead. */
+const DEAD_PID = 2_147_483_000;
 
 function flushAsyncWork(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -102,6 +108,61 @@ describe('IdleMonitor', () => {
     expect(dispatchRecovery).toHaveBeenCalledWith('instance-1', expect.objectContaining({
       category: 'process_exited_unexpected',
     }));
+  });
+
+  it.each([
+    { adapter: 'exec-per-turn', resident: false, adapterPid: null, recovers: false },
+    { adapter: 'resident', resident: true, adapterPid: DEAD_PID, recovers: true },
+  ])('treats a dead-PID probe as a crash only for a $adapter adapter owning that PID', async ({ resident, adapterPid, recovers }) => {
+    // Regression: exec-per-turn adapters (Antigravity, Gemini, Cursor) store a
+    // random synthetic PID. The real detector found it dead and recovery
+    // restarted a working Plan Queue checker mid-turn until it gave up.
+    const workspace = mkdtempSync(join(tmpdir(), 'idle-monitor-'));
+    const detector = new ActivityStateDetector('instance-1', workspace, 'antigravity');
+    detector.setPid(DEAD_PID);
+    const recoveryEngine = {
+      handleFailure: vi.fn(async () => ({ status: 'recovered' as const })),
+    } as unknown as RecoveryRecipeEngine;
+    const dispatchRecovery = vi.fn(async () => undefined);
+    const adapter = {
+      getAdapterCapabilities: () => ({ residentSession: resident, liveInterrupt: false, liveSteer: false }),
+      getPid: () => adapterPid,
+    };
+
+    const monitor = new IdleMonitor({
+      getSettings: () => ({ autoTerminateIdleMinutes: 0 }),
+      getRecoveryEngine: () => recoveryEngine,
+      getActivityDetectors: () => new Map([['instance-1', detector]]),
+      getInstance: () => ({
+        id: 'instance-1',
+        status: 'busy',
+        processId: DEAD_PID,
+        executionLocation: { type: 'local' },
+      } as unknown as Instance),
+      forEachInstance: vi.fn(),
+      getAdapter: () => adapter as never,
+      queueUpdate: vi.fn(),
+      deleteAdapter: vi.fn(),
+      transitionState: vi.fn(),
+      terminateInstance: vi.fn(async () => undefined),
+      hibernateInstance: vi.fn(async () => undefined),
+      dispatchRecovery,
+    });
+
+    try {
+      monitor.check();
+      await flushAsyncWork();
+      await flushAsyncWork();
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+
+    if (recovers) {
+      expect(recoveryEngine.handleFailure).toHaveBeenCalledWith(expect.objectContaining({ category: 'process_exited_unexpected' }));
+    } else {
+      expect(recoveryEngine.handleFailure).not.toHaveBeenCalled();
+      expect(dispatchRecovery).not.toHaveBeenCalled();
+    }
   });
 
   it.each(['superseded', 'failed'] as const)(
