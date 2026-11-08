@@ -54,12 +54,13 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
   standalone: true,
   imports: [InstanceRowComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<app-instance-row [instance]="instance()" [isLooping]="false" [hasChildren]="hasChildren()" [descendantNeedsYou]="descendantNeedsYou()" />`,
+  template: `<app-instance-row [instance]="instance()" [isLooping]="false" [hasChildren]="hasChildren()" [descendantNeedsYou]="descendantNeedsYou()" [needsYouReason]="needsYouReason()" />`,
 })
 class HostComponent {
   readonly instance = signal<Instance>(makeInstance());
   readonly hasChildren = signal(false);
   readonly descendantNeedsYou = signal(0);
+  readonly needsYouReason = signal<string | null>(null);
 }
 
 function openTooltips(): HTMLElement[] {
@@ -169,6 +170,15 @@ describe('InstanceRowComponent — tooltip disclosure', () => {
     fixture.componentInstance.instance.set(makeInstance({ displayName: 'Parent', childrenIds: ['child'] }));
     fixture.componentInstance.hasChildren.set(true); fixture.componentInstance.descendantNeedsYou.set(1); fixture.detectChanges();
     expect(query('.child-attention').textContent).toContain('1 child needs you');
+  });
+
+  it('says why the session needs you in place of its activity line, and in its accessible name', () => {
+    fixture.componentInstance.instance.set(makeInstance({ displayName: 'Blog research', status: 'busy' }));
+    fixture.componentInstance.needsYouReason.set('Asked you: which council first?');
+    fixture.detectChanges();
+    expect(query('.needs-you-reason').textContent).toContain('Asked you: which council first?');
+    expect(fixture.nativeElement.querySelector('.activity-line')).toBeNull();
+    expect(query('.instance-row').getAttribute('aria-label')).toContain('needs you: Asked you: which council first?');
   });
 
   it('names the leading indicator rather than relying on colour alone', () => {

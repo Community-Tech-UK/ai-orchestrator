@@ -220,6 +220,11 @@ interface Candidate {
   backingInstanceId?: string;
 }
 
+/** A session with a permission prompt open reads as waiting for permission, even while its turn is still running. */
+export function instanceAttentionStatus(inst: Pick<WorkboardInstanceInput, 'status' | 'pendingApprovalCount'>): InstanceStatus {
+  return (inst.pendingApprovalCount ?? 0) > 0 && attentionLevelForInstanceStatus(inst.status) !== 'blocked' ? 'waiting_for_permission' : inst.status;
+}
+
 function instanceToCandidate(inst: WorkboardInstanceInput): Candidate {
   const phase = instanceStatusToPhase(inst.status);
   const attention = (inst.pendingApprovalCount ?? 0) > 0 ? 'blocked' : attentionLevelForInstanceStatus(inst.status);
@@ -234,7 +239,7 @@ function instanceToCandidate(inst: WorkboardInstanceInput): Candidate {
       updatedAt: inst.lastActivity,
       terminal: isTerminalPhase(phase),
     },
-    statusLabel: presentInstanceStatus((inst.pendingApprovalCount ?? 0) > 0 && attentionLevelForInstanceStatus(inst.status) !== 'blocked' ? 'waiting_for_permission' : inst.status).label,
+    statusLabel: presentInstanceStatus(instanceAttentionStatus(inst)).label,
     title: inst.displayName,
     workingDirectory: inst.workingDirectory,
     detail: inst.currentActivity,
@@ -242,9 +247,11 @@ function instanceToCandidate(inst: WorkboardInstanceInput): Candidate {
   };
 }
 
+/** Plain words for each reason a loop pauses for a person. */
+export const LOOP_PAUSE_LABELS = { 'sign-off': 'Needs your sign-off', blocked: 'Blocked: the agent asked for help', 'step-failed': 'Paused: a step failed', stuck: 'Stuck: needs your decision' } as const;
+
 function loopToCandidate(loop: LoopRunSummaryPayload, pauses: WorkboardProjectionInput['pausedForYou']): Candidate {
   const reason = loop.status === 'paused' ? pauses?.get(loop.id) : undefined;
-  const labels = { 'sign-off': 'Needs your sign-off', blocked: 'Blocked: the agent asked for help', 'step-failed': 'Paused: a step failed', stuck: 'Stuck: needs your decision' };
   return {
     relation: {
       kind: 'loop-run',
@@ -259,7 +266,7 @@ function loopToCandidate(loop: LoopRunSummaryPayload, pauses: WorkboardProjectio
       // terminal `provider-limit` (endedAt set) as within the retention window.
       terminal: loop.endedAt !== null,
     },
-    statusLabel: reason ? labels[reason] : loopStatusLabel(loop.status),
+    statusLabel: reason ? LOOP_PAUSE_LABELS[reason] : loopStatusLabel(loop.status),
     title: firstLine(loop.initialPrompt) || 'Loop run',
     workingDirectory: loop.workspaceCwd,
     detail: loop.totalIterations > 0 ? `Iteration ${loop.totalIterations}` : undefined,

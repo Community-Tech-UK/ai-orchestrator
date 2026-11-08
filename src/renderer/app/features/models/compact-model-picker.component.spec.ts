@@ -331,7 +331,7 @@ describe('CompactModelPickerComponent', () => {
     fixture.componentInstance.selectionChange.subscribe(s => emitted.push(s));
     const picker = fixture.componentInstance as unknown as {
       onUnifiedSelect: (s: UnifiedSelection) => Promise<void>;
-      reasoningOptionsForProviderFn: (provider: string, model: ModelDisplayInfo) => { id: string; isDefault?: boolean }[];
+      reasoningOptionsForProviderFn: (provider: string, model: ModelDisplayInfo) => { id: string; isDefault?: boolean; costNote?: string }[];
     };
     await picker.onUnifiedSelect({ kind: 'model', provider: 'codex', modelId: 'gpt-6-astra' });
     fixture.detectChanges();
@@ -340,6 +340,9 @@ describe('CompactModelPickerComponent', () => {
     if (hasCapabilities) {
       expect(picker.reasoningOptionsForProviderFn('codex', unifiedModelsByProvider['codex'][0])
         .filter(option => option.isDefault).map(option => option.id)).toEqual(['medium']);
+      // The short cost note reaches the menu, so Ultra says what it costs before it is chosen.
+      expect(picker.reasoningOptionsForProviderFn('codex', unifiedModelsByProvider['codex'][0])
+        .find(option => option.id === 'ultra')?.costNote).toBe('may start helpers, much more allowance');
     }
   });
 

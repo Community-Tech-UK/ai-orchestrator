@@ -86,14 +86,16 @@ interface ModelSignature {
 /**
  * Split a model id into its family/variant words and its version numbers.
  * A leading word equal to the provider name is a namespace, not part of the
- * family (Cursor lists `cursor-grok-4.6-xhigh` beside `grok-4.7-xhigh`).
+ * family (Cursor lists `cursor-grok-4.6-xhigh` beside `grok-4.7-xhigh`),
+ * unless it is the whole family (Grok's own `grok-4.5`).
  * Six-or-more-digit numbers are release dates, not versions, so they are
  * ignored rather than read as a huge version. Ids without a version number
  * (`auto`, `opus[1m]`) have no signature: there is nothing to rank them by.
  */
 function modelSignature(provider: string, modelId: string): ModelSignature | undefined {
   const tokens = modelId.toLowerCase().split(/[^a-z0-9.]+/).filter(Boolean);
-  if (tokens[0] === provider.toLowerCase()) tokens.shift();
+  // Keep the provider word when it is the only family word (`grok-4.5`).
+  if (tokens[0] === provider.toLowerCase() && tokens.slice(1).some(token => /[a-z]/.test(token))) tokens.shift();
   const words: string[] = [];
   const version: number[] = [];
   for (const token of tokens) {

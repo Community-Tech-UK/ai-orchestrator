@@ -54,6 +54,26 @@ export function toItemDecisions(
   }));
 }
 
+/**
+ * Answer every item the reviewer has not answered with the author's recommendation: Approve,
+ * plus the recommended option(s) when the item offers options and none is picked yet.
+ * Items the reviewer rejected, and options or comments they already gave, are kept.
+ */
+export function applyRecommendations(
+  states: readonly DocReviewItemState[],
+): DocReviewItemState[] {
+  return states.map((state) => {
+    if (state.decision === 'reject') return state;
+    const recommended = state.info.options.filter((option) => option.isDefault).map((option) => option.id);
+    const hasSelection = state.choice !== null || state.choices.length > 0;
+    if (hasSelection || recommended.length === 0) return { ...state, decision: 'approve' };
+    const multi = state.info.options.some((option) => option.multi);
+    return multi
+      ? { ...state, decision: 'approve', choice: null, choices: recommended }
+      : { ...state, decision: 'approve', choice: recommended[0], choices: [] };
+  });
+}
+
 export const OVERALL_OPTIONS: readonly { value: DocReviewOverall; label: string }[] = [
   { value: 'approved', label: 'Approve' },
   { value: 'changes_requested', label: 'Request changes' },

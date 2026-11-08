@@ -311,7 +311,7 @@ export class CompactModelPickerComponent {
     if (!this.allowReasoningSelection()) return [];
     return this.controller
       .reasoningOptionsForProvider(provider, model)
-      .map((opt) => ({ id: opt.id, label: opt.label, isDefault: opt.isDefault, description: opt.description }));
+      .map((opt) => ({ id: opt.id, label: opt.label, isDefault: opt.isDefault, description: opt.description, costNote: opt.costNote }));
   };
 
   constructor() {

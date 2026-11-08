@@ -21,6 +21,8 @@ export interface ModelPickerReasoningOption {
   id: 'default' | ReasoningEffort;
   label: string;
   description: string;
+  /** A few words, shown in the menu item, for an effort that uses much more of the allowance. */
+  costNote?: string;
   /** Marks the provider's default effort (e.g. Claude's High) for badging. */
   isDefault?: boolean;
 }
@@ -259,8 +261,8 @@ export class ModelPickerController {
         { id: 'high', label: 'High', description: "Claude's standard depth" },
         { id: 'xhigh', label: 'Extra', description: 'Deeper reasoning' },
         // These two cost the most, so they say so in the words the usage card uses.
-        { id: 'max', label: 'Max', description: EFFORT_MAX_DESCRIPTION },
-        { id: 'workflow', label: 'Workflow', description: EFFORT_WORKFLOW_DESCRIPTION },
+        { id: 'max', label: 'Max', description: EFFORT_MAX_DESCRIPTION, costNote: 'uses much more allowance' },
+        { id: 'workflow', label: 'Workflow', description: EFFORT_WORKFLOW_DESCRIPTION, costNote: 'many helpers, much more allowance' },
       ]);
     }
 
@@ -273,6 +275,7 @@ export class ModelPickerController {
           id,
           label: id === 'none' ? 'Off' : id === 'xhigh' ? 'XHigh' : id[0].toUpperCase() + id.slice(1),
           description: id === 'ultra' ? 'Lets Codex start helper agents by itself; uses much more of your allowance.' : '',
+          ...(id === 'ultra' ? { costNote: 'may start helpers, much more allowance' } : {}),
         })),
       ]);
     }

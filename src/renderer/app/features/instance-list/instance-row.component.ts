@@ -31,7 +31,10 @@ import {
   imports: [AioTooltipDirective, SessionHoverDetailsComponent],
   templateUrl: './instance-row.component.html',
   styleUrl: './instance-row.component.scss',
-  styles: ['.activity-line { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 11px; }'],
+  styles: [
+    '.activity-line { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 11px; }',
+    '.needs-you-reason { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; color: var(--warning-color); font-size: 11px; line-height: 1.35; }',
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InstanceRowComponent {
@@ -49,6 +52,8 @@ export class InstanceRowComponent {
   hasChildren = input<boolean>(false);
   childCount = input<number | null>(null);
   descendantNeedsYou = input(0);
+  /** Plain words for why this session is in Needs you; null when it isn't. */
+  needsYouReason = input<string | null>(null);
   isExpanded = input<boolean>(false);
   isLastChild = input<boolean>(false);
   parentChain = input<boolean[]>([]);
@@ -335,6 +340,7 @@ export class InstanceRowComponent {
     const states: string[] = [];
     if (this.statusPresentation().label === 'Problem') states.push('problem');
     if (this.instance().yoloMode) states.push('auto-approve mode');
+    if (this.needsYouReason()) states.push(`needs you: ${this.needsYouReason()}`);
     if (this.activityLine()) states.push(this.activityLine()!);
     const suffix = states.length > 0 ? ` — ${states.join(', ')}` : '';
     return `Select session ${this.resolvedDisplayTitle()}${suffix}`;

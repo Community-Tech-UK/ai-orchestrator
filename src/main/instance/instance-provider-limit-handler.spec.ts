@@ -140,7 +140,7 @@ describe('InstanceProviderLimitHandler.maybePark', () => {
   });
 
   it('invokes onParked with the park facts (WS7 Phase B offered-switch seam), fail-soft', () => {
-    const parkedCalls: { instanceId: string; provider: string; resumeAt: number }[] = [];
+    const parkedCalls: { instanceId: string; provider: string; resumeAt: number; autoResume: boolean }[] = [];
     const resumeAt = Date.now() + 60_000;
     const withOffer = makeHarness({
       onParked: (params) => parkedCalls.push(params),
@@ -148,7 +148,8 @@ describe('InstanceProviderLimitHandler.maybePark', () => {
     withOffer.handler.maybePark({
       instanceId: 'i1', provider: CLAUDE, resetAtHint: resumeAt, reason: 'limit', resumePrompt: null,
     });
-    expect(parkedCalls).toEqual([{ instanceId: 'i1', provider: 'claude', resumeAt }]);
+    expect(parkedCalls).toEqual([{ instanceId: 'i1', provider: 'claude', resumeAt, autoResume: true }]);
+    expect(withOffer.handler.willAutoResume('i1')).toBe(true);
 
     // A throwing offer hook must never break the park itself.
     const withThrowingOffer = makeHarness({
@@ -881,6 +882,7 @@ describe('InstanceProviderLimitHandler.maybeParkOnUsageLimit', () => {
     expect(h.handler.isParked('i1')).toBe(true);
     expect(h.scheduleCalls).toBe(0);
     expect(h.waitReasons.get('i1')).toEqual({ kind: 'quota-park', provider: 'claude', resumeAt: expect.any(Number) });
+    expect(h.handler.willAutoResume('i1')).toBe(false);
   });
 
   it('releases the hold at the window reset when auto-resume is off', () => {

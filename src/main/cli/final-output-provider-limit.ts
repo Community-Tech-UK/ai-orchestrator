@@ -137,7 +137,7 @@ function matchesWithTimezoneSuffix(notice: RegExp, text: string): boolean {
  * sent, then failed on its time limit and retried straight into the same limit.
  */
 export function providerLimitParkedRunError(provider: string, resumeAt: number): string {
-  return `${PROVIDER_LIMIT_ERROR_PREFIX} ${provider} usage limit reached; the session is held until ${new Date(resumeAt).toISOString()}`;
+  return `${PROVIDER_LIMIT_ERROR_PREFIX} ${provider} usage limit reached; it is expected to reset at ${new Date(resumeAt).toISOString()}`;
 }
 
 export function isProviderLimitRunError(error: string | null | undefined): boolean {

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 import { getLogger } from '../logging/logger';
-import { renderPlanArtifact } from './artifact-renderer';
+import { renderPlanArtifact, upgradeArtifactRuntime } from './artifact-renderer';
 import { DocReviewStore, type DocReviewStorePort } from './doc-review-store';
 import {
   DOC_REVIEW_DIR_NAME,
@@ -263,9 +263,12 @@ export class DocReviewService extends EventEmitter {
     return validation.resolvedPath;
   }
 
-  /** Read the validated artifact HTML for a session (re-validates the stored path). */
+  /**
+   * Read the validated artifact HTML for a session (re-validates the stored path), with an
+   * older review runtime swapped for the current one so the in-app viewer can run it.
+   */
   async readArtifact(reviewId: string): Promise<string> {
-    return readFile(this.resolveArtifactFile(reviewId), 'utf8');
+    return upgradeArtifactRuntime(await readFile(this.resolveArtifactFile(reviewId), 'utf8'));
   }
 
   /**

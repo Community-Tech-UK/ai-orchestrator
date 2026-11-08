@@ -396,8 +396,8 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   });
 
   /**
-   * One entry per provider: its code and each account's percentage, in the
-   * popover's account order ("CC 100%·11%·4%"). The popover names each account.
+   * One entry per provider: its code and a part per account, in the popover's
+   * account order ("CC 100%·11%·–"). The popover names each account.
    */
   readonly stripEntries = computed<QuotaStripEntry[]>(() => {
     const snaps = this.store.snapshots();

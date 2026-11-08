@@ -96,7 +96,8 @@ export const DOC_REVIEW_HELP: HelpEntry = {
       heading: 'How to use it',
       items: [
         'Pick a pending review from the list on the left.',
-        'Read the document; toggle Approve or Reject and add comments per section.',
+        'Read the document; toggle Approve or Reject and add comments per section. Click a section in the list under the document to jump to it.',
+        'To accept what the agent recommends, click Go with your recommendations. It approves every section you haven\'t answered and picks each recommended option. If you haven\'t chosen an overall verdict, it sets Approve, or Request changes if you rejected a section. Your own answers and verdict are kept.',
         'Set the overall verdict (Approve / Request changes / Reject).',
         'Click Submit decision — the agent receives your feedback and applies it to the Markdown source.',
       ],

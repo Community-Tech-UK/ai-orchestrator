@@ -513,8 +513,9 @@ export class InstanceManager extends EventEmitter {
       }),
       emitSystemMessage: (id, content, metadata) => this.emitSystemMessage(id, content, metadata),
       // WS7 Phase B offered switch: notify when a long park has fallbacks available.
-      onParked: ({ instanceId, provider, resumeAt }) => {
-        this.emitObserversSafely('instance:provider-limit-parked', { instanceId, provider, resumeAt });
+      onParked: (parked) => {
+        this.emitObserversSafely('instance:provider-limit-parked', parked);
+        const { instanceId, provider, resumeAt } = parked;
         const offer = buildParkFailoverOfferNotification({
           instance: this.state.getInstance(instanceId), provider, resumeAt,
           offerAfterMinutes: this.settings.get('sessionFailoverOfferAfterMinutes'),

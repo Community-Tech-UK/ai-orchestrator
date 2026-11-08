@@ -9,7 +9,6 @@
         (folderDropped)="onFolderDropped($event)"
       >
         <div class="instance-detail">
-          <app-session-progress-panel [sessionId]="inst.sessionId" [diffStats]="inst.diffStats" [workingDirectory]="inst.workingDirectory" />
           @if (inst.parentId) { <app-child-session-nav [instanceId]="inst.id" /> }
           <!-- Header -->
           <app-instance-header
@@ -124,6 +123,9 @@
               (quickAction)="onQuickAction($event)"
             />
           }
+
+          <!-- Task progress and documents made: in the flow, so it never covers the header or the chat. -->
+          <app-session-progress-panel [sessionId]="inst.sessionId" [diffStats]="inst.diffStats" [workingDirectory]="inst.workingDirectory" />
 
           <!-- Output stream (primary content) -->
           <div class="output-section">

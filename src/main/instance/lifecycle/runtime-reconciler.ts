@@ -364,7 +364,7 @@ export class RuntimeReconciler {
             modelSource: swapModelSource,
           });
           if (selection.degradation) {
-            logger.warn('Model not valid for target provider during runtime change, using provider default', {
+            logger.warn('Model not valid for target provider during runtime change, using the closest equivalent or the provider default', {
               model: selection.degradation.requestedModel,
               provider: cliType,
               validModelCount: knownModelIds.length,

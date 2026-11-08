@@ -26,7 +26,7 @@ export const BAND_COLORS: Record<QuotaChipBand, { fg: string; bg: string }> = {
 const STRIP_NEUTRAL_FG = '#d4d4d8';
 
 /** Two-letter strip codes. OpenCode's quota is always the MiMo plan's, shown under "OC". */
-export const QUOTA_STRIP_CODES: Record<ProviderId, string> = {
+const QUOTA_STRIP_CODES: Record<ProviderId, string> = {
   claude: 'CC',
   codex: 'CX',
   gemini: 'GM',
@@ -39,7 +39,7 @@ export const QUOTA_STRIP_CODES: Record<ProviderId, string> = {
 
 /** One account's figure in the strip. */
 export interface QuotaStripPart {
-  /** "43%", "43% ⚠" when that account is signed out, "Signed out", or the plan name. */
+  /** "43%", "43% ⚠" when that account is signed out, "Signed out", "–" with no figure, or the plan name. */
   text: string;
   fg: string;
 }
@@ -48,7 +48,7 @@ export interface QuotaStripEntry {
   provider: ProviderId;
   /** Two-letter provider code ("CC", "OC"). */
   code: string;
-  /** One part per account with something to show, in the popover's account order. */
+  /** One part per account, in the popover's account order. */
   parts: QuotaStripPart[];
   /** The colour of the worst account, used for the code. */
   fg: string;
@@ -65,12 +65,16 @@ function stripEntryColor(percent: number): string {
   return STRIP_NEUTRAL_FG;
 }
 
+/** Holds the place of an account that has no figure, so figures line up with the popover's accounts. */
+const NO_FIGURE = '–';
+
 /**
  * One entry for a provider with a part per account: its summary percentage,
  * a warning glyph when that account is signed out (its last-known figure still
- * shows), or "Signed out" when it has no figure. An account that is neither
- * measured nor signed out is left out. With no parts at all, the plan name of
- * a signed-in account stands in. Null means "nothing to show".
+ * shows), "Signed out" when it has no figure, or "–" for any other account
+ * with no figure (its check failed, or it reports only a plan). When no account
+ * has a figure or is signed out, the plan name of a signed-in account stands
+ * in. Null means "nothing to show".
  */
 export function quotaStripEntry(
   provider: ProviderId,
@@ -78,12 +82,14 @@ export function quotaStripEntry(
 ): QuotaStripEntry | null {
   const code = QUOTA_STRIP_CODES[provider];
   const parts: (QuotaStripPart & { severity: number })[] = [];
+  let hasFigure = false;
   for (const { snapshot } of sections) {
     // A signed-out account with last-known windows still shows them.
     const summary = snapshot.ok || (snapshot.needsReauth && snapshot.windows.length > 0)
       ? quotaSummaryWindow(snapshot)
       : null;
     if (summary) {
+      hasFigure = true;
       const percent = windowPercent(summary);
       parts.push({
         text: `${Math.round(percent)}%${snapshot.needsReauth ? ' ⚠' : ''}`,
@@ -92,10 +98,13 @@ export function quotaStripEntry(
         severity: snapshot.needsReauth ? 100 : percent,
       });
     } else if (snapshot.needsReauth) {
+      hasFigure = true;
       parts.push({ text: 'Signed out', fg: BAND_COLORS.red.fg, severity: 100 });
+    } else {
+      parts.push({ text: NO_FIGURE, fg: STRIP_NEUTRAL_FG, severity: -1 });
     }
   }
-  if (parts.length > 0) {
+  if (hasFigure) {
     const worst = parts.reduce((a, b) => (b.severity > a.severity ? b : a));
     return { provider, code, parts: parts.map(({ text, fg }) => ({ text, fg })), fg: worst.fg };
   }

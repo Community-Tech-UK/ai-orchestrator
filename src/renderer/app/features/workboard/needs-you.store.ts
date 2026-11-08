@@ -1,7 +1,7 @@
 import { DestroyRef, Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import type { LoopOutstandingItemPayload } from '@contracts/schemas/loop';
 import { sortNeedsYou, NEEDS_YOU_RECENCY_MS, type NeedsYouEntry } from '../../../../shared/attention/needs-you';
-import type { AttentionLevel } from '../../../../shared/attention/attention-level';
+import { attentionLevelForInstanceStatus, type AttentionLevel } from '../../../../shared/attention/attention-level';
 import { InstanceStore } from '../../core/state/instance.store';
 import { LoopStore } from '../../core/state/loop.store';
 import { AutomationStore } from '../../core/state/automation.store';
@@ -18,8 +18,10 @@ import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service
 import { DocReviewStore } from '../doc-review/doc-review.store';
 import { MemoryReviewStore } from '../memory-review/memory-review.store';
 import { loopPauseReason } from '../loop/loop-formatters.util';
-import { correlateWorkboard, retainWorkboardItems, snoozeClearedByAttention } from './workboard-projection';
-import { requestEntries, workboardEntry, workboardEntryKey } from './needs-you-sources';
+import { correlateWorkboard, instanceAttentionStatus, LOOP_PAUSE_LABELS, retainWorkboardItems, snoozeClearedByAttention } from './workboard-projection';
+import { describeInstanceStatus, presentInstanceStatus } from '../../../../shared/attention/instance-status-presentation';
+import { describeLoopEnd } from '../../../../shared/loop/loop-end-wording';
+import { needsYouReason, requestEntries, workboardEntry, workboardEntryKey } from './needs-you-sources';
 import type { WorkboardProjectionInput } from './workboard.types';
 
 const SEEN_KEY = 'harness.needs-you.seen.v1';
@@ -130,6 +132,35 @@ export class NeedsYouStore {
   readonly answerEntries = computed(() => this.entries().filter((entry) => entry.kind === 'answer'));
   readonly sessionIds = computed(() => new Set(this.entries().filter((entry) => entry.kind !== 'applied' && entry.instanceId)
     .map((entry) => entry.instanceId!)));
+  /** Why each session in Needs you is there, in plain words, for the session list. The most urgent reason wins. */
+  readonly reasonBySession = computed(() => {
+    const instances = new Map(this.instances.instances().map((item) => [item.id, item]));
+    const loops = new Map(this.loops.recentRuns().map((run) => [run.id, run]));
+    // The most specific plain sentence for what needs you: the session's own status when the session itself is
+    // blocked or failed, else the loop's pause or end wording. Anything else is named by its source.
+    const statusSentences = new Map(this.workItems().flatMap((item) => {
+      const instance = item.instanceId ? instances.get(item.instanceId) : undefined;
+      const status = instance ? instanceAttentionStatus(instance) : undefined;
+      const level = status ? attentionLevelForInstanceStatus(status) : undefined;
+      // An automation that ran a loop takes the loop in, so look at any linked loop, but only when the loop itself needs you.
+      const loopRelation = item.relations.find((relation) => relation.kind === 'loop-run' && relation.lane === 'needs-you');
+      const loop = loopRelation ? loops.get(loopRelation.id) : undefined;
+      const pause = loop ? this.pausedForYou().get(loop.id) : undefined;
+      const sentence = instance && status && (level === 'blocked' || level === 'failed')
+        ? describeInstanceStatus(presentInstanceStatus(status, instance.waitReason))
+        : pause ? LOOP_PAUSE_LABELS[pause]
+          : loop?.endedAt ? describeLoopEnd({ status: loop.status, endReason: loop.endReason, roundsFinished: loop.totalIterations, endedAt: loop.endedAt }).headline
+            : undefined;
+      return sentence ? [[workboardEntryKey(item), sentence] as const] : [];
+    }));
+    const reasons = new Map<string, string>();
+    for (const entry of this.entries()) {
+      const id = entry.instanceId;
+      if (entry.kind === 'applied' || !id || reasons.has(id)) continue;
+      reasons.set(id, needsYouReason(entry, statusSentences.get(entry.key), this.pending.forInstance(id)[0]));
+    }
+    return reasons;
+  });
 
   constructor() {
     effect(() => this.now.set(this.permissions.now()));

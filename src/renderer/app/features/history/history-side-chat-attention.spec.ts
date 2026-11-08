@@ -93,7 +93,7 @@ describe.each(['project rail', 'History sidebar'] as const)('%s sidechat attenti
         { provide: RemoteNodeStore, useValue: { hasNodes: signal(false) } },
         { provide: TerminateConfirmStore, useValue: {} },
         { provide: FileIpcService, useValue: {} },
-        { provide: NeedsYouStore, useValue: { sessionIds: () => new Set<string>(), entries: () => [] } },
+        { provide: NeedsYouStore, useValue: { sessionIds: () => new Set<string>(), entries: () => [], reasonBySession: () => new Map<string, string>() } },
         { provide: HistoryIpcService, useValue: {} },
         { provide: SessionShareIpcService, useValue: {} },
         { provide: RecentDirectoriesIpcService, useValue: { getDirectories: vi.fn().mockResolvedValue([]) } },

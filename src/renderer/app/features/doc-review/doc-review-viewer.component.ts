@@ -156,6 +156,11 @@ export class DocReviewViewerComponent implements OnInit, OnDestroy {
     window.removeEventListener('message', this.onMessage);
   }
 
+  /** Ask the artifact to scroll the given item into view. */
+  scrollToItem(itemId: string): void {
+    this.frame()?.nativeElement.contentWindow?.postMessage({ type: `${TYPE_PREFIX}scroll-to`, itemId }, '*');
+  }
+
   private handleMessage(event: MessageEvent): void {
     const frameWindow = this.frame()?.nativeElement.contentWindow;
     if (!frameWindow || event.source !== frameWindow) return;

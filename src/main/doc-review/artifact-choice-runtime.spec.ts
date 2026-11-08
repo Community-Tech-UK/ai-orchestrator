@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 interface DOMWindow extends Window {
   readonly MessageEvent: typeof MessageEvent;
+  readonly HTMLElement: typeof HTMLElement;
 }
 
 interface JSDOMOptions {
@@ -99,7 +100,7 @@ describe('doc-review artifact choice runtime', () => {
 
     const radios = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="radio"]'));
     expect(radios.map((radio) => radio.value)).toEqual(['a', 'b']);
-    expect(document.querySelector('.rv-option-default')?.textContent).toBe('(default)');
+    expect(document.querySelector('.rv-option-default')?.textContent).toBe('(recommended)');
     expect(messagesOfType(messages, 'aio-review/ready')).toContainEqual(expect.objectContaining({
       items: [expect.objectContaining({
         id: 'strategy',
@@ -211,5 +212,39 @@ describe('doc-review artifact choice runtime', () => {
       '1. [Strategy] approve — choice: b',
       '',
     ].join('\n')]);
+  });
+
+  it('scrolls a section into view and highlights it when the host asks', () => {
+    const { dom } = renderEmbeddedArtifact(`
+      <section data-review-item="first" data-review-title="First"><p>One</p></section>
+      <section data-review-item="second" data-review-title="Second"><p>Two</p></section>
+    `);
+    const { document } = dom.window;
+    const scrolled: string[] = [];
+    // jsdom has no layout, so it does not implement scrollIntoView.
+    dom.window.HTMLElement.prototype.scrollIntoView = function (this: HTMLElement): void {
+      scrolled.push(this.getAttribute('data-review-item') ?? '');
+    };
+    const send = (itemId: unknown): void => {
+      dom.window.dispatchEvent(new dom.window.MessageEvent('message', {
+        source: dom.window.parent,
+        data: { type: 'aio-review/scroll-to', itemId },
+      }));
+    };
+
+    send('second');
+    send('constructor');
+    send('missing');
+    send(42);
+
+    expect(scrolled).toEqual(['second']);
+    const outlineOf = (id: string): string =>
+      document.querySelector<HTMLElement>(`[data-review-item="${id}"]`)?.style.outline ?? '';
+    expect(outlineOf('second')).toBe('2px solid var(--accent)');
+    expect(outlineOf('first')).toBe('');
+
+    send('first');
+    expect(outlineOf('first')).toBe('2px solid var(--accent)');
+    expect(outlineOf('second')).toBe('');
   });
 });

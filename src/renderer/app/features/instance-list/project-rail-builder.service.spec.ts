@@ -92,7 +92,7 @@ describe('ProjectRailBuilderService', () => {
     TestBed.configureTestingModule({
       providers: [
         ProjectRailBuilderService,
-        { provide: NeedsYouStore, useValue: { sessionIds: () => new Set(), entries: () => [] } },
+        { provide: NeedsYouStore, useValue: { sessionIds: () => new Set(), entries: () => [], reasonBySession: () => new Map<string, string>() } },
         {
           provide: NewSessionDraftService,
           useValue: {

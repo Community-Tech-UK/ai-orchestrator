@@ -232,7 +232,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
                         [selected]="row.reasoningValue === reasoningOptionValue(option)"
                         [disabled]="option.disabled ?? false"
                       >
-                        {{ option.label }}{{ option.isDefault ? ' (default)' : '' }}{{ option.description ? ': ' + option.description : '' }}
+                        {{ option.label }}{{ option.isDefault ? ' (default)' : '' }}{{ option.costNote ? ' · ' + option.costNote : '' }}
                       </option>
                     }
                   </select>

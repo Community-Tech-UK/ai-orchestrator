@@ -74,4 +74,18 @@ describe('DocReviewViewerComponent', () => {
       }],
     }]);
   });
+
+  it('asks the sandboxed artifact to scroll to an item', () => {
+    TestBed.configureTestingModule({ imports: [TestHostComponent] });
+    const fixture = TestBed.createComponent(TestHostComponent);
+    fixture.detectChanges();
+    const component = fixture.debugElement.children[0].componentInstance as DocReviewViewerComponent;
+    const messages: unknown[] = [];
+    (component as unknown as { frame: () => { nativeElement: { contentWindow: Window } } }).frame =
+      () => ({ nativeElement: { contentWindow: { postMessage: (message: unknown) => messages.push(message) } as unknown as Window } });
+
+    component.scrollToItem('decisions');
+
+    expect(messages).toEqual([{ type: 'aio-review/scroll-to', itemId: 'decisions' }]);
+  });
 });

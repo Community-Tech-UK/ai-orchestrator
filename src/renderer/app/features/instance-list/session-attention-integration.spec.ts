@@ -20,7 +20,7 @@ describe('session attention projection integration', () => {
   });
   beforeEach(() => {
     TestBed.configureTestingModule({ providers: [
-      { provide: NeedsYouStore, useValue: { sessionIds: needs, entries } },
+      { provide: NeedsYouStore, useValue: { sessionIds: needs, entries, reasonBySession: () => new Map([['child', 'Wants permission to use Bash']]) } },
       { provide: NewSessionDraftService, useValue: { hasSavedDraftFor: () => false, getDraftUpdatedAt: () => null } },
       { provide: ScratchDirectoryService, useValue: { isScratch: () => false } },
     ] });
@@ -46,6 +46,10 @@ describe('session attention projection integration', () => {
       instance('child', 'waiting_for_permission'), instance('working', 'processing'), instance('idle'), instance('asleep', 'hibernated'),
     ], status));
     expect(groups.flatMap((g) => g.liveItems.map((i) => i.instance.id))).toEqual(ids);
+  });
+  it('carries why a session needs you onto its row in the Needs you filter', () => {
+    const groups = TestBed.inject(ProjectRailBuilderService).buildProjectGroups(input([instance('child', 'waiting_for_permission'), instance('idle')], 'attn:needs-you'));
+    expect(groups.flatMap((g) => g.liveItems.map((i) => i.needsYouReason))).toEqual(['Wants permission to use Bash']);
   });
   it('hides history under all attention tabs', () => {
     const history = { id: 'h', originalInstanceId: 'old', sessionId: 'old', displayName: 'old', status: 'completed', workingDirectory: '/project', createdAt: 1, endedAt: 2, provider: 'claude', parentId: null } as ConversationHistoryEntry;

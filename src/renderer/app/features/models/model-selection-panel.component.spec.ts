@@ -430,6 +430,18 @@ describe('ModelSelectionPanelComponent', () => {
     ]);
   });
 
+  it('keeps plain effort descriptions out of the menu items', () => {
+    setInputs({
+      providers: ['claude'], selectedProvider: 'claude', selectedModelId: 'opus',
+      reasoningOptionsForProvider: () => [
+        { id: 'low', label: 'Low', description: 'Shorter thinking' },
+        { id: 'high', label: 'High', description: "Claude's standard depth", isDefault: true },
+      ],
+    });
+    const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+    expect(Array.from(select.options, (option) => option.textContent?.trim())).toEqual(['Low', 'High (default)']);
+  });
+
   it('exposes effort cost descriptions before a selection, including to assistive technology', () => {
     const warning = 'Lets Codex start helper agents by itself; uses much more of your allowance.';
     const costNote = 'Changing thinking effort starts a new session with a short summary of this one; the rest does not carry over.';
@@ -437,7 +449,7 @@ describe('ModelSelectionPanelComponent', () => {
       providers: ['codex'], selectedProvider: 'codex', selectedModelId: 'gpt-5.5',
       reasoningOptionsForProvider: () => [
         { id: 'default', label: 'Provider' },
-        { id: 'ultra', label: 'Ultra', description: warning },
+        { id: 'ultra', label: 'Ultra', description: warning, costNote: 'may start helpers, much more allowance' },
       ],
     });
     const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
@@ -445,7 +457,9 @@ describe('ModelSelectionPanelComponent', () => {
     // The description is the control's accessible description, never a native
     // `title` (screen-and-wording guide: no native `title` on controls).
     expect(select.getAttribute('aria-description')).toBe(`Ultra: ${warning}`);
-    expect(select.options[1].textContent).toContain(warning);
+    // The menu item names the cost in a few words; the full description stays
+    // out of it, because the closed list shows the chosen item's whole text.
+    expect(select.options[1].textContent?.trim()).toBe('Ultra · may start helpers, much more allowance');
     expect(select.hasAttribute('title')).toBe(false);
     expect(select.options[1].hasAttribute('title')).toBe(false);
     // The consequence is visible before any choice: pointing at the effort list

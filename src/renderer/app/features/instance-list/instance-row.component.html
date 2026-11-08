@@ -153,7 +153,11 @@
             @if (descendantNeedsYou() > 0) { <span class="child-attention">{{ descendantNeedsYou() }} {{ descendantNeedsYou() === 1 ? 'child needs' : 'children need' }} you</span> }
           }
         </div>
-        @if (activityLine(); as line) { <span class="activity-line">{{ line }}</span> }
+        @if (needsYouReason(); as reason) {
+          <span class="needs-you-reason">{{ reason }}</span>
+        } @else if (activityLine(); as line) {
+          <span class="activity-line">{{ line }}</span>
+        }
         @if (isRemote()) {
           <span
             class="remote-badge"

@@ -147,6 +147,10 @@ describe('findEquivalentModel', () => {
     ])).toBe('claude-sonnet-4-6');
   });
 
+  it('keeps the provider name as the family when it is the only family word', () => {
+    expect(findEquivalentModel('grok', 'grok-4.5', ['grok-4.6', 'grok-4.7', 'grok-4.7-fast'])).toBe('grok-4.7');
+  });
+
   it('finds nothing for ids without a version', () => {
     expect(findEquivalentModel('claude', 'opus[1m]', ['opus', 'claude-opus-5-5'])).toBeUndefined();
   });

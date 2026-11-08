@@ -1,12 +1,15 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   computed,
   effect,
   inject,
   input,
   signal,
+  viewChild,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { windowTodos } from './todo-window';
 import type { TodoItem } from '../../../../shared/types/todo.types';
 import { TodoStore } from '../../core/state/todo.store';
@@ -26,7 +29,8 @@ import {
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 
 const MAX_VISIBLE_TASKS = 5;
-const MAX_VISIBLE_OUTPUTS = 6;
+/** Documents named on the folded strip; the rest are one click away. */
+const MAX_STRIP_DOCUMENTS = 3;
 
 interface OutputContextMenuState {
   readonly entry: ArtifactEntry;
@@ -35,282 +39,229 @@ interface OutputContextMenuState {
 }
 
 /**
- * The user's minimise choice is sticky: persisted to localStorage so the
- * panel stays collapsed (or expanded) across session switches, instance
- * switches and app restarts until they reopen it from the collapsed pill.
+ * Whether the strip is unfolded is sticky: persisted to localStorage so it
+ * stays as the user left it across session switches and app restarts.
  */
-export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
-  key: 'session-progress-panel:collapsed',
+export const STRIP_EXPANDED_FIELD: StorageField<boolean> = {
+  key: 'session-work-strip:expanded',
   version: 1,
   defaultValue: false,
   validate: (value): value is boolean => typeof value === 'boolean',
 };
 
+/**
+ * One slim strip between the session header and the chat: the agent's task
+ * progress and the documents it has made. It sits in the page flow, never on
+ * top of the header or the conversation, and unfolds in place for the full
+ * task and document lists.
+ */
 @Component({
   selector: 'app-session-progress-panel',
   standalone: true,
-  imports: [AioTooltipDirective],
+  imports: [AioTooltipDirective, NgTemplateOutlet],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (shouldRender()) {
-      @if (!collapsed()) {
-        <aside class="progress-panel" aria-label="Session progress">
-          <header class="panel-header">
-            <div class="panel-title-group">
-              <span class="panel-title">Progress</span>
-              @if (hasTodos()) {
-                <span class="panel-count">{{ stats().completed }}/{{ stats().total }}</span>
-              }
-            </div>
-            <div class="panel-actions">
-              <button
-                type="button"
-                class="icon-button"
-                appTooltip="Minimize panel"
-                aria-label="Minimize progress panel"
-                (click)="collapsePanel()"
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M18 15l-6-6-6 6"></path>
-                </svg>
-              </button>
-            </div>
-          </header>
-
-          @if (hasTodos()) {
-            <div class="progress-meter" aria-label="Task completion">
-              <div class="progress-track">
-                <div class="progress-fill" [style.width.%]="stats().percentComplete"></div>
-              </div>
-              <span class="progress-percent">{{ stats().percentComplete }}%</span>
-            </div>
-
-            <div class="task-list">
-              @for (todo of visibleTodos(); track todo.id) {
-                <div
-                  class="task-row"
-                  [class.status-pending]="todo.status === 'pending'"
-                  [class.status-in_progress]="todo.status === 'in_progress'"
-                  [class.status-completed]="todo.status === 'completed'"
-                  [class.status-cancelled]="todo.status === 'cancelled'"
-                >
-                  <span class="task-status" aria-hidden="true">
-                    <span class="status-mark"></span>
-                  </span>
-                  <span class="task-text">{{ taskLabel(todo) }}</span>
-                </div>
-              }
-              @if (todoToggleLabel(); as label) {
-                <button type="button" class="more-row" [attr.aria-expanded]="showAllTodos()" (click)="showAllTodos.set(!showAllTodos())">{{ label }}</button>
-              }
-            </div>
-          }
-
-          @if (outputs().length > 0) {
-            <div class="section-divider"></div>
-            <section class="outputs-section" aria-label="Generated document outputs">
-              <div class="section-heading">
-                <span>Outputs</span>
-                <span>{{ outputs().length }}</span>
-              </div>
-              <div class="output-list">
-                @for (entry of visibleOutputs(); track entry.relPath) {
-                  <button
-                    type="button"
-                    class="output-row"
-                    [class.output-deleted]="entry.status === 'deleted'"
-                    [appTooltip]="outputTooltip(entry)"
-                    (click)="openOutput(entry)"
-                    (contextmenu)="onOutputContextMenu($event, entry)"
-                  >
-                    <span class="file-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24">
-                        <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z"></path>
-                        <path d="M14 2v5h5"></path>
-                        <path d="M8 13h8M8 17h6"></path>
-                      </svg>
-                    </span>
-                    <span class="output-main">
-                      <span class="output-name">{{ entry.basename }}</span>
-                      <span class="output-meta">{{ outputMeta(entry) }}</span>
-                    </span>
-                  </button>
-                }
-                @if (hiddenOutputCount() > 0) {
-                  <div class="more-row">{{ hiddenOutputCount() }} more outputs</div>
-                }
-              </div>
-            </section>
-          }
-        </aside>
-
-        @if (outputMenu(); as menu) {
+      <section class="work-strip" [class.expanded]="expanded()" aria-label="Tasks and documents for this session">
+        <div class="strip-row">
           <button
             type="button"
-            class="ctx-menu-backdrop"
-            data-ui-hints-exempt="backdrop"
-            aria-label="Close menu"
-            (click)="outputMenu.set(null)"
-            (keydown.escape)="outputMenu.set(null)"
-            (contextmenu)="$event.preventDefault(); outputMenu.set(null)"
-          ></button>
-          <div class="ctx-menu" role="menu" [style.left.px]="menu.x" [style.top.px]="menu.y">
-            @if (menu.entry.status !== 'deleted') {
-              <button
-                type="button"
-                role="menuitem"
-                (click)="openWithDefault(menu.entry); outputMenu.set(null)"
-              >
-                Open with preferred program
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                (click)="openInEditor(menu.entry); outputMenu.set(null)"
-              >
-                Open in editor
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                (click)="revealInFinder(menu.entry); outputMenu.set(null)"
-              >
-                Open in Finder
-              </button>
-              <div class="ctx-divider"></div>
+            #toggle
+            class="strip-toggle"
+            [attr.aria-expanded]="expanded()"
+            [attr.aria-controls]="expanded() ? 'session-work-strip-detail' : null"
+            [appTooltip]="toggleTooltip()"
+            (click)="toggleExpanded()"
+          >
+            <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+            @if (hasTodos()) {
+              <span class="strip-label">Tasks</span>
+              <span class="mini-track" aria-hidden="true">
+                <span class="mini-fill" [style.width.%]="stats().percentComplete"></span>
+              </span>
+              <span class="strip-count">{{ stats().completed }} of {{ stats().total }} done</span>
+              @if (!expanded() && currentTask(); as task) {
+                <span class="current-task">Now: {{ taskLabel(task) }}</span>
+              }
+            } @else {
+              <span class="strip-label">{{ documentCountLabel() }}</span>
             }
+          </button>
+
+          @if (!expanded() && outputs().length > 0) {
+            <div class="strip-documents">
+              @for (entry of stripOutputs(); track entry.relPath) {
+                <ng-container *ngTemplateOutlet="docChip; context: { $implicit: entry, showStatus: false }" />
+              }
+              @if (hiddenStripOutputCount() > 0) {
+                <button type="button" class="doc-more" (click)="showAllDocuments()">+{{ hiddenStripOutputCount() }} more</button>
+              }
+            </div>
+          }
+        </div>
+
+        @if (expanded()) {
+          <div class="strip-detail" id="session-work-strip-detail">
+            @if (hasTodos()) {
+              <div class="task-list">
+                @for (todo of visibleTodos(); track todo.id) {
+                  <div
+                    class="task-row"
+                    [class.status-pending]="todo.status === 'pending'"
+                    [class.status-in_progress]="todo.status === 'in_progress'"
+                    [class.status-completed]="todo.status === 'completed'"
+                    [class.status-cancelled]="todo.status === 'cancelled'"
+                  >
+                    <span class="task-status" aria-hidden="true"><span class="status-mark"></span></span>
+                    <span class="task-text">{{ taskLabel(todo) }}</span>
+                  </div>
+                }
+                @if (todoToggleLabel(); as label) {
+                  <button type="button" class="more-row" [attr.aria-expanded]="showAllTodos()" (click)="showAllTodos.set(!showAllTodos())">{{ label }}</button>
+                }
+              </div>
+            }
+
+            @if (outputs().length > 0) {
+              <section class="documents" aria-label="Documents made in this session">
+                @if (hasTodos()) {
+                  <div class="section-heading">{{ documentCountLabel() }}</div>
+                }
+                <div class="document-list">
+                  @for (entry of outputs(); track entry.relPath) {
+                    <ng-container *ngTemplateOutlet="docChip; context: { $implicit: entry, showStatus: true }" />
+                  }
+                </div>
+              </section>
+            }
+          </div>
+        }
+      </section>
+
+      <ng-template #docChip let-entry let-showStatus="showStatus">
+        <button
+          type="button"
+          class="doc-chip"
+          [class.doc-deleted]="entry.status === 'deleted'"
+          [appTooltip]="outputTooltip(entry)"
+          (click)="openOutput(entry)"
+          (contextmenu)="onOutputContextMenu($event, entry)"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z"></path>
+            <path d="M14 2v5h5"></path>
+          </svg>
+          <span class="doc-name">{{ entry.basename }}</span>
+          @if (showStatus) {
+            <span class="doc-status">{{ statusWord(entry) }}</span>
+          }
+        </button>
+      </ng-template>
+
+      @if (outputMenu(); as menu) {
+        <button
+          type="button"
+          class="ctx-menu-backdrop"
+          data-ui-hints-exempt="backdrop"
+          aria-label="Close menu"
+          (click)="outputMenu.set(null)"
+          (keydown.escape)="outputMenu.set(null)"
+          (contextmenu)="$event.preventDefault(); outputMenu.set(null)"
+        ></button>
+        <div class="ctx-menu" role="menu" [style.left.px]="menu.x" [style.top.px]="menu.y">
+          @if (menu.entry.status !== 'deleted') {
             <button
               type="button"
               role="menuitem"
-              (click)="copyPath(menu.entry); outputMenu.set(null)"
+              (click)="openWithDefault(menu.entry); outputMenu.set(null)"
             >
-              Copy path
+              Open with preferred program
             </button>
-          </div>
-        }
-      } @else {
-        <button
-          type="button"
-          class="progress-tab"
-          appTooltip="Show progress panel"
-          aria-label="Show progress panel"
-          (click)="expandPanel()"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M9 11l3 3L22 4"></path>
-            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
-          </svg>
-          <span>{{ collapsedSummary() }}</span>
-          <svg class="tab-chevron" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M6 9l6 6 6-6"></path>
-          </svg>
-        </button>
+            <button
+              type="button"
+              role="menuitem"
+              (click)="openInEditor(menu.entry); outputMenu.set(null)"
+            >
+              Open in editor
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              (click)="revealInFinder(menu.entry); outputMenu.set(null)"
+            >
+              Open in Finder
+            </button>
+            <div class="ctx-divider"></div>
+          }
+          <button
+            type="button"
+            role="menuitem"
+            (click)="copyPath(menu.entry); outputMenu.set(null)"
+          >
+            Copy path
+          </button>
+        </div>
       }
     }
   `,
   styles: [`
-    /* Mounted at dashboard level inside <main class="main-content">, which is
-       position: relative. Docked top-right so the panel sits against the
-       workspace scrollbar (the rightmost scrollbar) rather than floating over
-       the centred chat column. 'right' clears the ~6px scrollbar; 'top'
-       clears the instance header. */
+    /* In the page flow between the header and the chat, so it can never cover
+       either. An empty host must not take a gap in the parent's flex column. */
     :host {
-      position: absolute;
-      top: 132px;
-      right: 12px;
-      z-index: 5;
-      width: min(360px, calc(100% - 24px));
-      pointer-events: none;
+      display: block;
+      flex-shrink: 0;
     }
 
-    .progress-panel,
-    .progress-tab {
-      pointer-events: auto;
-      border: 1px solid rgba(255, 255, 255, 0.09);
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
-        rgba(24, 27, 26, 0.92);
-      box-shadow: 0 18px 46px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    :host:empty {
+      display: none;
     }
 
-    .progress-panel {
-      display: flex;
-      flex-direction: column;
-      max-height: min(58vh, 560px);
-      overflow: hidden;
-      border-radius: 18px;
-      color: var(--text-primary);
-    }
-
-    .panel-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 14px 14px 10px;
-      background: rgba(255, 255, 255, 0.025);
-    }
-
-    .panel-title-group,
-    .panel-actions,
-    .progress-meter,
-    .section-heading,
-    .output-row,
-    .progress-tab {
-      display: flex;
-      align-items: center;
-    }
-
-    .panel-title-group {
-      min-width: 0;
-      gap: 8px;
-    }
-
-    .panel-title,
-    .section-heading,
-    .panel-count,
-    .progress-percent,
-    .more-row,
-    .output-meta,
-    .progress-tab {
-      font-family: var(--font-mono);
-    }
-
-    .panel-title {
+    .work-strip {
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.02);
       color: var(--text-secondary);
-      font-size: 13px;
-      font-weight: 650;
+      font-size: 12px;
     }
 
-    .panel-count {
-      color: var(--text-muted);
-      font-size: 11px;
+    .strip-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 0 6px;
     }
 
-    .icon-button {
-      display: grid;
-      place-items: center;
-      width: 28px;
-      height: 28px;
-      padding: 0;
-      border: 1px solid transparent;
+    .strip-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1 1 auto;
+      min-width: 0;
+      padding: 6px 6px;
+      border: 0;
       border-radius: 8px;
       background: transparent;
-      color: var(--text-muted);
+      color: inherit;
+      font: inherit;
+      text-align: left;
       cursor: pointer;
-      transition: all var(--transition-fast);
     }
 
-    .icon-button:hover,
-    .progress-tab:hover {
+    .strip-toggle:hover {
       color: var(--text-primary);
-      border-color: rgba(var(--primary-rgb), 0.34);
-      background: rgba(var(--primary-rgb), 0.11);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    button:focus-visible {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 1px;
     }
 
     svg {
-      width: 16px;
-      height: 16px;
+      flex: 0 0 auto;
+      width: 14px;
+      height: 14px;
       fill: none;
       stroke: currentColor;
       stroke-width: 2;
@@ -318,70 +269,162 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
       stroke-linejoin: round;
     }
 
-    .progress-meter {
-      gap: 10px;
-      padding: 10px 14px 8px;
+    .chevron {
+      width: 12px;
+      height: 12px;
+      color: var(--text-muted);
+      transition: transform var(--transition-fast);
     }
 
-    .progress-track {
-      flex: 1;
-      height: 5px;
+    .expanded .chevron {
+      transform: rotate(90deg);
+    }
+
+    .strip-label {
+      flex: 0 0 auto;
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    .mini-track {
+      flex: 0 0 64px;
+      height: 4px;
       overflow: hidden;
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.08);
     }
 
-    .progress-fill {
+    .mini-fill {
+      display: block;
       height: 100%;
       border-radius: inherit;
-      background: linear-gradient(90deg, rgba(88, 166, 255, 0.95), rgba(74, 222, 128, 0.9));
+      background: var(--success-color);
       transition: width 180ms ease;
     }
 
-    .progress-percent {
-      width: 36px;
-      text-align: right;
+    .strip-count {
+      flex: 0 0 auto;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .current-task,
+    .doc-name,
+    .task-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .current-task {
+      flex: 1 1 auto;
+    }
+
+    .strip-documents {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex: 0 1 auto;
+      min-width: 0;
+      max-width: 60%;
+      overflow: hidden;
+    }
+
+    .document-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .doc-chip,
+    .doc-more {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 0;
+      max-width: 220px;
+      padding: 3px 8px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-secondary);
+      font: inherit;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .doc-more {
+      flex: 0 0 auto;
+      color: var(--text-muted);
+    }
+
+    .doc-chip:hover,
+    .doc-more:hover {
+      color: var(--text-primary);
+      border-color: rgba(var(--primary-rgb), 0.3);
+      background: rgba(var(--primary-rgb), 0.08);
+    }
+
+    .doc-deleted .doc-name {
+      text-decoration: line-through;
+      color: var(--text-muted);
+    }
+
+    .doc-status {
+      flex: 0 0 auto;
       color: var(--text-muted);
       font-size: 10px;
     }
 
-    .task-list,
-    .output-list {
+    .strip-detail {
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 10px;
+      max-height: min(32vh, 280px);
       overflow: auto;
+      padding: 2px 12px 10px 28px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
     }
 
     .task-list {
-      min-height: 0; max-height: 35vh; flex-shrink: 1;
-      padding: 0 14px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding-top: 8px;
     }
 
     .task-row {
       display: grid;
-      grid-template-columns: 18px minmax(0, 1fr);
+      grid-template-columns: 16px minmax(0, 1fr);
       gap: 8px;
-      align-items: start;
-      min-height: 24px;
-      color: var(--text-secondary);
-      font-size: 13px;
+      align-items: center;
+      min-height: 22px;
       line-height: 1.35;
     }
 
     .task-status {
       display: grid;
       place-items: center;
-      width: 18px;
-      height: 18px;
-      margin-top: 1px;
+      width: 16px;
+      height: 16px;
     }
 
     .status-mark {
-      width: 12px;
-      height: 12px;
-      border: 2px solid rgba(255, 255, 255, 0.45);
+      width: 10px;
+      height: 10px;
+      border: 2px solid rgba(255, 255, 255, 0.4);
       border-radius: 50%;
+    }
+
+    .status-in_progress {
+      color: var(--text-primary);
+    }
+
+    .status-in_progress .status-mark {
+      border-color: rgba(88, 166, 255, 0.3);
+      border-top-color: rgba(88, 166, 255, 0.95);
+      animation: spin 900ms linear infinite;
     }
 
     .status-completed {
@@ -391,163 +434,52 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
     .status-completed .task-text {
       text-decoration: line-through;
       text-decoration-thickness: 1px;
-      opacity: 0.68;
+      opacity: 0.7;
     }
 
     .status-completed .status-mark {
-      position: relative;
       border-color: rgba(74, 222, 128, 0.72);
-      background: rgba(74, 222, 128, 0.18);
-    }
-
-    .status-completed .status-mark::after {
-      content: '';
-      position: absolute;
-      left: 3px;
-      top: 1px;
-      width: 4px;
-      height: 7px;
-      border: solid rgba(187, 247, 208, 0.95);
-      border-width: 0 2px 2px 0;
-      transform: rotate(45deg);
-    }
-
-    .status-in_progress .status-mark {
-      border-color: rgba(88, 166, 255, 0.3);
-      border-top-color: rgba(88, 166, 255, 0.95);
-      animation: spin 900ms linear infinite;
+      background: rgba(74, 222, 128, 0.45);
     }
 
     .status-cancelled .status-mark {
       border-color: rgba(255, 125, 114, 0.72);
-      background:
-        linear-gradient(45deg, transparent 42%, rgba(255, 125, 114, 0.95) 42%, rgba(255, 125, 114, 0.95) 58%, transparent 58%),
-        linear-gradient(-45deg, transparent 42%, rgba(255, 125, 114, 0.95) 42%, rgba(255, 125, 114, 0.95) 58%, transparent 58%);
+    }
+
+    .status-cancelled .task-text {
+      text-decoration: line-through;
+      color: var(--text-muted);
     }
 
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
 
-    .task-text,
-    .output-name {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    .more-row {
+      align-self: flex-start;
+      padding: 2px 0 0 24px;
+      border: 0;
+      background: transparent;
+      color: var(--text-muted);
+      font: inherit;
+      font-size: 11px;
+      cursor: pointer;
     }
 
-    .section-divider {
-      height: 1px;
-      margin: 0 14px;
-      background: rgba(255, 255, 255, 0.08);
+    .more-row:hover {
+      color: var(--text-primary);
     }
 
-    .outputs-section {
-      min-height: 0;
-      padding: 10px 0 12px;
+    .documents {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding-top: 8px;
     }
 
     .section-heading {
-      justify-content: space-between;
-      padding: 0 14px 8px;
       color: var(--text-muted);
       font-size: 11px;
-    }
-
-    .output-list {
-      padding: 0 8px;
-    }
-
-    .output-row {
-      gap: 9px;
-      width: 100%;
-      min-width: 0;
-      padding: 7px 8px;
-      border: 1px solid transparent;
-      border-radius: 10px;
-      background: transparent;
-      color: var(--text-primary);
-      text-align: left;
-      cursor: pointer;
-      transition: all var(--transition-fast);
-    }
-
-    .output-row:hover {
-      border-color: rgba(var(--primary-rgb), 0.22);
-      background: rgba(var(--primary-rgb), 0.08);
-    }
-
-    .output-deleted {
-      color: var(--text-muted);
-      text-decoration: line-through;
-      text-decoration-color: rgba(255, 125, 114, 0.5);
-    }
-
-    .file-icon {
-      display: grid;
-      place-items: center;
-      flex: 0 0 auto;
-      width: 22px;
-      height: 22px;
-      color: var(--text-secondary);
-    }
-
-    .output-main {
-      display: flex;
-      min-width: 0;
-      flex-direction: column;
-      gap: 1px;
-    }
-
-    .output-name {
-      white-space: nowrap;
-      font-size: 13px;
-      line-height: 1.25;
-    }
-
-    .output-meta {
-      color: var(--text-muted);
-      font-size: 10px;
-      line-height: 1.25;
-    }
-
-    button.more-row { background: transparent; border: 0; cursor: pointer; text-align: left; }
-    button.more-row:focus-visible { outline: 2px solid var(--primary-color); }
-
-    .more-row {
-      padding: 4px 8px 0 26px;
-      color: var(--text-muted);
-      font-size: 10px;
-    }
-
-    .progress-tab {
-      justify-content: center;
-      gap: 8px;
-      max-width: 100%;
-      min-height: 34px;
-      margin-left: auto;
-      padding: 0 12px;
-      border-radius: 999px;
-      color: var(--text-secondary);
-      font-size: 11px;
-      cursor: pointer;
-    }
-
-    .progress-tab span {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .progress-tab svg {
-      flex: 0 0 auto;
-    }
-
-    .tab-chevron {
-      width: 13px;
-      height: 13px;
-      opacity: 0.55;
     }
 
     .ctx-menu-backdrop {
@@ -558,7 +490,6 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
       border: 0;
       padding: 0;
       cursor: default;
-      pointer-events: auto;
     }
 
     .ctx-menu {
@@ -570,7 +501,6 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
       background: var(--bg-secondary, #1a1a1f);
       border: 1px solid rgba(255, 255, 255, 0.08);
       box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
-      pointer-events: auto;
     }
 
     .ctx-menu button {
@@ -598,14 +528,9 @@ export const PANEL_COLLAPSED_FIELD: StorageField<boolean> = {
     }
 
     @media (max-width: 840px) {
-      :host {
-        top: 116px;
-        right: 10px;
-        width: min(340px, calc(100% - 20px));
-      }
-
-      .progress-panel {
-        max-height: min(48vh, 460px);
+      .mini-track,
+      .current-task {
+        display: none;
       }
     }
   `],
@@ -618,10 +543,11 @@ export class SessionProgressPanelComponent {
   readonly diffStats = input<Instance['diffStats'] | null | undefined>(null);
   readonly workingDirectory = input<string | null | undefined>(null);
 
-  /** Sticky, persisted minimise state — see PANEL_COLLAPSED_FIELD. */
-  readonly collapsed = signal<boolean>(readStorage(PANEL_COLLAPSED_FIELD));
+  /** Sticky, persisted unfold state — see STRIP_EXPANDED_FIELD. */
+  readonly expanded = signal<boolean>(readStorage(STRIP_EXPANDED_FIELD));
+  private readonly toggle = viewChild<ElementRef<HTMLButtonElement>>('toggle');
 
-  /** Open right-click context menu for an output row (null = closed). */
+  /** Open right-click context menu for a document (null = closed). */
   readonly outputMenu = signal<OutputContextMenuState | null>(null);
 
   readonly outputs = computed(() =>
@@ -634,6 +560,10 @@ export class SessionProgressPanelComponent {
 
   readonly stats = computed(() => this.todoStore.stats());
 
+  readonly currentTask = computed(() =>
+    this.hasTodos() ? this.todoStore.todos().find((todo) => todo.status === 'in_progress') ?? null : null
+  );
+
   readonly showAllTodos = signal(false);
   readonly todoWindow = computed(() => windowTodos(this.hasTodos() ? this.todoStore.todos() : [], MAX_VISIBLE_TASKS, this.showAllTodos()));
   readonly visibleTodos = computed<readonly TodoItem[]>(() => this.todoWindow().rows);
@@ -644,50 +574,48 @@ export class SessionProgressPanelComponent {
     return this.showAllTodos() && this.todoStore.todos().length > 5 ? 'Show fewer' : null;
   });
 
-  readonly visibleOutputs = computed<readonly ArtifactEntry[]>(() =>
-    this.outputs().slice(0, MAX_VISIBLE_OUTPUTS)
+  readonly stripOutputs = computed<readonly ArtifactEntry[]>(() =>
+    this.outputs().slice(0, MAX_STRIP_DOCUMENTS)
   );
 
-  readonly hiddenOutputCount = computed(() =>
-    Math.max(0, this.outputs().length - MAX_VISIBLE_OUTPUTS)
+  readonly hiddenStripOutputCount = computed(() =>
+    Math.max(0, this.outputs().length - MAX_STRIP_DOCUMENTS)
   );
+
+  readonly documentCountLabel = computed(() => {
+    const count = this.outputs().length;
+    return count === 1 ? '1 document' : `${count} documents`;
+  });
+
+  readonly toggleTooltip = computed(() => {
+    const lists = this.hasTodos() && this.outputs().length > 0 ? 'task and document lists'
+      : this.hasTodos() ? 'task list' : 'document list';
+    return `${this.expanded() ? 'Hide' : 'Show'} the ${lists}`;
+  });
 
   readonly shouldRender = computed(() =>
     this.hasTodos() || this.outputs().length > 0
   );
 
-  readonly collapsedSummary = computed(() => {
-    const parts: string[] = [];
-    if (this.hasTodos()) {
-      parts.push(`${this.stats().completed}/${this.stats().total}`);
-    }
-    if (this.outputs().length > 0) {
-      parts.push(`${this.outputs().length} outputs`);
-    }
-    return parts.join(' / ') || 'Progress';
-  });
-
   constructor() {
-    // Keep the TODO store pointed at the panel's session. The minimise
-    // preference is deliberately left untouched on session changes so a
-    // collapsed panel stays collapsed until the user reopens it.
+    // Keep the TODO store pointed at the strip's session. The unfold
+    // preference is deliberately left untouched on session changes.
     effect(() => {
       void this.todoStore.setSession(this.sessionId());
       this.showAllTodos.set(false);
     });
   }
 
-  collapsePanel(): void {
-    this.setCollapsed(true);
+  /** The +N more button goes away once the strip unfolds, so keyboard focus moves to the toggle that stays. */
+  showAllDocuments(): void {
+    this.toggleExpanded();
+    this.toggle()?.nativeElement.focus();
   }
 
-  expandPanel(): void {
-    this.setCollapsed(false);
-  }
-
-  private setCollapsed(collapsed: boolean): void {
-    this.collapsed.set(collapsed);
-    writeStorage(PANEL_COLLAPSED_FIELD, collapsed);
+  toggleExpanded(): void {
+    const expanded = !this.expanded();
+    this.expanded.set(expanded);
+    writeStorage(STRIP_EXPANDED_FIELD, expanded);
   }
 
   taskLabel(todo: TodoItem): string {
@@ -700,8 +628,8 @@ export class SessionProgressPanelComponent {
     return formatChipTooltip(entry);
   }
 
-  outputMeta(entry: ArtifactEntry): string {
-    return `${statusLabel(entry.status)} / ${entry.category}`;
+  statusWord(entry: ArtifactEntry): string {
+    return statusLabel(entry.status);
   }
 
   async openOutput(entry: ArtifactEntry): Promise<void> {

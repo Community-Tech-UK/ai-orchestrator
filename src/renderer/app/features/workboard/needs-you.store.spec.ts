@@ -20,6 +20,7 @@ import { MemoryReviewStore } from '../memory-review/memory-review.store';
 import type { Instance } from '../../core/state/instance/instance.types';
 import type { LoopOutstandingItemPayload, LoopRunSummaryPayload, LoopStatePayload } from '@contracts/schemas/loop';
 import type { LoopBanner } from '../../core/state/loop-store.types';
+import type { AutomationRun } from '../../../../shared/types/automation.types';
 
 type OutstandingReply = Awaited<ReturnType<LoopIpcService['listOutstanding']>>;
 const outstandingItem: LoopOutstandingItemPayload = {
@@ -34,6 +35,7 @@ describe('NeedsYouStore', () => {
   const permissions = signal([]), now = signal(Date.now());
   const activeStates = signal(new Map<string, LoopStatePayload>()), banners = signal(new Map<string, LoopBanner | null>());
   const recentRuns = signal<LoopRunSummaryPayload[]>([]);
+  const automationRuns = signal<AutomationRun[]>([]);
   const setAttentionBadge = vi.fn().mockResolvedValue({ success: true });
   const refreshRecentRuns = vi.fn().mockResolvedValue({ ok: true });
   const listOutstanding = vi.fn().mockResolvedValue({ success: true, data: { items: [] } });
@@ -45,11 +47,11 @@ describe('NeedsYouStore', () => {
     vi.useFakeTimers(); vi.setSystemTime(100); localStorage.clear(); vi.clearAllMocks();
     listOutstanding.mockReset().mockResolvedValue({ success: true, data: { items: [] } });
     instances.set([failure()]); selectedInstanceId.set(null); now.set(Date.now());
-    activeStates.set(new Map()); banners.set(new Map()); recentRuns.set([]);
+    activeStates.set(new Map()); banners.set(new Map()); recentRuns.set([]); automationRuns.set([]);
     TestBed.configureTestingModule({ providers: [
       { provide: InstanceStore, useValue: { instances, selectedInstanceId } },
       { provide: LoopStore, useValue: { recentRuns, activeStates, banners, ensureWired: vi.fn(), refreshRecentRuns } },
-      { provide: AutomationStore, useValue: { runs: signal([]), automations: signal([]), refresh: vi.fn().mockResolvedValue(undefined) } },
+      { provide: AutomationStore, useValue: { runs: automationRuns, automations: signal([]), refresh: vi.fn().mockResolvedValue(undefined) } },
       { provide: RepoJobStore, useValue: { jobs: signal([]), refresh: refreshRepo } },
       { provide: PermissionApprovalsStore, useValue: { pendingRequests: permissions, now, startPolling: vi.fn() } },
       { provide: BrowserApprovalsStore, useValue: { pendingRequests: signal([]) } },
@@ -110,6 +112,13 @@ describe('NeedsYouStore', () => {
     expect(store.isSnoozed('session:a')).toBe(false);
     store.markSeen('session:a'); expect(store.count()).toBe(1);
   });
+  it('says why each session needs you with its full status sentence', () => {
+    instances.set([failure('error', 43)]);
+    const store = TestBed.inject(NeedsYouStore);
+    expect(store.reasonBySession().get('a')).toBe('Problem — the session hit an error');
+    instances.set([{ ...failure('processing', 44), pendingApprovalCount: 1 }]);
+    expect(store.reasonBySession().get('a')).toBe('Needs your OK — the agent is asking permission to do something');
+  });
   it('never lets a snooze hide a question or approval someone is waiting on', () => {
     instances.set([failure('waiting_for_permission', 44)]);
     const store = TestBed.inject(NeedsYouStore);
@@ -150,6 +159,29 @@ describe('NeedsYouStore', () => {
     banners.set(new Map([['chat', { kind: 'no-progress', loopRunId: 'l', signalId: 'STEP_FAILED', message: 'A step failed', shownAt: 2 }]]));
     expect(store.pausedForYou().get('l')).toBe('step-failed');
     expect(store.workItems()[0].statusLabel).toBe('Paused: a step failed');
+  });
+  it('says what a loop needs in its own words, not the busy session status or a raw loop label', () => {
+    instances.set([failure('processing', 43)]);
+    const run = { id: 'l', chatId: 'a', status: 'paused', initialPrompt: 'Build', iterationPrompt: null,
+      workspaceCwd: '/work/app', totalIterations: 3, totalTokens: 0, totalCostCents: 0, startedAt: 1, endedAt: null, endReason: null } as LoopRunSummaryPayload;
+    recentRuns.set([run]);
+    activeStates.set(new Map([['a', { id: 'l', chatId: 'a', status: 'paused', lastCompletionOutcome: 'unverifiable' } as LoopStatePayload]]));
+    const store = TestBed.inject(NeedsYouStore);
+    expect(store.reasonBySession().get('a')).toBe('Needs your sign-off');
+    activeStates.set(new Map());
+    recentRuns.set([{ ...run, status: 'needs-human-arbitration', endedAt: 90, endReason: 'disagreement' } as LoopRunSummaryPayload]);
+    expect(store.reasonBySession().get('a')).toBe('Your call: the builder and the second model disagree');
+  });
+  it('names the loop, not the automation, when an automation ran a loop that wants its notes read', () => {
+    instances.set([failure('idle', 43)]);
+    recentRuns.set([{ id: 'l', chatId: 'a', status: 'completed-needs-review', initialPrompt: 'Build', iterationPrompt: null,
+      workspaceCwd: '/work/app', totalIterations: 3, totalTokens: 0, totalCostCents: 0, startedAt: 1, endedAt: 90, endReason: null } as LoopRunSummaryPayload]);
+    automationRuns.set([{ id: 'r', automationId: 'auto', status: 'succeeded', trigger: 'scheduled', scheduledAt: 1, startedAt: 1, finishedAt: 90,
+      instanceId: null, loopRunId: 'l', error: null, outputSummary: null, outputFullRef: null, idempotencyKey: null, triggerSource: null,
+      deliveryMode: 'notify', seenAt: null, createdAt: 1, updatedAt: 90, configSnapshot: null, attempt: 1, maxAttempts: 1 } as AutomationRun]);
+    const store = TestBed.inject(NeedsYouStore);
+    expect(store.workItems().find((item) => item.loopRunId === 'l')?.primary.kind).toBe('automation-run');
+    expect(store.reasonBySession().get('a')).toBe('Ended · see notes');
   });
   it('debounces distinct badge counts and initializes the global sources once', async () => {
     const store = TestBed.inject(NeedsYouStore); store.init(); store.init();

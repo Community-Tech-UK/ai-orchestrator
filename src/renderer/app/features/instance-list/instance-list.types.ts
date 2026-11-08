@@ -25,6 +25,8 @@ export interface HierarchicalInstance {
   isExpanded: boolean;
   children: HierarchicalRailItem[];
   descendantNeedsYou?: number;
+  /** Plain words for why this session is in Needs you; absent when it isn't. */
+  needsYouReason?: string;
 }
 
 export interface HierarchicalHistoryItem {

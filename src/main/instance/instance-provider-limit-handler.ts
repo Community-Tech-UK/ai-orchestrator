@@ -49,7 +49,7 @@ export const ASSUMED_ACCOUNT_LIMIT_MS = 60 * 60_000;
 export type ProviderLimitTurnOutcome = 'parked' | 'already-parked' | 'skipped' | 'switching-account';
 
 /** One successful provider-limit park; InstanceManager re-emits it as `instance:provider-limit-parked`. */
-export interface ProviderLimitParkedEvent { instanceId: string; provider: ProviderId; resumeAt: number }
+export interface ProviderLimitParkedEvent { instanceId: string; provider: ProviderId; resumeAt: number; autoResume: boolean }
 
 export interface InstanceProviderLimitHandlerDeps {
   /** Feature gate — regular-session auto-resume is opt-in (default OFF). */
@@ -676,7 +676,7 @@ export class InstanceProviderLimitHandler {
     });
     // WS7 Phase B: let the wiring offer a provider switch for long parks.
     try {
-      deps.onParked?.({ instanceId: params.instanceId, provider: providerId, resumeAt });
+      deps.onParked?.({ instanceId: params.instanceId, provider: providerId, resumeAt, autoResume: autoResuming });
     } catch {
       // best-effort — the offer must never affect the park itself
     }
@@ -893,6 +893,12 @@ export class InstanceProviderLimitHandler {
 
   isParked(instanceId: string): boolean {
     return this.parked.has(instanceId);
+  }
+
+  /** Parked with a scheduled resume, not a hold that only releases at the reset. */
+  willAutoResume(instanceId: string): boolean {
+    const entry = this.parked.get(instanceId);
+    return Boolean(entry && !entry.holdOnly);
   }
 
   hasHeldTurn(instanceId: string): boolean {

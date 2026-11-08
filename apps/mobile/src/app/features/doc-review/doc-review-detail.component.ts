@@ -30,7 +30,7 @@ import { DocReviewStore } from './doc-review.store';
                 <label>
                   <input [type]="option.multi ? 'checkbox' : 'radio'" [name]="item.id" [value]="option.id"
                     [checked]="chosen(item.id, option.id)" (change)="choose(item, option.id, option.multi)" />
-                  {{ option.label }}@if (option.isDefault) { (default) }
+                  {{ option.label }}@if (option.isDefault) { (recommended) }
                 </label>
               }
             }

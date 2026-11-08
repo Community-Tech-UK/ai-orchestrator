@@ -5,8 +5,10 @@ import type { DocReviewItemState, DocReviewOverall } from './doc-review.types';
 
 /**
  * Angular-owned chrome for a review: overall verdict buttons, a general comment box, and
- * a mirror of the per-item decisions the sandboxed artifact reported. Submit is enabled
- * only once an overall verdict is chosen. Purely presentational — the page owns state.
+ * a mirror of the per-item decisions the sandboxed artifact reported. Clicking an item asks
+ * the page to scroll the document to it; "Go with your recommendations" asks the page to
+ * fill in every unanswered item. Submit is enabled only once an overall verdict is chosen.
+ * Purely presentational — the page owns state.
  */
 @Component({
   selector: 'app-doc-review-decision-bar',
@@ -17,7 +19,7 @@ import type { DocReviewItemState, DocReviewOverall } from './doc-review.types';
     <div class="bar">
       <div class="items">
         @for (item of items(); track item.info.id) {
-          <div class="item">
+          <button type="button" class="item" (click)="itemSelected.emit(item.info.id)">
             <span class="item-title">
               @if (item.info.decisionId) {
                 <span class="num">{{ item.info.decisionId }}</span>
@@ -33,13 +35,22 @@ import type { DocReviewItemState, DocReviewOverall } from './doc-review.types';
             @if (item.comment.trim()) {
               <span class="comment">“{{ item.comment.trim() }}”</span>
             }
-          </div>
+          </button>
         } @empty {
           <p class="empty">Toggle Approve/Reject and add comments per section in the document above.</p>
         }
       </div>
 
       <div class="controls">
+        @if (items().length > 0) {
+          <button
+            type="button"
+            class="verdict-btn"
+            appTooltip="Answer everything you haven't answered yet with the agent's recommendations"
+            [disabled]="busy()"
+            (click)="recommendationsAccepted.emit()"
+          >Go with your recommendations</button>
+        }
         <div class="overall" role="group" aria-label="Overall verdict">
           @for (option of overallOptions; track option.value) {
             <button
@@ -80,7 +91,13 @@ import type { DocReviewItemState, DocReviewOverall } from './doc-review.types';
         gap: 12px;
       }
       .items { display: flex; flex-direction: column; gap: 6px; max-height: 160px; overflow: auto; }
-      .item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+      .item {
+        appearance: none; border: 0; background: transparent; font: inherit; text-align: left;
+        display: flex; align-items: center; gap: 8px; font-size: 13px;
+        padding: 3px 6px; border-radius: 6px; cursor: pointer;
+      }
+      .item:hover { background: var(--bg-secondary); }
+      .item:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 1px; }
       .item-title { color: var(--text-primary); font-weight: 500; }
       .num {
         display: inline-flex; align-items: center; justify-content: center;
@@ -127,6 +144,8 @@ export class DocReviewDecisionBarComponent {
   readonly general = input('');
   readonly busy = input(false);
 
+  readonly itemSelected = output<string>();
+  readonly recommendationsAccepted = output<void>();
   readonly overallChange = output<DocReviewOverall>();
   readonly generalChange = output<string>();
   readonly submitted = output<void>();

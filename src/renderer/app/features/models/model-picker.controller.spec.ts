@@ -79,6 +79,8 @@ describe('ModelPickerController', () => {
     );
     // The old wording described the setting without ever saying it costs more.
     expect(claude.map((option) => option.description).join(' ')).not.toMatch(/ultracode|session-only/i);
+    // Only the costly efforts carry the short note shown in the menu item.
+    expect(claude.filter((option) => option.costNote).map((option) => option.id)).toEqual(['max', 'workflow']);
   });
 
   it('uses model capabilities for Codex options and a supported default', () => {
@@ -94,6 +96,7 @@ describe('ModelPickerController', () => {
     ]);
     expect(options.filter(o => o.isDefault).map(o => o.id)).toEqual(['medium']);
     expect(options.find(o => o.id === 'ultra')?.description).toBe('Lets Codex start helper agents by itself; uses much more of your allowance.');
+    expect(options.filter(o => o.costNote).map(o => o.id)).toEqual(['ultra']);
     expect(controller.reasoningOptionsForProvider('codex', {
       ...model, reasoning: { supportedEfforts: ['low', 'medium'], defaultEffort: 'medium' },
     }).filter(o => o.isDefault).map(o => o.id)).toEqual(['medium']);

@@ -5,6 +5,7 @@ import {
   effect,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { DocReviewIpcService } from '../../core/services/ipc/doc-review-ipc.service';
 import { DocReviewStore } from './doc-review.store';
@@ -13,7 +14,7 @@ import { DocReviewViewerComponent } from './doc-review-viewer.component';
 import {
   DocReviewDecisionBarComponent,
 } from './doc-review-decision-bar.component';
-import { toItemDecisions } from './doc-review.types';
+import { applyRecommendations, toItemDecisions } from './doc-review.types';
 import type {
   DocReviewCommentMessage,
   DocReviewArtifactInit,
@@ -117,6 +118,8 @@ import type {
                 [overall]="overall()"
                 [general]="general()"
                 [busy]="store.busy()"
+                (itemSelected)="onItemSelected($event)"
+                (recommendationsAccepted)="onAcceptRecommendations()"
                 (overallChange)="onOverallChange($event)"
                 (generalChange)="onGeneralChange($event)"
                 (submitted)="onSubmit(session)"
@@ -213,6 +216,8 @@ export class DocReviewPageComponent {
     };
   });
 
+  private readonly viewer = viewChild(DocReviewViewerComponent);
+
   /** Monotonic token so a slow artifact load for a stale selection is ignored. */
   private loadToken = 0;
 
@@ -264,6 +269,23 @@ export class DocReviewPageComponent {
         ? { ...s, choice: message.choice, choices: message.choices }
         : s)),
     );
+    this.persistDraft();
+  }
+
+  onItemSelected(itemId: string): void {
+    this.viewer()?.scrollToItem(itemId);
+  }
+
+  /**
+   * Answer everything still open with the author's recommendations. An overall verdict the
+   * reviewer already chose is kept; otherwise it becomes Approve, or Request changes when an
+   * item is rejected. Nothing is sent until Submit.
+   */
+  onAcceptRecommendations(): void {
+    const states = applyRecommendations(this.itemStates());
+    this.itemStates.set(states);
+    const anyRejected = states.some((state) => state.decision === 'reject');
+    this.overall.set(this.overall() ?? (anyRejected ? 'changes_requested' : 'approved'));
     this.persistDraft();
   }
 

@@ -12,7 +12,7 @@ import { harnessStopDetailsOf } from '../../shared/utils/harness-stop';
 import { getLogger } from '../logging/logger';
 import { getWorkAdmission } from '../work-admission/work-admission';
 import type { InstanceManager } from '../instance/instance-manager';
-import type { ProviderLimitParkedEvent } from '../instance/instance-provider-limit-handler';
+import { getInstanceProviderLimitHandler, type ProviderLimitParkedEvent } from '../instance/instance-provider-limit-handler';
 import type { Instance } from '../../shared/types/instance.types';
 import type {
   Automation,
@@ -162,10 +162,7 @@ export class AutomationRunner {
     instanceManager.on('instance:removed', (instanceId: string) => {
       this.handleInstanceRemoved(instanceId);
     });
-    // A held session sends nothing until the reset, and a retry would hit the same limit.
-    instanceManager.on('instance:provider-limit-parked', ({ instanceId, provider, resumeAt }: ProviderLimitParkedEvent) => {
-      this.failTrackedInstance(instanceId, providerLimitParkedRunError(provider, resumeAt), { retryable: false });
-    });
+    instanceManager.on('instance:provider-limit-parked', (parked: ProviderLimitParkedEvent) => this.endRunHeldOnLimit(parked));
 
     const pausedRuns = GlobalPauseService.peek()?.getState().entries
       .filter((entry) => entry.kind === 'automation-run' && !['void', 'resumed', 'failed'].includes(entry.state))
@@ -570,6 +567,17 @@ export class AutomationRunner {
     if (event.status === 'idle') this.finishCompletedTurn(envelope.instanceId);
   }
 
+  /**
+   * A held session sends nothing until the reset. Unless the hold resumes it
+   * before the run's time limit, end the run now as a provider-limit stop (never
+   * retried) and stop the session, which also cancels its scheduled resume.
+   */
+  private endRunHeldOnLimit({ instanceId, provider, resumeAt, autoResume }: ProviderLimitParkedEvent): void {
+    const deadline = this.limits?.deadlineFor(instanceId);
+    if (autoResume && deadline !== undefined && resumeAt < deadline) return;
+    this.limits?.stopWith(instanceId, providerLimitParkedRunError(provider, resumeAt));
+  }
+
   private handleInstanceRemoved(instanceId: string): void {
     this.limits?.removed(instanceId);
     this.failTrackedInstance(instanceId, 'Automation instance was removed');
@@ -651,7 +659,9 @@ export class AutomationRunner {
 
     reconcileAutomationInstance(instance, tracking,
       (reason, options) => this.failTrackedInstance(instance.id, reason, options),
-      () => this.finishCompletedTurn(instance.id));
+      () => this.finishCompletedTurn(instance.id),
+      (provider, resumeAt) => this.endRunHeldOnLimit({ instanceId: instance.id, provider: provider as ProviderLimitParkedEvent['provider'],
+        resumeAt, autoResume: getInstanceProviderLimitHandler().willAutoResume(instance.id) }));
   }
 
   private completeTrackedInstance(

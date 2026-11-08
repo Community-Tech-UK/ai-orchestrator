@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { marked } from 'marked';
@@ -36,6 +37,33 @@ export function loadArtifactTemplate(appRoot?: string): string {
     }
   }
   throw new Error(`doc-review artifact template not found (${TEMPLATE_RELATIVE_PATH})`);
+}
+
+/**
+ * sha256 (base64) of review runtimes shipped by earlier template versions. Each artifact keeps
+ * the runtime it was written with, and the renderer CSP allow-lists only the current runtime's
+ * hash, so an in-app read swaps a known older runtime for the current one. When the runtime
+ * script changes, add the outgoing hash here.
+ */
+const PREVIOUS_RUNTIME_SHA256: ReadonlySet<string> = new Set([
+  'yx4kjyTOVHK4OxrRqPVdFnG7y42LuQ7CP65Gl8gIFTo=',
+]);
+
+const INLINE_SCRIPT = /<script>([\s\S]*?)<\/script>/g;
+
+/**
+ * Replace every inline script that exactly matches an earlier review runtime with the
+ * current template's runtime. Any other script is left untouched (and stays blocked by the
+ * renderer CSP). Only the in-memory copy changes; the artifact on disk is not rewritten.
+ */
+export function upgradeArtifactRuntime(html: string, appRoot?: string): string {
+  return html.replace(INLINE_SCRIPT, (block: string, body: string) => {
+    const hash = createHash('sha256').update(body, 'utf8').digest('base64');
+    if (!PREVIOUS_RUNTIME_SHA256.has(hash)) return block;
+    const current = /<script>[\s\S]*?<\/script>/.exec(loadArtifactTemplate(appRoot));
+    if (!current) throw new Error('doc-review artifact template has no runtime script');
+    return current[0];
+  });
 }
 
 /** For tests: drop the cached template so a fresh read happens. */

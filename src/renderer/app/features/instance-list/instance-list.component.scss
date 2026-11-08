@@ -433,10 +433,13 @@
       justify-content: flex-end;
       opacity: 0;
       pointer-events: none;
-      transform: translateX(6px);
-      transition:
-        opacity var(--transition-fast),
-        transform var(--transition-fast);
+      /* Fade only, never a transform. A sideways slide pushed the hidden
+         actions past the list's right edge, so the list scrolled and shifted
+         sideways. And while shown, any transform makes this the containing
+         block for the position: fixed project menu inside it, which then
+         resolves its viewport coordinates against this row and renders
+         off-screen (LT-631, third live re-check). */
+      transition: opacity var(--transition-fast);
       position: relative;
     }
 
@@ -445,11 +448,6 @@
     .project-actions.visible {
       opacity: 1;
       pointer-events: auto;
-      /* none, not translateX(0): any transform makes this the containing block
-         for the position: fixed project menu inside it, which then resolves
-         its viewport coordinates against this row and renders off-screen
-         (LT-631, third live re-check). */
-      transform: none;
     }
 
     .project-action-btn {
@@ -606,11 +604,19 @@
       color: var(--text-primary);
     }
 
+    /* A square box, so turning it for an open project stays inside its own
+       space. The old tall text box stuck out sideways when turned and pushed
+       the session list past its right edge. */
     .project-chevron {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
       font-size: 14px;
+      line-height: 1;
       color: var(--text-muted);
       transition: transform var(--transition-fast);
-      padding-top: 3px;
     }
 
     .project-group-placeholder {
@@ -699,7 +705,9 @@
       grid-template-columns: minmax(0, 1fr) auto;
       align-items: center;
       gap: 8px;
-      width: 100%;
+      /* No fixed full width. Nested rows are indented with margin-left, and a
+         full width on top of that pushed them past the list's right edge, so
+         the session list scrolled sideways. Stretching fills the rest instead. */
       min-height: 30px;
       padding: 5px 4px;
       background: transparent;

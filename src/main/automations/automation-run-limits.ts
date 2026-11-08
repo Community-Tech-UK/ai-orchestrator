@@ -124,7 +124,13 @@ export class AutomationRunLimits {
     if (!limit) return false;
     const reason = this.now() >= limit.deadline ? `Stopped after ${limit.minutes} minutes`
       : limit.processed > limit.cap ? 'Stopped: token cap' : undefined;
-    if (!reason) return false;
+    return reason ? this.stopWith(rootId, reason) : false;
+  }
+  deadlineFor(rootId: string): number | undefined { return this.tracked.get(rootId)?.deadline; }
+  /** Fail the run (never retried) and stop its session tree, as a time or token limit does. */
+  stopWith(rootId: string, reason: string): boolean {
+    const limit = this.tracked.get(rootId);
+    if (!limit) return false;
     const descendants = this.manager.getAllInstances?.() ?? [];
     for (const instance of descendants) this.rootFor(instance.id);
     const ids = [...limit.members].reverse();

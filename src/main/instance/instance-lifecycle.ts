@@ -1558,7 +1558,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           // "is no longer available" when they never chose it for this provider
           // is a trust bug — the same one already suppressed on the swap path.
           const fromGlobalDefault = modelSelection.modelSource === 'global-default';
-          logger.warn('Model not valid for target provider, falling back to provider default', {
+          logger.warn('Model not valid for target provider, using the closest equivalent or the provider default', {
             model: modelSelection.degradation.requestedModel,
             provider: resolvedCliType,
             validModelCount: modelSelection.knownModelCount ?? 0,

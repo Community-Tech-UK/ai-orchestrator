@@ -155,6 +155,8 @@ describe('AutomationRunner final-output provider-limit detection', () => {
     manager = Object.assign(new EventEmitter(), {
       createInstance: vi.fn(async () => instance),
       getInstance: vi.fn((id: string) => id === instance.id ? instance : undefined),
+      getAllInstances: vi.fn(() => [instance]),
+      terminateInstance: vi.fn(async () => undefined),
     }) as unknown as InstanceManager & EventEmitter;
   });
 
@@ -279,18 +281,38 @@ describe('AutomationRunner final-output provider-limit detection', () => {
     return automationId;
   }
 
-  it('ends a run as a provider-limit stop, without a retry, as soon as its session is held', async () => {
+  const held = (resumeAt: number, autoResume: boolean) => manager.emit('instance:provider-limit-parked',
+    { instanceId: 'instance-1', provider: 'codex', resumeAt, autoResume });
+
+  it('ends a held run at once as a provider-limit stop, without a retry, and stops its session', async () => {
     const automationId = await startRun(3);
     expect(store.listRuns({ automationId })[0]?.status).toBe('running');
 
-    const resumeAt = Date.UTC(2026, 10, 8, 12, 21, 31);
-    manager.emit('instance:provider-limit-parked', { instanceId: 'instance-1', provider: 'codex', resumeAt });
+    held(Date.UTC(2026, 10, 8, 12, 21, 31), false);
 
     const run = store.listRuns({ automationId })[0]!;
     expect(run.status).toBe('failed');
-    expect(run.error).toBe('provider_limit: codex usage limit reached; the session is held until 2026-11-08T12:21:31.000Z');
+    expect(run.error).toBe('provider_limit: codex usage limit reached; it is expected to reset at 2026-11-08T12:21:31.000Z');
     expect(retries).toHaveLength(0);
     expect((await store.get(automationId))?.consecutiveFailures).toBe(0);
+    await vi.waitFor(() => expect(manager.terminateInstance).toHaveBeenCalledWith('instance-1', false));
+  });
+
+  it('keeps waiting when the hold resumes the session before the run time limit', async () => {
+    const automationId = await startRun(3);
+
+    held(Date.now() + 10 * 60_000, true);
+
+    expect(store.listRuns({ automationId })[0]?.status).toBe('running');
+    expect(manager.terminateInstance).not.toHaveBeenCalled();
+  });
+
+  it('ends the run when the hold would only resume after the run time limit', async () => {
+    const automationId = await startRun(3);
+
+    held(Date.now() + 10 * 24 * 60 * 60_000, true);
+
+    expect(store.listRuns({ automationId })[0]?.status).toBe('failed');
   });
 
   it('ends the run when its session was already held before tracking began', async () => {
@@ -307,7 +329,7 @@ describe('AutomationRunner final-output provider-limit detection', () => {
 
   it('ignores a held session that no run is tracking', async () => {
     const automationId = await startRun(1);
-    manager.emit('instance:provider-limit-parked', { instanceId: 'someone-else', provider: 'codex', resumeAt: Date.now() });
+    manager.emit('instance:provider-limit-parked', { instanceId: 'someone-else', provider: 'codex', resumeAt: Date.now(), autoResume: false });
     expect(store.listRuns({ automationId })[0]?.status).toBe('running');
   });
 });

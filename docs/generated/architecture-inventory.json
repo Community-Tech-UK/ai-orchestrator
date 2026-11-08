@@ -6393,7 +6393,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2479
+      "lines": 2480
     },
     {
       "path": "src/main/app/orchestrator-tools-step.spec.ts",
@@ -6896,12 +6896,12 @@
       "lines": 1205
     },
     {
-      "path": "docs/plans/2026-06-27-supergoal-inspired-loop-planning-audit_completed.md",
-      "lines": 1203
+      "path": "src/main/instance/instance-provider-limit-handler.spec.ts",
+      "lines": 1204
     },
     {
-      "path": "src/main/instance/instance-provider-limit-handler.spec.ts",
-      "lines": 1202
+      "path": "docs/plans/2026-06-27-supergoal-inspired-loop-planning-audit_completed.md",
+      "lines": 1203
     },
     {
       "path": "src/renderer/app/core/state/instance/instance-messaging.store.spec.ts",
@@ -6981,7 +6981,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
-      "lines": 1148
+      "lines": 1156
     },
     {
       "path": "docs/plans/2026-10-20-oct2-phaseA-safety-and-truth_plan.md",
@@ -7136,16 +7136,16 @@
       "lines": 1030
     },
     {
+      "path": "src/main/instance/instance-provider-limit-handler.ts",
+      "lines": 1025
+    },
+    {
       "path": "src/main/mcp/mcp-manager.ts",
       "lines": 1025
     },
     {
       "path": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
       "lines": 1020
-    },
-    {
-      "path": "src/main/instance/instance-provider-limit-handler.ts",
-      "lines": 1019
     },
     {
       "path": "src/main/cli/adapters/base-cli-adapter.ts",
@@ -7564,6 +7564,10 @@
       "lines": 843
     },
     {
+      "path": "src/main/automations/automation-runner.ts",
+      "lines": 842
+    },
+    {
       "path": "src/main/instance/lifecycle/runtime-reconciler.ts",
       "lines": 842
     },
@@ -7608,12 +7612,12 @@
       "lines": 833
     },
     {
-      "path": "src/main/automations/automation-runner.ts",
+      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
       "lines": 832
     },
     {
-      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
-      "lines": 832
+      "path": "src/renderer/app/features/models/model-selection-panel.component.spec.ts",
+      "lines": 831
     },
     {
       "path": "docs/plans/2026-10-22-aio-tidies-up-after-itself_plan_completed.md",
@@ -7641,10 +7645,6 @@
     },
     {
       "path": "src/main/memory/critique-agent.ts",
-      "lines": 817
-    },
-    {
-      "path": "src/renderer/app/features/models/model-selection-panel.component.spec.ts",
       "lines": 817
     },
     {

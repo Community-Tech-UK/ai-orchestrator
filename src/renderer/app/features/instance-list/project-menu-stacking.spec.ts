@@ -42,6 +42,34 @@ describe('project dropdown stacking', () => {
     expect(html).toMatch(/\[class\.menu-open\]="openProjectMenuKey\(\) === group\.key"/);
   });
 
+  it('shows and hides the project actions without moving them', () => {
+    // Reported 2026-11-08: a 6px slide on the hidden actions pushed them past
+    // the list's right edge, so the session list scrolled and shifted sideways.
+    // A transform while shown also breaks the fixed-position menu (LT-631).
+    const blocks = [...scss.matchAll(/([^{}]*\.project-actions[^{}]*)\{([^}]*)\}/g)];
+    expect(blocks.length).toBeGreaterThan(0);
+    for (const [, selector, body] of blocks) {
+      expect(body, selector.trim()).not.toMatch(/(^|[\s;])(transform|translate|rotate|scale)\s*:/);
+    }
+  });
+
+  it('turns the project arrow inside a square box, so it never reaches past the row', () => {
+    const block = /\.project-chevron\s*\{([^}]*)\}/.exec(scss)?.[1] ?? '';
+    const width = /(^|[\s;])width:\s*([^;]+);/.exec(block)?.[2];
+    const height = /(^|[\s;])height:\s*([^;]+);/.exec(block)?.[2];
+    expect(width).toBeDefined();
+    expect(height).toBe(width);
+  });
+
+  it('lets indented ended sessions fill the rest of the row instead of a full extra width', () => {
+    // Nested history rows are indented with margin-left; width: 100% on top of
+    // that pushed them past the list's right edge (reported 2026-11-08).
+    expect(html).toMatch(/class="history-entry"[\s\S]{0,400}\[style\.margin-left\.px\]="depth \* 18"/);
+    const block = /\.history-entry\s*\{([^}]*)\}/.exec(scss)?.[1] ?? '';
+    expect(block).toMatch(/display:\s*grid/);
+    expect(block).not.toMatch(/(^|[\s;])width\s*:\s*100%/);
+  });
+
   it('keeps the dropdown scrollable, so a tall Copilot list stays reachable', () => {
     const block = /\.project-menu\s*\{([^}]*)\}/.exec(scss)?.[1] ?? '';
     expect(block).toMatch(/max-height:/);

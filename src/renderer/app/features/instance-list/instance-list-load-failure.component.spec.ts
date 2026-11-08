@@ -189,7 +189,7 @@ describe('session rail after the first state resync keeps failing', () => {
         // The real InstanceStore and InstanceListStore run; only the IPC edge and unrelated stores are faked.
         { provide: IpcFacadeService, useValue: { stateResync, appReady, on: vi.fn(() => () => undefined) } },
         { provide: IpcEventBusService, useValue: eventBus },
-        { provide: NeedsYouStore, useValue: { sessionIds: () => new Set<string>(), entries: () => [] } },
+        { provide: NeedsYouStore, useValue: { sessionIds: () => new Set<string>(), entries: () => [], reasonBySession: () => new Map<string, string>() } },
         { provide: InstanceIpcService, useValue: {} },
         { provide: StatsIpcService, useValue: {} },
         { provide: ToastService, useValue: { show: vi.fn() } },

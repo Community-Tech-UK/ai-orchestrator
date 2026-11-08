@@ -2860,5 +2860,11 @@
     "owner": "src/renderer/app/features/settings/computers-list.component.ts",
     "text": "It is already last before this Mac",
     "why": "long"
+  },
+  {
+    "id": "3d056a41f14f63ea",
+    "owner": "src/renderer/app/features/doc-review/doc-review-decision-bar.component.ts",
+    "text": "Answer everything you haven't answered yet with the agent's recommendations",
+    "why": "long"
   }
 ]

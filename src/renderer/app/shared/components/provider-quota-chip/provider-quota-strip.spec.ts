@@ -96,12 +96,22 @@ describe('quotaStripEntry', () => {
     expect(entry?.fg).toBe(BAND_COLORS.red.fg);
   });
 
-  it('leaves out an account that is neither measured nor signed out', () => {
+  it('holds the place of an account with no figure with a dash, keeping the code coloured by the others', () => {
     const entry = quotaStripEntry('claude', [
-      section('claude', { windows: [win('claude.weekly', 30)] }),
-      section('claude', { ok: false, error: 'Usage endpoint unavailable' }, 'Max C'),
+      section('claude', { ok: false, error: 'Usage endpoint unavailable' }),
+      section('claude', { windows: [win('claude.weekly', 95)] }, 'Max C'),
+      section('claude', { plan: 'max' }, 'Max B'),
     ]);
-    expect(texts(entry)).toEqual(['30%']);
+    expect(texts(entry)).toEqual(['–', '95%', '–']);
+    expect(entry?.fg).toBe(BAND_COLORS.red.fg);
+  });
+
+  it('shows no dashes alone: a provider with no figures falls back to its plan, or nothing', () => {
+    expect(texts(quotaStripEntry('claude', [
+      section('claude', { ok: false, error: 'Usage endpoint unavailable' }),
+      section('claude', { plan: 'max' }, 'Max C'),
+    ]))).toEqual(['max']);
+    expect(quotaStripEntry('claude', [section('claude', { ok: false, error: 'Usage endpoint unavailable' })])).toBeNull();
   });
 
   it('falls back to the plan name, then "ok", when there are no windows', () => {

@@ -4,6 +4,8 @@ import { sideChatParentKey, type SideChatAttention } from '../../../../shared/ty
 import type { WorkboardItem } from './workboard.types';
 import { planQueueDocumentLabel } from '../../../../shared/utils/plan-queue-item-display';
 import type { LoopOutstandingItem } from '../../../../shared/types/loop-outstanding.types';
+import type { PendingRequest } from '../../core/state/pending-request.store';
+import { friendlyToolName } from '../../../../shared/permissions/friendly-tool-name';
 
 export type OutstandingNeed = Pick<LoopOutstandingItem, 'id' | 'kind' | 'status' | 'riskClass' | 'firstSeenRound'
   | 'userResponse' | 'text' | 'chatId' | 'createdAt' | 'updatedAt'>;
@@ -27,6 +29,30 @@ export function workboardEntry(item: WorkboardItem): NeedsYouEntry {
     route: '/work', since: item.updatedAt,
     version: `${item.attentionLevel}:${item.relations?.map((r) => `${r.kind}:${r.id}:${r.rawStatus}:${r.updatedAt}`).join('|') ?? item.updatedAt}`,
   };
+}
+
+const SOURCE_NAMES: Partial<Record<NeedsYouEntry['source'], string>> = {
+  'session': 'Session', 'loop-run': 'Loop', 'automation-run': 'Automation', 'repo-job': 'Repository job',
+};
+
+/**
+ * One short line saying what a session is waiting on, shown under its name in the session list.
+ * `statusSentence` is the most specific plain status wording for what needs you (the session's own
+ * status, or a loop's pause or end wording); `request` is the live permission prompt or question, if any.
+ */
+export function needsYouReason(entry: NeedsYouEntry, statusSentence?: string,
+  request?: Pick<PendingRequest, 'kind' | 'toolName' | 'text'>): string {
+  if (request?.kind === 'permission') return request.toolName ? `Wants permission to use ${friendlyToolName(request.toolName)}` : 'Wants your permission';
+  if (request?.kind === 'question' && request.text.trim()) return `Asked you: ${request.text}`;
+  if (statusSentence) return statusSentence;
+  switch (entry.source) {
+    case 'permission-request': return `Wants permission: ${entry.title}`;
+    case 'browser-approval': return 'Wants your OK for a browser step';
+    case 'loop-question': return entry.detail ? `Asked you: ${entry.detail}` : entry.title;
+  }
+  const name = SOURCE_NAMES[entry.source];
+  if (!name) return entry.title;
+  return entry.kind === 'answer' ? `${name} is waiting for you` : `${name} stopped with a problem`;
 }
 
 export function workboardEntryKey(item: WorkboardItem): string {

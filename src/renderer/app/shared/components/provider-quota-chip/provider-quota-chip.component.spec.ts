@@ -823,7 +823,7 @@ describe('ProviderQuotaChipComponent', () => {
       expect(stripText(host)).not.toContain('99%');
     });
 
-    it('leaves an account without windows out of the strip but shows its status', async () => {
+    it('shows a dash in the strip for an account without windows, and its status in the popover', async () => {
       store.setSnapshot('claude', makeSnapshot('claude', 'max', true, [claudeWeekly(40)]));
       store.setAccountSnapshots([{
         ...makeSnapshot('claude', undefined, false),
@@ -833,7 +833,7 @@ describe('ProviderQuotaChipComponent', () => {
       fixture.detectChanges();
       const host = fixture.nativeElement as HTMLElement;
       await openPopover(host);
-      expect(stripText(host).trim()).toBe('CC 40%');
+      expect(stripText(host).trim()).toBe('CC 40%·–');
       expect(host.querySelector('[data-testid="quota-account-claude-max-c"]')?.textContent).toContain('Usage endpoint unavailable');
     });
 

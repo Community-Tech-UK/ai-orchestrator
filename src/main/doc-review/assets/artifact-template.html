@@ -310,7 +310,7 @@
       input.id = label.htmlFor;
       label.appendChild(input);
       label.appendChild(document.createTextNode(option.label));
-      if (option.isDefault) label.appendChild(el("span", "rv-option-default", "(default)"));
+      if (option.isDefault) label.appendChild(el("span", "rv-option-default", "(recommended)"));
       option.node.textContent = "";
       option.node.appendChild(label);
       input.addEventListener("click", function () {
@@ -530,6 +530,27 @@
     });
   }
 
+  // The highlight is an inline style, not a stylesheet rule: an older artifact gets this
+  // runtime swapped in by the app but keeps its own <style> block.
+  var highlighted = null;
+  var highlightTimer = null;
+  function clearHighlight() {
+    if (highlighted) highlighted.style.outline = highlighted.style.outlineOffset = "";
+    highlighted = null;
+  }
+  function scrollToItem(itemId) {
+    if (typeof itemId !== "string" || !Object.prototype.hasOwnProperty.call(byId, itemId)) return;
+    var it = byId[itemId];
+    var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    it.node.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    clearHighlight();
+    highlighted = it.node;
+    highlighted.style.outline = "2px solid var(--accent)";
+    highlighted.style.outlineOffset = "2px";
+    clearTimeout(highlightTimer);
+    highlightTimer = setTimeout(clearHighlight, 2500);
+  }
+
   function onHostMessage(ev) {
     if (!EMBEDDED || ev.source !== window.parent) return;
     var data = ev.data;
@@ -537,6 +558,7 @@
     var kind = data.type.slice(TYPE.length);
     if (kind === "init") applyInit(data);
     else if (kind === "request-state") post("state", decisionsPayload());
+    else if (kind === "scroll-to") scrollToItem(data.itemId);
   }
 
   // ---- Boot ----

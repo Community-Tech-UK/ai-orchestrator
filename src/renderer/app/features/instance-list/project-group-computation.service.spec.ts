@@ -63,7 +63,7 @@ describe('ProjectGroupComputationService filtering', () => {
     TestBed.configureTestingModule({
       providers: [
         ProjectGroupComputationService,
-        { provide: NeedsYouStore, useValue: { sessionIds: () => new Set(), entries: () => [] } },
+        { provide: NeedsYouStore, useValue: { sessionIds: () => new Set(), entries: () => [], reasonBySession: () => new Map<string, string>() } },
         {
           provide: NewSessionDraftService,
           useValue: {

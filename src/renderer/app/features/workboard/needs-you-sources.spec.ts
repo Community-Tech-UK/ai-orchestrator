@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { NEEDS_YOU_RECENCY_MS } from '../../../../shared/attention/needs-you';
-import { requestEntries, workboardEntry } from './needs-you-sources';
+import { NEEDS_YOU_RECENCY_MS, type NeedsYouEntry } from '../../../../shared/attention/needs-you';
+import { needsYouReason, requestEntries, workboardEntry } from './needs-you-sources';
 import type { NeedsYouSources } from './needs-you-sources';
 
 const now = 30 * 86400_000;
+const entry = (source: NeedsYouEntry['source'], extra: Partial<NeedsYouEntry> = {}): NeedsYouEntry =>
+  ({ key: `${source}:x`, source, kind: 'answer', title: 'Session title', since: 1, version: '1', instanceId: 'i', ...extra });
 const empty = (): NeedsYouSources => ({ permissions: [], browsers: [], fallbacks: [], plans: [], documents: [], memories: [], sidechats: [], outstanding: [], toolLoops: [] });
 
 describe('needs-you source mapping', () => {
@@ -36,6 +38,21 @@ describe('needs-you source mapping', () => {
     expect(result.find((item) => item.source === 'plan-queue-question')?.title).toBe('Plan Queue has 2 questions for you');
     expect(result.find((item) => item.source === 'loop-decision')?.kind).toBe('applied');
     expect(result.find((item) => item.source === 'memory-review')?.kind).toBe('check');
+  });
+  it('says in plain words why a session needs you', () => {
+    expect(needsYouReason(entry('session'), 'Needs your OK', { kind: 'permission', toolName: 'Bash', text: 'May I?' })).toBe('Wants permission to use Bash');
+    expect(needsYouReason(entry('session'), 'Needs your answer', { kind: 'question', text: 'Which council first?' })).toBe('Asked you: Which council first?');
+    expect(needsYouReason(entry('session'), 'Problem — the session hit an error')).toBe('Problem — the session hit an error');
+    expect(needsYouReason(entry('session'), undefined, { kind: 'permission', toolName: 'mcp__browser-gateway__browser_navigate', text: '' }))
+      .toBe('Wants permission to use browser_navigate (browser-gateway)');
+    expect(needsYouReason(entry('session', { kind: 'check' }), 'Problem — x', { kind: 'question', text: '  ' })).toBe('Problem — x');
+    // A stopped loop is named in plain words, never by its raw label ("cap", "running").
+    expect(needsYouReason(entry('loop-run', { kind: 'check', title: 'Loop title' }))).toBe('Loop stopped with a problem');
+    expect(needsYouReason(entry('automation-run'))).toBe('Automation is waiting for you');
+    expect(needsYouReason(entry('permission-request', { title: 'Run npm install' }))).toBe('Wants permission: Run npm install');
+    expect(needsYouReason(entry('browser-approval'))).toBe('Wants your OK for a browser step');
+    expect(needsYouReason(entry('loop-question', { title: 'Waiting for you', detail: 'Ship it?' }))).toBe('Asked you: Ship it?');
+    expect(needsYouReason(entry('tool-loop', { title: 'Repeated tool calls need your decision' }))).toBe('Repeated tool calls need your decision');
   });
   it('maps each correlated Workboard source once', () => {
     for (const kind of ['instance', 'loop-run', 'automation-run', 'repo-job'] as const) {

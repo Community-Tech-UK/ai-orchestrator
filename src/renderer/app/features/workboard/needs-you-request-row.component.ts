@@ -12,15 +12,12 @@ import { NeedsYouStore } from './needs-you.store';
 import { DocReviewStore } from '../doc-review/doc-review.store';
 import { MemoryReviewStore } from '../memory-review/memory-review.store';
 
+/** Only for requests whose title is a bare name; the others already say what they ask. */
 const REQUEST_KIND_LABELS: Partial<Record<NeedsYouEntry['source'], string>> = {
   'permission-request': 'Permission request',
-  'browser-approval': 'Browser approval',
-  'paid-fallback': 'Paid model request',
-  'plan-queue-question': 'Plan Queue question',
   'doc-review': 'Document waiting for your review',
   'memory-review': 'Memory waiting for your review',
   'sidechat': 'Sidechat',
-  'tool-loop': 'Session repeating the same tool',
 };
 
 @Component({

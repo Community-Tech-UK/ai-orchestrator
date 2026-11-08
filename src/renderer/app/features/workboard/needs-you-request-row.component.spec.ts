@@ -58,4 +58,10 @@ describe('NeedsYouRequestRowComponent', () => {
     expect(button.textContent).toBe('Review');
     expect(button.getAttribute('aria-label')).toBe('Review MiMo: decide the renewal');
   });
+  it('adds no kind line when the title already says what is asked', () => {
+    const fixture = TestBed.createComponent(NeedsYouRequestRowComponent);
+    fixture.componentRef.setInput('entry', { key: 'tool-loop:a', source: 'tool-loop', kind: 'answer', title: 'Repeated tool calls need your decision', detail: 'Bash', instanceId: 'a', since: 1, version: '1' });
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.request-kind')).toBeNull();
+  });
 });

@@ -171,4 +171,35 @@ describe('DocReviewPageComponent draft persistence', () => {
     expect(fixture.componentInstance.overall()).toBeNull();
     expect(fixture.componentInstance.general()).toBe('');
   });
+
+  it('fills in the recommendations, sets a missing overall verdict, keeps a chosen one, and saves the draft', async () => {
+    const fixture = setup([makeSession({ id: 'dr_1' })]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const draftService = TestBed.inject(DocReviewDraftService);
+    const component = fixture.componentInstance;
+    const recommended: DocReviewItemInfo = {
+      ...ITEM_A,
+      options: [ITEM_A.options[0], { ...ITEM_A.options[1], isDefault: true }],
+    };
+
+    component.onReady([recommended, { id: 'overview', title: 'Overview', decisionId: null, options: [] }]);
+    component.onAcceptRecommendations();
+
+    expect(component.itemStates().map((s) => [s.decision, s.choice])).toEqual([['approve', 'b'], ['approve', null]]);
+    expect(component.overall()).toBe('approved');
+    expect(draftService.load('dr_1')?.overall).toBe('approved');
+
+    component.onOverallChange('changes_requested');
+    component.onAcceptRecommendations();
+    expect(component.overall()).toBe('changes_requested');
+
+    component.onReady([recommended, { id: 'overview', title: 'Overview', decisionId: null, options: [] }]);
+    component.onDecision({ itemId: 'overview', decision: 'reject' });
+    component.overall.set(null);
+    component.onAcceptRecommendations();
+
+    expect(component.itemStates()[1].decision).toBe('reject');
+    expect(component.overall()).toBe('changes_requested');
+  });
 });

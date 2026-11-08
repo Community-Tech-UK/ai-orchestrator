@@ -159,6 +159,7 @@ export class ProjectGroupComputationService {
       children: immediateChildren,
       descendantNeedsYou: visibleLiveChildren.reduce((count, child) => count + (child.descendantNeedsYou ?? 0)
         + (this.needsYou.sessionIds().has(child.instance.id) ? 1 : 0), 0),
+      needsYouReason: this.needsYou.reasonBySession().get(instance.id),
     };
   }
 
