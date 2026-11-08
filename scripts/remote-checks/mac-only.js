@@ -1,8 +1,8 @@
 'use strict';
 /**
- * A few specs can only prove anything on this Mac. After a run elsewhere they run here,
- * and their results replace the far machine's skipped versions in the one report, so a
- * failure shows as a normal test failure and fails the run.
+ * A few specs can only prove anything on a Mac. After a run on Linux they run on a Mac, a
+ * test Mac in the list or this one, and their results replace the Linux machine's skipped
+ * versions in the one report, so a failure shows as a normal test failure and fails the run.
  */
 
 const fs = require('fs');
@@ -12,7 +12,7 @@ const MAC_ONLY_SPECS = [
   'src/main/cli/adapters/base-cli-adapter-hardened-spawn.spec.ts',
   'src/main/cli/rtk/__tests__/rtk-tracking-reader.spec.ts',
   'scripts/remote-checks/run-tests-quiet-remote.spec.ts',
-  // Needs the plan lifecycle guard from James's home folder, which the far machine doesn't have.
+  // Needs the plan lifecycle guard from James's home folder; a test Mac needs a copy at the same path.
   'src/main/plan-queue/plan-queue-history-landing.spec.ts',
 ];
 

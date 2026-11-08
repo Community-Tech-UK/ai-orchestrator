@@ -131,7 +131,9 @@ async function runChecks({ checks, root, logPath, env = process.env, onResult = 
 
   if (route.kind === 'remote') {
     const machines = machinesFor(config, 'checks');
-    process.stderr.write(`checks: sending ${checks.length} to ${machines[0].label}\n`);
+    // Which one takes them is known only afterwards, and the last line says.
+    const to = machines.length === 1 ? machines[0].label : 'your test machines';
+    process.stderr.write(`checks: sending ${checks.length} to ${to}\n`);
     const remote = await runOnMachines(machines, { root, logPath, jsonPath: null, ci: env.CI, noCache: false, checks });
     if (remote.ok) {
       results = remote.checks;
