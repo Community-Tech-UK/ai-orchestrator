@@ -182,4 +182,21 @@ describe('global pause loop wall-time clock through the runtime', () => {
     now += 60_000;
     expect(checkLoopHardCaps(coordinator.getLoop(state.id)!)).toBe('wall-time');
   }, 20_000);
+
+  it('keeps the clock paused when resumed while restart admission is still closed, and resumes it before the cap is checked', async () => {
+    const state = await start();
+    await vi.waitFor(() => expect(invocations).toBe(1));
+    now += 20_000;
+    await coordinator.pauseForGlobalPause(state.id);
+    getWorkAdmission().setGlobalPhase('ready');
+    now += 100_000;
+    expect(coordinator.resumeLoop(state.id)).toBe(true);
+    // Admission is closed, so the resume itself cannot restart the clock.
+    expect(coordinator.getLoop(state.id)?.globalPauseClock?.pausedAt).toBeDefined();
+    expect(checkLoopHardCaps(coordinator.getLoop(state.id)!)).toBeNull();
+    getWorkAdmission().setGlobalPhase('resuming');
+    await vi.waitFor(() => expect(invocations).toBe(2));
+    expect(coordinator.getLoop(state.id)?.globalPauseClock).toEqual({ pausedMs: 100_000 });
+    expect(checkLoopHardCaps(coordinator.getLoop(state.id)!)).toBeNull();
+  }, 20_000);
 });

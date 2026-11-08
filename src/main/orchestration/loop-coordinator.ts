@@ -336,10 +336,9 @@ export class LoopCoordinator extends EventEmitter {
     setCapWrapUp: (loopRunId, cap) => this.completionContext.setCapWrapUp(loopRunId, cap),
     terminate: (state, status, reason) => this.terminate(state, status, reason),
     emit: (eventName, payload) => { this.emit(eventName, payload); },
+    cloneStateForBroadcast: (state) => this.cloneStateForBroadcast(state),
     sleep,
-    onCapWrapUp: (loopRunId, cap) => {
-      logger.info('Loop cap reached — running one final wrap-up iteration', { loopRunId, cap });
-    },
+    onCapWrapUp: (loopRunId, cap) => { logger.info('Loop cap reached — running one final wrap-up iteration', { loopRunId, cap }); },
   });
   private blockedFileHandler = new LoopBlockedFileHandler({
     readBlockedFile: readBlockedFileIfPresentHelper,
@@ -1430,6 +1429,7 @@ export class LoopCoordinator extends EventEmitter {
     this.providerLimitHandler.clearResumeTimer(loopRunId, state.status === 'provider-limit');
     // Clears both park gates — see applyManualResumeOverride.
     if (state.status === 'provider-limit') this.providerLimitHandler.applyManualResumeOverride(state.config.provider, loopRunId);
+    // Resumes the cap clock only if restart admission is open; otherwise the next pre-iteration sync does, before caps are checked.
     state.status = 'running'; syncLoopGlobalPauseClock(state);
     // A3 (#29): no longer waiting on input once the operator resumes.
     state.pausedForInput = false;

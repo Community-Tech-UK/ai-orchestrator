@@ -876,6 +876,22 @@ describe('LoopControlComponent', () => {
     expect(elapsedSegment()).toBe('idle');
   });
 
+  it('leaves time paused for a Harness restart out of the wall-time bar', () => {
+    const state = activeState();
+    vi.spyOn(Date, 'now').mockReturnValue(state.startedAt + 60 * 60_000);
+    listeners.stateChanged.forEach((cb) => cb({
+      loopRunId: 'loop-1',
+      state: { ...state, globalPauseClock: { pausedMs: 50 * 60_000 }, config: { ...state.config, caps: { ...state.config.caps, maxWallTimeMs: 30 * 60_000 } } },
+    }));
+    fixture.detectChanges();
+
+    // One hour on the clock, fifty minutes of it paused: ten of thirty minutes used, not over the cap.
+    expect(fixture.componentInstance.elapsed()).toBe(10 * 60_000);
+    const time = fixture.componentInstance.inspectorProgress()?.metrics.find((metric) => metric.key === 'time');
+    expect(time?.valueText).toBe('10m0s / 30m0s');
+    expect(time?.pct).toBeCloseTo(33, 0);
+  });
+
   /** The `· current <x> ·` segment of the status strip, whitespace-collapsed. */
   function elapsedSegment(): string {
     const match = /·\s*current\s+(.+?)\s*·\s*total/.exec(statusStripText().replace(/\s+/g, ' '));

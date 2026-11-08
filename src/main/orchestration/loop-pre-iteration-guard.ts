@@ -13,7 +13,7 @@ import {
   isTerminalLoopRuntimeState,
 } from './loop-runtime-status';
 import { providerEnforcesWrapUpToolsDisable } from './loop-tools-disable';
-import { loopActiveElapsedMs } from './loop-active-clock';
+import { loopActiveElapsedMs } from '../../shared/utils/loop-active-elapsed';
 import { syncLoopGlobalPauseClock } from './loop-work-admission';
 
 type LoopCap = LoopCapWrapUpIntent['cap'];
@@ -40,6 +40,7 @@ interface LoopPreIterationGuardDependencies {
   setCapWrapUp(loopRunId: string, intent: LoopCapWrapUpIntent): void;
   terminate(state: LoopState, status: LoopState['status'], reason?: string): void;
   emit(eventName: string, payload: unknown): void;
+  cloneStateForBroadcast(state: LoopState): LoopState;
   sleep(delayMs: number): Promise<void>;
   onCapWrapUp?(loopRunId: string, cap: LoopCap): void;
 }
@@ -66,7 +67,8 @@ export class LoopPreIterationGuard {
       }
     }
 
-    syncLoopGlobalPauseClock(state);
+    // Publish a pause or resume of the wall-time clock so the checkpoint and screen follow it.
+    if (syncLoopGlobalPauseClock(state)) this.dependencies.emit('loop:state-changed', { loopRunId: state.id, state: this.dependencies.cloneStateForBroadcast(state) });
     if (this.dependencies.maintenanceActive()) {
       await this.dependencies.sleep(100);
       return 'restart';

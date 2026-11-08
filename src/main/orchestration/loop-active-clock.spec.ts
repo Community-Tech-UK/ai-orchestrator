@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LoopState } from '../../shared/types/loop.types';
-import { loopActiveElapsedMs, pauseLoopGlobalClock, resumeLoopGlobalClock } from './loop-active-clock';
+import { loopActiveElapsedMs } from '../../shared/utils/loop-active-elapsed';
+import { pauseLoopGlobalClock, resumeLoopGlobalClock } from './loop-active-clock';
 
 function state(): LoopState {
   return { startedAt: 0, endedAt: null } as LoopState;

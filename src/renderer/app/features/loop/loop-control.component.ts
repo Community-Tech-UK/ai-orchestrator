@@ -2,6 +2,7 @@ import { LoopQuestionsChipComponent } from './loop-questions-chip.component';
 import { LoopStopConfirmService } from './loop-stop-confirm.service';
 import { LoopPanelOpenerService } from './loop-panel-opener.service';
 import { describeLoopEnd } from '../../../../shared/loop/loop-end-wording';
+import { loopActiveElapsedMs } from '../../../../shared/utils/loop-active-elapsed';
 import { SlicePipe } from '@angular/common';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
@@ -472,7 +473,7 @@ export class LoopControlComponent implements OnDestroy {
     this.tick();
     const a = this.active();
     if (!a) return 0;
-    return Date.now() - a.startedAt;
+    return loopActiveElapsedMs(a, Date.now());
   });
 
   currentIterationElapsed = computed(() => {

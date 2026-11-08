@@ -3,7 +3,7 @@ import * as path from 'path';
 import { createHash } from 'crypto';
 import { existsSync, readdirSync, type Dirent } from 'fs';
 import { getLogger } from '../logging/logger';
-import { loopActiveElapsedMs } from './loop-active-clock';
+import { loopActiveElapsedMs } from '../../shared/utils/loop-active-elapsed';
 import type {
   LoopConfig,
   LoopPreflightResult,

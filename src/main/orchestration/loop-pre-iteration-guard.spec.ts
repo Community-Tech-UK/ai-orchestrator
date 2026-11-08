@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { getWorkAdmission, WorkAdmission } from '../work-admission/work-admission';
 import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
 import { LoopPreIterationGuard } from './loop-pre-iteration-guard';
 
@@ -51,6 +52,7 @@ function makeHarness(overrides: Partial<ConstructorParameters<typeof LoopPreIter
     setCapWrapUp: (_id, intent) => { capWrapUp = intent; },
     terminate,
     emit,
+    cloneStateForBroadcast: (state: LoopState) => ({ ...state }),
     sleep: vi.fn(async () => undefined),
     ...overrides,
   });
@@ -177,5 +179,31 @@ describe('LoopPreIterationGuard', () => {
       'cap-reached',
       'Original cost limit reason',
     );
+  });
+
+  describe('wall-time clock for a restart pause', () => {
+    afterEach(() => { WorkAdmission._resetForTesting(); });
+
+    it('announces the clock pausing and resuming when work admission closes and reopens', async () => {
+      const state = makeState();
+      const harness = makeHarness();
+      getWorkAdmission().setGlobalPhase('ready');
+      await expect(harness.guard.run(state)).resolves.toBe('continue');
+      expect(state.globalPauseClock).toMatchObject({ pausedAt: expect.any(Number) });
+      expect(harness.emit).toHaveBeenCalledWith('loop:state-changed', { loopRunId: 'loop-1', state: expect.objectContaining({ id: 'loop-1' }) });
+      harness.emit.mockClear();
+      await harness.guard.run(state);
+      expect(harness.emit).not.toHaveBeenCalled();
+      getWorkAdmission().setGlobalPhase('resuming');
+      await harness.guard.run(state);
+      expect(state.globalPauseClock?.pausedAt).toBeUndefined();
+      expect(harness.emit).toHaveBeenCalledWith('loop:state-changed', expect.anything());
+    });
+
+    it('stays quiet when no restart pause is involved', async () => {
+      const harness = makeHarness();
+      await harness.guard.run(makeState());
+      expect(harness.emit).not.toHaveBeenCalled();
+    });
   });
 });

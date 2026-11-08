@@ -530,7 +530,7 @@ export function buildInspectorProgress(input: {
       label: 'Time',
       valueText: `${humanDuration(input.elapsedMs)} / ${humanDuration(caps.maxWallTimeMs)}`,
       pct: pct(input.elapsedMs, caps.maxWallTimeMs),
-      tooltip: `Elapsed wall time vs ${humanDuration(caps.maxWallTimeMs)} cap`,
+      tooltip: `Running time vs ${humanDuration(caps.maxWallTimeMs)} cap, not counting restart pauses`,
     },
     {
       key: 'tokens',
