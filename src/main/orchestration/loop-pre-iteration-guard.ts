@@ -14,6 +14,7 @@ import {
 } from './loop-runtime-status';
 import { providerEnforcesWrapUpToolsDisable } from './loop-tools-disable';
 import { loopActiveElapsedMs } from './loop-active-clock';
+import { syncLoopGlobalPauseClock } from './loop-work-admission';
 
 type LoopCap = LoopCapWrapUpIntent['cap'];
 type PreIterationResult = 'continue' | 'restart' | 'terminal';
@@ -65,6 +66,7 @@ export class LoopPreIterationGuard {
       }
     }
 
+    syncLoopGlobalPauseClock(state);
     if (this.dependencies.maintenanceActive()) {
       await this.dependencies.sleep(100);
       return 'restart';

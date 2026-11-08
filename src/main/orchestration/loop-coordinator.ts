@@ -9,7 +9,6 @@
 
 import { EventEmitter } from 'events';
 import { consumeGlobalPauseInterruption, loopRoundAdmitted, pauseLoopForGlobalPause, syncLoopGlobalPauseClock } from './loop-work-admission';
-import { pauseLoopGlobalClock, resumeLoopGlobalClock } from './loop-active-clock';
 import { randomUUID } from 'crypto';
 import * as path from 'path';
 import { setTimeout as rawSetTimeout } from 'node:timers';
@@ -1073,8 +1072,7 @@ export class LoopCoordinator extends EventEmitter {
     if (runtimeNextObjectivePlanner) {
       this.nextObjectivePlanners.set(id, runtimeNextObjectivePlanner);
     }
-    syncLoopGlobalPauseClock(state);
-    this.lifecycle.register(state, []);
+    syncLoopGlobalPauseClock(state); this.lifecycle.register(state, []);
     this.watchers.set(id, watcher);
     this.loopControls.set(id, loopControl);
     // LF-6: surface prior-run learnings for this workspace (best-effort,
@@ -1351,13 +1349,7 @@ export class LoopCoordinator extends EventEmitter {
 
   /** The loop's next iteration starts in a fresh session (used before a long sleep, T13.1). */
   requestContextReset(loopRunId: string): void { this.completionContext.requestContextReset(loopRunId); }
-  async pauseForGlobalPause(id: string): Promise<void> {
-    const state = this.lifecycle.getState(id);
-    if (state && (state.status === 'running' || state.status === 'paused') && pauseLoopGlobalClock(state)) {
-      this.emit('loop:state-changed', { loopRunId: id, state: this.cloneStateForBroadcast(state) });
-    }
-    await pauseLoopForGlobalPause(this, id);
-  }
+  async pauseForGlobalPause(id: string): Promise<void> { await pauseLoopForGlobalPause(this, id, this.lifecycle.getState(id)); }
 
   /** Pause the loop. Iteration in-flight finishes; next pre-flight blocks. */
   pauseLoop(loopRunId: string): boolean {
@@ -1438,8 +1430,7 @@ export class LoopCoordinator extends EventEmitter {
     this.providerLimitHandler.clearResumeTimer(loopRunId, state.status === 'provider-limit');
     // Clears both park gates — see applyManualResumeOverride.
     if (state.status === 'provider-limit') this.providerLimitHandler.applyManualResumeOverride(state.config.provider, loopRunId);
-    resumeLoopGlobalClock(state);
-    state.status = 'running';
+    state.status = 'running'; syncLoopGlobalPauseClock(state);
     // A3 (#29): no longer waiting on input once the operator resumes.
     state.pausedForInput = false;
     resetFinishBudget(state);
@@ -1798,7 +1789,6 @@ export class LoopCoordinator extends EventEmitter {
     const pingPongEnabled =
       reviewDriven && state.config.completion.crossModelReview?.pingPong?.enabled === true;
     iterationLoop: while (true) {
-      if (syncLoopGlobalPauseClock(state)) this.emit('loop:state-changed', { loopRunId: state.id, state: this.cloneStateForBroadcast(state) });
       const guardResult = await this.preIterationGuard.run(state);
       if (guardResult === 'terminal') return;
       if (guardResult === 'restart') continue;
@@ -4008,7 +3998,7 @@ export class LoopCoordinator extends EventEmitter {
   }
 
   /** Deep-ish clone for safe broadcast — strips cycles and large arrays. */
-  private cloneStateForBroadcast(s: LoopState): LoopState {
+  cloneStateForBroadcast(s: LoopState): LoopState {
     return cloneLoopStateForBroadcast(s);
   }
 }

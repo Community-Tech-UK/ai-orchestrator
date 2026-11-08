@@ -24,10 +24,15 @@ interface PauseLoopHost {
   getLoop(id: string): LoopState | undefined;
   pauseLoop(id: string): boolean;
   emit(event: string, payload: unknown): boolean;
+  cloneStateForBroadcast(state: LoopState): LoopState;
 }
 
 /** Preserve the loop checkpoint and wait for the turn/adapter loan to settle. */
-export async function pauseLoopForGlobalPause(host: PauseLoopHost, loopRunId: string): Promise<void> {
+export async function pauseLoopForGlobalPause(host: PauseLoopHost, loopRunId: string, live: LoopState | undefined): Promise<void> {
+  // Freeze the wall-time cap first, so waiting for the round to settle is not counted either.
+  if (live && (live.status === 'running' || live.status === 'paused') && pauseLoopGlobalClock(live)) {
+    host.emit('loop:state-changed', { loopRunId, state: host.cloneStateForBroadcast(live) });
+  }
   const before = host.getLoop(loopRunId);
   if (!before || (before.status !== 'paused' && !host.pauseLoop(loopRunId))) return;
   if (before.inFlightIteration) restartInterruptedRounds.add(loopRunId);
