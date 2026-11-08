@@ -75,12 +75,12 @@ beforeEach(async () => {
   vi.mocked(landItemBranch).mockImplementation(async () => ({ status: 'landed', commit: 'promoted' }));
 });
 afterEach(() => { vi.restoreAllMocks(); db.close(); rmSync(root, { recursive: true, force: true }); });
-async function checkedItem(id = 'item', content = reviewed, runId = 'run'): Promise<PlanQueueItem> {
+async function checkedItem(id = 'item', content = reviewed, runId = 'run', section?: number): Promise<PlanQueueItem> {
   const documentPath = join(root, `${id}_plan.md`);
   const worktreePath = join(root, `${id}-worktree`); mkdirSync(worktreePath);
   writeFileSync(documentPath, content);
   const item = newPlanQueueItem(id, runId, documentPath, 1, { state: 'verifying', branchName: `queue/${id}`,
-    worktreePath, checkpointCommit: 'head', verifiedMainCommit: 'base' });
+    worktreePath, checkpointCommit: 'head', verifiedMainCommit: 'base', ...(section === undefined ? {} : { section }) });
   store.upsertItem(item);
   const verification = new PlanQueueVerification(host, new PlanQueueGateRunner(), { lock: async (_id, action) => action(), waiting: () => false });
   await verification.prompt(item, host.getRun(runId), 'main');
@@ -321,6 +321,16 @@ describe('reviewed root document through landing and closure', () => {
     expect(text).not.toContain('On main: no');
     expect(text).toContain('Next: Step 2.');
     expect(existsSync(join(root, 'open_plan_completed.md'))).toBe(false);
+  });
+
+  it('lands a step job without closing its plan, even on a passing verdict, and says only that the step landed', async () => {
+    const item = await checkedItem('stepped', '# Plan\n\n## Status\n\nOn main: no (queue/stepped)\n\n## Step 2. Two\n\n- [x] Done.\n', 'run', 2);
+    await flow.enqueueLanding(item.id); await flow.whenSettled();
+    expect(host.getItem(item.id).state).toBe('landed');
+    expect(landItemBranch).toHaveBeenCalledOnce();
+    expect(vi.mocked(landItemBranch).mock.calls[0][5]).toEqual([]);
+    expect(existsSync(join(root, 'stepped_plan_completed.md'))).toBe(false);
+    expect(readFileSync(item.documentPath, 'utf8')).toMatch(/On main: Step 2 landed \(\w+\); the other steps may still be open/);
   });
 
   it.each(['## Status (7 Nov)', '## Status: nearly done'])('updates the existing "%s" block of an open plan instead of adding a second Status heading', async heading => {

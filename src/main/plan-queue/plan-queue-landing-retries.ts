@@ -74,7 +74,7 @@ export class PlanQueueLandingRetries {
     if (now - (store.lastParkedAt(item.id) ?? item.updatedAt) < LANDING_RETRY_AFTER_MS) return false;
     const passedAt = history.listVerdicts(item.id).filter(verdict => verdict.verdict === 'PASS').at(-1)?.at;
     if (passedAt === undefined || now - passedAt > LANDING_RETRY_GIVE_UP_MS) return false;
-    if (store.newerAttemptLanded(item) || store.documentInPlay(item.documentPath, item.id)) return false;
+    if (store.newerAttemptLanded(item) || store.documentInPlay(item)) return false;
     // A worker's unfinished conflict fix may be in the folder; a retry would abort that merge and lose it.
     if (item.worktreePath && existsSync(item.worktreePath) && await mergeInProgress(item.worktreePath)) return false;
     const run = this.host.getRun(item.runId);

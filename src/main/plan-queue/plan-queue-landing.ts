@@ -13,6 +13,7 @@
  * promoter verifies.
  */
 
+import * as path from 'path';
 import { buildCliEnv } from '../cli/cli-environment';
 import { getLogger } from '../logging/logger';
 import { gitExec, gitExecSafe } from '../workspace/git/git-exec';
@@ -277,6 +278,7 @@ export async function landItemBranch(
     message: commitMessage,
     documents,
     greenTestedTree: checkedTreeForLanding(item, configuredCommands),
+    ...(item.section != null ? { stepPlan: path.relative(repoRoot, item.documentPath) } : {}),
     signal,
     timer,
   });

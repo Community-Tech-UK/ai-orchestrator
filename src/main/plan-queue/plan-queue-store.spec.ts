@@ -298,7 +298,7 @@ describe('PlanQueueStore', () => {
 
       runLoopMigrations(old);
       expect(old.prepare('SELECT * FROM plan_queue_runs').get()).toEqual({ ...runBefore, unpriced_tokens: 0, hold_reason: null });
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, held_at: null, pending_instruction: null, worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, held_at: null, pending_instruction: null, worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('legacy-item')).toMatchObject({ heldAt: null, pendingInstruction: null, state: 'fixing', round: 2 });
 
@@ -349,7 +349,7 @@ describe('PlanQueueStore', () => {
         VALUES ('item-23', 'run-23', '/repo/a_plan.md', 'awaiting-slot', 1, 0, 2, 2)`).run();
       const before = old.prepare('SELECT * FROM plan_queue_items').get<Record<string, unknown>>();
       runLoopMigrations(old);
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('item-23')).not.toHaveProperty('workerProvider');
       expect(() => runLoopMigrations(old)).not.toThrow();
@@ -378,7 +378,7 @@ describe('PlanQueueStore', () => {
       const before = old.prepare('SELECT * FROM plan_queue_items').get<Record<string, unknown>>();
       expect(Object.keys(before!)).not.toContain('stepped_up_at');
       runLoopMigrations(old);
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('item-24')).toMatchObject({ state: 'parked', round: 3, workerProvider: 'claude', workerModel: 'haiku' });
       expect(upgraded.getItem('item-24')).not.toHaveProperty('steppedUpAt');
@@ -535,7 +535,7 @@ it('upgrades v25 with existing queue work to worker-session storage and repeats 
     expect(itemBefore).not.toHaveProperty('worker_session_json');
     runLoopMigrations(old);
     expect(old.prepare('SELECT * FROM plan_queue_runs').get()).toEqual({ ...runBefore, unpriced_tokens: 0, hold_reason: null });
-    expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null });
+    expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null });
     const upgraded = new PlanQueueStore(old);
     const item = upgraded.getItem('item-25')!;
     expect(item).toMatchObject({ state: 'queued', round: 2, erroredRounds: 1, heldAt: 180,
@@ -551,7 +551,7 @@ it('upgrades v25 with existing queue work to worker-session storage and repeats 
     expect(old.prepare('SELECT COUNT(*) AS n FROM loop_migrations WHERE version = ?')
       .get<{ n: number }>(LOOP_SCHEMA_VERSION)?.n).toBe(1);
     expect(old.prepare('SELECT name FROM loop_migrations WHERE version = ?')
-      .get<{ name: string }>(LOOP_SCHEMA_VERSION)?.name).toBe('053_plan_queue_round_activity');
+      .get<{ name: string }>(LOOP_SCHEMA_VERSION)?.name).toBe('054_plan_queue_item_section');
   } finally { old.close(); }
 });
 

@@ -5,6 +5,7 @@ export const RESUME_PLAN_QUEUE_COPY = {
   'planQueue.resumeRun': { label: 'Resume', meaning: 'Continues this run from its saved branches once pausing has finished. Documents and checks start as slots become free.' },
   'planQueue.cancelRun': { label: 'Cancel', meaning: 'Asks first, then stops this run. Unstarted documents are skipped; work in progress is parked with its branch kept.' },
   'planQueue.skip': { label: 'Skip', meaning: 'Asks first, then leaves this unstarted document out of this run.' },
+  'planQueue.stepWait': { label: 'Waiting for an earlier step', meaning: 'This plan runs one job per step. A step starts once the step before it has been merged, so it builds on that work. A step that is set aside holds the later ones until you resume it and it is merged.' },
   'planQueue.refresh': { label: 'Refresh', meaning: 'Checks the disk again for leftover or missing working copies and branches.' },
   'planQueue.start': { label: 'Start run', meaning: 'Starts working through the selected documents.' },
   'planQueue.submit': { label: 'Submit answer', meaning: 'Sends this answer so the document can continue.' },

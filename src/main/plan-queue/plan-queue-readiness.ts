@@ -40,7 +40,8 @@ export function automaticDecisionPatch(question: PlanQueueQuestion): Partial<Pla
 
 /** Caller authorization stays in the coordinator; apply each record to its current row. */
 export function applyTriageRecords(host: ReadinessHost, run: PlanQueueRun, args: PlanQueueReportTriageArgs): { applied: number; unmatched: string[] } {
-  const byPath = new Map(host.store.listItems(run.id).map((item) => [path.resolve(item.documentPath), item.id]));
+  // Only a document's undecided job takes its record: a step job's later steps share the path but never wait for triage.
+  const byPath = new Map(host.store.listItems(run.id).filter((item) => item.state === 'discovered').map((item) => [path.resolve(item.documentPath), item.id]));
   const unmatched: string[] = [];
   let applied = 0;
   let asked = false;

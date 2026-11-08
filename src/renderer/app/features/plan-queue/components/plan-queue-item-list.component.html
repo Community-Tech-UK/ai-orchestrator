@@ -6,6 +6,9 @@
       <div class="pq-item" [attr.data-state]="item.state">
         <div class="pq-item-head">
           <span class="pq-item-doc" tabindex="0" [appTooltip]="item.documentPath">{{ documentBasename(item.documentPath) }}</span>
+          @if (item.step; as step) {
+            <span class="pq-item-step">Step {{ step.number }} of {{ step.of }}</span>
+          }
           <span class="pq-item-state" [attr.data-state]="item.state">{{ item.heldAt !== null && item.heldAt !== undefined ? 'Paused' : isNotReached(item) ? notReachedLabel : stateLabel(item.state) }}</span>
           <span class="pq-item-round">Round {{ item.round }} of {{ maxRounds() }}@if (item.totalRounds) { · {{ item.totalRounds }} in total }@if (item.spend) { · {{ spendLabel(item.spend) }} }</span>
           @if (item.erroredRounds > 0) {
@@ -22,6 +25,10 @@
             <button type="button" class="pq-skip-confirm-yes" (click)="confirmSkip(item.id)">Skip it</button>
             <button type="button" class="pq-skip-confirm-no" (click)="cancelSkip()">Keep it</button>
           </div>
+        }
+
+        @if (item.step && item.step.waitingFor !== null) {
+          <div class="pq-item-step-wait" tabindex="0" [appTooltip]="copy('planQueue.stepWait')">Waiting for Step {{ item.step.waitingFor }}</div>
         }
 
         @if (stageText(item); as stage) { <div class="pq-item-stage">{{ stage }}</div> }

@@ -13,6 +13,17 @@ export interface PlanBrief {
   status: string;
   /** Unticked items and "Done when" / acceptance bullets, bounded. */
   acceptance: string;
+  /** Set when the brief is for one step of a plan that runs one job per step. */
+  step?: PlanStep;
+}
+
+/** One `## Step N` section. Lines are 1-based and inclusive: the heading, then everything before the next `##` heading. */
+export interface PlanStep {
+  number: number;
+  startLine: number;
+  endLine: number;
+  /** The plan's last step: its job writes the as-built summary. */
+  last: boolean;
 }
 
 /** Heading text that names the Status section: "Status" as a whole word, then anything (`Status (date)`, `Status: x`, `Status — x`). Also used by the plan diet's counter. */
@@ -78,12 +89,35 @@ export function locateStatus(content: string): StatusLocation | null {
   return { lines, visible, eol: content.includes('\r\n') ? '\r\n' : '\n', heading, end: next < 0 ? lines.length : next };
 }
 
-export function extractPlan(content: string): PlanBrief {
+/**
+ * A plan's steps in document order, outside code fences. Null when it has fewer than two, or when two share a number
+ * (a job could not tell them apart), so such a plan is never split.
+ */
+export function planSteps(content: string): PlanStep[] | null {
+  const visible = linesOutsideFences(content.split(/\r?\n/));
+  const headings = visible.flatMap((line, index) => /^##[ \t]/.test(line) ? [index] : []);
+  const steps: PlanStep[] = [];
+  for (const [position, index] of headings.entries()) {
+    const match = /^##[ \t]+Step[ \t]+(\d{1,6})\b/i.exec(visible[index]);
+    if (match) steps.push({ number: Number(match[1]), startLine: index + 1, endLine: headings[position + 1] ?? visible.length, last: false });
+  }
+  if (steps.length < 2 || new Set(steps.map(step => step.number)).size !== steps.length) return null;
+  steps[steps.length - 1].last = true;
+  return steps;
+}
+
+/** `stepNumber`, when given, scopes the open items to that step; a step that is no longer in the plan says so instead. */
+export function extractPlan(content: string, stepNumber?: number): PlanBrief {
   const lines = content.split(/\r?\n/);
   const visible = linesOutsideFences(lines);
+  const step = stepNumber === undefined ? undefined : planSteps(content)?.find(candidate => candidate.number === stepNumber);
+  if (stepNumber !== undefined && !step) {
+    const note = `Step ${stepNumber} was not found in this plan. Read the plan and reconcile before you do anything else.`;
+    return { status: note, acceptance: note };
+  }
   const status = locateStatus(content);
   let acceptance = false;
-  const bullets = visible.filter(line => {
+  const bullets = (step ? visible.slice(step.startLine - 1, step.endLine) : visible).filter(line => {
     if (/^\s*(?:#{1,6}\s*)?(?:\*\*)?(?:Done when|Acceptance(?: criteria)?)[\s:*]/i.test(line)) { acceptance = true; return true; }
     if (/^\s*- \[[xX]\]/.test(line)) return false;
     if (/^\s*- \[ \]/.test(line)) return true;
@@ -93,13 +127,14 @@ export function extractPlan(content: string): PlanBrief {
   });
   return {
     status: status ? bounded(status.lines.slice(status.heading + 1, status.end).join('\n').trim(), PLAN_STATUS_CHARS) : NO_STATUS,
-    acceptance: bounded(bullets.join('\n') || '(No explicit open checklist or acceptance bullets; read the source document.)', PLAN_BRIEF_BYTES),
+    acceptance: bounded(bullets.join('\n') || `(No explicit open checklist or acceptance bullets; read the source ${step ? 'step' : 'document'}.)`, PLAN_BRIEF_BYTES),
+    ...(step ? { step } : {}),
   };
 }
 
 /** The brief for a plan on disk. An unreadable plan still gets a prompt, telling the agent to read the source itself. */
-export async function readPlanBrief(documentPath: string): Promise<PlanBrief> {
-  try { return extractPlan(await readFile(documentPath, 'utf8')); }
+export async function readPlanBrief(documentPath: string, stepNumber?: number | null): Promise<PlanBrief> {
+  try { return extractPlan(await readFile(documentPath, 'utf8'), stepNumber ?? undefined); }
   catch (error) {
     return {
       status: `Source brief unavailable: ${error instanceof Error ? error.message : String(error)}`,

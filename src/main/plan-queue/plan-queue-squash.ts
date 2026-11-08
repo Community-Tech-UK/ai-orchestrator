@@ -23,6 +23,7 @@ import { declaresStandingRegister, isActivePlanDocumentPath } from '../workspace
 import { hermeticGitEnv } from '../workspace/git/git-env';
 import { CONFLICT_CODES } from './plan-queue-git';
 import { otherUnlandedBranches } from './plan-queue-document-status';
+import { completedDocumentPath } from './plan-queue-doc-close';
 import { QUEUE_TEST_ENV, runInProcessGroup, type GroupRunResult } from './plan-queue-process';
 import { LANDING_MARKER_FILE } from './plan-queue-landing-leftover';
 import { relocatePlanningFiles } from './plan-queue-planning-files';
@@ -125,8 +126,9 @@ export async function restoreItemCheckout(worktreePath: string, branchName: stri
 /**
  * Planning files that must not land: active ones, and a `_completed` copy whose Status says other work
  * is still unlanded (closing it would hide that work). Closing is the coordinator's job, after landing.
+ * A step job (`stepPlan`, its plan's repo-relative path) never closes the plan: the other steps are still open.
  */
-async function stagedActiveDocuments(worktreePath: string, branchName: string): Promise<{ blocked: string[]; note?: string }> {
+async function stagedActiveDocuments(worktreePath: string, branchName: string, stepPlan?: string): Promise<{ blocked: string[]; note?: string }> {
   const staged = (await gitExec(['diff', '--cached', '--name-only', '--diff-filter=ACMR'], worktreePath)).split('\n');
   const blocked: string[] = [];
   for (const file of staged.filter(isActivePlanDocumentPath)) {
@@ -135,6 +137,11 @@ async function stagedActiveDocuments(worktreePath: string, branchName: string): 
   }
   const notes: string[] = [];
   for (const file of staged.filter(file => /_completed\.md$/i.test(file))) {
+    if (stepPlan && file === completedDocumentPath(stepPlan)) {
+      blocked.push(file);
+      notes.push(`${file}: this job builds one step of the plan, and a step job never closes the plan; keep ${stepPlan} as it was`);
+      continue;
+    }
     const others = otherUnlandedBranches(await gitExec(['show', `:${file}`], worktreePath), branchName);
     if (others.length) { blocked.push(file); notes.push(`${file}: its Status says work is unlanded on ${others.join(', ')}; edit the "On main" line if that is wrong`); }
   }
@@ -229,6 +236,8 @@ export async function buildLandingCommit(params: {
   message: string;
   documents: readonly LandingDocument[];
   greenTestedTree: string | null;
+  /** Set for a step job: its plan's repo-relative path, which it may not close. */
+  stepPlan?: string;
   signal?: AbortSignal;
   timer?: LandingTimer;
 }): Promise<LandingCommitResult> {
@@ -250,7 +259,7 @@ export async function buildLandingCommit(params: {
     }
 
     await preserveActiveHistories(worktreePath, baseTip, documents);
-    const active = await stagedActiveDocuments(worktreePath, branchName);
+    const active = await stagedActiveDocuments(worktreePath, branchName, params.stepPlan);
     if (active.blocked.length) return { status: 'active-documents', paths: active.blocked, ...(active.note ? { note: active.note } : {}) };
 
     for (const doc of documents) {

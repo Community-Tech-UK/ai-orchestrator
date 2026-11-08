@@ -77,13 +77,33 @@ function briefRules(brief: PlanBrief | undefined): string[] {
     ...(brief.acceptance.includes(BRIEF_TRUNCATED_MARK) ? ['The open-items list is cut short, so it is only a subset; the document is the authority.'] : [])] : [];
 }
 
+/** "Step 8, lines 2002-2324": which part of a big plan this job owns. */
+function stepScope(ctx: Pick<ItemPromptContext, 'item' | 'brief'>): string {
+  const step = ctx.brief?.step;
+  return step ? `Step ${step.number}, lines ${step.startLine}-${step.endLine}` : `Step ${ctx.item.section} (its heading could not be found, so find it in the plan first)`;
+}
+
+/** A plan too big for one job runs one job per step; each job owns its step's checklist and nothing else. */
+function stepRules(ctx: ItemPromptContext): string[] {
+  if (ctx.item.section == null) return [];
+  return [
+    `- This plan is too big for one job, so it runs as one job per step. Yours is ${stepScope(ctx)}. Tick only the checklist items inside your step and leave every other step, and its ticks, as it is.`,
+    ctx.brief?.step?.last
+      ? '- Yours is the last step: when it is done, also write the plan\'s as-built summary in its Status block.'
+      : '- Do not write the plan\'s as-built summary: the last step\'s job does that.',
+  ];
+}
+
 function documentRules(ctx: ItemPromptContext): string[] {
   return [
     `- Your document is \`${ctx.item.documentPath}\`. It lives in the ROOT checkout \`${ctx.repoRoot}\` and is not in your worktree. Read and edit it at that absolute path; never copy it into the worktree.`,
     `- Make every code change in your worktree \`${ctx.worktreePath}\`. It is on branch \`${ctx.item.branchName ?? 'unknown'}\`, cut from the base branch.`,
     '- Other files that git tracks (for example a shared register) are edited in the worktree like code. Planning documents (names ending `_plan`, `_spec`, `_spec_planned`, `_livetest`, `_history` or `-decisions-for-james`, then `.md`) are always edited at their absolute path in the root checkout, even when git tracks them. Never create one inside your worktree: the coordinator moves any it finds there to the root checkout, and a file already at the root is never overwritten (the new one is saved beside it as `<name>.from-queue-<item>.md`).',
     '- Do not commit, stash, create or switch branches, or create worktrees. The queue coordinator commits your work to the branch for you.',
-    '- Never rename your document to a `_completed` name. The coordinator does that after an independent verifier passes the work.',
+    ctx.item.section == null
+      ? '- Never rename your document to a `_completed` name. The coordinator does that after an independent verifier passes the work.'
+      : '- Never rename your document to a `_completed` name. A step job never closes the plan, and the coordinator refuses the rename when your work lands. James or a closing session closes it once the last step has landed.',
+    ...stepRules(ctx),
     ...statusRules(ctx),
   ];
 }
@@ -104,7 +124,7 @@ export function buildWorkerPrompt(ctx: ItemPromptContext): string {
     : [];
   if (ctx.kind === 'livetests') return buildLivetestWorkerPrompt(ctx, answer);
   return [
-    'You are a Plan Queue worker. Your goal is to implement one plan document completely and leave it ready for an independent verifier.',
+    `You are a Plan Queue worker. Your goal is to implement ${ctx.item.section == null ? 'one plan document' : 'one step of a plan'} completely and leave it ready for an independent verifier.`,
     '',
     'Rules:',
     ...documentRules(ctx),
@@ -118,7 +138,7 @@ export function buildWorkerPrompt(ctx: ItemPromptContext): string {
     ...answer,
     ...briefRules(ctx.brief),
     '',
-    'Task: implement every unchecked item in the plan in your worktree. When the work is complete, rewrite the plan\'s Status block in place (and the spec\'s status, if it has one) and write the round\'s evidence to the root history file. ' + WORKER_WAIT_RULE + ' ' + reportReadyTask(ctx.item.id),
+    `Task: ${ctx.item.section == null ? 'implement every unchecked item in the plan in your worktree' : `Implement ${stepScope(ctx)}; read the Status block and that step only. Do every unchecked item in that step in your worktree`}. When the work is complete, rewrite the plan's Status block in place (and the spec's status, if it has one) and write the round's evidence to the root history file. ${WORKER_WAIT_RULE} ${reportReadyTask(ctx.item.id)}`,
   ].join('\n');
 }
 
@@ -288,6 +308,7 @@ export function buildVerifierPrompt(ctx: VerifierPromptContext): string {
         '- Architecture fits the existing code; no dead code, no placeholder, no test weakened to pass.',
         '- Security, async/state handling and error paths are correct.',
         '- Anything deferred to a `_livetest.md` genuinely needs a rebuilt app, a human or an external service, is in the worker\'s report and is written in that file.',
+        ...(ctx.item.section == null ? [] : [`- This job covers ${stepScope(ctx)} of a plan that runs one job per step. Judge that step's items and acceptance, not the plan's other steps, and expect the plan to stay open.`]),
       ];
   return [
     'You are an independent Plan Queue verifier. Your goal is to judge, with fresh eyes, whether one document\'s work is genuinely complete. You did not do this work.',

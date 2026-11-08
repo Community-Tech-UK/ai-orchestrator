@@ -53,6 +53,11 @@ export interface PlanQueueWorkerSession {
 }
 
 export interface PlanQueueItem {
+  /**
+   * The `## Step N` number when the plan runs as one job per step; null for a whole-document job. The step jobs of one
+   * document share it within a run and go in order: each waits until the one before has landed.
+   */
+  section?: number | null;
   roundActivity?: PlanQueueRoundActivity[];
   workerSession?: PlanQueueWorkerSession;
   /** Paused work retains its branch and pending next-turn instructions. */

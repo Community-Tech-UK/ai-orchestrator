@@ -8,8 +8,9 @@
 
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { PLAN_QUEUE_MIGRATIONS } from '../plan-queue/plan-queue-migrations';
+import { addPlanQueueSections } from '../plan-queue/plan-queue-section-migration';
 
-export const LOOP_SCHEMA_VERSION = 53;
+export const LOOP_SCHEMA_VERSION = 54;
 
 export interface LoopMigration {
   version: number;
@@ -614,6 +615,13 @@ export const LOOP_MIGRATIONS: readonly LoopMigration[] = [
       if (!exists) db.exec('ALTER TABLE plan_queue_items ADD COLUMN round_activity_json TEXT;');
     },
   },
+  {
+    // Plan Queue: a job's step number, so a plan too big for one job can run as one job per step. Takes the unique
+    // (run, document) rule off the table (plan-queue-section-migration.ts).
+    version: 54,
+    name: '054_plan_queue_item_section',
+    up: addPlanQueueSections,
+  },
 ];
 
 export function createLoopMigrationsTable(db: SqliteDriver): void {
@@ -658,5 +666,10 @@ export function runLoopMigrationsUpTo(db: SqliteDriver, maxVersion: number): voi
     }
   });
 
-  run();
+  // A table rebuild (migration 54) must not cascade into the tables that point at it, and SQLite ignores this switch
+  // inside a transaction, so it is flipped here and put back as it was.
+  const foreignKeys = db.pragma('foreign_keys', { simple: true });
+  db.pragma('foreign_keys = OFF');
+  try { run(); }
+  finally { db.pragma(`foreign_keys = ${foreignKeys ? 'ON' : 'OFF'}`); }
 }

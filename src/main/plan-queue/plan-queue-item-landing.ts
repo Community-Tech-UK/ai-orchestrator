@@ -150,7 +150,8 @@ export class PlanQueueItemLanding {
     const run = host.getRun(item.runId);
     const repoRoot = run.workspaceCwd;
     const baseBranch = requireBaseBranch(run);
-    const closeDocuments = options.landAnywayBy === undefined && (item.verdict?.documentComplete ?? true);
+    // A step job never closes its plan: James or a closing session does that once the last step has landed.
+    const closeDocuments = options.landAnywayBy === undefined && item.section == null && (item.verdict?.documentComplete ?? true);
 
     // A recorded promotion is not complete until pending root edits are restored.
     // This runs before the already-landed shortcut, outside any Git write thunk.
@@ -198,7 +199,7 @@ export class PlanQueueItemLanding {
     }
     // A plan that stays open says whether its work is on main; a closed one carries that in its closed copy. Live-test documents have no such line.
     if (!closeDocuments && run.kind === 'plans') {
-      try { await updatePlanIntegrationStatus(item.documentPath, item.branchName ?? '', item.landedCommit!); }
+      try { await updatePlanIntegrationStatus(item.documentPath, item.branchName ?? '', item.landedCommit!, item.section); }
       catch (error) { notes.push(`Code landed, but the plan's "On main" line could not be updated: ${errorMessage(error)}`); }
     }
 
@@ -337,7 +338,7 @@ export class PlanQueueItemLanding {
       }
     }
 
-    const message = `${run.kind === 'livetests' ? 'Livetest' : 'Plan'}: ${documentStemOf(item.documentPath)}\n\n`
+    const message = `${run.kind === 'livetests' ? 'Livetest' : 'Plan'}: ${documentStemOf(item.documentPath)}${item.section == null ? '' : ` (Step ${item.section})`}\n\n`
       + `Landed by Plan Queue after ${item.round} verification round(s).\nItem: ${item.id}`;
     const result = await landItemBranch(
       item,

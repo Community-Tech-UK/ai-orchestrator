@@ -190,7 +190,7 @@ export class PlanQueueVerification {
       gates: run.config.verifierGates, receipts: this.receipts.get(item.id) ?? [],
       // The checker reads the plan's Status and open work and a change summary, then sections by line range.
       diffStat: bounded(await gitExec(['diff', '--stat', `${baseBranch}...HEAD`], item.worktreePath!), PLAN_BRIEF_BYTES, '[Change summary truncated. Run git diff --stat for the rest.]'),
-      ...(run.kind === 'plans' ? { brief: await readPlanBrief(item.documentPath) } : {}),
+      ...(run.kind === 'plans' ? { brief: await readPlanBrief(item.documentPath, item.section) } : {}),
       earlierRounds: rows.length ? JSON.stringify({ earlier, diffSinceLastCheck: diff }) : undefined,
       documentChanges: pin ? JSON.stringify({ originalHash: pin.documentSha256, originalUnchecked: pin.unchecked,
         changes: comparePinnedUnchecked(pin.unchecked, extractChecklistItems(current, 'all')), diff: docDiff }) : undefined });

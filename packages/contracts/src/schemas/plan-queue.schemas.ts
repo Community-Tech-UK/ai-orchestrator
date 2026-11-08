@@ -382,6 +382,12 @@ export const PlanQueueItemDtoSchema = z.object({
   id: IdSchema,
   runId: IdSchema,
   documentPath: PathSchema,
+  /** Present for one step of a plan that runs one job per step: its number, how many jobs the run has for it, and the step it waits for. */
+  step: z.object({
+    number: z.number().int().min(0),
+    of: z.number().int().min(1),
+    waitingFor: z.number().int().min(0).nullable(),
+  }).optional(),
   state: PlanQueueItemStateSchema,
   round: z.number().int().min(0),
   /** Rounds checked across every attempt at this document, sent only when more than `round`. */

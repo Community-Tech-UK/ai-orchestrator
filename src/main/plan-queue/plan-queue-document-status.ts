@@ -91,9 +91,11 @@ function branchReference(branch: string): string {
   return `${fence}${padded}${fence}`;
 }
 
-export function landedIntegrationStatus(content: string, branch: string, commit: string): string {
+/** A step job's landing says so: the plan as a whole is not on main until its other steps are. */
+export function landedIntegrationStatus(content: string, branch: string, commit: string, step?: number | null): string {
   const remaining = unlandedBranches(content).filter(other => other !== branch);
-  return remaining.length ? `no (${remaining.map(branchReference).join(', ')}); latest landed commit: ${commit}` : `yes (${commit})`;
+  if (remaining.length) return `no (${remaining.map(branchReference).join(', ')}); latest landed commit: ${commit}`;
+  return step == null ? `yes (${commit})` : `Step ${step} landed (${commit}); the other steps may still be open`;
 }
 
 /** A committed document cannot embed its own hash; its Git version identifies that landing. */
@@ -101,10 +103,10 @@ export function closedIntegrationContent(content: string, commit = 'this landing
   return locateStatus(content) ? replaceOnMainLine(content, `yes (${commit})`) : content;
 }
 
-export async function updatePlanIntegrationStatus(documentPath: string, branch: string, commit: string): Promise<void> {
+export async function updatePlanIntegrationStatus(documentPath: string, branch: string, commit: string, step?: number | null): Promise<void> {
   const identity = documentFileIdentity(documentPath);
   const bytes = await readFile(documentPath);
   const content = bytes.toString('utf8');
-  const updated = replaceOnMainLine(content, landedIntegrationStatus(content, branch, commit));
+  const updated = replaceOnMainLine(content, landedIntegrationStatus(content, branch, commit, step));
   if (content !== updated) changeDocumentFile(identity, bytes, updated);
 }

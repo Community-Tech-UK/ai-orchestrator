@@ -167,8 +167,8 @@ Finish with a plain-English report for James. Use no ids, hashes or branch names
 export interface PlanQueueSetAsideDeps {
   store: {
     listParkedInFolder(folder: string): { item: PlanQueueItem; landedLater: boolean }[];
-    documentInPlay(documentPath: string, exceptItemId: string): boolean;
-    newerAttemptLanded(item: Pick<PlanQueueItem, 'documentPath' | 'createdAt'>): boolean;
+    documentInPlay(item: Pick<PlanQueueItem, 'documentPath' | 'id' | 'section'>): boolean;
+    newerAttemptLanded(item: Pick<PlanQueueItem, 'documentPath' | 'createdAt' | 'section'>): boolean;
   };
   instances: Pick<PlanQueueInstancePort, 'createInstance' | 'getInstance'>;
   getRun(runId: string): PlanQueueRun;
@@ -227,8 +227,9 @@ export class PlanQueueSetAsideAgents {
     const latest = new Set<string>();
     const seen = new Set<string>();
     for (const { item } of jobs) {
-      if (!seen.has(item.documentPath)) latest.add(item.id);
-      seen.add(item.documentPath);
+      const key = `${item.documentPath}#${item.section ?? ''}`;
+      if (!seen.has(key)) latest.add(item.id);
+      seen.add(key);
     }
     const page = jobs.slice(offset, offset + PAGE_SIZE);
     const end = offset + page.length;
@@ -294,7 +295,7 @@ export class PlanQueueSetAsideAgents {
     if (callerInstanceId === undefined || this.folderOf(callerInstanceId) === undefined) return;
     if (action !== 'resume-item' && action !== 'retry-landing' && action !== 'land-anyway') return;
     if (item.state !== 'parked') throw new Error('Only a set-aside job can be retried, resumed or merged');
-    if (this.deps.store.documentInPlay(item.documentPath, item.id)) throw new Error('Another attempt at this document is in progress');
+    if (this.deps.store.documentInPlay(item)) throw new Error('Another attempt at this document is in progress');
     // James may merge an older attempt over a newer merged one after a warning; choosing between them is his decision.
     if (action === 'land-anyway' && this.deps.store.newerAttemptLanded(item)) {
       throw new Error('A newer attempt at this document has already merged. Compare the two with git, then discard this one or list it for James.');

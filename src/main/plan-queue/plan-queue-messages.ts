@@ -20,11 +20,13 @@ import { documentStem } from './plan-queue-item-flow';
 import { planQueueChecksLabel } from '../../shared/utils/plan-queue-item-display';
 import { isNotReachedItem } from '../../shared/utils/plan-queue-item-outcome';
 import { relaxedSettingsFor } from './plan-queue-relaxation';
+import { stepLabelFor } from './plan-queue-sections';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
 /** `stage` is sent only while it applies, so the many finished items cost nothing extra. */
-export function itemToDto(item: PlanQueueItem, stage: PlanQueueItemStage | undefined, totalRounds = 0): PlanQueueItemDto {
+export function itemToDto(item: PlanQueueItem, stage: PlanQueueItemStage | undefined, totalRounds = 0, step?: PlanQueueItemDto['step']): PlanQueueItemDto {
   return {
+    ...(step ? { step } : {}),
     ...(totalRounds > item.round ? { totalRounds } : {}),
     roundActivity: item.roundActivity ?? [],
     ...(item.spend ? { spend: item.spend } : {}),
@@ -78,7 +80,8 @@ export function runToDto(run: PlanQueueRun, items: readonly PlanQueueItem[], che
     relaxedSettings: relaxedSettingsFor(run),
     startedAt: run.startedAt,
     endedAt: run.endedAt,
-    items: items.map(item => itemToDto(item, stages.get(item.id), totalRounds.get(item.documentPath))),
+    // Rounds are counted per document, which would add up every step of a stepped plan.
+    items: items.map(item => itemToDto(item, stages.get(item.id), item.section == null ? totalRounds.get(item.documentPath) : 0, stepLabelFor(items, item))),
   };
 }
 

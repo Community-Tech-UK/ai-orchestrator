@@ -9,6 +9,7 @@ import type { PlanQueueStore } from './plan-queue-store';
 import type { PlanQueueTriage } from './plan-queue-triage';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { reconcileWaitingDocuments } from './plan-queue-readiness';
+import { stepHold } from './plan-queue-sections';
 import { hasPendingLandingCleanup } from './plan-queue-item-landing';
 import { isLandingWait, isTerminalItemState, itemHoldsWorkerSlot, itemHoldsWorktree } from './plan-queue-state';
 import { queueAdmission } from '../work-admission/queue-admission';
@@ -100,6 +101,10 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
           // A waiting landing keeps its folder (counted in totalJobs and the app-wide limit) but not its worker slot.
           let inFlight = items.filter(itemHoldsWorkerSlot).length;
           for (const item of items.filter((candidate) => candidate.state === 'queued' && !flow.isWaitingForUsage(candidate.id))) {
+            // A step job waits for the step before it to land. If that one was skipped, there is nothing to build on.
+            const hold = stepHold(items, item);
+            if (hold?.skipped) { host.transition(item, 'skipped', { detail: `Left out because Step ${hold.waitingFor} was skipped.` }); continue; }
+            if (hold) continue;
             if (!flow.breaker.canStart(run) || !queueAdmission(run.config, totalJobs, verifying).canStartWorker(inFlight)) { store.waits.blocked(item.id); continue; }
             flow.breaker.started(run, item.id);
             store.waits.started(item, 'worker');

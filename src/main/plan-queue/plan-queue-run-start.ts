@@ -15,6 +15,7 @@ import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { existsSync, readFileSync, statSync } from 'fs';
 import { repeatedStopNote } from './plan-queue-document-memory';
 import { automaticDecisionPatch } from './plan-queue-readiness';
+import { stepsToRun } from './plan-queue-sections';
 
 export interface DiscoveredPlanQueueDocument {
   path: string;
@@ -63,17 +64,22 @@ export function claimDocumentsAndCreateItems(
   const owned = documentsOwnedByActiveRuns(deps.store);
   const excluded = documents.filter((doc) => owned.has(doc.path)).map((doc) => doc.path);
   const now = deps.now();
-  documents.filter((doc) => !owned.has(doc.path)).forEach((doc, index) => {
+  let order = 0;
+  documents.filter((doc) => !owned.has(doc.path)).forEach((doc) => {
     // createdAt carries discovery order: items list in the order they were found.
     // An unplanned spec must stay open: its required planning rename would
     // invalidate this item's path. Implementation belongs to its linked plan.
     const needsPlan = doc.readiness === 'not-ready' && doc.path.toLowerCase().endsWith('_spec.md');
-    const previous = needsPlan ? null : deps.store.findLatestParkedItem(doc.path, run.parentInstanceId);
+    // A plan too big for one job runs one job per step, whether it was picked by name or found; without steps it stays too big.
+    const tooBig = needsPlan || run.kind !== 'plans' ? null : oversizedNote(doc.path);
+    const steps = tooBig ? stepsToRun(doc.path) : null;
+    // A set-aside offer is for a whole-document job; a step job is resumed from Set aside.
+    const previous = needsPlan || steps ? null : deps.store.findLatestParkedItem(doc.path, run.parentInstanceId);
     const previousRun = previous ? deps.store.getRun(previous.runId) : null;
     // Merged work has moved on from this attempt, so offering to resume it would be an option that always fails.
     const setAside = previous && previousRun?.parentInstanceId === run.parentInstanceId && !deps.store.newerAttemptLanded(previous) ? previous : null;
     const leftOut = options.queueDirectly || needsPlan || setAside ? null
-      : (run.kind === 'plans' ? oversizedNote(doc.path) : null) ?? repeatedStopNote(deps.store, doc.path);
+      : (steps ? null : tooBig) ?? repeatedStopNote(deps.store, doc.path);
     const remembered = !options.queueDirectly && !needsPlan && doc.readiness === 'candidate' && !setAside
       ? rememberedOutcomeForPath(deps.memory, doc.path, run.workspaceCwd)
       : { kind: 'none', detail: '' } as RememberedOutcome;
@@ -87,7 +93,11 @@ export function claimDocumentsAndCreateItems(
             : options.queueDirectly
               ? { state: 'parked' as PlanQueueItemState, parkReason: 'worker-error' as const, detail: doc.reason ?? null }
             : { state: 'discovered' as PlanQueueItemState, detail: doc.reason ?? null });
-    deps.store.upsertItem(newPlanQueueItem(deps.newId(), run.id, doc.path, now + index, patch));
+    // The first step takes the document's readiness decision; later steps wait their turn behind it.
+    const laterPatch = patch.state === 'skipped' || patch.state === 'parked' ? patch : { state: 'queued' as PlanQueueItemState, detail: null };
+    (steps ?? [null]).forEach((section, position) => {
+      deps.store.upsertItem(newPlanQueueItem(deps.newId(), run.id, doc.path, now + order++, { ...(position === 0 ? patch : laterPatch), ...(section === null ? {} : { section }) }));
+    });
   });
   return excluded;
 }
@@ -129,6 +139,10 @@ export function setAsideQuestion(setAside: PlanQueueItem): PlanQueueQuestion {
   };
 }
 
+/**
+ * A document belongs to one run while any of its jobs is unfinished or holds a folder. A stepped plan's jobs are one group
+ * owned by their run, so it stays owned while a later step is still queued behind a step that was set aside.
+ */
 function documentsOwnedByActiveRuns(store: PlanQueueStore): Set<string> {
   return new Set(
     store.listActiveRuns()

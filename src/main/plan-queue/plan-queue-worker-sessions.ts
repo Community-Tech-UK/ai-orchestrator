@@ -57,7 +57,7 @@ export class PlanQueueWorkerSessions {
   async promptContext(run: PlanQueueRun, item: PlanQueueItem) {
     return {
       ...this.continueContext(run, item),
-      ...(run.kind === 'plans' ? { brief: await readPlanBrief(item.documentPath) } : {}),
+      ...(run.kind === 'plans' ? { brief: await readPlanBrief(item.documentPath, item.section) } : {}),
     };
   }
 
