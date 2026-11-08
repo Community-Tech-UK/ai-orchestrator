@@ -206,7 +206,7 @@ async function fetchChecks(config, script, id, remoteRoot, root, checks) {
  *   recipe, from projects.js. Its own runner reports on the far machine, so no report comes back: the result
  *   line's test count is the proof instead, and `jsonPath` is unused.
  */
-async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take = takeSnapshot, relatedTo, checks, project }) {
+async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take = takeSnapshot, relatedTo, checks, project, waitForSlot = true }) {
   let snapshot;
   try {
     snapshot = take(root);
@@ -254,7 +254,7 @@ async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take 
     }
     const flag = value => (value ? '1' : '0');
     // A slot count from the config, which readConfig has already held to 1 to 8.
-    const slots = Number.isInteger(config.slots) ? `AIO_SLOT_COUNT=${config.slots} ` : '';
+    const slots = `${Number.isInteger(config.slots) ? `AIO_SLOT_COUNT=${config.slots} ` : ''}${waitForSlot ? '' : 'AIO_SLOT_WAIT=0 '}`;
     const result = await streamRun(config, `${prefix}${slots}bash ${script} run ${id} ${snapshot.commit} ${flag(ci)} ${flag(noCache)}`, logPath);
 
     if (!result) return { ok: false, reason: `the connection to ${config.label} was lost during the run` };
@@ -277,4 +277,19 @@ async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take 
   }
 }
 
-module.exports = { runOnRemote };
+/**
+ * Tries each machine in order, and resolves the first that runs the work, with `machine` saying which. Every machine
+ * but the last is asked not to wait for a slot, so a busy one passes the work on at once. When none can, resolves
+ * `{ ok: false, reason }` with every machine's reason, so the caller can say why it ran here.
+ */
+async function runOnMachines(machines, options) {
+  const reasons = [];
+  for (const [at, machine] of machines.entries()) {
+    const result = await runOnRemote({ ...options, config: machine, waitForSlot: at === machines.length - 1 });
+    if (result.ok) return { ...result, machine };
+    reasons.push(result.reason);
+  }
+  return { ok: false, reason: reasons.join('; ') || 'no test machine takes this work' };
+}
+
+module.exports = { runOnMachines, runOnRemote };

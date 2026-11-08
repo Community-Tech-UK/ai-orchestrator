@@ -75,7 +75,7 @@
                     class="toggle-input"
                     [checked]="machine.testRuns"
                     [disabled]="saving()"
-                    (change)="changeTestMachine('testRuns', $event)"
+                    (change)="changeTestMachine(machine.host, 'testRuns', $event)"
                   />
                   <span class="toggle-track"><span class="toggle-thumb"></span></span>
                 </span>
@@ -89,7 +89,7 @@
                     class="toggle-input"
                     [checked]="machine.checks"
                     [disabled]="saving()"
-                    (change)="changeTestMachine('checks', $event)"
+                    (change)="changeTestMachine(machine.host, 'checks', $event)"
                   />
                   <span class="toggle-track"><span class="toggle-thumb"></span></span>
                 </span>
@@ -101,7 +101,7 @@
                   class="field-input slots"
                   [value]="machine.slots"
                   [disabled]="saving()"
-                  (change)="slotsChanged($event)"
+                  (change)="slotsChanged(machine.host, $event)"
                 >
                   @for (count of slotChoices; track count) {
                     <option [value]="count" [selected]="count === machine.slots">{{ count }}</option>

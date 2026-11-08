@@ -1,8 +1,10 @@
-/** The Computers page's view of the test machine and of where today's work ran. */
+/** The Computers page's view of the test machines and of where today's work ran. */
 
-/** The test machine, as `scripts/remote-checks/route.js` reads its file. */
+/** One test machine, as `scripts/remote-checks/route.js` reads the file; `host` names it there. */
 export interface TestMachineView {
   host: string;
+  /** `darwin` for a Mac, which can also run the specs that only work on macOS. */
+  platform: 'linux' | 'darwin';
   /** What people call it, as the scripts print it: "Ran on the Windows PC in ...". */
   label: string;
   /** The paired computer this machine is part of, so the page shows them as one. */

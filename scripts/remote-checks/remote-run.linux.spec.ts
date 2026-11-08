@@ -6,11 +6,13 @@ import { gunzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
 
 /**
- * remote-run.sh for real: real systemd scopes, real `flock`, real detached processes. Only
- * a Linux machine with a user systemd can run these, which every machine that runs the
- * script has. The repository under test carries stubs for npm, tsc and Vitest.
+ * remote-run.sh for real: real systemd scopes and `flock` on Linux, a real process group and Perl
+ * lock on a Mac, and real detached processes on both. They run on any machine that can run the
+ * script: Linux with a user systemd, or macOS. The repository under test carries stubs for npm,
+ * tsc and Vitest. (The file name predates the Mac.)
  */
-function hasUserSystemd(): boolean {
+function canRunHere(): boolean {
+  if (process.platform === 'darwin') return true;
   if (process.platform !== 'linux') return false;
   const env = { ...process.env, XDG_RUNTIME_DIR: `/run/user/${process.getuid?.()}` };
   return spawnSync('systemctl', ['--user', 'is-system-running'], { env, encoding: 'utf8' }).stdout?.trim() === 'running';
@@ -60,11 +62,21 @@ const git = (cwd: string, ...args: string[]): string =>
 const isAlive = (pid: number): boolean => {
   try {
     process.kill(pid, 0);
+    // A Mac has no /proc. Its orphans are reaped by launchd at once, so a live pid is a live process.
+    if (process.platform === 'darwin') return true;
     return !readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1]?.startsWith('Z');
   } catch {
     return false;
   }
 };
+
+/** Holds a slot's lock the way another run would: `flock` on Linux, Perl on a Mac, where remote-run.sh uses it. */
+const holdLock = (lock: string) => (process.platform === 'darwin'
+  ? spawn('perl', ['-MFcntl=:flock', '-e', 'open(my $f, ">>", $ARGV[0]) or die; flock($f, LOCK_EX) or die; sleep 30', lock], { stdio: 'ignore' })
+  : spawn('flock', ['-o', lock, 'sleep', '30'], { stdio: 'ignore' }));
+const isHeld = (lock: string): boolean => (process.platform === 'darwin'
+  ? spawnSync('perl', ['-MFcntl=:flock', '-e', 'open(my $f, ">>", $ARGV[0]) or die; exit(flock($f, LOCK_EX | LOCK_NB) ? 0 : 1)', lock]).status !== 0
+  : spawnSync('flock', ['-n', lock, 'true']).status !== 0);
 
 async function waitFor(check: () => boolean, ms = 20_000): Promise<boolean> {
   const deadline = Date.now() + ms;
@@ -115,10 +127,10 @@ function setUp(slotWaitSeconds = 180) {
   return { base, pidFile, pids, project, script, snapshot };
 }
 
-function startRun(script: string, name: string, commit: string) {
+function startRun(script: string, name: string, commit: string, env: NodeJS.ProcessEnv = {}) {
   // Unique, like a real run's: suites overlapping on one machine share a systemd user manager.
   const id = `${name}-${process.pid}`;
-  const child = spawn('bash', [script, 'run', id, commit, '0', '0'], { stdio: 'pipe' });
+  const child = spawn('bash', [script, 'run', id, commit, '0', '0'], { stdio: 'pipe', env: { ...process.env, ...env } });
   children.push(child);
   let output = '';
   child.stdout.on('data', (chunk) => { output += String(chunk); });
@@ -203,7 +215,7 @@ function setUpProject() {
   return { ...machine, commit, runProject, calls };
 }
 
-describe.runIf(hasUserSystemd())('remote-run.sh running another project', () => {
+describe.runIf(canRunHere())('remote-run.sh running another project', () => {
   it('keeps to its own store and checkout, and leaves the default ones alone', async () => {
     const machine = setUpProject();
     const run = await machine.runProject('own-store');
@@ -268,7 +280,7 @@ describe.runIf(hasUserSystemd())('remote-run.sh running another project', () => 
   }, LIMIT);
 });
 
-describe.runIf(hasUserSystemd())('remote-run.sh on a real machine', () => {
+describe.runIf(canRunHere())('remote-run.sh on a real machine', () => {
   it('runs a snapshot and reports its fingerprint, then hands back the report', async () => {
     const machine = setUp();
     const commit = machine.snapshot('pass');
@@ -335,8 +347,7 @@ describe.runIf(hasUserSystemd())('remote-run.sh on a real machine', () => {
     const commit = machine.snapshot('pass');
     mkdirSync(join(machine.base, 'slots'), { recursive: true });
     const locks = [1, 2, 3].map(slot => join(machine.base, `slots/${slot}.lock`));
-    const holders = locks.map(lock => spawn('flock', ['-o', lock, 'sleep', '30'], { stdio: 'ignore' }));
-    const isHeld = (lock: string): boolean => spawnSync('flock', ['-n', lock, 'true']).status !== 0;
+    const holders = locks.map(holdLock);
     expect(await waitFor(() => locks.every(isHeld))).toBe(true);
 
     const run = startRun(machine.script, 'busy-run', commit);
@@ -346,13 +357,38 @@ describe.runIf(hasUserSystemd())('remote-run.sh on a real machine', () => {
     expect(run.result()).toMatchObject({ status: 'no-slot' });
   }, LIMIT);
 
+  it('reports no slot at once when asked not to wait, and waits as usual for any other value', async () => {
+    const machine = setUp(4);
+    const commit = machine.snapshot('pass');
+    mkdirSync(join(machine.base, 'slots'), { recursive: true });
+    const locks = [1, 2, 3].map(slot => join(machine.base, `slots/${slot}.lock`));
+    const holders = locks.map(holdLock);
+    expect(await waitFor(() => locks.every(isHeld))).toBe(true);
+
+    const timed = async (name: string, wait: string) => {
+      const started = Date.now();
+      const run = startRun(machine.script, name, commit, { AIO_SLOT_WAIT: wait });
+      await run.finished;
+      return { result: run.result(), tookMs: Date.now() - started };
+    };
+    const now = await timed('no-wait', '0');
+    // A leading zero once broke the script's arithmetic; the run must still answer.
+    const usual = await timed('usual-wait', '08');
+    for (const holder of holders) holder.kill('SIGKILL');
+
+    expect(now.result).toMatchObject({ status: 'no-slot' });
+    expect(now.tookMs).toBeLessThan(3000);
+    expect(usual.result).toMatchObject({ status: 'no-slot' });
+    expect(usual.tookMs).toBeGreaterThanOrEqual(4000);
+  }, LIMIT);
+
   it('uses only as many slots as the Mac asks for', async () => {
     const machine = setUp(2);
     const commit = machine.snapshot('pass');
     mkdirSync(join(machine.base, 'slots'), { recursive: true });
     const lock = join(machine.base, 'slots/1.lock');
-    const holder = spawn('flock', ['-o', lock, 'sleep', '30'], { stdio: 'ignore' });
-    expect(await waitFor(() => spawnSync('flock', ['-n', lock, 'true']).status !== 0)).toBe(true);
+    const holder = holdLock(lock);
+    expect(await waitFor(() => isHeld(lock))).toBe(true);
 
     const child = spawn('bash', [machine.script, 'run', `one-slot-${process.pid}`, commit, '0', '0'], {
       stdio: 'pipe', env: { ...process.env, AIO_SLOT_COUNT: '1' },

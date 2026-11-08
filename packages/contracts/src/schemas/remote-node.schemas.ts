@@ -238,14 +238,21 @@ export const PairBothWorkerRunModePayloadSchema = z.object({
   openAtLogin: z.boolean().optional(),
 }).strict();
 
-/** What the Computers page may change about the test machine. scripts/remote-checks/route.js reads the same fields. */
-export const ComputersChangeTestMachinePayloadSchema = z.object({
+/** What the Computers page may change about a test machine. scripts/remote-checks/route.js reads the same fields. */
+export const ComputersTestMachineChangeSchema = z.object({
   paused: z.boolean(),
   testRuns: z.boolean(),
   checks: z.boolean(),
   slots: z.number().int().min(1).max(8),
 }).partial().strict();
 
+/** A change to the test machine the file calls `host`. */
+export const ComputersChangeTestMachinePayloadSchema = z.object({
+  host: z.string().min(1).max(255),
+  change: ComputersTestMachineChangeSchema,
+}).strict();
+
+export type ValidatedTestMachineChange = z.infer<typeof ComputersTestMachineChangeSchema>;
 export type ValidatedChangeTestMachinePayload = z.infer<typeof ComputersChangeTestMachinePayloadSchema>;
 export type ValidatedSetTokenPayload = z.infer<typeof RemoteNodeSetTokenPayloadSchema>;
 export type ValidatedIssuePairingPayload = z.infer<typeof RemoteNodeIssuePairingPayloadSchema>;

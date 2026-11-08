@@ -7612,6 +7612,10 @@
       "lines": 833
     },
     {
+      "path": "scripts/run-tests-quiet.js",
+      "lines": 832
+    },
+    {
       "path": "src/main/plan-queue/plan-queue-coordinator.ts",
       "lines": 832
     },

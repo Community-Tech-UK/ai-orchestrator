@@ -13,8 +13,8 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { findProject } = require('./projects');
-const { appendRunLog, decideRoute, isLoopRun, readConfig } = require('./route');
-const { runOnRemote } = require('./run-remote');
+const { appendRunLog, decideRoute, isLoopRun, machinesFor, readConfig } = require('./route');
+const { runOnMachines } = require('./run-remote');
 const { takeSnapshot } = require('./snapshot');
 
 const STAY_HERE = 75;
@@ -44,12 +44,13 @@ async function main() {
   const scratch = path.resolve('_scratch');
   fs.mkdirSync(scratch, { recursive: true });
   const logPath = path.join(scratch, `test-machine.pid-${process.pid}.log`);
-  const progress = setInterval(() => say(`still running on ${config.label}`), PROGRESS_INTERVAL_MS);
+  const machines = machinesFor(config, 'testRuns');
+  const progress = setInterval(() => say('still running elsewhere'), PROGRESS_INTERVAL_MS);
   let remote;
   try {
-    say(`running on ${config.label}`);
-    remote = await runOnRemote({
-      config, root: project.root, logPath, noCache: false, ci: process.env.CI, project,
+    say(`running on ${machines[0].label}`);
+    remote = await runOnMachines(machines, {
+      root: project.root, logPath, noCache: false, ci: process.env.CI, project,
       take: root => takeSnapshot(root, { folders: project.sends }),
     });
   } finally {
@@ -67,15 +68,15 @@ async function main() {
   const exitCode = !failed ? 0 : (remote.exitCode !== STAY_HERE && remote.exitCode) || 1;
   appendRunLog({
     at: new Date(started).toISOString(), project: project.id, kind: 'project', loop: isLoopRun(), fingerprint: remote.fingerprint,
-    ranOn: config.host, waitedMs: remote.waitedMs, tookMs: Date.now() - started, exitCode, fellBackBecause: null,
+    ranOn: remote.machine.host, waitedMs: remote.waitedMs, tookMs: Date.now() - started, exitCode, fellBackBecause: null,
   });
-  const took = `Ran on ${config.label} in ${Math.round((Date.now() - started) / 1000)}s`;
+  const took = `Ran on ${remote.machine.label} in ${Math.round((Date.now() - started) / 1000)}s`;
   if (exitCode === 0) {
     fs.rmSync(logPath, { force: true });
     say(`passed: ${remote.tests} tests. ${took}, and the Mac-only tests here.`);
   } else {
     // Last, because the Mac-only run's own summary above can read as a pass.
-    say(`FAILED: ${remote.exitCode ? `tests failed on ${config.label}` : 'the Mac-only tests failed'}. ${took}. Its full log: ${logPath}`);
+    say(`FAILED: ${remote.exitCode ? `tests failed on ${remote.machine.label}` : 'the Mac-only tests failed'}. ${took}. Its full log: ${logPath}`);
   }
   return exitCode;
 }

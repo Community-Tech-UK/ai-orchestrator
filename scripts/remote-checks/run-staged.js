@@ -14,8 +14,8 @@ const fs = require('fs');
 const path = require('path');
 const { MAC_ONLY_SPECS } = require('./mac-only');
 const { estimateRelatedSpecs } = require('./related-estimate');
-const { appendRunLog, decideRoute, isLoopRun, readConfig } = require('./route');
-const { runOnRemote } = require('./run-remote');
+const { appendRunLog, decideRoute, isLoopRun, machinesFor, readConfig } = require('./route');
+const { runOnMachines } = require('./run-remote');
 const { takeStagedSnapshot } = require('./snapshot');
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -80,12 +80,13 @@ async function main() {
   const logPath = path.join(scratch, `test-staged.pid-${process.pid}.log`);
   const jsonPath = path.join(scratch, `test-staged-results.pid-${process.pid}.json`);
 
-  log(`about ${specs} spec files are related, so testing what is staged on ${config.label}`);
-  const progress = setInterval(() => log(`still running on ${config.label} (full log: ${path.relative(ROOT, logPath)})`), PROGRESS_INTERVAL_MS);
+  const machines = machinesFor(config, 'testRuns');
+  log(`about ${specs} spec files are related, so testing what is staged on ${machines[0].label}`);
+  const progress = setInterval(() => log(`still running elsewhere (full log: ${path.relative(ROOT, logPath)})`), PROGRESS_INTERVAL_MS);
   let remote;
   try {
-    remote = await runOnRemote({
-      config, root: ROOT, logPath, jsonPath, noCache: false, ci: process.env.CI, take: takeStagedSnapshot, relatedTo: files,
+    remote = await runOnMachines(machines, {
+      root: ROOT, logPath, jsonPath, noCache: false, ci: process.env.CI, take: takeStagedSnapshot, relatedTo: files,
     });
   } finally {
     // With exitCode rather than exit(), a timer left running would hold the commit open.
@@ -94,19 +95,20 @@ async function main() {
   if (!remote.ok) return fellBack(started, remote.reason);
 
   const report = readReport(jsonPath);
-  const macExit = runMacOnlySpecs(report);
+  // A run on a Mac ran those specs itself.
+  const macExit = remote.machine.platform === 'darwin' ? 0 : runMacOnlySpecs(report);
   const failedAnywhere = remote.exitCode || report.numFailedTests || macExit;
   // Tests that fail must never read as "the machine was away", which would run them all again here.
   const exitCode = !failedAnywhere ? 0 : (remote.exitCode !== STAY_ON_THE_MAC && remote.exitCode) || 1;
   const took = Math.round((Date.now() - started) / 1000);
   appendRunLog({
     at: new Date(started).toISOString(), project: path.basename(ROOT), kind: 'commit', loop: isLoopRun(), fingerprint: remote.fingerprint,
-    ranOn: config.host, waitedMs: remote.waitedMs, tookMs: Date.now() - started, exitCode, fellBackBecause: null,
+    ranOn: remote.machine.host, waitedMs: remote.waitedMs, tookMs: Date.now() - started, exitCode, fellBackBecause: null,
   });
   if (remote.exitCode || report.numFailedTests) printFailures(report, logPath);
   // About 14 MB a run, for a commit that needs neither once it has passed.
   else for (const file of [logPath, jsonPath]) fs.rmSync(file, { force: true });
-  log(`${report.numPassedTests ?? 0} of ${report.numTotalTests} tests passed. Ran on ${config.label} in ${took}s.`);
+  log(`${report.numPassedTests ?? 0} of ${report.numTotalTests} tests passed. Ran on ${remote.machine.label} in ${took}s.`);
   if (macExit) log('the specs that only work on the Mac failed, so this commit is stopped (their output is above)');
   return exitCode;
 }

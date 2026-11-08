@@ -1,6 +1,7 @@
 /**
- * The Computers list: paired computers in the order Harness tries them, the test machine with the computer it's
- * part of, and this Mac last. In Settings it changes things; on the Control Center page (`readOnly`) it only shows.
+ * The Computers list: paired computers in the order Harness tries them, each test machine with the computer it's
+ * part of or on its own, and this Mac last. In Settings it changes things; on the Control Center page (`readOnly`) it
+ * only shows.
  */
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input, signal } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
@@ -47,7 +48,7 @@ export class ComputersListComponent {
   /** Show only; the Control Center page links to Settings for changes. */
   readonly readOnly = input(false);
 
-  private readonly testMachine = signal<TestMachineView | null>(null);
+  private readonly testMachines = signal<TestMachineView[]>([]);
   private readonly today = signal<WorkToday | null>(null);
   /** Raw detail of the last failure, for Details. The visible sentence is fixed. */
   protected readonly loadFailure = signal<string | null>(null);
@@ -58,15 +59,16 @@ export class ComputersListComponent {
   private testMachineChanges = 0;
 
   protected readonly slotChoices = SLOT_CHOICES;
-  protected readonly rows = computed(() => buildComputerRows(this.nodes(), this.store.computers(), this.testMachine(), {
+  protected readonly rows = computed(() => buildComputerRows(this.nodes(), this.store.computers(), this.testMachines(), {
     browser: this.store.remoteNodesAutoOffloadBrowser(),
     android: this.store.remoteNodesAutoOffloadAndroid(),
   }));
   protected readonly pairedCount = computed(() => this.rows().filter(row => row.kind === 'paired').length);
   protected readonly todayLines = computed(() => {
     const today = this.today();
-    const machine = this.testMachine();
-    return today && machine ? describeToday(today, machine.label) : [];
+    const machines = this.testMachines();
+    if (!today || !machines.length) return [];
+    return describeToday(today, machines.length === 1 ? machines[0]!.label : 'your test machines');
   });
 
   constructor() {
@@ -89,13 +91,13 @@ export class ComputersListComponent {
   private async load(): Promise<void> {
     if (this.saving()) return;
     const changesBefore = this.testMachineChanges;
-    const result = await this.ipc.getTestMachine();
+    const result = await this.ipc.getTestMachines();
     if (changesBefore !== this.testMachineChanges) return;
     if (!result.ok) {
       this.loadFailure.set(presentError(result.error).rawDetail);
       return;
     }
-    this.testMachine.set(result.testMachine);
+    this.testMachines.set(result.testMachines);
     this.today.set(result.today);
     this.loadFailure.set(null);
   }
@@ -121,29 +123,33 @@ export class ComputersListComponent {
     const paused = (event.target as HTMLInputElement).checked;
     return this.whileSaving(async () => {
       if (row.kind === 'paired') await this.saveChoices(changedChoices(this.rows(), row.id, { paused }));
-      if (row.testMachine) await this.saveTestMachine({ paused });
+      if (row.testMachine) await this.saveTestMachine(row.testMachine.host, { paused });
     }, event, () => this.row(row.id)?.paused);
   }
 
-  protected changeTestMachine(field: 'testRuns' | 'checks', event: Event): Promise<void> {
+  protected changeTestMachine(host: string, field: 'testRuns' | 'checks', event: Event): Promise<void> {
     const on = (event.target as HTMLInputElement).checked;
-    return this.whileSaving(() => this.saveTestMachine({ [field]: on }), event, () => this.testMachine()?.[field]);
+    return this.whileSaving(() => this.saveTestMachine(host, { [field]: on }), event, () => this.machine(host)?.[field]);
   }
 
-  protected slotsChanged(event: Event): Promise<void> {
+  protected slotsChanged(host: string, event: Event): Promise<void> {
     const slots = Number((event.target as HTMLSelectElement).value);
-    return this.whileSaving(() => this.saveTestMachine({ slots }), event, () => this.testMachine()?.slots);
+    return this.whileSaving(() => this.saveTestMachine(host, { slots }), event, () => this.machine(host)?.slots);
   }
 
   private row(id: string): ComputerRow | undefined {
     return this.rows().find(row => row.id === id);
   }
 
-  private async saveTestMachine(change: Partial<Pick<TestMachineView, 'paused' | 'testRuns' | 'checks' | 'slots'>>): Promise<void> {
-    const result = await this.ipc.changeTestMachine(change);
+  private machine(host: string): TestMachineView | undefined {
+    return this.testMachines().find(machine => machine.host === host);
+  }
+
+  private async saveTestMachine(host: string, change: Partial<Pick<TestMachineView, 'paused' | 'testRuns' | 'checks' | 'slots'>>): Promise<void> {
+    const result = await this.ipc.changeTestMachine(host, change);
     if (!result.ok) throw result.error;
     this.testMachineChanges += 1;
-    this.testMachine.set(result.testMachine);
+    this.testMachines.update(machines => machines.map(machine => (machine.host === host ? result.testMachine : machine)));
   }
 
   /**

@@ -12,9 +12,11 @@
 # With AIO_PROJECT and AIO_SUITE set, each of those works on that repository instead, in its own
 # store and checkouts, using a recipe at the bottom of this file. It shares the same slots.
 #
-# A run lives in its own systemd scope, so stopping it kills everything it started,
-# including detached children, which closing SSH alone would leave running. The caller
-# holds stdin open for the whole run: when that closes, the connection has gone.
+# On Linux a run lives in its own systemd scope, so stopping it kills everything it started,
+# including detached children, which closing SSH alone would leave running. A Mac has no systemd,
+# so there a run leads its own process group instead, which catches everything except a child that
+# starts a session of its own. The caller holds stdin open for the whole run: when that closes, the
+# connection has gone.
 set -u
 
 SELF="$(readlink -f "$0")"
@@ -28,6 +30,9 @@ SLOT_COUNT=3
 # Harness's Computers page can choose another number, which run-remote.js passes on.
 case "${AIO_SLOT_COUNT:-}" in [1-8]) SLOT_COUNT="$AIO_SLOT_COUNT" ;; esac
 SLOT_WAIT_SECONDS=180
+# A machine tried before another in the list doesn't wait for a slot: the next one might have one free. run-remote.js
+# sends AIO_SLOT_WAIT=0 for those; any other value waits as usual.
+[ "${AIO_SLOT_WAIT:-}" = 0 ] && SLOT_WAIT_SECONDS=0
 RUN_LIMIT_SECONDS=3600
 SNAPSHOT_MAX_AGE_SECONDS=86400
 BASE_LIMIT=500
@@ -35,6 +40,36 @@ BUSY=75
 RESULT_PREFIX='AIO_REMOTE_RESULT '
 
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+# macOS has neither systemd nor flock, and its date, sha256sum, tail and mv lack the GNU options used
+# here. These stand in on a Mac; on Linux each is the command it always was.
+if [ "$(uname -s)" = Darwin ]; then MAC=1; NODE_PLATFORM=darwin-arm64; else MAC=0; NODE_PLATFORM=linux-x64; fi
+
+sha256() {
+  if [ "$MAC" = 1 ]; then shasum -a 256 "$@"; else sha256sum "$@"; fi
+}
+
+now_ms() {
+  if [ "$MAC" = 1 ]; then perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000'; else date +%s%3N; fi
+}
+
+# Runs the rest of the arguments holding an exclusive lock on the first, or exits BUSY at once if
+# another run holds it. On a Mac the lock also reaches the command's children, which `flock -o`
+# keeps from them on Linux, so there a stray child can hold a slot until it ends.
+with_lock() {
+  local lock="$1"
+  shift
+  if [ "$MAC" = 1 ]; then
+    AIO_BUSY="$BUSY" perl -MFcntl=:flock -e '
+      $^F = 255;  # keep the lock open across exec
+      open(my $held, ">>", shift) or exit 1;
+      flock($held, LOCK_EX | LOCK_NB) or exit $ENV{AIO_BUSY};
+      exec @ARGV or exit 127;
+    ' "$lock" "$@"
+  else
+    flock -n -o -E "$BUSY" "$lock" "$@"
+  fi
+}
 
 ensure_repo() {
   [ -d "$REPO" ] || { mkdir -p "$HOME_OF_PROJECT" && git init -q --bare "$REPO"; }
@@ -61,7 +96,7 @@ tidy() {
   find "$BASE" -maxdepth 1 -name 'remote-run-*' -mtime +7 -delete 2>/dev/null
   if [ -z "$(find "$HOME_OF_PROJECT/last-gc" -mmin -1440 2>/dev/null)" ]; then
     touch "$HOME_OF_PROJECT/last-gc"
-    flock -n -o "$HOME_OF_PROJECT/gc.lock" git -C "$REPO" gc --quiet --prune=2.days.ago
+    with_lock "$HOME_OF_PROJECT/gc.lock" git -C "$REPO" gc --quiet --prune=2.days.ago
   fi
 }
 
@@ -99,7 +134,7 @@ full_node_version() {
       local major="${1#v}" have
       have="$(ls -d "$BASE/node/v$major".* 2>/dev/null | sort -V | tail -n 1)"
       if [ -n "$have" ]; then basename "$have"
-      else curl -fsSL "https://nodejs.org/dist/latest-v$major.x/" | grep -o "node-v$major\.[0-9.]*-linux-x64" | head -n 1 | sed -e 's/^node-//' -e 's/-linux-x64$//'
+      else curl -fsSL "https://nodejs.org/dist/latest-v$major.x/" | grep -o "node-v$major\.[0-9.]*-$NODE_PLATFORM" | head -n 1 | sed -e 's/^node-//' -e "s/-$NODE_PLATFORM\$//"
       fi
       ;;
   esac
@@ -114,15 +149,20 @@ ensure_node() {
     mkdir -p "$BASE/node"
     local staging
     staging="$(mktemp -d "$BASE/node/.fetch-XXXXXX")"
-    curl -fsSL "https://nodejs.org/dist/$version/node-$version-linux-x64.tar.xz" |
+    curl -fsSL "https://nodejs.org/dist/$version/node-$version-$NODE_PLATFORM.tar.xz" |
       tar -xJ --strip-components=1 -C "$staging" || { rm -rf "$staging"; return 1; }
-    mv -T "$staging" "$dir" 2>/dev/null || rm -rf "$staging"
+    # Another run may have fetched the same version meanwhile: keep the first.
+    if [ "$MAC" = 1 ]; then
+      if [ -e "$dir" ]; then rm -rf "$staging"; else mv "$staging" "$dir"; fi
+    else
+      mv -T "$staging" "$dir" 2>/dev/null || rm -rf "$staging"
+    fi
   fi
   PATH="$dir/bin:$PATH"
 }
 
 install_stamp() {
-  cat package-lock.json package.json .npmrc 2>/dev/null | sha256sum | cut -d' ' -f1
+  cat package-lock.json package.json .npmrc 2>/dev/null | sha256 | cut -d' ' -f1
   node -v
 }
 
@@ -134,6 +174,8 @@ cmd_slot_job() {
 
   mkdir -p "$work" || setup_failed "$dir" 'could not make the checkout folder'
   cd "$work" || setup_failed "$dir" 'could not open the checkout folder'
+  # For the Mac's clean-up after the run: which checkout it worked in.
+  pwd -P > "$dir/work"
   [ -d .git ] || git init -q || setup_failed "$dir" 'could not make the checkout'
   git fetch -q "$REPO" "refs/snapshots/$commit" || setup_failed "$dir" 'could not read the snapshot'
   git checkout -q --force --detach FETCH_HEAD || setup_failed "$dir" 'could not check out the snapshot'
@@ -145,7 +187,7 @@ cmd_slot_job() {
   version="$(cat "${NODE_FILE:-.nvmrc}" 2>/dev/null)"
   [ -n "$version" ] || setup_failed "$dir" 'the snapshot has no Node version file'
   ensure_node "$version" || setup_failed "$dir" 'could not fetch the Node version'
-  lock="$(sha256sum "${LOCK_FILE:-package-lock.json}" 2>/dev/null | cut -d' ' -f1)"
+  lock="$(sha256 "${LOCK_FILE:-package-lock.json}" 2>/dev/null | cut -d' ' -f1)"
 
   if [ -n "$PROJECT" ]; then
     project_job "$slot" "$dir" "$tree" "$lock" "$work" "$waited"
@@ -201,10 +243,10 @@ checks_job() {
   while IFS= read -r check; do
     index=$((index + 1))
     echo "[remote checks] check $index: $check"
-    started="$(date +%s%3N)"
+    started="$(now_ms)"
     LANG=C.UTF-8 bash -c "$check" < /dev/null 2>&1 | tee "$dir/check-$index.log"
     code="${PIPESTATUS[0]}"
-    printf '%s %s\n' "$code" "$(($(date +%s%3N) - started))" > "$dir/check-$index.status"
+    printf '%s %s\n' "$code" "$(($(now_ms) - started))" > "$dir/check-$index.status"
     [ "$first_failure" -ne 0 ] || [ "$code" -eq 0 ] || first_failure="$code"
   done < "$dir/checks.list"
   # Up to 256 KB of each check's output: what the Mac keeps from a check run there.
@@ -227,7 +269,7 @@ project_job() {
   local slot="$1" dir="$2" tree="$3" lock="$4" work="$5" waited="$6"
   local stamp_file="$HOME_OF_PROJECT/slots/$slot/install-stamp-$SUITE" stamp
   # The recipe counts too: changing how a project installs has to take effect.
-  stamp="$( (cat $INSTALL_INPUTS 2>/dev/null; declare -f recipe_install) | sha256sum | cut -d' ' -f1)-$(node -v)"
+  stamp="$( (cat $INSTALL_INPUTS 2>/dev/null; declare -f recipe_install) | sha256 | cut -d' ' -f1)-$(node -v)"
   if [ "$stamp" != "$(cat "$stamp_file" 2>/dev/null)" ]; then
     echo "[remote checks] installing packages"
     rm -f "$stamp_file"
@@ -245,8 +287,7 @@ project_job() {
   write_result "$dir" ok '' "$code" "$tree" "$(node -v)" "$lock" "$work" "$waited" "$(recipe_test_count)"
 }
 
-# The scope's main program: waits for a free slot, holding nothing while it waits.
-# `flock -o` keeps the lock away from the run's children, so a stray one can't hold a slot.
+# The run's main program: waits for a free slot, holding nothing while it waits.
 cmd_job() {
   local dir="$1" commit="$2" ci="$3" no_cache="$4"
   local started deadline slot code announced=0
@@ -255,7 +296,7 @@ cmd_job() {
   mkdir -p "$BASE/slots"
   while :; do
     for slot in $(seq 1 "$SLOT_COUNT"); do
-      flock -n -o -E "$BUSY" "$BASE/slots/$slot.lock" \
+      with_lock "$BASE/slots/$slot.lock" \
         bash "$SELF" slot-job "$slot" "$dir" "$commit" "$ci" "$no_cache" "$(($(date +%s) - started))"
       code=$?
       [ "$code" -eq "$BUSY" ] || return 0
@@ -297,28 +338,84 @@ cmd_related() {
   cat > "$RUNS/$1/related.json" || exit 1
 }
 
+# A child that starts a session of its own leaves the run's group. Once the run ends, any of ours
+# that nothing owns any more (its parent is launchd) and that works inside the run's checkout goes too:
+# tests that detach children do it from there.
+# One lsof call for every process's folder: asking per process took 84 s on a Mac with 849 of them,
+# since every app counts (launchd is every app's parent).
+sweep_orphans() {
+  local work="$1" orphans pid
+  [ -n "$work" ] || return 0
+  orphans=" $(pgrep -U "$(id -u)" -P 1 2>/dev/null | tr '\n' ' ') "
+  lsof -a -u "$(id -u)" -d cwd -Fpn 2>/dev/null |
+    awk -v work="$work" '/^p/ { pid = substr($0, 2) } /^n/ { path = substr($0, 2); if (path == work || index(path, work "/") == 1) print pid }' |
+    while read -r pid; do
+      case "$orphans" in *" $pid "*) kill -KILL "$pid" 2>/dev/null ;; esac
+    done
+}
+
+# The run leads a new process group, so one signal to the group stops everything it started. It is
+# stopped when the connection closes, or at the time limit, and anything left once it ends goes too.
+# The group id is the run's own process id, which the system could hand out again once the group is
+# gone; the `finished` marker stops a late watcher signalling a stranger.
+run_on_mac() {
+  local dir="$1" commit="$2" ci="$3" no_cache="$4"
+  perl -e 'setpgrp(0, 0); exec @ARGV or exit 127' \
+    bash "$SELF" job "$dir" "$commit" "$ci" "$no_cache" >> "$dir/out.log" 2>&1 < /dev/null &
+  local run_pid=$!
+  stop_group() {
+    [ -e "$dir/finished" ] && return
+    kill -TERM -- "-$run_pid" 2>/dev/null
+    sleep 10
+    [ -e "$dir/finished" ] || kill -KILL -- "-$run_pid" 2>/dev/null
+  }
+
+  exec 3<&0
+  ( cat <&3 >/dev/null; stop_group ) >/dev/null 2>&1 &
+  exec 3<&-
+  # Stopped when the run ends, taking its sleep with it.
+  ( trap 'kill "$timer" 2>/dev/null; exit 0' TERM; sleep "$RUN_LIMIT_SECONDS" & timer=$!; wait "$timer"; stop_group ) >/dev/null 2>&1 &
+  local limit_pid=$!
+
+  tail -n +1 -f "$dir/out.log" &
+  local tail_pid=$!
+  wait "$run_pid"
+  # Leftovers in the group go, then tail gets a moment to pass on the last lines.
+  kill -KILL -- "-$run_pid" 2>/dev/null
+  sweep_orphans "$(cat "$dir/work" 2>/dev/null)"
+  touch "$dir/finished"
+  kill "$limit_pid" 2>/dev/null
+  sleep 1
+  kill "$tail_pid" 2>/dev/null
+  wait "$tail_pid" 2>/dev/null
+}
+
 cmd_run() {
   local id="$1" commit="$2" ci="$3" no_cache="$4"
   local dir="$RUNS/$id" unit="harness-run-$id"
   mkdir -p "$dir"
   : > "$dir/out.log"
 
-  # A scope, not a service: a service's manager adopts orphans, whereas tests expect what a
-  # normal login gives them, which is process 1. leftover-process-sweeper.real.spec.ts needs this.
-  systemd-run --user --scope --quiet --collect --unit="$unit" \
-    -p KillMode=control-group -p TimeoutStopSec=10 -p "RuntimeMaxSec=$RUN_LIMIT_SECONDS" \
-    bash "$SELF" job "$dir" "$commit" "$ci" "$no_cache" >> "$dir/out.log" 2>&1 < /dev/null &
-  local run_pid=$!
+  if [ "$MAC" = 1 ]; then
+    run_on_mac "$dir" "$commit" "$ci" "$no_cache"
+  else
+    # A scope, not a service: a service's manager adopts orphans, whereas tests expect what a
+    # normal login gives them, which is process 1. leftover-process-sweeper.real.spec.ts needs this.
+    systemd-run --user --scope --quiet --collect --unit="$unit" \
+      -p KillMode=control-group -p TimeoutStopSec=10 -p "RuntimeMaxSec=$RUN_LIMIT_SECONDS" \
+      bash "$SELF" job "$dir" "$commit" "$ci" "$no_cache" >> "$dir/out.log" 2>&1 < /dev/null &
+    local run_pid=$!
 
-  # Bash gives background jobs /dev/null as stdin, so the watcher needs its own copy of the real one.
-  exec 3<&0
-  ( cat <&3 >/dev/null; systemctl --user stop "$unit.scope" ) >/dev/null 2>&1 &
-  exec 3<&-
+    # Bash gives background jobs /dev/null as stdin, so the watcher needs its own copy of the real one.
+    exec 3<&0
+    ( cat <&3 >/dev/null; systemctl --user stop "$unit.scope" ) >/dev/null 2>&1 &
+    exec 3<&-
 
-  tail -n +1 -f --pid="$run_pid" "$dir/out.log"
-  wait "$run_pid"
-  # A finished run can still leave detached children behind.
-  systemctl --user stop "$unit.scope" 2>/dev/null
+    tail -n +1 -f --pid="$run_pid" "$dir/out.log"
+    wait "$run_pid"
+    # A finished run can still leave detached children behind.
+    systemctl --user stop "$unit.scope" 2>/dev/null
+  fi
 
   if [ -f "$dir/result" ]; then
     printf '%s%s\n' "$RESULT_PREFIX" "$(cat "$dir/result")"

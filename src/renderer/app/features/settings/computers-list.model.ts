@@ -1,5 +1,5 @@
 /**
- * The Computers list: paired computers in the order Harness tries them, a test machine that belongs to none of them,
+ * The Computers list: paired computers in the order Harness tries them, test machines that belong to none of them,
  * and this Mac last. Pure, so the order, the moves and the words can be tested without a screen.
  */
 import type { ComputerChoice } from '../../../../shared/types/settings.types';
@@ -7,7 +7,7 @@ import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node
 import type { TestMachineView, WorkToday } from '../../../../shared/types/computers.types';
 
 export const THIS_MAC = 'this-mac';
-/** A test machine whose file names no paired computer, or one that isn't paired here. */
+/** A test machine's row when it belongs to no paired computer here: `test-machine:` and its host. */
 export const TEST_MACHINE = 'test-machine';
 
 export interface ComputerRow {
@@ -35,23 +35,28 @@ export function defaultChoice(id: string): ComputerChoice {
 }
 
 /**
- * Paired computers in the saved order, then any not yet in it; then a test machine on its own; then this Mac. The test
- * machine goes with the first paired computer whose name its file gives, so two computers with one name share none.
+ * Paired computers in the saved order, then any not yet in it; then test machines that belong to none of them, in the
+ * file's order; then this Mac. A test machine goes with the first paired computer whose name its file gives, so two
+ * computers with one name share none, and a computer has at most one.
  */
 export function buildComputerRows(
   nodes: readonly RemoteNodeRosterEntry[],
   choices: readonly ComputerChoice[],
-  testMachine: TestMachineView | null,
+  testMachines: readonly TestMachineView[],
   offload: OffloadSwitches,
 ): ComputerRow[] {
   const byId = new Map(nodes.map(node => [node.id, node]));
   const listed = choices.filter(choice => byId.has(choice.id)).map(choice => byId.get(choice.id)!);
   const ordered = [...listed, ...nodes.filter(node => !choices.some(choice => choice.id === node.id))];
-  const owner = testMachine?.nodeName ? ordered.find(node => node.name === testMachine.nodeName) : undefined;
+  const owned = new Map<RemoteNodeRosterEntry, TestMachineView>();
+  for (const machine of testMachines) {
+    const owner = machine.nodeName ? ordered.find(node => node.name === machine.nodeName && !owned.has(node)) : undefined;
+    if (owner) owned.set(owner, machine);
+  }
 
   const rows: ComputerRow[] = ordered.map((node) => {
     const choice = choices.find(entry => entry.id === node.id) ?? defaultChoice(node.id);
-    const machine = node === owner ? testMachine : null;
+    const machine = owned.get(node) ?? null;
     const alsoTakes = [
       ...(offload.browser && node.hasBrowserMcp ? ['browser work'] : []),
       ...(offload.android && node.hasAndroidMcp ? ['Android work'] : []),
@@ -69,10 +74,11 @@ export function buildComputerRows(
       alsoTakes,
     };
   });
-  if (testMachine && !owner) {
+  const ownedMachines = new Set(owned.values());
+  for (const machine of testMachines.filter(entry => !ownedMachines.has(entry))) {
     rows.push({
-      id: TEST_MACHINE, kind: 'test-machine', name: testMachine.label, away: false, awaySince: null, sessionsRunning: 0,
-      choice: null, testMachine, paused: testMachine.paused, alsoTakes: [],
+      id: `${TEST_MACHINE}:${machine.host}`, kind: 'test-machine', name: machine.label, away: false, awaySince: null,
+      sessionsRunning: 0, choice: null, testMachine: machine, paused: machine.paused, alsoTakes: [],
     });
   }
   rows.push({

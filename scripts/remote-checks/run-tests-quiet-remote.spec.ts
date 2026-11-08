@@ -285,6 +285,72 @@ describe('run-tests-quiet with remote checks', () => {
     expect(run.code).toBe(1);
     expect(run.stdout).toContain('✗ FAILED');
   }, LIMIT);
+
+  describe('with two test machines', () => {
+    /** A second machine with its own fake far side, listed after the first. `scenario` acts out its runs. */
+    function addMachine(setup: Setup, entry: Record<string, unknown>, scenario: string) {
+      const fake = join(setup.base, 'fake-2');
+      mkdirSync(join(fake, 'home'), { recursive: true });
+      writeFileSync(join(fake, 'scenario'), scenario);
+      const ssh = join(fake, 'ssh');
+      writeFileSync(ssh, `#!/bin/bash\nFAKE_DIR=${JSON.stringify(fake)} exec ${JSON.stringify(join(setup.fake, 'ssh'))} "$@"\n`);
+      chmodSync(ssh, 0o755);
+      const first = JSON.parse(readFileSync(join(setup.dir, 'config.json'), 'utf8')) as Record<string, unknown>;
+      writeFileSync(join(setup.dir, 'config.json'), JSON.stringify({ ...first, moreMachines: [{ ...entry, ssh }] }));
+      const read = (file: string): string => (existsSync(join(fake, file)) ? readFileSync(join(fake, file), 'utf8') : '');
+      return { fake, runArgs: () => read('run-args'), related: () => read('related-list'), calls: () => read('ssh.log') };
+    }
+
+    it('passes a run on to the next machine when the first has no free slot, and only the last waits', () => {
+      const setup = setUp();
+      const second = addMachine(setup, { host: 'far-2', label: 'the second PC' }, 'pass');
+      const run = runQuiet(setup, { scenario: 'no-slot' });
+      expect(run.code).toBe(0);
+      expect(run.stdout).toMatch(/Ran on the second PC in \d+s\./);
+      expect(run.sshCalls.find(call => call.includes(' run '))).toContain('AIO_SLOT_WAIT=0 ');
+      expect(second.runArgs()).not.toContain('AIO_SLOT_WAIT');
+      expect(run.runLog[0]).toMatchObject({ ranOn: 'far-2', fellBackBecause: null });
+    }, LIMIT);
+
+    it('runs here, naming both reasons, when neither machine can', () => {
+      const setup = setUp();
+      addMachine(setup, { host: 'far-2', label: 'the second PC' }, 'unreachable');
+      const run = runQuiet(setup, { scenario: 'no-slot' });
+      expect(run.code).toBe(0);
+      expect(run.stdout).toContain('Running on the Mac because the PC had no free slot; the second PC could not be reached');
+      expect(run.localRuns).toHaveLength(1);
+    }, LIMIT);
+
+    it.runIf(process.platform === 'darwin')('sends the Mac-only specs to a Mac in the list beside the main run, not to this Mac', () => {
+      const setup = setUp();
+      const mac = addMachine(setup, { host: 'test-mac', label: 'the test Mac', platform: 'darwin' }, 'mac-only-ran');
+      const run = runQuiet(setup);
+      expect(run.code).toBe(0);
+      expect(run.stdout).toMatch(/Ran on the PC in \d+s\./);
+      expect(JSON.parse(mac.related())).toEqual(expect.arrayContaining(['src/main/sandbox/signal-fence.spec.ts']));
+      expect(run.localRuns).toEqual([]);
+    }, LIMIT);
+
+    it('waits for the Mac-only run beside the main one even when the main run lands on that Mac too', () => {
+      const setup = setUp();
+      const mac = addMachine(setup, { host: 'test-mac', label: 'the test Mac', platform: 'darwin' }, 'pass');
+      writeFileSync(join(mac.fake, 'slow-related'), '5');
+      const run = runQuiet(setup, { scenario: 'no-slot' });
+      expect(run.code).toBe(0);
+      expect(run.stdout).toMatch(/Ran on the test Mac in \d+s\./);
+      // One fetch for the main run's report and one for the Mac-only run's, which would be lost if it were cut off.
+      expect(mac.calls().split('\n').filter(call => call.includes(' fetch '))).toHaveLength(2);
+      expect(run.localRuns).toEqual([]);
+    }, LIMIT);
+
+    it.runIf(process.platform === 'darwin')('runs the Mac-only specs here when the Mac in the list can\'t', () => {
+      const setup = setUp();
+      addMachine(setup, { host: 'test-mac', label: 'the test Mac', platform: 'darwin' }, 'unreachable');
+      const run = runQuiet(setup);
+      expect(run.code).toBe(0);
+      expect(run.localRuns).toEqual([{ macOnly: true }]);
+    }, LIMIT);
+  });
 });
 
 describe('sending a snapshot', () => {

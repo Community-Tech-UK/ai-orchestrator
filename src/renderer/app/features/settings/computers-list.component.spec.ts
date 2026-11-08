@@ -31,8 +31,11 @@ const node = (id: string, change: Partial<RemoteNodeRosterEntry> = {}): RemoteNo
   ...change,
 });
 const MACHINE: TestMachineView = {
-  host: 'harness-checks', label: 'the Windows PC', nodeName: 'windows-pc', paused: false, testRuns: true, checks: true, slots: 3,
+  host: 'harness-checks', platform: 'linux', label: 'the Windows PC', nodeName: 'windows-pc', paused: false, testRuns: true,
+  checks: true, slots: 3,
 };
+const TEST_MAC: TestMachineView = { ...MACHINE, host: 'ct-test-mac', platform: 'darwin', label: 'the test Mac', nodeName: null };
+const ALL_MACHINES = [MACHINE, TEST_MAC];
 const TODAY: WorkToday = {
   testRuns: { there: 59, here: 8 }, checks: { there: 4, here: 0 }, shortRunsHere: 0,
   hereBecause: [{ reason: 'the Windows PC could not be reached', count: 8 }],
@@ -50,12 +53,12 @@ describe('ComputersListComponent', () => {
     set: vi.fn(async (_key: string, value: ComputerChoice[]) => { choices.set(value); }),
   };
   const ipc = {
-    getTestMachine: vi.fn(async (): Promise<
-      { ok: true; testMachine: TestMachineView | null; today: WorkToday | null } | { ok: false; error: unknown }
-    > => ({ ok: true, testMachine: MACHINE, today: TODAY })),
-    changeTestMachine: vi.fn(async (change: Partial<TestMachineView>): Promise<
+    getTestMachines: vi.fn(async (): Promise<
+      { ok: true; testMachines: TestMachineView[]; today: WorkToday | null } | { ok: false; error: unknown }
+    > => ({ ok: true, testMachines: [MACHINE], today: TODAY })),
+    changeTestMachine: vi.fn(async (host: string, change: Partial<TestMachineView>): Promise<
       { ok: true; testMachine: TestMachineView } | { ok: false; error: unknown }
-    > => ({ ok: true, testMachine: { ...MACHINE, ...change } })),
+    > => ({ ok: true, testMachine: { ...ALL_MACHINES.find(machine => machine.host === host)!, ...change } })),
   };
   let fixture: ComponentFixture<ComputersListComponent>;
 
@@ -72,7 +75,7 @@ describe('ComputersListComponent', () => {
   const names = (element: HTMLElement) => [...element.querySelectorAll('.computer-name')].map(name => name.textContent?.trim());
   /** As a click does: the box changes first, then the change event fires. */
   const toggle = (element: HTMLElement, id: string): HTMLInputElement => {
-    const input = element.querySelector(`#${id}`) as HTMLInputElement;
+    const input = element.querySelector(`[id="${id}"]`) as HTMLInputElement;
     input.checked = !input.checked;
     input.dispatchEvent(new Event('change'));
     return input;
@@ -83,8 +86,10 @@ describe('ComputersListComponent', () => {
     choices.set([]);
     storeError.set(null);
     store.set.mockImplementation(async (_key: string, value: ComputerChoice[]) => { choices.set(value); });
-    ipc.changeTestMachine.mockImplementation(async (change: Partial<TestMachineView>) => ({ ok: true, testMachine: { ...MACHINE, ...change } }));
-    ipc.getTestMachine.mockResolvedValue({ ok: true, testMachine: MACHINE, today: TODAY });
+    ipc.changeTestMachine.mockImplementation(async (host: string, change: Partial<TestMachineView>) => ({
+      ok: true, testMachine: { ...ALL_MACHINES.find(machine => machine.host === host)!, ...change },
+    }));
+    ipc.getTestMachines.mockResolvedValue({ ok: true, testMachines: [MACHINE], today: TODAY });
     await TestBed.configureTestingModule({
       imports: [ComputersListComponent],
       providers: [
@@ -103,6 +108,23 @@ describe('ComputersListComponent', () => {
     expect(element.textContent).toContain('Away');
     expect(element.textContent).toContain('Test runs: 59 on the Windows PC, 8 here.');
     expect(element.textContent).toContain('8 ran here because the Windows PC could not be reached.');
+  });
+
+  it('shows a second test machine on its own row, changes it by its own name, and names both in today\'s work', async () => {
+    ipc.getTestMachines.mockResolvedValue({ ok: true, testMachines: ALL_MACHINES, today: TODAY });
+    const element = await render([node('windows-pc')]);
+    expect(names(element)).toEqual(['windows-pc', 'the test Mac', 'This Mac']);
+    expect(element.textContent).toContain('Test runs: 59 on your test machines, 8 here.');
+    toggle(element, 'checks-test-machine:ct-test-mac');
+    await fixture.whenStable();
+    expect(ipc.changeTestMachine).toHaveBeenLastCalledWith('ct-test-mac', { checks: false });
+    fixture.detectChanges();
+    expect((element.querySelector('[id="checks-test-machine:ct-test-mac"]') as HTMLInputElement).checked).toBe(false);
+    expect((element.querySelector('#checks-windows-pc') as HTMLInputElement).checked).toBe(true);
+    toggle(element, 'paused-test-machine:ct-test-mac');
+    await fixture.whenStable();
+    expect(ipc.changeTestMachine).toHaveBeenLastCalledWith('ct-test-mac', { paused: true });
+    expect(store.set).not.toHaveBeenCalled();
   });
 
   it('saves the whole order when a computer moves, and each change to a computer\'s switches', async () => {
@@ -134,16 +156,16 @@ describe('ComputersListComponent', () => {
     toggle(element, 'paused-windows-pc');
     await fixture.whenStable();
     expect(store.set).toHaveBeenCalledWith('computers', [{ id: 'windows-pc', paused: true, sessions: true }]);
-    expect(ipc.changeTestMachine).toHaveBeenCalledWith({ paused: true });
+    expect(ipc.changeTestMachine).toHaveBeenCalledWith('harness-checks', { paused: true });
     fixture.detectChanges();
     toggle(element, 'checks-windows-pc');
     await fixture.whenStable();
-    expect(ipc.changeTestMachine).toHaveBeenLastCalledWith({ checks: false });
+    expect(ipc.changeTestMachine).toHaveBeenLastCalledWith('harness-checks', { checks: false });
     const slots = element.querySelector('#slots-windows-pc') as HTMLSelectElement;
     slots.value = '5';
     slots.dispatchEvent(new Event('change'));
     await fixture.whenStable();
-    expect(ipc.changeTestMachine).toHaveBeenLastCalledWith({ slots: 5 });
+    expect(ipc.changeTestMachine).toHaveBeenLastCalledWith('harness-checks', { slots: 5 });
   });
 
   it('says when a change wasn\'t saved', async () => {
@@ -228,19 +250,19 @@ describe('ComputersListComponent', () => {
 
   it('does not let a refresh that began before a change put the old values back', async () => {
     const element = await render([node('windows-pc')]);
-    let finishRefresh!: (value: { ok: true; testMachine: TestMachineView; today: WorkToday }) => void;
-    ipc.getTestMachine.mockImplementationOnce(() => new Promise(resolve => { finishRefresh = resolve; }));
+    let finishRefresh!: (value: { ok: true; testMachines: TestMachineView[]; today: WorkToday }) => void;
+    ipc.getTestMachines.mockImplementationOnce(() => new Promise(resolve => { finishRefresh = resolve; }));
     void (fixture.componentInstance as unknown as { load: () => Promise<void> }).load();
     toggle(element, 'checks-windows-pc');
     await fixture.whenStable();
-    finishRefresh({ ok: true, testMachine: MACHINE, today: TODAY });
+    finishRefresh({ ok: true, testMachines: [MACHINE], today: TODAY });
     await fixture.whenStable();
     fixture.detectChanges();
     expect((element.querySelector('#checks-windows-pc') as HTMLInputElement).checked).toBe(false);
   });
 
   it('says when the test machine\'s settings can\'t be read, and still lists the rest', async () => {
-    ipc.getTestMachine.mockResolvedValueOnce({ ok: false, error: { message: 'The test machine settings file names no host.' } });
+    ipc.getTestMachines.mockResolvedValueOnce({ ok: false, error: { message: 'The test machine settings file names no host.' } });
     const element = await render([node('windows-pc')]);
     expect(element.querySelector('[role="alert"]')?.textContent).toContain('couldn\'t be read');
     expect(element.querySelector('details')?.textContent).toContain('names no host');

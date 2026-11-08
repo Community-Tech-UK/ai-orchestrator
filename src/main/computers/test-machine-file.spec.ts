@@ -3,11 +3,11 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { changeTestMachine, readRunLog, readTestMachine, summariseWorkToday } from './test-machine-file';
+import { changeTestMachine, readRunLog, readTestMachines, summariseWorkToday } from './test-machine-file';
 
 const require = createRequire(import.meta.url);
 const { readConfig } = require('../../../scripts/remote-checks/route.js') as {
-  readConfig: (env: NodeJS.ProcessEnv) => Record<string, unknown> | null;
+  readConfig: (env: NodeJS.ProcessEnv) => { queueChecks: boolean; machines: Record<string, unknown>[] } | null;
 };
 
 const dirs: string[] = [];
@@ -22,45 +22,73 @@ function folder(config: object | string | null): string {
   return dir;
 }
 
+const read = (dir: string) => JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8'));
+
+/** One machine, as the file was first written. */
 const SET_UP = { host: 'harness-checks', label: 'the Windows PC', sshConfig: '/somewhere/ssh_config', queueChecks: true };
+const TEST_MAC = { host: 'ct-test-mac', label: 'the test Mac', platform: 'darwin' };
+const LISTED = { ...SET_UP, moreMachines: [TEST_MAC] };
 
 describe('the test machine file', () => {
-  it('says there is none when the file is missing, and refuses a broken one', () => {
-    expect(readTestMachine(folder(null))).toBeNull();
-    expect(() => readTestMachine(folder('{ broken'))).toThrow();
-    expect(() => readTestMachine(folder({ label: 'x' }))).toThrow(/no host/);
-    expect(() => readTestMachine(folder('[]'))).toThrow(/not a JSON object/);
+  it('says there are none when the file is missing, and refuses a broken one', () => {
+    expect(readTestMachines(folder(null))).toEqual([]);
+    expect(() => readTestMachines(folder('{ broken'))).toThrow();
+    expect(() => readTestMachines(folder({ label: 'x' }))).toThrow(/no host/);
+    expect(() => readTestMachines(folder('[]'))).toThrow(/not a JSON object/);
+    expect(() => readTestMachines(folder({ ...SET_UP, moreMachines: [TEST_MAC, 'x'] }))).toThrow(/not a JSON object/);
+    expect(() => readTestMachines(folder({ ...SET_UP, moreMachines: [{ label: 'x' }] }))).toThrow(/no host/);
   });
 
-  it('reads what the scripts would: on, three at a time, unless the file says otherwise', () => {
-    expect(readTestMachine(folder(SET_UP))).toEqual({
-      host: 'harness-checks', label: 'the Windows PC', nodeName: null, paused: false, testRuns: true, checks: true, slots: 3,
-    });
-    expect(readTestMachine(folder({ ...SET_UP, nodeName: 'windows-pc', paused: true, checks: false, slots: 9 }))).toMatchObject({
+  it('reads what the scripts would: on, three at a time, Linux, unless the file says otherwise', () => {
+    expect(readTestMachines(folder(SET_UP))).toEqual([{
+      host: 'harness-checks', platform: 'linux', label: 'the Windows PC', nodeName: null, paused: false, testRuns: true,
+      checks: true, slots: 3,
+    }]);
+    expect(readTestMachines(folder({ ...SET_UP, nodeName: 'windows-pc', paused: true, checks: false, slots: 9 }))).toMatchObject([{
       nodeName: 'windows-pc', paused: true, checks: false, slots: 3,
-    });
+    }]);
   });
 
-  it('changes only what it is given, keeps the rest of the file, and agrees with the scripts afterwards', () => {
-    const dir = folder(SET_UP);
-    expect(changeTestMachine({ paused: true, slots: 5 }, dir)).toMatchObject({ paused: true, slots: 5, testRuns: true });
-    const written = JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8'));
-    expect(written).toEqual({ ...SET_UP, paused: true, slots: 5 });
-    expect(readConfig({ AIO_REMOTE_CHECKS_DIR: dir })).toMatchObject({ paused: true, slots: 5, testRuns: true, checks: true });
+  it('reads the top-level machine, then any more in their order, as the scripts do', () => {
+    const dir = folder(LISTED);
+    expect(readTestMachines(dir).map(machine => [machine.host, machine.platform, machine.label])).toEqual([
+      ['harness-checks', 'linux', 'the Windows PC'], ['ct-test-mac', 'darwin', 'the test Mac'],
+    ]);
+    expect(readConfig({ AIO_REMOTE_CHECKS_DIR: dir })!.machines.map(machine => machine['host'])).toEqual(['harness-checks', 'ct-test-mac']);
+  });
+
+  it('changes only the machine and fields it is given, keeps the rest of the file, and agrees with the scripts afterwards', () => {
+    const dir = folder(LISTED);
+    expect(changeTestMachine('ct-test-mac', { paused: true, slots: 5 }, dir)).toMatchObject({ host: 'ct-test-mac', paused: true, slots: 5, testRuns: true });
+    expect(read(dir)).toEqual({ ...SET_UP, moreMachines: [{ ...TEST_MAC, paused: true, slots: 5 }] });
+    expect(readConfig({ AIO_REMOTE_CHECKS_DIR: dir })).toMatchObject({
+      queueChecks: true,
+      machines: [{ host: 'harness-checks', paused: false, slots: 3 }, { host: 'ct-test-mac', paused: true, slots: 5, testRuns: true, checks: true }],
+    });
     expect(readdirSync(dir)).toEqual(['config.json']);
   });
 
-  it('refuses a change it does not own or cannot use, and leaves the file alone', () => {
-    const dir = folder(SET_UP);
+  it('changes the first machine where it is, at the top, where older copies of the scripts and Harness read it', () => {
+    const dir = folder(LISTED);
+    expect(changeTestMachine('harness-checks', { checks: false }, dir)).toMatchObject({ checks: false, testRuns: true });
+    expect(read(dir)).toEqual({ ...LISTED, checks: false });
+    const single = folder(SET_UP);
+    changeTestMachine('harness-checks', { paused: true }, single);
+    expect(read(single)).toEqual({ ...SET_UP, paused: true });
+  });
+
+  it('refuses a change it does not own or cannot use, or a machine that is not there, and leaves the file alone', () => {
+    const dir = folder(LISTED);
     for (const change of [{ host: 'elsewhere' }, { slots: 0 }, { slots: 9 }, { slots: 2.5 }, { paused: 'yes' }]) {
-      expect(() => changeTestMachine(change as never, dir)).toThrow();
+      expect(() => changeTestMachine('ct-test-mac', change as never, dir)).toThrow();
     }
-    expect(JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8'))).toEqual(SET_UP);
+    expect(() => changeTestMachine('elsewhere', { paused: true }, dir)).toThrow(/No test machine called elsewhere/);
+    expect(read(dir)).toEqual(LISTED);
   });
 
   it('cannot set up a test machine that does not exist', () => {
     const dir = folder(null);
-    expect(() => changeTestMachine({ paused: true }, dir)).toThrow(/No test machine/);
+    expect(() => changeTestMachine('harness-checks', { paused: true }, dir)).toThrow(/No test machine/);
     expect(readdirSync(dir)).toEqual([]);
   });
 });

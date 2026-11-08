@@ -13,8 +13,8 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { appendRunLog, isLoopRun, isQueueCheck, readConfig, stayReason } = require('./route');
-const { runOnRemote } = require('./run-remote');
+const { appendRunLog, isLoopRun, isQueueCheck, machinesFor, readConfig, stayReason } = require('./route');
+const { runOnMachines } = require('./run-remote');
 
 /** The only commands this runs, exactly as written. remote-run.sh's `known_check` has the same list. */
 const KNOWN_CHECKS = [
@@ -126,14 +126,17 @@ async function runChecks({ checks, root, logPath, env = process.env, onResult = 
   const started = Date.now();
   let results = null;
   let ranOn = MAC;
+  let host = 'mac';
   let reason = route.reason ?? null;
 
   if (route.kind === 'remote') {
-    process.stderr.write(`checks: sending ${checks.length} to ${config.label}\n`);
-    const remote = await runOnRemote({ config, root, logPath, jsonPath: null, ci: env.CI, noCache: false, checks });
+    const machines = machinesFor(config, 'checks');
+    process.stderr.write(`checks: sending ${checks.length} to ${machines[0].label}\n`);
+    const remote = await runOnMachines(machines, { root, logPath, jsonPath: null, ci: env.CI, noCache: false, checks });
     if (remote.ok) {
       results = remote.checks;
-      ranOn = config.label;
+      ranOn = remote.machine.label;
+      host = remote.machine.host;
       results.forEach(onResult);
     } else {
       reason = remote.reason;
@@ -150,7 +153,7 @@ async function runChecks({ checks, root, logPath, env = process.env, onResult = 
       project: path.basename(root),
       kind: 'checks',
       loop: isLoopRun(env),
-      ranOn: ranOn === MAC ? 'mac' : config.host,
+      ranOn: host,
       checks: results.map(result => ({ command: result.command, exitCode: result.exitCode, tookMs: result.durationMs })),
       tookMs,
       exitCode,

@@ -149,22 +149,23 @@ export class RemoteNodeIpcService {
       : { success: false, error: result?.error?.message ?? 'Transfer failed' };
   }
 
-  /** The test machine and where today's work went; nulls when none is set up. A failure carries the error as sent. */
-  async getTestMachine(): Promise<
-    { ok: true; testMachine: TestMachineView | null; today: WorkToday | null } | { ok: false; error: unknown }
+  /** The test machines, in order, and where today's work went; none when none is set up. A failure carries the error as sent. */
+  async getTestMachines(): Promise<
+    { ok: true; testMachines: TestMachineView[]; today: WorkToday | null } | { ok: false; error: unknown }
   > {
-    if (!this.api) return { ok: true, testMachine: null, today: null };
+    if (!this.api) return { ok: true, testMachines: [], today: null };
     const result = await this.api.computersGetTestMachine() as IpcResult | null;
     if (!result?.success) return { ok: false, error: result?.error ?? result };
-    return { ok: true, ...(result.data as { testMachine: TestMachineView | null; today: WorkToday | null }) };
+    return { ok: true, ...(result.data as { testMachines: TestMachineView[]; today: WorkToday | null }) };
   }
 
-  /** Changes the test machine's switches, returning it as it now is. A failure carries the error as sent. */
+  /** Changes one test machine's switches, returning it as it now is. A failure carries the error as sent. */
   async changeTestMachine(
+    host: string,
     change: Partial<Pick<TestMachineView, 'paused' | 'testRuns' | 'checks' | 'slots'>>,
   ): Promise<{ ok: true; testMachine: TestMachineView } | { ok: false; error: unknown }> {
     if (!this.api) return { ok: false, error: 'Not in Electron' };
-    const result = await this.api.computersChangeTestMachine(change) as IpcResult | null;
+    const result = await this.api.computersChangeTestMachine({ host, change }) as IpcResult | null;
     if (!result?.success) return { ok: false, error: result?.error ?? result };
     return { ok: true, testMachine: (result.data as { testMachine: TestMachineView }).testMachine };
   }

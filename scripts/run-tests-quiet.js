@@ -63,8 +63,8 @@ const os = require('os');
 const path = require('path');
 const { MAC_ONLY_SPECS, mergeMacOnlyReport } = require('./remote-checks/mac-only');
 const { takeMacTurn } = require('./remote-checks/mac-turn');
-const { appendRunLog, countSpecFiles, decideRoute, isLoopRun, readConfig, remoteChecksDir } = require('./remote-checks/route');
-const { runOnRemote } = require('./remote-checks/run-remote');
+const { appendRunLog, countSpecFiles, decideRoute, isLoopRun, machinesFor, readConfig, remoteChecksDir } = require('./remote-checks/route');
+const { runOnMachines, runOnRemote } = require('./remote-checks/run-remote');
 
 const ROOT = path.resolve(__dirname, '..');
 const SCRATCH_DIR = path.join(ROOT, '_scratch');
@@ -235,10 +235,34 @@ function formatDuration(ms) {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
-/** After a run elsewhere: the specs that only prove anything on macOS, merged into its report. */
-async function runMacOnlySpecs(remoteExitCode, specs) {
-  if (process.platform !== 'darwin' || !specs.length) return remoteExitCode;
-  const macExitCode = await runVitest({ testArgs: specs, jsonPath: MAC_ONLY_JSON_PATH });
+/**
+ * The specs that only prove anything on macOS, started on a Mac in the list beside the main run, so they don't wait
+ * for it. Null when there is no Mac there to use, or it comes first, where the main run will cover them itself.
+ */
+function startMacOnlyElsewhere(machines, specs) {
+  const mac = machines.find(machine => machine.platform === 'darwin');
+  if (!mac || machines[0] === mac || !specs.length) return null;
+  return runOnRemote({
+    config: mac, root: ROOT, logPath: `${LOG_PATH}.mac-only`, jsonPath: MAC_ONLY_JSON_PATH, noCache: false, ci: process.env.CI,
+    relatedTo: specs,
+  });
+}
+
+/**
+ * After a run elsewhere: the Mac-only specs, merged into its report. Nothing to merge if the main run was on a Mac,
+ * which ran them already. Otherwise the result from a Mac in the list, or this Mac when that didn't work. A run started
+ * beside the main one is always waited for, since this script ends with process.exit, which would cut it off.
+ */
+async function runMacOnlySpecs(remoteExitCode, specs, ranOnMac, elsewhere) {
+  const there = elsewhere ? await elsewhere : null;
+  if (ranOnMac || !specs.length) return remoteExitCode;
+  let macExitCode;
+  if (there?.ok) {
+    macExitCode = there.exitCode;
+  } else {
+    if (process.platform !== 'darwin') return remoteExitCode;
+    macExitCode = await runVitest({ testArgs: specs, jsonPath: MAC_ONLY_JSON_PATH });
+  }
   mergeMacOnlyReport({ mainPath: JSON_PATH, macPath: MAC_ONLY_JSON_PATH, root: ROOT, macExitCode });
   return remoteExitCode !== 0 ? remoteExitCode : macExitCode;
 }
@@ -304,10 +328,14 @@ async function runSuite() {
   const started = Date.now();
   let outcome;
   let reason = route.reason;
+  /** A Mac-only run started beside a main run that then stayed here: waited for once this Mac's run is done. */
+  let unmerged = null;
   if (route.kind === 'remote') {
     const stopProgress = watchProgress();
-    const remote = await runOnRemote({
-      config,
+    const machines = machinesFor(config, 'testRuns');
+    const macOnly = route.specs ? MAC_ONLY_SPECS.filter(spec => route.specs.includes(spec)) : MAC_ONLY_SPECS;
+    const macOnlyElsewhere = startMacOnlyElsewhere(machines, macOnly);
+    const remote = await runOnMachines(machines, {
       root: ROOT,
       logPath: LOG_PATH,
       jsonPath: JSON_PATH,
@@ -318,20 +346,25 @@ async function runSuite() {
     });
     stopProgress();
     if (remote.ok) {
-      const macOnly = route.specs ? MAC_ONLY_SPECS.filter(spec => route.specs.includes(spec)) : MAC_ONLY_SPECS;
       outcome = {
-        exitCode: await runMacOnlySpecs(remote.exitCode, macOnly),
-        where: `Ran on ${config.label} in ${formatDuration(Date.now() - started)}.`,
-        ranOn: config.host,
+        exitCode: await runMacOnlySpecs(remote.exitCode, macOnly, remote.machine.platform === 'darwin', macOnlyElsewhere),
+        where: `Ran on ${remote.machine.label} in ${formatDuration(Date.now() - started)}.`,
+        ranOn: remote.machine.host,
         waitedMs: remote.waitedMs,
         fingerprint: remote.fingerprint,
       };
     } else {
       reason = remote.reason;
+      // This Mac's full run covers the Mac-only specs, so one started beside it has nothing to add.
+      unmerged = macOnlyElsewhere;
       clearRunOutput();
     }
   }
   outcome ||= await runFullSuiteOnMac(route, reason);
+  if (unmerged) {
+    await unmerged;
+    fs.rmSync(MAC_ONLY_JSON_PATH, { force: true });
+  }
 
   appendRunLog({
     at: new Date(started).toISOString(),

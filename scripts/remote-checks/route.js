@@ -19,10 +19,33 @@ const DEFAULT_SLOTS = 3;
 const MAX_SLOTS = 8;
 
 /**
- * `{ host, label, sshConfig?, ssh?, queueChecks?, paused, testRuns, checks, slots, nodeName? }`, or null when remote
- * checks aren't set up. The machine takes test runs and checks unless they're turned off, and runs `slots` at once.
- * Harness's Computers page changes `paused`, `testRuns`, `checks` and `slots`; `nodeName` names the paired computer
- * this machine is part of.
+ * One test machine: `{ host, label, sshConfig?, ssh?, nodeName?, platform, paused, testRuns, checks, slots }`. It takes
+ * test runs and checks unless they're turned off, and runs `slots` at once. Harness's Computers page changes `paused`,
+ * `testRuns`, `checks` and `slots`; `nodeName` names the paired computer it is part of; `platform` is `darwin` for a Mac.
+ */
+function readMachine(entry) {
+  if (!entry || typeof entry !== 'object' || typeof entry.host !== 'string' || !entry.host) {
+    throw new Error('remote checks config has a machine with no host');
+  }
+  const slots = Number.isInteger(entry.slots) && entry.slots >= 1 && entry.slots <= MAX_SLOTS ? entry.slots : DEFAULT_SLOTS;
+  return {
+    host: entry.host,
+    label: typeof entry.label === 'string' && entry.label ? entry.label : 'the remote machine',
+    ...(typeof entry.sshConfig === 'string' ? { sshConfig: entry.sshConfig } : {}),
+    ...(typeof entry.ssh === 'string' ? { ssh: entry.ssh } : {}),
+    ...(typeof entry.nodeName === 'string' && entry.nodeName ? { nodeName: entry.nodeName } : {}),
+    platform: entry.platform === 'darwin' ? 'darwin' : 'linux',
+    paused: entry.paused === true,
+    testRuns: entry.testRuns !== false,
+    checks: entry.checks !== false,
+    slots,
+  };
+}
+
+/**
+ * `{ queueChecks, machines }`, the machines in the order to try them, or null when remote checks aren't set up. The first
+ * machine is the file's top level, where copies of these scripts from before the list still find it; the rest follow in
+ * `moreMachines`.
  */
 function readConfig(env = process.env) {
   let raw;
@@ -32,23 +55,21 @@ function readConfig(env = process.env) {
     return null;
   }
   const config = JSON.parse(raw);
-  if (typeof config.host !== 'string' || !config.host) throw new Error('remote checks config has no host');
-  const slots = Number.isInteger(config.slots) && config.slots >= 1 && config.slots <= MAX_SLOTS ? config.slots : DEFAULT_SLOTS;
-  return {
-    label: 'the remote machine',
-    ...config,
-    paused: config.paused === true,
-    testRuns: config.testRuns !== false,
-    checks: config.checks !== false,
-    slots,
-  };
+  const listed = [config, ...(Array.isArray(config.moreMachines) ? config.moreMachines : [])];
+  return { queueChecks: config.queueChecks === true, machines: listed.map(readMachine) };
 }
 
-/** Why this kind of work stays here today by choice, or null. `work` is `testRuns` or `checks`. */
+/** The machines that take this kind of work now, in order. `work` is `testRuns` or `checks`. */
+function machinesFor(config, work) {
+  return config.machines.filter(machine => !machine.paused && machine[work]);
+}
+
+/** Why this kind of work stays here by choice: every machine is paused or has it turned off. Null when one takes it. */
 function stayReason(config, work) {
-  if (config.paused === true) return `${config.label} is paused`;
-  if (config[work] === false) return `${work === 'testRuns' ? 'test runs' : 'checks'} are turned off for ${config.label}`;
-  return null;
+  if (machinesFor(config, work).length) return null;
+  return config.machines.map(machine => (machine.paused
+    ? `${machine.label} is paused`
+    : `${work === 'testRuns' ? 'test runs' : 'checks'} are turned off for ${machine.label}`)).join(' and ');
 }
 
 /** Harness's own check, in a folder queue sessions share. Those sessions carry AIO_QUEUE_SESSION. */
@@ -131,4 +152,6 @@ function appendRunLog(entry, env = process.env) {
   }
 }
 
-module.exports = { appendRunLog, countSpecFiles, decideRoute, isLoopRun, isQueueCheck, readConfig, remoteChecksDir, stayReason };
+module.exports = {
+  appendRunLog, countSpecFiles, decideRoute, isLoopRun, isQueueCheck, machinesFor, readConfig, remoteChecksDir, stayReason,
+};

@@ -23,6 +23,8 @@ case "$cmd" in
     commit="${'$'}{@: -3:1}"
     echo "$cmd" > "$FAKE_DIR/run-args"
     [ -f "remote-checks/runs/$id/related.json" ] && cp "remote-checks/runs/$id/related.json" "$FAKE_DIR/related-list"
+    # A list run that takes a while, so a test can tell whether anything waited for it.
+    [ -f "remote-checks/runs/$id/related.json" ] && [ -f "$FAKE_DIR/slow-related" ] && sleep "$(cat "$FAKE_DIR/slow-related")"
     [ -f "remote-checks/runs/$id/checks.list" ] && cp "remote-checks/runs/$id/checks.list" "$FAKE_DIR/checks-list"
     repo=remote-checks/repo.git
     node_file=.nvmrc

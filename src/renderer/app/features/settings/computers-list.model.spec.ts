@@ -24,8 +24,8 @@ const node = (id: string, change: Partial<RemoteNodeRosterEntry> = {}): RemoteNo
   ...change,
 });
 const machine = (change: Partial<TestMachineView> = {}): TestMachineView => ({
-  host: 'harness-checks', label: 'the Windows PC', nodeName: 'windows-pc', paused: false, testRuns: true, checks: true,
-  slots: 3, ...change,
+  host: 'harness-checks', platform: 'linux', label: 'the Windows PC', nodeName: 'windows-pc', paused: false, testRuns: true,
+  checks: true, slots: 3, ...change,
 });
 const ON = { browser: true, android: true };
 
@@ -34,7 +34,7 @@ describe('the Computers list', () => {
     const rows = buildComputerRows(
       [node('laptop'), node('windows-pc', { hasBrowserMcp: true, hasAndroidMcp: true }), node('new')],
       [{ id: 'windows-pc', paused: false, sessions: true }, { id: 'laptop', paused: false, sessions: false }, { id: 'gone', paused: true, sessions: true }],
-      machine(),
+      [machine()],
       ON,
     );
     expect(rows.map(row => row.id)).toEqual(['windows-pc', 'laptop', 'new', THIS_MAC]);
@@ -44,22 +44,37 @@ describe('the Computers list', () => {
   });
 
   it('shows a test machine with no paired computer as its own row, before this Mac', () => {
-    const rows = buildComputerRows([node('laptop')], [], machine({ nodeName: null }), ON);
-    expect(rows.map(row => [row.id, row.name])).toEqual([['laptop', 'laptop'], [TEST_MACHINE, 'the Windows PC'], [THIS_MAC, 'This Mac']]);
+    const rows = buildComputerRows([node('laptop')], [], [machine({ nodeName: null })], ON);
+    expect(rows.map(row => [row.id, row.name])).toEqual([
+      ['laptop', 'laptop'], [`${TEST_MACHINE}:harness-checks`, 'the Windows PC'], [THIS_MAC, 'This Mac'],
+    ]);
+  });
+
+  it('puts each of several test machines on its own computer or its own row, in the file\'s order', () => {
+    const testMac = machine({ host: 'ct-test-mac', platform: 'darwin', label: 'the test Mac', nodeName: null });
+    const spare = machine({ host: 'spare', label: 'the spare', nodeName: 'windows-pc' });
+    const rows = buildComputerRows([node('windows-pc'), node('laptop')], [], [machine(), testMac, spare], ON);
+    expect(rows.map(row => [row.id, row.testMachine?.host ?? null])).toEqual([
+      ['windows-pc', 'harness-checks'],
+      ['laptop', null],
+      [`${TEST_MACHINE}:ct-test-mac`, 'ct-test-mac'],
+      [`${TEST_MACHINE}:spare`, 'spare'],
+      [THIS_MAC, null],
+    ]);
   });
 
   it('leaves out browser and Android work when their switches are off', () => {
-    const [row] = buildComputerRows([node('pc', { hasBrowserMcp: true, hasAndroidMcp: true })], [], null, { browser: false, android: true });
+    const [row] = buildComputerRows([node('pc', { hasBrowserMcp: true, hasAndroidMcp: true })], [], [], { browser: false, android: true });
     expect(row!.alsoTakes).toEqual(['Android work']);
   });
 
   it('calls a computer paused when either its own choice or its test machine is paused', () => {
-    expect(buildComputerRows([node('windows-pc')], [], machine({ paused: true }), ON)[0]!.paused).toBe(true);
-    expect(buildComputerRows([node('windows-pc')], [{ id: 'windows-pc', paused: true, sessions: true }], machine(), ON)[0]!.paused).toBe(true);
+    expect(buildComputerRows([node('windows-pc')], [], [machine({ paused: true })], ON)[0]!.paused).toBe(true);
+    expect(buildComputerRows([node('windows-pc')], [{ id: 'windows-pc', paused: true, sessions: true }], [machine()], ON)[0]!.paused).toBe(true);
   });
 
   it('moves a computer one place and saves every paired computer in the new order', () => {
-    const rows = buildComputerRows([node('a'), node('b'), node('c')], [], null, ON);
+    const rows = buildComputerRows([node('a'), node('b'), node('c')], [], [], ON);
     expect(movedChoices(rows, 'c', -1).map(choice => choice.id)).toEqual(['a', 'c', 'b']);
     expect(movedChoices(rows, 'a', -1).map(choice => choice.id)).toEqual(['a', 'b', 'c']);
     expect(movedChoices(rows, 'c', 1).map(choice => choice.id)).toEqual(['a', 'b', 'c']);
@@ -67,7 +82,7 @@ describe('the Computers list', () => {
   });
 
   it('changes one computer and keeps the rest as they were', () => {
-    const rows = buildComputerRows([node('a'), node('b')], [{ id: 'b', paused: false, sessions: false }], null, ON);
+    const rows = buildComputerRows([node('a'), node('b')], [{ id: 'b', paused: false, sessions: false }], [], ON);
     expect(changedChoices(rows, 'a', { paused: true })).toEqual([
       { id: 'b', paused: false, sessions: false },
       { id: 'a', paused: true, sessions: true },
@@ -81,7 +96,7 @@ describe('the Computers list', () => {
       node('busy', { activeInstances: 2 }),
       node('away', { connected: false, lastHeartbeat: new Date(2026, 10, 7, 14, 2).getTime() }),
       node('earlier', { connected: false, lastHeartbeat: new Date(2026, 10, 5, 9, 0).getTime() }),
-    ], [], null, ON);
+    ], [], [], ON);
     expect(describeNow(idle!, now)).toBeNull();
     expect(describeNow(busy!, now)).toBe('2 sessions running');
     expect(describeNow(away!, now)).toBe('Away since 14:02');
@@ -109,7 +124,7 @@ describe('what a computer takes, in words', () => {
     const [laptop, mac, pc] = buildComputerRows(
       [node('windows-pc', { hasBrowserMcp: true }), node('laptop')],
       [{ id: 'laptop', paused: false, sessions: false }],
-      machine({ checks: false, slots: 4 }),
+      [machine({ checks: false, slots: 4 })],
       ON,
     ).sort((a, b) => a.id.localeCompare(b.id));
     expect(describeTakes(laptop!)).toBe('Takes nothing.');

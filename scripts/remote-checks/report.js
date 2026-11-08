@@ -83,7 +83,7 @@ if (require.main === module) {
   } catch {
     /* a broken config only costs the friendly name */
   }
-  const names = config ? { [config.host]: config.label } : {};
+  const names = Object.fromEntries((config?.machines ?? []).map(machine => [machine.host, machine.label]));
   console.log(format(summarise(readRuns(remoteChecksDir()), since, names)));
 }
 

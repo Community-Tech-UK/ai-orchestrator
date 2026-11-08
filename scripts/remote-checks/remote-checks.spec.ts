@@ -15,12 +15,15 @@ const { takeMacTurn } = require('./mac-turn.js') as {
     dir: string; isLoop: boolean; log: (line: string) => void; waitLimitMs?: number; noticeIntervalMs?: number;
   }): Promise<MacTurn>;
 };
-const { appendRunLog, decideRoute, isLoopRun, isQueueCheck, readConfig } = require('./route.js') as {
+interface Machine { host: string; label: string; platform: string; paused: boolean; testRuns: boolean; checks: boolean; slots: number }
+interface Config { queueChecks: boolean; machines: Machine[] }
+const { appendRunLog, decideRoute, isLoopRun, isQueueCheck, machinesFor, readConfig } = require('./route.js') as {
   appendRunLog(entry: object, env?: NodeJS.ProcessEnv): void;
-  decideRoute(options: { args: string[]; env?: NodeJS.ProcessEnv; root: string; config: object | null }): object;
+  decideRoute(options: { args: string[]; env?: NodeJS.ProcessEnv; root: string; config: Config | null }): object;
   isLoopRun(env?: NodeJS.ProcessEnv): boolean;
   isQueueCheck(root: string, env?: NodeJS.ProcessEnv): boolean;
-  readConfig(env?: NodeJS.ProcessEnv): object | null;
+  machinesFor(config: Config, work: 'testRuns' | 'checks'): Machine[];
+  readConfig(env?: NodeJS.ProcessEnv): Config | null;
 };
 
 const temps: string[] = [];
@@ -33,9 +36,14 @@ afterEach(() => {
   for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-const config = { host: 'harness-checks', label: 'the PC' };
+const machine = (change: Partial<Machine> = {}): Machine => ({
+  host: 'harness-checks', label: 'the PC', platform: 'linux', paused: false, testRuns: true, checks: true, slots: 3, ...change,
+});
+const config: Config = { queueChecks: false, machines: [machine()] };
+/** The config with its one machine changed. */
+const withMachine = (change: Partial<Machine>): Config => ({ ...config, machines: [machine(change)] });
 const root = '/work/repo';
-const route = (args: string[], env: NodeJS.ProcessEnv = {}, at = root, withConfig: object | null = config) =>
+const route = (args: string[], env: NodeJS.ProcessEnv = {}, at = root, withConfig: Config | null = config) =>
   decideRoute({ args, env, root: at, config: withConfig });
 
 describe('decideRoute', () => {
@@ -64,15 +72,27 @@ describe('decideRoute', () => {
   });
 
   it('keeps work here, saying why, when the machine is paused or test runs are turned off for it', () => {
-    expect(route([], {}, root, { ...config, paused: true })).toEqual({ kind: 'mac', turn: true, reason: 'the PC is paused' });
-    expect(route([], {}, root, { ...config, testRuns: false })).toEqual({
+    expect(route([], {}, root, withMachine({ paused: true }))).toEqual({ kind: 'mac', turn: true, reason: 'the PC is paused' });
+    expect(route([], {}, root, withMachine({ testRuns: false }))).toEqual({
       kind: 'mac', turn: true, reason: 'test runs are turned off for the PC',
     });
-    expect(route([], {}, root, { ...config, checks: false })).toEqual({ kind: 'remote', turn: true });
+    expect(route([], {}, root, withMachine({ checks: false }))).toEqual({ kind: 'remote', turn: true });
     const queueFolder = '/work/repo/.worktrees/queue/item-1';
-    expect(route([], {}, queueFolder, { ...config, queueChecks: true, paused: true })).toMatchObject({ kind: 'mac', turn: false });
+    expect(route([], {}, queueFolder, { ...withMachine({ paused: true }), queueChecks: true })).toMatchObject({ kind: 'mac', turn: false });
     const specs = Array.from({ length: 50 }, (_, index) => `src/s${index}.spec.ts`);
-    expect(route(specs, {}, root, { ...config, paused: true })).toEqual({ kind: 'local' });
+    expect(route(specs, {}, root, withMachine({ paused: true }))).toEqual({ kind: 'local' });
+  });
+
+  it('goes out while any machine takes the work, and stays here naming every machine\'s reason when none does', () => {
+    const two = (first: Partial<Machine>, second: Partial<Machine>): Config => ({
+      queueChecks: false, machines: [machine(first), machine({ host: 'ct-test-mac', label: 'the test Mac', platform: 'darwin', ...second })],
+    });
+    expect(route([], {}, root, two({ paused: true }, {}))).toEqual({ kind: 'remote', turn: true });
+    expect(machinesFor(two({ paused: true }, {}), 'testRuns').map(entry => entry.host)).toEqual(['ct-test-mac']);
+    expect(machinesFor(two({}, {}), 'checks').map(entry => entry.host)).toEqual(['harness-checks', 'ct-test-mac']);
+    expect(route([], {}, root, two({ paused: true }, { testRuns: false }))).toEqual({
+      kind: 'mac', turn: true, reason: 'the PC is paused and test runs are turned off for the test Mac',
+    });
   });
 
   describe('a long list of spec files', () => {
@@ -132,13 +152,32 @@ describe('readConfig', () => {
 
   it('takes work and runs three at once unless the file says otherwise, and ignores a slot count it cannot use', () => {
     const dir = temp();
+    const first = () => readConfig({ AIO_REMOTE_CHECKS_DIR: dir })!.machines[0];
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ host: 'pc' }));
-    expect(readConfig({ AIO_REMOTE_CHECKS_DIR: dir })).toMatchObject({ paused: false, testRuns: true, checks: true, slots: 3 });
+    expect(first()).toMatchObject({ paused: false, testRuns: true, checks: true, slots: 3, platform: 'linux' });
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ host: 'pc', paused: true, testRuns: false, checks: false, slots: 5 }));
-    expect(readConfig({ AIO_REMOTE_CHECKS_DIR: dir })).toMatchObject({ paused: true, testRuns: false, checks: false, slots: 5 });
+    expect(first()).toMatchObject({ paused: true, testRuns: false, checks: false, slots: 5 });
     for (const slots of [0, 9, 2.5, '4']) {
       writeFileSync(join(dir, 'config.json'), JSON.stringify({ host: 'pc', slots }));
-      expect(readConfig({ AIO_REMOTE_CHECKS_DIR: dir })).toMatchObject({ slots: 3 });
+      expect(first()).toMatchObject({ slots: 3 });
+    }
+  });
+
+  it('reads the top-level machine first, then any more in their order', () => {
+    const dir = temp();
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ host: 'pc', label: 'the PC', queueChecks: true, nodeName: 'windows-pc' }));
+    expect(readConfig({ AIO_REMOTE_CHECKS_DIR: dir })).toEqual({
+      queueChecks: true,
+      machines: [{ host: 'pc', label: 'the PC', nodeName: 'windows-pc', platform: 'linux', paused: false, testRuns: true, checks: true, slots: 3 }],
+    });
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({
+      host: 'pc', label: 'the PC', moreMachines: [{ host: 'ct-test-mac', label: 'the test Mac', platform: 'darwin', slots: 2 }],
+    }));
+    expect(readConfig({ AIO_REMOTE_CHECKS_DIR: dir })!.machines.map(entry => [entry.host, entry.platform, entry.slots]))
+      .toEqual([['pc', 'linux', 3], ['ct-test-mac', 'darwin', 2]]);
+    for (const moreMachines of [['x'], [{ label: 'no host' }]]) {
+      writeFileSync(join(dir, 'config.json'), JSON.stringify({ host: 'pc', moreMachines }));
+      expect(() => readConfig({ AIO_REMOTE_CHECKS_DIR: dir })).toThrow();
     }
   });
 });

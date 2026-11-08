@@ -47,9 +47,18 @@ describe('readTestMachineHealth', () => {
   });
 
   it('does not call a run kept here by the Computers page a fallback', () => {
-    for (const reason of ['the Windows PC is paused', 'test runs are turned off for the Windows PC']) {
+    for (const reason of [
+      'the Windows PC is paused',
+      'test runs are turned off for the Windows PC',
+      'the Windows PC is paused and test runs are turned off for the test Mac',
+    ]) {
       expect(read(folder([run(2 * MIN, 'pc'), run(MIN, 'mac', reason)]))?.movedToMac).toEqual({ count: 0, of: 1, share: 0 });
     }
+  });
+
+  it('names every test machine together when there are several', () => {
+    const config = JSON.stringify({ host: 'pc', label: 'the Windows PC', moreMachines: [{ host: 'mac', label: 'the test Mac', platform: 'darwin' }] });
+    expect(read(folder(null, config))?.label).toBe('your test machines');
   });
 
   it('counts where full runs went, and does not call a chosen Mac run a fallback', () => {
