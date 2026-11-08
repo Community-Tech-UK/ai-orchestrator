@@ -8,6 +8,8 @@ export const LoopPhase2StateFieldsSchema = z.object({
   knownFailures: z.array(z.string()).optional(),
   followUps: z.array(z.string()).optional(),
   fullVerifyWorkHash: z.string().optional(),
+  /** Time spent paused for a Harness restart; the wall-time cap and its progress bar leave it out. */
+  globalPauseClock: z.object({ pausedMs: z.number().nonnegative(), pausedAt: z.number().int().optional() }).optional(),
 });
 export const LoopScorecardRequestSchema = z.object({ loopRunId: z.string().min(1).max(200) });
 export const LoopScorecardSchema = z.object({

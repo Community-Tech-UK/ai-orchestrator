@@ -594,8 +594,6 @@ export const LoopStateSchema = z.object({
   status: LoopStatusSchema,
   startedAt: z.number().int(),
   endedAt: z.number().int().nullable(),
-  /** Time spent paused for a Harness restart; the wall-time cap and its progress bar leave it out. */
-  globalPauseClock: z.object({ pausedMs: z.number().nonnegative(), pausedAt: z.number().int().optional() }).optional(),
   totalIterations: z.number().int().nonnegative(),
   totalTokens: z.number().int().nonnegative(),
   totalCostCents: z.number().int().nonnegative(),

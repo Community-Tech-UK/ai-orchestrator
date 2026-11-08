@@ -19,7 +19,7 @@ import type { AutomaticStartup } from '../work-admission/automatic-startup';
 const logger = getLogger('ThreadWakeupRunner');
 
 type ThreadDestination = Extract<AutomationDestination, { kind: 'thread' }>;
-type InstanceInput = Pick<InstanceManager, 'sendInput' | 'getInstance' | 'interruptInstance' | 'waitForInstanceSettled'>;
+type InstanceInput = Pick<InstanceManager, 'sendInput' | 'getInstance' | 'interruptInstance' | 'waitForInstanceSettled' | 'on' | 'off'>;
 
 type RevivalInput = Pick<SessionRevivalService, 'revive'>;
 type WakeupStore = Pick<AutomationStore, 'attachInstance' | 'terminalizeRun' | 'markThreadPromptDelivered' | 'markThreadPromptAttempt'>;
