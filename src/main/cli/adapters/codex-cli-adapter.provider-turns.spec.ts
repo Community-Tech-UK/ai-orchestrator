@@ -6,6 +6,7 @@ vi.mock('./codex/app-server-client', async (importOriginal) => {
 });
 
 import { CodexCliAdapter } from './codex-cli-adapter';
+import type { CliResponse } from './base-cli-adapter';
 import { observeAdapterRuntimeEvents, type NormalizedAdapterRuntimeEvent } from '../../providers/adapter-runtime-event-bridge';
 import { EventEmitter } from 'events';
 import type { Instance } from '../../../shared/types/instance.types';
@@ -411,6 +412,37 @@ describe('CodexCliAdapter turns Codex starts by itself', () => {
     expect(h.outputs.filter((output) => output.type === 'error')).toEqual([]);
   });
 
+  it('stops the send loop when a queued native turn cannot be followed, instead of spinning', async () => {
+    const h = createHarness(() => ({}));
+    const internals = h.adapter as unknown as {
+      appServerRuntime: { hasActiveTurn(): boolean };
+      pendingProviderNotifications: Notification[];
+      followPendingProviderTurn(): boolean;
+      joinProviderTurn(): Promise<{ joined: boolean; developerInjected: boolean }>;
+    };
+    // A non-provider turn holds the runtime while a native notification waits behind it.
+    let runtimeBusy = false;
+    vi.spyOn(internals.appServerRuntime, 'hasActiveTurn').mockImplementation(() => runtimeBusy);
+    const follow = internals.followPendingProviderTurn.bind(h.adapter);
+    vi.spyOn(internals, 'followPendingProviderTurn').mockImplementation(() => {
+      runtimeBusy = true;
+      return follow();
+    });
+    internals.pendingProviderNotifications.push({
+      method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'native', status: 'inProgress' } },
+    });
+    let joins = 0;
+    const join = vi.spyOn(internals, 'joinProviderTurn').mockImplementation(async () => {
+      // Bounded so a regression fails this test instead of blocking the worker's event loop.
+      if (++joins > 3) throw new Error('send loop kept spinning');
+      return { joined: false, developerInjected: false };
+    });
+
+    await expect(h.adapter.sendInput('Continue.')).rejects.toThrow('already has an active turn');
+    expect(join).not.toHaveBeenCalled();
+    await h.adapter.terminate(false);
+  });
+
   it('keeps a steered provider turn open after an early final answer', async () => {
     const h = createHarness((method) => (method === 'turn/steer' ? { turnId: 'goal-turn' } : {}));
     h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'goal-turn', status: 'inProgress' } });
@@ -453,6 +485,199 @@ describe('CodexCliAdapter turns Codex starts by itself', () => {
     const secondBusy = h.statuses.lastIndexOf('busy');
     expect(idleAt).toBeGreaterThan(secondBusy);
     await h.adapter.terminate(false);
+  });
+
+  it.each(['notification-first', 'response-first'] as const)(
+    'keeps following native turns after a Harness start and joined input (%s)', async (order) => {
+      const h = createHarness((method) => {
+        if (method === 'turn/start') {
+          if (order === 'notification-first') {
+            h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'initial', status: 'inProgress' } });
+          }
+          return { turn: { id: 'initial', status: 'inProgress' } };
+        }
+        return {};
+      });
+      try {
+        const initial = h.adapter.sendInput('Create a multi-turn goal.');
+        await vi.waitFor(() => expect(h.requests.map(([method]) => method)).toContain('turn/start'));
+        if (order === 'response-first') {
+          h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'initial', status: 'inProgress' } });
+        }
+        h.emit(...finalAnswer('initial', 'Initial reply.'));
+        h.emit(...turnCompleted('initial'));
+        await initial;
+        expect(h.hasActiveTurn()).toBe(false);
+
+        for (let index = 1; index <= 4; index++) {
+          const id = `native-${index}`;
+          h.emit('turn/started', { threadId: 'thread-1', turn: { id, status: 'inProgress' } });
+          expect(h.activeTurnOrigin()).toBe('provider');
+          expect(h.statuses.at(-1)).toBe('busy');
+          const joined = index === 1 ? h.adapter.sendInput('JOINED') : undefined;
+          if (joined) {
+            await vi.waitFor(() => expect(h.requests.map(([method]) => method)).toContain('turn/steer'));
+            h.emit(...finalAnswer(id, 'Early reply before joined input.'));
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            expect(h.hasActiveTurn()).toBe(true);
+            expect(h.statuses.at(-1)).toBe('busy');
+          }
+          h.emit(...finalAnswer(id, `Native reply ${index}.`));
+          h.emit(...turnCompleted(id));
+          if (joined) await joined;
+          await vi.waitFor(() => expect(h.completions).toContain(`Native reply ${index}.`));
+          await vi.waitFor(() => expect(h.hasActiveTurn()).toBe(false));
+        }
+        expect(h.completions).toEqual(['Initial reply.', 'Native reply 1.', 'Native reply 2.', 'Native reply 3.', 'Native reply 4.']);
+        expect(h.outputs.filter((output) => output.type === 'error')).toEqual([]);
+        expect(h.requests.filter(([method]) => method === 'turn/start')).toHaveLength(1);
+      } finally { await h.adapter.terminate(false); }
+    },
+  );
+
+  it('follows a native turn arriving during Harness capture teardown without reporting idle', async () => {
+    const h = createHarness((method) => method === 'turn/start'
+      ? { turn: { id: 'initial', status: 'inProgress' } } : {});
+    try {
+      const initial = h.adapter.sendInput('Create a goal.');
+      await vi.waitFor(() => expect(h.requests.map(([method]) => method)).toContain('turn/start'));
+      h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'initial', status: 'inProgress' } });
+      h.emit(...finalAnswer('initial', 'Initial reply.'));
+      h.emit(...turnCompleted('initial'));
+      h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'native', status: 'inProgress' } });
+      await initial;
+      expect(h.activeTurnOrigin()).toBe('provider');
+      expect(h.statuses).not.toContain('idle');
+      h.emit(...finalAnswer('native', 'Native reply.'));
+      h.emit(...turnCompleted('native'));
+      await vi.waitFor(() => expect(h.completions).toEqual(['Initial reply.', 'Native reply.']));
+      await vi.waitFor(() => expect(h.statuses.at(-1)).toBe('idle'));
+    } finally { await h.adapter.terminate(false); }
+  });
+
+  it.each(['provider', 'harness'] as const)('retains complete batched native turns after a %s turn', async (origin) => {
+    const h = createHarness((method) => method === 'turn/start'
+      ? { turn: { id: 'initial', status: 'inProgress' } } : {});
+    const order: string[] = [];
+    const responses: CliResponse[] = [];
+    h.adapter.on('complete', (response: CliResponse) => { order.push(response.content); responses.push(response); });
+    h.adapter.on('status', (status) => { if (status === 'idle') order.push('idle'); });
+    try {
+      const send = origin === 'harness' ? h.adapter.sendInput('Create a goal.') : undefined;
+      if (send) await vi.waitFor(() => expect(h.requests.map(([method]) => method)).toContain('turn/start'));
+      for (const id of ['initial', 'native-1', 'native-2', 'native-3']) {
+        // No yield: the transport parser can deliver this entire sequence in one chunk.
+        h.emit('turn/started', { threadId: 'thread-1', turn: { id, status: 'inProgress' } });
+        h.emit('item/completed', { threadId: 'foreign-thread', turnId: 'foreign-turn',
+          item: { id: 'foreign-answer', type: 'agentMessage', phase: 'final_answer', text: 'Foreign reply.' } });
+        h.emit('item/completed', { threadId: 'thread-1', turnId: id, item: {
+          id: `${id}-command`, type: 'commandExecution', command: 'fixture-command',
+          status: 'completed', aggregatedOutput: `Result ${id}.`, exitCode: 0,
+        } });
+        h.emit(...finalAnswer(id, `Reply ${id}.`));
+        h.emit('turn/completed', { threadId: 'thread-1', turn: {
+          id, status: 'completed', usage: { inputTokens: 100, outputTokens: 10, totalTokens: 110 },
+        } });
+      }
+      if (send) await send;
+      await vi.waitFor(() => expect(h.completions).toEqual([
+        'Reply initial.', 'Reply native-1.', 'Reply native-2.', 'Reply native-3.',
+      ]));
+      await vi.waitFor(() => expect(h.statuses.at(-1)).toBe('idle'));
+      expect(order).toEqual([...h.completions, 'idle']);
+      expect(h.outputs.filter((output) => output.type === 'assistant').map((output) => output.content))
+        .toEqual(h.completions);
+      expect(h.outputs.filter((output) => output.type === 'error')).toEqual([]);
+      expect(h.hasActiveTurn()).toBe(false);
+      expect(responses.map((response) => response.toolCalls?.map((tool) => tool.result))).toEqual([
+        ['Result initial.'], ['Result native-1.'], ['Result native-2.'], ['Result native-3.'],
+      ]);
+      expect(responses.map((response) => [response.usage?.inputTokens, response.usage?.outputTokens]))
+        .toEqual([[100, 10], [100, 10], [100, 10], [100, 10]]);
+      expect(h.requests.filter(([method]) => method === 'turn/start')).toHaveLength(origin === 'harness' ? 1 : 0);
+    } finally { await h.adapter.terminate(false); }
+  });
+
+  it.each(['provider', 'harness'] as const)('serializes replies and usage while a %s turn is publishing', async (origin) => {
+    const h = createHarness((method) => method === 'turn/start'
+      ? { turn: { id: 'initial', status: 'inProgress' } } : {});
+    let release!: () => void;
+    let publishing = false;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const internals = h.adapter as unknown as {
+      reconcileChildRollouts(threadId: string, turnId: string, startedAt: number, endedAt: number): Promise<void>;
+      scheduleChildRolloutRetry(threadId: string, turnId: string, startedAt: number, endedAt: number): void;
+    };
+    const reconcile = vi.spyOn(internals, 'reconcileChildRollouts').mockImplementation(async (_threadId, turnId) => {
+      if (turnId === 'initial') { publishing = true; await gate; }
+    });
+    const responses: CliResponse[] = [];
+    h.adapter.on('complete', response => responses.push(response));
+    const finish = (id: string, inputTokens: number) => {
+      h.emit('turn/started', { threadId: 'thread-1', turn: { id, status: 'inProgress' } });
+      if (id === 'native-1') h.emit('thread/compacted', { threadId: 'thread-1' });
+      h.emit(...finalAnswer(id, `Reply ${id}.`));
+      h.emit('turn/completed', { threadId: 'thread-1', turn: {
+        id, status: 'completed', usage: { inputTokens, outputTokens: 10, totalTokens: inputTokens + 10 },
+      } });
+    };
+    try {
+      const send = origin === 'harness' ? h.adapter.sendInput('Create a goal.') : undefined;
+      if (send) await vi.waitFor(() => expect(h.requests.map(([method]) => method)).toContain('turn/start'));
+      finish('initial', 100);
+      await vi.waitFor(() => expect(publishing).toBe(true));
+      expect(h.hasActiveTurn()).toBe(false);
+      // An earlier turn's bounded rollout retry must not drain this unpublished usage.
+      internals.scheduleChildRolloutRetry('thread-1', 'prior-turn', 1, 2);
+      await vi.waitFor(() => expect(reconcile).toHaveBeenCalledWith('thread-1', 'prior-turn', 1, 2));
+      finish('native-1', 200);
+      // A real asynchronous publication dependency yields; the next turn must wait.
+      await new Promise(resolve => setImmediate(resolve));
+      expect(h.completions).toEqual([]);
+      release();
+      if (send) await send;
+      await vi.waitFor(() => expect(h.completions).toEqual(['Reply initial.', 'Reply native-1.']));
+      expect(responses.map(response => [response.usage?.inputTokens, response.usage?.outputTokens]))
+        .toEqual([[100, 10], [200, 10]]);
+      expect(h.outputs.filter(output => output.metadata?.['threadCompacted'] === true)).toHaveLength(1);
+      const visible = h.outputs.filter(output => output.type === 'assistant' || output.metadata?.['threadCompacted'] === true);
+      expect(visible.map(output => output.type)).toEqual(['assistant', 'system', 'assistant']);
+      await vi.waitFor(() => expect(h.statuses.at(-1)).toBe('idle'));
+    } finally { release(); await h.adapter.terminate(false); vi.restoreAllMocks(); }
+  });
+
+  it.each(['provider', 'harness'] as const)('joins queued native work after a %s publication finishes', async (origin) => {
+    const h = createHarness(method => method === 'turn/start'
+      ? { turn: { id: 'initial', status: 'inProgress' } } : {});
+    let release!: () => void;
+    let publishing = false;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    vi.spyOn(h.adapter as unknown as {
+      reconcileChildRollouts(threadId: string, turnId: string, startedAt: number, endedAt: number): Promise<void>;
+    }, 'reconcileChildRollouts').mockImplementation(async (_threadId, turnId) => {
+      if (turnId === 'initial') { publishing = true; await gate; }
+    });
+    try {
+      const initialSend = origin === 'harness' ? h.adapter.sendInput('Create a goal.') : undefined;
+      if (initialSend) await vi.waitFor(() => expect(h.requests.map(([method]) => method)).toContain('turn/start'));
+      h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'initial', status: 'inProgress' } });
+      h.emit(...finalAnswer('initial', 'Initial reply.'));
+      h.emit(...turnCompleted('initial'));
+      await vi.waitFor(() => expect(publishing).toBe(true));
+      h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'native-1', status: 'inProgress' } });
+      const joined = h.adapter.sendInput('Join pending work.');
+      release();
+      if (initialSend) await initialSend;
+      await vi.waitFor(() => expect(h.requests.map(([method]) => method)).toContain('turn/steer'));
+      expect(h.requests.filter(([method]) => method === 'turn/start')).toHaveLength(origin === 'harness' ? 1 : 0);
+      expect(h.requests.find(([method]) => method === 'turn/steer')?.[1]['expectedTurnId']).toBe('native-1');
+      h.emit(...finalAnswer('native-1', 'Joined reply.'));
+      h.emit(...turnCompleted('native-1'));
+      await joined;
+      expect(h.completions).toEqual(['Initial reply.', 'Joined reply.']);
+      expect(h.outputs.filter(output => output.type === 'error')).toEqual([]);
+      await vi.waitFor(() => expect(h.statuses.at(-1)).toBe('idle'));
+    } finally { release(); await h.adapter.terminate(false); vi.restoreAllMocks(); }
   });
 
   it('does not follow the Compact turn of a Harness compaction request as task work', async () => {

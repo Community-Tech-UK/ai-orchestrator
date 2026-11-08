@@ -89,7 +89,7 @@ it.each([
     is_error: mode === 'partial-native-error', total_cost_usd: cost, usage: { input_tokens: 100, output_tokens: 10 },
     ...(cost !== undefined ? {modelUsage: {'claude-opus-5': {inputTokens: 100, outputTokens: 10, costUSD: cost}}} : {}),
   };
-  vi.spyOn(adapter as unknown as {
+  const spawnProcess = vi.spyOn(adapter as unknown as {
     spawnProcess(args: string[]): ReturnType<typeof spawn>;
   }, 'spawnProcess').mockImplementation(() => {
     // The final result and the FINAL_WRITTEN marker are written with
@@ -142,6 +142,7 @@ it.each([
     expect(finalWritten).toBe(true);
     expect(drainedRaw).toContain(JSON.stringify(result));
     expect(child.signalCode).toBe('SIGKILL');
+    expect(spawnProcess).toHaveBeenCalledOnce();
     expect(rows).toHaveLength(1);
     if (response)
       expect(response.metadata?.['timedOut']).toBe(true);

@@ -399,6 +399,9 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
       while (this.hasProviderTurn() || this.pendingProviderNotifications.length > 0) {
         this.harnessTurnPublishing = false;
         this.followPendingProviderTurn();
+        // No provider turn to join means a queued native turn is waiting behind a non-provider turn. Joining again
+        // would return at once and spin without yielding, so the check after this loop reports the busy runtime.
+        if (!this.hasProviderTurn()) break;
         const join = await this.joinProviderTurn(input, pendingDeveloperInput, dispatch, onInputAccepted);
         if (join.joined) return;
         if (join.developerInjected) pendingDeveloperInput = undefined;

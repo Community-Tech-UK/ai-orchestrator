@@ -73,10 +73,10 @@ in [the campaign livetest](2026-10-05-livetest-campaign-defects_livetest.md).
 | LT-673 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); dev-app re-check 2026-10-06** (reload kept the session in the list and rail). Packaged cold start still pending in the campaign livetest. |
 | LT-674 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** An errored completion is captured (cost, telemetry, hooks) before adapter cleanup deletes the adapter. Live re-check (outstanding plans sweep check 3) pending in the campaign livetest. |
 | LT-675 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** Claude and Codex sign-in banners are rejected as titles and title escalation continues to the next provider. Live re-check (session title quality) pending in the campaign livetest. |
-| LT-680 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** An accepted Codex steer keeps turn capture open through the real completion instead of an inferred 250 ms idle edge. Live re-check (codex compaction reliability check 4) pending in the campaign livetest. |
+| LT-680 | **LIVE-VERIFIED 2026-10-27 (queue worktree).** The round-2 plain send retained its joined reply, stayed busy and resolved four milliseconds after real completion. Check 4 passes; a batched native-turn handoff remains open under LT-683. |
 | LT-681 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); dev-app re-check 2026-10-06** (manual Codex compact kept the measured occupancy as estimated `awaiting-post-compaction-usage`, not ~0%). Campaign livetest check 3 still pending. |
 | LT-682 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); dev-app re-check 2026-10-06** (busy Codex button titled `Interrupt Codex (Esc)`). Cosmetic; acceptance needs no further live re-check. |
-| LT-683 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** Overlapping native provider turns are followed without an early idle edge. Original reproduction was seen once 2026-10-04; live re-check (codex compaction reliability check 1) pending in the campaign livetest. |
+| LT-683 | **IMPLEMENTED + VERIFIED 2026-10-27; coordinator acceptance pending.** Full native event streams and publication ownership preserve reply order and separate usage across both origins, including batching, joined input and bounded retries. Final live checks, canonical gates and pinned-runtime full suite pass; fresh preliminary review has no actionable findings. [LT-683 detail](#lt-683--a-codex-goal-turn-that-starts-within-milliseconds-of-the-previous-one-is-not-followed) [Compaction reliability remediation](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-verifier-findings-remediation) |
 | LT-690 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** An injected-cap saturation ending is classified `max_output` with continuation, and ordinary completions stay `completed` (negative cases covered). Live re-check (provider hardening check 1) pending in the campaign livetest. |
 | LT-700 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** A recovered Plan Queue verifier spawn is deferred until the orchestrator-tools socket waiter resolves. Live re-check (Plan Queue check 3) pending in the campaign livetest. |
 | LT-701 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** App shutdown suppresses failure and settlement outcomes at the tracker's status/error/exit/removal/completion boundaries and is signalled before synchronous provider kills as well as async termination, so mid-turn items survive a normal quit. Live re-check (Plan Queue check 3) pending in the campaign livetest. |
@@ -225,7 +225,6 @@ sections below. The historical reproduction remains unchanged.
 | LT-301 | P2 | **FIXED + REGRESSION-TESTED 2026-08-20.** `diffSource` was written by three producers (`loop-pingpong-completion.ts:360,376`, `loop-coordinator-completion-gates.ts:432`), typed on both reviewer inputs (`agentic-pingpong-reviewer.ts:109`, `loop-fresh-eyes-reviewer.ts:70` — whose doc comment even explains it means "is not a git repository") and **read by nothing**, confirmed by an exhaustive repo-wide grep. Outside a git repository `collectWorkspaceDiff` returns `{diff: '', source: 'none'}` (`loop-diff.ts:107-110`), so `diffBlock` collapsed to `''` while the impl-mode prompt still told the reviewer "The git diff below is your STARTING POINT" pointing at nothing. A reviewer handed no diff, and not told it was handed no diff, is a rubber stamp — it has no way to distinguish "no changes to object to" from "I was shown nothing". Fixed by consuming `diffSource` in `buildPrompt`: an explicit "No diff is available — read the code directly" block that names whether git was unreadable or the diff was genuinely empty, forbids treating the absence as evidence of correctness, and instructs the reviewer to report the gap rather than reply APPROVED; the impl-mode instructions no longer reference a diff that is not there | Same live loop — `repo-baseline.json` recorded `"source": "none"` because `workspaceCwd` was the parent of the real repo | `src/main/orchestration/agentic-pingpong-reviewer.spec.ts` (2 new tests). Reverted in a `/tmp` copy and watched both fail; restored, 31/31 green |
 | LT-302 | P2 | **FIXED + REGRESSION-TESTED 2026-08-20.** A preflight verify that blew its wall-clock budget was reported as "Preflight failed", indistinguishable from red tests, though the operator fix is the opposite one (shorten the command vs fix the code). `VerifyOutcome` has always distinguished `failureKind: 'timeout'` (`loop-completion-detector.ts:713-722`) from `'command'` (726-736), but `LoopPreflightResult` (`loop-audit.types.ts`, from line 55) collapsed every failure to `status: 'failed'`, dropping the distinction before it reached the UI. Observed on the same live loop: `PRE_FLIGHT.md` recorded `Duration: 599998ms` and `(verify timed out after 600000ms)` for `npm --prefix "ai-orchestrator" run verify` — a 14-command chain (full lint, two typechecks, whole test suite, `rebuild:native`, `smoke:electron`) against the non-configurable 600s default (`loop-config-defaults.ts:102`), which cannot finish. Fixed by carrying `failureKind` through `LoopPreflightResult.commands[]` (type + Zod schema + `runLoopPreflight`) and labelling the chip "Preflight timed out". The red state is retained deliberately — a timeout *is* a failure to verify; only the wording was wrong | Same live loop — `.aio-loop-state/loop-1787241037235-b6fe2309/PRE_FLIGHT.md` | `src/main/orchestration/loop-audit-runtime.spec.ts` (2 new tests) + `src/renderer/app/features/loop/loop-control.component.spec.ts` (1 new test). All three reverted in a `/tmp` copy and watched to fail; restored, green |
 | LT-303 | P2 | **FIXED + REGRESSION-TESTED 2026-08-20.** A loop pointed at a non-git workspace degraded silently. `normalizeManagedIsolation` (`loop-start-config.ts:216-243`) already detected the case and disabled isolation, but only at `info` log level, and nothing told the operator that diff-backed review had been reduced to nothing — the observed loop ran for 2h40m against `/Users/suas/work/orchestrat0r` while the actual repository was the `ai-orchestrator` subdirectory. Fixed by `emitNonGitReviewWorkspaceWarning` (`loop-coordinator-state-helpers.ts`), called at loop start from `startLoop` once the repo baseline is captured: for reviewer-backed loops only — ping-pong or cross-model review; `mode: 'review-driven'` alone deliberately does NOT qualify, because the fresh-eyes gate that builds a diff is itself gated on `crossModelReview.enabled`, so warning on it would be a false positive (pinned by a regression test asserting silence) — it logs a warning and emits a `loop:activity` status line so the gap is visible in the loop feed. Advisory, not blocking: a non-git workspace is legitimate, it just must not be invisible. Known gap, not closable by a start-time predicate: `runFreshEyesReviewGate`'s `forcedByContradiction` escape valve (`loop-coordinator-completion-gates.ts:341,345`) synthesises a default review config and collects a diff even when `crossModelReview.enabled` is false, but it is driven by `state.freshEyesForcedByContradiction`, a runtime condition unknowable at loop start | Same live loop — `repo-baseline.json` `"source": "none"` | `src/main/orchestration/loop-coordinator-state-helpers.spec.ts` (4 new `nonGitReviewWorkspaceWarning` tests). Reverted in a `/tmp` copy and watched 2 fail; restored, 20/20 green |
-
 | LT-370 | P2 | **ROOT CAUSE CORRECTED, FIXED + REGRESSION-TESTED 2026-08-24; LIVE CHECK PENDING A REBUILD.** The 2026-08-20 diagnosis was wrong. The model that failed was **not** an absent one. Correlating the two halves of the same request in `app.log` settles it: `coord-8438` was dispatched at `1787345477010` as `{method: "auxiliaryModel.generate", provider: "ollama", model: "gpt-oss:120b"}`, failed at `1787345485971` after **8961 ms** with `-32603: Ollama generate failed: 500`, and one millisecond later at `1787345485972` `AuxiliaryLlmService` logged `Auxiliary generation failed for slot "webExtract"`. `gpt-oss:120b` **is** one of the eight models that endpoint serves. The configured `qwen/qwen3.6-35b-a3b` was never sent: `tryEndpointForSlot` (`src/main/rlm/auxiliary-llm-service.ts`) gates the tier pin behind `endpointAdvertisesModel()`, which is false for a worker-node endpoint whose non-empty model list lacks the id, so it falls through to `pickModelForTier(ids, tier, loaded)` — i.e. the code already does the thing the old entry recommended as its fix. **The actual defect is the auto-pick rule.** With no model resident, `pickModelForTier` orders by `modelSizeScore` and `quality` takes the *largest* advertised id (`gpt-oss:120b`, score 120) with no regard for whether the host can load it; `windows-pc` reports `gpuMemoryMB: 32607`, so a 120B model cannot be resident and Ollama 500s. The 8961 ms latency is consistent with an attempted load that failed, not an instant unknown-model rejection. `pickModelForTier`'s existing `loaded` restriction is the intended guard against exactly this, but it only engages when something is *already* resident. **Impact correction: the aux path is not "silently inert".** The same log holds **143** successful `ollama deepseek-r1:7b` dispatches — quick tier auto-picks the *smallest* model and works. Only the six **quality**-tier slots are affected (`compression`, `memoryDistillation`, `webExtract`, `approvalAdjudication`, `subQueryExecution`, `verifyOutputSummary`); `titleGeneration`, `routingClassification`, `approvalScoring`, `loopScoring`, `retrievalHypothesis` and `branchScoring` are quick tier and are demonstrably working. It still fails safe (frontier fallback / never-worse guard), so nothing is wrong-answered — the cost is ~9 s wasted per quality-tier call and no local saving on those slots | [Browser-gateway reliability check 1](2026-07-17-browser-gateway-reliability_livetest.md); correlation evidence in this register's LT-370 section | Fixed by `AuxiliaryModelFailureCache` (`src/main/rlm/auxiliary-llm-utils.ts`): an **auto-picked** model that fails to generate is remembered per endpoint for 10 minutes, so the next `pickModelForTier` steps down to the next candidate instead of re-attempting the same doomed load. Explicit per-slot and tier pins are deliberately excluded — a pin must keep surfacing its own error rather than being silently substituted — and the filter returns the unfiltered list when it would otherwise empty, so a degraded endpoint can never become no endpoint. 9 regression tests (5 in `auxiliary-llm-utils.spec.ts`, 4 in `auxiliary-llm-service.spec.ts`); the load-bearing one was mutation-checked by reverting the `usable()` call and watching it fail with `expected '' to be 'distilled text'`, then restored. 124 tests green across the three touched spec files |
 | LT-371 | P1 | **FIXED + REGRESSION-TESTED, LIVE CHECK PENDING, 2026-08-23.** `windows-pc`'s worker-node WebSocket suffers short, random transport losses; the coordinator's former 2.5-second disconnect grace turned ordinary reconnects into 30 true node disconnects, repeatedly suspending/restoring 21 browser attachments and rejecting browser commands. A second seam marked a long-poll command delivered before its RPC response was known to have left the coordinator; because responses were addressed only by node id, an old poll response could even be written to a replacement socket where that request id no longer existed, producing a false `browser_extension_command_receipt_missing`. Fixed with a 30-second grace, one-shot originating-socket responders, bounded same-id requeue, and a FIFO handoff barrier. This is not MV3 service-worker eviction or native-host cycling: read-only worker logs show one continuous worker process, continuous extension poll heartbeats, no native-host errors, 63 coordinator-socket closes (61 code 1006), and the coordinator log places `WorkerNodeConnection Node WebSocket disconnected` immediately before every reliability `node_disconnect`. Timing is non-periodic; 24/30 sockets re-registered inside 30 seconds. The 53-vs-30 asymmetry is expected from first-contact/duplicate no-attachment reconnect telemetry plus replacement sockets, not duplicate workers | [Investigation prompt](2026-08-23-browser-extension-channel-flapping-prompt.md), [owning check-6 evidence](./2026-08-19-remote-node-false-negative-fixes_livetest_completed.md), [completed implementation plan](../superpowers/plans/2026-08-23-browser-extension-channel-flapping_plan_completed.md) | 6 focused files / 90 tests pass; both TypeScript checks, lint, and `build:main` pass; fresh completion gate `VERDICT: PASS`. Rebuilt-runtime verification is deferred to the implementation livetest |
 | LT-350 | P1 | **FIXED 2026-09-10** — `LoopCompletionDetector` now tracks every spawned preflight/quick-verify child in a `Map<string, Set<SpawnVerifyRegistration>>` keyed by `loopRunId`; `LoopCoordinator.cancelLoop()` calls `await this.completionDetector.abortVerify(loopRunId)` right after `terminate(...)`, force-killing any still-running verify child before the loop reports stopped. A new `'cancelled'` `VerifyFailureKind` was threaded through the 5 duplicated failure-kind locations. New integration test (real long-running `.js` script, not an inline `node -e` string — the latter is corrupted by the `/bin/bash -lc` wrapper and produced a false-passing first draft) plus 4 new unit tests, both mutation-checked by reverting `abortVerify` and confirming the marker file proving the child was not killed. Full `src/main/orchestration/` suite green (224 files/2879 tests); all canonical gates green (`check:ts-max-loc` ceiling for `loop-coordinator.ts` intentionally raised 3948→3954, dated and justified). Originally: cancelling a loop while its start-of-run preflight verify command is in flight does not kill that verify child process — it keeps running, unattended, to its own timeout regardless of cancellation. `runLoop` (`loop-coordinator.ts:1821-1828`) `await`s `runLoopPreflight(state, this.completionDetector, …)` synchronously before the first iteration; `runLoopPreflight` → `completionDetector.runVerify(config)` → `spawnVerify` (`loop-completion-detector.ts:648-745`) does a raw `child_process.spawn` tracked only by a local closure (`child`, its own `setTimeout`), never registered with any lifecycle/instance-tracking `cancelLoop` can reach. `cancelLoop` (`loop-coordinator.ts:1494-1520`) sets the cancelled flag, calls `this.terminate(state, 'cancelled', …)`, `awaitTerminalCleanup`, and `confirmStablyStopped` — all of which operate on the active iteration/instance, none of which touch an in-flight preflight-verify subprocess, because no instance has been spawned yet at that point in a run. Reproduced live and by accident while testing an unrelated check (2026-08-19 non-git-workspace-warning livetest, check 2): started a loop with `workspaceCwd: /Users/suas/work/orchestrat0r` and a blank `completion.verifyCommand`, which `resolveLoopVerification` auto-inferred to `npm --prefix "ai-orchestrator" run verify` (a 14-command chain including the full test suite, `rebuild:native`, `smoke:electron`) from the workspace's own package.json; called `loopCancel(loopRunId)` ~2.5s after start, well before any iteration/instance had spawned. The IPC call resolved `success: true` and `LoopState.status` became `'cancelled'` (`endedAt` ≈4s after start). Despite that, the spawned `npm run verify` chain kept running unattended: at T+5 minutes its `npm run test` step's vitest workers were still executing on the shared campaign host, driving 1-minute loadavg from ~6 to 27.9 — had to be killed manually (`kill -9` on the whole subtree; verified via `ps` that the chain's root pid's parent was this very dev app's own Electron main process, ruling out a concurrent agent's unrelated run). Required behaviour: `cancelLoop` (and any other loop-terminal transition reached while `runLoopPreflight`/`runVerify`/`runQuickVerify` is in flight) must also abort that spawned child promptly (SIGKILL/SIGTERM), not just the per-iteration CLI instance — `cancelLoop`'s returned promise should not represent the loop as fully stopped while a verify child it started is still alive. This is a resource-safety gap, not cosmetic: a legitimately slow verify command (the workspace's own multi-minute test suite is the common case) left running past a user's cancel can starve a shared or laptop host for the remainder of its timeout (up to `verifyTimeoutMs`, default 600s) | Reproduced live 2026-08-21 while running [Remote-node false-negative fixes / pingpong-loop-cannot-terminate livetest, batch Q1](./2026-08-20-pingpong-loop-cannot-terminate_livetest_completed.md#evidence-run--2026-08-21) | [Plan doc LT-350 section](./2026-07-19-livetest-failure-remediation_plan_completed.md) |
@@ -330,10 +329,10 @@ sections below. The historical reproduction remains unchanged.
 | LT-673 | P2 | **OPEN — reproduced live 2026-10-04 (dev renderer reload; packaged cold start untested).** Reloading the renderer leaves the session list empty and `loading` stuck true: the first `state:resync` goes out before `appReady` delivers the IPC auth token, is refused with `IPC_AUTH_FAILED`, and `loadInitialInstances` ignores a `success:false` response. | [LT-673 detail](#lt-673) | [Session title quality check 3](2026-09-30-session-title-quality_livetest.md) |
 | LT-674 | P3 | **OPEN — reproduced live 2026-10-04 on a staged legacy `type: error` event.** The adapter correctly emits one `complete {turnErrored:true}`, but the instance layer has already torn the adapter down after the `error` event, so the completion is dropped: no `adapter-event:complete` capture, no cost, telemetry or hooks. LT-105's purpose is not met on the real instance path. | [LT-674 detail](#lt-674) | [Outstanding plans sweep check 3](2026-09-23-outstanding-plans-sweep_livetest.md) |
 | LT-675 | P3 | **OPEN — reproduced live 2026-10-04.** With a signed-out Claude CLI home, the title escalation accepts the CLI's "Not logged in · Please run /login" banner as the session's AI title (four sessions in one run), because no title guard recognises an authentication banner. | [LT-675 detail](#lt-675) | [Session title quality](2026-09-30-session-title-quality_livetest.md); [LT-441 check](2026-09-23-outstanding-plans-sweep_livetest.md) |
-| LT-680 | P2 | **OPEN — reproduced live 2026-10-04 (three times).** A message sent while Codex is running a goal-continuation turn is delivered into that turn, but Codex's reply to it never reaches the transcript and the session reads `idle` for the rest of the turn (22 s in the longest case): Harness infers the turn finished 250 ms after the turn's first final answer, but Codex applies the steer at the next sampling boundary and keeps working on the same turn. | [LT-680 detail](#lt-680) | [Codex compaction reliability check 4](2026-09-27-codex-compaction-reliability_livetest.md) |
+| LT-680 | P2 | **LIVE-VERIFIED 2026-10-27.** The joined reply appears in both buffer and DOM; busy persists until real completion and the send resolves afterwards. The additional batched native-turn handoff failure remains LT-683. | [LT-680 detail](#lt-680) | [Codex compaction reliability check 4](2026-09-27-codex-compaction-reliability_livetest.md) |
 | LT-681 | P3 | **OPEN — reproduced live 2026-10-04.** Pressing Compact now on a Codex session replaces the context meter with `~0/258,400 (~0%)` and writes "Context compacted [native] (33% → 0%)" into the transcript, and the meter stays at ~0% until the next turn completes; Codex's real post-compaction occupancy was 13-27%. Provider self-compaction (the inline path) is correct. | [LT-681 detail](#lt-681) | [Codex compaction turn visibility check 3](2026-09-24-codex-compaction-turn-visibility_livetest.md) |
-| LT-682 | P3 | **OPEN — reproduced live 2026-10-04 (cosmetic).** The header's interrupt button hard-codes the tooltip "Interrupt Claude (Esc)" for every provider, including Codex sessions. [Archived detail](livetest-remediation-register-archive-2026.md#lt-682-archived-detail) | [LT-682 detail](#lt-682) | [Codex compaction reliability check 3](2026-09-27-codex-compaction-reliability_livetest.md) |
-| LT-683 | P3 | **OPEN — seen once on 2026-10-04, not reproduced in a clean 13-turn run.** One Codex goal-continuation turn, starting 7 ms after the previous goal turn ended, was not followed by Harness (no "Following a turn Codex started by itself" line): the session read `idle` for the 19.5 s the turn ran. Nine goal threads that day: 39 goal turns, 3 not followed; two of those were in runs where I was also sending messages into the turn, the third (`01a10929-21e4`) in an uninterrupted run that had compacted inline earlier. A clean 14-turn run (`01a10933-e358`) followed 13 of 13. | [LT-683 detail](#lt-683) | [Codex compaction reliability check 1](2026-09-27-codex-compaction-reliability_livetest.md) |
+| LT-682 | P3 | **OPEN — reproduced live 2026-10-04 (cosmetic).** The header's interrupt button hard-codes the tooltip "Interrupt Claude (Esc)" for every provider, including Codex sessions. | [LT-682 detail](#lt-682) | [Codex compaction reliability check 3](2026-09-27-codex-compaction-reliability_livetest.md) |
+| LT-683 | P2 | **IMPLEMENTED 2026-10-27; ACCEPTANCE OPEN.** Full native event streams and publication ownership preserve reply order and separate usage across both origins, including batching, joined input and bounded retries. Final live checks, canonical gates and pinned-runtime full suite passed on that source; fresh preliminary review had no actionable findings. A campaign run on an older source (`f5fffc23c`, before publication ownership) failed three 14-turn goals with the same signature. The three-goal rerun on the current source is blocked by the Codex usage limit until 8 Nov 2026, 12:21 PM. Status and evidence: livetest doc, Current status 2026-11-07. | [LT-683 detail](#lt-683--a-codex-goal-turn-that-starts-within-milliseconds-of-the-previous-one-is-not-followed) | [Compaction reliability remediation](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-verifier-findings-remediation) |
 | LT-700 | P2 | **OPEN — reproduced live 2026-10-04 (dev app, 1 of 1 restarts with a `verifying` item).** After an app restart, Plan Queue recovery starts a fresh verifier about 6 s after the coordinator initialises, but the orchestrator-tools socket only starts listening about 7 s after that. The verifier is spawned with no orchestrator-tools MCP (`Orchestrator-tools MCP not configured — … socket missing`), so it has no `plan_queue_report_verdict`, works for ~5 minutes, ends its turn without a verdict, and the item parks `verifier-unreliable`. A verifier started later in the same session (after the socket exists) reported its verdict normally. | [LT-700 detail](#lt-700) | [Plan Queue check 3](2026-09-18-plan-queue_livetest.md) |
 | LT-701 | P2 | **OPEN — reproduced live 2026-10-04 (1 of 1).** A normal quit (SIGTERM, shutdown path ran to "Cleanup complete") while two Plan Queue workers were mid-turn parks both items `worker-error: instance entered terminated` and ends the run `completed` during shutdown, so nothing is left for the restart-recovery path to resume. The check expects the working items to be resumed on the same `queue/…` branch after restart. | [LT-701 detail](#lt-701) | [Plan Queue check 3](2026-09-18-plan-queue_livetest.md) |
 | LT-702 | P1 | **OPEN — reproduced live 2026-10-04 (1 of 6 ping-pong loops that day; LT-643's hang again, intermittent).** A ping-pong reviewer (Codex) settled with a complete, parseable `CHANGES_REQUESTED` verdict about 46 s after spawn, but the loop never noticed: `inFlightRound: 1`, no `Ping-pong reviewer produced a verdict` line, for 757 s. Cancelling the loop released the wait instantly and the same verdict then parsed normally (+334 ms), proving the instance was settled and the output valid the whole time. The five other loops that day completed rounds in 50–100 s. | [LT-702 detail](#lt-702) | [Ping-pong livetest](PINGPONG_IMPLEMENTATION_STATUS_livetest_completed.md) |
@@ -342,6 +341,8 @@ sections below. The historical reproduction remains unchanged.
 | LT-705 | P1 | **MACHINE REPAIR + CODE VERIFIED 2026-10-13 — gates and full suite pass, independent reviews PASS; queue re-verified 2026-10-14; packaged smoke pending.** OpenCode 1 failed in `~/work/communitytech` (`no such column: project_id`) after OpenCode 2 rebuilt the shared `workspace` table, so selection fell back to OpenCode 2, whose `acp` ignores the per-spawn overlay and lacked the second account's key. Added nullable `workspace.project_id` (backed up); selection now refuses OpenCode 2 and explains why. The install/restart prerequisite is satisfied as for LT-704; the communitytech packaged smoke remains unrun and its exact deferred procedure is recorded inline in [LT-705 detail](#lt-705-deferred-packaged-acceptance) (branch-resident) and mirrored in the untracked root-checkout [startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md). | [LT-705 detail](#lt-705) | [Plan-owned packaged checks](2026-10-13-opencode-launch-environment_livetest.md) |
 | LT-706 | P2 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); live re-check pending.** A MiMo step that spends the whole combined cap on reasoning (OpenCode `finish: "length"`, ACP `end_turn`) was classified `completed` (or `dangling_tool_result`), so the session stopped silently. LT-690's saturation check skipped empty text, judged from whole-turn text while usage covers only the final step, and the shared observation layer could not see the cap. MiMo cap raised 16384 → 32000 at James's request. | [LT-706 detail](#lt-706) | [MiMo reasoning-cap live checks](2026-10-14-mimo-reasoning-cap-cutoff_livetest.md) |
 | LT-707 | P2 | **FIXED + REGRESSION-TESTED 2026-10-24 (working tree); live cell re-run pending (Windows PC outage #5).** `finalizeScoredRun` persists the record before best-effort cleanup and `cleanupWorkspace` retries transient ENOTEMPTY/EBUSY; regression tests cover record-survives-cleanup-throw and the retry paths. Implementation status lives in [the active plan](2026-10-14-local-model-plan-execute-ab_plan.md). Original report: reproduced 2026-10-24 (benchmark campaign harness, `benchmarks/plan-execute-ab/` — experiment tooling, not app code; owned by plan 2026-10-14-local-model-plan-execute-ab).** A completed scored pilot run is discarded when workspace cleanup flakes: `runArm` calls `cleanupWorkspace` (bare `rmSync` recursive) BEFORE `appendRunRecord`, so a transient `ENOTEMPTY` (macOS removal race) lost the AIO-05 C1 run after coding, patch capture and scoring — the batch logged `run failed: ENOTEMPTY, Directory not empty` and the leftover workspace then blocks re-export (`workspace already exists`). | [LT-707 detail](#lt-707) | [Local-model plan/execute deferred checks A5/A6](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
+| LT-732 | P2 | **OPEN — reproduced live 2026-10-27.** A 400,219-character context-fill message stalls the Electron main loop for 153,712 ms during the RLM keyword-search fallback before provider dispatch. The app recovers and honors a queued stop; exact cause remains unproven. | [LT-732 detail](#lt-708--a-large-context-fill-send-blocks-the-main-loop-during-retrieval) | [Compaction reliability round 2](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-verifier-round-2) |
+| LT-733 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-733 detail](#lt-715--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-708 | P1 | **OPEN — reproduced live 2026-10-27.** A non-YOLO Claude session consuming a warm adapter has no defer hook. The genuine CLI error `This command requires approval` is not recognised as a permission denial, so the session becomes idle without an approval card. A fresh adapter shows the deferred-permission card for the same harmless command. | [LT-708 detail](#lt-708) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-plan-queue-worker) |
 | LT-710 | P2 | **REPRODUCED 2026-10-27; not fixed in this checkout.** Main and context-worker startup can collide on fresh-profile migration discovery. Reusing the migrated isolated profile reaches the renderer. This reuses the existing saved-login/housekeeping defect identifier; the housekeeping worker owns its fix. | [LT-710 detail](#lt-710) | [Worker auto-update live checks](2026-10-14-worker-auto-update_livetest.md#evidence-run--2026-10-27-plan-queue-worker); [active remediation follow-up](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-710) |
 | LT-709 | P2 | **OPEN — reproduced in the compiled runtime 2026-10-26; unimplemented.** A provider-slot runtime package installs, but its worker fails on a compiled `require('file://...')` before provider registration; the normal session-create schema also rejects its plugin provider identifier. Phase 1 records the failure and omits the custom-provider claim. | [LT-709 detail](#lt-709) | [Plugins cleanup Phase 1](2026-10-26-plugins-cleanup-and-global-connectors_plan_completed.md#phase-1-plugins-page-cleanup); [implementation status](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-709) |
@@ -9474,6 +9475,21 @@ stay `busy` until the real `turn/completed`.
 - Live: repeat run 3 above (goal turn, plain send 6 s in); the rollout reply appears in the transcript
   and the lifecycle log has no `busy -> idle` between the steer and `task_complete`.
 
+### Live recheck — 2026-10-27: PASS for the joined turn
+
+Source HEAD `80412201a07ec93cefb9a4b6ddb06579ad314d75`, isolated dev profile
+`/tmp/aio-lt-queue-c8434b3e`, CDP 9727, codex-cli 0.164.0, instance `xk99sqtae`, thread
+`01a17b3d-899a-7392-b8be-99336f4c85f4`. Plain send at 02:43:46.672 UTC into goal turn
+`01a17b3d-f187-7382-8428-9e957dbdbe65`; follow-up recorded in that same turn at 02:43:58.288,
+late answer `JOINCHECK_C8434B3E` at 02:44:17.978, real completion at 02:44:18.133,
+successful send resolution at 02:44:18.140. No intervening idle edge or aborted/new task.
+The exact later answer appears in buffer and rendered transcript (focus emulated).
+The focused provider-turn suite passes, 39 tests. No production-code changes in this run.
+The later-turn loss is recorded separately as the recurrence of LT-683 below.
+
+Evidence and per-check detail: [2026-10-27 owner section](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-plan-queue-isolated-dev-runtime),
+with retained receipts under `.aio-review/lt-c8434b3e/` in the root checkout.
+
 ## LT-681 — Compact now on a Codex session shows a fabricated ~0% occupancy
 
 **Status: open, reproduced live 2026-10-04 (dev app, current working tree, codex-cli 0.160.0, found by
@@ -9573,9 +9589,9 @@ response (move to the next permitted provider, keep the meaningful instant title
 
 ## LT-683 — a Codex goal turn that starts within milliseconds of the previous one is not followed
 
-**Status: open, seen once on 2026-10-04 (dev app, current working tree, codex-cli 0.160.0; found by the
-compaction-reliability live test check 1). Intermittent; the cause is not established. Priority P3
-until a second occurrence or a root cause says otherwise.**
+**Current status: implementation and runtime checks pass on 2026-10-27; final gates pending.**
+The start-only handoff counterexample below is repaired in the queue worktree. Full-suite retry
+and fresh independent acceptance are still required. Historical reproductions are preserved. Priority P2.
 
 ### Observed behaviour
 
@@ -9614,6 +9630,136 @@ turn's capture has finished tearing down; status stays `busy` throughout.
   capture is still resolving; assert both are captured and status never goes `idle` between them.
 - Live: a 14-turn goal run repeated several times shows no `Following` gap and no `idle` span between goal
   turns longer than the turn gap.
+
+### Recurrence — 2026-10-27: REOPENED, P2
+
+Same real session and source as the LT-680 recheck above. Four later provider goal turns ran
+02:44:18.147–02:45:26.993 UTC, producing peregrine-falcon, red-panda, elephant and axolotl
+paragraphs in the native rollout. None appears in Harness's final IPC buffer or rendered transcript.
+Lifecycle stays idle from 02:44:18.140; a direct sample at 02:44:42.359 confirms idle while
+Codex is running the red-panda turn. This is independent of the initial renderer bootstrap failure:
+the final IPC buffer is also missing all four paragraphs after renderer recovery.
+
+At 02:44:18.139 the adapter logs `Following a turn Codex started by itself` for the already-completed
+initial turn `01a17b3d-8b2b-76a0-8f99-a7c312e285d1`. The only correct goal-follow log is the
+first goal turn; no follow log names the four subsequent goal ids. The pending notification replay
+at `codex-app-server-turn-adapter.ts:184–223` is a root-cause candidate: this proves a stale follow
+id but does not independently prove the enqueue origin. No further sends or interrupts occurred.
+The Codex goal completed itself; the disposable session was terminated afterwards.
+
+Required behavior and acceptance above remain applicable. Add the initial Harness turn plus accepted
+mid-goal send to regression coverage; do not stop at a synthetic provider-to-provider overlap.
+No fix was implemented by this live-test worker. Matching current implementation status:
+[active follow-up plan](2026-10-27-codex-goal-following-remediation_plan.md).
+Per-check timestamps and retained evidence are in the [owner's 2026-10-27 section](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-plan-queue-isolated-dev-runtime).
+
+### Fix and current live recheck — 2026-10-27, verifier round 2
+
+Root cause established: the connection-level notification observer runs before the active capture
+subscriber. When a Harness turn starts, it queued that same turn while the capture id was still
+null (or already equal). The first provider capture later replayed that stale initial notification,
+occupying the runtime slot with an already-completed turn. Subsequent native notifications were
+therefore not captured. An additional handoff gap existed after Harness capture teardown, and
+the successful-send wrapper could report idle after a new native turn acquired the slot.
+
+The adapter now queues only a known different turn id, drains a pending turn after either capture
+origin, and preserves busy on successful send when a native turn is active. Three new regressions
+cover both native start-notification orders, accepted joined input, four later native turns, and
+Harness-to-native teardown. All three fail against the previous production source and pass with
+the fix; existing tests were not weakened.
+
+Live rechecks on rebuilt Codex 0.164.0: the original joined scenario retains later animal replies;
+a 142.403-second Stop watch has no restart and a subsequent send works; a separate session
+retains two complete 14-turn goals plus a seven-turn goal, all 32 continuations followed, with
+50 tool-use and result rows visible in transcript groups. Both native compactions preserve the
+later goal output. The owner records compaction-procedure differences (the provider compacted
+around 74%, and non-executable convergence-review decisions still log) without weakening the
+original wording. This fix does not resolve the separate retrieval stall filed as LT-732.
+
+Evidence and pending/full verification status: [owner round 2](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-verifier-round-2).
+The root owner document and queue-branch register are intentionally separate until the coordinator
+lands both; the root evidence directory carries a source seal and landing manifest for that handoff.
+If the coordinator accepts document closure, the same evidence is carried into
+`2026-09-27-codex-compaction-reliability_livetest_completed.md`; the manifest names that
+future target as well as the current root path. No worker-owned rename or duplicate is created.
+
+### Remaining handoff counterexample — 2026-10-27, parked-item resume
+
+Fresh independent review returned `VERDICT: FAIL`: saving only a pending start notification cannot
+retain output and completion that arrive before the old capture releases its slot. A separate
+probe at **04:28:09.325 UTC** confirmed this using unchanged compiled production classes:
+`AppServerClientBase.handleChunk` decodes one JSONL chunk, the real notification hub dispatches
+it, and the real `CodexCliAdapter`/thread runtime capture it. Only the transport endpoint is
+in-memory; no model, provider or transport process is spawned.
+
+The chunk contains first-turn start/answer/completion immediately followed by second-turn
+start/answer/completion. The transcript/completions retain `FIRST_BATCH_REPLY` only; the runtime
+is still active on the already-completed second turn and statuses end busy. The same six messages
+sent as two chunks after capture cleanup retain both replies and end idle at 04:28:09.531 UTC.
+Thus the successful earlier 14-turn live runs do not cover all wire batching. This probe is a
+controlled runtime counterexample, not a claim of a new real-provider live failure.
+
+The executing path is `app-server-client.ts:371–375` (synchronous line loop), notification hub
+`:27–38`, `codex-app-server-turn-adapter.ts:194–195` (start-only pending slot), and
+`app-server-thread-runtime.ts:517–525` (foreign output/completion filtered out). The current
+handoff regression waits for the first send before emitting second-turn output, so it cannot
+detect the full-batch case. Required behavior remains that every native reply and completion is
+retained. Add coverage for complete short native turns in one chunk, both capture origins,
+and multiple queued turns; verify ordering, status, usage and teardown without weakening tests.
+
+Evidence: root `.aio-review/lt-c8434b3e-resume/independent-review.md`,
+`transport-handoff-runtime-probe.json`, `transport-handoff-probe.log`, its command receipt,
+and the input-frame receipt. The probe command exits 0 when it confirms the defect and successful
+control; this is not a passing feature test. No implementation fix for this case was attempted
+in this evidence-only resume. The active root follow-up plan tracks it; Check 1 is reopened.
+
+### Batched-event remediation — 2026-10-27, resumed verifier findings
+
+The adapter now retains all notifications after a different root native turn starts, groups them
+by root turn start, and replays them through the runtime's normal notification subscriber after
+the preceding response is published. This replaces the single saved start. Harness-origin
+publication finishes before a queued native turn is drained. Termination clears buffered events.
+
+New regressions fail before the fix for both capture origins and four complete turns in one
+synchronous batch. The fixed regressions additionally verify exact reply/completion order, final
+idle, tool results, per-turn usage and foreign-thread exclusion. No old assertion was weakened.
+The rebuilt production JSONL parser, real notification hub, adapter and thread runtime pass the
+same batch and separated-chunk controls for both origins (four cases). An additional real-parser
+probe delays old-turn reconciliation while another user send waits; the existing input queue
+keeps one turn/start and delivers the joined response once, in order.
+
+Real Codex rechecks retain the joined reply and later goal replies, prevent restart for 122.011
+seconds after Stop, and retain both full fourteen-turn goals, all 26 native continuations and
+72 actual command tool rows, across four provider-managed compactions. Native rollout, IPC and
+DOM agree. Current source and receipts: root `.aio-review/lt-c8434b3e-fix/`.
+
+Inline convergence-review decisions no longer log or publish as actions; the live sessions show
+zero non-none policy decisions. The source fix is restricted to native turn handoff and inline
+advisory reporting. Retrieval (LT-732) and database initialization (LT-733) are unchanged.
+
+Canonical static/build gates pass. The first full run failed three unchanged Claude timing
+fixtures and a Vitest source-map error; a later isolated run passes all eight fixture cases.
+A fresh full run and independent gate are pending, so this entry does not claim final acceptance.
+The owner document records the separate original-90% test setup investigation.
+
+### Final worker evidence — 2026-10-27 06:40 UTC
+
+A second independent counterexample exposed the publication interval after runtime capture releases
+but before asynchronous reconciliation and response emission. The adapter now retains ownership and
+all subsequent connection/capture effects through publication; joining waits and targets queued
+native work. Idle usage and bounded child retries cannot drain unpublished usage. Both-origin
+regressions and actual compiled parser/hub probes prove separate 100/10 and 200/10 usage, original-
+then-next replies, correctly ordered compaction rows, joined input and final idle. Original failing
+probes remain recorded as defect-confirming evidence, not passing acceptance tests.
+
+The final rebuilt live run retains all 45 native replies/completions and tool results, follows 44
+continuations and compacts at 93% and 96%; Stop/join/busy refusal/settings checks pass. Both builds,
+typechecks, lint, size/hint checks and the pinned Node24 full suite exit 0. A genuinely fresh
+preliminary reviewer returns NO_ACTIONABLE_FINDINGS after independent focused/static/probe checks;
+formal coordinator Gate 0 and document acceptance remain pending. Evidence: root
+`.aio-review/lt-c8434b3e-fix/`, especially `publication-final-live/`, pinned-final receipts and
+`full-suite-pinned-current-receipt.json`. The owner document records all actual dates and limits.
+
 
 <a id="lt-708"></a>
 
@@ -10634,6 +10780,99 @@ therefore durable, not a log-line join. Live observation on an identified rebuil
   failure or duplicate execution, original budget, and ready health afterward.
 - Until that live run passes, keep AR-003 and LT-712 open as a technical implementation
   prerequisite. Repeating resets on an unchanged unobservable build cannot supply the missing proof.
+
+## LT-732 — a large context-fill send blocks the main loop during retrieval
+
+### Observed behaviour
+
+2026-10-27, queue worktree, isolated profile `/tmp/aio-lt-queue-c8434b3e`, instance `xb1w9dxya`. At 03:07:36.807 UTC a 400,219-character message entered `INSTANCE_SEND_INPUT`. Last progress was the ContextSearch keyword-fallback log at 03:07:36.877. No provider turn began in that interval. At 03:10:11.016 RuntimeDiagnostics reported `Main process event loop stall detected`, `stallMs:153712`; the send-context deadline was exceeded and the queued SIGTERM shut down the owned dev app normally (exit 0). The send returned SEND_FAILED / runtime closed during that shutdown.
+
+Evidence: root `.aio-review/lt-c8434b3e-round2/dev-app.log`, `stall-observation.json`, `context-fill-1.log`, `dev-app-receipt.json`, and the native rollout extract. The large message used harmless generated words for the required high-context check, not a load test; it was not retried.
+
+### Root cause
+
+Not proven. The executing retrieval path reaches `executeSemanticSearch` in `src/main/rlm/context/context-search.ts`, which expands the full query into regex alternatives and calls synchronous `executeGrep`. The last progress and the recorded main-loop stall identify the blocked stage; they do not isolate regex compilation from matching. Shared host load was also high and was checked.
+
+### Required behaviour
+
+An accepted large message must not block the main event loop while generating optional retrieval context. Bound and sanitize retrieval queries and keep stop/read-back responsive.
+
+### Acceptance
+
+A deterministic local regression must bound processing of large or repeated queries without a timing stress test, and a live large-message send must keep the UI and Stop responsive. Do not close based only on the compaction test succeeding with a short prompt and fixture tool output.
+
+### Implementation status
+
+Open; no retrieval code changed in this task. Current follow-up: root untracked `2026-10-27-codex-goal-following-remediation_plan.md`, additional-defect note. The compaction campaign uses short prompts and fixture reads to complete its assigned check independently.
+
+
+## LT-733 — first-profile startup fails at the RLM journal-mode pragma
+
+### Observed behaviour
+
+2026-10-27 04:21:01.574 UTC, queue worktree `queue/2026-09-27-codex-compaction-re-434b3e`,
+source `ca2e64dcb`, isolated profile `/tmp/aio-lt-queue-c8434b3e`. The main process failed critical
+Work controls initialization with `SqliteError: database is locked`. The stack reaches
+`RLMDatabase.initializeDatabase` through `initializeGlobalPauseRuntime`; no window was created.
+The owned context worker started at 04:21:01.407 and reported successful RLM initialization at
+04:21:01.642. The app was stopped with SIGTERM and exited 0. A single same-profile restart, with
+no database or source edits, reached a visible renderer and successful `listInstances` IPC at
+04:23:13; it too was stopped and exited 0. This is a first-start failure, not proof of a persistent
+locked database. The second run also reported the unrelated shared thin-client port in use;
+that subsystem is not needed for these checks and its owner was left alone.
+
+Durable evidence: root `.aio-review/lt-c8434b3e-resume/live-smoke-first-app.log`,
+`live-smoke-first-receipt.json`, `live-smoke-app.log`, and `live-smoke-receipt.json`.
+
+### Root cause
+
+The failing executing statement is the journal-mode pragma at
+`src/main/persistence/rlm-database.ts:140`, before its explicit busy-timeout pragma. Concurrent
+main/worker initialization is a candidate, supported by the adjacent process-role logs, but the
+lock holder and exact contention have not been isolated. Do not claim that moving the timeout
+alone fixes it. The nearby LT-712 campaign report concerns a duplicate migration insertion;
+these observations are recorded separately until a common cause is established.
+
+### Required behaviour
+
+A normal first launch must coordinate access to its isolated RLM database and reach the UI without
+an operator restart. Contention must remain bounded and leave failures visible.
+
+### Acceptance
+
+Add a deterministic regression for concurrent first-open initialization without timing stress,
+and verify first startup of a fresh isolated profile reaches the renderer and read-only IPC.
+Retain finite lock handling and check that both main and context worker close their databases.
+
+### Recurrence — 2026-11-07
+
+On a fresh isolated profile, built from HEAD `00c380d52` with dependencies reinstalled to the lockfile, the
+context worker's first start failed during RLM schema migration: `Failed to apply migration
+"001_add_optimized_indices": UNIQUE constraint failed: _migrations.name`, thrown from `runMigrations`
+(`dist/main/persistence/rlm/rlm-schema.js:337`) inside `RLMDatabase.initializeDatabase`. The worker exited,
+restarted and recovered; the main window then opened with no further database error. This is the same
+first-open initialization of one RLM database by two processes, with a different error text (a duplicate
+migration row, not a lock). Log: root `.aio-review/lt-c8434b3e-rerun-2026-11-07/dev-app.log`, lines 14–36.
+Still OPEN under LT-733.
+
+### Implementation status
+
+Open; no database initialization code is changed by this campaign. Matching active status is in
+root `docs/plans/2026-10-27-codex-goal-following-remediation_plan.md`. The completed historical
+remediation plan remains immutable. The successful restart is a workaround, not a fix.
+
+
+### LT-733 recurrence — 2026-10-27 05:35 UTC
+
+Fresh isolated profile for the same queue campaign failed critical Work controls initialization
+at **05:35:20.558 UTC** with `SqliteError: database is locked`. The production stack again reaches
+`RLMDatabase.initializeDatabase` at the journal-mode pragma (`dist/main/persistence/rlm-database.js:132`).
+The exact lock holder is still unproven. Evidence: root
+`.aio-review/lt-c8434b3e-fix/native-boundary-full-output/first-startup/critical-startup.json`.
+The failed owned PID 15717 was matched by profile lock, cwd and debug port, stopped with SIGTERM,
+and verified absent with the port closed. A single same-profile restart without source or DB edits
+reached the live renderer and completed the real-provider boundary checks. That owned PID 55543
+was also stopped and verified absent. Restart recovery is not a database fix; LT-733 remains OPEN.
 <a id="lt-710"></a>
 
 ## LT-710 — fresh-profile app startup can collide with the context worker's migrations

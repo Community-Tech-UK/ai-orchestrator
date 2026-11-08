@@ -26,9 +26,12 @@ const HOOK_COMMANDS = {
     // both" gate — quick, scoped test coverage on commit, with the slow
     // full suite still living in CI. test-staged.js excludes the
     // generated artifacts staged just above (they're widely imported and would
-    // balloon the run) and skips entirely when no source files are staged, so
-    // the loop agents' high-frequency auto-commits stay near-instant. Bypass in
-    // an emergency with `git commit --no-verify`.
+    // balloon the run) and skips the test invocation when no source files are
+    // staged. The build still runs first to validate current worker assets.
+    // Bypass in an emergency with `git commit --no-verify`.
+    // Related tests launch the compiled CLI worker. Rebuild from current source
+    // so a clean checkout or live-test cleanup cannot leave it missing or stale.
+    { command: 'npm', args: ['run', 'build:main'] },
     { command: 'npm', args: ['run', 'test:staged'] },
   ],
   // This mirrors the checks in CI's "Lint, Typecheck, Build Smoke" job
