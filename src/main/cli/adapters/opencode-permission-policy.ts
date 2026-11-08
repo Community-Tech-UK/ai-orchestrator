@@ -58,8 +58,11 @@ export function assertOpenCodePermissionPolicy(effective: Record<string, unknown
     const agent = openCodeRecord(agents[name]);
     if (agent['disable'] === true) continue;
     const rules = [...Object.entries(globalPermission), ...Object.entries(openCodeRecord(agent['permission']))];
-    if (rules.filter(([key]) => matchesPermission(key, 'doom_loop')).at(-1)?.[1] !== 'ask') {
-      throw new Error('Unable to enforce native OpenCode doom-loop permission safely.');
+    // Native Windows casing is not guaranteed; both interpretations must be safe.
+    for (const caseSensitive of process.platform === 'win32' ? [true, false] : [true]) {
+      if (rules.filter(([key]) => matchesPermission(key, 'doom_loop', caseSensitive)).at(-1)?.[1] !== 'ask') {
+        throw new Error('Unable to enforce native OpenCode doom-loop permission safely.');
+      }
     }
   }
 }

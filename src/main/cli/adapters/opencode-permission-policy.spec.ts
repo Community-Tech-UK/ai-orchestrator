@@ -104,7 +104,11 @@ describe('Windows native permission case uncertainty', () => {
     expect(() => assertOpenCodePermissionPolicy({ permissionRules: [ask] }, false, 2)).not.toThrow();
     expect(() => assertOpenCodePermissionPolicy({ permissionRules: [ask, { action: 'Shell*', resource: 'harmless-placeholder', effect: 'deny' }] }, false, 2)).not.toThrow();
   }));
-  it('preserves the existing legacy Windows case-insensitive doom-loop check', () => onWindows(() => {
-    expect(() => assertOpenCodePermissionPolicy({ permission: { DOOM_LOOP: 'ask' } }, true, 1)).not.toThrow();
+  it('accepts a legacy Windows doom-loop ask that holds under both case readings', () => onWindows(() => {
+    expect(() => assertOpenCodePermissionPolicy({ permission: { doom_loop: 'ask', DOOM_LOOP: 'ask' } }, true, 1)).not.toThrow();
+  }));
+  it('on Windows, requires the legacy doom-loop ask to hold under both case readings', () => onWindows(() => {
+    // Case-insensitively the last match is the upper-case ask; case-sensitively only the allow matches.
+    expect(() => assertOpenCodePermissionPolicy({ permission: { doom_loop: 'allow', DOOM_LOOP: 'ask' } }, true, 1)).toThrow('doom-loop');
   }));
 });
