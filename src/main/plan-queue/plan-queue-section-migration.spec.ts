@@ -80,6 +80,15 @@ describe('migration 054, the step number on a queue job', () => {
     insert('step-1', 1);
   });
 
+  it('is not stopped by a reference that was already broken before the rebuild', () => {
+    profileBeforeSections();
+    db.pragma('foreign_keys = OFF');
+    db.prepare(`INSERT INTO plan_queue_item_events (id, item_id, run_id, at, to_state, round, tokens) VALUES ('orphan', 'no-such-job', 'run-1', 5, 'parked', 1, 0)`).run();
+    db.pragma('foreign_keys = ON');
+    expect(() => runLoopMigrations(db)).not.toThrow();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM plan_queue_item_events').get<{ n: number }>()?.n).toBe(2);
+  });
+
   it('builds the same table on a fresh database', () => {
     runLoopMigrations(db);
     db.prepare(`INSERT INTO plan_queue_runs (id, parent_instance_id, kind, workspace_cwd, status, config_json, started_at, updated_at)

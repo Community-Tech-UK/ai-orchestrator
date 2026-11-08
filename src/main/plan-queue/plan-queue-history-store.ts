@@ -19,6 +19,7 @@ import { planQueueFindingId } from './plan-queue-progress';
 import type { PlanQueueItemPin } from './plan-queue-plan-pins';
 import type { PlanQueueItem } from './plan-queue.types';
 import { NOT_TIMING_SQL, TIMING_REASONS } from './plan-queue-timings';
+import { roundsKey } from './plan-queue-sections';
 
 export interface PlanQueueItemEvent {
   id: string;
@@ -181,11 +182,14 @@ export class PlanQueueHistoryStore {
    * round counter: a Resume resets `round` to 0 while earlier verdicts stay,
    * so round order would put the newest round after an obsolete one.
    */
-  /** Rounds checked per document across every attempt and Resume. A timed-out check judged nothing and leaves no verdict. */
+  /**
+   * Rounds checked per document across every attempt and Resume, or per step for a plan that runs one job per step
+   * (key them with `roundsKey`). A timed-out check judged nothing and leaves no verdict.
+   */
   totalRoundsByDocument(): Map<string, number> {
-    return new Map(this.db.prepare(`SELECT item.document_path AS path, COUNT(*) AS rounds FROM plan_queue_verdicts verdict
-      JOIN plan_queue_items item ON item.id = verdict.item_id GROUP BY item.document_path`)
-      .all<{ path: string; rounds: number }>().map(row => [row.path, row.rounds]));
+    return new Map(this.db.prepare(`SELECT item.document_path AS path, item.section AS section, COUNT(*) AS rounds FROM plan_queue_verdicts verdict
+      JOIN plan_queue_items item ON item.id = verdict.item_id GROUP BY item.document_path, item.section`)
+      .all<{ path: string; section: number | null; rounds: number }>().map(row => [roundsKey(row.path, row.section), row.rounds]));
   }
 
   listVerdicts(itemId: string): PlanQueueVerdictRecord[] {

@@ -7,11 +7,13 @@ import { createSqliteWasmDatabase, initSqliteWasm } from '../db/sqlite-wasm-driv
 import { runLoopMigrations } from '../orchestration/loop-schema';
 import { WorkAdmission } from '../work-admission/work-admission';
 import { discoverPlanQueueDocuments } from './plan-queue-discovery';
+import { roundsKey, stepPlanProblem } from './plan-queue-sections';
 import { runToDto } from './plan-queue-messages';
 import { extractPlan, planSteps } from './plan-queue-plan-extract';
 import { buildVerifierPrompt, buildWorkerPrompt } from './plan-queue-prompts';
 import { pumpPlanQueue } from './plan-queue-pump';
-import { applyTriageRecords } from './plan-queue-readiness';
+import { applyTriageRecords, reconcileWaitingDocuments } from './plan-queue-readiness';
+import { PlanQueueWorkerSessions } from './plan-queue-worker-sessions';
 import { claimDocumentsAndCreateItems } from './plan-queue-run-start';
 import { newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueStore } from './plan-queue-store';
@@ -86,6 +88,32 @@ describe('finding and starting a big plan', () => {
     expect((await start()).map(item => [item.section ?? null, item.state])).toEqual([[null, 'skipped']]);
   });
 
+  describe('a part-done plan', () => {
+    const partDone = ['# Part done', ...filler, '## Step 1. Landed', '- [x] a', '- [x] b', '## Step 2. Open', '- [x] c', '- [ ] d', '## Step 3. Prose only', 'Do it.', '## Step 4. Also landed', '- [x] e'].join('\n');
+
+    it('makes jobs only for the steps that still have something to do, keeping a step with no checklist', async () => {
+      const file = plan('part_plan.md', partDone);
+      const items = await start();
+      expect(items.map(item => [item.documentPath, item.section, item.state])).toEqual([[file, 2, 'discovered'], [file, 3, 'queued']]);
+    });
+
+    it('does the same when picked by name', async () => {
+      plan('part_plan.md', partDone);
+      expect((await start({ queueDirectly: true })).map(item => [item.section, item.state])).toEqual([[2, 'queued'], [3, 'queued']]);
+    });
+
+    it('leaves the plan out, saying why, when every step is ticked off', async () => {
+      plan('done_plan.md', ['# Done', ...filler, '## Step 1. A', '- [x] a', '## Step 2. B', '- [x] b'].join('\n'));
+      for (const queueDirectly of [false, true]) {
+        store.upsertRun({ ...run, id: `again-${queueDirectly}`, status: 'completed' });
+        const items = await start({ queueDirectly });
+        expect(items.at(-1)).toMatchObject({ state: 'skipped', detail: expect.stringContaining('every step in this plan is already ticked off') });
+        expect(items.at(-1)!.section ?? null).toBeNull();
+        for (const item of items) store.upsertItem({ ...item, state: 'landed' });
+      }
+    });
+  });
+
   it('runs a small plan with step headings as one job', async () => {
     plan('small_plan.md', STEPPED.join('\n'));
     expect((await start()).map(item => [item.section ?? null, item.state])).toEqual([[null, 'discovered']]);
@@ -104,12 +132,12 @@ describe('finding and starting a big plan', () => {
     expect(store.listItems('rival')).toHaveLength(3);
   });
 
-  it('skips the later steps with the first when the document is not to be worked', async () => {
+  it('skips the later steps with the first when its last two attempts stopped the same way', async () => {
     const file = plan('big_plan.md', bigStepped);
     utimesSync(file, new Date(Date.now() - 3 * 86_400_000), new Date(Date.now() - 3 * 86_400_000));
     for (const [id, at] of [['a', 1], ['b', 2]] as const) {
       store.upsertRun({ ...run, id: `older-${id}`, status: 'completed' });
-      const attempt = newPlanQueueItem(`stop-${id}`, `older-${id}`, file, at, { state: 'queued' });
+      const attempt = newPlanQueueItem(`stop-${id}`, `older-${id}`, file, at, { state: 'queued', section: 1 });
       store.upsertItem(attempt);
       store.upsertItem({ ...attempt, state: 'parked', parkReason: 'worktree-error', detail: 'The checks could not start.' });
     }
@@ -228,9 +256,13 @@ describe('finding a plan\'s steps', () => {
   it('ignores headings inside code fences and anything that is not a step heading', () => {
     const content = ['## Step 1. A', '```', '## Step 2. Fake', '```', '## Step 3. B', '## Stepping stones', 'text'].join('\n');
     expect(planSteps(content)).toEqual([
-      { number: 1, startLine: 1, endLine: 4, last: false },
-      { number: 3, startLine: 5, endLine: 5, last: true },
+      { number: 1, startLine: 1, endLine: 4, last: false, boxes: 0, open: 0 },
+      { number: 3, startLine: 5, endLine: 5, last: true, boxes: 0, open: 0 },
     ]);
+  });
+
+  it('counts each step\'s checklist, ticked and unticked', () => {
+    expect(planSteps('## Step 1. A\n- [x] a\n* [X] b\n## Step 2. B\n- [ ] c\n- [x] d\n## Step 3. C\nprose')?.map(step => [step.boxes, step.open])).toEqual([[2, 0], [2, 1], [0, 0]]);
   });
 
   it('is null for one step, or repeated numbers', () => {
@@ -243,9 +275,17 @@ describe('showing step jobs', () => {
   it('says which step of how many a job is, and which step it waits for', () => {
     const file = join(folder, 'big_plan.md');
     const items = [1, 2, 3].map(n => newPlanQueueItem(`s${n}`, 'run', file, n, { state: n === 1 ? 'working' : 'queued', section: n }));
-    const dto = runToDto(run, items, undefined, new Map(), new Map([[file, 9]]));
-    expect(dto.items.map(entry => entry.step)).toEqual([{ number: 1, of: 3, waitingFor: null }, { number: 2, of: 3, waitingFor: 1 }, { number: 3, of: 3, waitingFor: 2 }]);
-    expect(dto.items.every(entry => entry.totalRounds === undefined)).toBe(true);
+    const dto = runToDto(run, items, undefined, new Map(), new Map([[roundsKey(file, 2), 4], [roundsKey(file, null), 9]]));
+    expect(dto.items.map(entry => entry.step)).toEqual([{ number: 1, position: 1, of: 3, waitingFor: null }, { number: 2, position: 2, of: 3, waitingFor: 1 }, { number: 3, position: 3, of: 3, waitingFor: 2 }]);
+    // Rounds are each step's own, never the document's total across steps.
+    expect(dto.items.map(entry => entry.totalRounds)).toEqual([undefined, 4, undefined]);
+  });
+
+  it('gives a step its place among the run\'s jobs when earlier steps are ticked off', () => {
+    const file = join(folder, 'big_plan.md');
+    const items = [4, 8].map(n => newPlanQueueItem(`s${n}`, 'run', file, n, { state: 'queued', section: n }));
+    expect(runToDto(run, items, undefined, new Map(), new Map()).items.map(entry => entry.step)).toEqual([
+      { number: 4, position: 1, of: 2, waitingFor: null }, { number: 8, position: 2, of: 2, waitingFor: 4 }]);
   });
 
   it('shows no step for a whole-document job', () => {
@@ -298,5 +338,76 @@ describe('triage of a stepped plan', () => {
     const outcome = applyTriageRecords(host, run, { run_id: 'run', records: [{ documentPath: file, disposition: 'ready' }] });
     expect(outcome).toEqual({ applied: 1, unmatched: [] });
     expect(store.listItems('run').map(item => item.state)).toEqual(['queued', 'queued', 'queued']);
+  });
+});
+
+describe('the answer given for a stepped plan', () => {
+  it('reaches every step\'s worker, and the last job of the run is the one that writes the as-built summary', async () => {
+    const file = plan('big_plan.md', bigStepped);
+    for (const [id, section, answer] of [['s1', 1, 'Which runner? → The quiet one'], ['s2', 2, null], ['s3', 3, null]] as const) {
+      store.upsertItem(newPlanQueueItem(id, 'run', file, section, { state: 'queued', section, answer }));
+    }
+    const sessions = new PlanQueueWorkerSessions({ host: { store } as never, lock: async () => undefined, stop: async () => undefined, spawn: async () => undefined, failed: async () => undefined });
+    const context = (id: string) => sessions.promptContext(run, store.getItem(id)!);
+    expect((await context('s2')).answer).toBe('Which runner? → The quiet one');
+    expect(buildWorkerPrompt(await context('s3'))).toContain('The quiet one');
+    expect([(await context('s2')).brief?.step?.last, (await context('s3')).brief?.step?.last]).toEqual([false, true]);
+  });
+
+  it('makes the run\'s last job write the summary when the plan\'s last step was ticked off and has no job', async () => {
+    const file = plan('big_plan.md', bigStepped);
+    for (const section of [1, 2]) store.upsertItem(newPlanQueueItem(`s${section}`, 'run', file, section, { state: 'queued', section }));
+    const sessions = new PlanQueueWorkerSessions({ host: { store } as never, lock: async () => undefined, stop: async () => undefined, spawn: async () => undefined, failed: async () => undefined });
+    expect((await sessions.promptContext(run, store.getItem('s2')!)).brief?.step?.last).toBe(true);
+  });
+
+  it('gives a job its own answer in preference to the first step\'s', async () => {
+    const file = plan('big_plan.md', bigStepped);
+    store.upsertItem(newPlanQueueItem('s1', 'run', file, 1, { state: 'queued', section: 1, answer: 'first' }));
+    store.upsertItem(newPlanQueueItem('s2', 'run', file, 2, { state: 'queued', section: 2, answer: 'own' }));
+    const sessions = new PlanQueueWorkerSessions({ host: { store } as never, lock: async () => undefined, stop: async () => undefined, spawn: async () => undefined, failed: async () => undefined });
+    expect(sessions.continueContext(run, store.getItem('s2')!).answer).toBe('own');
+  });
+});
+
+describe('a step job whose plan was renamed', () => {
+  const hostOf = () => ({ store, getRun: () => run, getItem: (id: string) => store.getItem(id)!,
+    transition: (item: PlanQueueItem, state: PlanQueueItem['state'], patch: Partial<PlanQueueItem> = {}) => { const next = { ...item, ...patch, state }; store.upsertItem(next); return next; }, notifyParent: () => undefined });
+
+  it('is set aside with a plain reason before it starts, instead of being retired as superseded', async () => {
+    const file = join(folder, 'big_plan.md');
+    writeFileSync(join(folder, 'big_plan_completed.md'), '# closed');
+    store.upsertItem(newPlanQueueItem('s2', 'run', file, 2, { state: 'queued', section: 2 }));
+    store.upsertItem(newPlanQueueItem('whole', 'run', join(folder, 'other_plan.md'), 3, { state: 'queued' }));
+    writeFileSync(join(folder, 'other_plan_completed.md'), '# closed');
+    await reconcileWaitingDocuments(hostOf(), run);
+    expect(store.getItem('s2')).toMatchObject({ state: 'parked', parkReason: 'missing-document', detail: expect.stringContaining('a step job never closes its plan') });
+    // A whole-document job is still retired as before.
+    expect(store.getItem('whole')?.state).toBe('skipped');
+  });
+
+  it('says so whether the plan was renamed or has just gone', async () => {
+    const file = join(folder, 'big_plan.md');
+    expect(await stepPlanProblem(file)).toContain('no longer where this step expects it');
+    writeFileSync(file, '# open');
+    expect(await stepPlanProblem(file)).toBeNull();
+    writeFileSync(join(folder, 'big_plan_completed.md'), '# closed');
+    expect(await stepPlanProblem(file)).toContain('Rename it back to big_plan.md');
+  });
+});
+
+describe('a step\'s earlier attempts and rounds', () => {
+  it('feeds the repeated-stop rule and the round counts from its own step only', () => {
+    const file = '/repo/docs/plans/big_plan.md';
+    for (const [id, section] of [['s1', 1], ['s2', 2]] as const) {
+      store.upsertRun({ ...run, id: `r-${id}`, status: 'completed' });
+      store.upsertItem(newPlanQueueItem(id, `r-${id}`, file, 1, { state: 'parked', section }));
+      db.prepare(`INSERT INTO plan_queue_verdicts (id, item_id, run_id, round, at, verdict, findings_json, gates_json, not_checked_json) VALUES (?, ?, ?, 1, 1, 'FAIL', '[]', '[]', '[]')`)
+        .run(`v-${id}`, id, `r-${id}`);
+    }
+    expect(store.latestAttempts(file, 5, 1).map(item => item.id)).toEqual(['s1']);
+    expect(store.latestAttempts(file, 5).map(item => item.id)).toEqual([]);
+    const rounds = store.history.totalRoundsByDocument();
+    expect([rounds.get(roundsKey(file, 1)), rounds.get(roundsKey(file, 2)), rounds.get(roundsKey(file, null))]).toEqual([1, 1, undefined]);
   });
 });

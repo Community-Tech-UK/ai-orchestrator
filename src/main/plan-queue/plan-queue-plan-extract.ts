@@ -22,8 +22,11 @@ export interface PlanStep {
   number: number;
   startLine: number;
   endLine: number;
-  /** The plan's last step: its job writes the as-built summary. */
+  /** The plan's last heading. A job's own "last step" is the last one the run has a job for (see the prompt context). */
   last: boolean;
+  /** Checklist items in the step, and how many are still unticked. A step with no checklist has none of either. */
+  boxes: number;
+  open: number;
 }
 
 /** Heading text that names the Status section: "Status" as a whole word, then anything (`Status (date)`, `Status: x`, `Status — x`). Also used by the plan diet's counter. */
@@ -99,7 +102,10 @@ export function planSteps(content: string): PlanStep[] | null {
   const steps: PlanStep[] = [];
   for (const [position, index] of headings.entries()) {
     const match = /^##[ \t]+Step[ \t]+(\d{1,6})\b/i.exec(visible[index]);
-    if (match) steps.push({ number: Number(match[1]), startLine: index + 1, endLine: headings[position + 1] ?? visible.length, last: false });
+    if (!match) continue;
+    const endLine = headings[position + 1] ?? visible.length;
+    const items = visible.slice(index, endLine).filter(line => /^\s*[-*] \[[ xX]\]/.test(line));
+    steps.push({ number: Number(match[1]), startLine: index + 1, endLine, last: false, boxes: items.length, open: items.filter(line => /\[ \]/.test(line)).length });
   }
   if (steps.length < 2 || new Set(steps.map(step => step.number)).size !== steps.length) return null;
   steps[steps.length - 1].last = true;

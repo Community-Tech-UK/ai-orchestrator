@@ -154,14 +154,20 @@ describe('PlanQueueItemListComponent', () => {
 
   it('names a step job by its place in the plan and says which step it waits for', () => {
     fixture.componentRef.setInput('items', [
-      makeItem({ id: 'one', state: 'working', step: { number: 1, of: 5, waitingFor: null } }),
-      makeItem({ id: 'two', state: 'queued', step: { number: 2, of: 5, waitingFor: 1 } }),
+      makeItem({ id: 'one', state: 'working', step: { number: 1, position: 1, of: 5, waitingFor: null } }),
+      makeItem({ id: 'two', state: 'queued', step: { number: 2, position: 2, of: 5, waitingFor: 1 } }),
       makeItem({ id: 'whole', state: 'queued' }),
     ]);
     fixture.detectChanges();
     const text = (selector: string) => Array.from(fixture.nativeElement.querySelectorAll(selector) as NodeListOf<HTMLElement>).map(node => node.textContent?.trim());
     expect(text('.pq-item-step')).toEqual(['Step 1 of 5', 'Step 2 of 5']);
     expect(text('.pq-item-step-wait')).toEqual(['Waiting for Step 1']);
+  });
+
+  it('does not say "Step 8 of 5" when the steps before it are already ticked off', () => {
+    fixture.componentRef.setInput('items', [makeItem({ step: { number: 8, position: 5, of: 5, waitingFor: null } })]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.pq-item-step')?.textContent?.trim()).toBe('Step 8 (job 5 of 5)');
   });
 
   it('omits group coverage for receipts from a solo or legacy check', () => {

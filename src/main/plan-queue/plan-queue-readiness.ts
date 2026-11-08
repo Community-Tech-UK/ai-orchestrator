@@ -14,6 +14,7 @@ import { buildQuestionsMessage, withSkipOption } from './plan-queue-messages';
 import type { PlanQueueStore } from './plan-queue-store';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { rememberTriageRecord } from './plan-queue-triage-memory';
+import { stepPlanProblem } from './plan-queue-sections';
 
 const logger = getLogger('PlanQueueReadiness');
 const reportedUnreadable = new Set<string>();
@@ -145,6 +146,11 @@ export async function reconcileWaitingDocuments(host: ReadinessHost, run: PlanQu
       // Once per job: this runs on every pass. A read that never recovers parks the job when it starts.
       if (!reportedUnreadable.has(item.id)) logger.warn('Plan queue: could not inspect a waiting document', { itemId: item.id, detail });
       reportedUnreadable.add(item.id);
+    }
+    else if (outcome === 'completed' && item.section != null) {
+      // A step job never closes its plan, so the closed name means an earlier step's worker renamed it: say so, never retire it quietly.
+      const problem = await stepPlanProblem(item.documentPath);
+      host.transition(item, 'parked', { question: null, parkReason: 'missing-document', detail: problem ?? detail });
     }
     else if (outcome === 'completed') host.transition(item, 'skipped', { question: null, detail: detail.slice(0, 8000) });
     else if (outcome !== 'present') host.transition(item, 'parked', { question: null, parkReason: outcome === 'missing' ? 'missing-document' : 'worker-error', detail: detail.slice(0, 8000) });

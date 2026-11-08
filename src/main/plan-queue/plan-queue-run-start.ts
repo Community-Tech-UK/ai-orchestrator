@@ -48,6 +48,8 @@ export function oversizedNote(documentPath: string): string | null {
   return `Left out of this run: with ${open} unticked items it is likely too big for one job. Split it, or pick it by name to start it anyway.`;
 }
 
+/** Every step's checklist is ticked, so a job for any of them would have nothing to do. */
+const EVERY_STEP_DONE = 'Left out of this run: every step in this plan is already ticked off, so there is nothing left to build. If the work is finished, close the plan; if not, untick what is still to do.';
 const NEEDS_PLAN_DETAIL = 'No implementation plan exists. The spec remains open; create and link a plan in a planning task, then queue that plan.';
 
 /**
@@ -72,14 +74,16 @@ export function claimDocumentsAndCreateItems(
     const needsPlan = doc.readiness === 'not-ready' && doc.path.toLowerCase().endsWith('_spec.md');
     // A plan too big for one job runs one job per step, whether it was picked by name or found; without steps it stays too big.
     const tooBig = needsPlan || run.kind !== 'plans' ? null : oversizedNote(doc.path);
-    const steps = tooBig ? stepsToRun(doc.path) : null;
+    const open = tooBig ? stepsToRun(doc.path) : null;
+    const steps = open?.length ? open : null;
     // A set-aside offer is for a whole-document job; a step job is resumed from Set aside.
-    const previous = needsPlan || steps ? null : deps.store.findLatestParkedItem(doc.path, run.parentInstanceId);
+    const previous = needsPlan || open ? null : deps.store.findLatestParkedItem(doc.path, run.parentInstanceId);
     const previousRun = previous ? deps.store.getRun(previous.runId) : null;
     // Merged work has moved on from this attempt, so offering to resume it would be an option that always fails.
     const setAside = previous && previousRun?.parentInstanceId === run.parentInstanceId && !deps.store.newerAttemptLanded(previous) ? previous : null;
-    const leftOut = options.queueDirectly || needsPlan || setAside ? null
-      : (steps ? null : tooBig) ?? repeatedStopNote(deps.store, doc.path);
+    const leftOut = open?.length === 0 ? EVERY_STEP_DONE
+      : options.queueDirectly || needsPlan || setAside ? null
+        : (steps ? null : tooBig) ?? repeatedStopNote(deps.store, doc.path, steps?.[0]);
     const remembered = !options.queueDirectly && !needsPlan && doc.readiness === 'candidate' && !setAside
       ? rememberedOutcomeForPath(deps.memory, doc.path, run.workspaceCwd)
       : { kind: 'none', detail: '' } as RememberedOutcome;

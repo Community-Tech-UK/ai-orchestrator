@@ -56,5 +56,6 @@ describe('the "On main" line after a step lands', () => {
   it('says only that the step landed, because the other steps may still be open', () => {
     expect(landedIntegrationStatus('# Plan\n', 'queue/x', 'abc1234', 2)).toBe('Step 2 landed (abc1234); the other steps may still be open');
     expect(landedIntegrationStatus('# Plan\n', 'queue/x', 'abc1234')).toBe('yes (abc1234)');
+    expect(landedIntegrationStatus('# Plan\n', 'queue/x', 'abc1234', 8, true)).toBe('yes (abc1234)');
   });
 });

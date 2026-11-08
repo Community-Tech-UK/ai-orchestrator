@@ -6,7 +6,8 @@ import { hasCheckout } from './plan-queue-orphan-checkout';
 import { unresolvedMergeFiles } from './plan-queue-git';
 import { allocateLivetestPort } from './plan-queue-livetest-port';
 import { buildConflictPrompt, buildParkedCarryOver } from './plan-queue-prompts';
-import { readPlanBrief } from './plan-queue-plan-extract';
+import { readPlanBrief, type PlanBrief } from './plan-queue-plan-extract';
+import { isLastStepJob } from './plan-queue-sections';
 import type { PlanQueueRun, PlanQueueItem } from './plan-queue.types';
 const logger = getLogger('PlanQueueWorkerSessions');
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -49,16 +50,30 @@ export class PlanQueueWorkerSessions {
       kind: run.kind,
       repoRoot: run.workspaceCwd,
       worktreePath: item.worktreePath ?? '',
-      answer: item.answer,
+      answer: this.answerFor(run, item),
     };
+  }
+
+  /** A step job has no readiness question of its own: it carries the answer given for the plan, which sits on the plan's first step. */
+  private answerFor(run: PlanQueueRun, item: PlanQueueItem): string | null {
+    if (item.answer || item.section == null) return item.answer;
+    const first = this.deps.host.store.listItems(run.id)
+      .filter(other => other.documentPath === item.documentPath && other.section != null)
+      .sort((a, b) => a.section! - b.section!)[0];
+    return first?.answer ?? null;
   }
 
   /** What a worker, resume or step-up prompt is built from; a plan's Status and open work are read fresh from the root checkout. */
   async promptContext(run: PlanQueueRun, item: PlanQueueItem) {
     return {
       ...this.continueContext(run, item),
-      ...(run.kind === 'plans' ? { brief: await readPlanBrief(item.documentPath, item.section) } : {}),
+      ...(run.kind === 'plans' ? { brief: this.lastStepOfRun(run, item, await readPlanBrief(item.documentPath, item.section)) } : {}),
     };
+  }
+
+  /** The step that writes the as-built summary is the run's last job, which is not the plan's last heading when that step is already ticked off. */
+  private lastStepOfRun(run: PlanQueueRun, item: PlanQueueItem, brief: PlanBrief): PlanBrief {
+    return brief.step ? { ...brief, step: { ...brief.step, last: isLastStepJob(this.deps.host.store.listItems(run.id), item) } } : brief;
   }
 
   /**

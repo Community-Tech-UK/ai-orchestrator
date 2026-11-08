@@ -2,11 +2,18 @@
  * Migration 054: a plan too big for one job runs one job per step, so one run now holds several jobs for the same
  * document and `UNIQUE (run_id, document_path)` has to go. SQLite cannot drop a constraint, so the table is rebuilt
  * (SQLite's documented copy-and-rename procedure). The runner switches foreign keys off around it: with them on,
- * dropping the old table would delete every row in the history tables that point at it.
+ * dropping the old table would delete every row in the history tables that point at it. A reference that was already
+ * broken is left alone; only one the rebuild breaks stops it.
  */
 import type { SqliteDriver } from '../db/sqlite-driver';
 
 interface Column { name: string; type: string; notnull: number; dflt_value: string | null; pk: number }
+
+/** Broken references from the queue's tables, which are the ones the rebuild could damage. */
+function foreignKeyViolations(db: SqliteDriver): number {
+  return ['plan_queue_items', 'plan_queue_item_events', 'plan_queue_verdicts', 'plan_queue_item_pins', 'plan_queue_spend']
+    .reduce((total, table) => total + db.prepare(`PRAGMA foreign_key_check(${table})`).all().length, 0);
+}
 
 export function addPlanQueueSections(db: SqliteDriver): void {
   const columns = db.prepare('PRAGMA table_info(plan_queue_items)').all<Column>();
@@ -17,6 +24,7 @@ export function addPlanQueueSections(db: SqliteDriver): void {
     .some(index => index.unique === 1 && index.origin === 'u'
       && db.prepare(`PRAGMA index_info(${JSON.stringify(index.name)})`).all<{ name: string }>().map(part => part.name).join() === 'run_id,document_path');
   if (oneJobPerDocument) {
+    const brokenBefore = foreignKeyViolations(db);
     const definitions = columns.map(column => {
       const rule = column.name === 'id' ? ' PRIMARY KEY'
         : column.name === 'run_id' ? ' REFERENCES plan_queue_runs(id) ON DELETE CASCADE' : '';
@@ -32,6 +40,8 @@ export function addPlanQueueSections(db: SqliteDriver): void {
       CREATE INDEX idx_plan_queue_items_state ON plan_queue_items(state);
       CREATE INDEX idx_queue_parked_doc ON plan_queue_items(document_path, state, updated_at DESC);
     `);
+    // The rebuild ran with foreign keys off, so prove it left every reference as it found it; throwing rolls the migration back.
+    if (foreignKeyViolations(db) > brokenBefore) throw new Error('The queue table rebuild broke a reference between its tables, so it was rolled back');
   } else if (!hasSection) db.exec('ALTER TABLE plan_queue_items ADD COLUMN section INTEGER;');
   // The step number is the job's place within its document; whole-document jobs have none, so they count as one.
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_plan_queue_items_step ON plan_queue_items(run_id, document_path, COALESCE(section, -1));');

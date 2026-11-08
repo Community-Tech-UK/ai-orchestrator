@@ -36,6 +36,7 @@ import { mergeCheckStillOwed, recordMergeCheckOwed } from './plan-queue-check-ti
 import { landItemBranch, runPostMergeGate, syncItemWithBase } from './plan-queue-landing';
 import { landingBlockers, overlapReason, type PlanQueueLandingWaits } from './plan-queue-landing-wait';
 import { updatePlanIntegrationStatus } from './plan-queue-document-status';
+import { finishesPlan, stepPlanProblem } from './plan-queue-sections';
 import { buildActiveDocumentsPrompt, buildConflictPrompt, buildGateFailurePrompt } from './plan-queue-prompts';
 import { clearPlanningMoveRecord, planningMoveNote } from './plan-queue-planning-files';
 import { returnToItemCheckout } from './plan-queue-squash';
@@ -176,6 +177,8 @@ export class PlanQueueItemLanding {
     const alreadyLanded = item.landedCommit !== null && (await isAncestor(item.landedCommit, baseTip, repoRoot));
     if (!alreadyLanded) {
       signal.throwIfAborted();
+      const planProblem = item.section == null ? null : await stepPlanProblem(item.documentPath);
+      if (planProblem) { await this.ctx.park(item, 'missing-document', planProblem); return; }
       // The request-time check cannot see the future: a resumed attempt can reach this point after a newer one merged.
       if (options.landAnywayBy === undefined && (host.store.newerAttemptLanded(item) || await this.newerAttemptOnBase(item, baseTip, repoRoot))) {
         await this.ctx.park(item, 'land-blocked', 'Nothing was landed: a newer attempt at this document merged first.');
@@ -199,7 +202,7 @@ export class PlanQueueItemLanding {
     }
     // A plan that stays open says whether its work is on main; a closed one carries that in its closed copy. Live-test documents have no such line.
     if (!closeDocuments && run.kind === 'plans') {
-      try { await updatePlanIntegrationStatus(item.documentPath, item.branchName ?? '', item.landedCommit!, item.section); }
+      try { await updatePlanIntegrationStatus(item.documentPath, item.branchName ?? '', item.landedCommit!, item.section, finishesPlan(host.store.listItems(item.runId), item)); }
       catch (error) { notes.push(`Code landed, but the plan's "On main" line could not be updated: ${errorMessage(error)}`); }
     }
 

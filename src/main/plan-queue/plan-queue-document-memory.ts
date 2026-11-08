@@ -25,8 +25,8 @@ function changedSince(documentPath: string, at: number): boolean {
  * Why a bulk start should leave this document out: its last two attempts stopped for the same reason, one that isn't about
  * its code, and it hasn't changed, so a third would stop there too. Picking the document by name still starts it.
  */
-export function repeatedStopNote(store: Pick<PlanQueueStore, 'latestAttempts' | 'lastParkedAt'>, documentPath: string): string | null {
-  const [last, before] = store.latestAttempts(documentPath, 2);
+export function repeatedStopNote(store: Pick<PlanQueueStore, 'latestAttempts' | 'lastParkedAt'>, documentPath: string, section: number | null = null): string | null {
+  const [last, before] = store.latestAttempts(documentPath, 2, section);
   if (!before || !stoppedTheSameWay(last, before) || changedSince(documentPath, store.lastParkedAt(last.id) ?? 0)) return null;
   return `Left out of this run: its last two attempts stopped the same way, and the document hasn't changed. Pick it by name to start it anyway. Last stop: ${(last.detail ?? last.parkReason ?? 'unknown').slice(0, 300)}`;
 }

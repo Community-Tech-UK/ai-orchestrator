@@ -43,6 +43,11 @@ export function planQueueDocumentBasename(documentPath: string): string {
   return parts[parts.length - 1] || documentPath;
 }
 
+/** "Step 2 of 5", or "Step 8 (job 2 of 5)" when steps already ticked off or skipped numbers mean the two differ. */
+export function planQueueStepLabel(step: NonNullable<PlanQueueItemDto['step']>): string {
+  return step.number === step.position ? `Step ${step.number} of ${step.of}` : `Step ${step.number} (job ${step.position} of ${step.of})`;
+}
+
 export function planQueueStateLabel(state: PlanQueueItemState): string {
   return STATE_LABELS[state] ?? state;
 }
@@ -99,6 +104,7 @@ export class PlanQueueItemListComponent {
   protected readonly spendLabel = queueItemSpendLabel;
   protected readonly documentBasename = planQueueDocumentBasename;
   protected readonly stateLabel = planQueueStateLabel;
+  protected readonly stepLabel = planQueueStepLabel;
   protected readonly isNotReached = isNotReachedItem;
   protected readonly notReachedLabel = PLAN_QUEUE_NOT_REACHED_LABEL;
   protected readonly verdictSummary = planQueueVerdictSummary;

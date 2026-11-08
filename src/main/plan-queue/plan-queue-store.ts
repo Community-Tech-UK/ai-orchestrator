@@ -381,10 +381,10 @@ export class PlanQueueStore {
     return row ? rowToItem(row) : null;
   }
 
-  /** Attempts at a document, newest first. A skipped row never ran, and routine saves move `updated_at`, so creation orders them. */
-  latestAttempts(documentPath: string, limit: number): PlanQueueItem[] {
-    return this.db.prepare(`SELECT * FROM plan_queue_items WHERE document_path = ? AND state != 'skipped' ORDER BY created_at DESC, id DESC LIMIT ?`)
-      .all<ItemRow>(documentPath, limit).map(rowToItem);
+  /** Attempts at a document (or at one step of it), newest first. A skipped row never ran, and routine saves move `updated_at`, so creation orders them. */
+  latestAttempts(documentPath: string, limit: number, section: number | null = null): PlanQueueItem[] {
+    return this.db.prepare(`SELECT * FROM plan_queue_items WHERE document_path = ? AND COALESCE(section, -1) = ? AND state != 'skipped' ORDER BY created_at DESC, id DESC LIMIT ?`)
+      .all<ItemRow>(documentPath, section ?? -1, limit).map(rowToItem);
   }
 
   /** When an attempt last stopped. Discarding and retrying move `updated_at`, so that can't say whether a file changed since. */

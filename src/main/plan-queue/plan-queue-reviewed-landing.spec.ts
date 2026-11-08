@@ -325,12 +325,30 @@ describe('reviewed root document through landing and closure', () => {
 
   it('lands a step job without closing its plan, even on a passing verdict, and says only that the step landed', async () => {
     const item = await checkedItem('stepped', '# Plan\n\n## Status\n\nOn main: no (queue/stepped)\n\n## Step 2. Two\n\n- [x] Done.\n', 'run', 2);
+    store.upsertItem(newPlanQueueItem('later', 'run', item.documentPath, 9, { state: 'queued', section: 3 }));
     await flow.enqueueLanding(item.id); await flow.whenSettled();
     expect(host.getItem(item.id).state).toBe('landed');
     expect(landItemBranch).toHaveBeenCalledOnce();
     expect(vi.mocked(landItemBranch).mock.calls[0][5]).toEqual([]);
     expect(existsSync(join(root, 'stepped_plan_completed.md'))).toBe(false);
     expect(readFileSync(item.documentPath, 'utf8')).toMatch(/On main: Step 2 landed \(\w+\); the other steps may still be open/);
+  });
+
+  it.each([['landed', 'yes ('], ['parked', 'Step 3 landed (']] as const)('says the whole plan is on main only when the last step lands after every earlier one (earlier step %s)', async (earlier, wording) => {
+    const item = await checkedItem('finale', '# Plan\n\n## Status\n\nOn main: no (queue/finale)\n\n## Step 3. Three\n\n- [x] Done.\n', 'run', 3);
+    store.upsertItem(newPlanQueueItem('before', 'run', item.documentPath, 0, { state: earlier, section: 2 }));
+    await flow.enqueueLanding(item.id); await flow.whenSettled();
+    expect(host.getItem(item.id).state).toBe('landed');
+    expect(readFileSync(item.documentPath, 'utf8')).toContain(`On main: ${wording}`);
+    expect(existsSync(join(root, 'finale_plan_completed.md'))).toBe(false);
+  });
+
+  it('sets a step job aside, promoting nothing, when its plan was renamed to the closed name in the root checkout', async () => {
+    const item = await checkedItem('renamed', '# Plan\n\n- [x] Done.\n', 'run', 2);
+    disk.renameSync(item.documentPath, join(root, 'renamed_plan_completed.md'));
+    await flow.enqueueLanding(item.id); await flow.whenSettled();
+    expect(host.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'missing-document', detail: expect.stringContaining('a step job never closes its plan') });
+    expect(landItemBranch).not.toHaveBeenCalled();
   });
 
   it.each(['## Status (7 Nov)', '## Status: nearly done'])('updates the existing "%s" block of an open plan instead of adding a second Status heading', async heading => {

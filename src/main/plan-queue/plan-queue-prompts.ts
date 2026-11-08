@@ -102,7 +102,7 @@ function documentRules(ctx: ItemPromptContext): string[] {
     '- Do not commit, stash, create or switch branches, or create worktrees. The queue coordinator commits your work to the branch for you.',
     ctx.item.section == null
       ? '- Never rename your document to a `_completed` name. The coordinator does that after an independent verifier passes the work.'
-      : '- Never rename your document to a `_completed` name. A step job never closes the plan, and the coordinator refuses the rename when your work lands. James or a closing session closes it once the last step has landed.',
+      : '- Never rename your document to a `_completed` name. A step job never closes the plan: if the plan is renamed, or a rename is staged on your branch, your step is set aside and nothing lands. James or a closing session closes it once the last step has landed.',
     ...stepRules(ctx),
     ...statusRules(ctx),
   ];
