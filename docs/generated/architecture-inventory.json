@@ -7404,6 +7404,10 @@
       "lines": 888
     },
     {
+      "path": "docs/AIO_MCP_CLI.md",
+      "lines": 888
+    },
+    {
       "path": "docs/superpowers/specs/2026-05-04-global-operator-control-plane-design_superseded.md",
       "lines": 888
     },
@@ -7421,10 +7425,6 @@
     },
     {
       "path": "benchmarks/plan-execute-ab/runner.spec.ts",
-      "lines": 881
-    },
-    {
-      "path": "docs/AIO_MCP_CLI.md",
       "lines": 881
     },
     {

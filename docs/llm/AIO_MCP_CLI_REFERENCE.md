@@ -42,6 +42,7 @@ $AIO_MCP plan-queue list [--all] [--json]
 $AIO_MCP plan-queue move <run-id> [--to <session-id>] [--json]
 $AIO_MCP plan-queue jobs [--all] [--json]
 $AIO_MCP plan-queue discard <item-id> [<item-id>...] [--json]
+$AIO_MCP plan-queue health [--json]
 $AIO_MCP remote-nodes [--json]
 $AIO_MCP remote-nodes pair [--label <name>] [--ttl-minutes <n>] [--json]
 $AIO_MCP local-ai --help
@@ -61,6 +62,10 @@ prompts James to approve it. That instruction is on you, not on a dialog: before
 you resume a loop James did not just ask you to resume, say which loop and why.
 The one hard gate is `maxSpawnDepth` — a session at the ceiling is refused,
 because resuming starts new agent work. `loop list` still works there.
+
+`plan-queue health` shows Queue health in the Plan Queue page's words, including where full test runs happened and,
+only while tests have moved to this Mac because a test machine can't be reached, the page's notice. Use it rather than
+asking James to read the page.
 
 `plan-queue move <run-id>` makes you (or the `--to` session) the owner of a Plan
 Queue run with James's authority, as Move on the Plan Queue page does. Use it only

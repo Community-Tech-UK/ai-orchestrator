@@ -166,4 +166,54 @@ describe('aio-mcp plan-queue', () => {
     await expect(done).rejects.toThrow(message);
     expect(client.call).not.toHaveBeenCalled();
   });
+
+  describe('health', () => {
+    const health = (notice?: string) => ({ runs: [], alerts: [], queueHealth: {
+      heading: 'Queue health, last 7 days',
+      ...(notice ? { notice } : {}),
+      'Attempts that land': '40% (4 of 10 finished attempts)',
+      'Full test runs on the Windows PC': '92% (142 of 155 full test runs)',
+      'Full test runs that moved to the Mac': 'None',
+    } });
+
+    it('prints the page\'s heading and lines in order, with no notice while the test machine is reachable', async () => {
+      const { client, output, done } = run(['health'], health());
+      await done;
+      expect(client.call).toHaveBeenCalledWith('orchestrator_tools.plan_queue_status', {});
+      expect(output.join('')).toBe([
+        'Queue health, last 7 days',
+        'Attempts that land: 40% (4 of 10 finished attempts)',
+        'Full test runs on the Windows PC: 92% (142 of 155 full test runs)',
+        'Full test runs that moved to the Mac: None',
+        '',
+      ].join('\n'));
+    });
+
+    it('puts the notice straight under the heading when tests have moved to this Mac', async () => {
+      const notice = 'Tests are running on this Mac because the Windows PC can\'t be reached. Check the power and the network connection. Tests move back by themselves.';
+      const { output, done } = run(['health'], health(notice));
+      await done;
+      expect(output.join('').split('\n').slice(0, 3)).toEqual(['Queue health, last 7 days', notice, 'Attempts that land: 40% (4 of 10 finished attempts)']);
+    });
+
+    it('gives JSON with the notice as null when there is none', async () => {
+      const { output, done } = run(['health', '--json'], health());
+      await done;
+      expect(JSON.parse(output.join(''))).toEqual({
+        heading: 'Queue health, last 7 days',
+        notice: null,
+        lines: {
+          'Attempts that land': '40% (4 of 10 finished attempts)',
+          'Full test runs on the Windows PC': '92% (142 of 155 full test runs)',
+          'Full test runs that moved to the Mac': 'None',
+        },
+      });
+    });
+
+    it('refuses an unknown option without contacting Harness', async () => {
+      const { client, done } = run(['health', '--all'], health());
+      await expect(done).rejects.toThrow('The health option is --json.');
+      expect(client.call).not.toHaveBeenCalled();
+    });
+  });
 });

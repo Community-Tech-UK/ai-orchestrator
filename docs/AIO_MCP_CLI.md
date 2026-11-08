@@ -469,14 +469,21 @@ there can restart a loop that has already parked.
 
 ## Plan Queue
 
-Shows who owns each Plan Queue run, moves a run to another session, and lists or discards set-aside jobs.
+Shows who owns each Plan Queue run, moves a run to another session, lists or discards set-aside jobs, and reads Queue health.
 
 ```bash
 $AIO_MCP plan-queue list [--all] [--json]
 $AIO_MCP plan-queue move <run-id> [--to <session-id>] [--json]
 $AIO_MCP plan-queue jobs [--all] [--json]
 $AIO_MCP plan-queue discard <item-id> [<item-id>...] [--json]
+$AIO_MCP plan-queue health [--json]
 ```
+
+`health` prints Queue health in the Plan Queue page's own words: the heading, the notice when there is one, then one
+`label: value` line per measure, including where full test runs happened. The notice appears only while tests have
+moved to this Mac because a test machine can't be reached. `--json` gives `{ heading, notice, lines }`, with `notice`
+null when there's none. It reads `plan_queue_status`, so it needs Harness running, and sessions get the command
+once the bundled `aio-mcp` CLI has been rebuilt.
 
 `list` shows the runs that can be moved: every running and paused run, and
 finished runs in the current folder (or a folder inside or around it) that still

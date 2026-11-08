@@ -1,6 +1,6 @@
 /**
- * `aio-mcp plan-queue` — see who owns each Plan Queue run, move one to another session, and
- * list or discard set-aside jobs.
+ * `aio-mcp plan-queue` — see who owns each Plan Queue run, move one to another session,
+ * list or discard set-aside jobs, and read Queue health.
  *
  * `move` acts with James's authority, like Move on the Plan Queue page, so a session can take
  * over a run whose owner is asleep or will not answer a handover request. The MCP
@@ -31,6 +31,11 @@ const StatusSchema = z.object({
     workspace: z.string(),
     items: z.array(z.object({ state: z.string(), discardedAt: z.number().optional() })),
   })),
+});
+
+/** Queue health as `plan_queue_status` gives it: the page's heading, its notice when there is one, then one key per line. */
+const HealthSchema = z.object({
+  queueHealth: z.object({ heading: z.string(), notice: z.string().optional() }).catchall(z.string()),
 });
 
 const JobsSchema = z.object({
@@ -90,6 +95,13 @@ export async function runPlanQueueCli(argv: readonly string[], deps: {
     else stdout(jobs.map(job => `${job.itemId} | ${job.reason ?? 'no reason recorded'} | ${job.document}\n`).join(''));
     return;
   }
+  if (command === 'health') {
+    if (args.length > 0) throw new Error('The health option is --json.');
+    const { heading, notice, ...lines } = HealthSchema.parse(await client().call(STATUS_METHOD, {})).queueHealth;
+    stdout(json ? `${JSON.stringify({ heading, notice: notice ?? null, lines }, null, 2)}\n`
+      : [heading, ...(notice ? [notice] : []), ...Object.entries(lines).map(([label, value]) => `${label}: ${value}`)].join('\n') + '\n');
+    return;
+  }
   if (command === 'discard') {
     const itemIds = parseDiscardArgs(args);
     const rpc = client(DISCARD_TIMEOUT_MS);
@@ -116,7 +128,7 @@ export async function runPlanQueueCli(argv: readonly string[], deps: {
     if (failed.length > 0) throw new Error(`${failed.length} of ${itemIds.length} job(s) failed or timed out. It is safe to run the same command again.`);
     return;
   }
-  throw new Error(`Unknown plan-queue command: ${command}. Use list, move, jobs or discard.`);
+  throw new Error(`Unknown plan-queue command: ${command}. Use list, move, jobs, discard or health.`);
 }
 
 function parseDiscardArgs(args: readonly string[]): string[] {
@@ -171,6 +183,7 @@ const HELP = [
   '  aio-mcp plan-queue move <run-id> [--to <session-id>] [--json]',
   '  aio-mcp plan-queue jobs [--all] [--json]',
   '  aio-mcp plan-queue discard <item-id> [<item-id>...] [--json]',
+  '  aio-mcp plan-queue health [--json]',
   '',
   'list  Plan Queue runs that can be moved, and the session that owns each: every',
   '      running and paused run, and finished runs in this folder that still hold',
@@ -192,5 +205,8 @@ const HELP = [
   '      fails does not stop the others, and it is safe to run the same command again.',
   '      If git will not release a branch or worktree, the job still leaves the list, and',
   '      what was left in place is listed. A session the queue started cannot discard.',
+  'health  Queue health, in the same words as the Plan Queue page: how much work lands,',
+  '      how long checks take, where full test runs happened, and the notice the page',
+  '      shows when tests have moved to this Mac because the test machine can\'t be reached.',
   '',
 ].join('\n');

@@ -61,7 +61,12 @@ describe('Queue health wording', () => {
 
     it('says what happened and what to do when the machine cannot be reached', () => {
       expect(describeQueueHealth({ ...health, testMachine: { ...testMachine, unreachable: true } }).notice)
-        .toBe("Tests are running on this Mac because the Windows PC can't be reached. Check it's switched on and connected. Tests go back to it by themselves.");
+        .toBe("Tests are running on this Mac because the Windows PC can't be reached. Check the power and the network connection. Tests move back by themselves.");
+    });
+
+    it('reads correctly when there is more than one test machine', () => {
+      expect(describeQueueHealth({ ...health, testMachine: { ...testMachine, label: 'your test machines', unreachable: true } }).notice)
+        .toBe("Tests are running on this Mac because your test machines can't be reached. Check the power and the network connection. Tests move back by themselves.");
     });
   });
 

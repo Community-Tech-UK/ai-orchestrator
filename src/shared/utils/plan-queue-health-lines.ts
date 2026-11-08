@@ -45,10 +45,13 @@ function testMachineLines(testMachine: PlanQueueHealth['testMachine']): PlanQueu
   ];
 }
 
-/** Said only while it's true: when tests are running where they should, this panel adds nothing. */
+/**
+ * Said only while it's true: when tests are running where they should, this panel adds nothing. The label is one
+ * machine or "your test machines", so the wording uses no pronoun for it.
+ */
 function testMachineNotice(testMachine: PlanQueueHealth['testMachine']): string | null {
   return testMachine?.unreachable
-    ? `Tests are running on this Mac because ${testMachine.label} can't be reached. Check it's switched on and connected. Tests go back to it by themselves.`
+    ? `Tests are running on this Mac because ${testMachine.label} can't be reached. Check the power and the network connection. Tests move back by themselves.`
     : null;
 }
 
