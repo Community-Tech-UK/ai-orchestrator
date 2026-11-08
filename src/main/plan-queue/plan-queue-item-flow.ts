@@ -598,7 +598,7 @@ export class PlanQueueItemFlow {
     }
     const run = this.host.getRun(item.runId);
     if (round >= run.config.maxRounds) {
-      if (canStepUp(run, item)) {
+      if (canStepUp(run, item, verdict)) {
         await stepUpItem({
           host: this.host,
           stopInstance: (id) => this.stopInstance(id),

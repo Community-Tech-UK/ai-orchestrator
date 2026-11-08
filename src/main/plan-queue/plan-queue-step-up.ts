@@ -1,7 +1,8 @@
 /**
  * Plan Queue step-up: a document whose worker failed every verification round
  * goes, once, to the run's step-up choice (for example Opus after Haiku)
- * instead of parking.
+ * instead of parking, but only when its last verdict lists a `code` finding (step 5.4): a stronger worker cannot
+ * supply a missing setting or a human's answer, so those park.
  *
  * The item's `steppedUpAt` is written before the new worker starts. Every
  * worker spawned for the item afterwards carries `planQueueSteppedUp`, which
@@ -12,6 +13,7 @@
 
 import * as path from 'path';
 import type { PlanQueueVerdict } from '@contracts/schemas/plan-queue';
+import { findingKind } from './plan-queue-deferred-checks';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { buildStepUpInstruction, buildStepUpPrompt } from './plan-queue-prompts';
 import { describeRouteChoice } from './plan-queue-routing';
@@ -25,9 +27,14 @@ export interface PlanQueueStepUpDeps {
   promptContext(run: PlanQueueRun, item: PlanQueueItem): Parameters<typeof buildStepUpPrompt>[0];
 }
 
-/** True when a document out of rounds should be handed over rather than parked. */
-export function canStepUp(run: PlanQueueRun, item: PlanQueueItem): boolean {
-  return Boolean(run.config.routing?.stepUp) && !item.steppedUpAt;
+/**
+ * True when a document out of rounds should be handed over rather than parked (step 5.4): the run has a step-up
+ * choice, the item has not had its handover, and the last verdict lists a `code` finding. A stronger worker
+ * can only help with code, so a verdict with no findings, or only environment and needs-human ones, parks instead
+ * (`parkingForFailure` sets the latter aside before this is asked; a FAIL with no findings reaches the round limit).
+ */
+export function canStepUp(run: PlanQueueRun, item: PlanQueueItem, verdict: Pick<PlanQueueVerdict, 'findings'>): boolean {
+  return Boolean(run.config.routing?.stepUp) && !item.steppedUpAt && verdict.findings.some(finding => findingKind(finding) === 'code');
 }
 
 /**

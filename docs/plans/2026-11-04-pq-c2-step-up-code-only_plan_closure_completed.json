@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-04-pq-c2-step-up-code-only_plan.md",
+      "sha256": "3cf5e397571425126fac244997a542d438c802ae4b0fc2482019181b217e3dba",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-04-pq-c2-step-up-code-only_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-04-pq-c2-step-up-code-only_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-04-pq-c2-step-up-code-only_plan_completed.md",
+      "sha256": "3cf5e397571425126fac244997a542d438c802ae4b0fc2482019181b217e3dba"
+    }
+  ]
+}

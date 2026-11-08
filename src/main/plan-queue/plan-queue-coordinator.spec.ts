@@ -3474,6 +3474,64 @@ describe('PlanQueueCoordinator — handing a stuck document to the step-up worke
     expect(workers()).toHaveLength(1);
   });
 
+  /** FAIL every check with exactly these findings (step 5.4). */
+  const failWith = (findings: Parameters<typeof coordinator.reportVerdict>[1]['findings']): Script => (instance) => {
+    coordinator.reportVerdict(instance.id, {
+      item_id: itemIdOf(instance), verdict: 'FAIL', findings, gates_run: [], document_complete: false, need_james: [], not_checked: [],
+    });
+  };
+
+  it('does not hand over a document whose last verdict lists no findings: it parks at the round limit (step 5.4)', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.verifier = failWith([]);
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { maxRounds: 1 } });
+    await waitForRun(run.id);
+
+    const item = coordinator.getRunDto(run.id)!.items[0];
+    expect(item).toMatchObject({ state: 'parked', parkReason: 'round-limit', steppedUpAt: null });
+    expect(item.detail).toContain('no findings listed');
+    expect(workers()).toHaveLength(1);
+    expect(workers().some(steppedUp)).toBe(false);
+    expect(parentMessages(parent).filter((m) => m.includes('handed to the stronger worker'))).toHaveLength(0);
+  });
+
+  it('does not hand over a document whose findings are all environment or needs-human: it parks for setup or James (step 5.4)', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.verifier = failWith([
+      { severity: 'high', kind: 'environment', confidence: 90, summary: 'No test device.', missing: 'A paired iPhone' },
+    ]);
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { maxRounds: 1 } });
+    await waitForRun(run.id);
+
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'parked', parkReason: 'needs-setup', steppedUpAt: null });
+    expect(workers()).toHaveLength(1);
+    expect(workers().some(steppedUp)).toBe(false);
+  });
+
+  it('hands a document over when a code finding sits among findings of other kinds (step 5.4)', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    let checks = 0;
+    fake.scripts.verifier = (instance, message, f) => {
+      checks += 1;
+      if (checks > 1) { pass(instance, message, f); return; }
+      failWith([
+        { severity: 'high', kind: 'code', confidence: 90, summary: 'The counter is never reset.' },
+        { severity: 'medium', kind: 'environment', confidence: 90, summary: 'The signing gate cannot run.', missing: 'The signing certificate' },
+      ])(instance, message, f);
+    };
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { maxRounds: 1 } });
+    await waitForRun(run.id);
+
+    expect(workers().map(steppedUp)).toEqual([false, true]);
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed', steppedUpAt: expect.any(Number) });
+  });
+
   it.each([
     ['verifier-unreliable', { verifier: (() => undefined) as Script }],
     ['worker-error', { worker: ((instance, _message, f) => { f.setStatus(instance, 'error'); }) as Script }],
@@ -3786,7 +3844,10 @@ it('clears the former conversation before handing work to the step-up worker', a
   const verify: Script = (instance) => {
     verificationCount++;
     coordinator.reportVerdict(instance.id, { item_id: itemIdOf(instance),
-      verdict: verificationCount === 1 ? 'FAIL' : 'PASS', findings: [], gates_run: [], document_complete: true, need_james: [], not_checked: [] });
+      verdict: verificationCount === 1 ? 'FAIL' : 'PASS',
+      // A step-up needs a code finding in the failing verdict (step 5.4).
+      findings: verificationCount === 1 ? [{ severity: 'high', kind: 'code', confidence: 90, summary: 'The feature is incomplete.' }] : [],
+      gates_run: [], document_complete: true, need_james: [], not_checked: [] });
   };
   fake.scripts.verifier = async (instance, message, source) => {
     expect(store.getItem(itemIdOf(instance))?.workerSession?.providerSessionId).toBeTruthy();
