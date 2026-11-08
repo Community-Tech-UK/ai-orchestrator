@@ -1,11 +1,11 @@
 import type { BrowserProfile, BrowserTarget } from '@contracts/types/browser';
+import type { ComputerChoice } from '../../shared/types/settings.types';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { getRemoteAuthService } from '../auth/remote-auth';
 import { getRemoteNodeConfig } from '../remote-node/remote-node-config';
-import {
-  getWorkerNodeRegistry,
-  matchNodeByCapabilityTag,
-} from '../remote-node/worker-node-registry';
+import { getWorkerNodeRegistry } from '../remote-node/worker-node-registry';
+import { BrowserComputerBalancer, browserComputers, originOf } from './browser-computer-balancer';
+import { resolveBrowserComputerTarget } from './browser-computer-target';
 import { getBrowserProfileStore } from './browser-profile-store';
 import { getBrowserTargetRegistry } from './browser-target-registry';
 
@@ -27,6 +27,10 @@ export interface BrowserRemoteOffloadPolicyDeps {
   getKnownBrowserComputers: () => KnownBrowserComputer[];
   listTargets: () => BrowserTarget[];
   getProfile: (profileId: string) => BrowserProfile | null;
+  /** The Computers page's order and pauses. */
+  getComputerChoices: () => readonly ComputerChoice[];
+  balancer: BrowserComputerBalancer;
+  now: () => number;
 }
 
 const DISCOVERY_METHODS = new Set([
@@ -93,12 +97,17 @@ const defaultDeps: BrowserRemoteOffloadPolicyDeps = {
   getKnownBrowserComputers: listKnownBrowserComputers,
   listTargets: () => getBrowserTargetRegistry().listTargets(),
   getProfile: (profileId) => getBrowserProfileStore().getProfile(profileId),
+  getComputerChoices: () => getWorkerNodeRegistry().getComputerChoices(),
+  balancer: new BrowserComputerBalancer(),
+  now: Date.now,
 };
 
 /**
  * Enforce the remote-browser preference at the authenticated Browser Gateway
  * boundary. Unscoped discovery is routed to a connected browser-capable
- * worker. An explicit `computer: "local"` stays local — remapping it made
+ * worker, chosen per session by BrowserComputerBalancer so sessions spread
+ * across the browser computers and each keeps to one. An explicit
+ * `computer: "local"` stays local — remapping it made
  * remote-node failures look like a broken coordinator channel.
  *
  * Calls that already carry a coordinator-local target/profile are rejected
@@ -114,6 +123,7 @@ const defaultDeps: BrowserRemoteOffloadPolicyDeps = {
 export function routeBrowserGatewayRequest(
   method: string,
   payload: Record<string, unknown>,
+  instanceId: string,
   deps: BrowserRemoteOffloadPolicyDeps = defaultDeps,
 ): Record<string, unknown> {
   if (!RELEVANT_METHODS.has(method)) {
@@ -126,13 +136,16 @@ export function routeBrowserGatewayRequest(
   }
 
   const connectedNodes = deps.getConnectedNodes();
-  const preferredNode = selectPreferredBrowserNode(connectedNodes);
-  if (!preferredNode) {
+  const computers = browserComputers(connectedNodes);
+  if (computers.length === 0) {
     return guardOfflineBrowserComputer(method, payload, deps);
   }
+  const now = deps.now();
+  // Named only in errors: the computer this session is on, or any that could take it.
+  const preferredNode = deps.balancer.current(instanceId, computers, now) ?? computers[0]!;
 
   if (DISCOVERY_METHODS.has(method)) {
-    return routeDiscoveryRequest(payload, preferredNode);
+    return routeDiscoveryRequest(payload, instanceId, connectedNodes, deps, now);
   }
 
   if (method === 'browser.open_profile') {
@@ -145,14 +158,17 @@ export function routeBrowserGatewayRequest(
   }
 
   if (TARGET_SCOPED_METHODS.has(method)) {
-    assertTargetIsRemote(payload, preferredNode, deps);
+    assertTargetIsRemote(payload, instanceId, preferredNode, deps, now);
   }
   return payload;
 }
 
 function routeDiscoveryRequest(
   payload: Record<string, unknown>,
-  preferredNode: WorkerNodeInfo,
+  instanceId: string,
+  connectedNodes: WorkerNodeInfo[],
+  deps: BrowserRemoteOffloadPolicyDeps,
+  now: number,
 ): Record<string, unknown> {
   if (
     hasInvalidOptionalString(payload, 'nodeId')
@@ -163,16 +179,40 @@ function routeDiscoveryRequest(
 
   const nodeId = stringField(payload, 'nodeId');
   const computer = stringField(payload, 'computer');
-  if (!nodeId && !computer) {
-    return withRemoteComputer(payload, preferredNode);
+  if (nodeId || computer) {
+    // A named computer is obeyed exactly, and the session keeps to it when it next names none.
+    const named = namedNodeId(nodeId, computer, connectedNodes);
+    if (named) deps.balancer.noteUse(instanceId, named, now);
+    return payload;
   }
-  return payload;
+  const chosen = deps.balancer.choose({
+    instanceId,
+    nodes: connectedNodes,
+    choices: deps.getComputerChoices(),
+    targets: deps.listTargets(),
+    origin: originOf(payload['url']),
+    now,
+  });
+  if (!chosen) throw browserComputersPausedError(connectedNodes);
+  return withRemoteComputer(payload, chosen);
+}
+
+/**
+ * The connected computer a request names, as it will resolve; none for `local`, for a name or id that matches no
+ * connected computer, or for an id and a name that disagree, which the request itself will refuse.
+ */
+function namedNodeId(nodeId: string | undefined, computer: string | undefined, connectedNodes: WorkerNodeInfo[]): string | undefined {
+  const resolved = resolveBrowserComputerTarget({ nodeId, computer }, { connectedNodes });
+  const id = resolved.ok ? resolved.target.nodeId : undefined;
+  return connectedNodes.some(node => node.id === id) ? id : undefined;
 }
 
 function assertTargetIsRemote(
   payload: Record<string, unknown>,
+  instanceId: string,
   preferredNode: WorkerNodeInfo,
   deps: BrowserRemoteOffloadPolicyDeps,
+  now: number,
 ): void {
   const targetId = stringField(payload, 'targetId');
   if (targetId) {
@@ -181,6 +221,7 @@ function assertTargetIsRemote(
       if (!target.nodeId) {
         throw localBrowserBlockedError(preferredNode);
       }
+      deps.balancer.noteUse(instanceId, target.nodeId, now);
       return;
     }
   }
@@ -231,13 +272,6 @@ function guardOfflineBrowserComputer(
   return payload;
 }
 
-function selectPreferredBrowserNode(nodes: WorkerNodeInfo[]): WorkerNodeInfo | undefined {
-  const browserNodes = nodes.filter((node) => node.capabilities.hasBrowserMcp);
-  const windowsNodes = browserNodes.filter((node) => node.capabilities.platform === 'win32');
-  return matchNodeByCapabilityTag('browser-mcp', windowsNodes)
-    ?? matchNodeByCapabilityTag('browser-mcp', browserNodes);
-}
-
 function withRemoteComputer(
   payload: Record<string, unknown>,
   node: WorkerNodeInfo,
@@ -272,6 +306,15 @@ function browserComputerOfflineError(offline: KnownBrowserComputer[], agreedPath
     `browser_remote_computer_offline: The browser computer ${names} is offline or not ready for browser work, so this request did not run. `
     + 'Do not use this Mac\'s browser instead on your own. Tell the user it is unavailable and ask whether to use this Mac, '
     + `wait for it to come back, or skip the browser step. Only if the user agrees to this Mac, ${agreedPath}.`,
+  );
+}
+
+function browserComputersPausedError(connectedNodes: WorkerNodeInfo[]): Error {
+  const names = browserComputers(connectedNodes).map(node => `"${node.name || node.id}"`).join(', ');
+  return new Error(
+    `browser_computers_paused: Every browser computer (${names}) is paused on the Computers page, so this request did not run. `
+    + 'Do not use this Mac\'s browser instead on your own. Tell the user and ask whether to unpause one, name one anyway, '
+    + 'use this Mac, or skip the browser step.',
   );
 }
 

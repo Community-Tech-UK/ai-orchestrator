@@ -419,6 +419,7 @@ describe('BrowserGatewayRpcServer', () => {
     expect(routeBrowserRequest).toHaveBeenCalledWith(
       'browser.find_or_open',
       { url: 'https://example.test', computer: 'local' },
+      'instance-1',
     );
     expect(findOrOpen).toHaveBeenCalledWith({
       instanceId: 'instance-1',
@@ -454,6 +455,7 @@ describe('BrowserGatewayRpcServer', () => {
     expect(routeBrowserRequest).toHaveBeenCalledWith(
       'browser.check_session',
       { profileId: 'local-profile', targetId: 'local-target' },
+      'instance-1',
     );
     expect(snapshot).not.toHaveBeenCalled();
   });

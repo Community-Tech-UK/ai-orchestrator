@@ -6561,7 +6561,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-rpc-server.spec.ts",
-      "lines": 1653
+      "lines": 1655
     },
     {
       "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
@@ -7348,11 +7348,11 @@
       "lines": 915
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-reload-no-effect.spec.ts",
-      "lines": 911
+      "path": "src/main/browser-gateway/browser-mcp-tools.ts",
+      "lines": 912
     },
     {
-      "path": "src/main/browser-gateway/browser-mcp-tools.ts",
+      "path": "src/main/browser-gateway/browser-gateway-reload-no-effect.spec.ts",
       "lines": 911
     },
     {

@@ -106,11 +106,12 @@ export interface BrowserGatewayRpcServerOptions {
     maxBytes?: number;
     windowMs: number;
   };
-  routeBrowserRequest?: (
-    method: string,
-    payload: Record<string, unknown>,
-  ) => Record<string, unknown>;
+  routeBrowserRequest?: BrowserRequestRouter;
 }
+
+/** Chooses where a request runs, given the session asking; see routeBrowserGatewayRequest. */
+type BrowserRequestRouter =
+  (method: string, payload: Record<string, unknown>, instanceId: string) => Record<string, unknown>;
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024;
 const MAX_RPC_ENVELOPE_BYTES = 16 * 1024;
@@ -151,10 +152,7 @@ export class BrowserGatewayRpcServer {
   private readonly extensionToken: string;
   private readonly maxPayloadBytes: number;
   private readonly rateLimit: { maxRequests: number; maxBytes: number; windowMs: number };
-  private readonly routeBrowserRequest: (
-    method: string,
-    payload: Record<string, unknown>,
-  ) => Record<string, unknown>;
+  private readonly routeBrowserRequest: BrowserRequestRouter;
   private readonly buckets = new Map<string, BrowserGatewayRateBucketEntry[]>();
   // Separate from orchestrator-tools: browser startup and injection need not
   // depend on that server's lifecycle. Reuse its instance-bound crypto policy.
@@ -258,7 +256,7 @@ export class BrowserGatewayRpcServer {
     }
     const payloadBytes = this.enforcePayloadSize(params.payload);
     this.enforceRateLimit(params.instanceId, payloadBytes);
-    const routedPayload = this.routeBrowserRequest(request.method, params.payload);
+    const routedPayload = this.routeBrowserRequest(request.method, params.payload, params.instanceId);
 
     // Unattended-layer runtime methods (escalations, campaign leases, session
     // sentinel) validate their own payloads and dispatch to the unattended

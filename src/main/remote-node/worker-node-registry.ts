@@ -131,6 +131,11 @@ export class WorkerNodeRegistry extends EventEmitter {
     this.choices = choices.map(choice => ({ ...choice }));
   }
 
+  /** The Computers page's choices, for the Browser Gateway's own choice of computer. */
+  getComputerChoices(): readonly ComputerChoice[] {
+    return this.choices;
+  }
+
   selectNode(prefs: NodePlacementPrefs): WorkerNodeInfo | null {
     const candidates = this.getHealthyNodes();
     if (candidates.length === 0) return null;

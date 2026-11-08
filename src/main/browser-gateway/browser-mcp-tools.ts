@@ -89,8 +89,9 @@ const nodeIdProp = {
 const computerProp = {
   ...stringProp,
   description:
-    'Optional computer name or alias. Examples: "Windows PC", "windows-pc", or "local". '
-    + 'Resolves to a Browser Gateway worker node before matching/opening tabs.',
+    'Optional computer name or alias, for example "windows-pc", "ct-test-mac" or "local". Leave it out and Harness '
+    + 'picks a browser computer: it keeps your session on one and shares sessions between them. Name one only to use '
+    + 'a sign-in saved on that computer. Resolves to a Browser Gateway worker node before matching/opening tabs.',
 };
 const uidProp = {
   ...stringProp,
