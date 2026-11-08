@@ -249,6 +249,9 @@ describe('what a step job is told', () => {
     const prompt = buildVerifierPrompt({ ...ctx(2), baseBranch: 'main', gates: [] });
     expect(prompt).toContain('This job covers Step 2, lines');
     expect(prompt).toContain('expect the plan to stay open');
+    expect(prompt).toContain('never closes the plan');
+    expect(prompt).not.toContain('is refused. If something still fails');
+    expect(buildVerifierPrompt({ ...ctx(2), item: { ...item(2), section: null }, brief: extractPlan(bigStepped), baseBranch: 'main', gates: [] })).toContain('PASS with `document_complete: false` is refused');
   });
 });
 

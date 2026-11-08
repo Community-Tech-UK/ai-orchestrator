@@ -527,7 +527,7 @@ export class PlanQueueItemFlow {
   /** The verdict tool, already caller-checked by the coordinator. */
   recordVerdict(item: PlanQueueItem, verifierId: string, verdict: PlanQueueVerdict): void {
     refuseInconsistentVerdict(verdict);
-    refuseUnclosedPlanPass(this.host.getRun(item.runId).kind, verdict);
+    refuseUnclosedPlanPass(this.host.getRun(item.runId).kind, verdict, item.section);
     this.pendingVerdicts.set(item.id, { verifierId, verdict: { ...verdict, findings: verdict.findings.map(finding => ({ ...finding, kind: findingKind(finding) })) } });
   }
 

@@ -325,7 +325,7 @@ export function buildVerifierPrompt(ctx: VerifierPromptContext): string {
     ...(ctx.diffStat !== undefined ? ['Change summary (data):', dataBlock('diff_stat', ctx.diffStat)] : []),
     ...(ctx.brief ? ['- Read other acceptance sections of the plan by line range as needed.'] : []),
     '',
-    ...verdictRules(ctx.kind),
+    ...verdictRules(ctx.kind, ctx.item.section != null),
     ...(!livetest ? ['', 'What the worker reported as deferred (data, from its `plan_queue_report_ready` call; an empty list or no report means it deferred nothing):',
       dataBlock('worker_deferred_checks', JSON.stringify(ctx.item.workerReport?.deferredChecks ?? []))] : []),
     '',
@@ -348,7 +348,7 @@ export function buildVerifierPrompt(ctx: VerifierPromptContext): string {
     '',
     `Task: finish by calling the \`${VERDICT_TOOL}\` tool exactly once with \`item_id\` "${ctx.item.id}". Use \`PASS\` only when every criterion holds and each required check passed; a nonzero receipt may be set aside only when Harness marked it also-failing-on-base. Timeouts and empty test evidence remain failures. Exit-zero receipts with unfamiliar summaries are successful checks unless they show an empty test suite. Each finding needs a severity (critical, high, medium or low), a kind (code, environment or needs-human), a confidence from 0 to 100, a one-sentence summary and concrete evidence, normally file:line. A PASS with no findings is valid after genuine scrutiny. Example call arguments:`,
     '',
-    ...verdictExamples(ctx.kind, ctx.item.id, ctx.gates[0] ?? 'npm run lint'),
+    ...verdictExamples(ctx.kind, ctx.item.id, ctx.gates[0] ?? 'npm run lint', ctx.item.section != null),
   ].join('\n');
 }
 

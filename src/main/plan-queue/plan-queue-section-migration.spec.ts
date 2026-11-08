@@ -36,6 +36,15 @@ describe('migration 054, the step number on a queue job', () => {
     expect(LOOP_SCHEMA_VERSION).toBe(54);
   });
 
+  it('keeps the worker report on an existing job through the rebuild', () => {
+    profileBeforeSections();
+    const report = JSON.stringify({ summary: 'Built it.', asBuilt: 'Done.', checksRun: [], deferredChecks: [], followUps: [] });
+    db.prepare("UPDATE plan_queue_items SET worker_report_json = ? WHERE id = 'job-1'").run(report);
+    runLoopMigrations(db);
+    expect(columns()).toContain('worker_report_json');
+    expect(db.prepare("SELECT worker_report_json FROM plan_queue_items WHERE id = 'job-1'").get<{ worker_report_json: string }>()?.worker_report_json).toBe(report);
+  });
+
   it('puts foreign keys back on, and the history still follows its job', () => {
     profileBeforeSections();
     runLoopMigrations(db);

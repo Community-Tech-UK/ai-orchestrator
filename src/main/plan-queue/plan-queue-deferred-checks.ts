@@ -20,11 +20,11 @@ type Finding = PlanQueueVerdict['findings'][number];
 export function findingKind(finding: { kind?: FindingKind }): FindingKind { return finding.kind ?? 'code'; }
 
 /**
- * A plan that passes is always closed. The refusal reaches the checker as the tool's error, so it says what to do
+ * A plan that passes is always closed, except a step job (`section` set), which never closes its plan. The refusal reaches the checker as the tool's error, so it says what to do
  * instead: FAIL with findings, or list the deferred checks and close.
  */
-export function refuseUnclosedPlanPass(kind: PlanQueueKind, verdict: Pick<PlanQueueVerdict, 'verdict' | 'documentComplete'>): void {
-  if (kind !== 'plans' || verdict.verdict !== 'PASS' || verdict.documentComplete) return;
+export function refuseUnclosedPlanPass(kind: PlanQueueKind, verdict: Pick<PlanQueueVerdict, 'verdict' | 'documentComplete'>, section?: number | null): void {
+  if (kind !== 'plans' || section != null || verdict.verdict !== 'PASS' || verdict.documentComplete) return;
   throw new Error('A passing plan is always closed, so PASS with document_complete: false is refused. '
     + 'If something still fails, report FAIL with findings, giving each finding a kind (code, environment or needs-human). '
     + 'If the only things left are checks that need a rebuilt or restarted app, a person or an outside service, report PASS with document_complete: true '

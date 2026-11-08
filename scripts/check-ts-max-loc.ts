@@ -126,7 +126,7 @@ const ALLOWLIST: Record<string, number> = {
   // Thin pressKey/viewport delegates; page-level impl in browser-input-control-driver.ts.
   'src/main/browser-gateway/puppeteer-browser-driver.ts': 717,
   // Self-allowlisted: the registry below grows one line per documented ceiling.
-  'scripts/check-ts-max-loc.ts': 707, // +1: one allowlist entry for plan-queue.schemas.ts
+  'scripts/check-ts-max-loc.ts': 707,
   // Raised 700 -> 704 for close_tab / close_matching RPC dispatch cases.
   'src/main/browser-gateway/browser-gateway-rpc-server.ts': 704,
   // Health aggregator: one section per surface. Crossed 700 with the per-node
@@ -524,7 +524,6 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/chats/session-artifacts-strip.component.ts': 729,
   'src/renderer/app/features/communication/communication-page.component.ts': 729,
   'src/renderer/app/features/debate/debate-visualization.component.ts': 993,
-  'src/renderer/app/features/debate/enhanced-debate-visualization.component.ts': 821,
   'src/renderer/app/features/editor/editor-page.component.ts': 951,
   'src/renderer/app/features/file-explorer/file-explorer.component.ts': 1096,
   'src/renderer/app/features/hooks/hooks-config.component.ts': 1035,
@@ -590,7 +589,6 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/review/review-results.component.ts': 858,
   'src/renderer/app/features/review/reviews-page.component.ts': 724,
   'src/renderer/app/features/rlm/context-browser/context-query-panel.component.ts': 852,
-  'src/renderer/app/features/rlm/rlm-analytics.component.ts': 702,
   'src/renderer/app/features/semantic-search/semantic-search-page.component.ts': 865,
   'src/renderer/app/features/settings/ecosystem-settings-tab.component.ts': 733,
   // Crossed 700 with the WS-B3 `approvalAdjudication` auxiliary slot entry.
@@ -603,8 +601,6 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/training/training-page.component.ts': 818,
   'src/renderer/app/features/verification/config/api-key-manager.component.ts': 890,
   'src/renderer/app/features/verification/config/verification-preferences.component.ts': 857,
-  'src/renderer/app/features/verification/execution/agent-selector.component.ts': 745,
-  'src/renderer/app/features/verification/results/export-panel.component.ts': 774,
   'src/renderer/app/features/workflow/workflow-page.component.ts': 799,
   'src/renderer/app/features/workflow/workflow-progress.component.ts': 733,
   'src/renderer/app/features/worktree/worktree-page.component.ts': 717,

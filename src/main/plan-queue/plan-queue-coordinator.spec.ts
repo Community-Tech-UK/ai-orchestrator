@@ -3420,6 +3420,29 @@ describe('PlanQueueCoordinator — providers and accounts', { timeout: 30_000 },
   });
 });
 
+describe('PlanQueueCoordinator — a step job of a big plan', { timeout: 60_000 }, () => {
+  it('accepts a step PASS with document_complete false and lands it without closing the plan', async () => {
+    const filler = Array.from({ length: 21 }, (_, n) => `- [ ] filler ${n}`).join('\n');
+    writeDoc('docs/plans/2026-01-01-big_spec_planned.md', '# Spec\n\n**Plan:** [plan](./2026-01-01-big_plan.md)\n');
+    writeDoc('docs/plans/2026-01-01-big_plan.md', `# Big\n\n**Spec:** [spec](./2026-01-01-big_spec_planned.md)\n\n## Step 1. One\n\n${filler}\n\n## Step 2. Two\n\n- [ ] two\n`);
+    const parent = fake.addParent();
+    const stepPass: Script = (instance) => {
+      coordinator.reportVerdict(instance.id, {
+        item_id: itemIdOf(instance), verdict: 'PASS', findings: [], gates_run: [], document_complete: false, need_james: [], not_checked: [],
+      });
+    };
+    fake.scripts.verifier = stepPass;
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForRun(run.id);
+    const items = coordinator.getRunDto(run.id)!.items;
+    expect(items).toHaveLength(2);
+    expect(items.map((item) => item.state)).toEqual(['landed', 'landed']);
+    expect(items.every((item) => item.verdict?.documentComplete === false)).toBe(true);
+    expect(existsSync(join(repo, 'docs/plans/2026-01-01-big_plan.md'))).toBe(true);
+    expect(existsSync(join(repo, 'docs/plans/2026-01-01-big_plan_completed.md'))).toBe(false);
+  });
+});
+
 describe('PlanQueueCoordinator — handing a stuck document to the step-up worker', { timeout: 30_000 }, () => {
   const haiku = { provider: 'claude', model: 'haiku' };
   const opus = { provider: 'claude', model: 'opus' };
@@ -3535,6 +3558,7 @@ describe('PlanQueueCoordinator — handing a stuck document to the step-up worke
     expect(workers()).toHaveLength(1);
     expect(workers().some(steppedUp)).toBe(false);
     expect(parentNotes(parent).filter((m) => m.includes('handed to the stronger worker'))).toHaveLength(0);
+    expect(fake.inputs.filter((m) => m.instanceId === parent.id && m.message.includes('handed to the stronger worker'))).toHaveLength(0);
   });
 
   it('does not hand over a document whose findings are all environment or needs-human: it parks for setup or James (step 5.4)', async () => {

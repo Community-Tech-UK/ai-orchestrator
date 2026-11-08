@@ -60,6 +60,7 @@ describe('a passed plan is always closed', () => {
     expect(() => refuseUnclosedPlanPass('plans', verdict({ verdict: 'PASS', documentComplete: true }))).not.toThrow();
     expect(() => refuseUnclosedPlanPass('plans', verdict({ verdict: 'FAIL', documentComplete: false }))).not.toThrow();
     expect(() => refuseUnclosedPlanPass('livetests', verdict({ verdict: 'PASS', documentComplete: false }))).not.toThrow();
+    expect(() => refuseUnclosedPlanPass('plans', verdict({ verdict: 'PASS', documentComplete: false }), 2)).not.toThrow();
   });
 });
 

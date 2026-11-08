@@ -22,13 +22,17 @@ const PLAN_DEFERRAL_RULES = [
   '- When more than half of the criteria would be deferred, the item is set aside for James instead of merged.',
 ];
 
-/** The rules that follow the criteria. */
-export function verdictRules(kind: PlanQueueKind): string[] {
-  return [...FINDING_KIND_RULES, ...(kind === 'plans' ? ['', ...PLAN_DEFERRAL_RULES] : [])];
+/** A step job never closes its plan, so the closing rule above does not apply to it. */
+const STEP_CLOSING_RULE = 'A step of a plan that runs one job per step never closes the plan, so `document_complete` closes nothing for you: report PASS with `document_complete: false` when this step passes (it is not refused), and `true` only if no other step has anything left. If something in this step still fails, report FAIL with findings.';
+
+/** The rules that follow the criteria. `step` is true for a job that covers one step of a plan. */
+export function verdictRules(kind: PlanQueueKind, step = false): string[] {
+  const plan = step ? [STEP_CLOSING_RULE, ...PLAN_DEFERRAL_RULES.slice(1)] : PLAN_DEFERRAL_RULES;
+  return [...FINDING_KIND_RULES, ...(kind === 'plans' ? ['', ...plan] : [])];
 }
 
 /** The example call arguments: the last JSON object in the prompt, which must always be a valid call. */
-export function verdictExamples(kind: PlanQueueKind, itemId: string, firstGate: string): string[] {
+export function verdictExamples(kind: PlanQueueKind, itemId: string, firstGate: string, step = false): string[] {
   const livetest = kind === 'livetests';
   const gates = [{ command: firstGate, exitCode: 0 }];
   const fail = {
@@ -48,11 +52,11 @@ export function verdictExamples(kind: PlanQueueKind, itemId: string, firstGate: 
     verdict: 'PASS',
     findings: [],
     gates_run: gates,
-    document_complete: true,
+    document_complete: !step,
     deferred_checks: [{ title: 'Each provider calls the report tool', whyDeferred: 'Needs a rebuilt app and a live session on each provider.' }],
     criteria_total: 6,
     not_checked: [],
   };
-  return ['A plan that passes with one deferred check (a PASS with nothing deferred leaves `deferred_checks` out):', '', JSON.stringify(pass, null, 2), '',
+  return [(step ? 'A step' : 'A plan') + ' that passes with one deferred check (a PASS with nothing deferred leaves `deferred_checks` out):', '', JSON.stringify(pass, null, 2), '',
     'A plan that fails, with a code finding and an environment finding:', JSON.stringify(fail, null, 2)];
 }
