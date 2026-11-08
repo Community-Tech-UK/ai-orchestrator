@@ -22,6 +22,7 @@ import {
   type InterruptResult,
   type ResumeAttemptResult,
   type TurnInterruptCompletion,
+  type TurnStartedEvent,
 } from './base-cli-adapter';
 import { NdjsonParser } from '../ndjson-parser';
 import { applyClaudeHygieneEnv, resolveClaudeDebugLogging, resolveClaudeFallbackModel } from './claude-env-pack';
@@ -77,6 +78,7 @@ import {
   type ClaudeToolUseContext,
 } from './claude-cli-permission-details';
 import { emitClaudeSelfWakeup, emitClaudeSelfWakeupRefusal, sanitizeClaudeToolInput } from './claude-cli-self-wakeup';
+import { ClaudeTurnStartTracker } from './claude-cli-turn-start-tracker';
 import { probeVersionStatus } from './cli-status-probe';
 import { ClaudeOneShotLifecycle, ClaudeOneShotTurn, watchClaudeProcessClose } from './claude-one-shot-lifecycle';
 import { markProviderDispatchNotStarted } from './provider-dispatch-status';
@@ -197,6 +199,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   /** LT-105: an `error` completed the current resident turn, so its trailing `result` must not. */
   private residentTurnActive = false;
   private pendingResidentInputs = 0;
+  private readonly turnStarts = new ClaudeTurnStartTracker();
   private residentTurnCompletedByError = false;
   private readonly residentSettlement = new ClaudeResidentTurnSettlement(response => this.settleResponseUsage(response));
   private readonly residentRequest = new ClaudeResidentRequest(this);
@@ -416,6 +419,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       residentSession: isResident,
       liveInterrupt: isResident,
       liveSteer: isResident,
+      reportsTurnStarts: true,
     };
   }
 
@@ -1150,11 +1154,18 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       }
 
       this.resetResidentTurn(true); // LT-047: new turn, drop stale prior output
-      await this.formatter.sendMessage(
-        finalMessage,
-        imageAttachments.length > 0 ? imageAttachments : undefined,
-        admission,
-      );
+      const commandUuid = this.turnStarts.claimWrite(); // before the write, so the turn's lifecycle lines cannot beat it
+      try {
+        await this.formatter.sendMessage(
+          finalMessage,
+          imageAttachments.length > 0 ? imageAttachments : undefined,
+          admission,
+          commandUuid,
+        );
+      } catch (error) {
+        this.turnStarts.releaseWrite(commandUuid);
+        throw error;
+      }
       this.emit('status', 'busy' as InstanceStatus);
     } finally { this.pendingResidentInputs -= 1; }
   }
@@ -1211,8 +1222,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     try {
       if (this.isProviderCompacting()) await this.nativeCompaction.waitForCompletion();
       if (!this.formatter?.isWritable()) throw new Error('CLI not ready for input');
+      const commandUuid = this.turnStarts.claimWrite();
       const userMessage = {
         type: 'user',
+        uuid: commandUuid,
         message: {
           role: 'user',
           content: text
@@ -1225,7 +1238,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         ...textDiagnostic(text),
       });
       this.resetResidentTurn(true); // LT-047: see sendInputImpl
-      await this.formatter.sendRaw(jsonMessage);
+      try { await this.formatter.sendRaw(jsonMessage); }
+      catch (error) {
+        this.turnStarts.releaseWrite(commandUuid);
+        throw error;
+      }
 
       this.emit('status', 'busy' as InstanceStatus);
     } finally { this.pendingResidentInputs -= 1; }
@@ -1356,6 +1373,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     this.residentSettlement.settle();
     this.livePermissions.dropAll('exited');
     this.residentTurnActive = false;
+    this.turnStarts.reset();
 
     // Clear any in-flight resident interrupt WITHOUT resolving it.
     // Do NOT resolve with 'rejected' here: the 'exit' event (emitted below) triggers
@@ -1396,6 +1414,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     }
     if (this.nativeCompaction.isCompactionEcho(raw)) return;
     this.nativeCompaction.observeMessage(raw);
+    if (raw.type === 'command_lifecycle') { this.turnStarts.commandLifecycle(raw['command_uuid'], raw['state']); return; }
     if (this.livePermissions.handle(message.type, raw)) return;
     switch (message.type) {
       case 'assistant': {
@@ -1630,6 +1649,9 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       }
 
       case 'system':
+        // Every turn begins with an `init`, including one the CLI starts itself after background work ends.
+        // See ClaudeTurnStartTracker for who started it.
+        if (raw['subtype'] === 'init') this.emit('turn_started', this.turnStarts.turnStarted());
         processClaudeSystemMessage(this as unknown as ClaudeSystemMessageHost, message, raw);
         break;
 
@@ -1687,6 +1709,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
 
       case 'result': {
         const resultMsg = raw;
+        this.turnStarts.turnEnded();
         flushClaudeSubagentUsage(this);
         if (this.residentSettlement.pending) {
           const newerInput = this.residentSettlement.settle(this.parseOutput(JSON.stringify(resultMsg)).usage);
@@ -2083,7 +2106,11 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   private emitAsyncWork(event: CliAsyncWorkEvent | null): void {
-    if (event) this.emit('async_work', event);
+    if (!event) return;
+    // Finished background work is input the CLI gives the model itself, either as a turn of its own
+    // or inside the running one. Either way a turn is no longer only the message's, so say so.
+    if (event.phase === 'terminal') this.emit('turn_started', { source: 'provider' } satisfies TurnStartedEvent);
+    this.emit('async_work', event);
   }
 
   private forgetToolUse(toolUseId: string | undefined): void {

@@ -169,6 +169,7 @@ import {
 } from './instance-input-cancellation';
 import { summarizeCreateInstanceConfig } from './lifecycle/instance-create-logging';
 import { automatedResendInput, formatInternalInputForProvider, heldTurnResendInput, internalInputMetadata } from './internal-input-provenance';
+import { getInputTurnRegistry } from './input-turn-registry';
 import { cancelInstanceProviderLimitResumes } from './instance-provider-limit-resume-scheduler';
 import { resolveNativeOpenCodeCommandInput } from '../commands/provider-native-commands';
 import { dispatchNativeOpenCodeCommand } from './instance-native-command-input';
@@ -790,6 +791,7 @@ export class InstanceManager extends EventEmitter {
       removeInstanceHardened(instanceId);
       removeInstanceSignalFence(instanceId);
       removeInstanceContainedExecution(instanceId);
+      getInputTurnRegistry().forget(instanceId);
       removeInstanceTaskTools(instanceId);
       getHandoffStateService().removeInstance(instanceId);
       this.emitObserversSafely('instance:event', this.lifecycleEvents.recordRemoved(instanceId, instance?.status));
@@ -1519,6 +1521,7 @@ export class InstanceManager extends EventEmitter {
     });
     const deferInputCommitUntilDispatch = options?.signal !== undefined && !options?.isRetry;
     let hookError: string | undefined;
+    let recordedInputId: string | undefined;
     try {
 
     await this.awaitInputReady(instance, options);
@@ -1725,6 +1728,15 @@ export class InstanceManager extends EventEmitter {
         },
       };
     }
+    // Words a person typed or spoke themselves carry their origin and time; Harness-written and
+    // cross-session text never does, whatever the caller passed.
+    const personOrigin = options?.origin && !internalSource && !options.crossSessionSourceId && !options.autoContinuation
+      ? { kind: 'person' as const, typedAt: Math.min(options.origin.typedAt, Date.now()) }
+      : undefined;
+    if (personOrigin) userMessage.metadata = { ...userMessage.metadata, inputOrigin: personOrigin };
+    // Every input is the session's latest input, so a later notice, automation prompt or steer displaces a person's message.
+    getInputTurnRegistry().noteInput(instanceId, { messageId: userMessage.id, personTypedAt: personOrigin?.typedAt ?? null });
+    recordedInputId = userMessage.id;
     if (resolvedCommandMeta?.executionType === 'compact') {
       await runInstanceLocalInput(instanceId, options, { message, attachments }, () => {
         if (!options?.isRetry) {
@@ -1874,6 +1886,7 @@ export class InstanceManager extends EventEmitter {
     });
     } catch (error) {
       hookError = error instanceof Error ? error.message : String(error);
+      if (recordedInputId) getInputTurnRegistry().noteInputFailed(instanceId, recordedInputId);
       throw error;
     } finally {
       emitPluginHook('instance.input.after', {

@@ -35,7 +35,7 @@
  *     owned by `ComposerBannersComponent` (`composer-banners.component.ts`).
  *     Sending while parked or signed out is intentional: the message queues
  *     and is replayed once the wait clears (`instance-detail.component.ts`
- *     `onSendMessage` → `InstanceStore.sendInput`), so these are not
+ *     `onComposerSend` → `InstanceStore.sendInput`), so these are not
  *     readiness *failures* and must not gate Send.
  *   - A dead/unresumable session (`status === 'error' && recoveryMethod ===
  *     'failed'`) — already has its own inline recovery banner in

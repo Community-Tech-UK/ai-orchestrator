@@ -41,7 +41,8 @@ import type { PlanQueueFlowHost } from './plan-queue-host';
 import { relaxedSettingsFor } from './plan-queue-relaxation';
 import { isStoppedByHarnessError, unreportedVerifierReason, type PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
 import { isNeverAutoRetried } from './plan-queue-park-policy';
-import { hasPendingLandingCleanup, PlanQueueItemLanding, isAncestor } from './plan-queue-item-landing';
+import { hasPendingLandingCleanup, PlanQueueItemLanding, isAncestor, type PlanQueueLandingOptions } from './plan-queue-item-landing';
+import type { LandAnywayApproval } from './plan-queue-land-anyway-authority';
 import { PlanQueueLandingWaits } from './plan-queue-landing-wait';
 import { isLandingWait } from './plan-queue-state';
 import { startQueueVerification } from './plan-queue-start-verification';
@@ -65,6 +66,8 @@ import { PlanQueueWorkerReports } from './plan-queue-worker-report';
 import type { VerifierSelection } from './plan-queue-verifier-select';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
+/** Event note kept when a parked item is landed without a PASS: who authorised it and which message, never the message text. */
+export const LAND_ANYWAY_AUTHORISED = 'land-anyway-authorised';
 
 const logger = getLogger('PlanQueueItemFlow');
 
@@ -628,7 +631,7 @@ export class PlanQueueItemFlow {
 
   // Landing — serial, one at a time across every run
   /** Queue a landing. Never await this while holding the item's lock. */
-  enqueueLanding(itemId: string, options: { landedAnywayBy?: string } = {}): Promise<void> {
+  enqueueLanding(itemId: string, options: PlanQueueLandingOptions = {}): Promise<void> {
     const previous = this.landingChain;
     this.landingChain = this.withItemLock(itemId, async () => { await previous; await this.landing.land(itemId, options); })
       .catch((error: unknown) => {
@@ -728,15 +731,20 @@ export class PlanQueueItemFlow {
     return this.withItemLock(itemId, () => restoreDiscardedWork(this.host, itemId));
   }
 
-  /** parked → landing without a verifier PASS ("Land anyway"). Resolves once queued to land. `actor` goes in its detail. */
-  landAnyway(itemId: string, actor = 'James'): Promise<void> {
+  /**
+   * parked → landing without a verifier PASS ("Land anyway"). Resolves once queued to land.
+   * The caller has already been authorised (`plan-queue-land-anyway-authority.ts`); the queue's event record keeps who, and which message.
+   */
+  landAnyway(itemId: string, approval: LandAnywayApproval): Promise<void> {
     return this.withItemLock(itemId, async () => {
       const item = this.host.getItem(itemId);
       if (item.state !== 'parked' || !item.branchName) throw new Error('Only a parked item with a branch can be landed');
       const run = this.host.getRun(item.runId);
       const reattached = await this.host.worktrees.reattach(item, run.workspaceCwd);
+      this.host.history.recordEvent({ itemId: item.id, runId: item.runId, fromState: item.state, toState: item.state,
+        reason: LAND_ANYWAY_AUTHORISED, detailHead: JSON.stringify(approval.reference), round: item.round, tokens: 0 });
       this.host.transition(reattached, 'landing', { verifiedMainCommit: null, parkReason: null, detail: null });
-      void this.enqueueLanding(itemId, { landedAnywayBy: actor });
+      void this.enqueueLanding(itemId, { landAnywayBy: approval.by });
     });
   }
 

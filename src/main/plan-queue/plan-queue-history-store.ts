@@ -236,6 +236,17 @@ export class PlanQueueHistoryStore {
   }
 
   /**
+   * When this item last moved into `parked`, or null when it never has. Read from the event record, not the row's
+   * `updated_at`, which every later save changes. A decision note (from and to both `parked`) is not a move.
+   */
+  lastParkedAt(itemId: string): number | null {
+    const row = this.db.prepare(`SELECT at FROM plan_queue_item_events
+      WHERE item_id = ? AND to_state = 'parked' AND (from_state IS NULL OR from_state != 'parked') AND ${NOT_TIMING_SQL}
+      ORDER BY at DESC, rowid DESC LIMIT 1`).get<{ at: number }>(itemId);
+    return row?.at ?? null;
+  }
+
+  /**
    * One run's newest events first, timing rows included, for `plan_queue_status` evidence. A worker's closing message
    * is left out: it is long prose that the document and verdict already cover.
    */

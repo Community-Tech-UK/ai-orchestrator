@@ -39,6 +39,8 @@ import { getWorkAdmission } from '../work-admission/work-admission';
 import { queueAdmission } from '../work-admission/queue-admission';
 import { pumpPlanQueue } from './plan-queue-pump';
 import { assertPlanQueueParent, authorizePlanQueueControl } from './plan-queue-control-authority';
+import { authorizeLandAnyway } from './plan-queue-land-anyway-authority';
+import { getInputTurnRegistry, type InputTurnRegistry } from '../instance/input-turn-registry';
 import { adoptRunParent } from './plan-queue-run-parent';
 import { requestRunHandover, handoverRunParent } from './plan-queue-handover';
 import { planQueueRunCanMove } from '../../shared/utils/plan-queue-run-movable';
@@ -102,6 +104,8 @@ export interface PlanQueueCoordinatorDeps extends Pick<PlanQueueSetAsideDeps, 'h
   whenOrchestratorToolsListening?: () => Promise<void>;
   /** The live session restored from a gone parent's conversation; see plan-queue-parent.ts. */
   findRestoredSession?: (instanceId: string) => string | undefined;
+  /** Which turn a person's message started (Land anyway from a session); defaults to the app's registry. */
+  personTurns?: Pick<InputTurnRegistry, 'checkPersonTurn'>;
 }
 export interface StartRunInput {
   parentInstanceId: string;
@@ -135,6 +139,7 @@ interface ResolvedDeps {
   thisRepositoryRootCommit: string;
   now: () => number;
   newId: () => string;
+  personTurns: Pick<InputTurnRegistry, 'checkPersonTurn'>;
 }
 
 
@@ -187,6 +192,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       thisRepositoryRootCommit: deps.thisRepositoryRootCommit ?? THIS_REPOSITORY_ROOT_COMMIT,
       now: deps.now ?? Date.now,
       newId: deps.newId ?? randomUUID,
+      personTurns: deps.personTurns ?? getInputTurnRegistry(),
     };
     this.sessionStartedAt = this.deps.now();
     this.worktreeService = new PlanQueueWorktreeService({
@@ -590,7 +596,16 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     }
     const item = this.getItem(payload.itemId);
     const run = this.require(this.parents).follow(this.getRun(item.runId));
+    // Land anyway has its own, stricter rule; it runs first so its plain reasons win over the general refusal.
+    // A Set aside agent is authorised by the general check below (its own folder only), so it skips the person-message rule.
+    const setAsideCaller = callerInstanceId !== undefined && this.setAside?.folderOf(callerInstanceId) !== undefined;
+    let landAnyway = payload.action === 'land-anyway' && !setAsideCaller
+      ? this.authorizeLandAnyway(run, item, callerInstanceId)
+      : null;
     const actor = this.authorizeControl(run, payload.action, callerInstanceId);
+    if (payload.action === 'land-anyway' && setAsideCaller) {
+      landAnyway = { by: `by ${actor}`, reference: { actor: 'set-aside', instanceId: callerInstanceId! } };
+    }
     if (payload.action === 'resume-item' || payload.action === 'retry-landing') this.refuseIfNewerAttemptLanded(item);
     // Resuming a job reopens its finished run: the same checks as resuming a run (step 5.3). A merge needs no new folder or install.
     if (payload.action === 'resume-item' && (run.status === 'completed' || run.status === 'cancelled')) await preflightResumedRun(run, input => this.selectVerifier(input));
@@ -609,7 +624,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         // Landing can send the item back to a worker (a conflict or a failed
         // gate), which only the scheduler of an open run picks up.
         this.reopen(run);
-        await flow.landAnyway(item.id, actor);
+        await flow.landAnyway(item.id, landAnyway!);
         break;
       case 'discard-item':
         await flow.discard(item.id, actor);
@@ -793,6 +808,18 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       },
       isQueueInstance: (id) => this.isQueueInstance(id),
       setAsideFolder: (id) => this.setAside?.folderOf(id),
+    });
+  }
+  private authorizeLandAnyway(run: PlanQueueRun, item: PlanQueueItem, caller: string | undefined) {
+    this.resolveRunParent(run);
+    return authorizeLandAnyway(run, item, caller, {
+      isQueueInstance: (id) => this.isQueueInstance(id),
+      instanceExists: (id) => {
+        const instance = this.instances.getInstance(id);
+        return instance !== undefined && instance.status !== 'superseded';
+      },
+      checkPersonTurn: (id) => this.requireDeps().personTurns.checkPersonTurn(id),
+      lastParkedAt: (itemId) => this.store.history.lastParkedAt(itemId),
     });
   }
   private logItemError(item: PlanQueueItem, error: unknown): void {

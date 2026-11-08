@@ -337,7 +337,7 @@ describe('4.2: a blocked landing waits instead of parking', () => {
     landingItem('a', { 'src/a.ts': withLine(0, 'item') });
     stagedEdit('src/a.ts');
 
-    await flow.enqueueLanding('a', { landedAnywayBy: 'James' }); await flow.whenSettled();
+    await flow.enqueueLanding('a', { landAnywayBy: 'on a test' }); await flow.whenSettled();
 
     expect(item('a')).toMatchObject({ state: 'parked', parkReason: 'land-blocked' });
     expect(item('a').detail).toContain('src/a.ts');

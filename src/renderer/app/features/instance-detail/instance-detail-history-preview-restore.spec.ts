@@ -267,8 +267,22 @@ describe('InstanceDetailComponent history preview restore send', () => {
     });
     await sendPromise;
 
-    expect(instanceStore.sendInput).toHaveBeenCalledWith('restored-1', 'Continue once restored', []);
+    expect(instanceStore.sendInput).toHaveBeenCalledWith('restored-1', 'Continue once restored', [], { typedByPerson: true });
     expect(instanceStore.setSelectedInstance).toHaveBeenCalledWith('restored-1');
+  });
+
+  it('does not mark cross-model review feedback, built from reviewers\' findings, as typed by a person', () => {
+    const instance = createInstance();
+    instanceStore.selectedInstance.set(instance);
+
+    const reviews = TestBed.inject(CrossModelReviewIpcService) as unknown as { getReviewForInstance: ReturnType<typeof vi.fn> };
+    reviews.getReviewForInstance.mockReturnValue({
+      reviews: [{ parseSuccess: true, scores: { correctness: { score: 1, issues: ['Missing check'], reasoning: 'x' } } }],
+    });
+    fixture.componentInstance.onReviewAction({ reviewId: 'review-1', instanceId: instance.id, action: 'ask-primary' });
+
+    expect(instanceStore.sendInput).toHaveBeenLastCalledWith(
+      instance.id, expect.stringContaining('Another model reviewed your last reply'), []);
   });
 
   it('waits for the selected model to apply before sending the first restored message', async () => {
@@ -284,7 +298,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
     expect(changeModel).toHaveBeenCalledWith('restored-1', 'gpt-6-astra', 'high', undefined, 'codex');
     confirm({ success: true, data: { id: 'restored-1', currentModel: 'gpt-6-astra', provider: 'codex', status: 'idle' } });
     await send;
-    expect(instanceStore.sendInput).toHaveBeenCalledWith('restored-1', 'Use the new model', []);
+    expect(instanceStore.sendInput).toHaveBeenCalledWith('restored-1', 'Use the new model', [], { typedByPerson: true });
   });
 
   it('retains the message and attachments when the selected model fails and retries without another restore', async () => {
@@ -303,7 +317,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
     changeModel.mockResolvedValue({ success: true, data: { id: 'restored-1', currentModel: 'gpt-6-astra', provider: 'codex', status: 'idle' } });
     await fixture.componentInstance.onHistoryPreviewSendMessage('Retain this message');
     expect(historyStore.restoreEntry).toHaveBeenCalledOnce();
-    expect(instanceStore.sendInput).toHaveBeenCalledWith('restored-1', 'Retain this message', [file]);
+    expect(instanceStore.sendInput).toHaveBeenCalledWith('restored-1', 'Retain this message', [file], { typedByPerson: true });
   });
 
   it('does not start a loop or edited resend if its pending model cannot be applied', async () => {

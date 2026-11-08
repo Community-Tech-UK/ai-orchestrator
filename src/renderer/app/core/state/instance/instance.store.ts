@@ -686,9 +686,9 @@ export class InstanceStore implements OnDestroy {
     this.listStore.addInstance(data);
   }
 
-  /** Send input to an instance (queues if busy) */
-  async sendInput(instanceId: string, message: string, files?: File[]): Promise<void> {
-    return this.messagingStore.sendInput(instanceId, message, files);
+  /** Send input to an instance (queues if busy). `typedByPerson` is only for words James typed or spoke himself. */
+  async sendInput(instanceId: string, message: string, files?: File[], options?: { typedByPerson?: boolean }): Promise<void> {
+    return this.messagingStore.sendInput(instanceId, message, files, options);
   }
 
   /** Steer the active turn, interrupting once if the provider needs a prompt first. */

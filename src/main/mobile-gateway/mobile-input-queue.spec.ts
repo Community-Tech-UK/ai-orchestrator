@@ -154,6 +154,13 @@ describe('MobileInputQueue', () => {
     expect(h.queue.size('i1')).toBe(1);
   });
 
+  it('hands delivery the time the message was queued, so a message typed while busy keeps its typed time', async () => {
+    h.queue.enqueue('i1', 'typed while busy');
+    h.setStatus('idle');
+    await h.queue.drain('i1');
+    expect(h.deliver).toHaveBeenCalledWith('i1', 'typed while busy', undefined, 1000);
+  });
+
   it('re-checks a still-loaded queue when a delivery produced no status edge', async () => {
     vi.useFakeTimers();
     try {
@@ -227,7 +234,7 @@ describe('MobileInputQueue', () => {
 
     h.deliver.mockResolvedValue(undefined);
     await h.queue.drain('i1');
-    expect(h.deliver).toHaveBeenLastCalledWith('i1', 'second', undefined);
+    expect(h.deliver).toHaveBeenLastCalledWith('i1', 'second', undefined, 1000);
     expect(h.queue.size('i1')).toBe(0);
   });
 
@@ -260,7 +267,7 @@ describe('MobileInputQueue', () => {
 
     h.setPaused(false);
     await h.queue.drain('i1');
-    expect(h.deliver).toHaveBeenCalledWith('i1', 'first', undefined);
+    expect(h.deliver).toHaveBeenCalledWith('i1', 'first', undefined, 1000);
   });
 
   it('refuses to queue past the per-instance cap', () => {

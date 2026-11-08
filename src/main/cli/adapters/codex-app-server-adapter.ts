@@ -646,6 +646,7 @@ export abstract class CodexAppServerAdapter extends CodexExecAdapter {
     const resident = this.useAppServer;
     return {
       supportsAsyncWorkAutoResume: false,
+      reportsTurnStarts: resident,
       residentSession: resident,
       liveInterrupt: resident,
       liveSteer: resident,

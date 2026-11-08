@@ -6280,12 +6280,12 @@
       "lines": 4301
     },
     {
-      "path": "src/main/orchestration/loop-coordinator.ts",
-      "lines": 4013
+      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
+      "lines": 4099
     },
     {
-      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 3972
+      "path": "src/main/orchestration/loop-coordinator.ts",
+      "lines": 4013
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-mempalace-knowledge-features_completed.md",
@@ -6381,7 +6381,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.ts",
-      "lines": 2539
+      "lines": 2544
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
@@ -6393,7 +6393,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2480
+      "lines": 2493
     },
     {
       "path": "src/main/app/orchestrator-tools-step.spec.ts",
@@ -6409,7 +6409,7 @@
     },
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
-      "lines": 2396
+      "lines": 2397
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
@@ -6428,6 +6428,10 @@
       "lines": 2339
     },
     {
+      "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
+      "lines": 2207
+    },
+    {
       "path": "src/main/orchestration/default-invokers.loop.spec.ts",
       "lines": 2199
     },
@@ -6436,16 +6440,16 @@
       "lines": 2191
     },
     {
+      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
+      "lines": 2168
+    },
+    {
       "path": "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
       "lines": 2149
     },
     {
       "path": "src/main/channels/__tests__/channel-message-router.spec.ts",
       "lines": 2142
-    },
-    {
-      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2141
     },
     {
       "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
@@ -6478,10 +6482,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-04-remote-nodes-settings_completed.md",
       "lines": 2070
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
-      "lines": 2068
     },
     {
       "path": "docs/superpowers/plans/2026-04-17-wave1-contracts-subpath-exports_completed.md",
@@ -6600,6 +6600,10 @@
       "lines": 1540
     },
     {
+      "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
+      "lines": 1540
+    },
+    {
       "path": "src/main/chats/chat-service.spec.ts",
       "lines": 1539
     },
@@ -6610,10 +6614,6 @@
     {
       "path": "src/main/orchestration/cross-model-review-service.spec.ts",
       "lines": 1534
-    },
-    {
-      "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
-      "lines": 1523
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-e-developer-experience_completed.md",
@@ -6629,7 +6629,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
-      "lines": 1499
+      "lines": 1503
     },
     {
       "path": "docs/plans/2026-10-10-oct-phase3-calm-screen_history.md",
@@ -6772,6 +6772,10 @@
       "lines": 1306
     },
     {
+      "path": "src/renderer/app/core/state/instance/instance-messaging.store.spec.ts",
+      "lines": 1300
+    },
+    {
       "path": "claude_oct-2-todo.md",
       "lines": 1298
     },
@@ -6902,10 +6906,6 @@
     {
       "path": "docs/plans/2026-06-27-supergoal-inspired-loop-planning-audit_completed.md",
       "lines": 1203
-    },
-    {
-      "path": "src/renderer/app/core/state/instance/instance-messaging.store.spec.ts",
-      "lines": 1202
     },
     {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.spec.ts",
@@ -7149,7 +7149,7 @@
     },
     {
       "path": "src/main/cli/adapters/base-cli-adapter.ts",
-      "lines": 1014
+      "lines": 1016
     },
     {
       "path": "src/main/context/context-compactor.ts",
@@ -7296,6 +7296,10 @@
       "lines": 944
     },
     {
+      "path": "src/main/cli/adapters/codex-cli-adapter.provider-turns.spec.ts",
+      "lines": 942
+    },
+    {
       "path": "docs/plans/2026-10-14-local-model-plan-execute-ab_plan.md",
       "lines": 938
     },
@@ -7366,10 +7370,6 @@
     {
       "path": "src/renderer/app/features/instance-detail/composer-toolbar.component.spec.ts",
       "lines": 903
-    },
-    {
-      "path": "src/main/cli/adapters/codex-cli-adapter.provider-turns.spec.ts",
-      "lines": 902
     },
     {
       "path": "docs/superpowers/plans/2026-04-09-remote-session-latency_completed.md",
@@ -7500,8 +7500,8 @@
       "lines": 860
     },
     {
-      "path": "src/renderer/app/core/state/instance/instance-messaging.store.ts",
-      "lines": 860
+      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
+      "lines": 859
     },
     {
       "path": "docs/superpowers/plans/2026-05-10-main-process-multicore-offload_completed.md",
@@ -7514,6 +7514,10 @@
     {
       "path": "docs/superpowers/specs/2026-04-17-wave2-provider-normalization-design_completed.md",
       "lines": 857
+    },
+    {
+      "path": "src/renderer/app/core/state/instance/instance-messaging.store.ts",
+      "lines": 855
     },
     {
       "path": "src/renderer/app/features/semantic-search/semantic-search-page.component.ts",
@@ -7616,10 +7620,6 @@
       "lines": 832
     },
     {
-      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
-      "lines": 832
-    },
-    {
       "path": "src/renderer/app/features/models/model-selection-panel.component.spec.ts",
       "lines": 831
     },
@@ -7690,6 +7690,10 @@
     {
       "path": "src/main/browser-gateway/browser-input-control-operations.spec.ts",
       "lines": 807
+    },
+    {
+      "path": "src/main/plan-queue/plan-queue-item-flow.ts",
+      "lines": 806
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-conversation-ledger-codex-native-adapter_completed.md",

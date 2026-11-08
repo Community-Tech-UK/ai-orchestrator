@@ -11,6 +11,38 @@ import { InstanceDetailComponent } from './instance-detail.component';
 describe('InstanceDetailComponent compact then send', () => {
   afterEach(() => TestBed.resetTestingModule());
 
+  it('marks a message sent from the message box as typed by a person, with its attachments', async () => {
+    const file = new File(['image'], 'screenshot.png', { type: 'image/png' });
+    const instance = { id: 'session', provider: 'claude', status: 'idle', outputBuffer: [] };
+    const sendInput = vi.fn();
+    TestBed.configureTestingModule({ providers: [
+      DraftService,
+      ColdCacheResumeService,
+      { provide: ToastService, useValue: { show: vi.fn() } },
+      { provide: InstanceStore, useValue: { getInstance: () => instance, isInstanceCompacting: () => false } },
+      { provide: InstanceMessagingStore, useValue: { getQueuedMessageCount: () => 0 } },
+      { provide: SettingsStore, useValue: { settings: () => ({ coldCacheCompactFirst: false }) } },
+    ] });
+    const drafts = TestBed.inject(DraftService);
+    drafts.addPendingFiles(instance.id, [file]);
+    const detail = Object.assign(Object.create(InstanceDetailComponent.prototype) as object, {
+      instance: () => instance,
+      pendingFiles: () => drafts.getPendingFiles(instance.id),
+      pendingFolders: () => [],
+      fileAttachment: { prependPendingFolders: (message: string) => message },
+      coldCache: TestBed.inject(ColdCacheResumeService),
+      store: { sendInput },
+      draftService: drafts,
+      inputPanel: () => undefined,
+    }) as unknown as InstanceDetailComponent;
+
+    detail.onComposerSend('land it anyway');
+    await vi.waitFor(() => expect(sendInput).toHaveBeenCalled());
+
+    expect(sendInput).toHaveBeenCalledExactlyOnceWith(instance.id, 'land it anyway', [file], { typedByPerson: true });
+    expect(drafts.getPendingFiles(instance.id)).toEqual([]);
+  });
+
   it('keeps pending attachments and restores text when compaction fails', async () => {
     const file = new File(['image'], 'screenshot.png', { type: 'image/png' });
     const instance = { id: 'session', provider: 'claude', status: 'idle',

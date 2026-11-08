@@ -1,7 +1,7 @@
 import { publishSubagentUsage } from './subagent-usage-publisher';
 import type { ClaudeSelfWakeupEvent } from '../cli/adapters/claude-cli-self-wakeup';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
-import type { CliToolCall } from '../cli/adapters/base-cli-adapter';
+import type { CliToolCall, TurnStartedEvent } from '../cli/adapters/base-cli-adapter';
 import type { CliAsyncWorkEvent } from '../cli/adapters/claude-cli-async-work';
 import { subagentAttributionDetails, type ClaudeSubagentUsage } from '../cli/adapters/claude-subagent-usage';
 import { recordClaudeCacheLifetime, type ClaudeCacheLifetime } from '../cli/adapters/claude-cache-lifetime';
@@ -26,6 +26,8 @@ interface BindRawAdapterProviderEventsInput {
   captureToolResult?: (toolCall: CliToolCall) => void;
   observeSelfWakeup?: (event: ClaudeSelfWakeupEvent) => void;
   observeAsyncWork?: (event: CliAsyncWorkEvent) => void;
+  /** Every turn the adapter reports starting, with who started it. */
+  observeTurnStarted?: (source: TurnStartedEvent['source']) => void;
   observeAvailableCommands?: () => void;
   getInstance?: () => Instance | undefined;
 }
@@ -117,6 +119,12 @@ export function bindRawAdapterProviderEvents(input: BindRawAdapterProviderEvents
   input.adapter.on('self_wakeup', (event: ClaudeSelfWakeupEvent) => {
     if (input.isStale('self_wakeup')) return;
     input.observeSelfWakeup?.(event);
+  });
+
+  input.adapter.on('turn_started', (event?: TurnStartedEvent) => {
+    if (input.isStale('turn_started')) return;
+    // An event that does not say who started the turn is treated as the provider's own.
+    input.observeTurnStarted?.(event?.source === 'harness-send' ? 'harness-send' : 'provider');
   });
 
   input.adapter.on('async_work', (event: CliAsyncWorkEvent) => {

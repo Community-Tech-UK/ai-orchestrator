@@ -11,6 +11,7 @@ import type {
 } from '../../../../../shared/types/instance.types';
 import type { ModelRuntimeTarget } from '../../../../../shared/types/local-model-runtime.types';
 import type { ReasoningEffort } from '../../../../../shared/types/provider.types';
+import type { PersonInputOrigin } from '../../../../../shared/types/input-provenance.types';
 import type {
   CompactionBoundaryOptions,
   CompactionPreview,
@@ -160,9 +161,9 @@ export class InstanceIpcService {
   /**
    * Send input to an instance
    */
-  async sendInput(instanceId: string, message: string, attachments?: FileAttachment[], isRetry?: boolean, automatedInput?: boolean, queuedAdmissionId?: string): Promise<IpcResponse> {
+  async sendInput(instanceId: string, message: string, attachments?: FileAttachment[], isRetry?: boolean, automatedInput?: boolean, queuedAdmissionId?: string, origin?: PersonInputOrigin): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
-    return this.api.sendInput({ instanceId, message, attachments, isRetry, automatedInput, queuedAdmissionId });
+    return this.api.sendInput({ instanceId, message, attachments, isRetry, automatedInput, queuedAdmissionId, origin });
   }
 
   /** Ask the resident Claude conversation without adding to its transcript. */

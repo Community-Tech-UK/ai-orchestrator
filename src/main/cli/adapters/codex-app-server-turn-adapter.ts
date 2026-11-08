@@ -2,6 +2,7 @@ import type {
   CliMessage,
   AdapterInputDispatch,
   CliResponse,
+  TurnStartedEvent,
 } from './base-cli-adapter';
 import { CodexAppServerNotificationAdapter } from './codex-app-server-notification-adapter';
 import type { FileAttachment, InstanceStatus, ThinkingContent } from '../../../shared/types/instance.types';
@@ -225,6 +226,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     }
     logger.info('Following a turn Codex started by itself', { threadId: rootThreadId, turnId });
     this.emit('status', 'busy' as InstanceStatus);
+    this.emit('turn_started', { source: 'provider' } satisfies TurnStartedEvent);
     const startedAtMs = Date.now();
     const epoch = this.childRolloutRetryEpoch;
     const current = () => epoch === this.childRolloutRetryEpoch && rootThreadId === this.getAppServerThreadId();
@@ -417,6 +419,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     this.usageAccounting.beginTurn(rootThreadId, resumed);
     const startedAtMs = Date.now();
     try {
+      this.emit('turn_started', { source: 'harness-send' } satisfies TurnStartedEvent);
       turnState = await this.captureTurn(input, metadata, pendingDeveloperInput, dispatch, onInputAccepted);
     } catch (error) {
       this.flushPartialUsage();

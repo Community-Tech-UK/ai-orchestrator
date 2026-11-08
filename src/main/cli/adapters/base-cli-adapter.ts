@@ -33,6 +33,7 @@ import type {
   ContextUsageObservation,
   InterruptResult,
   ProviderRuntimeSnapshot,
+  TurnStartedEvent,
   SpawnModeChange,
 } from './base-cli-adapter.types';
 import {
@@ -84,6 +85,7 @@ export type {
   ContextUsageObservation,
   InterruptResult,
   ProviderRuntimeSnapshot,
+  TurnStartedEvent,
   ResumeAttemptResult,
   SpawnModeChange,
   TurnInterruptCompletion,

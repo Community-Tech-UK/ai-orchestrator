@@ -80,6 +80,22 @@ export interface AdapterCapabilities {
   liveSteer: boolean;
   /** Whether the provider can start its own turn when background work completes. */
   supportsAsyncWorkAutoResume?: boolean;
+  /**
+   * Whether the adapter emits `turn_started` for every turn, including one the provider
+   * starts itself (a Claude turn after background work ends, a Codex goal turn). Default
+   * false. Plan Queue's "land anyway" from a session is refused for a provider that cannot
+   * report this (`src/main/instance/input-turn-registry.ts`).
+   */
+  reportsTurnStarts?: boolean;
+}
+
+/**
+ * Payload of an adapter's `turn_started` event. `harness-send` means a message Harness sent started
+ * the turn; `provider` means the provider started it itself (a Claude turn after background work
+ * ends, a Codex goal turn). An adapter that cannot tell must report `provider`.
+ */
+export interface TurnStartedEvent {
+  source: 'harness-send' | 'provider';
 }
 
 /**

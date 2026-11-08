@@ -151,14 +151,14 @@ describe('InstanceDetailComponent template wiring for compact-then-send', () => 
     expect(compactInstance).toHaveBeenCalledWith('session-1');
     expect(sendInput).not.toHaveBeenCalled();
     finish(true);
-    await vi.waitFor(() => expect(sendInput).toHaveBeenCalledWith('session-1', 'hello after a break', []));
+    await vi.waitFor(() => expect(sendInput).toHaveBeenCalledWith('session-1', 'hello after a break', [], { typedByPerson: true }));
     expect(compactInstance).toHaveBeenCalledOnce();
   });
 
   it('sends straight away when no cold-cache offer applies', async () => {
     instance.outputBuffer = [{ id: 'a1', type: 'assistant', content: 'fresh', timestamp: Date.now() } as never];
     composer().sendMessage.emit('still warm');
-    await vi.waitFor(() => expect(sendInput).toHaveBeenCalledWith('session-1', 'still warm', []));
+    await vi.waitFor(() => expect(sendInput).toHaveBeenCalledWith('session-1', 'still warm', [], { typedByPerson: true }));
     expect(compactInstance).not.toHaveBeenCalled();
   });
 });

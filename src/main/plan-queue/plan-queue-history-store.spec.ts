@@ -70,6 +70,27 @@ describe('queue round history', () => {
     expect(store.history.hasFailedCheckGroup('other', 'failed-head')).toBe(false);
   });
 
+  it('reads when an item last parked from its events, not from later notes or saves', () => {
+    db = createSqliteWasmDatabase(':memory:'); runLoopMigrations(db);
+    const store = new PlanQueueStore(db);
+    store.upsertRun({
+      id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: '/repo',
+      status: 'running', config: DEFAULT_PLAN_QUEUE_CONFIG.plans, relaxation: null,
+      workerProvider: 'claude', workerModel: null, startedAt: 1, endedAt: null,
+    });
+    const history = store.history;
+    const base = { itemId: 'item', runId: 'run', round: 0, tokens: 0, reason: null, detailHead: null };
+    expect(history.lastParkedAt('item')).toBeNull();
+    history.recordEvent({ ...base, fromState: 'working', toState: 'parked', at: 100 });
+    history.recordEvent({ ...base, fromState: 'parked', toState: 'parked', reason: 'note', at: 900 }); // a decision note is not a park
+    history.recordEvent({ ...base, fromState: 'parked', toState: 'landing', at: 950 });
+    expect(history.lastParkedAt('item')).toBe(100);
+    history.recordEvent({ ...base, fromState: 'verifying', toState: 'parked', at: 1_200 });
+    history.recordEvent({ ...base, fromState: 'parked', toState: 'parked', reason: 'note', at: 1_500 });
+    expect(history.lastParkedAt('item')).toBe(1_200);
+    expect(history.lastParkedAt('other')).toBeNull();
+  });
+
   it('invalidates a group after any member leaves its round, even when it returns', () => {
     db = createSqliteWasmDatabase(':memory:'); runLoopMigrations(db);
     const history = new PlanQueueStore(db).history;

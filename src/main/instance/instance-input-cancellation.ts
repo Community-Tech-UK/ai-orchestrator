@@ -1,5 +1,5 @@
 import type { InputContextDelivery } from '../../shared/types/input-context-delivery.types';
-import type { InternalInputSource } from '../../shared/types/input-provenance.types';
+import type { InternalInputSource, PersonInputOrigin } from '../../shared/types/input-provenance.types';
 import type { AdapterInputRetryReason } from '../cli/adapters/base-cli-adapter.types';
 
 export interface InstanceSendInputOptions {
@@ -11,6 +11,11 @@ export interface InstanceSendInputOptions {
   inputContextDelivery?: InputContextDelivery;
   autoContinuation?: boolean;
   automatedInput?: boolean;
+  /**
+   * Set only for words a person typed or spoke themselves (see `PersonInputOrigin`).
+   * Stored on the user message; ignored for Harness-written or cross-session text.
+   */
+  origin?: PersonInputOrigin;
   signal?: AbortSignal;
   /** Final synchronous eligibility check run at the provider-dispatch boundary. */
   beforeProviderDispatch?: () => void;

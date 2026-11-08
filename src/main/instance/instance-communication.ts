@@ -122,6 +122,8 @@ import { getHarnessGuidance } from '../orchestration/harness-guidance';
 import { assertGlobalPauseInputCurrent, runWithGlobalPauseInput, waitForGlobalPauseInput } from '../global-pause/global-pause-input';
 import { isAdapterStopping } from '../providers/adapter-stop-state';
 import { InstanceQueuedInputHandoff, transitionQueuedAdapterStatus } from './instance-queued-input-handoff';
+import { getInputTurnRegistry } from './input-turn-registry';
+import type { AdapterCapabilities } from '../cli/adapters/base-cli-adapter.types';
 import { errorMessageText } from '../util/error-utils';
 import { getTurnFileBaselineService, type TurnBaselineDispatchReservation } from '../vcs/turn-file-baseline';
 import { projectToolOutcome, safeToolOutcome } from './turn-tool-outcome-projection';
@@ -1482,7 +1484,10 @@ export class InstanceCommunicationManager extends EventEmitter {
       },
       observeSelfWakeup: (event) => getSelfWakeupTracker().observe(instanceId, event),
       observeAsyncWork: (event) => observeInstanceBackgroundWork(instanceId, event, this.deps),
+      observeTurnStarted: (source) => getInputTurnRegistry().noteTurnStarted(instanceId, source),
     });
+    const capabilities = (adapter as { getAdapterCapabilities?: () => AdapterCapabilities }).getAdapterCapabilities?.();
+    getInputTurnRegistry().setReportsTurnStarts(instanceId, capabilities?.reportsTurnStarts === true);
 
     const onAdapterStatus = (status: InstanceStatus): void => {
       if (isStaleAdapterEvent('status')) {

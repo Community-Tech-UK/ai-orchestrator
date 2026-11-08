@@ -899,3 +899,43 @@ describe('CodexCliAdapter turns Codex starts by itself', () => {
     expect(h.outputs.filter((output) => output.type === 'error')).toEqual([]);
   });
 });
+
+describe('CodexCliAdapter turn starts (Plan Queue "Land anyway")', () => {
+  it('reports a turn Codex starts by itself (a goal turn) as one turn start', async () => {
+    const h = createHarness(() => ({ goal: { status: 'active' } }));
+    const started = vi.fn();
+    h.adapter.on('turn_started', started);
+
+    h.emit('turn/started', { threadId: 'thread-1', turn: { id: 'goal-turn', status: 'inProgress' } });
+    expect(started).toHaveBeenCalledTimes(1);
+    expect(started).toHaveBeenCalledWith({ source: 'provider' });
+
+    h.emit('turn/completed', { threadId: 'thread-1', turn: { id: 'goal-turn', status: 'completed' } });
+    await vi.waitFor(() => expect(h.statuses.at(-1)).toBe('idle'));
+    expect(started).toHaveBeenCalledTimes(1);
+    await h.adapter.terminate(false);
+  });
+
+  it('reports the turn a Harness send starts', async () => {
+    const h = createHarness((method) => method === 'turn/start'
+      ? { turn: { id: 'user-turn', status: 'completed' } } : {});
+    const started = vi.fn();
+    h.adapter.on('turn_started', started);
+
+    await h.adapter.sendInput('Read the entry.').catch(() => undefined);
+
+    expect(started).toHaveBeenCalledTimes(1);
+    expect(started).toHaveBeenCalledWith({ source: 'harness-send' });
+    expect(h.requests.map(([method]) => method)).toContain('turn/start');
+    await h.adapter.terminate(false);
+  });
+
+  it('reports turn starts only in app-server mode, where it can see every turn', () => {
+    const resident = new CodexCliAdapter();
+    Object.assign(resident, { useAppServer: true });
+    expect(resident.getAdapterCapabilities().reportsTurnStarts).toBe(true);
+    const stateless = new CodexCliAdapter();
+    Object.assign(stateless, { useAppServer: false });
+    expect(stateless.getAdapterCapabilities().reportsTurnStarts).toBe(false);
+  });
+});

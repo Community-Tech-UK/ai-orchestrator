@@ -34,7 +34,7 @@ export class InputFormatter {
    * Send a user message to the CLI
    * Uses Anthropic API format with content blocks for multimodal support
    */
-  async sendMessage(message: string, attachments?: FileAttachment[], dispatch?: AdapterInputDispatch): Promise<void> {
+  async sendMessage(message: string, attachments?: FileAttachment[], dispatch?: AdapterInputDispatch, uuid?: string): Promise<void> {
     assertAdapterInputCurrent(dispatch);
     logger.debug('sendMessage called', {
       messageLength: message.length,
@@ -72,8 +72,11 @@ export class InputFormatter {
       ? (contentBlocks[0] as TextBlock).text  // Use the block's text, not the raw message arg
       : contentBlocks;
 
+    // The CLI names this message's `command_lifecycle` lines after the uuid, which is how the adapter
+    // tells a turn this message started from one the provider began itself.
     const inputMessage = {
       type: 'user',
+      ...(uuid ? { uuid } : {}),
       message: {
         role: 'user',
         content: textContent,

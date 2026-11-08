@@ -21,10 +21,13 @@ import {
   isQuotaParked,
   isReadyForInputStatus,
   isTerminalStatus,
+  ipcTail,
   isTransientQueueStatus,
   pickQueuedMetadata,
   removeQueuedEntry,
   resolveMessageTarget,
+  toSteerEntry,
+  typedOrigin,
   type SendInputImmediateOptions,
 } from './instance-messaging-queue-utils';
 import { getSendInputTimeoutMs, sendInputWithTimeout } from './instance-messaging-send-utils';
@@ -271,17 +274,17 @@ export class InstanceMessagingStore {
   // Message Sending
   // ============================================
 
-  /**
-   * Send input to an instance (queues if busy)
-   */
+  /** Send input to an instance (queues if busy). `typedByPerson`: only for words James typed or spoke himself (see PersonInputOrigin). */
   async sendInput(
     instanceId: string,
     message: string,
-    files?: File[]
+    files?: File[],
+    options: { typedByPerson?: boolean } = {},
   ): Promise<void> {
     const target = this.resolveMessageTarget(instanceId);
     if (!target) return;
     const { instance, instanceId: targetInstanceId } = target;
+    const origin = typedOrigin(options.typedByPerson);
 
     if (this.globalPause.holdsAutomaticInput(targetInstanceId) && !await this.globalPause.pickUp(targetInstanceId)) return;
 
@@ -289,7 +292,7 @@ export class InstanceMessagingStore {
 
     if (isTerminalStatus(instance.status)) {
       if (canRestartForTerminalSend(instance.status)) {
-        await this.queueMessageAndRestartTerminalInstance(targetInstanceId, { message, files });
+        await this.queueMessageAndRestartTerminalInstance(targetInstanceId, { message, files, origin });
         return;
       }
 
@@ -310,7 +313,7 @@ export class InstanceMessagingStore {
     // through instead would hold the IPC call for the whole wake (spawn +
     // transcript replay) and can outlive the renderer's send guard.
     if (instance.status === 'hibernated') {
-      await this.queueMessageAndWakeHibernatedInstance(targetInstanceId, { message, files });
+      await this.queueMessageAndWakeHibernatedInstance(targetInstanceId, { message, files, origin });
       return;
     }
 
@@ -324,12 +327,12 @@ export class InstanceMessagingStore {
       || isQuotaParked(instance)
       || this.pauseStore.isPaused()
     ) {
-      this.enqueueMessage(targetInstanceId, { message, files });
+      this.enqueueMessage(targetInstanceId, { message, files, origin });
       return;
     }
 
     // Send the message immediately
-    await this.sendInputImmediate(targetInstanceId, message, files);
+    await this.sendInputImmediate(targetInstanceId, message, files, 0, origin ? { origin } : {});
   }
 
   /**
@@ -433,15 +436,7 @@ export class InstanceMessagingStore {
     const queuedMessage = this.removeFromQueue(instanceId, index);
     if (!queuedMessage) return;
 
-    const steerMessage: QueuedMessage = {
-      ...queuedMessage,
-      kind: 'steer',
-      // LT-652 (gate finding 3): an explicit user promotion to steer is an
-      // intentional immediate send — it deliberately overrides a failure
-      // backoff. Stripping the gate here keeps that override honest instead
-      // of half-respecting it; a rejection re-gates on the retry path.
-      retryAfterAt: undefined,
-    };
+    const steerMessage = toSteerEntry(queuedMessage);
     // Content is unchanged (only `kind` differs), so carry the durable-row
     // association forward instead of cancelling+re-enqueuing under a new id.
     this.queuePersistence.rebindEntry(queuedMessage, steerMessage);
@@ -564,7 +559,7 @@ export class InstanceMessagingStore {
           message,
           attachments,
           retryCount > 0 || options.skipUserBubble === true,
-          ...(queuedAdmissionId ? [automatedInput, queuedAdmissionId] : automatedInput ? [true] : []) as [boolean?, string?]
+          ...ipcTail(automatedInput, queuedAdmissionId, options.origin ?? options.queuedMetadata?.origin)
         ),
         getSendInputTimeoutMs(target.instance.provider)
       );

@@ -42,6 +42,7 @@ import {
 import { validateMobileInput } from './mobile-input-validation';
 import type { ResumeDeferredOptions } from '../instance/lifecycle/deferred-permission-options';
 import { stopLoopsForSessions } from '../orchestration/loop-stop-for-sessions';
+import type { PersonInputOrigin } from '../../shared/types/input-provenance.types';
 
 const MESSAGE_REPLAY_LIMIT = 300;
 const VALID_PROVIDERS = new Set([
@@ -75,6 +76,7 @@ export interface GatewayInstanceSource extends EmitterLike {
     instanceId: string,
     message: string,
     attachments?: FileAttachment[],
+    options?: { origin?: PersonInputOrigin },
   ): Promise<void>;
   steerInput(instanceId: string, message: string, attachments?: FileAttachment[]): Promise<void>;
   interruptInstance(instanceId: string, origin?: InterruptOrigin): boolean;
@@ -133,8 +135,8 @@ export class MobileGatewayInstanceRoutes {
       getInstance: (instanceId) => this.source().getInstance(instanceId),
       isPaused: (instanceId) =>
         this.deps.getPauseState().isPaused || this.sendInFlight.has(instanceId),
-      deliver: (instanceId, message, attachments) =>
-        this.dispatchSend(instanceId, message, attachments),
+      deliver: (instanceId, message, attachments, typedAt) =>
+        this.dispatchSend(instanceId, message, attachments, typedAt),
       onChange: () => this.deps.scheduleSnapshotBroadcast(),
       logger: deps.logger,
     });
@@ -357,7 +359,7 @@ export class MobileGatewayInstanceRoutes {
       return;
     }
 
-    await this.dispatchSend(instanceId, message, attachments);
+    await this.dispatchSend(instanceId, message, attachments, Date.now());
     const sent: MobileInputResponse = { ok: true };
     sendJsonResponse(res, 200, sent);
   }
@@ -383,12 +385,14 @@ export class MobileGatewayInstanceRoutes {
   private async dispatchSend(
     instanceId: string,
     message: string,
-    attachments?: FileAttachment[],
+    attachments: FileAttachment[] | undefined,
+    typedAt: number,
   ): Promise<void> {
     this.sendInFlight.add(instanceId);
     try {
       revealHiddenAutomationSession(this.source(), instanceId); // operator took it over
-      await this.source().sendInput(instanceId, message, attachments);
+      // The phone's send box is a person typing; steering (handleSteer) is deliberately not marked.
+      await this.source().sendInput(instanceId, message, attachments, { origin: { kind: 'person', typedAt } });
     } finally {
       this.sendInFlight.delete(instanceId);
     }

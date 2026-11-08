@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-04-pq-b1-land-anyway_plan.md",
+      "sha256": "7fd5d8f3f77adac772b212c6e3fd5f787e670075007e6460fd51a9dfab3c84b4",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-04-pq-b1-land-anyway_history.md",
+      "sha256": "32bee15413cebdfbdd2b002489eb996073e64a2bbe0cb460dcdc52063a57870e",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-04-pq-b1-land-anyway_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-04-pq-b1-land-anyway_plan_completed.md",
+      "sha256": "86b927114d8f5718598a8f24e8c7bf82376917df2b1c9e053f6e4e3ac00a8158"
+    },
+    {
+      "relativePath": "2026-11-04-pq-b1-land-anyway_plan_history_7c2b8b65a518d3417ebeb4043e43e717426d775274e866955e7e4b8c24cd1e06_completed.md",
+      "sha256": "dd93d0e2bddcf9db244d11d5936b77922c9afa81f2789643ae682598850a4ffb"
+    }
+  ]
+}

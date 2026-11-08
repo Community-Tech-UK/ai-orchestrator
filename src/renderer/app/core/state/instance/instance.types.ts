@@ -27,7 +27,7 @@ import type {
   ThinkingContent,
   CrossSessionMessageMetadata,
 } from '../../../../../shared/types/instance.types';
-import type { InternalInputMetadata } from '../../../../../shared/types/input-provenance.types';
+import type { InternalInputMetadata, PersonInputOrigin } from '../../../../../shared/types/input-provenance.types';
 import type { ExecutionLocation } from '../../../../../shared/types/worker-node.types';
 import type { ComputerUseAutonomyLevel } from '../../../../../shared/types/desktop-gateway-settings.types';
 
@@ -274,6 +274,12 @@ export interface QueuedMessage {
   kind?: 'queue' | 'steer';
   hadAttachmentsDropped?: boolean;
   seededAlready?: boolean;
+  /**
+   * Set when a person typed or spoke this themselves, so the mark survives the wait in the queue.
+   * Never on a steer or on text built from an agent's words. Not saved with the durable queue row,
+   * so a message restored after a restart counts as not typed by a person.
+   */
+  origin?: PersonInputOrigin;
   /** True while this entry's durable send-queue row is unconfirmed or failed to persist (WS-A1 review Finding 1). */
   notDurable?: boolean;
   /**

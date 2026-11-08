@@ -17,6 +17,7 @@ import { _resetReclaimHoldsForTesting } from '../process/reclaim-holds';
 import { GitWriteQueue } from '../workspace/git/git-write-queue';
 import { WorktreeCapacityError, WorktreeManager } from '../workspace/git/worktree-manager';
 import { buildOrchestratorToolsMcpConfig } from '../mcp/orchestrator-tools-mcp-config';
+import { InputTurnRegistry } from '../instance/input-turn-registry';
 import { PlanQueueCoordinator } from './plan-queue-coordinator';
 import { PlanQueueItemFlow } from './plan-queue-item-flow';
 import type { PlanQueueInstanceRecord } from './plan-queue-host';
@@ -99,6 +100,7 @@ let driver: SqliteDriver;
 let store: PlanQueueStore;
 let fake: FakeInstances;
 let coordinator: PlanQueueCoordinator;
+let personTurns: InputTurnRegistry;
 /** James's saved Plan Queue routing and account pool, as the coordinator reads them. */
 let savedRouting: PlanQueueRouting;
 /** James's saved checklist per folder, as the coordinator reads it. */
@@ -353,6 +355,7 @@ beforeEach(() => {
   _setReportRequiredProvidersForTesting();
   excludedProviders = [];
   archivedEntries = [];
+  personTurns = new InputTurnRegistry();
   fake = new FakeInstances();
   fake.scripts.triage = triageAllReady;
   fake.scripts.worker = implement;
@@ -391,6 +394,7 @@ function startCoordinator(
     // Never this temporary repository's own first commit unless a test says it is this repository.
     thisRepositoryRootCommit: extras.thisRepositoryRootCommit ?? 'not-a-real-commit',
     loadAverage: () => [0, 0, 0],
+    personTurns,
     relaxation,
     pumpIntervalMs: null,
     findRestoredSession: (instanceId) => findRestoredSessionId(instanceId, archivedEntries, instances.getAllInstances()),
@@ -2227,7 +2231,7 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
 
     const landed = coordinator.getRunDto(runId)!.items[0];
     expect(landed.state).toBe('landed');
-    expect(landed.detail).toContain(`Landed by the Set aside agent (session ${agent.id}) without a verifier PASS`);
+    expect(landed.detail).toContain(`Landed without a verifier PASS by the Set aside agent (session ${agent.id})`);
     expect(git(['log', '-1', '--format=%s', 'main'])).toBe('Plan: 2026-01-01-alpha_plan');
   });
 
@@ -2441,6 +2445,129 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     expect(git(['log', '-1', '--format=%s', 'main'])).toBe('Plan: 2026-01-01-alpha_plan');
     expect(existsSync(join(repo, 'docs/plans/2026-01-01-alpha_plan.md'))).toBe(true);
     expect(git(['for-each-ref', '--format=%(refname:short)', 'refs/heads/queue/'])).toBe('');
+  });
+
+  describe('Land anyway from the session that started the run', () => {
+    /** The park time comes from the queue's event record; a person's message is typed relative to it. */
+    const parkedAt = (itemId: string): number => store.history.lastParkedAt(itemId)!;
+    /** A person's message in the parent session that has started its turn. */
+    function personMessage(parentId: string, typedAt: number, messageId = 'msg-1'): void {
+      personTurns.setReportsTurnStarts(parentId, true);
+      personTurns.noteInput(parentId, { messageId, personTypedAt: typedAt });
+      personTurns.noteTurnStarted(parentId, 'harness-send');
+    }
+    async function expectStillParked(runId: string, itemId: string, branch: string): Promise<void> {
+      await coordinator._whenSettledForTesting();
+      expect(coordinator.getRunDto(runId)!.items[0].state).toBe('parked');
+      expect(store.getItem(itemId)!.state).toBe('parked');
+      expect(git(['branch', '--list', branch])).not.toBe('');
+    }
+
+    it('lands in the turn a person\'s message started after the item parked, names the actor and keeps a reference, not the text', async () => {
+      const { runId, itemId, parentId } = await parkedAtRoundLimit();
+      personMessage(parentId, parkedAt(itemId) + 60_000);
+
+      await coordinator.control({ action: 'land-anyway', itemId }, parentId);
+      await coordinator._whenSettledForTesting();
+
+      const item = coordinator.getRunDto(runId)!.items[0];
+      expect(item.state).toBe('landed');
+      expect(item.detail).toMatch(/^Landed without a verifier PASS by the session that started the run, after James's message at \d\d:\d\d; the document was left open\./);
+      expect(item.detail).not.toContain('by James');
+      const note = store.history.listEvents(itemId).find((event) => event.reason === 'land-anyway-authorised')!;
+      expect(JSON.parse(note.detailHead!)).toEqual({ actor: 'session', instanceId: parentId, messageId: 'msg-1', typedAt: parkedAt(itemId) + 60_000 });
+      expect(existsSync(join(repo, 'docs/plans/2026-01-01-alpha_plan.md'))).toBe(true);
+    });
+
+    it('the Plan Queue page still lands, with no message needed, and says so', async () => {
+      const { runId, itemId } = await parkedAtRoundLimit();
+
+      await coordinator.control({ action: 'land-anyway', itemId });
+      await coordinator._whenSettledForTesting();
+
+      expect(coordinator.getRunDto(runId)!.items[0].detail).toMatch(/^Landed without a verifier PASS from the Plan Queue page; the document was left open\./);
+      expect(JSON.parse(store.history.listEvents(itemId).find((event) => event.reason === 'land-anyway-authorised')!.detailHead!)).toEqual({ actor: 'page' });
+    });
+
+    it.each([
+      ['the latest input after the message was an automation prompt, another agent\'s message, a queue notice or a steer',
+        (parentId: string) => personTurns.noteInput(parentId, { messageId: 'notice', personTypedAt: null }), /wasn't a message James typed or spoke/],
+      ['a turn started by itself after the message (Claude CLI background job, Codex goal turn)',
+        (parentId: string) => personTurns.noteTurnStarted(parentId, 'provider'), /Another turn has started since/],
+      ['the provider cannot report turn starts',
+        (parentId: string) => personTurns.setReportsTurnStarts(parentId, false), /can't report when a turn starts/],
+    ])('refuses when %s', async (_label, interfere, reason) => {
+      const { runId, itemId, branch, parentId } = await parkedAtRoundLimit();
+      personMessage(parentId, parkedAt(itemId) + 60_000);
+      interfere(parentId);
+
+      await expect(coordinator.control({ action: 'land-anyway', itemId }, parentId)).rejects.toThrow(reason);
+
+      await expectStillParked(runId, itemId, branch);
+      expect(store.history.listEvents(itemId).some((event) => event.reason === 'land-anyway-authorised')).toBe(false);
+    });
+
+    it('refuses a message from before the item parked', async () => {
+      const { runId, itemId, branch, parentId } = await parkedAtRoundLimit();
+      personMessage(parentId, parkedAt(itemId) - 60_000);
+
+      await expect(coordinator.control({ action: 'land-anyway', itemId }, parentId)).rejects.toThrow(/before this item parked/);
+
+      await expectStillParked(runId, itemId, branch);
+    });
+
+    it('refuses a parent with no message at all, which is also how it stands after a restart', async () => {
+      const { runId, itemId, branch, parentId } = await parkedAtRoundLimit();
+      personTurns.setReportsTurnStarts(parentId, true);
+
+      await expect(coordinator.control({ action: 'land-anyway', itemId }, parentId)).rejects.toThrow(/no message from James in this session/);
+
+      await expectStillParked(runId, itemId, branch);
+    });
+
+    it('refuses a queue session, even when a person\'s message is on record for it', async () => {
+      const { runId, itemId, branch, parentId } = await parkedAtRoundLimit();
+      personMessage(parentId, parkedAt(itemId) + 60_000);
+      const worker = fake.addParent();
+      worker.metadata = { planQueueRole: 'worker' };
+      personMessage(worker.id, parkedAt(itemId) + 60_000);
+
+      await expect(coordinator.control({ action: 'land-anyway', itemId }, worker.id)).rejects.toThrow(/queue worker or checker can't land work/);
+
+      await expectStillParked(runId, itemId, branch);
+    });
+
+    it('refuses the stranded-run rescuer, which has its own person message on record', async () => {
+      const { runId, itemId, branch, parentId } = await parkedAtRoundLimit();
+      const rescuer = fake.addParent();
+      personMessage(rescuer.id, parkedAt(itemId) + 60_000);
+      fake.live.delete(parentId);
+
+      await expect(coordinator.control({ action: 'land-anyway', itemId }, rescuer.id)).rejects.toThrow(/isn't a rescue action/);
+
+      await expectStillParked(runId, itemId, branch);
+    });
+
+    it('refuses another session while the parent is alive', async () => {
+      const { runId, itemId, branch, parentId } = await parkedAtRoundLimit();
+      const other = fake.addParent();
+      personMessage(other.id, parkedAt(itemId) + 60_000);
+
+      await expect(coordinator.control({ action: 'land-anyway', itemId }, other.id)).rejects.toThrow(/Only the session that started this Plan Queue run/);
+
+      await expectStillParked(runId, itemId, branch);
+      expect(parentId).not.toBe(other.id);
+    });
+
+    it('a message that was typed before the park but sent after it does not count, because the typed time is what is checked', async () => {
+      const { runId, itemId, branch, parentId } = await parkedAtRoundLimit();
+      // Sent after the park (the registry records it now) but typed before it, while the session was busy.
+      personMessage(parentId, parkedAt(itemId) - 1);
+
+      await expect(coordinator.control({ action: 'land-anyway', itemId }, parentId)).rejects.toThrow(/before this item parked/);
+
+      await expectStillParked(runId, itemId, branch);
+    });
   });
 
   it('Discard deletes only the parked branch, and only on request', async () => {

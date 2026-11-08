@@ -125,7 +125,7 @@ export interface MobileInputQueueDeps {
    */
   isPaused(instanceId: string): boolean;
   /** Actual delivery. Rejects exactly like `InstanceManager.sendInput`. */
-  deliver(instanceId: string, message: string, attachments?: FileAttachment[]): Promise<void>;
+  deliver(instanceId: string, message: string, attachments: FileAttachment[] | undefined, typedAt: number): Promise<void>;
   /** Called whenever the queue contents changed, so the snapshot can be re-broadcast. */
   onChange(instanceId: string): void;
   logger: {
@@ -286,7 +286,7 @@ export class MobileInputQueue {
     // the provider promise is outstanding, including during synchronous callbacks.
     this.delivering.add(head);
     try {
-      await this.deps.deliver(instanceId, head.message, head.attachments);
+      await this.deps.deliver(instanceId, head.message, head.attachments, head.enqueuedAt);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       if (head.attempts >= MAX_DELIVERY_ATTEMPTS) {

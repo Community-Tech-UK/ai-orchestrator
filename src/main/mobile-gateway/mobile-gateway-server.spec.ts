@@ -25,6 +25,7 @@ import { _resetIdempotencyStoreForTesting } from '../transport/idempotency-store
 import { MAX_QUEUED_PER_INSTANCE } from './mobile-input-queue';
 import type { FileAttachment, Instance, InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { LoopState } from '../../shared/types/loop.types';
+import type { PersonInputOrigin } from '../../shared/types/input-provenance.types';
 import type { MobileMessageDto, MobileMessagesResumeDto, MobilePauseDto } from '../../shared/types/mobile-gateway.types';
 import { AdapterOnLoanError } from '../instance/lifecycle/adapter-loan-registry';
 
@@ -51,7 +52,7 @@ class FakeInstanceSource extends EventEmitter implements GatewayInstanceSource {
   })();
 
   sendInput = vi.fn<
-    (instanceId: string, message: string, attachments?: FileAttachment[]) => Promise<void>
+    (instanceId: string, message: string, attachments?: FileAttachment[], options?: { origin?: PersonInputOrigin }) => Promise<void>
   >(async () => undefined);
   steerInput = vi.fn(async () => undefined);
   interruptInstance = vi.fn(() => true);
@@ -1050,7 +1051,7 @@ describe('MobileGatewayServer', () => {
     source.instances[0].status = 'idle';
     source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
     await vi.waitFor(() => expect(source.sendInput).toHaveBeenCalledTimes(1));
-    expect(source.sendInput).toHaveBeenNthCalledWith(1, 'a', 'queued-first', undefined);
+    expect(source.sendInput).toHaveBeenNthCalledWith(1, 'a', 'queued-first', undefined, { origin: { kind: 'person', typedAt: expect.any(Number) } });
 
     // A fresh direct send arrives while the drain above is still in flight.
     const directRes = await authed(token, '/api/instances/a/input', {
@@ -1075,7 +1076,7 @@ describe('MobileGatewayServer', () => {
     source.emit('instance:state-update', { instanceId: 'a', status: 'busy' });
     source.emit('instance:state-update', { instanceId: 'a', status: 'idle' });
     await vi.waitFor(() => expect(source.sendInput).toHaveBeenCalledTimes(2));
-    expect(source.sendInput).toHaveBeenNthCalledWith(2, 'a', 'direct-second', undefined);
+    expect(source.sendInput).toHaveBeenNthCalledWith(2, 'a', 'direct-second', undefined, { origin: { kind: 'person', typedAt: expect.any(Number) } });
   });
 
   it('routes input to sendInput when the session is ready', async () => {
@@ -1087,7 +1088,7 @@ describe('MobileGatewayServer', () => {
     });
     expect(res.status).toBe(200);
     expect((await res.json()).queued).toBeUndefined();
-    expect(source.sendInput).toHaveBeenCalledWith('a', 'do the thing', undefined);
+    expect(source.sendInput).toHaveBeenCalledWith('a', 'do the thing', undefined, { origin: { kind: 'person', typedAt: expect.any(Number) } });
   });
 
   // ---- queue-while-busy (mobile parity with the desktop composer queue) ----

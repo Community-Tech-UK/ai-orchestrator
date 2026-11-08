@@ -191,6 +191,8 @@ describe('InstanceReviewPanelComponent (WS-C4 findings dispatch)', () => {
 
     expect(sendInput).toHaveBeenCalledTimes(1);
     const [instanceId, packet] = sendInput.mock.calls[0];
+    // A packet built from reviewers' findings is not James's own words: it is sent with no person mark.
+    expect(sendInput.mock.calls[0]).toHaveLength(2);
     expect(instanceId).toBe('inst-1');
     expect(packet).toContain('Fix requests (2)');
     expect(packet).toContain('<FIX_REQUEST file="src/a.ts" line="10" severity="high">');

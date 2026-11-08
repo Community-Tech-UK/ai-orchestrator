@@ -190,7 +190,7 @@ describe('verified retry landing', () => {
         removeWithProof: async () => { git(['worktree', 'remove', '-f', join(repo, 'wt')]); test.save({ ...test.get(), worktreePath: null }); return { removed: true }; },
         deleteBranchWithProof: async () => { git(['branch', '-D', 'queue/item-1']); },
       });
-      await test.flow.landAnyway('item-1'); await test.flow.whenSettled();
+      await test.flow.landAnyway('item-1', { by: 'from the Plan Queue page', reference: { actor: 'page' } }); await test.flow.whenSettled();
       expect(test.get().state).toBe('landed');
       expect(git(['rev-parse', 'main'])).not.toBe(base);
     });

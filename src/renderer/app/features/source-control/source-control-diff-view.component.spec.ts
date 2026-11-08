@@ -220,6 +220,8 @@ describe('SourceControlDiffViewComponent (WS-C4 diff review comments)', () => {
     fixture.detectChanges();
 
     expect(sendInput).toHaveBeenCalledTimes(1);
+    // A packet built from review comments is not James's own words: it is sent with no person mark.
+    expect(sendInput.mock.calls[0]).toHaveLength(2);
     const [instanceId, packet] = sendInput.mock.calls[0];
     expect(instanceId).toBe('inst-1');
     expect(packet).toContain('<REVIEW_COMMENT path="src/x.ts" side="new" lines="1">');

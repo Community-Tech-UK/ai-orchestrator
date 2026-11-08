@@ -875,6 +875,7 @@ import { getInstanceProviderLimitHandler } from '../instance-provider-limit-hand
 import { getAccountFailoverCoordinator, type AccountFailoverDeps } from '../../providers/account-pool/account-failover-coordinator';
 import { buildReplayContinuityMessage } from '../../session/replay-continuity';
 import { buildFallbackHistoryMessage } from '../../session/fallback-history';
+import { getInputTurnRegistry, InputTurnRegistry } from '../input-turn-registry';
 import { WorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import { SessionAdmissionStore } from '../../session/session-admission-store';
 import { _resetSessionAdmissionServiceForTesting } from '../../session/session-admission-service';
@@ -1263,6 +1264,144 @@ describe('InstanceManager', () => {
       expect(changeMode).not.toHaveBeenCalled();
       expect(handler.getPendingUserActionsForInstance(instance.id)).toEqual([]);
       expect(store.listQueued(instance.id)).toEqual([]);
+    });
+  });
+
+
+  describe('who typed a message, and which turn it started (Plan Queue "Land anyway")', () => {
+    /** An adapter that reports turn starts, as the Claude CLI and the Codex app-server adapters do. */
+    async function reportingInstance(): Promise<{ id: string; instance: Awaited<ReturnType<InstanceManager['createInstance']>>; adapter: EventEmitter }> {
+      InputTurnRegistry._resetForTesting();
+      mockCreateCliAdapter.mockImplementation(() => Object.assign(makeMockAdapter(), {
+        getAdapterCapabilities: () => ({ residentSession: true, liveInterrupt: true, liveSteer: true, reportsTurnStarts: true }),
+      }));
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await instance.readyPromise;
+      const adapter = mockCreateCliAdapter.mock.results.at(-1)!.value as EventEmitter;
+      return { id: instance.id, instance, adapter };
+    }
+    const userMessages = (instance: { outputBuffer: { type: string; metadata?: Record<string, unknown> }[] }) =>
+      instance.outputBuffer.filter((message) => message.type === 'user');
+    const person = (typedAt = Date.now()) => ({ origin: { kind: 'person' as const, typedAt } });
+    const harnessSend = { source: 'harness-send' };
+    const providerStart = { source: 'provider' };
+
+    it('stores the person origin on the user message and accepts the turn it started', async () => {
+      const { id, instance, adapter } = await reportingInstance();
+      const typedAt = Date.now() - 5_000;
+
+      await manager.sendInput(id, 'land it anyway', undefined, person(typedAt));
+      adapter.emit('turn_started', harnessSend);
+
+      expect(userMessages(instance).at(-1)?.metadata?.['inputOrigin']).toEqual({ kind: 'person', typedAt });
+      expect(getInputTurnRegistry().checkPersonTurn(id)).toMatchObject({ ok: true, typedAt });
+    });
+
+    it('keeps the mark on a message that waited in the queue and was drained as automated input', async () => {
+      const { id, instance, adapter } = await reportingInstance();
+      await manager.sendInput(id, 'typed while busy', undefined, { automatedInput: true, ...person() });
+      adapter.emit('turn_started', harnessSend);
+      expect(userMessages(instance).at(-1)?.metadata?.['inputOrigin']).toMatchObject({ kind: 'person' });
+      expect(getInputTurnRegistry().checkPersonTurn(id).ok).toBe(true);
+    });
+
+    it.each([
+      ['an automation prompt', { automatedInput: true }],
+      ['another agent\'s message', { crossSessionSourceId: 'other-agent' }],
+      ['a Harness queue notice', { internalSource: 'plan-queue' as const }],
+      ['a review packet or question-card answer (sent with no origin)', {}],
+    ])('refuses once %s arrives after the person\'s message', async (_label, options) => {
+      const { id, adapter } = await reportingInstance();
+      await manager.sendInput(id, 'land it anyway', undefined, person());
+      adapter.emit('turn_started', harnessSend);
+      expect(getInputTurnRegistry().checkPersonTurn(id).ok).toBe(true);
+
+      await manager.sendInput(id, 'something else', undefined, options);
+      adapter.emit('turn_started', harnessSend);
+
+      expect(getInputTurnRegistry().checkPersonTurn(id)).toEqual({ ok: false, reason: 'latest-input-not-person' });
+    });
+
+    it('does not mark a steered message, because steering sends no origin', async () => {
+      const { id, instance, adapter } = await reportingInstance();
+      await manager.sendInput(id, 'land it anyway', undefined, person());
+      adapter.emit('turn_started', harnessSend);
+
+      await manager.steerInput(id, 'actually do it differently');
+      adapter.emit('turn_started', harnessSend);
+
+      expect(userMessages(instance).at(-1)?.metadata?.['inputOrigin']).toBeUndefined();
+      expect(getInputTurnRegistry().checkPersonTurn(id)).toEqual({ ok: false, reason: 'latest-input-not-person' });
+    });
+
+    it.each([
+      ['Harness-written text', { internalSource: 'plan-queue' as const }],
+      ['a cross-session message', { crossSessionSourceId: 'other-agent' }],
+      ['an automatic continuation', { autoContinuation: true }],
+    ])('ignores a person origin sent with %s', async (_label, options) => {
+      const { id, instance, adapter } = await reportingInstance();
+      await manager.sendInput(id, 'not James', undefined, { ...options, ...person() });
+      adapter.emit('turn_started', harnessSend);
+      const message = instance.outputBuffer.at(-1);
+      expect(message?.metadata?.['inputOrigin']).toBeUndefined();
+      expect(getInputTurnRegistry().checkPersonTurn(id)).toEqual({ ok: false, reason: 'latest-input-not-person' });
+    });
+
+    it('refuses once a turn starts by itself after the message (background job ended, goal turn)', async () => {
+      const { id, adapter } = await reportingInstance();
+      await manager.sendInput(id, 'land it anyway', undefined, person());
+      adapter.emit('turn_started', harnessSend);
+      adapter.emit('turn_started', providerStart);
+      expect(getInputTurnRegistry().checkPersonTurn(id)).toEqual({ ok: false, reason: 'another-turn-started' });
+
+      // The same, with the provider's own turn first: it is never taken for the message's turn.
+      await manager.sendInput(id, 'land it anyway again', undefined, person());
+      adapter.emit('turn_started', providerStart);
+      adapter.emit('turn_started', harnessSend);
+      expect(getInputTurnRegistry().checkPersonTurn(id)).toEqual({ ok: false, reason: 'turn-not-started' });
+    });
+
+    it('refuses a provider whose adapter cannot report turn starts', async () => {
+      InputTurnRegistry._resetForTesting();
+      const instance = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR });
+      await instance.readyPromise;
+      await manager.sendInput(instance.id, 'land it anyway', undefined, person());
+      expect(getInputTurnRegistry().checkPersonTurn(instance.id)).toEqual({ ok: false, reason: 'provider-cannot-report' });
+    });
+
+    it('does not count a message whose send failed', async () => {
+      const { id, adapter } = await reportingInstance();
+      mockAdapterSendInput.mockRejectedValueOnce(new Error('provider refused'));
+      await expect(manager.sendInput(id, 'land it anyway', undefined, person())).rejects.toThrow('provider refused');
+      adapter.emit('turn_started', harnessSend);
+      expect(getInputTurnRegistry().checkPersonTurn(id)).toEqual({ ok: false, reason: 'turn-not-started' });
+    });
+
+    it('never records a time in the future for a message', async () => {
+      const { id, instance, adapter } = await reportingInstance();
+      await manager.sendInput(id, 'land it anyway', undefined, person(Date.now() + 3_600_000));
+      adapter.emit('turn_started', harnessSend);
+      const stored = userMessages(instance).at(-1)?.metadata?.['inputOrigin'] as { typedAt: number };
+      expect(stored.typedAt).toBeLessThanOrEqual(Date.now());
+    });
+
+    it('after a restart the stored message keeps its origin but the new registry refuses until a new message', async () => {
+      const { id, instance, adapter } = await reportingInstance();
+      await manager.sendInput(id, 'land it anyway', undefined, person());
+      adapter.emit('turn_started', harnessSend);
+
+      InputTurnRegistry._resetForTesting(); // the app restarted: nothing is remembered
+      expect(userMessages(instance).at(-1)?.metadata?.['inputOrigin']).toMatchObject({ kind: 'person' });
+      expect(getInputTurnRegistry().checkPersonTurn(id).ok).toBe(false);
+    });
+
+    it('forgets a session when it is removed', async () => {
+      const { id, adapter } = await reportingInstance();
+      await manager.sendInput(id, 'land it anyway', undefined, person());
+      adapter.emit('turn_started', harnessSend);
+      await manager.terminateInstance(id, false);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(getInputTurnRegistry().checkPersonTurn(id).ok).toBe(false);
     });
   });
 

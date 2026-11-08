@@ -88,6 +88,13 @@ describe('Mobile steering HTTP boundary', () => {
       expect(queueInstanceUpdate).toHaveBeenCalledWith('a', {});
     },
   );
+  it('marks a normal Send from the phone as typed by a person, and never marks a steer', async () => {
+    source.getInstance('a')!.status = 'idle';
+    expect((await post('input', { message: 'land it anyway' })).status).toBe(200);
+    expect(source.sendInput).toHaveBeenCalledExactlyOnceWith('a', 'land it anyway', undefined, { origin: { kind: 'person', typedAt: expect.any(Number) } });
+    expect((await post('steer', { message: 'change course' })).status).toBe(200);
+    expect(source.steerInput).toHaveBeenLastCalledWith('a', 'change course', undefined);
+  });
   it('keeps normal Send queued during an active turn', async () => {
     expect(await (await post('input', { message: 'later' })).json()).toMatchObject({ ok: true, queued: true });
     expect(source.steerInput).not.toHaveBeenCalled();

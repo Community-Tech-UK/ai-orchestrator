@@ -37,4 +37,12 @@ describe('InputFormatter native delivery', () => {
     expect(admission).toHaveBeenCalledOnce(); expect(write).toHaveBeenCalledOnce();
     expect(JSON.parse(write.mock.calls[0]![0]).message.content).toBe('synthetic continuation');
   });
+  it('puts the uuid it is given on the message, and none when it is given none', async () => {
+    const write = vi.fn((_data: string, _encoding: string, callback: (error?: Error) => void) => { callback(); return true; });
+    const { input } = formatter(write);
+    await input.sendMessage('with an id', undefined, undefined, '11111111-1111-4111-8111-111111111111');
+    await input.sendMessage('without an id');
+    expect(JSON.parse(write.mock.calls[0]![0]).uuid).toBe('11111111-1111-4111-8111-111111111111');
+    expect(JSON.parse(write.mock.calls[1]![0])).not.toHaveProperty('uuid');
+  });
 });

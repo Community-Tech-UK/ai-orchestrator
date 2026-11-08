@@ -175,3 +175,127 @@ describe('ClaudeCliAdapter async-work events', () => {
     ]);
   });
 });
+
+describe('ClaudeCliAdapter turn starts', () => {
+  /** Stands in for the CLI: records the uuid on each message written, and replays the lifecycle lines the real CLI printed. */
+  function turnStartHarness(sendMessage: () => Promise<void> = async () => undefined) {
+    const adapter = new ClaudeCliAdapter();
+    const uuids: string[] = [];
+    (adapter as unknown as { formatter: unknown }).formatter = {
+      isWritable: () => true,
+      sendMessage: vi.fn(async (_message: string, _attachments: unknown, _dispatch: unknown, uuid?: string) => {
+        if (uuid) uuids.push(uuid);
+        await sendMessage();
+      }),
+      sendRaw: vi.fn(async () => undefined),
+    };
+    const sources: string[] = [];
+    (adapter as unknown as { on: (event: string, listener: (event: { source: string }) => void) => void })
+      .on('turn_started', event => sources.push(event.source));
+    const feed = (adapter as unknown as { processCliMessage: (message: unknown) => void }).processCliMessage.bind(adapter);
+    const lifecycle = (uuid: string, state: string): void => feed({ type: 'command_lifecycle', command_uuid: uuid, state });
+    const init = (): void => feed({ type: 'system', subtype: 'init', session_id: 'session-1' });
+    return { adapter, uuids, sources, feed, lifecycle, init };
+  }
+
+  it('reports every turn start, including one the CLI begins by itself after background work ends', async () => {
+    const { adapter, uuids, sources, feed, lifecycle, init } = turnStartHarness();
+
+    await adapter.sendInput('do the work');
+    lifecycle(uuids[0], 'queued');
+    lifecycle(uuids[0], 'started');
+    init();
+    feed({ type: 'assistant', message: { content: [{ type: 'text', text: 'working' }] } });
+    expect(sources).toEqual(['harness-send']);
+    feed({ type: 'result', subtype: 'success', result: 'done' });
+    lifecycle(uuids[0], 'completed');
+
+    // Background job ends between turns: the CLI starts a turn of its own, with an init and no lifecycle lines.
+    feed({ type: 'system', subtype: 'task_notification', task_id: 'bg-1', status: 'completed' });
+    init();
+    expect(sources).toEqual(['harness-send', 'provider']);
+  });
+
+  it('puts a uuid of its own on every message it writes', async () => {
+    const { adapter, uuids } = turnStartHarness();
+    await adapter.sendInput('one');
+    await adapter.sendInput('two');
+    expect(uuids).toHaveLength(2);
+    expect(new Set(uuids).size).toBe(2);
+    expect(uuids.every(uuid => /^[0-9a-f-]{36}$/.test(uuid))).toBe(true);
+  });
+
+  it('calls an init with no started message of ours before it a provider turn', async () => {
+    const { adapter, uuids, sources, lifecycle, init } = turnStartHarness();
+    init(); // the CLI's own turn
+    feed_result(adapter);
+    await adapter.sendInput('typed after the background turn ended');
+    lifecycle(uuids[0], 'started');
+    init();
+    init(); // a second init with nothing started before it
+    expect(sources).toEqual(['provider', 'harness-send', 'provider']);
+  });
+
+  it('does not take a provider turn that begins after the write for the message\'s own turn', async () => {
+    const { adapter, uuids, sources, lifecycle, init } = turnStartHarness();
+    await adapter.sendInput('typed just before the CLI began a turn of its own');
+    lifecycle(uuids[0], 'queued');
+    init(); // the provider's turn got there first: no lifecycle line for our message precedes it
+    feed_result(adapter);
+    lifecycle(uuids[0], 'started'); // our message's own turn comes next
+    init();
+    expect(sources).toEqual(['provider', 'harness-send']);
+  });
+
+  it('reports finished background work as a provider turn, whether the CLI starts a turn for it or folds it into the running one', async () => {
+    const { adapter, uuids, sources, feed, lifecycle, init } = turnStartHarness();
+    await adapter.sendInput('message');
+    feed({ type: 'user', message: { content: [{ type: 'text', text: '<task-notification><task-id>bg-1</task-id><tool-use-id>toolu-shell</tool-use-id><status>completed</status></task-notification>' }] } });
+    lifecycle(uuids[0], 'started');
+    init();
+    expect(sources).toEqual(['provider', 'harness-send']);
+  });
+
+  it('ignores lifecycle lines for a uuid Harness did not write', async () => {
+    const { sources, lifecycle, init } = turnStartHarness();
+    lifecycle('11111111-1111-4111-8111-111111111111', 'started');
+    init();
+    expect(sources).toEqual(['provider']);
+  });
+
+  it('does not let a started message that never got its own init label the next provider init', async () => {
+    const { adapter, uuids, sources, lifecycle, init } = turnStartHarness();
+    init(); // a turn the CLI began itself
+    await adapter.sendInput('folded into the running turn');
+    lifecycle(uuids[0], 'started'); // started, but no init of its own
+    feed_result(adapter);
+    init();
+    expect(sources).toEqual(['provider', 'provider']);
+  });
+
+  it('does not let a message whose write failed turn a later init into a harness send', async () => {
+    const { adapter, uuids, sources, lifecycle, init } = turnStartHarness(async () => { throw new Error('stdin closed'); });
+    await expect(adapter.sendInput('lost')).rejects.toThrow('stdin closed');
+    lifecycle(uuids[0], 'started');
+    init();
+    expect(sources).toEqual(['provider']);
+  });
+
+  it('does not report command lifecycle lines or other system messages as a turn start', () => {
+    const { sources, feed, lifecycle } = turnStartHarness();
+    lifecycle('11111111-1111-4111-8111-111111111111', 'queued');
+    lifecycle('11111111-1111-4111-8111-111111111111', 'completed');
+    feed({ type: 'system', subtype: 'task_progress', task_id: 'bg-1' });
+    feed({ type: 'system', subtype: 'background_tasks_changed', tasks: [] });
+    expect(sources).toEqual([]);
+  });
+
+  it('says it reports turn starts, so Land anyway from a Claude session can be considered', () => {
+    expect(new ClaudeCliAdapter().getAdapterCapabilities().reportsTurnStarts).toBe(true);
+  });
+});
+
+function feed_result(adapter: ClaudeCliAdapter): void {
+  (adapter as unknown as { processCliMessage: (message: unknown) => void })
+    .processCliMessage({ type: 'result', subtype: 'success', result: 'done' });
+}

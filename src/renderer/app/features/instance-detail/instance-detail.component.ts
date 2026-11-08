@@ -703,7 +703,7 @@ export class InstanceDetailComponent {
       if (!review) return;
 
       const message = buildSecondOpinionFollowUp(review);
-      if (message) this.onSendMessage(message);
+      if (message) this.sendFromApp(message);
     }
 
     // Always dismiss the review panel after any action
@@ -711,7 +711,8 @@ export class InstanceDetailComponent {
     this.crossModelReviewService.dismiss({ reviewId: event.reviewId, instanceId: event.instanceId });
   }
 
-  onSendMessage(message: string): void {
+  /** Text the app built from reviewers' findings. It is not James's words, so it is never marked as typed by a person, even though he clicked to send it. */
+  private sendFromApp(message: string): void {
     const inst = this.instance();
     if (!inst) return;
 
@@ -723,7 +724,10 @@ export class InstanceDetailComponent {
     this.draftService.clearPendingFolders(inst.id);
   }
 
-  /** Only a human composer send uses the optional cold-return summary. */
+  /**
+   * The message box (typed or spoken), the only send that is James's own words, so it is marked as typed by a
+   * person. It also uses the optional cold-return summary.
+   */
   onComposerSend(message: string): void {
     const inst = this.instance();
     if (!inst) return;
@@ -731,7 +735,7 @@ export class InstanceDetailComponent {
     const folders = [...this.pendingFolders()];
     const finalMessage = this.fileAttachment.prependPendingFolders(message, folders);
     void this.coldCache.compactThenSend(inst.id, message, () => {
-      void this.store.sendInput(inst.id, finalMessage, files);
+      void this.store.sendInput(inst.id, finalMessage, files, { typedByPerson: true });
       for (const file of files) this.draftService.removePendingFile(inst.id, file);
       for (const folder of folders) this.draftService.removePendingFolder(inst.id, folder);
     }, text => {
@@ -773,7 +777,7 @@ export class InstanceDetailComponent {
       }
       this.draftService.clearPendingFiles(instanceId);
       this.draftService.clearPendingFolders(instanceId);
-      this.store.sendInput(instanceId, finalMessage, files);
+      this.store.sendInput(instanceId, finalMessage, files, { typedByPerson: true });
       this.selectRestoredHistoryPreview(preview.id, instanceId);
     } finally {
       if (pendingSendId) {

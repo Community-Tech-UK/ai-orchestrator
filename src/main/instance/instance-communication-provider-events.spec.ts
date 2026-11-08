@@ -181,3 +181,18 @@ describe('self wakeup provider-event wiring', () => {
     } finally { SelfWakeupTracker._resetForTesting(); }
   });
 });
+
+describe('turn start provider-event wiring', () => {
+  it('passes on who started the turn, treats an unlabelled start as the provider\'s, and ignores a stale adapter', () => {
+    const adapter = new EventEmitter() as CliAdapter;
+    let stale = false;
+    const observeTurnStarted = vi.fn();
+    bindRawAdapterProviderEvents({ adapter, isStale: () => stale, emit: vi.fn(), observeTurnStarted });
+    adapter.emit('turn_started', { source: 'harness-send' });
+    adapter.emit('turn_started', { source: 'provider' });
+    adapter.emit('turn_started');
+    stale = true;
+    adapter.emit('turn_started', { source: 'harness-send' });
+    expect(observeTurnStarted.mock.calls).toEqual([['harness-send'], ['provider'], ['provider']]);
+  });
+});

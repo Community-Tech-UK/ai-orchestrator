@@ -823,6 +823,23 @@ describe('instance-handlers', () => {
       expect(mockInstanceManager.sendInput).toHaveBeenCalledWith('inst-7', '', attachments, { isRetry: undefined });
     });
 
+    it('passes a person origin through to sendInput, and rejects one that claims to be anything else', async () => {
+      vi.mocked(mockInstanceManager.sendInput).mockResolvedValue(undefined);
+      const origin = { kind: 'person', typedAt: 1_700_000_000_000 };
+
+      const sent = await invoke(IPC_CHANNELS.INSTANCE_SEND_INPUT, { instanceId: 'inst-7', message: 'land it anyway', origin });
+      expect(sent.success).toBe(true);
+      expect(mockInstanceManager.sendInput).toHaveBeenCalledWith('inst-7', 'land it anyway', undefined,
+        expect.objectContaining({ origin }));
+
+      for (const bad of [{ kind: 'harness', typedAt: 1 }, { kind: 'person' }, { kind: 'person', typedAt: 1, extra: true }]) {
+        vi.mocked(mockInstanceManager.sendInput).mockClear();
+        const refused = await invoke(IPC_CHANNELS.INSTANCE_SEND_INPUT, { instanceId: 'inst-7', message: 'x', origin: bad });
+        expect(refused.success).toBe(false);
+        expect(mockInstanceManager.sendInput).not.toHaveBeenCalled();
+      }
+    });
+
     it('rejects missing instanceId in INSTANCE_SEND_INPUT', async () => {
       const result = await invoke(IPC_CHANNELS.INSTANCE_SEND_INPUT, { message: 'Hello' });
 

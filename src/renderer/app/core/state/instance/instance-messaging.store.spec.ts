@@ -760,6 +760,104 @@ describe('InstanceMessagingStore', () => {
     ]);
   });
 
+  describe('marking words a person typed (Plan Queue "Land anyway")', () => {
+    const person = { kind: 'person', typedAt: expect.any(Number) };
+
+    it('sends a typed message with the person origin, and an app-built message without it', async () => {
+      const currentStore = store!;
+      stateService!.addInstance(createInstance({ status: 'idle' }));
+      ipcMock.sendInput.mockResolvedValue({ success: true });
+
+      await currentStore.sendInput('inst-1', 'land it anyway', undefined, { typedByPerson: true });
+      stateService!.updateInstance('inst-1', { status: 'idle' });
+      await currentStore.sendInput('inst-1', 'Cross-model review flagged concerns');
+
+      expect(ipcMock.sendInput).toHaveBeenNthCalledWith(1, 'inst-1', 'land it anyway', undefined, false, false, undefined, person);
+      expect(ipcMock.sendInput).toHaveBeenNthCalledWith(2, 'inst-1', 'Cross-model review flagged concerns', undefined, false);
+    });
+
+    it('records the time the person typed, not the time the queued message is sent', async () => {
+      const currentStore = store!;
+      stateService!.addInstance(createInstance({ status: 'busy' }));
+      ipcMock.sendInput.mockResolvedValue({ success: true });
+      const typedAt = Date.now();
+
+      await currentStore.sendInput('inst-1', 'typed while busy', undefined, { typedByPerson: true });
+      await vi.advanceTimersByTimeAsync(60_000);
+      stateService!.updateInstance('inst-1', { status: 'idle' });
+      currentStore.processMessageQueue('inst-1');
+      await vi.advanceTimersByTimeAsync(150);
+
+      const origin = ipcMock.sendInput.mock.calls[0][6] as { kind: string; typedAt: number };
+      expect(origin).toEqual({ kind: 'person', typedAt });
+    });
+
+    it('keeps the mark on a message typed while the session was busy and sent later, as a drained queue entry', async () => {
+      const currentStore = store!;
+      stateService!.addInstance(createInstance({ status: 'busy' }));
+      ipcMock.sendInput.mockResolvedValue({ success: true });
+
+      await currentStore.sendInput('inst-1', 'typed while busy', undefined, { typedByPerson: true });
+      expect(currentStore.getMessageQueue('inst-1')[0].origin).toEqual(person);
+      expect(ipcMock.sendInput).not.toHaveBeenCalled();
+
+      stateService!.updateInstance('inst-1', { status: 'idle' });
+      currentStore.processMessageQueue('inst-1');
+      await vi.advanceTimersByTimeAsync(150);
+
+      // A drained entry still goes out as automated input (it is not a fresh submission), now with the mark.
+      expect(ipcMock.sendInput).toHaveBeenCalledWith('inst-1', 'typed while busy', undefined, false, true, undefined, person);
+    });
+
+    it('does not mark a queued app-built message, and a re-queued retry keeps its mark', async () => {
+      const currentStore = store!;
+      stateService!.addInstance(createInstance({ status: 'busy' }));
+      await currentStore.sendInput('inst-1', 'review packet');
+      expect(currentStore.getMessageQueue('inst-1')[0].origin).toBeUndefined();
+      currentStore.clearMessageQueue('inst-1');
+
+      ipcMock.sendInput.mockResolvedValueOnce({ success: false, error: { message: 'Instance is busy' } });
+      ipcMock.sendInput.mockResolvedValue({ success: true });
+      await currentStore.sendInput('inst-1', 'typed', undefined, { typedByPerson: true });
+      stateService!.updateInstance('inst-1', { status: 'idle' });
+      currentStore.processMessageQueue('inst-1');
+      await vi.advanceTimersByTimeAsync(150);
+
+      const requeued = currentStore.getMessageQueue('inst-1')[0];
+      expect(requeued?.origin).toEqual(person);
+    });
+
+    it('carries the mark across a wake of a hibernated session and a restart of a terminated one', async () => {
+      const currentStore = store!;
+      stateService!.addInstance(createInstance({ status: 'hibernated' }));
+      await currentStore.sendInput('inst-1', 'wake and land', undefined, { typedByPerson: true });
+      expect(currentStore.getMessageQueue('inst-1')[0].origin).toEqual(person);
+      currentStore.clearMessageQueue('inst-1');
+
+      stateService!.updateInstance('inst-1', { status: 'terminated' });
+      await currentStore.sendInput('inst-1', 'restart and land', undefined, { typedByPerson: true });
+      expect(currentStore.getMessageQueue('inst-1')[0].origin).toEqual(person);
+    });
+
+    it('drops the mark when a queued message is promoted to a steer, and never marks a steer', async () => {
+      const currentStore = store!;
+      stateService!.addInstance(createInstance({ status: 'busy' }));
+      await currentStore.sendInput('inst-1', 'typed while busy', undefined, { typedByPerson: true });
+
+      await currentStore.steerQueuedMessage('inst-1', 0);
+      expect(currentStore.getMessageQueue('inst-1')[0]).toMatchObject({ kind: 'steer' });
+      expect(currentStore.getMessageQueue('inst-1')[0].origin).toBeUndefined();
+
+    });
+
+    it('never marks a steer sent to a running turn', async () => {
+      const currentStore = store!;
+      stateService!.addInstance(createInstance({ status: 'busy' }));
+      await currentStore.steerInput('inst-1', 'redirect now');
+      expect(ipcMock.steerInput).toHaveBeenCalledExactlyOnceWith('inst-1', 'redirect now', undefined);
+    });
+  });
+
   it('preserves queued metadata when promoting a queued message to steer', async () => {
     const currentStore = store!;
     const currentStateService = stateService!;

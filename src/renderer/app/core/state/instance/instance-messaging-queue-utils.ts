@@ -1,13 +1,18 @@
 import type { Instance, InstanceStatus, QueuedMessage } from './instance.types';
 import type { FileAttachment } from '../../../../../shared/types/instance.types';
+import type { PersonInputOrigin } from '../../../../../shared/types/input-provenance.types';
 import { validateAttachmentCount } from './instance-attachments';
 import type { InstanceStateService } from './instance-state.service';
+
+export type QueuedMetadata = Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready' | 'origin'>;
 
 export interface SendInputImmediateOptions {
   /** Original queued object retains its promotion ownership if Pause wins. */
   queuedEntry?: QueuedMessage;
   skipUserBubble?: boolean;
-  queuedMetadata?: Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'>;
+  queuedMetadata?: QueuedMetadata;
+  /** A person typed or spoke this themselves; a drained queue entry carries it in `queuedMetadata` instead. */
+  origin?: PersonInputOrigin;
   /**
    * LT-652: forwarded when a send that already cleared its backoff gate is
    * re-queued (e.g. losing a race to Pause), so the entry keeps its gate.
@@ -155,8 +160,8 @@ export function resolveMessageTarget(
 
 export function createQueuedMetadata(
   options: SendInputImmediateOptions,
-): Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'> {
-  const metadata: Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'> = {};
+): QueuedMetadata {
+  const metadata: QueuedMetadata = {};
 
   if (options.queuedMetadata?.kind) {
     metadata.kind = options.queuedMetadata.kind;
@@ -167,14 +172,18 @@ export function createQueuedMetadata(
   if (options.skipUserBubble === true || options.queuedMetadata?.seededAlready === true) {
     metadata.seededAlready = true;
   }
+  const origin = options.origin ?? options.queuedMetadata?.origin;
+  if (origin && metadata.kind !== 'steer') {
+    metadata.origin = origin;
+  }
 
   return metadata;
 }
 
 export function pickQueuedMetadata(
   message: QueuedMessage,
-): Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'> {
-  const metadata: Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready'> = {};
+): QueuedMetadata {
+  const metadata: QueuedMetadata = {};
 
   if (message.kind) {
     metadata.kind = message.kind;
@@ -184,6 +193,9 @@ export function pickQueuedMetadata(
   }
   if (message.seededAlready === true) {
     metadata.seededAlready = true;
+  }
+  if (message.origin && message.kind !== 'steer') {
+    metadata.origin = message.origin;
   }
 
   return metadata;
@@ -230,4 +242,32 @@ export async function inputFilesToAttachments(
     );
     return null;
   }
+}
+
+/**
+ * The optional trailing arguments of `IpcFacadeService.sendInput` (`automatedInput`, `queuedAdmissionId`, `origin`).
+ * Each shorter form keeps its old shape, so a send without the new mark calls the facade exactly as before.
+ */
+export function ipcTail(
+  automatedInput: boolean,
+  queuedAdmissionId: string | undefined,
+  origin: PersonInputOrigin | undefined,
+): [boolean?, string?, PersonInputOrigin?] {
+  if (origin) return [automatedInput, queuedAdmissionId, origin];
+  if (queuedAdmissionId) return [automatedInput, queuedAdmissionId];
+  return automatedInput ? [true] : [];
+}
+
+/** The mark for words a person typed or spoke, stamped with the time they did (it stays on the entry while it waits). */
+export function typedOrigin(typedByPerson: boolean | undefined): PersonInputOrigin | undefined {
+  return typedByPerson ? { kind: 'person', typedAt: Date.now() } : undefined;
+}
+
+/**
+ * The entry a queued message becomes when it is promoted to a steer. A steer redirects an answer in progress, so it
+ * is never marked as typed by a person. LT-652 (gate finding 3): an explicit promotion is an intentional immediate
+ * send, so it deliberately overrides a failure backoff; a rejection re-gates on the retry path.
+ */
+export function toSteerEntry(message: QueuedMessage): QueuedMessage {
+  return { ...message, kind: 'steer', origin: undefined, retryAfterAt: undefined };
 }

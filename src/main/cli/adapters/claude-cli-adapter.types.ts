@@ -35,6 +35,9 @@ export interface RawContentBlock {
 export interface RawCliPayload {
   type: string;
   subtype?: string;
+  /** `command_lifecycle`: the `uuid` Harness put on the user message, and where it is (`queued`, `started`, `completed`). */
+  command_uuid?: string;
+  state?: string;
   timestamp?: number;
   message?: {
     /**
