@@ -1,0 +1,18 @@
+[
+  {
+    "line": 787,
+    "text": "[2026-10-27T09:36:43.796Z] [INFO] [RuntimeReconciler] Account switched in place on the live OpenCode session { instanceId: 'i5wpm1u73', accountProfileId: 'comtechspare-f7a6' }"
+  },
+  {
+    "line": 970,
+    "text": "[2026-10-27T09:37:54.774Z] [INFO] [InstanceCommunication] Message sent to adapter "
+  },
+  {
+    "line": 999,
+    "text": "[2026-10-27T09:37:59.334Z] [INFO] [RuntimeReconciler] Account switched in place on the live OpenCode session { instanceId: 'i5wpm1u73', accountProfileId: 'legacy' }"
+  },
+  {
+    "line": 1046,
+    "text": "[2026-10-27T09:39:09.769Z] [INFO] [InstanceCommunication] Message sent to adapter "
+  }
+]

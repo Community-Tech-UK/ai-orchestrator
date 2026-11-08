@@ -1,0 +1,36 @@
+{
+  "at": "2026-10-27T10:21:00.987736+00:00",
+  "finding": "First smoke failure referenced a subsequently overwritten successful-output path",
+  "corrections": [
+    {
+      "line": 5,
+      "before": {
+        "name": "live-settings-smoke",
+        "command": [
+          "rtk",
+          "proxy",
+          "python3",
+          "_scratch/mimo-r3/supervise.py"
+        ],
+        "exitCode": 1,
+        "durationSeconds": 54.2,
+        "output": "live-smoke.txt"
+      },
+      "after": {
+        "name": "live-settings-smoke",
+        "command": [
+          "rtk",
+          "proxy",
+          "python3",
+          "_scratch/mimo-r3/supervise.py"
+        ],
+        "exitCode": 1,
+        "durationSeconds": 54.2,
+        "output": "live-smoke-attempt1.txt",
+        "launch": "launch-attempt1.json",
+        "cleanup": "app-cleanup-attempt1.json"
+      }
+    }
+  ],
+  "validation": "Failed receipt contains the original SyntaxError; successful output remains separate. Command exit codes unchanged."
+}

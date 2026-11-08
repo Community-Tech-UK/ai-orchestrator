@@ -1,0 +1,11 @@
+{
+  "focusEmulation": "ok",
+  "lifecycle": "ok",
+  "visibility": "{\"hidden\":false,\"visibilityState\":\"visible\"}",
+  "exception": null,
+  "value": {
+    "ok": false,
+    "error": "That account no longer exists.",
+    "data": null
+  }
+}

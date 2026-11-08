@@ -1,0 +1,42 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/instance/lifecycle/runtime-reconciler-account-continuity.spec.ts src/main/instance/lifecycle/runtime-reconciler.provider-account-swap.spec.ts src/renderer/app/shared/components/provider-account-chip.component.spec.ts
+
+✗ 5 of 29 tests failed in 10.7s:
+
+  ✗ src/main/instance/lifecycle/runtime-reconciler-account-continuity.spec.ts › MiMo account handoff continuity keeps the switched account through immediate real hibernate and wake without a provider turn
+    AssertionError: expected 'legacy' to be 'example-mimo-b' // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/main/instance/lifecycle/runtime-reconciler-account-continuity.spec.ts:83:71
+
+  ✗ src/main/instance/lifecycle/runtime-reconciler.provider-account-swap.spec.ts › provider swaps scope account profiles to the destination persists an account-only respawn handoff before reporting success
+    AssertionError: expected { provider: 'codex', …(3) } to match object { provider: 'codex', …(3) }
+        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/node_modules/@vitest/expect/dist/index.js:1283:10)
+        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/node_modules/@vitest/expect/dist/index.js:1156:15)
+        at Proxy.methodWrapper (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/node_modules/chai/index.js:1737:25)
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/main/instance/lifecycle/runtime-reconciler.provider-account-swap.spec.ts:198:24
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+  ✗ src/renderer/app/shared/components/provider-account-chip.component.spec.ts › ProviderAccountChipComponent selects the second account after delayed loading in draft mode
+    AssertionError: expected '' to be 'max-b-1a2b' // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/renderer/app/shared/components/file:/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/renderer/app/shared/components/provider-account-chip.component.spec.ts:184:28
+        at runNextTicks (node:internal/process/task_queues:65:5)
+        at listOnTimeout (node:internal/timers:644:9)
+        at processTimers (node:internal/timers:618:7)
+
+  ✗ src/renderer/app/shared/components/provider-account-chip.component.spec.ts › ProviderAccountChipComponent selects the second account after delayed loading in session mode
+    AssertionError: expected 'legacy' to be 'max-b-1a2b' // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/renderer/app/shared/components/file:/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/renderer/app/shared/components/provider-account-chip.component.spec.ts:184:28
+        at runNextTicks (node:internal/process/task_queues:65:5)
+        at listOnTimeout (node:internal/timers:644:9)
+        at processTimers (node:internal/timers:618:7)
+
+  ✗ src/renderer/app/shared/components/provider-account-chip.component.spec.ts › ProviderAccountChipComponent selects the second account after delayed loading in continuation mode
+    AssertionError: expected 'legacy' to be 'max-b-1a2b' // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/renderer/app/shared/components/file:/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/renderer/app/shared/components/provider-account-chip.component.spec.ts:184:28
+        at runNextTicks (node:internal/process/task_queues:65:5)
+        at listOnTimeout (node:internal/timers:644:9)
+        at processTimers (node:internal/timers:618:7)
+
+full log: _scratch/test-run.pid-70793.log
+
+✗ FAILED — 5 of 29 tests failed (exit 1).

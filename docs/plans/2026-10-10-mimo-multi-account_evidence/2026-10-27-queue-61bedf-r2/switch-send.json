@@ -1,0 +1,17 @@
+{
+  "at": "2026-10-27T09:37:54.786Z",
+  "expression": "_scratch/mimo-r2/switch-send.js",
+  "result": {
+    "id": "i5wpm1u73",
+    "change": {
+      "success": true,
+      "data": {
+        "instanceId": "i5wpm1u73",
+        "profileId": "comtechspare-f7a6"
+      }
+    },
+    "sent": {
+      "success": true
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "focusEmulation": "ok",
+  "lifecycle": "ok",
+  "visibility": "{\"hidden\":false,\"visibilityState\":\"visible\"}",
+  "exception": null,
+  "value": {
+    "ok": true,
+    "error": null,
+    "instanceId": "i4d05t9tf",
+    "keys": [
+      "id",
+      "displayName",
+      "isRenamed",
+      "createdAt",
+      "historyThreadId",
+      "evidenceConversationOwner",
+      "parentId",
+      "childrenIds",
+      "supervisorNodeId",
+      "workerNodeId",
+      "depth",
+      "terminationPolicy"
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/instance/lifecycle/runtime-reconciler-account-continuity.spec.ts src/main/instance/lifecycle/runtime-reconciler.provider-account-swap.spec.ts src/renderer/app/shared/components/provider-account-chip.component.spec.ts
+
+✗ 2 of 29 tests failed in 12.4s:
+
+  ✗ src/main/instance/lifecycle/runtime-reconciler-account-continuity.spec.ts › MiMo account handoff continuity keeps the switched account through immediate real hibernate and wake without a provider turn
+    TypeError: __vi_import_7__.getSessionPersistenceQueue(...).drain is not a function
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/main/instance/lifecycle/runtime-reconciler-account-continuity.spec.ts:45:38
+        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11
+        at wrapper (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/node_modules/@vitest/runner/dist/chunk-artifact.js:750:10)
+        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20
+        at new ZoneAwarePromise (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/node_modules/zone.js/fesm2015/zone.js:2238:23)
+        at runWithTimeout (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)
+        at file:///Users/suas/work/orches
+        …(truncated — see log)
+
+  ✗ src/main/instance/lifecycle/runtime-reconciler.provider-account-swap.spec.ts › provider swaps scope account profiles to the destination persists an account-only respawn handoff before reporting success
+    AssertionError: expected { …(22) } to match object { Object (resume, accountRoute) }
+    (20 matching properties omitted from actual)
+        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/node_modules/@vitest/expect/dist/index.js:1283:10)
+        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/node_modules/@vitest/expect/dist/index.js:1156:15)
+        at Proxy.methodWrapper (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/node_modules/chai/index.js:1737:25)
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/main/instance/lifecycle/runtime-reconciler.provider-account-swap.spec.ts:194:25
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+full log: _scratch/test-run.pid-65590.log
+
+✗ FAILED — 2 of 29 tests failed (exit 1).

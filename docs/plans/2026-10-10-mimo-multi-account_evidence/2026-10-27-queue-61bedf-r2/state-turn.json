@@ -1,0 +1,46 @@
+{
+  "at": "2026-10-27T09:39:02.768Z",
+  "expression": "_scratch/mimo-r2/state.js",
+  "result": {
+    "hidden": false,
+    "instances": [
+      {
+        "id": "i5wpm1u73",
+        "status": "busy",
+        "pid": 74303,
+        "account": "legacy",
+        "session": "ses_e83480abeffedvhTfWMR4YjZ0N",
+        "reasoning": "low"
+      }
+    ],
+    "components": [
+      {
+        "tag": "APP-ROOT",
+        "fields": [
+          "usageStore",
+          "promptHistoryStore",
+          "skillStore",
+          "settingsStore",
+          "pauseStore",
+          "remoteNodeStore",
+          "appUpdateStore",
+          "localAiGuardStore"
+        ]
+      },
+      {
+        "tag": "APP-INSTANCE-LIST",
+        "fields": [
+          "store",
+          "historyStore",
+          "loopStore",
+          "remoteNodeStore",
+          "visibleInstanceResolver",
+          "rootInstanceOrder",
+          "selectedId",
+          "loopingInstanceIds",
+          "restoreSelectionRequestId"
+        ]
+      }
+    ]
+  }
+}

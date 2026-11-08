@@ -1,0 +1,6 @@
+
+> harness@0.1.0 typecheck:spec
+> node --max-old-space-size=8192 node_modules/typescript/bin/tsc --noEmit -p tsconfig.spec.json
+
+src/main/instance/lifecycle/runtime-reconciler-account-continuity.spec.ts(54,22): error TS2352: Conversion of type '{ id: string; displayName: string; provider: "opencode"; accountProfileId: string; accountRoutingSource: "explicit"; accountSwitches: number; currentModel: string; reasoningEffort: "low"; ... 12 more ...; outputBuffer: ({ ...; } | { ...; })[]; }' to type 'Instance' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ id: string; displayName: string; provider: "opencode"; accountProfileId: string; accountRoutingSource: "explicit"; accountSwitches: number; currentModel: string; reasoningEffort: "low"; ... 12 more ...; outputBuffer: ({ ...; } | { ...; })[]; }' is missing the following properties from type 'Instance': createdAt, parentId, supervisorNodeId, depth, and 14 more.

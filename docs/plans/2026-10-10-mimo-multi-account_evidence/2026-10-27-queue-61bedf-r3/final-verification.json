@@ -1,0 +1,47 @@
+{
+  "at": "2026-10-27T10:22:01.217291+00:00",
+  "head": "955a765b0d9b7e18ac01430888d01f71d28e06cc",
+  "branch": "queue/2026-10-10-mimo-multi-account-61bedf",
+  "diffCheckExit": 0,
+  "stagedPaths": [],
+  "newProductionTestDependencyPaths": [],
+  "status": [
+    " M docs/plans/livetest-backlog.md",
+    " M docs/plans/livetest-remediation-register.md",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/build-main-final.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/build-main.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/build-renderer.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/focused-before-live.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/focused-regressions-corrected.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/focused-regressions-final.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/focused-regressions.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/full-suite.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/install.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/lint-final.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/lint.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/max-loc.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/native-install.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/regression-controls-before-repair.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/timeout-isolation.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/typecheck-spec-final.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/typecheck-spec.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/typecheck.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/ui-hints.txt",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r3/",
+    "?? docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf/"
+  ],
+  "rootDocumentStatus": [
+    " M docs/plans/2026-10-10-mimo-multi-account_livetest.md",
+    "?? docs/plans/2026-10-27-mimo-account-state-remediation_plan.md"
+  ],
+  "retainedHashPairsMatch": 21,
+  "retainedPathsIgnored": [],
+  "portsClosed": {
+    "9862": true,
+    "14862": true
+  },
+  "ownedRuntimeRemoved": true,
+  "worktreeInventorySHA256": "fc6b72d2bc60d00e93362d85947f70e4279a04092db0101056737684cb26754e",
+  "branchInventorySHA256": "7f53c6ccb0a734b1469a0ad34aa6c69a3d4c25a64383f121472bd954bb1dbadd",
+  "createdOrChangedBranchesOrWorktrees": false
+}

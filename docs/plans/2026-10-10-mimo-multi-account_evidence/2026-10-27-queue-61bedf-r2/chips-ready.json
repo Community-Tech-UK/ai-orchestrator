@@ -1,0 +1,43 @@
+{
+  "at": "2026-10-27T09:31:31.923Z",
+  "expression": "_scratch/mimo-r2/chips.js",
+  "result": {
+    "hidden": false,
+    "chips": [
+      {
+        "mode": "session",
+        "label": "MiMo Test B",
+        "account": "comtechspare-f7a6",
+        "selected": "comtechspare-f7a6",
+        "option": "MiMo Test B",
+        "options": [
+          {
+            "value": "legacy",
+            "selected": false
+          },
+          {
+            "value": "comtechspare-f7a6",
+            "selected": true
+          }
+        ]
+      },
+      {
+        "mode": "session",
+        "label": "MiMo Test B",
+        "account": "comtechspare-f7a6",
+        "selected": "comtechspare-f7a6",
+        "option": "MiMo Test B",
+        "options": [
+          {
+            "value": "legacy",
+            "selected": false
+          },
+          {
+            "value": "comtechspare-f7a6",
+            "selected": true
+          }
+        ]
+      }
+    ]
+  }
+}

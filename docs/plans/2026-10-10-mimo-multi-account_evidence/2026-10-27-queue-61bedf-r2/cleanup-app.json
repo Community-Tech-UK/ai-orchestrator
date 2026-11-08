@@ -1,0 +1,21 @@
+{
+  "at": "2026-10-27T09:40:31.090Z",
+  "expression": "_scratch/mimo-r2/cleanup-app.js",
+  "result": {
+    "terminated": [
+      {
+        "id": "i5wpm1u73",
+        "result": {
+          "success": true
+        }
+      }
+    ],
+    "recordingRestored": {
+      "success": true
+    },
+    "remaining": {
+      "success": true,
+      "data": []
+    }
+  }
+}

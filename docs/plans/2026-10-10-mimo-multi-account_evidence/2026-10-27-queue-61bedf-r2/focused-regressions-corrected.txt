@@ -1,0 +1,18 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/instance/lifecycle/runtime-reconciler-account-continuity.spec.ts src/main/instance/lifecycle/runtime-reconciler.provider-account-swap.spec.ts src/renderer/app/shared/components/provider-account-chip.component.spec.ts
+
+✗ 1 of 29 tests failed in 9.4s:
+
+  ✗ src/main/instance/lifecycle/runtime-reconciler.provider-account-swap.spec.ts › provider swaps scope account profiles to the destination persists an account-only respawn handoff before reporting success
+    AssertionError: expected { provider: 'codex', …(4) } to match object { provider: 'codex', …(3) }
+    (1 matching property omitted from actual)
+        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/node_modules/@vitest/expect/dist/index.js:1283:10)
+        at Proxy.<anonymous> (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/node_modules/@vitest/expect/dist/index.js:1156:15)
+        at Proxy.methodWrapper (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/node_modules/chai/index.js:1737:25)
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/main/instance/lifecycle/runtime-reconciler.provider-account-swap.spec.ts:195:24
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+full log: _scratch/test-run.pid-67655.log
+
+✗ FAILED — 1 of 29 tests failed (exit 1).

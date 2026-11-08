@@ -1,0 +1,63 @@
+{
+  "at": "2026-10-27T09:30:58.632Z",
+  "expression": "_scratch/mimo-r2/wake.js",
+  "result": {
+    "hidden": false,
+    "initial": {
+      "id": "iyng4aiu2",
+      "status": "idle",
+      "pid": 59447,
+      "account": "legacy",
+      "source": "explicit",
+      "session": "664e7f18-f4ff-4164-b50a-87c43cc63b25",
+      "reasoning": "low",
+      "model": "xiaomi-token-plan-ams/mimo-v2.6-pro"
+    },
+    "switched": {
+      "success": true,
+      "data": {
+        "instanceId": "iyng4aiu2",
+        "profileId": "comtechspare-f7a6"
+      }
+    },
+    "before": {
+      "id": "iyng4aiu2",
+      "status": "idle",
+      "pid": 59447,
+      "account": "comtechspare-f7a6",
+      "source": "explicit",
+      "switches": 1,
+      "session": "664e7f18-f4ff-4164-b50a-87c43cc63b25",
+      "reasoning": "low",
+      "model": "xiaomi-token-plan-ams/mimo-v2.6-pro"
+    },
+    "hibernate": {
+      "success": true
+    },
+    "sleeping": {
+      "id": "iyng4aiu2",
+      "status": "hibernated",
+      "pid": null,
+      "account": "comtechspare-f7a6",
+      "source": "explicit",
+      "switches": 1,
+      "session": "664e7f18-f4ff-4164-b50a-87c43cc63b25",
+      "reasoning": "low",
+      "model": "xiaomi-token-plan-ams/mimo-v2.6-pro"
+    },
+    "wake": {
+      "success": true
+    },
+    "after": {
+      "id": "iyng4aiu2",
+      "status": "ready",
+      "pid": 60069,
+      "account": "comtechspare-f7a6",
+      "source": "persisted",
+      "switches": 1,
+      "session": "882cd643-edfa-448d-a157-3eddbac02bbd",
+      "reasoning": "low",
+      "model": "xiaomi-token-plan-ams/mimo-v2.6-pro"
+    }
+  }
+}

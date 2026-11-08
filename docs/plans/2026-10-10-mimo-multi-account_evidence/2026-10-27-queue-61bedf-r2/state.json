@@ -1,0 +1,32 @@
+{
+  "at": "2026-10-27T09:30:47.469Z",
+  "expression": "_scratch/mimo-r2/state.js",
+  "result": {
+    "hidden": false,
+    "instances": [
+      {
+        "id": "iyng4aiu2",
+        "status": "idle",
+        "pid": 59447,
+        "account": "legacy",
+        "session": "664e7f18-f4ff-4164-b50a-87c43cc63b25",
+        "reasoning": "low"
+      }
+    ],
+    "components": [
+      {
+        "tag": "APP-ROOT",
+        "fields": [
+          "usageStore",
+          "promptHistoryStore",
+          "skillStore",
+          "settingsStore",
+          "pauseStore",
+          "remoteNodeStore",
+          "appUpdateStore",
+          "localAiGuardStore"
+        ]
+      }
+    ]
+  }
+}

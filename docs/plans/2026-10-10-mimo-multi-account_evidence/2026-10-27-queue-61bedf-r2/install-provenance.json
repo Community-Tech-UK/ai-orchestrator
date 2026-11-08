@@ -1,0 +1,29 @@
+{
+  "at": "2026-10-27",
+  "installCommand": [
+    "npm",
+    "ci",
+    "--ignore-scripts",
+    "--no-audit",
+    "--no-fund"
+  ],
+  "installExitCode": 0,
+  "nativeCommand": [
+    "npm",
+    "run",
+    "rebuild:native"
+  ],
+  "nativeExitCode": 0,
+  "manifests": [
+    {
+      "file": "package.json",
+      "sha256": "59b14f077bd607b076e156a9ac9d5f2645306d852039b8e0b6d4f314b7b5e04c"
+    },
+    {
+      "file": "package-lock.json",
+      "sha256": "a1b0b186b9371516670ba5d12bf387d951bef620ceebc97574473f818f85f891"
+    }
+  ],
+  "installMarkerIsSymlink": false,
+  "runtimeCleanup": "pending final gate"
+}

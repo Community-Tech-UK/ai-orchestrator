@@ -1,0 +1,16 @@
+{
+  "observedAt": "2026-10-27",
+  "defect": "LT-712",
+  "status": "open",
+  "owner": "provider adapter/event-capture remediation",
+  "priorRun": "Root-owned 2026-10-10-mimo-multi-account_livetest.md, Evidence run — 2026-10-27, check 8",
+  "observedAcpMessage": "ACP session/prompt failed: Internal error: quota exhausted (-32603)",
+  "nativeStoreEvidence": {"statusCode": 429, "body": {"error": {"code": "429", "message": "quota exhausted", "type": "limitation"}}},
+  "ledgerObservation": {"messageRetained": true, "quotaClassificationRetained": true, "upstreamStatusRetained": false, "upstreamBodyRetained": false},
+  "sourceTrace": [
+    "src/main/cli/adapters/acp-jsonrpc-errors.ts:settleAcpErrorResponse creates an Error from message/code",
+    "src/main/providers/provider-event-raw-payload.ts:visit projects Error name/message/stack/cause",
+    "src/main/instance/instance-communication-provider-events.ts:turn_error retains statusCode only if attached"
+  ],
+  "honesty": "Native HTTP evidence is not evidence that the capture ledger retains HTTP status/body. No artificial rows were inserted."
+}

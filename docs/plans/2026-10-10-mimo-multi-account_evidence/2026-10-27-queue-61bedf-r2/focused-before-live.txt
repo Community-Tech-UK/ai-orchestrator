@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/renderer/app/shared/components/provider-account-chip.component.spec.ts src/main/instance/lifecycle/runtime-reconciler-account-handoff.spec.ts src/main/instance/lifecycle/runtime-reconciler.provider-account-swap.spec.ts scripts/__tests__/dependency-compatibility.spec.ts
+
+✓ 4 files · 80 tests passed in 6.4s
+  full log: _scratch/test-run.pid-49629.log

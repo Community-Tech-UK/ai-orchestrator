@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-27T09:41:17.641Z",
+  "computer": "windows-pc",
+  "url": "https://platform.xiaomimimo.com/console/plan-manage",
+  "auditId": "eaea0d39-5d8e-446f-bf80-d1eec0cad96f",
+  "approvalRequest": "ca5e2e8d-bc43-4bdf-8977-10219cc06e0c",
+  "approvalStatus": "approved",
+  "plan": "Max Monthly Plan",
+  "validUntil": "2026-11-10 23:59:59 UTC",
+  "currentUsage": "82,015,973,228 / 82,000,000,000",
+  "usedPercent": 100,
+  "region": "ams",
+  "identityMapping": "This existing authenticated console is not proven associated with either isolated Harness account profile.",
+  "secretFieldsRetained": false
+}

@@ -1,0 +1,25 @@
+{
+  "at": "2026-10-27T10:13:34.037535+00:00",
+  "profile": "/tmp/aio-lt-queue-d161bedf",
+  "debugPort": 9862,
+  "rendererPort": 14862,
+  "seed": "two names-only profiles; no credentials copied",
+  "ownedProcesses": [
+    {
+      "name": "renderer",
+      "pid": 67654
+    },
+    {
+      "name": "electron",
+      "pid": 69186
+    }
+  ],
+  "command": [
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron",
+    ".",
+    "--remote-debugging-port=9862",
+    "--js-flags=--max-old-space-size=8192",
+    "--no-sandbox",
+    "--disable-gpu"
+  ]
+}

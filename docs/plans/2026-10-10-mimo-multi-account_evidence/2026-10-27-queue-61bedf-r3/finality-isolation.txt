@@ -1,0 +1,13 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/orchestration/default-loop-native-finality.spec.ts
+
+✗ 1 of 8 tests failed in 9.3s:
+
+  ✗ src/main/orchestration/default-loop-native-finality.spec.ts › native finality 'partial-unpaused'
+    AssertionError: expected false to be true // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/main/orchestration/default-loop-native-finality.spec.ts:109:26
+
+full log: _scratch/test-run.pid-72147.log
+
+✗ FAILED — 1 of 8 tests failed (exit 1).

@@ -1,0 +1,150 @@
+{
+  "at": "2026-10-27T09:31:02.571Z",
+  "expression": "_scratch/mimo-r2/dom.js",
+  "result": {
+    "hidden": false,
+    "body": "Startup Degraded\nLocal AI: Not configured\n0 targets\nWork\nCC\n73%\nCX\n56%\nAG\n0%\nCP\n71%\nCU\n100%\nGX\n0%\nNotifications\n1\nStartup Checks: Degraded\nHardened mode (Seatbelt): sandbox-exec probe failed — hardened instances will refuse to spawn.\nOpen accounts\nBack\n\nSetup & readiness\n\nA few things need attention\n\n1 check need attention before everything works smoothly.\n\nRe-check\nGo to workspace\nReadiness\n8 / 10 ready\nAI providers\n\nCLI providers used to run and verify agents.\n\nready\nProvider availability\nRequired\nAt least one supported provider CLI is available.\nready\nClaude Code CLI\nClaude Code CLI is available.\nready\nCodex CLI\nCodex CLI is available.\nready\nAntigravity\nAntigravity is available.\nready\nCopilot CLI\nCopilot CLI is available.\nready\nCursor CLI\nCursor CLI is available.\nNative modules\n\nBundled binaries the app relies on to run.\n\nready\nSQLite runtime\nRequired\nThe native SQLite runtime is available.\nSubsystems\n\nOptional features and integrations.\n\ndisabled\nRemote node server\nRemote nodes are disabled.\nready\nBrowser automation\nBrowser automation tooling is ready.\nunavailable\nHardened mode (Seatbelt)\nsandbox-exec probe failed — hardened instances will refuse to spawn.\nResolve\n\nItems marked Resolve open the Doctor with the relevant diagnostics. Disabled checks are optional features you have turned off — they don't need fixing.\n\nRemote Terminal\nOpen\nIdle\n×",
+    "components": [
+      {
+        "tag": "APP-ROOT",
+        "fields": [
+          "usageStore",
+          "promptHistoryStore",
+          "skillStore",
+          "settingsStore",
+          "pauseStore",
+          "remoteNodeStore",
+          "appUpdateStore",
+          "localAiGuardStore"
+        ]
+      },
+      {
+        "tag": "APP-LOCAL-AI-STATUS-CHIP",
+        "fields": [
+          "store"
+        ]
+      },
+      {
+        "tag": "APP-CLI-UPDATE-PILL",
+        "fields": [
+          "store"
+        ]
+      },
+      {
+        "tag": "APP-WORK-CONTROL",
+        "fields": [
+          "store",
+          "instances"
+        ]
+      },
+      {
+        "tag": "APP-PAUSE-TOGGLE",
+        "fields": [
+          "store"
+        ]
+      },
+      {
+        "tag": "APP-PROVIDER-QUOTA-CHIP",
+        "fields": [
+          "store"
+        ]
+      },
+      {
+        "tag": "APP-COMPUTER-USE-PERMISSION-CHIP",
+        "fields": [
+          "store"
+        ]
+      },
+      {
+        "tag": "APP-NOTIFICATION-CENTER",
+        "fields": [
+          "store",
+          "instances"
+        ]
+      },
+      {
+        "tag": "APP-PAUSE-BANNER",
+        "fields": [
+          "store"
+        ]
+      },
+      {
+        "tag": "APP-UPDATE-BANNER",
+        "fields": [
+          "store"
+        ]
+      },
+      {
+        "tag": "APP-COMPUTER-USE-PERMISSION-BANNER",
+        "fields": [
+          "store"
+        ]
+      },
+      {
+        "tag": "APP-BROWSER-APPROVALS-BANNER",
+        "fields": [
+          "selectedMode"
+        ]
+      },
+      {
+        "tag": "APP-LOCAL-AI-FALLBACK-BANNER",
+        "fields": [
+          "store"
+        ]
+      },
+      {
+        "tag": "APP-GETTING-STARTED-BAR",
+        "fields": [
+          "instances"
+        ]
+      },
+      {
+        "tag": "APP-APPROVAL-DIGEST-BANNER",
+        "fields": [
+          "instances"
+        ]
+      },
+      {
+        "tag": "APP-TERMINATE-CONFIRM-DIALOG",
+        "fields": [
+          "confirmStore"
+        ]
+      },
+      {
+        "tag": "APP-PAUSE-DETECTOR-ERROR-MODAL",
+        "fields": [
+          "store"
+        ]
+      },
+      {
+        "tag": "APP-RLM-STORAGE-MAINTENANCE",
+        "fields": [
+          "store",
+          "selectedBackups",
+          "resetBackupSelection"
+        ]
+      },
+      {
+        "tag": "APP-TERMINAL-DRAWER",
+        "fields": [
+          "selectedNodeId",
+          "selectedNodeRoots"
+        ]
+      },
+      {
+        "tag": "APP-NODE-PICKER",
+        "fields": [
+          "nodeStore",
+          "settingsStore",
+          "selectedNodeId",
+          "selectedCli",
+          "selectedLocalModelTarget",
+          "nodeSelected",
+          "selectedLabel",
+          "selectedHealthClass",
+          "selectedTooltip"
+        ]
+      }
+    ]
+  }
+}

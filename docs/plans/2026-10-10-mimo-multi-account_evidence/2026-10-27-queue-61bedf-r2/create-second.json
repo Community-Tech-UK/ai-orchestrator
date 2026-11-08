@@ -1,0 +1,22 @@
+{
+  "at": "2026-10-27T09:36:28.414Z",
+  "expression": "_scratch/mimo-r2/create.js",
+  "result": {
+    "hidden": false,
+    "accounts": {
+      "success": false,
+      "error": {
+        "code": "VALIDATION_FAILED",
+        "message": "Validation failed for provider-account:list: : Invalid input",
+        "timestamp": 1793093788400
+      }
+    },
+    "created": {
+      "id": "i5wpm1u73",
+      "status": "initializing",
+      "account": "legacy",
+      "session": "ef0edb30-79d9-4e75-b072-b440a1fdbd3d",
+      "pid": null
+    }
+  }
+}

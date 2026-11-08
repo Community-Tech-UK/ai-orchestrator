@@ -1,0 +1,43 @@
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf
+
+(node:74447) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ |main| src/main/orchestration/default-loop-native-finality.spec.ts (8 tests | 1 failed) 1376ms
+   ✓ native finality 'partial-paused' 171ms
+   × native finality 'partial-unpaused' 160ms
+   ✓ native finality 'regular-paused'  409ms
+   ✓ native finality 'partial-zero' 158ms
+   ✓ native finality 'partial-no-native-cost' 157ms
+   ✓ native finality 'partial-native-error' 157ms
+   ✓ native finality 'partial-no-final-lf' 157ms
+   ✓ does not record a native dispatch refused before child creation 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |main| src/main/orchestration/default-loop-native-finality.spec.ts > native finality 'partial-unpaused'
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/main/orchestration/default-loop-native-finality.spec.ts:109:26
+    107|     expect(rows[0].purpose).toBe('loop');
+    108|     expect(paused).toBe(mode !== 'partial-unpaused');
+    109|     expect(finalWritten).toBe(true);
+       |                          ^
+    110|     expect(drainedRaw).toContain(JSON.stringify(result));
+    111|     expect(child.signalCode).toBe('SIGKILL');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 passed (8)
+   Start at  10:08:47
+   Duration  3.55s (transform 1.21s, setup 91ms, import 1.54s, tests 1.38s, environment 339ms)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/_scratch/test-results.pid-72147.json

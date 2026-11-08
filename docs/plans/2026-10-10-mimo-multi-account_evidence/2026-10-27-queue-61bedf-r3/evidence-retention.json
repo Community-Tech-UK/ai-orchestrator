@@ -1,0 +1,134 @@
+{
+  "at": "2026-10-27T10:08:02.267224+00:00",
+  "mode": "byte-identical receipts, no source-document copy",
+  "historicalSeals": "unchanged; this manifest maps ignored historical log names to retained txt names",
+  "gitCheckIgnoreExit": 1,
+  "files": [
+    {
+      "source": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf/check1.js.result.json",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf/check1.js.result.json",
+      "sha256": "68519f1fa8997c0db42c105c1d0012c7f2608c4f30924886ec222bb175e03d02",
+      "bytes": 4260
+    },
+    {
+      "source": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf/scroll-mimo.js.result.json",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf/scroll-mimo.js.result.json",
+      "sha256": "8f0d0290771cca18d9f1edd3e43d14e678da1e2555c91eb0b85b6ec21ebafdec",
+      "bytes": 55
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/build-main-final.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/build-main-final.txt",
+      "sha256": "e53c77df92cb08959c7fa8f45a78f861be16cb74a6c6e53c0e3c249bcbb9a40a",
+      "bytes": 284
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/build-main.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/build-main.txt",
+      "sha256": "7b95041a04b76ecfd4bae60bf5da5ca8693eaba214860c42a5d31e0adec170af",
+      "bytes": 283
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/build-renderer.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/build-renderer.txt",
+      "sha256": "ef825fef462eaf564f2f6918caa604665812b161a0e80f9feb655f77d5902c1d",
+      "bytes": 5446
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/focused-before-live.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/focused-before-live.txt",
+      "sha256": "2c016825e31c3288bb067a145f693ef52bd4199c46ec4c9c23080a27b9ab7046",
+      "bytes": 420
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/focused-regressions-corrected.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/focused-regressions-corrected.txt",
+      "sha256": "05c6201fe597443ea4c0b6e04b6a0cdc412915217ba15a44b7733e926d51ff17",
+      "bytes": 1600
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/focused-regressions-final.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/focused-regressions-final.txt",
+      "sha256": "bf809570126f6d2ef1d18644ab92c9837c3d9fbf9a3e322820ac92ef4fc11683",
+      "bytes": 372
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/focused-regressions.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/focused-regressions.txt",
+      "sha256": "45e90ff530ea46c998b49d332def7e9fe67e7649a7c42a4ba299f87b4057b8c6",
+      "bytes": 3068
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/full-suite.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/full-suite.txt",
+      "sha256": "08f5bf53c5acc75521c06adde1d2c5fb9ae21f5d835e8d703c9630462cbc5db4",
+      "bytes": 1343
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/install.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/install.txt",
+      "sha256": "f4486229b87fdcdf34de41379db07647aeb45170c02c8f700660ede9cae375ca",
+      "bytes": 2340
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/lint-final.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/lint-final.txt",
+      "sha256": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98",
+      "bytes": 89
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/lint.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/lint.txt",
+      "sha256": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98",
+      "bytes": 89
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/max-loc.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/max-loc.txt",
+      "sha256": "a1a691b6bdc446e1e652ffc61e79d893a39d16ffb1abd2fedc8146f58731744c",
+      "bytes": 10148
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/native-install.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/native-install.txt",
+      "sha256": "390e9ce77d02b865800c7d1672a5aab639cbc0c5fe502e71e0ecf6fc44a7c139",
+      "bytes": 852
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/regression-controls-before-repair.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/regression-controls-before-repair.txt",
+      "sha256": "e30034e0d9c85892154341e23d642db1bc067fe821851424e26123d7200238c0",
+      "bytes": 4331
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/timeout-isolation.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/timeout-isolation.txt",
+      "sha256": "d17c8517b0b57ef0e5841d91c0e363af468ef022b7ec81147b077bcd8b20f94b",
+      "bytes": 205
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/typecheck-spec-final.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/typecheck-spec-final.txt",
+      "sha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133",
+      "bytes": 129
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/typecheck-spec.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/typecheck-spec.txt",
+      "sha256": "59da3f24d3850a75b1a0e002faf01a1e1e2e1f88b37cf3413602a77d449d5689",
+      "bytes": 1027
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/typecheck.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/typecheck.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "source": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/ui-hints.log",
+      "retained": "docs/plans/2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/ui-hints.txt",
+      "sha256": "5e2ddb12cfeb4fb5abfa1700ff1f5e7fbc01c84f4ac7b28160c8b55fdf21ab90",
+      "bytes": 226
+    }
+  ]
+}

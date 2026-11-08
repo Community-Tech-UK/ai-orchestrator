@@ -1,0 +1,22 @@
+[
+  {
+    "id": "a5a9ce8a-23e4-4e2e-b729-3f9606853e50",
+    "provider": "opencode",
+    "model": "",
+    "detected_at": 1793093874771,
+    "resume_at": 1793097474771,
+    "source": "provider-limit-assumed",
+    "instance_id": "i5wpm1u73",
+    "account_profile_id": "comtechspare-f7a6"
+  },
+  {
+    "id": "55fdc5ea-1b93-47f7-896e-b349f18bb833",
+    "provider": "opencode",
+    "model": "",
+    "detected_at": 1793093949767,
+    "resume_at": 1793097549767,
+    "source": "provider-limit-assumed",
+    "instance_id": "i5wpm1u73",
+    "account_profile_id": ""
+  }
+]

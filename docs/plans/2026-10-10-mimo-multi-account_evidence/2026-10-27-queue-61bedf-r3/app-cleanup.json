@@ -1,0 +1,21 @@
+{
+  "at": "2026-10-27T10:14:08.750724+00:00",
+  "ownedProcesses": [
+    {
+      "name": "electron",
+      "pid": 69186,
+      "exitCode": 0,
+      "gone": true
+    },
+    {
+      "name": "renderer",
+      "pid": 67654,
+      "exitCode": -15,
+      "gone": true
+    }
+  ],
+  "debugPortClosed": true,
+  "rendererPortClosed": true,
+  "providerSessionsCreated": 0,
+  "productionSettingsChanged": false
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-27",
+  "node": "windows-pc",
+  "realMiMoAdmission": {
+    "provider": "opencode",
+    "model": "xiaomi-token-plan-ams/mimo-v2.6-pro",
+    "outcome": "refused before spawn",
+    "errorCode": "cli_not_signed_in",
+    "message": "Provider opencode is not proven signed in on worker node windows-pc. Sign in on that worker or choose another advertised provider."
+  },
+  "currentMiMoConsoleCount": 1,
+  "independentSecondConsoleEstablished": false,
+  "browserNavigationApproval": "approved; executed and allowance read",
+  "remoteDiagnosticTerminated": true
+}

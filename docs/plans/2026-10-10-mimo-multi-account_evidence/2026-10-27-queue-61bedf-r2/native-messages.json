@@ -1,0 +1,80 @@
+[
+  {
+    "session": "ses_e834d25b9ffeDtHOUGoWJ04xCh",
+    "id": "msg_17cb5225a001v53JasywxVB0hC",
+    "role": "user",
+    "provider": "aio-mimo-comtechspare-f7a6",
+    "variant": null,
+    "error": {
+      "name": null,
+      "message": null,
+      "statusCode": null,
+      "body": null
+    }
+  },
+  {
+    "session": "ses_e834d25b9ffeDtHOUGoWJ04xCh",
+    "id": "msg_17cb5226e001zZhbHXnW1fYwfg",
+    "role": "assistant",
+    "provider": "aio-mimo-comtechspare-f7a6",
+    "variant": "low",
+    "error": {
+      "name": null,
+      "message": null,
+      "statusCode": null,
+      "body": null
+    }
+  },
+  {
+    "session": "ses_e83480abeffedvhTfWMR4YjZ0N",
+    "id": "msg_17cb81fa2001hzbGqsZwDXjVlK",
+    "role": "user",
+    "provider": "aio-mimo-comtechspare-f7a6",
+    "variant": null,
+    "error": {
+      "name": null,
+      "message": null,
+      "statusCode": null,
+      "body": null
+    }
+  },
+  {
+    "session": "ses_e83480abeffedvhTfWMR4YjZ0N",
+    "id": "msg_17cb81fba001hNx1BTHFwqfixQ",
+    "role": "assistant",
+    "provider": "aio-mimo-comtechspare-f7a6",
+    "variant": "low",
+    "error": {
+      "name": "APIError",
+      "message": "quota exhausted",
+      "statusCode": 429,
+      "body": "{\n    \"error\": {\n        \"code\": \"429\",\n        \"message\": \"quota exhausted\",\n        \"type\": \"limitation\"\n    }\n}\n"
+    }
+  },
+  {
+    "session": "ses_e83480abeffedvhTfWMR4YjZ0N",
+    "id": "msg_17cb94656001re3vhku46LiYJm",
+    "role": "user",
+    "provider": "xiaomi-token-plan-ams",
+    "variant": null,
+    "error": {
+      "name": null,
+      "message": null,
+      "statusCode": null,
+      "body": null
+    }
+  },
+  {
+    "session": "ses_e83480abeffedvhTfWMR4YjZ0N",
+    "id": "msg_17cb94662001mqsprH7OfShm52",
+    "role": "assistant",
+    "provider": "xiaomi-token-plan-ams",
+    "variant": "low",
+    "error": {
+      "name": null,
+      "message": null,
+      "statusCode": null,
+      "body": null
+    }
+  }
+]

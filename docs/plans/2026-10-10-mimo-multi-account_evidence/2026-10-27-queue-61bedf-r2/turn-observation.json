@@ -1,0 +1,140 @@
+{
+  "at": "2026-10-27T09:40:08.573Z",
+  "expression": "_scratch/mimo-r2/turn-observation.js",
+  "result": {
+    "hidden": false,
+    "instance": {
+      "id": "i5wpm1u73",
+      "status": "error",
+      "pid": null,
+      "account": "legacy",
+      "reasoning": "low",
+      "session": "ses_e83480abeffedvhTfWMR4YjZ0N",
+      "messages": [
+        {
+          "type": "system",
+          "content": "[System: Account switched: MiMo Test A → MiMo Test B (switched by you). The same conversation continues on the new account.]"
+        },
+        {
+          "type": "user",
+          "content": "Read only turn-fixture.txt with your file-reading tool and reply with its marker. Do not edit any file or run any other tools."
+        },
+        {
+          "type": "system",
+          "content": "The provider stopped because its usage allowance or rate limit was reached. Wait for the limit to reset before resuming."
+        },
+        {
+          "type": "system",
+          "content": "This account hit its usage limit. Moving the conversation to another account in the pool; your message will be sent again once it switches."
+        },
+        {
+          "type": "error",
+          "content": "ACP session/prompt failed: Internal error: quota exhausted (-32603)"
+        },
+        {
+          "type": "system",
+          "content": "[System: Account switched: MiMo Test B → MiMo Test A (usage limit). The same conversation continues on the new account.]"
+        },
+        {
+          "type": "error",
+          "content": "ACP session/prompt failed: Internal error: quota exhausted (-32603)"
+        },
+        {
+          "type": "system",
+          "content": "The provider stopped because its usage allowance or rate limit was reached. Wait for the limit to reset before resuming."
+        }
+      ]
+    },
+    "accounts": {
+      "success": true,
+      "data": {
+        "profiles": [
+          {
+            "id": "legacy",
+            "provider": "opencode",
+            "label": "MiMo Test A",
+            "expectedIdentity": null,
+            "expectedAccountKey": null,
+            "planLabel": null,
+            "priority": 0,
+            "enabled": true,
+            "automationPolicy": "allow-routed",
+            "isLegacy": true,
+            "region": "ams",
+            "createdAt": 1791745240215,
+            "updatedAt": 1791750454264,
+            "binding": {
+              "nodeId": "local",
+              "state": "authenticated",
+              "checkedAt": 1793094006474
+            },
+            "quotaSessionConnected": false
+          },
+          {
+            "id": "comtechspare-f7a6",
+            "provider": "opencode",
+            "label": "MiMo Test B",
+            "expectedIdentity": null,
+            "expectedAccountKey": null,
+            "planLabel": null,
+            "priority": 1,
+            "enabled": true,
+            "automationPolicy": "allow-routed",
+            "isLegacy": false,
+            "region": "ams",
+            "createdAt": 1791750376276,
+            "updatedAt": 1791892231317,
+            "binding": {
+              "nodeId": "local",
+              "state": "authenticated",
+              "checkedAt": 1793094008571
+            },
+            "quotaSessionConnected": false
+          }
+        ],
+        "pools": {
+          "claude": {
+            "failoverMode": "ask",
+            "continuation": "shared-store",
+            "preemptive": {
+              "newSessions": true,
+              "liveSessionsAtTurnBoundary": false,
+              "thresholdPct": 90
+            },
+            "switchCooldownMs": 300000,
+            "maxSwitchesPerTurn": 3,
+            "acknowledgedOwnershipAt": null
+          },
+          "codex": {
+            "failoverMode": "ask",
+            "continuation": "shared-store",
+            "preemptive": {
+              "newSessions": true,
+              "liveSessionsAtTurnBoundary": false,
+              "thresholdPct": 90
+            },
+            "switchCooldownMs": 300000,
+            "maxSwitchesPerTurn": 3,
+            "acknowledgedOwnershipAt": null
+          },
+          "opencode": {
+            "failoverMode": "automatic",
+            "continuation": "shared-store",
+            "preemptive": {
+              "newSessions": true,
+              "liveSessionsAtTurnBoundary": false,
+              "thresholdPct": 90
+            },
+            "switchCooldownMs": 300000,
+            "maxSwitchesPerTurn": 3,
+            "acknowledgedOwnershipAt": 1791809325635
+          }
+        }
+      }
+    },
+    "chips": [
+      {},
+      {}
+    ]
+  }
+}

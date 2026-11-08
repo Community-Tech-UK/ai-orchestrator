@@ -1,0 +1,19 @@
+{
+  "at": "2026-10-27T09:31:21.765Z",
+  "expression": "_scratch/mimo-r2/chips.js",
+  "result": {
+    "hidden": false,
+    "chips": [
+      {
+        "mode": "session",
+        "account": "comtechspare-f7a6",
+        "options": []
+      },
+      {
+        "mode": "session",
+        "account": "comtechspare-f7a6",
+        "options": []
+      }
+    ]
+  }
+}

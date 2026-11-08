@@ -1,0 +1,17 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/cli/adapters/acp-provider-limit.spec.ts src/main/instance/lifecycle/runtime-reconciler-account-handoff.spec.ts src/main/instance/lifecycle/runtime-reconciler-account-continuity.spec.ts src/main/instance/lifecycle/runtime-reconciler.provider-account-swap.spec.ts src/renderer/app/shared/components/provider-account-chip.component.spec.ts src/main/orchestration/default-loop-native-finality.spec.ts
+
+✗ 2 of 99 tests failed in 32.2s:
+
+  ✗ src/main/orchestration/default-loop-native-finality.spec.ts › native finality 'partial-no-native-cost'
+    AssertionError: expected false to be true // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/main/orchestration/default-loop-native-finality.spec.ts:109:26
+
+  ✗ src/main/orchestration/default-loop-native-finality.spec.ts › native finality 'partial-native-error'
+    AssertionError: expected 'Claude CLI timeout' to be 'Claude CLI reported error_during_exec…' // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/main/orchestration/default-loop-native-finality.spec.ts:116:37
+
+full log: _scratch/test-run.mimo-r3-cold.log
+
+✗ FAILED — 2 of 99 tests failed (exit 1).

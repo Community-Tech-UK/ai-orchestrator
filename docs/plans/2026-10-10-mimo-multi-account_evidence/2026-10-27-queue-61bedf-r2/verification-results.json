@@ -1,0 +1,94 @@
+{
+  "at": "2026-10-27",
+  "gate": "FAIL",
+  "checks": [
+    {
+      "name": "build-main",
+      "exitCode": 0,
+      "log": "build-main.log"
+    },
+    {
+      "name": "focused-before-live",
+      "exitCode": 0,
+      "log": "focused-before-live.log"
+    },
+    {
+      "name": "focused-regressions",
+      "exitCode": 1,
+      "log": "focused-regressions.log"
+    },
+    {
+      "name": "focused-regressions-corrected",
+      "exitCode": 1,
+      "log": "focused-regressions-corrected.log"
+    },
+    {
+      "name": "focused-regressions-final",
+      "exitCode": 0,
+      "log": "focused-regressions-final.log"
+    },
+    {
+      "name": "regression-controls-before-repair",
+      "exitCode": 1,
+      "log": "regression-controls-before-repair.log"
+    },
+    {
+      "name": "typecheck",
+      "exitCode": 0,
+      "log": "typecheck.log"
+    },
+    {
+      "name": "typecheck-spec",
+      "exitCode": 2,
+      "log": "typecheck-spec.log"
+    },
+    {
+      "name": "lint",
+      "exitCode": 0,
+      "log": "lint.log"
+    },
+    {
+      "name": "max-loc",
+      "exitCode": 0,
+      "log": "max-loc.log"
+    },
+    {
+      "name": "ui-hints",
+      "exitCode": 0,
+      "log": "ui-hints.log"
+    },
+    {
+      "name": "typecheck-spec-final",
+      "exitCode": 0,
+      "log": "typecheck-spec-final.log"
+    },
+    {
+      "name": "build-renderer",
+      "exitCode": 0,
+      "log": "build-renderer.log"
+    },
+    {
+      "name": "build-main-final",
+      "exitCode": 0,
+      "log": "build-main-final.log"
+    },
+    {
+      "name": "full-suite",
+      "exitCode": 1,
+      "log": "full-suite.log"
+    },
+    {
+      "name": "timeout-isolation",
+      "exitCode": 0,
+      "log": "timeout-isolation.log"
+    },
+    {
+      "name": "lint-final",
+      "exitCode": 0,
+      "log": "lint-final.log"
+    }
+  ],
+  "sourceMapError": "LT-713",
+  "fullSuite": "failed; isolated timeout pass does not replace full gate",
+  "independentReview": "FAIL overall, no actionable MiMo code findings"
+}

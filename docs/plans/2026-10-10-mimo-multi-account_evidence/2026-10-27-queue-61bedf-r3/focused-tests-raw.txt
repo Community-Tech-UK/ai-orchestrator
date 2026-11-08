@@ -1,0 +1,25 @@
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf
+
+(node:56362) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/instance/lifecycle/runtime-reconciler-account-handoff.spec.ts (52 tests) 41ms
+(node:56899) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/instance/lifecycle/runtime-reconciler-account-continuity.spec.ts (1 test) 30ms
+(node:61205) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/instance/lifecycle/runtime-reconciler.provider-account-swap.spec.ts (12 tests) 16ms
+(node:61222) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/cli/adapters/acp-provider-limit.spec.ts (10 tests) 16ms
+(node:61232) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |renderer| src/renderer/app/shared/components/provider-account-chip.component.spec.ts (16 tests) 178ms
+
+ Test Files  5 passed (5)
+      Tests  91 passed (91)
+   Start at  10:08:07
+   Duration  10.52s (transform 6.18s, setup 297ms, import 8.15s, tests 281ms, environment 1.06s)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/_scratch/test-results.pid-53361.json

@@ -1,0 +1,120 @@
+[
+  {
+    "eventId": "1e769e81-2a59-462f-a946-0b19c4a8b68c",
+    "sequence": 7,
+    "at": 1793093874766,
+    "source": "adapter-event:error",
+    "event": {
+      "kind": "error",
+      "message": "ACP session/prompt failed: Internal error: quota exhausted (-32603)",
+      "recoverable": false,
+      "turnEnding": {
+        "reason": "quota",
+        "evidence": "provider_quota_error"
+      },
+      "quota": {
+        "exhausted": true,
+        "message": "ACP session/prompt failed: Internal error: quota exhausted (-32603)"
+      }
+    },
+    "raw": {
+      "payload": {
+        "type": "error",
+        "name": "Error",
+        "message": "ACP session/prompt failed: Internal error: quota exhausted (-32603)",
+        "stack": "Error: ACP session/prompt failed: Internal error: quota exhausted (-32603)\n    at settleAcpErrorResponse (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/dist/main/cli/adapters/acp-jsonrpc-errors.js:8:19)\n    at AcpCliAdapter.handleErrorResponse (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/dist/main/cli/adapters/acp-cli-adapter.js:1154:57)\n    at AcpCliAdapter.handleMessageLine (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/dist/main/cli/adapters/acp-cli-adapter.js:1110:18)\n    at stdoutFramer.push.emitRecoverableProtocolError.limitChars.limitChars (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/dist/main/cli/adapters/acp-cli-adapter.js:1086:22)\n    at AcpNdjsonFramer.push (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/dist/main/cli/adapters/acp-ndjson-framer.js:48:17)\n    at AcpCliAdapter.handleStdoutChunk (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/dist/main/cli/adapters/acp-cli-adapter.js:1084:27)\n    at Socket.<anonymous> (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/dist/main/cli/adapters/acp-cli-adapter.js:835:18)\n    at Socket.emit (node:events:521:24)\n    at addChunk (node:internal/streams/readable:563:12)\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)"
+      }
+    }
+  },
+  {
+    "eventId": "4c25b279-872c-4fdb-ab40-c8c2b2408be1",
+    "sequence": 10,
+    "at": 1793093874809,
+    "source": "adapter-event:output",
+    "event": {
+      "kind": "output",
+      "content": "ACP session/prompt failed: Internal error: quota exhausted (-32603)",
+      "messageType": "error",
+      "messageId": "3642a7fa-5d07-48b5-af13-fa28c913bf66",
+      "timestamp": 1793093874763,
+      "metadata": {
+        "source": "acp-send-input",
+        "transport": "acp",
+        "adapter": "opencode-acp",
+        "adapterGeneration": 1
+      }
+    },
+    "raw": {
+      "payload": {
+        "id": "3642a7fa-5d07-48b5-af13-fa28c913bf66",
+        "timestamp": 1793093874763,
+        "type": "error",
+        "content": "ACP session/prompt failed: Internal error: quota exhausted (-32603)",
+        "metadata": {
+          "source": "acp-send-input",
+          "transport": "acp",
+          "adapter": "opencode-acp"
+        }
+      }
+    }
+  },
+  {
+    "eventId": "e800ac50-11c4-4c82-9d23-134928351241",
+    "sequence": 14,
+    "at": 1793093949762,
+    "source": "adapter-event:output",
+    "event": {
+      "kind": "output",
+      "content": "ACP session/prompt failed: Internal error: quota exhausted (-32603)",
+      "messageType": "error",
+      "messageId": "90231456-4b6b-461f-8096-ec0efef74b5b",
+      "timestamp": 1793093949761,
+      "metadata": {
+        "source": "acp-send-input",
+        "transport": "acp",
+        "adapter": "opencode-acp",
+        "adapterGeneration": 1
+      }
+    },
+    "raw": {
+      "payload": {
+        "id": "90231456-4b6b-461f-8096-ec0efef74b5b",
+        "timestamp": 1793093949761,
+        "type": "error",
+        "content": "ACP session/prompt failed: Internal error: quota exhausted (-32603)",
+        "metadata": {
+          "source": "acp-send-input",
+          "transport": "acp",
+          "adapter": "opencode-acp"
+        }
+      }
+    }
+  },
+  {
+    "eventId": "8da3a66b-873b-455a-8795-aa2240cbb940",
+    "sequence": 16,
+    "at": 1793093949765,
+    "source": "adapter-event:error",
+    "event": {
+      "kind": "error",
+      "message": "ACP session/prompt failed: Internal error: quota exhausted (-32603)",
+      "recoverable": false,
+      "turnEnding": {
+        "reason": "quota",
+        "evidence": "provider_quota_error"
+      },
+      "quota": {
+        "exhausted": true,
+        "message": "ACP session/prompt failed: Internal error: quota exhausted (-32603)"
+      }
+    },
+    "raw": {
+      "payload": {
+        "type": "error",
+        "name": "Error",
+        "message": "ACP session/prompt failed: Internal error: quota exhausted (-32603)",
+        "stack": "Error: ACP session/prompt failed: Internal error: quota exhausted (-32603)\n    at settleAcpErrorResponse (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/dist/main/cli/adapters/acp-jsonrpc-errors.js:8:19)\n    at AcpCliAdapter.handleErrorResponse (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/dist/main/cli/adapters/acp-cli-adapter.js:1154:57)\n    at AcpCliAdapter.handleMessageLine (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/dist/main/cli/adapters/acp-cli-adapter.js:1110:18)\n    at stdoutFramer.push.emitRecoverableProtocolError.limitChars.limitChars (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/dist/main/cli/adapters/acp-cli-adapter.js:1086:22)\n    at AcpNdjsonFramer.push (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/dist/main/cli/adapters/acp-ndjson-framer.js:48:17)\n    at AcpCliAdapter.handleStdoutChunk (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/dist/main/cli/adapters/acp-cli-adapter.js:1084:27)\n    at Socket.<anonymous> (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/dist/main/cli/adapters/acp-cli-adapter.js:835:18)\n    at Socket.emit (node:events:521:24)\n    at addChunk (node:internal/streams/readable:563:12)\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)"
+      }
+    }
+  }
+]

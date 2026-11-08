@@ -1,0 +1,44 @@
+{
+  "pids": [
+    {
+      "kind": "supervisor",
+      "pid": 71786,
+      "alive": false
+    },
+    {
+      "kind": "renderer",
+      "pid": 71787,
+      "alive": false
+    },
+    {
+      "kind": "electron",
+      "pid": 72426,
+      "alive": false
+    },
+    {
+      "kind": "supervisor",
+      "pid": 55701,
+      "alive": false
+    },
+    {
+      "kind": "renderer",
+      "pid": 55703,
+      "alive": false
+    },
+    {
+      "kind": "electron",
+      "pid": 55869,
+      "alive": false
+    }
+  ],
+  "ports": [
+    {
+      "port": 14862,
+      "open": false
+    },
+    {
+      "port": 9862,
+      "open": false
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "at": "2026-10-27T09:46:43.908Z",
+  "ownership": "Exact session.directory equals this task scratch directory",
+  "receipts": [
+    {
+      "id": "ses_e834d5ef4ffeTlLLTWhEUv0FWS",
+      "exitCode": 0
+    },
+    {
+      "id": "ses_e834d25b9ffeDtHOUGoWJ04xCh",
+      "exitCode": 0
+    },
+    {
+      "id": "ses_e83480abeffedvhTfWMR4YjZ0N",
+      "exitCode": 0
+    }
+  ],
+  "remainingOwnedNativeSessions": 0
+}

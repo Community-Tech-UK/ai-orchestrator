@@ -1,0 +1,26 @@
+{
+  "at": "2026-10-27T10:01:14.833566+00:00",
+  "removed": [
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/node_modules",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/dist",
+    "/tmp/aio-lt-queue-d161bedf",
+    "/var/folders/0n/fs5yys3d0vg0c838h75hyrm00000gn/T/mimo-account-continuity-7Fe8Wv",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/_scratch/mimo-r2"
+  ],
+  "originalDependencyLayoutRestored": true,
+  "installOwner": "/Users/suas/work/orchestrat0r/ai-orchestrator",
+  "ports": [
+    {
+      "port": 14862,
+      "open": false
+    },
+    {
+      "port": 9862,
+      "open": false
+    }
+  ],
+  "sharedInstallsAndCachesPreserved": true,
+  "noAppLeftRunning": true,
+  "cleanupRetry": "First deletion found a newly present .DS_Store only; removed that known metadata file and completed cleanup",
+  "processEnumeration": "ps was denied; owned PID and port checks were used, not a claim of whole-machine enumeration"
+}

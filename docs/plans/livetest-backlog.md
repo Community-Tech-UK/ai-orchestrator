@@ -974,3 +974,95 @@ reproduced. Neither check was blocked, and none of the six needs James.
 This document was created after the 2026-09-06 43-document baseline, so it does not change that
 historical baseline's `43 / 169 / 93` figures. Open-check count unchanged at 2 — every item ran, and
 they stay open only until the six defects are fixed and the failing items re-run.
+
+
+### Addendum — 2026-10-27 (MiMo multi-account queue live run)
+
+[MiMo multi-account](2026-10-10-mimo-multi-account_livetest.md):
+**1 passed / 2 failed / 5 partial or prerequisite-limited** across all eight checks.
+
+- Seeded Settings acceptance passes in a rebuilt, isolated worktree dev app. The previous
+  blanket claim that local renderer checks require James is superseded by actual CDP evidence.
+- Both existing MiMo credentials are present locally, but actual requests on each return
+  HTTP 429 `quota exhausted`. Automatic B → A handoff keeps the same process and native Low
+  effort; successful continuation/tool history and independent allowance consumption remain open.
+- **LT-1008 (P2):** both live session account selects initially select the first account while
+  their visible labels and backend correctly identify the second account.
+- **LT-1009 (P1):** after a real A → B in-place switch, immediate hibernate/wake restores A.
+  A separate no-turn control reproduces it, so this is independent of the quota failure.
+- Windows and its Browser Gateway channel are connected. Read-only diagnostics find Node and
+  OpenCode installed but zero worker credentials. A real remote MiMo request is refused with
+  `cli_not_signed_in`; positive execution and automatic-switch cases require worker sign-ins.
+- The existing Windows console tab is signed in, but Token Plan navigation stopped at a real
+  Browser Gateway credential/manual challenge. Per-account allowance and compensation/race
+  cases remain untested; no blanket new-subscription or worker-deployment request was inferred.
+- The real 429 body and ACP wording were retained without credentials and added to detector
+  fixtures. Captured adapter errors retain wording/quota classification, not HTTP status/body;
+  native OpenCode message data supplied those fields. Full ledger-field acceptance stays partial.
+- All test app sessions and the remote diagnostic helper were terminated; no commits, deployment,
+  worker restart or live-test completion rename. The root-owned untracked follow-up plan is
+  `2026-10-27-mimo-account-state-remediation_plan.md`; the queue verifier owns closure.
+
+Verification: focused fixture, typechecks, lint and both builds pass. The full suite remains
+red on the unchanged dependency-install check (root-linked install has different manifests),
+reproduced in isolation, and reports an additional source-map parse error. No green full-suite
+claim is made; the owning report retains exact receipts.
+
+This is a newer document than the historical 43-document baseline; those historical totals
+are unchanged. Per-check detail and receipts live with the owning document, not this rollup.
+
+#### Verifier follow-up — 2026-10-27 (round 1)
+
+LT-1008 and LT-1009 are repaired and pass their originating live controls. Header/composer
+both select B after loading, and immediate hibernate/wake keeps B and Low effort. New
+delayed-select, disk-backed real lifecycle, respawn persistence and refusal controls pass;
+they fail on the original implementation. Independent initial review finds no actionable
+code defects. Branch-owned [DOM](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/chips-ready.json)
+and [wake](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/wake.json)
+receipts now resolve in the item branch, without copying the root source document or active plan.
+
+The campaign stays open: repeat real B → A handoff keeps the same process/native Low setting,
+but both accounts still return 429 quota exhausted. The Windows diagnostic again finds zero
+credentials, and actual remote admission again refuses before spawn. Navigation approval is
+now satisfied; the available console shows 100.0% usage, but only one authenticated usage
+session is available and its A/B identity is unproven. The two-account allowance and successful
+tool-history cases remain unverified. No subscription, identity, deployment or restart action
+has been inferred from the old prerequisites.
+
+LT-1010 now explicitly owns upstream HTTP status/body missing from the capture ledger, with
+source trace and acceptance criteria; native-store evidence is kept separate. Active repair
+planning stays untracked in the root checkout. A lockfile-exact worktree install resolves the
+dependency-compatibility failure. The extra map error has a concrete reproduction in two
+vendor `tsx` bundles, retained in the [parser receipt](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/source-map-scan.json).
+Final full-suite outcome is **FAIL**: two unchanged 150 ms finality controls fail under the
+full run, pass alone without edits, and the source-map error repeats. LT-1011 now owns the
+parser/toolchain defect; its full-run generating stack remains unknown. The independent
+review returns **FAIL overall, no actionable MiMo code findings**. No full-suite pass or
+campaign completion is claimed. Cleanup outcomes are retained with the receipts; no
+completion rename is made by the worker.
+
+#### Verifier follow-up — 2026-10-27 (round 2)
+
+**1 of 8 checks passes; checks 2–8 remain open.** Quota-limited successful turns and history,
+Windows-local sign-ins, two independently associated usage sessions and LT-1010's exact
+capture fields have not acquired passing evidence. The available Windows console was
+reread and still shows 100.0% usage; its account identity remains unproven. No new
+subscription, credential disclosure, worker restart or deployment is authorised by a readiness
+decision. Technical prerequisites are not relabelled as James-only work.
+
+The original seeded Settings receipts now also exist in the item worktree, byte-identical
+to the root observations. Historical command `.log` receipts cited by the follow-up now have
+Git-visible `.txt` copies. The
+[retention manifest](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r3/evidence-retention.json)
+maps every copied path and content hash; historical evidence and seals remain unchanged.
+
+Focused MiMo regressions pass again. A new isolated native-finality test run fails its
+final-written assertion in `partial-unpaused`, so the separate failure is now registered as
+[LT-1012](livetest-remediation-register.md#lt-1012), with exact observation, diagnostic limits,
+owner and acceptance. The earlier full-suite FAIL remains in force; neither an isolated
+pass nor receipt repair makes that gate green. The coordinator must keep this item open.
+
+The final explicit-cache-disabled targeted run again passes all five MiMo files and fails
+two native-finality assertions (missing marker and native error replaced by timeout).
+Current main typecheck/build and a new focus-emulated live Settings repeat pass. No
+production or test code changed in this follow-up. The full canonical suite was not repeated.

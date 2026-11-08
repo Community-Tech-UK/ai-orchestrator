@@ -1,0 +1,13 @@
+{
+  "focusEmulation": "ok",
+  "lifecycle": "ok",
+  "visibility": "{\"hidden\":false,\"visibilityState\":\"visible\"}",
+  "exception": null,
+  "value": {
+    "clicked": true,
+    "keyOrPathLike": false,
+    "hasTestA": true,
+    "hasTestB": true,
+    "text": "work\nConnections\nCopilot Accounts\nClaude, Codex & MiMo Accounts\nVoice\nRemote Nodes\nSetup\nMobile\nRemote Config\nHealth & Diagnostics\nCLI Health\nDoctor\n2 issues\nProvider Quota\nExhausted\nRTK Savings\nAdvanced\nClaude, Codex & MiMo Accounts\n\nUse several Claude, ChatGPT or MiMo subscriptions and move to the next when one hits its limit.\n\nNew sessions use the first available account in each list. Only you can change these settings; agents cannot.\n\nRefresh\nClaude\nExisting Claude account\nDefault\nExisting sign-in\nSigned in as <redacted-email>\nEnabled\nAutomatic use\nAllowed\nOnly when I pick it\nNever\nSign in again\nCheck sign-in\nCopy sign-in command\nRename\nAdd account\n\nAdding an account copies a sign-in command for you to paste in your own terminal.\n\nAdd a second Claude account to choose what happens when one hits its limit.\n\nCodex\nExisting Codex account\nDefault\nExisting sign-in\nSigned in\nEnabled\nAutomatic use\nAllowed\nOnly when I pick it\nNever\nSign in again\nCheck sign-in\nCopy sign-in command\nRename\nAdd account\n\nAdding an account copies a sign-in command for you to paste in your own terminal.\n\nAdd a second ChatGPT account to choose what happens when one hits its limit.\n\nMiMo\n\nNo enabled MiMo account is signed in, so new MiMo sessions cannot start.\n\nConfirm in Settings → Accounts that every MiMo account is yours before a second account can be enabled.\n\nMiMo Test A needs attention: unavailable (check-failed).\n\nMiMo Test B needs attention: unavailable (check-failed).\n\nMiMo Test B has no model metadata for xiaomi-token-plan-ams on this machine. Sign in once with `opencode auth login` for that region here; until then this account cannot start sessions.\n\n1\nMiMo Test A\nDefault\nExisting sign-in\nCoding sign-in: Could not check\nEnabled\n\nUsage sign-in\n\nNo saved usage login. Connect usage to sign in to this account’s Xiaomi console.\n\nThis is separate from coding sign-in. It lets Harness read your Token Plan usage.\n\nConnect usage\nAutomatic use\nAllowed\nOnly when I pick it\nNever\nSign in\nCopy coding sign-in command\nCheck sign-in\n↑\n↓\nRename\n2\nMiMo Test B\nCoding sign-in: Could not check\nEnabled\n\nUsage sign-in\n\nNo saved usage login. Connect usage to sign in to this account’s Xiaomi console.\n\nThis is separate from coding sign-in. It lets H"
+  }
+}

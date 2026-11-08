@@ -1,0 +1,23 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js
+
+  … 133 test file(s) done (full log: _scratch/test-run.pid-94874.log)
+  … 320 test file(s) done (full log: _scratch/test-run.pid-94874.log)
+  … 629 test file(s) done (full log: _scratch/test-run.pid-94874.log)
+  … 1103 test file(s) done (full log: _scratch/test-run.pid-94874.log)
+  … 1743 test file(s) done (full log: _scratch/test-run.pid-94874.log)
+  … 2432 test file(s) done (full log: _scratch/test-run.pid-94874.log)
+✗ 2 of 35384 tests failed in 800.9s:
+
+  ✗ src/main/orchestration/default-loop-native-finality.spec.ts › native finality 'partial-no-native-cost'
+    AssertionError: expected false to be true // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/main/orchestration/default-loop-native-finality.spec.ts:109:26
+
+  ✗ src/main/orchestration/default-loop-native-finality.spec.ts › native finality 'partial-no-final-lf'
+    AssertionError: expected false to be true // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/main/orchestration/default-loop-native-finality.spec.ts:109:26
+
+full log: _scratch/test-run.pid-94874.log
+
+✗ FAILED — 2 of 35384 tests failed (exit 1).

@@ -1,0 +1,29 @@
+{
+  "success": false,
+  "numTotalTestSuites": 8502,
+  "numPassedTestSuites": 8500,
+  "numFailedTestSuites": 1,
+  "numTotalTests": 35384,
+  "numPassedTests": 35371,
+  "numFailedTests": 2,
+  "numPendingTests": 9,
+  "failures": [
+    {
+      "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/main/orchestration/default-loop-native-finality.spec.ts",
+      "assertions": [
+        {
+          "title": "native finality 'partial-no-native-cost'",
+          "failureMessages": [
+            "AssertionError: expected false to be true // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/main/orchestration/default-loop-native-finality.spec.ts:109:26"
+          ]
+        },
+        {
+          "title": "native finality 'partial-no-final-lf'",
+          "failureMessages": [
+            "AssertionError: expected false to be true // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/src/main/orchestration/default-loop-native-finality.spec.ts:109:26"
+          ]
+        }
+      ]
+    }
+  ]
+}

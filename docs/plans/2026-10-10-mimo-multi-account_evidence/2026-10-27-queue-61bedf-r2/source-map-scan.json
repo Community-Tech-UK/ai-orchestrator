@@ -1,0 +1,13 @@
+{
+  "scanned": 49734,
+  "invalid": [
+    {
+      "file": "node_modules/tsx/dist/register-B1c7OH6V.cjs",
+      "error": "Unexpected token '�', \"�\" is not valid JSON"
+    },
+    {
+      "file": "node_modules/tsx/dist/require-CBjy4Foe.mjs",
+      "error": "Unexpected token '�', \"�\" is not valid JSON"
+    }
+  ]
+}

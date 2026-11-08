@@ -1,0 +1,9 @@
+file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/_scratch/mimo-r3/smoke.mjs:10
+const evaluate=async expression=>{await rpc('Emulation.setFocusEmulationEnabled',{enabled:true});const v=await rpc('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(v.exceptionDetails)throw Error(v.exceptionDetails.text+': '+(v.exceptionDetails.exception?.description??''));return v.result.value;};
+                                                                                                                                                                                                                     ^
+
+Error: Uncaught: SyntaxError: Invalid regular expression flags
+    at evaluate (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/_scratch/mimo-r3/smoke.mjs:10:214)
+    at async file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/_scratch/mimo-r3/smoke.mjs:16:10
+
+Node.js v26.12.1

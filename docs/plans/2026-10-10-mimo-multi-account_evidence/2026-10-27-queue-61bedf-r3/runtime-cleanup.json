@@ -1,0 +1,36 @@
+{
+  "at": "2026-10-27T10:19:38.991765+00:00",
+  "phase": "after report, receipts and pre-cleanup seal",
+  "removed": [
+    {
+      "path": "dist",
+      "existed": true,
+      "removed": true
+    },
+    {
+      "path": "/tmp/aio-lt-queue-d161bedf",
+      "existed": true,
+      "removed": true
+    },
+    {
+      "path": "_scratch/mimo-r3",
+      "existed": true,
+      "removed": true
+    },
+    {
+      "path": "_scratch/test-run.mimo-r3-cold.log",
+      "existed": true,
+      "removed": true
+    },
+    {
+      "path": "_scratch/test-results.mimo-r3-cold.json",
+      "existed": true,
+      "removed": true
+    }
+  ],
+  "dependencyInstallCreated": false,
+  "browserBinaryInstalled": false,
+  "databaseClusterCreated": false,
+  "sharedDependencyLinksPreserved": true,
+  "notes": "Only this follow-up owned paths removed. Existing test-result receipts from prior sessions and shared linked caches preserved. Electron deleted the isolated profile databases with profile cleanup."
+}

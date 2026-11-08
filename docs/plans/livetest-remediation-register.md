@@ -341,6 +341,12 @@ sections below. The historical reproduction remains unchanged.
 | LT-705 | P1 | **MACHINE REPAIR + CODE VERIFIED 2026-10-13 — gates and full suite pass, independent reviews PASS; queue re-verified 2026-10-14; packaged smoke pending.** OpenCode 1 failed in `~/work/communitytech` (`no such column: project_id`) after OpenCode 2 rebuilt the shared `workspace` table, so selection fell back to OpenCode 2, whose `acp` ignores the per-spawn overlay and lacked the second account's key. Added nullable `workspace.project_id` (backed up); selection now refuses OpenCode 2 and explains why. The install/restart prerequisite is satisfied as for LT-704; the communitytech packaged smoke remains unrun and its exact deferred procedure is recorded inline in [LT-705 detail](#lt-705-deferred-packaged-acceptance) (branch-resident) and mirrored in the untracked root-checkout [startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md). | [LT-705 detail](#lt-705) | [Plan-owned packaged checks](2026-10-13-opencode-launch-environment_livetest.md) |
 | LT-706 | P2 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); live re-check pending.** A MiMo step that spends the whole combined cap on reasoning (OpenCode `finish: "length"`, ACP `end_turn`) was classified `completed` (or `dangling_tool_result`), so the session stopped silently. LT-690's saturation check skipped empty text, judged from whole-turn text while usage covers only the final step, and the shared observation layer could not see the cap. MiMo cap raised 16384 → 32000 at James's request. | [LT-706 detail](#lt-706) | [MiMo reasoning-cap live checks](2026-10-14-mimo-reasoning-cap-cutoff_livetest.md) |
 | LT-707 | P2 | **FIXED + REGRESSION-TESTED 2026-10-24 (working tree); live cell re-run pending (Windows PC outage #5).** `finalizeScoredRun` persists the record before best-effort cleanup and `cleanupWorkspace` retries transient ENOTEMPTY/EBUSY; regression tests cover record-survives-cleanup-throw and the retry paths. Implementation status lives in [the active plan](2026-10-14-local-model-plan-execute-ab_plan.md). Original report: reproduced 2026-10-24 (benchmark campaign harness, `benchmarks/plan-execute-ab/` — experiment tooling, not app code; owned by plan 2026-10-14-local-model-plan-execute-ab).** A completed scored pilot run is discarded when workspace cleanup flakes: `runArm` calls `cleanupWorkspace` (bare `rmSync` recursive) BEFORE `appendRunRecord`, so a transient `ENOTEMPTY` (macOS removal race) lost the AIO-05 C1 run after coding, patch capture and scoring — the batch logged `run failed: ENOTEMPTY, Directory not empty` and the leftover workspace then blocks re-export (`workspace already exists`). | [LT-707 detail](#lt-707) | [Local-model plan/execute deferred checks A5/A6](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
+| LT-1008 | P2 | **REPAIRED; independent review pending, 2026-10-27.** Each delayed option binds selection; live header and composer both select B. | [Detail](#lt-1008) | [Branch-owned DOM receipt](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/chips-ready.json) |
+| LT-1009 | P1 | **REPAIRED; independent review pending, 2026-10-27.** In-place and respawn account handoffs update continuity; the live immediate wake remains on B. | [Detail](#lt-1009) | [Branch-owned wake receipt](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/wake.json) |
+| LT-1010 | P2 | **OPEN — observed 2026-10-27.** MiMo error capture retains quota wording but omits upstream HTTP status/body. Owner: provider adapter/event-capture remediation; exact retention contract and safe transport required. | [Detail](#lt-1010) | [Capture provenance](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/capture-provenance.json) |
+| LT-1011 | P2 | **OPEN — independently reproduced 2026-10-27.** Vitest's error-stack parser rejects map-like template text in the locked tsx bundles, leaving an unhandled reporting error. Owner: test-toolchain remediation; no parser suppression or test weakening. | [Detail](#lt-1011) | [Parser reproduction](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/source-map-scan.json) |
+| LT-1012 | P2 | **OPEN — reproduced again in isolation 2026-10-27.** The native-finality child-process test sometimes reaches settlement without its final-written marker. The full-suite failures and a fresh isolated failure remain red; the cause is unconfirmed. Owner: native-finality test/runtime investigation. | [Detail](#lt-1012) | [Current isolated failure](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r3/finality-isolation.txt) |
+| LT-1007 | P2 | **OPEN — observed 2026-11-08.** In a sandboxed host (queue worker), every OpenCode CLI probe exits 71 because the macOS signal-fence `sandbox-exec` wrapper cannot apply its policy. The app reports `No usable OpenCode install` and the startup panel names only hardened instances, so MiMo sessions cannot start and sign-in reads `Could not check`. Owner decision needed on the fallback policy. | [Detail](#lt-1007) | [Receipt](2026-10-10-mimo-multi-account_evidence/2026-11-08-queue-61bedf-r4/observations.md) |
 | LT-732 | P2 | **OPEN — reproduced live 2026-10-27.** A 400,219-character context-fill message stalls the Electron main loop for 153,712 ms during the RLM keyword-search fallback before provider dispatch. The app recovers and honors a queued stop; exact cause remains unproven. | [LT-732 detail](#lt-708--a-large-context-fill-send-blocks-the-main-loop-during-retrieval) | [Compaction reliability round 2](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-verifier-round-2) |
 | LT-733 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-733 detail](#lt-715--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-708 | P1 | **OPEN — reproduced live 2026-10-27.** A non-YOLO Claude session consuming a warm adapter has no defer hook. The genuine CLI error `This command requires approval` is not recognised as a permission denial, so the session becomes idle without an approval card. A fresh adapter shows the deferred-permission card for the same harmless command. | [LT-708 detail](#lt-708) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-plan-queue-worker) |
@@ -10461,6 +10467,54 @@ scoring".
 - The AIO-05 C1 cell is re-run and recorded normally after the fix; the benchmark suite and the
   canonical static gates stay green.
 
+
+<a id="lt-1008"></a>
+
+## LT-1008 — session account dropdown initially selects a different account from its chip
+
+_Renumbered from LT-710 on 2026-11-08 during the merge with main, which already uses LT-710 for another defect. The 2026-10-27 receipts keep the original number._
+
+### Observed behaviour
+
+2026-10-27, live worktree dev app, focus emulation enabled and `document.hidden === false`.
+A real OpenCode/MiMo session was explicitly created on `comtechspare-f7a6` (label MiMo Test B).
+After both chips finished loading their two options, the header and composer each displayed
+MiMo Test B. Their component inputs, `currentProfileId()` and `selectedValue()` all held
+`comtechspare-f7a6`, but each actual `HTMLSelectElement.value` was `legacy` and its first
+option (MiMo Test A) had `selected === true`. A second read confirmed the mismatch.
+After the subsequent real automatic switch to legacy, the selects agreed with that new value.
+Evidence: owning live-test document's 2026-10-27 run; `select-session.js.result.json` in its evidence
+receipts. This is a rendered control-state defect; the actual backend account was B.
+
+### Root cause
+
+`src/renderer/app/shared/components/provider-account-chip.component.ts` binds the select's
+`[value]` before the asynchronous account-list response creates its `@for` options. The
+selected value is computed only from the session input and does not change when the options
+arrive, so Angular does not write it again and the browser selects the first new option.
+The live component signal/DOM mismatch confirms this execution path in both placements.
+
+### Required behaviour
+
+After accounts load or change order, the actual select must select the current account in
+both header and composer. The visible label, keyboard selection and submitted account must
+agree; merely assigning the DOM value in a live-test script is not a repair.
+
+### Acceptance
+
+- A meaningful delayed-account-list component regression starts on a non-first account and
+  checks the native select's `value` and selected option after options appear.
+- Live recreation of the MiMo session on its second account shows both selects on that account.
+- Existing explicit switching, ownership confirmation/cancellation, draft and continuation
+  selection behaviours remain intact, with the usual project gates and fresh independent review.
+
+Implementation status, verifier follow-up 2026-10-27: option-level selected binding repairs
+delayed creation in draft, session and continuation modes. The added delayed-list regressions
+fail on the original implementation. Actual header/composer selected values now match B
+([DOM receipt](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/chips-ready.json)).
+Independent review and the overall live-test campaign remain open.
+The closed 2026-07-19 remediation plan remains untouched; new work is tracked in
+`2026-10-27-mimo-account-state-remediation_plan.md` in the root checkout.
 <a id="lt-780"></a>
 
 ## LT-780 — documented Copilot account CLI reads double-wrap the authenticated request
@@ -10679,7 +10733,248 @@ verification gates for the eventual repair.
 `id-992-allocation.receipt.json` records the valid all-checkout uniqueness search.
 
 
-<a id="lt-711"></a>
+<a id="lt-1009"></a>
+
+## LT-1009 — hibernate/wake silently restores the previous MiMo account after a switch
+
+_Renumbered from LT-711 on 2026-11-08 during the merge with main, which already uses LT-711 for another defect. The 2026-10-27 receipts keep the original number._
+
+### Observed behaviour
+
+2026-10-27, isolated live dev app. A dedicated control session `id2cvg6uq` started idle on
+legacy (Test A), PID 58156, Low reasoning. Explicit switching to `comtechspare-f7a6`
+(Test B) succeeded in place with the same PID. A read before hibernation confirmed Test B;
+the hibernated instance still stamped Test B. `wakeInstance` returned success, but the
+ready instance had account `legacy` again (new PID 58319). No user prompt or provider turn
+was sent by this control, so quota refusal cannot explain the account change. The original
+real-turn session also reverted to legacy after a switch back to B and hibernate/wake.
+Raw per-step evidence: `wake-account-control.js.result.json` in the owning live-test evidence.
+
+### Root cause
+
+The executed wake path in `instance-lifecycle.ts` calls `resumeSession` and
+`restoreAccountStamp(instance, sessionState)`. `hibernateInstance` calls `startTracking`
+then `stopTracking`, but `session-continuity.ts:startTracking` returns immediately for an
+already tracked instance, preserving its old snapshot. The account-only live handoff changes
+the instance stamp (`runtime-reconciler-account-handoff.ts:tryAccountSwitchInPlace` →
+`applyAccountHandoff`) without writing the new stamp through to continuity. The reconciler's
+nearby explicit continuity account update is inside `if (isProviderSwap)`, so it does not
+cover an account-only switch. The live before/sleeping/after values demonstrate that the
+stale restore is on this path, not merely an unused helper.
+
+### Required behaviour
+
+A successful account switch must survive hibernation and wake, including an immediate wake
+before any provider turn. Preserve current account, logical model, effort and shared history.
+If the account cannot be admitted, report the problem rather than silently selecting the old
+one. Never require a successful paid model turn to persist an already confirmed account change.
+
+### Acceptance
+
+- A real lifecycle regression starts on A, switches in place to B, hibernates immediately and
+  wakes; the executing adapter, instance and continuity snapshot all remain on B.
+- Cover account-only respawn handoff as well as in-place handoff; preserve failed-switch rollback.
+- Re-run originating live checks 2 and 5, the canonical project gates and fresh independent review.
+
+Implementation status, verifier follow-up 2026-10-27: successful live account switches update
+the tracked account stamp and write through under the existing session mutex before success
+publication. Account-only respawns use the existing provider/account continuity update, while
+only provider changes clear the old native cursor. The new real lifecycle regression drives
+in-place handoff, actual hibernate and actual wake with disk-backed continuity and prior history.
+It fails on the original implementation. Respawn persistence and rejected-admission controls
+also run. The [live no-turn control](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/wake.json)
+keeps B, Low effort and the logical model after wake. Successful paid history continuation
+remains a separate external-allowance requirement. Independent review is pending. Active work belongs to
+`2026-10-27-mimo-account-state-remediation_plan.md`, not the closed July remediation plan.
+
+<a id="lt-1010"></a>
+
+## LT-1010 — MiMo capture omits upstream HTTP status and response body
+
+_Renumbered from LT-712 on 2026-11-08 during the merge with main, which already uses LT-712 for another defect. The 2026-10-27 receipts keep the original number._
+
+### Observed behaviour
+
+The 2026-10-27 campaign's real MiMo quota refusal is recorded in `provider_event_captures`
+with the ACP error text and quota classification, but without HTTP 429 or the upstream
+`limitation` response body. Those fields were recoverable only from OpenCode's native store.
+The earlier document explicitly reported this limitation but did not assign remediation.
+The branch-owned capture-provenance receipt records the observation and source trace.
+
+### Root cause
+
+`acp-jsonrpc-errors.ts:settleAcpErrorResponse` creates an Error from ACP code/message only;
+upstream response data is not carried by that error. `provider-event-raw-payload.ts` projects
+Error to name/message/stack/cause, and the turn-error capture separately allows statusCode
+only when already attached to the Error. The capture layer cannot invent HTTP fields that
+OpenCode never forwards over ACP. Direct native-store evidence is not capture-ledger evidence.
+
+### Required behaviour and owner
+
+Owner: provider adapter/event-capture remediation, tracked in the active root-owned
+`2026-10-27-mimo-account-state-remediation_plan.md` LT-1010 section. Establish what the
+installed OpenCode ACP actually supplies. Preserve safely redacted status/body when supplied;
+otherwise expose unavailable provenance explicitly and choose a supported upstream transport
+before promising raw HTTP retention. Never read arbitrary vendor stores on every error or
+copy credentials, request headers or unredacted payloads into captures.
+
+### Acceptance
+
+- Capture an actual MiMo refusal with recordProviderEvents on; retain the exact received ACP
+  envelope and distinguish its fields from native HTTP evidence.
+- A fixture verifies supplied structured status/body survive error projection and redaction.
+- When ACP omits HTTP fields, diagnostics state that they are unavailable rather than
+  fabricating them. Resolve check 8's exact ledger-field requirement before closure.
+- Canonical verification and independent review pass. This limitation remains open; the
+  observed wording fixture alone does not close it.
+
+<a id="lt-1011"></a>
+
+## LT-1011 — Vitest stack reporting rejects tsx bundle map-like template text
+
+_Renumbered from LT-713 on 2026-11-08 during the merge with main, which already uses LT-713 for another defect. The 2026-10-27 receipts keep the original number._
+
+### Observed behaviour
+
+Both the original linked-install campaign and the verifier follow-up's lockfile-exact local
+install report an unhandled `Unexpected token` replacement-character JSON parse error in
+`convert-source-map` via Vitest `extractSourcemapFromFile` / `parseErrorStacktrace`.
+The follow-up's full suite exits 1. The dependency-compatibility check now passes; this
+additional error remains independent of the install-marker mismatch.
+
+### Root cause and limits of diagnosis
+
+Running the same installed convert-source-map parser directly against installed source
+reproduces the exact error for `tsx/dist/register-B1c7OH6V.cjs` and
+`tsx/dist/require-CBjy4Foe.mjs`. The map-like template text is interpreted as an inline
+base64 JSON source map. Both bundles have identical hashes in the linked root install and
+the fresh worktree install. Vitest's stack updater reparses stacks before attaching them;
+an exception here loses the original error attribution. The full JSON report does not name
+the originating stack, so the generating test has not been established. Seven candidate
+tsx/cjs child-process suites pass independently without this runner error. Do not claim
+that the vendor parser reproduction alone identifies the suite-level trigger.
+
+### Required behaviour and owner
+
+Owner: test-toolchain remediation, tracked in the active root-owned
+`2026-10-27-mimo-account-state-remediation_plan.md` LT-1011 section. Stack reporting must
+preserve the original error and test attribution without misreading template text as a map.
+Use a supported toolchain repair once its actual triggering path is isolated; do not patch
+node_modules, suppress unhandled errors, remove assertions or exclude a test to turn green.
+
+### Acceptance
+
+- Identify and retain the generating stack/test with a deterministic focused reproduction.
+- Verify the supported fix preserves original errors and valid source maps.
+- Run the unfiltered canonical full suite and independent review successfully.
+- Until then, retain the red full-suite receipt. The separate two 150 ms finality controls
+  failed under the full run and passed 8/8 alone; their cause is not asserted from timing alone.
+
+<a id="lt-1012"></a>
+
+## LT-1012 — native-finality child-process test settles before its final-written marker
+
+_Renumbered from LT-714 on 2026-11-08 during the merge with main, which already uses LT-714 for another defect. The 2026-10-27 receipts keep the original number._
+
+### Observed behaviour
+
+The 2026-10-27 full suite failed `partial-no-native-cost` and `partial-no-final-lf` at
+`src/main/orchestration/default-loop-native-finality.spec.ts:109`: `finalWritten` was false.
+An immediate isolated run then passed all eight tests without edits. Retained original
+[full-suite output](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/full-suite.txt)
+and [isolated output](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/timeout-isolation.txt)
+preserve both outcomes.
+
+A fresh round-2 follow-up isolated run at 10:08 UTC, with one worker and no source edits,
+failed `partial-unpaused` at that same assertion. See the
+[new failure](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r3/finality-isolation.txt)
+and [command receipt](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r3/commands.jsonl).
+This disproves a claim that it only fails in the full suite. It does not establish a
+paid-provider or MiMo defect. No stress workload or deliberate machine saturation was used.
+
+### Root cause and limits of diagnosis
+
+Unconfirmed. The test starts a real Node child, uses a 150 ms adapter/iteration timeout
+and 25 ms activity timeout, and schedules the child's final result 25 ms after its initial
+output write. The final-written observation is a separate stderr event. The test expects
+the child to be killed with SIGKILL and the marker to have been observed before settlement.
+The receipts prove the missing marker, not whether the child failed to write, was killed
+before writing, or wrote data whose observer did not run. The historical isolated pass is
+not proof of host overload; the current isolated failure is retained rather than retried green.
+LT-1011 owns the independent source-map reporting error.
+
+The final round-2 focused run explicitly uses the documented `AIO_TEST_NO_CACHE=1` and
+one worker. All five MiMo files pass; native finality fails `partial-no-native-cost` at
+line 109 and `partial-native-error` at line 116 (expected the native execution error,
+received `Claude CLI timeout`). Its
+[raw targeted output](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r3/targeted-cold-raw.txt)
+and JSON report retain both assertions. These are unresolved observations, not proof of
+a shared cause. Historical `AIO_TEST_CACHE=0` receipts did not explicitly disable cache;
+this runner reads `AIO_TEST_NO_CACHE`, as documented in `scripts/run-tests-quiet.js`.
+
+### Required behaviour and owner
+
+Owner: native-finality test/runtime investigation, tracked in the active root-owned
+`2026-10-27-mimo-account-state-remediation_plan.md` LT-1012 section. Separate child startup,
+timer expiry, result write, stderr delivery and process close with bounded diagnostics.
+Repair the demonstrated cause while keeping real timeout, terminal usage, process-close
+and cost-accounting acceptance. Do not remove the assertion, increase timeouts without
+evidence, suppress the failure, or declare a full-suite pass from isolated results.
+
+### Acceptance
+
+- Retain the original failing command, assertion and both isolated outcomes.
+- Establish the event ordering with a deterministic focused reproduction under ordinary load.
+- Verify the repair still catches incomplete final results and preserves native cost/usage,
+  error, no-final-newline, paused/unpaused output and refused-before-spawn controls.
+- Obtain an unfiltered canonical full-suite pass and fresh independent review before closure.
+  The current full-suite result remains FAIL; registration does not close this defect.
+
+<a id="lt-1007"></a>
+
+## LT-1007 — signal-fence failure in a sandboxed host is reported as a missing OpenCode CLI
+
+### Observed behaviour
+
+On 2026-11-08 the isolated dev app, launched from a queue worker shell that is itself
+sandboxed, could not start any OpenCode session. Opening a MiMo session with the OpenCode
+provider logged `Requested CLI not available, falling back to auto` and created a Claude
+session instead. The OpenCode install probe logged `No usable OpenCode install { candidates: 3,
+unknownVersion: 3 }`, and both MiMo account rows in Settings read `Coding sign-in: Could not
+check`. The startup panel said only `Hardened mode (Seatbelt): sandbox-exec probe failed —
+hardened instances will refuse to spawn.` Retained redacted receipts:
+[observations](2026-10-10-mimo-multi-account_evidence/2026-11-08-queue-61bedf-r4/observations.md)
+and [log slice](2026-10-10-mimo-multi-account_evidence/2026-11-08-queue-61bedf-r4/app-probe-log-slice.txt).
+
+Reproduced outside the app: the fenced command `sandbox-exec -p <signal-fence policy> -- opencode --version`
+prints `sandbox_apply: Operation not permitted` and exits 71. The same CLI without the wrapper
+prints its version and exits 0.
+
+### Root cause
+
+`src/main/cli/adapters/opencode-effective-budget-config.ts` (`runOpenCodeCapture`) spawns with
+`stdio: ['ignore', 'pipe', 'ignore']`, so the wrapper's stderr is discarded. The fence is applied
+to every non-hardened spawn by default (`src/main/sandbox/signal-fence.ts` `applySignalFence`, enabled
+when `/usr/bin/sandbox-exec` exists). The probe in `opencode-cli-launch.ts` treats a non-zero
+exit as an unknown version, so a fence that cannot be applied looks like a broken CLI. The startup
+check describes only hardened instances, although ordinary provider CLI spawns are refused too.
+
+### Required behaviour and owner
+
+Owner: provider CLI launch and sandbox diagnostics. When the fence cannot be applied, the probe
+must keep the wrapper's failure reason, and the startup check must state the real impact (ordinary
+CLI spawns refused, not only hardened ones). Choosing between refusing those spawns and an explicit,
+visible unfenced fallback changes a safety boundary. That is an owner decision, not a routine fix.
+The provider-level setting `providerSignalFenceEnabled` is read-only for agents and was not changed.
+
+### Acceptance
+
+- A unit test where the wrapper exits 71 with `sandbox_apply` on stderr yields a probe result that
+  carries that reason, and the startup check names ordinary CLI spawns.
+- A live run from a sandboxed queue worker shows the reason in diagnostics, and a MiMo session
+  either starts under the owner-chosen policy or refuses with that reason.
+- Canonical verification and independent review pass. This defect stays open until the owner
+  decides the fallback policy.
 
 ## LT-711 — historical Cursor empty-completed failure reports lack correction evidence
 

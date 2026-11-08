@@ -1,0 +1,12 @@
+[
+  {
+    "file": "node_modules/tsx/dist/register-B1c7OH6V.cjs",
+    "worktreeSHA256": "dcda008e1b6774abe04d6e7f0c783804e88046691c44615510b628167e5e5179",
+    "linkedRootSHA256": "dcda008e1b6774abe04d6e7f0c783804e88046691c44615510b628167e5e5179"
+  },
+  {
+    "file": "node_modules/tsx/dist/require-CBjy4Foe.mjs",
+    "worktreeSHA256": "b1156f2ecff29ef55801df8f4e1d9b34a5eae32e04dfcf3b8c2557fe191264c2",
+    "linkedRootSHA256": "b1156f2ecff29ef55801df8f4e1d9b34a5eae32e04dfcf3b8c2557fe191264c2"
+  }
+]

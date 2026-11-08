@@ -1,0 +1,42 @@
+  error: 'Failed to parse Cursor model list (exit 71): sandbox-exec: sandbox_apply: Operation not permitted'
+    'Stderr: sandbox-exec: sandbox_apply: Operation not permitted\n'
+[2026-11-08T00:31:07.347Z] [WARN] [OpenCodeCliLaunch] No usable OpenCode install { candidates: 3, unknownVersion: 3, unsupported: 0, unreadable: 0 }
+[2026-11-08T00:31:07.392Z] [WARN] [OpenCodeCliLaunch] No usable OpenCode install { candidates: 3, unknownVersion: 3, unsupported: 0, unreadable: 0 }
+[2026-11-08T00:31:35.676Z] [INFO] [Bootstrap] Bootstrapping: Startup capability probe [infrastructure] 
+[2026-11-08T00:31:35.735Z] [WARN] [OpenCodeCliLaunch] No usable OpenCode install { candidates: 3, unknownVersion: 3, unsupported: 0, unreadable: 0 }
+[2026-11-08T00:31:36.428Z] [WARN] [Seatbelt] Seatbelt probe failed {
+  error: 'Command failed: /usr/bin/sandbox-exec -p (version 1)(allow default) /usr/bin/true\n' +
+    'sandbox-exec: sandbox_apply: Operation not permitted\n'
+[2026-11-08T00:31:36.428Z] [INFO] [CapabilityProbe] Startup capability probe completed {
+    { id: 'subsystem.sandbox', status: 'unavailable' }
+[2026-11-08T00:31:36.428Z] [INFO] [Bootstrap] Bootstrapped: Startup capability probe 
+[2026-11-08T00:31:37.854Z] [WARN] [OpenCodeCliLaunch] No usable OpenCode install { candidates: 3, unknownVersion: 3, unsupported: 0, unreadable: 0 }
+[2026-11-08T00:31:37.854Z] [WARN] [ProviderAccountBinding] Account binding check failed { provider: 'opencode', profileId: 'legacy', code: undefined }
+[2026-11-08T00:31:37.911Z] [WARN] [OpenCodeCliLaunch] No usable OpenCode install { candidates: 3, unknownVersion: 3, unsupported: 0, unreadable: 0 }
+[2026-11-08T00:31:37.912Z] [WARN] [ProviderAccountBinding] Account binding check failed {
+[2026-11-08T00:32:30.305Z] [WARN] [AdapterFactory] Requested CLI not available, falling back to auto { requestedType: 'opencode', cliType: 'opencode' }
+[2026-11-08T00:32:30.518Z] [INFO] [InstanceLifecycle] CLI spawned successfully { pid: 36439, instanceId: 'i4d05t9tf' }
+[2026-11-08T00:32:30.528Z] [INFO] [InstanceCommunication] Instance exited unexpectedly { instanceId: 'i4d05t9tf', newStatus: 'error', code: 71, signal: null }
+[2026-11-08T00:32:56.786Z] [WARN] [OpenCodeCliLaunch] No usable OpenCode install { candidates: 3, unknownVersion: 3, unsupported: 0, unreadable: 0 }
+[2026-11-08T00:32:56.787Z] [WARN] [ProviderAccountBinding] Account binding check failed { provider: 'opencode', profileId: 'legacy', code: undefined }
+[2026-11-08T00:32:56.817Z] [WARN] [OpenCodeCliLaunch] No usable OpenCode install { candidates: 3, unknownVersion: 3, unsupported: 0, unreadable: 0 }
+[2026-11-08T00:32:56.817Z] [WARN] [ProviderAccountBinding] Account binding check failed {
+[2026-11-08T00:33:06.420Z] [WARN] [OpenCodeCliLaunch] No usable OpenCode install { candidates: 3, unknownVersion: 3, unsupported: 0, unreadable: 0 }
+[2026-11-08T00:34:06.401Z] [WARN] [OpenCodeCliLaunch] No usable OpenCode install { candidates: 3, unknownVersion: 3, unsupported: 0, unreadable: 0 }
+[2026-11-08T00:34:06.402Z] [WARN] [ProviderAccountBinding] Account binding check failed { provider: 'opencode', profileId: 'legacy', code: undefined }
+[2026-11-08T00:34:06.435Z] [WARN] [OpenCodeCliLaunch] No usable OpenCode install { candidates: 3, unknownVersion: 3, unsupported: 0, unreadable: 0 }
+[2026-11-08T00:34:06.436Z] [WARN] [ProviderAccountBinding] Account binding check failed {
+[2026-11-08T00:35:06.413Z] [WARN] [OpenCodeCliLaunch] No usable OpenCode install { candidates: 3, unknownVersion: 3, unsupported: 0, unreadable: 0 }
+[2026-11-08T00:35:06.769Z] [WARN] [OpenCodeCliLaunch] No usable OpenCode install { candidates: 3, unknownVersion: 3, unsupported: 0, unreadable: 0 }
+[2026-11-08T00:35:06.769Z] [WARN] [ProviderAccountBinding] Account binding check failed { provider: 'opencode', profileId: 'legacy', code: undefined }
+[2026-11-08T00:35:06.810Z] [WARN] [OpenCodeCliLaunch] No usable OpenCode install { candidates: 3, unknownVersion: 3, unsupported: 0, unreadable: 0 }
+[2026-11-08T00:35:06.810Z] [WARN] [ProviderAccountBinding] Account binding check failed {
+[2026-11-08T00:35:52.389Z] [WARN] [OpenCodeCliLaunch] No usable OpenCode install { candidates: 3, unknownVersion: 3, unsupported: 0, unreadable: 0 }
+[2026-11-08T00:35:52.389Z] [WARN] [ProviderAccountBinding] Account binding check failed { provider: 'opencode', profileId: 'legacy', code: undefined }
+[2026-11-08T00:35:52.433Z] [WARN] [OpenCodeCliLaunch] No usable OpenCode install { candidates: 3, unknownVersion: 3, unsupported: 0, unreadable: 0 }
+[2026-11-08T00:35:52.434Z] [WARN] [ProviderAccountBinding] Account binding check failed {
+    'Stderr: sandbox-exec: sandbox_apply: Operation not permitted\n'
+  error: 'Failed to parse Cursor model list (exit 71): sandbox-exec: sandbox_apply: Operation not permitted'
+[2026-11-08T00:36:05.532Z] [WARN] [OpenCodeCliLaunch] No usable OpenCode install { candidates: 3, unknownVersion: 3, unsupported: 0, unreadable: 0 }
+[2026-11-08T00:36:07.734Z] [WARN] [OpenCodeCliLaunch] No usable OpenCode install { candidates: 3, unknownVersion: 3, unsupported: 0, unreadable: 0 }
+    '--no-sandbox',

@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-27T10:11:07.734Z",
+  "computer": "windows-pc",
+  "snapshotAuditId": "1a4050e4-11c9-4bc8-953d-70beefda8603",
+  "plan": "Max Monthly Plan",
+  "usedPercent": 100,
+  "currentUsage": "82,015,973,228 / 82,000,000,000",
+  "validUntil": "2026-11-10 23:59:59 UTC",
+  "identityMapping": "not established for either account",
+  "mimoTabCount": 1,
+  "mimoProfiles": 1,
+  "sourceUrl": "https://platform.xiaomimimo.com/console/plan-manage",
+  "secretFieldsRetained": false
+}

@@ -1,0 +1,111 @@
+{
+  "hidden": false,
+  "url": "http://localhost:14862/settings?tab=provider-accounts",
+  "componentFound": true,
+  "headings": [
+    "Work",
+    "Settings",
+    "Settings",
+    "Automation",
+    "Agents",
+    "Knowledge",
+    "Code",
+    "Monitoring",
+    "Integrations",
+    "Storage",
+    "Claude, Codex & MiMo Accounts",
+    "Claude",
+    "Codex",
+    "MiMo",
+    "Other providers",
+    "Help & tips",
+    "Remote Terminal"
+  ],
+  "settingsText": "MiMo\n\nConfirm in Settings → Accounts that every MiMo account is yours before a second account can be enabled.\n\n1\nMiMo Test A\nDefault\nExisting sign-in\nCoding sign-in: Signed in\nEnabled\n\nUsage sign-in\n\nNo saved usage login. Connect usage to sign in to this account’s Xiaomi console.\n\nThis is separate from coding sign-in. It lets Harness read your Token Plan usage.\n\nConnect usage\nAutomatic use\nAllowed\nOnly when I pick it\nNever\nSign in again\nCheck sign-in\nCopy coding sign-in command\n↑\n↓\nRename\n2\nMiMo Test B\nCoding sign-in: Signed in\nEnabled\n\nUsage sign-in\n\nNo saved usage login. Connect usage to sign in to this account’s Xiaomi console.\n\nThis is separate from coding sign-in. It lets Harness read your Token Plan usage.\n\nConnect usage\nAutomatic use\nAllowed\nOnly when I pick it\nNever\nSign in again\nCheck sign-in\nCopy coding sign-in command\n↑\n↓\nRename\nRemove\nEurope (token-plan-ams)\nSingapore (token-plan-sgp)\nChina (token-plan-cn)\nAdd account\n\nAdding an account copies a sign-in command for you to paste in your own terminal.\n\nAfter adding a MiMo account, use Connect usage to sign in to its Xiaomi console separately.\n\nWhen an account hits its limit\n\nBefore a second MiMo account can be enabled, confirm that every account in this list is a MiMo Token Plan subscription you personally pay for, and that you understand Xiaomi may still apply its own usage policies to how the accounts are used.\n\nI confirm these are my own accounts\nSwitching\nMove to the next account automatically\nTell me and let me switch\nWait for the limit to reset\nConversation after a switch\nResume the same session (shared history)\nStart a fresh session with the transcript\nSwitch before the limit\nTreat an account as nearly used up at\n% of its usage allowance\nStart new sessions on another account\nAlso move running sessions between turns\nWait at least\nminutes before switching the same session again",
+  "accounts": [
+    {
+      "label": "MiMo Test A",
+      "order": "1",
+      "state": "Coding sign-in:  Signed in",
+      "buttons": [
+        {
+          "label": "Connect usage",
+          "disabled": false
+        },
+        {
+          "label": "Sign in again",
+          "disabled": false
+        },
+        {
+          "label": "Check sign-in",
+          "disabled": false
+        },
+        {
+          "label": "Copy coding sign-in command",
+          "disabled": false
+        },
+        {
+          "label": "Move MiMo Test A up",
+          "disabled": true
+        },
+        {
+          "label": "Move MiMo Test A down",
+          "disabled": false
+        },
+        {
+          "label": "Rename",
+          "disabled": false
+        }
+      ],
+      "enabled": true,
+      "automatic": true
+    },
+    {
+      "label": "MiMo Test B",
+      "order": "2",
+      "state": "Coding sign-in:  Signed in",
+      "buttons": [
+        {
+          "label": "Connect usage",
+          "disabled": false
+        },
+        {
+          "label": "Sign in again",
+          "disabled": false
+        },
+        {
+          "label": "Check sign-in",
+          "disabled": false
+        },
+        {
+          "label": "Copy coding sign-in command",
+          "disabled": false
+        },
+        {
+          "label": "Move MiMo Test B up",
+          "disabled": false
+        },
+        {
+          "label": "Move MiMo Test B down",
+          "disabled": true
+        },
+        {
+          "label": "Rename",
+          "disabled": false
+        },
+        {
+          "label": "Remove",
+          "disabled": false
+        }
+      ],
+      "enabled": true,
+      "automatic": true
+    }
+  ],
+  "regions": [
+    "Europe (token-plan-ams)",
+    "Singapore (token-plan-sgp)",
+    "China (token-plan-cn)"
+  ],
+  "sensitiveTextInSection": false
+}

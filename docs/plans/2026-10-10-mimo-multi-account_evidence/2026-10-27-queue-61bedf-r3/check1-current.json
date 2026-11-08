@@ -1,0 +1,97 @@
+{
+  "at": "2026-10-27T10:14:06.357Z",
+  "focusEmulationEnabled": true,
+  "ready": true,
+  "hidden": false,
+  "accounts": [
+    {
+      "label": "MiMo Test A",
+      "order": "1",
+      "binding": "authenticated",
+      "enabled": true,
+      "automatic": "allow-routed",
+      "buttons": [
+        {
+          "label": "Connect usage",
+          "disabled": false
+        },
+        {
+          "label": "Sign in again",
+          "disabled": false
+        },
+        {
+          "label": "Check sign-in",
+          "disabled": false
+        },
+        {
+          "label": "Copy coding sign-in command",
+          "disabled": false
+        },
+        {
+          "label": "Move MiMo Test A up",
+          "disabled": true
+        },
+        {
+          "label": "Move MiMo Test A down",
+          "disabled": false
+        },
+        {
+          "label": "Rename",
+          "disabled": false
+        }
+      ]
+    },
+    {
+      "label": "MiMo Test B",
+      "order": "2",
+      "binding": "authenticated",
+      "enabled": true,
+      "automatic": "allow-routed",
+      "buttons": [
+        {
+          "label": "Connect usage",
+          "disabled": false
+        },
+        {
+          "label": "Sign in again",
+          "disabled": false
+        },
+        {
+          "label": "Check sign-in",
+          "disabled": false
+        },
+        {
+          "label": "Copy coding sign-in command",
+          "disabled": false
+        },
+        {
+          "label": "Move MiMo Test B up",
+          "disabled": false
+        },
+        {
+          "label": "Move MiMo Test B down",
+          "disabled": true
+        },
+        {
+          "label": "Rename",
+          "disabled": false
+        },
+        {
+          "label": "Remove",
+          "disabled": false
+        }
+      ]
+    }
+  ],
+  "regions": [
+    "Europe (token-plan-ams)",
+    "Singapore (token-plan-sgp)",
+    "China (token-plan-cn)"
+  ],
+  "chromeInput": true,
+  "labelInput": true,
+  "ownership": true,
+  "limitPanel": true,
+  "sensitiveTextInPage": false,
+  "passed": true
+}

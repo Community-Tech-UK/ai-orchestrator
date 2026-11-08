@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-27T09:50:45.717434+00:00",
+  "storeExists": true,
+  "providers": [
+    {
+      "name": "xiaomi-token-plan-ams",
+      "keyPresent": true
+    },
+    {
+      "name": "aio-mimo-comtechspare-f7a6",
+      "keyPresent": true
+    }
+  ],
+  "nonemptyKeysDistinct": true
+}

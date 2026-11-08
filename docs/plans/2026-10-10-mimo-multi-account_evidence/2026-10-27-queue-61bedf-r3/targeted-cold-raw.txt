@@ -1,0 +1,74 @@
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf
+
+(node:81513) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/instance/lifecycle/runtime-reconciler-account-handoff.spec.ts (52 tests) 94ms
+(node:81683) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/instance/lifecycle/runtime-reconciler.provider-account-swap.spec.ts (12 tests) 31ms
+(node:82399) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ |main| src/main/orchestration/default-loop-native-finality.spec.ts (8 tests | 2 failed) 2300ms
+   ✓ native finality 'partial-paused' 208ms
+   ✓ native finality 'partial-unpaused' 213ms
+   ✓ native finality 'regular-paused'  439ms
+   ✓ native finality 'partial-zero'  416ms
+   × native finality 'partial-no-native-cost' 182ms
+   × native finality 'partial-native-error' 414ms
+   ✓ native finality 'partial-no-final-lf'  413ms
+   ✓ does not record a native dispatch refused before child creation 14ms
+(node:82901) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/instance/lifecycle/runtime-reconciler-account-continuity.spec.ts (1 test) 48ms
+(node:85536) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/cli/adapters/acp-provider-limit.spec.ts (10 tests) 26ms
+(node:86045) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |renderer| src/renderer/app/shared/components/provider-account-chip.component.spec.ts (16 tests) 260ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |main| src/main/orchestration/default-loop-native-finality.spec.ts > native finality 'partial-no-native-cost'
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ src/main/orchestration/default-loop-native-finality.spec.ts:109:26
+    107|     expect(rows[0].purpose).toBe('loop');
+    108|     expect(paused).toBe(mode !== 'partial-unpaused');
+    109|     expect(finalWritten).toBe(true);
+       |                          ^
+    110|     expect(drainedRaw).toContain(JSON.stringify(result));
+    111|     expect(child.signalCode).toBe('SIGKILL');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |main| src/main/orchestration/default-loop-native-finality.spec.ts > native finality 'partial-native-error'
+AssertionError: expected 'Claude CLI timeout' to be 'Claude CLI reported error_during_exec…' // Object.is equality
+
+Expected: "Claude CLI reported error_during_execution"
+Received: "Claude CLI timeout"
+
+ ❯ src/main/orchestration/default-loop-native-finality.spec.ts:116:37
+    114|       expect(response.metadata?.['timedOut']).toBe(true);
+    115|     else
+    116|       expect(actual.error?.message).toBe(mode === 'partial-native-erro…
+       |                                     ^
+    117|     expect(rows[0]).toMatchObject({ outcome: response ? 'success' : 'e…
+    118|     expect(rows[0].usage?.cost).toBe(cost ?? 0.00075);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 5 passed (6)
+      Tests  2 failed | 97 passed (99)
+   Start at  10:15:11
+   Duration  23.27s (transform 11.98s, setup 531ms, import 16.39s, tests 2.76s, environment 2.19s)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-10-10-mimo-multi-account-61bedf/_scratch/test-results.mimo-r3-cold.json
