@@ -1,0 +1,129 @@
+{
+  "formatVersion": 1,
+  "recordedAt": "2026-10-27T10:09:22.263153+00:00",
+  "purpose": "Archive duplicative full-suite raw output locally while retaining portable result and failure evidence. This does not rewrite Git history or validate current source.",
+  "scopeDirectories": [
+    "2026-10-27",
+    "2026-10-27-round2",
+    "2026-10-27-resume",
+    "2026-10-27-review-fixes",
+    "2026-10-27-post-merge-hook"
+  ],
+  "archiveRoot": "_scratch/mimo-evidence-retention-2026-10-27",
+  "archiveIsGitignored": true,
+  "originalFileCount": 265,
+  "originalBytes": 9462835,
+  "archivedFiles": [
+    {
+      "originalPath": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-18659.json.gz",
+      "originalBytes": 1478682,
+      "originalSha256": "66d0b0677d4bc77c06f1bd1ec2f3d26bf8fc0171549452486b308811b93cf3f8",
+      "rawBytes": 12599939,
+      "rawSha256": "991b301cd656dc3a3e0ceefb83f0a61527b0ca3ae3ad71a794d16b0605fbbe2a",
+      "localArchivePath": "_scratch/mimo-evidence-retention-2026-10-27/2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-18659.json.gz",
+      "portableSummary": "portable-suite-summaries.json#/files/0"
+    },
+    {
+      "originalPath": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-67467.json.gz",
+      "originalBytes": 1478405,
+      "originalSha256": "581888346ec623264da86bd684368603167de92115a3b468411ea05d19c63e6c",
+      "rawBytes": 12603997,
+      "rawSha256": "e33a1c831c4cf3f10de2e5836106db859532155e7d7832b7f06f7c48b57f66b0",
+      "localArchivePath": "_scratch/mimo-evidence-retention-2026-10-27/2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-67467.json.gz",
+      "portableSummary": "portable-suite-summaries.json#/files/1"
+    },
+    {
+      "originalPath": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-87803.json.gz",
+      "originalBytes": 1477805,
+      "originalSha256": "6d4d491d6fb201c19e0fafe6a523d59cc370940d7c340ea35f922cb4b4f9657d",
+      "rawBytes": 12600755,
+      "rawSha256": "c2a8a2ec90626b72308c8c08622944fca93f5418d2fe92130e8ac763b3c7c523",
+      "localArchivePath": "_scratch/mimo-evidence-retention-2026-10-27/2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-87803.json.gz",
+      "portableSummary": "portable-suite-summaries.json#/files/2"
+    },
+    {
+      "originalPath": "2026-10-27-post-merge-hook/raw-test-receipts/test-run.pid-18659.log.gz",
+      "originalBytes": 434025,
+      "originalSha256": "a169f82d4bffcc496d55b7ecf536054d4afb584e23cd0300c842481bd758fa24",
+      "rawBytes": 4332570,
+      "rawSha256": "dcd2525a7682486d628a7d81e79b382694e5d4e03f3ebacc05e8955792310514",
+      "localArchivePath": "_scratch/mimo-evidence-retention-2026-10-27/2026-10-27-post-merge-hook/raw-test-receipts/test-run.pid-18659.log.gz",
+      "portableSummary": "portable-suite-summaries.json#/files/3"
+    },
+    {
+      "originalPath": "2026-10-27-post-merge-hook/raw-test-receipts/test-run.pid-42225.log.gz",
+      "originalBytes": 38620,
+      "originalSha256": "437d17b06f0d6af3a3a62760e2ce139f2d29b9182dfeacad4dfd5b14d8df2673",
+      "rawBytes": 420204,
+      "rawSha256": "ceff668c174c70213c0b2616e41833dd8a6c32c79066e8402cca1ea6d17ae5fe",
+      "localArchivePath": "_scratch/mimo-evidence-retention-2026-10-27/2026-10-27-post-merge-hook/raw-test-receipts/test-run.pid-42225.log.gz",
+      "portableSummary": "portable-suite-summaries.json#/files/4"
+    },
+    {
+      "originalPath": "2026-10-27-post-merge-hook/raw-test-receipts/test-run.pid-67467.log.gz",
+      "originalBytes": 458905,
+      "originalSha256": "1ed1be1241c251395c5c759862ef43733b5734944f03a717037fae5dfbe48807",
+      "rawBytes": 4847172,
+      "rawSha256": "2fec5d8fca75e878686382488b0e80bec2b5f25755d6045aeaf61bc1794ff970",
+      "localArchivePath": "_scratch/mimo-evidence-retention-2026-10-27/2026-10-27-post-merge-hook/raw-test-receipts/test-run.pid-67467.log.gz",
+      "portableSummary": "portable-suite-summaries.json#/files/5"
+    },
+    {
+      "originalPath": "2026-10-27-post-merge-hook/raw-test-receipts/test-run.pid-87803.log.gz",
+      "originalBytes": 457864,
+      "originalSha256": "936ffe852bda8952783ed30d3a6a4f2e165b461685f504e5dcb9e6ada651eb5d",
+      "rawBytes": 4837462,
+      "rawSha256": "89422e5a90de8d60718b832c331c319280b1bd2d29faad8ae48930302bf0766c",
+      "localArchivePath": "_scratch/mimo-evidence-retention-2026-10-27/2026-10-27-post-merge-hook/raw-test-receipts/test-run.pid-87803.log.gz",
+      "portableSummary": "portable-suite-summaries.json#/files/6"
+    },
+    {
+      "originalPath": "2026-10-27-review-fixes/fresh-full-suite-final-raw-output.txt.gz",
+      "originalBytes": 434525,
+      "originalSha256": "561522c151beb39f55616d4b52cd17a52e9fc6ba049e97cdbd237e75e519c726",
+      "rawBytes": 4329721,
+      "rawSha256": "a17307442bb9d739631d924565a20b7268482b68c493f382831f3d15e6edcfad",
+      "localArchivePath": "_scratch/mimo-evidence-retention-2026-10-27/2026-10-27-review-fixes/fresh-full-suite-final-raw-output.txt.gz",
+      "portableSummary": "portable-suite-summaries.json#/files/7"
+    },
+    {
+      "originalPath": "2026-10-27-review-fixes/fresh-full-suite-interrupted-raw-output.txt",
+      "originalBytes": 2651659,
+      "originalSha256": "aaadaa57f65950b460678900fec669c0c646d6706b72ea915b7c094db79de8be",
+      "rawBytes": 2651659,
+      "rawSha256": "aaadaa57f65950b460678900fec669c0c646d6706b72ea915b7c094db79de8be",
+      "localArchivePath": "_scratch/mimo-evidence-retention-2026-10-27/2026-10-27-review-fixes/fresh-full-suite-interrupted-raw-output.txt",
+      "portableSummary": "portable-suite-summaries.json#/files/8"
+    }
+  ],
+  "preservedOriginalFileCount": 256,
+  "historicalSeals": "All original seals remain byte-identical. Their entries refer to historical bytes; relocated entries are resolved through this manifest, not claimed to remain at the former paths.",
+  "limits": [
+    "No new live observation, traffic capture, test, build or source verification was performed.",
+    "Check 4 retains only its indirect October 4 snapshot-cadence evidence and its stated limits.",
+    "Controlled outgoing-cookie exclusion is not natural expiry. The visual notification and locked-database recovery remain unobserved.",
+    "Ignored post-merge command .log outputs were already absent; no excerpts from those absent files can be reconstructed.",
+    "The local raw archive is not portable or harvested and remains disposable scratch. Portable summaries preserve outcomes, not every raw test line.",
+    "Removing files from the current tree does not reduce already-stored Git history."
+  ],
+  "archivedOriginalBytes": 8910490,
+  "preservedOriginalEntriesSha256": "12b56f79fe8d7cd8f948f8dd2dece92a280b79af0672006b9c1a0a18e0b5045c",
+  "preservationVerification": "Every non-archived original was checked against its pre-retention SHA-256; every archived original and decompressed payload was checked before removal.",
+  "derivedFiles": [
+    {
+      "path": "README.md",
+      "bytes": 4766,
+      "sha256": "5a289c4cb034ce3b22bc42455d8f24be3f9326c58f649f270efd8a87a4a4ee4d"
+    },
+    {
+      "path": "portable-suite-summaries.json",
+      "bytes": 18627,
+      "sha256": "1ab71e1c833e8e189fe78d9a5412a6d4498755aec67a832d35102e1595f96d15"
+    },
+    {
+      "path": "post-merge-hook-evidence-summary.json",
+      "bytes": 35563,
+      "sha256": "4379695826bb692f44a461dd577b803fcd9e676210e8cf62c8ba6bd89b96cf1d"
+    }
+  ]
+}

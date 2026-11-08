@@ -1,0 +1,12 @@
+{
+  "command": [
+    "rtk",
+    "proxy",
+    "node",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/tsx/dist/cli.mjs",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/build-aio-mcp-cli-sea.ts"
+  ],
+  "exitCode": 1,
+  "stdout": "",
+  "stderr": "Error: SEA build requires a Node binary that contains the Node SEA fuse, but /opt/homebrew/Cellar/node/26.12.1/bin/node does not contain the Node SEA fuse. Use the self-contained Node version pinned in .nvmrc (for example, `nvm use`).\n    at assertSeaBuildSupported (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/scripts/sea-build-support.ts:61:11)\n    at main (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/build-aio-mcp-cli-sea.ts:20:3)\n    at <anonymous> (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/build-aio-mcp-cli-sea.ts:62:1)\n    at Object.<anonymous> (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/build-aio-mcp-cli-sea.ts:65:2)\n    at Module._compile (node:internal/modules/cjs/loader:1968:14)\n    at Object.transformer (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/tsx/dist/register-B1c7OH6V.cjs:22:2188)\n    at Module.load (node:internal/modules/cjs/loader:1690:32)\n    at Module._load (node:internal/modules/cjs/loader:1480:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:377:15)\n"
+}

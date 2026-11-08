@@ -1,0 +1,34 @@
+{
+  "processes": [
+    {
+      "pid": 50444,
+      "alive": false
+    },
+    {
+      "pid": 50923,
+      "alive": false
+    },
+    {
+      "pid": 92854,
+      "alive": false
+    },
+    {
+      "pid": 97701,
+      "alive": false
+    },
+    {
+      "pid": 97858,
+      "alive": false
+    },
+    {
+      "pid": 97952,
+      "alive": false
+    }
+  ],
+  "listeningPorts": {
+    "4579": false,
+    "9822": false,
+    "9823": false
+  },
+  "processListing": "ps reported Operation not permitted; process-stop verification uses the recorded owned PIDs (os.kill(pid, 0)) and all three loopback ports instead."
+}

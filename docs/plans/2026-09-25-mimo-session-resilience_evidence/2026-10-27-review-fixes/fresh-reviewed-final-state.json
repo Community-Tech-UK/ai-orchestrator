@@ -1,0 +1,17 @@
+{
+  "at": "2026-10-27T05:07:31.097323+00:00",
+  "base": "7e5222cfe773e2fc3edff0c2eade2e77fe7131cc",
+  "head": "69b5269cdd515fb3f5f236318584d99cb3192817",
+  "sourceHashes": {
+    "src/main/core/system/provider-quota-service.spec.ts": "7b556fa7e85430f9d8594ea8391a6f1fe3acdc0356e8912606e9d324957b6488",
+    "src/main/core/system/provider-quota-service.ts": "2a209965279b31a32feaab9602d077f281364f8295cfa2108e0f7c8b650125db"
+  },
+  "sourceUnchangedDuringVerification": true,
+  "rootDocumentHashes": {
+    "docs/plans/2026-09-25-mimo-session-resilience_livetest.md": "e6f3551c7e8387842921db0d90998b54a0790e17bbbc40a348d0af8ca8432b4e",
+    "docs/plans/2026-10-27-mimo-stale-session-warning_plan.md": "356adb6717ef16c518c7cc9e938b5ae497de8b40336d27500f27ae0809e4f252"
+  },
+  "registerSha256": "bc41e9bdf00a76e4024aa24ce22638aedbd84dcbac42bf94863d87421abee67f",
+  "stagedPaths": [],
+  "note": "Root final verification append read and checked; later parent cleanup/seal append will be separately reviewed."
+}

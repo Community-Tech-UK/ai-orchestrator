@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "numTotalTestSuites": 8500,
+  "numPassedTestSuites": 8500,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 35382,
+  "numPassedTests": 35373,
+  "numFailedTests": 0,
+  "numPendingTests": 9,
+  "numTodoTests": 0,
+  "startTime": 1793076745924,
+  "at": "2026-10-27T05:05:46.196988+00:00",
+  "rawReport": "_scratch/test-results.pid-906.json",
+  "rawReportSha256": "72ab0c0bcbccd864f016335de2bc6bbc3b52f790a87254861db3a6fc338664bd",
+  "numFiles": 2792,
+  "runnerExitCode": 0,
+  "runnerOutput": "fresh-full-suite-final-output.txt",
+  "forks": 4,
+  "cache": false,
+  "pendingFiles": [
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/src/main/cli/adapters/base-cli-adapter-hardened-spawn.spec.ts",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/src/main/doc-review/serve-review.spec.ts",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/src/main/instance/stall-process-facts.spec.ts",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/src/main/process/leftover-process-sweeper.real.spec.ts",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/src/renderer/app/core/services/new-session-draft.service.spec.ts",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/src/worker-agent/worker-node-exec-policy.spec.ts",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/src/worker-agent/worker-rpc-dispatcher.node-ops.spec.ts"
+  ]
+}

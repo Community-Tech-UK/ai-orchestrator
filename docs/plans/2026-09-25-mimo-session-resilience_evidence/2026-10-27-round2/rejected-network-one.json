@@ -1,0 +1,116 @@
+{
+  "at": "2026-10-27T02:50:15.292Z",
+  "result": {
+    "mode": "reject",
+    "requests": [
+      {
+        "at": "2026-10-27T02:49:38.828Z",
+        "phase": "baseline",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 200,
+        "cookieOmitted": false,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:49:38.899Z",
+        "phase": "baseline",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 200,
+        "cookieOmitted": false,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:49:46.168Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:49:46.279Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:49:46.480Z",
+        "phase": "reject",
+        "host": "account.xiaomi.com",
+        "path": "/pass/serviceLogin",
+        "status": 302,
+        "cookieOmitted": true,
+        "hasLocation": true,
+        "setCookieCount": 28
+      },
+      {
+        "at": "2026-10-27T02:49:46.612Z",
+        "phase": "reject",
+        "host": "account.xiaomi.com",
+        "path": "/fe/service/login",
+        "status": 200,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:49:46.655Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:49:46.695Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:50:14.289Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:50:14.394Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      }
+    ],
+    "notifications": [
+      {
+        "kind": "quota-reauth",
+        "title": "opencode usage numbers are stale",
+        "delivery": "desktop",
+        "createdAt": 1793069386696
+      }
+    ]
+  }
+}

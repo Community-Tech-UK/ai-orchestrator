@@ -1,0 +1,11 @@
+{
+  "at": "2026-10-27T10:44:16.224Z",
+  "load": [
+    19.990234375,
+    49.66552734375,
+    47.97509765625
+  ],
+  "cores": 18,
+  "busyCores": 16.86874304783092,
+  "method": "The same os.cpus tick-delta calculation used in vitest.pool.ts, over a 1-second idle wait; no load generated."
+}

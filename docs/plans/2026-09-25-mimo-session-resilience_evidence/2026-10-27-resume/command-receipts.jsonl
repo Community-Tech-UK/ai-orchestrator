@@ -1,0 +1,2 @@
+{"at": "2026-10-27T04:17:43.276815+00:00", "command": "rtk proxy python3 (inline resume audit: SHA-256 checks, retained acceptance replay, command receipts and cleanup checks)", "exitCode": 0, "result": "resume-audit.json"}
+{"at": "2026-10-27T04:18:21.513755+00:00", "command": "rtk proxy python3 (inline supporting-check assertions and append root report resume note)", "exitCode": 0, "result": "Check 1 native/visible row and Check 5 retained freshness assertions passed; root report appended"}

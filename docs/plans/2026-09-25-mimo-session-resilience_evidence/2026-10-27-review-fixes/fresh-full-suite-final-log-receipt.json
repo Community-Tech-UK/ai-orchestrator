@@ -1,0 +1,11 @@
+{
+  "at": "2026-10-27T05:08:43.941646+00:00",
+  "source": "_scratch/test-run.pid-906.log",
+  "retained": "fresh-full-suite-final-raw-output.txt.gz",
+  "secretScanExitCode": 0,
+  "rawSha256": "a17307442bb9d739631d924565a20b7268482b68c493f382831f3d15e6edcfad",
+  "compressedSha256": "561522c151beb39f55616d4b52cd17a52e9fc6ba049e97cdbd237e75e519c726",
+  "rawBytes": 4329721,
+  "compressedBytes": 434525,
+  "decompressionMatches": true
+}

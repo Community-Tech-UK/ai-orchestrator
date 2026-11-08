@@ -1,0 +1,40 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js scripts/__tests__/sea-build-repeatability.spec.ts
+
+✗ test run failed (exit 1) after 0 passed / 0 failed (unhandled runner error). Tail of log:
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81
+
+(node:39018) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯⎯⎯ Test Run Error ⎯⎯⎯⎯⎯⎯⎯
+SyntaxError: Unexpected token '�', "�" is not valid JSON
+ ❯ new Converter node_modules/@vitest/utils/node_modules/convert-source-map/index.js:83:15
+ ❯ Object.exports.fromComment node_modules/@vitest/utils/node_modules/convert-source-map/index.js:181:10
+ ❯ Object.exports.fromSource node_modules/@vitest/utils/node_modules/convert-source-map/index.js:207:22
+ ❯ extractSourcemapFromFile node_modules/@vitest/utils/dist/source-map/node.js:8:32
+ ❯ Object.getSourceMap node_modules/vitest/dist/chunks/cli-api.B0Pz1_R7.js:12703:102
+ ❯ node_modules/@vitest/utils/dist/source-map.js:391:37
+ ❯ parseStacktrace node_modules/@vitest/utils/dist/source-map.js:387:16
+ ❯ parseErrorStacktrace node_modules/@vitest/utils/dist/source-map.js:438:51
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files   (1)
+      Tests   (2)
+     Errors  1 error
+   Start at  03:38:47
+   Duration  1.04s (transform 34ms, setup 60ms, import 6ms, tests 0ms, environment 384ms)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/_scratch/test-results.pid-38518.json
+
+full log: _scratch/test-run.pid-38518.log
+
+✗ FAILED — vitest exited 1 after 0 passed / 0 failed (unhandled runner error; see log).

@@ -1,0 +1,40 @@
+{
+  "at": "2026-10-27T02:38:33.080919+00:00",
+  "removed": [
+    {
+      "path": "/tmp/aio-lt-queue-71493f81",
+      "existed": true,
+      "removed": true
+    },
+    {
+      "path": "dist",
+      "existed": true,
+      "removed": true
+    },
+    {
+      "path": ".angular",
+      "existed": true,
+      "removed": true
+    },
+    {
+      "path": "_scratch/lt-2026-10-27-mimo-71493f81",
+      "existed": true,
+      "removed": true
+    },
+    {
+      "path": "_scratch/test-run.pid-33388.log",
+      "existed": true,
+      "removed": true
+    },
+    {
+      "path": "_scratch/test-results.pid-33388.json",
+      "existed": true,
+      "removed": true
+    }
+  ],
+  "dependencyInstallCreated": false,
+  "browserBinaryDownloaded": false,
+  "sourceCheckoutCopied": false,
+  "preserved": "pre-existing shared dependency symlinks and AIO-managed worktree",
+  "runtimeStoppedEvidence": "runtime-stopped-check.json"
+}

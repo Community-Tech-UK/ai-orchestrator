@@ -1,0 +1,29 @@
+{
+  "at": "2026-10-27T05:11:50.428331+00:00",
+  "removed": [
+    "/tmp/aio-lt-queue-71493f81",
+    "dist",
+    "_scratch (helpers, npm/Electron/native caches and raw test runtime)"
+  ],
+  "temporaryExactInstallRemoved": true,
+  "originalDependencyDirectoryRestored": true,
+  "originalDirectoryInodeMatches": true,
+  "originalInstallLockHashMatches": true,
+  "profileAbsent": true,
+  "distAbsent": true,
+  "angularCacheAbsent": true,
+  "scratchAbsent": true,
+  "noBranchOrWorktreeCreated": true,
+  "coordinatorOwnsCheckout": true,
+  "firstAttempt": "Retained separately as cleanup-first-attempt.json: only .DS_Store remained after ENOTEMPTY; original install was still preserved.",
+  "retries": [
+    {
+      "path": "dist",
+      "attempt": 1,
+      "error": "ENOTEMPTY",
+      "remainingNames": [
+        ".DS_Store"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "at": "2026-10-27T02:57:34.124458+00:00",
+  "source": "isolated-app stdout, retained timestamped MimoTokenPlanProbe lines only",
+  "successLines": [
+    "[2026-10-27T02:55:37.768Z] [INFO] [MimoTokenPlanProbe] MiMo console session renewed through Xiaomi SSO"
+  ]
+}

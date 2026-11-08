@@ -1,0 +1,9 @@
+{
+  "at": "2026-10-27T04:32:55.238156+00:00",
+  "ownedProcessGroupsGone": {
+    "18815": true,
+    "19084": true
+  },
+  "method": "os.killpg(group, 0) raises ProcessLookupError for both owned groups",
+  "additionalListing": "ps was denied with EPERM; direct group checks succeeded"
+}

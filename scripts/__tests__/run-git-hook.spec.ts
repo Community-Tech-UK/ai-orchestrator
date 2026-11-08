@@ -35,7 +35,6 @@ describe('run-git-hook', () => {
           'docs/generated/architecture-inventory.json',
         ],
       },
-      { command: 'npm', args: ['run', 'build:main'] },
       { command: 'npm', args: ['run', 'test:staged'] },
     ]);
   });
@@ -91,20 +90,6 @@ describe('run-git-hook', () => {
 
     expect(status).toBe(1);
     expect(calls).toEqual(getHookCommands('pre-push').slice(0, 2));
-  });
-
-  it('builds current worker assets before staged tests and stops if the build fails', () => {
-    const calls: string[][] = [];
-    const status = runHook('pre-commit', {
-      spawnSync: (_command, args) => {
-        calls.push(args);
-        return { status: args.includes('build:main') ? 2 : 0 };
-      },
-    });
-
-    expect(status).toBe(2);
-    expect(calls.at(-1)).toEqual(['run', 'build:main']);
-    expect(calls).not.toContainEqual(['run', 'test:staged']);
   });
 
   it('skips only related tests after confirming the frozen staged tree', () => {

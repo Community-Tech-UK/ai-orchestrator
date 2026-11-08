@@ -1,0 +1,14 @@
+> node scripts/rebuild-native-modules.js
+╔════════════════════════════════════════════════════════════╗
+║           Rebuilding native modules for Electron           ║
+╚════════════════════════════════════════════════════════════╝
+Preparing Electron executable...
+Downloading Electron binary...
+Platform:  darwin / arm64
+Electron:  42.11.18 (ABI 146)
+Modules:   better-sqlite3
+  Trying prebuild-install for Electron 42.11.18...
+  ✓ better-sqlite3 — prebuilt binary installed
+  ✓ better-sqlite3: verified NODE_MODULE_VERSION 146
+✓ All native modules ready!
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.

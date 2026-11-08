@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/core/system/provider-quota-service.spec.ts src/main/core/system/provider-quota-service.account-source.spec.ts src/main/core/system/provider-quota/mimo-token-plan-probe.spec.ts src/main/core/system/provider-quota/mimo-console-session-renewer.spec.ts src/main/core/system/provider-quota/mimo-session-refresh-persistence.spec.ts src/main/core/system/provider-quota/mimo-startup-recovery.spec.ts src/main/ipc/handlers/__tests__/quota-handlers.spec.ts src/renderer/app/shared/components/provider-quota-chip/provider-quota-chip.component.spec.ts
+
+✓ 8 files · 177 tests passed in 14.9s
+  full log: _scratch/test-run.pid-53581.log

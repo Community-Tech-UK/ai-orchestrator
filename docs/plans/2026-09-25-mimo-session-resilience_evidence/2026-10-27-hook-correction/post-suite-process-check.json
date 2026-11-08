@@ -1,0 +1,23 @@
+{
+  "at": "2026-10-27T10:39:29.591227+00:00",
+  "load": [
+    117.82373046875,
+    88.94189453125,
+    56.6611328125
+  ],
+  "recordedRunnerProcesses": [
+    {
+      "pid": 81234,
+      "alive": false
+    },
+    {
+      "pid": 81238,
+      "alive": false
+    },
+    {
+      "pid": 81299,
+      "alive": false
+    }
+  ],
+  "action": "All recorded file-owner runner PIDs checked; no new test started."
+}

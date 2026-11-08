@@ -1,0 +1,13 @@
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js
+
+  … 91 test file(s) done (full log: _scratch/test-run.pid-906.log)
+  … 327 test file(s) done (full log: _scratch/test-run.pid-906.log)
+  … 673 test file(s) done (full log: _scratch/test-run.pid-906.log)
+  … 1180 test file(s) done (full log: _scratch/test-run.pid-906.log)
+  … 1914 test file(s) done (full log: _scratch/test-run.pid-906.log)
+  … 2550 test file(s) done (full log: _scratch/test-run.pid-906.log)
+✓ 2792 files · 35373 tests passed in 772.3s
+  full log: _scratch/test-run.pid-906.log

@@ -1,0 +1,22 @@
+{
+  "at": "2026-10-27T10:25:12.376951+00:00",
+  "scope": [
+    "scripts/run-git-hook.js",
+    "scripts/test-staged.js",
+    "scripts/__tests__/run-git-hook.spec.ts",
+    "scripts/__tests__/test-staged.spec.ts"
+  ],
+  "hashes": {
+    "scripts/run-git-hook.js": "69479aa6edda1f29aa6e96f719e322239aca2da8f43afdf8b4abc746e84a5b86",
+    "scripts/test-staged.js": "a71b745ef13c9f29d35e0c0801090eaa70e131eedc5dcb4f8cb038b1b105a600",
+    "scripts/__tests__/run-git-hook.spec.ts": "8f7cadf9f77854524281bdd7076fcd6f8f782e2b2c322a28eb799c535d2737be",
+    "scripts/__tests__/test-staged.spec.ts": "95c10142e18cd7f86ff3b4bc885dac409a24efcdc12b203f0eeed74b47856c56"
+  },
+  "mechanicalAddedLineChecks": {
+    "newSkips": 0,
+    "newSuppressions": 0,
+    "newStubs": 0
+  },
+  "judgment": "Build ordering/error checks moved from hook test into staged-runner tests; existing related-test failure, stdin payload, one-Vitest-run and empty-selection checks remain. Generated/source selection itself is unchanged. No renderer, public API, credential handling, dependency, test configuration or timeout change in this correction. Every source selection compiles intentionally because related worker dependencies can be indirect.",
+  "limit": "Worker self-review only; independent task-completion review remains required."
+}

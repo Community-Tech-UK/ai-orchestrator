@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-27T10:13:20.747592+00:00",
+  "finished": "2026-10-27T10:13:24.024058+00:00",
+  "command": [
+    "npm",
+    "run",
+    "check:ui-hints"
+  ],
+  "exit": 0,
+  "fullOutput": "_scratch/hook-correction/ui-hints.log",
+  "sha256": "5e2ddb12cfeb4fb5abfa1700ff1f5e7fbc01c84f4ac7b28160c8b55fdf21ab90",
+  "bytes": 226,
+  "output": "\n> harness@0.1.0 check:ui-hints\n> tsx scripts/check-ui-hints.ts\n\nUI hints OK {\"H11\":8,\"H1a\":24,\"H1b\":91,\"H2a\":210,\"H2b\":138,\"H2c\":32,\"H3\":20,\"H4\":135,\"H5\":12}; 10 markers; 202 wording entries (3 retired); 221 advisory reports\n",
+  "outputComplete": true
+}

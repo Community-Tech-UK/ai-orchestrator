@@ -1,0 +1,80 @@
+{
+  "at": "2026-10-27T02:33:36.058Z",
+  "focus": {
+    "hidden": false,
+    "visibility": "visible"
+  },
+  "visibilityOverride": "unsupported; document.hidden asserted below",
+  "result": {
+    "before": {
+      "success": true,
+      "data": {
+        "provider": "opencode",
+        "takenAt": 1793068391511,
+        "source": "admin-api",
+        "ok": true,
+        "windows": [
+          {
+            "kind": "calendar-period",
+            "id": "opencode.plan",
+            "label": "Plan",
+            "unit": "tokens",
+            "used": 76746175272,
+            "limit": 82000000000,
+            "remaining": 5253824728,
+            "resetsAt": 1795391999000,
+            "overage": false
+          },
+          {
+            "kind": "calendar-period",
+            "id": "opencode.monthly",
+            "label": "Monthly",
+            "unit": "tokens",
+            "used": 76746175272,
+            "limit": 82000000000,
+            "remaining": 5253824728,
+            "resetsAt": 1795391999000,
+            "overage": false
+          }
+        ],
+        "plan": "Max"
+      }
+    },
+    "refreshed": {
+      "success": true,
+      "data": {
+        "provider": "opencode",
+        "takenAt": 1793068415854,
+        "source": "admin-api",
+        "ok": true,
+        "windows": [
+          {
+            "kind": "calendar-period",
+            "id": "opencode.plan",
+            "label": "Plan",
+            "unit": "tokens",
+            "used": 76748728372,
+            "limit": 82000000000,
+            "remaining": 5251271628,
+            "resetsAt": 1795391999000,
+            "overage": false
+          },
+          {
+            "kind": "calendar-period",
+            "id": "opencode.monthly",
+            "label": "Monthly",
+            "unit": "tokens",
+            "used": 76748728372,
+            "limit": 82000000000,
+            "remaining": 5251271628,
+            "resetsAt": 1795391999000,
+            "overage": false
+          }
+        ],
+        "plan": "Max"
+      }
+    },
+    "durationMs": 204,
+    "chipPresent": true
+  }
+}

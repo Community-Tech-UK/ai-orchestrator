@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-27T06:35:14.842429+00:00",
+  "load": [
+    21.99462890625,
+    29.4287109375,
+    30.517578125
+  ],
+  "threshold": 30,
+  "workerCap": 4,
+  "uncached": true,
+  "runtime": "/Users/suas/.nvm/versions/node/v24.22.1/bin",
+  "environment": "Twelve confirmed undeclared production extras temporarily parked; no install/prune, manifests unchanged"
+}

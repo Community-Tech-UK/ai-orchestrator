@@ -1,0 +1,3 @@
+> node scripts/run-tests-quiet.js src/main/core/system/provider-quota-service.spec.ts src/main/core/system/provider-quota/mimo-console-session-renewer.spec.ts src/main/core/system/provider-quota/mimo-token-plan-probe.spec.ts
+✓ 3 files · 105 tests passed in 6.0s
+  full log: _scratch/test-run.pid-18883.log

@@ -1,0 +1,14 @@
+{
+  "actualExit": 1,
+  "operation": "shutil.rmtree(dist)",
+  "error": "OSError: [Errno 66] Directory not empty: dist/src",
+  "alreadyCompleted": [
+    "All 12 original packages restored and verified",
+    "Own raw outputs compressed, hash/round-trip verified; raw originals removed"
+  ],
+  "remaining": [
+    "Inspect remaining generated dist files and retry bounded cleanup",
+    "Remove helper scripts/empty parked-package directories",
+    "Final cleanup receipt and seal"
+  ]
+}

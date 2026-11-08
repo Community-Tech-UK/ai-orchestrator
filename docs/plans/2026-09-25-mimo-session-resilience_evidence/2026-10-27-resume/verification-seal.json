@@ -1,0 +1,22 @@
+{
+  "at": "2026-10-27T04:18:21.513755+00:00",
+  "status": "five checks have retained passing live evidence; resume audit passed; coordinator closure pending",
+  "head": "d0447bce28154857b6e06ca890caa9b39cbb5c6c",
+  "priorSealSha256": "1bb72e7c18511531f1d8e9c8ae3e9e932e65dae6df6241d9e76ec2b911d93128",
+  "report": {
+    "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-25-mimo-session-resilience_livetest.md",
+    "sha256": "2efb1046a079d15077b7d89b32ec86c80be5cabe32fe1104268e35a47443550a"
+  },
+  "newLiveRun": false,
+  "newCodeChanges": false,
+  "files": [
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-resume/command-receipts.jsonl",
+      "sha256": "3853a5822b62b2fb0e27663620d7dbf8df2c0cdca06ba6d01ad45605b97ceb62"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-resume/resume-audit.json",
+      "sha256": "16c6be615bf3bf2fe091c86908bb79b9d2a4ad463789df33af1ce8c561210646"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-27T02:35:26.425Z",
+  "focus": {
+    "hidden": false,
+    "visibility": "visible"
+  },
+  "visibilityOverride": "unsupported; document.hidden asserted below",
+  "result": {
+    "restoredDefaultModelByProvider": {},
+    "scope": "isolated dev profile only"
+  }
+}

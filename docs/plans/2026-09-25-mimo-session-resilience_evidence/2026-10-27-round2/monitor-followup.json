@@ -1,0 +1,28 @@
+{
+  "observedAt": "2026-10-27T03:14:13.070171+00:00",
+  "updatedAt": 1793070754.4321659,
+  "updatedIso": "2026-10-27T03:12:34.432166+00:00",
+  "ageSeconds": 98.64,
+  "plan": "Max",
+  "attentionPresent": false,
+  "windows": [
+    {
+      "label": "plan",
+      "used_percent": 94.21675011219513,
+      "reset_at": 1795391999.0,
+      "detail": "77.3B/82.0B"
+    },
+    {
+      "label": "monthly",
+      "used_percent": 94.21675011219513,
+      "reset_at": 1795391999.0,
+      "detail": "77.3B/82.0B"
+    }
+  ],
+  "recentSuccessLines": [
+    "[2026-10-27 03:02:28] mimo: ok (Max; plan 94.1%, monthly 94.1%) [direct]",
+    "[2026-10-27 03:02:28] mimo: ok (Max; plan 94.1%, monthly 94.1%) [direct]",
+    "[2026-10-27 03:12:34] mimo: ok (Max; plan 94.2%, monthly 94.2%) [direct]",
+    "[2026-10-27 03:12:34] mimo: ok (Max; plan 94.2%, monthly 94.2%) [direct]"
+  ]
+}

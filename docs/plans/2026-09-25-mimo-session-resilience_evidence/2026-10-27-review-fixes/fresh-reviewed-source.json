@@ -1,0 +1,11 @@
+{
+  "at": "2026-10-27T04:34:52.866729+00:00",
+  "sourceHashes": {
+    "src/main/core/system/provider-quota-service.spec.ts": "7b556fa7e85430f9d8594ea8391a6f1fe3acdc0356e8912606e9d324957b6488",
+    "src/main/core/system/provider-quota-service.ts": "2a209965279b31a32feaab9602d077f281364f8295cfa2108e0f7c8b650125db"
+  },
+  "rootDocumentHashes": {
+    "docs/plans/2026-09-25-mimo-session-resilience_livetest.md": "c93d3ea416293108a3dc2e82dfae8084fdb673c99c487076ee2dcd57c22a927b",
+    "docs/plans/2026-10-27-mimo-stale-session-warning_plan.md": "e30b561842b4671618a84d7460d94373fedbb002fbae595cf7a3a439613895a3"
+  }
+}

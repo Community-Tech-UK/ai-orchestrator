@@ -1,0 +1,115 @@
+{
+  "at": "2026-10-27T10:42:05.985572+00:00",
+  "files": [
+    {
+      "path": "_scratch/test-results.hook-correction-green.json",
+      "bytes": 8827,
+      "sha256": "670add4997304794a8c061a4fbc51ee4ef34f1dc7782215e245c7e085240f102",
+      "compressedLocalPath": "_scratch/hook-correction/raw-test-receipts/test-results.hook-correction-green.json.gz",
+      "compressedBytes": 1857,
+      "compressedSha256": "8554fa5a8aff6712eb15d6552970d459a5ada06be78a82a0055e6bc6946d3476",
+      "roundTripVerified": true
+    },
+    {
+      "path": "_scratch/test-run.hook-correction-green.log",
+      "bytes": 3252,
+      "sha256": "f71fdada4979590495b416967ebb69637aed4cbfa20699ef6397cce805bd4031",
+      "compressedLocalPath": "_scratch/hook-correction/raw-test-receipts/test-run.hook-correction-green.log.gz",
+      "compressedBytes": 1337,
+      "compressedSha256": "e73436f1f610c4814077086ef1e53ca844f383fbe5603249d4015bda1e9f4ed7",
+      "roundTripVerified": true
+    },
+    {
+      "path": "_scratch/test-results.hook-correction-baseline.json",
+      "bytes": 6291,
+      "sha256": "7842bf72858c8e79c8e32d3ffba9633944a767656eca32f6b4e5b76d183eea41",
+      "compressedLocalPath": "_scratch/hook-correction/raw-test-receipts/test-results.hook-correction-baseline.json.gz",
+      "compressedBytes": 1417,
+      "compressedSha256": "3dee23dc43fc23a7fbc0b073888df8ddb1c2e180818b8032c3e92138bb24694f",
+      "roundTripVerified": true
+    },
+    {
+      "path": "_scratch/test-results.hook-correction-full-suite.json",
+      "bytes": 12599585,
+      "sha256": "6d538db7d3584f22aba2a38f444f02eac215684268ef783a30020cb366da91a8",
+      "compressedLocalPath": "_scratch/hook-correction/raw-test-receipts/test-results.hook-correction-full-suite.json.gz",
+      "compressedBytes": 1801843,
+      "compressedSha256": "a16cada3404dc1ba720a0313b675a006f6cdba01b76e955a0ac28b3e666751e6",
+      "roundTripVerified": true
+    },
+    {
+      "path": "_scratch/test-results.hook-correction-retirement-isolated.json",
+      "bytes": 8642,
+      "sha256": "c1879f00a3d51eb0071f939b4361abcb11e6096d033c0bec84be726db7a8745b",
+      "compressedLocalPath": "_scratch/hook-correction/raw-test-receipts/test-results.hook-correction-retirement-isolated.json.gz",
+      "compressedBytes": 1696,
+      "compressedSha256": "6ab610471099795005cba1764db85c6af3c89efc32a3415afde83f9cf74f574d",
+      "roundTripVerified": true
+    },
+    {
+      "path": "_scratch/test-run.hook-correction-focused.log",
+      "bytes": 1336,
+      "sha256": "608c6dd0819a6dfe303347b987f3617adc55d5dc04c205838e2084282acd9bbb",
+      "compressedLocalPath": "_scratch/hook-correction/raw-test-receipts/test-run.hook-correction-focused.log.gz",
+      "compressedBytes": 612,
+      "compressedSha256": "ca2ba834706f91426aff5991c31a12d402fa46d6d62259736df69a82008b8c65",
+      "roundTripVerified": true
+    },
+    {
+      "path": "_scratch/test-run.hook-correction-red.log",
+      "bytes": 8326,
+      "sha256": "40dc5d3d0489e71c042e6643912e55819cf7752caa8367e76cb42b233b8d0bf5",
+      "compressedLocalPath": "_scratch/hook-correction/raw-test-receipts/test-run.hook-correction-red.log.gz",
+      "compressedBytes": 2308,
+      "compressedSha256": "b8316bb81d1bb65fb09ba657b5b7b60677684b0b8e7ba0ee53cb2dfe205ebf96",
+      "roundTripVerified": true
+    },
+    {
+      "path": "_scratch/test-run.hook-correction-baseline.log",
+      "bytes": 950,
+      "sha256": "ff4c78bac54a70654c5d5b415c57c54129574f68b141fd0dcdeb8be2cc61bbe2",
+      "compressedLocalPath": "_scratch/hook-correction/raw-test-receipts/test-run.hook-correction-baseline.log.gz",
+      "compressedBytes": 487,
+      "compressedSha256": "a84c689f519e95477a508ccda1692e16defa4731a0705f171d2f878da5ce1627",
+      "roundTripVerified": true
+    },
+    {
+      "path": "_scratch/test-run.hook-correction-full-suite.log",
+      "bytes": 4346148,
+      "sha256": "6c4da750a85ea72bae9df128fdf2f4b2a94531a58b2156544cdc09f07f3a583d",
+      "compressedLocalPath": "_scratch/hook-correction/raw-test-receipts/test-run.hook-correction-full-suite.log.gz",
+      "compressedBytes": 566949,
+      "compressedSha256": "623a6dd72cf595f60146fc0fb7c1a7797c8cc04360e4041927fcf5511a1b3aaa",
+      "roundTripVerified": true
+    },
+    {
+      "path": "_scratch/test-results.hook-correction-red.json",
+      "bytes": 17984,
+      "sha256": "ae0db930bed2d218540d5545868dd2fe8994032eb88696a9aad074ad6fac0a0c",
+      "compressedLocalPath": "_scratch/hook-correction/raw-test-receipts/test-results.hook-correction-red.json.gz",
+      "compressedBytes": 2325,
+      "compressedSha256": "92ecd5d73fb6fa025e5a5f44c9cc5f69c2c80980d272b10e34d455434c4d974e",
+      "roundTripVerified": true
+    },
+    {
+      "path": "_scratch/test-results.hook-correction-focused.json",
+      "bytes": 8713,
+      "sha256": "75bd5b36b3dd6500036e18313cf1b6830c8498b3afff208fc6bfea1cbcb29056",
+      "compressedLocalPath": "_scratch/hook-correction/raw-test-receipts/test-results.hook-correction-focused.json.gz",
+      "compressedBytes": 1838,
+      "compressedSha256": "a6a8fad3353a16d10ea1f2ddd8c37a727a6a724fea81c30c6fbdd4096bd065aa",
+      "roundTripVerified": true
+    },
+    {
+      "path": "_scratch/test-run.hook-correction-retirement-isolated.log",
+      "bytes": 45777,
+      "sha256": "c1c83763e71f86d0ca37ae13e87955e48c12e97fbbe0c93704d41e9aad589d65",
+      "compressedLocalPath": "_scratch/hook-correction/raw-test-receipts/test-run.hook-correction-retirement-isolated.log.gz",
+      "compressedBytes": 4799,
+      "compressedSha256": "c55e9e30f9290b5fde7110de594ab3dc07a69b6a7e63525eb0d969f1a3e67f5d",
+      "roundTripVerified": true
+    }
+  ],
+  "localOnly": true,
+  "note": "Portable command exits/test summaries remain in their receipts. Full raw output is retained compressed locally; it is not a dependency, runtime or harvested artifact."
+}

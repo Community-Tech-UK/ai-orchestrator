@@ -1,0 +1,60 @@
+{
+  "at": "2026-10-27T10:45:29.688562+00:00",
+  "commands": [
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit": 0,
+      "output": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--cached",
+        "--name-only"
+      ],
+      "exit": 0,
+      "output": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "-C",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator",
+        "status",
+        "--short",
+        "--",
+        "docs/plans/2026-10-27-mimo-hook-correction_plan.md",
+        "docs/plans/2026-10-27-mimo-stale-session-warning_plan.md",
+        "docs/plans/2026-09-25-mimo-session-resilience_livetest.md"
+      ],
+      "exit": 0,
+      "output": " M docs/plans/2026-09-25-mimo-session-resilience_livetest.md\n?? docs/plans/2026-10-27-mimo-hook-correction_plan.md\n?? docs/plans/2026-10-27-mimo-stale-session-warning_plan.md\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "-C",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator",
+        "diff",
+        "--check",
+        "--",
+        "docs/plans/2026-09-25-mimo-session-resilience_livetest.md",
+        "docs/plans/2026-10-27-mimo-hook-correction_plan.md"
+      ],
+      "exit": 0,
+      "output": "",
+      "stderr": ""
+    }
+  ],
+  "activePlansRemainUntracked": true,
+  "liveDocumentKeptAtRootAbsolutePath": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-25-mimo-session-resilience_livetest.md",
+  "completedRenamePerformed": false
+}

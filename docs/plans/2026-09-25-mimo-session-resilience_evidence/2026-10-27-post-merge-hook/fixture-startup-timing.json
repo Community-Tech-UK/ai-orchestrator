@@ -1,0 +1,76 @@
+{
+  "invalidFirstAttempt": "fixture-startup-invalid-syntax.json contains a quoting error and is not startup evidence",
+  "readings": [
+    {
+      "events": [
+        {
+          "event": "stdout",
+          "ms": 126.25454099999999,
+          "partial": true,
+          "final": false
+        },
+        {
+          "event": "stdout",
+          "ms": 151.456166,
+          "partial": false,
+          "final": true
+        },
+        {
+          "event": "150ms-timeout",
+          "ms": 151.55545800000002
+        },
+        {
+          "event": "final-marker",
+          "ms": 151.750375
+        }
+      ],
+      "closed": true,
+      "signal": "SIGKILL",
+      "exitCode": null
+    },
+    {
+      "events": [
+        {
+          "event": "stdout",
+          "ms": 117.40616700000001,
+          "partial": true,
+          "final": false
+        },
+        {
+          "event": "stdout",
+          "ms": 149.836375,
+          "partial": false,
+          "final": true
+        },
+        {
+          "event": "final-marker",
+          "ms": 149.916209
+        },
+        {
+          "event": "150ms-timeout",
+          "ms": 151.24550000000002
+        }
+      ],
+      "closed": true,
+      "signal": "SIGKILL",
+      "exitCode": null
+    },
+    {
+      "events": [
+        {
+          "event": "stdout",
+          "ms": 128.681958,
+          "partial": true,
+          "final": false
+        },
+        {
+          "event": "150ms-timeout",
+          "ms": 153.06350000000003
+        }
+      ],
+      "closed": true,
+      "signal": "SIGKILL",
+      "exitCode": null
+    }
+  ]
+}

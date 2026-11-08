@@ -1,0 +1,6 @@
+{
+  "scripts/run-git-hook.js": "fd463e9b4f71fa79e2bf22334fe808d79a9d3fc6ed809af9fceedc998d16ccd0",
+  "scripts/__tests__/run-git-hook.spec.ts": "98d8c85212f0e9cd099891389f31a0d9300f7af06b2925d6cc61143737f06106",
+  "src/main/orchestration/default-loop-native-finality.spec.ts": "edff3f47a58561633d8a967e9a1d0de8de7d1914db35b07b9831ca103a52ddae",
+  "docs/generated/architecture-inventory.json": "92d812c45a19056376fb5305d23d90e40a58063164cf0447036527c81dfece85"
+}

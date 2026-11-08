@@ -1,0 +1,52 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js
+
+  … 239 test file(s) done (full log: _scratch/test-run.pid-90863.log)
+  … 739 test file(s) done (full log: _scratch/test-run.pid-90863.log)
+  … 1523 test file(s) done (full log: _scratch/test-run.pid-90863.log)
+  … 2480 test file(s) done (full log: _scratch/test-run.pid-90863.log)
+✗ test run failed (exit 1) after 35371 passed / 0 failed (unhandled runner error). Tail of log:
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |renderer| src/renderer/app/core/services/clipboard-toast.token.spec.ts (2 tests) 14ms
+ ✓ |renderer| src/renderer/app/core/services/clipboard-image.util.spec.ts (2 tests) 1009ms
+     ✓ returns null or a converted data URL for undecodable non-PNG blobs  1004ms
+(node:33398) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:33397) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |renderer| src/renderer/app/shared/remote-node-display.spec.ts (1 test) 3ms
+ ✓ |renderer| src/renderer/app/shared/utils/overlay-search.spec.ts (3 tests) 4ms
+(node:33410) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |renderer| src/renderer/app/core/utils/tool-activity-map.spec.ts (1 test) 4ms
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯⎯⎯ Test Run Error ⎯⎯⎯⎯⎯⎯⎯
+SyntaxError: Unexpected token '�', "�" is not valid JSON
+ ❯ new Converter node_modules/@vitest/utils/node_modules/convert-source-map/index.js:83:15
+ ❯ Object.exports.fromComment node_modules/@vitest/utils/node_modules/convert-source-map/index.js:181:10
+ ❯ Object.exports.fromSource node_modules/@vitest/utils/node_modules/convert-source-map/index.js:207:22
+ ❯ extractSourcemapFromFile node_modules/@vitest/utils/dist/source-map/node.js:8:32
+ ❯ Object.getSourceMap node_modules/vitest/dist/chunks/cli-api.B0Pz1_R7.js:12703:102
+ ❯ node_modules/@vitest/utils/dist/source-map.js:391:37
+ ❯ parseStacktrace node_modules/@vitest/utils/dist/source-map.js:387:16
+ ❯ parseErrorStacktrace node_modules/@vitest/utils/dist/source-map.js:438:51
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  2790 passed | 1 skipped (2792)
+      Tests  35371 passed | 9 skipped (35382)
+     Errors  1 error
+   Start at  03:28:30
+   Duration  522.56s (transform 66.72s, setup 184.38s, import 369.60s, tests 1222.12s, environment 831.45s)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/_scratch/test-results.pid-90863.json
+
+full log: _scratch/test-run.pid-90863.log
+
+✗ FAILED — vitest exited 1 after 35371 passed / 0 failed (unhandled runner error; see log).

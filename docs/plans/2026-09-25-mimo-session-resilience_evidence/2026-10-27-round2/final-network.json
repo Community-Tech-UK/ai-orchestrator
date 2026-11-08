@@ -1,0 +1,287 @@
+{
+  "at": "2026-10-27T02:57:59.548Z",
+  "result": {
+    "mode": "baseline",
+    "requests": [
+      {
+        "at": "2026-10-27T02:53:55.073Z",
+        "phase": "baseline",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 200,
+        "cookieOmitted": false,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:53:55.143Z",
+        "phase": "baseline",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 200,
+        "cookieOmitted": false,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:53:57.812Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:53:57.910Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:53:58.106Z",
+        "phase": "reject",
+        "host": "account.xiaomi.com",
+        "path": "/pass/serviceLogin",
+        "status": 302,
+        "cookieOmitted": true,
+        "hasLocation": true,
+        "setCookieCount": 28
+      },
+      {
+        "at": "2026-10-27T02:53:58.247Z",
+        "phase": "reject",
+        "host": "account.xiaomi.com",
+        "path": "/fe/service/login",
+        "status": 200,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:53:58.289Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:53:58.328Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:54:13.131Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:54:13.249Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:55:08.974Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:55:09.078Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:55:36.710Z",
+        "phase": "renew",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:55:36.824Z",
+        "phase": "renew",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:55:37.604Z",
+        "phase": "renew",
+        "host": "account.xiaomi.com",
+        "path": "/pass/serviceLogin",
+        "status": 302,
+        "cookieOmitted": false,
+        "hasLocation": true,
+        "setCookieCount": 9
+      },
+      {
+        "at": "2026-10-27T02:55:37.646Z",
+        "phase": "renew",
+        "host": "platform.xiaomimimo.com",
+        "path": "/sts",
+        "status": 307,
+        "cookieOmitted": false,
+        "hasLocation": true,
+        "setCookieCount": 5
+      },
+      {
+        "at": "2026-10-27T02:55:37.702Z",
+        "phase": "renew",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 200,
+        "cookieOmitted": false,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:55:37.767Z",
+        "phase": "renew",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 200,
+        "cookieOmitted": false,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:56:33.262Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:56:33.369Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:56:33.504Z",
+        "phase": "reject",
+        "host": "account.xiaomi.com",
+        "path": "/pass/serviceLogin",
+        "status": 302,
+        "cookieOmitted": true,
+        "hasLocation": true,
+        "setCookieCount": 28
+      },
+      {
+        "at": "2026-10-27T02:56:33.663Z",
+        "phase": "reject",
+        "host": "account.xiaomi.com",
+        "path": "/fe/service/login",
+        "status": 200,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:56:33.704Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:56:33.749Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 401,
+        "cookieOmitted": true,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:57:34.898Z",
+        "phase": "baseline",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 200,
+        "cookieOmitted": false,
+        "hasLocation": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T02:57:34.965Z",
+        "phase": "baseline",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 200,
+        "cookieOmitted": false,
+        "hasLocation": false,
+        "setCookieCount": 0
+      }
+    ],
+    "notifications": [
+      {
+        "kind": "quota-reauth",
+        "title": "opencode usage numbers are stale",
+        "delivery": "desktop",
+        "createdAt": 1793069638329
+      },
+      {
+        "kind": "quota-reauth",
+        "title": "opencode usage numbers are stale",
+        "delivery": "fingerprint-suppressed",
+        "createdAt": 1793069793750
+      }
+    ],
+    "persistence": {
+      "sourceUnchanged": true,
+      "isolatedBlobChanged": true,
+      "rotatedSsoPairs": 5
+    }
+  }
+}

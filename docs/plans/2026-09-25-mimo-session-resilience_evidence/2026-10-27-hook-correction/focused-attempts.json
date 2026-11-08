@@ -1,0 +1,135 @@
+{
+  "attempts": [
+    {
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "scripts/__tests__/run-git-hook.spec.ts",
+        "scripts/__tests__/test-staged.spec.ts"
+      ],
+      "attempt": "baseline",
+      "actualExit": 0,
+      "rawJsonSha256": "7842bf72858c8e79c8e32d3ffba9633944a767656eca32f6b4e5b76d183eea41",
+      "rawLogSha256": "ff4c78bac54a70654c5d5b415c57c54129574f68b141fd0dcdeb8be2cc61bbe2",
+      "rawJson": "_scratch/test-results.hook-correction-baseline.json",
+      "rawLog": "_scratch/test-run.hook-correction-baseline.log",
+      "totals": {
+        "numTotalTests": 17,
+        "numPassedTests": 17,
+        "numFailedTests": 0,
+        "numPendingTests": 0
+      },
+      "failedAssertions": []
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "scripts/__tests__/run-git-hook.spec.ts",
+        "scripts/__tests__/test-staged.spec.ts"
+      ],
+      "attempt": "red",
+      "actualExit": 1,
+      "rawJsonSha256": "ae0db930bed2d218540d5545868dd2fe8994032eb88696a9aad074ad6fac0a0c",
+      "rawLogSha256": "40dc5d3d0489e71c042e6643912e55819cf7752caa8367e76cb42b233b8d0bf5",
+      "rawJson": "_scratch/test-results.hook-correction-red.json",
+      "rawLog": "_scratch/test-run.hook-correction-red.log",
+      "totals": {
+        "numTotalTests": 19,
+        "numPassedTests": 13,
+        "numFailedTests": 6,
+        "numPendingTests": 0
+      },
+      "failedAssertions": [
+        {
+          "file": "__tests__/run-git-hook.spec.ts",
+          "title": "run-git-hook pre-commit lints fast, regenerates generated artifacts, stages them, and runs changed-file tests",
+          "message": "AssertionError: expected [ \u2026(8) ] to deeply equal [ \u2026(7) ]"
+        },
+        {
+          "file": "__tests__/test-staged.spec.ts",
+          "title": "test-staged: runStagedTests builds workers before source tests and propagates build status 0",
+          "message": "AssertionError: expected 1 to be +0 // Object.is equality"
+        },
+        {
+          "file": "__tests__/test-staged.spec.ts",
+          "title": "test-staged: runStagedTests builds workers before source tests and propagates build status 42",
+          "message": "AssertionError: expected 1 to be 42 // Object.is equality"
+        },
+        {
+          "file": "__tests__/test-staged.spec.ts",
+          "title": "test-staged: runStagedTests sends a large staged set in one run so overlapping related tests cannot run in separate batches",
+          "message": "AssertionError: expected [ { \u2026(3) } ] to have a length of 2 but got 1"
+        },
+        {
+          "file": "__tests__/test-staged.spec.ts",
+          "title": "test-staged: runStagedTests runs related tests against the staged files and returns its exit status",
+          "message": "AssertionError: expected [ { \u2026(2) } ] to deeply equal [ \u2026(2) ]"
+        },
+        {
+          "file": "__tests__/test-staged.spec.ts",
+          "title": "test-staged: runStagedTests does not start tests when the worker build cannot start or finish",
+          "message": "AssertionError: expected [ \u2026(3) ] to match object [ 'npm', [ 'run', 'build:main' ] ]"
+        }
+      ]
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "scripts/__tests__/run-git-hook.spec.ts",
+        "scripts/__tests__/test-staged.spec.ts"
+      ],
+      "attempt": "green",
+      "actualExit": 1,
+      "rawJsonSha256": "670add4997304794a8c061a4fbc51ee4ef34f1dc7782215e245c7e085240f102",
+      "rawLogSha256": "f71fdada4979590495b416967ebb69637aed4cbfa20699ef6397cce805bd4031",
+      "rawJson": "_scratch/test-results.hook-correction-green.json",
+      "rawLog": "_scratch/test-run.hook-correction-green.log",
+      "totals": {
+        "numTotalTests": 19,
+        "numPassedTests": 18,
+        "numFailedTests": 1,
+        "numPendingTests": 0
+      },
+      "failedAssertions": [
+        {
+          "file": "__tests__/test-staged.spec.ts",
+          "title": "test-staged: runStagedTests does not start tests when the worker build cannot start or finish",
+          "message": "AssertionError: expected [ Array(3) ] to match object [ 'npm', [ 'run', 'build:main' ] ]"
+        }
+      ]
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "scripts/__tests__/run-git-hook.spec.ts",
+        "scripts/__tests__/test-staged.spec.ts",
+        "scripts/__tests__/dependency-compatibility.spec.ts"
+      ],
+      "attempt": "focused",
+      "actualExit": 0,
+      "rawJsonSha256": "75bd5b36b3dd6500036e18313cf1b6830c8498b3afff208fc6bfea1cbcb29056",
+      "rawLogSha256": "608c6dd0819a6dfe303347b987f3617adc55d5dc04c205838e2084282acd9bbb",
+      "rawJson": "_scratch/test-results.hook-correction-focused.json",
+      "rawLog": "_scratch/test-run.hook-correction-focused.log",
+      "totals": {
+        "numTotalTests": 24,
+        "numPassedTests": 24,
+        "numFailedTests": 0,
+        "numPendingTests": 0
+      },
+      "failedAssertions": []
+    }
+  ],
+  "note": "First green attempt exposed incorrect new test array-length matching, fixed by checking all three spawn arguments; no existing assertion weakened."
+}

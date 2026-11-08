@@ -1,0 +1,29 @@
+{
+  "at": "2026-10-27T10:34:41.014362+00:00",
+  "finished": "2026-10-27T10:35:53.996956+00:00",
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "src/main/plan-queue/plan-queue-retirement-control.spec.ts"
+  ],
+  "exit": 0,
+  "fullOutput": "_scratch/hook-correction/retirement-isolated.log",
+  "sha256": "70c996fa3126ad8a6e1a221cdde48e058ee2ce2f39e49750072cefcc82b980ae",
+  "bytes": 231,
+  "output": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js src/main/plan-queue/plan-queue-retirement-control.spec.ts\n\n\u2713 1 files \u00b7 26 tests passed in 72.7s\n  full log: _scratch/test-run.hook-correction-retirement-isolated.log\n",
+  "outputComplete": true,
+  "testSummary": {
+    "success": true,
+    "numTotalTestSuites": 1,
+    "numPassedTestSuites": 1,
+    "numFailedTestSuites": 0,
+    "numTotalTests": 26,
+    "numPassedTests": 26,
+    "numFailedTests": 0,
+    "numPendingTests": 0,
+    "numRuntimeErrorTestSuites": null
+  },
+  "failedTests": []
+}

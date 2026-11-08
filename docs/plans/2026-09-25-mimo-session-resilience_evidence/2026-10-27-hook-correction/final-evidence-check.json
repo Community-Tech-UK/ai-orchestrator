@@ -1,0 +1,20 @@
+{
+  "at": "2026-10-27T10:43:44.273441+00:00",
+  "correctionTextFilesScanned": 32,
+  "matches": [],
+  "patterns": [
+    "private-key",
+    "aws-access-key",
+    "github-token",
+    "openai-key",
+    "jwt",
+    "literal-bearer"
+  ],
+  "limit": "Pattern scan supplements manual metadata/excerpt review; it cannot prove absence of arbitrary secrets. Historical files were scanned and hash-checked separately.",
+  "diffCheckExit": 0,
+  "indexEmpty": true,
+  "sourceFixVerifiedByFocusedTestsAndActualHookPaths": true,
+  "fullSuiteFinalStatus": "exit 1; isolated original failed file exit 0; no subsequent full PASS",
+  "independentGateStatus": "not dispatched because campaign load threshold exceeded",
+  "remainingTechnicalPrerequisite": "Calm shared host for full suite, then fresh task-completion gate."
+}

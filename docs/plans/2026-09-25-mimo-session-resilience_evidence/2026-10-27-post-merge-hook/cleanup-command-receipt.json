@@ -1,0 +1,13 @@
+{
+  "command": [
+    "rtk",
+    "proxy",
+    "python3",
+    "_scratch/post-merge-hook/finalize.py"
+  ],
+  "startedAt": "2026-10-27T06:55:21.927936+00:00",
+  "finishedAt": "2026-10-27T06:55:26.738565+00:00",
+  "exitCode": 0,
+  "stdout": "PASS: source repair verified and independently reviewed; originals restored; owned runtime removed; evidence sealed; nothing committed or staged\n",
+  "stderr": ""
+}

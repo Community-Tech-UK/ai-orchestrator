@@ -1,0 +1,42 @@
+{
+  "at": "2026-10-27T02:49:38.922Z",
+  "focus": {
+    "hidden": false,
+    "visibility": "visible"
+  },
+  "result": {
+    "snapshot": {
+      "provider": "opencode",
+      "takenAt": 1793069378686,
+      "source": "admin-api",
+      "ok": true,
+      "windows": [
+        {
+          "kind": "calendar-period",
+          "id": "opencode.plan",
+          "label": "Plan",
+          "unit": "tokens",
+          "used": 77033621032,
+          "limit": 82000000000,
+          "remaining": 4966378968,
+          "resetsAt": 1795391999000,
+          "overage": false
+        },
+        {
+          "kind": "calendar-period",
+          "id": "opencode.monthly",
+          "label": "Monthly",
+          "unit": "tokens",
+          "used": 77033621032,
+          "limit": 82000000000,
+          "remaining": 4966378968,
+          "resetsAt": 1795391999000,
+          "overage": false
+        }
+      ],
+      "plan": "Max"
+    },
+    "strip": "CC68%CX21%AG0%CP69%CU100%GX0%OC94%",
+    "row": "OpenCodeupdated just nowRefreshPlan94%resets in 26d 21h 10mMonthly94%resets in 26d 21h 10m"
+  }
+}

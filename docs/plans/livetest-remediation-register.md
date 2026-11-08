@@ -370,14 +370,15 @@ sections below. The historical reproduction remains unchanged.
 | LT-705 | P1 | **MACHINE REPAIR + CODE VERIFIED 2026-10-13 — gates and full suite pass, independent reviews PASS; queue re-verified 2026-10-14; packaged smoke pending.** OpenCode 1 failed in `~/work/communitytech` (`no such column: project_id`) after OpenCode 2 rebuilt the shared `workspace` table, so selection fell back to OpenCode 2, whose `acp` ignores the per-spawn overlay and lacked the second account's key. Added nullable `workspace.project_id` (backed up); selection now refuses OpenCode 2 and explains why. The install/restart prerequisite is satisfied as for LT-704; the communitytech packaged smoke remains unrun and its exact deferred procedure is recorded inline in [LT-705 detail](#lt-705-deferred-packaged-acceptance) (branch-resident) and mirrored in the untracked root-checkout [startup remediation live test](2026-10-13-opencode-startup-remediation_livetest.md). | [LT-705 detail](#lt-705) | [Plan-owned packaged checks](2026-10-13-opencode-launch-environment_livetest.md) |
 | LT-706 | P2 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); live re-check pending.** A MiMo step that spends the whole combined cap on reasoning (OpenCode `finish: "length"`, ACP `end_turn`) was classified `completed` (or `dangling_tool_result`), so the session stopped silently. LT-690's saturation check skipped empty text, judged from whole-turn text while usage covers only the final step, and the shared observation layer could not see the cap. MiMo cap raised 16384 → 32000 at James's request. | [LT-706 detail](#lt-706) | [MiMo reasoning-cap live checks](2026-10-14-mimo-reasoning-cap-cutoff_livetest.md) |
 | LT-707 | P2 | **FIXED + REGRESSION-TESTED 2026-10-24 (working tree); live cell re-run pending (Windows PC outage #5).** `finalizeScoredRun` persists the record before best-effort cleanup and `cleanupWorkspace` retries transient ENOTEMPTY/EBUSY; regression tests cover record-survives-cleanup-throw and the retry paths. Implementation status lives in [the active plan](2026-10-14-local-model-plan-execute-ab_plan.md). Original report: reproduced 2026-10-24 (benchmark campaign harness, `benchmarks/plan-execute-ab/` — experiment tooling, not app code; owned by plan 2026-10-14-local-model-plan-execute-ab).** A completed scored pilot run is discarded when workspace cleanup flakes: `runArm` calls `cleanupWorkspace` (bare `rmSync` recursive) BEFORE `appendRunRecord`, so a transient `ENOTEMPTY` (macOS removal race) lost the AIO-05 C1 run after coding, patch capture and scoring — the batch logged `run failed: ENOTEMPTY, Directory not empty` and the leftover workspace then blocks re-export (`workspace already exists`). | [LT-707 detail](#lt-707) | [Local-model plan/execute deferred checks A5/A6](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
+| LT-782 | P2 | **FIXED + VERIFIED LIVE 2026-10-27.** Canonical gates and the independent completion review passed. A second Refresh during MiMo SSO cooldown clears the stale-login warning despite repeated real 401 responses. | [LT-782 detail](#lt-782) | [MiMo session resilience Check 2](2026-09-25-mimo-session-resilience_livetest.md) |
 | LT-1008 | P2 | **REPAIRED; independent review pending, 2026-10-27.** Each delayed option binds selection; live header and composer both select B. | [Detail](#lt-1008) | [Branch-owned DOM receipt](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/chips-ready.json) |
 | LT-1009 | P1 | **REPAIRED; independent review pending, 2026-10-27.** In-place and respawn account handoffs update continuity; the live immediate wake remains on B. | [Detail](#lt-1009) | [Branch-owned wake receipt](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/wake.json) |
 | LT-1010 | P2 | **OPEN — observed 2026-10-27.** MiMo error capture retains quota wording but omits upstream HTTP status/body. Owner: provider adapter/event-capture remediation; exact retention contract and safe transport required. | [Detail](#lt-1010) | [Capture provenance](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/capture-provenance.json) |
 | LT-1011 | P2 | **OPEN — independently reproduced 2026-10-27.** Vitest's error-stack parser rejects map-like template text in the locked tsx bundles, leaving an unhandled reporting error. Owner: test-toolchain remediation; no parser suppression or test weakening. | [Detail](#lt-1011) | [Parser reproduction](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/source-map-scan.json) |
 | LT-1012 | P2 | **OPEN — reproduced again in isolation 2026-10-27.** The native-finality child-process test sometimes reaches settlement without its final-written marker. The full-suite failures and a fresh isolated failure remain red; the cause is unconfirmed. Owner: native-finality test/runtime investigation. | [Detail](#lt-1012) | [Current isolated failure](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r3/finality-isolation.txt) |
 | LT-1007 | P2 | **OPEN — observed 2026-11-08.** In a sandboxed host (queue worker), every OpenCode CLI probe exits 71 because the macOS signal-fence `sandbox-exec` wrapper cannot apply its policy. The app reports `No usable OpenCode install` and the startup panel names only hardened instances, so MiMo sessions cannot start and sign-in reads `Could not check`. Owner decision needed on the fallback policy. | [Detail](#lt-1007) | [Receipt](2026-10-10-mimo-multi-account_evidence/2026-11-08-queue-61bedf-r4/observations.md) |
-| LT-732 | P2 | **OPEN — reproduced live 2026-10-27.** A 400,219-character context-fill message stalls the Electron main loop for 153,712 ms during the RLM keyword-search fallback before provider dispatch. The app recovers and honors a queued stop; exact cause remains unproven. | [LT-732 detail](#lt-708--a-large-context-fill-send-blocks-the-main-loop-during-retrieval) | [Compaction reliability round 2](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-verifier-round-2) |
-| LT-733 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-733 detail](#lt-715--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
+| LT-1013 | P2 | **OPEN — reproduced live 2026-10-27.** A 400,219-character context-fill message stalls the Electron main loop for 153,712 ms during the RLM keyword-search fallback before provider dispatch. The app recovers and honors a queued stop; exact cause remains unproven. | [LT-1013 detail](#lt-708--a-large-context-fill-send-blocks-the-main-loop-during-retrieval) | [Compaction reliability round 2](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-verifier-round-2) |
+| LT-1014 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1014 detail](#lt-715--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-708 | P1 | **OPEN — reproduced live 2026-10-27.** A non-YOLO Claude session consuming a warm adapter has no defer hook. The genuine CLI error `This command requires approval` is not recognised as a permission denial, so the session becomes idle without an approval card. A fresh adapter shows the deferred-permission card for the same harmless command. | [LT-708 detail](#lt-708) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-plan-queue-worker) |
 | LT-710 | P2 | **REPRODUCED 2026-10-27; not fixed in this checkout.** Main and context-worker startup can collide on fresh-profile migration discovery. Reusing the migrated isolated profile reaches the renderer. This reuses the existing saved-login/housekeeping defect identifier; the housekeeping worker owns its fix. | [LT-710 detail](#lt-710) | [Worker auto-update live checks](2026-10-14-worker-auto-update_livetest.md#evidence-run--2026-10-27-plan-queue-worker); [active remediation follow-up](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-710) |
 | LT-709 | P2 | **OPEN — reproduced in the compiled runtime 2026-10-26; unimplemented.** A provider-slot runtime package installs, but its worker fails on a compiled `require('file://...')` before provider registration; the normal session-create schema also rejects its plugin provider identifier. Phase 1 records the failure and omits the custom-provider claim. | [LT-709 detail](#lt-709) | [Plugins cleanup Phase 1](2026-10-26-plugins-cleanup-and-global-connectors_plan_completed.md#phase-1-plugins-page-cleanup); [implementation status](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-709) |
@@ -9714,7 +9715,7 @@ retains two complete 14-turn goals plus a seven-turn goal, all 32 continuations 
 50 tool-use and result rows visible in transcript groups. Both native compactions preserve the
 later goal output. The owner records compaction-procedure differences (the provider compacted
 around 74%, and non-executable convergence-review decisions still log) without weakening the
-original wording. This fix does not resolve the separate retrieval stall filed as LT-732.
+original wording. This fix does not resolve the separate retrieval stall filed as LT-1013.
 
 Evidence and pending/full verification status: [owner round 2](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-verifier-round-2).
 The root owner document and queue-branch register are intentionally separate until the coordinator
@@ -9775,7 +9776,7 @@ DOM agree. Current source and receipts: root `.aio-review/lt-c8434b3e-fix/`.
 
 Inline convergence-review decisions no longer log or publish as actions; the live sessions show
 zero non-none policy decisions. The source fix is restricted to native turn handoff and inline
-advisory reporting. Retrieval (LT-732) and database initialization (LT-733) are unchanged.
+advisory reporting. Retrieval (LT-1013) and database initialization (LT-1014) are unchanged.
 
 Canonical static/build gates pass. The first full run failed three unchanged Claude timing
 fixtures and a Vitest source-map error; a later isolated run passes all eight fixture cases.
@@ -10501,6 +10502,31 @@ scoring".
 - The AIO-05 C1 cell is re-run and recorded normally after the fix; the benchmark suite and the
   canonical static gates stay green.
 
+<a id="lt-782"></a>
+
+## LT-782 — refreshing during MiMo renewal cooldown hides an unresolved expired-login warning
+
+Numbering note (2026-10-27): the original MiMo LT-708 assignment conflicted with the benchmark reservation. The initial root and queue plan-directory scan at approximately 04:23 UTC confirmed LT-782 was unallocated; this MiMo record uses that number. A later review found a separate LT-790 reservation without an LT-782 conflict. Its earlier evidence retains the original timestamps; no other defect is renumbered.
+
+Status: fixed and verified live 2026-10-27; canonical gates and fresh independent completion review PASS. No unresolved acceptance item. Implementation status: [active follow-up plan](2026-10-27-mimo-stale-session-warning_plan.md). The older 2026-07-19 plan remains closed; new work is recorded in this follow-up under the completed-document rule.
+
+### Observed behaviour
+
+In the isolated rebuilt dev app, omitted outgoing console cookies produce real MiMo 401 responses. Omitting outgoing account cookies for the failed-renewal case reaches the real Xiaomi sign-in page, and the quota retry still receives 401. At 02:49:54 UTC, cached token bars remain and the chip shows OC 94% plus a warning; one quota-reauth notification records desktop delivery. A second real Refresh at 02:50:14 UTC again receives 401, but the renewer is on cooldown: the cached snapshot changes needsReauth from true to false and the warning disappears. No successful quota response intervenes. Evidence: rejected-refresh-one.json, rejected-refresh-two.json and rejected-network-two.json in 2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/.
+
+### Root cause
+
+MimoTokenPlanProbe returns a windowless transient failure when renewal is unavailable (including cooldown). ProviderQuotaService.retainLastKnownQuotaWindows defaults its absent needsReauth flag to false and drops the prior sign-in instruction. The IPC listener consequently resets its one-shot transition tracking despite no evidence that authentication recovered.
+
+### Required behaviour
+
+A windowless failure with no authentication verdict preserves the previous warning, original instruction, cached bars and original takenAt. An authoritative successful snapshot, explicit false verdict, configuration exclusion or source invalidation can replace that state. Repeated refreshes of the same unresolved expiry issue only one quota-reauth notification.
+
+### Acceptance
+
+- Live rejection plus repeated Refresh retains two cached token bars, their age and warning; exactly one quota-reauth notification is delivered.
+- A real saved-SSO walk followed by successful native quota responses clears the warning, advances takenAt and writes the renewal-success log. The 04:26 UTC correction run excludes the original service token from every renewal-phase request: SSO-returned authentication alone gets 200; identity-only negative controls get 401; a persisted-session reread gets 200 again. See the owning live-test report and its `2026-10-27-review-fixes` receipts. Natural expiry was not induced.
+- Service regressions cover preserved state, successful and explicit-false replacement, and account isolation; existing healthy-cache and source-invalidation tests remain green. Canonical gates and fresh independent review pass.
 
 <a id="lt-1008"></a>
 
@@ -11559,7 +11585,9 @@ therefore durable, not a log-line join. Live observation on an identified rebuil
 - Until that live run passes, keep AR-003 and LT-712 open as a technical implementation
   prerequisite. Repeating resets on an unchanged unobservable build cannot supply the missing proof.
 
-## LT-732 — a large context-fill send blocks the main loop during retrieval
+## LT-1013 — a large context-fill send blocks the main loop during retrieval
+
+_Renumbered from LT-732 on 2026-11-08 during the merge with main, because LT-732 was already assigned to a sidechat defect on the base._
 
 ### Observed behaviour
 
@@ -11584,7 +11612,9 @@ A deterministic local regression must bound processing of large or repeated quer
 Open; no retrieval code changed in this task. Current follow-up: root untracked `2026-10-27-codex-goal-following-remediation_plan.md`, additional-defect note. The compaction campaign uses short prompts and fixture reads to complete its assigned check independently.
 
 
-## LT-733 — first-profile startup fails at the RLM journal-mode pragma
+## LT-1014 — first-profile startup fails at the RLM journal-mode pragma
+
+_Renumbered from LT-733 on 2026-11-08 during the merge with main, because LT-733 was already assigned to a sidechat defect on the base._
 
 ### Observed behaviour
 
@@ -11631,7 +11661,7 @@ context worker's first start failed during RLM schema migration: `Failed to appl
 restarted and recovered; the main window then opened with no further database error. This is the same
 first-open initialization of one RLM database by two processes, with a different error text (a duplicate
 migration row, not a lock). Log: root `.aio-review/lt-c8434b3e-rerun-2026-11-07/dev-app.log`, lines 14–36.
-Still OPEN under LT-733.
+Still OPEN under LT-1014.
 
 ### Implementation status
 
@@ -11640,7 +11670,7 @@ root `docs/plans/2026-10-27-codex-goal-following-remediation_plan.md`. The compl
 remediation plan remains immutable. The successful restart is a workaround, not a fix.
 
 
-### LT-733 recurrence — 2026-10-27 05:35 UTC
+### LT-1014 recurrence — 2026-10-27 05:35 UTC
 
 Fresh isolated profile for the same queue campaign failed critical Work controls initialization
 at **05:35:20.558 UTC** with `SqliteError: database is locked`. The production stack again reaches
@@ -11650,7 +11680,7 @@ The exact lock holder is still unproven. Evidence: root
 The failed owned PID 15717 was matched by profile lock, cwd and debug port, stopped with SIGTERM,
 and verified absent with the port closed. A single same-profile restart without source or DB edits
 reached the live renderer and completed the real-provider boundary checks. That owned PID 55543
-was also stopped and verified absent. Restart recovery is not a database fix; LT-733 remains OPEN.
+was also stopped and verified absent. Restart recovery is not a database fix; LT-1014 remains OPEN.
 <a id="lt-710"></a>
 
 ## LT-710 — fresh-profile app startup can collide with the context worker's migrations

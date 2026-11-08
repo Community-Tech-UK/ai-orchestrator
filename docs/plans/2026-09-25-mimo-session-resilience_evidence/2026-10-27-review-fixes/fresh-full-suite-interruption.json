@@ -1,0 +1,96 @@
+{
+  "at": "2026-10-27T04:51:39.278135+00:00",
+  "reason": "Parent-directed concurrency restart; no failed-assertion verdict",
+  "ownedChain": [
+    {
+      "pid": 38658,
+      "parent": 38630,
+      "group": 38622,
+      "name": "node"
+    },
+    {
+      "pid": 38630,
+      "parent": 38629,
+      "group": 38622,
+      "name": "node"
+    },
+    {
+      "pid": 38629,
+      "parent": 38627,
+      "group": 38622,
+      "name": "rtk"
+    },
+    {
+      "pid": 38627,
+      "parent": 38622,
+      "group": 38622,
+      "name": "Python"
+    },
+    {
+      "pid": 38622,
+      "parent": 9361,
+      "group": 38622,
+      "name": "rtk"
+    },
+    {
+      "pid": 9361,
+      "parent": 9251,
+      "group": 9251,
+      "name": "codex"
+    },
+    {
+      "pid": 9251,
+      "parent": 11753,
+      "group": 9251,
+      "name": "node"
+    },
+    {
+      "pid": 11753,
+      "parent": 1,
+      "group": 11753,
+      "name": "Harness"
+    }
+  ],
+  "checkerChain": [
+    {
+      "pid": 70323,
+      "parent": 70307,
+      "group": 70307,
+      "name": "Python"
+    },
+    {
+      "pid": 70307,
+      "parent": 9361,
+      "group": 70307,
+      "name": "rtk"
+    },
+    {
+      "pid": 9361,
+      "parent": 9251,
+      "group": 9251,
+      "name": "codex"
+    },
+    {
+      "pid": 9251,
+      "parent": 11753,
+      "group": 9251,
+      "name": "node"
+    },
+    {
+      "pid": 11753,
+      "parent": 1,
+      "group": 11753,
+      "name": "Harness"
+    }
+  ],
+  "signal": "SIGTERM",
+  "targetGroup": 38622,
+  "rawLog": "_scratch/test-run.pid-38658.log",
+  "safeDistinctGroup": true,
+  "execExitCode": 143,
+  "finishedAt": "2026-10-27T04:51:58.523258+00:00",
+  "groupGone": true,
+  "retainedRawOutput": "fresh-full-suite-interrupted-raw-output.txt",
+  "rawOutputSha256": "aaadaa57f65950b460678900fec669c0c646d6706b72ea915b7c094db79de8be",
+  "secretScanExitCode": 0
+}

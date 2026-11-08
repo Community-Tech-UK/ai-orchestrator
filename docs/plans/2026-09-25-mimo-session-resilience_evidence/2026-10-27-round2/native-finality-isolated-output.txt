@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/orchestration/default-loop-native-finality.spec.ts
+
+✓ 1 files · 8 tests passed in 7.6s
+  full log: _scratch/test-run.pid-87947.log

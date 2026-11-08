@@ -1,0 +1,44 @@
+[
+  {
+    "events": [
+      {
+        "event": "final-marker",
+        "ms": 154.094041
+      },
+      {
+        "event": "150ms-timeout",
+        "ms": 154.183708
+      }
+    ],
+    "closed": true,
+    "signal": null
+  },
+  {
+    "events": [
+      {
+        "event": "final-marker",
+        "ms": 149.95100000000002
+      },
+      {
+        "event": "150ms-timeout",
+        "ms": 152.55541600000004
+      }
+    ],
+    "closed": true,
+    "signal": null
+  },
+  {
+    "events": [
+      {
+        "event": "final-marker",
+        "ms": 149.56037499999996
+      },
+      {
+        "event": "150ms-timeout",
+        "ms": 150.915959
+      }
+    ],
+    "closed": true,
+    "signal": null
+  }
+]

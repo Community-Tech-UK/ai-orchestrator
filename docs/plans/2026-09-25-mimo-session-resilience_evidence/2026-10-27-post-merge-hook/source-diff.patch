@@ -1,0 +1,150 @@
+diff --git a/docs/generated/architecture-inventory.json b/docs/generated/architecture-inventory.json
+index a1fcba14d..ca5fb19b7 100644
+--- a/docs/generated/architecture-inventory.json
++++ b/docs/generated/architecture-inventory.json
+@@ -6154,7 +6154,7 @@
+   "largeFiles": [
+     {
+       "path": "docs/plans/livetest-remediation-register.md",
+-      "lines": 13308
++      "lines": 13335
+     },
+     {
+       "path": "resources/browser-extension/background.js",
+diff --git a/scripts/__tests__/run-git-hook.spec.ts b/scripts/__tests__/run-git-hook.spec.ts
+index 0d1c996b5..cc54734da 100644
+--- a/scripts/__tests__/run-git-hook.spec.ts
++++ b/scripts/__tests__/run-git-hook.spec.ts
+@@ -13,6 +13,28 @@ const { getHookCommands, runHook } = require('../run-git-hook.js') as {
+ };
+ 
+ describe('run-git-hook', () => {
++  it.each([0, 42])('builds the main-process workers before testing and propagates build status %s', (buildStatus) => {
++    let built = false;
++    let tested = false;
++    const status = runHook('pre-commit', {
++      spawnSync: (command, args) => {
++        if (command === 'npm' && args[0] === 'run' && args[1] === 'build:main') {
++          built = buildStatus === 0;
++          return { status: buildStatus };
++        }
++        if (command === 'npm' && args[0] === 'run' && args[1] === 'test:staged') {
++          tested = true;
++          // A clean checkout cannot run real worker tests until compilation succeeds.
++          return { status: built ? 0 : 1 };
++        }
++        return { status: 0 };
++      },
++    });
++
++    expect(status).toBe(buildStatus);
++    expect(tested).toBe(buildStatus === 0);
++  });
++
+   it('pre-commit lints fast, regenerates generated artifacts, stages them, and runs changed-file tests', () => {
+     expect(getHookCommands('pre-commit')).toEqual([
+       { command: 'npm', args: ['run', 'lint:fast'] },
+@@ -29,6 +51,7 @@ describe('run-git-hook', () => {
+           'docs/generated/architecture-inventory.json',
+         ],
+       },
++      { command: 'npm', args: ['run', 'build:main'] },
+       { command: 'npm', args: ['run', 'test:staged'] },
+     ]);
+   });
+diff --git a/scripts/run-git-hook.js b/scripts/run-git-hook.js
+index 5bbb0af18..09fe0a097 100755
+--- a/scripts/run-git-hook.js
++++ b/scripts/run-git-hook.js
+@@ -23,13 +23,15 @@ const HOOK_COMMANDS = {
+     // CI runs `npm run check:ts-max-loc` without --warn, so it stays the enforcing gate.
+     { command: 'npm', args: ['run', 'check:ts-max-loc', '--', '--warn'] },
+     { command: 'git', args: ['add', ...GENERATED_ARTIFACTS] },
++    // Related tests launch compiled main-process workers. Rebuild after
++    // generation so clean checkouts and post-cleanup runs use current code.
++    { command: 'npm', args: ['run', 'build:main'] },
+     // Fast feedback at commit time: run only the tests related to the staged
+     // source files (`vitest related`), not the full suite. This is the "best of
+     // both" gate — quick, scoped test coverage on commit, with the slow
+     // full suite still living in CI. test-staged.js excludes the
+     // generated artifacts staged just above (they're widely imported and would
+-    // balloon the run) and skips entirely when no source files are staged, so
+-    // the loop agents' high-frequency auto-commits stay near-instant. Bypass in
++    // balloon the run) and skips Vitest when no source files are staged. Bypass in
+     // an emergency with `git commit --no-verify`.
+     { command: 'npm', args: ['run', 'test:staged'] },
+   ],
+diff --git a/src/main/orchestration/default-loop-native-finality.spec.ts b/src/main/orchestration/default-loop-native-finality.spec.ts
+index 50ab03127..6654e6e58 100644
+--- a/src/main/orchestration/default-loop-native-finality.spec.ts
++++ b/src/main/orchestration/default-loop-native-finality.spec.ts
+@@ -25,7 +25,18 @@ vi.mock('./loop-attempt-observation', () => ({ createAttemptDeltaObserver: () =>
+ vi.mock('./loop-provider-event-capture', () => ({ observeLoopProviderRuntimeEvents: () => () => undefined }));
+ vi.mock('./loop-output-externalize', () => ({ maybeExternalizeLoopOutput: async (output: string) => output }));
+ import { registerDefaultLoopInvoker } from './default-invokers';
+-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
++let fixture: { child: ChildProcessWithoutNullStreams; closed: Promise<unknown> } | undefined;
++afterEach(async () => {
++  vi.useRealTimers();
++  if (fixture) {
++    fixture.child.stdout.resume();
++    if (fixture.child.exitCode === null && fixture.child.signalCode === null) fixture.child.kill();
++    await fixture.closed;
++    fixture = undefined;
++  }
++  vi.restoreAllMocks();
++  vi.unstubAllEnvs();
++});
+ async function publicLoopIteration(adapter: ClaudeCliAdapter, regular = false) {
+   if (regular)
+     return sendRecordedOrchestrationCall(adapter, { taskType: 'loop-orchestration:claude', correlationId: 'disposable-control', provider: 'claude', model: 'claude-opus-5' }, () => adapter.sendMessage({ role: 'user', content: 'Disposable regular timeout control', metadata: { continueWhileActiveOnTimeout: true, activeTimeoutMs: 25 } }));
+@@ -59,6 +70,7 @@ it.each([
+   { mode: 'partial-no-final-lf', cost: 0.25 },
+ ])('native finality $mode', async ({mode, cost}) => {
+   vi.stubEnv('AIO_COST_ATTRIBUTION', '0');
++  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+   const adapter = new ClaudeCliAdapter({ model: 'claude-opus-5', timeout: 150 });
+   adapter.on('error', () => undefined);
+   let child!: ChildProcessWithoutNullStreams;
+@@ -72,6 +84,8 @@ it.each([
+   adapter.on('complete', response => completed.push({ closed: closeSeen, usage: response.usage }));
+   let paused = false;
+   let finalWritten = false;
++  let markFinalWritten!: () => void;
++  const finalReady = new Promise<void>(resolve => { markFinalWritten = resolve; });
+   const paid = { type: 'assistant', message: { content: [{ type: 'text', text: 'PARTIAL_FIXTURE' }], usage: { input_tokens: 100, output_tokens: 10 } } };
+   const result = { type: 'result', subtype: mode === 'partial-native-error' ? 'error_during_execution' : 'success',
+     is_error: mode === 'partial-native-error', total_cost_usd: cost, usage: { input_tokens: 100, output_tokens: 10 },
+@@ -82,11 +96,14 @@ it.each([
+   }, 'spawnProcess').mockImplementation(() => {
+     child = spawn(process.execPath, ['-e', `process.stdin.once('data',()=>{process.stdout.write(${JSON.stringify(JSON.stringify(paid) + '\n')},()=>setTimeout(()=>{process.stdout.write(${JSON.stringify(JSON.stringify(result) + (mode === 'partial-no-final-lf' ? '' : '\n'))},()=>process.stderr.write('FINAL_WRITTEN'));},25));});setInterval(()=>{},1000);`], { stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+     closed = once(child, 'close');
++    fixture = { child, closed };
+     child.once('close', () => { closeSeen = true; });
+     child.once('exit', () => child.stdout.resume());
+     child.stdout.on('data', chunk => { drainedRaw += chunk.toString(); });
+-    child.stderr.on('data', chunk => { if (chunk.toString().includes('FINAL_WRITTEN'))
+-      finalWritten = true; });
++    child.stderr.on('data', chunk => { if (chunk.toString().includes('FINAL_WRITTEN')) {
++      finalWritten = true;
++      markFinalWritten();
++    } });
+     return child;
+   });
+   adapter.on('output', event => { if (event.type === 'assistant' && !paused && mode !== 'partial-unpaused') {
+@@ -96,7 +113,14 @@ it.each([
+   const rows: CostAttributionRecord[] = [];
+   const stop = subscribeCostAttribution(row => rows.push(row));
+   try {
+-    const actual = await publicLoopIteration(adapter, mode === 'regular-paused').then(response => ({ response, error: undefined }), error => ({ response: undefined, error }));
++    const pending = publicLoopIteration(adapter, mode === 'regular-paused').then(response => ({ response, error: undefined }), error => ({ response: undefined, error }));
++    // Exercise final stdio draining after the child has written its result,
++    // without racing process startup against the parent's watchdog deadline.
++    await finalReady;
++    await vi.advanceTimersByTimeAsync(150);
++    // Regular errors retain the existing grace period for a native result.
++    if (mode === 'regular-paused') await vi.advanceTimersByTimeAsync(250);
++    const actual = await pending;
+     const response = actual.response;
+     await closed;
+     await new Promise(resolve => setImmediate(resolve));

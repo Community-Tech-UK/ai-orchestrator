@@ -356,6 +356,53 @@ describe('ProviderQuotaService', () => {
       expect(out!.windows[0].used).toBe(20);
     });
 
+    it.each([undefined, 'secondary'])('LT-782: keeps an expired-login warning through cooldown failures for account %s', async (accountProfileId) => {
+      const fresh = { ...makeSnapshot('opencode', 20, 100), takenAt: Date.now() - 120_000 };
+      let next = fresh;
+      svc.registerProbe({ provider: 'opencode', accountProfileId, probe: async () => next });
+      await svc.refresh('opencode', accountProfileId);
+      next = { ...fresh, ok: false, windows: [], needsReauth: true, error: 'Sign in again' };
+      await svc.refresh('opencode', accountProfileId);
+
+      next = { ...fresh, ok: false, windows: [], error: 'Refresh temporarily unavailable' };
+      const retained = await svc.refresh('opencode', accountProfileId);
+      expect(retained).toMatchObject({ needsReauth: true, error: 'Sign in again', takenAt: fresh.takenAt });
+      expect(retained!.windows).toEqual(fresh.windows);
+
+      next = { ...fresh, takenAt: Date.now(), windows: [{ ...fresh.windows[0], used: 25, remaining: 75 }] };
+      const recovered = await svc.refresh('opencode', accountProfileId);
+      expect(recovered!.needsReauth).toBeUndefined();
+      expect(recovered!.error).toBeUndefined();
+      expect(recovered!.takenAt).toBeGreaterThan(fresh.takenAt);
+      expect(recovered!.windows[0]).toMatchObject({ used: 25, remaining: 75 });
+    });
+
+    it('LT-782: honours an explicit cleared authentication verdict on a windowless failure', async () => {
+      svc.ingestFromAdapter('opencode', { ...makeIngest('opencode', 20, 100), needsReauth: true, error: 'Sign in again' });
+      svc.registerProbe({
+        provider: 'opencode',
+        probe: async () => ({ ...makeSnapshot('opencode', 0, 100), ok: false, windows: [], needsReauth: false, error: 'Network timeout' }),
+      });
+      const result = await svc.refresh('opencode');
+      expect(result!.needsReauth).toBe(false);
+      expect(result!.error).toBeUndefined();
+      expect(result!.windows[0].used).toBe(20);
+    });
+
+    it('LT-782: does not carry another account\'s expiry onto healthy cached bars', async () => {
+      svc.ingestFromAdapter('opencode', { ...makeIngest('opencode', 20, 100), needsReauth: true, error: 'Sign in again' });
+      svc.ingestFromAdapter('opencode', makeIngest('opencode', 30, 100), 'admin-api', 'secondary');
+      svc.registerProbe({
+        provider: 'opencode', accountProfileId: 'secondary',
+        probe: async () => ({ ...makeSnapshot('opencode', 0, 100), ok: false, windows: [], error: 'Network timeout' }),
+      });
+      const result = await svc.refresh('opencode', 'secondary');
+      expect(result!.needsReauth).toBe(false);
+      expect(result!.error).toBeUndefined();
+      expect(result!.windows[0].used).toBe(30);
+      expect(svc.getSnapshot('opencode')!.needsReauth).toBe(true);
+    });
+
     it('keeps last-known windows quietly when the failure is not a login problem', async () => {
       svc.registerProbe(new FakeProbe('claude', makeSnapshot('claude', 20, 100)));
       await svc.refresh('claude');

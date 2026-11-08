@@ -1,0 +1,7 @@
+{
+  "at": "2026-10-27T03:24:36.121738+00:00",
+  "problem": "Root checkout added @modelcontextprotocol/sdk as a direct dependency; its linked install no longer has byte-identical manifests to this queue branch.",
+  "preservedOriginalLinkedTree": "_scratch/mimo-round2/preexisting-node_modules",
+  "action": "Temporarily install this branch exact lockfile in its own node_modules. Skip project postinstall global-hook changes; prepare native modules separately. Delete the temporary install and restore original links after checks.",
+  "manifestEdits": false
+}

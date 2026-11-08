@@ -1,0 +1,9 @@
+{
+  "at": "2026-10-27T10:36:13.515419+00:00",
+  "uptimeExit": 0,
+  "uptime": "10:36  up 2 days, 10:23, 2 users, load averages: 88.01 57.56 40.23",
+  "unrelatedSpecUnchangedFromBase": true,
+  "specSha256": "ffa1c5c2203a29dcf72afdba1b561518f1f56fb369ad91a0c7063285c8c16cdd",
+  "action": "Unchanged isolated file passed (26 tests, exit 0). No test/code change; wait for load under runbook threshold before another full suite or independent agent dispatch.",
+  "causeStatus": "Failure vanished in isolation while high shared-host load was observed. Treat the full run as invalid under the campaign runbook; its actual exit remains 1. No claim that the full suite passed."
+}

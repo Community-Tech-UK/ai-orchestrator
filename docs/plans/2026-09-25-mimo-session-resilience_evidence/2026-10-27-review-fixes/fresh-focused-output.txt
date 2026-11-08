@@ -1,0 +1,4 @@
+> node scripts/run-tests-quiet.js src/main/core/system/provider-quota-service.spec.ts src/main/core/system/provider-quota-service.account-source.spec.ts src/main/core/system/provider-quota/mimo-token-plan-probe.spec.ts src/main/core/system/provider-quota/mimo-console-session-renewer.spec.ts src/main/core/system/provider-quota/mimo-session-refresh-persistence.spec.ts
+✓ 5 files · 111 tests passed in 8.5s
+  full log: _scratch/test-run.pid-36938.log
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.

@@ -1,0 +1,40 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js
+
+  … 63 test file(s) done (full log: _scratch/test-run.pid-32154.log)
+  … 168 test file(s) done (full log: _scratch/test-run.pid-32154.log)
+  … 322 test file(s) done (full log: _scratch/test-run.pid-32154.log)
+  … 489 test file(s) done (full log: _scratch/test-run.pid-32154.log)
+  … 654 test file(s) done (full log: _scratch/test-run.pid-32154.log)
+  … 853 test file(s) done (full log: _scratch/test-run.pid-32154.log)
+  … 1076 test file(s) done (full log: _scratch/test-run.pid-32154.log)
+  … 1404 test file(s) done (full log: _scratch/test-run.pid-32154.log)
+  … 1748 test file(s) done (full log: _scratch/test-run.pid-32154.log)
+  … 2080 test file(s) done (full log: _scratch/test-run.pid-32154.log)
+  … 2416 test file(s) done (full log: _scratch/test-run.pid-32154.log)
+✗ 3 of 35382 tests failed in 1437.1s:
+
+  ✗ scripts/__tests__/dependency-compatibility.spec.ts › dependency compatibility keeps the installed production tree valid
+    AssertionError: node_modules is linked from /Users/suas/work/orchestrat0r/ai-orchestrator, whose manifests differ; run a real install here: expected [ 'package.json', 'package-lock.json' ] to deeply equal []
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/scripts/__tests__/dependency-compatibility.spec.ts:183:7
+        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11
+        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26
+        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20
+        at new ZoneAwarePromise (/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/zone.js/fesm2015/zone.js:2238:23)
+        at runWithCancel (file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)
+        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20
+        at new ZoneAwarePromise (/Users/suas/work/orchestrat0r/ai-orchestrator/node_modules/zone.js
+        …(truncated — see log)
+
+  ✗ src/main/orchestration/default-loop-native-finality.spec.ts › native finality 'partial-no-native-cost'
+    AssertionError: expected false to be true // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/src/main/orchestration/default-loop-native-finality.spec.ts:109:26
+
+  ✗ src/main/orchestration/default-loop-native-finality.spec.ts › native finality 'partial-native-error'
+    AssertionError: expected 'Claude CLI timeout' to be 'Claude CLI reported error_during_exec…' // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/src/main/orchestration/default-loop-native-finality.spec.ts:116:37
+
+full log: _scratch/test-run.pid-32154.log
+
+✗ FAILED — 3 of 35382 tests failed (exit 1).

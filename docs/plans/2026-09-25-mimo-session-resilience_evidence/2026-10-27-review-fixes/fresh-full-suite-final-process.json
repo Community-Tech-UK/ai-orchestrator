@@ -1,0 +1,93 @@
+{
+  "at": "2026-10-27T05:03:57.301786+00:00",
+  "quietRunnerPid": 906,
+  "ownedGroup": 792,
+  "ownedChain": [
+    {
+      "pid": 906,
+      "parent": 809,
+      "group": 792,
+      "name": "node"
+    },
+    {
+      "pid": 809,
+      "parent": 808,
+      "group": 792,
+      "name": "node"
+    },
+    {
+      "pid": 808,
+      "parent": 806,
+      "group": 792,
+      "name": "rtk"
+    },
+    {
+      "pid": 806,
+      "parent": 792,
+      "group": 792,
+      "name": "Python"
+    },
+    {
+      "pid": 792,
+      "parent": 9361,
+      "group": 792,
+      "name": "rtk"
+    },
+    {
+      "pid": 9361,
+      "parent": 9251,
+      "group": 9251,
+      "name": "codex"
+    },
+    {
+      "pid": 9251,
+      "parent": 11753,
+      "group": 9251,
+      "name": "node"
+    },
+    {
+      "pid": 11753,
+      "parent": 1,
+      "group": 11753,
+      "name": "Harness"
+    }
+  ],
+  "checkerChain": [
+    {
+      "pid": 61255,
+      "parent": 61197,
+      "group": 61197,
+      "name": "Python"
+    },
+    {
+      "pid": 61197,
+      "parent": 9361,
+      "group": 61197,
+      "name": "rtk"
+    },
+    {
+      "pid": 9361,
+      "parent": 9251,
+      "group": 9251,
+      "name": "codex"
+    },
+    {
+      "pid": 9251,
+      "parent": 11753,
+      "group": 9251,
+      "name": "node"
+    },
+    {
+      "pid": 11753,
+      "parent": 1,
+      "group": 11753,
+      "name": "Harness"
+    }
+  ],
+  "safeDistinctGroup": true,
+  "rawLog": "_scratch/test-run.pid-906.log",
+  "phase": "finished",
+  "finishedAt": "2026-10-27T05:05:46.205744+00:00",
+  "runnerExitCode": 0,
+  "groupGone": true
+}

@@ -1,0 +1,9 @@
+{
+  "pinnedNode": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+  "pinnedVersion": "v24.22.1",
+  "pinnedSeaSupported": true,
+  "defaultNode": "/opt/homebrew/Cellar/node/26.12.1/bin/node",
+  "defaultVersion": "v26.12.1",
+  "defaultSeaSupported": false,
+  "noDownloadOrGlobalRuntimeChange": true
+}

@@ -1,0 +1,41 @@
+{
+  "at": "2026-10-27T04:17:43.276815+00:00",
+  "type": "resume evidence audit; no new live run",
+  "checks": {
+    "1": "PASS retained live row/token evidence",
+    "2": "PASS retained controlled rejection; acceptance assertions replayed",
+    "3": "PASS retained real SSO renewal; acceptance assertions replayed",
+    "4": "PASS retained 2026-10-04 cadence evidence; indirect timestamps as disclosed",
+    "5": "PASS retained fresh monitor evidence"
+  },
+  "sealedEvidenceFilesMatched": 86,
+  "reviewedSourceFilesMatched": 2,
+  "reportBeforeQueueFooterMatchesOriginalSeal": true,
+  "priorFinalPinnedCommandExits": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "independentReview": "retained VERDICT: PASS; reviewed source unchanged",
+  "listeningPorts": {
+    "4579": false,
+    "9822": false,
+    "9823": false
+  },
+  "runtimePathsRemaining": {
+    "/tmp/aio-lt-queue-71493f81": false,
+    "dist": false,
+    "_scratch/mimo-round2": false
+  },
+  "initialWorkingTreeClean": true,
+  "newRuntimeCreated": false,
+  "newProductChanges": false
+}

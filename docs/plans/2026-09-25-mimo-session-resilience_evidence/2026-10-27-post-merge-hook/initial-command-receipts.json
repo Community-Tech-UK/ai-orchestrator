@@ -1,0 +1,44 @@
+[
+  {
+    "name": "baseline",
+    "exitCode": 1,
+    "commandDescription": "AIO_TEST_NO_CACHE=1 npm run test:quiet -- src/main/cli/spawn-worker/cli-worker-resident-cost.spec.ts -t startup-result",
+    "output": "baseline.log",
+    "outputSha256": "a634b49d5f25d8973acc963576e4913a411e0b29cabd4da20a8f1ac731f7abdb"
+  },
+  {
+    "name": "build-main",
+    "exitCode": 0,
+    "commandDescription": "npm run build:main",
+    "output": "build-main.log",
+    "outputSha256": "e53c77df92cb08959c7fa8f45a78f861be16cb74a6c6e53c0e3c249bcbb9a40a"
+  },
+  {
+    "name": "regression-red",
+    "exitCode": 1,
+    "commandDescription": "AIO_TEST_NO_CACHE=1 npm run test:quiet -- scripts/__tests__/run-git-hook.spec.ts -t builds-the-main-process-workers",
+    "output": "regression-red.log",
+    "outputSha256": "8f66928ed8de43a208bf1933d1fd6079d6e8e5526a2d959337b7dea33dc1bf7b"
+  },
+  {
+    "name": "regression-green",
+    "exitCode": 0,
+    "commandDescription": "same regression selection after hook fix",
+    "output": "regression-green.log",
+    "outputSha256": "835e56701f38171807792047f585c9e802c94f2d9665d67d93cdad51d12b93cc"
+  },
+  {
+    "name": "worker-tests",
+    "exitCode": 0,
+    "commandDescription": "AIO_TEST_NO_CACHE=1 npm run test:quiet -- cli-worker-resident-cost.spec.ts cli-worker-cancelled-usage.spec.ts cli-worker-failed-usage.spec.ts claude-direct-failed-usage.spec.ts",
+    "output": "worker-tests.log",
+    "outputSha256": "8a7f7c63f413e0a2c1eff55e6bf37007a65c8dd2a5bbb63ec885eddcbe10dc1f"
+  },
+  {
+    "name": "focused-hook-tests",
+    "exitCode": 0,
+    "commandDescription": "AIO_TEST_NO_CACHE=1 npm run test:quiet -- scripts/__tests__/run-git-hook.spec.ts scripts/__tests__/test-staged.spec.ts",
+    "output": "focused-hook-tests.log",
+    "outputSha256": "f824557e38750ff3f4b990f56f58de19b330c99da5a99b87fad79fb1396a6981"
+  }
+]

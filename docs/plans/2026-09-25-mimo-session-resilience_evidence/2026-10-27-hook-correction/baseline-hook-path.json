@@ -1,0 +1,52 @@
+{
+  "at": "2026-10-27T10:06:23.429Z",
+  "method": "Existing hook command path with subprocess interception; no staging/build executed",
+  "status": 0,
+  "calls": [
+    [
+      "npm",
+      "run",
+      "lint:fast"
+    ],
+    [
+      "npm",
+      "run",
+      "generate:aliases"
+    ],
+    [
+      "npm",
+      "run",
+      "generate:ipc"
+    ],
+    [
+      "npm",
+      "run",
+      "generate:architecture"
+    ],
+    [
+      "npm",
+      "run",
+      "check:ts-max-loc",
+      "--",
+      "--warn"
+    ],
+    [
+      "git",
+      "add",
+      "src/main/register-aliases.ts",
+      "src/preload/generated/channels.ts",
+      "docs/generated/architecture-inventory.json"
+    ],
+    [
+      "npm",
+      "run",
+      "build:main"
+    ],
+    [
+      "npm",
+      "run",
+      "test:staged"
+    ]
+  ],
+  "unconditionalBuild": true
+}

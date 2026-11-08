@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-27T10:13:24.081533+00:00",
+  "finished": "2026-10-27T10:14:11.316456+00:00",
+  "command": [
+    "npm",
+    "run",
+    "build:main"
+  ],
+  "exit": 0,
+  "fullOutput": "_scratch/hook-correction/build-main.log",
+  "sha256": "a984dd4f7f465618e12c009001796beddb322a1748d0ad312861bdf5d3d9ad9b",
+  "bytes": 284,
+  "output": "\n> harness@0.1.0 prebuild:main\n> node scripts/refresh-codex-protocol.js\n\n\n> harness@0.1.0 build:main\n> tsc -p tsconfig.electron.json && node scripts/sync-dist.js && tsx build-preload.ts\n\n\n  dist/preload/preload.js  234.9kb\n\n\u26a1 Done in 20ms\nPreload bundled -> dist/preload/preload.js\n",
+  "outputComplete": true
+}

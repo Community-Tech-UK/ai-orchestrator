@@ -1,0 +1,66 @@
+{
+  "at": "2026-10-27T10:41:24.796719+00:00",
+  "files": [
+    {
+      "path": "_scratch/test-results.hook-correction-green.json",
+      "bytes": 8827,
+      "sha256": "670add4997304794a8c061a4fbc51ee4ef34f1dc7782215e245c7e085240f102"
+    },
+    {
+      "path": "_scratch/test-run.hook-correction-green.log",
+      "bytes": 3252,
+      "sha256": "f71fdada4979590495b416967ebb69637aed4cbfa20699ef6397cce805bd4031"
+    },
+    {
+      "path": "_scratch/test-results.hook-correction-baseline.json",
+      "bytes": 6291,
+      "sha256": "7842bf72858c8e79c8e32d3ffba9633944a767656eca32f6b4e5b76d183eea41"
+    },
+    {
+      "path": "_scratch/test-results.hook-correction-full-suite.json",
+      "bytes": 12599585,
+      "sha256": "6d538db7d3584f22aba2a38f444f02eac215684268ef783a30020cb366da91a8"
+    },
+    {
+      "path": "_scratch/test-results.hook-correction-retirement-isolated.json",
+      "bytes": 8642,
+      "sha256": "c1879f00a3d51eb0071f939b4361abcb11e6096d033c0bec84be726db7a8745b"
+    },
+    {
+      "path": "_scratch/test-run.hook-correction-focused.log",
+      "bytes": 1336,
+      "sha256": "608c6dd0819a6dfe303347b987f3617adc55d5dc04c205838e2084282acd9bbb"
+    },
+    {
+      "path": "_scratch/test-run.hook-correction-red.log",
+      "bytes": 8326,
+      "sha256": "40dc5d3d0489e71c042e6643912e55819cf7752caa8367e76cb42b233b8d0bf5"
+    },
+    {
+      "path": "_scratch/test-run.hook-correction-baseline.log",
+      "bytes": 950,
+      "sha256": "ff4c78bac54a70654c5d5b415c57c54129574f68b141fd0dcdeb8be2cc61bbe2"
+    },
+    {
+      "path": "_scratch/test-run.hook-correction-full-suite.log",
+      "bytes": 4346148,
+      "sha256": "6c4da750a85ea72bae9df128fdf2f4b2a94531a58b2156544cdc09f07f3a583d"
+    },
+    {
+      "path": "_scratch/test-results.hook-correction-red.json",
+      "bytes": 17984,
+      "sha256": "ae0db930bed2d218540d5545868dd2fe8994032eb88696a9aad074ad6fac0a0c"
+    },
+    {
+      "path": "_scratch/test-results.hook-correction-focused.json",
+      "bytes": 8713,
+      "sha256": "75bd5b36b3dd6500036e18313cf1b6830c8498b3afff208fc6bfea1cbcb29056"
+    },
+    {
+      "path": "_scratch/test-run.hook-correction-retirement-isolated.log",
+      "bytes": 45777,
+      "sha256": "c1c83763e71f86d0ca37ae13e87955e48c12e97fbbe0c93704d41e9aad589d65"
+    }
+  ],
+  "policy": "Own raw test output will be preserved compressed locally with a mapping receipt; generated runtime/helpers will be deleted. Local raw evidence is not harvested."
+}

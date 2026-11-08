@@ -1,0 +1,16 @@
+{
+  "at": "2026-10-27T05:08:05.801782+00:00",
+  "numbering": "PASS: MiMo references consistently LT-782",
+  "links": "PASS: repository-relative targets exist in the owning checkout or queued evidence",
+  "check2": "PASS: repeated real rejection retains warning and bars; one desktop delivery",
+  "check3": "PASS: exclusively SSO-returned auth, changed service token, real 200; no-auth controls 401; persisted reread 200",
+  "originalSavedLoginUnchanged": true,
+  "settingsRestored": true,
+  "focus": "visible for every DOM observation",
+  "limits": [
+    "Controlled request-cookie exclusion, not natural expiry",
+    "No visual macOS banner inspection",
+    "No locked Chrome DB snapshot recovery",
+    "Prior indirect idle-cadence evidence retained, no new ten-minute capture"
+  ]
+}

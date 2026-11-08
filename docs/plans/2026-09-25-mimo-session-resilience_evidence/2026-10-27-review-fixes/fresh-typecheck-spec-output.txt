@@ -1,0 +1,2 @@
+> node --max-old-space-size=8192 node_modules/typescript/bin/tsc --noEmit -p tsconfig.spec.json
+npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.

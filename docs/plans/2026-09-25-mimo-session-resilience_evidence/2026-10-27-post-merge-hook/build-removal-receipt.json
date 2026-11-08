@@ -1,0 +1,11 @@
+{
+  "retries": [
+    {
+      "attempt": 1,
+      "error": "ENOTEMPTY",
+      "remaining": "dist/src/main/.DS_Store",
+      "hookStarted": false
+    }
+  ],
+  "distAbsent": true
+}

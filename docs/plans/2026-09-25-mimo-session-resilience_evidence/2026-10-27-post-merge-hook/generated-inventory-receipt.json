@@ -1,0 +1,9 @@
+{
+  "generator": "pre-commit generate:architecture",
+  "path": "docs/generated/architecture-inventory.json",
+  "change": "Remediation-register generator line count 13308 -> 13335",
+  "actualGeneratorCount": 13335,
+  "newlineCount": 13334,
+  "firstDiagnostic": "The first receipt assertion used splitlines(), which omits the trailing empty line. The generator at scripts/generate-architecture-inventory.js:165 uses split(/\\r?\\n/); this receipt uses that convention.",
+  "registerUnchangedByThisResume": true
+}

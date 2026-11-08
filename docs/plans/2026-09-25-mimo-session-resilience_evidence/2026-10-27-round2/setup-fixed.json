@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-27T02:53:35.861Z",
+  "result": {
+    "profile": "/tmp/aio-lt-queue-71493f81",
+    "chain": [
+      "ThrottledAccountQuotaProbe",
+      "CompositeQuotaProbe",
+      "MimoTokenPlanProbe"
+    ],
+    "desktopSupported": true,
+    "savedSessionAvailable": true
+  }
+}

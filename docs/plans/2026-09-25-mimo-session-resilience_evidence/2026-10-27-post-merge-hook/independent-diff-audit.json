@@ -1,0 +1,102 @@
+{
+  "at": "2026-10-27T06:52:00.860221+00:00",
+  "base": "7e5222cfe773e2fc3edff0c2eade2e77fe7131cc",
+  "head": "30ca17928415518ececab6adc00c9d8e3c9322aa",
+  "sourceAddedLines": 108,
+  "sourceForensics": {
+    "skip_or_only": 0,
+    "suppression": 0,
+    "stub": 0,
+    "exit_zero": 0,
+    "unsafe_sink": 0
+  },
+  "evidenceSecretScan": {
+    "files": 74,
+    "findings": [],
+    "note": "Pattern scan; matched values deliberately never emitted"
+  },
+  "sourceHashesMatch": {
+    "scripts/run-git-hook.js": true,
+    "scripts/__tests__/run-git-hook.spec.ts": true,
+    "src/main/orchestration/default-loop-native-finality.spec.ts": true,
+    "docs/generated/architecture-inventory.json": true
+  },
+  "sourcePatchMatches": true,
+  "assertionsUnchanged": true,
+  "oldAssertionLines": 22,
+  "newAssertionLines": 22,
+  "realStagedPaths": [],
+  "parkedOriginalDependencies": [
+    {
+      "path": "node_modules/@hono/node-server",
+      "inodeMatches": true,
+      "manifestMatches": true
+    },
+    {
+      "path": "node_modules/@modelcontextprotocol/sdk",
+      "inodeMatches": true,
+      "manifestMatches": true
+    },
+    {
+      "path": "node_modules/cors",
+      "inodeMatches": true,
+      "manifestMatches": true
+    },
+    {
+      "path": "node_modules/eventsource-parser",
+      "inodeMatches": true,
+      "manifestMatches": true
+    },
+    {
+      "path": "node_modules/eventsource",
+      "inodeMatches": true,
+      "manifestMatches": true
+    },
+    {
+      "path": "node_modules/express-rate-limit",
+      "inodeMatches": true,
+      "manifestMatches": true
+    },
+    {
+      "path": "node_modules/hono",
+      "inodeMatches": true,
+      "manifestMatches": true
+    },
+    {
+      "path": "node_modules/ip-address",
+      "inodeMatches": true,
+      "manifestMatches": true
+    },
+    {
+      "path": "node_modules/jose",
+      "inodeMatches": true,
+      "manifestMatches": true
+    },
+    {
+      "path": "node_modules/object-assign",
+      "inodeMatches": true,
+      "manifestMatches": true
+    },
+    {
+      "path": "node_modules/pkce-challenge",
+      "inodeMatches": true,
+      "manifestMatches": true
+    },
+    {
+      "path": "node_modules/zod-to-json-schema",
+      "inodeMatches": true,
+      "manifestMatches": true
+    }
+  ],
+  "cleanupStillPending": true,
+  "committedRangeSecretPatternCounts": {
+    "privateKey": 0,
+    "openai": 0,
+    "github": 0,
+    "slack": 0,
+    "aws": 0,
+    "jwt": 0
+  },
+  "fullSuiteRawSha256": "dcd2525a7682486d628a7d81e79b382694e5d4e03f3ebacc05e8955792310514",
+  "fullSuiteJsonSha256": "991b301cd656dc3a3e0ceefb83f0a61527b0ca3ae3ad71a794d16b0605fbbe2a"
+}

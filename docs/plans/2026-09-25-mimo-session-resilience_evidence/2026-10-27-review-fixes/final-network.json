@@ -1,0 +1,275 @@
+{
+  "at": "2026-10-27T04:27:25.495Z",
+  "result": {
+    "phase": "persisted",
+    "startedAt": "2026-10-27T04:25:52.252Z",
+    "requests": [
+      {
+        "at": "2026-10-27T04:25:57.632Z",
+        "phase": "baseline",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 200,
+        "cookiePolicy": "production",
+        "authCookieCount": 3,
+        "allSentAuthFromSso": false,
+        "originalServiceTokenSent": true,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T04:25:57.711Z",
+        "phase": "baseline",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 200,
+        "cookiePolicy": "production",
+        "authCookieCount": 3,
+        "allSentAuthFromSso": false,
+        "originalServiceTokenSent": true,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T04:26:05.113Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 401,
+        "cookiePolicy": "no-cookies",
+        "authCookieCount": 0,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T04:26:05.196Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 401,
+        "cookiePolicy": "no-cookies",
+        "authCookieCount": 0,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T04:26:05.364Z",
+        "phase": "reject",
+        "host": "account.xiaomi.com",
+        "path": "/pass/serviceLogin",
+        "status": 302,
+        "cookiePolicy": "no-cookies",
+        "authCookieCount": 0,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 28
+      },
+      {
+        "at": "2026-10-27T04:26:05.496Z",
+        "phase": "reject",
+        "host": "account.xiaomi.com",
+        "path": "/fe/service/login",
+        "status": 200,
+        "cookiePolicy": "no-cookies",
+        "authCookieCount": 0,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T04:26:05.529Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 401,
+        "cookiePolicy": "no-cookies",
+        "authCookieCount": 0,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T04:26:05.562Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 401,
+        "cookiePolicy": "no-cookies",
+        "authCookieCount": 0,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T04:26:20.962Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 401,
+        "cookiePolicy": "no-cookies",
+        "authCookieCount": 0,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T04:26:21.064Z",
+        "phase": "reject",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 401,
+        "cookiePolicy": "no-cookies",
+        "authCookieCount": 0,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T04:26:39.158Z",
+        "phase": "renew",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 401,
+        "cookiePolicy": "no-cookies",
+        "authCookieCount": 0,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T04:26:39.259Z",
+        "phase": "renew",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 401,
+        "cookiePolicy": "no-cookies",
+        "authCookieCount": 0,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T04:26:39.395Z",
+        "phase": "renew",
+        "host": "account.xiaomi.com",
+        "path": "/pass/serviceLogin",
+        "status": 302,
+        "cookiePolicy": "production",
+        "authCookieCount": 0,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 9
+      },
+      {
+        "at": "2026-10-27T04:26:39.428Z",
+        "phase": "renew",
+        "host": "platform.xiaomimimo.com",
+        "path": "/sts",
+        "status": 307,
+        "cookiePolicy": "production",
+        "authCookieCount": 0,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 5
+      },
+      {
+        "at": "2026-10-27T04:26:39.477Z",
+        "phase": "renew",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 200,
+        "cookiePolicy": "sso-returned-auth-only",
+        "authCookieCount": 3,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T04:26:39.534Z",
+        "phase": "renew",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 200,
+        "cookiePolicy": "sso-returned-auth-only",
+        "authCookieCount": 3,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T04:26:51.711Z",
+        "phase": "control",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 401,
+        "cookiePolicy": "identity-only",
+        "authCookieCount": 0,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 4
+      },
+      {
+        "at": "2026-10-27T04:26:51.804Z",
+        "phase": "control",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 401,
+        "cookiePolicy": "identity-only",
+        "authCookieCount": 0,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 4
+      },
+      {
+        "at": "2026-10-27T04:26:55.943Z",
+        "phase": "persisted",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/usage",
+        "status": 200,
+        "cookiePolicy": "sso-returned-auth-only",
+        "authCookieCount": 3,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 0
+      },
+      {
+        "at": "2026-10-27T04:26:55.999Z",
+        "phase": "persisted",
+        "host": "platform.xiaomimimo.com",
+        "path": "/api/v1/tokenPlan/detail",
+        "status": 200,
+        "cookiePolicy": "sso-returned-auth-only",
+        "authCookieCount": 3,
+        "allSentAuthFromSso": true,
+        "originalServiceTokenSent": false,
+        "setCookieCount": 0
+      }
+    ],
+    "notifications": [
+      {
+        "kind": "quota-reauth",
+        "title": "opencode usage numbers are stale",
+        "delivery": "desktop",
+        "createdAt": 1793075165562
+      }
+    ],
+    "renewal": {
+      "attempted": true,
+      "completed": true,
+      "consoleCookieNames": [
+        "api-platform_serviceToken",
+        "userId",
+        "api-platform_slh",
+        "api-platform_ph"
+      ],
+      "allAuthCookiesMinted": true,
+      "serviceTokenChanged": true
+    },
+    "persistence": {
+      "sourceUnchanged": true,
+      "isolatedBlobChanged": true,
+      "rotatedSsoPairs": 5
+    },
+    "sourceStillUnchanged": true
+  }
+}

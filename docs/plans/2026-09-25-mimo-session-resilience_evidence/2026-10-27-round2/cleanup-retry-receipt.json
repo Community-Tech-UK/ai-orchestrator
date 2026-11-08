@@ -1,0 +1,16 @@
+{
+  "at": "2026-10-27T04:03:08.430295+00:00",
+  "firstCleanupCommand": [
+    "rtk",
+    "proxy",
+    "python3",
+    "_scratch/mimo-round2/finish.py"
+  ],
+  "exitCode": 1,
+  "observedError": "OSError errno66 ENOTEMPTY at temporary node_modules removal",
+  "remainingEntry": ".DS_Store",
+  "originalLinksStillPreserved": true,
+  "profileAlreadyRemoved": true,
+  "buildAlreadyRemoved": true,
+  "correction": "Bounded ENOTEMPTY retries only; other errors still propagate. No product/test/config change."
+}

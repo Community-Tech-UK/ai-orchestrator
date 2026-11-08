@@ -1,0 +1,92 @@
+{
+  "at": "2026-10-27T04:32:41.660876+00:00",
+  "selectedDefect": "LT-782",
+  "conflictingReferencesOutsideOwningDocuments": [],
+  "reservationsAndReferences": {
+    "708": [
+      "queue:livetest-remediation-register.md",
+      "root:livetest-remediation-register.md",
+      "root:2026-10-20-oct2-phaseA-safety-and-truth_plan.md",
+      "root:2026-09-25-mimo-session-resilience_livetest.md",
+      "root:2026-10-27-plan-queue-startup-remediation_plan.md",
+      "root:2026-10-20-oct2-phaseC-queue-that-finishes_history.md",
+      "root:2026-10-27-agent-runtime-permission-remediation_plan.md",
+      "root:2026-09-23-browser-login-recipe-persistence_livetest.md",
+      "root:2026-09-18-plan-queue_livetest.md",
+      "root:2026-10-14-local-model-plan-execute-ab_plan.md",
+      "root:2026-10-27-browser-login-multi-portal-remediation_plan.md",
+      "root:2026-09-27-codex-compaction-reliability_livetest.md",
+      "root:2026-10-20-oct2-phaseA-safety-and-truth_history.md",
+      "root:2026-07-19-livetest-failure-remediation_plan_livetest.md",
+      "root:2026-09-27-livetest-agent-runtime-residuals_livetest.md",
+      "root:2026-10-27-codex-goal-following-remediation_plan.md",
+      "root:2026-07-19-livetest-failure-remediation-followup_plan.md",
+      "root:2026-10-14-local-model-plan-execute-ab_plan_livetest.md",
+      "root:2026-10-27-mimo-stale-session-warning_plan.md"
+    ],
+    "781": [
+      "queue:livetest-remediation-register.md",
+      "root:2026-09-27-livetest-human-external-residuals_livetest.md",
+      "root:2026-09-25-mimo-session-resilience_livetest.md",
+      "root:2026-07-19-livetest-failure-remediation-followup_plan.md"
+    ],
+    "782": [
+      "queue:livetest-remediation-register.md",
+      "root:2026-09-25-mimo-session-resilience_livetest.md",
+      "root:2026-10-27-mimo-stale-session-warning_plan.md"
+    ],
+    "709": [
+      "root:livetest-remediation-register.md",
+      "root:2026-10-26-plugins-cleanup-and-global-connectors_plan_completed.md",
+      "root:2026-07-19-livetest-failure-remediation-followup_plan.md"
+    ],
+    "790": [
+      "root:2026-10-27-residuals-startup-remediation_plan.md"
+    ],
+    "712": [
+      "root:2026-09-27-livetest-human-external-residuals_livetest.md",
+      "root:2026-10-27-codex-compaction-lifecycle-followup_plan.md",
+      "root:2026-09-24-codex-compaction-turn-visibility_livetest.md",
+      "root:2026-07-19-livetest-failure-remediation-followup_plan.md"
+    ],
+    "713": [
+      "root:2026-09-27-livetest-human-external-residuals_livetest.md",
+      "root:2026-10-27-codex-compaction-lifecycle-followup_plan.md",
+      "root:2026-09-24-codex-compaction-turn-visibility_livetest.md",
+      "root:2026-07-19-livetest-failure-remediation-followup_plan.md"
+    ],
+    "714": [
+      "root:2026-09-27-livetest-human-external-residuals_livetest.md",
+      "root:2026-09-25-mimo-session-resilience_livetest.md",
+      "root:2026-10-27-codex-compaction-lifecycle-followup_plan.md",
+      "root:2026-09-24-codex-compaction-turn-visibility_livetest.md",
+      "root:2026-07-19-livetest-failure-remediation-followup_plan.md"
+    ],
+    "780": [
+      "root:2026-09-27-livetest-human-external-residuals_livetest.md",
+      "root:2026-09-25-mimo-session-resilience_livetest.md",
+      "root:2026-07-19-livetest-failure-remediation-followup_plan.md"
+    ],
+    "710": [
+      "root:2026-09-25-mimo-session-resilience_livetest.md",
+      "root:2026-10-27-codex-compaction-lifecycle-followup_plan.md",
+      "root:2026-09-24-codex-compaction-turn-visibility_livetest.md",
+      "root:2026-09-22-worker-offline-resilience_livetest.md",
+      "root:2026-10-27-agent-runtime-review-remediation_plan.md",
+      "root:2026-10-27-worker-offline-findings_plan.md",
+      "root:2026-09-27-livetest-agent-runtime-residuals_livetest.md"
+    ],
+    "711": [
+      "root:2026-10-27-codex-compaction-lifecycle-followup_plan.md",
+      "root:2026-09-24-codex-compaction-turn-visibility_livetest.md",
+      "root:2026-09-22-worker-offline-resilience_livetest.md",
+      "root:2026-10-27-worker-offline-findings_plan.md"
+    ],
+    "715": [
+      "root:2026-10-27-codex-compaction-lifecycle-followup_plan.md",
+      "root:2026-09-24-codex-compaction-turn-visibility_livetest.md",
+      "root:2026-09-27-codex-compaction-reliability_livetest.md",
+      "root:2026-10-27-codex-goal-following-remediation_plan.md"
+    ]
+  }
+}

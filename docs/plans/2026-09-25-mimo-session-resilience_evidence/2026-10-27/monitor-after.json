@@ -1,0 +1,30 @@
+{
+  "observedAt": "2026-10-27T02:33:29.174357+00:00",
+  "mimo": {
+    "status": "Max",
+    "primary": 0,
+    "windows": [
+      {
+        "label": "plan",
+        "used_percent": 93.58105128292684,
+        "reset_at": 1795391999.0,
+        "detail": "76.7B/82.0B"
+      },
+      {
+        "label": "monthly",
+        "used_percent": 93.58105128292684,
+        "reset_at": 1795391999.0,
+        "detail": "76.7B/82.0B"
+      }
+    ],
+    "plan": "Max",
+    "tool": "mimo",
+    "updated_at": 1793068330.719637
+  },
+  "ageSeconds": 78.45,
+  "recentMimoLog": [
+    "[2026-10-27 02:22:05] mimo: ok (Max; plan 93.5%, monthly 93.5%) [direct]",
+    "[2026-10-27 02:32:10] mimo: ok (Max; plan 93.6%, monthly 93.6%) [direct]",
+    "[2026-10-27 02:32:10] mimo: ok (Max; plan 93.6%, monthly 93.6%) [direct]"
+  ]
+}

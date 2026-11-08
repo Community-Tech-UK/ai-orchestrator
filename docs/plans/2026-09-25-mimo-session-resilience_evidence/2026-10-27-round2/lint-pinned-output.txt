@@ -1,0 +1,9 @@
+
+> harness@0.1.0 lint
+> ng lint
+
+
+Linting "ai-orchestrator"...
+
+All files pass linting.
+

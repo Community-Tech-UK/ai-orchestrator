@@ -1,0 +1,3 @@
+> node scripts/run-tests-quiet.js src/main/core/system/provider-quota-service.spec.ts src/main/core/system/provider-quota-service.account-source.spec.ts
+✓ 2 files · 57 tests passed in 8.7s
+  full log: _scratch/test-run.pid-9013.log

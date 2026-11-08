@@ -1,0 +1,30 @@
+{
+  "electron": {
+    "originalShared": "42.11.18",
+    "branchExact": "42.11.18"
+  },
+  "@angular/core": {
+    "originalShared": "22.2.1",
+    "branchExact": "22.2.1"
+  },
+  "better-sqlite3": {
+    "originalShared": "12.11.1",
+    "branchExact": "12.11.1"
+  },
+  "zod": {
+    "originalShared": "4.6.7",
+    "branchExact": "4.6.7"
+  },
+  "typescript": {
+    "originalShared": "6.0.3",
+    "branchExact": "6.0.3"
+  },
+  "vitest": {
+    "originalShared": "4.1.12",
+    "branchExact": "4.1.12"
+  },
+  "@modelcontextprotocol/sdk": {
+    "originalShared": "1.32.2",
+    "branchExact": null
+  }
+}

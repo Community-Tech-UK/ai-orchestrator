@@ -1,0 +1,7 @@
+{
+  "at": "2026-10-27T03:53:49.903147+00:00",
+  "sourceHashes": {
+    "src/main/core/system/provider-quota-service.ts": "2a209965279b31a32feaab9602d077f281364f8295cfa2108e0f7c8b650125db",
+    "src/main/core/system/provider-quota-service.spec.ts": "3917592f208d3e4321d568fcf4e96843a92615f6c543d80f840001633c49056a"
+  }
+}

@@ -582,6 +582,8 @@ export function retainLastKnownQuotaWindows(
   if (incoming.windows.length > 0 || incoming.cliNotInstalled || incoming.notApplicable) return incoming;
   if (incoming.ok) return incoming;
   if (!previous || previous.windows.length === 0 || previous.cliNotInstalled) return incoming;
+  // A transient failure (including an SSO cooldown) says nothing new about
+  // authentication. Keep a known expiry until a probe supplies a new verdict.
   const needsReauth = incoming.needsReauth ?? previous.needsReauth ?? false;
   return {
     ...previous,

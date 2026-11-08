@@ -1,0 +1,85 @@
+{
+  "at": "2026-10-27T06:08:40.219599+00:00",
+  "method": "Temporarily park only npm-reported extraneous package directories absent from this branch lock; no install or prune performed",
+  "originalNodeModulesInode": 1513494071,
+  "originalInstallLockSha256": "2a3de591c91a81248d9079e6ec7a2fea11ce5724d4e37087d0d9e3953c5e258b",
+  "manifestSha256": {
+    "package.json": "59b14f077bd607b076e156a9ac9d5f2645306d852039b8e0b6d4f314b7b5e04c",
+    "package-lock.json": "a1b0b186b9371516670ba5d12bf387d951bef620ceebc97574473f818f85f891"
+  },
+  "packages": [
+    {
+      "path": "node_modules/@hono/node-server",
+      "parkedPath": "_scratch/post-merge-hook/unlocked-dependencies/@hono/node-server",
+      "inode": 1513556323,
+      "manifestSha256": "28b7c255c6c7ae6b994ceae9326211b6c6877c4746adb85b780b759ce1ceba41"
+    },
+    {
+      "path": "node_modules/@modelcontextprotocol/sdk",
+      "parkedPath": "_scratch/post-merge-hook/unlocked-dependencies/@modelcontextprotocol/sdk",
+      "inode": 1513590509,
+      "manifestSha256": "7a8d6f79ee52e2bf7cfe23f2d79f7e3c0ab6a3912a340ec345d6ff014534d59d"
+    },
+    {
+      "path": "node_modules/cors",
+      "parkedPath": "_scratch/post-merge-hook/unlocked-dependencies/cors",
+      "inode": 1513601162,
+      "manifestSha256": "b314218cdfc9e9442efd35c74c4176902c0bbd74700ba30d6055e70a76455174"
+    },
+    {
+      "path": "node_modules/eventsource-parser",
+      "parkedPath": "_scratch/post-merge-hook/unlocked-dependencies/eventsource-parser",
+      "inode": 1513507393,
+      "manifestSha256": "27a8440c43f6bb12ec3d93338d93efcc4130e8be1ec7f33f5b31c05c2147430b"
+    },
+    {
+      "path": "node_modules/eventsource",
+      "parkedPath": "_scratch/post-merge-hook/unlocked-dependencies/eventsource",
+      "inode": 1513500430,
+      "manifestSha256": "99cec0bc0f4919b5de13302b0ce28cb0dd966b316cd2c961e0e7c73f884f7524"
+    },
+    {
+      "path": "node_modules/express-rate-limit",
+      "parkedPath": "_scratch/post-merge-hook/unlocked-dependencies/express-rate-limit",
+      "inode": 1513599884,
+      "manifestSha256": "cf9f6a0150fbd9eb49971bac2760a3a0e143b06fac8ce6c0edd3d300cf9f2097"
+    },
+    {
+      "path": "node_modules/hono",
+      "parkedPath": "_scratch/post-merge-hook/unlocked-dependencies/hono",
+      "inode": 1513587046,
+      "manifestSha256": "d7e6980e7c26e62aa1c2cb31e9bcc41544ed0341df5a6a2557a705c761578bf7"
+    },
+    {
+      "path": "node_modules/ip-address",
+      "parkedPath": "_scratch/post-merge-hook/unlocked-dependencies/ip-address",
+      "inode": 1513517381,
+      "manifestSha256": "74056993016e6856ed4fe8e9bcd95f630753c970e8493ff9c6c7db38ad04e9db"
+    },
+    {
+      "path": "node_modules/jose",
+      "parkedPath": "_scratch/post-merge-hook/unlocked-dependencies/jose",
+      "inode": 1513570858,
+      "manifestSha256": "eeced90762bec14bbc6fdfefb1f50a75409f9db11b8199f472518b3dad50283d"
+    },
+    {
+      "path": "node_modules/object-assign",
+      "parkedPath": "_scratch/post-merge-hook/unlocked-dependencies/object-assign",
+      "inode": 1513606770,
+      "manifestSha256": "5990bbffa235fc675debd925d50f6c3f48a2b4526d8c9f7555cadec9029d0d7f"
+    },
+    {
+      "path": "node_modules/pkce-challenge",
+      "parkedPath": "_scratch/post-merge-hook/unlocked-dependencies/pkce-challenge",
+      "inode": 1513494176,
+      "manifestSha256": "74fd5b54078ebad49e15421f928d285f63926caae3220356d95a9afc6fa0e417"
+    },
+    {
+      "path": "node_modules/zod-to-json-schema",
+      "parkedPath": "_scratch/post-merge-hook/unlocked-dependencies/zod-to-json-schema",
+      "inode": 1513563307,
+      "manifestSha256": "1f78f7c62913083878cd5bb0e9d10b8f5893d5799bbe1295068046707c24de3c"
+    }
+  ],
+  "restoreRequired": true
+}

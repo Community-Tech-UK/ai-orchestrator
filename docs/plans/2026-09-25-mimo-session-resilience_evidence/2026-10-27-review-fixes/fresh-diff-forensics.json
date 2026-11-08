@@ -1,0 +1,23 @@
+{
+  "base": "7e5222cfe773e2fc3edff0c2eade2e77fe7131cc",
+  "head": "69b5269cdd515fb3f5f236318584d99cb3192817",
+  "changedFiles": 112,
+  "sourceFiles": [
+    "src/main/core/system/provider-quota-service.spec.ts",
+    "src/main/core/system/provider-quota-service.ts"
+  ],
+  "checks": {
+    "config": [],
+    "dependency": [],
+    "skips": [],
+    "suppressions": [],
+    "stubs": [],
+    "sinks": [],
+    "legacy": []
+  },
+  "assertions": {
+    "base": 112,
+    "current": 125
+  },
+  "gitleaksAvailable": true
+}

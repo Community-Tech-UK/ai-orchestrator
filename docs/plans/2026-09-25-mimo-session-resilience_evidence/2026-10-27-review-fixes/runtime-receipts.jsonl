@@ -1,0 +1,5 @@
+{"at": "2026-10-27T04:25:12.695229+00:00", "event": "encrypted-session-copied", "plaintextExported": false}
+{"at": "2026-10-27T04:25:12.698335+00:00", "event": "started", "pid": 18815, "command": ["node", "_scratch/mimo-review/server.cjs"]}
+{"at": "2026-10-27T04:25:14.708013+00:00", "event": "started", "pid": 19084, "command": ["node_modules/electron/dist/Electron.app/Contents/MacOS/Electron", "--no-sandbox", "--js-flags=--max-old-space-size=8192", "--inspect=127.0.0.1:9823", ".", "--remote-debugging-port=9822"]}
+{"at": "2026-10-27T04:27:46.721927+00:00", "event": "stopped", "pid": 19084, "exitCode": 0}
+{"at": "2026-10-27T04:27:46.727011+00:00", "event": "stopped", "pid": 18815, "exitCode": -15}

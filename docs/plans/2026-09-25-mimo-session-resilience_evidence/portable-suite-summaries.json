@@ -1,0 +1,412 @@
+{
+  "recordedAt": "2026-10-27T10:09:22.263153+00:00",
+  "scope": "Historical runner data re-extracted for retention; no command or live check rerun. Actual command exit overrides JSON success. Counts are literal; JSON suite totals differ from file totals.",
+  "files": [
+    {
+      "originalPath": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-18659.json.gz",
+      "rawSha256": "991b301cd656dc3a3e0ceefb83f0a61527b0ca3ae3ad71a794d16b0605fbbe2a",
+      "commandName": "full-suite-pinned",
+      "commandReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "actualExitCode": 0,
+      "startedAt": "2026-10-27T06:35:14.930063+00:00",
+      "finishedAt": "2026-10-27T06:47:54.336103+00:00",
+      "report": {
+        "numTotalTestSuites": 8500,
+        "numPassedTestSuites": 8500,
+        "numFailedTestSuites": 0,
+        "numPendingTestSuites": 0,
+        "numTotalTests": 35384,
+        "numPassedTests": 35375,
+        "numFailedTests": 0,
+        "numPendingTests": 9,
+        "numTodoTests": 0,
+        "startTime": 1793082920042,
+        "success": true,
+        "fileCount": 2792,
+        "fileStatusCounts": {
+          "passed": 2792
+        },
+        "assertionStatusCounts": {
+          "passed": 35375,
+          "skipped": 9
+        },
+        "nonPassingAssertions": [
+          {
+            "file": "src/worker-agent/worker-node-exec-policy.spec.ts",
+            "title": "WorkerNodeExecutor PowerShell file policy terminates a real descendant after premature script-input closure",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/worker-agent/worker-rpc-dispatcher.node-ops.spec.ts",
+            "title": "WorkerRpcDispatcher node.exec terminates a detached descendant instead of leaving it alive after timeout",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/worker-agent/worker-rpc-dispatcher.node-ops.spec.ts",
+            "title": "WorkerRpcDispatcher node.exec terminates immediate-orphan detached inherited-pipe descendants in three trials",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/main/doc-review/serve-review.spec.ts",
+            "title": "serve-review.mjs capture server keeps the portable capture server synchronized with the in-app asset",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/main/instance/stall-process-facts.spec.ts",
+            "title": "sampleStallProcessFacts samples the real ps format and names sleep 30",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/main/process/leftover-process-sweeper.real.spec.ts",
+            "title": "LeftoverProcessSweeper with real processes attributes and stops sleeps an exited tool shell left behind",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/main/cli/adapters/base-cli-adapter-hardened-spawn.spec.ts",
+            "title": "BaseCliAdapter hardened spawn wrap fails closed on non-macOS platforms when hardened mode is configured",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/renderer/app/core/services/new-session-draft.service.spec.ts",
+            "title": "NewSessionDraftService persists Claude launch mode across reload",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/renderer/app/core/services/new-session-draft.service.spec.ts",
+            "title": "NewSessionDraftService uses remembered Claude launch mode when switching providers",
+            "status": "skipped",
+            "failureFirstLines": []
+          }
+        ],
+        "nonPassingFiles": []
+      }
+    },
+    {
+      "originalPath": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-67467.json.gz",
+      "rawSha256": "e33a1c831c4cf3f10de2e5836106db859532155e7d7832b7f06f7c48b57f66b0",
+      "commandName": "full-suite-final",
+      "commandReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "actualExitCode": 1,
+      "startedAt": "2026-10-27T05:51:55.805537+00:00",
+      "finishedAt": "2026-10-27T06:05:21.792282+00:00",
+      "report": {
+        "numTotalTestSuites": 8500,
+        "numPassedTestSuites": 8497,
+        "numFailedTestSuites": 2,
+        "numPendingTestSuites": 1,
+        "numTotalTests": 35384,
+        "numPassedTests": 35372,
+        "numFailedTests": 1,
+        "numPendingTests": 9,
+        "numTodoTests": 0,
+        "startTime": 1793080319286,
+        "success": false,
+        "fileCount": 2792,
+        "fileStatusCounts": {
+          "passed": 2791,
+          "failed": 1
+        },
+        "assertionStatusCounts": {
+          "passed": 35372,
+          "failed": 1,
+          "pending": 2,
+          "skipped": 9
+        },
+        "nonPassingAssertions": [
+          {
+            "file": "scripts/__tests__/dependency-compatibility.spec.ts",
+            "title": "dependency compatibility keeps the installed production tree valid",
+            "status": "failed",
+            "failureFirstLines": [
+              "AssertionError: extraneous: @hono/node-server@2.1.5 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/@hono/node-server"
+            ]
+          },
+          {
+            "file": "scripts/__tests__/sea-build-repeatability.spec.ts",
+            "title": "SEA build repeatability replaces a read-only previous 'AIO MCP' executable",
+            "status": "pending",
+            "failureFirstLines": []
+          },
+          {
+            "file": "scripts/__tests__/sea-build-repeatability.spec.ts",
+            "title": "SEA build repeatability replaces a read-only previous 'loop control' executable",
+            "status": "pending",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/worker-agent/worker-node-exec-policy.spec.ts",
+            "title": "WorkerNodeExecutor PowerShell file policy terminates a real descendant after premature script-input closure",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/worker-agent/worker-rpc-dispatcher.node-ops.spec.ts",
+            "title": "WorkerRpcDispatcher node.exec terminates a detached descendant instead of leaving it alive after timeout",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/worker-agent/worker-rpc-dispatcher.node-ops.spec.ts",
+            "title": "WorkerRpcDispatcher node.exec terminates immediate-orphan detached inherited-pipe descendants in three trials",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/main/doc-review/serve-review.spec.ts",
+            "title": "serve-review.mjs capture server keeps the portable capture server synchronized with the in-app asset",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/main/instance/stall-process-facts.spec.ts",
+            "title": "sampleStallProcessFacts samples the real ps format and names sleep 30",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/main/process/leftover-process-sweeper.real.spec.ts",
+            "title": "LeftoverProcessSweeper with real processes attributes and stops sleeps an exited tool shell left behind",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/main/cli/adapters/base-cli-adapter-hardened-spawn.spec.ts",
+            "title": "BaseCliAdapter hardened spawn wrap fails closed on non-macOS platforms when hardened mode is configured",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/renderer/app/core/services/new-session-draft.service.spec.ts",
+            "title": "NewSessionDraftService persists Claude launch mode across reload",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/renderer/app/core/services/new-session-draft.service.spec.ts",
+            "title": "NewSessionDraftService uses remembered Claude launch mode when switching providers",
+            "status": "skipped",
+            "failureFirstLines": []
+          }
+        ],
+        "nonPassingFiles": [
+          {
+            "file": "scripts/__tests__/dependency-compatibility.spec.ts",
+            "status": "failed",
+            "messageFirstLine": ""
+          }
+        ]
+      }
+    },
+    {
+      "originalPath": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-87803.json.gz",
+      "rawSha256": "c2a8a2ec90626b72308c8c08622944fca93f5418d2fe92130e8ac763b3c7c523",
+      "commandName": "full-suite-isolated",
+      "commandReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "actualExitCode": 1,
+      "startedAt": "2026-10-27T06:12:26.735286+00:00",
+      "finishedAt": "2026-10-27T06:25:19.144896+00:00",
+      "report": {
+        "numTotalTestSuites": 8500,
+        "numPassedTestSuites": 8499,
+        "numFailedTestSuites": 0,
+        "numPendingTestSuites": 1,
+        "numTotalTests": 35384,
+        "numPassedTests": 35373,
+        "numFailedTests": 0,
+        "numPendingTests": 9,
+        "numTodoTests": 0,
+        "startTime": 1793081554449,
+        "success": true,
+        "fileCount": 2792,
+        "fileStatusCounts": {
+          "passed": 2792
+        },
+        "assertionStatusCounts": {
+          "passed": 35373,
+          "pending": 2,
+          "skipped": 9
+        },
+        "nonPassingAssertions": [
+          {
+            "file": "scripts/__tests__/sea-build-repeatability.spec.ts",
+            "title": "SEA build repeatability replaces a read-only previous 'AIO MCP' executable",
+            "status": "pending",
+            "failureFirstLines": []
+          },
+          {
+            "file": "scripts/__tests__/sea-build-repeatability.spec.ts",
+            "title": "SEA build repeatability replaces a read-only previous 'loop control' executable",
+            "status": "pending",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/worker-agent/worker-node-exec-policy.spec.ts",
+            "title": "WorkerNodeExecutor PowerShell file policy terminates a real descendant after premature script-input closure",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/worker-agent/worker-rpc-dispatcher.node-ops.spec.ts",
+            "title": "WorkerRpcDispatcher node.exec terminates a detached descendant instead of leaving it alive after timeout",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/worker-agent/worker-rpc-dispatcher.node-ops.spec.ts",
+            "title": "WorkerRpcDispatcher node.exec terminates immediate-orphan detached inherited-pipe descendants in three trials",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/main/doc-review/serve-review.spec.ts",
+            "title": "serve-review.mjs capture server keeps the portable capture server synchronized with the in-app asset",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/main/instance/stall-process-facts.spec.ts",
+            "title": "sampleStallProcessFacts samples the real ps format and names sleep 30",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/main/process/leftover-process-sweeper.real.spec.ts",
+            "title": "LeftoverProcessSweeper with real processes attributes and stops sleeps an exited tool shell left behind",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/main/cli/adapters/base-cli-adapter-hardened-spawn.spec.ts",
+            "title": "BaseCliAdapter hardened spawn wrap fails closed on non-macOS platforms when hardened mode is configured",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/renderer/app/core/services/new-session-draft.service.spec.ts",
+            "title": "NewSessionDraftService persists Claude launch mode across reload",
+            "status": "skipped",
+            "failureFirstLines": []
+          },
+          {
+            "file": "src/renderer/app/core/services/new-session-draft.service.spec.ts",
+            "title": "NewSessionDraftService uses remembered Claude launch mode when switching providers",
+            "status": "skipped",
+            "failureFirstLines": []
+          }
+        ],
+        "nonPassingFiles": []
+      }
+    },
+    {
+      "originalPath": "2026-10-27-post-merge-hook/raw-test-receipts/test-run.pid-18659.log.gz",
+      "rawSha256": "dcd2525a7682486d628a7d81e79b382694e5d4e03f3ebacc05e8955792310514",
+      "commandName": "full-suite-pinned",
+      "commandReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "actualExitCode": 0,
+      "startedAt": "2026-10-27T06:35:14.930063+00:00",
+      "finishedAt": "2026-10-27T06:47:54.336103+00:00",
+      "rawLineCount": 61144,
+      "verbatimFooter": [
+        "Test Files  2791 passed | 1 skipped (2792)",
+        "Tests  35375 passed | 9 skipped (35384)",
+        "Start at  06:35:20",
+        "Duration  753.31s (transform 65.39s, setup 176.35s, import 403.37s, tests 1263.59s, environment 889.27s)"
+      ],
+      "verbatimFailureAndRunnerErrorLines": []
+    },
+    {
+      "originalPath": "2026-10-27-post-merge-hook/raw-test-receipts/test-run.pid-42225.log.gz",
+      "rawSha256": "ceff668c174c70213c0b2616e41833dd8a6c32c79066e8402cca1ea6d17ae5fe",
+      "commandName": "full-suite",
+      "commandReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "actualExitCode": 143,
+      "startedAt": "2026-10-27T05:49:50.172146+00:00",
+      "finishedAt": "2026-10-27T05:50:38.333466+00:00",
+      "rawLineCount": 6919,
+      "verbatimFooter": [],
+      "verbatimFailureAndRunnerErrorLines": [],
+      "completedFooterPresent": false
+    },
+    {
+      "originalPath": "2026-10-27-post-merge-hook/raw-test-receipts/test-run.pid-67467.log.gz",
+      "rawSha256": "2fec5d8fca75e878686382488b0e80bec2b5f25755d6045aeaf61bc1794ff970",
+      "commandName": "full-suite-final",
+      "commandReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "actualExitCode": 1,
+      "startedAt": "2026-10-27T05:51:55.805537+00:00",
+      "finishedAt": "2026-10-27T06:05:21.792282+00:00",
+      "rawLineCount": 66830,
+      "verbatimFooter": [
+        "Test Files  1 failed | 2789 passed | 1 skipped (2792)",
+        "Tests  1 failed | 35372 passed | 9 skipped (35384)",
+        "Errors  1 error",
+        "Start at  05:51:59",
+        "Duration  801.06s (transform 60.88s, setup 196.47s, import 373.81s, tests 1241.69s, environment 861.33s)"
+      ],
+      "verbatimFailureAndRunnerErrorLines": [
+        "FAIL  |main| scripts/__tests__/dependency-compatibility.spec.ts > dependency compatibility > keeps the installed production tree valid",
+        "AssertionError: extraneous: @hono/node-server@2.1.5 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/@hono/node-server",
+        "Vitest caught 1 unhandled error during the test run.",
+        "This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.",
+        "SyntaxError: Unexpected token '�', \"�\" is not valid JSON"
+      ]
+    },
+    {
+      "originalPath": "2026-10-27-post-merge-hook/raw-test-receipts/test-run.pid-87803.log.gz",
+      "rawSha256": "89422e5a90de8d60718b832c331c319280b1bd2d29faad8ae48930302bf0766c",
+      "commandName": "full-suite-isolated",
+      "commandReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "actualExitCode": 1,
+      "startedAt": "2026-10-27T06:12:26.735286+00:00",
+      "finishedAt": "2026-10-27T06:25:19.144896+00:00",
+      "rawLineCount": 66725,
+      "verbatimFooter": [
+        "Test Files  2790 passed | 1 skipped (2792)",
+        "Tests  35373 passed | 9 skipped (35384)",
+        "Errors  1 error",
+        "Start at  06:12:34",
+        "Duration  763.34s (transform 61.52s, setup 177.01s, import 351.99s, tests 1233.23s, environment 789.70s)"
+      ],
+      "verbatimFailureAndRunnerErrorLines": [
+        "Vitest caught 1 unhandled error during the test run.",
+        "This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.",
+        "SyntaxError: Unexpected token '�', \"�\" is not valid JSON"
+      ],
+      "classification": "Failed process exit 1 despite JSON success true: source-map parsing unhandled error."
+    },
+    {
+      "originalPath": "2026-10-27-review-fixes/fresh-full-suite-final-raw-output.txt.gz",
+      "rawSha256": "a17307442bb9d739631d924565a20b7268482b68c493f382831f3d15e6edcfad",
+      "actualExitCode": 0,
+      "commandReceipt": "2026-10-27-review-fixes/command-receipts.jsonl",
+      "originalSummary": "2026-10-27-review-fixes/fresh-full-suite-final-summary.json",
+      "rawLineCount": 61121,
+      "verbatimFooter": [
+        "Test Files  2791 passed | 1 skipped (2792)",
+        "Tests  35373 passed | 9 skipped (35382)",
+        "Start at  04:52:26",
+        "Duration  766.51s (transform 68.60s, setup 189.47s, import 403.82s, tests 1289.38s, environment 897.69s)"
+      ],
+      "verbatimFailureAndRunnerErrorLines": []
+    },
+    {
+      "originalPath": "2026-10-27-review-fixes/fresh-full-suite-interrupted-raw-output.txt",
+      "rawSha256": "aaadaa57f65950b460678900fec669c0c646d6706b72ea915b7c094db79de8be",
+      "actualExitCode": 143,
+      "commandReceipt": "2026-10-27-review-fixes/fresh-full-suite-interruption.json",
+      "classification": "Interrupted by SIGTERM for concurrency restart; not passing, no final assertion verdict.",
+      "rawLineCount": 40034,
+      "verbatimFooter": [],
+      "verbatimFailureAndRunnerErrorLines": [],
+      "completedFooterPresent": false
+    }
+  ]
+}

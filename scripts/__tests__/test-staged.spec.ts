@@ -65,6 +65,25 @@ describe('test-staged: getStagedTestRelatedFiles', () => {
 });
 
 describe('test-staged: runStagedTests', () => {
+  it.each([0, 42])('builds workers before source tests and propagates build status %s', (buildStatus) => {
+    const calls: string[] = [];
+    const status = runStagedTests({
+      execFileSync: () => 'src/main/core/system/provider-quota-service.ts\n',
+      existsSync: () => true,
+      log: () => {},
+      spawnSync: (command, args) => {
+        if (command === 'npm' && args.join(' ') === 'run build:main') {
+          calls.push('build');
+          return { status: buildStatus };
+        }
+        calls.push('test');
+        return { status: calls[0] === 'build' ? 0 : 1 };
+      },
+    });
+    expect(status).toBe(buildStatus);
+    expect(calls).toEqual(buildStatus === 0 ? ['build', 'test'] : ['build']);
+  });
+
   it.each([
     ['documentation', 'README.md\ndocs/notes.md\n'],
     ['generated artifacts', GENERATED_ARTIFACTS.join('\n')],

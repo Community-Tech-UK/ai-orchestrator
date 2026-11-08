@@ -1,0 +1,52 @@
+{
+  "at": "2026-10-27T10:42:48.389540+00:00",
+  "status": "Runtime cleanup complete; full-suite and independent verification remain pending.",
+  "originalPackagesRestoredAndReverified": 12,
+  "dependencyReceipt": "dependency-restoration.json",
+  "generatedBuildRemoved": true,
+  "initialFailedCleanup": "cleanup-initial-failure.json",
+  "boundedBuildCleanupRetries": [
+    {
+      "attempt": 1,
+      "result": "removed"
+    }
+  ],
+  "deletedHelpers": [
+    "_scratch/hook-correction/run.py",
+    "_scratch/hook-correction/replay.py",
+    "_scratch/hook-correction/static-gates.py"
+  ],
+  "temporaryProfileAbsent": true,
+  "angularCacheAbsent": true,
+  "preExistingViteCachePreserved": true,
+  "noInstallBrowserDownloadOrSourceCheckoutCopyCreated": true,
+  "noAppBrowserProviderOrAutomationStarted": true,
+  "recordedFullRunnerPidsGone": "post-suite-process-check.json",
+  "listeningPortReadChecks": [
+    {
+      "port": 9822,
+      "exit": 1,
+      "output": "",
+      "stderr": ""
+    },
+    {
+      "port": 9823,
+      "exit": 1,
+      "output": "",
+      "stderr": ""
+    },
+    {
+      "port": 4579,
+      "exit": 1,
+      "output": "",
+      "stderr": ""
+    }
+  ],
+  "localRawEvidence": "raw-output-retention.json",
+  "loadAtCleanup": [
+    31.32470703125,
+    60.03955078125,
+    51.07470703125
+  ],
+  "noCommitStagingStashBranchWorktreeOrDocumentRename": true
+}

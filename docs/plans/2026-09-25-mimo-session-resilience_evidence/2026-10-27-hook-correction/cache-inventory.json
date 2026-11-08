@@ -1,0 +1,28 @@
+[
+  {
+    "path": ".angular",
+    "exists": false
+  },
+  {
+    "path": "node_modules/.vite",
+    "birthTime": "2026-10-27T10:04:21.554954+00:00",
+    "modified": "2026-10-27T10:04:21.555265+00:00",
+    "isSymlink": false
+  },
+  {
+    "path": "dist",
+    "birthTime": "2026-10-27T10:09:20.803328+00:00",
+    "modified": "2026-10-27T10:14:39.982801+00:00",
+    "isSymlink": false
+  },
+  {
+    "path": "_scratch/hook-correction",
+    "birthTime": "2026-10-27T10:06:22.914304+00:00",
+    "modified": "2026-10-27T10:15:09.628829+00:00",
+    "isSymlink": false
+  },
+  {
+    "path": "/tmp/aio-lt-queue-71493f81",
+    "exists": false
+  }
+]

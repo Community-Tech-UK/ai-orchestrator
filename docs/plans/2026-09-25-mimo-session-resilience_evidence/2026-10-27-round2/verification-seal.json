@@ -1,0 +1,458 @@
+{
+  "status": "live-evidence-and-code-verified; coordinator closure pending",
+  "sealedAt": "2026-10-27T04:03:08.987750+00:00",
+  "head": "8983f512f2cc05bfa8586efa860bbb61bc8f7b91",
+  "checks": {
+    "1": "PASS rechecked",
+    "2": "PASS controlled real rejection after LT-708 fix",
+    "3": "PASS real saved-SSO renewal",
+    "4": "prior PASS retained; no new idle-cadence claim",
+    "5": "PASS freshly rechecked"
+  },
+  "sourceFiles": {
+    "src/main/core/system/provider-quota-service.ts": "2a209965279b31a32feaab9602d077f281364f8295cfa2108e0f7c8b650125db",
+    "src/main/core/system/provider-quota-service.spec.ts": "3917592f208d3e4321d568fcf4e96843a92615f6c543d80f840001633c49056a"
+  },
+  "supersedes": "2026-10-27/verification-seal.json for the current appended report state",
+  "cleanup": "complete; see cleanup-receipt.json; original dependency links restored",
+  "report": {
+    "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-25-mimo-session-resilience_livetest.md",
+    "sha256": "f600a5ee9ffff717efe91a123f33b5e76b3e849909a0990948ebd26a4924115e"
+  },
+  "plan": {
+    "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-27-mimo-stale-session-warning_plan.md",
+    "sha256": "1861dffeeb358e9f983abcc6d572ee0152e1e6f61fd29272f6f82f19424c431e"
+  },
+  "files": [
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/acceptance-assertions-output.txt",
+      "bytes": 64,
+      "sha256": "008598ff0d3ed8c11b9d6181c57d11fc93583db0bc4f238495b12a7b996ad903"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/acceptance-assertions.json",
+      "bytes": 409,
+      "sha256": "7be7265923128e2b2f96dfa64017e153520e536ba8729fd311e08bd19d01f08e"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/baseline-fixed.json",
+      "bytes": 1073,
+      "sha256": "496139a155002706bbdb5c77dd5ef6ac7a9ef53ef8b71908ba71e504bc43dd2c"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/baseline.json",
+      "bytes": 1083,
+      "sha256": "265a9e9dfa759e4c177767ab297218ff348dd5a1270c0419e6e34ca90c53231a"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/build-main-exact-output.txt",
+      "bytes": 221,
+      "sha256": "cba0658e72c3004a72c412081b720b5632e55c5ea8dc8b22bedba4f5d53df6a4"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/build-main-fixed-output.txt",
+      "bytes": 221,
+      "sha256": "80178fd371144fa56a6eea26738a5ec49986a09cf8bb4469189d9a87890d8363"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/build-main-output.txt",
+      "bytes": 221,
+      "sha256": "0c6ffa62202a715b36c1c5e0e36631de22caf233f57354452854d85a2b67c7ea"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/build-main-pinned-output.txt",
+      "bytes": 284,
+      "sha256": "85ea6eb334975a4cd7c3f6f7902c65d2be9e13f917dfbd5551dc60625a1c614c"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/build-renderer-exact-output.txt",
+      "bytes": 5407,
+      "sha256": "66aba1028fa29703ba9ce3d523a46fbbb6ac5a5493fed71e22e44ffdbc03cfa0"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/build-renderer-output.txt",
+      "bytes": 5407,
+      "sha256": "139002b7d0ce948cb9717108da3f5b7183d74f6d0819ad9eb69604fc8f4966ae"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/build-renderer-pinned-output.txt",
+      "bytes": 5447,
+      "sha256": "674fdc10fc1f327f24d832e6491f2e70120600d405ff0bdc683488394ac2066b"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/check-ts-max-loc-exact-output.txt",
+      "bytes": 10112,
+      "sha256": "fae453857e058773e69a7b236c39ab0b923f6197177a6eb32972bc8d1f8f1036"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/check-ts-max-loc-final-output.txt",
+      "bytes": 10112,
+      "sha256": "fae453857e058773e69a7b236c39ab0b923f6197177a6eb32972bc8d1f8f1036"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/check-ts-max-loc-output.txt",
+      "bytes": 10112,
+      "sha256": "fae453857e058773e69a7b236c39ab0b923f6197177a6eb32972bc8d1f8f1036"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/check-ts-max-loc-pinned-output.txt",
+      "bytes": 10148,
+      "sha256": "ecc1964ba2c358ecb29c5f966937ce66ed33740100b7c1a6733c0ef08f110189"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/check-ui-hints-exact-output.txt",
+      "bytes": 193,
+      "sha256": "837a521547d32672b477ad8b3abb8f7a0db1349c9e44deb45414a12bf3277d2f"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/check-ui-hints-final-output.txt",
+      "bytes": 193,
+      "sha256": "837a521547d32672b477ad8b3abb8f7a0db1349c9e44deb45414a12bf3277d2f"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/check-ui-hints-output.txt",
+      "bytes": 193,
+      "sha256": "837a521547d32672b477ad8b3abb8f7a0db1349c9e44deb45414a12bf3277d2f"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/check-ui-hints-pinned-output.txt",
+      "bytes": 226,
+      "sha256": "5e2ddb12cfeb4fb5abfa1700ff1f5e7fbc01c84f4ac7b28160c8b55fdf21ab90"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/cleanup-receipt.json",
+      "bytes": 1679,
+      "sha256": "2b5f351aa0b4081028adafc1f33c5f72984a88bb4b3eb0a2dbab0bbbf78e900b"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/cleanup-retry-receipt.json",
+      "bytes": 502,
+      "sha256": "eacfce156c53aae6583dc3a8f2a3d1319cbd15bcbb768229e1428dc9d6dd10ad"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/command-receipts.jsonl",
+      "bytes": 26223,
+      "sha256": "9a226f5979ee5eb6964ebedc27fd99770cfb4a4e4a278294c5d2120d4d26d679"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/dependency-check-exact-output.txt",
+      "bytes": 196,
+      "sha256": "64f9e79a29b17041d47b776c6d751faa054963c8bb322403304329b86e533203"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/dependency-environment-receipt.json",
+      "bytes": 559,
+      "sha256": "ae5ff8a4a3c969d0a16dd14950d4ce133d2bdfa1fe4657faa19209c6363f0df2"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/dependency-versions.json",
+      "bytes": 591,
+      "sha256": "e56bcccb8b16b4af013712b2ec0c76e4852fc46e9d09951486dcc2f8495649b4"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/diagnostic-instrumentation-receipt.json",
+      "bytes": 402,
+      "sha256": "2b8a8d872986ccd8a908e61908718751ddb9ed382bb6ff60beeaab9deeab287b"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/final-network.json",
+      "bytes": 7937,
+      "sha256": "d52478e24fdb6222581dc1f4496954816b5cc8b6d66a723a7d25b5b835862da7"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/focused-tests-exact-output.txt",
+      "bytes": 697,
+      "sha256": "16511a2394bd008a4f31eb299ac25551bd6c18dd036d5602b01b46b95d32050b"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/focused-tests-output.txt",
+      "bytes": 549,
+      "sha256": "36deb6801d0810238dff8544c12cc10946bb32934a601b1c5527fba979bc160e"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/focused-tests-pinned-output.txt",
+      "bytes": 695,
+      "sha256": "e95d8a4269d294401b093634cee6db54a72e4f8e4e027d94d28bc226a93526a4"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/full-suite-exact-output.txt",
+      "bytes": 3248,
+      "sha256": "ba35b32b5533d21d25df3785460f72596b27c1a159b2bc809695d177dae9cb29"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/full-suite-output.txt",
+      "bytes": 3162,
+      "sha256": "ded30c9d2d425675ffd9d942c3a73d1d845219dac89fa5663c4e20ff472fe31c"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/full-suite-pinned-output.txt",
+      "bytes": 372,
+      "sha256": "51fe6a53d43d35035bf51383ab5cb9723a76e403dcf7663061bbcac6d73bb76c"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/full-suite-pinned-summary.json",
+      "bytes": 241,
+      "sha256": "fb6efa41fa56b41813528c43fa2286dc805525c9ea6d76ad2cabf206d12e526b"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/git-final-receipt.json",
+      "bytes": 161,
+      "sha256": "4bc83b40ed82aa7c492a276ec91d57f67716d5738bdef0fc412166cb3884749f"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/healthy-mode.json",
+      "bytes": 81,
+      "sha256": "24554f28ff28d6ae72f38196d1c5c066e2d121b39dc694d1871f7b014a243f70"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/independent-command-output.txt",
+      "bytes": 1655,
+      "sha256": "fc873254fcfa94f76dcf71dab0affdc8a8f409b92873e1fc67a6a5cce9c35291"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/independent-review.txt",
+      "bytes": 10591,
+      "sha256": "0d1bbb19b88b8e73782ef2d7b091d584ed489334eee12445543771c75c376771"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/install-exact-dependencies-output.txt",
+      "bytes": 2341,
+      "sha256": "ca9ddee1ebb4e41f876ea839e07f278f662ff155913abdaa6cf679bd93f645c7"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/lint-exact-output.txt",
+      "bytes": 63,
+      "sha256": "13ee65f5e56039e9204afe453be1a93585589440335b8e65943be08778195d14"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/lint-final-output.txt",
+      "bytes": 63,
+      "sha256": "13ee65f5e56039e9204afe453be1a93585589440335b8e65943be08778195d14"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/lint-output.txt",
+      "bytes": 63,
+      "sha256": "13ee65f5e56039e9204afe453be1a93585589440335b8e65943be08778195d14"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/lint-pinned-output.txt",
+      "bytes": 89,
+      "sha256": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/method-receipt.json",
+      "bytes": 19967,
+      "sha256": "f1069169250bd9cbe850bfba4735b176a222e8c09362c6d5113041b9e15f554b"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/monitor-followup-output.txt",
+      "bytes": 81,
+      "sha256": "63dde5311097f95b4a37576402eca1ccb2a241a216f798b36f65400a345cd930"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/monitor-followup.json",
+      "bytes": 861,
+      "sha256": "1237117a8ae399741dab6fcc440ee36172213f68499c2198d08312e12b2d0126"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/native-finality-isolated-output.txt",
+      "bytes": 205,
+      "sha256": "124d1bf6b40ab13135975a1195a0c24d50baafd236babebb0fef3229072657cf"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/persisted-session-refresh.json",
+      "bytes": 2058,
+      "sha256": "2ffc1c97a93751ff6733e9e73986f0d520cb69f397f7819d7b2b452310132af2"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/pinned-node-capability-output.txt",
+      "bytes": 107,
+      "sha256": "019b6ce8973abb63069b5a1812ed45aecbbaefa3106a71bcb0afe3ede4a62773"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/prepare-native-output.txt",
+      "bytes": 815,
+      "sha256": "6c5f30691924ee554f441b66c04f13c4a1744a1307eebb7bc1ff76765267c828"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/rejected-network-fixed.json",
+      "bytes": 3129,
+      "sha256": "bd017183cf07110cbd11041b2151bdf1df1f257f70c9aa6cfcaaf3a8330a6ea3"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/rejected-network-one.json",
+      "bytes": 3129,
+      "sha256": "99e48dbd6b604a21dcb4749d6491fdf4774b5988fb6ef24aab2406952ed20bbb"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/rejected-network-two.json",
+      "bytes": 3129,
+      "sha256": "b77294709b0ee9c182182652b6d52c8d5f349760b3de7017a16b166d5632b7fc"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/rejected-refresh-one-fixed.json",
+      "bytes": 2169,
+      "sha256": "4decc5133fc1f446e38c0905069cc56218c081b6e312d2fef87a24060c5ae0db"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/rejected-refresh-one.json",
+      "bytes": 2171,
+      "sha256": "84a21b8712f85fec05acf2f9ac6acef431999b5d802a8197ec0e6f2365a554b8"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/rejected-refresh-two-fixed.json",
+      "bytes": 2301,
+      "sha256": "fff24455d593617a74127671fb38c8c3279f5b4f3723be89abbaa20b3d4e79f9"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/rejected-refresh-two.json",
+      "bytes": 2088,
+      "sha256": "2a9d5eda9650ef040dcf42cc180bf6b3b0967f5e0f6590313781ac7ee0db6d52"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/rejection-age-mode.json",
+      "bytes": 136,
+      "sha256": "93f1c127aa9449d1a3178b55bf883e1462c71a84d400410ea231c0cd4aef2b14"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/rejection-mode-fixed.json",
+      "bytes": 114,
+      "sha256": "0e741bf5048126e1ea7de70bb729ff333fb42fbad80e0576589ff8546434712c"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/rejection-mode.json",
+      "bytes": 114,
+      "sha256": "50a6dac6e137a1387725fbd37c07d5876ebb425a55eddacda47149f73174a3bc"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/renewal-log-scan-output.txt",
+      "bytes": 29,
+      "sha256": "6124d92a06c92d1f146af90a32115741bfb57c7b84f417190de2e150df283bc2"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/renewal-log.json",
+      "bytes": 268,
+      "sha256": "7e5ca1ea942b993d1fb64f29c0269efb57700cb7fccb27b3d86e91d94f720766"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/renewal-mode.json",
+      "bytes": 135,
+      "sha256": "6bf3fdc9306825b1e32bcd0a2e28bce25b7b6f865fae7e54f8c6f6478362f5d1"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/renewed-network.json",
+      "bytes": 5491,
+      "sha256": "0bbdbeb603144065d8abfae5264e2869a6725bb59d962e872b367984d3838a4c"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/renewed-refresh.json",
+      "bytes": 2058,
+      "sha256": "fb9f233651d16a57a729ebfa1eec9ed740c3cf5bd287a65c5fe3b74b1bd7fd7a"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/runtime-receipts.jsonl",
+      "bytes": 2175,
+      "sha256": "6f75b34b0185ff958c9e82c5ae97411679e7f1494405b21eb4f520c0c930f20f"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/runtime-stopped.json",
+      "bytes": 602,
+      "sha256": "dc584011b81e3c86a0799f8846e6fcc62cd71bad2a2a5e2f1c0423da8a5eb118"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/sea-direct-diagnostic.json",
+      "bytes": 1767,
+      "sha256": "5d296111cef66d13c35118dec7ec623eec3e3e57e5cd7b2e3534c9e1731dcdfb"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/sea-map-diagnostic-output.txt",
+      "bytes": 2609,
+      "sha256": "16732b50324531986adeee5f1bf6a8a2c9241906d0d676faf40ed44948c114e8"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/sea-repeatability-isolated-output.txt",
+      "bytes": 2093,
+      "sha256": "f91ff6d34ad87eb3920a0e3ac07e74100ccd16c66965ab7d865787e8c3c711d7"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/sea-repeatability-pinned-output.txt",
+      "bytes": 196,
+      "sha256": "184efaac49536b1d7916a5f6592bcde044399594c615bee2a1df35bcae258549"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/service-tests-before-output.txt",
+      "bytes": 169,
+      "sha256": "ea23c17b8e1e28df9d7f1b46ba81334de10552354b6551030e0ffad12dc05401"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/service-tests-fixed-output.txt",
+      "bytes": 235,
+      "sha256": "cb7360a3f31775064c4c01df5fcdee16ad722beff327e6ce99975b7d22fdcc14"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/settings-restored.json",
+      "bytes": 170,
+      "sha256": "5b8ddaaa808c2b3ba79443982fdba0558ec0b95156a049bc50055fd950d0e564"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/setup-fixed.json",
+      "bytes": 281,
+      "sha256": "a5bccfc7cd8003f3ee950b32ecd4c7286bbe45c5e664cb7ff073eaf9e51560f5"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/setup.json",
+      "bytes": 281,
+      "sha256": "667d65faadc85ffe2cab0767695d6edaebdf2f23af37e2baa1ef1ea648bb0ea6"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/stale-age-fixed.json",
+      "bytes": 2301,
+      "sha256": "fe880ef33d8c6d2f840bd40d4dc5c1fecbf3a808a4a3afe0d639da31e076ef32"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/stale-age-visible.json",
+      "bytes": 2132,
+      "sha256": "51f8284099300a15e35cb9eee3dbfb3fa93b988588b5f2022c5e93cd35f06dbe"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/typecheck-renderer-exact-output.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/typecheck-renderer-output.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/typecheck-renderer-pinned-output.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/typecheck-spec-exact-output.txt",
+      "bytes": 96,
+      "sha256": "4d9d32f2320e4fea8b6bff77d3f87c85901cb8b94179e8bedff9ad7573cc5117"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/typecheck-spec-final-output.txt",
+      "bytes": 96,
+      "sha256": "4d9d32f2320e4fea8b6bff77d3f87c85901cb8b94179e8bedff9ad7573cc5117"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/typecheck-spec-output.txt",
+      "bytes": 96,
+      "sha256": "4d9d32f2320e4fea8b6bff77d3f87c85901cb8b94179e8bedff9ad7573cc5117"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/typecheck-spec-pinned-output.txt",
+      "bytes": 129,
+      "sha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27-round2/verified-source-receipt.json",
+      "bytes": 320,
+      "sha256": "9b35101d7f58510179edd398235c179fa03657a623ce5ad5b2f747a035aa6b68"
+    }
+  ]
+}

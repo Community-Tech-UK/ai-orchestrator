@@ -1,0 +1,35 @@
+{
+  "at": "2026-10-27T10:15:09.628427+00:00",
+  "finished": "2026-10-27T10:33:40.712589+00:00",
+  "command": [
+    "npm",
+    "run",
+    "test:quiet"
+  ],
+  "exit": 1,
+  "fullOutput": "_scratch/hook-correction/full-suite.log",
+  "sha256": "d7e59e334c5905ed42e78f4c795f5e5bb97b000f47a115b05aa351f525c567c8",
+  "bytes": 1704,
+  "output": "\n> harness@0.1.0 test:quiet\n> node scripts/run-tests-quiet.js\n\n  \u2026 89 test file(s) done (full log: _scratch/test-run.hook-correction-full-suite.log)\n  \u2026 206 test file(s) done (full log: _scratch/test-run.hook-correction-full-suite.log)\n  \u2026 441 test file(s) done (full log: _scratch/test-run.hook-correction-full-suite.log)\n  \u2026 707 test file(s) done (full log: _scratch/test-run.hook-correction-full-suite.log)\n  \u2026 1077 test file(s) done (full log: _scratch/test-run.hook-correction-full-suite.log)\n  \u2026 1576 test file(s) done (full log: _scratch/test-run.hook-correction-full-suite.log)\n  \u2026 2093 test file(s) done (full log: _scratch/test-run.hook-correction-full-suite.log)\n  \u2026 2406 test file(s) done (full log: _scratch/test-run.hook-correction-full-suite.log)\n  \u2026 2699 test file(s) done (full log: _scratch/test-run.hook-correction-full-suite.log)\n\u2717 1 of 35386 tests failed in 1109.3s:\n\n  \u2717 src/main/plan-queue/plan-queue-retirement-control.spec.ts \u203a Cancel arriving during Git promotion retries a subsequent failed landed-worker stop\n    AssertionError: expected null to be truthy\n        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/src/main/plan-queue/plan-queue-retirement-control.spec.ts:397:77\n        at Timeout.checkCallback (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/vitest/dist/chunks/test.DNmyFkvJ.js:3383:20)\n        at listOnTimeout (node:internal/timers:685:17)\n        at processTimers (node:internal/timers:618:7)\n\nfull log: _scratch/test-run.hook-correction-full-suite.log\n\n\u2717 FAILED \u2014 1 of 35386 tests failed (exit 1).\n",
+  "outputComplete": true,
+  "testSummary": {
+    "success": false,
+    "numTotalTestSuites": 8500,
+    "numPassedTestSuites": 8499,
+    "numFailedTestSuites": 1,
+    "numTotalTests": 35386,
+    "numPassedTests": 35376,
+    "numFailedTests": 1,
+    "numPendingTests": 9,
+    "numRuntimeErrorTestSuites": null
+  },
+  "failedTests": [
+    {
+      "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/src/main/plan-queue/plan-queue-retirement-control.spec.ts",
+      "name": "Cancel arriving during Git promotion retries a subsequent failed landed-worker stop",
+      "failureMessages": [
+        "AssertionError: expected null to be truthy\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/src/main/plan-queue/plan-queue-retirement-control.spec.ts:397:77\n    at Timeout.checkCallback (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/vitest/dist/chunks/test.DNmyFkvJ.js:3383:20)\n    at listOnTimeout (node:internal/timers:685:17)\n    at processTimers (node:internal/timers:618:7)"
+      ]
+    }
+  ]
+}

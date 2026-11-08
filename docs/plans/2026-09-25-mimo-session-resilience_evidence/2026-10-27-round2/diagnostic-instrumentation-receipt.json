@@ -1,0 +1,7 @@
+{
+  "at": "2026-10-27T03:40:31.311272+00:00",
+  "temporaryFile": "node_modules/@vitest/utils/dist/source-map/node.js",
+  "change": "Log only the file path whose source-map parse throws; preserve and rethrow the original exception. No assertion, suppression or exit behavior changed.",
+  "restoredOriginal": true,
+  "restoredSha256": "799916b49140c773daeeced4d4c49e466ac8c67d071ab360b41ed6489140f22c"
+}

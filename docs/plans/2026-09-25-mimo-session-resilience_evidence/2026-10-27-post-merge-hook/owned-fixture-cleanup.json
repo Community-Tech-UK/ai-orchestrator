@@ -1,0 +1,10 @@
+{
+  "pid": 12663,
+  "startedAt": "2026-10-27T05:37:02.633165+00:00",
+  "matchesNativeFinalityFixture": true,
+  "startedDuringFailedControlledTest": true,
+  "signal": "SIGTERM",
+  "confirmedGone": true,
+  "otherWorktreeProcessesUntouched": true,
+  "processListing": "ps was denied; lsof and targeted native process metadata succeeded"
+}

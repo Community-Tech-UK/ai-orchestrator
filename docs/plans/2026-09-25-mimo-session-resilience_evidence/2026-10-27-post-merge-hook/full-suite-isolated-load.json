@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-27T06:12:26.649791+00:00",
+  "load": [
+    22.75341796875,
+    36.326171875,
+    37.40625
+  ],
+  "threshold": 30,
+  "workerCap": 4,
+  "uncached": true,
+  "environment": "Twelve confirmed undeclared production extras temporarily parked; no install/prune, manifests unchanged"
+}

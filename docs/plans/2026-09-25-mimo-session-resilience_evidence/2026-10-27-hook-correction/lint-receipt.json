@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-27T10:13:04.537203+00:00",
+  "finished": "2026-10-27T10:13:19.730028+00:00",
+  "command": [
+    "npm",
+    "run",
+    "lint"
+  ],
+  "exit": 0,
+  "fullOutput": "_scratch/hook-correction/lint.log",
+  "sha256": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98",
+  "bytes": 89,
+  "output": "\n> harness@0.1.0 lint\n> ng lint\n\n\nLinting \"ai-orchestrator\"...\n\nAll files pass linting.\n\n",
+  "outputComplete": true
+}

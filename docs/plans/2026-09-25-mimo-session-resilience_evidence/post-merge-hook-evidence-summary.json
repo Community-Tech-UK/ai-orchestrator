@@ -1,0 +1,957 @@
+{
+  "recordedAt": "2026-10-27T10:09:22.263153+00:00",
+  "scope": "Historical pre-commit recovery only; later source review rejected the unconditional build. These receipts do not validate the new correction.",
+  "authority": "Original command exits are copied literally. Absent command-output text is not recreated. Existing small compressed runner reports remain tracked.",
+  "missingOutputs": [
+    {
+      "name": "baseline",
+      "actualExitCode": 1,
+      "sourceReceipt": "2026-10-27-post-merge-hook/initial-command-receipts.json",
+      "entryIndex": 0,
+      "historicalOutput": "baseline.log",
+      "historicalOutputSha256": "a634b49d5f25d8973acc963576e4913a411e0b29cabd4da20a8f1ac731f7abdb",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "build-main",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/initial-command-receipts.json",
+      "entryIndex": 1,
+      "historicalOutput": "build-main.log",
+      "historicalOutputSha256": "e53c77df92cb08959c7fa8f45a78f861be16cb74a6c6e53c0e3c249bcbb9a40a",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "regression-red",
+      "actualExitCode": 1,
+      "sourceReceipt": "2026-10-27-post-merge-hook/initial-command-receipts.json",
+      "entryIndex": 2,
+      "historicalOutput": "regression-red.log",
+      "historicalOutputSha256": "8f66928ed8de43a208bf1933d1fd6079d6e8e5526a2d959337b7dea33dc1bf7b",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "regression-green",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/initial-command-receipts.json",
+      "entryIndex": 3,
+      "historicalOutput": "regression-green.log",
+      "historicalOutputSha256": "835e56701f38171807792047f585c9e802c94f2d9665d67d93cdad51d12b93cc",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "worker-tests",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/initial-command-receipts.json",
+      "entryIndex": 4,
+      "historicalOutput": "worker-tests.log",
+      "historicalOutputSha256": "8a7f7c63f413e0a2c1eff55e6bf37007a65c8dd2a5bbb63ec885eddcbe10dc1f",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "focused-hook-tests",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/initial-command-receipts.json",
+      "entryIndex": 5,
+      "historicalOutput": "focused-hook-tests.log",
+      "historicalOutputSha256": "f824557e38750ff3f4b990f56f58de19b330c99da5a99b87fad79fb1396a6981",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "typecheck-renderer",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 0,
+      "historicalOutput": "typecheck-renderer.log",
+      "historicalOutputSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "pre-commit",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 1,
+      "historicalOutput": "pre-commit.log",
+      "historicalOutputSha256": "9208798320db5a56b1aa7dd72020117fbb85754c942ae5af834d21035c2a1ac1",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "typecheck-spec",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 2,
+      "historicalOutput": "typecheck-spec.log",
+      "historicalOutputSha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "lint",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 3,
+      "historicalOutput": "lint.log",
+      "historicalOutputSha256": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "check-ts-max-loc",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 4,
+      "historicalOutput": "check-ts-max-loc.log",
+      "historicalOutputSha256": "ecc1964ba2c358ecb29c5f966937ce66ed33740100b7c1a6733c0ef08f110189",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "check-ui-hints",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 5,
+      "historicalOutput": "check-ui-hints.log",
+      "historicalOutputSha256": "5e2ddb12cfeb4fb5abfa1700ff1f5e7fbc01c84f4ac7b28160c8b55fdf21ab90",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "build-renderer",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 6,
+      "historicalOutput": "build-renderer.log",
+      "historicalOutputSha256": "05696f1f84bfa39b02bebe22ef6a29d7c9b88895db3f424eed8e2199d70b588d",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "pre-commit-original-source",
+      "actualExitCode": 1,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 7,
+      "historicalOutput": "pre-commit-original-source.log",
+      "historicalOutputSha256": "5d74315ec5257be88a4f394f95fcbb3b6ce6c151e8b077f661979f7d43022f95",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "native-finality-controlled",
+      "actualExitCode": 1,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 8,
+      "historicalOutput": "native-finality-controlled.log",
+      "historicalOutputSha256": "46f13ce57c8d6349e4925aa478a368ba80976368f8c9fbc7f28f8942fbfc06d1",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "native-finality-controlled-final",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 9,
+      "historicalOutput": "native-finality-controlled-final.log",
+      "historicalOutputSha256": "15d202bbc32b040e5276823da9e9aced8af2e22bc82186a4856561569039f9c0",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "focused-final",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 10,
+      "historicalOutput": "focused-final.log",
+      "historicalOutputSha256": "278fc28c357c253c22bda46aa0870062f07ea6addb22223cb02752900cf253e7",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "typecheck-spec-final",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 11,
+      "historicalOutput": "typecheck-spec-final.log",
+      "historicalOutputSha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "lint-final",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 12,
+      "historicalOutput": "lint-final.log",
+      "historicalOutputSha256": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "pre-commit-final",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 13,
+      "historicalOutput": "pre-commit-final.log",
+      "historicalOutputSha256": "2314de23452818f0bfc6bcae34a8ada0b6b8b608eca2c73c8765aaf41b4eaccf",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "full-suite",
+      "actualExitCode": 143,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 14,
+      "historicalOutput": "full-suite.log",
+      "historicalOutputSha256": "05d4abf9977b71f862778d79507791a5efa0800198dc70b9b90f37cc22e830f6",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "full-suite-final",
+      "actualExitCode": 1,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 15,
+      "historicalOutput": "full-suite-final.log",
+      "historicalOutputSha256": "0be2961e300146a24e757a787eb597aa7957885db756f82946d6e51c542b2218",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "dependency-prune-preview",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 16,
+      "historicalOutput": "dependency-prune-preview.log",
+      "historicalOutputSha256": "a365304bacd878183641dd0abcb05def40cc53d344b696c216a5c29441f5e9ad",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "dependency-compatibility-final",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 17,
+      "historicalOutput": "dependency-compatibility-final.log",
+      "historicalOutputSha256": "664fb1a1d3f77b94c0751b84fbda26e88ab882cdc7b27f5a5fcf1654e0a26ae0",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "isolated-typecheck-renderer",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 18,
+      "historicalOutput": "isolated-typecheck-renderer.log",
+      "historicalOutputSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "isolated-typecheck-spec",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 19,
+      "historicalOutput": "isolated-typecheck-spec.log",
+      "historicalOutputSha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "isolated-lint",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 20,
+      "historicalOutput": "isolated-lint.log",
+      "historicalOutputSha256": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "isolated-check-ts-max-loc",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 21,
+      "historicalOutput": "isolated-check-ts-max-loc.log",
+      "historicalOutputSha256": "ecc1964ba2c358ecb29c5f966937ce66ed33740100b7c1a6733c0ef08f110189",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "isolated-check-ui-hints",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 22,
+      "historicalOutput": "isolated-check-ui-hints.log",
+      "historicalOutputSha256": "5e2ddb12cfeb4fb5abfa1700ff1f5e7fbc01c84f4ac7b28160c8b55fdf21ab90",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "isolated-build-main",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 23,
+      "historicalOutput": "isolated-build-main.log",
+      "historicalOutputSha256": "045ec631c3ee7f3ab0b773bb5f0fa89fca7fecae1938bd94ec4c64ba15af7f85",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "isolated-build-renderer",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 24,
+      "historicalOutput": "isolated-build-renderer.log",
+      "historicalOutputSha256": "04ca079053099d03f7fcb39033a1b00beca8f96c24c74ad3798c7df774670618",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "full-suite-isolated",
+      "actualExitCode": 1,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 25,
+      "historicalOutput": "full-suite-isolated.log",
+      "historicalOutputSha256": "79b871b6cc4f6b2b8d1894f3dfcf93742aa9b596d0640c46fb7bc704e033e7a1",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "sea-repeatability-baseline",
+      "actualExitCode": 1,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 26,
+      "historicalOutput": "sea-repeatability-baseline.log",
+      "historicalOutputSha256": "59e0e11c3e037dec050ab67d97c90f8b3926f84981130ddaf88f484df66795cf",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "pinned-sea-repeatability",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 27,
+      "historicalOutput": "pinned-sea-repeatability.log",
+      "historicalOutputSha256": "82f99167af941d635110ecd248e318bc729e581e6855cb8c61814647d2d60f8e",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "pinned-typecheck-renderer",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 28,
+      "historicalOutput": "pinned-typecheck-renderer.log",
+      "historicalOutputSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "pinned-typecheck-spec",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 29,
+      "historicalOutput": "pinned-typecheck-spec.log",
+      "historicalOutputSha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "pinned-lint",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 30,
+      "historicalOutput": "pinned-lint.log",
+      "historicalOutputSha256": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "pinned-check-ts-max-loc",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 31,
+      "historicalOutput": "pinned-check-ts-max-loc.log",
+      "historicalOutputSha256": "ecc1964ba2c358ecb29c5f966937ce66ed33740100b7c1a6733c0ef08f110189",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "pinned-check-ui-hints",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 32,
+      "historicalOutput": "pinned-check-ui-hints.log",
+      "historicalOutputSha256": "5e2ddb12cfeb4fb5abfa1700ff1f5e7fbc01c84f4ac7b28160c8b55fdf21ab90",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "pinned-build-main",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 33,
+      "historicalOutput": "pinned-build-main.log",
+      "historicalOutputSha256": "85ea6eb334975a4cd7c3f6f7902c65d2be9e13f917dfbd5551dc60625a1c614c",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "pinned-build-renderer",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 34,
+      "historicalOutput": "pinned-build-renderer.log",
+      "historicalOutputSha256": "cdacdc0a4c1a30bddbd9d7880ed891550c89e7617cb1efa9e66974c6d020d79a",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "full-suite-pinned",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 35,
+      "historicalOutput": "full-suite-pinned.log",
+      "historicalOutputSha256": "e05e5c511754777bae9800cc21efe41313df68d173b14a825bd1ac7d8528e523",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "independent-focused",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 36,
+      "historicalOutput": "independent-focused.log",
+      "historicalOutputSha256": "90c7234542285b7f67b8ad6bced6c5fece09bf310875a1cbf0c0ad2f4e6b3498",
+      "outputCurrentlyAvailable": false
+    },
+    {
+      "name": "independent-worker-smoke",
+      "actualExitCode": 0,
+      "sourceReceipt": "2026-10-27-post-merge-hook/command-receipts.jsonl",
+      "entryIndex": 37,
+      "historicalOutput": "independent-worker-smoke.log",
+      "historicalOutputSha256": "987908ee0ba423bdfeb37dbb9356d88d6c9e5b0c1678455afa079864a7a81cbc",
+      "outputCurrentlyAvailable": false
+    }
+  ],
+  "rawRunnerCounterparts": [
+    {
+      "runnerFile": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-10600.json.gz",
+      "commandCounterpart": "native-finality-controlled",
+      "actualExitCode": 1,
+      "report": {
+        "numTotalTestSuites": 1,
+        "numPassedTestSuites": 0,
+        "numFailedTestSuites": 1,
+        "numPendingTestSuites": 0,
+        "numTotalTests": 8,
+        "numPassedTests": 7,
+        "numFailedTests": 1,
+        "numPendingTests": 0,
+        "numTodoTests": 0,
+        "startTime": 1793079419806,
+        "success": false,
+        "fileCount": 1,
+        "fileStatusCounts": {
+          "failed": 1
+        },
+        "assertionStatusCounts": {
+          "passed": 7,
+          "failed": 1
+        },
+        "failedAssertions": [
+          {
+            "file": "src/main/orchestration/default-loop-native-finality.spec.ts",
+            "title": "native finality 'regular-paused'",
+            "status": "failed",
+            "failureFirstLines": [
+              "Error: STACK_TRACE_ERROR"
+            ]
+          }
+        ],
+        "files": [
+          "src/main/orchestration/default-loop-native-finality.spec.ts"
+        ],
+        "testFiles": [
+          "src/main/orchestration/default-loop-native-finality.spec.ts"
+        ]
+      },
+      "correspondenceIsInferred": true
+    },
+    {
+      "runnerFile": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-180.json.gz",
+      "commandCounterpart": "regression-red",
+      "actualExitCode": 1,
+      "report": {
+        "numTotalTestSuites": 2,
+        "numPassedTestSuites": 0,
+        "numFailedTestSuites": 2,
+        "numPendingTestSuites": 0,
+        "numTotalTests": 7,
+        "numPassedTests": 0,
+        "numFailedTests": 2,
+        "numPendingTests": 5,
+        "numTodoTests": 0,
+        "startTime": 1793078675161,
+        "success": false,
+        "fileCount": 1,
+        "fileStatusCounts": {
+          "failed": 1
+        },
+        "assertionStatusCounts": {
+          "failed": 2,
+          "skipped": 5
+        },
+        "failedAssertions": [
+          {
+            "file": "scripts/__tests__/run-git-hook.spec.ts",
+            "title": "run-git-hook builds the main-process workers before testing and propagates build status 0",
+            "status": "failed",
+            "failureFirstLines": [
+              "AssertionError: expected 1 to be +0 // Object.is equality"
+            ]
+          },
+          {
+            "file": "scripts/__tests__/run-git-hook.spec.ts",
+            "title": "run-git-hook builds the main-process workers before testing and propagates build status 42",
+            "status": "failed",
+            "failureFirstLines": [
+              "AssertionError: expected 1 to be 42 // Object.is equality"
+            ]
+          }
+        ],
+        "files": [
+          "scripts/__tests__/run-git-hook.spec.ts"
+        ],
+        "testFiles": [
+          "scripts/__tests__/run-git-hook.spec.ts"
+        ]
+      },
+      "correspondenceIsInferred": true
+    },
+    {
+      "runnerFile": "Archived; see retention-manifest.json for 2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-18659.json.gz",
+      "commandCounterpart": "full-suite-pinned",
+      "actualExitCode": 0,
+      "correspondenceBasis": "Matching test selection and chronological report; initial command receipts lack timestamps, and raw JSON does not itself record a process exit.",
+      "portableReport": "portable-suite-summaries.json#/files/0"
+    },
+    {
+      "runnerFile": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-18978.json.gz",
+      "commandCounterpart": "native-finality-controlled-final",
+      "actualExitCode": 0,
+      "report": {
+        "numTotalTestSuites": 1,
+        "numPassedTestSuites": 1,
+        "numFailedTestSuites": 0,
+        "numPendingTestSuites": 0,
+        "numTotalTests": 8,
+        "numPassedTests": 8,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTodoTests": 0,
+        "startTime": 1793079452612,
+        "success": true,
+        "fileCount": 1,
+        "fileStatusCounts": {
+          "passed": 1
+        },
+        "assertionStatusCounts": {
+          "passed": 8
+        },
+        "failedAssertions": [],
+        "files": [],
+        "testFiles": [
+          "src/main/orchestration/default-loop-native-finality.spec.ts"
+        ]
+      },
+      "correspondenceIsInferred": true
+    },
+    {
+      "runnerFile": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-19050.json.gz",
+      "commandCounterpart": "regression-green",
+      "actualExitCode": 0,
+      "report": {
+        "numTotalTestSuites": 2,
+        "numPassedTestSuites": 2,
+        "numFailedTestSuites": 0,
+        "numPendingTestSuites": 0,
+        "numTotalTests": 7,
+        "numPassedTests": 2,
+        "numFailedTests": 0,
+        "numPendingTests": 5,
+        "numTodoTests": 0,
+        "startTime": 1793078697586,
+        "success": true,
+        "fileCount": 1,
+        "fileStatusCounts": {
+          "passed": 1
+        },
+        "assertionStatusCounts": {
+          "passed": 2,
+          "skipped": 5
+        },
+        "failedAssertions": [],
+        "files": [],
+        "testFiles": [
+          "scripts/__tests__/run-git-hook.spec.ts"
+        ]
+      },
+      "correspondenceIsInferred": true
+    },
+    {
+      "runnerFile": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-3767.json.gz",
+      "commandCounterpart": "worker-tests",
+      "actualExitCode": 0,
+      "report": {
+        "numTotalTestSuites": 18,
+        "numPassedTestSuites": 18,
+        "numFailedTestSuites": 0,
+        "numPendingTestSuites": 0,
+        "numTotalTests": 55,
+        "numPassedTests": 55,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTodoTests": 0,
+        "startTime": 1793078687554,
+        "success": true,
+        "fileCount": 4,
+        "fileStatusCounts": {
+          "passed": 4
+        },
+        "assertionStatusCounts": {
+          "passed": 55
+        },
+        "failedAssertions": [],
+        "files": [],
+        "testFiles": [
+          "src/main/cli/spawn-worker/cli-worker-cancelled-usage.spec.ts",
+          "src/main/cli/spawn-worker/cli-worker-failed-usage.spec.ts",
+          "src/main/cli/spawn-worker/cli-worker-resident-cost.spec.ts",
+          "src/main/cli/adapters/claude-direct-failed-usage.spec.ts"
+        ]
+      },
+      "correspondenceIsInferred": true
+    },
+    {
+      "runnerFile": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-47648.json.gz",
+      "commandCounterpart": "independent-focused",
+      "actualExitCode": 0,
+      "report": {
+        "numTotalTestSuites": 24,
+        "numPassedTestSuites": 24,
+        "numFailedTestSuites": 0,
+        "numPendingTestSuites": 0,
+        "numTotalTests": 89,
+        "numPassedTests": 89,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTodoTests": 0,
+        "startTime": 1793083810970,
+        "success": true,
+        "fileCount": 6,
+        "fileStatusCounts": {
+          "passed": 6
+        },
+        "assertionStatusCounts": {
+          "passed": 89
+        },
+        "failedAssertions": [],
+        "files": [],
+        "testFiles": [
+          "scripts/__tests__/dependency-compatibility.spec.ts",
+          "scripts/__tests__/run-git-hook.spec.ts",
+          "scripts/__tests__/test-staged.spec.ts",
+          "src/main/orchestration/default-loop-native-finality.spec.ts",
+          "src/main/cli/spawn-worker/cli-spawn-worker-gateway.spec.ts",
+          "src/main/core/system/provider-quota-service.spec.ts"
+        ]
+      },
+      "correspondenceIsInferred": true
+    },
+    {
+      "runnerFile": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-50362.json.gz",
+      "commandCounterpart": "independent-worker-smoke",
+      "actualExitCode": 0,
+      "report": {
+        "numTotalTestSuites": 2,
+        "numPassedTestSuites": 2,
+        "numFailedTestSuites": 0,
+        "numPendingTestSuites": 0,
+        "numTotalTests": 18,
+        "numPassedTests": 1,
+        "numFailedTests": 0,
+        "numPendingTests": 17,
+        "numTodoTests": 0,
+        "startTime": 1793083863249,
+        "success": true,
+        "fileCount": 1,
+        "fileStatusCounts": {
+          "passed": 1
+        },
+        "assertionStatusCounts": {
+          "skipped": 17,
+          "passed": 1
+        },
+        "failedAssertions": [],
+        "files": [],
+        "testFiles": [
+          "src/main/cli/spawn-worker/cli-worker-resident-cost.spec.ts"
+        ]
+      },
+      "correspondenceIsInferred": true
+    },
+    {
+      "runnerFile": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-54685.json.gz",
+      "commandCounterpart": "baseline",
+      "actualExitCode": 1,
+      "report": {
+        "numTotalTestSuites": 2,
+        "numPassedTestSuites": 0,
+        "numFailedTestSuites": 2,
+        "numPendingTestSuites": 0,
+        "numTotalTests": 18,
+        "numPassedTests": 0,
+        "numFailedTests": 1,
+        "numPendingTests": 17,
+        "numTodoTests": 0,
+        "startTime": 1793078614404,
+        "success": false,
+        "fileCount": 1,
+        "fileStatusCounts": {
+          "failed": 1
+        },
+        "assertionStatusCounts": {
+          "skipped": 17,
+          "failed": 1
+        },
+        "failedAssertions": [
+          {
+            "file": "src/main/cli/spawn-worker/cli-worker-resident-cost.spec.ts",
+            "title": "resident worker → communication → real CostTracker does not fabricate a resident completion for unowned frames (startup-result)",
+            "status": "failed",
+            "failureFirstLines": [
+              "Error: Cannot find module '/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/dist/main/cli/spawn-worker/cli-spawn-worker-main.js'"
+            ]
+          }
+        ],
+        "files": [
+          "src/main/cli/spawn-worker/cli-worker-resident-cost.spec.ts"
+        ],
+        "testFiles": [
+          "src/main/cli/spawn-worker/cli-worker-resident-cost.spec.ts"
+        ]
+      },
+      "correspondenceIsInferred": true
+    },
+    {
+      "runnerFile": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-58270.json.gz",
+      "commandCounterpart": "focused-final",
+      "actualExitCode": 0,
+      "report": {
+        "numTotalTestSuites": 6,
+        "numPassedTestSuites": 6,
+        "numFailedTestSuites": 0,
+        "numPendingTestSuites": 0,
+        "numTotalTests": 25,
+        "numPassedTests": 25,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTodoTests": 0,
+        "startTime": 1793079577138,
+        "success": true,
+        "fileCount": 3,
+        "fileStatusCounts": {
+          "passed": 3
+        },
+        "assertionStatusCounts": {
+          "passed": 25
+        },
+        "failedAssertions": [],
+        "files": [],
+        "testFiles": [
+          "scripts/__tests__/run-git-hook.spec.ts",
+          "scripts/__tests__/test-staged.spec.ts",
+          "src/main/orchestration/default-loop-native-finality.spec.ts"
+        ]
+      },
+      "correspondenceIsInferred": true
+    },
+    {
+      "runnerFile": "Archived; see retention-manifest.json for 2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-67467.json.gz",
+      "commandCounterpart": "full-suite-final",
+      "actualExitCode": 1,
+      "correspondenceBasis": "Matching test selection and chronological report; initial command receipts lack timestamps, and raw JSON does not itself record a process exit.",
+      "portableReport": "portable-suite-summaries.json#/files/1"
+    },
+    {
+      "runnerFile": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-81046.json.gz",
+      "commandCounterpart": "focused-hook-tests",
+      "actualExitCode": 0,
+      "report": {
+        "numTotalTestSuites": 5,
+        "numPassedTestSuites": 5,
+        "numFailedTestSuites": 0,
+        "numPendingTestSuites": 0,
+        "numTotalTests": 17,
+        "numPassedTests": 17,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTodoTests": 0,
+        "startTime": 1793078738188,
+        "success": true,
+        "fileCount": 2,
+        "fileStatusCounts": {
+          "passed": 2
+        },
+        "assertionStatusCounts": {
+          "passed": 17
+        },
+        "failedAssertions": [],
+        "files": [],
+        "testFiles": [
+          "scripts/__tests__/run-git-hook.spec.ts",
+          "scripts/__tests__/test-staged.spec.ts"
+        ]
+      },
+      "correspondenceIsInferred": true
+    },
+    {
+      "runnerFile": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-83695.json.gz",
+      "commandCounterpart": "dependency-compatibility-final",
+      "actualExitCode": 0,
+      "report": {
+        "numTotalTestSuites": 2,
+        "numPassedTestSuites": 2,
+        "numFailedTestSuites": 0,
+        "numPendingTestSuites": 0,
+        "numTotalTests": 5,
+        "numPassedTests": 5,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTodoTests": 0,
+        "startTime": 1793081326092,
+        "success": true,
+        "fileCount": 1,
+        "fileStatusCounts": {
+          "passed": 1
+        },
+        "assertionStatusCounts": {
+          "passed": 5
+        },
+        "failedAssertions": [],
+        "files": [],
+        "testFiles": [
+          "scripts/__tests__/dependency-compatibility.spec.ts"
+        ]
+      },
+      "correspondenceIsInferred": true
+    },
+    {
+      "runnerFile": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-8590.json.gz",
+      "commandCounterpart": "sea-repeatability-baseline",
+      "actualExitCode": 1,
+      "report": {
+        "numTotalTestSuites": 2,
+        "numPassedTestSuites": 1,
+        "numFailedTestSuites": 0,
+        "numPendingTestSuites": 1,
+        "numTotalTests": 2,
+        "numPassedTests": 0,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTodoTests": 0,
+        "startTime": 1793082452507,
+        "success": true,
+        "fileCount": 1,
+        "fileStatusCounts": {
+          "passed": 1
+        },
+        "assertionStatusCounts": {
+          "pending": 2
+        },
+        "failedAssertions": [],
+        "files": [],
+        "testFiles": [
+          "scripts/__tests__/sea-build-repeatability.spec.ts"
+        ]
+      },
+      "correspondenceIsInferred": true
+    },
+    {
+      "runnerFile": "Archived; see retention-manifest.json for 2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-87803.json.gz",
+      "commandCounterpart": "full-suite-isolated",
+      "actualExitCode": 1,
+      "correspondenceBasis": "Matching test selection and chronological report; initial command receipts lack timestamps, and raw JSON does not itself record a process exit.",
+      "portableReport": "portable-suite-summaries.json#/files/2"
+    },
+    {
+      "runnerFile": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-88171.json.gz",
+      "commandCounterpart": null,
+      "actualExitCode": null,
+      "report": {
+        "numTotalTestSuites": 1,
+        "numPassedTestSuites": 0,
+        "numFailedTestSuites": 1,
+        "numPendingTestSuites": 0,
+        "numTotalTests": 8,
+        "numPassedTests": 4,
+        "numFailedTests": 4,
+        "numPendingTests": 0,
+        "numTodoTests": 0,
+        "startTime": 1793079267228,
+        "success": false,
+        "fileCount": 1,
+        "fileStatusCounts": {
+          "failed": 1
+        },
+        "assertionStatusCounts": {
+          "failed": 4,
+          "passed": 4
+        },
+        "failedAssertions": [
+          {
+            "file": "src/main/orchestration/default-loop-native-finality.spec.ts",
+            "title": "native finality 'partial-paused'",
+            "status": "failed",
+            "failureFirstLines": [
+              "AssertionError: expected false to be true // Object.is equality"
+            ]
+          },
+          {
+            "file": "src/main/orchestration/default-loop-native-finality.spec.ts",
+            "title": "native finality 'partial-no-native-cost'",
+            "status": "failed",
+            "failureFirstLines": [
+              "AssertionError: expected false to be true // Object.is equality"
+            ]
+          },
+          {
+            "file": "src/main/orchestration/default-loop-native-finality.spec.ts",
+            "title": "native finality 'partial-native-error'",
+            "status": "failed",
+            "failureFirstLines": [
+              "AssertionError: expected false to be true // Object.is equality"
+            ]
+          },
+          {
+            "file": "src/main/orchestration/default-loop-native-finality.spec.ts",
+            "title": "native finality 'partial-no-final-lf'",
+            "status": "failed",
+            "failureFirstLines": [
+              "AssertionError: expected false to be true // Object.is equality"
+            ]
+          }
+        ],
+        "files": [
+          "src/main/orchestration/default-loop-native-finality.spec.ts"
+        ],
+        "testFiles": [
+          "src/main/orchestration/default-loop-native-finality.spec.ts"
+        ]
+      },
+      "correspondenceIsInferred": true
+    },
+    {
+      "runnerFile": "2026-10-27-post-merge-hook/raw-test-receipts/test-results.pid-89115.json.gz",
+      "commandCounterpart": "pinned-sea-repeatability",
+      "actualExitCode": 0,
+      "report": {
+        "numTotalTestSuites": 2,
+        "numPassedTestSuites": 2,
+        "numFailedTestSuites": 0,
+        "numPendingTestSuites": 0,
+        "numTotalTests": 2,
+        "numPassedTests": 2,
+        "numFailedTests": 0,
+        "numPendingTests": 0,
+        "numTodoTests": 0,
+        "startTime": 1793082645487,
+        "success": true,
+        "fileCount": 1,
+        "fileStatusCounts": {
+          "passed": 1
+        },
+        "assertionStatusCounts": {
+          "passed": 2
+        },
+        "failedAssertions": [],
+        "files": [],
+        "testFiles": [
+          "scripts/__tests__/sea-build-repeatability.spec.ts"
+        ]
+      },
+      "correspondenceIsInferred": true
+    }
+  ],
+  "indexEvidence": "2026-10-27-post-merge-hook/pre-commit-final-index.json",
+  "indexEvidenceMeaning": "Absent dist at replay start and identical before/after real staged-entry hashes. This receipt does not contain the selected-test count.",
+  "countLimit": "The report states 312 files / 6375 selected tests for pre-commit-final. Its ignored output is absent and no corresponding full staged-run result was retained, so this retention audit cannot independently re-extract those counts.",
+  "correspondenceLimit": "Raw-runner to command-name correspondence is inferred from matching test selection and report chronology. Initial command receipts have no timestamps; raw JSON itself does not record a process exit. The unmatched isolated finality failure retains a null process exit."
+}

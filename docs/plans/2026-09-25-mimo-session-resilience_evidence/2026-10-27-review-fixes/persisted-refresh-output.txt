@@ -1,0 +1,1 @@
+persisted-refresh: captured successfully

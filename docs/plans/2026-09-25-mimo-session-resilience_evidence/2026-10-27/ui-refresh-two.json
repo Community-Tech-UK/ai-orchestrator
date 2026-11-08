@@ -1,0 +1,76 @@
+{
+  "at": "2026-10-27T02:34:43.171Z",
+  "focus": {
+    "hidden": false,
+    "visibility": "visible"
+  },
+  "visibilityOverride": "unsupported; document.hidden asserted below",
+  "result": {
+    "before": {
+      "provider": "opencode",
+      "takenAt": 1793068451054,
+      "source": "admin-api",
+      "ok": true,
+      "windows": [
+        {
+          "kind": "calendar-period",
+          "id": "opencode.plan",
+          "label": "Plan",
+          "unit": "tokens",
+          "used": 76751021492,
+          "limit": 82000000000,
+          "remaining": 5248978508,
+          "resetsAt": 1795391999000,
+          "overage": false
+        },
+        {
+          "kind": "calendar-period",
+          "id": "opencode.monthly",
+          "label": "Monthly",
+          "unit": "tokens",
+          "used": 76751021492,
+          "limit": 82000000000,
+          "remaining": 5248978508,
+          "resetsAt": 1795391999000,
+          "overage": false
+        }
+      ],
+      "plan": "Max"
+    },
+    "after": {
+      "provider": "opencode",
+      "takenAt": 1793068482952,
+      "source": "admin-api",
+      "ok": true,
+      "windows": [
+        {
+          "kind": "calendar-period",
+          "id": "opencode.plan",
+          "label": "Plan",
+          "unit": "tokens",
+          "used": 76762225812,
+          "limit": 82000000000,
+          "remaining": 5237774188,
+          "resetsAt": 1795391999000,
+          "overage": false
+        },
+        {
+          "kind": "calendar-period",
+          "id": "opencode.monthly",
+          "label": "Monthly",
+          "unit": "tokens",
+          "used": 76762225812,
+          "limit": 82000000000,
+          "remaining": 5237774188,
+          "resetsAt": 1795391999000,
+          "overage": false
+        }
+      ],
+      "plan": "Max"
+    },
+    "durationMs": 1401,
+    "reauthVisible": false,
+    "strip": "CC68%CX21%AG0%CP69%CU100%GX0%OC94%",
+    "openCode": "OpenCodeupdated just nowRefreshPlan94%resets in 26d 21h 25mMonthly94%resets in 26d 21h 25m"
+  }
+}

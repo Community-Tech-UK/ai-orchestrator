@@ -1,0 +1,9 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js
+
+  … 405 test file(s) done (full log: _scratch/test-run.pid-18804.log)
+  … 1225 test file(s) done (full log: _scratch/test-run.pid-18804.log)
+  … 2408 test file(s) done (full log: _scratch/test-run.pid-18804.log)
+✓ 2792 files · 35373 tests passed in 407.6s
+  full log: _scratch/test-run.pid-18804.log

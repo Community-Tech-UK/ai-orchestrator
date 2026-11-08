@@ -1,0 +1,22 @@
+{"event": "encrypted-saved-session-copied", "plaintext_exposed": false, "profile": "/tmp/aio-lt-queue-71493f81", "at": "2026-10-27T02:28:35.434648+00:00"}
+{"event": "started", "label": "renderer", "pid": 30590, "command": ["node", "node_modules/@angular/cli/bin/ng.js", "serve", "--port", "4579", "--host", "127.0.0.1"], "at": "2026-10-27T02:28:35.437496+00:00"}
+{"event": "started", "label": "electron", "pid": 48680, "command": ["node_modules/electron/dist/Electron.app/Contents/MacOS/Electron", ".", "--remote-debugging-port=9822"], "at": "2026-10-27T02:28:55.532174+00:00"}
+{"event": "stopped", "label": "electron", "pid": 48680, "exit_code": 0, "at": "2026-10-27T02:28:57.543225+00:00"}
+{"event": "stopped", "label": "renderer", "pid": 30590, "exit_code": 143, "at": "2026-10-27T02:28:57.729741+00:00"}
+{"event": "encrypted-saved-session-copied", "plaintext_exposed": false, "profile": "/tmp/aio-lt-queue-71493f81", "at": "2026-10-27T02:29:23.496801+00:00"}
+{"event": "started", "label": "renderer", "pid": 74898, "command": ["node", "node_modules/@angular/cli/bin/ng.js", "serve", "--port", "4579", "--host", "127.0.0.1"], "at": "2026-10-27T02:29:23.500633+00:00"}
+{"event": "started", "label": "electron", "pid": 89251, "command": ["node_modules/electron/dist/Electron.app/Contents/MacOS/Electron", "--js-flags=--max-old-space-size=8192", ".", "--remote-debugging-port=9822"], "at": "2026-10-27T02:29:41.585992+00:00"}
+{"event": "stopped", "label": "electron", "pid": 89251, "exit_code": -5, "at": "2026-10-27T02:29:45.675679+00:00"}
+{"event": "stopped", "label": "renderer", "pid": 74898, "exit_code": 143, "at": "2026-10-27T02:29:45.986216+00:00"}
+{"event": "encrypted-saved-session-copied", "plaintext_exposed": false, "profile": "/tmp/aio-lt-queue-71493f81", "at": "2026-10-27T02:30:22.246251+00:00"}
+{"event": "started", "label": "renderer", "pid": 95366, "command": ["node", "node_modules/@angular/cli/bin/ng.js", "serve", "--port", "4579", "--host", "127.0.0.1"], "at": "2026-10-27T02:30:22.260012+00:00"}
+{"event": "started", "label": "electron", "pid": 6835, "command": ["node_modules/electron/dist/Electron.app/Contents/MacOS/Electron", "--no-sandbox", "--js-flags=--max-old-space-size=8192", ".", "--remote-debugging-port=9822"], "at": "2026-10-27T02:30:40.340093+00:00"}
+{"event": "ready", "debug_port": 9822, "renderer_port": 4579, "at": "2026-10-27T02:30:58.628464+00:00"}
+{"event": "stopped", "label": "electron", "pid": 6835, "exit_code": 0, "at": "2026-10-27T02:32:28.343288+00:00"}
+{"event": "stopped", "label": "renderer", "pid": 95366, "exit_code": 143, "at": "2026-10-27T02:32:28.763236+00:00"}
+{"event": "encrypted-saved-session-copied", "plaintext_exposed": false, "profile": "/tmp/aio-lt-queue-71493f81", "at": "2026-10-27T02:32:53.780792+00:00"}
+{"event": "started", "label": "renderer", "pid": 89147, "command": ["python3", "-m", "http.server", "4579", "--bind", "127.0.0.1", "--directory", "dist/renderer/browser"], "at": "2026-10-27T02:32:53.784019+00:00"}
+{"event": "started", "label": "electron", "pid": 90766, "command": ["node_modules/electron/dist/Electron.app/Contents/MacOS/Electron", "--no-sandbox", "--js-flags=--max-old-space-size=8192", ".", "--remote-debugging-port=9822"], "at": "2026-10-27T02:32:55.811211+00:00"}
+{"event": "ready", "debug_port": 9822, "renderer_port": 4579, "at": "2026-10-27T02:33:12.338835+00:00"}
+{"event": "stopped", "label": "electron", "pid": 90766, "exit_code": 0, "at": "2026-10-27T02:35:29.329905+00:00"}
+{"event": "stopped", "label": "renderer", "pid": 89147, "exit_code": -15, "at": "2026-10-27T02:35:29.333996+00:00"}

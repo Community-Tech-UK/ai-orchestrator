@@ -1,0 +1,8 @@
+{
+  "firstHookExitCode": 0,
+  "firstHarnessExitCode": 1,
+  "firstReplaySelectedOnlyHookSourceFiles": true,
+  "firstIndexByteAssertionFailed": true,
+  "realStagedPathsNow": [],
+  "correction": "Use a temporary HEAD index with base blobs for the committed MiMo source pair to select their related tests. Compare staged entries instead of mutable index file bytes."
+}

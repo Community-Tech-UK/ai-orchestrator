@@ -1,0 +1,11 @@
+{
+  "realIndexSha256": "6dd82d68e6e439f17639eae24dfe9805101742ae55866428cca32c052c448a0a",
+  "replayBase": "main",
+  "stagedSourcePaths": [
+    "src/main/core/system/provider-quota-service.ts",
+    "src/main/core/system/provider-quota-service.spec.ts",
+    "scripts/run-git-hook.js",
+    "scripts/__tests__/run-git-hook.spec.ts"
+  ],
+  "buildExistedBeforeRemoval": true
+}

@@ -1,0 +1,77 @@
+{
+  "at": "2026-10-27T02:57:41.072Z",
+  "focus": {
+    "hidden": false,
+    "visibility": "visible"
+  },
+  "result": {
+    "before": {
+      "provider": "opencode",
+      "takenAt": 1793069737768,
+      "source": "admin-api",
+      "ok": true,
+      "windows": [
+        {
+          "kind": "calendar-period",
+          "id": "opencode.plan",
+          "label": "Plan",
+          "unit": "tokens",
+          "used": 77103518412,
+          "limit": 82000000000,
+          "remaining": 4896481588,
+          "resetsAt": 1795391999000,
+          "overage": false
+        },
+        {
+          "kind": "calendar-period",
+          "id": "opencode.monthly",
+          "label": "Monthly",
+          "unit": "tokens",
+          "used": 77103518412,
+          "limit": 82000000000,
+          "remaining": 4896481588,
+          "resetsAt": 1795391999000,
+          "overage": false
+        }
+      ],
+      "plan": "Max",
+      "needsReauth": true,
+      "error": "MiMo usage login expired (401/403). Choose Connect usage in Accounts to sign in again."
+    },
+    "after": {
+      "provider": "opencode",
+      "takenAt": 1793069854725,
+      "source": "admin-api",
+      "ok": true,
+      "windows": [
+        {
+          "kind": "calendar-period",
+          "id": "opencode.plan",
+          "label": "Plan",
+          "unit": "tokens",
+          "used": 77128320732,
+          "limit": 82000000000,
+          "remaining": 4871679268,
+          "resetsAt": 1795391999000,
+          "overage": false
+        },
+        {
+          "kind": "calendar-period",
+          "id": "opencode.monthly",
+          "label": "Monthly",
+          "unit": "tokens",
+          "used": 77128320732,
+          "limit": 82000000000,
+          "remaining": 4871679268,
+          "resetsAt": 1795391999000,
+          "overage": false
+        }
+      ],
+      "plan": "Max"
+    },
+    "strip": "CC68%CX21%AG0%CP69%CU100%GX0%OC94%",
+    "row": "OpenCodeupdated just nowRefreshPlan94%resets in 26d 21h 3mMonthly94%resets in 26d 21h 3m",
+    "reauthVisible": false,
+    "barCount": 2
+  }
+}

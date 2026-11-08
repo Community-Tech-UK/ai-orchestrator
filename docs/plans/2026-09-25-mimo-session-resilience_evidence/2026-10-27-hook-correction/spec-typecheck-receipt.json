@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-27T10:12:03.258272+00:00",
+  "finished": "2026-10-27T10:13:04.482103+00:00",
+  "command": [
+    "npm",
+    "run",
+    "typecheck:spec"
+  ],
+  "exit": 0,
+  "fullOutput": "_scratch/hook-correction/spec-typecheck.log",
+  "sha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133",
+  "bytes": 129,
+  "output": "\n> harness@0.1.0 typecheck:spec\n> node --max-old-space-size=8192 node_modules/typescript/bin/tsc --noEmit -p tsconfig.spec.json\n\n",
+  "outputComplete": true
+}

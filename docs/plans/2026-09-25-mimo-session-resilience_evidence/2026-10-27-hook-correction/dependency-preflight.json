@@ -1,0 +1,32 @@
+{
+  "exit": 0,
+  "problems": [
+    "extraneous: @hono/node-server@2.1.5 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/@hono/node-server",
+    "extraneous: @modelcontextprotocol/sdk@1.32.2 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/@modelcontextprotocol/sdk",
+    "extraneous: cors@2.8.6 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/cors",
+    "extraneous: eventsource-parser@3.1.1 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/eventsource-parser",
+    "extraneous: eventsource@3.0.7 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/eventsource",
+    "extraneous: express-rate-limit@8.7.1 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/express-rate-limit",
+    "extraneous: hono@4.13.14 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/hono",
+    "extraneous: ip-address@10.7.5 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/ip-address",
+    "extraneous: jose@6.2.13 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/jose",
+    "extraneous: object-assign@4.1.1 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/object-assign",
+    "extraneous: pkce-challenge@5.0.1 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/pkce-challenge",
+    "extraneous: zod-to-json-schema@3.25.2 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81/node_modules/zod-to-json-schema"
+  ],
+  "unlockedExtras": [
+    "node_modules/@hono/node-server",
+    "node_modules/@modelcontextprotocol/sdk",
+    "node_modules/cors",
+    "node_modules/eventsource-parser",
+    "node_modules/eventsource",
+    "node_modules/express-rate-limit",
+    "node_modules/hono",
+    "node_modules/ip-address",
+    "node_modules/jose",
+    "node_modules/object-assign",
+    "node_modules/pkce-challenge",
+    "node_modules/zod-to-json-schema"
+  ],
+  "installMarkerIsSymlink": false
+}

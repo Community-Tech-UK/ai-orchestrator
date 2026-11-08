@@ -1,0 +1,68 @@
+{
+  "at": "2026-10-27T10:42:05.863214+00:00",
+  "packages": [
+    {
+      "path": "node_modules/@hono/node-server",
+      "sameDirectoryIdentity": true,
+      "sameManifestHash": true
+    },
+    {
+      "path": "node_modules/@modelcontextprotocol/sdk",
+      "sameDirectoryIdentity": true,
+      "sameManifestHash": true
+    },
+    {
+      "path": "node_modules/cors",
+      "sameDirectoryIdentity": true,
+      "sameManifestHash": true
+    },
+    {
+      "path": "node_modules/eventsource-parser",
+      "sameDirectoryIdentity": true,
+      "sameManifestHash": true
+    },
+    {
+      "path": "node_modules/eventsource",
+      "sameDirectoryIdentity": true,
+      "sameManifestHash": true
+    },
+    {
+      "path": "node_modules/express-rate-limit",
+      "sameDirectoryIdentity": true,
+      "sameManifestHash": true
+    },
+    {
+      "path": "node_modules/hono",
+      "sameDirectoryIdentity": true,
+      "sameManifestHash": true
+    },
+    {
+      "path": "node_modules/ip-address",
+      "sameDirectoryIdentity": true,
+      "sameManifestHash": true
+    },
+    {
+      "path": "node_modules/jose",
+      "sameDirectoryIdentity": true,
+      "sameManifestHash": true
+    },
+    {
+      "path": "node_modules/object-assign",
+      "sameDirectoryIdentity": true,
+      "sameManifestHash": true
+    },
+    {
+      "path": "node_modules/pkce-challenge",
+      "sameDirectoryIdentity": true,
+      "sameManifestHash": true
+    },
+    {
+      "path": "node_modules/zod-to-json-schema",
+      "sameDirectoryIdentity": true,
+      "sameManifestHash": true
+    }
+  ],
+  "originalDirectoryAndInstallMarkerUnchanged": true,
+  "repositoryManifestsUnchanged": true,
+  "knownOriginalCondition": "Twelve unlocked extra packages restored intentionally; original install compatibility limitation is preserved, not fixed by this source change."
+}

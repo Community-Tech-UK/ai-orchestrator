@@ -1,0 +1,30 @@
+{
+  "at": "2026-10-27T10:18:31.634797+00:00",
+  "method": "Exact file owners of current suite output logs; no process arguments or environment enumerated",
+  "processes": [
+    {
+      "pid": 81234,
+      "aliveAtObservation": true
+    },
+    {
+      "pid": 81238,
+      "aliveAtObservation": true
+    },
+    {
+      "pid": 81299,
+      "aliveAtObservation": true
+    }
+  ],
+  "failedEarlierAttempt": {
+    "exit": 1,
+    "operation": [
+      "ps",
+      "-p",
+      "<owned-pid>",
+      "-o",
+      "pid=,ppid=,comm="
+    ],
+    "error": "PermissionError: [Errno 1] Operation not permitted: ps",
+    "effect": "No process information returned; lsof plus kill(pid,0) used instead; no process killed."
+  }
+}

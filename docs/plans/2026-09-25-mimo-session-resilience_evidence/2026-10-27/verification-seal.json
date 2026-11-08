@@ -1,0 +1,109 @@
+{
+  "status": "partial-live-evidence-ready-for-coordinator-verification",
+  "sealedAt": "2026-10-27T02:39:40.888402+00:00",
+  "head": "80412201a07ec93cefb9a4b6ddb06579ad314d75",
+  "report": {
+    "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-25-mimo-session-resilience_livetest.md",
+    "sha256": "ab775152f2164f056763a6e274155b687601a40d0c217f1268b7189cd2feab87"
+  },
+  "checks": {
+    "1": "PASS rechecked",
+    "2": "OPEN no rejected session observed",
+    "3": "OPEN no rejected session observed",
+    "4": "PRIOR PASS retained; manual bypass rechecked",
+    "5": "PASS"
+  },
+  "runtimeCleanup": "complete; cleanup-receipt.json and runtime-stopped-check.json",
+  "files": [
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/app-initial-refresh.json",
+      "bytes": 1218,
+      "sha256": "8f3ba1f789c171f70bb25c290d153803a344832afaf02c8af437ec3124948da6"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/app-live-refresh.json",
+      "bytes": 2058,
+      "sha256": "e9c7eded315327631df270229b5febb0bcb863f876313e0da4e05260736da82e"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/build-main-output.txt",
+      "bytes": 221,
+      "sha256": "cba0658e72c3004a72c412081b720b5632e55c5ea8dc8b22bedba4f5d53df6a4"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/build-renderer-output.txt",
+      "bytes": 5407,
+      "sha256": "b36c46f0cc7977abcc2e853c28091d41bac124553b4c228de729e4f5ff16d94a"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/cleanup-receipt.json",
+      "bytes": 910,
+      "sha256": "3ead934dd18bf6297150c4e3db902a1d8de6f71d16afe8bccc811a75804959a1"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/command-receipts.jsonl",
+      "bytes": 2949,
+      "sha256": "49e92067e39516ec1030a8bff0fe0e1ba552959c658e29b365cb5fef35d8c2ff"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/focused-tests-output.txt",
+      "bytes": 548,
+      "sha256": "687baa025f874ddd7c6ae98c939072eb63c189978ec3fe53bfdbe8076c6162c5"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/live-dom.json",
+      "bytes": 405,
+      "sha256": "aed22ac661e502bdc6c805186265ee2f070258aaa1a91f3f371ff6597dc6888d"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/monitor-after.json",
+      "bytes": 802,
+      "sha256": "b003c7fb1b9681af7c326b29b617f016e3df11caf23e5dcbfced5adad5bc8052"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/monitor-before.json",
+      "bytes": 1362,
+      "sha256": "67e2c1f37a3c0807454064759def040a789166459eaf319fbdacf7b7752a6286"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/renewal-log-scan.json",
+      "bytes": 208,
+      "sha256": "7f2e47e856defd95ad039d3b4d7f1cbc2db6f406c53b58abe78a0004951d563e"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/runtime-receipts.jsonl",
+      "bytes": 3597,
+      "sha256": "ff2158ffb949393df878946b6506dbb13ef148258d3e0536c9b80b8861b52d4b"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/runtime-stopped-check.json",
+      "bytes": 1033,
+      "sha256": "eddb85533e929f64d2cfe04301819ec8c869dee416f4fe601a772ced78ffc04d"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/settings-restored.json",
+      "bytes": 279,
+      "sha256": "b7de6225446e41d6d5820ff52f20247f31ce041eefb6cd823045b94575abccf1"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/typecheck-renderer-output.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/typecheck-spec-output.txt",
+      "bytes": 96,
+      "sha256": "4d9d32f2320e4fea8b6bff77d3f87c85901cb8b94179e8bedff9ad7573cc5117"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/ui-refresh-one.json",
+      "bytes": 2008,
+      "sha256": "0fb11f6e67343cddcfb1db7cb9a57f617616c42ccc3e0ecf3a0e9c0ad19743e3"
+    },
+    {
+      "path": "docs/plans/2026-09-25-mimo-session-resilience_evidence/2026-10-27/ui-refresh-two.json",
+      "bytes": 2009,
+      "sha256": "0a143f512af5ca2f1fff54467acc817cbd7aa3f150da9b0437618d8848e3bd57"
+    }
+  ]
+}

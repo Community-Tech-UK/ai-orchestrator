@@ -1,0 +1,5 @@
+> node scripts/refresh-codex-protocol.js
+> tsc -p tsconfig.electron.json && node scripts/sync-dist.js && tsx build-preload.ts
+Preload bundled -> dist/preload/preload.js
+  dist/preload/preload.js  234.9kb
+⚡ Done in 11ms

@@ -1,0 +1,19 @@
+{
+  "base": "main",
+  "baseCommit": "7e5222cfe773e2fc3edff0c2eade2e77fe7131cc",
+  "headAtResume": "c78deae327e2db64176f0afb1095e603149bc48d",
+  "newSourceScope": [
+    "scripts/run-git-hook.js",
+    "scripts/test-staged.js",
+    "scripts/__tests__/run-git-hook.spec.ts",
+    "scripts/__tests__/test-staged.spec.ts"
+  ],
+  "existingSourceDiff": [
+    "scripts/__tests__/run-git-hook.spec.ts",
+    "scripts/run-git-hook.js",
+    "src/main/core/system/provider-quota-service.spec.ts",
+    "src/main/core/system/provider-quota-service.ts",
+    "src/main/orchestration/default-loop-native-finality.spec.ts"
+  ],
+  "noLiveCheckOpen": "Five dated passes already recorded; resumed coordinator correction does not require new dev app or authentication changes."
+}

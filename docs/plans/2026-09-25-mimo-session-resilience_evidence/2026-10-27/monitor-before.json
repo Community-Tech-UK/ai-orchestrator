@@ -1,0 +1,37 @@
+{
+  "observedAt": "2026-10-27T02:31:31.472949+00:00",
+  "mimo": {
+    "status": "Max",
+    "primary": 0,
+    "windows": [
+      {
+        "label": "plan",
+        "used_percent": 93.51078177073171,
+        "reset_at": 1795391999.0,
+        "detail": "76.7B/82.0B"
+      },
+      {
+        "label": "monthly",
+        "used_percent": 93.51078177073171,
+        "reset_at": 1795391999.0,
+        "detail": "76.7B/82.0B"
+      }
+    ],
+    "plan": "Max",
+    "tool": "mimo",
+    "updated_at": 1793067725.272871
+  },
+  "ageSeconds": 566.2,
+  "recentMimoLog": [
+    "[2026-10-27 01:41:44] mimo: ok (Max; plan 92.7%, monthly 92.7%) [direct]",
+    "[2026-10-27 01:41:44] mimo: ok (Max; plan 92.7%, monthly 92.7%) [direct]",
+    "[2026-10-27 01:51:50] mimo: ok (Max; plan 93.0%, monthly 93.0%) [direct]",
+    "[2026-10-27 01:51:50] mimo: ok (Max; plan 93.0%, monthly 93.0%) [direct]",
+    "[2026-10-27 02:01:55] mimo: ok (Max; plan 93.3%, monthly 93.3%) [direct]",
+    "[2026-10-27 02:01:55] mimo: ok (Max; plan 93.3%, monthly 93.3%) [direct]",
+    "[2026-10-27 02:11:59] mimo: ok (Max; plan 93.5%, monthly 93.5%) [direct]",
+    "[2026-10-27 02:11:59] mimo: ok (Max; plan 93.5%, monthly 93.5%) [direct]",
+    "[2026-10-27 02:22:05] mimo: ok (Max; plan 93.5%, monthly 93.5%) [direct]",
+    "[2026-10-27 02:22:05] mimo: ok (Max; plan 93.5%, monthly 93.5%) [direct]"
+  ]
+}

@@ -1,0 +1,23 @@
+Independent fresh review command output, 2026-10-27
+
+Command: rtk proxy python3 _scratch/mimo-round2/pinned.py env AIO_TEST_SUMMARY=0 AIO_TEST_NO_CACHE=1 AIO_TEST_MAX_FORKS=1 npm run test:quiet -- src/main/core/system/provider-quota-service.spec.ts src/main/core/system/provider-quota-service.account-source.spec.ts
+Exit: 0
+Raw output:
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/core/system/provider-quota-service.spec.ts src/main/core/system/provider-quota-service.account-source.spec.ts
+
+✓ 2 files · 57 tests passed in 5.5s
+  full log: _scratch/test-run.pid-8652.log
+
+Read-only independent Python acceptance replay: PASS (original reproduction; fixed repeated rejection; warning, age and bars retained; one native desktop delivery; real saved-SSO sequence and retry; encrypted persistence/reuse; visible captures; restored settings; stopped runtime ports).
+
+Gitleaks committed range: exit 0, one commit, 29,817 bytes scanned, no leaks.
+Gitleaks new evidence directory: exit 0, 175,001 bytes scanned, no leaks.
+
+Current source hashes match verified-source-receipt.json.
+Raw final full-suite JSON: success true, 35,373 passed, zero failed, nine unchanged skips; every file result passed.
+Raw final full-suite JSON SHA-256: 4d3225031c85537003f777695fcb74a4b79de2f592377e9c6e988d44c248cbaf
+Original Vitest source-map dependency hash matches its restored-original receipt.
+All 18 prior evidence file hashes match their seal.
+All three absolute evidence/register links in root report resolve.
+Diff scans: zero added test skips/exits, suppressions, stubs, execution sinks or legacy Angular constructs; no config/manifest changes.
