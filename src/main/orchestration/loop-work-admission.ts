@@ -1,8 +1,18 @@
 import type { LoopState } from '../../shared/types/loop.types';
 import { isAdapterOnLoan } from '../instance/lifecycle/adapter-loan-registry';
 import { getWorkAdmission } from '../work-admission/work-admission';
+import { pauseLoopGlobalClock, resumeLoopGlobalClock } from './loop-active-clock';
 const restartInterruptedRounds = new Set<string>();
 export function consumeGlobalPauseInterruption(id: string): boolean { return restartInterruptedRounds.delete(id); }
+
+/** Cover starts published after the global pause snapshot, before checking caps. */
+export function syncLoopGlobalPauseClock(state: LoopState): boolean {
+  if (state.status !== 'running') return false;
+  const admission = getWorkAdmission().check('loop-round');
+  return !admission.allowed && admission.reason === 'paused'
+    ? pauseLoopGlobalClock(state)
+    : resumeLoopGlobalClock(state);
+}
 
 export function loopRoundAdmitted(state: LoopState, states: readonly LoopState[]): boolean {
   return state.status === 'running' && getWorkAdmission().check('loop-round', {

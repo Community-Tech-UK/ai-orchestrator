@@ -13,6 +13,7 @@ import {
   isTerminalLoopRuntimeState,
 } from './loop-runtime-status';
 import { providerEnforcesWrapUpToolsDisable } from './loop-tools-disable';
+import { loopActiveElapsedMs } from './loop-active-clock';
 
 type LoopCap = LoopCapWrapUpIntent['cap'];
 type PreIterationResult = 'continue' | 'restart' | 'terminal';
@@ -117,7 +118,7 @@ function createCapWrapUpIntent(
       case 'iterations':
         return { measurement: state.totalIterations, limit: state.config.caps.maxIterations ?? undefined };
       case 'wall-time':
-        return { measurement: Date.now() - state.startedAt, limit: state.config.caps.maxWallTimeMs ?? undefined };
+        return { measurement: loopActiveElapsedMs(state), limit: state.config.caps.maxWallTimeMs ?? undefined };
       case 'tokens':
         return { measurement: state.totalTokens, limit: state.config.caps.maxTokens ?? undefined };
       case 'cost':

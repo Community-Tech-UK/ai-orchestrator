@@ -449,6 +449,8 @@ export interface LoopState {
   status: LoopStatus;
   startedAt: number;
   endedAt: number | null;
+  /** Time spent paused for a Harness restart; it does not count against the wall-time cap. */
+  globalPauseClock?: { pausedMs: number; pausedAt?: number };
   totalIterations: number;
   totalTokens: number;
   totalCostCents: number;

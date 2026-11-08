@@ -3,6 +3,7 @@ import * as path from 'path';
 import { createHash } from 'crypto';
 import { existsSync, readdirSync, type Dirent } from 'fs';
 import { getLogger } from '../logging/logger';
+import { loopActiveElapsedMs } from './loop-active-clock';
 import type {
   LoopConfig,
   LoopPreflightResult,
@@ -88,7 +89,7 @@ export function buildCapWrapUpDirective(
 export function checkLoopHardCaps(state: LoopState): null | 'iterations' | 'wall-time' | 'tokens' | 'cost' {
   const caps = state.config.caps;
   if (caps.maxIterations !== null && state.totalIterations >= caps.maxIterations) return 'iterations';
-  if (Date.now() - state.startedAt >= caps.maxWallTimeMs) return 'wall-time';
+  if (loopActiveElapsedMs(state) >= caps.maxWallTimeMs) return 'wall-time';
   if (caps.maxTokens !== null && state.totalTokens >= caps.maxTokens) return 'tokens';
   if (caps.maxCostCents !== null && state.totalCostCents >= caps.maxCostCents) return 'cost';
   return null;
@@ -121,6 +122,7 @@ export function cloneLoopStateForBroadcast(s: LoopState): LoopState {
   return {
     ...s,
     config,
+    globalPauseClock: s.globalPauseClock ? { ...s.globalPauseClock } : undefined,
     // WS-A3: durably persisted review artifacts (diff/verify-output text,
     // bounded but still up to ~192KB) are proof material for the completion
     // gate only — the renderer never needs the raw text, just the
