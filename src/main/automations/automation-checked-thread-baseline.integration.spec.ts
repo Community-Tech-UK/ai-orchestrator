@@ -236,6 +236,7 @@ describe('checked terminal receipt compatibility', () => {
     const thread = new ThreadWakeupRunner({
       sendInput, getInstance: () => instance,
       interruptInstance: vi.fn(() => false), waitForInstanceSettled: vi.fn(async () => instance),
+      on: vi.fn(), off: vi.fn(),
     }, {
       revive: async () => ({ status: 'live', instanceId: instance.id }),
     } as ConstructorParameters<typeof ThreadWakeupRunner>[1], store);
