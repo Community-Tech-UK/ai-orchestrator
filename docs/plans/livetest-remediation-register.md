@@ -39,6 +39,35 @@ evidence records.
 
 ## Remediation Index
 
+### Current compaction re-check — 2026-10-27 (canonical gates passed)
+
+All seven checks have evidence in the owning
+[compaction visibility live test](2026-09-24-codex-compaction-turn-visibility_livetest.md).
+Its latest status identifies current frozen-build evidence and retained earlier passes;
+these are not represented as seven newly repeated checks. Final pinned-runtime
+canonical verification passes, including the actual unfiltered full suite. The final
+written fresh-review verdict is VERDICT: PASS, with no unresolved finding within
+these repairs. Implementation
+status belongs in the active root-checkout
+[plan](2026-10-27-codex-compaction-lifecycle-followup_plan.md); the historical completed
+remediation plan is not extended.
+
+| ID | Current status |
+| --- | --- |
+| LT-1013 | **PATCHED + LIVE RECHECKED; CANONICAL PASS 2026-10-27.** Own-turn replay excluded; raw-request control settles without a stale capture. [Detail](#lt-1013). |
+| LT-1014 | **PATCHED + FOCUSED/LIVE RECHECKED; CANONICAL PASS 2026-10-27.** Inference retains inline compaction; the finite budget and full controlled watch are under LT-714. [Detail](#lt-1014). |
+| LT-1015 | **DUPLICATE OF LT-710 (same fresh-profile startup migration race; LT-710 owns the status).** Recorded from the compaction branch as LT-712 before main's LT-712 existed; renumbered on the merge. Source patched and focused pass on this branch; dedicated live acceptance remains open. This campaign's fresh isolated startup succeeded, but it does not newly close the separate concurrency campaign. [Detail](#lt-1015). |
+| LT-713 | **PATCHED + SINGLE-IDLE LIVE RECHECKED; CANONICAL PASS 2026-10-27.** Frozen-build queue delivery retains busy and has one final idle; reload recovery also passes LT-715. [Detail](#lt-713). |
+| LT-714 | **PATCHED + FULL 35-MINUTE CONTROLLED WATCH; CANONICAL PASS 2026-10-27.** Prior resumed normal-threshold control and post-completion sweep evidence are retained, not newly repeated or natural-duration claims. [Detail](#lt-714). |
+| LT-715 | **PATCHED + LIVE/CANONICAL PASS 2026-10-27.** Explicit ownership settles enriched delivery and local consumption; reload cannot replay delivered input. Genuine unsent recovery works after the real existing five-minute window. [Detail](#lt-715). |
+| LT-716 | **OPEN, display only.** Saved queued text can retain a stale not-saved label. [Detail](#lt-716). |
+| LT-717 | **OPEN, display only.** Renderer reload during active compaction can lose its banner/hint; normal observed compaction renders correctly. [Detail](#lt-717). |
+| LT-718 | **EXTERNAL TOOLING FOLLOW-UP.** A literal tsx map-generator string can mask assertion reporting. Existing pinned Node resolves the actual SEA runtime prerequisite; no formatter fix is claimed. [Detail](#lt-718). |
+| LT-652, LT-656 | **LIVE RECHECKED + CANONICAL PASS.** Real queue delivery, retained controlled 15-second backoff evidence beyond five attempts, configured action proof/skip and direct ledger stages. |
+| LT-653, LT-657 | **LIVE RECHECKED + CANONICAL PASS.** Configured developer-role steer and subsequent handoff retain automated provenance; automatic inline occupancy selection is not claimed. |
+| LT-654 | **LIVE RECHECKED + CANONICAL PASS within recorded scope.** Current native queue/reload proof, retained configured same-thread recovery above 80%, and retained full controlled 35-minute watch. |
+| LT-655, LT-681 | **LIVE RECHECKED + CANONICAL PASS.** Retained meter/boundary/Recover context and next measured usage evidence; latest native queue DOM is supplementary. |
+
 ### New sidechat findings — 2026-10-27
 
 Implementation status and acceptance are recorded in each tracked detail section below, so this
@@ -73,8 +102,8 @@ in [the campaign livetest](2026-10-05-livetest-campaign-defects_livetest.md).
 | LT-673 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); dev-app re-check 2026-10-06** (reload kept the session in the list and rail). Packaged cold start still pending in the campaign livetest. |
 | LT-674 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** An errored completion is captured (cost, telemetry, hooks) before adapter cleanup deletes the adapter. Live re-check (outstanding plans sweep check 3) pending in the campaign livetest. |
 | LT-675 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** Claude and Codex sign-in banners are rejected as titles and title escalation continues to the next provider. Live re-check (session title quality) pending in the campaign livetest. |
-| LT-680 | **LIVE-VERIFIED 2026-10-27 (queue worktree).** The round-2 plain send retained its joined reply, stayed busy and resolved four milliseconds after real completion. Check 4 passes; a batched native-turn handoff remains open under LT-683. |
-| LT-681 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); dev-app re-check 2026-10-06** (manual Codex compact kept the measured occupancy as estimated `awaiting-post-compaction-usage`, not ~0%). Campaign livetest check 3 still pending. |
+| LT-680 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); LIVE-VERIFIED 2026-10-27 (queue worktree).** An accepted Codex steer keeps turn capture open through the real completion instead of an inferred 250 ms idle edge. The round-2 plain send retained its joined reply, stayed busy and resolved four milliseconds after real completion. Check 4 passes; a batched native-turn handoff remains open under LT-683. |
+| LT-681 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); dev-app re-check 2026-10-06** (manual Codex compact kept the measured occupancy as estimated `awaiting-post-compaction-usage`, not ~0%). Campaign livetest check 3 confirmed live 2026-10-27 with durable header/composer DOM, preserved non-zero estimate, and replacement by new native usage. |
 | LT-682 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree); dev-app re-check 2026-10-06** (busy Codex button titled `Interrupt Codex (Esc)`). Cosmetic; acceptance needs no further live re-check. |
 | LT-683 | **IMPLEMENTED + VERIFIED 2026-10-27; coordinator acceptance pending.** Full native event streams and publication ownership preserve reply order and separate usage across both origins, including batching, joined input and bounded retries. Final live checks, canonical gates and pinned-runtime full suite pass; fresh preliminary review has no actionable findings. [LT-683 detail](#lt-683--a-codex-goal-turn-that-starts-within-milliseconds-of-the-previous-one-is-not-followed) [Compaction reliability remediation](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-verifier-findings-remediation) |
 | LT-690 | **FIXED + REGRESSION-TESTED 2026-10-14 (working tree).** An injected-cap saturation ending is classified `max_output` with continuation, and ordinary completions stay `completed` (negative cases covered). Live re-check (provider hardening check 1) pending in the campaign livetest. |
@@ -9498,9 +9527,14 @@ with retained receipts under `.aio-review/lt-c8434b3e/` in the root checkout.
 
 ## LT-681 — Compact now on a Codex session shows a fabricated ~0% occupancy
 
-**Status: open, reproduced live 2026-10-04 (dev app, current working tree, codex-cli 0.160.0, found by
-the compaction turn-visibility live test check 3). The provider self-compaction path is correct; this
-is the Harness-initiated (manual) path.**
+**Current status: fixed in code and live rechecked 2026-10-27.** Campaign check 3 now has durable
+header/composer DOM evidence: manual compaction retained ~97,574/475,000 (~21%) and the next
+native usage replaced the estimate with 97,659/475,000 (21%); no fabricated zero. Inline boundary
+copy and Recover context were also observed. See the owning live test's verifier-correction run.
+The historical trigger was 30%; representative manual reruns were at 20.54% and 11.59%. A fresh native Compact turn (already-observed flag false) kept ~29,942/258,400 (~12%), then new native usage replaced it with 31,284/258,400 (12%).
+
+**Original reproduction: 2026-10-04, dev app, codex-cli 0.160.0, found by check 3.** The following
+section preserves that historical failure; its vanished scratch folder is not current evidence.
 
 ### Observed behaviour
 
@@ -10733,6 +10767,454 @@ verification gates for the eventual repair.
 `id-992-allocation.receipt.json` records the valid all-checkout uniqueness search.
 
 
+## LT-1013 — a completed Harness turn is replayed after provider compaction and leaves busy
+
+_Renumbered on 2026-11-08 from LT-1007 (this compaction branch's number), because main already uses LT-1007 for another defect._
+
+### Observed behaviour
+
+2026-10-27 isolated queue dev app, instance `xc2pqc2jt`, thread
+`01a17b48-1f30-7b02-9823-4320bba44349`. A normal Harness send's turn
+`01a17b4a-4782-7e51-87cd-dd9a1c542a20` completed at `1793069873524`. Before a raw
+`thread/compact/start` request, runtime was idle but `pendingProviderFollow` retained that
+turn's old `turn/started`. The raw Compact turn `01a17b4c-1969-7113-b2b7-9bd1dc6e2b94`
+completed at `1793069951588`. At `1793069964832` the instance was busy and runtime actively
+captured the already completed old turn with `origin: provider`; the pending field was now null.
+This reproduces and explains the earlier rejected attempt's retained busy observation.
+
+### Root cause
+
+`followProviderTurn` saves the active Harness capture's own root `turn/started` as a pending
+provider followup. A later provider capture finalizer replays it before the idle transition.
+The first notification can arrive while runtime's current turn ID is still null; testing only
+ID inequality would still queue that own turn. The raw Compact request exposes this latent
+followup bug; bypassing the normal compaction request wrapper is not a reason to dismiss it.
+
+### Required behaviour
+
+Never follow a captured turn's own start again. Preserve a genuinely different provider turn
+arriving while the preceding capture tears down. Real provider completion returns to idle once
+all real work has ended.
+
+### Acceptance
+
+- Regression covers own start before/after turn/start acknowledgement, and preserves next-turn capture.
+- Repeat the raw request after a normal Harness send; finished Compact turn leaves no active or
+  pending old turn and returns idle.
+- Focused tests, canonical gates and independent review pass; linked live criteria retain honest status.
+
+Evidence: root-checkout
+`2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-round2/command-receipts.ndjson`
+(`raw-repro.js` and subsequent `sample-short.js`). Implementation: linked active follow-up plan.
+
+## LT-1014 — inferred completion makes native inline compaction idle before it finishes
+
+_Renumbered on 2026-11-08 from LT-1008 (this compaction branch's number), because main already uses LT-1008 for another defect._
+
+### Observed behaviour
+
+2026-10-27 same disposable instance/thread as LT-1013, real native inline compaction item
+`01a17b4a-55c8-7493-a849-d950112750a9`, turn `01a17b4a-4782-7e51-87cd-dd9a1c542a20`.
+Final assistant output and real usage arrived before `item/started(contextCompaction)` at
+`1793069831626`. The owned provider process group was suspended on that genuine event.
+By `1793069831757` runtime was inactive and status idle although no compaction completion or
+turn completion had arrived. At `1793069868027` the same inline compaction ID remained open.
+The process group was resumed at `1793069868423`; actual item/turn completion arrived only at
+`1793069873522`/`1793069873524`. The normal 30-minute hibernation setting was unchanged.
+The 36.797-second hold already fails check 4's busy-state clause; it is not 35-minute evidence.
+
+### Root cause
+
+The final-answer inferred-completion timer disregards an active inline contextCompaction item.
+It clears the captured turn while native provider work is still active. Inline compaction
+intentionally opens no non-steerable Compact send gate, so that gate is not a suitable liveness
+check.
+
+### Required behaviour
+
+Retain capture and busy status while the captured turn's genuine inline compaction is active;
+keep inline steering available; settle normally on real completion or abort. Timer scheduling
+and a timer already armed before item/started must both respect compaction ownership.
+
+### Acceptance
+
+- Regression covers compaction before/after final output, an already armed inferred-completion
+  timer, real completion/interrupt, and unchanged inline steering.
+- Rebuilt dev app remains busy for the complete 35-minute inline-compaction watch at the normal
+  idle setting; an idle control hibernates; normal eligibility resumes after completion.
+- Focused tests, canonical gates and fresh review pass before any completed claim.
+
+Evidence: same durable receipt file, `arm-inline.js`, `fill-large.js`, `sample.js`,
+`resume-now.js`; dates are UTC. Implementation: linked active follow-up plan.
+
+
+## LT-1015 — fresh isolated startup fails on a duplicate migration name
+
+_Renumbered on 2026-11-08 from LT-1009 (this compaction branch's number), because main already uses LT-1009 for another defect._
+
+### Observed behaviour
+
+2026-10-27 03:02:58 UTC, isolated queue profile `/tmp/aio-lt-queue-5223ae4a`,
+newly rebuilt main PID 18870: critical Work controls initialization failed with
+`Failed to apply migration "001_add_optimized_indices": UNIQUE constraint failed: _migrations.name`.
+No main window was created. The context worker logged its persistence load summary immediately
+after the main failure. A clean shutdown and one restart using the same profile (PID 5791)
+completed initialization and opened the app without editing the database or application code.
+
+### Root cause / investigation boundary
+
+Duplicate migration insertion is confirmed. `runMigrations` snapshots applied names and builds
+the pending list before entering its transaction (`src/main/persistence/rlm/rlm-schema.ts`);
+main and context worker can initialize the same isolated database. A concurrent initializer
+is a source-supported hypothesis; the exact interleaving was not instrumented. Do not call
+the database corrupt or claim the root cause fully verified. This is outside the compaction
+lifecycle patch; no migration code or stored data was changed.
+
+### Required behaviour
+
+Fresh isolated main/worker startup coordinates migration application so every initializer
+observes committed names without failing critical startup.
+
+### Acceptance
+
+- Reproduce the concurrent initialization ordering with two database connections.
+- A fresh disposable profile reaches a renderer without a duplicate migration failure.
+- Existing migration failure and rollback checks stay intact.
+
+Durable evidence: `2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-round2/startup-migration-failure.log`;
+runtime restart receipts and identity probes are beside it. Implementation is not part of
+this compaction patch; tracked in the active follow-up plan as an open discovered defect.
+
+## LT-713 — queued send after compaction exposes two idle transitions
+
+### Observed behaviour
+
+2026-10-27 instance `xs4v6yves`, thread `01a17b53-0cc8-7393-a368-68550ec92205`,
+real inline compaction at 371,551/475,000 tokens (78.22%). One message was entered through
+the real composer while compaction was held. The UI showed exactly one queued message and
+explained that it would send after compaction. Item and owning turn completed at
+`1793070689669`. Adapter emitted idle at `1793070689674`, then busy for the queued delivery
+at `1793070690225`, then idle after that delivered turn. The message was delivered once and
+no retry error occurred. This still fails check 1's exact single-idle acceptance; the prior
+2026-10-04 observation of the same two-edge shape is no longer treated as a pass.
+
+### Root cause
+
+The renderer retains the queued message until the main provider turn reports idle. That idle
+edge triggers queue drainage; the main process therefore ends the compaction's turn before
+it knows about the renderer's next send. The current protocol does not retain ownership
+across that queue-to-provider handoff.
+
+### Required behaviour
+
+Maintain busy ownership across an already queued post-compaction delivery, without releasing
+idle eligibility between compaction and that delivery. End at idle once after the delivered
+turn finishes. Do not hide or redefine main-process idle transitions in the evidence.
+
+### Acceptance
+
+- Real composer queues exactly one message during native compaction at >75% occupancy.
+- One provider delivery, no retry error, continuous busy until its final completion, exactly
+  one resulting idle transition.
+- Queue cancellation, parking, unavailable providers and renderer restart still release or
+  retain ownership correctly; no permanent busy reservation.
+
+Durable evidence: same round2 directory, `inline-dom-watch.json`, `ui-main-state.js`
+receipts and provider/lifecycle slices. No ownership-protocol change is included in the
+scoped LT-1013/LT-1014 patch. The linked follow-up plan keeps this defect and check 1 open.
+
+### Resume correction — 2026-10-27
+
+The second coordinator checkpoint implements a bounded retained-busy handoff through
+the durable queue admission. Rebuilt live instance `xo10trvoy` queued one composer
+message during genuine inline compaction at 374,195/475,000 (78.78%). Native turn
+completion at `1793074858775` led to a busy handoff at `1793074858782`, one next
+native turn, and one final idle at `1793074865601`, without an intermediate main
+idle. This verifies the single-idle correction. However the same delivered message
+was restored and actually delivered again after a renderer reload: LT-715 remains
+open, so check 1 is not closed. Evidence is in the owning live test's
+`2026-10-27-resume/` receipts, DOM timeline and app/lifecycle slices. Full verification
+also remains failed; no overall completion is claimed.
+
+
+## LT-714 — the 15-minute notification budget prevents the 35-minute inline-compaction check
+
+### Observed behaviour
+
+2026-10-27 rebuilt isolated app, instance `xjd5modv5`, thread
+`01a17b52-bb67-7f10-9d9b-f2744f78b28e`, turn `01a17b53-4808-7a21-94a3-5271bb937f28`.
+Native inline contextCompaction item started at `1793070421536`; the owned direct provider
+process group was suspended on that real event to hold its work open. The instance stayed
+busy with the same active capture for samples through elapsed 872,513 ms. At
+`1793071321545` the transcript received `Codex error: Codex turn stalled: no notifications
+received for 900000ms`; by `1793071321550` it was idle. At elapsed 902,684 ms, runtime capture
+was gone while the inline compaction ID and live provider client remained. The watcher
+failed its busy assertion and safely resumed the group at `1793071324379`. Only afterwards
+did real item/turn completion arrive (`1793071329074` / `1793071329078`).
+
+This is controlled no-notification fault injection, not proof that the service naturally
+takes 15 or 35 minutes to compact. It does prove the current capture cannot satisfy the
+written 35-minute busy requirement with a silent inline compaction. No hibernation occurred
+during this shorter interval; the idle control did not reach its normal 30-minute threshold.
+
+### Root cause
+
+`runCapture` arms the notification-idle watchdog (`app-server-thread-runtime.ts:474-490`);
+the configured active budget is 900,000 ms (`src/shared/constants/limits.ts:105`).
+Inline compaction avoids the separate Compact wait gate but does not avoid this watchdog.
+On rejection, its finally block releases the runtime capture, and the send failure is
+surfaced. The LT-1014 inferred-completion fix correctly prevents the earlier 250ms release
+but does not change this independent bounded silence policy.
+
+### Required behaviour / investigation boundary
+
+Reconcile a deliberately bounded 15-minute silent-provider policy with the original
+35-minute active-compaction criterion. A valid resolution must preserve finite handling
+of a dead provider and truthful compaction ownership. Do not lengthen clocks solely to
+produce a pass, replay fake provider activity, or count the 907,539ms actual lifecycle
+as a 2,100,000ms observation. No human identity or authority is missing.
+
+### Acceptance
+
+- Cover the actual inline-compaction/no-notification timeout boundary explicitly, including
+  completion immediately before/after it and a lost provider transport.
+- A qualifying genuine compaction remains active and busy for the full unchanged 35-minute
+  test, or the owning acceptance is explicitly revised with a documented product rationale.
+- Normal idle eligibility resumes after genuine completion, with an actual sweep control.
+
+Evidence: round2 `watch-long.ndjson`, `watch-failure-resume.json`, `failed-watch-state.js`
+receipt, lifecycle/app-log slices. Check 4 remains open; no timeout source was changed.
+
+### Resume correction — 2026-10-27
+
+The second coordinator checkpoint gives observed compaction a separate finite
+2,400,000ms silence budget; ordinary active turns retain 900,000ms and explicit
+shorter deadlines still cap both. Focused watchdog regressions pass, including
+finite 40-minute expiry, ordinary-budget restoration and an explicit shorter limit.
+This resumed worker did not change those source constants or the live app's clocks.
+
+Genuine inline compaction `01a17b93-f9dc-7090-9882-d9894869dc6f` on isolated instance
+`x9f8vy36o` was held through controlled suspension for 2,101,016ms, then genuinely
+completed with recorded lifecycle duration 2,105,742ms. All 115 pre-completion samples
+remain busy/active on the same thread and turn; main state stays busy until genuine
+completion. Normal idle control `x87zwtbab` hibernated at `1793076396761` under the
+unchanged 30-minute setting, while compaction remained active. At `1793076774577`,
+the real next sweep considered the completed target as idle (7,594ms old), with
+no compaction ID, async-work inhibitor or turn-ending marker; it correctly did not
+hibernate a recently active session. Check 4 passes this controlled guard/eligibility
+campaign. No natural 35-minute backend-computation claim or extra post-completion
+30-minute hibernation claim is made. Full gates still fail for the dependency tree
+and the import-count limit; independent acceptance remains with the coordinator.
+
+Evidence: owning live test's `2026-10-27-resume/long-inline-watch.ndjson`,
+`candidate-proofs.ndjson`, `final-runtime-result.json`, `live-summary.json` and
+scoped app/lifecycle records. The old 900-second failure above remains historical.
+
+
+## LT-715 — a delivered queued message is restored and sent again after renderer reload
+
+### Observed behaviour
+
+2026-10-27 resumed queue campaign, isolated profile `/tmp/aio-lt-queue-5223ae4a`,
+instance `xo10trvoy`, thread `01a17b92-7f73-71c0-b4b7-e19b737e999a`. Native inline
+compaction began at `1793074824863`, after real usage 374,195/475,000 (78.78%).
+A single composer send queued `Reply QUEUE_ACK_QUALIFIED only. Do not call tools or edit files.`
+at `1793074830341`. The retained-busy handoff delivered it once, receiving its one reply
+and one final idle at `1793074865601`. That part of LT-713 is live rechecked.
+
+At `1793074970484` the durable queue still contained admission
+`6117395e-8121-448b-a903-eec7a93a5867` in `promoting`, holding the exact 64-character
+queued text. A different admission was `delivered`, with a 263-character enriched input.
+The own dev renderer was reloaded at `1793074970851`. Without any further user send,
+readback at `1793074986526` found **two** assistant replies, a second delivered admission
+(266-character input), and the original admission still promoting. This is an actual
+second provider delivery, not duplicated rendering of one assistant message.
+
+### Root cause
+
+The renderer persists the original text and explicitly promotes its admission. The
+provider dispatch receipt calls `recordUserSend` with enriched `finalMessage`
+(`instance-communication.ts`, `createInstanceInputReceipt`). `recordUserSend` only matches
+recent promoting rows by exact instance plus message (`session-admission-service.ts`,
+`SessionAdmissionStore.findRecentPromoting`). Native receipt readback proves that the
+queued text and enriched delivered text differ, so matching fails and a second row is
+created instead of settling the promoted one.
+
+`SessionAdmissionStore.listQueued` includes promoting rows. Renderer startup restores
+those rows through `QueuePersistenceService.restoreFromDisk`. The ordinary
+`notifyPromoting` path accepts a successful IPC envelope even when its CAS result is
+null, then sends again. The newer retained-busy path checks for data, but the startup
+drain uses that older ordinary path. The old promoting head also prevents
+`getReadyHandoffId` from offering subsequent queued rows. That last consequence is
+source-traced, not a separately executed second-compaction claim.
+
+### Required behaviour
+
+Carry authoritative queued-admission ownership through dispatch, retaining the actual
+provider payload in observability as needed. Settle the original durable admission on
+its delivery. Restoring a renderer must never replay an already delivered user input;
+a null promotion CAS must not be permission to send. Preserve real unsent recovery,
+cancellation, Pause races, backoff and bounded busy handoff expiry.
+
+### Acceptance
+
+- Reproduce with a real queued compaction send while input enrichment is active.
+- Exactly one provider delivery, one final idle, and no queued/promoting residual for
+  that delivered admission.
+- Reload the renderer without a new user send: no restored copy and no second delivery.
+- A later independent queue send still uses the retained-busy handoff.
+- Cover null CAS, genuine unsent restoration and cancellation/Pause races without
+  weakening existing tests.
+
+Evidence: root-checkout
+`2026-09-24-codex-compaction-turn-visibility_evidence/2026-10-27-resume/`,
+`ui-proof-result.json`, append-only `command-receipts.ndjson` (both
+`queue-receipt-proof.js` readbacks and `reload-renderer.js`), `ui-main.ndjson`,
+`app-scoped.jsonl`, `lifecycle-scoped.ndjson`. Implementation status is in the active
+root-checkout `2026-10-27-codex-compaction-lifecycle-followup_plan.md`; the historical
+completed remediation plan is not extended. No product source was changed by the
+resumed live-test worker.
+
+### LT-715 verifier repair — 2026-10-27
+
+Explicit queuedAdmissionId now travels through renderer promotion, preload/IPC, manager
+and communication to the provider-dispatch receipt. A parameterized SQL compare-and-swap
+claims only that instance's user-origin promoting row. Text enrichment and elapsed
+preparation time no longer affect ownership. A null promotion does not authorize a
+send, and the same renderer retains its successful promotion through an unsent Pause
+race. A rejected claim cannot be converted into a fresh-message retry.
+
+Live instance xgm58olra, thread 01a17bc4-b8f6-7ca0-b779-d20907ff774d: two genuine native
+inline compactions followed actual usage 205,147/258,400 (79.39%) and 200,653/258,400
+(77.65%). Original admissions 4d776890-3e56-4465-8430-76381eacff02 and
+13285228-3e1d-4515-b14e-fc8aaefb8e52 each became delivered, with one provider dispatch
+and one reply. First original text 58 characters was enriched to368 before the real
+provider call. The normal second run showed one queue entry and the compaction hint/banner,
+retained busy through dispatch and reached idle once. Each subsequent renderer reload
+left the durable queue empty and did not send again during the 12-second observation.
+Focused queue regressions and both typechecks pass; canonical full-suite/review pending.
+
+Evidence: owning live test's 2026-10-27-verifier-fix/ command-receipts.ndjson,
+final-proof-result.json, ui-main.ndjson, ui-main-second.ndjson and DOM/readback receipts.
+Implementation status is in the active root follow-up plan; no completed document is extended.
+
+## LT-716 — saved queued input keeps a stale “not saved” label
+
+### Observed behaviour
+
+2026-10-27 verifier-repair dev app, instance xgm58olra. At1793077991423 and
+1793078110668 the real composer displayed “not saved” on its sole queued message.
+SQLite readbacks at 1793077979080 and1793078110995 show the exact original admissions
+already durably queued. Both later delivered and both post-delivery reloads restored
+no message. Thus the label is wrong; no lost durable write is inferred. Earlier resumed
+evidence had already noted this warning before the current explicit-identity patch.
+
+### Root cause
+
+Not independently isolated. Source inspection finds setDurabilityFlag mutates the entry
+and changes only the outer Map, while InstanceDetail.queuedMessages returns the same
+array to OnPush input/composer-queue children. This is a plausible stale-input mechanism,
+not a runtime-proven causal claim. Focus emulation was enabled, document.hidden=false,
+and the normal compaction/queue text updated, excluding a completely frozen renderer.
+
+### Required behaviour and acceptance
+
+Once durable enqueue succeeds, the corresponding queue row must clear “not saved” in
+the real DOM without another user action. Preserve row identity, cancellation, promotion
+and the warning for an actual failed durable write. Reproduce saved and failed enqueues
+in a live renderer and cover the nested component update in a focused regression.
+
+Evidence: owning live test's verifier-fix command receipts for dom-proof.js and both
+receipt-proof probes; first and second native delivery proofs. Open follow-up only; no
+source change or live fix is claimed for this display defect.
+
+## LT-717 — renderer reload during active compaction loses its presentation
+
+### Observed behaviour
+
+2026-10-27 verifier-repair fixture, same isolated instance/thread. Genuine native
+contextCompaction started at 1793077916814 and remained held until1793077991860.
+The dev renderer reloaded at 1793077965080 to load its final built bundle. At1793077991423
+main still owned active compaction, but the visible composer used its generic busy
+queue wording and had no compaction banner. It still queued the input correctly.
+A later compaction observed by that renderer without a reload showed the correct
+banner and hint at 1793078110668. This first setup-reload observation is not counted
+as a passing compaction-presentation check.
+
+### Root cause
+
+The exact rehydration path has not been confirmed. Evidence establishes that an active
+compaction was missing from the new renderer's presentation after reload. The current
+patch changes delivery identity, not compaction presentation rehydration. No ownership
+or provider-state mutation was used to create the symptom; focus emulation was enabled.
+
+### Required behaviour and acceptance
+
+Reload during genuine active Codex compaction, without a new provider start event:
+retain the compaction banner/composer state until the genuine close, queue the input
+once, then deliver once. Verify both restored presentation and native lifecycle.
+
+Evidence: verifier-fix command receipts for reload-renderer.js, dom-proof.js and
+ui-main-state.js, and final-proof-result.json's first native start/close records. The
+normal second compaction is a positive display control, not a fix for this reload case.
+Open follow-up, outside the delivered-input replay repair.
+
+
+## LT-718 — test failure formatting masks the underlying SEA assertion
+
+### Observed behaviour
+
+2026-10-27 independent gate, unchanged scripts/__tests__/sea-build-repeatability.spec.ts.
+The full run reported a convert-source-map JSON SyntaxError instead of its two SEA
+assertion failures. Normal and no-cache focused reproductions failed identically
+before the reporter completed either case. This is a verification-tooling issue,
+not a reproduced provider-delivery or app-runtime defect.
+
+### Root cause
+
+Read-only diagnostic instrumentation that still rethrows the original error showed
+convert-source-map matching a literal generator string in the installed tsx register
+bundle as though it were a genuine embedded source map. It then parsed JavaScript
+bytes as JSON. Separate exact standalone build fixtures exposed the real assertions:
+the selected Homebrew Node binary lacks the SEA fuse required by the existing
+scripts/sea-build-support.ts guard. Both fixtures exited 1 and were removed in finally.
+The existing .nvmrc-pinned Node 24.22.1 contains that fuse; both unchanged focused SEA
+cases pass under that installation with no diagnostic preload or cache override.
+No package, test, vendor file or runtime configuration was modified to hide a failure.
+
+### Required behaviour and acceptance
+
+A future tooling correction must preserve and name the actual failed assertion and
+child process stderr when a frame originates in tsx's minified register bundle. It
+must not replace those failures with an unhandled source-map parser error, suppress
+assertions, or accept an unsupported SEA builder. Keep pinned-runtime validation.
+
+Evidence: owning compaction live test's 2026-10-27-verifier-fix/fresh-review-three/
+original full run, normal/no-cache SEA reproduction, diagnostic path/byte metadata,
+standalone builder receipts and pinned-runtime focused pass. Existing pinned runtime
+selection resolves the immediate verification prerequisite; the external formatter
+limitation is not fixed in this task. Implementation/follow-up status belongs in the
+active root 2026-10-27-codex-compaction-lifecycle-followup_plan.md, not its historical
+completed predecessor.
+
+
+### LT-715 final as-built acceptance — 2026-10-27
+
+Frozen product source and both final builds pass. The current native compaction
+queue at 79.57% delivered one enriched prompt on the original admission, with one
+final idle and no post-reload resend. The real five-minute renderer-loss case
+recovers genuinely unsent text on the same main process without a sweep. The
+controlled paused mode reply is consumed once, stays terminal after reload and
+remains unreplayed beyond eight minutes. Local command, quota/account-switch hold,
+Pause and unsupported-attachment returns have focused runtime/store regressions.
+
+All canonical gates, including the actual unfiltered full suite, independently
+pass under the already installed .nvmrc-pinned Node. The first unsupported-runtime
+full failure and its diagnostic/correction evidence remain retained. No source,
+test assertion, dependency manifest, lockfile or runner configuration hid a failure.
+The final written fresh verdict is VERDICT: PASS after this status reconciliation;
+the queue coordinator retains completed-name authority. Display/tooling follow-ups 716–718
+are explicitly outside the repaired ownership scope and are not claimed fixed.
 <a id="lt-1009"></a>
 
 ## LT-1009 — hibernate/wake silently restores the previous MiMo account after a switch
@@ -10975,6 +11457,7 @@ The provider-level setting `providerSignalFenceEnabled` is read-only for agents 
   either starts under the owner-chosen policy or refuses with that reason.
 - Canonical verification and independent review pass. This defect stays open until the owner
   decides the fallback policy.
+<a id="lt-711"></a>
 
 ## LT-711 — historical Cursor empty-completed failure reports lack correction evidence
 

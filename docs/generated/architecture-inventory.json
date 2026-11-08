@@ -6229,7 +6229,7 @@
   "largeFiles": [
     {
       "path": "docs/plans/livetest-remediation-register.md",
-      "lines": 12198
+      "lines": 12681
     },
     {
       "path": "resources/browser-extension/background.js",
@@ -6882,6 +6882,10 @@
     {
       "path": "src/main/orchestration/loop-store.spec.ts",
       "lines": 1215
+    },
+    {
+      "path": "docs/plans/2026-09-24-codex-compaction-turn-visibility_livetest_completed.md",
+      "lines": 1207
     },
     {
       "path": "src/main/orchestration/__tests__/debate-coordinator.spec.ts",

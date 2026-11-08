@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-09-24-codex-compaction-turn-visibility_livetest.md",
+      "sha256": "7bb3023f0dd4ecc5087c32cc15cde54cae90053f3dc0d5142b517254abc4b39b",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-09-24-codex-compaction-turn-visibility_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-09-24-codex-compaction-turn-visibility_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-09-24-codex-compaction-turn-visibility_livetest_completed.md",
+      "sha256": "b35092eba4bc894cb5f4510a80dd1022521e3a5450df606e0a5ef79e5c513614"
+    },
+    {
+      "relativePath": "2026-09-24-codex-compaction-turn-visibility_livetest_history_f362e2dc734131b17d49bc3ff246b1aac97a40fb36ed05eb16861fd6c9523497_completed.md",
+      "sha256": "b9fdd1fbe7f597f11917ea7721b37753386f4674ed4eb81319cd95b0ea665058"
+    }
+  ]
+}
