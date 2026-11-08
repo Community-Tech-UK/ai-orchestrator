@@ -92,7 +92,7 @@ describe('retry safety through the real scheduler and store', () => {
     expect(store.listPendingRetries()).toHaveLength(0);
   });
 
-  it.each(['resume', 'retry'] as const)('retains the original unexpired %s deadline', async entry => {
+  it.each(['resume', 'retry'] as const)('keeps the original unexpired %s deadline, minus time paused', async entry => {
     const job = await createJob();
     const decision = store.decideAndInsertRun(job, 'scheduled', Date.now(), Date.now());
     if (decision.kind !== 'started') throw new Error('Expected running job');
@@ -103,7 +103,12 @@ describe('retry safety through the real scheduler and store', () => {
     else await runner.dispatchRetryRun(run);
     expect(manager.createInstance).toHaveBeenCalledOnce();
     expect(store.getRun(run.id)).toMatchObject({ status: 'running', startedAt });
-    await vi.advanceTimersByTimeAsync(1001);
+    // Time paused for a restart does not count against the limit, so a resumed run gets those 59 seconds back.
+    if (entry === 'resume') {
+      await vi.advanceTimersByTimeAsync(1001);
+      expect(store.getRun(run.id)).toMatchObject({ status: 'running', startedAt });
+      await vi.advanceTimersByTimeAsync(59_000);
+    } else await vi.advanceTimersByTimeAsync(1001);
     expect(store.getRun(run.id)).toMatchObject({ status: 'failed', startedAt, error: 'Stopped after 1 minutes' });
   });
 

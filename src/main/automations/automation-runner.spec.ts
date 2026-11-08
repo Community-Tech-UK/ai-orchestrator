@@ -137,6 +137,7 @@ describe('AutomationRunner thread wakeups', () => {
   const store = {
     get: vi.fn(),
     getRun: vi.fn(),
+    setRunPaused: vi.fn(),
     decideAndInsertRun: vi.fn(),
     claimNextPending: vi.fn(),
     getRunFacts: vi.fn(() => ({ result: null })),
@@ -1040,6 +1041,7 @@ describe('AutomationRunner WS-C7 contained execution profile', () => {
   const store = {
     get: vi.fn(),
     getRun: vi.fn(),
+    setRunPaused: vi.fn(),
     decideAndInsertRun: vi.fn(),
     claimNextPending: vi.fn(),
     getRunFacts: vi.fn(() => ({ result: null })),

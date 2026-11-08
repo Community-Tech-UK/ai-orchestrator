@@ -1,4 +1,5 @@
 import { scheduleAutomationDeadline } from './automation-deadline-timer';
+import { automationRunDeadline } from './automation-run-clock';
 import { subscribeCostAttribution, type CostAttributionUsage } from '../core/system/cost-attribution';
 import { AutomationStopAttempts } from './automation-stop-attempts';
 import type { InstanceManager } from '../instance/instance-manager';
@@ -40,7 +41,7 @@ export class AutomationRunLimits {
     this.clear(rootId);
     const action = withRunLimits(run.configSnapshot!.action, run.configSnapshot!.schedule);
     const minutes = action.maxRunMinutes!;
-    const deadline = (run.startedAt ?? this.now()) + minutes * 60_000;
+    const deadline = automationRunDeadline(run, minutes, this.now());
     const timer = scheduleAutomationDeadline(deadline, this.now, () => { this.check(rootId); });
     const descendants = new AutomationDescendantSettlement(id => this.manager.getInstance(id), id => this.manager.getAdapter?.(id), (id, usage) => {
       const limit = this.tracked.get(rootId); if (!limit) return;

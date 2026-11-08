@@ -1,4 +1,5 @@
 import { scheduleAutomationDeadline } from './automation-deadline-timer';
+import { automationRunDeadline } from './automation-run-clock';
 import type { AutomationRun } from '../../shared/types/automation.types';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import { subscribeCostAttribution } from '../core/system/cost-attribution';
@@ -25,7 +26,7 @@ export class AutomationLoopRunLimits {
     if (!run.configSnapshot) return;
     this.clear(loopId);
     const action = withRunLimits(run.configSnapshot.action, run.configSnapshot.schedule);
-    const deadline = (run.startedAt ?? this.now()) + action.maxRunMinutes! * 60_000;
+    const deadline = automationRunDeadline(run, action.maxRunMinutes!, this.now());
     const timer = scheduleAutomationDeadline(deadline, this.now, () => { this.check(loopId); });
     this.limits.set(loopId, { run, deadline, minutes: action.maxRunMinutes!, cap: action.maxProcessedTokens!, processedTokens: run.processedTokens ?? 0, timer,
       output: { runId: run.id, automationId: run.automationId, quietReplyEligible: false, seenAssistantOutput: false, outputChunks: [] } });

@@ -47,6 +47,7 @@ import { markThreadPromptAttemptRecord, markThreadPromptDeliveredRecord } from '
 import { cancelPendingRuns } from './automation-store-cancel-ops';
 import type { AutomationRunDecisionOptions } from './automation-store-types';
 import { listActiveAutomationRuns } from './automation-store-admission';
+import { setAutomationRunPaused } from './automation-run-clock';
 export type { PendingRetryRecord } from './automation-store-retry-ops';
 export type { AutomationRunDecisionOptions } from './automation-store-types';
 
@@ -470,6 +471,9 @@ export class AutomationStore {
       now,
     );
   }
+
+  /** Stop or restart the run's time-limit clock; repeated calls are harmless. */
+  setRunPaused(runId: string, paused: boolean, now = Date.now()): void { setAutomationRunPaused(this.db, runId, paused, now); }
 
   insertRetryRun(
     originalRun: AutomationRun,

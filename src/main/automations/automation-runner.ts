@@ -281,6 +281,7 @@ export class AutomationRunner {
   /** Keep the durable run running while its provider is interrupted for a restart. */
   pauseRunForGlobalPause(runId: string): void {
     this.pauseStartup.pause(runId);
+    this.store.setRunPaused(runId, true, this.now());
     this.dispatchDeadline?.clear(runId);
     const instanceId = this.instanceByRun.get(runId);
     if (instanceId) { this.trackingByInstance.delete(instanceId); this.limits?.clear(instanceId); }
@@ -289,6 +290,7 @@ export class AutomationRunner {
 
   resumeRunForGlobalPause(runId: string, instanceId: string): void {
     this.pauseStartup.resume(runId);
+    this.store.setRunPaused(runId, false, this.now());
     const run = this.store.getRun(runId);
     if (!run || run.status !== 'running') throw new Error('Scheduled job is no longer waiting to resume');
     if (this.instanceByRun.get(runId) !== instanceId) {
@@ -307,12 +309,14 @@ export class AutomationRunner {
 
   trackLoopRunForGlobalPause(runId: string, loopRunId: string): void {
     this.pauseStartup.resume(runId);
+    this.store.setRunPaused(runId, false, this.now());
     const run = this.store.getRun(runId);
     if (!run || run.status !== 'running') throw new Error('Scheduled loop is no longer waiting to resume');
     this.requireLoopRunDispatcher().track(loopRunId, run);
   }
 
   async resumePendingRunForGlobalPause(runId: string): Promise<void> {
+    this.store.setRunPaused(runId, false, this.now());
     const run = this.store.getRun(runId);
     if (!run || run.status !== 'running' || !run.configSnapshot) throw new Error('Scheduled job is no longer waiting to resume');
     this.pauseStartup.resume(runId);

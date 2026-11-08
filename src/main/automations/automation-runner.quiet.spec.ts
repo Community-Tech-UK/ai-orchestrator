@@ -111,6 +111,7 @@ describe('AutomationRunner quiet replies (8c)', () => {
     attachInstance: vi.fn(),
     markSeen: vi.fn(),
     getRun: vi.fn(),
+    setRunPaused: vi.fn(),
     getRunFacts: vi.fn(() => ({ result: null })),
     markDeliveryStarted: vi.fn(() => true),
   } as unknown as AutomationStore;
