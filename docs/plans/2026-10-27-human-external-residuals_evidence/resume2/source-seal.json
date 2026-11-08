@@ -1,0 +1,38 @@
+{
+  "src/main/persistence/rlm-database.ts": {
+    "sha256": "326281bf02bfe6df3cb72234447512e830b3758a1ff16f0bd0b48ffb59de01ac",
+    "bytes": 19597
+  },
+  "src/main/instance/context-worker-client.ts": {
+    "sha256": "95ab2c43882166bc1072eaa745aac9ec5de611b362e59877230dd185347ff564",
+    "bytes": 25284
+  },
+  "src/main/instance/context-worker-main.ts": {
+    "sha256": "781b21cebd79aa909f8a8e59de8e15caba4e67703a4fee6bd1d46ede861499cd",
+    "bytes": 15288
+  },
+  "src/main/instance/instance-permission-request-flow.ts": {
+    "sha256": "a68a690d22edb67bb818ea905c22890f8277dcd3d02c302a049ab9ba48324db0",
+    "bytes": 16931
+  },
+  "src/main/security/approval-adjudicator.ts": {
+    "sha256": "c6233f00ad4d3bd3734cbb81619f361cc8e7c8219edf3222c7214a08a38183ea",
+    "bytes": 13517
+  },
+  "src/main/mcp/local-ai-cli.ts": {
+    "sha256": "934c45f316ca0ea2a2ec14d61c91bf4060d6bc012fcbd4037e174ec8ab299d8c",
+    "bytes": 19342
+  },
+  "src/main/mcp/orchestrator-tools-rpc-local-ai.ts": {
+    "sha256": "e768f3aa9eb48c2aea18ffa920690bd4e6bdc2f2a99ae06629918a6547338bc5",
+    "bytes": 5126
+  },
+  "src/main/local-ai-guard/local-ai-public-operations.ts": {
+    "sha256": "37da04f3ed0f7f13f1e35742da396ec755a1e5898aba76b573bf9d615fc46178",
+    "bytes": 5889
+  },
+  "src/main/browser-gateway/browser-action-classifier.ts": {
+    "sha256": "f01bf3adcf7aea62c345e26ab82295d0063d1901afd523271dd895b7dcff433a",
+    "bytes": 19363
+  }
+}

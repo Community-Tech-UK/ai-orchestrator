@@ -1,0 +1,59 @@
+{
+  "at": "2026-10-27T05:23:30.450201+00:00",
+  "sessionId": "41dc2dc6-b9f8-4530-9d68-a6e4e19c8b2d",
+  "sourceProfile": "legacy",
+  "destinationProfile": "claudecomtech-7e12",
+  "nativeResume": true,
+  "productionSettingsChanged": false,
+  "credentialValuesRetained": false,
+  "isAppAccountSwitchNoticeProof": false,
+  "reportedCostsAreNotProviderBills": true,
+  "rows": [
+    {
+      "label": "auth-primary",
+      "exitCode": 0,
+      "stdoutBytes": 362,
+      "stderrBytes": 0,
+      "auth": {
+        "loggedIn": true,
+        "authMethod": "claude.ai",
+        "subscriptionType": "max"
+      }
+    },
+    {
+      "label": "auth-secondary",
+      "exitCode": 0,
+      "stdoutBytes": 523,
+      "stderrBytes": 0,
+      "auth": {
+        "loggedIn": true,
+        "authMethod": "claude.ai",
+        "subscriptionType": "max"
+      }
+    },
+    {
+      "label": "remember-primary",
+      "exitCode": 0,
+      "stdoutBytes": 1803,
+      "stderrBytes": 0,
+      "sessionId": "41dc2dc6-b9f8-4530-9d68-a6e4e19c8b2d",
+      "subtype": "success",
+      "isError": false,
+      "numTurns": 1,
+      "result": "stored",
+      "reportedCostUsd": 0.274443
+    },
+    {
+      "label": "native-resume-secondary",
+      "exitCode": 0,
+      "stdoutBytes": 1819,
+      "stderrBytes": 0,
+      "sessionId": "41dc2dc6-b9f8-4530-9d68-a6e4e19c8b2d",
+      "subtype": "success",
+      "isError": false,
+      "numTurns": 1,
+      "result": "pelican",
+      "reportedCostUsd": 0.33219835
+    }
+  ]
+}

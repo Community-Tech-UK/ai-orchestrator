@@ -1,0 +1,66 @@
+{
+  "at": "2026-10-27T06:01:25.594Z",
+  "computer": "windows-pc",
+  "health": {
+    "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+    "channelState": "fresh",
+    "commandsDeliverable": true,
+    "registration": "ok"
+  },
+  "approval": {
+    "status": "approved",
+    "reason": "existing_permission",
+    "requestId": "2aaca642-bd4d-45e1-baef-c43f0765ea22",
+    "auditId": "68b8487c-359f-4d11-8ca4-b30219e45e65",
+    "permissionWasAlreadyRemembered": true
+  },
+  "secureFill": {
+    "data": {
+      "filled": 2
+    },
+    "auditId": "655fe0ff-a29b-41ed-8081-a978ef431f9b"
+  },
+  "initialSubmitVerification": {
+    "outcome": "failed",
+    "reason": "browser_click_no_effect",
+    "auditId": "0601172b-c160-486c-925d-0d855613571e"
+  },
+  "laterVerifiedLogin": {
+    "url": "https://community-tech.sentry.io/monitors/",
+    "auditId": "1b18274a-465c-4b04-a63c-71476ad1e25c"
+  },
+  "rules": [
+    {
+      "id": "1291185",
+      "url": "https://community-tech.sentry.io/monitors/alerts/1291185/",
+      "auditId": "ac847f7d-153c-4391-be94-9d08fe5ddc91",
+      "disableControlVisible": true,
+      "conditions": "WHEN any of the following occur\nA new issue is created\nAn issue escalates\nA resolved issue regresses\nIF all of these filters match\nThe event's operational.area tag equals payment\nThe event's level greater than or equal error\nTHEN perform these actions\nNotify James Lawrence",
+      "connectedProjects": "All issues belonging to a connected project will trigger this alert when conditions are met.\nName\nmytrademail-backend\n1-1 of 1"
+    },
+    {
+      "id": "1291195",
+      "url": "https://community-tech.sentry.io/monitors/alerts/1291195/",
+      "auditId": "583dbdb7-fbc1-4f29-8c1e-93599ce315d7",
+      "disableControlVisible": true,
+      "conditions": "WHEN any of the following occur\nA new issue is created\nAn issue escalates\nA resolved issue regresses\nIF all of these filters match\nThe event's operational.area tag equals provisioning\nThe event's level greater than or equal error\nTHEN perform these actions\nNotify James Lawrence",
+      "connectedProjects": "All issues belonging to a connected project will trigger this alert when conditions are met.\nName\nmytrademail-backend\n1-1 of 1"
+    },
+    {
+      "id": "1291216",
+      "url": "https://community-tech.sentry.io/monitors/alerts/1291216/",
+      "auditId": "be80bcd0-3bf5-4e76-94d1-f57c6a343c2f",
+      "disableControlVisible": true,
+      "conditions": "WHEN any of the following occur\nA new issue is created\nAn issue escalates\nA resolved issue regresses\nIF all of these filters match\nThe event's level greater than or equal error\nTHEN perform these actions\nNotify James Lawrence",
+      "connectedProjects": "All issues belonging to a connected project will trigger this alert when conditions are met.\nName\nAll Projects\n1-1 of 1"
+    }
+  ],
+  "productionTestEventsSent": false,
+  "alertSettingsChanged": false,
+  "newPendingApproval": false,
+  "ownedTabCleanup": {
+    "closed": true,
+    "remainingTabCount": 39,
+    "auditId": "4bfebcd8-1294-457e-8b99-6b38f2e66697"
+  }
+}

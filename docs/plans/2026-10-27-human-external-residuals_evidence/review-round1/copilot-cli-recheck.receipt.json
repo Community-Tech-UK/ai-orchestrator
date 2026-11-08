@@ -1,0 +1,30 @@
+{
+  "at": "2026-10-27T03:18:52.848668+00:00",
+  "defect": "LT-780",
+  "results": [
+    {
+      "command": "aio-mcp copilot-account list --json",
+      "exitCode": 1,
+      "stdoutBytes": 0,
+      "stderr": "aio-mcp copilot-account failed: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"payload\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"payload\\\"\"\n  }\n]\n"
+    },
+    {
+      "command": "aio-mcp copilot-account rules --json",
+      "exitCode": 1,
+      "stdoutBytes": 0,
+      "stderr": "aio-mcp copilot-account failed: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"payload\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"payload\\\"\"\n  }\n]\n"
+    },
+    {
+      "command": "aio-mcp copilot-account doctor --json",
+      "exitCode": 1,
+      "stdoutBytes": 0,
+      "stderr": "aio-mcp copilot-account failed: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"payload\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"payload\\\"\"\n  }\n]\n"
+    },
+    {
+      "command": "aio-mcp copilot-account route /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985 --origin=automation --json",
+      "exitCode": 1,
+      "stdoutBytes": 0,
+      "stderr": "aio-mcp copilot-account failed: [\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"workingDirectory\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  },\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"payload\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"payload\\\"\"\n  }\n]\n"
+    }
+  ]
+}

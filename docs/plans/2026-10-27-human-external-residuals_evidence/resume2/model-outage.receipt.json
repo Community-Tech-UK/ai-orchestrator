@@ -1,0 +1,27 @@
+{
+  "at": "2026-10-27T04:23:02.316Z",
+  "focusEmulation": true,
+  "visibilityOverride": "'Emulation.setPageVisibilityOverride' wasn't found",
+  "result": {
+    "type": "object",
+    "value": {
+      "startedAt": "2026-10-27T04:23:02.304Z",
+      "durationMs": 11,
+      "result": {
+        "success": true,
+        "data": {
+          "text": "{\"score\":0,\"confidence\":0,\"reason\":\"No auxiliary model available\"}",
+          "decision": {
+            "slot": "approvalAdjudication",
+            "provider": "local-fallback",
+            "source": "fallback",
+            "reason": "Generation error: OpenAI-compatible generate failed (503): Owned forwarding endpoint deliberately stopped",
+            "allowFrontierFallback": false,
+            "localAiRoutingEventId": "9c658a60-fa09-4122-a8b7-9ee750c6ab4b",
+            "fallbackDisposition": "blocked"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "at": "2026-10-27T06:42:11.887Z",
+  "historyFileRoute": {
+    "tool": "run_on_node",
+    "computer": "windows-pc",
+    "outcome": "rejected before instance creation",
+    "error": "run_on_node cannot access Browser Gateway or existing/shared Chrome tabs on windows-pc. The agent must stay on the coordinator and call Browser Gateway tools with computer: \"windows-pc\". Use run_on_node only for the worker-managed Chrome profile exposed through chrome-devtools.",
+    "source": "src/main/app/orchestrator-tools-step.ts:360; src/main/app/run-on-node-support.ts:259",
+    "databaseRead": false,
+    "cookiesOrPasswordsRead": false
+  },
+  "gatewayPreflight": {
+    "channelState": "fresh",
+    "commandsDeliverable": true,
+    "registration": "ok"
+  },
+  "closedRegistryPreview": {
+    "computer": "windows-pc",
+    "urlContains": "etendersni.gov.uk",
+    "status": "closed",
+    "dryRun": true,
+    "data": {
+      "closed": [],
+      "skipped": [],
+      "remainingTabCount": 40,
+      "dryRun": true
+    },
+    "auditId": "37a7e58b-5011-4757-b457-255a0f01b153"
+  },
+  "currentInventory": {"targetCount":51,"matches":[],"auditId":"00bfee3b-a21f-4cf6-853f-dbbaef66dafa"},
+  "exactResourceRecovered": false
+}

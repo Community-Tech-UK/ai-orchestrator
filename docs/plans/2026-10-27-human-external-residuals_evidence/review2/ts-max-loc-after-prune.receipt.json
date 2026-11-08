@@ -1,0 +1,11 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "check:ts-max-loc"
+  ],
+  "startedAt": "2026-10-27T06:32:34.650993+00:00",
+  "endedAt": "2026-10-27T06:32:36.108271+00:00",
+  "exitCode": 0,
+  "log": "ts-max-loc-after-prune.log.txt"
+}

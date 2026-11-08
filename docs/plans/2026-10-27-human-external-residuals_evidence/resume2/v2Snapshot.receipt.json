@@ -1,0 +1,11 @@
+{
+  "at": "2026-10-27T04:25:38.636Z",
+  "toolResult": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":{\"title\":\"AIO owned v2 fixture\",\"url\":\"http://127.0.0.1:9656/v2\",\"text\":\"Enable the reCAPTCHA Enterprise APInot clicked\\nThis reCAPTCHA is for testing purposes only. Please report to the site admin if you are seeing this.\\nI'm not a robot\\nreCAPTCHA\",\"renderer\":\"unknown\"},\"auditId\":\"a4fe422f-ba4f-46cb-8359-2269539eab4c\"}"
+      }
+    ]
+  }
+}

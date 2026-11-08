@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-27T06:05:08.551078+00:00",
+  "rows": 29,
+  "active": 28,
+  "counts": {
+    "Open": 20,
+    "Partial": 7,
+    "Failed": 1,
+    "Retired": 1
+  },
+  "closed": 0,
+  "allActiveAcceptanceIncomplete": true,
+  "owner": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-27-livetest-human-external-residuals_livetest.md"
+}

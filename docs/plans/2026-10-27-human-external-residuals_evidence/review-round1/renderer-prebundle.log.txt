@@ -1,0 +1,85 @@
+The "@angular-devkit/build-angular:dev-server" builder is deprecated as part of Angular's Webpack support deprecation. Use "@angular/build:dev-server" instead. For more information, see https://angular.dev/tools/cli/build-system-migration.
+❯ Building...
+✔ Building...
+Initial chunk files | Names                            |  Raw size
+main.js             | main                             | 501.49 kB | 
+chunk-BLCWYXCT.js   | -                                | 245.94 kB | 
+chunk-MTCTDYBT.js   | -                                | 132.98 kB | 
+chunk-G4WOO3IU.js   | -                                | 112.23 kB | 
+chunk-E5GSEY4U.js   | -                                | 109.10 kB | 
+chunk-BFCJ7XNG.js   | -                                |  94.63 kB | 
+chunk-Z4MHNNV6.js   | -                                |  83.16 kB | 
+styles.css          | styles                           |  61.49 kB | 
+chunk-UKC7HPVV.js   | -                                |  41.86 kB | 
+chunk-PSU7DWHH.js   | -                                |  30.63 kB | 
+chunk-RZY4L7AV.js   | -                                |  23.47 kB | 
+chunk-ROT53NEV.js   | -                                |  20.67 kB | 
+chunk-5VN42NU7.js   | -                                |  19.49 kB | 
+chunk-7356XCZR.js   | -                                |  18.28 kB | 
+chunk-JTAIUKWO.js   | -                                |  17.06 kB | 
+chunk-NQCGO4Q3.js   | -                                |   9.90 kB | 
+chunk-7PH2WUTO.js   | -                                |   9.85 kB | 
+chunk-Q5HOVFF5.js   | -                                |   9.74 kB | 
+chunk-VHRR52GO.js   | -                                |   9.46 kB | 
+chunk-U34ICR2J.js   | -                                |   9.33 kB | 
+chunk-RCXES36O.js   | -                                |   9.06 kB | 
+chunk-3CLB3ACU.js   | -                                |   8.48 kB | 
+chunk-ODL3AUUR.js   | -                                |   8.07 kB | 
+chunk-5G5IJY4X.js   | -                                |   8.02 kB | 
+chunk-UFAYGXFI.js   | -                                |   7.82 kB | 
+chunk-QNHTSENY.js   | -                                |   7.54 kB | 
+chunk-ZO7NZ2HK.js   | -                                |   7.47 kB | 
+chunk-57KYUTYL.js   | -                                |   5.94 kB | 
+chunk-43AKLDWX.js   | -                                |   4.63 kB | 
+chunk-UGAZTXFW.js   | -                                |   4.60 kB | 
+chunk-TTL46XE4.js   | -                                |   4.47 kB | 
+chunk-YICE6C75.js   | -                                |   4.35 kB | 
+chunk-HY57VTF7.js   | -                                |   3.82 kB | 
+chunk-46WEXVZI.js   | -                                |   3.68 kB | 
+chunk-SNZ3Q2GO.js   | -                                |   3.58 kB | 
+chunk-INEWTWF7.js   | -                                |   3.54 kB | 
+chunk-2YQYSXBI.js   | -                                |   3.50 kB | 
+chunk-JFGFGM7S.js   | -                                |   3.20 kB | 
+chunk-ATLI2NSC.js   | -                                |   3.10 kB | 
+chunk-CHPTKVAG.js   | -                                |   3.08 kB | 
+chunk-P3XWZBFA.js   | -                                |   3.05 kB | 
+chunk-DBI7CPV7.js   | -                                |   2.59 kB | 
+chunk-PUZUKM4L.js   | -                                |   2.56 kB | 
+chunk-P3THP5CA.js   | -                                |   2.51 kB | 
+chunk-WRDCD3FE.js   | -                                |   2.29 kB | 
+chunk-XY3AJF5B.js   | -                                |   2.03 kB | 
+chunk-B7SLADMK.js   | -                                |   1.73 kB | 
+chunk-EW4DO2VA.js   | -                                |   1.54 kB | 
+chunk-GOMI4DH3.js   | -                                |   1.42 kB | 
+chunk-CFBIDZ7D.js   | -                                |   1.23 kB | 
+chunk-TU57RIX3.js   | -                                |   1.10 kB | 
+chunk-EAHETGKN.js   | -                                | 426 bytes | 
+chunk-TE3SB7LY.js   | -                                | 291 bytes | 
+chunk-JQWG3AB4.js   | -                                |  92 bytes | 
+chunk-ZXJRERLQ.js   | -                                |  92 bytes | 
+
+                    | Initial total                    |   1.69 MB
+
+Lazy chunk files    | Names                            |  Raw size
+chunk-N66UHDRS.js   | -                                |   2.37 MB | 
+chunk-ZZ55MOK7.js   | settings-component               |   2.00 MB | 
+chunk-CYB2CASU.js   | dashboard-component              |   1.35 MB | 
+chunk-QFHB5LE7.js   | -                                | 497.08 kB | 
+chunk-BTM7JZ3J.js   | browser-page-component           | 336.65 kB | 
+chunk-Z3GBXNEY.js   | verification-dashboard-component | 309.92 kB | 
+chunk-6ALYFDJA.js   | automations-page-component       | 279.01 kB | 
+chunk-5ATLWNQR.js   | local-ai-guard-page-component    | 275.46 kB | 
+chunk-DMO26TS2.js   | plan-queue-page-component        | 233.62 kB | 
+chunk-7W33KYZ5.js   | -                                | 219.21 kB | 
+chunk-RGF7DGDB.js   | rlm-page-component               | 218.27 kB | 
+chunk-KWTGKXOS.js   | knowledge-page-component         | 215.69 kB | 
+chunk-7KCWED5H.js   | cli-settings-panel-component     | 178.82 kB | 
+chunk-2UKOUHWD.js   | codebase-page-component          | 146.65 kB | 
+chunk-PHCPQJQQ.js   | -                                | 144.52 kB | 
+...and 83 more lazy chunks files. Use "--verbose" to show all the files.
+
+Application bundle generation complete. [18.217 seconds] - 2026-10-27T03:19:38.874Z
+
+Watch mode enabled. Watching for file changes...
+NOTE: Raw file sizes do not reflect development server per-request transformations.
+  ➜  Local:   http://localhost:9654/

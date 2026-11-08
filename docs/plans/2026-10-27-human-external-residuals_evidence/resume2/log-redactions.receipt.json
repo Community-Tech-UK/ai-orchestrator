@@ -1,0 +1,10 @@
+{
+  "redactions": [
+    {
+      "path": "electron.log.txt",
+      "beforeSha256": "b34cf2a847e437a198249e2a838abbb7f93aeda66c2604e3821c1b52bfe02b7b",
+      "retainedSha256": "9357f43037c34e724759923b5af00ae33ca392e717fb1ece367f1540bd21f24b"
+    }
+  ],
+  "reason": "Do not retain local transport addresses; no log claim depends on their values"
+}

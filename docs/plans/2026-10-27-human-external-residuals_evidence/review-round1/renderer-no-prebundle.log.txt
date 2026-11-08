@@ -1,0 +1,93 @@
+The "@angular-devkit/build-angular:dev-server" builder is deprecated as part of Angular's Webpack support deprecation. Use "@angular/build:dev-server" instead. For more information, see https://angular.dev/tools/cli/build-system-migration.
+❯ Building...
+✔ Building...
+Initial chunk files | Names                            |  Raw size
+chunk-BK2N5BUS.js   | -                                |   1.13 MB | 
+chunk-J4SFTV5A.js   | -                                | 759.48 kB | 
+main.js             | main                             | 485.88 kB | 
+chunk-DVAVNQUI.js   | -                                | 243.84 kB | 
+chunk-2427YMN7.js   | -                                | 215.61 kB | 
+chunk-LXKOBWXQ.js   | -                                | 177.92 kB | 
+chunk-QMWLUJPC.js   | -                                | 172.41 kB | 
+chunk-ZW7ESQPQ.js   | -                                | 169.43 kB | 
+chunk-OQU4NXKE.js   | -                                | 130.44 kB | 
+chunk-JFKSMHKQ.js   | -                                | 111.93 kB | 
+chunk-GGSRCMRW.js   | -                                | 108.23 kB | 
+chunk-3AK4QUL6.js   | -                                |  94.59 kB | 
+chunk-ZEYT4PFC.js   | -                                |  82.51 kB | 
+styles.css          | styles                           |  61.49 kB | 
+chunk-YGDV3RYM.js   | -                                |  45.78 kB | 
+chunk-5NXKQHBO.js   | -                                |  41.18 kB | 
+chunk-PSU7DWHH.js   | -                                |  30.63 kB | 
+chunk-NVYIDEQP.js   | -                                |  23.43 kB | 
+chunk-2BELF2LO.js   | -                                |  20.68 kB | 
+chunk-5VN42NU7.js   | -                                |  19.49 kB | 
+chunk-HZ5PHL2P.js   | -                                |  18.29 kB | 
+chunk-4MNWPTFW.js   | -                                |  17.06 kB | 
+chunk-QEEQWOXG.js   | -                                |   9.85 kB | 
+chunk-EVWQKVUL.js   | -                                |   9.77 kB | 
+chunk-Q5HOVFF5.js   | -                                |   9.74 kB | 
+chunk-7VWJPCSV.js   | -                                |   9.34 kB | 
+chunk-K5PAV67I.js   | -                                |   9.29 kB | 
+chunk-C6A3U23J.js   | -                                |   9.07 kB | 
+chunk-Z6FUBZ4P.js   | -                                |   8.48 kB | 
+chunk-ZDTNIS4D.js   | -                                |   8.07 kB | 
+chunk-QZSQBD7T.js   | -                                |   8.03 kB | 
+chunk-WVQMGGKO.js   | -                                |   7.82 kB | 
+chunk-Y2L65FIJ.js   | -                                |   7.37 kB | 
+chunk-DB3IMMH5.js   | -                                |   7.35 kB | 
+chunk-RH4KTAQM.js   | -                                |   5.95 kB | 
+chunk-G7KJDROJ.js   | -                                |   4.64 kB | 
+chunk-UGAZTXFW.js   | -                                |   4.60 kB | 
+chunk-325Q5FEI.js   | -                                |   4.48 kB | 
+chunk-Z6W27ZKW.js   | -                                |   4.35 kB | 
+chunk-256Q65QF.js   | -                                |   3.83 kB | 
+chunk-MYKZQMMZ.js   | -                                |   3.69 kB | 
+chunk-2XFWIIUH.js   | -                                |   3.59 kB | 
+chunk-CXVWSZTA.js   | -                                |   3.55 kB | 
+chunk-B3PVYRNV.js   | -                                |   3.50 kB | 
+chunk-US3KHWWX.js   | -                                |   3.21 kB | 
+chunk-THBFNSCH.js   | -                                |   3.11 kB | 
+chunk-BUVOVPPW.js   | -                                |   3.09 kB | 
+chunk-AUV54TTC.js   | -                                |   3.06 kB | 
+chunk-NILDOHVQ.js   | -                                |   2.87 kB | 
+chunk-YFDFI6FI.js   | -                                |   2.59 kB | 
+chunk-EGJZB7NF.js   | -                                |   2.57 kB | 
+chunk-AAHD3WLR.js   | -                                |   2.52 kB | 
+chunk-M2VSJ5UO.js   | -                                |   2.30 kB | 
+chunk-LHOHU5YN.js   | -                                |   2.03 kB | 
+chunk-ZR4HQSUE.js   | -                                |   1.74 kB | 
+chunk-Q2Z5XBZ7.js   | -                                |   1.55 kB | 
+chunk-M73A2LAX.js   | -                                |   1.23 kB | 
+chunk-FKEML2DL.js   | -                                |   1.10 kB | 
+chunk-N5XCL4YH.js   | -                                | 898 bytes | 
+chunk-EAHETGKN.js   | -                                | 426 bytes | 
+chunk-2LAWX73V.js   | -                                | 300 bytes | 
+chunk-JQWG3AB4.js   | -                                |  92 bytes | 
+chunk-ZXJRERLQ.js   | -                                |  92 bytes | 
+
+                    | Initial total                    |   4.34 MB
+
+Lazy chunk files    | Names                            |  Raw size
+chunk-4EVEXDJT.js   | -                                |   2.92 MB | 
+chunk-QTBPXVNO.js   | -                                |   2.39 MB | 
+chunk-PLMM4WEK.js   | -                                |   2.30 MB | 
+chunk-CCPQP2MC.js   | settings-component               |   2.00 MB | 
+chunk-A74UMVZI.js   | dashboard-component              |   1.43 MB | 
+chunk-XJEPGO53.js   | xterm                            | 432.11 kB | 
+chunk-WSZ5LTPP.js   | browser-page-component           | 328.71 kB | 
+chunk-6MSMMVJI.js   | verification-dashboard-component | 303.82 kB | 
+chunk-N43VCI7J.js   | automations-page-component       | 272.22 kB | 
+chunk-I3CT43SM.js   | local-ai-guard-page-component    | 268.62 kB | 
+chunk-TV7YCPZS.js   | plan-queue-page-component        | 229.63 kB | 
+chunk-XDXJUAVI.js   | -                                | 213.86 kB | 
+chunk-KQJ2EWV2.js   | rlm-page-component               | 213.17 kB | 
+chunk-KEH5NBAY.js   | knowledge-page-component         | 209.55 kB | 
+chunk-FKHXL5IZ.js   | cli-settings-panel-component     | 175.05 kB | 
+...and 85 more lazy chunks files. Use "--verbose" to show all the files.
+
+Application bundle generation complete. [16.897 seconds] - 2026-10-27T03:24:37.001Z
+
+Watch mode enabled. Watching for file changes...
+NOTE: Raw file sizes do not reflect development server per-request transformations.
+  ➜  Local:   http://localhost:9654/

@@ -1,0 +1,7 @@
+{
+  "command": "npm run typecheck:spec",
+  "startedAt": "2026-10-27T03:25:15.608055+00:00",
+  "endedAt": "2026-10-27T03:26:05.005353+00:00",
+  "exitCode": 0,
+  "log": "spec-typecheck.log.txt"
+}

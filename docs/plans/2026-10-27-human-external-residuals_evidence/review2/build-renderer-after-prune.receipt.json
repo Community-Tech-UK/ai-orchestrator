@@ -1,0 +1,14 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "build:renderer"
+  ],
+  "startedAt": "2026-10-27T06:33:17.755852+00:00",
+  "endedAt": "2026-10-27T06:33:41.782903+00:00",
+  "exitCode": 0,
+  "log": "build-renderer-after-prune.log.txt",
+  "environment": {
+    "AIO_TEST_SUMMARY": "0"
+  }
+}

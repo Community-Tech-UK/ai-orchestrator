@@ -1,0 +1,11 @@
+{
+  "firstInvocationDispatched": false,
+  "error": "PowerShell script uses path-dependent invocation metadata that is unavailable to stdin execution",
+  "correction": "Use literal owned cleanup path rather than PSCommandPath",
+  "secondInvocationDispatched": false,
+  "secondError": "exec_on_node restricts command body to literal PowerShell output or HTTPS curl",
+  "supportedNextRoute": "run_on_node foreground fixture task, no browser control",
+  "firstAgentInvocationDispatched": false,
+  "firstAgentError": "shared-browser routing refusal despite server-only task",
+  "correctedAgentScope": "HTTP fixture-server only, same prepared script, no application automation"
+}

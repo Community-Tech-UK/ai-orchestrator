@@ -1,0 +1,20 @@
+[
+  {
+    "command": "gh api repos/Community-Tech-UK/ai-orchestrator/actions/secrets --jq .total_count",
+    "exitCode": 0,
+    "stdout": "0\n",
+    "stderr": ""
+  },
+  {
+    "command": "gh api repos/Community-Tech-UK/ai-orchestrator/tags?per_page=10 --jq map(.name)",
+    "exitCode": 0,
+    "stdout": "[]\n",
+    "stderr": ""
+  },
+  {
+    "command": "gh release list --limit 5 --json tagName,isDraft,isPrerelease,publishedAt",
+    "exitCode": 0,
+    "stdout": "[]\n",
+    "stderr": ""
+  }
+]

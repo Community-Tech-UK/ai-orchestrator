@@ -1,0 +1,17 @@
+{
+  "at": "2026-10-27T06:55:56.845066+00:00",
+  "rows": [
+    {
+      "binary": "node",
+      "exitCode": 1,
+      "result": "",
+      "stderr": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/bindings/bindings.js:121\n        throw e;\n        ^\n\nError: The module '/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/better-sqlite3/build/Release/better_sqlite3.node'\nwas compiled against a different Node.js version using\nNODE_MODULE_VERSION 146. This version of Node.js requires\nNODE_MODULE_VERSION 147. Please try re-compiling or re-installing\nthe module (for instance, using `npm rebuild` or `npm install`).\n    at Object..node (node:internal/modules/cjs/loader:2135:18)\n    at Module.load (node:internal/modules/cjs/loader:1690:32)\n    at Module._load (node:internal/modules/cjs/loader:1480:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n    at Module.require (node:internal/modules/cjs/loader:1713:12)\n    at require (node:internal/modules/helpers:318:16)\n    at bindings (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/bindings/bindings.js:112:48)\n    at new Database (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/better-sqlite3/lib/database.js:48:64)\n    at [eval]:1:52\n    at runScriptInThisContext (node:internal/vm:219:10) {\n  code: 'ERR_DLOPEN_FAILED'\n}\n\nNode.js v26.12.1\n"
+    },
+    {
+      "binary": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+      "exitCode": 1,
+      "result": "",
+      "stderr": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/bindings/bindings.js:121\n        throw e;\n        ^\n\nError: The module '/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/better-sqlite3/build/Release/better_sqlite3.node'\nwas compiled against a different Node.js version using\nNODE_MODULE_VERSION 146. This version of Node.js requires\nNODE_MODULE_VERSION 137. Please try re-compiling or re-installing\nthe module (for instance, using `npm rebuild` or `npm install`).\n    at Object..node (node:internal/modules/cjs/loader:2087:18)\n    at Module.load (node:internal/modules/cjs/loader:1651:32)\n    at Module._load (node:internal/modules/cjs/loader:1443:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n    at Module.require (node:internal/modules/cjs/loader:1674:12)\n    at require (node:internal/modules/helpers:157:16)\n    at bindings (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/bindings/bindings.js:112:48)\n    at new Database (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/better-sqlite3/lib/database.js:48:64)\n    at [eval]:1:52\n    at runScriptInThisContext (node:internal/vm:219:10) {\n  code: 'ERR_DLOPEN_FAILED'\n}\n\nNode.js v24.22.1\n"
+    }
+  ]
+}

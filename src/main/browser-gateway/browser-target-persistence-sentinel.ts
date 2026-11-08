@@ -249,8 +249,9 @@ function normalizeScanResult(
   raw: unknown,
   checkedAt: number,
 ): BrowserTargetPersistenceScan {
-  // Driver paths can wrap the result; extension evaluate serializes objects
-  // as { type: 'object', json, truncated? } rather than returning them directly.
+  // Some driver versions wrap the response in { result }. Extension evaluate
+  // serializes objects as { type: 'object', json, truncated? } rather than
+  // returning them directly.
   let value = raw && typeof raw === 'object' && 'result' in (raw as Record<string, unknown>)
     ? (raw as Record<string, unknown>)['result']
     : raw;

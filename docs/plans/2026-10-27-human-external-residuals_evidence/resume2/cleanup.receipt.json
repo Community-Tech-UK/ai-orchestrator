@@ -1,0 +1,84 @@
+{
+  "at": "2026-10-27T04:37:56.568313+00:00",
+  "preCleanupSealSha256": "251e7cc991f845c763f2afe0ab29be7640b455c55878c680d7c5c1872ee4f08b",
+  "pids": [
+    {
+      "pid": 93233,
+      "absent": true
+    },
+    {
+      "pid": 75985,
+      "absent": true
+    },
+    {
+      "pid": 61802,
+      "absent": true
+    },
+    {
+      "pid": 68095,
+      "absent": true
+    },
+    {
+      "pid": 21825,
+      "absent": true
+    }
+  ],
+  "ports": [
+    {
+      "port": 9554,
+      "closed": true
+    },
+    {
+      "port": 9654,
+      "closed": true
+    },
+    {
+      "port": 9655,
+      "closed": true
+    }
+  ],
+  "removed": [
+    {
+      "kind": "runtime",
+      "path": "/tmp/aio-lt-queue-af185985",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "kind": "runtime",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "kind": "runtime",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/.angular",
+      "existed": false,
+      "absent": true
+    },
+    {
+      "kind": "runtime",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch",
+      "existed": true,
+      "absent": true
+    },
+    {
+      "kind": "owned-conversation",
+      "sessionId": "09b65cb3-62f5-414c-b1f2-b914522b97a0",
+      "existed": true,
+      "absent": true,
+      "subdirectoryAbsent": true
+    },
+    {
+      "kind": "owned-conversation",
+      "sessionId": "d814ab7c-02a9-4469-8088-2875b9cfcf1a",
+      "existed": true,
+      "absent": true,
+      "subdirectoryAbsent": true
+    }
+  ],
+  "preExistingDependenciesPreserved": true,
+  "windowsCleanupEvidence": "fixtureWorker.receipt.json",
+  "pendingSyntheticEscalations": 2,
+  "pendingEscalationReason": "No supported skip/cancel tool; do not forge human resolution or modify raw production rows"
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-27T05:30:45.500035+00:00",
+  "command": [
+    "npm",
+    "run",
+    "test:quiet"
+  ],
+  "disposition": "Interrupted before completion because host load exceeded campaign threshold; not a passing suite",
+  "exitCode": 130,
+  "control": "Ctrl-C sent through the exact owned exec session",
+  "quietRunnerPid": 68432,
+  "quietRunnerGone": true,
+  "fullLog": "_scratch/test-run.pid-68432.log",
+  "processListAttempt": "ps was denied with EPERM; no inferred process matches were signalled"
+}

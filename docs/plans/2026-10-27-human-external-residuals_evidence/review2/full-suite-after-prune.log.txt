@@ -1,0 +1,31 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js
+
+  … 64 test file(s) done (full log: _scratch/test-run.pid-54750.log)
+  … 770 test file(s) done (full log: _scratch/test-run.pid-54750.log)
+  … 2235 test file(s) done (full log: _scratch/test-run.pid-54750.log)
+✗ 3 of 35390 tests failed in 431.0s:
+
+  ✗ src/main/doc-review/doc-review-service.spec.ts › DocReviewService renders a plan markdown file into an artifact and creates a pending review
+    Error: ENOTEMPTY, Directory not empty: '/var/folders/0n/fs5yys3d0vg0c838h75hyrm00000gn/T/doc-review-jqT67d'
+        at Proxy.rmSync (node:fs:1593:18)
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/doc-review/doc-review-service.spec.ts:65:5
+        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11
+        at wrapper (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/@vitest/runner/dist/chunk-artifact.js:750:10)
+        at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20
+        at new ZoneAwarePromise (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/zone.js/fesm2015/zone.js:2238:23)
+        at runWithTimeout (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:
+        …(truncated — see log)
+
+  ✗ src/main/orchestration/default-loop-native-finality.spec.ts › native finality 'partial-no-native-cost'
+    AssertionError: expected false to be true // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/orchestration/default-loop-native-finality.spec.ts:109:26
+
+  ✗ src/main/orchestration/default-loop-native-finality.spec.ts › native finality 'partial-no-final-lf'
+    AssertionError: expected false to be true // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/orchestration/default-loop-native-finality.spec.ts:109:26
+
+full log: _scratch/test-run.pid-54750.log
+
+✗ FAILED — 3 of 35390 tests failed (exit 1).

@@ -1,0 +1,10 @@
+{
+  "startedAt": "2026-10-27T04:18:23.562988+00:00",
+  "readyAt": "2026-10-27T04:19:30.080529+00:00",
+  "rendererPid": 78959,
+  "electronPid": 1898,
+  "profile": "/tmp/aio-lt-queue-af185985",
+  "debugPort": 9554,
+  "rendererPort": 9654,
+  "browser": "Chrome/148.0.7778.280"
+}

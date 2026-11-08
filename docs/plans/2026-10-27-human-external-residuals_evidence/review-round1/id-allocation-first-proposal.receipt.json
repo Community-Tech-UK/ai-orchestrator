@@ -1,0 +1,177 @@
+{
+  "recordedAt": "2026-10-27T03:17:28.961154+00:00",
+  "scans": [
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator",
+      "exitCode": 0,
+      "recentIds": [
+        9,
+        18,
+        20,
+        31,
+        34,
+        195,
+        208,
+        710,
+        711,
+        999,
+        1000,
+        9999
+      ]
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.claude/worktrees/agent-a1d7bb162fd56b4c6",
+      "exitCode": 1,
+      "recentIds": []
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.claude/worktrees/agent-a4d6deb10e35abdd8",
+      "exitCode": 1,
+      "recentIds": []
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/composer-resize-verification",
+      "exitCode": 1,
+      "recentIds": []
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-24-codex-compaction-tu-23ae4a",
+      "exitCode": 0,
+      "recentIds": [
+        9,
+        18,
+        20,
+        31,
+        34,
+        195,
+        208,
+        710,
+        711,
+        999,
+        1000,
+        9999
+      ]
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81",
+      "exitCode": 0,
+      "recentIds": [
+        9,
+        18,
+        20,
+        31,
+        34,
+        195,
+        208,
+        999,
+        1000,
+        9999
+      ]
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-codex-compaction-re-434b3e",
+      "exitCode": 0,
+      "recentIds": [
+        9,
+        18,
+        20,
+        31,
+        34,
+        195,
+        208,
+        999,
+        1000,
+        9999
+      ]
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de",
+      "exitCode": 0,
+      "recentIds": [
+        9,
+        18,
+        20,
+        31,
+        34,
+        195,
+        208,
+        999,
+        1000,
+        9999
+      ]
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985",
+      "exitCode": 0,
+      "recentIds": [
+        9,
+        18,
+        20,
+        31,
+        34,
+        195,
+        208,
+        710,
+        711,
+        999,
+        1000,
+        9999
+      ]
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-can-you-work-through-all-the-p-mt76ztv1",
+      "exitCode": 1,
+      "recentIds": []
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-i-said-keep-going-uintil-it-s-mtovfbpg",
+      "exitCode": 1,
+      "recentIds": []
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-investigate-all-the-pla-mtl9icld",
+      "exitCode": 1,
+      "recentIds": []
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-look-at-all-the-untrack-mtjeyorh",
+      "exitCode": 1,
+      "recentIds": []
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-look-at-all-the-untrack-mtjvhjeh",
+      "exitCode": 1,
+      "recentIds": []
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-look-at-all-the-untrack-mtkdez2p",
+      "exitCode": 1,
+      "recentIds": []
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-work-through-all-the-li-mtkqr41h",
+      "exitCode": 1,
+      "recentIds": []
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-work-through-all-the-li-mu4ui30h",
+      "exitCode": 1,
+      "recentIds": []
+    },
+    {
+      "checkout": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-so-finish-the-work-please-mtklsatd",
+      "exitCode": 1,
+      "recentIds": []
+    }
+  ],
+  "chosenIds": [
+    "LT-712",
+    "LT-713"
+  ],
+  "excludedPlaceholders": [
+    "LT-999",
+    "LT-1000",
+    "LT-9999"
+  ],
+  "allRegisteredWorktreesScanned": true
+}

@@ -1,0 +1,86 @@
+{
+  "negativeCredentialFill": {
+    "decision": "denied",
+    "outcome": "not_run",
+    "data": null,
+    "reason": "credential_not_authorized:origin_not_authorized: browser.fill_credential is not authorized for https://www.selenium.dev (login). A session grant from browser.request_grant does not cover credential fill. This scope already covers: https://procontract.due-north.com, https://auth.reportmi.gca.gov.uk, https://www.delta-esourcing.com, https://etenderwales.ukp.app.jaggaer.com, https://tenders.diamond.ac.uk, https://education.app.jaggaer.com, https://www.etenders.gov.ie, https://e-sourcingni.ukp.app.jaggaer.com. Call browser.request_credential_access with this profileId, targetId, exact saved login name and reason. Wait for its approved status, then retry secure fill. It works without the shell CLI connection.",
+    "auditId": "040e3915-da75-4cd5-9d9c-c3430a4ed03a"
+  },
+  "negativeCredentialReadback": {
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "data": [
+      {
+        "selector": "input[name=\"my-password\"]",
+        "tagName": "INPUT",
+        "role": "input",
+        "accessibleName": "my-password",
+        "inputType": "password"
+      }
+    ],
+    "auditId": "38fdd2f5-e872-47c0-ab2e-904cae2563b5"
+  },
+  "negativeCredentialJournal": {
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "data": [],
+    "auditId": "33f82823-79c5-4884-9527-a8209f9fc596"
+  },
+  "negativeCredentialClose": {
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "data": {
+      "closed": true,
+      "remainingTabCount": 39,
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588654",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588654:target",
+      "inspectionState": "readable"
+    },
+    "auditId": "d4a51007-3553-4fcd-81fb-9051d96b7a8e"
+  },
+  "nodeFixtureOpen": {
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "data": {
+      "id": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588650:target",
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588650",
+      "pageId": "771588650",
+      "mode": "existing-tab",
+      "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+      "nodeName": "windows-pc",
+      "title": "192.168.0.156",
+      "url": "http://192.168.0.156:9655/v3?runtime=node",
+      "origin": "http://192.168.0.156:9655",
+      "driver": "extension",
+      "status": "selected",
+      "lastSeenAt": 1793070117712,
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588650:target",
+      "inspectionState": "inspection_unavailable",
+      "textUnavailableReason": "page_text_read_failed",
+      "windowId": 771587906,
+      "tabIndex": 40,
+      "pinned": false,
+      "active": true
+    },
+    "auditId": "e188e103-8ca0-4dc0-b8af-503ed8297ae3"
+  },
+  "nodeFixtureQuery": {
+    "decision": "allowed",
+    "outcome": "failed",
+    "data": null,
+    "reason": "Frame with ID 0 is showing error page",
+    "auditId": "2258fc25-2b7e-4449-9162-40c2a0e64a02"
+  },
+  "nodeFixtureClose": {
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "data": {
+      "closed": true,
+      "remainingTabCount": 40,
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588650",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588650:target",
+      "inspectionState": "inspection_unavailable"
+    },
+    "auditId": "bd5023dd-e3b2-41db-bd97-e65a3fb8f5b4"
+  }
+}

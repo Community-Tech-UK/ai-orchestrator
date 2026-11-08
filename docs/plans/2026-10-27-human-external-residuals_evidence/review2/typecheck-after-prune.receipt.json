@@ -1,0 +1,11 @@
+{
+  "command": [
+    "npx",
+    "tsc",
+    "--noEmit"
+  ],
+  "startedAt": "2026-10-27T06:31:00.478788+00:00",
+  "endedAt": "2026-10-27T06:31:27.571542+00:00",
+  "exitCode": 0,
+  "log": "typecheck-after-prune.log.txt"
+}

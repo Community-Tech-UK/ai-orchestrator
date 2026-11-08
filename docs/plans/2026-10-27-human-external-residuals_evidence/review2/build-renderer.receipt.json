@@ -1,0 +1,11 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "build:renderer"
+  ],
+  "startedAt": "2026-10-27T05:05:28.301052+00:00",
+  "endedAt": "2026-10-27T05:05:49.397221+00:00",
+  "exitCode": 0,
+  "log": "build-renderer.log.txt"
+}

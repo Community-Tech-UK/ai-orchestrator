@@ -1,0 +1,11 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "build:main"
+  ],
+  "startedAt": "2026-10-27T06:32:39.575488+00:00",
+  "endedAt": "2026-10-27T06:33:17.699735+00:00",
+  "exitCode": 0,
+  "log": "build-main-after-prune.log.txt"
+}

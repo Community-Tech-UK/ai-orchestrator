@@ -1,0 +1,8 @@
+file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/review2/cdp.mjs:22
+  if(r.exceptionDetails) throw Error(JSON.stringify(r.exceptionDetails));
+                               ^
+
+Error: {"exceptionId":2,"text":"Uncaught (in promise) TypeError: runs.data.map is not a function","lineNumber":0,"columnNumber":0,"exception":{"type":"object","subtype":"error","className":"TypeError","description":"TypeError: runs.data.map is not a function\n    at <anonymous>:5:268","objectId":"3105550823001000123.1.1"}}
+    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/review2/cdp.mjs:22:32
+
+Node.js v26.12.1

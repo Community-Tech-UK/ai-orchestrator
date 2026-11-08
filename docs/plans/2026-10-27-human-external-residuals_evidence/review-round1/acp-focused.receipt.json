@@ -1,0 +1,9 @@
+{
+  "command": "npm run test:quiet -- src/main/cli/adapters/acp-prompt-timeout-policy.spec.ts src/main/cli/adapters/acp-stall-watchdog.spec.ts src/main/cli/adapters/acp-cli-adapter.liveness.spec.ts",
+  "startedAt": "2026-10-27T03:34:50.277038+00:00",
+  "endedAt": "2026-10-27T03:34:58.147413+00:00",
+  "exitCode": 0,
+  "log": "acp-focused.log.txt",
+  "testCacheDisabled": true,
+  "maxForks": 1
+}

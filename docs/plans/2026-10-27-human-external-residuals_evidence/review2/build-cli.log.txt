@@ -1,0 +1,9 @@
+
+> harness@0.1.0 build:aio-mcp-cli
+> tsx build-aio-mcp-cli.ts
+
+
+  dist/aio-mcp-cli/index.js  1.3mb ⚠️
+
+⚡ Done in 40ms
+aio-mcp CLI bundle built -> dist/aio-mcp-cli/index.js

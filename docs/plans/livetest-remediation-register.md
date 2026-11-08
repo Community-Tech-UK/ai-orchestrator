@@ -370,6 +370,16 @@ sections below. The historical reproduction remains unchanged.
 | LT-711 | P3 | **OPEN — historical report, awaiting independent reproduction.** Cursor was reported on 2026-10-04 to emit empty `completed` updates for real failed reads and rejected shell permissions. The raw receipt is absent, so no current miner or provider behaviour is claimed. Distinct from LT-612 and from AR-007’s retired clause. The detail section sets no priority; P3 is assigned for an unreproduced historical report. | [LT-711 detail](#lt-711) | [Agent runtime residuals 2026-10-04 batch report](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-04-orchestrating-session-and-batch-agents) |
 | LT-712 | P3 | **IMPLEMENTED on main (handoff-observability plan, merged 2026-11-07); live proof open.** Audit rows now carry the queued command ID, and head reinsertion is logged with that ID and the queue depth; the LT-616 handoff log is unchanged. AR-003 stays open until an identified rebuilt coordinator repeats the handoff run and the audit join is observed live. | [LT-712 detail](#lt-712) | [Agent runtime residuals AR-003](2026-09-27-livetest-agent-runtime-residuals_livetest.md#ar-003--lt-371-live-browser-command-socket-handoff-correlation) |
 
+### New findings — 2026-10-27 human/external residual campaign
+
+| ID | Priority | Status / observed defect | Evidence | Acceptance owner |
+| --- | --- | --- | --- | --- |
+| LT-780 | P2 | **REPAIR IMPLEMENTED; REVIEW PENDING.** Rebuilt CLI reads pass through the real authenticated parent; transport regression reproduces the original wrapper failure. | [LT-780 detail](#lt-780) | [Review corrections](2026-10-27-human-external-review2_plan.md) |
+| LT-781 | P2 | **REPAIR IMPLEMENTED; REVIEW PENDING.** Rebuilt CLI preserves all 115,377 bytes through a pipe, matching file output; slow-reader regression covers larger output and nonzero errors. | [LT-781 detail](#lt-781) | [Review corrections](2026-10-27-human-external-review2_plan.md) |
+| LT-890 | P1 | **OBSERVED LIVE; NOT FIXED.** Fresh isolated startup throws `database is locked` at RLM WAL initialization during critical Work controls setup and leaves no renderer target. Restarting the same profile succeeds. | [LT-890 detail](#lt-890) | [Resumed residual campaign](2026-09-27-livetest-human-external-residuals_livetest.md#evidence-run--2026-10-27-resumed-worker) |
+| LT-991 | P1 | **REPRODUCED LIVE; REPAIR IMPLEMENTED, LIVE RETEST PENDING.** Persistence sentinel ignores the extension evaluate JSON envelope, so a stale/save-failed form reports successful writes and verified persistence. | [LT-991 detail](#lt-991) | [Review corrections](2026-10-27-human-external-review2_plan.md#lt-991-implementation-status) |
+| LT-992 | P2 | **REPRODUCED; NOT REPAIRED.** Packaging repeatability cannot collect under supported Node 26; the unchanged cases pass under supported Node 24. | [LT-992 detail](#lt-992) | [Review corrections](2026-10-27-human-external-review2_plan.md#lt-992-implementation-status) |
+
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
 ### Observed behavior
@@ -10304,6 +10314,223 @@ scoring".
   failure that persists is surfaced as a note/warning without dropping the record.
 - The AIO-05 C1 cell is re-run and recorded normally after the fix; the benchmark suite and the
   canonical static gates stay green.
+
+<a id="lt-780"></a>
+
+## LT-780 — documented Copilot account CLI reads double-wrap the authenticated request
+
+**Status:** reproduced and repair implemented 2026-10-27; independent review pending.
+The rebuilt CLI calls the real authenticated running parent successfully for all four methods.
+The new spawned-CLI transport regression fails against the original source and passes with
+the repair. Evidence: `2026-10-27-human-external-residuals_evidence/review2/cli-live.receipt.json`
+and `transport-red-final` / `transport-green` receipts. Active implementation record:
+[review corrections](2026-10-27-human-external-review2_plan.md#lt-780--lt-781-implementation-status).
+Renumbered from the colliding campaign-local LT-710 to LT-780 after scanning every registered
+checkout on 2026-10-27. The other campaigns' LT-710/LT-711 records are unrelated and preserved.
+
+**Observed behaviour.** The injected, installed `AIO_MCP` executable's documented
+`copilot-account list --json`, `rules --json`, and `doctor --json` all exit 1 with
+`Unrecognized key: "payload"`. `route <current-worktree> --origin=automation --json`
+also reports missing top-level `workingDirectory`. A second list call reproduces the failure.
+No account mutation or login was attempted. The same authenticated parent transport, called
+through the built repository client with the expected empty payload, succeeds and returns two
+authenticated profiles. This distinguishes a malformed CLI request from missing authentication,
+an unavailable parent, or absent Copilot profiles.
+
+**Executing source path / root cause.** `src/main/mcp/copilot-account-cli.ts:133` calls
+`client.call(method, { payload })`. `orchestrator-tools-rpc-client.ts:60` already wraps that
+argument as `params.payload`. `orchestrator-tools-rpc-server.ts:377` passes it unchanged to
+`dispatchCopilotAccountCliRpc`, whose strict empty/route schemas reject the extra wrapper
+(`orchestrator-tools-rpc-copilot-account.ts:34`, `:43`). Existing CLI tests mock the transport
+instead of joining it to dispatch, and even pin the nested wrapper in the route assertion
+(`copilot-account-cli.spec.ts:44`); the focused suite remains green on the defective source.
+The observed installed failure and the successful correct-shape control agree with this path;
+this run does not claim the installed binary is byte-identical to the checkout.
+
+**Required behaviour.** All four read verbs must pass the business payload once through the
+existing authenticated client. Preserve strict request/response validation and the operator-only
+boundary on account mutations. Do not relax a schema or add a compatibility adapter to accept
+the malformed internal shape.
+
+**Acceptance.** A real-client/dispatcher regression must exercise all four verbs, including route
+origin, alongside unknown-key and response-leak refusals. After rebuild, the injected installed
+CLI must return valid read-only results for list/rules/doctor/route against the running parent.
+Recheck RES-020 and RES-021 account prerequisites without claiming their provider campaigns pass.
+
+**Evidence.** Durable [campaign receipts](2026-10-27-human-external-residuals_evidence/REPORT.md),
+`2026-10-27-human-external-residuals_evidence/run1/`:
+`copilot-account.receipt.json`, `copilot-cli-repro.receipt.json`,
+`copilot-direct-read.receipt.json`, `focused-tests.receipt.json`, `source-seal.json`.
+The source hashes and authenticated replies are retained without transport capabilities,
+socket values, profile homes or credentials. The root-owned residual document is the live owner.
+The review retry reproduces all four malformed reads again; see
+`review-round1/copilot-cli-recheck.receipt.json` in the same durable evidence directory.
+
+<a id="lt-781"></a>
+
+## LT-781 — successful CLI exit truncates settings JSON when stdout is a pipe
+
+**Status:** reproduced and repair implemented 2026-10-27; independent review pending.
+The dispatcher now assigns `process.exitCode`, allowing pending stdout writes to drain.
+A real parent read through the rebuilt CLI returns matching valid 115,377-byte pipe/file
+outputs. A spawned CLI with a slow reader reproduces 65,536 of 450,316 bytes before the fix
+and preserves every byte after it; nonzero parent errors remain nonzero. Evidence:
+`2026-10-27-human-external-residuals_evidence/review2/cli-live.receipt.json` and transport receipts.
+Active implementation record:
+[review corrections](2026-10-27-human-external-review2_plan.md#lt-780--lt-781-implementation-status).
+
+**Observed behaviour.** Twice, the injected installed `aio-mcp settings list --json`, captured
+through a pipe by `subprocess.run`, exits 0 with exactly 65,536 bytes and no stderr. Parsing fails
+with `Unterminated string starting at: line 1868 column 11 (char 65493)`. No raw settings list is
+retained. A regular-file stdout control returns valid JSON: 115,377 bytes, 224 settings. Running
+the same compiled `runSettingsCli` with natural Node shutdown through a pipe also returns all
+115,377 bytes; the two complete outputs have the same SHA-256. Small individual setting reads
+continue to work. These controls rule out a truncated parent response or a JSON formatting error.
+
+**Source-supported cause.** `src/main/mcp/settings-cli.ts:32` writes stdout without awaiting its
+callback; the list path writes the complete serialization at `:45`. The outer dispatcher calls
+`process.exit(code)` immediately after the async command returns
+(`src/main/mcp/aio-mcp-dispatcher.ts:109`), without draining a piped stdout stream. The observed
+pipe/file/natural-exit difference identifies premature exit as the repair target. This run does
+not patch the dispatcher or claim other large-output command families have been live-tested.
+
+**Required behaviour.** Successful CLI completion must preserve every stdout byte before exiting,
+for pipes as well as regular files, while retaining nonzero error exits and clean MCP streams.
+Keep secret-tier values redacted. Do not hide the defect by silently truncating results or
+requiring callers to redirect to a file.
+
+**Acceptance.** A spawned CLI/dispatcher test must write a harmless JSON result larger than the
+pipe buffer, pipe it to a slow reader, parse the full result and assert exit status. Include
+failure output/exit handling. After rebuild, the installed `settings list --json` must parse
+through a pipe and match a regular-file capture; retain only hashes, lengths and setting counts.
+
+**Evidence.** Durable [campaign receipts](2026-10-27-human-external-residuals_evidence/REPORT.md),
+`2026-10-27-human-external-residuals_evidence/run1/`:
+`settings-list-integrity.receipt.json`, `settings-stdout-controls.receipt.json`, `source-seal.json`.
+Only redacted metadata, sizes, parse results and hashes are retained; temporary raw output was
+closed and deleted immediately after the controls.
+The review retry reproduces the same lengths and matching complete-output hashes; see
+`review-round1/settings-pipe-recheck.receipt.json` in the same durable evidence directory.
+
+<a id="lt-890"></a>
+
+## LT-890 — fresh-profile RLM initialization can leave the app without a window
+
+**Status:** observed live on 27 October 2026; not fixed. The immediately subsequent launch with the same profile succeeded, as did this review's new fresh-profile first launch. Investigation has not identified the lock owner or established a repair. Active implementation status: [startup remediation plan](2026-10-27-residuals-startup-remediation_plan.md#lt-890-implementation-status). That untracked document lives in the root checkout for the coordinator.
+
+### Observed behaviour
+
+At 04:19:30.067 UTC, the rebuilt assigned checkout, launched with its isolated empty profile and debug port 9554, reports critical `Work controls` initialization failure: `SqliteError: database is locked`. The stack reaches `RLMDatabase.initializeDatabase` through `initializeGlobalPauseRuntime`. The process remains alive and its debug endpoint returns an empty target list; readiness of that endpoint alone was insufficient. The context worker also starts during this interval. After stopping the owned process and renderer and restarting against the same profile, the app initializes and exposes its real Angular renderer at 04:21:29–04:21:46 UTC. Focus-emulated DOM and animation-frame checks pass. No database or product source was patched for recovery.
+
+### Root cause and uncertainty
+
+The observed failing operation is `db.pragma('journal_mode = WAL')` at `src/main/persistence/rlm-database.ts:140`; the explicit busy timeout is installed later at line 144. Both main and the context worker initialize the same isolated database (`context-worker-main.ts:157–160`; `context-worker-client.ts:107–114`). Concurrent initial WAL/schema setup is a candidate cause, not a proven lock-owner attribution. No lock-owner trace or deterministic race reproduction was collected, so timeout ordering alone is not claimed as the complete cause.
+
+**Review correction, 27 October.** `defaultDriverFactory` constructs better-sqlite3 without a
+timeout override (`src/main/db/better-sqlite3-driver.ts:72`). Its JavaScript constructor defaults
+to 5,000 ms (`node_modules/better-sqlite3/lib/database.js:34`), and the native constructor applies
+`sqlite3_busy_timeout` before returning (`src/objects/database.cpp:172` in that installed package).
+The connection therefore already has this timeout before RLM's pragmas. Moving the later pragma
+alone is not an evidenced repair. The new fresh-profile first launch succeeded; the earlier
+failure remains open with no identified lock owner or product-source change.
+The compiled driver was also exercised in Electron Node mode against an in-memory database:
+the initial busy timeout reads 5,000 ms and `SELECT 1` succeeds before any RLM configuration
+pragma. See the [native control receipt](2026-10-27-human-external-residuals_evidence/review2/native-electron-control.receipt.json).
+
+### Required behaviour
+
+A new profile must initialize database ownership and critical Work controls safely with the context worker enabled. Contention must either settle within a bounded startup policy or produce a visible, actionable startup failure; the process must not remain running without an app window and only an unhandled rejection. Do not hide the error or change production data during remediation.
+
+### Acceptance
+
+1. Identify the actual competing connection and reproduce contention under ordinary startup without a stress generator.
+2. Exercise compiled main/context-worker startup against fresh and existing isolated databases; verify the window and real IPC become ready.
+3. Exercise bounded persistent contention and require an actionable visible error plus clean process teardown.
+4. Preserve database contents and run focused database/worker regressions and canonical code gates for the eventual fix.
+
+### Evidence
+
+Retained under `2026-10-27-human-external-residuals_evidence/resume2/`: `startup-first/electron.log.txt`, startup/stop/build receipts, the successful second runtime receipts, and `ui-ready.receipt.json`. `id-reallocation.receipt.json` records the clear all-checkout search for LT-890. The initial proposed LT-790 was clear when scanned, then concurrently claimed by the MiMo campaign; its original allocation receipt and pre-cleanup seal remain historical, with this correction recorded in the current report. LT-782 was already owned by MiMo and was never allocated here. Other campaigns' records are untouched.
+
+<a id="lt-991"></a>
+
+## LT-991 — persistence sentinel ignores the extension's serialized evaluate result
+
+**Status:** reproduced live 27 October 2026; repair implemented in the queue checkout,
+focused regressions pass; packaged-coordinator live confirmation and independent review pending.
+Active implementation status: [review corrections](2026-10-27-human-external-review2_plan.md#lt-991-implementation-status).
+
+**Observed behaviour.** An owned Windows-loopback session serves a save-on-type form. Only its
+save socket is deliberately interrupted; no machine network or business tab is changed.
+The page visibly reports `Your session has expired` in a `role=alert` region. After restoring
+the fixture connection while retaining that banner, `browser.type` still returns `succeeded`
+(audit `5fc3e94e-52c1-4340-86db-f4e4652b71eb`). Its journal records successful/unverified
+writes, and `browser.assert_persisted` reports `persisted:true`, `confidence:verified`,
+`signalState:unknown` (audit `3e23fdcb-6aae-4da9-810c-82aa1152d2cb`). A subsequent snapshot
+still contains the expiry banner. No CAPTCHA, credential, real customer data or global network
+change was involved. The owned tab, server, script and helper session were cleaned up.
+
+**Executing path / root cause.** `resources/browser-extension/background.js:evaluateInTab`
+returns `{type, json}` where `json` serializes the expression's value. This exact shape was
+also captured from the real extension. `BrowserTargetPersistenceSentinel.scan` submits that
+evaluate command, but `normalizeScanResult` only recognized a bare `{s,m}` or `{result:{s,m}}`.
+It therefore returned unknown for both healthy and stale real-extension responses. The
+existing mutation guards and persistence assertion consume that unknown state. The repair
+decodes the existing wire format before classifying it, retaining unknown for malformed or
+truncated results. No extension deployment or new browser capability is required.
+
+**Required behaviour.** Real extension scan results must identify stale-session and failed-save
+banners. A post-write scan must report the failed persistence verdict and journal entry;
+the first post-disconnect write must be refused when the required pre-write scan is stale.
+`browser.assert_persisted` must not report true when the alert scan identifies either failure.
+
+**Acceptance.** Exercise actual serialized extension envelopes for ok/save_failed/session_stale,
+including malformed/truncated data; drive mutation guard, journal and persistence-assertion
+paths with that wire shape; rerun the owned live form against a rebuilt coordinator. Preserve
+normal healthy writes and keep original human/credential escalation boundaries unchanged.
+
+**Evidence.** `2026-10-27-human-external-residuals_evidence/review2/spa-stale-session.receipt.json`
+contains the before/after snapshots, restored connection response, write journal and failing
+assertion. `sentinel-baseline`, `sentinel-red`, `sentinel-green` and worker cleanup receipts
+record the baseline, reproduced missing classification, repair checks and owned cleanup.
+
+<a id="lt-992"></a>
+
+## LT-992 — supported Node 26 cannot collect the packaging repeatability spec
+
+**Status:** reproduced 27 October 2026 during canonical verification; not repaired. The same
+unchanged spec passes under supported Node v24.22.1. Active implementation record:
+[review corrections](2026-10-27-human-external-review2_plan.md#lt-992-implementation-status).
+
+**Observed behaviour.** The normal full suite under Node v26.12.1 exits 1. Besides three
+assertion failures that pass separately, the full default-reporter log records an unhandled
+`SyntaxError: Unexpected token '�', "�" is not valid JSON` in `convert-source-map`. The
+`scripts/__tests__/sea-build-repeatability.spec.ts` JSON result is failed with both assertions
+pending. The normal quiet summary lists only the three other failed assertions. Running this
+spec alone with one fork reproduces the same error before any test executes. Under the existing
+Node v24.22.1 executable, the unchanged spec executes both packaging cases and exits zero.
+No native module was rebuilt and no dependency version, test or runtime-support declaration
+was modified. `scripts/check-node.js` explicitly supports both exact versions.
+
+**Root cause and uncertainty.** The visible stack enters `convert-source-map/index.js:83`
+through Vitest source-map/stack parsing. The original Node-26 error being formatted is not
+established. This is a runtime-dependent collection failure, not evidence that either packaging
+assertion passes under Node 26. The successful Node-24 control does not repair Node-26 support.
+
+**Required behaviour.** Every declared supported Node runtime must collect and execute both
+packaging repeatability assertions, without an unhandled formatting error or pending results.
+Retain the actual checks that a read-only previous executable is replaced and the new executable
+runs the fixture. Do not skip the spec, weaken assertions or silently discard runner errors.
+
+**Acceptance.** Run this unchanged assertion contract under Node v26.12.1 and v24.22.1; require
+two executed, passing cases and zero unhandled errors under each. Identify the underlying
+Node-26 failure before changing product scripts or dependency versions, then run the normal
+verification gates for the eventual repair.
+
+**Evidence.** `2026-10-27-human-external-residuals_evidence/review2/` contains
+`full-suite-after-prune.*`, `full-suite-failures.receipt.json`,
+`isolated-sea-default-runtime.*`, `isolated-sea-supported-runtime.*` and the archived full logs.
+`id-992-allocation.receipt.json` records the valid all-checkout uniqueness search.
 
 
 <a id="lt-711"></a>

@@ -1,0 +1,67 @@
+{
+  "at": "2026-10-27T04:29:28.791Z",
+  "receipts": [
+    {
+      "args": [
+        "local-ai",
+        "list",
+        "--json"
+      ],
+      "startedAt": "2026-10-27T04:29:28.130Z",
+      "endedAt": "2026-10-27T04:29:28.213Z",
+      "status": 0,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "local-ai",
+        "enrol",
+        "{\"lifecycle\":\"enrolled\",\"location\":{\"type\":\"coordinator\"},\"provider\":\"openai-compatible\",\"endpointId\":\"owned-lt-proxy\",\"baseUrl\":\"http://127.0.0.1:9655\",\"expectedModels\":[{\"modelId\":\"qwen/qwen3.6-35b-a3b\",\"required\":true,\"minContextLength\":131072}],\"canary\":{\"model\":\"qwen/qwen3.6-35b-a3b\",\"timeoutMs\":30000,\"intervalMs\":600000},\"endpointCheckIntervalMs\":60000,\"freshnessLimitMs\":120000,\"warningLatencyMs\":15000,\"routingRoles\":[\"approvalAdjudication\"],\"fallbackPolicy\":\"block-paid-fallback\",\"slotFallbackPolicies\":{},\"recovery\":{\"automatic\":false,\"maxAttempts\":2,\"cooldownMs\":300000}}",
+        "--json"
+      ],
+      "startedAt": "2026-10-27T04:29:28.213Z",
+      "endedAt": "2026-10-27T04:29:28.527Z",
+      "status": 0,
+      "stdout": "{\n  \"target\": {\n    \"lifecycle\": \"enrolled\",\n    \"location\": {\n      \"type\": \"coordinator\"\n    },\n    \"provider\": \"openai-compatible\",\n    \"endpointId\": \"owned-lt-proxy\",\n    \"baseUrl\": \"http://127.0.0.1:9655\",\n    \"expectedModels\": [\n      {\n        \"modelId\": \"qwen/qwen3.6-35b-a3b\",\n        \"required\": true,\n        \"minContextLength\": 131072\n      }\n    ],\n    \"canary\": {\n      \"model\": \"qwen/qwen3.6-35b-a3b\",\n      \"timeoutMs\": 30000,\n      \"intervalMs\": 600000\n    },\n    \"endpointCheckIntervalMs\": 60000,\n    \"freshnessLimitMs\": 120000,\n    \"warningLatencyMs\": 15000,\n    \"routingRoles\": [\n      \"approvalAdjudication\"\n    ],\n    \"fallbackPolicy\": \"block-paid-fallback\",\n    \"slotFallbackPolicies\": {},\n    \"recovery\": {\n      \"automatic\": false,\n      \"maxAttempts\": 2,\n      \"cooldownMs\": 300000\n    },\n    \"id\": \"48dcf77a-856f-4950-beef-47edc34a7c67\",\n    \"label\": \"This computer · OpenAI-compatible (127.0.0.1:9655)\",\n    \"createdAt\": 1793075368515,\n    \"updatedAt\": 1793075368515\n  },\n  \"validation\": [\n    {\n      \"targetId\": \"eed2831b-6cc2-45c9-993e-52ec01959d73\",\n      \"layer\": \"worker\",\n      \"checkType\": \"functional\",\n      \"ok\": true,\n      \"required\": true,\n      \"affectedRoles\": [\n        \"approvalAdjudication\"\n      ],\n      \"checkedAt\": 1793075368302,\n      \"durationMs\": 0,\n      \"evidence\": {\n        \"workerConnected\": true,\n        \"rpcReachable\": true\n      }\n    },\n    {\n      \"targetId\": \"eed2831b-6cc2-45c9-993e-52ec01959d73\",\n      \"layer\": \"endpoint\",\n      \"checkType\": \"functional\",\n      \"ok\": true,\n      \"required\": true,\n      \"affectedRoles\": [\n        \"approvalAdjudication\"\n      ],\n      \"checkedAt\": 1793075368303,\n      \"durationMs\": 7,\n      \"evidence\": {\n        \"endpointReachable\": true,\n        \"endpointProtocol\": \"openai-v1\",\n        \"httpStatus\": 200\n      }\n    },\n    {\n      \"targetId\": \"eed2831b-6cc2-45c9-993e-52ec01959d73\",\n      \"layer\": \"model\",\n      \"checkType\": \"functional\",\n      \"ok\": true,\n      \"required\": false,\n      \"affectedRoles\": [\n        \"approvalAdjudication\"\n      ],\n      \"checkedAt\": 1793075368303,\n      \"durationMs\": 7,\n      \"evidence\": {\n        \"advertisedModels\": [\n          \"qwen/qwen3.6-35b-a3b\",\n          \"qwen3.8-flash-next\",\n          \"qwen3.8-27b\",\n          \"google/gemma-4-26b-a4b-qat\",\n          \"google/gemma-4-31b\",\n          \"google/gemma-4-31b-qat\",\n          \"qwen/qwen3.6-27b\",\n          \"google/gemma-4-12b\",\n          \"google/gemma-4-12b-qat\",\n          \"qwen/qwen3.5-9b\",\n          \"qwen/qwen3-coder-next\",\n          \"qwen/qwen3.5-35b-a3b\",\n          \"google/gemma-4-26b-a4b\",\n          \"zai-org/glm-4.7-flash\",\n          \"nvidia/nemotron-3-nano-4b\",\n          \"text-embedding-nomic-embed-text-v1.5\"\n        ],\n        \"loadedModels\": [\n          \"qwen/qwen3.6-35b-a3b\"\n        ],\n        \"missingModels\": [],\n        \"requiredModelCount\": 1,\n        \"availableContextLength\": 229376\n      }\n    },\n    {\n      \"targetId\": \"eed2831b-6cc2-45c9-993e-52ec01959d73\",\n      \"layer\": \"inference\",\n      \"checkType\": \"functional\",\n      \"ok\": true,\n      \"required\": true,\n      \"affectedRoles\": [\n        \"approvalAdjudication\"\n      ],\n      \"checkedAt\": 1793075368303,\n      \"durationMs\": 198,\n      \"evidence\": {\n        \"canaryOutputValid\": true,\n        \"canaryLatencyMs\": 198\n      }\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "local-ai",
+        "list",
+        "--json"
+      ],
+      "startedAt": "2026-10-27T04:29:28.527Z",
+      "endedAt": "2026-10-27T04:29:28.615Z",
+      "status": 0,
+      "stdout": "[\n  {\n    \"lifecycle\": \"enrolled\",\n    \"location\": {\n      \"type\": \"coordinator\"\n    },\n    \"provider\": \"openai-compatible\",\n    \"endpointId\": \"owned-lt-proxy\",\n    \"baseUrl\": \"http://127.0.0.1:9655\",\n    \"expectedModels\": [\n      {\n        \"modelId\": \"qwen/qwen3.6-35b-a3b\",\n        \"required\": true,\n        \"minContextLength\": 131072\n      }\n    ],\n    \"canary\": {\n      \"model\": \"qwen/qwen3.6-35b-a3b\",\n      \"timeoutMs\": 30000,\n      \"intervalMs\": 600000\n    },\n    \"endpointCheckIntervalMs\": 60000,\n    \"freshnessLimitMs\": 120000,\n    \"warningLatencyMs\": 15000,\n    \"routingRoles\": [\n      \"approvalAdjudication\"\n    ],\n    \"fallbackPolicy\": \"block-paid-fallback\",\n    \"slotFallbackPolicies\": {},\n    \"recovery\": {\n      \"automatic\": false,\n      \"maxAttempts\": 2,\n      \"cooldownMs\": 300000\n    },\n    \"id\": \"48dcf77a-856f-4950-beef-47edc34a7c67\",\n    \"label\": \"This computer · OpenAI-compatible (127.0.0.1:9655)\",\n    \"createdAt\": 1793075368515,\n    \"updatedAt\": 1793075368515\n  }\n]\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "local-ai",
+        "enrol",
+        "{\"lifecycle\":\"enrolled\",\"location\":{\"type\":\"coordinator\"},\"provider\":\"openai-compatible\",\"endpointId\":\"owned-lt-proxy\",\"baseUrl\":\"http://127.0.0.1:9655\",\"expectedModels\":[{\"modelId\":\"qwen/qwen3.6-35b-a3b\",\"required\":true,\"minContextLength\":131072}],\"canary\":{\"model\":\"qwen/qwen3.6-35b-a3b\",\"timeoutMs\":30000,\"intervalMs\":600000},\"endpointCheckIntervalMs\":60000,\"freshnessLimitMs\":120000,\"warningLatencyMs\":15000,\"routingRoles\":[\"approvalAdjudication\"],\"fallbackPolicy\":\"block-paid-fallback\",\"slotFallbackPolicies\":{},\"recovery\":{\"automatic\":false,\"maxAttempts\":2,\"cooldownMs\":300000}}",
+        "--json"
+      ],
+      "startedAt": "2026-10-27T04:29:28.615Z",
+      "endedAt": "2026-10-27T04:29:28.705Z",
+      "status": 1,
+      "stdout": "",
+      "stderr": "aio-mcp local-ai failed: Local AI endpoint is already enrolled as 48dcf77a-856f-4950-beef-47edc34a7c67\n"
+    },
+    {
+      "args": [
+        "local-ai",
+        "list",
+        "--json"
+      ],
+      "startedAt": "2026-10-27T04:29:28.705Z",
+      "endedAt": "2026-10-27T04:29:28.791Z",
+      "status": 0,
+      "stdout": "[\n  {\n    \"lifecycle\": \"enrolled\",\n    \"location\": {\n      \"type\": \"coordinator\"\n    },\n    \"provider\": \"openai-compatible\",\n    \"endpointId\": \"owned-lt-proxy\",\n    \"baseUrl\": \"http://127.0.0.1:9655\",\n    \"expectedModels\": [\n      {\n        \"modelId\": \"qwen/qwen3.6-35b-a3b\",\n        \"required\": true,\n        \"minContextLength\": 131072\n      }\n    ],\n    \"canary\": {\n      \"model\": \"qwen/qwen3.6-35b-a3b\",\n      \"timeoutMs\": 30000,\n      \"intervalMs\": 600000\n    },\n    \"endpointCheckIntervalMs\": 60000,\n    \"freshnessLimitMs\": 120000,\n    \"warningLatencyMs\": 15000,\n    \"routingRoles\": [\n      \"approvalAdjudication\"\n    ],\n    \"fallbackPolicy\": \"block-paid-fallback\",\n    \"slotFallbackPolicies\": {},\n    \"recovery\": {\n      \"automatic\": false,\n      \"maxAttempts\": 2,\n      \"cooldownMs\": 300000\n    },\n    \"id\": \"48dcf77a-856f-4950-beef-47edc34a7c67\",\n    \"label\": \"This computer · OpenAI-compatible (127.0.0.1:9655)\",\n    \"createdAt\": 1793075368515,\n    \"updatedAt\": 1793075368515\n  }\n]\n",
+      "stderr": ""
+    }
+  ]
+}

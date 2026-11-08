@@ -1,0 +1,27 @@
+{
+  "at": "2026-10-27T03:30:23.398Z",
+  "focusEmulation": true,
+  "visibilityOverride": "'Emulation.setPageVisibilityOverride' wasn't found",
+  "errors": [],
+  "value": {
+    "result": {
+      "success": true,
+      "data": {
+        "text": "{\"score\":0,\"confidence\":0,\"reason\":\"No auxiliary model available\"}",
+        "decision": {
+          "slot": "approvalAdjudication",
+          "provider": "local-fallback",
+          "source": "fallback",
+          "reason": "No healthy auxiliary endpoint/model available — ollama-localhost: endpoint-heartbeat-unhealthy",
+          "allowFrontierFallback": false,
+          "localAiRoutingEventId": "ec0f40b3-1408-40de-a9b1-8fbeca966562",
+          "fallbackDisposition": "blocked"
+        }
+      }
+    },
+    "slotSetting": {
+      "success": true,
+      "data": false
+    }
+  }
+}

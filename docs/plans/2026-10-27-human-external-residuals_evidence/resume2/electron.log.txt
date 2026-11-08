@@ -1,0 +1,1368 @@
+
+DevTools listening on ws://127.0.0.1:9554/devtools/browser/522df5a2-6a14-405f-97e3-7946751ae291
+[2026-10-27T04:21:29.661Z] [INFO] [ContextWorkerClient] Context worker started 
+[2026-10-27T04:21:29.676Z] [INFO] [App] Initializing Harness 
+[2026-10-27T04:21:29.677Z] [INFO] [App] Initializing: Work controls 
+[2026-10-27T04:21:29.685Z] [INFO] [App] Initialized: Work controls 
+[2026-10-27T04:21:29.685Z] [INFO] [App] Initializing: Conversation ledger 
+[2026-10-27T04:21:29.686Z] [INFO] [ConversationLedgerWorkerClient] Conversation ledger worker started 
+[2026-10-27T04:21:29.686Z] [INFO] [ConversationLedgerService] ConversationLedgerService initialized 
+[2026-10-27T04:21:29.686Z] [INFO] [App] Initialized: Conversation ledger 
+[2026-10-27T04:21:29.686Z] [INFO] [App] Initializing: Context evidence 
+[2026-10-27T04:21:29.783Z] [INFO] [ContextEvidenceRuntime] Context evidence runtime ready { durationMs: 96.38433399999985 }
+[2026-10-27T04:21:29.783Z] [INFO] [App] Initialized: Context evidence 
+[2026-10-27T04:21:29.783Z] [INFO] [App] Initializing: Provider event capture 
+[2026-10-27T04:21:29.784Z] [INFO] [App] Initialized: Provider event capture 
+[2026-10-27T04:21:29.784Z] [INFO] [App] Initializing: Context analytics 
+[2026-10-27T04:21:29.784Z] [INFO] [App] Initialized: Context analytics 
+[2026-10-27T04:21:29.784Z] [INFO] [App] Initializing: Operator database 
+[2026-10-27T04:21:29.801Z] [INFO] [App] Initialized: Operator database 
+[2026-10-27T04:21:29.801Z] [INFO] [App] Initializing: Chat service 
+[2026-10-27T04:21:29.802Z] [INFO] [App] Initialized: Chat service 
+[2026-10-27T04:21:29.805Z] [INFO] [App] Initializing: Cross-session messaging 
+[2026-10-27T04:21:29.805Z] [INFO] [App] Initialized: Cross-session messaging 
+[2026-10-27T04:21:29.809Z] [INFO] [App] Initializing: Unified model catalog 
+[2026-10-27T04:21:29.810Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 76, triggerSources: [] }
+[2026-10-27T04:21:29.813Z] [INFO] [ModelsDev] models.dev offline snapshot seeded {
+  models: 120,
+  source: 'https://models.dev/api.json',
+  overlaySize: 120
+}
+[2026-10-27T04:21:29.814Z] [INFO] [RLMContextManager] RLM persistence load summary {
+  processRole: 'context-worker',
+  discoveredStores: 0,
+  activeSessions: 0,
+  startupContentBytes: 0,
+  residentMetadataSections: 0,
+  deferredMetadataSections: 0,
+  residentContentBytes: 0,
+  residentContentSections: 0,
+  residentContentStores: 0,
+  hotCandidates: 0,
+  hotAdmitted: 0,
+  hotSkipped: 0,
+  hotExhausted: 0,
+  hotCancelled: 0,
+  semanticDiscovered: 0,
+  semanticIndexed: 0,
+  semanticSkipped: 0,
+  semanticFailed: 0,
+  semanticRetried: 0,
+  metadataOnlyStores: 0,
+  deferredStores: 0,
+  exhausted: {
+    metadata: false,
+    contentBytes: false,
+    contentSections: false,
+    contentStores: false
+  },
+  elapsedMs: 1,
+  counts: {
+    durableStores: 0,
+    durableSections: 0,
+    activeSessions: 0,
+    residentMetadataSections: 0,
+    deferredMetadataSections: 0,
+    residentContentSections: 0,
+    residentContentStores: 0,
+    metadataOnlyStores: 0,
+    deferredStores: 0
+  }
+}
+[2026-10-27T04:21:29.818Z] [INFO] [WakeContextBuilder] WakeContextBuilder initialized 
+[2026-10-27T04:21:29.818Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 164, triggerSources: [ 'user-custom' ] }
+[2026-10-27T04:21:29.820Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 164, triggerSources: [ 'catalog-override' ] }
+[2026-10-27T04:21:29.821Z] [INFO] [LLMService] Ollama health check failed; will skip Ollama provider { error: 'fetch failed' }
+[2026-10-27T04:21:29.827Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 164, triggerSources: [ 'local-model' ] }
+[2026-10-27T04:21:29.850Z] [INFO] [CopilotSdkLoader] Copilot bundled SDK loaded {
+  sdkPath: '~/.nvm/versions/node/v24.22.1/lib/node_modules/@github/copilot/copilot-sdk/index.js',
+  packageVersion: '1.0.62'
+}
+[2026-10-27T04:21:29.894Z] [INFO] [App] Initialized: Unified model catalog 
+[2026-10-27T04:21:29.894Z] [INFO] [App] Initializing: Auxiliary LLM service 
+[2026-10-27T04:21:29.895Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'local-first', endpointCount: 0 }
+[2026-10-27T04:21:29.896Z] [INFO] [App] Initialized: Auxiliary LLM service 
+[2026-10-27T04:21:29.896Z] [INFO] [App] Initializing: Local AI Guard 
+[2026-10-27T04:21:29.898Z] [INFO] [App] Initialized: Local AI Guard 
+[2026-10-27T04:21:29.898Z] [INFO] [App] Initializing: Quota pacing 
+[2026-10-27T04:21:29.899Z] [INFO] [App] Initialized: Quota pacing 
+[2026-10-27T04:21:29.899Z] [INFO] [App] Initializing: Operator event relay 
+[2026-10-27T04:21:29.899Z] [INFO] [App] Initialized: Operator event relay 
+[2026-10-27T04:21:29.900Z] [INFO] [App] Initializing: IPC handlers 
+[2026-10-27T04:21:30.543Z] [INFO] [AutoUpdate] Auto-update disabled (not packaged or explicitly off) 
+[2026-10-27T04:21:30.555Z] [INFO] [DiagnosticsHandlers] Diagnostics IPC handlers registered 
+[2026-10-27T04:21:30.556Z] [INFO] [RtkHandlers] RTK IPC handlers registered 
+[2026-10-27T04:21:30.562Z] [INFO] [LoopStore] LoopStoreService initialized 
+[2026-10-27T04:21:30.566Z] [INFO] [CostEntriesA0Repair] A0 historical cost repair complete {
+  status: 'repaired',
+  rows: 0,
+  beforeUsd: 0,
+  afterUsd: 0,
+  cutoff: 1793074770104
+}
+[2026-10-27T04:21:30.566Z] [INFO] [CostTracker] CostTracker persistence enabled { loaded: 0 }
+[2026-10-27T04:21:30.570Z] [INFO] [CliVerification] Setting up coordinator event forwarding 
+[2026-10-27T04:21:30.571Z] [INFO] [SupervisorTree] Initialized root supervisor 
+[2026-10-27T04:21:30.571Z] [INFO] [TokenStats] TokenStatsService initialized 
+[2026-10-27T04:21:30.578Z] [INFO] [RemoteNodeHandlers] Remote node IPC handlers registered 
+[2026-10-27T04:21:30.578Z] [INFO] [TerminalHandlers] Terminal IPC handlers registered 
+[2026-10-27T04:21:30.578Z] [INFO] [MobileGatewayHandlers] Mobile gateway IPC handlers registered 
+[2026-10-27T04:21:30.578Z] [INFO] [ChannelHandlers] Channel IPC handlers registered 
+[2026-10-27T04:21:30.579Z] [INFO] [KnowledgeGraphService] KnowledgeGraphService initialized 
+[2026-10-27T04:21:30.579Z] [INFO] [KnowledgeGraphHandlers] Knowledge graph IPC handlers registered 
+[2026-10-27T04:21:30.579Z] [INFO] [ConversationMiningHandlers] Conversation mining IPC handlers registered 
+[2026-10-27T04:21:30.579Z] [INFO] [WakeContextBuilder] WakeContextBuilder initialized 
+[2026-10-27T04:21:30.579Z] [INFO] [WakeContextHandlers] Wake context IPC handlers registered 
+[2026-10-27T04:21:30.581Z] [INFO] [ConversationMiner] ConversationMiner initialized 
+[2026-10-27T04:21:30.581Z] [INFO] [IpcMainHandler] IPC handlers registered 
+[2026-10-27T04:21:30.582Z] [INFO] [App] Initialized: IPC handlers 
+[2026-10-27T04:21:30.582Z] [INFO] [App] Initializing: Runtime diagnostics 
+[2026-10-27T04:21:30.582Z] [INFO] [App] Initialized: Runtime diagnostics 
+[2026-10-27T04:21:30.582Z] [INFO] [App] Initializing: Main process watchdog 
+[2026-10-27T04:21:30.583Z] [INFO] [App] Initialized: Main process watchdog 
+[2026-10-27T04:21:30.583Z] [INFO] [App] Initializing: Leftover process sweeper 
+[2026-10-27T04:21:30.585Z] [INFO] [App] Initialized: Leftover process sweeper 
+[2026-10-27T04:21:30.585Z] [INFO] [App] Initializing: Pause feature 
+[2026-10-27T04:21:30.587Z] [INFO] [PauseFeatureBootstrap] Pause feature activated 
+[2026-10-27T04:21:30.587Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:21:30.587Z] [INFO] [App] Initialized: Pause feature 
+[2026-10-27T04:21:30.587Z] [INFO] [App] Initializing: Worker mode autostart 
+[2026-10-27T04:21:30.588Z] [INFO] [App] Initialized: Worker mode autostart 
+[2026-10-27T04:21:30.588Z] [INFO] [App] Initializing: Hook approvals 
+[2026-10-27T04:21:30.588Z] [INFO] [App] Initialized: Hook approvals 
+[2026-10-27T04:21:30.588Z] [INFO] [App] Initializing: Remote observer 
+[2026-10-27T04:21:30.588Z] [INFO] [App] Initialized: Remote observer 
+[2026-10-27T04:21:30.588Z] [INFO] [App] Initializing: Event forwarding 
+[2026-10-27T04:21:30.594Z] [INFO] [OrchestrationActivityBridge] Initialized — forwarding orchestration activity to renderer 
+[2026-10-27T04:21:30.595Z] [INFO] [App] Initialized: Event forwarding 
+[2026-10-27T04:21:30.595Z] [INFO] [App] Initializing: Background task publisher 
+[2026-10-27T04:21:30.595Z] [INFO] [App] Initialized: Background task publisher 
+[2026-10-27T04:21:30.595Z] [INFO] [App] Initializing: Provider turn-ending continuation 
+[2026-10-27T04:21:30.596Z] [INFO] [App] Initialized: Provider turn-ending continuation 
+[2026-10-27T04:21:30.596Z] [INFO] [App] Initializing: Verification invokers 
+[2026-10-27T04:21:30.596Z] [INFO] [App] Initialized: Verification invokers 
+[2026-10-27T04:21:30.596Z] [INFO] [App] Initializing: Automations 
+[2026-10-27T04:21:30.597Z] [INFO] [App] Initialized: Automations 
+[2026-10-27T04:21:30.597Z] [INFO] [App] Initializing: Review invokers 
+[2026-10-27T04:21:30.597Z] [INFO] [App] Initialized: Review invokers 
+[2026-10-27T04:21:30.597Z] [INFO] [App] Initializing: Debate invokers 
+[2026-10-27T04:21:30.597Z] [INFO] [App] Initialized: Debate invokers 
+[2026-10-27T04:21:30.597Z] [INFO] [App] Initializing: Workflow invokers 
+[2026-10-27T04:21:30.597Z] [INFO] [App] Initialized: Workflow invokers 
+[2026-10-27T04:21:30.597Z] [INFO] [App] Initializing: Loop store 
+(node:93233) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 instance:removed listeners added to [InstanceManager]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `Electron --trace-warnings ...` to show where the warning was created)
+[2026-10-27T04:21:30.599Z] [WARN] [RuntimeDiagnostics] Process warning emitted {
+  name: 'MaxListenersExceededWarning',
+  message: 'Possible EventEmitter memory leak detected. 11 instance:removed listeners added to [InstanceManager]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit',
+  stack: 'MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 instance:removed listeners added to [InstanceManager]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit\n' +
+    '    at genericNodeError (node:internal/errors:985:15)\n' +
+    '    at wrappedFn (node:internal/errors:539:14)\n' +
+    '    at _addListener (node:events:590:17)\n' +
+    '    at InstanceManager.addListener (node:events:608:10)\n' +
+    '    at AutomationRunner.initialize (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/automations/automation-runner.js:89:25)\n' +
+    '    at initializeAutomations (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/automations/index.js:58:22)\n' +
+    '    at Object.fn (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/app/initialization-steps.js:416:82)\n' +
+    '    at HarnessApp.initialize (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/index.js:196:32)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n' +
+    '    at async ~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/index.js:324:5'
+}
+[2026-10-27T04:21:30.600Z] [INFO] [ObserverAgent] ObserverAgent initialized 
+[2026-10-27T04:21:30.602Z] [INFO] [App] Initialized: Loop store 
+[2026-10-27T04:21:30.602Z] [INFO] [App] Initializing: Campaign coordinator 
+[2026-10-27T04:21:30.602Z] [INFO] [CampaignCoordinator] CampaignCoordinator initialized 
+[2026-10-27T04:21:30.602Z] [INFO] [App] Initialized: Campaign coordinator 
+[2026-10-27T04:21:30.602Z] [INFO] [App] Initializing: Plan queue coordinator 
+[2026-10-27T04:21:30.603Z] [INFO] [PlanQueueBootstrap] Plan queue recovery is waiting for the orchestrator-tools RPC server 
+[2026-10-27T04:21:30.603Z] [INFO] [PlanQueueCoordinator] PlanQueueCoordinator initialized 
+[2026-10-27T04:21:30.603Z] [INFO] [App] Initialized: Plan queue coordinator 
+[2026-10-27T04:21:30.603Z] [INFO] [App] Initializing: Keep awake 
+[2026-10-27T04:21:30.604Z] [INFO] [App] Initialized: Keep awake 
+[2026-10-27T04:21:30.604Z] [INFO] [App] Initializing: Loop invokers 
+[2026-10-27T04:21:30.604Z] [INFO] [DefaultInvokers] Wired durable loop memory { path: '/tmp/aio-lt-queue-af185985/loop-learnings.json' }
+[2026-10-27T04:21:30.605Z] [INFO] [App] Initialized: Loop invokers 
+[2026-10-27T04:21:30.605Z] [INFO] [App] Initializing: Child auto-announce 
+[2026-10-27T04:21:30.605Z] [INFO] [App] Initialized: Child auto-announce 
+[2026-10-27T04:21:30.605Z] [INFO] [App] Initializing: Plugin manager 
+[2026-10-27T04:21:30.606Z] [INFO] [App] Initialized: Plugin manager 
+[2026-10-27T04:21:30.606Z] [INFO] [App] Initializing: Reaction engine 
+[2026-10-27T04:21:30.606Z] [INFO] [ReactionEngine] Reaction engine initialized { enabled: true, pollIntervalMs: 60000, trackedReactions: 8 }
+[2026-10-27T04:21:30.606Z] [INFO] [App] Initialized: Reaction engine 
+[2026-10-27T04:21:30.606Z] [INFO] [App] Initializing: Provider concurrency limits 
+[2026-10-27T04:21:30.606Z] [INFO] [App] Initialized: Provider concurrency limits 
+[2026-10-27T04:21:30.606Z] [INFO] [App] Initializing: Observation memory and expiry cleanup 
+[2026-10-27T04:21:30.607Z] [INFO] [ObservationIngestor] Configuration updated {
+  config: {
+    enabled: false,
+    observeTokenThreshold: 30000,
+    observeTimeThresholdMs: 300000,
+    ringBufferSize: 500,
+    reflectObservationThreshold: 10,
+    observationTtlMs: 604800000,
+    reflectionTtlMs: 2592000000,
+    policyTokenBudget: 1500,
+    maxReflectionsPerPrompt: 3,
+    promotionConfidenceThreshold: 0.8,
+    promotionUsageThreshold: 5,
+    promotionEffectivenessThreshold: 0.7,
+    enablePrivacyFiltering: true,
+    minLevel: 'event'
+  }
+}
+[2026-10-27T04:21:30.607Z] [INFO] [ObserverAgent] Configuration updated {
+  config: {
+    enabled: false,
+    observeTokenThreshold: 30000,
+    observeTimeThresholdMs: 300000,
+    ringBufferSize: 500,
+    reflectObservationThreshold: 10,
+    observationTtlMs: 604800000,
+    reflectionTtlMs: 2592000000,
+    policyTokenBudget: 1500,
+    maxReflectionsPerPrompt: 3,
+    promotionConfidenceThreshold: 0.8,
+    promotionUsageThreshold: 5,
+    promotionEffectivenessThreshold: 0.7,
+    enablePrivacyFiltering: true,
+    minLevel: 'event'
+  }
+}
+[2026-10-27T04:21:30.607Z] [INFO] [ReflectorAgent] ReflectorAgent initialized 
+[2026-10-27T04:21:30.607Z] [INFO] [ReflectorAgent] ReflectorAgent configured {
+  config: {
+    enabled: false,
+    observeTokenThreshold: 30000,
+    observeTimeThresholdMs: 300000,
+    ringBufferSize: 500,
+    reflectObservationThreshold: 10,
+    observationTtlMs: 604800000,
+    reflectionTtlMs: 2592000000,
+    policyTokenBudget: 1500,
+    maxReflectionsPerPrompt: 3,
+    promotionConfidenceThreshold: 0.8,
+    promotionUsageThreshold: 5,
+    promotionEffectivenessThreshold: 0.7,
+    enablePrivacyFiltering: true,
+    minLevel: 'event'
+  }
+}
+[2026-10-27T04:21:30.607Z] [INFO] [ObservationStore] Configuration updated { config: { enabled: false } }
+[2026-10-27T04:21:30.607Z] [INFO] [ObservationIngestor] Initializing ObservationIngestor 
+[2026-10-27T04:21:30.607Z] [INFO] [ObservationIngestor] ObservationIngestor initialized successfully 
+[2026-10-27T04:21:30.607Z] [INFO] [ObservationStore] Applied decay { expiredObservations: 0, expiredReflections: 0 }
+[2026-10-27T04:21:30.608Z] [INFO] [App] Initialized: Observation memory and expiry cleanup 
+[2026-10-27T04:21:30.608Z] [INFO] [App] Initializing: Path validator 
+[2026-10-27T04:21:30.608Z] [INFO] [App] Initialized: Path validator 
+[2026-10-27T04:21:30.608Z] [INFO] [App] Initializing: Compaction coordinator 
+[2026-10-27T04:21:30.608Z] [INFO] [App] Initialized: Compaction coordinator 
+[2026-10-27T04:21:30.608Z] [INFO] [App] Initializing: Truncation cleanup 
+[2026-10-27T04:21:30.608Z] [INFO] [App] Initialized: Truncation cleanup 
+[2026-10-27T04:21:30.608Z] [INFO] [App] Initializing: Codex command-output archive cleanup 
+[2026-10-27T04:21:30.608Z] [INFO] [App] Initialized: Codex command-output archive cleanup 
+[2026-10-27T04:21:30.608Z] [INFO] [App] Initializing: ACP attachment store cleanup 
+[2026-10-27T04:21:30.608Z] [INFO] [App] Initialized: ACP attachment store cleanup 
+[2026-10-27T04:21:30.609Z] [INFO] [App] Initializing: Leaked AIO Codex thread cleanup 
+[2026-10-27T04:21:30.617Z] [INFO] [App] Initialized: Leaked AIO Codex thread cleanup 
+[2026-10-27T04:21:30.617Z] [INFO] [App] Initializing: Private Codex rollout-path reconcile 
+[2026-10-27T04:21:30.979Z] [INFO] [CodexPrivateRolloutReconcile] Reconciled private Codex rollout paths to the persistent AIO session store { candidates: 7, rewritten: 6, skippedMissingFile: 1 }
+[2026-10-27T04:21:30.981Z] [INFO] [App] Initialized: Private Codex rollout-path reconcile 
+[2026-10-27T04:21:30.981Z] [INFO] [App] Initializing: Codex state backup pruning 
+[2026-10-27T04:21:30.988Z] [INFO] [App] Initialized: Codex state backup pruning 
+[2026-10-27T04:21:30.988Z] [INFO] [App] Initializing: Stale Codex temp home sweep 
+[2026-10-27T04:21:31.061Z] [INFO] [App] Initialized: Stale Codex temp home sweep 
+[2026-10-27T04:21:31.061Z] [INFO] [App] Initializing: Artifact cleanup maintenance 
+[2026-10-27T04:21:31.061Z] [INFO] [App] Initialized: Artifact cleanup maintenance 
+[2026-10-27T04:21:31.061Z] [INFO] [App] Initializing: Low disk space watcher 
+[2026-10-27T04:21:31.062Z] [INFO] [App] Initialized: Low disk space watcher 
+[2026-10-27T04:21:31.062Z] [INFO] [App] Initializing: Scratch folder sweep 
+[2026-10-27T04:21:31.062Z] [INFO] [App] Initialized: Scratch folder sweep 
+[2026-10-27T04:21:31.062Z] [INFO] [App] Initializing: Resource governor 
+[2026-10-27T04:21:31.062Z] [INFO] [ResourceGovernor] Resource governor started {
+  config: {
+    maxInstanceMemoryMB: 512,
+    creationPausedAtPressure: 'critical',
+    terminateIdleAtCritical: true,
+    idleThresholdMs: 300000,
+    gcOnWarning: true,
+    maxTotalInstances: 0,
+    maxReclaimsPerCriticalEpisode: 3
+  }
+}
+[2026-10-27T04:21:31.062Z] [INFO] [App] Initialized: Resource governor 
+[2026-10-27T04:21:31.062Z] [INFO] [App] Initializing: CLI auto-update 
+[2026-10-27T04:21:31.063Z] [INFO] [App] Initialized: CLI auto-update 
+[2026-10-27T04:21:31.063Z] [INFO] [App] Initializing: Hibernation manager 
+[2026-10-27T04:21:31.063Z] [INFO] [HibernationManager] Hibernation manager started {
+  config: {
+    idleThresholdMs: 1800000,
+    enableAutoHibernation: true,
+    checkIntervalMs: 60000,
+    maxHibernated: 20,
+    memoryPressureTrigger: true,
+    contextStalenessThresholdMs: 4500000
+  }
+}
+[2026-10-27T04:21:31.063Z] [INFO] [App] Initialized: Hibernation manager 
+[2026-10-27T04:21:31.063Z] [INFO] [App] Initializing: Instance pool 
+[2026-10-27T04:21:31.063Z] [INFO] [App] Initialized: Instance pool 
+[2026-10-27T04:21:31.063Z] [INFO] [App] Initializing: Load balancer 
+[2026-10-27T04:21:31.063Z] [INFO] [App] Initialized: Load balancer 
+[2026-10-27T04:21:31.063Z] [INFO] [App] Initializing: Thin-client WebSocket 
+[2026-10-27T04:21:31.064Z] [ERROR] [App] Failed to initialize: Thin-client WebSocket  {
+  name: 'Error',
+  message: 'listen EADDRINUSE: address already in use 127.0.0.1:4880',
+  stack: 'Error: listen EADDRINUSE: address already in use 127.0.0.1:4880\n' +
+    '    at Server.setupListenHandle [as _listen2] (node:net:2167:16)\n' +
+    '    at listenInCluster (node:net:2224:12)\n' +
+    '    at node:net:2448:7\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)'
+}
+[2026-10-27T04:21:31.064Z] [INFO] [App] Initializing: Worker node subsystem 
+[2026-10-27T04:21:31.065Z] [INFO] [AppInitialization] Remote node subsystem initialized; server disabled 
+[2026-10-27T04:21:31.065Z] [INFO] [App] Initialized: Worker node subsystem 
+[2026-10-27T04:21:31.065Z] [INFO] [App] Initializing: Mobile gateway 
+[2026-10-27T04:21:31.065Z] [INFO] [AppInitialization] Mobile gateway disabled (initialized, not started) 
+[2026-10-27T04:21:31.065Z] [INFO] [App] Initialized: Mobile gateway 
+[2026-10-27T04:21:31.065Z] [INFO] [App] Initializing: Cross-model review 
+[2026-10-27T04:21:31.089Z] [INFO] [LLMService] Ollama health check failed; will skip Ollama provider { error: 'fetch failed' }
+[2026-10-27T04:21:31.091Z] [INFO] [GrokCliDiscovery] Grok CLI models refreshed into unified catalog { count: 1 }
+[2026-10-27T04:21:31.093Z] [INFO] [CursorCopilotCliDiscovery] CLI models refreshed into unified catalog { provider: 'cursor', count: 270 }
+[2026-10-27T04:21:31.099Z] [INFO] [CodexCliDiscovery] Codex CLI models refreshed into unified catalog { count: 8 }
+[2026-10-27T04:21:31.331Z] [INFO] [ModelsDev] models.dev pricing synced { models: 3828, overlaySize: 3829 }
+[2026-10-27T04:21:31.591Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 8665, triggerSources: [ 'cli-discovered', 'models-dev' ] }
+[2026-10-27T04:21:31.648Z] [INFO] [CursorCopilotCliDiscovery] CLI models refreshed into unified catalog { provider: 'copilot', count: 39 }
+[2026-10-27T04:21:31.905Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 8661, triggerSources: [ 'cli-discovered' ] }
+[2026-10-27T04:21:32.060Z] [WARN] [OpenCodeCliLaunch] Skipped unusable OpenCode installs; using another { major: 1, unknownVersion: 0, unsupported: 2, unreadable: 0 }
+[2026-10-27T04:21:32.815Z] [INFO] [OpenCodeCliDiscovery] OpenCode CLI models refreshed into unified catalog { count: 11 }
+[2026-10-27T04:21:33.072Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 8672, triggerSources: [ 'cli-discovered' ] }
+[2026-10-27T04:21:33.912Z] [WARN] [OpenCodeCliLaunch] Skipped unusable OpenCode installs; using another { major: 1, unknownVersion: 0, unsupported: 2, unreadable: 0 }
+[2026-10-27T04:21:34.134Z] [INFO] [CliDetection] CLI detection complete {
+  available: [
+    'claude',
+    'codex',
+    'antigravity',
+    'copilot',
+    'cursor',
+    'grok',
+    'opencode'
+  ]
+}
+[2026-10-27T04:21:34.134Z] [INFO] [CrossModelReviewService] CrossModelReviewService initialized {
+  reviewers: [
+    {
+      cliType: 'cursor',
+      available: true,
+      rateLimited: false,
+      totalReviews: 0
+    },
+    {
+      cliType: 'antigravity',
+      available: true,
+      rateLimited: false,
+      totalReviews: 0
+    },
+    {
+      cliType: 'codex',
+      available: true,
+      rateLimited: false,
+      totalReviews: 0
+    }
+  ]
+}
+[2026-10-27T04:21:34.135Z] [INFO] [App] Initialized: Cross-model review 
+[2026-10-27T04:21:34.135Z] [INFO] [App] Initializing: Session continuity wiring 
+[2026-10-27T04:21:44.994Z] [INFO] [HistoryManager] Native Claude transcript import complete {
+  imported: 0,
+  repaired: 0,
+  skipped: 2170,
+  collapsed: 0,
+  removedNonMain: 0,
+  removedSuperseded: 0,
+  failed: 0,
+  total: 2170
+}
+[2026-10-27T04:21:44.994Z] [INFO] [TerminationGateManager] Registered termination gate { name: 'pending-tool-results' }
+[2026-10-27T04:21:44.995Z] [INFO] [BuiltinTerminationGates] Registered built-in termination gates { gates: [ 'pending-tool-results' ] }
+[2026-10-27T04:21:44.995Z] [INFO] [App] Initialized: Session continuity wiring 
+[2026-10-27T04:21:44.995Z] [INFO] [App] Initializing: Channel manager 
+[2026-10-27T04:21:44.996Z] [INFO] [ChannelManager] Adapter registered { platform: 'discord' }
+[2026-10-27T04:21:44.996Z] [INFO] [ChannelManager] Adapter registered { platform: 'whatsapp' }
+[2026-10-27T04:21:44.996Z] [INFO] [App] Initialized: Channel manager 
+[2026-10-27T04:21:44.996Z] [INFO] [App] Initializing: Channel message router 
+[2026-10-27T04:21:44.997Z] [INFO] [ChannelPromptBridge] Channel prompt bridge started 
+[2026-10-27T04:21:44.997Z] [INFO] [ChannelMessageRouter] Channel message router started 
+[2026-10-27T04:21:44.997Z] [INFO] [App] Initialized: Channel message router 
+[2026-10-27T04:21:44.997Z] [INFO] [App] Initializing: Domain bootstrap 
+[2026-10-27T04:21:44.997Z] [INFO] [Bootstrap] Bootstrapping: Orchestration singletons [orchestration] 
+[2026-10-27T04:21:44.998Z] [INFO] [Bootstrap] Bootstrapped: Orchestration singletons 
+[2026-10-27T04:21:44.998Z] [INFO] [Bootstrap] Bootstrapping: Learning singletons [learning] 
+[2026-10-27T04:21:44.998Z] [INFO] [Bootstrap] Bootstrapped: Learning singletons 
+[2026-10-27T04:21:44.998Z] [INFO] [Bootstrap] Bootstrapping: Project story directory [memory] 
+[2026-10-27T04:21:44.998Z] [INFO] [ProjectStoryConvention] Created .aio/ project memory directory {
+  aioDir: '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/.aio'
+}
+[2026-10-27T04:21:44.998Z] [INFO] [ProjectStoryConvention] Wrote .aio/ skeleton file { file: 'decisions.md' }
+[2026-10-27T04:21:44.999Z] [INFO] [ProjectStoryConvention] Wrote .aio/ skeleton file { file: 'lessons.md' }
+[2026-10-27T04:21:44.999Z] [INFO] [ProjectStoryConvention] Wrote .aio/ skeleton file { file: 'handovers.md' }
+[2026-10-27T04:21:44.999Z] [INFO] [Bootstrap] Bootstrapped: Project story directory 
+[2026-10-27T04:21:44.999Z] [INFO] [Bootstrap] Bootstrapping: Memory agents [memory] 
+[2026-10-27T04:21:44.999Z] [INFO] [CodebaseMiner] CodebaseMiner initialized 
+[2026-10-27T04:21:45.000Z] [INFO] [ProjectRootRegistry] ProjectRootRegistry initialized 
+[2026-10-27T04:21:45.000Z] [INFO] [ProjectCodeIndexBridge] ProjectCodeIndexBridge initialized 
+[2026-10-27T04:21:45.000Z] [INFO] [ProjectKnowledgeCoordinator] ProjectKnowledgeCoordinator initialized 
+[2026-10-27T04:21:45.000Z] [INFO] [Bootstrap] Bootstrapped: Memory agents 
+[2026-10-27T04:21:45.000Z] [INFO] [Bootstrap] Bootstrapping: Infrastructure singletons [infrastructure] 
+[2026-10-27T04:21:45.001Z] [INFO] [Bootstrap] Bootstrapped: Infrastructure singletons 
+[2026-10-27T04:21:45.001Z] [INFO] [Bootstrap] Bootstrapping: Skills & Hooks [infrastructure] 
+[2026-10-27T04:21:45.002Z] [INFO] [Bootstrap] Bootstrapped: Skills & Hooks 
+[2026-10-27T04:21:45.002Z] [INFO] [Bootstrap] Bootstrapping: CLI detection [infrastructure] 
+[2026-10-27T04:21:45.002Z] [INFO] [Bootstrap] Bootstrapped: CLI detection 
+[2026-10-27T04:21:45.002Z] [INFO] [Bootstrap] Bootstrapping: Model pricing sync [infrastructure] 
+[2026-10-27T04:21:45.003Z] [INFO] [Bootstrap] Bootstrapped: Model pricing sync 
+[2026-10-27T04:21:45.003Z] [INFO] [Bootstrap] Bootstrapping: Observability [infrastructure] 
+[2026-10-27T04:21:45.003Z] [INFO] [OtelSetup] OpenTelemetry initialized {
+  endpoint: undefined,
+  traceFilePath: undefined,
+  consoleExporter: false
+}
+[2026-10-27T04:21:45.004Z] [INFO] [OtelMetrics] OTel metrics initialized 
+[2026-10-27T04:21:45.004Z] [INFO] [Bootstrap] Bootstrapped: Observability 
+[2026-10-27T04:21:45.004Z] [INFO] [Bootstrap] Bootstrapping: Orchestration event store [orchestration] 
+[2026-10-27T04:21:45.005Z] [INFO] [OrchestrationEventStore] Orchestration event store initialized 
+[2026-10-27T04:21:45.005Z] [INFO] [CoordinatorEventBridge] Wired verify coordinator to orchestration engine 
+[2026-10-27T04:21:45.005Z] [INFO] [CoordinatorEventBridge] Wired debate coordinator to orchestration engine 
+[2026-10-27T04:21:45.006Z] [INFO] [Bootstrap] Bootstrapped: Orchestration event store 
+[2026-10-27T04:21:45.006Z] [INFO] [Bootstrap] Bootstrapping: RLM subsystem [memory] 
+[2026-10-27T04:21:45.007Z] [INFO] [SummarizationWorker] Starting with config { scanInterval: 60000, batchSize: 5, minTokensForSummary: 2000 }
+[2026-10-27T04:21:45.007Z] [INFO] [Bootstrap] Bootstrapped: RLM subsystem 
+[2026-10-27T04:21:45.007Z] [INFO] [Bootstrap] Bootstrapping: CLI update poller [infrastructure] 
+[2026-10-27T04:21:45.025Z] [INFO] [Bootstrap] Bootstrapped: CLI update poller 
+[2026-10-27T04:21:45.025Z] [INFO] [Bootstrap] Bootstrapping: Startup capability probe [infrastructure] 
+[2026-10-27T04:21:45.137Z] [INFO] [ProviderDoctor] Provider diagnosis complete { provider: 'antigravity', overall: 'healthy' }
+[2026-10-27T04:21:45.207Z] [INFO] [ProviderAccountEvents] account_binding_checked {
+  provider: 'codex',
+  profileId: 'legacy',
+  nodeId: 'local',
+  state: 'authenticated'
+}
+[2026-10-27T04:21:45.208Z] [INFO] [ProviderDoctor] Provider diagnosis complete { provider: 'codex-cli', overall: 'healthy' }
+[2026-10-27T04:21:45.398Z] [INFO] [ProviderDoctor] Provider diagnosis complete { provider: 'cursor', overall: 'healthy' }
+[2026-10-27T04:21:45.428Z] [INFO] [ProviderAccountEvents] account_binding_checked {
+  provider: 'claude',
+  profileId: 'legacy',
+  nodeId: 'local',
+  state: 'authenticated'
+}
+[2026-10-27T04:21:45.429Z] [INFO] [ProviderDoctor] Provider diagnosis complete { provider: 'claude-cli', overall: 'healthy' }
+[2026-10-27T04:21:45.431Z] [INFO] [ProviderDoctor] Provider diagnosis complete { provider: 'copilot', overall: 'healthy' }
+[2026-10-27T04:21:45.448Z] [WARN] [Seatbelt] Seatbelt probe failed {
+  error: 'Command failed: /usr/bin/sandbox-exec -p (version 1)(allow default) /usr/bin/true\n' +
+    'sandbox-exec: sandbox_apply: Operation not permitted\n'
+}
+[2026-10-27T04:21:45.448Z] [INFO] [CapabilityProbe] Startup capability probe completed {
+  status: 'degraded',
+  checks: [
+    { id: 'native.sqlite', status: 'ready' },
+    { id: 'provider.any', status: 'ready' },
+    { id: 'provider.claude', status: 'ready' },
+    { id: 'provider.codex', status: 'ready' },
+    { id: 'provider.antigravity', status: 'ready' },
+    { id: 'provider.copilot', status: 'ready' },
+    { id: 'provider.cursor', status: 'ready' },
+    { id: 'subsystem.remote-nodes', status: 'disabled' },
+    { id: 'subsystem.browser-automation', status: 'ready' },
+    { id: 'subsystem.sandbox', status: 'unavailable' }
+  ]
+}
+[2026-10-27T04:21:45.449Z] [INFO] [Bootstrap] Bootstrapped: Startup capability probe 
+[2026-10-27T04:21:45.449Z] [INFO] [App] Initialized: Domain bootstrap 
+[2026-10-27T04:21:45.449Z] [INFO] [App] Initializing: Knowledge bridge 
+[2026-10-27T04:21:45.449Z] [INFO] [KnowledgeBridge] KnowledgeBridge initialized 
+[2026-10-27T04:21:45.449Z] [INFO] [AppInitialization] Knowledge bridge wired to reflector events 
+[2026-10-27T04:21:45.449Z] [INFO] [App] Initialized: Knowledge bridge 
+[2026-10-27T04:21:45.449Z] [INFO] [App] Initializing: Codemem 
+[2026-10-27T04:21:45.449Z] [INFO] [McpServer] Registered 8 MCP server tools 
+[2026-10-27T04:21:45.450Z] [INFO] [McpServer] MCP server started 
+[2026-10-27T04:21:45.502Z] [INFO] [LspManager] LSP server available { serverName: 'TypeScript Language Server' }
+[2026-10-27T04:21:45.515Z] [INFO] [App] Initialized: Codemem 
+[2026-10-27T04:21:45.515Z] [INFO] [App] Initializing: Codemem prewarm coordinator 
+[2026-10-27T04:21:45.515Z] [INFO] [CodememPrewarm] CodememPrewarmCoordinator started 
+[2026-10-27T04:21:45.515Z] [INFO] [App] Initialized: Codemem prewarm coordinator 
+[2026-10-27T04:21:45.515Z] [INFO] [App] Initializing: Codebase auto-index coordinator 
+[2026-10-27T04:21:45.516Z] [INFO] [AppInitialization] Codebase auto-index coordinator skipped — disabled in settings 
+[2026-10-27T04:21:45.516Z] [INFO] [App] Initialized: Codebase auto-index coordinator 
+[2026-10-27T04:21:45.516Z] [INFO] [App] Initializing: Project knowledge auto-mirror coordinator 
+[2026-10-27T04:21:45.516Z] [INFO] [ProjectKnowledgeAutoMirror] ProjectKnowledgeAutoMirrorCoordinator started 
+[2026-10-27T04:21:45.516Z] [INFO] [App] Initialized: Project knowledge auto-mirror coordinator 
+[2026-10-27T04:21:45.516Z] [INFO] [App] Initializing: Browser Gateway 
+[2026-10-27T04:21:45.523Z] [INFO] [BrowserAutonomyConfig] Applied browser autonomy config { profilesCreated: 1, authorizationsCreated: 5, campaignsCreated: 5 }
+(node:93233) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 setting-changed listeners added to [SettingsManager]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+[2026-10-27T04:21:45.525Z] [WARN] [RuntimeDiagnostics] Process warning emitted {
+  name: 'MaxListenersExceededWarning',
+  message: 'Possible EventEmitter memory leak detected. 11 setting-changed listeners added to [SettingsManager]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit',
+  stack: 'MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 setting-changed listeners added to [SettingsManager]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit\n' +
+    '    at genericNodeError (node:internal/errors:985:15)\n' +
+    '    at wrappedFn (node:internal/errors:539:14)\n' +
+    '    at _addListener (node:events:590:17)\n' +
+    '    at SettingsManager.addListener (node:events:608:10)\n' +
+    '    at watchSecretObservationProtectionSetting (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/browser-gateway/browser-secret-observation-protection.js:95:13)\n' +
+    '    at initializeBrowserGatewayRuntime (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/browser-gateway/index.js:172:89)\n' +
+    '    at Object.fn (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/app/late-runtime-initialization-steps.js:557:77)\n' +
+    '    at HarnessApp.initialize (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/index.js:196:32)\n' +
+    '    at async ~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/index.js:324:5'
+}
+[2026-10-27T04:21:45.525Z] [WARN] [BrowserGatewayRuntime] aio-mcp SEA binary not found — Chrome native-messaging host wrapper not installed 
+[2026-10-27T04:21:45.525Z] [INFO] [App] Initialized: Browser Gateway 
+[2026-10-27T04:21:45.525Z] [INFO] [App] Initializing: Desktop Computer Use Gateway 
+[2026-10-27T04:21:45.531Z] [INFO] [App] Initialized: Desktop Computer Use Gateway 
+[2026-10-27T04:21:45.532Z] [INFO] [App] Initializing: Orchestrator-tools RPC server 
+[2026-10-27T04:21:45.534Z] [INFO] [OrchestratorToolsRpcServer] Orchestrator-tools RPC server listening { socketPath: [redacted local transport address]
+[2026-10-27T04:21:45.534Z] [INFO] [App] Initialized: Orchestrator-tools RPC server 
+[2026-10-27T04:21:45.534Z] [INFO] [App] Initializing: Session admission service 
+[2026-10-27T04:21:45.536Z] [INFO] [App] Initialized: Session admission service 
+[2026-10-27T04:21:45.537Z] [INFO] [App] Initializing: Codemem RPC server 
+[2026-10-27T04:21:45.537Z] [INFO] [CodememRpcServer] Codemem RPC server listening { socketPath: [redacted local transport address]
+[2026-10-27T04:21:45.537Z] [INFO] [App] Initialized: Codemem RPC server 
+[2026-10-27T04:21:45.537Z] [INFO] [App] Initializing: Cross-project patterns 
+[2026-10-27T04:21:45.538Z] [INFO] [AppInitialization] Durable approval store wired to permission registry 
+[2026-10-27T04:21:45.539Z] [INFO] [AppInitialization] Plan-mode tools registered against InstanceManager 
+[2026-10-27T04:21:45.539Z] [INFO] [AppInitialization] Cross-project patterns initialized 
+[2026-10-27T04:21:45.539Z] [INFO] [App] Initialized: Cross-project patterns 
+[2026-10-27T04:21:45.539Z] [INFO] [App] Initializing: Governed proposal review inbox 
+[2026-10-27T04:21:45.540Z] [INFO] [GovernedProposalService] Governed proposal rehydration complete { rehydrated: 0 }
+[2026-10-27T04:21:45.540Z] [INFO] [GovernedProposalService] Governed proposal backfill complete { backfilled: 0 }
+[2026-10-27T04:21:45.540Z] [INFO] [App] Initialized: Governed proposal review inbox 
+[2026-10-27T04:21:45.507Z] [INFO] [LspManager] LSP server available { serverName: 'Pyright Language Server' }
+[2026-10-27T04:21:45.510Z] [INFO] [LspManager] LSP server not available { serverName: 'Go Language Server (gopls)', command: 'gopls' }
+[2026-10-27T04:21:45.514Z] [INFO] [LspManager] LSP server not available { serverName: 'Rust Analyzer', command: 'rust-analyzer' }
+[2026-10-27T04:21:45.632Z] [INFO] [PlanQueueBootstrap] Plan queue recovery continuing; orchestrator-tools RPC is listening { waitedMs: 15029 }
+[2026-10-27T04:21:45.903Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'local-first', endpointCount: 0 }
+[2026-10-27T04:21:46.366Z] [INFO] [App] Harness initialized 
+[2026-10-27T04:21:46.366Z] [INFO] [RlmHotPrewarm] RLM hot prewarm summary {
+  processRole: 'context-worker',
+  phase: 'started',
+  candidates: 0,
+  admitted: 0,
+  skipped: 0,
+  exhausted: 0,
+  cancelled: 0,
+  residentMetadataSections: 0,
+  residentContentBytes: 0,
+  residentContentSections: 0,
+  residentContentStores: 0,
+  elapsedMs: 0.13149999999950523
+}
+[2026-10-27T04:21:46.366Z] [INFO] [RlmHotPrewarm] RLM hot prewarm summary {
+  processRole: 'context-worker',
+  phase: 'completed',
+  candidates: 0,
+  admitted: 0,
+  skipped: 0,
+  exhausted: 0,
+  cancelled: 0,
+  residentMetadataSections: 0,
+  residentContentBytes: 0,
+  residentContentSections: 0,
+  residentContentStores: 0,
+  elapsedMs: 0.5304589999977907
+}
+[2026-10-27T04:21:46.434Z] [WARN] [OpenCodeCliLaunch] Skipped unusable OpenCode installs; using another { major: 1, unknownVersion: 0, unsupported: 2, unreadable: 0 }
+[2026-10-27T04:21:46.736Z] [INFO] [CliDetection] CLI detection complete {
+  available: [
+    'claude',
+    'codex',
+    'antigravity',
+    'copilot',
+    'cursor',
+    'grok',
+    'opencode'
+  ]
+}
+[2026-10-27T04:21:49.126Z] [WARN] [OpenCodeCliLaunch] Skipped unusable OpenCode installs; using another { major: 1, unknownVersion: 0, unsupported: 2, unreadable: 0 }
+[2026-10-27T04:21:49.309Z] [INFO] [BrowserUnattendedServices] Browser credential vault auto-unlocked 
+[2026-10-27T04:21:50.162Z] [WARN] [RendererEventValidation] Blocked invalid renderer event payload {
+  channel: 'cli-update-pill:delta',
+  issues: [ { path: '', message: 'Unrecognized key: "waitingSessionCount"' } ]
+}
+[2026-10-27T04:21:51.367Z] [INFO] [EvidenceMaintenance] Evidence maintenance started 
+[2026-10-27T04:21:51.368Z] [INFO] [EvidenceMaintenanceService] Evidence maintenance phase started { phase: 'staging-cleanup' }
+[2026-10-27T04:21:51.369Z] [INFO] [EvidenceMaintenanceService] Evidence maintenance phase finished { phase: 'staging-cleanup', durationMs: 0.9645829999972193 }
+[2026-10-27T04:21:51.369Z] [INFO] [EvidenceMaintenanceService] Evidence maintenance phase started { phase: 'references' }
+[2026-10-27T04:21:51.370Z] [INFO] [EvidenceMaintenanceService] Evidence maintenance phase finished { phase: 'references', durationMs: 0.5727909999986878 }
+[2026-10-27T04:21:51.370Z] [INFO] [EvidenceMaintenanceService] Evidence maintenance phase started { phase: 'finalized-cleanup' }
+[2026-10-27T04:21:51.370Z] [INFO] [EvidenceMaintenanceService] Evidence maintenance phase finished { phase: 'finalized-cleanup', durationMs: 0.6847090000010212 }
+[2026-10-27T04:21:51.371Z] [INFO] [EvidenceMaintenanceService] Evidence reconciliation finished {
+  recovered: 0,
+  failed: 0,
+  corrupt: 0,
+  pending: 0,
+  stagingFilesRemoved: 0,
+  finalizedFilesRemoved: 0
+}
+[2026-10-27T04:21:51.371Z] [INFO] [EvidenceMaintenance] Evidence maintenance finished { durationMs: 4.043000000001484 }
+[2026-10-27T04:22:14.017Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'local-first', endpointCount: 0 }
+[2026-10-27T04:22:14.027Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'manual-only', endpointCount: 0 }
+[2026-10-27T04:22:14.035Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'manual-only', endpointCount: 0 }
+[2026-10-27T04:22:14.044Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'manual-only', endpointCount: 0 }
+[2026-10-27T04:22:14.052Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'manual-only', endpointCount: 0 }
+[2026-10-27T04:22:14.059Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'manual-only', endpointCount: 1 }
+[2026-10-27T04:22:14.069Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'manual-only', endpointCount: 1 }
+[2026-10-27T04:22:14.069Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'manual-only', endpointCount: 1 }
+[2026-10-27T04:22:14.086Z] [WARN] [AuxiliaryDailySpendCap] Auxiliary daily spend cap would be exceeded (0.0000 USD already reserved) { capUsd: 0 }
+[2026-10-27T04:22:20.590Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:22:21.890Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'manual-only', endpointCount: 1 }
+[2026-10-27T04:22:21.891Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'manual-only', endpointCount: 1 }
+[2026-10-27T04:22:29.677Z] [INFO] [RecoveryRecipeEngine] Registered recovery recipe {
+  category: 'thread_resume_failed',
+  description: 'Advance to next fallback step in the resume chain (cursor → JSONL scan → replay → fresh)',
+  errorCategory: 'session_resume'
+}
+[2026-10-27T04:22:29.677Z] [INFO] [RecoveryRecipeEngine] Registered recovery recipe {
+  category: 'process_exited_unexpected',
+  description: 'Respawn instance with resume cursor, restore from last checkpoint',
+  errorCategory: 'transient'
+}
+[2026-10-27T04:22:29.677Z] [INFO] [RecoveryRecipeEngine] Registered recovery recipe {
+  category: 'agent_stuck_blocked',
+  description: 'Send turn/interrupt RPC (app-server) or SIGINT (exec mode), then inject unstuck prompt',
+  errorCategory: 'transient'
+}
+[2026-10-27T04:22:29.677Z] [INFO] [RecoveryRecipeEngine] Registered recovery recipe {
+  category: 'agent_stuck_waiting',
+  description: 'Notify user via activity bridge; auto-approve if yolo mode is enabled',
+  errorCategory: 'permission'
+}
+[2026-10-27T04:22:29.677Z] [INFO] [RecoveryRecipeEngine] Registered recovery recipe {
+  category: 'mcp_server_unreachable',
+  description: 'Mark MCP server as degraded (skip, do not crash), retry connection after cooldown',
+  errorCategory: 'network'
+}
+[2026-10-27T04:22:29.678Z] [INFO] [RecoveryRecipeEngine] Registered recovery recipe {
+  category: 'provider_auth_expired',
+  description: 'Escalate immediately — cannot auto-fix credentials',
+  errorCategory: 'auth'
+}
+[2026-10-27T04:22:29.678Z] [INFO] [RecoveryRecipeEngine] Registered recovery recipe {
+  category: 'context_window_exhausted',
+  description: 'Trigger context compaction (existing capability), checkpoint first',
+  errorCategory: 'resource'
+}
+[2026-10-27T04:22:29.678Z] [INFO] [RecoveryRecipeEngine] Registered recovery recipe {
+  category: 'workspace_disappeared',
+  description: 'Recreate git worktree from branch metadata, restore session',
+  errorCategory: 'stale_worktree'
+}
+[2026-10-27T04:22:29.678Z] [INFO] [RecoveryRecipeEngine] Registered recovery recipe {
+  category: 'stale_branch',
+  description: 'Warn user via activity bridge, do not auto-rebase (destructive)',
+  errorCategory: 'stale_worktree'
+}
+[2026-10-27T04:22:29.678Z] [INFO] [RecoveryRecipeEngine] Registered recovery recipe {
+  category: 'ci_feedback_loop',
+  description: 'After 3 consecutive CI failures on same issue, pause agent and escalate with summary',
+  errorCategory: 'unknown'
+}
+[2026-10-27T04:23:02.307Z] [WARN] [AuxiliaryLlmService] Auxiliary generation failed for slot "approvalAdjudication": OpenAI-compatible generate failed (503): Owned forwarding endpoint deliberately stopped 
+[2026-10-27T04:23:20.594Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:23:31.745Z] [WARN] [OpenCodeCliLaunch] Skipped unusable OpenCode installs; using another { major: 1, unknownVersion: 0, unsupported: 2, unreadable: 0 }
+[2026-10-27T04:23:31.950Z] [INFO] [CliDetection] CLI detection complete {
+  available: [
+    'claude',
+    'codex',
+    'antigravity',
+    'copilot',
+    'cursor',
+    'grok',
+    'opencode'
+  ]
+}
+[2026-10-27T04:23:32.021Z] [WARN] [ClaudeUsageEndpointProbe] Claude usage endpoint rate-limited { retryAfterMs: 290000, cooldownUntil: 1793075302021 }
+[2026-10-27T04:24:20.620Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:25:20.619Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:25:31.681Z] [WARN] [OpenCodeCliLaunch] Skipped unusable OpenCode installs; using another { major: 1, unknownVersion: 0, unsupported: 2, unreadable: 0 }
+[2026-10-27T04:25:31.919Z] [INFO] [CliDetection] CLI detection complete {
+  available: [
+    'claude',
+    'codex',
+    'antigravity',
+    'copilot',
+    'cursor',
+    'grok',
+    'opencode'
+  ]
+}
+[2026-10-27T04:26:14.709Z] [INFO] [InstanceLifecycle] Creating instance {
+  displayName: { textChars: 35, textHash: '5818d64e316aa7a9' },
+  parentId: undefined,
+  historyThreadId: undefined,
+  sessionId: undefined,
+  resume: false,
+  workingDirectory: '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985',
+  initialPromptLength: 642,
+  initialPrompt: { textChars: 642, textHash: 'cad4765ff2b26299' },
+  initialContextBlockLength: 0,
+  attachments: undefined,
+  yoloMode: true,
+  launchMode: undefined,
+  initialOutputBuffer: undefined,
+  agentId: undefined,
+  modelOverride: 'haiku',
+  provider: 'claude',
+  terminationPolicy: undefined,
+  hasContextInheritanceOverride: false,
+  forceNodeId: null,
+  hasNodePlacement: false
+}
+[2026-10-27T04:26:14.710Z] [WARN] [InstanceLifecycle] YOLO mode enabled for instance { instanceId: 'cduizn2cl', parentId: null, provider: 'claude' }
+[2026-10-27T04:26:14.711Z] [INFO] [SupervisorTree] Registered instance { instanceId: 'cduizn2cl', parent: 'root' }
+[2026-10-27T04:26:14.713Z] [INFO] [AutoTitle] Auto-titled instance (instant) {
+  instanceId: 'cduizn2cl',
+  title: 'This is an authorised isolated dev-app live check.'
+}
+[2026-10-27T04:26:14.721Z] [INFO] [InstanceContext] Created RLM store for session {
+  storeId: 'ctx-1793075174720-5c5kbeze0',
+  sessionId: '09b65cb3-62f5-414c-b1f2-b914522b97a0'
+}
+[2026-10-27T04:26:14.722Z] [INFO] [InstanceContext] Started RLM session {
+  rlmSessionId: 'rlm-1793075174722-t2pog82ie',
+  sessionId: '09b65cb3-62f5-414c-b1f2-b914522b97a0'
+}
+[2026-10-27T04:26:14.726Z] [INFO] [InstanceLifecycle] Resolved execution location { type: 'local', forceNodeId: null, hasNodePlacement: false }
+[2026-10-27T04:26:14.744Z] [INFO] [ProjectRootRegistry] ProjectRootRegistry initialized 
+[2026-10-27T04:26:15.540Z] [INFO] [InstanceSystemPrompt] Injected repo map into system prompt {
+  instanceId: 'cduizn2cl',
+  filesIncluded: 120,
+  filesConsidered: 8365,
+  tokensUsed: 1057,
+  truncated: true,
+  fallback: true
+}
+[2026-10-27T04:26:15.542Z] [INFO] [InstanceSystemPrompt] Injected wake-up context into system prompt { tokenEstimate: 32 }
+[2026-10-27T04:26:15.555Z] [INFO] [CodebaseMiner] Codebase mining complete {
+  dirPath: '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985',
+  normalizedPath: '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985',
+  rootPath: '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985',
+  projectKey: '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985',
+  displayName: '2026-09-27-livetest-human-exte-185985',
+  discoverySource: 'instance-working-directory',
+  autoMine: true,
+  isPaused: false,
+  isExcluded: false,
+  status: 'completed',
+  factsExtracted: 8,
+  hintsCreated: 7,
+  filesRead: 5,
+  errors: [],
+  contentFingerprint: '672c69b5d238ed35557ccf7b37190d8a05ac1203689b37b1c539ba0b647d97b2',
+  sourcesProcessed: 5,
+  sourcesCreated: 5,
+  sourcesChanged: 0,
+  sourcesDeleted: 0,
+  sourceLinksCreated: 14,
+  sourceLinksPruned: 0,
+  lastMinedAt: 1793075175555
+}
+[2026-10-27T04:26:15.788Z] [INFO] [InstanceLifecycle] Resolved CLI provider { cliType: 'claude', displayName: 'Claude Code' }
+[2026-10-27T04:26:15.789Z] [INFO] [InstanceLifecycle] Resolved model for instance {
+  configOverride: 'haiku',
+  agentOverride: undefined,
+  perProviderRemembered: undefined,
+  settingsDefault: 'opus[1m]',
+  resolved: 'haiku'
+}
+[2026-10-27T04:26:15.789Z] [INFO] [SpawnConfigBuilder] MCP config found {
+  path: '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/config/mcp-servers.json'
+}
+[2026-10-27T04:26:15.789Z] [WARN] [SpawnConfigBuilder] Codemem MCP not configured — aio-mcp SEA binary or codemem RPC socket missing { instanceId: 'cduizn2cl', isPackaged: false }
+[2026-10-27T04:26:15.790Z] [WARN] [SpawnConfigBuilder] Orchestrator-tools MCP not configured — aio-mcp SEA binary, RPC socket or instance capability missing { provider: 'claude', instanceId: 'cduizn2cl', isPackaged: false }
+[2026-10-27T04:26:16.032Z] [INFO] [RtkRuntime] rtk runtime resolved {
+  path: '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/resources/rtk/darwin-arm64/rtk',
+  source: 'bundled',
+  version: '0.52.0'
+}
+[2026-10-27T04:26:16.035Z] [INFO] [ProviderAccountEvents] account_route_resolved {
+  provider: 'claude',
+  profileId: 'legacy',
+  nodeId: 'local',
+  origin: 'interactive',
+  routingSource: 'legacy'
+}
+[2026-10-27T04:26:16.036Z] [INFO] [ProviderAccountEvents] account_route_resolved {
+  provider: 'claude',
+  profileId: 'legacy',
+  nodeId: 'local',
+  origin: 'interactive',
+  routingSource: 'legacy'
+}
+[2026-10-27T04:26:16.043Z] [INFO] [InstanceLifecycle] Spawning CLI process { provider: 'claude' }
+[2026-10-27T04:26:16.162Z] [WARN] [ClaudeCliAdapter] YOLO mode enabled for Claude CLI instance { sessionId: '09b65cb3-62f5-414c-b1f2-b914522b97a0', model: 'haiku' }
+[2026-10-27T04:26:16.167Z] [INFO] [InstanceLifecycle] CLI spawned successfully { pid: 68095, instanceId: 'cduizn2cl' }
+[2026-10-27T04:26:16.177Z] [INFO] [VectorStore] VectorStore residency changed {
+  event: 'store-loaded',
+  totalVectors: 0,
+  residentStores: 1,
+  maxResidentStores: 24,
+  storeCount: 1
+}
+[2026-10-27T04:26:16.290Z] [INFO] [WarmStartManager] Warm process ready {
+  provider: 'claude',
+  workingDirectory: '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985'
+}
+[2026-10-27T04:26:17.956Z] [WARN] [AntigravityCliAdapter] Antigravity CLI error without listener { errorKind: 'Error', textChars: 522, textHash: '927e71f987053c1d' }
+[2026-10-27T04:26:18.164Z] [WARN] [AutoTitle] AI title escalation failed {
+  cliType: 'antigravity',
+  model: 'Gemini 3.5 Flash (Low)',
+  elapsedMs: 3372,
+  timeoutMs: 60000,
+  workingDirectory: '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985',
+  error: 'agy exited with code 1'
+}
+[2026-10-27T04:26:18.193Z] [INFO] [ProviderAccountEvents] account_route_resolved {
+  provider: 'claude',
+  profileId: 'legacy',
+  nodeId: 'local',
+  origin: 'internal',
+  routingSource: 'legacy'
+}
+[2026-10-27T04:26:20.625Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:26:24.477Z] [INFO] [AutoTitle] AI title generated via CLI escalation { cliType: 'claude', model: 'haiku', elapsedMs: 6282 }
+[2026-10-27T04:26:24.478Z] [INFO] [AutoTitle] Auto-titled instance (AI) { instanceId: 'cduizn2cl', title: 'Dev app target enrolment check' }
+[2026-10-27T04:26:29.527Z] [INFO] [ClaudeCliAdapter] [APPROVAL_TRACE] tool_result_error_received {
+  toolUseId: 'toolu_01D3DwmabJPjSjgEVNbWUeUu',
+  contentLength: 797,
+  textChars: 797,
+  textHash: 'ff5a2f708c1819a8',
+  isPermissionDenial: false
+}
+[2026-10-27T04:26:29.859Z] [INFO] [CursorCopilotCliDiscovery] CLI models refreshed into unified catalog { provider: 'cursor', count: 270 }
+[2026-10-27T04:26:29.859Z] [INFO] [CursorCopilotCliDiscovery] CLI models refreshed into unified catalog { provider: 'copilot', count: 39 }
+[2026-10-27T04:26:29.871Z] [INFO] [GrokCliDiscovery] Grok CLI models refreshed into unified catalog { count: 1 }
+[2026-10-27T04:26:30.132Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 8672, triggerSources: [ 'cli-discovered' ] }
+[2026-10-27T04:26:30.181Z] [INFO] [CodexCliDiscovery] Codex CLI models refreshed into unified catalog { count: 8 }
+[2026-10-27T04:26:30.438Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 8672, triggerSources: [ 'cli-discovered' ] }
+[2026-10-27T04:26:30.624Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:26:31.094Z] [WARN] [OpenCodeCliLaunch] Skipped unusable OpenCode installs; using another { major: 1, unknownVersion: 0, unsupported: 2, unreadable: 0 }
+[2026-10-27T04:26:31.829Z] [INFO] [OpenCodeCliDiscovery] OpenCode CLI models refreshed into unified catalog { count: 11 }
+[2026-10-27T04:26:32.086Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 8672, triggerSources: [ 'cli-discovered' ] }
+[2026-10-27T04:26:35.693Z] [WARN] [OpenCodeCliLaunch] Skipped unusable OpenCode installs; using another { major: 1, unknownVersion: 0, unsupported: 2, unreadable: 0 }
+[2026-10-27T04:26:36.028Z] [INFO] [CliDetection] CLI detection complete {
+  available: [
+    'claude',
+    'codex',
+    'antigravity',
+    'copilot',
+    'cursor',
+    'grok',
+    'opencode'
+  ]
+}
+[2026-10-27T04:26:40.625Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:26:50.626Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:26:50.936Z] [INFO] [ProviderTurnEnding] Provider turn completed {
+  adapter: 'claude',
+  model: 'haiku',
+  stopReason: 'end_turn',
+  finish: 'completed',
+  outputTokens: 5400,
+  reasoningTokens: undefined,
+  activeToolKind: undefined,
+  classifierReason: 'completed'
+}
+[2026-10-27T04:26:50.940Z] [WARN] [RendererEventValidation] Blocked invalid renderer event payload {
+  channel: 'cost:usage-recorded',
+  issues: [ { path: '', message: 'Unrecognized key: "byModel"' } ]
+}
+[2026-10-27T04:27:00.629Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:27:10.630Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:27:20.631Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:27:30.631Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:27:40.632Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:27:48.264Z] [WARN] [BaseCliAdapter] Stream idle timeout exceeded {
+  adapter: 'claude-cli',
+  timeoutMs: 90000,
+  baseTimeoutMs: 90000,
+  pid: 68145
+}
+[2026-10-27T04:27:50.632Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:28:00.633Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:28:10.633Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:28:17.599Z] [INFO] [HistoryManager] Archived instance {
+  instanceId: 'cduizn2cl',
+  entryId: '593d3d5f-fbc8-4d3d-8ab9-b4a352dc8c56',
+  messageCount: 4,
+  replacedEntries: 0
+}
+[2026-10-27T04:28:17.600Z] [INFO] [SupervisorTree] Unregistered instance { instanceId: 'cduizn2cl' }
+[2026-10-27T04:28:17.601Z] [INFO] [InstanceContext] Ended RLM session {
+  rlmSessionId: 'rlm-1793075174722-t2pog82ie',
+  instanceId: 'cduizn2cl'
+}
+[2026-10-27T04:28:20.633Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:28:31.785Z] [WARN] [OpenCodeCliLaunch] Skipped unusable OpenCode installs; using another { major: 1, unknownVersion: 0, unsupported: 2, unreadable: 0 }
+[2026-10-27T04:28:32.056Z] [INFO] [CliDetection] CLI detection complete {
+  available: [
+    'claude',
+    'codex',
+    'antigravity',
+    'copilot',
+    'cursor',
+    'grok',
+    'opencode'
+  ]
+}
+[2026-10-27T04:29:11.831Z] [INFO] [InstanceLifecycle] Creating instance {
+  displayName: { textChars: 35, textHash: '5818d64e316aa7a9' },
+  parentId: undefined,
+  historyThreadId: undefined,
+  sessionId: undefined,
+  resume: false,
+  workingDirectory: '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985',
+  initialPromptLength: 642,
+  initialPrompt: { textChars: 642, textHash: 'cad4765ff2b26299' },
+  initialContextBlockLength: 0,
+  attachments: undefined,
+  yoloMode: true,
+  launchMode: undefined,
+  initialOutputBuffer: undefined,
+  agentId: undefined,
+  modelOverride: 'haiku',
+  provider: 'claude',
+  terminationPolicy: undefined,
+  hasContextInheritanceOverride: false,
+  forceNodeId: null,
+  hasNodePlacement: false
+}
+[2026-10-27T04:29:11.832Z] [WARN] [InstanceLifecycle] YOLO mode enabled for instance { instanceId: 'c71gox3is', parentId: null, provider: 'claude' }
+[2026-10-27T04:29:11.832Z] [INFO] [SupervisorTree] Registered instance { instanceId: 'c71gox3is', parent: 'root' }
+[2026-10-27T04:29:11.833Z] [INFO] [AutoTitle] Auto-titled instance (instant) {
+  instanceId: 'c71gox3is',
+  title: 'This is an authorised isolated dev-app live check.'
+}
+[2026-10-27T04:29:11.847Z] [INFO] [InstanceContext] Created RLM store for session {
+  storeId: 'ctx-1793075351847-84tkoplaf',
+  sessionId: 'd814ab7c-02a9-4469-8088-2875b9cfcf1a'
+}
+[2026-10-27T04:29:11.848Z] [INFO] [InstanceContext] Started RLM session {
+  rlmSessionId: 'rlm-1793075351848-nwayp16mf',
+  sessionId: 'd814ab7c-02a9-4469-8088-2875b9cfcf1a'
+}
+[2026-10-27T04:29:11.854Z] [INFO] [InstanceLifecycle] Resolved execution location { type: 'local', forceNodeId: null, hasNodePlacement: false }
+[2026-10-27T04:29:11.878Z] [INFO] [InstanceSystemPrompt] Injected project memory brief into system prompt {
+  projectKey: '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985',
+  candidatesScanned: 15,
+  candidatesIncluded: 8,
+  sourceCounts: { 'project-fact': 1, 'project-wake-hint': 7 },
+  truncated: false
+}
+[2026-10-27T04:29:12.852Z] [INFO] [InstanceSystemPrompt] Injected repo map into system prompt {
+  instanceId: 'c71gox3is',
+  filesIncluded: 120,
+  filesConsidered: 8373,
+  tokensUsed: 1057,
+  truncated: true,
+  fallback: true
+}
+[2026-10-27T04:29:12.854Z] [INFO] [InstanceSystemPrompt] Injected wake-up context into system prompt { tokenEstimate: 265 }
+[2026-10-27T04:29:13.149Z] [INFO] [InstanceLifecycle] Resolved CLI provider { cliType: 'claude', displayName: 'Claude Code' }
+[2026-10-27T04:29:13.149Z] [INFO] [InstanceLifecycle] Resolved model for instance {
+  configOverride: 'haiku',
+  agentOverride: undefined,
+  perProviderRemembered: undefined,
+  settingsDefault: 'opus[1m]',
+  resolved: 'haiku'
+}
+[2026-10-27T04:29:13.150Z] [INFO] [SpawnConfigBuilder] MCP config found {
+  path: '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/config/mcp-servers.json'
+}
+[2026-10-27T04:29:13.150Z] [INFO] [SpawnConfigBuilder] Browser gateway MCP disabled for instance (browserToolsMode=off) { instanceId: 'c71gox3is' }
+[2026-10-27T04:29:13.152Z] [INFO] [SpawnConfigBuilder] Orchestrator tool schemas deferred {
+  instanceId: 'c71gox3is',
+  toolMode: 'deferred',
+  visibleToolCount: 8,
+  visibleSchemaBytes: 7323,
+  fullToolCount: 55,
+  fullSchemaBytes: 62895
+}
+[2026-10-27T04:29:13.153Z] [INFO] [SpawnConfigBuilder] Browser gateway MCP disabled for instance (browserToolsMode=off) { instanceId: 'c71gox3is' }
+[2026-10-27T04:29:13.154Z] [INFO] [ProviderAccountEvents] account_route_resolved {
+  provider: 'claude',
+  profileId: 'legacy',
+  nodeId: 'local',
+  origin: 'interactive',
+  routingSource: 'legacy'
+}
+[2026-10-27T04:29:13.154Z] [INFO] [ProviderAccountEvents] account_route_resolved {
+  provider: 'claude',
+  profileId: 'legacy',
+  nodeId: 'local',
+  origin: 'interactive',
+  routingSource: 'legacy'
+}
+[2026-10-27T04:29:13.156Z] [INFO] [InstanceLifecycle] Spawning CLI process { provider: 'claude' }
+[2026-10-27T04:29:13.264Z] [WARN] [ClaudeCliAdapter] YOLO mode enabled for Claude CLI instance { sessionId: 'd814ab7c-02a9-4469-8088-2875b9cfcf1a', model: 'haiku' }
+[2026-10-27T04:29:13.270Z] [INFO] [InstanceLifecycle] CLI spawned successfully { pid: 21825, instanceId: 'c71gox3is' }
+[2026-10-27T04:29:13.271Z] [INFO] [VectorStore] VectorStore residency changed {
+  event: 'store-loaded',
+  totalVectors: 2,
+  residentStores: 2,
+  maxResidentStores: 24,
+  storeCount: 2
+}
+[2026-10-27T04:29:13.404Z] [INFO] [WarmStartManager] Warm process ready {
+  provider: 'claude',
+  workingDirectory: '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985'
+}
+[2026-10-27T04:29:14.807Z] [WARN] [AntigravityCliAdapter] Antigravity CLI error without listener { errorKind: 'Error', textChars: 522, textHash: '927e71f987053c1d' }
+[2026-10-27T04:29:14.955Z] [WARN] [AutoTitle] AI title escalation failed {
+  cliType: 'antigravity',
+  model: 'Gemini 3.5 Flash (Low)',
+  elapsedMs: 3015,
+  timeoutMs: 60000,
+  workingDirectory: '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985',
+  error: 'agy exited with code 1'
+}
+[2026-10-27T04:29:14.975Z] [INFO] [ProviderAccountEvents] account_route_resolved {
+  provider: 'claude',
+  profileId: 'legacy',
+  nodeId: 'local',
+  origin: 'internal',
+  routingSource: 'legacy'
+}
+[2026-10-27T04:29:20.640Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:29:21.628Z] [INFO] [AutoTitle] AI title generated via CLI escalation { cliType: 'claude', model: 'haiku', elapsedMs: 6651 }
+[2026-10-27T04:29:21.628Z] [INFO] [AutoTitle] Auto-titled instance (AI) {
+  instanceId: 'c71gox3is',
+  title: 'AI Orchestrator dev app target enrolment check'
+}
+[2026-10-27T04:29:30.641Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:29:34.835Z] [INFO] [ProviderTurnEnding] Provider turn completed {
+  adapter: 'claude',
+  model: 'haiku',
+  stopReason: 'end_turn',
+  finish: 'completed',
+  outputTokens: 2403,
+  reasoningTokens: undefined,
+  activeToolKind: undefined,
+  classifierReason: 'completed'
+}
+[2026-10-27T04:29:34.838Z] [WARN] [RendererEventValidation] Blocked invalid renderer event payload {
+  channel: 'cost:usage-recorded',
+  issues: [ { path: '', message: 'Unrecognized key: "byModel"' } ]
+}
+[2026-10-27T04:29:40.643Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:29:50.644Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:30:00.646Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:30:10.645Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:30:20.645Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:30:30.647Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:30:31.772Z] [WARN] [OpenCodeCliLaunch] Skipped unusable OpenCode installs; using another { major: 1, unknownVersion: 0, unsupported: 2, unreadable: 0 }
+[2026-10-27T04:30:32.036Z] [INFO] [CliDetection] CLI detection complete {
+  available: [
+    'claude',
+    'codex',
+    'antigravity',
+    'copilot',
+    'cursor',
+    'grok',
+    'opencode'
+  ]
+}
+[2026-10-27T04:30:40.649Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:30:41.474Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'manual-only', endpointCount: 1 }
+[2026-10-27T04:30:45.232Z] [WARN] [BaseCliAdapter] Stream idle timeout exceeded {
+  adapter: 'claude-cli',
+  timeoutMs: 90000,
+  baseTimeoutMs: 90000,
+  pid: 21844
+}
+[2026-10-27T04:30:50.651Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:31:00.653Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:31:04.833Z] [WARN] [BaseCliAdapter] Stream idle timeout exceeded {
+  adapter: 'claude-cli',
+  timeoutMs: 90000,
+  baseTimeoutMs: 90000,
+  pid: 21825
+}
+[2026-10-27T04:31:10.653Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:31:20.653Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:31:29.837Z] [INFO] [CodexCliDiscovery] Codex CLI models refreshed into unified catalog { count: 8 }
+[2026-10-27T04:31:30.099Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 8672, triggerSources: [ 'cli-discovered' ] }
+[2026-10-27T04:31:30.557Z] [INFO] [GrokCliDiscovery] Grok CLI models refreshed into unified catalog { count: 1 }
+[2026-10-27T04:31:30.655Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:31:30.817Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 8672, triggerSources: [ 'cli-discovered' ] }
+[2026-10-27T04:31:31.006Z] [INFO] [CursorCopilotCliDiscovery] CLI models refreshed into unified catalog { provider: 'cursor', count: 270 }
+[2026-10-27T04:31:31.146Z] [WARN] [OpenCodeCliLaunch] Skipped unusable OpenCode installs; using another { major: 1, unknownVersion: 0, unsupported: 2, unreadable: 0 }
+[2026-10-27T04:31:31.263Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 8672, triggerSources: [ 'cli-discovered' ] }
+[2026-10-27T04:31:31.612Z] [INFO] [CursorCopilotCliDiscovery] CLI models refreshed into unified catalog { provider: 'copilot', count: 39 }
+[2026-10-27T04:31:31.869Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 8672, triggerSources: [ 'cli-discovered' ] }
+[2026-10-27T04:31:31.949Z] [INFO] [OpenCodeCliDiscovery] OpenCode CLI models refreshed into unified catalog { count: 11 }
+[2026-10-27T04:31:32.206Z] [INFO] [UnifiedModelCatalog] Unified model catalog rebuilt { entries: 8672, triggerSources: [ 'cli-discovered' ] }
+[2026-10-27T04:31:35.448Z] [WARN] [OpenCodeCliLaunch] Skipped unusable OpenCode installs; using another { major: 1, unknownVersion: 0, unsupported: 2, unreadable: 0 }
+[2026-10-27T04:31:35.733Z] [INFO] [CliDetection] CLI detection complete {
+  available: [
+    'claude',
+    'codex',
+    'antigravity',
+    'copilot',
+    'cursor',
+    'grok',
+    'opencode'
+  ]
+}
+[2026-10-27T04:31:40.654Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:31:50.656Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:32:00.661Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:32:10.660Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:32:11.563Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'manual-only', endpointCount: 1 }
+[2026-10-27T04:32:11.573Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'local-first', endpointCount: 1 }
+[2026-10-27T04:32:11.582Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'local-first', endpointCount: 1 }
+[2026-10-27T04:32:11.592Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'local-first', endpointCount: 1 }
+[2026-10-27T04:32:11.601Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'local-first', endpointCount: 1 }
+[2026-10-27T04:32:11.609Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'local-first', endpointCount: 0 }
+[2026-10-27T04:32:11.621Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'local-first', endpointCount: 0 }
+[2026-10-27T04:32:11.631Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'local-first', endpointCount: 0 }
+[2026-10-27T04:32:11.641Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'local-first', endpointCount: 0 }
+[2026-10-27T04:32:11.642Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'local-first', endpointCount: 0 }
+[2026-10-27T04:32:12.871Z] [INFO] [HistoryManager] Archived instance {
+  instanceId: 'c71gox3is',
+  entryId: 'e2e4e7f6-80de-4c1d-b295-bc243213504d',
+  messageCount: 4,
+  replacedEntries: 0
+}
+[2026-10-27T04:32:12.872Z] [INFO] [SupervisorTree] Unregistered instance { instanceId: 'c71gox3is' }
+[2026-10-27T04:32:12.873Z] [INFO] [InstanceContext] Ended RLM session {
+  rlmSessionId: 'rlm-1793075351848-nwayp16mf',
+  instanceId: 'c71gox3is'
+}
+[2026-10-27T04:32:20.659Z] [WARN] [LeftoverProcessSweeper] Leftover process check failed { error: 'spawn EPERM' }
+[2026-10-27T04:32:49.322Z] [WARN] [App] Shutdown trigger observed {
+  source: 'electron-before-quit',
+  windowCount: 1,
+  argv: [
+    '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',
+    '.',
+    '--no-sandbox',
+    '--disable-gpu',
+    '--js-flags=--max-old-space-size=8192',
+    '--remote-debugging-port=9554'
+  ],
+  observedAt: 1793075569322
+}
+[2026-10-27T04:32:49.324Z] [INFO] [ResumeHintManager] Resume hint saved { sessionId: 'd814ab7c-02a9-4469-8088-2875b9cfcf1a' }
+[2026-10-27T04:32:49.335Z] [INFO] [LastStopSnapshot] Last-stop snapshot written {
+  sessions: 2,
+  path: '/tmp/aio-lt-queue-af185985/session-continuity/last-stop.json'
+}
+[2026-10-27T04:32:49.337Z] [INFO] [App] Cleaning up 
+[2026-10-27T04:32:49.337Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'stop-remote-services',
+  priority: 30,
+  outcome: 'started',
+  elapsedMs: 0,
+  budgetMs: 1500
+}
+[2026-10-27T04:32:49.337Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'stop-remote-services',
+  priority: 30,
+  outcome: 'completed',
+  elapsedMs: 0,
+  budgetMs: 1500
+}
+[2026-10-27T04:32:49.338Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'terminate-instances',
+  priority: 40,
+  outcome: 'started',
+  elapsedMs: 0,
+  budgetMs: 50000
+}
+[2026-10-27T04:32:49.338Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'terminate-instances',
+  priority: 40,
+  outcome: 'completed',
+  elapsedMs: 0,
+  budgetMs: 50000
+}
+[2026-10-27T04:32:49.338Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'flush-chat-transcripts',
+  priority: 41,
+  outcome: 'started',
+  elapsedMs: 0,
+  budgetMs: 2000
+}
+[2026-10-27T04:32:49.338Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'flush-chat-transcripts',
+  priority: 41,
+  outcome: 'completed',
+  elapsedMs: 0,
+  budgetMs: 2000
+}
+[2026-10-27T04:32:49.338Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'bootstrap-teardown',
+  priority: 42,
+  outcome: 'started',
+  elapsedMs: 0,
+  budgetMs: 3000
+}
+[2026-10-27T04:32:49.339Z] [INFO] [Bootstrap] Tearing down: CLI update poller 
+[2026-10-27T04:32:49.339Z] [INFO] [Bootstrap] Tearing down: RLM subsystem 
+[2026-10-27T04:32:49.339Z] [INFO] [Bootstrap] Tearing down: Orchestration event store 
+[2026-10-27T04:32:49.339Z] [INFO] [Bootstrap] Tearing down: Model pricing sync 
+[2026-10-27T04:32:49.339Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'bootstrap-teardown',
+  priority: 42,
+  outcome: 'completed',
+  elapsedMs: 1,
+  budgetMs: 3000
+}
+[2026-10-27T04:32:49.339Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'flush-observability',
+  priority: 43,
+  outcome: 'started',
+  elapsedMs: 0,
+  budgetMs: 2500
+}
+[2026-10-27T04:32:49.339Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'flush-observability',
+  priority: 43,
+  outcome: 'completed',
+  elapsedMs: 0,
+  budgetMs: 2500
+}
+[2026-10-27T04:32:49.340Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'cleanup-registry',
+  priority: 50,
+  outcome: 'started',
+  elapsedMs: 0,
+  budgetMs: 3000
+}
+[2026-10-27T04:32:49.342Z] [INFO] [ChannelManager] Shutting down all channel adapters 
+[2026-10-27T04:32:49.343Z] [INFO] [ResumeHintManager] Resume hint saved { sessionId: 'd814ab7c-02a9-4469-8088-2875b9cfcf1a' }
+[2026-10-27T04:32:49.355Z] [INFO] [LastStopSnapshot] Last-stop snapshot written {
+  sessions: 2,
+  path: '/tmp/aio-lt-queue-af185985/session-continuity/last-stop.json'
+}
+[93233:1027/043249.356607:ERROR:content/browser/gpu/gpu_process_host.cc:1017] GPU process exited unexpectedly: exit_code=15
+[2026-10-27T04:32:49.356Z] [ERROR] [RuntimeDiagnostics] Electron child process exited unexpectedly {
+  type: 'GPU',
+  reason: 'killed',
+  exitCode: 15,
+  name: undefined,
+  serviceName: 'GPU'
+} 
+[2026-10-27T04:32:49.357Z] [ERROR] [RuntimeDiagnostics] Electron child process exited unexpectedly {
+  type: 'Utility',
+  reason: 'killed',
+  exitCode: 15,
+  name: 'Network Service',
+  serviceName: 'network.mojom.NetworkService'
+} 
+[93233:1027/043249.358349:ERROR:content/browser/network_service_instance_impl.cc:703] Network service crashed or was terminated, restarting service.
+[2026-10-27T04:32:49.359Z] [ERROR] [RuntimeDiagnostics] Electron child process exited unexpectedly {
+  type: 'Utility',
+  reason: 'killed',
+  exitCode: 15,
+  name: 'context worker',
+  serviceName: 'node.mojom.NodeService'
+} 
+[2026-10-27T04:32:49.364Z] [ERROR] [RuntimeDiagnostics] Electron child process exited unexpectedly {
+  type: 'Utility',
+  reason: 'killed',
+  exitCode: 15,
+  name: 'index worker child process',
+  serviceName: 'node.mojom.NodeService'
+} 
+[2026-10-27T04:32:49.365Z] [ERROR] [WindowManager] Renderer process exited unexpectedly {
+  windowId: 1,
+  rendererPid: 0,
+  url: 'http://localhost:9654/local-ai',
+  isVisible: true,
+  isFocused: false,
+  bounds: { x: 1860, y: 206, width: 1400, height: 900 },
+  reason: 'killed',
+  exitCode: 15
+} 
+[2026-10-27T04:32:49.365Z] [INFO] [WindowManager] Attempting renderer reload after unclean renderer exit { reason: 'killed' }
+[2026-10-27T04:32:49.602Z] [INFO] [ProviderDoctor] Provider diagnosis complete { provider: 'antigravity', overall: 'healthy' }
+[2026-10-27T04:32:49.719Z] [INFO] [ProviderAccountEvents] account_binding_checked {
+  provider: 'codex',
+  profileId: 'legacy',
+  nodeId: 'local',
+  state: 'authenticated'
+}
+[2026-10-27T04:32:49.719Z] [INFO] [ProviderDoctor] Provider diagnosis complete { provider: 'codex-cli', overall: 'healthy' }
+Error sending from webFrameMain:  Error: Render frame was disposed before WebFrameMain could be accessed
+    at WebFrameMain.send (node:electron/js2c/browser_init:2:107621)
+    at WebContents.send (node:electron/js2c/browser_init:2:94036)
+    at ElectronWindowTransport.send (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/event-bus/electron-window-transport.js:29:21)
+    at MainEventBus.dispatch (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/event-bus/main-event-bus.js:128:27)
+    at MainEventBus.emit (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/event-bus/main-event-bus.js:87:14)
+    at MainEventBus.emitRendererEvent (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/event-bus/main-event-bus.js:93:14)
+    at WindowManager.sendToRenderer (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/window-manager.js:449:27)
+    at InstanceManager.<anonymous> (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/ipc/ipc-main-runtime-wiring.js:100:23)
+    at InstanceManager.emit (node:events:509:28)
+    at InstanceLifecycleManager.<anonymous> (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/instance/instance-manager.js:648:59)
+[2026-10-27T04:32:49.995Z] [INFO] [ProviderDoctor] Provider diagnosis complete { provider: 'copilot', overall: 'healthy' }
+[2026-10-27T04:32:50.055Z] [INFO] [ProviderDoctor] Provider diagnosis complete { provider: 'cursor', overall: 'healthy' }
+[2026-10-27T04:32:50.061Z] [INFO] [ProviderAccountEvents] account_binding_checked {
+  provider: 'claude',
+  profileId: 'legacy',
+  nodeId: 'local',
+  state: 'authenticated'
+}
+[2026-10-27T04:32:50.064Z] [INFO] [ProviderDoctor] Provider diagnosis complete { provider: 'claude-cli', overall: 'healthy' }
+Error occurred in handler for 'notification:list': Error: No handler registered for 'notification:list'
+    at Session.<anonymous> (node:electron/js2c/browser_init:2:117834)
+    at Session.emit (node:events:509:28)
+Error occurred in handler for 'update:get-status': Error: No handler registered for 'update:get-status'
+    at Session.<anonymous> (node:electron/js2c/browser_init:2:117834)
+    at Session.emit (node:events:509:28)
+Error occurred in handler for 'local-ai-guard:get-snapshot': Error: No handler registered for 'local-ai-guard:get-snapshot'
+    at Session.<anonymous> (node:electron/js2c/browser_init:2:117834)
+    at Session.emit (node:events:509:28)
+Error occurred in handler for 'skills:activations-recent': Error: No handler registered for 'skills:activations-recent'
+    at Session.<anonymous> (node:electron/js2c/browser_init:2:117834)
+    at Session.emit (node:events:509:28)
+Error occurred in handler for 'skills:list-controls': Error: No handler registered for 'skills:list-controls'
+    at Session.<anonymous> (node:electron/js2c/browser_init:2:117834)
+    at Session.emit (node:events:509:28)
+[2026-10-27T04:32:50.696Z] [INFO] [AuxiliaryLlmService] AuxiliaryLlmService configured { enabled: true, routingMode: 'local-first', endpointCount: 0 }
+Error occurred in handler for 'local-ai-guard:get-snapshot': Error: No handler registered for 'local-ai-guard:get-snapshot'
+    at Session.<anonymous> (node:electron/js2c/browser_init:2:117834)
+    at Session.emit (node:events:509:28)
+[2026-10-27T04:32:51.002Z] [WARN] [OpenCodeCliLaunch] Skipped unusable OpenCode installs; using another { major: 1, unknownVersion: 0, unsupported: 2, unreadable: 0 }
+[2026-10-27T04:32:51.356Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'cleanup-registry',
+  priority: 50,
+  outcome: 'completed',
+  elapsedMs: 2016,
+  budgetMs: 3000
+}
+[2026-10-27T04:32:51.359Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'stop-cli-spawn-worker',
+  priority: 51,
+  outcome: 'started',
+  elapsedMs: 0,
+  budgetMs: 3000
+}
+[2026-10-27T04:32:51.359Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'stop-cli-spawn-worker',
+  priority: 51,
+  outcome: 'completed',
+  elapsedMs: 0,
+  budgetMs: 3000
+}
+[2026-10-27T04:32:51.359Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'kill-orphaned-cli-processes',
+  priority: 52,
+  outcome: 'started',
+  elapsedMs: 0,
+  budgetMs: 4000
+}
+[2026-10-27T04:32:51.359Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'kill-orphaned-cli-processes',
+  priority: 52,
+  outcome: 'completed',
+  elapsedMs: 0,
+  budgetMs: 4000
+}
+[2026-10-27T04:32:51.359Z] [INFO] [App] Cleanup complete { phaseCount: 8, incompletePhaseCount: 0 }

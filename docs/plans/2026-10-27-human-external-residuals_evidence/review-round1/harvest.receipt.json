@@ -1,0 +1,22 @@
+{
+  "at": "2026-10-27T03:36:52.875Z",
+  "rootOwner": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-27-livetest-human-external-residuals_livetest.md",
+  "rootOwnerSha256": "d583f18a52f05f6d295afc009f74760c457c0026230366fc1fa953689d474443",
+  "rootOwnerBytes": 120012,
+  "branch": "queue/2026-09-27-livetest-human-exte-185985",
+  "head": "2cbdb4acc7202730614e22323b7f9ca6fcad406d",
+  "candidatePath": "docs/plans/2026-09-27-livetest-human-external-residuals_livetest_completed.md",
+  "candidateSha256": "d583f18a52f05f6d295afc009f74760c457c0026230366fc1fa953689d474443",
+  "candidateIncludesReviewCorrections": true,
+  "candidateExactlyMatchesRoot": true,
+  "preparationOnly": true,
+  "landingInvoked": false,
+  "documentCopiedIntoWorktree": false,
+  "closureAuthorized": false,
+  "reviewInputs": [
+    "this rootOwner and hash",
+    "current queue branch diff",
+    "docs/plans/2026-10-27-human-external-residuals_evidence/SEAL.json"
+  ],
+  "reviewerInstruction": "Review the supplied rootOwner together with the queue diff; do not replace it with the stale branch copy. All unpassed checks stay open; only the coordinator controls landing and closure."
+}

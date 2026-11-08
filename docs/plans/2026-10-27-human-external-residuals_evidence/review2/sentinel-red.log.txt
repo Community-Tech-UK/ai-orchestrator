@@ -1,0 +1,24 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/browser-gateway/browser-target-persistence-sentinel.spec.ts
+
+✗ 3 of 15 tests failed in 7.1s:
+
+  ✗ src/main/browser-gateway/browser-target-persistence-sentinel.spec.ts › BrowserTargetPersistenceSentinel recognizes ok from the real extension evaluate JSON envelope
+    AssertionError: expected { state: 'unknown', checkedAt: 100 } to deeply equal { state: 'ok', checkedAt: 100 }
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/browser-gateway/browser-target-persistence-sentinel.spec.ts:120:20
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+  ✗ src/main/browser-gateway/browser-target-persistence-sentinel.spec.ts › BrowserTargetPersistenceSentinel recognizes session_stale from the real extension evaluate JSON envelope
+    AssertionError: expected { state: 'unknown', checkedAt: 100 } to deeply equal { state: 'session_stale', …(2) }
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/browser-gateway/browser-target-persistence-sentinel.spec.ts:120:20
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+  ✗ src/main/browser-gateway/browser-target-persistence-sentinel.spec.ts › BrowserTargetPersistenceSentinel recognizes save_failed from the real extension evaluate JSON envelope
+    AssertionError: expected { state: 'unknown', checkedAt: 100 } to deeply equal { state: 'save_failed', …(2) }
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/browser-gateway/browser-target-persistence-sentinel.spec.ts:120:20
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+full log: _scratch/test-run.pid-51938.log
+
+✗ FAILED — 3 of 15 tests failed (exit 1).

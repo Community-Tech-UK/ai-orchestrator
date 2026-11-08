@@ -1,0 +1,87 @@
+{
+  "at": "2026-10-27T06:04:04.782428+00:00",
+  "projectId": "gen-lang-client-0643087399",
+  "readOnly": true,
+  "commands": {
+    "project": {
+      "command": [
+        "gcloud",
+        "projects",
+        "describe",
+        "gen-lang-client-0643087399",
+        "--format=json"
+      ],
+      "exitCode": 0,
+      "stderrBytes": 0
+    },
+    "policy": {
+      "command": [
+        "gcloud",
+        "projects",
+        "get-iam-policy",
+        "gen-lang-client-0643087399",
+        "--format=json"
+      ],
+      "exitCode": 0,
+      "stderrBytes": 0
+    },
+    "accounts": {
+      "command": [
+        "gcloud",
+        "iam",
+        "service-accounts",
+        "list",
+        "--project=gen-lang-client-0643087399",
+        "--format=json"
+      ],
+      "exitCode": 0,
+      "stderrBytes": 0
+    },
+    "ancestors": {
+      "command": [
+        "gcloud",
+        "projects",
+        "get-ancestors",
+        "gen-lang-client-0643087399",
+        "--format=json"
+      ],
+      "exitCode": 0,
+      "stderrBytes": 0
+    }
+  },
+  "project": {
+    "projectId": "gen-lang-client-0643087399",
+    "projectNumber": "788521573092",
+    "lifecycleState": "ACTIVE"
+  },
+  "ancestors": [
+    {
+      "id": "gen-lang-client-0643087399",
+      "type": "project"
+    }
+  ],
+  "senderCandidates": [
+    {
+      "displayName": "MyTradeMail FCM sender",
+      "principalSha256": "12001ed32fecd88f8401b91245c902b8d1c67ae1ebbba76766781352ce21fd2b",
+      "disabled": false
+    }
+  ],
+  "policyVersion": 1,
+  "allBindingMemberKinds": [
+    "serviceAccount",
+    "user"
+  ],
+  "nonIndividualBindings": [],
+  "senderBindings": [
+    {
+      "displayName": "MyTradeMail FCM sender",
+      "bindings": [
+        {
+          "role": "roles/firebasecloudmessaging.admin"
+        }
+      ]
+    }
+  ],
+  "broadOrGroupBindings": []
+}

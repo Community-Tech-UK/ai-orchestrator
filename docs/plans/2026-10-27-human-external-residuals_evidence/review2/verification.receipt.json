@@ -1,0 +1,218 @@
+{
+  "at": "2026-10-27T07:35:07.648813+00:00",
+  "commandPipelineFinished": true,
+  "supportedRuntimeVerificationPass": true,
+  "fullSuiteRuntime": "Node v24.22.1",
+  "fullSuiteForks": 2,
+  "normalGateReceipts": [
+    {
+      "label": "typecheck-after-prune",
+      "command": [
+        "npx",
+        "tsc",
+        "--noEmit"
+      ],
+      "exitCode": 0,
+      "endedAt": "2026-10-27T06:31:27.571542+00:00",
+      "receipt": "typecheck-after-prune.receipt.json"
+    },
+    {
+      "label": "spec-typecheck-after-prune",
+      "command": [
+        "npm",
+        "run",
+        "typecheck:spec"
+      ],
+      "exitCode": 0,
+      "endedAt": "2026-10-27T06:32:20.103395+00:00",
+      "receipt": "spec-typecheck-after-prune.receipt.json"
+    },
+    {
+      "label": "lint-after-prune",
+      "command": [
+        "npm",
+        "run",
+        "lint"
+      ],
+      "exitCode": 0,
+      "endedAt": "2026-10-27T06:32:34.604697+00:00",
+      "receipt": "lint-after-prune.receipt.json"
+    },
+    {
+      "label": "ts-max-loc-after-prune",
+      "command": [
+        "npm",
+        "run",
+        "check:ts-max-loc"
+      ],
+      "exitCode": 0,
+      "endedAt": "2026-10-27T06:32:36.108271+00:00",
+      "receipt": "ts-max-loc-after-prune.receipt.json"
+    },
+    {
+      "label": "ui-hints-after-prune",
+      "command": [
+        "npm",
+        "run",
+        "check:ui-hints"
+      ],
+      "exitCode": 0,
+      "endedAt": "2026-10-27T06:32:39.519039+00:00",
+      "receipt": "ui-hints-after-prune.receipt.json"
+    },
+    {
+      "label": "build-main-after-prune",
+      "command": [
+        "npm",
+        "run",
+        "build:main"
+      ],
+      "exitCode": 0,
+      "endedAt": "2026-10-27T06:33:17.699735+00:00",
+      "receipt": "build-main-after-prune.receipt.json"
+    },
+    {
+      "label": "build-renderer-after-prune",
+      "command": [
+        "npm",
+        "run",
+        "build:renderer"
+      ],
+      "exitCode": 0,
+      "endedAt": "2026-10-27T06:33:41.782903+00:00",
+      "receipt": "build-renderer-after-prune.receipt.json"
+    },
+    {
+      "label": "full-suite-supported-runtime",
+      "command": [
+        "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+        "scripts/run-tests-quiet.js"
+      ],
+      "exitCode": 0,
+      "endedAt": "2026-10-27T07:17:53.036919+00:00",
+      "receipt": "full-suite-supported-runtime.receipt.json"
+    },
+    {
+      "label": "transport-final",
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/mcp/aio-mcp-cli-transport.spec.ts"
+      ],
+      "exitCode": 0,
+      "endedAt": "2026-10-27T05:32:15.645204+00:00",
+      "receipt": "transport-final.receipt.json"
+    },
+    {
+      "label": "sentinel-integration",
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/browser-gateway/browser-gateway-reliability-reconnect.spec.ts",
+        "src/main/browser-gateway/browser-target-persistence-sentinel.spec.ts"
+      ],
+      "exitCode": 0,
+      "endedAt": "2026-10-27T05:05:01.436235+00:00",
+      "receipt": "sentinel-integration.receipt.json"
+    },
+    {
+      "label": "focused-green",
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/mcp/aio-mcp-cli-transport.spec.ts",
+        "src/main/mcp/copilot-account-cli.spec.ts",
+        "src/main/mcp/aio-mcp-dispatcher.spec.ts",
+        "src/main/mcp/settings-cli.spec.ts",
+        "src/main/plan-queue/plan-queue-doc-merge.spec.ts",
+        "src/main/security/approval-adjudicator.spec.ts"
+      ],
+      "exitCode": 0,
+      "endedAt": "2026-10-27T04:53:10.611081+00:00",
+      "receipt": "focused-green.receipt.json"
+    },
+    {
+      "label": "dependency-clean",
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "scripts/__tests__/dependency-compatibility.spec.ts"
+      ],
+      "exitCode": 0,
+      "endedAt": "2026-10-27T06:31:00.430136+00:00",
+      "receipt": "dependency-clean.receipt.json"
+    },
+    {
+      "label": "isolated-native-finality",
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/orchestration/default-loop-native-finality.spec.ts",
+        "--maxWorkers=1"
+      ],
+      "exitCode": 0,
+      "endedAt": "2026-10-27T06:50:47.778025+00:00",
+      "receipt": "isolated-native-finality.receipt.json"
+    },
+    {
+      "label": "isolated-doc-review",
+      "command": [
+        "npm",
+        "run",
+        "test:quiet",
+        "--",
+        "src/main/doc-review/doc-review-service.spec.ts",
+        "--maxWorkers=1"
+      ],
+      "exitCode": 0,
+      "endedAt": "2026-10-27T06:50:59.377604+00:00",
+      "receipt": "isolated-doc-review.receipt.json"
+    },
+    {
+      "label": "isolated-sea-supported-runtime",
+      "command": [
+        "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+        "scripts/run-tests-quiet.js",
+        "scripts/__tests__/sea-build-repeatability.spec.ts",
+        "--maxWorkers=1"
+      ],
+      "exitCode": 0,
+      "endedAt": "2026-10-27T06:54:16.049387+00:00",
+      "receipt": "isolated-sea-supported-runtime.receipt.json"
+    }
+  ],
+  "fullSuiteTotals": {
+    "success": true,
+    "numTotalTests": 35390,
+    "numPassedTests": 35381,
+    "numFailedTests": 0,
+    "numPendingTests": 9,
+    "numFailedTestSuites": 0
+  },
+  "defaultNode26FullPass": false,
+  "knownRuntimeFailure": "LT-992: Node-26 SEA collection/source-map failure; unchanged cases pass Node 24",
+  "independentVerdictObtained": false,
+  "queueIndependentVerifierRequired": true,
+  "campaignComplete": false,
+  "allRequestedLiveAcceptanceVerified": false,
+  "selfReview": {
+    "currentSourceMatchesReviewedSnapshot": true,
+    "sourceFilesChecked": 15,
+    "independent": false,
+    "notes": "Reviewed full source diff, strict RPC payload envelope, stdout draining, caller wiring, malformed envelope handling, unchanged assertions, and bounded child/socket cleanup"
+  },
+  "branch": "queue/2026-09-27-livetest-human-exte-185985",
+  "stagedPaths": [],
+  "slowTierRun": false,
+  "slowTierReason": "No changed slow-tier path; normal full suite, focused real CLI transport and reconnect integration plus live isolated runtime exercised the changes"
+}

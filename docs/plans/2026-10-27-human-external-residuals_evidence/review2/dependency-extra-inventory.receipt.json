@@ -1,0 +1,70 @@
+{
+  "packages": [
+    {
+      "package": "@hono/node-server",
+      "symlink": false,
+      "recordedInLock": false
+    },
+    {
+      "package": "@modelcontextprotocol/sdk",
+      "symlink": false,
+      "recordedInLock": false
+    },
+    {
+      "package": "cors",
+      "symlink": false,
+      "recordedInLock": false
+    },
+    {
+      "package": "eventsource-parser",
+      "symlink": false,
+      "recordedInLock": false
+    },
+    {
+      "package": "eventsource",
+      "symlink": false,
+      "recordedInLock": false
+    },
+    {
+      "package": "express-rate-limit",
+      "symlink": false,
+      "recordedInLock": false
+    },
+    {
+      "package": "hono",
+      "symlink": false,
+      "recordedInLock": false
+    },
+    {
+      "package": "ip-address",
+      "symlink": false,
+      "recordedInLock": false
+    },
+    {
+      "package": "jose",
+      "symlink": false,
+      "recordedInLock": false
+    },
+    {
+      "package": "object-assign",
+      "symlink": false,
+      "recordedInLock": false
+    },
+    {
+      "package": "pkce-challenge",
+      "symlink": false,
+      "recordedInLock": false
+    },
+    {
+      "package": "zod-to-json-schema",
+      "symlink": false,
+      "recordedInLock": false
+    }
+  ],
+  "manifestChanges": false,
+  "load": [
+    37.365234375,
+    50.71484375,
+    41.55029296875
+  ]
+}

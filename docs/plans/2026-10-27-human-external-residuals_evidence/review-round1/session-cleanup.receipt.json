@@ -1,0 +1,65 @@
+{
+  "at": "2026-10-27T03:34:14.522Z",
+  "focusEmulation": true,
+  "visibilityOverride": "'Emulation.setPageVisibilityOverride' wasn't found",
+  "errors": [],
+  "value": {
+    "at": "2026-10-27T03:34:14.508Z",
+    "before": [
+      {
+        "id": "pfnfmw6t0",
+        "status": "idle",
+        "processId": 81894
+      }
+    ],
+    "termination": {
+      "success": true
+    },
+    "after": {
+      "success": true,
+      "data": []
+    },
+    "adjudication": {
+      "success": true,
+      "data": false
+    },
+    "localAi": {
+      "success": true,
+      "data": {
+        "helperPauses": [],
+        "revision": "11",
+        "aggregate": {
+          "state": "not-configured",
+          "enrolled": 0,
+          "healthy": 0,
+          "degraded": 0,
+          "unavailable": 0,
+          "paused": 0
+        },
+        "targets": [],
+        "targetConfigs": [],
+        "incidents": [],
+        "recoveryAttempts": [],
+        "pendingFallbacks": [],
+        "fallbackNotifications": [
+          {
+            "id": "ce0ae9cd-b7b5-49ed-8b36-af018e7ab32b",
+            "slot": "titleGeneration",
+            "intendedRoute": "local",
+            "actualRoute": "frontier",
+            "policy": "notify-and-allow",
+            "disposition": "allowed",
+            "decisionReason": "policy",
+            "provider": "anthropic",
+            "model": "claude-haiku-5-5",
+            "inputTokens": 2,
+            "outputTokens": 360,
+            "knownCostUsd": 0.007473240000000001,
+            "createdAt": 1793071331744,
+            "completedAt": 1793071331813
+          }
+        ]
+      }
+    }
+  }
+}

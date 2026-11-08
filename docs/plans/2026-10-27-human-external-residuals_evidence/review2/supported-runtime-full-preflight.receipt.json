@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-27T06:58:28.715694+00:00",
+  "node": "v24.22.1",
+  "nodePath": "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+  "AIO_TEST_MAX_FORKS": 2,
+  "AIO_TEST_SUMMARY": 0,
+  "load": [
+    3.99169921875,
+    10.8359375,
+    21.70849609375
+  ],
+  "reviewersAndOwnedHelpersStopped": true,
+  "noNewTestExclusionsOrAssertionChanges": true,
+  "loadObservationTiming": "Immediately after command launch, before any test result was reported"
+}

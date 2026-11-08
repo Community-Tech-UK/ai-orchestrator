@@ -1,0 +1,10 @@
+{
+  "command": "dns-sd -B _ai-orchestrator._tcp local (8-second bounded browse)",
+  "startedAt": 1793069987.603083,
+  "endedAt": 1793069995.60896,
+  "exitCode": -15,
+  "boundedObservation": true,
+  "stdout": "Browsing for _ai-orchestrator._tcp.local\nDATE: ---Tue 27 Oct 2026---\n 2:59:47.609  ...STARTING...\nTimestamp     A/R    Flags  if Domain               Service Type         Instance Name\n 2:59:47.769  Add        3  16 local.               _ai-orchestrator._tcp. orchestrator-default\n 2:59:47.769  Add        2  19 local.               _ai-orchestrator._tcp. orchestrator-default\n",
+  "stderr": "",
+  "processGone": true
+}

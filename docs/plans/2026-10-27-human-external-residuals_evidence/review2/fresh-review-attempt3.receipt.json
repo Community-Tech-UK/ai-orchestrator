@@ -1,0 +1,104 @@
+{
+  "startedAt": "2026-10-27T06:24:22.555557+00:00",
+  "providedActualFiles": [
+    {
+      "path": "/Users/suas/.agents/skills/task-completion-gate/SKILL.md",
+      "bytes": 7460,
+      "sha256": "76af2ae9f0e3d6d348921ba9fdfe65d7dbe56a76957f27c6e6f6962da26ae0fa"
+    },
+    {
+      "path": "_scratch/review2/source-review.diff",
+      "bytes": 15409,
+      "sha256": "ec61a1282ee19f5bc928d3ceda8cb89e14df1aedd88a4eceac0561d2819e0248"
+    },
+    {
+      "path": "src/main/mcp/copilot-account-cli.ts",
+      "bytes": 7880,
+      "sha256": "06e3045d7411376ca232a2d8121cca91dac7482910ebdd0d80486e2c45deb33c"
+    },
+    {
+      "path": "src/main/mcp/copilot-account-cli.spec.ts",
+      "bytes": 8148,
+      "sha256": "968e6b781c22a1ad8d9f53e4750fc48577b225be6acd275b155e481e12edef5a"
+    },
+    {
+      "path": "src/main/mcp/orchestrator-tools-rpc-client.ts",
+      "bytes": 3842,
+      "sha256": "d167ef56aeeef85f45e8725152cd27cf243c85ab284693160c6ecb114883286a"
+    },
+    {
+      "path": "src/main/mcp/orchestrator-tools-rpc-copilot-account.ts",
+      "bytes": 2103,
+      "sha256": "246990d94d83c0c165134b0fa3e222fcc72d4488023d50ec10de6fc0aae78323"
+    },
+    {
+      "path": "src/main/mcp/copilot-account-cli-contracts.ts",
+      "bytes": 4325,
+      "sha256": "2db148ea2ea9f194d6c7667c37c0123effc12879e745d2da695b24788a6b93f8"
+    },
+    {
+      "path": "src/main/mcp/aio-mcp-dispatcher.ts",
+      "bytes": 5043,
+      "sha256": "141496f89de6747aec51f30a11578ab40ba3de9fc849c3a1912a14339417c376"
+    },
+    {
+      "path": "src/main/mcp/aio-mcp-cli-transport.spec.ts",
+      "bytes": 6613,
+      "sha256": "b4704d4384b7c462550eb7f3271caf261f5d2bd75c24cbb2981589749c8a6128"
+    },
+    {
+      "path": "src/main/browser-gateway/browser-target-persistence-sentinel.ts",
+      "bytes": 10997,
+      "sha256": "ea055fcc5e4e11b0e6d6f6074aafdc404b614aac01460edfa406db6cf58ffa97"
+    },
+    {
+      "path": "src/main/browser-gateway/browser-target-persistence-sentinel.spec.ts",
+      "bytes": 7003,
+      "sha256": "8459886a26cfe47e912cbeea779b422ebabfdec4156805f5f6b02a13ca08e509"
+    },
+    {
+      "path": "src/main/browser-gateway/browser-gateway-reliability-reconnect.spec.ts",
+      "bytes": 10606,
+      "sha256": "97f07ca5d2f7cb6afb73ad713292bf04643343623189d6332997635ae78481fa"
+    },
+    {
+      "path": "src/main/browser-gateway/browser-app-write-guard.ts",
+      "bytes": 5965,
+      "sha256": "9203b0b08b27ba43714e780ef528c914be81acc0dd98f6050570628d0ef2489e"
+    },
+    {
+      "path": "src/main/browser-gateway/browser-existing-tab-operations.ts",
+      "bytes": 26911,
+      "sha256": "b182f9e543736c079cd8f16c6ff41c83b0e435ec5ab832a2a545536582c49647"
+    },
+    {
+      "path": "src/main/browser-gateway/browser-reliability-operations.ts",
+      "bytes": 5772,
+      "sha256": "41c8cf0239f40eb96618659273935fac4541688717917c1242c3b291b3ca9e8e"
+    },
+    {
+      "path": "src/main/browser-gateway/browser-assert-persisted-operation.ts",
+      "bytes": 3949,
+      "sha256": "1b18d1a530bdcfe188ebbf5ff175c7b11099bdf837de790331cba085c6bcb150"
+    },
+    {
+      "path": "src/main/browser-gateway/browser-write-journal.ts",
+      "bytes": 9740,
+      "sha256": "9b0b49bb96e5924c9341618ade9ae936e1f7097ab5cfd8998dacf924810239e1"
+    },
+    {
+      "path": "docs/plans/2026-10-27-human-external-residuals_evidence/review2/REPORT.md",
+      "bytes": 10158,
+      "sha256": "bae5a0c43988d0408183fab47f39c618fe151ee191504792381d46092aa5cf87"
+    }
+  ],
+  "availableTools": [],
+  "noSessionPersistence": true,
+  "timedOut": true,
+  "endedAt": "2026-10-27T06:27:23.174241+00:00",
+  "exitCode": 143,
+  "stderrBytes": 0,
+  "processReaped": true,
+  "structuredResultMissing": true,
+  "stdoutBytes": 0
+}

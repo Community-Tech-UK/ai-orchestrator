@@ -1,0 +1,123 @@
+{
+  "at": "2026-10-27T04:32:12.876Z",
+  "focusEmulation": true,
+  "visibilityOverride": "'Emulation.setPageVisibilityOverride' wasn't found",
+  "result": {
+    "type": "object",
+    "value": {
+      "at": "2026-10-27T04:32:12.874Z",
+      "retire": {
+        "success": true,
+        "data": {
+          "lifecycle": "retired",
+          "location": {
+            "type": "coordinator"
+          },
+          "provider": "openai-compatible",
+          "endpointId": "owned-lt-proxy",
+          "baseUrl": "http://127.0.0.1:9655",
+          "expectedModels": [
+            {
+              "modelId": "qwen/qwen3.6-35b-a3b",
+              "required": true,
+              "minContextLength": 131072
+            }
+          ],
+          "canary": {
+            "model": "qwen/qwen3.6-35b-a3b",
+            "timeoutMs": 30000,
+            "intervalMs": 600000
+          },
+          "endpointCheckIntervalMs": 60000,
+          "freshnessLimitMs": 120000,
+          "warningLatencyMs": 15000,
+          "routingRoles": [
+            "approvalAdjudication"
+          ],
+          "fallbackPolicy": "block-paid-fallback",
+          "slotFallbackPolicies": {},
+          "recovery": {
+            "automatic": false,
+            "maxAttempts": 2,
+            "cooldownMs": 300000
+          },
+          "id": "48dcf77a-856f-4950-beef-47edc34a7c67",
+          "label": "This computer · OpenAI-compatible (127.0.0.1:9655)",
+          "createdAt": 1793075368515,
+          "updatedAt": 1793075531552,
+          "retiredAt": 1793075531552
+        }
+      },
+      "restore": {
+        "success": true,
+        "data": {
+          "ok": true
+        }
+      },
+      "settings": {
+        "auxiliaryLlmEnabled": {
+          "success": true,
+          "matches": true
+        },
+        "auxiliaryLlmRoutingMode": {
+          "success": true,
+          "matches": true
+        },
+        "auxiliaryLlmAllowRemoteWorkerModels": {
+          "success": true,
+          "matches": true
+        },
+        "auxiliaryLlmUseLocalhostOllama": {
+          "success": true,
+          "matches": true
+        },
+        "auxiliaryLlmDailySpendCapUsd": {
+          "success": true,
+          "matches": true
+        },
+        "auxiliaryLlmEndpointsJson": {
+          "success": true,
+          "matches": true
+        },
+        "auxiliaryLlmSlotsJson": {
+          "success": true,
+          "matches": true
+        },
+        "auxiliaryLlmQuickModel": {
+          "success": true,
+          "matches": true
+        },
+        "auxiliaryLlmQualityModel": {
+          "success": true,
+          "matches": true
+        }
+      },
+      "adjudication": {
+        "success": true,
+        "data": false
+      },
+      "instances": [
+        {
+          "id": "c71gox3is",
+          "status": "idle",
+          "sessionId": "d814ab7c-02a9-4469-8088-2875b9cfcf1a",
+          "processId": 21825,
+          "errorCount": 0,
+          "output": [
+            "The command passed. It printed `ISOLATED_ENROLMENT_AND_DUPLICATE_REFUSAL_PASSED`, and the shell reported no error.\n\nI ran only that command and changed nothing. I did not clean up, so the enrolled target is still in place for the coordinator to inspect and retire. The pass result is the script's own report; I did not check the target separately."
+          ]
+        }
+      ],
+      "terminated": [
+        {
+          "success": true
+        }
+      ],
+      "remaining": {
+        "success": true,
+        "data": []
+      },
+      "targetsAfter": []
+    }
+  }
+}

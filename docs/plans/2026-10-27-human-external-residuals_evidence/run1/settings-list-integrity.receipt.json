@@ -1,0 +1,10 @@
+{
+  "command": "settings list --json",
+  "exitCode": 0,
+  "bytes": 65536,
+  "endedAt": 1793069900.788779,
+  "sha256": "03a2009ce1023a3dfe3457f90caf4e7e8b38151c26055a7b9a024fa59f9a6970",
+  "stderr": "",
+  "validJson": false,
+  "parseError": "Unterminated string starting at: line 1868 column 11 (char 65493)"
+}

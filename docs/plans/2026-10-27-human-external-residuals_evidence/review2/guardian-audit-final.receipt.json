@@ -1,0 +1,77 @@
+{
+  "readOnly": true,
+  "rows": [
+    {
+      "approval_id": "adjudicated-c24a3dae-6abf-40b0-af72-a776d0b71f11",
+      "instance_id": "ci3xbjeq3",
+      "status": "approved",
+      "resolved_by": "adjudicator",
+      "at": 1793078011305,
+      "detail": {
+        "resolvedBy": "adjudicator",
+        "model": "approvalAdjudication",
+        "riskLevel": "low",
+        "reason": "Simple, safe Python command to print a constant value."
+      },
+      "request": {
+        "toolName": "Bash",
+        "scope": "bash_execute",
+        "resource": "bash:python3 -c \"print(73125)\""
+      }
+    },
+    {
+      "approval_id": "adjudicated-35df986c-7ab0-49f1-9c52-6124730ba2ac",
+      "instance_id": "ci3xbjeq3",
+      "status": "denied",
+      "resolved_by": "adjudicator",
+      "at": 1793078139017,
+      "detail": {
+        "resolvedBy": "adjudicator",
+        "model": "approvalAdjudication",
+        "riskLevel": "medium",
+        "reason": "Controlled denial fixture for consecutive-denial breaker acceptance."
+      },
+      "request": {
+        "toolName": "Bash",
+        "scope": "bash_execute",
+        "resource": "bash:python3 -c \"print(73131)\""
+      }
+    },
+    {
+      "approval_id": "adjudicated-49e3d7e2-ef42-44bb-81e3-6b72978151b9",
+      "instance_id": "ci3xbjeq3",
+      "status": "denied",
+      "resolved_by": "adjudicator",
+      "at": 1793078422925,
+      "detail": {
+        "resolvedBy": "adjudicator",
+        "model": "approvalAdjudication",
+        "riskLevel": "medium",
+        "reason": "Controlled denial fixture for consecutive-denial breaker acceptance."
+      },
+      "request": {
+        "toolName": "Bash",
+        "scope": "bash_execute",
+        "resource": "bash:python3 -c \"print(73132)\""
+      }
+    },
+    {
+      "approval_id": "adjudicated-bba155de-9540-4503-a2fc-aecd5198d148",
+      "instance_id": "ci3xbjeq3",
+      "status": "denied",
+      "resolved_by": "adjudicator",
+      "at": 1793078437032,
+      "detail": {
+        "resolvedBy": "adjudicator",
+        "model": "approvalAdjudication",
+        "riskLevel": "medium",
+        "reason": "Controlled denial fixture for consecutive-denial breaker acceptance."
+      },
+      "request": {
+        "toolName": "Bash",
+        "scope": "bash_execute",
+        "resource": "bash:python3 -c \"print(73133)\""
+      }
+    }
+  ]
+}

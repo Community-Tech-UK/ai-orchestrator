@@ -1,0 +1,20 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js
+
+  … 4 test file(s) done (full log: _scratch/test-run.pid-75379.log)
+  … 5 test file(s) done (full log: _scratch/test-run.pid-75379.log)
+  … 9 test file(s) done (full log: _scratch/test-run.pid-75379.log)
+  … 16 test file(s) done (full log: _scratch/test-run.pid-75379.log)
+  … 24 test file(s) done (full log: _scratch/test-run.pid-75379.log)
+  … 37 test file(s) done (full log: _scratch/test-run.pid-75379.log)
+  … 54 test file(s) done (full log: _scratch/test-run.pid-75379.log)
+  … 81 test file(s) done (full log: _scratch/test-run.pid-75379.log)
+  … 118 test file(s) done (full log: _scratch/test-run.pid-75379.log)
+  … 193 test file(s) done (full log: _scratch/test-run.pid-75379.log)
+  … 287 test file(s) done (full log: _scratch/test-run.pid-75379.log)
+  … 423 test file(s) done (full log: _scratch/test-run.pid-75379.log)
+  … 589 test file(s) done (full log: _scratch/test-run.pid-75379.log)
+  … 749 test file(s) done (full log: _scratch/test-run.pid-75379.log)
+  … 916 test file(s) done (full log: _scratch/test-run.pid-75379.log)
+  … 1065 test file(s) done (full log: _scratch/test-run.pid-75379.log)

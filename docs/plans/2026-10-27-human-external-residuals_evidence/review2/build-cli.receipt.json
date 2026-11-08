@@ -1,0 +1,11 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "build:aio-mcp-cli"
+  ],
+  "startedAt": "2026-10-27T04:49:21.902778+00:00",
+  "endedAt": "2026-10-27T04:49:22.284876+00:00",
+  "exitCode": 0,
+  "log": "build-cli.log.txt"
+}

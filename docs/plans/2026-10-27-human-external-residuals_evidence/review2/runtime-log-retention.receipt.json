@@ -1,0 +1,17 @@
+{
+  "at": "2026-10-27T05:40:39.890169+00:00",
+  "files": [
+    {
+      "source": "_scratch/review2/electron.log",
+      "retained": "runtime-electron.log.txt",
+      "redactions": 0,
+      "bytes": 246183
+    },
+    {
+      "source": "_scratch/review2/renderer.log",
+      "retained": "runtime-renderer.log.txt",
+      "redactions": 0,
+      "bytes": 6266
+    }
+  ]
+}

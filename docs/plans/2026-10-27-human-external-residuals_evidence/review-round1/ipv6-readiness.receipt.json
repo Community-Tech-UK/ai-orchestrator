@@ -1,0 +1,8 @@
+{
+  "rendererIPv4": "connection refused",
+  "rendererLocalhostIPv6": {
+    "status": 200,
+    "bytes": 1567
+  },
+  "action": "Correct readiness URL to http://localhost:9654/; no product defect or Windows outage inferred"
+}

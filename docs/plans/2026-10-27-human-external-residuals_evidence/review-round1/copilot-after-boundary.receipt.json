@@ -1,0 +1,260 @@
+{
+  "at": "2026-10-27T03:32:49.445Z",
+  "focusEmulation": true,
+  "visibilityOverride": "'Emulation.setPageVisibilityOverride' wasn't found",
+  "errors": [],
+  "value": {
+    "at": "2026-10-27T03:32:49.444Z",
+    "hidden": false,
+    "visibility": "visible",
+    "fixture": null,
+    "instances": {
+      "success": true,
+      "data": [
+        {
+          "id": "pfnfmw6t0",
+          "displayName": "ACP tool timeout live test",
+          "createdAt": 1793071327834,
+          "parentId": null,
+          "childrenIds": [],
+          "supervisorNodeId": "root-supervisor",
+          "depth": 0,
+          "terminationPolicy": "terminate-children",
+          "contextInheritance": {
+            "inheritWorkingDirectory": true,
+            "inheritEnvironment": true,
+            "inheritYoloMode": false,
+            "inheritAgentSettings": false
+          },
+          "agentId": "build",
+          "agentMode": "build",
+          "planMode": {
+            "enabled": false,
+            "state": "off"
+          },
+          "status": "idle",
+          "contextUsage": {
+            "used": 0,
+            "total": 200000,
+            "percentage": 0,
+            "costEstimate": 0
+          },
+          "lastActivity": 1793071959231,
+          "processId": 81894,
+          "providerSessionPersisted": true,
+          "restartEpoch": 0,
+          "adapterGeneration": 1,
+          "workingDirectory": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-round2/copilot-work",
+          "yoloMode": true,
+          "launchMode": "orchestrated",
+          "provider": "copilot",
+          "bareMode": false,
+          "browserToolsMode": "off",
+          "executionLocation": {
+            "type": "local"
+          },
+          "diffStats": {
+            "totalAdded": 0,
+            "totalDeleted": 0,
+            "files": {}
+          },
+          "outputBuffer": [
+            {
+              "id": "f815c10c-0b94-43cf-b5e3-c0175853ce5a",
+              "timestamp": 1793071331733,
+              "type": "user",
+              "content": "This is an explicitly requested bounded ACP tool timeout live test. Use your shell tool exactly once to run /bin/sleep 610 followed by /usr/bin/printf \"ACP_LT_610_DONE\\n\". Set the shell tool timeout to at least 660000 milliseconds, wait for the command to finish, and then report its real exit result. This deliberately idle command uses no CPU stress and changes no files. Do not run any other command, browse, read files, log in, install anything, spawn agents, or edit code."
+            },
+            {
+              "id": "copilot-acp-1793071331741-u4407f",
+              "timestamp": 1793071343883,
+              "type": "assistant",
+              "content": "Running the bounded timeout live test now with the single requested shell command.Completed. The command finished and printed `ACP_LT_610_DONE`, and the real exit result was **exit code 0**.",
+              "metadata": {
+                "transport": "acp",
+                "streaming": false,
+                "accumulatedContent": "Running the bounded timeout live test now with the single requested shell command.Completed. The command finished and printed `ACP_LT_610_DONE`, and the real exit result was **exit code 0**.",
+                "adapterGeneration": 1
+              },
+              "thinking": [
+                {
+                  "id": "copilot-acp-1793071331741-u4407f-thought-0",
+                  "content": "Running timeout live testRunning timeout live test",
+                  "format": "sdk"
+                }
+              ],
+              "thinkingExtracted": true
+            },
+            {
+              "id": "22c85b8f-6a13-4f08-9f66-e63f4f2d6137",
+              "timestamp": 1793071346190,
+              "type": "tool_use",
+              "content": "Run 610s sleep timeout live test",
+              "metadata": {
+                "toolCallId": "call_DUJGYmIKsep975Tg2osNyzvP",
+                "kind": "execute",
+                "name": "execute",
+                "title": "Run 610s sleep timeout live test",
+                "status": "pending",
+                "transport": "acp",
+                "input": {
+                  "command": "/bin/sleep 610 && /usr/bin/printf \"ACP_LT_610_DONE\\n\""
+                },
+                "adapterGeneration": 1
+              }
+            },
+            {
+              "id": "65bb0479-bfa6-4612-9d2c-5b3c43368ec5",
+              "timestamp": 1793071646192,
+              "type": "system",
+              "content": "Tool call Run 610s sleep timeout live test has been pending for 300s with no update.",
+              "metadata": {
+                "source": "acp-stall-warning",
+                "transport": "acp",
+                "adapter": "copilot-acp",
+                "watchdogWarning": true,
+                "severity": "warning",
+                "waitKind": "tool",
+                "timeoutMs": 300000,
+                "durationMs": 314450,
+                "inactiveMs": 300003,
+                "adapterGeneration": 1
+              }
+            },
+            {
+              "id": "f5a60bc8-1ba3-4472-8076-8f6bc231630c",
+              "timestamp": 1793071946203,
+              "type": "tool_result",
+              "content": "<command with shellId: acp-lt-610 is still running after 600 seconds. The command is still running but hasn't produced output yet. Use read_bash to continue waiting, or stop_bash to stop it.>",
+              "metadata": {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": "call_DUJGYmIKsep975Tg2osNyzvP",
+                "title": "Run 610s sleep timeout live test",
+                "status": "completed",
+                "transport": "acp",
+                "is_error": false,
+                "adapterGeneration": 1
+              }
+            },
+            {
+              "id": "867651f4-447c-4bd4-bf99-f21bd3acba56",
+              "timestamp": 1793071948709,
+              "type": "tool_use",
+              "content": "Reading shell output",
+              "metadata": {
+                "toolCallId": "call_18NKduGUDSX5xFAEFyJ7ETi1",
+                "kind": "read",
+                "name": "read",
+                "title": "Reading shell output",
+                "status": "pending",
+                "transport": "acp",
+                "adapterGeneration": 1
+              }
+            },
+            {
+              "id": "68794526-d672-4b3d-a6cd-4fa34292a5b5",
+              "timestamp": 1793071956221,
+              "type": "tool_result",
+              "content": "ACP_LT_610_DONE\n",
+              "metadata": {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": "call_DUJGYmIKsep975Tg2osNyzvP",
+                "title": "Run 610s sleep timeout live test",
+                "status": "completed",
+                "transport": "acp",
+                "is_error": false,
+                "adapterGeneration": 1
+              }
+            },
+            {
+              "id": "a2678a53-23ac-48d5-9f9f-74bd36139ace",
+              "timestamp": 1793071956223,
+              "type": "tool_result",
+              "content": "ACP_LT_610_DONE\n",
+              "metadata": {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": "call_DUJGYmIKsep975Tg2osNyzvP",
+                "title": "Run 610s sleep timeout live test",
+                "status": "completed",
+                "transport": "acp",
+                "is_error": false,
+                "adapterGeneration": 1
+              }
+            },
+            {
+              "id": "8c5f57a7-922e-4114-9427-de97570b3266",
+              "timestamp": 1793071956226,
+              "type": "tool_result",
+              "content": "ACP_LT_610_DONE\n<shellId: acp-lt-610 completed with exit code 0>",
+              "metadata": {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": "call_18NKduGUDSX5xFAEFyJ7ETi1",
+                "title": "Reading shell output",
+                "status": "completed",
+                "transport": "acp",
+                "is_error": false,
+                "adapterGeneration": 1
+              }
+            }
+          ],
+          "outputBufferMaxSize": 2000,
+          "subscribedTo": [],
+          "totalTokensUsed": 0,
+          "requestCount": 1,
+          "errorCount": 0,
+          "restartCount": 0,
+          "contextEvidence": {
+            "mode": "off",
+            "captureFailureCount": 0
+          },
+          "currentModel": "gemini-3.1-pro-preview",
+          "fastMode": false,
+          "residentClaude": true,
+          "copilotAccountProfileId": "legacy",
+          "copilotRoutingSource": "default",
+          "aiTitle": "ACP tool timeout live test",
+          "activityState": "idle",
+          "communicationTokens": {},
+          "sessionId": "8c5270df-d1b0-4259-bca4-a6af05f980ff",
+          "providerSessionId": "8c5270df-d1b0-4259-bca4-a6af05f980ff",
+          "historyThreadId": "336c9990-ca60-430c-9a1f-691506326f25",
+          "rlmStoreSessionId": "241a6b5a-bcbf-4345-ab97-51129553e8a2",
+          "metadata": {
+            "toolFilter": {
+              "rules": [
+                {
+                  "pattern": "AskUserQuestion",
+                  "type": "blanket"
+                },
+                {
+                  "pattern": "EnterPlanMode",
+                  "type": "blanket"
+                },
+                {
+                  "pattern": "ExitPlanMode",
+                  "type": "blanket"
+                },
+                {
+                  "pattern": "CronCreate",
+                  "type": "blanket"
+                },
+                {
+                  "pattern": "RemoteTrigger",
+                  "type": "blanket"
+                }
+              ],
+              "blanketPatterns": [
+                "AskUserQuestion",
+                "EnterPlanMode",
+                "ExitPlanMode",
+                "CronCreate",
+                "RemoteTrigger"
+              ],
+              "runtimePatterns": []
+            }
+          }
+        }
+      ]
+    }
+  }
+}

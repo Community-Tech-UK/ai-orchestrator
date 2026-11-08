@@ -1,0 +1,196 @@
+{
+  "at": "2026-10-27T07:31:03.548148+00:00",
+  "archive": "test-run-full-logs.tar.gz",
+  "archiveSha256": "2b1f033b57899d5b8ce36bcf3df3d4e07feb91a0d316b0573d5f714b07da99ac",
+  "files": [
+    {
+      "originalPath": "_scratch/test-run.pid-12636.log",
+      "archiveMember": "test-run.pid-12636.log",
+      "originalBytes": 4320,
+      "retainedBytes": 4320,
+      "originalSha256": "f50f54c769e5a8b93ba4bb8e07dc92c00608da5c51d2c3a27d44735cf7630b09",
+      "retainedSha256": "f50f54c769e5a8b93ba4bb8e07dc92c00608da5c51d2c3a27d44735cf7630b09",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-13691.log",
+      "archiveMember": "test-run.pid-13691.log",
+      "originalBytes": 5321,
+      "retainedBytes": 5321,
+      "originalSha256": "8b312590cf682a2e54034f83240c73445603281de02507ebe18c2f094e7ee5d1",
+      "retainedSha256": "8b312590cf682a2e54034f83240c73445603281de02507ebe18c2f094e7ee5d1",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-17649.log",
+      "archiveMember": "test-run.pid-17649.log",
+      "originalBytes": 8327,
+      "retainedBytes": 8327,
+      "originalSha256": "fadb86f9d762fab04b0780d66e9364d981d45ac451df63ed98fca052907a7acc",
+      "retainedSha256": "fadb86f9d762fab04b0780d66e9364d981d45ac451df63ed98fca052907a7acc",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-18561.log",
+      "archiveMember": "test-run.pid-18561.log",
+      "originalBytes": 7318,
+      "retainedBytes": 7318,
+      "originalSha256": "294f40396f399bba6b4f5bd4df4e68f52c5f44fff7098005352525ed94f2d3f5",
+      "retainedSha256": "294f40396f399bba6b4f5bd4df4e68f52c5f44fff7098005352525ed94f2d3f5",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-23632.log",
+      "archiveMember": "test-run.pid-23632.log",
+      "originalBytes": 516,
+      "retainedBytes": 516,
+      "originalSha256": "6a36ef9a9378ac584f6096dcb20c5cc33dec91bc3d4bcdcfa6e1e679dc7b6dbd",
+      "retainedSha256": "6a36ef9a9378ac584f6096dcb20c5cc33dec91bc3d4bcdcfa6e1e679dc7b6dbd",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-32935.log",
+      "archiveMember": "test-run.pid-32935.log",
+      "originalBytes": 6095,
+      "retainedBytes": 6095,
+      "originalSha256": "4386557a85993f05982c73cf6f21f339e68ac63824a707aac44624ffe95c8b18",
+      "retainedSha256": "4386557a85993f05982c73cf6f21f339e68ac63824a707aac44624ffe95c8b18",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-45171.log",
+      "archiveMember": "test-run.pid-45171.log",
+      "originalBytes": 4155,
+      "retainedBytes": 4155,
+      "originalSha256": "9c4e58f3e3e0ad363a0b5ea0ef4628aa4235023eaa27619933e84e246bec133c",
+      "retainedSha256": "9c4e58f3e3e0ad363a0b5ea0ef4628aa4235023eaa27619933e84e246bec133c",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-49241.log",
+      "archiveMember": "test-run.pid-49241.log",
+      "originalBytes": 767,
+      "retainedBytes": 767,
+      "originalSha256": "79340c434e126d015eecc035d809d74acb21bb8bef033735373c3bda1969300b",
+      "retainedSha256": "79340c434e126d015eecc035d809d74acb21bb8bef033735373c3bda1969300b",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-50172.log",
+      "archiveMember": "test-run.pid-50172.log",
+      "originalBytes": 16852,
+      "retainedBytes": 16852,
+      "originalSha256": "87d2bed14c9a2999f7abfb27a57062a550e72773dd7e674dee01c3e55963ae49",
+      "retainedSha256": "87d2bed14c9a2999f7abfb27a57062a550e72773dd7e674dee01c3e55963ae49",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-51938.log",
+      "archiveMember": "test-run.pid-51938.log",
+      "originalBytes": 4654,
+      "retainedBytes": 4654,
+      "originalSha256": "6c258a2a9d31711b2c433ea8af840d309b4cc2a5ebb2881e78b369085b50bec6",
+      "retainedSha256": "6c258a2a9d31711b2c433ea8af840d309b4cc2a5ebb2881e78b369085b50bec6",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-54423.log",
+      "archiveMember": "test-run.pid-54423.log",
+      "originalBytes": 699,
+      "retainedBytes": 699,
+      "originalSha256": "c6fa18e65482844197225e946fa2999573c2870fb10b27405ff0e96e2e15530f",
+      "retainedSha256": "c6fa18e65482844197225e946fa2999573c2870fb10b27405ff0e96e2e15530f",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-54750.log",
+      "archiveMember": "test-run.pid-54750.log",
+      "originalBytes": 4855349,
+      "retainedBytes": 4855349,
+      "originalSha256": "e2dd2ab89be663f65e35d018c563adcdd723d6f992b3ead0f7936568728c1d64",
+      "retainedSha256": "e2dd2ab89be663f65e35d018c563adcdd723d6f992b3ead0f7936568728c1d64",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-55661.log",
+      "archiveMember": "test-run.pid-55661.log",
+      "originalBytes": 1750,
+      "retainedBytes": 1750,
+      "originalSha256": "d61ebae61409b0d14cf81452e8e3c8fffbc872c04433a0c5348e8a163b496e5f",
+      "retainedSha256": "d61ebae61409b0d14cf81452e8e3c8fffbc872c04433a0c5348e8a163b496e5f",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-68432.log",
+      "archiveMember": "test-run.pid-68432.log",
+      "originalBytes": 9247,
+      "retainedBytes": 9247,
+      "originalSha256": "d70488191ea2602ce55ae2092f28fc5192fbb388cbc1bfb0d2fa3529a823349a",
+      "retainedSha256": "d70488191ea2602ce55ae2092f28fc5192fbb388cbc1bfb0d2fa3529a823349a",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-71006.log",
+      "archiveMember": "test-run.pid-71006.log",
+      "originalBytes": 4237,
+      "retainedBytes": 4237,
+      "originalSha256": "6801866a9bce26893a2e9fb1902198d95054cebdd60da204642f4a722ca75da9",
+      "retainedSha256": "6801866a9bce26893a2e9fb1902198d95054cebdd60da204642f4a722ca75da9",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-72134.log",
+      "archiveMember": "test-run.pid-72134.log",
+      "originalBytes": 4155,
+      "retainedBytes": 4155,
+      "originalSha256": "fd6871d85341dc2b5ebab6dc26e6f67acb0b7d9e718f23da420fa29e479ee0e2",
+      "retainedSha256": "fd6871d85341dc2b5ebab6dc26e6f67acb0b7d9e718f23da420fa29e479ee0e2",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-75379.log",
+      "archiveMember": "test-run.pid-75379.log",
+      "originalBytes": 3602383,
+      "retainedBytes": 3602383,
+      "originalSha256": "a1259ba4398193b657777ccba7901ae388ef325558ce4b6099ada5d543e963fc",
+      "retainedSha256": "a1259ba4398193b657777ccba7901ae388ef325558ce4b6099ada5d543e963fc",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-79452.log",
+      "archiveMember": "test-run.pid-79452.log",
+      "originalBytes": 1139,
+      "retainedBytes": 1139,
+      "originalSha256": "84da9f670bffa7678061f29e8a85fb5cdc7a8f7207904e10ab0a79a635f7d6ea",
+      "retainedSha256": "84da9f670bffa7678061f29e8a85fb5cdc7a8f7207904e10ab0a79a635f7d6ea",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-82986.log",
+      "archiveMember": "test-run.pid-82986.log",
+      "originalBytes": 669,
+      "retainedBytes": 669,
+      "originalSha256": "6c32f348ff271a297a7c57512da672fccdf2be3d8df29f56f661714206698047",
+      "retainedSha256": "6c32f348ff271a297a7c57512da672fccdf2be3d8df29f56f661714206698047",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-97867.log",
+      "archiveMember": "test-run.pid-97867.log",
+      "originalBytes": 765,
+      "retainedBytes": 765,
+      "originalSha256": "f537f0e4fe4fb9b47a4d4ed6a281949f41527f77ba359347de5fd63a6c0f7dc8",
+      "retainedSha256": "f537f0e4fe4fb9b47a4d4ed6a281949f41527f77ba359347de5fd63a6c0f7dc8",
+      "redactions": 0
+    },
+    {
+      "originalPath": "_scratch/test-run.pid-99558.log",
+      "archiveMember": "test-run.pid-99558.log",
+      "originalBytes": 4308077,
+      "retainedBytes": 4308077,
+      "originalSha256": "0fb87bbf29fa214c52d0a5a8087d52d96f965c6fa9dc1593522751a69c25a94d",
+      "retainedSha256": "0fb87bbf29fa214c52d0a5a8087d52d96f965c6fa9dc1593522751a69c25a94d",
+      "redactions": 0
+    }
+  ]
+}

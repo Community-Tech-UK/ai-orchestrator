@@ -1,0 +1,13 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "src/main/mcp/aio-mcp-cli-transport.spec.ts"
+  ],
+  "startedAt": "2026-10-27T04:48:57.459582+00:00",
+  "endedAt": "2026-10-27T04:49:02.924336+00:00",
+  "exitCode": 1,
+  "log": "transport-red-final.log.txt"
+}

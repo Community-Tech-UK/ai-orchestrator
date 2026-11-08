@@ -1,0 +1,253 @@
+{
+  "checkedAt": "2026-10-27T03:00:26.095Z",
+  "node": {
+    "checkedAt": "2026-10-27T03:00:26.069Z",
+    "connected": true,
+    "workerVersion": "0.1.0",
+    "workerCommit": "68a187c3f4a858ee399ab4e56922430a0d1eca46",
+    "extensionVersion": "0.2.43",
+    "extensionReloadedAt": 1792834781666,
+    "registration": "ok",
+    "fileTransferRoots": [
+      {
+        "id": "browserDownloads",
+        "label": "Browser Downloads",
+        "path": "C:\\Users\\shutu\\.orchestrator\\browser-automation-profile\\Downloads",
+        "read": true,
+        "write": false
+      },
+      {
+        "id": "scratch",
+        "label": "AIO Scratch",
+        "path": "C:\\Users\\shutu\\.orchestrator\\_scratch\\aio-transfers",
+        "read": true,
+        "write": true
+      },
+      {
+        "id": "downloads",
+        "label": "Downloads",
+        "path": "C:\\Users\\shutu\\Downloads",
+        "read": true,
+        "write": false
+      },
+      {
+        "id": "documents",
+        "label": "Documents",
+        "path": "C:\\Users\\shutu\\Documents",
+        "read": true,
+        "write": false
+      },
+      {
+        "id": "desktop",
+        "label": "Desktop",
+        "path": "C:\\Users\\shutu\\Desktop",
+        "read": true,
+        "write": false
+      },
+      {
+        "id": "browser-uploads",
+        "label": "Browser upload staging (safety net until fix confirmed live)",
+        "path": "C:\\Users\\shutu\\Documents\\Work\\_scratch",
+        "read": true,
+        "write": true
+      }
+    ],
+    "activeInstances": 5
+  },
+  "browserHealth": {
+    "auditId": "0d1a3ae4-f85f-4b2d-a7f4-82c8de2d2b15",
+    "checkedAt": 1793070026086,
+    "status": "ready",
+    "remote": {
+      "total": 1,
+      "ready": 1,
+      "silent": 0,
+      "nodes": [
+        {
+          "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+          "nodeName": "windows-pc",
+          "enabled": true,
+          "running": true,
+          "silent": false,
+          "channelState": "fresh",
+          "commandsDeliverable": true,
+          "lastContactAt": 1793070025359,
+          "contactAgeMs": 721,
+          "coordinatorPollAgeMs": 721,
+          "relayContactAgeMs": 11016,
+          "connectionFlap": {
+            "stormActive": false,
+            "replacesInWindow": 0,
+            "windowMs": 300000
+          },
+          "queue": {
+            "queuedCount": 0,
+            "inFlightCount": 0,
+            "waitingPollerCount": 2
+          },
+          "contactGaps": {
+            "gapCount": 2,
+            "longestGapMs": 146459,
+            "lastGapMs": 146459,
+            "lastGapEndedAt": 1793033852670
+          },
+          "serviceWorkerRestarts": 0,
+          "registration": "ok",
+          "lastRegistrationCheckAt": 1793069966931,
+          "secretObservation": {
+            "reported": true,
+            "protectionEnabled": false,
+            "taintedOriginCount": 0,
+            "taintedTabCount": 0,
+            "observedAt": 1793069475887,
+            "ageMs": 550193
+          }
+        }
+      ]
+    },
+    "protectionSetting": false,
+    "localSummary": {
+      "state": "ready",
+      "version": "0.2.44",
+      "sharedTabCount": 39
+    },
+    "warnings": []
+  },
+  "targetInventory": {
+    "auditId": "3847d17d-cefc-40ef-9739-b936742c8a3d",
+    "outcome": "succeeded",
+    "returnedCount": 42,
+    "eTendersNIPresent": false,
+    "proContractOrDiamondPresent": false,
+    "customerTargetsRetained": false
+  },
+  "graphStatus": {
+    "accounts": []
+  },
+  "graphAccounts": [],
+  "computerHealth": {
+    "decision": "allowed",
+    "outcome": "ok",
+    "data": {
+      "platform": "darwin",
+      "supported": true,
+      "screenCapture": "available",
+      "accessibility": "available",
+      "input": "available",
+      "setupActions": [],
+      "enabled": true,
+      "lockAvailable": true,
+      "injectable": true
+    }
+  },
+  "disabledWrite": {
+    "decision": "allowed",
+    "outcome": "failed",
+    "data": null,
+    "reason": "type target cannot accept typed text: <input> is disabled. Enable the control or choose an enabled typeable target before retrying.",
+    "auditId": "bd6f6865-0936-4506-b9ac-cf2d1c95bfea"
+  },
+  "readonlyWrite": {
+    "decision": "allowed",
+    "outcome": "failed",
+    "data": null,
+    "reason": "Error: uid type target cannot accept typed text: <input> is readonly. Remove readonly or choose an editable target before retrying.\n    at HTMLInputElement.uidTypeFn (<anonymous>:23:11)",
+    "auditId": "b8482a13-c51e-48ca-9cf8-b138b494387e"
+  },
+  "readbackDisabled": {
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "data": [
+      {
+        "selector": "input[name=\"my-disabled\"]",
+        "tagName": "INPUT",
+        "role": "input",
+        "accessibleName": "my-disabled",
+        "inputType": "text",
+        "placeholder": "Disabled input",
+        "value": "",
+        "disabled": true
+      }
+    ],
+    "auditId": "09ccb753-9774-4dea-98ef-d99b19f16c72"
+  },
+  "readbackReadonly": {
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "data": [
+      {
+        "selector": "input[name=\"my-readonly\"]",
+        "tagName": "INPUT",
+        "role": "input",
+        "accessibleName": "my-readonly",
+        "inputType": "text",
+        "value": "Readonly input"
+      }
+    ],
+    "auditId": "b8c33da2-bd7c-43d3-bf80-2e963fa1546c"
+  },
+  "preflight": {
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "auditId": "b62518ff-f847-4651-8e4c-1f03175c4cfa",
+    "selected": {
+      "channel": "remote-extension",
+      "computer": "windows-pc",
+      "usesRealUserSession": true,
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588642:target",
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588642",
+      "url": "https://www.selenium.dev/selenium/web/web-form.html?aio-lt=af185985",
+      "title": "Web form"
+    },
+    "rejectedCount": 97
+  },
+  "seleniumClosed": {
+    "auditId": "4e99835a-245c-48ab-8061-bcf6692621cc",
+    "closed": true
+  },
+  "v3Open": {
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "data": {
+      "id": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588646:target",
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588646",
+      "pageId": "771588646",
+      "mode": "existing-tab",
+      "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+      "nodeName": "windows-pc",
+      "title": "192.168.0.156",
+      "url": "http://192.168.0.156:9655/v3",
+      "origin": "http://192.168.0.156:9655",
+      "driver": "extension",
+      "status": "selected",
+      "lastSeenAt": 1793069832986,
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588646:target",
+      "inspectionState": "inspection_unavailable",
+      "textUnavailableReason": "page_text_read_failed",
+      "windowId": 771587906,
+      "tabIndex": 40,
+      "pinned": false,
+      "active": true
+    },
+    "auditId": "c454560c-8405-45a3-b4b5-a220b1f9a057"
+  },
+  "v3Query": {
+    "decision": "allowed",
+    "outcome": "failed",
+    "data": null,
+    "reason": "Frame with ID 0 is showing error page",
+    "auditId": "7ce56e11-44c4-44d5-b4a9-de70f10bff0c"
+  },
+  "v3Close": {
+    "decision": "allowed",
+    "outcome": "succeeded",
+    "data": {
+      "closed": true,
+      "remainingTabCount": 40,
+      "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588646",
+      "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588646:target",
+      "inspectionState": "inspection_unavailable"
+    },
+    "auditId": "e7327be8-a543-439a-931f-c5b2be2c07f6"
+  }
+}

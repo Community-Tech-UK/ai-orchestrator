@@ -1,0 +1,33 @@
+{
+  "startedAt": "2026-10-27T03:19:19.545848+00:00",
+  "profile": "/tmp/aio-lt-queue-af185985",
+  "rendererPort": 9654,
+  "debugPort": 9554,
+  "flags": [
+    "--no-sandbox",
+    "--disable-gpu",
+    "--js-flags=--max-old-space-size=8192",
+    "--remote-debugging-port=9554"
+  ],
+  "ready": true,
+  "rendererPid": 62295,
+  "executable": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron",
+  "electronPid": 64859,
+  "browserVersion": "Chrome/148.0.7778.280",
+  "readyAt": "2026-10-27T03:19:42.216932+00:00",
+  "processes": [
+    {
+      "name": "electron",
+      "pid": 64859,
+      "exitCode": 0,
+      "gone": true
+    },
+    {
+      "name": "renderer",
+      "pid": 62295,
+      "exitCode": 143,
+      "gone": true
+    }
+  ],
+  "stoppedAt": "2026-10-27T03:34:23.377422+00:00"
+}

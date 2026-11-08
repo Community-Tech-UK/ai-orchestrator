@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-27T06:17:40.016170+00:00",
+  "command": [
+    "npm",
+    "ls",
+    "--omit=dev",
+    "--all",
+    "--json"
+  ],
+  "exitCode": 0,
+  "treeProblems": [],
+  "manifestsUnchangedFromHEAD": true,
+  "npmPruneRemoved": 12,
+  "npmPruneAddedOrChanged": 0
+}

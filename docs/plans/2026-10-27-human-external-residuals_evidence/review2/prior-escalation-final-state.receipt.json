@@ -1,0 +1,17 @@
+{
+  "at": "2026-10-27T07:23:58.893241+00:00",
+  "readOnly": true,
+  "rows": [
+    {
+      "id": "8f3f77ab-c6bd-40fa-adf4-97d4af804734",
+      "kind": "captcha",
+      "status": "pending"
+    },
+    {
+      "id": "c3725ca0-abab-49c5-9330-7766adc6ef02",
+      "kind": "captcha",
+      "status": "pending"
+    }
+  ],
+  "noStateWritten": true
+}

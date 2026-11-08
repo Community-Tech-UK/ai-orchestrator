@@ -1,0 +1,11 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "build:main"
+  ],
+  "startedAt": "2026-10-27T04:46:15.029390+00:00",
+  "endedAt": "2026-10-27T04:46:55.264812+00:00",
+  "exitCode": 0,
+  "log": "build-main.log.txt"
+}

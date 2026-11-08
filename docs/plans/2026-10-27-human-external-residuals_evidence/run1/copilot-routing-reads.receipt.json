@@ -1,0 +1,43 @@
+{
+  "checkedAt": 1793070302678,
+  "results": [
+    {
+      "verb": "rules",
+      "ok": true,
+      "value": [
+        {
+          "id": "rule-mtfo79oa-0",
+          "profileId": "lawrencj",
+          "kind": "folder",
+          "target": "/Users/suas/work/ebrd",
+          "isProtected": true
+        }
+      ]
+    },
+    {
+      "verb": "doctor",
+      "ok": true,
+      "value": {
+        "aggregate": "available",
+        "nodeId": "local",
+        "legacyMigrationInUse": true,
+        "ambientTokenVariablesPresent": [],
+        "unreachableRuleIds": [],
+        "conflictingRuleIds": [],
+        "warnings": []
+      }
+    },
+    {
+      "verb": "route",
+      "ok": true,
+      "value": {
+        "ok": false,
+        "profileId": null,
+        "profileLabel": null,
+        "source": "automation-disallowed",
+        "detail": "GitHub Copilot is on the \"never auto-pick these providers\" list, so no Copilot account can be selected automatically. Start the session yourself, or remove Copilot from that list in Settings.",
+        "origin": "automation"
+      }
+    }
+  ]
+}

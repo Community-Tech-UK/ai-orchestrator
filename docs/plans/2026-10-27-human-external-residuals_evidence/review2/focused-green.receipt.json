@@ -1,0 +1,18 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "src/main/mcp/aio-mcp-cli-transport.spec.ts",
+    "src/main/mcp/copilot-account-cli.spec.ts",
+    "src/main/mcp/aio-mcp-dispatcher.spec.ts",
+    "src/main/mcp/settings-cli.spec.ts",
+    "src/main/plan-queue/plan-queue-doc-merge.spec.ts",
+    "src/main/security/approval-adjudicator.spec.ts"
+  ],
+  "startedAt": "2026-10-27T04:52:44.385095+00:00",
+  "endedAt": "2026-10-27T04:53:10.611081+00:00",
+  "exitCode": 0,
+  "log": "focused-green.log.txt"
+}

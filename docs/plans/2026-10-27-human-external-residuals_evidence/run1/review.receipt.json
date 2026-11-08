@@ -1,0 +1,19 @@
+{
+  "allGroupRowsPresent": true,
+  "openGroups": 28,
+  "retiredGroups": 1,
+  "originalEvidenceHistoryPreserved": true,
+  "requiredGateExitCodes": {
+    "build-main": 0,
+    "focused-tests": 0,
+    "typecheck": 0,
+    "spec-typecheck": 0,
+    "lint": 0
+  },
+  "noSourceOrTestEdits": true,
+  "defectsUnfixed": [
+    "LT-710",
+    "LT-711"
+  ],
+  "independentVerification": "coordinator pending"
+}

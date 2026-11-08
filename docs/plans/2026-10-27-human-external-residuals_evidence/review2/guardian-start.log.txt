@@ -1,0 +1,47 @@
+{
+  "prior": {
+    "success": true,
+    "data": {
+      "config": {
+        "enabled": true,
+        "defaultAction": "ask",
+        "cacheTTLMs": 3600000,
+        "maxCacheEntries": 1000,
+        "inheritParentPermissions": true,
+        "maxRuleDepth": 100,
+        "allowYoloOverride": true
+      },
+      "stats": {
+        "ruleSetCount": 2,
+        "totalRules": 15,
+        "cacheSize": 0,
+        "cacheHitRate": 0,
+        "sessionRulesCount": 0
+      }
+    }
+  },
+  "set": {
+    "success": false,
+    "error": {
+      "code": "VALIDATION_FAILED",
+      "message": "Validation failed for SECURITY_SET_PERMISSION_PRESET: preset: Invalid option: expected one of \"allow\"|\"ask\"|\"deny\"",
+      "timestamp": 1793077325577
+    }
+  },
+  "flag": {
+    "success": true
+  },
+  "instance": {
+    "id": "cgq0bcp51",
+    "sessionId": "41212576-d9f0-4224-bbaf-ef610b109d4b",
+    "historyThreadId": "1d034847-60a8-4afd-bfb3-b56cd897d569"
+  },
+  "loop": {
+    "success": false,
+    "error": {
+      "code": "LOOP_START_FAILED",
+      "message": "IPC validation failed for LOOP_START: config.completion.completedFilenamePattern: Invalid input: expected string, received undefined; config.completion.donePromiseRegex: Invalid input: expected string, received undefined; config.completion.doneSentinelFile: Invalid input: expected string, received undefined; config.completion.verifyTimeoutMs: Invalid input: expected number, received undefined; config.completion.runVerifyTwice: Invalid input: expected boolean, received undefined",
+      "timestamp": 1793077327595
+    }
+  }
+}

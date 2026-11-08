@@ -1,0 +1,7 @@
+{
+  "at": "2026-10-27T05:23:45.318580+00:00",
+  "mode": "hang",
+  "fault": "Drop owned fixture connection only, after receiving a model request. Shared LM Studio remains running.",
+  "endpointStoppedAt": "2026-10-27T05:24:21.674311+00:00",
+  "stopResponse": "stopping"
+}

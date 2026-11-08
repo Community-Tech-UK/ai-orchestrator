@@ -1,0 +1,32 @@
+{
+  "at": "2026-10-27T04:22:23.187Z",
+  "focusEmulation": true,
+  "visibilityOverride": "'Emulation.setPageVisibilityOverride' wasn't found",
+  "result": {
+    "type": "object",
+    "value": {
+      "save": {
+        "success": true,
+        "data": {
+          "ok": true
+        }
+      },
+      "durationMs": 0,
+      "generate": {
+        "success": true,
+        "data": {
+          "text": "{\n  \"decision\": \"allow\",\n  \"reason\": \"Reading a file that the agent is actively editing is a standard operation for verifying state and progress. It poses minimal risk.\",\n  \"riskLevel\": \"low\"\n}",
+          "decision": {
+            "slot": "approvalAdjudication",
+            "provider": "openai-compatible",
+            "endpointId": "owned-lt-proxy",
+            "model": "qwen/qwen3.6-35b-a3b",
+            "source": "cheap-cloud",
+            "reason": "Routed via manual-only to Disposable live-test model forwarder",
+            "allowFrontierFallback": false
+          }
+        }
+      }
+    }
+  }
+}

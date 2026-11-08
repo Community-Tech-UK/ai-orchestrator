@@ -1,0 +1,6 @@
+{
+  "command": "npx tsc --noEmit",
+  "startedAt": 1793069949.244632,
+  "endedAt": 1793069973.434159,
+  "exitCode": 0
+}

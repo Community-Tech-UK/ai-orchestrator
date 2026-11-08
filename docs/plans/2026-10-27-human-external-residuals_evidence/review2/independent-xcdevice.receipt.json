@@ -1,0 +1,35 @@
+{
+  "at": "2026-10-27T07:09:38.675149+00:00",
+  "command": [
+    "xcrun",
+    "xcdevice",
+    "list",
+    "--timeout",
+    "10"
+  ],
+  "purpose": "Confirm requested physical iPhone identity without retaining personal names or identifiers",
+  "exitCode": 0,
+  "stderrBytes": 0,
+  "physicalIosDeviceCount": 2,
+  "physicalIosDevices": [
+    {
+      "isRequestedDevice": false,
+      "identifierSha256": "377e145b748bcd561f3a6403ff1c271f99ac958bd60f73ad0df7cd0bfe55ce29",
+      "interface": "usb",
+      "platform": "com.apple.platform.iphoneos",
+      "available": false,
+      "operatingSystemVersion": "27.0 (24A437)",
+      "errorCode": -27
+    },
+    {
+      "isRequestedDevice": true,
+      "identifierSha256": "31636b2b29fa3d1a377e140670368bc77e028087eeacb95073c75186375667c1",
+      "interface": "network",
+      "platform": "com.apple.platform.iphoneos",
+      "available": true,
+      "operatingSystemVersion": "27.0.1 (24A446)",
+      "errorCode": null
+    }
+  ],
+  "identifiersOrPersonalNamesRetained": false
+}

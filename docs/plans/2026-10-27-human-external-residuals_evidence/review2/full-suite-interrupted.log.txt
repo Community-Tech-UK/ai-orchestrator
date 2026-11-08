@@ -1,0 +1,4 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js
+

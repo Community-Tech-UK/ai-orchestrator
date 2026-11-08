@@ -1,0 +1,32 @@
+{
+  "controlledFaultResponses": true,
+  "realInference": false,
+  "pid": 39214,
+  "mode": "deny",
+  "events": [
+    {
+      "at": "2026-10-27T05:15:38.756Z",
+      "method": "GET",
+      "path": "/v1/models",
+      "mode": "deny",
+      "bodyBytes": 0,
+      "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "at": "2026-10-27T05:15:39.010Z",
+      "method": "GET",
+      "path": "/v1/models",
+      "mode": "deny",
+      "bodyBytes": 0,
+      "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "at": "2026-10-27T05:15:39.015Z",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "mode": "deny",
+      "bodyBytes": 1607,
+      "bodySha256": "e5fff55f54d8d09fec3b055d21d432fd26b1fd2f981378b517c084bd34c81be9"
+    }
+  ]
+}

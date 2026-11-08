@@ -1,0 +1,27 @@
+{
+  "checkedAt": 1793070354.017111,
+  "fields": [
+    "allowedOrigins",
+    "createdAt",
+    "expiresAt",
+    "id",
+    "note",
+    "profileId",
+    "purposes",
+    "vaultFolder"
+  ],
+  "portalRecords": [
+    {
+      "id": "945cac6e-b16b-41b6-8589-e7e93ab5d7a4",
+      "profileId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be"
+    },
+    {
+      "id": "8b9af2b8-4f19-47f4-9aa8-87aeed56ab8e",
+      "profileId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be"
+    },
+    {
+      "id": "0b134709-d511-4ead-8bed-544d59e83c6a",
+      "profileId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be"
+    }
+  ]
+}

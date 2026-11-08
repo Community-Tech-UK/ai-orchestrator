@@ -1,0 +1,22 @@
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985
+
+(node:27706) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:27704) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:27705) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:27707) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/browser-gateway/browser-action-classifier.spec.ts (40 tests) 10ms
+ ✓ |main| src/main/mcp/local-ai-cli.spec.ts (38 tests) 46ms
+ ✓ |main| src/main/security/approval-adjudicator.spec.ts (16 tests) 75ms
+ ✓ |main| src/main/mcp/orchestrator-tools-rpc-local-ai.spec.ts (28 tests) 47ms
+
+ Test Files  4 passed (4)
+      Tests  122 passed (122)
+   Start at  04:30:48
+   Duration  1.76s (transform 1.15s, setup 315ms, import 1.47s, tests 177ms, environment 1.96s)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/test-results.pid-27428.json

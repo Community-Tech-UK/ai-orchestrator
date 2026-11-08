@@ -1,0 +1,34 @@
+{
+  "purpose": "Resolve saved FCM key reference without disclosing key material",
+  "steps": [
+    {
+      "operation": "unlock",
+      "exitCode": 0,
+      "stderrBytes": 0
+    },
+    {
+      "operation": "sync",
+      "exitCode": 0,
+      "stderrBytes": 0
+    },
+    {
+      "operation": "get",
+      "exitCode": 0,
+      "stderrBytes": 0
+    }
+  ],
+  "referencePresent": true,
+  "referenceIsAbsolute": true,
+  "referenceExistsLocally": false,
+  "remoteMetadataRead": {
+    "hostAlias": "prodvps",
+    "exitCode": 0,
+    "stderrBytes": 0,
+    "result": {
+      "exists": true,
+      "projectId": "gen-lang-client-0643087399"
+    }
+  },
+  "lockExitCode": 0,
+  "temporaryVaultCacheRemoved": true
+}

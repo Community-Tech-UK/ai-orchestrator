@@ -1,0 +1,2 @@
+✓ 1 files · 2 tests passed in 13.2s
+  full log: _scratch/test-run.pid-82986.log

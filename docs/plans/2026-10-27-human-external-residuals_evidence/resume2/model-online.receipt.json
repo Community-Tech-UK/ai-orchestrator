@@ -1,0 +1,50 @@
+{
+  "at": "2026-10-27T04:22:14.089Z",
+  "focusEmulation": true,
+  "visibilityOverride": "'Emulation.setPageVisibilityOverride' wasn't found",
+  "result": {
+    "type": "object",
+    "value": {
+      "hidden": false,
+      "before": {
+        "auxiliaryLlmEnabled": true,
+        "auxiliaryLlmRoutingMode": "local-first",
+        "auxiliaryLlmAllowRemoteWorkerModels": true,
+        "auxiliaryLlmUseLocalhostOllama": true,
+        "auxiliaryLlmDailySpendCapUsd": null,
+        "auxiliaryLlmEndpointsJson": "[]",
+        "auxiliaryLlmSlotsJson": "{\"compression\":{\"enabled\":true,\"provider\":\"auto\",\"tier\":\"quality\",\"maxInputTokens\":96000,\"maxOutputTokens\":4096,\"temperature\":0.2,\"timeoutMs\":60000,\"requireJson\":false,\"allowFrontierFallback\":true},\"memoryDistillation\":{\"enabled\":true,\"provider\":\"auto\",\"tier\":\"quality\",\"maxInputTokens\":64000,\"maxOutputTokens\":2048,\"temperature\":0.2,\"timeoutMs\":45000,\"requireJson\":false,\"allowFrontierFallback\":true},\"webExtract\":{\"enabled\":true,\"provider\":\"auto\",\"tier\":\"quality\",\"maxInputTokens\":64000,\"maxOutputTokens\":2048,\"temperature\":0.1,\"timeoutMs\":30000,\"requireJson\":false,\"allowFrontierFallback\":false},\"titleGeneration\":{\"enabled\":true,\"provider\":\"auto\",\"tier\":\"quick\",\"maxInputTokens\":12000,\"maxOutputTokens\":1536,\"temperature\":0.2,\"timeoutMs\":45000,\"requireJson\":false,\"allowFrontierFallback\":true},\"routingClassification\":{\"enabled\":true,\"provider\":\"auto\",\"tier\":\"quick\",\"maxInputTokens\":16000,\"maxOutputTokens\":512,\"temperature\":0,\"timeoutMs\":45000,\"requireJson\":true,\"allowFrontierFallback\":false},\"approvalScoring\":{\"enabled\":true,\"provider\":\"auto\",\"tier\":\"quick\",\"maxInputTokens\":16000,\"maxOutputTokens\":512,\"temperature\":0,\"timeoutMs\":45000,\"requireJson\":true,\"allowFrontierFallback\":false},\"approvalAdjudication\":{\"enabled\":true,\"provider\":\"auto\",\"tier\":\"quality\",\"maxInputTokens\":24000,\"maxOutputTokens\":512,\"temperature\":0,\"timeoutMs\":60000,\"requireJson\":true,\"allowFrontierFallback\":false},\"loopScoring\":{\"enabled\":true,\"provider\":\"auto\",\"tier\":\"quick\",\"maxInputTokens\":32000,\"maxOutputTokens\":1024,\"temperature\":0,\"timeoutMs\":30000,\"requireJson\":true,\"allowFrontierFallback\":false},\"retrievalHypothesis\":{\"enabled\":true,\"provider\":\"auto\",\"tier\":\"quick\",\"maxInputTokens\":4096,\"maxOutputTokens\":300,\"temperature\":0.3,\"timeoutMs\":2500,\"requireJson\":false,\"allowFrontierFallback\":false},\"branchScoring\":{\"enabled\":true,\"provider\":\"auto\",\"tier\":\"quick\",\"maxInputTokens\":16000,\"maxOutputTokens\":512,\"temperature\":0,\"timeoutMs\":30000,\"requireJson\":true,\"allowFrontierFallback\":true},\"subQueryExecution\":{\"enabled\":false,\"provider\":\"auto\",\"tier\":\"quality\",\"maxInputTokens\":64000,\"maxOutputTokens\":2048,\"temperature\":0.2,\"timeoutMs\":45000,\"requireJson\":false,\"allowFrontierFallback\":true},\"verifyOutputSummary\":{\"enabled\":true,\"provider\":\"auto\",\"tier\":\"quality\",\"maxInputTokens\":32000,\"maxOutputTokens\":1024,\"temperature\":0.2,\"timeoutMs\":45000,\"requireJson\":false,\"allowFrontierFallback\":false}}",
+        "auxiliaryLlmQuickModel": "",
+        "auxiliaryLlmQualityModel": ""
+      },
+      "save": {
+        "success": true,
+        "data": {
+          "ok": true
+        }
+      },
+      "probe": {
+        "success": true,
+        "data": {
+          "healthy": true
+        }
+      },
+      "durationMs": 12,
+      "generate": {
+        "success": true,
+        "data": {
+          "text": "{\"score\":0,\"confidence\":0,\"reason\":\"No auxiliary model available\"}",
+          "decision": {
+            "slot": "approvalAdjudication",
+            "provider": "local-fallback",
+            "source": "fallback",
+            "reason": "Auxiliary daily spend cap would be exceeded (0.0000 USD already reserved)",
+            "allowFrontierFallback": false,
+            "localAiRoutingEventId": "9f2a9ef9-23cd-469a-9043-c4d5a3f92e10",
+            "fallbackDisposition": "blocked"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "error": {
+    "code": "CREATE_FAILED",
+    "message": "IPC validation failed for INSTANCE_CREATE: additionalDirectories: Additional directories require the OpenCode provider",
+    "timestamp": 1793077687477
+  }
+}

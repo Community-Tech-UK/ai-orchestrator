@@ -1,0 +1,185 @@
+{
+  "at": "2026-10-27T04:58:08.844Z",
+  "fixtureOnly": true,
+  "globalNetworkChanged": false,
+  "checks": {
+    "spaOpen": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": {
+        "id": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588666:target",
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588666",
+        "pageId": "771588666",
+        "mode": "existing-tab",
+        "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be",
+        "nodeName": "windows-pc",
+        "title": "127.0.0.1",
+        "url": "http://127.0.0.1:9656/session",
+        "origin": "http://127.0.0.1:9656",
+        "driver": "extension",
+        "status": "selected",
+        "lastSeenAt": 1793076937879,
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588666:target",
+        "inspectionState": "inspection_unavailable",
+        "textUnavailableReason": "page_text_read_failed",
+        "windowId": 771587906,
+        "tabIndex": 40,
+        "pinned": false,
+        "active": true
+      },
+      "auditId": "44b66afb-26bd-4f4c-819c-3c178aaf9c9f"
+    },
+    "spaNavigation": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": null,
+      "auditId": "ce13edd2-f148-408c-8751-8a505855455b"
+    },
+    "spaClean": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": null,
+      "auditId": "ba01f250-7137-444e-b735-92a4f20d4b5d"
+    },
+    "spaDrop": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": null,
+      "auditId": "3a28844f-3008-49ed-9243-a02450e5037a"
+    },
+    "spaFail": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": null,
+      "auditId": "6ed1bf34-afbe-44cc-b4ad-032ef885f975"
+    },
+    "spaSnapshotFailed": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": {
+        "title": "Owned authenticated SPA review2",
+        "url": "http://127.0.0.1:9656/app",
+        "text": "Disposable authenticated SPA\n\nSigned in as disposable fixture identity\n\nFixture note \nSave failed\nCould not save changes. Your session has expired. Please sign in again.\nDisable fixture save connection",
+        "renderer": "unknown"
+      },
+      "auditId": "52ade73d-030e-4d06-89af-48f513cc0e55"
+    },
+    "spaRestore": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": {
+        "type": "string",
+        "json": "\"Fixture save connection restored\""
+      },
+      "auditId": "e070326f-0da4-40b6-b3f0-9e8f6038b538"
+    },
+    "spaPostRestoreActual": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": null,
+      "auditId": "5fc3e94e-52c1-4340-86db-f4e4652b71eb"
+    },
+    "spaJournal": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": [
+        {
+          "seq": 1,
+          "at": 1793077017904,
+          "command": "type",
+          "selector": "#note",
+          "approxValueLength": 24,
+          "outcome": "succeeded",
+          "persistence": "unverified"
+        },
+        {
+          "seq": 2,
+          "at": 1793077017970,
+          "command": "click",
+          "selector": "#drop",
+          "outcome": "succeeded",
+          "persistence": "unverified"
+        },
+        {
+          "seq": 3,
+          "at": 1793077018020,
+          "command": "type",
+          "selector": "#note",
+          "approxValueLength": 24,
+          "outcome": "succeeded",
+          "persistence": "unverified"
+        },
+        {
+          "seq": 4,
+          "at": 1793077023794,
+          "command": "type",
+          "selector": "#note",
+          "approxValueLength": 40,
+          "outcome": "succeeded",
+          "persistence": "unverified"
+        },
+        {
+          "seq": 5,
+          "at": 1793077036365,
+          "command": "evaluate",
+          "outcome": "succeeded",
+          "persistence": "unverified"
+        },
+        {
+          "seq": 6,
+          "at": 1793077036404,
+          "command": "type",
+          "selector": "#note",
+          "approxValueLength": 40,
+          "outcome": "succeeded",
+          "persistence": "unverified"
+        }
+      ],
+      "auditId": "19529244-6599-4145-b61c-96edf2b7d6e5"
+    },
+    "spaPersisted": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": {
+        "persisted": true,
+        "confidence": "verified",
+        "signalState": "unknown",
+        "checkedExpectations": 1,
+        "mismatches": []
+      },
+      "auditId": "3e23fdcb-6aae-4da9-810c-82aa1152d2cb"
+    },
+    "spaSnapshotFinal": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": {
+        "title": "Owned authenticated SPA review2",
+        "url": "http://127.0.0.1:9656/app",
+        "text": "Disposable authenticated SPA\n\nSigned in as disposable fixture identity\n\nFixture note \nSaved\nCould not save changes. Your session has expired. Please sign in again.\nDisable fixture save connection",
+        "renderer": "unknown"
+      },
+      "auditId": "ec6a730d-02b9-400b-a3b9-1822023645e0"
+    },
+    "spaEvaluateEnvelope": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": {
+        "type": "object",
+        "json": "{\"m\":\"your session has expired\",\"s\":\"session_stale\"}"
+      },
+      "auditId": "5aa5b5d6-72f0-4d4b-bf1a-84fb9f78c86d"
+    },
+    "spaClose": {
+      "decision": "allowed",
+      "outcome": "succeeded",
+      "data": {
+        "closed": true,
+        "remainingTabCount": 39,
+        "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588666",
+        "targetId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771587906:771588666:target",
+        "inspectionState": "readable"
+      },
+      "auditId": "ba1098af-0bb8-42c4-a8fb-4037d2b97581"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "at": "2026-10-27T06:03:43.547448+00:00",
+  "projectId": "gen-lang-client-0643087399",
+  "policyInventoryVerified": true,
+  "senderDirectRoles": [
+    "roles/firebasecloudmessaging.admin"
+  ],
+  "organisationOrFolderAncestors": [],
+  "additionalOwnerEditorGrantObserved": false,
+  "broadOrGroupBindingObserved": false,
+  "rolePermissionCount": 9,
+  "strictSendOnlyAcceptance": "unverified: current predefined role also includes topic-subscription operations and delivery-data reads; no role change or narrower policy approved/performed",
+  "productionErrorsOrAlertsGenerated": false,
+  "sourceReceipts": [
+    "firebase-iam-read.receipt.json",
+    "firebase-role-permissions.receipt.json",
+    "firebase-key-reference.receipt.json",
+    "firebase-deployed-source.receipt.json",
+    "sentry-alerts-read.receipt.json"
+  ]
+}

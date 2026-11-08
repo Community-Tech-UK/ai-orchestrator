@@ -1,0 +1,5 @@
+{
+  "at": "2026-10-27T04:38:47.669574+00:00",
+  "firstAttempt": "Assertion incorrectly assumed the historical base owner file was absent",
+  "correction": "Verify the stale worker copy equals HEAD exactly; do not delete or update it. Canonical new evidence remains only in the root owner."
+}

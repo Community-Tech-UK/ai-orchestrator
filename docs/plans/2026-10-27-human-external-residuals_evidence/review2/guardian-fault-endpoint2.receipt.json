@@ -1,0 +1,104 @@
+{
+  "controlledFaultResponses": true,
+  "realInference": false,
+  "pid": 14720,
+  "mode": "hang",
+  "events": [
+    {
+      "at": "2026-10-27T05:20:22.906Z",
+      "method": "GET",
+      "path": "/v1/models",
+      "mode": "deny",
+      "bodyBytes": 0,
+      "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "at": "2026-10-27T05:20:22.916Z",
+      "method": "GET",
+      "path": "/v1/models",
+      "mode": "deny",
+      "bodyBytes": 0,
+      "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "at": "2026-10-27T05:20:22.923Z",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "mode": "deny",
+      "bodyBytes": 1607,
+      "bodySha256": "3af0fc286e4389648439aceb27af6bbbf727e3cbbdd446c23f4944d0af5ae8da"
+    },
+    {
+      "at": "2026-10-27T05:20:37.018Z",
+      "method": "GET",
+      "path": "/v1/models",
+      "mode": "deny",
+      "bodyBytes": 0,
+      "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "at": "2026-10-27T05:20:37.026Z",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "mode": "deny",
+      "bodyBytes": 1607,
+      "bodySha256": "42abe80c087a071f600d8424de812bb84abc13311119b042a0e742fca0431458"
+    },
+    {
+      "at": "2026-10-27T05:23:58.501Z",
+      "method": "GET",
+      "path": "/v1/models",
+      "mode": "hang",
+      "bodyBytes": 0,
+      "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "at": "2026-10-27T05:23:58.505Z",
+      "method": "GET",
+      "path": "/v1/models",
+      "mode": "hang",
+      "bodyBytes": 0,
+      "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "at": "2026-10-27T05:23:58.748Z",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "mode": "hang",
+      "bodyBytes": 1607,
+      "bodySha256": "363a94c05e334ed15b11ddcd06f53efbe0915b8820d5f3f52487a10278a821b0"
+    },
+    {
+      "at": "2026-10-27T05:23:59.048Z",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "mode": "hang",
+      "bodyBytes": 1607,
+      "bodySha256": "363a94c05e334ed15b11ddcd06f53efbe0915b8820d5f3f52487a10278a821b0"
+    },
+    {
+      "at": "2026-10-27T05:24:03.264Z",
+      "method": "GET",
+      "path": "/v1/models",
+      "mode": "hang",
+      "bodyBytes": 0,
+      "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "at": "2026-10-27T05:24:03.270Z",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "mode": "hang",
+      "bodyBytes": 1607,
+      "bodySha256": "363a94c05e334ed15b11ddcd06f53efbe0915b8820d5f3f52487a10278a821b0"
+    },
+    {
+      "at": "2026-10-27T05:24:03.858Z",
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "mode": "hang",
+      "bodyBytes": 1607,
+      "bodySha256": "363a94c05e334ed15b11ddcd06f53efbe0915b8820d5f3f52487a10278a821b0"
+    }
+  ]
+}

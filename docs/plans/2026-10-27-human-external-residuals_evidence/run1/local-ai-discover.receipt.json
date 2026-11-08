@@ -1,0 +1,41 @@
+{
+  "command": "local-ai discover --json",
+  "exitCode": 0,
+  "startedAt": 1793069734.279687,
+  "endedAt": 1793069734.362116,
+  "result": [
+    {
+      "identity": {
+        "location": {
+          "type": "worker",
+          "nodeId": "bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be"
+        },
+        "provider": "openai-compatible",
+        "endpointId": "worker:bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:openai-compatible:127.0.0.1:1234",
+        "baseUrl": "http://127.0.0.1:1234"
+      },
+      "label": "windows-pc \u00b7 openai-compatible",
+      "models": [
+        "qwen/qwen3.6-35b-a3b",
+        "qwen3.8-flash-next",
+        "qwen3.8-27b",
+        "google/gemma-4-26b-a4b-qat",
+        "google/gemma-4-31b",
+        "google/gemma-4-31b-qat",
+        "qwen/qwen3.6-27b",
+        "google/gemma-4-12b",
+        "google/gemma-4-12b-qat",
+        "qwen/qwen3.5-9b",
+        "qwen/qwen3-coder-next",
+        "qwen/qwen3.5-35b-a3b",
+        "google/gemma-4-26b-a4b",
+        "zai-org/glm-4.7-flash",
+        "nvidia/nemotron-3-nano-4b",
+        "text-embedding-nomic-embed-text-v1.5"
+      ],
+      "healthy": true,
+      "enrolledTargetId": "afa37744-ae04-4e0d-9efd-eca955d37777"
+    }
+  ],
+  "stderr": ""
+}

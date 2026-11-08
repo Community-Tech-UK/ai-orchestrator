@@ -1,0 +1,23 @@
+{
+  "at": "2026-10-27T04:32:51.873791+00:00",
+  "children": [
+    {
+      "name": "electron",
+      "pid": 93233,
+      "exitCode": 0,
+      "pidAbsent": true
+    },
+    {
+      "name": "renderer",
+      "pid": 75985,
+      "exitCode": -15,
+      "pidAbsent": true
+    },
+    {
+      "name": "build-main",
+      "pid": 61802,
+      "exitCode": 0,
+      "pidAbsent": true
+    }
+  ]
+}

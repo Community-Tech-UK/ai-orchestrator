@@ -1,0 +1,11 @@
+{
+  "command": [
+    "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+    "node_modules/tsx/dist/cli.mjs",
+    "build-aio-mcp-cli-sea.ts"
+  ],
+  "startedAt": "2026-10-27T04:28:14.910155+00:00",
+  "endedAt": "2026-10-27T04:28:21.067098+00:00",
+  "exitCode": 0,
+  "log": "build-cli-sea-node24.log.txt"
+}

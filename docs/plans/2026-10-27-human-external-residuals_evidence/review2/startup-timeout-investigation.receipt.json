@@ -1,0 +1,25 @@
+{
+  "at": "2026-10-27T06:25:17.468182+00:00",
+  "defaultTimeoutMs": 5000,
+  "nativeTimeoutInstalledBeforePragmas": true,
+  "rootCauseEstablished": false,
+  "productFixMade": false,
+  "files": [
+    {
+      "path": "src/main/db/better-sqlite3-driver.ts",
+      "sha256": "ba9ce94b726fa2d1cf854aacf1b22108e0cf084b35ac9fa45b48353ddb48a1f0"
+    },
+    {
+      "path": "src/main/persistence/rlm-database.ts",
+      "sha256": "326281bf02bfe6df3cb72234447512e830b3758a1ff16f0bd0b48ffb59de01ac"
+    },
+    {
+      "path": "node_modules/better-sqlite3/lib/database.js",
+      "sha256": "02ea23bdd23d7ac5de0675a2f32fc686e76d5c6a32bd3e3891f360e72e07f61f"
+    },
+    {
+      "path": "node_modules/better-sqlite3/src/objects/database.cpp",
+      "sha256": "081c514fb0a472a0e0962f0619149c187b6cf424e09baa7f39cc5246c17f75aa"
+    }
+  ]
+}

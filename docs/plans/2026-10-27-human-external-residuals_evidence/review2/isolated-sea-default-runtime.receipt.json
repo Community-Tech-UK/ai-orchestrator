@@ -1,0 +1,17 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "scripts/__tests__/sea-build-repeatability.spec.ts",
+    "--maxWorkers=1"
+  ],
+  "startedAt": "2026-10-27T06:52:25.620627+00:00",
+  "endedAt": "2026-10-27T06:52:29.853745+00:00",
+  "exitCode": 1,
+  "log": "isolated-sea-default-runtime.log.txt",
+  "environment": {
+    "AIO_TEST_SUMMARY": "0"
+  }
+}

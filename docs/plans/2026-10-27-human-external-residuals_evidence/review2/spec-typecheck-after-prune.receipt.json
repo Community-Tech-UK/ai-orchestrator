@@ -1,0 +1,11 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "typecheck:spec"
+  ],
+  "startedAt": "2026-10-27T06:31:27.615776+00:00",
+  "endedAt": "2026-10-27T06:32:20.103395+00:00",
+  "exitCode": 0,
+  "log": "spec-typecheck-after-prune.log.txt"
+}

@@ -1,0 +1,49 @@
+{
+  "at": "2026-10-27T06:50:19.921537+00:00",
+  "numTotalTests": 35390,
+  "numFailedTests": 3,
+  "success": false,
+  "failures": [
+    {
+      "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/scripts/__tests__/sea-build-repeatability.spec.ts",
+      "assertions": []
+    },
+    {
+      "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/doc-review/doc-review-service.spec.ts",
+      "assertions": [
+        {
+          "name": "DocReviewService renders a plan markdown file into an artifact and creates a pending review",
+          "failureMessages": [
+            "Error: ENOTEMPTY, Directory not empty: '/var/folders/0n/fs5yys3d0vg0c838h75hyrm00000gn/T/doc-review-jqT67d'\n    at Proxy.rmSync (node:fs:1593:18)\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/doc-review/doc-review-service.spec.ts:65:5\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at wrapper (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/@vitest/runner/dist/chunk-artifact.js:750:10)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new ZoneAwarePromise (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/zone.js/fesm2015/zone.js:2238:23)\n    at runWithTimeout (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/@vitest/runner/dist/chunk-artifact.js:2622:52\n    at run (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/@vitest/runner/dist/chunk-artifact.js:1150:20)\n    at limiterFn (file:///Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/@vitest/runner/dist/chunk-artifact.js:1162:59)"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/orchestration/default-loop-native-finality.spec.ts",
+      "assertions": [
+        {
+          "name": "native finality 'partial-no-native-cost'",
+          "failureMessages": [
+            "AssertionError: expected false to be true // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/orchestration/default-loop-native-finality.spec.ts:109:26"
+          ]
+        },
+        {
+          "name": "native finality 'partial-no-final-lf'",
+          "failureMessages": [
+            "AssertionError: expected false to be true // Object.is equality\n    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/orchestration/default-loop-native-finality.spec.ts:109:26"
+          ]
+        }
+      ]
+    }
+  ],
+  "additionalUnhandledError": {
+    "type": "SyntaxError",
+    "message": "Unexpected token replacement character is not valid JSON",
+    "path": "@vitest/utils/node_modules/convert-source-map/index.js:83",
+    "affectedFile": "scripts/__tests__/sea-build-repeatability.spec.ts",
+    "pendingAssertions": 2,
+    "quietSummaryOmittedCollectionError": true
+  },
+  "note": "The default reporter records three failed files, three failed assertions, one unhandled source-map error; two SEA assertions remain pending. Do not interpret the quiet summary as complete."
+}

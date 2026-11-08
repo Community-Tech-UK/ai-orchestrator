@@ -1,0 +1,194 @@
+{
+  "at": "2026-10-27T04:29:54.799Z",
+  "focusEmulation": true,
+  "visibilityOverride": "'Emulation.setPageVisibilityOverride' wasn't found",
+  "result": {
+    "type": "object",
+    "value": {
+      "hidden": false,
+      "snapshot": {
+        "success": true,
+        "data": {
+          "helperPauses": [],
+          "revision": "27",
+          "aggregate": {
+            "state": "healthy",
+            "enrolled": 1,
+            "healthy": 1,
+            "degraded": 0,
+            "unavailable": 0,
+            "paused": 0
+          },
+          "targets": [
+            {
+              "targetId": "48dcf77a-856f-4950-beef-47edc34a7c67",
+              "lifecycle": "enrolled",
+              "state": "healthy",
+              "routableRoles": [
+                "approvalAdjudication"
+              ],
+              "layers": {
+                "worker": {
+                  "targetId": "48dcf77a-856f-4950-beef-47edc34a7c67",
+                  "layer": "worker",
+                  "checkType": "lightweight",
+                  "ok": true,
+                  "required": true,
+                  "affectedRoles": [
+                    "approvalAdjudication"
+                  ],
+                  "checkedAt": 1793075368519,
+                  "durationMs": 0,
+                  "evidence": {
+                    "workerConnected": true,
+                    "rpcReachable": true
+                  }
+                },
+                "endpoint": {
+                  "targetId": "48dcf77a-856f-4950-beef-47edc34a7c67",
+                  "layer": "endpoint",
+                  "checkType": "lightweight",
+                  "ok": true,
+                  "required": true,
+                  "affectedRoles": [
+                    "approvalAdjudication"
+                  ],
+                  "checkedAt": 1793075368519,
+                  "durationMs": 4,
+                  "evidence": {
+                    "endpointReachable": true,
+                    "endpointProtocol": "openai-v1",
+                    "httpStatus": 200
+                  }
+                },
+                "model": {
+                  "targetId": "48dcf77a-856f-4950-beef-47edc34a7c67",
+                  "layer": "model",
+                  "checkType": "lightweight",
+                  "ok": true,
+                  "required": false,
+                  "affectedRoles": [
+                    "approvalAdjudication"
+                  ],
+                  "checkedAt": 1793075368519,
+                  "durationMs": 4,
+                  "evidence": {
+                    "advertisedModels": [
+                      "qwen/qwen3.6-35b-a3b",
+                      "qwen3.8-flash-next",
+                      "qwen3.8-27b",
+                      "google/gemma-4-26b-a4b-qat",
+                      "google/gemma-4-31b",
+                      "google/gemma-4-31b-qat",
+                      "qwen/qwen3.6-27b",
+                      "google/gemma-4-12b",
+                      "google/gemma-4-12b-qat",
+                      "qwen/qwen3.5-9b",
+                      "qwen/qwen3-coder-next",
+                      "qwen/qwen3.5-35b-a3b",
+                      "google/gemma-4-26b-a4b",
+                      "zai-org/glm-4.7-flash",
+                      "nvidia/nemotron-3-nano-4b",
+                      "text-embedding-nomic-embed-text-v1.5"
+                    ],
+                    "loadedModels": [
+                      "qwen/qwen3.6-35b-a3b"
+                    ],
+                    "missingModels": [],
+                    "requiredModelCount": 1,
+                    "availableContextLength": 229376
+                  }
+                }
+              },
+              "consecutiveFailures": 0,
+              "consecutiveSuccesses": 1,
+              "flapping": false,
+              "checkedAt": 1793075368519,
+              "incidentOpen": false,
+              "stateTransitions": []
+            }
+          ],
+          "targetConfigs": [
+            {
+              "lifecycle": "enrolled",
+              "location": {
+                "type": "coordinator"
+              },
+              "provider": "openai-compatible",
+              "endpointId": "owned-lt-proxy",
+              "baseUrl": "http://127.0.0.1:9655",
+              "expectedModels": [
+                {
+                  "modelId": "qwen/qwen3.6-35b-a3b",
+                  "required": true,
+                  "minContextLength": 131072
+                }
+              ],
+              "canary": {
+                "model": "qwen/qwen3.6-35b-a3b",
+                "timeoutMs": 30000,
+                "intervalMs": 600000
+              },
+              "endpointCheckIntervalMs": 60000,
+              "freshnessLimitMs": 120000,
+              "warningLatencyMs": 15000,
+              "routingRoles": [
+                "approvalAdjudication"
+              ],
+              "fallbackPolicy": "block-paid-fallback",
+              "slotFallbackPolicies": {},
+              "recovery": {
+                "automatic": false,
+                "maxAttempts": 2,
+                "cooldownMs": 300000
+              },
+              "id": "48dcf77a-856f-4950-beef-47edc34a7c67",
+              "label": "This computer · OpenAI-compatible (127.0.0.1:9655)",
+              "createdAt": 1793075368515,
+              "updatedAt": 1793075368515
+            }
+          ],
+          "incidents": [],
+          "recoveryAttempts": [],
+          "pendingFallbacks": [],
+          "fallbackNotifications": [
+            {
+              "id": "792b0181-1301-4c63-8ff2-85e585ed1522",
+              "slot": "titleGeneration",
+              "intendedRoute": "local",
+              "actualRoute": "frontier",
+              "policy": "notify-and-allow",
+              "disposition": "allowed",
+              "decisionReason": "policy",
+              "provider": "anthropic",
+              "model": "claude-haiku-5-5",
+              "inputTokens": 2,
+              "outputTokens": 649,
+              "knownCostUsd": 0.0031745700000000003,
+              "createdAt": 1793075351833,
+              "completedAt": 1793075351940
+            },
+            {
+              "id": "85649aa2-a66c-4434-8e97-2d1842dd2595",
+              "slot": "titleGeneration",
+              "intendedRoute": "local",
+              "actualRoute": "frontier",
+              "policy": "notify-and-allow",
+              "disposition": "allowed",
+              "decisionReason": "policy",
+              "provider": "anthropic",
+              "model": "claude-haiku-5-5",
+              "inputTokens": 2,
+              "outputTokens": 536,
+              "knownCostUsd": 0.00758564,
+              "createdAt": 1793075174713,
+              "completedAt": 1793075174792
+            }
+          ]
+        }
+      },
+      "url": "/local-ai",
+      "text": "Startup Degraded\nLocal AI: Healthy\n1 target\nMac awake: session working\nWork\nCC\n69%\nCX\n25%\nAG\n0%\nCP\n71%\nCU\n100%\nGX\n0%\nNotifications\n2\nStartup Checks: Degraded\nHardened mode (Seatbelt): sandbox-exec probe failed — hardened instances will refuse to spawn.\nOpen accounts\nPaid fallback notifications\n↑\n2 paid fallbacks happened automatically\nTitle generation\n·\n$0.0108 measured\nDismiss\n2 of 3 done\nTo do\nPick a default working directory\nNew sessions start here, so you are not choosing a folder every time.\nOpen settings\nDone\nConnect a CLI\nAI Orchestrator drives coding CLIs like Claude Code and Codex — it needs at least one installed and ready to use (signed in, where that applies).\nDone\nStart a session\nEverything else — loops, review, cost tracking — hangs off a running session.\nWhat should this computer do?\nUse this computer as the main Harness\nRun sessions, coordinate workers, and manage settings.\nUse this computer as a worker\nLet another Harness use this computer for browser, GPU, Android, and CLI work.\nRemote Terminal\nOpen\nIdle\n×"
+    }
+  }
+}

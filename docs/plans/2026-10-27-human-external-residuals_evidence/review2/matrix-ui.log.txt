@@ -1,0 +1,225 @@
+{
+  "at": "2026-10-27T05:02:05.143Z",
+  "hidden": false,
+  "path": "/local-ai",
+  "dom": "Operational health centre\n\nLocal capacity, proven end to end\n\nOnly enrolled endpoints are monitored. Routing follows current worker, endpoint, model, and canary evidence.\n\nRefresh\nAdd local AI\nCurrent aggregate\nHealthy\nEnrolled\n1\nHealthy\n1\nDegraded\n0\nUnavailable\n0\nPaused\n0\n\nLive evidence\n\nEnrolled targets\n1 target\n\nCoordinator endpoint\n\nThis computer · OpenAI-compatible\n\nCurrently advertised · Evidence 58s ago · 0 consecutive failures\n\nHealthy\nWorker\n0 ms\n58s ago\nEndpoint\n3 ms\n58s ago\nModel\n3 ms\n58s ago\nCanary\nNot checked\nNo evidence\nLast success\n58s ago\nLast failure\nNone recorded\nRouting roles\nCompression, Memory distillation, Web extraction, Title generation, Routing classification, Approval scoring, Approval adjudication, Loop scoring, Retrieval hypothesis, Branch scoring, Sub-query execution\nFallback impact\n0 paid fallbacks · no recorded cost\n\nRecovery attempts: none recorded\n\nRun check\nEdit\nPause\nPause for 1 hour\nRetire\n\nOperator action\n\nActive incidents\n0\nNo active Local AI incidents.\n\nRouting outcomes\n\nLocal AI effectiveness\n24 hours\n7 days\n30 days\n0%\n0 of 1 eligible tasks\nLocal work\n0 local tasks\nLocal tokens\n0 local tokens\nFallback proposals\n1 proposed\nAllowed\n1 allowed\nDeferred\n0 deferred\nBlocked\n0 blocked\nMeasured cloud cost\n$0.00750574 measured cloud cost\nEstimated cloud cost\n$0.00 estimated cloud cost\nEstimated avoided tokens\n0 estimated avoided tokens\nEstimated avoided cost\n$0.00 estimated avoided cost\nEndpoints\nEndpoints\nModels\nHelper slots\nIncidents\n\nNo endpoints in this period.",
+  "snapshot": {
+    "success": true,
+    "data": {
+      "helperPauses": [],
+      "revision": "20",
+      "aggregate": {
+        "state": "healthy",
+        "enrolled": 1,
+        "healthy": 1,
+        "degraded": 0,
+        "unavailable": 0,
+        "paused": 0
+      },
+      "targets": [
+        {
+          "targetId": "f13cb7be-bc52-4f9d-b1fb-28f7bad3f00b",
+          "lifecycle": "enrolled",
+          "state": "healthy",
+          "routableRoles": [
+            "compression",
+            "memoryDistillation",
+            "webExtract",
+            "titleGeneration",
+            "routingClassification",
+            "approvalScoring",
+            "approvalAdjudication",
+            "loopScoring",
+            "retrievalHypothesis",
+            "branchScoring",
+            "subQueryExecution"
+          ],
+          "layers": {
+            "worker": {
+              "targetId": "f13cb7be-bc52-4f9d-b1fb-28f7bad3f00b",
+              "layer": "worker",
+              "checkType": "lightweight",
+              "ok": true,
+              "required": true,
+              "affectedRoles": [
+                "compression",
+                "memoryDistillation",
+                "webExtract",
+                "titleGeneration",
+                "routingClassification",
+                "approvalScoring",
+                "approvalAdjudication",
+                "loopScoring",
+                "retrievalHypothesis",
+                "branchScoring",
+                "subQueryExecution"
+              ],
+              "checkedAt": 1793077265486,
+              "durationMs": 0,
+              "evidence": {
+                "workerConnected": true,
+                "rpcReachable": true
+              }
+            },
+            "endpoint": {
+              "targetId": "f13cb7be-bc52-4f9d-b1fb-28f7bad3f00b",
+              "layer": "endpoint",
+              "checkType": "lightweight",
+              "ok": true,
+              "required": true,
+              "affectedRoles": [
+                "compression",
+                "memoryDistillation",
+                "webExtract",
+                "titleGeneration",
+                "routingClassification",
+                "approvalScoring",
+                "approvalAdjudication",
+                "loopScoring",
+                "retrievalHypothesis",
+                "branchScoring",
+                "subQueryExecution"
+              ],
+              "checkedAt": 1793077265487,
+              "durationMs": 3,
+              "evidence": {
+                "endpointReachable": true,
+                "endpointProtocol": "openai-v1",
+                "httpStatus": 200
+              }
+            },
+            "model": {
+              "targetId": "f13cb7be-bc52-4f9d-b1fb-28f7bad3f00b",
+              "layer": "model",
+              "checkType": "lightweight",
+              "ok": true,
+              "required": false,
+              "affectedRoles": [
+                "compression",
+                "memoryDistillation",
+                "webExtract",
+                "titleGeneration",
+                "routingClassification",
+                "approvalScoring",
+                "approvalAdjudication",
+                "loopScoring",
+                "retrievalHypothesis",
+                "branchScoring",
+                "subQueryExecution"
+              ],
+              "checkedAt": 1793077265487,
+              "durationMs": 3,
+              "evidence": {
+                "advertisedModels": [
+                  "qwen/qwen3.6-35b-a3b",
+                  "qwen3.8-flash-next",
+                  "qwen3.8-27b",
+                  "google/gemma-4-26b-a4b-qat",
+                  "google/gemma-4-31b",
+                  "google/gemma-4-31b-qat",
+                  "qwen/qwen3.6-27b",
+                  "google/gemma-4-12b",
+                  "google/gemma-4-12b-qat",
+                  "qwen/qwen3.5-9b",
+                  "qwen/qwen3-coder-next",
+                  "qwen/qwen3.5-35b-a3b",
+                  "google/gemma-4-26b-a4b",
+                  "zai-org/glm-4.7-flash",
+                  "nvidia/nemotron-3-nano-4b",
+                  "text-embedding-nomic-embed-text-v1.5"
+                ],
+                "loadedModels": [
+                  "qwen/qwen3.6-35b-a3b"
+                ],
+                "missingModels": [],
+                "requiredModelCount": 2,
+                "availableContextLength": 229376
+              }
+            }
+          },
+          "consecutiveFailures": 0,
+          "consecutiveSuccesses": 1,
+          "flapping": false,
+          "checkedAt": 1793077265487,
+          "incidentOpen": false,
+          "stateTransitions": []
+        }
+      ],
+      "targetConfigs": [
+        {
+          "lifecycle": "enrolled",
+          "location": {
+            "type": "coordinator"
+          },
+          "provider": "openai-compatible",
+          "endpointId": "owned-review2",
+          "baseUrl": "http://100.113.93.104:1234",
+          "expectedModels": [
+            {
+              "modelId": "qwen/qwen3.6-35b-a3b",
+              "required": true,
+              "minContextLength": 131072
+            },
+            {
+              "modelId": "qwen/qwen3.5-9b",
+              "required": true
+            }
+          ],
+          "canary": {
+            "model": "qwen/qwen3.6-35b-a3b",
+            "timeoutMs": 30000,
+            "intervalMs": 600000
+          },
+          "endpointCheckIntervalMs": 60000,
+          "freshnessLimitMs": 120000,
+          "warningLatencyMs": 15000,
+          "routingRoles": [
+            "compression",
+            "memoryDistillation",
+            "webExtract",
+            "titleGeneration",
+            "routingClassification",
+            "approvalScoring",
+            "approvalAdjudication",
+            "loopScoring",
+            "retrievalHypothesis",
+            "branchScoring",
+            "subQueryExecution"
+          ],
+          "fallbackPolicy": "block-paid-fallback",
+          "slotFallbackPolicies": {},
+          "recovery": {
+            "automatic": false,
+            "maxAttempts": 2,
+            "cooldownMs": 300000
+          },
+          "id": "f13cb7be-bc52-4f9d-b1fb-28f7bad3f00b",
+          "label": "This computer · OpenAI-compatible",
+          "createdAt": 1793077265483,
+          "updatedAt": 1793077265483
+        }
+      ],
+      "incidents": [],
+      "recoveryAttempts": [],
+      "pendingFallbacks": [],
+      "fallbackNotifications": [
+        {
+          "id": "23af1798-5c4b-4513-9510-a9f9f64c0df3",
+          "slot": "titleGeneration",
+          "intendedRoute": "local",
+          "actualRoute": "frontier",
+          "policy": "notify-and-allow",
+          "disposition": "allowed",
+          "decisionReason": "policy",
+          "provider": "anthropic",
+          "model": "claude-haiku-5-5",
+          "inputTokens": 2,
+          "outputTokens": 393,
+          "knownCostUsd": 0.0075057399999999995,
+          "createdAt": 1793077251287,
+          "completedAt": 1793077251377
+        }
+      ]
+    }
+  }
+}

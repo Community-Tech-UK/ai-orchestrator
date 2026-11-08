@@ -1,0 +1,9 @@
+{
+  "readOnly": true,
+  "tables": [
+    {
+      "table": "pending_approvals",
+      "resolvedByAdjudicator": 0
+    }
+  ]
+}

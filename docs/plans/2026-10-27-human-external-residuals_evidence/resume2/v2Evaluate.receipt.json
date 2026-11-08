@@ -1,0 +1,11 @@
+{
+  "at": "2026-10-27T04:25:38.954Z",
+  "toolResult": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"decision\":\"requires_user\",\"outcome\":\"not_run\",\"data\":null,\"reason\":\"captcha_parked_to_escalation_queue\",\"auditId\":\"7f456035-2365-4735-b542-c39c5fda785d\"}"
+      }
+    ]
+  }
+}

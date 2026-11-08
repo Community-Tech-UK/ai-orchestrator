@@ -1,0 +1,171 @@
+{
+  "checkedAt": 1793069851.223383,
+  "results": [
+    {
+      "key": "providerAccountProfiles",
+      "exitCode": 0,
+      "data": {
+        "key": "providerAccountProfiles",
+        "value": [
+          {
+            "id": "legacy",
+            "provider": "claude",
+            "label": "ClaudeSUAS",
+            "planLabel": "max",
+            "enabled": true,
+            "automationPolicy": "allow-routed",
+            "isLegacy": true,
+            "identityRecorded": true,
+            "accountKeyRecorded": true
+          },
+          {
+            "id": "legacy",
+            "provider": "codex",
+            "label": "CodexSUAS",
+            "planLabel": null,
+            "enabled": true,
+            "automationPolicy": "allow-routed",
+            "isLegacy": true,
+            "identityRecorded": false,
+            "accountKeyRecorded": false
+          },
+          {
+            "id": "claudecomtech-7e12",
+            "provider": "claude",
+            "label": "ClaudeComTech",
+            "planLabel": "max",
+            "enabled": true,
+            "automationPolicy": "allow-routed",
+            "isLegacy": false,
+            "identityRecorded": true,
+            "accountKeyRecorded": true
+          },
+          {
+            "id": "chatgptcomtech-e73d",
+            "provider": "codex",
+            "label": "CodexComTech",
+            "planLabel": "prolite",
+            "enabled": true,
+            "automationPolicy": "allow-routed",
+            "isLegacy": false,
+            "identityRecorded": true,
+            "accountKeyRecorded": true
+          },
+          {
+            "id": "legacy",
+            "provider": "opencode",
+            "label": "SuasMimo",
+            "planLabel": null,
+            "enabled": true,
+            "automationPolicy": "allow-routed",
+            "isLegacy": true,
+            "identityRecorded": false,
+            "accountKeyRecorded": false
+          },
+          {
+            "id": "comtechspare-f7a6",
+            "provider": "opencode",
+            "label": "ComTechSpare",
+            "planLabel": null,
+            "enabled": true,
+            "automationPolicy": "allow-routed",
+            "isLegacy": false,
+            "identityRecorded": false,
+            "accountKeyRecorded": false
+          },
+          {
+            "id": "claudeadapt-f899",
+            "provider": "claude",
+            "label": "ClaudeAdapt",
+            "planLabel": "team",
+            "enabled": true,
+            "automationPolicy": "allow-routed",
+            "isLegacy": false,
+            "identityRecorded": true,
+            "accountKeyRecorded": true
+          }
+        ],
+        "restartRequired": false,
+        "writable": false,
+        "policyTier": "read-only",
+        "cliWritable": false
+      },
+      "stderr": ""
+    },
+    {
+      "key": "providerAccountPools",
+      "exitCode": 0,
+      "data": {
+        "key": "providerAccountPools",
+        "value": {
+          "claude": {
+            "failoverMode": "automatic",
+            "continuation": "shared-store",
+            "preemptive": {
+              "newSessions": true,
+              "liveSessionsAtTurnBoundary": true,
+              "thresholdPct": 99
+            },
+            "switchCooldownMs": 300000,
+            "maxSwitchesPerTurn": 3,
+            "acknowledgedOwnershipAt": 1789544092431
+          },
+          "codex": {
+            "failoverMode": "automatic",
+            "continuation": "shared-store",
+            "preemptive": {
+              "newSessions": true,
+              "liveSessionsAtTurnBoundary": false,
+              "thresholdPct": 90
+            },
+            "switchCooldownMs": 300000,
+            "maxSwitchesPerTurn": 3,
+            "acknowledgedOwnershipAt": 1789550873277
+          },
+          "opencode": {
+            "failoverMode": "automatic",
+            "continuation": "shared-store",
+            "preemptive": {
+              "newSessions": true,
+              "liveSessionsAtTurnBoundary": false,
+              "thresholdPct": 90
+            },
+            "switchCooldownMs": 300000,
+            "maxSwitchesPerTurn": 3,
+            "acknowledgedOwnershipAt": 1791809325635
+          }
+        },
+        "restartRequired": false,
+        "writable": false,
+        "policyTier": "read-only",
+        "cliWritable": false
+      },
+      "stderr": ""
+    },
+    {
+      "key": "approvalAdjudicationEnabled",
+      "exitCode": 0,
+      "data": {
+        "key": "approvalAdjudicationEnabled",
+        "value": false,
+        "restartRequired": false,
+        "writable": true,
+        "policyTier": "open",
+        "cliWritable": true
+      },
+      "stderr": ""
+    },
+    {
+      "key": "discordEnabled",
+      "exitCode": 1,
+      "data": null,
+      "stderr": "aio-mcp settings failed: Unknown setting key: discordEnabled\n"
+    },
+    {
+      "key": "whatsappEnabled",
+      "exitCode": 1,
+      "data": null,
+      "stderr": "aio-mcp settings failed: Unknown setting key: whatsappEnabled\n"
+    }
+  ]
+}

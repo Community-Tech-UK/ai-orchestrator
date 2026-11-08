@@ -1,0 +1,17 @@
+{
+  "at": "2026-10-27T04:26:29.509Z",
+  "receipts": [
+    {
+      "args": [
+        "local-ai",
+        "list",
+        "--json"
+      ],
+      "startedAt": "2026-10-27T04:26:29.416Z",
+      "endedAt": "2026-10-27T04:26:29.509Z",
+      "status": 0,
+      "stdout": "[\n  {\n    \"lifecycle\": \"enrolled\",\n    \"location\": {\n      \"type\": \"worker\",\n      \"nodeId\": \"bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be\"\n    },\n    \"provider\": \"openai-compatible\",\n    \"endpointId\": \"worker:bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:openai-compatible:127.0.0.1:1234\",\n    \"baseUrl\": \"http://127.0.0.1:1234\",\n    \"expectedModels\": [\n      {\n        \"modelId\": \"qwen/qwen3.6-35b-a3b\",\n        \"required\": true,\n        \"minContextLength\": 131072\n      }\n    ],\n    \"canary\": {\n      \"model\": \"qwen/qwen3.6-35b-a3b\",\n      \"timeoutMs\": 30000,\n      \"intervalMs\": 600000\n    },\n    \"endpointCheckIntervalMs\": 60000,\n    \"freshnessLimitMs\": 120000,\n    \"warningLatencyMs\": 15000,\n    \"routingRoles\": [\n      \"compression\",\n      \"memoryDistillation\",\n      \"webExtract\",\n      \"titleGeneration\",\n      \"routingClassification\",\n      \"approvalScoring\",\n      \"approvalAdjudication\",\n      \"loopScoring\",\n      \"retrievalHypothesis\",\n      \"branchScoring\",\n      \"subQueryExecution\",\n      \"verifyOutputSummary\"\n    ],\n    \"fallbackPolicy\": \"notify-and-allow\",\n    \"slotFallbackPolicies\": {},\n    \"recovery\": {\n      \"automatic\": false,\n      \"maxAttempts\": 2,\n      \"cooldownMs\": 300000\n    },\n    \"id\": \"afa37744-ae04-4e0d-9efd-eca955d37777\",\n    \"label\": \"windows-pc · LM Studio\",\n    \"createdAt\": 1791064115418,\n    \"updatedAt\": 1792199532916\n  }\n]\n",
+      "stderr": ""
+    }
+  ]
+}

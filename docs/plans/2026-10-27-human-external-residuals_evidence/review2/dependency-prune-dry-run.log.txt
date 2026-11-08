@@ -1,0 +1,71 @@
+{
+  "add": [],
+  "added": 0,
+  "audited": 0,
+  "change": [],
+  "changed": 0,
+  "funding": 281,
+  "remove": [
+    {
+      "name": "@modelcontextprotocol/sdk",
+      "version": "1.32.2",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/@modelcontextprotocol/sdk"
+    },
+    {
+      "name": "@hono/node-server",
+      "version": "2.1.5",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/@hono/node-server"
+    },
+    {
+      "name": "zod-to-json-schema",
+      "version": "3.25.2",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/zod-to-json-schema"
+    },
+    {
+      "name": "pkce-challenge",
+      "version": "5.0.1",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/pkce-challenge"
+    },
+    {
+      "name": "object-assign",
+      "version": "4.1.1",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/object-assign"
+    },
+    {
+      "name": "jose",
+      "version": "6.2.13",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/jose"
+    },
+    {
+      "name": "ip-address",
+      "version": "10.7.5",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/ip-address"
+    },
+    {
+      "name": "hono",
+      "version": "4.13.14",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/hono"
+    },
+    {
+      "name": "express-rate-limit",
+      "version": "8.7.1",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/express-rate-limit"
+    },
+    {
+      "name": "eventsource-parser",
+      "version": "3.1.1",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/eventsource-parser"
+    },
+    {
+      "name": "eventsource",
+      "version": "3.0.7",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/eventsource"
+    },
+    {
+      "name": "cors",
+      "version": "2.8.6",
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/cors"
+    }
+  ],
+  "removed": 12
+}

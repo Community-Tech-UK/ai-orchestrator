@@ -1,0 +1,230 @@
+{
+  "at": "2026-10-27T03:24:59.550Z",
+  "focusEmulation": true,
+  "visibilityOverride": "'Emulation.setPageVisibilityOverride' wasn't found",
+  "errors": [
+    [
+      "JIT compilation failed for injectable",
+      "class _PlatformLocation {\n  historyGo(relativePosition) {\n    throw new Error(ngDevMode ? \"Not implemented\" : \"\");\n  }\n  static ɵfac = ɵɵngDeclareFactory({\n    minVersion: \"12.0.0\",\n    version: \"22.2.1\",\n    ngImport: core_exports,\n    type: _PlatformLocation,\n    deps: [],\n    target: FactoryTarget.Injectable\n  });\n  static ɵprov = ɵɵngDeclareInjectable({\n    minVersion: \"12.0.0\",\n    version: \"22.2.1\",\n    ngImport: core_exports,\n    type: _PlatformLocation,\n    providedIn: \"platform\",\n    useFactory: () => inject(BrowserPlatformLocation)\n  });\n}"
+    ],
+    {
+      "exceptionId": 1,
+      "text": "Uncaught",
+      "lineNumber": 1887,
+      "columnNumber": 10,
+      "scriptId": "78",
+      "url": "http://localhost:9654/@fs/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/.angular/cache/22.2.1/ai-orchestrator/vite/deps/chunk-E5L5VMQE.js?v=a3574bc2",
+      "exception": {
+        "type": "object",
+        "subtype": "error",
+        "className": "Error",
+        "description": "Error: The injectable '_PlatformLocation' needs to be compiled using the JIT compiler, but '@angular/compiler' is not available.\n\nThe injectable is part of a library that has been partially compiled.\nHowever, the Angular Linker has not processed the library such that JIT compilation is used as fallback.\n\nIdeally, the library is processed using the Angular Linker to become fully AOT compiled.\nAlternatively, the JIT compiler should be loaded by bootstrapping using '@angular/platform-browser-dynamic' or '@angular/platform-server',\nor manually provide the compiler with 'import \"@angular/compiler\";' before bootstrapping.\n    at getCompilerFacade (http://localhost:9654/@fs/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/.angular/cache/22.2.1/ai-orchestrator/vite/deps/chunk-E5L5VMQE.js?v=a3574bc2:1888:11)\n    at ɵɵngDeclareFactory (http://localhost:9654/@fs/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/.angular/cache/22.2.1/ai-orchestrator/vite/deps/chunk-E5L5VMQE.js?v=a3574bc2:24467:20)\n    at <static_initializer> (http://localhost:9654/@fs/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/.angular/cache/22.2.1/ai-orchestrator/vite/deps/chunk-FUL357I6.js?v=a3574bc2:84:17)\n    at http://localhost:9654/@fs/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/.angular/cache/22.2.1/ai-orchestrator/vite/deps/chunk-FUL357I6.js?v=a3574bc2:80:24",
+        "objectId": "-8055074281069062369.1.2"
+      },
+      "executionContextId": 1
+    }
+  ],
+  "value": {
+    "at": "2026-10-27T03:24:59.550Z",
+    "hidden": false,
+    "visibility": "visible",
+    "fixture": {
+      "startedAt": "2026-10-27T03:22:07.834Z",
+      "instanceId": "pfnfmw6t0",
+      "eventCount": 5,
+      "lastEvents": [
+        {
+          "at": "2026-10-27T03:22:07.853Z",
+          "update": {
+            "instanceId": "pfnfmw6t0",
+            "status": "initializing",
+            "reasoningEffort": null,
+            "contextEvidence": {
+              "mode": "off",
+              "captureFailureCount": 0
+            },
+            "timestamp": 1793071327853
+          }
+        },
+        {
+          "at": "2026-10-27T03:22:11.667Z",
+          "update": {
+            "instanceId": "pfnfmw6t0",
+            "status": "ready",
+            "previousStatus": "initializing",
+            "timestamp": 1793071331667
+          }
+        },
+        {
+          "at": "2026-10-27T03:22:11.668Z",
+          "update": {
+            "instanceId": "pfnfmw6t0",
+            "status": "idle",
+            "previousStatus": "ready",
+            "timestamp": 1793071331668
+          }
+        },
+        {
+          "at": "2026-10-27T03:22:11.741Z",
+          "update": {
+            "instanceId": "pfnfmw6t0",
+            "status": "ready",
+            "previousStatus": "idle",
+            "timestamp": 1793071331741
+          }
+        },
+        {
+          "at": "2026-10-27T03:22:11.742Z",
+          "update": {
+            "instanceId": "pfnfmw6t0",
+            "status": "busy",
+            "previousStatus": "ready",
+            "timestamp": 1793071331742
+          }
+        }
+      ]
+    },
+    "instances": {
+      "success": true,
+      "data": [
+        {
+          "id": "pfnfmw6t0",
+          "displayName": "ACP tool timeout live test",
+          "createdAt": 1793071327834,
+          "parentId": null,
+          "childrenIds": [],
+          "supervisorNodeId": "root-supervisor",
+          "depth": 0,
+          "terminationPolicy": "terminate-children",
+          "contextInheritance": {
+            "inheritWorkingDirectory": true,
+            "inheritEnvironment": true,
+            "inheritYoloMode": false,
+            "inheritAgentSettings": false
+          },
+          "agentId": "build",
+          "agentMode": "build",
+          "planMode": {
+            "enabled": false,
+            "state": "off"
+          },
+          "status": "busy",
+          "contextUsage": {
+            "used": 0,
+            "total": 200000,
+            "percentage": 0
+          },
+          "lastActivity": 1793071331742,
+          "processId": 81894,
+          "providerSessionPersisted": false,
+          "restartEpoch": 0,
+          "adapterGeneration": 1,
+          "workingDirectory": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-round2/copilot-work",
+          "yoloMode": true,
+          "launchMode": "orchestrated",
+          "provider": "copilot",
+          "bareMode": false,
+          "browserToolsMode": "off",
+          "executionLocation": {
+            "type": "local"
+          },
+          "outputBuffer": [
+            {
+              "id": "f815c10c-0b94-43cf-b5e3-c0175853ce5a",
+              "timestamp": 1793071331733,
+              "type": "user",
+              "content": "This is an explicitly requested bounded ACP tool timeout live test. Use your shell tool exactly once to run /bin/sleep 610 followed by /usr/bin/printf \"ACP_LT_610_DONE\\n\". Set the shell tool timeout to at least 660000 milliseconds, wait for the command to finish, and then report its real exit result. This deliberately idle command uses no CPU stress and changes no files. Do not run any other command, browse, read files, log in, install anything, spawn agents, or edit code."
+            },
+            {
+              "id": "copilot-acp-1793071331741-u4407f",
+              "timestamp": 1793071343883,
+              "type": "assistant",
+              "content": "Running the bounded timeout live test now with the single requested shell command.",
+              "metadata": {
+                "sessionUpdate": "agent_message_chunk",
+                "transport": "acp",
+                "streaming": true,
+                "accumulatedContent": "Running the bounded timeout live test now with the single requested shell command.",
+                "adapterGeneration": 1
+              }
+            },
+            {
+              "id": "22c85b8f-6a13-4f08-9f66-e63f4f2d6137",
+              "timestamp": 1793071346190,
+              "type": "tool_use",
+              "content": "Run 610s sleep timeout live test",
+              "metadata": {
+                "toolCallId": "call_DUJGYmIKsep975Tg2osNyzvP",
+                "kind": "execute",
+                "name": "execute",
+                "title": "Run 610s sleep timeout live test",
+                "status": "pending",
+                "transport": "acp",
+                "input": {
+                  "command": "/bin/sleep 610 && /usr/bin/printf \"ACP_LT_610_DONE\\n\""
+                },
+                "adapterGeneration": 1
+              }
+            }
+          ],
+          "outputBufferMaxSize": 2000,
+          "subscribedTo": [],
+          "totalTokensUsed": 0,
+          "requestCount": 1,
+          "errorCount": 0,
+          "restartCount": 0,
+          "contextEvidence": {
+            "mode": "off",
+            "captureFailureCount": 0
+          },
+          "currentModel": "gemini-3.1-pro-preview",
+          "fastMode": false,
+          "residentClaude": true,
+          "copilotAccountProfileId": "legacy",
+          "copilotRoutingSource": "default",
+          "aiTitle": "ACP tool timeout live test",
+          "activityState": "idle",
+          "communicationTokens": {},
+          "sessionId": "8c5270df-d1b0-4259-bca4-a6af05f980ff",
+          "providerSessionId": "8c5270df-d1b0-4259-bca4-a6af05f980ff",
+          "historyThreadId": "336c9990-ca60-430c-9a1f-691506326f25",
+          "rlmStoreSessionId": "241a6b5a-bcbf-4345-ab97-51129553e8a2",
+          "metadata": {
+            "toolFilter": {
+              "rules": [
+                {
+                  "pattern": "AskUserQuestion",
+                  "type": "blanket"
+                },
+                {
+                  "pattern": "EnterPlanMode",
+                  "type": "blanket"
+                },
+                {
+                  "pattern": "ExitPlanMode",
+                  "type": "blanket"
+                },
+                {
+                  "pattern": "CronCreate",
+                  "type": "blanket"
+                },
+                {
+                  "pattern": "RemoteTrigger",
+                  "type": "blanket"
+                }
+              ],
+              "blanketPatterns": [
+                "AskUserQuestion",
+                "EnterPlanMode",
+                "ExitPlanMode",
+                "CronCreate",
+                "RemoteTrigger"
+              ],
+              "runtimePatterns": []
+            }
+          }
+        }
+      ]
+    }
+  }
+}

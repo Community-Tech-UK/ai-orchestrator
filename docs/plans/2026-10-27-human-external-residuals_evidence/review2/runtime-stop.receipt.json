@@ -1,0 +1,16 @@
+{
+  "processes": [
+    {
+      "name": "electron",
+      "pid": 77015,
+      "exitCode": 0,
+      "gone": true
+    },
+    {
+      "name": "renderer",
+      "pid": 54932,
+      "exitCode": 143,
+      "gone": true
+    }
+  ]
+}

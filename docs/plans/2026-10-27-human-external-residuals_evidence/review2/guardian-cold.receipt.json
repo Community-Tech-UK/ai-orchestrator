@@ -1,0 +1,11 @@
+{
+  "command": [
+    "node",
+    "_scratch/review2/cdp.mjs",
+    "_scratch/review2/guardian-cold.js"
+  ],
+  "startedAt": "2026-10-27T05:08:07.325551+00:00",
+  "endedAt": "2026-10-27T05:08:07.483017+00:00",
+  "exitCode": 0,
+  "log": "guardian-cold.log.txt"
+}

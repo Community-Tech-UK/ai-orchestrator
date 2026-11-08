@@ -1,0 +1,19 @@
+{
+  "purpose": "Look up saved Sentry login metadata only",
+  "items": [
+    {
+      "id": "33951400-09b3-43fc-9502-b4ce00818639",
+      "name": "Sentry (sentry.io) - james@communitytech.co.uk - Community Tech",
+      "isLogin": true,
+      "hasPassword": true
+    },
+    {
+      "id": "a1dd05f8-625a-473c-9cc0-b4ce0082bd13",
+      "name": "Sentry DSNs - mytrademail production (Community Tech, EU)",
+      "isLogin": false,
+      "hasPassword": false
+    }
+  ],
+  "lockExitCode": 0,
+  "temporaryVaultCacheRemoved": true
+}

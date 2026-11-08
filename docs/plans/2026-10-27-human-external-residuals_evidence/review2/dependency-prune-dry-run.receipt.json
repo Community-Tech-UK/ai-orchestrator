@@ -1,0 +1,15 @@
+{
+  "command": [
+    "npm",
+    "prune",
+    "--dry-run",
+    "--ignore-scripts",
+    "--no-save",
+    "--offline",
+    "--json"
+  ],
+  "startedAt": "2026-10-27T06:08:49.352351+00:00",
+  "endedAt": "2026-10-27T06:08:50.315438+00:00",
+  "exitCode": 0,
+  "log": "dependency-prune-dry-run.log.txt"
+}

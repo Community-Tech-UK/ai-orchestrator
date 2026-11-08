@@ -1,0 +1,29 @@
+{
+  "recordedAt": 1793070755.565105,
+  "debugEndpointProbe": {
+    "url": "http://127.0.0.1:9554/json/version",
+    "result": "URLError <urlopen error [Errno 61] Connection refused>",
+    "scope": "Only the owned local debug endpoint; no host-wide outage inferred"
+  },
+  "processDiagnostic": {
+    "command": "ps -p <owned-electron-pid> -o pid=,ppid=,stat=,comm=",
+    "result": "PermissionError: [Errno 1] Operation not permitted: ps",
+    "exitCode": 1
+  },
+  "fixtureProtocolControls": [
+    {
+      "implementation": "Python HTTPServer",
+      "loopbackStatus": 200,
+      "loopbackBytes": 463,
+      "lanError": "Remote end closed connection without response",
+      "acceptedRemoteSocketError": "OSError: [Errno 57] Socket is not connected"
+    },
+    {
+      "implementation": "Node http.createServer",
+      "loopbackStatus": 200,
+      "loopbackBytes": 424,
+      "lanError": "Remote end closed connection without response"
+    }
+  ],
+  "fixtureConclusion": "Neither page fixture was delivered through LAN; no CAPTCHA interaction executed"
+}

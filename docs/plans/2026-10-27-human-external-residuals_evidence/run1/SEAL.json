@@ -1,0 +1,201 @@
+{
+  "stage": "final-after-runtime-cleanup",
+  "sealedAt": 1793070795.3827882,
+  "documentComplete": false,
+  "openGroups": 28,
+  "closedGroupsThisRun": 0,
+  "unfixedDefects": [
+    "LT-710",
+    "LT-711"
+  ],
+  "files": {
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-27-livetest-human-external-residuals_livetest.md": {
+      "sha256": "c5405b705d12def54ca20fae662cdda30b95b748a290d31dc6908d6bf194cced",
+      "bytes": 106115
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/livetest-remediation-register.md": {
+      "sha256": "d0f3729915fed18b7a94f3ec94830ba3b9f5141c61d3af0835ddbb62c27bb9fb",
+      "bytes": 1069408
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-07-19-livetest-failure-remediation-followup_plan.md": {
+      "sha256": "d583f54209584b0685a7a9959433cd51007a67cf5203bea35da66ba987d37fc4",
+      "bytes": 24727
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/focused-tests.receipt.json": {
+      "sha256": "581dc7240df9dd478474bbd000ffd1c32c32dc27d6c0ba8e83dcf094d85e757f",
+      "bytes": 164
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/release-prerequisites.receipt.json": {
+      "sha256": "dc8e7014f30ab16d82f33d55f4df6a93846619063dcfdec256ba4d316a1b9b0a",
+      "bytes": 491
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/runtime-probes.receipt.json": {
+      "sha256": "6b6c4a2af665448082992372fd981c99f1ad5c81350be5576e3d58b880198211",
+      "bytes": 1051
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/spec-typecheck.log": {
+      "sha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133",
+      "bytes": 129
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/local-ai.receipt.json": {
+      "sha256": "f199145f9fa416a9190530d19894a6ee81a816b9146ddc72ec5d785ee105bb27",
+      "bytes": 1611
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/focused-tests.log": {
+      "sha256": "df862c2e574b6f94eeeb6c9b896568ebfa7be691a0b53d41571d858eaf070410",
+      "bytes": 187
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/review.receipt.json": {
+      "sha256": "c34623689513c90bf81737d37cb9414f76d4e47f89400890faaec676755a3f49",
+      "bytes": 394
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/runtime-start.receipt.json": {
+      "sha256": "1c91eb8902d32ebcba5b13f2b99b5f7a0da8512126dd8f0daa572f3f6b441f86",
+      "bytes": 172
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/lint.log": {
+      "sha256": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98",
+      "bytes": 89
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/REPORT.md": {
+      "sha256": "700edd41b66527a2ccaf5a35eec7b867be851fb2c8778da4871065120e75b21b",
+      "bytes": 3794
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/browser-and-service.receipt.json": {
+      "sha256": "52f5a4c002d5ae0414c74db527b268a6d92a4818f2470e1bd23f95e15cfcf254",
+      "bytes": 7928
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/typecheck.receipt.json": {
+      "sha256": "e8d7bda28ca22fa898b621478b267c8ae1369dc0559d69ca1dab81ed67b77385",
+      "bytes": 118
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/settings-list-integrity.receipt.json": {
+      "sha256": "aea573d0f246a8e770dae367bbae11eaf0e7eeaa9be2780cbe5d72d24bac365d",
+      "bytes": 309
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/devices.receipt.json": {
+      "sha256": "5ddf9a25c91708d45a9b1475d915870bb9113a0571efafdb690ddb74d1e2beec",
+      "bytes": 676
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/typecheck.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/spec-typecheck.receipt.json": {
+      "sha256": "b3a578a862e4e752cb6b14eb8bac3ffc27de23f2642413bdce5b6947abc430e8",
+      "bytes": 125
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/build-main.log": {
+      "sha256": "4841cbc151e54690fecf27a22f2e0da62a5c4ed96368a66e6a702499d931aa09",
+      "bytes": 284
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/runtime-stop.receipt.json": {
+      "sha256": "b71e2bdede0bd13177056eb445151a7751398feb5090ee162e2ca3e7bf9353d7",
+      "bytes": 408
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/copilot-account.receipt.json": {
+      "sha256": "4c857f2fd9b9cbc682f3001e7e3a8cfd4eca2b9570d3adbb8f350f7638336b36",
+      "bytes": 367
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/node-fixture-start.receipt.json": {
+      "sha256": "6ceec7d9173687fd169bd51d0a007079c08ad6bf5bf4b267ec4d71ebb9b620ce",
+      "bytes": 98
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/electron-stdout.log": {
+      "sha256": "0587ea7c940a474dc9ecf83a8ab46f48ac1483bf69571ec4e0a2a7bfb6306f53",
+      "bytes": 221
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/baseline.json": {
+      "sha256": "836c23b002fb95747fe3f10e9a0081c511e46b3cf3e7a3a191c2f0b0f8fcb9b1",
+      "bytes": 116
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/copilot-direct-read.receipt.json": {
+      "sha256": "3f56bf9fd22a29320ccaf6fd794ce520f38da993e224dc543cda15ac902aa5dc",
+      "bytes": 907
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/source-seal.json": {
+      "sha256": "1b4ded55d54491f4c612e569ec6fbe7c4da04b26ff0187524c48b02d1fe0aa02",
+      "bytes": 1627
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/portal-authorization-metadata.receipt.json": {
+      "sha256": "c00120b01d71871dbc377a9cd1559e586e821c0b48919831ad64c56dd743e36d",
+      "bytes": 578
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/focused-tests-full.log": {
+      "sha256": "6f64b3842e44a9d24f195a462c2ef64862c0e075c56f0ea3b454019148d0b4c6",
+      "bytes": 699
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/cleanup.receipt.json": {
+      "sha256": "cf326c81f109a198b214ed94c46c653579914d23c29fec6d70f82999d189e8e9",
+      "bytes": 970
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/copilot-routing-reads.receipt.json": {
+      "sha256": "5ebbba9cecfa398c46b9b24d1b6286b9ef601ecef6fe03862d4cdab656e4a22f",
+      "bytes": 1083
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/settings-stdout-controls.receipt.json": {
+      "sha256": "95b822ddd207f30f3bfb6246af548f48989d09320160927b37046643f01adb5c",
+      "bytes": 573
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/settings-prerequisites.receipt.json": {
+      "sha256": "cbaad79a7f61963012ac76a936099524ffe6ebcf00c627ffeb50120e1f9be498",
+      "bytes": 4988
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/lint.receipt.json": {
+      "sha256": "fd05e648a55abc20bd6bbc60be4ac4b5593075b72a22ef5360e0191478a2ed7e",
+      "bytes": 115
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/fixture-start.receipt.json": {
+      "sha256": "588c18712ce3cffb6cf40c24eff0640712ac10f73339bc74630d22f06083b854",
+      "bytes": 115
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/fixture-stop.receipt.json": {
+      "sha256": "6ba0413be1a5baa6dbb0e0783459d07ba56f5ee4c871627d00dd5167a2a47ff1",
+      "bytes": 149
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/credential-authorizations.receipt.json": {
+      "sha256": "4aa564dda597ab6c9ffcf927102a4c80384e1611f68b9ae0ad40275f377c636f",
+      "bytes": 149
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/mdns-resolve.receipt.json": {
+      "sha256": "21cbe5b9054f7d9a1d04eb117e1b6e5c4b67bd22d642ea0b770423c4e1069d22",
+      "bytes": 569
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/final-state.receipt.json": {
+      "sha256": "0526ecbf30c2e850c5afe010e0bd0ffdd8552814e55c58134ec5d9b1dceb3800",
+      "bytes": 10563
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/channel-settings.receipt.json": {
+      "sha256": "26e8c64714460f23f1b17a671b2f0b49a14c29ef845528afa9296515d134340c",
+      "bytes": 660
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/node-fixture-stop.receipt.json": {
+      "sha256": "81ea33b038976d93ace7c5be76797560722f4925d7df7bbd197eea541ccc83cb",
+      "bytes": 128
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/renderer.log": {
+      "sha256": "88feeae838dc9d13413f8464f67169799f28fdc0200ec8fc3385acdd75d6bbbf",
+      "bytes": 5706
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/copilot-cli-repro.receipt.json": {
+      "sha256": "abe608caecf95308abc6cf8cef3c64f934b713c719ea172167b4feccf1340a1e",
+      "bytes": 1864
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/build-main.receipt.json": {
+      "sha256": "15dfbd44f87db26045a8e8c22ba2db4ed814afefac3def3fd4f3b7b90cae2e2a",
+      "bytes": 120
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/mdns-browse.receipt.json": {
+      "sha256": "05a508c39a92bf20183698ba1dbf90b5f3892386e97ee7e49ceff715d4fc6ec8",
+      "bytes": 634
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/local-ai-discover.receipt.json": {
+      "sha256": "514529e3980d48a3a5a1b777e85f7c48f38dcf3ae338f512b9c014341d9fbbaf",
+      "bytes": 1199
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27/additional-browser.receipt.json": {
+      "sha256": "f6f64e2d9318dedf06b93f700418cb1e00750a97ccf8d599fc38eaba55b188e3",
+      "bytes": 3826
+    }
+  }
+}

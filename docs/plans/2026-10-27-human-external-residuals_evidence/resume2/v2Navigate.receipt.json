@@ -1,0 +1,11 @@
+{
+  "at": "2026-10-27T04:25:38.485Z",
+  "toolResult": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"decision\":\"allowed\",\"outcome\":\"succeeded\",\"data\":null,\"auditId\":\"66adbda9-466e-4ff2-8e8a-164724994c4c\"}"
+      }
+    ]
+  }
+}

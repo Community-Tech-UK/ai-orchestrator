@@ -1,0 +1,31 @@
+[
+  {
+    "command": [
+      "xcode-select",
+      "-p"
+    ],
+    "exitCode": 0,
+    "stdout": "/Applications/Xcode.app/Contents/Developer\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "xcrun",
+      "--find",
+      "devicectl"
+    ],
+    "exitCode": 0,
+    "stdout": "/Applications/Xcode.app/Contents/Developer/usr/bin/devicectl\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "system_profiler",
+      "SPUSBDataType",
+      "-json"
+    ],
+    "exitCode": 0,
+    "mentionsIPhone": false,
+    "usbReportBytes": 30
+  }
+]

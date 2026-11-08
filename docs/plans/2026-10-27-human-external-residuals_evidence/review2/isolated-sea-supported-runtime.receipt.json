@@ -1,0 +1,15 @@
+{
+  "command": [
+    "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+    "scripts/run-tests-quiet.js",
+    "scripts/__tests__/sea-build-repeatability.spec.ts",
+    "--maxWorkers=1"
+  ],
+  "startedAt": "2026-10-27T06:54:02.863748+00:00",
+  "endedAt": "2026-10-27T06:54:16.049387+00:00",
+  "exitCode": 0,
+  "log": "isolated-sea-supported-runtime.log.txt",
+  "environment": {
+    "AIO_TEST_SUMMARY": "0"
+  }
+}

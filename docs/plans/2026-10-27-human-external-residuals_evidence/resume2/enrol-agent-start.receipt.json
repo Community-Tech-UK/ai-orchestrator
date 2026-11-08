@@ -1,0 +1,66 @@
+{
+  "at": "2026-10-27T04:26:14.727Z",
+  "focusEmulation": true,
+  "visibilityOverride": "'Emulation.setPageVisibilityOverride' wasn't found",
+  "result": {
+    "type": "object",
+    "value": {
+      "success": true,
+      "data": {
+        "id": "cduizn2cl",
+        "displayName": "This is an authorised isolated dev-app live check.",
+        "createdAt": 1793075174710,
+        "historyThreadId": "2b30a272-2a22-4624-b72a-17e2c1e5e631",
+        "parentId": null,
+        "childrenIds": [],
+        "supervisorNodeId": "root-supervisor",
+        "depth": 0,
+        "terminationPolicy": "terminate-children",
+        "contextInheritance": {
+          "inheritWorkingDirectory": true,
+          "inheritEnvironment": true,
+          "inheritYoloMode": false,
+          "inheritAgentSettings": false
+        },
+        "agentId": "build",
+        "agentMode": "build",
+        "planMode": {
+          "enabled": false,
+          "state": "off"
+        },
+        "status": "initializing",
+        "contextUsage": {
+          "used": 0,
+          "total": 200000,
+          "percentage": 0
+        },
+        "lastActivity": 1793075174710,
+        "processId": null,
+        "providerSessionId": "09b65cb3-62f5-414c-b1f2-b914522b97a0",
+        "sessionId": "09b65cb3-62f5-414c-b1f2-b914522b97a0",
+        "providerSessionPersisted": false,
+        "restartEpoch": 0,
+        "adapterGeneration": 0,
+        "workingDirectory": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985",
+        "yoloMode": true,
+        "launchMode": "orchestrated",
+        "provider": "claude",
+        "bareMode": false,
+        "browserToolsMode": "off",
+        "currentModel": "haiku",
+        "executionLocation": {
+          "type": "local"
+        },
+        "outputBuffer": [],
+        "outputBufferMaxSize": 2000,
+        "communicationTokens": {},
+        "subscribedTo": [],
+        "totalTokensUsed": 0,
+        "requestCount": 0,
+        "errorCount": 0,
+        "restartCount": 0,
+        "rlmStoreSessionId": "09b65cb3-62f5-414c-b1f2-b914522b97a0"
+      }
+    }
+  }
+}

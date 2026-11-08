@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/mcp/copilot-account-cli.spec.ts src/main/mcp/aio-mcp-dispatcher.spec.ts src/main/mcp/orchestrator-tools-rpc-client.spec.ts src/main/plan-queue/plan-queue-doc-merge.spec.ts
+
+✓ 4 files · 69 tests passed in 28.8s
+  full log: _scratch/test-run.pid-32935.log

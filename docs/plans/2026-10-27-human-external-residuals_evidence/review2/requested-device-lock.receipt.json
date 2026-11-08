@@ -1,0 +1,19 @@
+{
+  "at": "2026-10-27T07:11:13.924348+00:00",
+  "command": [
+    "xcrun",
+    "devicectl",
+    "--timeout",
+    "15",
+    "--json-output",
+    "_scratch/review2/device-lock.json",
+    "device",
+    "info",
+    "lockState",
+    "--device",
+    "JL iPhone 18"
+  ],
+  "outerTimeoutSeconds": 25,
+  "deviceOrAppMutated": false,
+  "timedOut": true
+}

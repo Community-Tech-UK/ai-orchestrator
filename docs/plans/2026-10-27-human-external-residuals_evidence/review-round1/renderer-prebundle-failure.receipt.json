@@ -1,0 +1,40 @@
+{
+  "at": "2026-10-27T03:24:20.254Z",
+  "focusEmulation": true,
+  "visibilityOverride": "'Emulation.setPageVisibilityOverride' wasn't found",
+  "errors": [
+    [
+      "JIT compilation failed for injectable",
+      "class _PlatformLocation {\n  historyGo(relativePosition) {\n    throw new Error(ngDevMode ? \"Not implemented\" : \"\");\n  }\n  static ɵfac = ɵɵngDeclareFactory({\n    minVersion: \"12.0.0\",\n    version: \"22.2.1\",\n    ngImport: core_exports,\n    type: _PlatformLocation,\n    deps: [],\n    target: FactoryTarget.Injectable\n  });\n  static ɵprov = ɵɵngDeclareInjectable({\n    minVersion: \"12.0.0\",\n    version: \"22.2.1\",\n    ngImport: core_exports,\n    type: _PlatformLocation,\n    providedIn: \"platform\",\n    useFactory: () => inject(BrowserPlatformLocation)\n  });\n}"
+    ],
+    {
+      "exceptionId": 1,
+      "text": "Uncaught",
+      "lineNumber": 1887,
+      "columnNumber": 10,
+      "scriptId": "78",
+      "url": "http://localhost:9654/@fs/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/.angular/cache/22.2.1/ai-orchestrator/vite/deps/chunk-E5L5VMQE.js?v=a3574bc2",
+      "exception": {
+        "type": "object",
+        "subtype": "error",
+        "className": "Error",
+        "description": "Error: The injectable '_PlatformLocation' needs to be compiled using the JIT compiler, but '@angular/compiler' is not available.\n\nThe injectable is part of a library that has been partially compiled.\nHowever, the Angular Linker has not processed the library such that JIT compilation is used as fallback.\n\nIdeally, the library is processed using the Angular Linker to become fully AOT compiled.\nAlternatively, the JIT compiler should be loaded by bootstrapping using '@angular/platform-browser-dynamic' or '@angular/platform-server',\nor manually provide the compiler with 'import \"@angular/compiler\";' before bootstrapping.\n    at getCompilerFacade (http://localhost:9654/@fs/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/.angular/cache/22.2.1/ai-orchestrator/vite/deps/chunk-E5L5VMQE.js?v=a3574bc2:1888:11)\n    at ɵɵngDeclareFactory (http://localhost:9654/@fs/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/.angular/cache/22.2.1/ai-orchestrator/vite/deps/chunk-E5L5VMQE.js?v=a3574bc2:24467:20)\n    at <static_initializer> (http://localhost:9654/@fs/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/.angular/cache/22.2.1/ai-orchestrator/vite/deps/chunk-FUL357I6.js?v=a3574bc2:84:17)\n    at http://localhost:9654/@fs/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/.angular/cache/22.2.1/ai-orchestrator/vite/deps/chunk-FUL357I6.js?v=a3574bc2:80:24",
+        "objectId": "-8055074281069062369.1.2"
+      },
+      "executionContextId": 1
+    }
+  ],
+  "value": {
+    "hidden": false,
+    "visibility": "visible",
+    "readyState": "complete",
+    "ngType": "undefined",
+    "rootChildren": 0,
+    "rootText": "",
+    "scriptSources": [
+      "http://localhost:9654/@vite/client",
+      "http://localhost:9654/main.js"
+    ],
+    "raf": true
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "command": [
+    "node",
+    "_scratch/review2/cdp.mjs",
+    "_scratch/review2/guardian-retry.js"
+  ],
+  "startedAt": "2026-10-27T05:02:48.821552+00:00",
+  "endedAt": "2026-10-27T05:02:49.426227+00:00",
+  "exitCode": 0,
+  "log": "guardian-retry.log.txt"
+}

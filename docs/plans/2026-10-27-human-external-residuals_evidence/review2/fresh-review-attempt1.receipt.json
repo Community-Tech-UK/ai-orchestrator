@@ -1,0 +1,18 @@
+{
+  "startedAt": "2026-10-27T06:12:18.817337+00:00",
+  "readOnlyTools": [
+    "Read",
+    "Glob",
+    "Grep"
+  ],
+  "noSessionPersistence": true,
+  "agentPid": 81192,
+  "endedAt": "2026-10-27T06:14:52.498640+00:00",
+  "exitCode": 1,
+  "stderrBytes": 0,
+  "processReaped": true,
+  "isError": true,
+  "review": null,
+  "reportedCostUsd": 0.8715225999999998,
+  "reportedCostIsNotAProviderBill": true
+}

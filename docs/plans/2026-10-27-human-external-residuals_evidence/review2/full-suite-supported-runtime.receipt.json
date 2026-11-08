@@ -1,0 +1,13 @@
+{
+  "command": [
+    "/Users/suas/.nvm/versions/node/v24.22.1/bin/node",
+    "scripts/run-tests-quiet.js"
+  ],
+  "startedAt": "2026-10-27T06:58:27.598873+00:00",
+  "endedAt": "2026-10-27T07:17:53.036919+00:00",
+  "exitCode": 0,
+  "log": "full-suite-supported-runtime.log.txt",
+  "environment": {
+    "AIO_TEST_SUMMARY": "0"
+  }
+}

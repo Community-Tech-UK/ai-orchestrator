@@ -1,0 +1,249 @@
+{
+  "at": "2026-10-27T04:37:54.073604+00:00",
+  "head": "7a7f867668dcab43dce10b29f6d59e9235ac3794",
+  "base": "80412201a",
+  "branch": "queue/2026-09-27-livetest-human-exte-185985",
+  "scope": "Evidence handoff only; 27 groups unverified; no independent verdict or document closure",
+  "files": {
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/proxy-requests.receipt.json": {
+      "sha256": "b9a4ca9bf3775bdea45db5cdd2bc94964b94088172fa0d9601fb30a95fff42c0",
+      "bytes": 2786
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/build-cli.receipt.json": {
+      "sha256": "310b58085d328f0c0299f82e396f3de51e98d681a7bb2bb056a554c2945993d9",
+      "bytes": 217
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/model-online.receipt.json": {
+      "sha256": "46f70d5a113b0744929f275367cf9162e327ce7609f403939309444e4b7a5e6d",
+      "bytes": 4156
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/enrol-visible-ui.receipt.json": {
+      "sha256": "1fd5553811161db6c0c15584e15d0c8e9201051e1d061517c7683eb470cabb17",
+      "bytes": 4305
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/owned-conversation-paths.receipt.json": {
+      "sha256": "caa078ed65942aeeb3dbb70976a361878477b100e5b3ac9e37a377380b528fae",
+      "bytes": 492
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/model-online-retry.receipt.json": {
+      "sha256": "2c18b261414fc60644a809b71b2e00e398b5ccdee512ddd2064e3f379e4bb776",
+      "bytes": 1021
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/build-main.log.txt": {
+      "sha256": "85ea6eb334975a4cd7c3f6f7902c65d2be9e13f917dfbd5551dc60625a1c614c",
+      "bytes": 284
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/focused.receipt.json": {
+      "sha256": "0143805ceb7228719d43e681985b533209fec58f2206d5546b8303df8fc01cf3",
+      "bytes": 438
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/spec-typecheck.log.txt": {
+      "sha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133",
+      "bytes": 129
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/build-cli.log.txt": {
+      "sha256": "58eca2d54bb06cebf430cb6fed8f15cf15ca46b1a4129cde9555f7eca4796571",
+      "bytes": 1717
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/review.receipt.json": {
+      "sha256": "20c5c6440a8bd57a0b24fdc056089b3e64b755d73b6152e0b1d6d0f318a3820e",
+      "bytes": 316
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/runtime-start.receipt.json": {
+      "sha256": "1f017507d52d3fab021ee0164d23de2f4c99f49fb327e4bb70f4766ffc39139b",
+      "bytes": 277
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/REPORT.md": {
+      "sha256": "9fbc3c76b0208b17d778105c3fd8fe24f6c9cc243bda2edc28bdf9062be0e4b0",
+      "bytes": 4877
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/ui-ready.receipt.json": {
+      "sha256": "fd4271bdf45d6b82cba0098c910022b96cafd9a54fd9d1b27d9eb7128dc2290d",
+      "bytes": 2687
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/typecheck.receipt.json": {
+      "sha256": "15868b3f7cca822bbc7974c760f5da763e6fa9018911fc013e5f0b593c1529ba",
+      "bytes": 207
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/enrol-summary.receipt.json": {
+      "sha256": "34fcb9b04056256063e8053087e81119d32df6a10b96b5200befe3c6574f4806",
+      "bytes": 232
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/preflight.receipt.json": {
+      "sha256": "a7b26f15a86781fc3174e1398e4bc49359bca6818ed0662b9f8cf07b6f2eeb55",
+      "bytes": 1473
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/spec-typecheck.receipt.json": {
+      "sha256": "4093b94a2de294040f8e4b0c61f6f8fc33b69975be10b74d357617bf03e5b7ef",
+      "bytes": 218
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/v2Evaluate.receipt.json": {
+      "sha256": "13a9d283824ff2f2b9f152e1355809bd0ccc57f23d5bc576256f0868cbac8aa1",
+      "bytes": 317
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/runtime-stop.receipt.json": {
+      "sha256": "00755f140db2beff8eb44d79f64ed8a446cf305d3bbf390ebc87dfe22229a64a",
+      "bytes": 383
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/enrol-agent-retry-start.receipt.json": {
+      "sha256": "186cc37539b1fba416ec7976cc7437052df9bbad9be1545b999dd7f7ed26deee",
+      "bytes": 2111
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/electron.log.txt": {
+      "sha256": "9357f43037c34e724759923b5af00ae33ca392e717fb1ece367f1540bd21f24b",
+      "bytes": 79235
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/renderer.log.txt": {
+      "sha256": "e4a3216508608cfdd4b6f67a7b65682ec1f7a9ddd7198fadde44f85757517744",
+      "bytes": 6266
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/ui-cleanup.receipt.json": {
+      "sha256": "b7b25191a342bf321d2281eea1ea073729e4d45aa1f0e8fd212d85f13cb536f8",
+      "bytes": 3498
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/focused-full.log.txt": {
+      "sha256": "e87418e7e0ff0d9bc238376ab538ab43eec09bd4063ab247c452e413d6fdaa2f",
+      "bytes": 1487
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/lint.log.txt": {
+      "sha256": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98",
+      "bytes": 89
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/typecheck.log.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/fixtureWorker.receipt.json": {
+      "sha256": "73a6fdca341235c85b61d947105e3ffe81c104389b0ca2222cdcbb3cc7c5d90d",
+      "bytes": 3766
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/enrol-ui.receipt.json": {
+      "sha256": "b52b1566d52f77e0527b32da142e97bd1076e7fd993d1991ac8b288d002d0559",
+      "bytes": 7851
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/v2Navigate.receipt.json": {
+      "sha256": "f6d961a29cdcfcc545acab3b4ed628bd345e3581c620ffcd2534a8fbc9662cb8",
+      "bytes": 263
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/v2Click.receipt.json": {
+      "sha256": "39d3b2f5ae03a5873fca579cb0a8b431f6e9f0521d78cbdfaab47c5c5aad2fa6",
+      "bytes": 317
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/source-seal.json": {
+      "sha256": "3142170abc7fe1298b3e76d180beff4fdd11ee65f93506931ce3255a8140cd64",
+      "bytes": 1420
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/enrol-cli.receipt.json": {
+      "sha256": "9ec03969207169fee520dd8bec6a4485c58a0c7020137a211411da2038b9be0c",
+      "bytes": 8606
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/model-outage.receipt.json": {
+      "sha256": "348a5b6d07045399daf6e545a9ed031e7744c9232a6b720fc01bb2575d1f2826",
+      "bytes": 904
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/fixture-escalations.receipt.json": {
+      "sha256": "2df8405841dff9411b4db8aea7b705c5ff348a97c5977742287d6ae985b5cf1e",
+      "bytes": 379
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/enrol-inherited-parent-read-only.receipt.json": {
+      "sha256": "0134691e676f588f93edb812498ff9a59f54e3dde4bda5bde6e9c90e61ae0287",
+      "bytes": 1809
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/log-redactions.receipt.json": {
+      "sha256": "306021a5415c0bf5d9b5acae0504d3b0caddaf435a36ceffcb37dcebd4d9211c",
+      "bytes": 346
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/id-allocation.receipt.json": {
+      "sha256": "f9fcd6ee90f3145043c66b21e39d3c3b6588afcf3fb106fe29d23aedb01bb798",
+      "bytes": 3078
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/enrol-agent-start.receipt.json": {
+      "sha256": "c6b91153143539c5e1ccd66e830d8fe186cbc6560165c80e1608a4e90c5c3718",
+      "bytes": 2111
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/v2AfterSnapshot.receipt.json": {
+      "sha256": "bb63b71a500e2618e9798a7a4f92ccb182e606cfcfc22387d21720e94efb07f1",
+      "bytes": 550
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/v3Click.receipt.json": {
+      "sha256": "6440fc7d0fc449b6485398e7cbd9be911d5e079b0ffe200184fbf25f9e1f10c7",
+      "bytes": 263
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/lint.receipt.json": {
+      "sha256": "4e454678e5a8219f137b8b0689b593cec77c18009ffaeb0e9a17208d41144ee9",
+      "bytes": 198
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/enrol-first-attempt-stop.receipt.json": {
+      "sha256": "7efc1d615237b0de421292080881d1118d3dfb0aeb578e41864c1943c9631b7e",
+      "bytes": 333
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/v3Readback.receipt.json": {
+      "sha256": "0d1c0b6b1e5d63e1b4545ff285867af8ae9fdcc4d7b6ce98b7c98e6678f01265",
+      "bytes": 371
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/focused.log.txt": {
+      "sha256": "5cd567fb6f3d4b71c43ae324e63d0712cf1beb75c796a7d593308e6a392f81c5",
+      "bytes": 340
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/build-cli-sea-node24.log.txt": {
+      "sha256": "67a4503b29f1cc06db9a20afbd0e44ceb55702c965eccfa9968b1067ae5df0fd",
+      "bytes": 530
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/fixtureClosed.receipt.json": {
+      "sha256": "6fb785d79c31fdc9e46c361462a8736c275d36f917b550836573b01ad39e388e",
+      "bytes": 598
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/v2Snapshot.receipt.json": {
+      "sha256": "9d988645601141b7a14f63fed6fa71176013f2bc9846e51cbb963b8f4386c2d0",
+      "bytes": 550
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/build-main.receipt.json": {
+      "sha256": "3b8ede4843c64c39bee3b761eb3c2cb3cb4e66da99726416a51991128054f4e7",
+      "bytes": 179
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/build-cli-sea-node24.receipt.json": {
+      "sha256": "11c96f6c3d89f12e547720fc3613a30c54d318207b174a36f04a9ab7125fecfa",
+      "bytes": 305
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/startup-first/build-main.log.txt": {
+      "sha256": "60f56b945afeed6e768d7356d5eb3a8c90ec5054eee64a3c858b5e78d821b553",
+      "bytes": 284
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/startup-first/runtime-start.receipt.json": {
+      "sha256": "24d03ff358665e5f97201c45576a750f29fb2a1a2941c977b1d60cefc002d29d",
+      "bytes": 276
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/startup-first/runtime-stop.receipt.json": {
+      "sha256": "ad72d81422dad31dfcc7ea7c3367c2c7c816c94d850e7b5cdc038a1ccb5f148e",
+      "bytes": 382
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/startup-first/electron.log.txt": {
+      "sha256": "78b36dc09b9ef9c6aff6533e90de9e5327c6a31015f3b07f4c98e1aa077ac823",
+      "bytes": 10089
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/startup-first/renderer.log.txt": {
+      "sha256": "030f2adf3dcd6fa25c65902c09d05d3f6c4010b23210a10c7877192088643128",
+      "bytes": 6266
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/startup-first/build-main.receipt.json": {
+      "sha256": "5f1ffda35b743166576c7ba5a670208e9c932002367912fc659dbcfd1e3dbb34",
+      "bytes": 179
+    },
+    "docs/plans/livetest-remediation-register.md": {
+      "sha256": "ca4fa357042d9f5b60639717ddbcead62d4b8a01da41e686e1d0b530af76bc56",
+      "bytes": 1073501
+    },
+    "docs/plans/2026-10-27-human-external-residuals_evidence/REPORT.md": {
+      "sha256": "311b2ee37484541bff8f97311d9f57e97ba0448b227088b0e6ee69ae64fc7c77",
+      "bytes": 6978
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-27-livetest-human-external-residuals_livetest.md": {
+      "sha256": "ff785db2766e73b1f28f2179f5cb73afa5ea6ae4d368cd2d92efb41a12544526",
+      "bytes": 134395
+    },
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-27-residuals-startup-remediation_plan.md": {
+      "sha256": "113eb6ea4d51d8710824079a44ad3b9514b3af9655b72830d01990ee41653b06",
+      "bytes": 1454
+    }
+  }
+}

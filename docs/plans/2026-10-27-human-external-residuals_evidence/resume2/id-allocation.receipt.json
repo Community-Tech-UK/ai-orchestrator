@@ -1,0 +1,110 @@
+[
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  },
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.claude/worktrees/agent-a1d7bb162fd56b4c6",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  },
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.claude/worktrees/agent-a4d6deb10e35abdd8",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  },
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/composer-resize-verification",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  },
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-24-codex-compaction-tu-23ae4a",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  },
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-25-mimo-session-resili-493f81",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  },
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-codex-compaction-re-434b3e",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  },
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-agent-runt-f326de",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  },
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  },
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-can-you-work-through-all-the-p-mt76ztv1",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  },
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-i-said-keep-going-uintil-it-s-mtovfbpg",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  },
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-investigate-all-the-pla-mtl9icld",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  },
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-look-at-all-the-untrack-mtjeyorh",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  },
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-look-at-all-the-untrack-mtjvhjeh",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  },
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-look-at-all-the-untrack-mtkdez2p",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  },
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-work-through-all-the-li-mtkqr41h",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  },
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-please-work-through-all-the-li-mu4ui30h",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  },
+  {
+    "root": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/task-so-finish-the-work-please-mtklsatd",
+    "exit": 1,
+    "matches": [],
+    "errors": ""
+  }
+]

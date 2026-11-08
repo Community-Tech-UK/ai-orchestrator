@@ -1,0 +1,18 @@
+{
+  "checkedAt": 1793069901.0991051,
+  "attempts": [
+    {
+      "command": "xcrun devicectl list devices",
+      "result": "No output; interrupted with Ctrl-C; exit 130"
+    },
+    {
+      "command": "xcrun devicectl list devices --timeout 20",
+      "result": "No output/result receipt retained from the invocation bounded in its script at 30 seconds; session was no longer available when polled. No successful inventory is claimed."
+    },
+    {
+      "command": "xcrun devicectl list devices --timeout 5",
+      "result": "Outer 12-second subprocess.TimeoutExpired, no output"
+    }
+  ],
+  "conclusion": "Device availability unknown; no assertion that a phone is absent"
+}

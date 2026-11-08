@@ -1,0 +1,227 @@
+
+DevTools listening on ws://127.0.0.1:9554/devtools/browser/873e8710-073f-4fce-8f1c-d4416638e711
+[2026-10-27T04:19:29.889Z] [INFO] [ContextWorkerClient] Context worker started 
+[2026-10-27T04:19:29.909Z] [INFO] [SettingsMigrations] Switched observation memory off by default 
+[2026-10-27T04:19:29.971Z] [INFO] [SettingsMigrations] Created the legacy GitHub Copilot account profile { authenticated: false }
+[2026-10-27T04:19:29.982Z] [INFO] [SettingsMigrations] Created the legacy Claude and Codex account profiles 
+[2026-10-27T04:19:29.994Z] [INFO] [SettingsMigrations] Created the legacy MiMo account profile 
+[2026-10-27T04:19:30.003Z] [INFO] [App] Initializing Harness 
+[2026-10-27T04:19:30.004Z] [INFO] [App] Initializing: Work controls 
+[2026-10-27T04:19:30.067Z] [ERROR] [App] Failed to initialize: Work controls  {
+  name: 'SqliteError',
+  message: 'database is locked',
+  stack: 'SqliteError: database is locked\n' +
+    '    at Database.pragma (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/better-sqlite3/lib/methods/pragma.js:11:44)\n' +
+    '    at BetterSqlite3Driver.pragma (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/db/better-sqlite3-driver.js:48:24)\n' +
+    '    at RLMDatabase.initializeDatabase (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/persistence/rlm-database.js:132:16)\n' +
+    '    at new RLMDatabase (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/persistence/rlm-database.js:108:24)\n' +
+    '    at RLMDatabase.getInstance (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/persistence/rlm-database.js:113:29)\n' +
+    '    at getRLMDatabase (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/persistence/rlm-database.js:427:24)\n' +
+    '    at initializeGlobalPauseRuntime (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/global-pause/global-pause-bootstrap.js:23:160)\n' +
+    '    at Object.fn (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/app/initialization-steps.js:133:120)\n' +
+    '    at HarnessApp.initialize (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/index.js:196:32)\n' +
+    '    at ~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/index.js:324:27'
+}
+[2026-10-27T04:19:30.068Z] [ERROR] [App] Unhandled rejection { reason: 'SqliteError: database is locked' } {
+  name: 'SqliteError',
+  message: 'database is locked',
+  stack: 'SqliteError: database is locked\n' +
+    '    at Database.pragma (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/better-sqlite3/lib/methods/pragma.js:11:44)\n' +
+    '    at BetterSqlite3Driver.pragma (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/db/better-sqlite3-driver.js:48:24)\n' +
+    '    at RLMDatabase.initializeDatabase (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/persistence/rlm-database.js:132:16)\n' +
+    '    at new RLMDatabase (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/persistence/rlm-database.js:108:24)\n' +
+    '    at RLMDatabase.getInstance (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/persistence/rlm-database.js:113:29)\n' +
+    '    at getRLMDatabase (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/persistence/rlm-database.js:427:24)\n' +
+    '    at initializeGlobalPauseRuntime (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/global-pause/global-pause-bootstrap.js:23:160)\n' +
+    '    at Object.fn (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/app/initialization-steps.js:133:120)\n' +
+    '    at HarnessApp.initialize (~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/index.js:196:32)\n' +
+    '    at ~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/main/index.js:324:27'
+}
+[2026-10-27T04:19:30.132Z] [INFO] [RLMContextManager] RLM persistence load summary {
+  processRole: 'context-worker',
+  discoveredStores: 0,
+  activeSessions: 0,
+  startupContentBytes: 0,
+  residentMetadataSections: 0,
+  deferredMetadataSections: 0,
+  residentContentBytes: 0,
+  residentContentSections: 0,
+  residentContentStores: 0,
+  hotCandidates: 0,
+  hotAdmitted: 0,
+  hotSkipped: 0,
+  hotExhausted: 0,
+  hotCancelled: 0,
+  semanticDiscovered: 0,
+  semanticIndexed: 0,
+  semanticSkipped: 0,
+  semanticFailed: 0,
+  semanticRetried: 0,
+  metadataOnlyStores: 0,
+  deferredStores: 0,
+  exhausted: {
+    metadata: false,
+    contentBytes: false,
+    contentSections: false,
+    contentStores: false
+  },
+  elapsedMs: 0,
+  counts: {
+    durableStores: 0,
+    durableSections: 0,
+    activeSessions: 0,
+    residentMetadataSections: 0,
+    deferredMetadataSections: 0,
+    residentContentSections: 0,
+    residentContentStores: 0,
+    metadataOnlyStores: 0,
+    deferredStores: 0
+  }
+}
+[2026-10-27T04:19:30.134Z] [INFO] [WakeContextBuilder] WakeContextBuilder initialized 
+[2026-10-27T04:19:30.137Z] [INFO] [LLMService] Ollama health check failed; will skip Ollama provider { error: 'fetch failed' }
+[2026-10-27T04:19:40.002Z] [INFO] [SystemLoadMonitor] Watchdog load multiplier changed {
+  from: 1,
+  to: 2,
+  load1: 27.61,
+  cpuCount: 18,
+  loadPerCore: 1.53,
+  recentEventLoopStall: false
+}
+[2026-10-27T04:19:50.004Z] [INFO] [SystemLoadMonitor] Watchdog load multiplier changed {
+  from: 2,
+  to: 1,
+  load1: 25.14,
+  cpuCount: 18,
+  loadPerCore: 1.4,
+  recentEventLoopStall: false
+}
+[2026-10-27T04:20:28.447Z] [WARN] [App] Shutdown trigger observed {
+  source: 'electron-before-quit',
+  windowCount: 0,
+  argv: [
+    '~/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',
+    '.',
+    '--no-sandbox',
+    '--disable-gpu',
+    '--js-flags=--max-old-space-size=8192',
+    '--remote-debugging-port=9554'
+  ],
+  observedAt: 1793074828447
+}
+[2026-10-27T04:20:28.449Z] [INFO] [App] Cleaning up 
+[2026-10-27T04:20:28.449Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'stop-remote-services',
+  priority: 30,
+  outcome: 'started',
+  elapsedMs: 0,
+  budgetMs: 1500
+}
+[2026-10-27T04:20:28.449Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'stop-remote-services',
+  priority: 30,
+  outcome: 'completed',
+  elapsedMs: 0,
+  budgetMs: 1500
+}
+[2026-10-27T04:20:28.449Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'terminate-instances',
+  priority: 40,
+  outcome: 'started',
+  elapsedMs: 0,
+  budgetMs: 50000
+}
+[2026-10-27T04:20:28.449Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'terminate-instances',
+  priority: 40,
+  outcome: 'completed',
+  elapsedMs: 0,
+  budgetMs: 50000
+}
+[2026-10-27T04:20:28.450Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'flush-chat-transcripts',
+  priority: 41,
+  outcome: 'started',
+  elapsedMs: 0,
+  budgetMs: 2000
+}
+[2026-10-27T04:20:28.450Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'flush-chat-transcripts',
+  priority: 41,
+  outcome: 'completed',
+  elapsedMs: 0,
+  budgetMs: 2000
+}
+[2026-10-27T04:20:28.450Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'bootstrap-teardown',
+  priority: 42,
+  outcome: 'started',
+  elapsedMs: 0,
+  budgetMs: 3000
+}
+[2026-10-27T04:20:28.450Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'bootstrap-teardown',
+  priority: 42,
+  outcome: 'completed',
+  elapsedMs: 0,
+  budgetMs: 3000
+}
+[2026-10-27T04:20:28.450Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'flush-observability',
+  priority: 43,
+  outcome: 'started',
+  elapsedMs: 0,
+  budgetMs: 2500
+}
+[2026-10-27T04:20:28.450Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'flush-observability',
+  priority: 43,
+  outcome: 'completed',
+  elapsedMs: 0,
+  budgetMs: 2500
+}
+[2026-10-27T04:20:28.450Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'cleanup-registry',
+  priority: 50,
+  outcome: 'started',
+  elapsedMs: 0,
+  budgetMs: 3000
+}
+[2026-10-27T04:20:28.450Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'cleanup-registry',
+  priority: 50,
+  outcome: 'completed',
+  elapsedMs: 0,
+  budgetMs: 3000
+}
+[2026-10-27T04:20:28.450Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'stop-cli-spawn-worker',
+  priority: 51,
+  outcome: 'started',
+  elapsedMs: 0,
+  budgetMs: 3000
+}
+[2026-10-27T04:20:28.450Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'stop-cli-spawn-worker',
+  priority: 51,
+  outcome: 'completed',
+  elapsedMs: 0,
+  budgetMs: 3000
+}
+[2026-10-27T04:20:28.451Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'kill-orphaned-cli-processes',
+  priority: 52,
+  outcome: 'started',
+  elapsedMs: 0,
+  budgetMs: 4000
+}
+[2026-10-27T04:20:28.451Z] [INFO] [GracefulShutdownManager] Shutdown phase event {
+  phase: 'kill-orphaned-cli-processes',
+  priority: 52,
+  outcome: 'completed',
+  elapsedMs: 0,
+  budgetMs: 4000
+}
+[1898:1027/042028.455200:ERROR:content/browser/network_service_instance_impl.cc:703] Network service crashed or was terminated, restarting service.
+[1898:1027/042028.455711:ERROR:content/browser/gpu/gpu_process_host.cc:1017] GPU process exited unexpectedly: exit_code=15
+[2026-10-27T04:20:28.455Z] [INFO] [App] Cleanup complete { phaseCount: 8, incompletePhaseCount: 0 }

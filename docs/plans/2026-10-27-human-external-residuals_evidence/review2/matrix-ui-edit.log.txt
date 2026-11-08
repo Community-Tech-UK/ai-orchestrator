@@ -1,0 +1,372 @@
+{
+  "at": "2026-10-27T05:02:50.180Z",
+  "hidden": false,
+  "text": "Startup Degraded\nLocal AI: Healthy\n1 target\nWork\nCC\n70%\nCX\n30%\nAG\n0%\nCP\n71%\nCU\n100%\nGX\n0%\nNotifications\n1\nStartup Checks: Degraded\nHardened mode (Seatbelt): sandbox-exec probe failed — hardened instances will refuse to spawn.\nOpen accounts\nPaid fallback notifications\n↑\nPaid fallback happened automatically\nRouting classification\n·\nCost unknown\nDismiss\n↑\n2 paid fallbacks happened automatically\nTitle generation\n·\n$0.0075 measured + 1 cost unknown\nDismiss\n2 of 3 done\nTo do\nPick a default working directory\nNew sessions start here, so you are not choosing a folder every time.\nOpen settings\nDone\nConnect a CLI\nAI Orchestrator drives coding CLIs like Claude Code and Codex — it needs at least one installed and ready to use (signed in, where that applies).\nDone\nStart a session\nEverything else — loops, review, cost tracking — hangs off a running session.\nBack\n\nControl Center\n\nLocal AI Health Centre\n\nProve local capacity, control routing, and recover enrolled targets.\n\nSettings\nSettings\nVerification Settings\nModels\nAutomation\nAutomations\nCampaigns\nPlan Queue\nWorkflows\nHooks\nWorkboard\nAgents\nSkills\nCode Reviews\nDoc Reviews\nAgent Roles\nDebate Arena\nAsk Council\nKnowledge\nChat Search\nLearning Database\nTraining Data\nMemory Browser\nMemory Stats\nKnowledge Graph\nMemory review\nCode\nWorktrees\nLanguage Server\nGit\nBackground Jobs\nPlan Mode\nSearch Code\nMulti-File Edit\nEditor\nSemantic Search\nMonitoring\nSupervisor\nVerification\nStatistics\nCosts & Usage\nLocal AI Guard\nReplay\nSecurity\nLogs\nSplit Compare\nIntegrations\nMCP Servers\nBrowser Gateway\nFiles\nRemote Access\nPlugins\nRemote Config\nInstance Messaging\nDiscord & WhatsApp\nRemote Nodes\nWorker Mode\nStorage\nSnapshots\nArchive\n\nOperational health centre\n\nLocal capacity, proven end to end\n\nOnly enrolled endpoints are monitored. Routing follows current worker, endpoint, model, and canary evidence.\n\nRefresh\nAdd local AI\nCurrent aggregate\nHealthy\nEnrolled\n1\nHealthy\n1\nDegraded\n0\nUnavailable\n0\nPaused\n0\n\nLive evidence\n\nEnrolled targets\n1 target\n\nCoordinator endpoint\n\nThis computer · OpenAI-compatible\n\nCurrently advertised · Evidence 43s ago · 0 consecutive failures\n\nHealthy\nWorker\n0 ms\n43s ago\nEndpoint\n4 ms\n43s ago\nModel\n4 ms\n43s ago\nCanary\nNot checked\nNo evidence\nLast success\n43s ago\nLast failure\nNone recorded\nRouting roles\nCompression, Memory distillation, Web extraction, Title generation, Routing classification, Approval scoring, Approval adjudication, Loop scoring, Retrieval hypothesis, Branch scoring, Sub-query execution\nFallback impact\n0 paid fallbacks · no recorded cost\n\nRecovery attempts: none recorded\n\nRun check\nEdit\nPause\nPause for 1 hour\nRetire\n\nTarget settings\n\nDisposable review2 model route\n\nUse the recommended setup, run one live test, then enrol.\n\nCancel\n1\nReview setup\nSensible defaults are already applied.\n2\nTest endpoint\nProve the worker, service, model, and response.\n3\nEnrol and monitor\nStart health checks and protected routing.\n\nReady to test\n\nRecommended setup\n\nYou can enrol with these settings. Open Advanced settings only if you need to change them.\n\nMODEL\nqwen/qwen3.6-35b-a3b\nLOCAL AI JOBS\n11 enabled\nLIVE TEST TIMEOUT\n30 seconds\nSAFETY\nBlock paid fallback · Automatic repair off\nAdvanced settings\nModels, schedules, routing, fallback limits, and recovery\nExpected models\n\nRequired models are checked for drift before this target can route work.\n\nqwen/qwen3.6-35b-a3b\nqwen3.8-flash-next\nqwen3.8-27b\ngoogle/gemma-4-26b-a4b-qat\ngoogle/gemma-4-31b\ngoogle/gemma-4-31b-qat\nqwen/qwen3.6-27b\ngoogle/gemma-4-12b\ngoogle/gemma-4-12b-qat\nqwen/qwen3.5-9b\nqwen/qwen3-coder-next\nqwen/qwen3.5-35b-a3b\ngoogle/gemma-4-26b-a4b\nzai-org/glm-4.7-flash\nnvidia/nemotron-3-nano-4b\ntext-embedding-nomic-embed-text-v1.5\nqwen/qwen3.6-35b-a3b is required\nqwen/qwen3.6-35b-a3b minimum context length\nqwen/qwen3.5-9b is required\nqwen/qwen3.5-9b minimum context length\nCanary model\nSelect a model\nqwen/qwen3.6-35b-a3b\nqwen/qwen3.5-9b\nFallback policy\nNotify and allow\nRequire confirmation\nKeep work local\nBlock paid fallback\nAllow silently\nEndpoint check interval (seconds)\nSafe range: 30–900 seconds.\nCanary interval (minutes)\nSafe range: 2–60 minutes.\nCanary timeout (seconds)\nEvidence freshness (seconds)\nLatency warning (milliseconds)\nRouting roles\nCompression\nMemory distillation\nWeb extraction\nTitle generation\nRouting classification\nApproval scoring\nApproval adjudication\nLoop scoring\nRetrieval hypothesis\nBranch scoring\nSub-query execution\nOutput verification\nCompression fallback override\nUse target policy\nNotify and allow\nRequire confirmation\nKeep work local\nBlock paid fallback\nAllow silently\nMemory distillation fallback override\nUse target policy\nNotify and allow\nRequire confirmation\nKeep work local\nBlock paid fallback\nAllow silently\nWeb extraction fallback override\nUse target policy\nNotify and allow\nRequire confirmation\nKeep work local\nBlock paid fallback\nAllow silently\nTitle generation fallback override\nUse target policy\nNotify and allow\nRequire confirmation\nKeep work local\nBlock paid fallback\nAllow silently\nRouting classification fallback override\nUse target policy\nNotify and allow\nRequire confirmation\nKeep work local\nBlock paid fallback\nAllow silently\nApproval scoring fallback override\nUse target policy\nNotify and allow\nRequire confirmation\nKeep work local\nBlock paid fallback\nAllow silently\nApproval adjudication fallback override\nUse target policy\nNotify and allow\nRequire confirmation\nKeep work local\nBlock paid fallback\nAllow silently\nLoop scoring fallback override\nUse target policy\nNotify and allow\nRequire confirmation\nKeep work local\nBlock paid fallback\nAllow silently\nRetrieval hypothesis fallback override\nUse target policy\nNotify and allow\nRequire confirmation\nKeep work local\nBlock paid fallback\nAllow silently\nBranch scoring fallback override\nUse target policy\nNotify and allow\nRequire confirmation\nKeep work local\nBlock paid fallback\nAllow silently\nSub-query execution fallback override\nUse target policy\nNotify and allow\nRequire confirmation\nKeep work local\nBlock paid fallback\nAllow silently\nPaid fallback limits\nConfirm above input tokens\nDaily fallback budget (USD)\nIncident fallback budget (USD)\nRecovery\nAllow bounded automatic repair\nConnection test\n\nRun one live request through every layer. Enrolment unlocks only when required checks pass.\n\nTest changes\nWorker\nWaiting\nEndpoint\nWaiting\nModel\nWaiting\nTest response\nWaiting\n\nTest the endpoint to unlock saving.\n\nCancel\nSave changes\n\nOperator action\n\nActive incidents\n0\nNo active Local AI incidents.\n\nRouting outcomes\n\nLocal AI effectiveness\n24 hours\n7 days\n30 days\n0%\n0 of 1 eligible tasks\nLocal work\n0 local tasks\nLocal tokens\n0 local tokens\nFallback proposals\n1 proposed\nAllowed\n1 allowed\nDeferred\n0 deferred\nBlocked\n0 blocked\nMeasured cloud cost\n$0.00750574 measured cloud cost\nEstimated cloud cost\n$0.00 estimated cloud cost\nEstimated avoided tokens\n0 estimated avoided tokens\nEstimated avoided cost\n$0.00 estimated avoided cost\nEndpoints\nEndpoints\nModels\nHelper slots\nIncidents\n\nNo endpoints in this period.\n\nHelp & tips\n\nWhat this does\n\nShows whether enrolled local AI targets can complete real work across the worker, endpoint, model, and canary layers. Discovered endpoints remain neutral until you enrol them.\n\nEnrol a target\n\nReview a discovered endpoint and select the models you expect it to serve.\nChoose a canary model, health cadence, routing roles, and fallback policy.\nValidate every layer, then enrol the target.\n\nSafe recovery\n\nRun a manual check when current evidence needs refreshing.\nDiagnose an incident before choosing a guided repair.\nAutomatic repair is opt-in and limited to named, supported service operations.\n\nPausing changes routing immediately\n\nA paused or retired target stops receiving health checks and local routing work. Retiring keeps its historical incidents and impact records.\nRemote Terminal\nOpen\nIdle\n×",
+  "controls": [
+    {
+      "id": "workload-titlebar",
+      "type": "range",
+      "value": "3"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": true,
+      "label": "qwen/qwen3.6-35b-a3b"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": false,
+      "label": "qwen3.8-flash-next"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": false,
+      "label": "qwen3.8-27b"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": false,
+      "label": "google/gemma-4-26b-a4b-qat"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": false,
+      "label": "google/gemma-4-31b"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": false,
+      "label": "google/gemma-4-31b-qat"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": false,
+      "label": "qwen/qwen3.6-27b"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": false,
+      "label": "google/gemma-4-12b"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": false,
+      "label": "google/gemma-4-12b-qat"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": true,
+      "label": "qwen/qwen3.5-9b"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": false,
+      "label": "qwen/qwen3-coder-next"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": false,
+      "label": "qwen/qwen3.5-35b-a3b"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": false,
+      "label": "google/gemma-4-26b-a4b"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": false,
+      "label": "zai-org/glm-4.7-flash"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": false,
+      "label": "nvidia/nemotron-3-nano-4b"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": false,
+      "label": "text-embedding-nomic-embed-text-v1.5"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": true,
+      "label": "qwen/qwen3.6-35b-a3b is required"
+    },
+    {
+      "id": "",
+      "type": "number",
+      "value": "131072",
+      "label": "qwen/qwen3.6-35b-a3b minimum context length"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": true,
+      "label": "qwen/qwen3.5-9b is required"
+    },
+    {
+      "id": "",
+      "type": "number",
+      "value": "",
+      "label": "qwen/qwen3.5-9b minimum context length"
+    },
+    {
+      "id": "",
+      "type": "select-one",
+      "value": "qwen/qwen3.6-35b-a3b",
+      "label": "Canary modelSelect a modelqwen/qwen3.6-35b-a3bqwen/qwen3.5-9b"
+    },
+    {
+      "id": "",
+      "type": "select-one",
+      "value": "block-paid-fallback",
+      "label": "Fallback policyNotify and allowRequire confirmationKeep work localBlock paid fallbackAllow silently"
+    },
+    {
+      "id": "",
+      "type": "number",
+      "value": "60",
+      "label": "Endpoint check interval (seconds)Safe range: 30–900 seconds."
+    },
+    {
+      "id": "",
+      "type": "number",
+      "value": "10",
+      "label": "Canary interval (minutes)Safe range: 2–60 minutes."
+    },
+    {
+      "id": "",
+      "type": "number",
+      "value": "30",
+      "label": "Canary timeout (seconds)"
+    },
+    {
+      "id": "",
+      "type": "number",
+      "value": "120",
+      "label": "Evidence freshness (seconds)"
+    },
+    {
+      "id": "",
+      "type": "number",
+      "value": "15000",
+      "label": "Latency warning (milliseconds)"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": true,
+      "label": "Compression"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": true,
+      "label": "Memory distillation"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": true,
+      "label": "Web extraction"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": true,
+      "label": "Title generation"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": true,
+      "label": "Routing classification"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": true,
+      "label": "Approval scoring"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": true,
+      "label": "Approval adjudication"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": true,
+      "label": "Loop scoring"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": true,
+      "label": "Retrieval hypothesis"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": true,
+      "label": "Branch scoring"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": true,
+      "label": "Sub-query execution"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": false,
+      "label": "Output verification"
+    },
+    {
+      "id": "",
+      "type": "select-one",
+      "value": "",
+      "label": "Compression fallback overrideUse target policyNotify and allowRequire confirmationKeep work localBlock paid fallbackAllow silently"
+    },
+    {
+      "id": "",
+      "type": "select-one",
+      "value": "",
+      "label": "Memory distillation fallback overrideUse target policyNotify and allowRequire confirmationKeep work localBlock paid fallbackAllow silently"
+    },
+    {
+      "id": "",
+      "type": "select-one",
+      "value": "",
+      "label": "Web extraction fallback overrideUse target policyNotify and allowRequire confirmationKeep work localBlock paid fallbackAllow silently"
+    },
+    {
+      "id": "",
+      "type": "select-one",
+      "value": "",
+      "label": "Title generation fallback overrideUse target policyNotify and allowRequire confirmationKeep work localBlock paid fallbackAllow silently"
+    },
+    {
+      "id": "",
+      "type": "select-one",
+      "value": "",
+      "label": "Routing classification fallback overrideUse target policyNotify and allowRequire confirmationKeep work localBlock paid fallbackAllow silently"
+    },
+    {
+      "id": "",
+      "type": "select-one",
+      "value": "",
+      "label": "Approval scoring fallback overrideUse target policyNotify and allowRequire confirmationKeep work localBlock paid fallbackAllow silently"
+    },
+    {
+      "id": "",
+      "type": "select-one",
+      "value": "",
+      "label": "Approval adjudication fallback overrideUse target policyNotify and allowRequire confirmationKeep work localBlock paid fallbackAllow silently"
+    },
+    {
+      "id": "",
+      "type": "select-one",
+      "value": "",
+      "label": "Loop scoring fallback overrideUse target policyNotify and allowRequire confirmationKeep work localBlock paid fallbackAllow silently"
+    },
+    {
+      "id": "",
+      "type": "select-one",
+      "value": "",
+      "label": "Retrieval hypothesis fallback overrideUse target policyNotify and allowRequire confirmationKeep work localBlock paid fallbackAllow silently"
+    },
+    {
+      "id": "",
+      "type": "select-one",
+      "value": "",
+      "label": "Branch scoring fallback overrideUse target policyNotify and allowRequire confirmationKeep work localBlock paid fallbackAllow silently"
+    },
+    {
+      "id": "",
+      "type": "select-one",
+      "value": "",
+      "label": "Sub-query execution fallback overrideUse target policyNotify and allowRequire confirmationKeep work localBlock paid fallbackAllow silently"
+    },
+    {
+      "id": "",
+      "type": "number",
+      "value": "",
+      "label": "Confirm above input tokens"
+    },
+    {
+      "id": "",
+      "type": "number",
+      "value": "",
+      "label": "Daily fallback budget (USD)"
+    },
+    {
+      "id": "",
+      "type": "number",
+      "value": "",
+      "label": "Incident fallback budget (USD)"
+    },
+    {
+      "id": "",
+      "type": "checkbox",
+      "value": "on",
+      "checked": false,
+      "label": "Allow bounded automatic repair"
+    },
+    {
+      "id": "",
+      "type": "text",
+      "value": ""
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "instance": {
+    "id": "ci3xbjeq3",
+    "sessionId": "9901f0d8-e218-44c8-aeb9-628faad1da22",
+    "historyThreadId": "92032670-07b4-435c-8b70-9613a41abd42"
+  },
+  "loopId": "loop-1793077737770-da7acb6d",
+  "loopStatus": "running",
+  "success": true
+}

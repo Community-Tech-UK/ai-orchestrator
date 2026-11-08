@@ -1,0 +1,10 @@
+{
+  "command": [
+    "idevice_id",
+    "-l"
+  ],
+  "exitCode": 0,
+  "attachedPhysicalDeviceCount": 0,
+  "stderr": "",
+  "rawDeviceIdentifiersRetained": false
+}

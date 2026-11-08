@@ -1,0 +1,41 @@
+{
+  "at": "2026-10-27T05:22:28.183Z",
+  "notices": [
+    {
+      "id": "notification-1793078437031-12",
+      "kind": "approval-adjudicator-breaker-tripped",
+      "instanceId": "ci3xbjeq3",
+      "title": "Adjudicator paused for this session",
+      "body": "3 consecutive denials — approvals now wait for you.",
+      "urgency": "normal",
+      "fingerprint": "{\"fields\":{\"body\":\"3 consecutive denials — approvals now wait for you.\",\"title\":\"Adjudicator paused for this session\"},\"instanceId\":\"ci3xbjeq3\",\"kind\":\"approval-adjudicator-breaker-tripped\"}",
+      "createdAt": 1793078437031,
+      "delivery": "desktop"
+    }
+  ],
+  "notificationDataKeys": [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "10",
+    "11",
+    "12"
+  ],
+  "beforeStatus": "waiting_for_permission",
+  "reject": {
+    "success": true,
+    "data": {
+      "requestId": "84df8fd7-295b-4852-b780-dbf0da2417d7",
+      "responded": true,
+      "resumed": true
+    }
+  },
+  "actionPerformedBy": "agent through normal isolated-app rejection IPC; no real action approved"
+}

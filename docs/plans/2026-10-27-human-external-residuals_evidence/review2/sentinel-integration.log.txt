@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/browser-gateway/browser-gateway-reliability-reconnect.spec.ts src/main/browser-gateway/browser-target-persistence-sentinel.spec.ts
+
+✓ 2 files · 19 tests passed in 7.3s
+  full log: _scratch/test-run.pid-13691.log

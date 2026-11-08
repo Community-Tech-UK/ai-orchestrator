@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-27T06:06:28.479974+00:00",
+  "command": [
+    "npm",
+    "run",
+    "test:quiet"
+  ],
+  "exitCode": 130,
+  "reason": "Stopped own full suite after shared host load rose to 114/60/41; not a pass",
+  "quietRunnerPid": 75379,
+  "quietRunnerGone": true
+}

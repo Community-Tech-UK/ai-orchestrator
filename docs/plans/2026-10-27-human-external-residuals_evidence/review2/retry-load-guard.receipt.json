@@ -1,0 +1,281 @@
+{
+  "threshold": 30,
+  "requiresAllThreeAveragesBelowThreshold": true,
+  "observations": [
+    {
+      "at": "2026-10-27T06:30:52.434671+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        18.673828125,
+        23.05322265625,
+        28.42529296875
+      ],
+      "reviewersStopped": true,
+      "ready": true
+    },
+    {
+      "at": "2026-10-27T06:33:41.789495+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        40.5986328125,
+        33.55224609375,
+        31.9345703125
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:33:56.793823+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        35.36328125,
+        32.74072265625,
+        31.67236328125
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:34:11.803892+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        32.63525390625,
+        32.263671875,
+        31.52001953125
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:34:26.809861+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        29.3857421875,
+        31.56396484375,
+        31.28271484375
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:34:41.815658+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        28.365234375,
+        31.23974609375,
+        31.171875
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:34:56.817025+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        25.029296875,
+        30.36181640625,
+        30.859375
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:35:11.824878+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        21.99462890625,
+        29.4287109375,
+        30.517578125
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:35:26.828076+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        22.0625,
+        29.0673828125,
+        30.3681640625
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:35:41.829239+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        24.041015625,
+        29.1611328125,
+        30.37841796875
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:35:56.830079+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        25.09521484375,
+        29.150390625,
+        30.353515625
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:36:11.835484+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        26.0771484375,
+        29.17333984375,
+        30.34033203125
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:36:26.844589+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        33.025390625,
+        30.47509765625,
+        30.7783203125
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:36:41.845153+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        35.921875,
+        31.2744140625,
+        31.0595703125
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:36:56.847344+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        36.63037109375,
+        31.626953125,
+        31.18701171875
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:37:11.858142+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        37.19873046875,
+        32.0546875,
+        31.35009765625
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:37:26.861683+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        34.83154296875,
+        31.775390625,
+        31.26171875
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:37:41.866650+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        33.21337890625,
+        31.572265625,
+        31.19775390625
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:37:56.877488+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        31.33349609375,
+        31.22119140625,
+        31.07763671875
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:38:11.878715+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        28.42822265625,
+        30.58837890625,
+        30.85400390625
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:38:26.881516+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        26.1669921875,
+        29.97314453125,
+        30.62841796875
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:38:41.883169+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        24.14892578125,
+        29.35009765625,
+        30.39501953125
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:38:56.893805+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        24.62109375,
+        29.201171875,
+        30.3232421875
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:39:11.898911+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        23.03076171875,
+        28.62060546875,
+        30.09619140625
+      ],
+      "reviewersStopped": true,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:39:26.904578+00:00",
+      "phase": "full suite after prune",
+      "load": [
+        21.31640625,
+        27.96875,
+        29.83740234375
+      ],
+      "reviewersStopped": true,
+      "ready": true
+    }
+  ]
+}

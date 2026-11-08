@@ -1,0 +1,8 @@
+{
+  "action": "Restore tracked follow-up to base blob, preserving canonical root modifications for normal document overlap merge",
+  "baseSha256": "cd019a1adcb3e5c2ff2c565ee34f0d826ff64598637cf0a36dcc4f7590662851",
+  "rootSha256": "95c60f90f856a9ebc0bce5dae9e0d2580e17b6ad8ba325e98ede6f846b4bd0df",
+  "rootBytes": 54646,
+  "restoredBytes": 22686,
+  "rootWritten": false
+}

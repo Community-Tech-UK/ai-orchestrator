@@ -1,0 +1,29 @@
+{
+  "checkedAt": 1793069925.169621,
+  "results": [
+    {
+      "command": "settings get channelToolHeartbeat --json",
+      "exitCode": 0,
+      "data": {
+        "key": "channelToolHeartbeat",
+        "value": false,
+        "restartRequired": false,
+        "writable": true,
+        "policyTier": "open",
+        "cliWritable": true
+      }
+    },
+    {
+      "command": "settings get notifyOnAgentCompletion --json",
+      "exitCode": 0,
+      "data": {
+        "key": "notifyOnAgentCompletion",
+        "value": true,
+        "restartRequired": false,
+        "writable": true,
+        "policyTier": "open",
+        "cliWritable": true
+      }
+    }
+  ]
+}

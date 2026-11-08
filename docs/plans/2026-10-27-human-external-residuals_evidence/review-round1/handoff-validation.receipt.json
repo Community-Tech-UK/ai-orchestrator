@@ -1,0 +1,31 @@
+{
+  "at": "2026-10-27T03:38:01.689714+00:00",
+  "checks": {
+    "originalFilesHashVerified": 45,
+    "allRetainedJsonParses": true,
+    "evidenceFilesIgnoredByGit": [],
+    "nothingStaged": true,
+    "branchUnchanged": true,
+    "headUnchanged": true,
+    "trackedDiffPaths": [
+      "docs/plans/2026-07-19-livetest-failure-remediation-followup_plan.md",
+      "docs/plans/livetest-remediation-register.md"
+    ],
+    "worktreeOwnerCopyUnmodified": true,
+    "rootOwnerBoundToHarvest": true,
+    "uniqueAcrossRegisteredCheckouts": {
+      "count": 18,
+      "ids": [
+        "LT-780",
+        "LT-781"
+      ],
+      "foreignReferences": []
+    },
+    "registerAnchorsAndOwnersAgree": true,
+    "secretPatternScan": "No bounded-prefix matches; task-... directory names excluded from false sk- prefix detection. Metadata receipts only.",
+    "ownedProcessesStopped": true,
+    "fullSuiteRun": false,
+    "productionRendererBuildRun": false,
+    "scope": "Documentation/evidence-only correction; production source unchanged. Timed live app and focused verification recorded separately."
+  }
+}

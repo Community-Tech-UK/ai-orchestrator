@@ -1,0 +1,24 @@
+{
+  "at": "2026-10-27T07:35:46.950571+00:00",
+  "branch": "queue/2026-09-27-livetest-human-exte-185985",
+  "HEAD": "7abf0cb5a021adc89eeb138a12c92149d18da526",
+  "stagedPaths": [],
+  "diffCheckExitCode": 0,
+  "status": [
+    " M docs/plans/livetest-remediation-register.md",
+    " M src/main/browser-gateway/browser-gateway-reliability-reconnect.spec.ts",
+    " M src/main/browser-gateway/browser-target-persistence-sentinel.spec.ts",
+    " M src/main/browser-gateway/browser-target-persistence-sentinel.ts",
+    " M src/main/mcp/aio-mcp-dispatcher.ts",
+    " M src/main/mcp/copilot-account-cli.spec.ts",
+    " M src/main/mcp/copilot-account-cli.ts",
+    "?? docs/plans/2026-07-19-livetest-failure-remediation-followup_plan.md",
+    "?? docs/plans/2026-10-27-human-external-residuals_evidence/review2/",
+    "?? src/main/mcp/aio-mcp-cli-transport.spec.ts"
+  ],
+  "rootPlanStatus": "?? docs/plans/2026-10-27-human-external-review2_plan.md",
+  "worktreeOwnerCopyUnmodified": true,
+  "restoredFollowupMatchesMain": true,
+  "restoredSha256": "cd019a1adcb3e5c2ff2c565ee34f0d826ff64598637cf0a36dcc4f7590662851",
+  "managedWorktreeListed": true
+}

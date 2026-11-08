@@ -1,0 +1,38 @@
+{
+  "cleanedAt": 1793070758.260339,
+  "removed": [
+    "dist",
+    ".angular",
+    "/tmp/aio-lt-queue-af185985",
+    "_scratch/lt-human-external-2026-10-27/runtime.py",
+    "_scratch/lt-human-external-2026-10-27/fixtures.py",
+    "_scratch/lt-human-external-2026-10-27/fixtures.mjs",
+    "_scratch/lt-human-external-2026-10-27/STOP",
+    "_scratch/lt-human-external-2026-10-27/STOP-FIXTURES",
+    "_scratch/lt-human-external-2026-10-27/STOP-NODE-FIXTURES",
+    "_scratch/test-results.pid-31802.json"
+  ],
+  "processChecks": [
+    {
+      "pid": 91306,
+      "gone": true
+    },
+    {
+      "pid": 87382,
+      "gone": true
+    },
+    {
+      "pid": 73613,
+      "gone": true
+    }
+  ],
+  "pythonFixtureSupervisorExitCode": 0,
+  "preservedPreExistingDependencies": true,
+  "sharedCacheSymlinksPreserved": true,
+  "profileAbsent": true,
+  "distAbsent": true,
+  "angularCacheAbsent": true,
+  "createdAutomations": 0,
+  "createdProviderSessions": 0,
+  "changedSettings": 0
+}

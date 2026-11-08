@@ -1,0 +1,74 @@
+{
+  "at": "2026-10-27T03:38:35.769348+00:00",
+  "preCleanupSealSha256": "062b95859bf6a01e9c3fd1672ddb09c2bca983c278fb132600b6a3bb05ad2b1a",
+  "removed": [
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/.angular",
+    "/tmp/aio-lt-queue-af185985",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-round2",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/lt-human-external-2026-10-27",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/test-results.pid-63887.json",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/test-run.pid-63887.log",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/test-results.pid-20393.json",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/test-run.pid-20393.log",
+    "/Users/suas/Library/Application Support/harness/claude-cli-profiles/claudecomtech-7e12/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-09-27-livetest-human-exte-185985--scratch-lt-human-external-round2-copilot-work/3858ad9f-0c04-4aa3-8cc7-755baf3e2cf7.jsonl",
+    "/Users/suas/Library/Application Support/harness/claude-cli-profiles/claudecomtech-7e12/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-09-27-livetest-human-exte-185985--scratch-lt-human-external-round2-copilot-work"
+  ],
+  "processChecks": [
+    {
+      "pid": 55996,
+      "gone": true
+    },
+    {
+      "pid": 62295,
+      "gone": true
+    },
+    {
+      "pid": 64859,
+      "gone": true
+    },
+    {
+      "pid": 20121,
+      "gone": true
+    },
+    {
+      "pid": 81894,
+      "gone": true
+    }
+  ],
+  "ownedPorts": [
+    {
+      "host": "127.0.0.1",
+      "port": 9554,
+      "connectError": 61,
+      "closed": true
+    },
+    {
+      "host": "127.0.0.1",
+      "port": 9654,
+      "connectError": 61,
+      "closed": true
+    },
+    {
+      "host": "::1",
+      "port": 9654,
+      "connectError": 61,
+      "closed": true
+    }
+  ],
+  "profileAbsent": true,
+  "compiledOutputAbsent": true,
+  "angularCacheAbsent": true,
+  "fixtureScratchAbsent": true,
+  "originalIgnoredEvidenceRemovedAfterVerifiedArchive": true,
+  "preExistingDependenciesPreserved": true,
+  "productionProfileDirectoryPreserved": true,
+  "createdAutomations": 0,
+  "devInstanceListEmptyBeforeStop": true,
+  "isolatedAdjudicationRestoredFalse": true,
+  "productionSettingsChanged": false,
+  "databaseClustersCreated": 0,
+  "browserBinariesDownloaded": 0,
+  "dependencyInstallsCreated": 0,
+  "checkoutCopiesCreated": 0
+}

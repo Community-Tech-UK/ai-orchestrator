@@ -1,0 +1,19 @@
+{
+  "at": "2026-10-27T06:01:25.977011+00:00",
+  "readOnly": true,
+  "hostAlias": "prodvps",
+  "exitCode": 0,
+  "stderrBytes": 0,
+  "sourceFiles": [
+    {
+      "path": "/var/www/mytrademail/current/backend/src/services/push/fcm.ts",
+      "sha256": "50adca338d9c9461dffa1043effa011f5c390f414f41705e3f9ee82de694a459",
+      "bytes": 6967
+    },
+    {
+      "path": "/var/www/mytrademail/current/docs/operations/observability-and-push-alerts.md",
+      "sha256": "c59cb715ac9cf832967426c82aef8032a46f92961bc5b6d84db1a15b377426b9",
+      "bytes": 6126
+    }
+  ]
+}

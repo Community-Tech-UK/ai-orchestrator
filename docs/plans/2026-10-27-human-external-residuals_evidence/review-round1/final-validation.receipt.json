@@ -1,0 +1,19 @@
+{
+  "at": "2026-10-27T03:39:00.774839+00:00",
+  "preCleanupSealedFilesUnchanged": true,
+  "rootOwnerHashStillMatchesHarvestCandidate": true,
+  "cleanupPassed": true,
+  "evidenceGitVisible": true,
+  "nothingStaged": true,
+  "diffCheckExitCode": 0,
+  "registeredWorktreesScanned": 18,
+  "finalIdCollisionCount": 0,
+  "gitWorktreeListSha256": "741fadbf7980bfa43e854ec49b7e3663b380b7e5d8d06083ccf0b9c5ac8c0554",
+  "gitBranchListSha256": "32dc2ab0eab76ba71e5d19bda07d69d0d9a227b7fbb83ee4b93927cd2aba2aa0",
+  "currentBranch": "queue/2026-09-27-livetest-human-exte-185985",
+  "currentHead": "2cbdb4acc7202730614e22323b7f9ca6fcad406d",
+  "canonicalRootOwnerGitStatus": "M docs/plans/2026-09-27-livetest-human-external-residuals_livetest.md",
+  "workerClosedDocumentExists": false,
+  "sourceChanges": [],
+  "independentVerdict": "Pending coordinator verifier; no worker self-certification"
+}

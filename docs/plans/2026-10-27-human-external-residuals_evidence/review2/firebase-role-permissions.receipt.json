@@ -1,0 +1,29 @@
+{
+  "at": "2026-10-27T05:52:11.651609+00:00",
+  "command": [
+    "gcloud",
+    "iam",
+    "roles",
+    "describe",
+    "roles/firebasecloudmessaging.admin",
+    "--format=json(name,title,includedPermissions,stage)"
+  ],
+  "exitCode": 0,
+  "stderrBytes": 0,
+  "role": {
+    "includedPermissions": [
+      "cloudmessaging.messages.create",
+      "cloudmessaging.topicSubscriptions.create",
+      "cloudmessaging.topicSubscriptions.delete",
+      "cloudmessaging.topicSubscriptions.get",
+      "cloudmessaging.topicSubscriptions.list",
+      "cloudmessaging.topicSubscriptions.update",
+      "fcmdata.deliverydata.list",
+      "resourcemanager.projects.get",
+      "resourcemanager.projects.list"
+    ],
+    "name": "roles/firebasecloudmessaging.admin",
+    "stage": "GA",
+    "title": "Firebase Cloud Messaging API Admin"
+  }
+}

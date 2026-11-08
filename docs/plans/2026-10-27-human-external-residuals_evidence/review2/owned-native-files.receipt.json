@@ -1,0 +1,50 @@
+{
+  "sessionIds": [
+    "41212576-d9f0-4224-bbaf-ef610b109d4b",
+    "41c19a6b-c06b-415d-ba72-c5dc6afb7e9b",
+    "41dc2dc6-b9f8-4530-9d68-a6e4e19c8b2d",
+    "4558ee1b-9b30-4fdb-8d1d-0176b62bb803",
+    "9901f0d8-e218-44c8-aeb9-628faad1da22",
+    "aedc5791-cb3c-4cf6-b3b1-9bf3c798d421",
+    "fed46247-0b73-4efc-aa7d-45ed461f4b9a"
+  ],
+  "files": [
+    {
+      "path": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-09-27-livetest-human-exte-185985/41c19a6b-c06b-415d-ba72-c5dc6afb7e9b.jsonl",
+      "sha256": "0012a7a0beb2ba43990fbc9b507f67f3089772f3ff9ccd6afbd6eea8b903fdb7",
+      "bytes": 1150601,
+      "sessionId": "41c19a6b-c06b-415d-ba72-c5dc6afb7e9b"
+    },
+    {
+      "path": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-09-27-livetest-human-exte-185985/41dc2dc6-b9f8-4530-9d68-a6e4e19c8b2d.jsonl",
+      "sha256": "0359d6e2987598f23c0528c084b8013d934223947bc44a8fb21dd37dd66871a9",
+      "bytes": 1884639,
+      "sessionId": "41dc2dc6-b9f8-4530-9d68-a6e4e19c8b2d"
+    },
+    {
+      "path": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-09-27-livetest-human-exte-185985/4558ee1b-9b30-4fdb-8d1d-0176b62bb803.jsonl",
+      "sha256": "1e5fb656b548df667c8b9b5c9515a015363e71896dff0211071202231caac29f",
+      "bytes": 542965,
+      "sessionId": "4558ee1b-9b30-4fdb-8d1d-0176b62bb803"
+    },
+    {
+      "path": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-09-27-livetest-human-exte-185985/9901f0d8-e218-44c8-aeb9-628faad1da22.jsonl",
+      "sha256": "560fb00ae36543adae347de64b27592a75c27957735ef9b2017a3b4adb2478c7",
+      "bytes": 918241,
+      "sessionId": "9901f0d8-e218-44c8-aeb9-628faad1da22"
+    },
+    {
+      "path": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-09-27-livetest-human-exte-185985/aedc5791-cb3c-4cf6-b3b1-9bf3c798d421.jsonl",
+      "sha256": "82123f2e5a75b56ccd9554705356241e583e68e5c3918fef9058f4b21214d07b",
+      "bytes": 564211,
+      "sessionId": "aedc5791-cb3c-4cf6-b3b1-9bf3c798d421"
+    },
+    {
+      "path": "/Users/suas/.claude/projects/-Users-suas-work-orchestrat0r-ai-orchestrator--worktrees-queue-2026-09-27-livetest-human-exte-185985/fed46247-0b73-4efc-aa7d-45ed461f4b9a.jsonl",
+      "sha256": "2567fc117ccf385e697d560d7800574f4de17492cf0f5034dfe75aca65354411",
+      "bytes": 628596,
+      "sessionId": "fed46247-0b73-4efc-aa7d-45ed461f4b9a"
+    }
+  ],
+  "selection": "Exact owned-runtime session IDs, project path scoped to queue livetest, created after this run began"
+}

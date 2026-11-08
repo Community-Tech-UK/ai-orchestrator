@@ -1,0 +1,250 @@
+{
+  "at": "2026-10-27T03:25:03.117Z",
+  "focusEmulation": true,
+  "visibilityOverride": "'Emulation.setPageVisibilityOverride' wasn't found",
+  "errors": [],
+  "value": {
+    "at": "2026-10-27T03:25:00.951Z",
+    "hidden": false,
+    "visibility": "visible",
+    "auxiliaryCandidates": {
+      "success": true,
+      "data": [
+        {
+          "endpoint": {
+            "id": "ollama-localhost",
+            "label": "Ollama (localhost)",
+            "provider": "ollama",
+            "baseUrl": "http://127.0.0.1:11434",
+            "source": "localhost",
+            "enabled": true
+          },
+          "models": [],
+          "healthy": false,
+          "reason": "Endpoint unreachable"
+        }
+      ]
+    },
+    "localDiscovery": {
+      "success": true,
+      "data": [
+        {
+          "identity": {
+            "location": {
+              "type": "coordinator"
+            },
+            "provider": "ollama",
+            "endpointId": "ollama-localhost",
+            "baseUrl": "http://127.0.0.1:11434"
+          },
+          "label": "Ollama (localhost)",
+          "models": [],
+          "healthy": false
+        }
+      ]
+    },
+    "guardBefore": {
+      "success": true,
+      "data": {
+        "helperPauses": [],
+        "revision": "5",
+        "aggregate": {
+          "state": "not-configured",
+          "enrolled": 0,
+          "healthy": 0,
+          "degraded": 0,
+          "unavailable": 0,
+          "paused": 0
+        },
+        "targets": [],
+        "targetConfigs": [],
+        "incidents": [],
+        "recoveryAttempts": [],
+        "pendingFallbacks": [],
+        "fallbackNotifications": [
+          {
+            "id": "ce0ae9cd-b7b5-49ed-8b36-af018e7ab32b",
+            "slot": "titleGeneration",
+            "intendedRoute": "local",
+            "actualRoute": "frontier",
+            "policy": "notify-and-allow",
+            "disposition": "allowed",
+            "decisionReason": "policy",
+            "provider": "anthropic",
+            "model": "claude-haiku-5-5",
+            "inputTokens": 2,
+            "outputTokens": 360,
+            "knownCostUsd": 0.007473240000000001,
+            "createdAt": 1793071331744,
+            "completedAt": 1793071331813
+          }
+        ]
+      }
+    },
+    "guardValidation": {
+      "success": true,
+      "data": [
+        {
+          "targetId": "3f71603b-b06e-45b8-a2d9-c7240a07e4a3",
+          "layer": "worker",
+          "checkType": "functional",
+          "ok": false,
+          "required": true,
+          "affectedRoles": [
+            "compression",
+            "memoryDistillation",
+            "webExtract",
+            "titleGeneration",
+            "routingClassification",
+            "approvalScoring",
+            "approvalAdjudication",
+            "loopScoring",
+            "retrievalHypothesis",
+            "branchScoring",
+            "subQueryExecution",
+            "verifyOutputSummary"
+          ],
+          "checkedAt": 1793071500957,
+          "durationMs": 0,
+          "failureCode": "worker-offline",
+          "message": "The Local AI health check reported a failure.",
+          "evidence": {
+            "workerConnected": false,
+            "rpcReachable": false,
+            "errorKind": "worker-disconnected"
+          }
+        }
+      ]
+    },
+    "adjudicationBefore": {
+      "success": true,
+      "data": false
+    },
+    "adjudicationSet": {
+      "success": true
+    },
+    "adjudicationReadBack": {
+      "success": true,
+      "data": true
+    },
+    "adjudicationRestore": {
+      "success": true
+    },
+    "adjudicationRestoredRead": {
+      "success": true,
+      "data": false
+    },
+    "prOptInRefusal": {
+      "success": false,
+      "error": {
+        "code": "VCS_CREATE_PULL_REQUEST_OPTIN",
+        "message": "PR creation is not enabled for this project. Enable \"Allow PR creation\" in the Source Control panel for this repository first.",
+        "timestamp": 1793071500978
+      }
+    },
+    "guardAfter": {
+      "success": true,
+      "data": {
+        "helperPauses": [],
+        "revision": "7",
+        "aggregate": {
+          "state": "not-configured",
+          "enrolled": 0,
+          "healthy": 0,
+          "degraded": 0,
+          "unavailable": 0,
+          "paused": 0
+        },
+        "targets": [],
+        "targetConfigs": [],
+        "incidents": [],
+        "recoveryAttempts": [],
+        "pendingFallbacks": [],
+        "fallbackNotifications": [
+          {
+            "id": "ce0ae9cd-b7b5-49ed-8b36-af018e7ab32b",
+            "slot": "titleGeneration",
+            "intendedRoute": "local",
+            "actualRoute": "frontier",
+            "policy": "notify-and-allow",
+            "disposition": "allowed",
+            "decisionReason": "policy",
+            "provider": "anthropic",
+            "model": "claude-haiku-5-5",
+            "inputTokens": 2,
+            "outputTokens": 360,
+            "knownCostUsd": 0.007473240000000001,
+            "createdAt": 1793071331744,
+            "completedAt": 1793071331813
+          }
+        ]
+      }
+    },
+    "accounts": {
+      "success": true,
+      "data": {
+        "profiles": [
+          {
+            "provider": "claude",
+            "id": "legacy",
+            "isLegacy": true,
+            "bindingState": "authenticated"
+          },
+          {
+            "provider": "codex",
+            "id": "legacy",
+            "isLegacy": true,
+            "bindingState": "authenticated"
+          },
+          {
+            "provider": "opencode",
+            "id": "legacy",
+            "isLegacy": true,
+            "bindingState": "authenticated"
+          }
+        ],
+        "pools": {
+          "claude": {
+            "failoverMode": "ask",
+            "continuation": "shared-store",
+            "preemptive": {
+              "newSessions": true,
+              "liveSessionsAtTurnBoundary": false,
+              "thresholdPct": 90
+            },
+            "switchCooldownMs": 300000,
+            "maxSwitchesPerTurn": 3,
+            "acknowledgedOwnershipAt": null
+          },
+          "codex": {
+            "failoverMode": "ask",
+            "continuation": "shared-store",
+            "preemptive": {
+              "newSessions": true,
+              "liveSessionsAtTurnBoundary": false,
+              "thresholdPct": 90
+            },
+            "switchCooldownMs": 300000,
+            "maxSwitchesPerTurn": 3,
+            "acknowledgedOwnershipAt": null
+          },
+          "opencode": {
+            "failoverMode": "ask",
+            "continuation": "shared-store",
+            "preemptive": {
+              "newSessions": true,
+              "liveSessionsAtTurnBoundary": false,
+              "thresholdPct": 90
+            },
+            "switchCooldownMs": 300000,
+            "maxSwitchesPerTurn": 3,
+            "acknowledgedOwnershipAt": null
+          }
+        }
+      }
+    },
+    "raf": true,
+    "angularReady": true,
+    "rootChildren": 1
+  }
+}

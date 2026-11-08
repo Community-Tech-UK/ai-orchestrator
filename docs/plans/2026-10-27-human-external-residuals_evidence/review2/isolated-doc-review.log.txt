@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/doc-review/doc-review-service.spec.ts --maxWorkers=1
+
+✓ 1 files · 23 tests passed in 3.8s
+  full log: _scratch/test-run.pid-50172.log

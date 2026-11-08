@@ -1,0 +1,49 @@
+{
+  "at": "2026-10-27T03:27:06.630260+00:00",
+  "group": "RES-029",
+  "profileId": "claudecomtech-7e12",
+  "profileExists": true,
+  "productionSettingsChanged": false,
+  "credentialValuesRetained": false,
+  "results": [
+    {
+      "command": "claude auth status --json",
+      "exitCode": 0,
+      "stdoutBytes": 523,
+      "stderrBytes": 0,
+      "auth": {
+        "loggedIn": true,
+        "authMethod": "claude.ai",
+        "subscriptionType": "max"
+      },
+      "authStatusFields": [
+        "analyticsDisabled",
+        "apiProvider",
+        "authMethod",
+        "configDirectory",
+        "email",
+        "loggedIn",
+        "orgId",
+        "orgName",
+        "projectsDirectory",
+        "subscriptionType"
+      ]
+    },
+    {
+      "command": "claude -p say ok --output-format json --max-turns 1",
+      "exitCode": 0,
+      "stdoutBytes": 1810,
+      "stderrBytes": 0,
+      "resultIsOk": true,
+      "isError": false,
+      "subtype": "success",
+      "numTurns": 1,
+      "costUsd": 0.438948,
+      "sessionId": "3858ad9f-0c04-4aa3-8cc7-755baf3e2cf7",
+      "resultSha256": "2689367b205c16ce32ed4200942b8b8b1e262dfc70d9bc9fbc77c49699a4f1df"
+    }
+  ],
+  "derivedKeychainSuffix": "706ab67f",
+  "derivedKeychainSuffixOnly": true,
+  "cliReportedCostIsNotBilledInputEvidence": true
+}

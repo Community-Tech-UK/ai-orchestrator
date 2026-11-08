@@ -1,0 +1,17 @@
+{
+  "at": "2026-10-27T04:28:17.603Z",
+  "focusEmulation": true,
+  "visibilityOverride": "'Emulation.setPageVisibilityOverride' wasn't found",
+  "result": {
+    "type": "object",
+    "value": {
+      "terminated": {
+        "success": true
+      },
+      "instances": {
+        "success": true,
+        "data": []
+      }
+    }
+  }
+}

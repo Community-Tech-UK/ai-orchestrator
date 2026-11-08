@@ -1,0 +1,13 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "src/main/browser-gateway/browser-target-persistence-sentinel.spec.ts"
+  ],
+  "startedAt": "2026-10-27T04:58:36.243059+00:00",
+  "endedAt": "2026-10-27T04:58:43.745125+00:00",
+  "exitCode": 1,
+  "log": "sentinel-red.log.txt"
+}

@@ -1,0 +1,20 @@
+{
+  "attempts": [
+    {
+      "receipt": "fresh-review-attempt1.receipt.json",
+      "result": "exit 1; no verdict; cause not retained"
+    },
+    {
+      "receipt": "fresh-review-attempt2.receipt.json",
+      "result": "error_max_turns at 40; no verdict"
+    },
+    {
+      "receipt": "fresh-review-attempt3.receipt.json",
+      "result": "180-second timeout; no structured output"
+    }
+  ],
+  "allChildrenStoppedAndReaped": true,
+  "independentVerdictObtained": false,
+  "queueIndependentVerifierStillRequired": true,
+  "selfReviewIsNotIndependentEvidence": true
+}

@@ -1,0 +1,53 @@
+{
+  "at": "2026-10-27T05:10:06.193Z",
+  "instances": [
+    {
+      "id": "cqmyxu1dg",
+      "sessionId": "aedc5791-cb3c-4cf6-b3b1-9bf3c798d421",
+      "providerSessionId": "aedc5791-cb3c-4cf6-b3b1-9bf3c798d421",
+      "historyThreadId": "4ea488f2-5ee7-4023-9f39-59fc2373fccf",
+      "status": "idle",
+      "errorCount": 0,
+      "output": []
+    },
+    {
+      "id": "cgq0bcp51",
+      "sessionId": "10c90584-1f4e-4b88-a1f8-b23dc0675ae1",
+      "providerSessionId": "10c90584-1f4e-4b88-a1f8-b23dc0675ae1",
+      "historyThreadId": "1d034847-60a8-4afd-bfb3-b56cd897d569",
+      "status": "idle",
+      "errorCount": 0,
+      "output": []
+    },
+    {
+      "id": "ci3xbjeq3",
+      "sessionId": "9901f0d8-e218-44c8-aeb9-628faad1da22",
+      "providerSessionId": "9901f0d8-e218-44c8-aeb9-628faad1da22",
+      "historyThreadId": "92032670-07b4-435c-8b70-9613a41abd42",
+      "status": "idle",
+      "errorCount": 0,
+      "output": [
+        {
+          "type": "user",
+          "content": "Investigate one harmless permission round trip only. Use Bash exactly once for python3 -c \"print(73124)\". It prints a test marker and changes nothing. Report the exact result and stop. Do not read or write files, access credentials, open applications, create branches/worktrees, or run anything else.",
+          "metadata": {
+            "kind": "loop-start",
+            "loopRunId": "loop-1793077737770-da7acb6d",
+            "workspaceCwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985"
+          }
+        }
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "id": "loop-1793077737770-da7acb6d",
+      "status": "running",
+      "chatId": "ci3xbjeq3"
+    }
+  ],
+  "pending": {
+    "success": true,
+    "data": []
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "at": "2026-10-27T05:15:42.888615+00:00",
+  "readOnly": true,
+  "rows": [
+    {
+      "approval_id": "adjudicated-c24a3dae-6abf-40b0-af72-a776d0b71f11",
+      "instance_id": "ci3xbjeq3",
+      "action_kind": "deferred_permission",
+      "status": "approved",
+      "resolved_by": "adjudicator",
+      "decided_at": null,
+      "resolved_at": 1793078011305,
+      "resolution_metadata_json": null
+    },
+    {
+      "approval_id": "adjudicated-35df986c-7ab0-49f1-9c52-6124730ba2ac",
+      "instance_id": "ci3xbjeq3",
+      "action_kind": "deferred_permission",
+      "status": "denied",
+      "resolved_by": "adjudicator",
+      "decided_at": null,
+      "resolved_at": 1793078139017,
+      "resolution_metadata_json": null
+    }
+  ]
+}

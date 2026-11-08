@@ -1,0 +1,34 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/mcp/aio-mcp-cli-transport.spec.ts
+
+✗ test run failed (exit 1) and produced no JSON report. Tail of log:
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985
+
+ ❯ |main| src/main/mcp/aio-mcp-cli-transport.spec.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |main| src/main/mcp/aio-mcp-cli-transport.spec.ts [ src/main/mcp/aio-mcp-cli-transport.spec.ts ]
+Error: Invariant violation: "new TextEncoder().encode("") instanceof Uint8Array" is incorrectly false
+
+This indicates that your JavaScript environment is broken. You cannot use
+esbuild in this environment because esbuild relies on this invariant. This
+is not a problem with esbuild. You need to fix your environment instead.
+
+ ❯ Object.<anonymous> node_modules/esbuild/lib/main.js:201:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  04:47:09
+   Duration  653ms (transform 54ms, setup 88ms, import 0ms, tests 0ms, environment 444ms)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/test-results.pid-79452.json
+
+full log: _scratch/test-run.pid-79452.log
+
+✗ FAILED — the run produced no usable JSON report (exit 1).

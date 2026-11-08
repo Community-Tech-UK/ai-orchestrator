@@ -1,0 +1,34 @@
+[
+  {
+    "command": "copilot-account list --json",
+    "startedAt": 1793069713.920303,
+    "endedAt": 1793069714.025574,
+    "exitCode": 1,
+    "stderr": "aio-mcp copilot-account failed: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"payload\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"payload\\\"\"\n  }\n]\n",
+    "stdout": ""
+  },
+  {
+    "command": "copilot-account rules --json",
+    "startedAt": 1793069714.025583,
+    "endedAt": 1793069714.13324,
+    "exitCode": 1,
+    "stderr": "aio-mcp copilot-account failed: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"payload\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"payload\\\"\"\n  }\n]\n",
+    "stdout": ""
+  },
+  {
+    "command": "copilot-account doctor --json",
+    "startedAt": 1793069714.133245,
+    "endedAt": 1793069714.232053,
+    "exitCode": 1,
+    "stderr": "aio-mcp copilot-account failed: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"payload\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"payload\\\"\"\n  }\n]\n",
+    "stdout": ""
+  },
+  {
+    "command": "copilot-account route /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985 --origin=automation --json",
+    "startedAt": 1793069714.2320561,
+    "endedAt": 1793069714.330505,
+    "exitCode": 1,
+    "stderr": "aio-mcp copilot-account failed: [\n  {\n    \"expected\": \"string\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"workingDirectory\"\n    ],\n    \"message\": \"Invalid input: expected string, received undefined\"\n  },\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"payload\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"payload\\\"\"\n  }\n]\n",
+    "stdout": ""
+  }
+]

@@ -1,0 +1,185 @@
+{
+  "at": "2026-10-27T03:33:40.959585+00:00",
+  "source": "packaged log path also receives dev logs; rows bounded by fixture ID/session/time",
+  "instanceId": "pfnfmw6t0",
+  "sessionId": "8c5270df-d1b0-4259-bca4-a6af05f980ff",
+  "rows": [
+    {
+      "timestamp": 1793071327835,
+      "level": "warn",
+      "subsystem": "InstanceLifecycle",
+      "message": "YOLO mode enabled for instance",
+      "data": {
+        "instanceId": "pfnfmw6t0",
+        "parentId": null,
+        "provider": "copilot"
+      }
+    },
+    {
+      "timestamp": 1793071327835,
+      "level": "info",
+      "subsystem": "SupervisorTree",
+      "message": "Registered instance",
+      "data": {
+        "instanceId": "pfnfmw6t0",
+        "parent": "root"
+      }
+    },
+    {
+      "timestamp": 1793071327836,
+      "level": "info",
+      "subsystem": "InstanceHandlers",
+      "message": "IPC INSTANCE_SEND_INPUT received",
+      "data": {
+        "instanceId": "pfnfmw6t0",
+        "messageLength": 477,
+        "attachmentsCount": 0
+      }
+    },
+    {
+      "timestamp": 1793071327850,
+      "level": "info",
+      "subsystem": "InstanceSystemPrompt",
+      "message": "Injected repo map into system prompt",
+      "data": {
+        "instanceId": "pfnfmw6t0",
+        "filesIncluded": 0,
+        "filesConsidered": 0,
+        "tokensUsed": 8,
+        "truncated": false,
+        "fallback": true
+      }
+    },
+    {
+      "timestamp": 1793071327853,
+      "level": "warn",
+      "subsystem": "SpawnConfigBuilder",
+      "message": "Codemem MCP not configured \u2014 aio-mcp SEA binary or codemem RPC socket missing",
+      "data": {
+        "instanceId": "pfnfmw6t0",
+        "isPackaged": false
+      }
+    },
+    {
+      "timestamp": 1793071327854,
+      "level": "warn",
+      "subsystem": "SpawnConfigBuilder",
+      "message": "Orchestrator-tools MCP not configured \u2014 aio-mcp SEA binary, RPC socket or instance capability missing",
+      "data": {
+        "provider": "copilot",
+        "instanceId": "pfnfmw6t0",
+        "isPackaged": false
+      }
+    },
+    {
+      "timestamp": 1793071331668,
+      "level": "info",
+      "subsystem": "InstanceLifecycle",
+      "message": "CLI spawned successfully",
+      "data": {
+        "pid": 81894,
+        "instanceId": "pfnfmw6t0"
+      }
+    },
+    {
+      "timestamp": 1793071331734,
+      "level": "info",
+      "subsystem": "AutoTitle",
+      "message": "Auto-titled instance (instant)",
+      "data": {
+        "instanceId": "pfnfmw6t0",
+        "title": "This is an explicitly requested bounded ACP tool timeout..."
+      }
+    },
+    {
+      "timestamp": 1793071331738,
+      "level": "info",
+      "subsystem": "InstanceCommunication",
+      "message": "sendInput called",
+      "data": {
+        "instanceId": "pfnfmw6t0",
+        "autoContinuation": false
+      }
+    },
+    {
+      "timestamp": 1793071331738,
+      "level": "info",
+      "subsystem": "InstanceCommunication",
+      "message": "sendInput state check",
+      "data": {
+        "instanceId": "pfnfmw6t0",
+        "instanceExists": true,
+        "adapterExists": true,
+        "status": "idle"
+      }
+    },
+    {
+      "timestamp": 1793071341752,
+      "level": "info",
+      "subsystem": "AutoTitle",
+      "message": "Auto-titled instance (AI)",
+      "data": {
+        "instanceId": "pfnfmw6t0",
+        "title": "ACP tool timeout live test"
+      }
+    },
+    {
+      "timestamp": 1793071646191,
+      "level": "warn",
+      "subsystem": "AcpCliAdapter",
+      "message": "ACP prompt turn appears stalled",
+      "data": {
+        "adapter": "copilot-acp",
+        "sessionId": "8c5270df-d1b0-4259-bca4-a6af05f980ff",
+        "promptRequestId": "3",
+        "timeoutMs": 300000,
+        "durationMs": 314450,
+        "inactiveMs": 300003,
+        "waitKind": "tool"
+      }
+    },
+    {
+      "timestamp": 1793071946196,
+      "level": "warn",
+      "subsystem": "AcpCliAdapter",
+      "message": "ACP prompt turn appears stalled",
+      "data": {
+        "adapter": "copilot-acp",
+        "sessionId": "8c5270df-d1b0-4259-bca4-a6af05f980ff",
+        "promptRequestId": "3",
+        "timeoutMs": 300000,
+        "durationMs": 614455,
+        "inactiveMs": 300002,
+        "waitKind": "tool"
+      }
+    },
+    {
+      "timestamp": 1793071959228,
+      "level": "warn",
+      "subsystem": "AcpCliAdapter",
+      "message": "ACP turn reported no token usage where usage was expected",
+      "data": {
+        "adapter": "copilot-acp",
+        "reason": "substantial-turn",
+        "durationMs": 627486,
+        "profile": "copilot-acp",
+        "usageKeyCount": 0,
+        "cumulativeTokens": 0
+      }
+    },
+    {
+      "timestamp": 1793071959229,
+      "level": "info",
+      "subsystem": "AcpCliAdapter",
+      "message": "ACP turn completed",
+      "data": {
+        "adapter": "copilot-acp",
+        "model": "gemini-3.1-pro-preview",
+        "stopReason": "end_turn",
+        "leaseMs": 600000,
+        "classifierReason": "completed",
+        "evidence": "provider_completed"
+      }
+    }
+  ]
+}

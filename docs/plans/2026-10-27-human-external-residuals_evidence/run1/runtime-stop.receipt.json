@@ -1,0 +1,22 @@
+{
+  "startedAt": 1793069520.632104,
+  "profile": "/tmp/aio-lt-queue-af185985",
+  "debugPort": 9554,
+  "rendererPort": 9654,
+  "rendererPid": 87382,
+  "electronPid": 91306,
+  "error": "Electron exited: 0",
+  "stoppedAt": 1793069546.994048,
+  "processes": [
+    {
+      "pid": 91306,
+      "exitCode": 0,
+      "gone": true
+    },
+    {
+      "pid": 87382,
+      "exitCode": 143,
+      "gone": true
+    }
+  ]
+}

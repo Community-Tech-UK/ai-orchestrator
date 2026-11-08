@@ -1,0 +1,16 @@
+{
+  "startedAt": "2026-10-27T04:48:13.708514+00:00",
+  "processes": [
+    {
+      "name": "renderer",
+      "pid": 54932
+    },
+    {
+      "name": "electron",
+      "pid": 77015
+    }
+  ],
+  "profile": "/tmp/aio-lt-queue-af185985",
+  "debugPort": 9554,
+  "rendererPort": 9654
+}

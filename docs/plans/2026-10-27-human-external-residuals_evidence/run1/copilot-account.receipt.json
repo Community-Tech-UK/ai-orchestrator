@@ -1,0 +1,8 @@
+{
+  "command": "copilot-account list --json",
+  "exitCode": 1,
+  "startedAt": 1793069651.877742,
+  "endedAt": 1793069652.016024,
+  "result": null,
+  "error": "aio-mcp copilot-account failed: [\n  {\n    \"code\": \"unrecognized_keys\",\n    \"keys\": [\n      \"payload\"\n    ],\n    \"path\": [],\n    \"message\": \"Unrecognized key: \\\"payload\\\"\"\n  }\n]\n"
+}

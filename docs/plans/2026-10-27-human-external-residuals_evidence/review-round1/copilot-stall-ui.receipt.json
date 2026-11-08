@@ -1,0 +1,28 @@
+{
+  "at": "2026-10-27T03:29:19.399Z",
+  "focusEmulation": true,
+  "visibilityOverride": "'Emulation.setPageVisibilityOverride' wasn't found",
+  "errors": [],
+  "value": {
+    "hidden": false,
+    "visibility": "visible",
+    "angularReady": true,
+    "rootFields": [
+      "usageStore",
+      "promptHistoryStore",
+      "skillStore",
+      "settingsStore",
+      "pauseStore",
+      "remoteNodeStore",
+      "appUpdateStore",
+      "localAiGuardStore"
+    ],
+    "fixtureCards": [],
+    "stallTextVisible": true,
+    "fixtureTitleVisible": true,
+    "asks": {
+      "success": true,
+      "data": []
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet",
+    "--",
+    "scripts/__tests__/dependency-compatibility.spec.ts"
+  ],
+  "startedAt": "2026-10-27T06:30:52.483873+00:00",
+  "endedAt": "2026-10-27T06:31:00.430136+00:00",
+  "exitCode": 0,
+  "log": "dependency-clean.log.txt"
+}

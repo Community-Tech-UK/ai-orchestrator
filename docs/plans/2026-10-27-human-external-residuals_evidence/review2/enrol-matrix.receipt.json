@@ -1,0 +1,57 @@
+{
+  "at": "2026-10-27T05:01:05.806005+00:00",
+  "rows": [
+    {
+      "args": [
+        "local-ai",
+        "list",
+        "--json"
+      ],
+      "exitCode": 0,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "local-ai",
+        "enrol",
+        "{\"lifecycle\":\"enrolled\",\"location\":{\"type\":\"coordinator\"},\"provider\":\"openai-compatible\",\"endpointId\":\"owned-review2\",\"baseUrl\":\"http://100.113.93.104:1234\",\"expectedModels\":[{\"modelId\":\"qwen/qwen3.6-35b-a3b\",\"required\":true,\"minContextLength\":131072},{\"modelId\":\"qwen/qwen3.5-9b\",\"required\":true}],\"canary\":{\"model\":\"qwen/qwen3.6-35b-a3b\",\"timeoutMs\":30000,\"intervalMs\":600000},\"endpointCheckIntervalMs\":60000,\"freshnessLimitMs\":120000,\"warningLatencyMs\":15000,\"routingRoles\":[\"compression\",\"memoryDistillation\",\"webExtract\",\"titleGeneration\",\"routingClassification\",\"approvalScoring\",\"approvalAdjudication\",\"loopScoring\",\"retrievalHypothesis\",\"branchScoring\",\"subQueryExecution\"],\"fallbackPolicy\":\"block-paid-fallback\",\"slotFallbackPolicies\":{},\"recovery\":{\"automatic\":false,\"maxAttempts\":2,\"cooldownMs\":300000}}",
+        "--json"
+      ],
+      "exitCode": 0,
+      "stdout": "{\n  \"target\": {\n    \"lifecycle\": \"enrolled\",\n    \"location\": {\n      \"type\": \"coordinator\"\n    },\n    \"provider\": \"openai-compatible\",\n    \"endpointId\": \"owned-review2\",\n    \"baseUrl\": \"http://100.113.93.104:1234\",\n    \"expectedModels\": [\n      {\n        \"modelId\": \"qwen/qwen3.6-35b-a3b\",\n        \"required\": true,\n        \"minContextLength\": 131072\n      },\n      {\n        \"modelId\": \"qwen/qwen3.5-9b\",\n        \"required\": true\n      }\n    ],\n    \"canary\": {\n      \"model\": \"qwen/qwen3.6-35b-a3b\",\n      \"timeoutMs\": 30000,\n      \"intervalMs\": 600000\n    },\n    \"endpointCheckIntervalMs\": 60000,\n    \"freshnessLimitMs\": 120000,\n    \"warningLatencyMs\": 15000,\n    \"routingRoles\": [\n      \"compression\",\n      \"memoryDistillation\",\n      \"webExtract\",\n      \"titleGeneration\",\n      \"routingClassification\",\n      \"approvalScoring\",\n      \"approvalAdjudication\",\n      \"loopScoring\",\n      \"retrievalHypothesis\",\n      \"branchScoring\",\n      \"subQueryExecution\"\n    ],\n    \"fallbackPolicy\": \"block-paid-fallback\",\n    \"slotFallbackPolicies\": {},\n    \"recovery\": {\n      \"automatic\": false,\n      \"maxAttempts\": 2,\n      \"cooldownMs\": 300000\n    },\n    \"id\": \"f13cb7be-bc52-4f9d-b1fb-28f7bad3f00b\",\n    \"label\": \"This computer \u00b7 OpenAI-compatible\",\n    \"createdAt\": 1793077265483,\n    \"updatedAt\": 1793077265483\n  },\n  \"validation\": [\n    {\n      \"targetId\": \"2d8b287b-4910-40ca-a378-82c1ed116c57\",\n      \"layer\": \"worker\",\n      \"checkType\": \"functional\",\n      \"ok\": true,\n      \"required\": true,\n      \"affectedRoles\": [\n        \"compression\",\n        \"memoryDistillation\",\n        \"webExtract\",\n        \"titleGeneration\",\n        \"routingClassification\",\n        \"approvalScoring\",\n        \"approvalAdjudication\",\n        \"loopScoring\",\n        \"retrievalHypothesis\",\n        \"branchScoring\",\n        \"subQueryExecution\"\n      ],\n      \"checkedAt\": 1793077265072,\n      \"durationMs\": 0,\n      \"evidence\": {\n        \"workerConnected\": true,\n        \"rpcReachable\": true\n      }\n    },\n    {\n      \"targetId\": \"2d8b287b-4910-40ca-a378-82c1ed116c57\",\n      \"layer\": \"endpoint\",\n      \"checkType\": \"functional\",\n      \"ok\": true,\n      \"required\": true,\n      \"affectedRoles\": [\n        \"compression\",\n        \"memoryDistillation\",\n        \"webExtract\",\n        \"titleGeneration\",\n        \"routingClassification\",\n        \"approvalScoring\",\n        \"approvalAdjudication\",\n        \"loopScoring\",\n        \"retrievalHypothesis\",\n        \"branchScoring\",\n        \"subQueryExecution\"\n      ],\n      \"checkedAt\": 1793077265073,\n      \"durationMs\": 6,\n      \"evidence\": {\n        \"endpointReachable\": true,\n        \"endpointProtocol\": \"openai-v1\",\n        \"httpStatus\": 200\n      }\n    },\n    {\n      \"targetId\": \"2d8b287b-4910-40ca-a378-82c1ed116c57\",\n      \"layer\": \"model\",\n      \"checkType\": \"functional\",\n      \"ok\": true,\n      \"required\": false,\n      \"affectedRoles\": [\n        \"compression\",\n        \"memoryDistillation\",\n        \"webExtract\",\n        \"titleGeneration\",\n        \"routingClassification\",\n        \"approvalScoring\",\n        \"approvalAdjudication\",\n        \"loopScoring\",\n        \"retrievalHypothesis\",\n        \"branchScoring\",\n        \"subQueryExecution\"\n      ],\n      \"checkedAt\": 1793077265073,\n      \"durationMs\": 6,\n      \"evidence\": {\n        \"advertisedModels\": [\n          \"qwen/qwen3.6-35b-a3b\",\n          \"qwen3.8-flash-next\",\n          \"qwen3.8-27b\",\n          \"google/gemma-4-26b-a4b-qat\",\n          \"google/gemma-4-31b\",\n          \"google/gemma-4-31b-qat\",\n          \"qwen/qwen3.6-27b\",\n          \"google/gemma-4-12b\",\n          \"google/gemma-4-12b-qat\",\n          \"qwen/qwen3.5-9b\",\n          \"qwen/qwen3-coder-next\",\n          \"qwen/qwen3.5-35b-a3b\",\n          \"google/gemma-4-26b-a4b\",\n          \"zai-org/glm-4.7-flash\",\n          \"nvidia/nemotron-3-nano-4b\",\n          \"text-embedding-nomic-embed-text-v1.5\"\n        ],\n        \"loadedModels\": [\n          \"qwen/qwen3.6-35b-a3b\"\n        ],\n        \"missingModels\": [],\n        \"requiredModelCount\": 2,\n        \"availableContextLength\": 229376\n      }\n    },\n    {\n      \"targetId\": \"2d8b287b-4910-40ca-a378-82c1ed116c57\",\n      \"layer\": \"inference\",\n      \"checkType\": \"functional\",\n      \"ok\": true,\n      \"required\": true,\n      \"affectedRoles\": [\n        \"compression\",\n        \"memoryDistillation\",\n        \"webExtract\",\n        \"titleGeneration\",\n        \"routingClassification\",\n        \"approvalScoring\",\n        \"approvalAdjudication\",\n        \"loopScoring\",\n        \"retrievalHypothesis\",\n        \"branchScoring\",\n        \"subQueryExecution\"\n      ],\n      \"checkedAt\": 1793077265073,\n      \"durationMs\": 395,\n      \"evidence\": {\n        \"canaryOutputValid\": true,\n        \"canaryLatencyMs\": 395\n      }\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "local-ai",
+        "list",
+        "--json"
+      ],
+      "exitCode": 0,
+      "stdout": "[\n  {\n    \"lifecycle\": \"enrolled\",\n    \"location\": {\n      \"type\": \"coordinator\"\n    },\n    \"provider\": \"openai-compatible\",\n    \"endpointId\": \"owned-review2\",\n    \"baseUrl\": \"http://100.113.93.104:1234\",\n    \"expectedModels\": [\n      {\n        \"modelId\": \"qwen/qwen3.6-35b-a3b\",\n        \"required\": true,\n        \"minContextLength\": 131072\n      },\n      {\n        \"modelId\": \"qwen/qwen3.5-9b\",\n        \"required\": true\n      }\n    ],\n    \"canary\": {\n      \"model\": \"qwen/qwen3.6-35b-a3b\",\n      \"timeoutMs\": 30000,\n      \"intervalMs\": 600000\n    },\n    \"endpointCheckIntervalMs\": 60000,\n    \"freshnessLimitMs\": 120000,\n    \"warningLatencyMs\": 15000,\n    \"routingRoles\": [\n      \"compression\",\n      \"memoryDistillation\",\n      \"webExtract\",\n      \"titleGeneration\",\n      \"routingClassification\",\n      \"approvalScoring\",\n      \"approvalAdjudication\",\n      \"loopScoring\",\n      \"retrievalHypothesis\",\n      \"branchScoring\",\n      \"subQueryExecution\"\n    ],\n    \"fallbackPolicy\": \"block-paid-fallback\",\n    \"slotFallbackPolicies\": {},\n    \"recovery\": {\n      \"automatic\": false,\n      \"maxAttempts\": 2,\n      \"cooldownMs\": 300000\n    },\n    \"id\": \"f13cb7be-bc52-4f9d-b1fb-28f7bad3f00b\",\n    \"label\": \"This computer \u00b7 OpenAI-compatible\",\n    \"createdAt\": 1793077265483,\n    \"updatedAt\": 1793077265483\n  }\n]\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "local-ai",
+        "enrol",
+        "{\"lifecycle\":\"enrolled\",\"location\":{\"type\":\"coordinator\"},\"provider\":\"openai-compatible\",\"endpointId\":\"owned-review2\",\"baseUrl\":\"http://100.113.93.104:1234\",\"expectedModels\":[{\"modelId\":\"qwen/qwen3.6-35b-a3b\",\"required\":true,\"minContextLength\":131072},{\"modelId\":\"qwen/qwen3.5-9b\",\"required\":true}],\"canary\":{\"model\":\"qwen/qwen3.6-35b-a3b\",\"timeoutMs\":30000,\"intervalMs\":600000},\"endpointCheckIntervalMs\":60000,\"freshnessLimitMs\":120000,\"warningLatencyMs\":15000,\"routingRoles\":[\"compression\",\"memoryDistillation\",\"webExtract\",\"titleGeneration\",\"routingClassification\",\"approvalScoring\",\"approvalAdjudication\",\"loopScoring\",\"retrievalHypothesis\",\"branchScoring\",\"subQueryExecution\"],\"fallbackPolicy\":\"block-paid-fallback\",\"slotFallbackPolicies\":{},\"recovery\":{\"automatic\":false,\"maxAttempts\":2,\"cooldownMs\":300000}}",
+        "--json"
+      ],
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "aio-mcp local-ai failed: Local AI endpoint is already enrolled as f13cb7be-bc52-4f9d-b1fb-28f7bad3f00b\n"
+    },
+    {
+      "args": [
+        "local-ai",
+        "list",
+        "--json"
+      ],
+      "exitCode": 0,
+      "stdout": "[\n  {\n    \"lifecycle\": \"enrolled\",\n    \"location\": {\n      \"type\": \"coordinator\"\n    },\n    \"provider\": \"openai-compatible\",\n    \"endpointId\": \"owned-review2\",\n    \"baseUrl\": \"http://100.113.93.104:1234\",\n    \"expectedModels\": [\n      {\n        \"modelId\": \"qwen/qwen3.6-35b-a3b\",\n        \"required\": true,\n        \"minContextLength\": 131072\n      },\n      {\n        \"modelId\": \"qwen/qwen3.5-9b\",\n        \"required\": true\n      }\n    ],\n    \"canary\": {\n      \"model\": \"qwen/qwen3.6-35b-a3b\",\n      \"timeoutMs\": 30000,\n      \"intervalMs\": 600000\n    },\n    \"endpointCheckIntervalMs\": 60000,\n    \"freshnessLimitMs\": 120000,\n    \"warningLatencyMs\": 15000,\n    \"routingRoles\": [\n      \"compression\",\n      \"memoryDistillation\",\n      \"webExtract\",\n      \"titleGeneration\",\n      \"routingClassification\",\n      \"approvalScoring\",\n      \"approvalAdjudication\",\n      \"loopScoring\",\n      \"retrievalHypothesis\",\n      \"branchScoring\",\n      \"subQueryExecution\"\n    ],\n    \"fallbackPolicy\": \"block-paid-fallback\",\n    \"slotFallbackPolicies\": {},\n    \"recovery\": {\n      \"automatic\": false,\n      \"maxAttempts\": 2,\n      \"cooldownMs\": 300000\n    },\n    \"id\": \"f13cb7be-bc52-4f9d-b1fb-28f7bad3f00b\",\n    \"label\": \"This computer \u00b7 OpenAI-compatible\",\n    \"createdAt\": 1793077265483,\n    \"updatedAt\": 1793077265483\n  }\n]\n",
+      "stderr": ""
+    }
+  ]
+}

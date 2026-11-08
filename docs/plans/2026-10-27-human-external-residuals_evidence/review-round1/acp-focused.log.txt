@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/cli/adapters/acp-prompt-timeout-policy.spec.ts src/main/cli/adapters/acp-stall-watchdog.spec.ts src/main/cli/adapters/acp-cli-adapter.liveness.spec.ts
+
+✓ 3 files · 38 tests passed in 7.5s
+  full log: _scratch/test-run.pid-20393.log

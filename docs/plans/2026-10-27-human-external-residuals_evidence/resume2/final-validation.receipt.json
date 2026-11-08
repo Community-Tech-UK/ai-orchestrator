@@ -1,0 +1,27 @@
+{
+  "at": "2026-10-27T04:39:41.240984+00:00",
+  "immutablePreCleanupEvidenceMatches": 55,
+  "documentChangesAfterPreCleanupSeal": [
+    "docs/plans/2026-10-27-human-external-residuals_evidence/resume2/REPORT.md",
+    "docs/plans/livetest-remediation-register.md",
+    "docs/plans/2026-10-27-human-external-residuals_evidence/REPORT.md",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-27-livetest-human-external-residuals_livetest.md",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-27-residuals-startup-remediation_plan.md"
+  ],
+  "changeReason": "Concurrent LT-790 collision corrected to LT-890; final seal binds corrected documents",
+  "jsonValid": true,
+  "noProductCodeTestOrManifestDiff": true,
+  "nothingStaged": true,
+  "diffCheckPassed": true,
+  "historicalWorkerOwnerEqualsHead": true,
+  "canonicalRootOwnerHasNewEvidence": true,
+  "defectIdUnique": true,
+  "defectReferences": [
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-27-residuals-startup-remediation_plan.md",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-27-livetest-human-external-residuals_livetest.md",
+    "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/livetest-remediation-register.md"
+  ],
+  "runtimeCleanupPassed": true,
+  "independentVerification": "pending coordinator",
+  "pendingSyntheticEscalations": 2
+}

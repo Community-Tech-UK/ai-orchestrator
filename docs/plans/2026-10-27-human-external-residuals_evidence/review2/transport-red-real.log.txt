@@ -1,0 +1,34 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/mcp/aio-mcp-cli-transport.spec.ts
+
+✗ 5 of 6 tests failed in 5.6s:
+
+  ✗ src/main/mcp/aio-mcp-cli-transport.spec.ts › the built CLI over a real parent transport accepts the list command through the strict parent dispatcher
+    AssertionError: expected 'aio-mcp copilot-account failed: [\n  …' to be '' // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/mcp/aio-mcp-cli-transport.spec.ts:95:29
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+  ✗ src/main/mcp/aio-mcp-cli-transport.spec.ts › the built CLI over a real parent transport accepts the rules command through the strict parent dispatcher
+    AssertionError: expected 'aio-mcp copilot-account failed: [\n  …' to be '' // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/mcp/aio-mcp-cli-transport.spec.ts:95:29
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+  ✗ src/main/mcp/aio-mcp-cli-transport.spec.ts › the built CLI over a real parent transport accepts the doctor command through the strict parent dispatcher
+    AssertionError: expected 'aio-mcp copilot-account failed: [\n  …' to be '' // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/mcp/aio-mcp-cli-transport.spec.ts:95:29
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+  ✗ src/main/mcp/aio-mcp-cli-transport.spec.ts › the built CLI over a real parent transport accepts the route command through the strict parent dispatcher
+    AssertionError: expected 'aio-mcp copilot-account failed: [\n  …' to be '' // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/mcp/aio-mcp-cli-transport.spec.ts:95:29
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+  ✗ src/main/mcp/aio-mcp-cli-transport.spec.ts › the built CLI over a real parent transport preserves a settings result larger than the pipe buffer before successful exit
+    AssertionError: expected 1 to be +0 // Object.is equality
+        at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/mcp/aio-mcp-cli-transport.spec.ts:108:25
+        at processTicksAndRejections (node:internal/process/task_queues:104:5)
+
+full log: _scratch/test-run.pid-71006.log
+
+✗ FAILED — 5 of 6 tests failed (exit 1).

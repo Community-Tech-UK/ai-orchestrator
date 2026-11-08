@@ -1,0 +1,6 @@
+{
+  "command": "npm run test:quiet -- src/main/mcp/copilot-account-cli.spec.ts",
+  "startedAt": 1793069925.369704,
+  "endedAt": 1793069930.554875,
+  "exitCode": 0
+}

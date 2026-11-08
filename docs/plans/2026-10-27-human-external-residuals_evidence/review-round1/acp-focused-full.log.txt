@@ -1,0 +1,115 @@
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985
+
+(node:21124) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/cli/adapters/acp-prompt-timeout-policy.spec.ts (26 tests) 9ms
+(node:21368) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stdout | src/main/cli/adapters/acp-cli-adapter.liveness.spec.ts > ACP task and byte liveness integration > logs the armed inactivity lease rather than a blind delegated ceiling
+[2026-10-27T03:34:57.199Z] [INFO] [AcpCliAdapter] ACP turn reported no token usage; context bar stays empty for this session { profile: 'none', usageKeyCount: 0 }
+[2026-10-27T03:34:57.202Z] [INFO] [AcpCliAdapter] ACP turn completed {
+  adapter: 'ACP',
+  model: undefined,
+  stopReason: 'end_turn',
+  finish: undefined,
+  outputTokens: undefined,
+  reasoningTokens: undefined,
+  activeToolKind: 'think',
+  leaseMs: 10000,
+  classifierReason: 'completed',
+  evidence: 'provider_completed'
+}
+
+stdout | src/main/cli/adapters/acp-cli-adapter.liveness.spec.ts > ACP task and byte liveness integration > logs the armed inactivity lease rather than a blind delegated ceiling
+[2026-10-27T03:34:57.203Z] [INFO] [AcpCliAdapter] ACP process exited {
+  adapter: 'ACP',
+  code: 0,
+  signal: null,
+  textChars: 0,
+  textHash: 'e3b0c44298fc1c14'
+}
+
+stdout | src/main/cli/adapters/acp-cli-adapter.liveness.spec.ts > ACP task and byte liveness integration > keeps a silent parent alive for exact native child work created before delayed ACP observation
+[2026-10-27T03:34:57.377Z] [INFO] [AcpCliAdapter] ACP turn reported no token usage; context bar stays empty for this session { profile: 'none', usageKeyCount: 0 }
+[2026-10-27T03:34:57.377Z] [INFO] [AcpCliAdapter] ACP turn completed {
+  adapter: 'ACP',
+  model: undefined,
+  stopReason: 'end_turn',
+  finish: undefined,
+  outputTokens: undefined,
+  reasoningTokens: undefined,
+  activeToolKind: 'think',
+  leaseMs: 66,
+  classifierReason: 'completed',
+  evidence: 'provider_completed'
+}
+
+stdout | src/main/cli/adapters/acp-cli-adapter.liveness.spec.ts > ACP task and byte liveness integration > keeps a silent parent alive for exact native child work created before delayed ACP observation
+[2026-10-27T03:34:57.379Z] [INFO] [AcpCliAdapter] ACP process exited {
+  adapter: 'ACP',
+  code: 0,
+  signal: null,
+  textChars: 0,
+  textHash: 'e3b0c44298fc1c14'
+}
+
+stdout | src/main/cli/adapters/acp-cli-adapter.liveness.spec.ts > ACP task and byte liveness integration > partial raw stdout refreshes the prompt RPC before a complete notification exists
+[2026-10-27T03:34:57.531Z] [INFO] [AcpCliAdapter] ACP turn reported no token usage; context bar stays empty for this session { profile: 'none', usageKeyCount: 0 }
+[2026-10-27T03:34:57.532Z] [INFO] [AcpCliAdapter] ACP turn completed {
+  adapter: 'ACP',
+  model: undefined,
+  stopReason: 'end_turn',
+  finish: undefined,
+  outputTokens: undefined,
+  reasoningTokens: undefined,
+  activeToolKind: undefined,
+  leaseMs: 70,
+  classifierReason: 'completed',
+  evidence: 'provider_completed'
+}
+
+stdout | src/main/cli/adapters/acp-cli-adapter.liveness.spec.ts > ACP task and byte liveness integration > partial raw stdout refreshes the prompt RPC before a complete notification exists
+[2026-10-27T03:34:57.532Z] [INFO] [AcpCliAdapter] ACP process exited {
+  adapter: 'ACP',
+  code: 0,
+  signal: null,
+  textChars: 0,
+  textHash: 'e3b0c44298fc1c14'
+}
+
+stdout | src/main/cli/adapters/acp-cli-adapter.liveness.spec.ts > ACP task and byte liveness integration > reports observed pipe blockage once without exposing the raw diagnostic
+[2026-10-27T03:34:57.534Z] [INFO] [AcpCliAdapter] ACP turn reported no token usage; context bar stays empty for this session { profile: 'none', usageKeyCount: 0 }
+[2026-10-27T03:34:57.534Z] [INFO] [AcpCliAdapter] ACP turn completed {
+  adapter: 'ACP',
+  model: undefined,
+  stopReason: 'end_turn',
+  finish: undefined,
+  outputTokens: undefined,
+  reasoningTokens: undefined,
+  activeToolKind: undefined,
+  leaseMs: 600000,
+  classifierReason: 'completed',
+  evidence: 'provider_completed'
+}
+
+stdout | src/main/cli/adapters/acp-cli-adapter.liveness.spec.ts > ACP task and byte liveness integration > reports observed pipe blockage once without exposing the raw diagnostic
+[2026-10-27T03:34:57.535Z] [INFO] [AcpCliAdapter] ACP process exited {
+  adapter: 'ACP',
+  code: 0,
+  signal: null,
+  textChars: 151,
+  textHash: 'fc818aba35b590dd'
+}
+
+ ✓ |main| src/main/cli/adapters/acp-cli-adapter.liveness.spec.ts (4 tests) 343ms
+(node:21593) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/cli/adapters/acp-stall-watchdog.spec.ts (8 tests) 7ms
+
+ Test Files  3 passed (3)
+      Tests  38 passed (38)
+   Start at  03:34:55
+   Duration  2.71s (transform 616ms, setup 167ms, import 759ms, tests 359ms, environment 879ms)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/test-results.pid-20393.json

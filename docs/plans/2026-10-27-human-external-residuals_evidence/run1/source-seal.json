@@ -1,0 +1,21 @@
+{
+  "recordedAt": 1793070062.682367,
+  "head": "80412201a07ec93cefb9a4b6ddb06579ad314d75",
+  "sourceHashes": {
+    "src/main/mcp/copilot-account-cli.ts": "e8e983b5e4fecec88f673a96ceb60aec3da989ce3dadc3f42f3a82304122d4ba",
+    "src/main/mcp/orchestrator-tools-rpc-client.ts": "d167ef56aeeef85f45e8725152cd27cf243c85ab284693160c6ecb114883286a",
+    "src/main/mcp/orchestrator-tools-rpc-copilot-account.ts": "246990d94d83c0c165134b0fa3e222fcc72d4488023d50ec10de6fc0aae78323",
+    "src/main/mcp/orchestrator-tools-rpc-server.ts": "a94940b60bd330e5e296f97a980c2b707f4d7484ecbdf1118f020252307142f2",
+    "src/main/mcp/copilot-account-cli-contracts.ts": "2db148ea2ea9f194d6c7667c37c0123effc12879e745d2da695b24788a6b93f8",
+    "src/main/mcp/copilot-account-cli.spec.ts": "fa0ca50dfee001e73af9a19e8a38aac314ae82a4d290e0a79cf3a071f7e773d6",
+    "src/main/mcp/settings-cli.ts": "2e58e84b90c2dd9c599f5bc6788f240efd565015c4797e80f96405eef043aa54",
+    "src/main/mcp/aio-mcp-dispatcher.ts": "d5288235730f5d054b4bae4daa1f9b0e6d349c64ede04867e4d8eb3bdf709ee4"
+  },
+  "originalDocumentSha256": "af39e6236e98e342b579701be60c4324556ccb154696f65fc522e7fd644454bf",
+  "compiledModuleHashes": {
+    "dist/main/mcp/copilot-account-cli.js": "c627a5d5df5408ad842e13e42e57bf6976a2c208e12461bc4fb409b6c6317203",
+    "dist/main/mcp/orchestrator-tools-rpc-client.js": "1ada58a0de74d20da4d6266b0a72ad32171cb18515fe081f70c10d9d9d2f0ce4",
+    "dist/main/mcp/settings-cli.js": "c57b6c388267780107f663682173c22874b6cfe2caea95655e4772f2543fc3fa",
+    "dist/main/mcp/aio-mcp-dispatcher.js": "120722e8c71929175cf763ee819a924e47a7b2d540528b9d524a1f2be5972d44"
+  }
+}

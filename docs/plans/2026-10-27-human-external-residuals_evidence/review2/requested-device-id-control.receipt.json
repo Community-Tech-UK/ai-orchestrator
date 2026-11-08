@@ -1,0 +1,22 @@
+{
+  "at": "2026-10-27T07:17:16.652290+00:00",
+  "purpose": "Read-only direct-ID device control after independent Xcode discovery; no device mutation",
+  "discoveryExitCode": 0,
+  "requestedDeviceFound": true,
+  "availableInIndependentDiscovery": true,
+  "identifierSha256": "31636b2b29fa3d1a377e140670368bc77e028087eeacb95073c75186375667c1",
+  "commandWithoutIdentifier": [
+    "xcrun",
+    "devicectl",
+    "--timeout",
+    "15",
+    "--json-output",
+    "_scratch/review2/device-lock-id.json",
+    "device",
+    "info",
+    "lockState",
+    "--device",
+    "<identifier redacted; hash recorded>"
+  ],
+  "controlTimedOutAfterSeconds": 25
+}

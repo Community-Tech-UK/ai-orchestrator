@@ -1,0 +1,11 @@
+  … 8 test file(s) done (full log: _scratch/test-run.pid-99558.log)
+  … 33 test file(s) done (full log: _scratch/test-run.pid-99558.log)
+  … 90 test file(s) done (full log: _scratch/test-run.pid-99558.log)
+  … 278 test file(s) done (full log: _scratch/test-run.pid-99558.log)
+  … 779 test file(s) done (full log: _scratch/test-run.pid-99558.log)
+  … 1118 test file(s) done (full log: _scratch/test-run.pid-99558.log)
+  … 1564 test file(s) done (full log: _scratch/test-run.pid-99558.log)
+  … 2070 test file(s) done (full log: _scratch/test-run.pid-99558.log)
+  … 2463 test file(s) done (full log: _scratch/test-run.pid-99558.log)
+✓ 2793 files · 35381 tests passed in 1164.4s
+  full log: _scratch/test-run.pid-99558.log

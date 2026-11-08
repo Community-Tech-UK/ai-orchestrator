@@ -1,0 +1,11 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "check:ui-hints"
+  ],
+  "startedAt": "2026-10-27T06:32:36.156466+00:00",
+  "endedAt": "2026-10-27T06:32:39.519039+00:00",
+  "exitCode": 0,
+  "log": "ui-hints-after-prune.log.txt"
+}

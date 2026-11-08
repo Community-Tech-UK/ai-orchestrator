@@ -1,0 +1,33 @@
+{
+  "command": "Authenticated read-only Copilot list using transport payload {}",
+  "startedAt": 1793069733824,
+  "profiles": [
+    {
+      "id": "legacy",
+      "label": "Existing Copilot account",
+      "expectedLogin": "shutupandshave",
+      "host": "github.com",
+      "accountKind": "personal",
+      "scopePolicy": "default-eligible",
+      "automationPolicy": "allow-routed",
+      "isDefault": true,
+      "isLegacy": true,
+      "bindingState": "authenticated",
+      "observedLogin": "shutupandshave"
+    },
+    {
+      "id": "lawrencj",
+      "label": "LAWRENCJ",
+      "expectedLogin": "LAWRENCJ",
+      "host": "ebrd.ghe.com",
+      "accountKind": "enterprise",
+      "scopePolicy": "matched-only",
+      "automationPolicy": "allow-routed",
+      "isDefault": false,
+      "bindingState": "authenticated",
+      "observedLogin": "LAWRENCJ"
+    }
+  ],
+  "ok": true,
+  "endedAt": 1793069734055
+}

@@ -1,0 +1,13 @@
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985
+
+(node:32041) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |main| src/main/mcp/copilot-account-cli.spec.ts (17 tests) 14ms
+
+ Test Files  1 passed (1)
+      Tests  17 passed (17)
+   Start at  02:58:49
+   Duration  861ms (transform 67ms, setup 88ms, import 89ms, tests 14ms, environment 504ms)
+
+JSON report written to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/_scratch/test-results.pid-31802.json

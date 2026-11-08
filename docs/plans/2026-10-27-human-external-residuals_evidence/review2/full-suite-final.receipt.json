@@ -1,0 +1,15 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet"
+  ],
+  "startedAfterLoadCheckAt": "2026-10-27T05:33:10.134800+00:00",
+  "observedStopAt": "2026-10-27T06:06:28.479974+00:00",
+  "exitCode": 130,
+  "completed": false,
+  "exitSource": "Own exec session 15102 returned 130 after Ctrl-C",
+  "reason": "Shared host load rose to 114/60/41",
+  "log": "full-suite-final.log.txt",
+  "observedFailingFile": "scripts/__tests__/dependency-compatibility.spec.ts"
+}

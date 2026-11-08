@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/mcp/local-ai-cli.spec.ts src/main/mcp/orchestrator-tools-rpc-local-ai.spec.ts src/main/security/approval-adjudicator.spec.ts src/main/browser-gateway/browser-action-classifier.spec.ts
+
+✓ 4 files · 122 tests passed in 7.1s
+  full log: _scratch/test-run.pid-27428.log

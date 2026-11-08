@@ -1,0 +1,14 @@
+{
+  "startedAt": "2026-10-27T03:18:21.128579+00:00",
+  "profile": "/tmp/aio-lt-queue-af185985",
+  "rendererPort": 9654,
+  "debugPort": 9554,
+  "flags": [
+    "--no-sandbox",
+    "--disable-gpu",
+    "--js-flags=--max-old-space-size=8192",
+    "--remote-debugging-port=9554"
+  ],
+  "ready": false,
+  "rendererPid": 55996
+}

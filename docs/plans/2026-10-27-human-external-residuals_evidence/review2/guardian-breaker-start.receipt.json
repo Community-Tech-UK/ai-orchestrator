@@ -1,0 +1,11 @@
+{
+  "command": [
+    "node",
+    "_scratch/review2/cdp.mjs",
+    "_scratch/review2/guardian-breaker.js"
+  ],
+  "startedAt": "2026-10-27T05:15:11.433345+00:00",
+  "endedAt": "2026-10-27T05:15:11.912943+00:00",
+  "exitCode": 0,
+  "log": "guardian-breaker-start.log.txt"
+}

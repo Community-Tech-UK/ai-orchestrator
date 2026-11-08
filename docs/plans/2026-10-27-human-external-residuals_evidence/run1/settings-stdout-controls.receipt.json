@@ -1,0 +1,21 @@
+{
+  "checkedAt": 1793069948.7272289,
+  "results": [
+    {
+      "mode": "installed CLI, stdout regular file",
+      "exitCode": 0,
+      "bytes": 115377,
+      "sha256": "b1554dc05e5d4c65e8a2730a8fd9ca3be974aa6e4848311d261732026d83e0f9",
+      "validJson": true,
+      "settingsCount": 224
+    },
+    {
+      "mode": "same compiled settings CLI, natural stdout drain through pipe",
+      "exitCode": 0,
+      "bytes": 115377,
+      "sha256": "b1554dc05e5d4c65e8a2730a8fd9ca3be974aa6e4848311d261732026d83e0f9",
+      "validJson": true,
+      "settingsCount": 224
+    }
+  ]
+}

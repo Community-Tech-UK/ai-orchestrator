@@ -1,0 +1,14 @@
+{
+  "command": [
+    "npm",
+    "run",
+    "test:quiet"
+  ],
+  "startedAt": "2026-10-27T06:39:26.933814+00:00",
+  "endedAt": "2026-10-27T06:46:39.860356+00:00",
+  "exitCode": 1,
+  "log": "full-suite-after-prune.log.txt",
+  "environment": {
+    "AIO_TEST_SUMMARY": "0"
+  }
+}

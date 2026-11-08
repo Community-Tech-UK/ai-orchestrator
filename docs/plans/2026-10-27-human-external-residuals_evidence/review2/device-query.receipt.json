@@ -1,0 +1,13 @@
+{
+  "command": [
+    "xcrun",
+    "devicectl",
+    "--timeout",
+    "20",
+    "--json-output",
+    "_scratch/review2/devices.json",
+    "list",
+    "devices"
+  ],
+  "timeoutSeconds": 30
+}

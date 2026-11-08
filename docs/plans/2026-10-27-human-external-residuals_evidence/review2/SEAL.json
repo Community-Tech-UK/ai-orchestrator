@@ -1,0 +1,1096 @@
+{
+  "at": "2026-10-27T07:37:46.310552+00:00",
+  "refs": {
+    "HEAD": "7abf0cb5a021adc89eeb138a12c92149d18da526",
+    "main": "359a0706c33999e34d50e8e5b0f555c221a84193"
+  },
+  "campaignComplete": false,
+  "independentVerdict": "pending queue verifier",
+  "files": [
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/mcp/copilot-account-cli.ts",
+      "bytes": 7880,
+      "sha256": "06e3045d7411376ca232a2d8121cca91dac7482910ebdd0d80486e2c45deb33c"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/mcp/copilot-account-cli.spec.ts",
+      "bytes": 8148,
+      "sha256": "968e6b781c22a1ad8d9f53e4750fc48577b225be6acd275b155e481e12edef5a"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/mcp/aio-mcp-dispatcher.ts",
+      "bytes": 5043,
+      "sha256": "141496f89de6747aec51f30a11578ab40ba3de9fc849c3a1912a14339417c376"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/mcp/aio-mcp-cli-transport.spec.ts",
+      "bytes": 6613,
+      "sha256": "b4704d4384b7c462550eb7f3271caf261f5d2bd75c24cbb2981589749c8a6128"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/browser-gateway/browser-target-persistence-sentinel.ts",
+      "bytes": 10997,
+      "sha256": "ea055fcc5e4e11b0e6d6f6074aafdc404b614aac01460edfa406db6cf58ffa97"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/browser-gateway/browser-target-persistence-sentinel.spec.ts",
+      "bytes": 7003,
+      "sha256": "8459886a26cfe47e912cbeea779b422ebabfdec4156805f5f6b02a13ca08e509"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/browser-gateway/browser-gateway-reliability-reconnect.spec.ts",
+      "bytes": 10606,
+      "sha256": "97f07ca5d2f7cb6afb73ad713292bf04643343623189d6332997635ae78481fa"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/livetest-remediation-register.md",
+      "bytes": 1081622,
+      "sha256": "8a102e68936a1340deccda76bdfe89e05a15f256e1e30ab08e3d4e9ab63a0a22"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-07-19-livetest-failure-remediation-followup_plan.md",
+      "bytes": 22686,
+      "sha256": "cd019a1adcb3e5c2ff2c565ee34f0d826ff64598637cf0a36dcc4f7590662851"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-09-27-livetest-human-external-residuals_livetest.md",
+      "bytes": 155388,
+      "sha256": "e2b9ae93b38fe9e90e0eedd2c38547e4589c4fd804408c00f8b7fc3279b17e9c"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/docs/plans/2026-10-27-human-external-review2_plan.md",
+      "bytes": 5971,
+      "sha256": "83576b21a9b037c855f2ce78a292e8fc561bd3133672fc850d419aec23657353"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/PRE-CLEANUP-SEAL.json",
+      "bytes": 70476,
+      "sha256": "ea9c5b0288609f2e959cb3e97eb4b05dbf38b6f860e589c1ec226faa0b4a8421"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/REPORT.md",
+      "bytes": 13425,
+      "sha256": "7726bb13d16bd3011f3e6f3de332cd58fa91c352b73e6a971a478a4959ce9094"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/baseline.log.txt",
+      "bytes": 328,
+      "sha256": "3107de747df9bb470bee63218beee5b746bc9cb0a0a3de64455aa7c921c617f0"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/baseline.receipt.json",
+      "bytes": 427,
+      "sha256": "278d00543c71f655c933a383453cbb13765dd686eea1b4be3491de71e15b8510"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/breaker-notice-reset.receipt.json",
+      "bytes": 1113,
+      "sha256": "c4c6faef9c65000a92f25888b9ec6dd6a8dbe361fc7c93bf047ea9bd707a2749"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-cli-sea.log.txt",
+      "bytes": 530,
+      "sha256": "67a4503b29f1cc06db9a20afbd0e44ceb55702c965eccfa9968b1067ae5df0fd"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-cli-sea.receipt.json",
+      "bytes": 298,
+      "sha256": "ad957adfdcc42b037c5ba7ff5abfc2e6cbb30176b3eae854ca8279e459d01b95"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-cli.log.txt",
+      "bytes": 178,
+      "sha256": "38e947a1137bb428561fa3e6fd94003b9ce2a65572f1cdfbcfe1d57d16663c90"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-cli.receipt.json",
+      "bytes": 216,
+      "sha256": "447441d825dc54aa079a5539468a89b174fd4af0da49175131c0b697f4f87634"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-main-after-prune.log.txt",
+      "bytes": 284,
+      "sha256": "20efbcd956ab99cdc776c5bd6dc0ebdb3da7cf90e7e9078d0356bbde952ea401"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-main-after-prune.receipt.json",
+      "bytes": 222,
+      "sha256": "513c77e34a1734113890277bc599b9b5fa94940021c5e379fa0b09560dd400e4"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-main-final.log.txt",
+      "bytes": 284,
+      "sha256": "85ea6eb334975a4cd7c3f6f7902c65d2be9e13f917dfbd5551dc60625a1c614c"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-main-final.receipt.json",
+      "bytes": 216,
+      "sha256": "78d61d74648aa0acb8d4c40dbb363667aaf5449b73b96379b4fac9d3e883b5c0"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-main.log.txt",
+      "bytes": 284,
+      "sha256": "60f56b945afeed6e768d7356d5eb3a8c90ec5054eee64a3c858b5e78d821b553"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-main.receipt.json",
+      "bytes": 210,
+      "sha256": "02376c44cd0c90c87f58d0db352e29c9694032e2f32539197fc7c1d01793006b"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-renderer-after-prune.log.txt",
+      "bytes": 5447,
+      "sha256": "9f887ee8ab5c6fe5b3bc8544fee1a5e6c8957f0f9aa9af50172f198589fd2288"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-renderer-after-prune.receipt.json",
+      "bytes": 282,
+      "sha256": "f868119916ebc00d93c0937c5cf62bea9084e7433641f1a7ae080276e6789163"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-renderer.log.txt",
+      "bytes": 5447,
+      "sha256": "2e96a78b0d7242442d95749a1370d8ebd1c0682a507fbd69c783018a3d4b3154"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-renderer.receipt.json",
+      "bytes": 218,
+      "sha256": "fa80b9d32a9a49007febf3ae88b0b104b37f09eb619f6de15058cf0e87f925e2"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/cft-extra-recovery.receipt.json",
+      "bytes": 1210,
+      "sha256": "3da8e758862cbb42fac6768b1b27da74bfcf34bbfded455adb956f9c224c3da3"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/cft-recovery.receipt.json",
+      "bytes": 125,
+      "sha256": "c8fc24df149291d600f6186bf2d685cee1ccd2da3be0fb60ad307955b632c2d1"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/cleanup.receipt.json",
+      "bytes": 13661,
+      "sha256": "652426a62a24ce6a49ac5408123c6c62a02de20a787eaad2a53f319caa226d36"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/cli-live.receipt.json",
+      "bytes": 1571,
+      "sha256": "11071429a7ef0af50675253f0d6430362370e6783258c7744018e01ec32aad59"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/dependency-clean.log.txt",
+      "bytes": 196,
+      "sha256": "532da2df855ffa15f41dfdb8f4b8755f6c6eb89bd2bc2bd7f8c4c9b2dbaf9d01"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/dependency-clean.receipt.json",
+      "bytes": 284,
+      "sha256": "7d21a61c4325065490beef6c6a56e3cac4d34b53991af2afc29633512553acf2"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/dependency-extra-inventory.receipt.json",
+      "bytes": 1334,
+      "sha256": "a951e958e50e91362e0594f7d1530bbaa706cd0d2c6d464f3e12233cb997b729"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/dependency-prune-dry-run.log.txt",
+      "bytes": 2705,
+      "sha256": "12631072dd31cdeb215b48dedbd988e6e285dce351d7082e4c4409de8bf848cd"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/dependency-prune-dry-run.receipt.json",
+      "bytes": 297,
+      "sha256": "565937d1fcaf3903f7ef87a85f287091be4c39fb28009f72264d99775068366c"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/dependency-prune.log.txt",
+      "bytes": 3017,
+      "sha256": "f0611e392ef436453cfee9c4f0d0ef0d989633c9d11766da9cc77ccdcd62ed29"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/dependency-prune.receipt.json",
+      "bytes": 272,
+      "sha256": "1796365185dc56c2bd77475063f8323d5cf2781c13ccfb212fdb7ca4667b5ab7"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/dependency-tree-clean.receipt.json",
+      "bytes": 265,
+      "sha256": "ada1b8a51870ce9192ef04da4bfffaa3a803042b6c8a0f7473c5845290a5a896"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/dependency-tree-investigation.receipt.json",
+      "bytes": 2348,
+      "sha256": "a2b917a7caad6f575f7dadb7b1cf355daea681875b1e76152bdc146faacf210e"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/device-query.receipt.json",
+      "bytes": 188,
+      "sha256": "4ea8769942a14353d2520da964af1715811dae65440a9e7384dd1eeb161e5487"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/device-tooling-controls.receipt.json",
+      "bytes": 533,
+      "sha256": "a95bcfd4352e14683a78ef727c2b3fd53bbe8481a3f9b1abce929ddc6434377c"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/document-final-state.receipt.json",
+      "bytes": 615,
+      "sha256": "29b7ba313e58885090b080bc2eed7ba71203e430e53b2ec0a16d65b82b488958"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/enrol-matrix.receipt.json",
+      "bytes": 10955,
+      "sha256": "d4dd5ae6751e92489498bdfdc84072c30b932bfa303c6a972a207e7784a21500"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/extra-owned-runtime.receipt.json",
+      "bytes": 318,
+      "sha256": "9e2514b47243273f685282c329255a475bb38d58b53c179855f4d63d7a181227"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/final-content-validation.receipt.json",
+      "bytes": 267,
+      "sha256": "5c4846f029b8bfab82be3c824c0bb016555b5e0b321b319f24a0726620da7d04"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/final-git-state.receipt.json",
+      "bytes": 1139,
+      "sha256": "05b7773f9d6d7ce5f78a143fe96fe38baa1fa5fe00b11265ac7bbf1a06388834"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/firebase-deployed-source.receipt.json",
+      "bytes": 561,
+      "sha256": "0f990f95d2dddd1c7fad33d2d821027f2c76de444d94c4778cd52f807ca2649f"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/firebase-effective-conclusion.receipt.json",
+      "bytes": 826,
+      "sha256": "18819d73ca3372e1416446cf22e771b0b6536bec560f8340939984b625dc6ef8"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/firebase-iam-read.receipt.json",
+      "bytes": 1817,
+      "sha256": "6770f3ff0cccfda68b8761a0e23187347e738818b6dde209ebbd0ddfb67ddffb"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/firebase-key-reference.receipt.json",
+      "bytes": 698,
+      "sha256": "2b7cbd4bf6e9c3531f88a7bd814c5544c83ffc998377426bd725afa019bb91f8"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/firebase-project-discovery-all.receipt.json",
+      "bytes": 361,
+      "sha256": "8146a8091c22dcd28cca1f65870c36777ff5ab18870423539c28af9b913d38c5"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/firebase-project-discovery.receipt.json",
+      "bytes": 264,
+      "sha256": "b9a34007f160a4120b3762ae2b639eeb37b0a6568cc87ba0d216d8be28e0b26b"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/firebase-project-discovery2.receipt.json",
+      "bytes": 318,
+      "sha256": "0ffd49ea7421c502a10106e959e43bcff99e41e3b23d43ac36a0e444df4a7daf"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/firebase-role-permissions.receipt.json",
+      "bytes": 826,
+      "sha256": "b76127ff2d3bf2ec6757a5da4b2f2de5cbbd6174eb28d4a814369fc3f19c54e6"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/firebase-runbook-read.receipt.json",
+      "bytes": 171,
+      "sha256": "b20e65f66d824fef89fb57ec12e69cac9be4edd5ca4d6a5a9ba366840651c56e"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/firebase-vault-metadata.receipt.json",
+      "bytes": 2422,
+      "sha256": "c0f1a438fb226d179139de22b8afebd615f3f4270436c1afc0495f2ceaebf7e2"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/focused-green.log.txt",
+      "bytes": 402,
+      "sha256": "448c52d1f34cfb478646574a81c5c1540564ca85897bc5215a847e536fce8143"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/focused-green.receipt.json",
+      "bytes": 519,
+      "sha256": "36d86f9936bf5b3d1d48d201e45dae8ee673cd3b9571361fa69c23f43fd2c375"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/fresh-review-attempt1.receipt.json",
+      "bytes": 399,
+      "sha256": "878f01f55a2ca9df855eb6b6321fe9952d332e131c2d024d2926ac4bd2947626"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/fresh-review-attempt2.receipt.json",
+      "bytes": 498,
+      "sha256": "6c9c5ff10eb421a4a475bc3dad32ec38811b557f14ecd770306bd138c169fc60"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/fresh-review-attempt3.receipt.json",
+      "bytes": 3703,
+      "sha256": "987a113996954918e9324febab693b57dc50019e2a4dcba19482bfbc99b0c052"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/fresh-review.receipt.json",
+      "bytes": 3703,
+      "sha256": "987a113996954918e9324febab693b57dc50019e2a4dcba19482bfbc99b0c052"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/full-suite-after-prune.log.txt",
+      "bytes": 2544,
+      "sha256": "ea93c07168a1fdab453cf2e6c7315d37a42eb5166cd2c9fc468b8fa5382edca2"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/full-suite-after-prune.receipt.json",
+      "bytes": 274,
+      "sha256": "02924cd8d620223c537795ccd201acd96e0c8bb163f49519fdb35567bd85e1c2"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/full-suite-failures.receipt.json",
+      "bytes": 4031,
+      "sha256": "f9456b05714e4b799f916fc9a03d6b7997e52698be1d9bb8178a80b5c22abc78"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/full-suite-final.log.txt",
+      "bytes": 1205,
+      "sha256": "006bea526a650d27b222b1a3f03e90ec45d7efe40fd74022bcab88f5939c2b0d"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/full-suite-final.receipt.json",
+      "bytes": 458,
+      "sha256": "8eaaccc04998ecb92c65e8946c7e9db412c9c552947f5bd82f926713cff05262"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/full-suite-interrupted-full.log.txt",
+      "bytes": 9247,
+      "sha256": "d70488191ea2602ce55ae2092f28fc5192fbb388cbc1bfb0d2fa3529a823349a"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/full-suite-interrupted.log.txt",
+      "bytes": 63,
+      "sha256": "718639a34f61a96ebf8122e48beacc73985d0440ccff931d6dc6ca14bc905093"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/full-suite-interrupted.receipt.json",
+      "bytes": 505,
+      "sha256": "5740537d0a27d3d6c1500c8f453a8fed20354bf8736963379417fd9bf9b30613"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/full-suite-load-guard.receipt.json",
+      "bytes": 1334,
+      "sha256": "3a86ec5971656ce455707758c962e5803e900b37825204270295461892a41ce3"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/full-suite-stop.receipt.json",
+      "bytes": 270,
+      "sha256": "54852f69b6e3028bf4610e038f40ed057ee6d09e60c327ea6917b33efae9ca18"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/full-suite-supported-runtime.log.txt",
+      "bytes": 740,
+      "sha256": "481b5eebb362bf98d6cd8ffc86a18649729786536ed748d69df17baee9677346"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/full-suite-supported-runtime.receipt.json",
+      "bytes": 330,
+      "sha256": "edc598e9f64f4cc7c8e110c4a04b68613bc3ebbf158b9a0c70fc48c93bbc5bc7"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-adjudicator-audit.receipt.json",
+      "bytes": 739,
+      "sha256": "a0b89326a9905722b1542f544d4a6fa7a0717328f6bcf9dd11f6da9138a54d77"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-audit-final.receipt.json",
+      "bytes": 2332,
+      "sha256": "98b50099b80a601f4d9ac09708dd321f947223071bcb2a7065fe146104cee666"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-breaker-later.log.txt",
+      "bytes": 12059,
+      "sha256": "4bf05bc6ea091cd0b409e92487acd46f9fbe1a782e3f3274e4f7685721d0758e"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-breaker-later.receipt.json",
+      "bytes": 268,
+      "sha256": "bc6cb8dc8606d0d25a1b97220c4a0f9bfa5c4f19b11e952560255cbe81029788"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-breaker-start.log.txt",
+      "bytes": 167,
+      "sha256": "b532643f47501beb49998777033c3a07b4aee67b398c630e7d6b79e2743ddec6"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-breaker-start.receipt.json",
+      "bytes": 270,
+      "sha256": "2da97b5d9a3c81c699afa82ed44d56cbdd64bec9bd1d22fc891274574c1ead45"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-breaker-status.log.txt",
+      "bytes": 12059,
+      "sha256": "30a6af3857b5d448e5eae977084bf50376a5a75b2f785641f84c38d2ee780f87"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-breaker-status.receipt.json",
+      "bytes": 269,
+      "sha256": "0733eb2efe1214ad1fcfc8f56e393b6e7dd9b5c35d3dcebe332c3bfc8b04d387"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-cold-effort.log.txt",
+      "bytes": 255,
+      "sha256": "ac9d935f57b9c787a28147ae8c1819d6c4e945644f2ceb11ebb0a2ef1045db54"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-cold-effort.receipt.json",
+      "bytes": 265,
+      "sha256": "b7e97213908e1cc08802df2452e9133172f1e2810257d0eafadb90472ad59991"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-cold-status.log.txt",
+      "bytes": 1765,
+      "sha256": "c4ccf3e0be7e4e8475d93917cb976a0786ff318150b18dc5a52c9f57b37f6e1d"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-cold-status.receipt.json",
+      "bytes": 266,
+      "sha256": "1dcea6c3cd5e7fc6a3405f454031deded09444a9aa7d2677cf09dbb8d657088d"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-cold.log.txt",
+      "bytes": 238,
+      "sha256": "0d0c621959aa32389ddf8c46603b9c004a7de7a5ddc5fac82910b5c2fc67ccbb"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-cold.receipt.json",
+      "bytes": 258,
+      "sha256": "c413a7744b9e46a916a66ad333d78bc6961dbafbfceeced9c1efd7879a9166e8"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-durable-audit.receipt.json",
+      "bytes": 123,
+      "sha256": "18470a4f497cefa2093b41434ee1b40ae6b018c282780bdeaa6248a992d826e4"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-fault-endpoint.receipt.json",
+      "bytes": 836,
+      "sha256": "2eccd450ade6b1f65abb4e1a5469f564716e7cd1d0882267f795d6abfa758877"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-fault-endpoint2.receipt.json",
+      "bytes": 3021,
+      "sha256": "af6070dd46e863cf5c7ef753e259e88e280414779458bb6f3a1f9d25fe21adc8"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-later-status.log.txt",
+      "bytes": 5314,
+      "sha256": "60fcbd970730efaa5e054fe00d18f40a350275f4ed16d6127550fcd37b6c51ca"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-later-status.receipt.json",
+      "bytes": 267,
+      "sha256": "04381234ccefb928c3254c003ed6ba5db5d30c8e624ebe3d94b360bcc9130170"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-outage-final.receipt.json",
+      "bytes": 7692,
+      "sha256": "5b8c8178022d1e16301efc43aa8d3439d8f305303a1d23d26a9a7426d80c270d"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-outage-start.receipt.json",
+      "bytes": 120,
+      "sha256": "a73c9c9fd600b76b9414b48ca73778555e6336550019148154fb844f33e5c618"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-pending-ui.log.txt",
+      "bytes": 8226,
+      "sha256": "22d7da59637dc4723773733521aba9734464cbeb2a9a0f97bab50eeeb80a8585"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-pending-ui.receipt.json",
+      "bytes": 266,
+      "sha256": "9dc21b604c1a8a6a573da75d57001e8bcd15d7c97e4c7ff472b25d9303f6b8e0"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-ready-status.log.txt",
+      "bytes": 8789,
+      "sha256": "7e6378701b61f9d13dfa7f54ec1703335ab1a962f7e388f7620f616f45973902"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-ready-status.receipt.json",
+      "bytes": 267,
+      "sha256": "8a162bc21caf95988de56f78282df916a4bd0fe31737d60acb6e1945ab86f985"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-ready.log.txt",
+      "bytes": 118,
+      "sha256": "e15e3f96cc665cf5552fd196c4abe07daa6a2e7f285b56a331b088ded4ccb1e8"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-ready.receipt.json",
+      "bytes": 260,
+      "sha256": "121cedea7a6cc22accb3e55a14caedebe8a1c6f8e6b8c6a5bfff92f6dfbcb52d"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-retry.log.txt",
+      "bytes": 21112,
+      "sha256": "6975114dbbadbfcdfd84b9428d01cd07e8004392fe92b90a0aac47d9c9b507a2"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-retry.receipt.json",
+      "bytes": 260,
+      "sha256": "feaeae8eaf6fa2f785eb71bae81f5a7ef88ab93e510434fd584f06c46e2a80ca"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-start.log.txt",
+      "bytes": 1574,
+      "sha256": "b27aea122bcbb3a21214ac3a5bd40bff04ab43fc1f72d9c7c49799ca958a7ac1"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-start.receipt.json",
+      "bytes": 260,
+      "sha256": "0621d392a8b79dd76119796fff340b5a851ba94d3c33eecc95bd42e86530ef47"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-status-corrected.log.txt",
+      "bytes": 6973,
+      "sha256": "f61e0716400b8ad4a71b5ef843e67380f2d12c6ac7be8ac8a632898fa0543635"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-status-corrected.receipt.json",
+      "bytes": 272,
+      "sha256": "051530cd7f918a3b7a9a13c89c589f49fa82ccd63a47528a2205da8adc81411f"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-status.log.txt",
+      "bytes": 733,
+      "sha256": "8e225af6f7e0e0b3dd9f3c803b163ffd1de4013b2f6218e09533f689263c5e03"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-status.receipt.json",
+      "bytes": 262,
+      "sha256": "a172dc203b5ebd8e3c89ff5d5419977e22c0ecb17046585686d543e149a4a88c"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-status2.receipt.json",
+      "bytes": 6147,
+      "sha256": "eb1c6a263077ef64ec07a551116d7958ba01b0030779c33429be4eccfbcaed01"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/id-992-allocation.receipt.json",
+      "bytes": 3142,
+      "sha256": "54d188f498f32680ecb594d00af91e71019cb20336405791ae543f3846c61258"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/id-allocation.receipt.json",
+      "bytes": 3137,
+      "sha256": "dd7ab6493c06aa70d2586bc8780f0e63c106bc62a155c1fa275a3c2a239ecf3a"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/id-and-cache-final-check.receipt.json",
+      "bytes": 1062,
+      "sha256": "7527fb6324c27fd5898830c438a18afdfc62003432daeb7a15e74e03a49b9a03"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/id-final-check.receipt.json",
+      "bytes": 3413,
+      "sha256": "da63bb6d2ef8eef7ebd3975fc3a7d951ad7dac1739fe359a3cd683706fc26df0"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/independent-review-status.receipt.json",
+      "bytes": 568,
+      "sha256": "b06d88250bcd1bbfd3d47a5d0b271d430748315159769a20d0a692beaff2981d"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/independent-usbmux-device.receipt.json",
+      "bytes": 160,
+      "sha256": "ab30aeb8cd63ea74533b1b136da1b3809a8b1e2a99c5c66cfeb7b72005a8fc2a"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/independent-xcdevice.receipt.json",
+      "bytes": 1019,
+      "sha256": "4849b5e1f3dc95a13bf49dca79a9c6e6d297a575503ca0ebf2a2e4bc08e32315"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/isolated-doc-review.log.txt",
+      "bytes": 208,
+      "sha256": "8e87bc59f52d082d1b0cc2f33bd095b3847638dd09e2ddc6615008434710bfb8"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/isolated-doc-review.receipt.json",
+      "bytes": 357,
+      "sha256": "c958a1da43ae57f20f39f2cabdff33a77016c4c6af681bbe0cb4130a6cfff77a"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/isolated-native-finality.log.txt",
+      "bytes": 220,
+      "sha256": "d7362bcba2b86ef33f7fd3ee3179529cde5837f726d5f008941a2ec8f36ffb90"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/isolated-native-finality.receipt.json",
+      "bytes": 375,
+      "sha256": "cb88c6e31a8fd249f89df135913dd03b2c5d0ca43001ceae7ca67e0230aad8e3"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/isolated-sea-default-runtime.log.txt",
+      "bytes": 2108,
+      "sha256": "5feaea6ef0b73ef0747188e50943c413be3e7afdc561332393ade394c954ab57"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/isolated-sea-default-runtime.receipt.json",
+      "bytes": 369,
+      "sha256": "162911421969456881a8a958b212ee1f1f1afc5502a59142aa1b56926b37b921"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/isolated-sea-supported-runtime.log.txt",
+      "bytes": 83,
+      "sha256": "ae482bc555bf61ed9bd8327ea4720e94e91b5afe7b794a5aab37d4543381cf6b"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/isolated-sea-supported-runtime.receipt.json",
+      "bytes": 411,
+      "sha256": "873c0f566014c5eb0e7ad42fd78c6245e7066e42f4f08715725c21bab0af76a2"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/lint-after-prune.log.txt",
+      "bytes": 89,
+      "sha256": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/lint-after-prune.receipt.json",
+      "bytes": 210,
+      "sha256": "fa179f6cc720c7a73949403c30f6f5a752dbe8b6b43b675b5fd1592329010af4"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/lint-final.log.txt",
+      "bytes": 89,
+      "sha256": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/lint-final.receipt.json",
+      "bytes": 204,
+      "sha256": "4886c5f01264963723fc1bb5667b1355eef719e6d2b1e80d39b30808a1c64147"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/lint-post-review.log.txt",
+      "bytes": 89,
+      "sha256": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/lint-post-review.receipt.json",
+      "bytes": 210,
+      "sha256": "329377ab21e3affc22ce4dba293b59eaab4785d1842a544bce3f73fd80fd79ff"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/lint.log.txt",
+      "bytes": 89,
+      "sha256": "a9f86453985a02868554a836eef151dc9a361f1e39714fc833e0933028e09a98"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/lint.receipt.json",
+      "bytes": 198,
+      "sha256": "052fc09bbd5ab42cb38f00971a839e94134bae3496f1499f43be160b30de61a8"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/matrix-ui-edit.log.txt",
+      "bytes": 16964,
+      "sha256": "f7b7312d5ad92e6989c879be6d69abcaf3937c6618b61a8760670f32bad400b7"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/matrix-ui-edit.receipt.json",
+      "bytes": 260,
+      "sha256": "9eda5ec256318aa85d8c40ba96696b161a8832388d7cc5833fbc2dc3ee063e07"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/matrix-ui.log.txt",
+      "bytes": 8688,
+      "sha256": "bdab7a18ac1d16d78b780e4992974828d8fa3a0255aa54c7a2de43b2c7db3627"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/matrix-ui.receipt.json",
+      "bytes": 250,
+      "sha256": "8082ec567312df529e895942ae1555429abda6569b9593ca3ec15433897fedf2"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/native-electron-control.receipt.json",
+      "bytes": 329,
+      "sha256": "fa9f0fd7ae32686e20f0a055eb8f94d2a36342ee17b94d1dd53470c1324a54fc"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/native-profile-resume.receipt.json",
+      "bytes": 1482,
+      "sha256": "5ddaac7a170245ff3c9afed3ff7533ebbcd92b9fed03bdfa7816a82f2cdb33e2"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/native-runtime-control.receipt.json",
+      "bytes": 3193,
+      "sha256": "be8571ad8097c53f356c5bc54af073676ad0ad798dd4aef5ec8c227239d9ac51"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/outage-control.receipt.json",
+      "bytes": 271,
+      "sha256": "b535f4eac86a80ef5cdb0638f50221be96a276f68d06b6d5deba066d4db63238"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/owned-native-files.receipt.json",
+      "bytes": 2679,
+      "sha256": "3b85c2db4cb6d71cccfe025e11bcd1e930543ddc764980e1190f196930069974"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/permission-ui.log.txt",
+      "bytes": 3793,
+      "sha256": "818e86a6184d47380b48b45a42ab5bff3f8f63a89bab7d0c232e49dbe99d200a"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/permission-ui.receipt.json",
+      "bytes": 258,
+      "sha256": "b5e2d04cd999efd7d99f1a04c7b61733f46268722df4b81c7c7c918ea26e93db"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/prior-escalation-final-state.receipt.json",
+      "bytes": 341,
+      "sha256": "d6326d7c175ea5787f3680601b26df8dc374dc81fa968f62d0492548021e23cd"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/prior-escalation-state.receipt.json",
+      "bytes": 543,
+      "sha256": "a042c1cf45368aef896be0ee0f7b6a3045f84a2f6e569a754f40074b0b1d9f41"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/requested-device-id-control.receipt.json",
+      "bytes": 641,
+      "sha256": "247ba470df8a8b2c52e55a7ce642f590c46014230f3da1201e01dd6505680418"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/requested-device-lock.receipt.json",
+      "bytes": 344,
+      "sha256": "d0ef560a28a10f9694877f3db6094a4c3038548af84b98fc3b71aa2ae056ea86"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/restoration-validation.receipt.json",
+      "bytes": 227,
+      "sha256": "4c3dc874c0061b05c10ea9a727d8d0516cc1de060e26891d7074f015ef47df59"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/restore-followup.receipt.json",
+      "bytes": 372,
+      "sha256": "39cb456744666341a47eaaab7b1ecbf1047a7294975a1442e99b61861e9335d1"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/retry-load-guard-review-wait.receipt.json",
+      "bytes": 18727,
+      "sha256": "f9ea050b43394e6fc84e991c24319f639d684dc7f59b049117383871acdb6e73"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/retry-load-guard.receipt.json",
+      "bytes": 6309,
+      "sha256": "bdb9de42b9b3a4d386f16964edfb903d0ff050cf485e26503dffeba2f2a25fa8"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/runtime-electron.log.txt",
+      "bytes": 246183,
+      "sha256": "4fe3f964c75d27aa40fc98767bd38a618058907e6704211bcadc135c188abd75"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/runtime-log-retention.receipt.json",
+      "bytes": 368,
+      "sha256": "22b801943a91f9eaa83b8f20a44221311bad57061c63c26077d801b3ef86cadc"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/runtime-renderer.log.txt",
+      "bytes": 6266,
+      "sha256": "2d184c9d34db0a89c66fb8bc35880ffdceaff9f2a4e122204beadee514dccaa6"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/runtime-start.receipt.json",
+      "bytes": 279,
+      "sha256": "d166dc73e278b5d49b3460cedc8bf51768da3a1c412127064627d5fea84fd2f6"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/runtime-stop.receipt.json",
+      "bytes": 224,
+      "sha256": "2842119f66b91ee78312f94c79eabdf97f60b55c283786b07396e8dd01f58b74"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-baseline.log.txt",
+      "bytes": 424,
+      "sha256": "f088876a380260dbb00fe7e2c1540378b1df46db0acbaee402681a0d12958e51"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-baseline.receipt.json",
+      "bytes": 533,
+      "sha256": "7055ea9298e8929db970de832d0ee91111478095fdf46f879b3efa111c7e1c4b"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-green.log.txt",
+      "bytes": 424,
+      "sha256": "069f64d628677a506ced36738fa90d54e8b98b3d6e1fa56b8319ccef93f4bd22"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-green.receipt.json",
+      "bytes": 530,
+      "sha256": "c66919dd321b626ed2f8be8e786568951497f79ceb9cd283caef63bc61d96d19"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-integration.log.txt",
+      "bytes": 286,
+      "sha256": "163d5f5ad0a64ba8e268107c1a77d6b48a8d04fa85e0c2b3df15c1b8a7ebdfbd"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-integration.receipt.json",
+      "bytes": 384,
+      "sha256": "b0fa871c95562eeefe8b1bd1c834d15e3675f35ca5cf125c7fd4e8bdef2954bc"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-red.log.txt",
+      "bytes": 1945,
+      "sha256": "418611e24530ffaa2538247a24e1c02affef22705b07d4614539dcf12c29598a"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-red.receipt.json",
+      "bytes": 298,
+      "sha256": "07aa53579ca67e12f0080a2c3dec45e5de45c0f6d741ad4108a97ded1790a198"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentry-alerts-read.receipt.json",
+      "bytes": 3084,
+      "sha256": "03c24c1ec6eacc58b28ae9bd62310414a11a727eaaf857bb9d56f2b94661f4f2"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentry-vault-lookup.receipt.json",
+      "bytes": 522,
+      "sha256": "c4868b1b7a1dae2029d4bc6a7d98085b50b4cb05178582f2f5b7b255cba76102"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/spa-agent-stop.receipt.json",
+      "bytes": 137,
+      "sha256": "5c1e55f656c994d2fbbeeffed090ae6d866e38fcc0162c278f536eb4f754c299"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/spa-first-agent-stop.receipt.json",
+      "bytes": 137,
+      "sha256": "f90b2a64dcc7c7bd675bf74ab66f95497dcbfb697b47e16c04e17c2df84b161b"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/spa-invocation-correction.receipt.json",
+      "bytes": 674,
+      "sha256": "5969990c5b0ef77717a1699523900eff147071dc080cfe376e1abd71b58a89fa"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/spa-stale-session.receipt.json",
+      "bytes": 6032,
+      "sha256": "d3519f0075b6866f65b58f72250461cdf8cb4ae580acf5b3208d1005eb915e59"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/spa-worker-cleanup.receipt.json",
+      "bytes": 3296,
+      "sha256": "bbc197302d25c1481f426d62d9b032a263ebfe2c67d09200a5e69f73e1687df0"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/spec-typecheck-after-prune.log.txt",
+      "bytes": 129,
+      "sha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/spec-typecheck-after-prune.receipt.json",
+      "bytes": 230,
+      "sha256": "402f2e877ac3a1290e1f6748211986c44558d101c239178764e324fa2177a456"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/spec-typecheck-final.log.txt",
+      "bytes": 129,
+      "sha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/spec-typecheck-final.receipt.json",
+      "bytes": 224,
+      "sha256": "4dc8c7cb10c4bca1a38780b71ec0b67d65dbc02b0c81fa675bf3f88fd859aa8c"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/spec-typecheck-post-review.log.txt",
+      "bytes": 129,
+      "sha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/spec-typecheck-post-review.receipt.json",
+      "bytes": 230,
+      "sha256": "57ac101b986f4e78ee52edd34f8aca74261b5bbeceae7ebee58ea0bebc53145c"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/spec-typecheck.log.txt",
+      "bytes": 129,
+      "sha256": "4e31c408e8be4057c1075f658596af0cb057c7a9329948cca2022b8326a00133"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/spec-typecheck.receipt.json",
+      "bytes": 218,
+      "sha256": "3f2e2ba28bb53408ca67cbf9ec5a126b40893c69214fee8e046e1c828cd2a2c4"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/startup-timeout-investigation.receipt.json",
+      "bytes": 822,
+      "sha256": "42966d951fd9d62a7be7c20a1c1784f95086ea0ee1be8fb58ef82b5c96136004"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/supported-runtime-full-preflight.receipt.json",
+      "bytes": 450,
+      "sha256": "98657a7f211ca560fea42f94a069be7eb673ff267e2007b40b711817719fd580"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/tally-validation.receipt.json",
+      "bytes": 348,
+      "sha256": "c0573ad4c74225715ac6339986fa170b9efe673511845d68591306963878c95b"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/test-log-retention.receipt.json",
+      "bytes": 8246,
+      "sha256": "a978764462956234ff2555ff758c0df0140ff410e9d8c627988aad264114cec4"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/test-run-full-logs.tar.gz",
+      "bytes": 1464135,
+      "sha256": "2b1f033b57899d5b8ce36bcf3df3d4e07feb91a0d316b0573d5f714b07da99ac"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-final.log.txt",
+      "bytes": 188,
+      "sha256": "6fdff3e6d9e8062ee8f29d69d32ffac9d21879370a1826b1d47d8a893e25aba4"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-final.receipt.json",
+      "bytes": 275,
+      "sha256": "1c889a10d0967ba8c28970741629f9d999435a577a8f7f21c72633fab140cb12"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-green.log.txt",
+      "bytes": 188,
+      "sha256": "1407817ac318fbd3f6f4b8cb047818bf1beb83457ca71fe3784f38fefb7e6b03"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-green.receipt.json",
+      "bytes": 275,
+      "sha256": "bc183c4a3cccb5479454d3baf4a88ce8e564da63cd0bab5e1fcdec163ed6f97a"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-corrected.log.txt",
+      "bytes": 3220,
+      "sha256": "b97fcbfc0b15fa0d2e8cfbd502d6da39d0e0d741cf1502becd7e0b5ead984736"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-corrected.receipt.json",
+      "bytes": 283,
+      "sha256": "b83c8297ee65c07707135aaa4a92bc14da81dcda69a232f0cd26f7cae1e81edb"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-final.log.txt",
+      "bytes": 2727,
+      "sha256": "3cb8975774de11625c45e608dd2e58feccb0519d7d3b3dda7b57cb2b1484952b"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-final.receipt.json",
+      "bytes": 279,
+      "sha256": "fc3ffeb21d3efabf767c444ba335a9f069fb96d1e0e92d87f59a609c0e4123c8"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-real.log.txt",
+      "bytes": 2719,
+      "sha256": "28f04b46db02dc20010b34d87a0c3fa577ce2582ce25a0eb2d60a544e874a460"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-real.receipt.json",
+      "bytes": 278,
+      "sha256": "8440119d7884dd463df1339940100b75f9483795f781326d507f121af554ce32"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red.log.txt",
+      "bytes": 1424,
+      "sha256": "863c1ed49635d1bdf391852ac94804f9c41b67f6d45aa3c8a7ff93aceec74889"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red.receipt.json",
+      "bytes": 273,
+      "sha256": "ddf0bcc7db3b604f1e2a5234350b427f75388035bd0e05f2e63451f575383e09"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/ts-max-loc-after-prune.log.txt",
+      "bytes": 10148,
+      "sha256": "ecc1964ba2c358ecb29c5f966937ce66ed33740100b7c1a6733c0ef08f110189"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/ts-max-loc-after-prune.receipt.json",
+      "bytes": 228,
+      "sha256": "f8c442557cac0b0ae13ba5d961e5c9e74c7664a19a43af2f704fd300bc3dee56"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/ts-max-loc.log.txt",
+      "bytes": 10148,
+      "sha256": "ecc1964ba2c358ecb29c5f966937ce66ed33740100b7c1a6733c0ef08f110189"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/ts-max-loc.receipt.json",
+      "bytes": 216,
+      "sha256": "e79e93afd9107d45e3bcda5c7d44248df9400bf13aa625987efd586a8112e1ca"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/typecheck-after-prune.log.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/typecheck-after-prune.receipt.json",
+      "bytes": 219,
+      "sha256": "920739a8a3da6f4b187233f5ba159f5d0bfc499c4300bb3f7f9c576d0db1e8c2"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/typecheck.log.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/typecheck.receipt.json",
+      "bytes": 207,
+      "sha256": "0351fb49bc50adcc057690b5cfea01a06b0de45b606672b5a614b0edd6d2b3dc"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/ui-cleanup.log.txt",
+      "bytes": 3941,
+      "sha256": "d047200e0b59610a3cc1147d6c975107f7e9420c91d6ece7758d8702d80f641c"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/ui-cleanup.receipt.json",
+      "bytes": 252,
+      "sha256": "653cd0c58f9436d219cc3bf89153a5f9ea3f927fc753b0ef1d715e0fea892074"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/ui-hints-after-prune.log.txt",
+      "bytes": 226,
+      "sha256": "5e2ddb12cfeb4fb5abfa1700ff1f5e7fbc01c84f4ac7b28160c8b55fdf21ab90"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/ui-hints-after-prune.receipt.json",
+      "bytes": 224,
+      "sha256": "1cd99c70077f1125ab660e3830ff2f60917ba101594eddcac895191985d7d518"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/ui-hints.log.txt",
+      "bytes": 226,
+      "sha256": "5e2ddb12cfeb4fb5abfa1700ff1f5e7fbc01c84f4ac7b28160c8b55fdf21ab90"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/ui-hints.receipt.json",
+      "bytes": 212,
+      "sha256": "7ff6d93018e87efa07c46f7fa2b7f10a567b78da4c51726859e8bad6788a17b5"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/verification.receipt.json",
+      "bytes": 6254,
+      "sha256": "ba27930fd643f8894864b9f084357263ebfbd2d1d3312fc8b27ad0d59e95b4bd"
+    },
+    {
+      "path": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/docs/plans/2026-10-27-human-external-residuals_evidence/review2/worker-prerequisites.receipt.json",
+      "bytes": 494,
+      "sha256": "3939090f9cf1481adc1b103858146afaf5378f0a3b66071e69e788fda8e13041"
+    }
+  ]
+}

@@ -1,0 +1,765 @@
+{
+  "threshold": 30,
+  "requiresAllThreeAveragesBelowThreshold": true,
+  "observations": [
+    {
+      "at": "2026-10-27T06:13:44.790922+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        18.9521484375,
+        32.25244140625,
+        35.77294921875
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:13:59.795891+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        16.85107421875,
+        31.1435546875,
+        35.31591796875
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:14:14.798033+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        18.490234375,
+        30.80859375,
+        35.123046875
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:14:29.800271+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        18.8681640625,
+        30.2802734375,
+        34.8583984375
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:14:44.804252+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        17.7646484375,
+        29.48095703125,
+        34.4931640625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:14:59.814399+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        27.1689453125,
+        30.95166015625,
+        34.92822265625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:15:14.818778+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        32.119140625,
+        31.9052734375,
+        35.20068359375
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:15:29.829227+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        29.67431640625,
+        31.3974609375,
+        34.96240234375
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:15:44.839582+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        27.0947265625,
+        30.7275390625,
+        34.65966796875
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:15:59.848544+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        24.6796875,
+        30.00732421875,
+        34.3330078125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:16:14.851599+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        27.64111328125,
+        30.3720703125,
+        34.3857421875
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:16:29.858738+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        28.72509765625,
+        30.43017578125,
+        34.3330078125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:16:44.864751+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        43.259765625,
+        33.57275390625,
+        35.38623046875
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:16:59.865619+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        49.328125,
+        35.388671875,
+        36.001953125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:17:14.870442+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        46.67138671875,
+        35.57421875,
+        36.06201171875
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:17:29.879628+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        43.91357421875,
+        35.51171875,
+        36.03125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:17:44.883958+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        38.50634765625,
+        34.7333984375,
+        35.744140625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:17:59.894564+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        34.50341796875,
+        34.0283203125,
+        35.474609375
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:18:14.899942+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        30.962890625,
+        33.27392578125,
+        35.18017578125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:18:29.909048+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        28.51611328125,
+        32.6220703125,
+        34.91357421875
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:18:44.919524+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        25.2138671875,
+        31.69189453125,
+        34.54150390625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:18:59.930220+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        22.8271484375,
+        30.841796875,
+        34.18798828125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:19:14.940822+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        22.25927734375,
+        30.32568359375,
+        33.9453125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:19:29.943506+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        22.83642578125,
+        30.0361328125,
+        33.77685546875
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:19:44.945911+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        19.9306640625,
+        29.0380859375,
+        33.35498046875
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:19:59.948643+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        19.28173828125,
+        28.4345703125,
+        33.06298828125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:20:14.957212+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        22.470703125,
+        28.6904296875,
+        33.07275390625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:20:29.963518+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        29.43017578125,
+        29.8896484375,
+        33.42138671875
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:20:44.972513+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        34.798828125,
+        31.06640625,
+        33.779296875
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:20:59.974633+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        31.33642578125,
+        30.501953125,
+        33.53125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:21:14.981255+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        28.27734375,
+        29.88427734375,
+        33.2587890625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:21:29.989933+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        25.99951171875,
+        29.30126953125,
+        32.9912109375
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:21:45.000454+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        25.29296875,
+        29.0029296875,
+        32.8212890625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:22:00.010070+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        23.78076171875,
+        28.49365234375,
+        32.57275390625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:22:15.012102+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        22.66015625,
+        28.01220703125,
+        32.32958984375
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:22:30.013020+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        20.8271484375,
+        27.34228515625,
+        32.0146484375
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:22:45.013857+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        19.4677734375,
+        26.72119140625,
+        31.7109375
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:23:00.014640+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        18.18896484375,
+        26.0810546875,
+        31.39501953125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:23:15.016197+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        21.85107421875,
+        26.501953125,
+        31.45166015625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:23:30.027081+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        21.23828125,
+        26.1474609375,
+        31.23876953125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:23:45.029944+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        24.97705078125,
+        26.67578125,
+        31.3349609375
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:24:00.032589+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        28.078125,
+        27.2783203125,
+        31.46826171875
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:24:15.037393+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        33.638671875,
+        28.6044921875,
+        31.87109375
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:24:30.041158+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        33.40869140625,
+        28.7763671875,
+        31.87353515625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:24:45.045169+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        40.759765625,
+        30.6044921875,
+        32.4697265625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:25:00.048240+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        43.07421875,
+        31.57861328125,
+        32.7822265625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:25:15.058846+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        41.2060546875,
+        31.7158203125,
+        32.80859375
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:25:30.064104+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        36.63232421875,
+        31.18603515625,
+        32.60107421875
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:25:45.071909+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        34.96826171875,
+        31.06640625,
+        32.5322265625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:26:00.074918+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        33.45068359375,
+        30.92919921875,
+        32.4580078125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:26:15.082754+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        31.2451171875,
+        30.55810546875,
+        32.2978515625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:26:30.093664+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        32.013671875,
+        30.7724609375,
+        32.34423828125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:26:45.095873+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        33.29296875,
+        31.12353515625,
+        32.44189453125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:27:00.098906+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        29.30908203125,
+        30.3623046875,
+        32.1474609375
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:27:15.103292+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        26.046875,
+        29.591796875,
+        31.84130859375
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:27:30.104111+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        26.041015625,
+        29.40234375,
+        31.73291015625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:27:45.112132+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        23.82421875,
+        28.74560546875,
+        31.45751953125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:28:00.116065+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        21.646484375,
+        28.02294921875,
+        31.1513671875
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:28:15.118714+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        20.51708984375,
+        27.45166015625,
+        30.89208984375
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:28:30.121984+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        18.98681640625,
+        26.77490234375,
+        30.59033203125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:28:45.127847+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        18.169921875,
+        26.21337890625,
+        30.32275390625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:29:00.128831+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        16.8349609375,
+        25.517578125,
+        30.00244140625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:29:15.134552+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        15.5166015625,
+        24.8046875,
+        29.66943359375
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:29:30.143894+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        15.0078125,
+        24.22802734375,
+        29.37744140625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:29:45.144981+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        14.37744140625,
+        23.64306640625,
+        29.07861328125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:30:00.146623+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        13.8447265625,
+        23.072265625,
+        28.77978515625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:30:15.157299+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        17.89501953125,
+        23.54931640625,
+        28.8515625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:30:30.164097+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        18.55126953125,
+        23.40966796875,
+        28.7080078125
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    },
+    {
+      "at": "2026-10-27T06:30:45.174736+00:00",
+      "phase": "post-prune focused checks and canonical gates",
+      "load": [
+        18.41064453125,
+        23.15673828125,
+        28.525390625
+      ],
+      "reviewAccepted": false,
+      "ready": false
+    }
+  ]
+}

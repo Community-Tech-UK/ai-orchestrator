@@ -1,0 +1,302 @@
+{
+  "instanceId": "cgq0bcp51",
+  "loop": {
+    "success": true,
+    "data": {
+      "state": {
+        "id": "loop-1793077368969-086b89f9",
+        "chatId": "cgq0bcp51",
+        "config": {
+          "initialPrompt": "Investigate one harmless permission round trip only. Use the Bash tool exactly once to execute python3 -c \"print(73123)\". This just prints a disposable marker and changes nothing. Report that exact tool result and stop. Do not read or write any file, open applications, access credentials, execute another command, create a plan, branch or worktree, or perform extra tasks.",
+          "workspaceCwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985",
+          "provider": "claude",
+          "contextStrategy": "same-session",
+          "maxTurnsPerIteration": 3,
+          "failover": {
+            "enabled": false,
+            "providers": [],
+            "maxSwitches": 1
+          },
+          "caps": {
+            "maxIterations": 1,
+            "maxWallTimeMs": 120000,
+            "maxTokens": 20000,
+            "maxCostCents": 100,
+            "maxCompletionAttempts": 3,
+            "capWrapUpIteration": true
+          },
+          "progressThresholds": {
+            "identicalHashWarnConsecutive": 2,
+            "identicalHashCriticalConsecutive": 3,
+            "identicalHashCriticalWindow": 3,
+            "similarityWarnMean": 0.85,
+            "similarityCriticalMean": 0.92,
+            "stageWarnIterations": {
+              "PLAN": 3,
+              "REVIEW": 2,
+              "IMPLEMENT": 8
+            },
+            "stageCriticalIterations": {
+              "PLAN": 5,
+              "REVIEW": 3,
+              "IMPLEMENT": 12
+            },
+            "errorRepeatWarnInWindow": 3,
+            "errorRepeatCriticalInWindow": 4,
+            "tokensWithoutProgressWarn": 25000,
+            "tokensWithoutProgressCritical": 60000,
+            "pauseOnTokenBurn": false,
+            "toolRepeatWarnPerIteration": 5,
+            "toolRepeatCriticalPerIteration": 8,
+            "identicalToolCallConsecutiveCritical": 3,
+            "idempotentReadRepeatWarn": 3,
+            "testStagnationWarnIterations": 3,
+            "testStagnationCriticalIterations": 5,
+            "churnRatioWarn": 0.3,
+            "churnRatioCritical": 0.5,
+            "warnEscalationWindow": 5,
+            "warnEscalationCount": 3
+          },
+          "semanticProgress": {
+            "enabled": false,
+            "cadence": 5,
+            "confidenceFloor": 0.6
+          },
+          "context": {
+            "compaction": {
+              "enabled": true,
+              "resetAtUtilization": 0.85,
+              "clearToolResults": true
+            }
+          },
+          "exploration": {
+            "enabled": false,
+            "fanout": 3,
+            "crossModel": false,
+            "selector": "verify+listwise"
+          },
+          "plan": {
+            "regenerateOnStall": false
+          },
+          "phase4": {
+            "commitRatchet": {
+              "enabled": false,
+              "worktreeOnly": true,
+              "keepPolicy": "score-improvement",
+              "resetOnRegression": true
+            },
+            "freshSessionPerIteration": {
+              "enabled": false
+            },
+            "subagentContracts": {
+              "enabled": false,
+              "maxDepth": 1,
+              "requireNonOverlappingWriteScopes": true
+            },
+            "toolRwLocks": {
+              "enabled": false
+            }
+          },
+          "audit": {
+            "finalAuditMode": "off",
+            "preflightMode": "off",
+            "planPacketMode": "off",
+            "cleanlinessScan": false
+          },
+          "nextObjectivePlanning": {
+            "enabled": false,
+            "cadence": 1
+          },
+          "blockSanityProbe": {
+            "enabled": true,
+            "timeoutMs": 5000
+          },
+          "degradedIterationRetry": {
+            "enabled": true,
+            "maxRetries": 2
+          },
+          "completion": {
+            "mode": "gated",
+            "requiredCleanReviewPasses": 2,
+            "noOutstandingPhrase": "There are no outstanding issues",
+            "maxStalledReviewIterations": 3,
+            "maxLedgerStallIterations": 8,
+            "completedFilenamePattern": "*_completed.md",
+            "donePromiseRegex": "<promise>DONE</promise>",
+            "doneSentinelFile": "DONE.txt",
+            "verifyCommand": "",
+            "allowOperatorReviewedCompletion": true,
+            "verifyTimeoutMs": 30000,
+            "quickVerifyTimeoutMs": 120000,
+            "runVerifyTwice": false,
+            "requireCompletedFileRename": false,
+            "maxReviewCycles": 10,
+            "antiSelfGrading": false,
+            "evidenceLedger": true
+          },
+          "allowDestructiveOps": false,
+          "initialStage": "IMPLEMENT",
+          "goalIntent": "investigation",
+          "isolateLoopWorkspaces": false,
+          "onFailedStep": "pause"
+        },
+        "status": "running",
+        "startedAt": 1793077369181,
+        "endedAt": null,
+        "totalIterations": 0,
+        "totalTokens": 0,
+        "totalCostCents": 0,
+        "currentStage": "IMPLEMENT",
+        "repoBaseline": {
+          "source": "git",
+          "capturedAt": 1793077368994,
+          "workspaceCwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985",
+          "headRef": "7abf0cb5a021adc89eeb138a12c92149d18da526",
+          "dirtyAtStart": true,
+          "trackedDirtyAtStart": [
+            "src/main/browser-gateway/browser-target-persistence-sentinel.spec.ts",
+            "src/main/browser-gateway/browser-target-persistence-sentinel.ts",
+            "src/main/mcp/aio-mcp-dispatcher.ts",
+            "src/main/mcp/copilot-account-cli.spec.ts",
+            "src/main/mcp/copilot-account-cli.ts"
+          ],
+          "untrackedAtStart": [
+            "docs/plans/2026-07-19-livetest-failure-remediation-followup_plan.md",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/baseline.log.txt",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/baseline.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-cli-sea.log.txt",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-cli-sea.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-cli.log.txt",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-cli.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-main.log.txt",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-main.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/cli-live.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/device-query.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/device-tooling-controls.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/enrol-matrix.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/focused-green.log.txt",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/focused-green.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-retry.log.txt",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-start.log.txt",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-start.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/id-allocation.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/matrix-ui.log.txt",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/matrix-ui.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/restore-followup.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/runtime-start.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-baseline.log.txt",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-baseline.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-green.log.txt",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-green.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-red.log.txt",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-red.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/spa-agent-stop.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/spa-first-agent-stop.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/spa-invocation-correction.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/spa-stale-session.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/spa-worker-cleanup.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-green.log.txt",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-green.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-corrected.log.txt",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-corrected.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-final.log.txt",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-final.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-real.log.txt",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-real.receipt.json",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red.log.txt",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red.receipt.json",
+            "src/main/mcp/aio-mcp-cli-transport.spec.ts"
+          ],
+          "trackedDirtyHashes": {
+            "src/main/browser-gateway/browser-target-persistence-sentinel.spec.ts": "625eb03c975630886c3f0c8db9f8b6e0652e888ad093e7e41b07f24dd20636fc",
+            "src/main/browser-gateway/browser-target-persistence-sentinel.ts": "6760565d8759747d836f187506337d0ced2a8bc547cc20c0a12a5683727b01f1",
+            "src/main/mcp/aio-mcp-dispatcher.ts": "5cf1aae7b8d8d3fefc0e5deab03d0ade9a58c9b5924f7fce06b179b07638ca20",
+            "src/main/mcp/copilot-account-cli.spec.ts": "335acdad6e4d865d6d5f7a31cb6e8f6109e1c35e6038e9665cb3e0de66029338",
+            "src/main/mcp/copilot-account-cli.ts": "5fd74103cedc1bff2be8e188eec1682aeb65091943759ae39e3e3f857242b49b"
+          },
+          "untrackedHashes": {
+            "docs/plans/2026-07-19-livetest-failure-remediation-followup_plan.md": "cd019a1adcb3e5c2ff2c565ee34f0d826ff64598637cf0a36dcc4f7590662851",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/baseline.log.txt": "3107de747df9bb470bee63218beee5b746bc9cb0a0a3de64455aa7c921c617f0",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/baseline.receipt.json": "278d00543c71f655c933a383453cbb13765dd686eea1b4be3491de71e15b8510",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-cli-sea.log.txt": "67a4503b29f1cc06db9a20afbd0e44ceb55702c965eccfa9968b1067ae5df0fd",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-cli-sea.receipt.json": "ad957adfdcc42b037c5ba7ff5abfc2e6cbb30176b3eae854ca8279e459d01b95",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-cli.log.txt": "38e947a1137bb428561fa3e6fd94003b9ce2a65572f1cdfbcfe1d57d16663c90",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-cli.receipt.json": "447441d825dc54aa079a5539468a89b174fd4af0da49175131c0b697f4f87634",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-main.log.txt": "60f56b945afeed6e768d7356d5eb3a8c90ec5054eee64a3c858b5e78d821b553",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/build-main.receipt.json": "02376c44cd0c90c87f58d0db352e29c9694032e2f32539197fc7c1d01793006b",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/cli-live.receipt.json": "11071429a7ef0af50675253f0d6430362370e6783258c7744018e01ec32aad59",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/device-query.receipt.json": "4ea8769942a14353d2520da964af1715811dae65440a9e7384dd1eeb161e5487",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/device-tooling-controls.receipt.json": "a95bcfd4352e14683a78ef727c2b3fd53bbe8481a3f9b1abce929ddc6434377c",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/enrol-matrix.receipt.json": "d4dd5ae6751e92489498bdfdc84072c30b932bfa303c6a972a207e7784a21500",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/focused-green.log.txt": "448c52d1f34cfb478646574a81c5c1540564ca85897bc5215a847e536fce8143",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/focused-green.receipt.json": "36d86f9936bf5b3d1d48d201e45dae8ee673cd3b9571361fa69c23f43fd2c375",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-retry.log.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-start.log.txt": "b27aea122bcbb3a21214ac3a5bd40bff04ab43fc1f72d9c7c49799ca958a7ac1",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/guardian-start.receipt.json": "0621d392a8b79dd76119796fff340b5a851ba94d3c33eecc95bd42e86530ef47",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/id-allocation.receipt.json": "dd7ab6493c06aa70d2586bc8780f0e63c106bc62a155c1fa275a3c2a239ecf3a",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/matrix-ui.log.txt": "bdab7a18ac1d16d78b780e4992974828d8fa3a0255aa54c7a2de43b2c7db3627",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/matrix-ui.receipt.json": "8082ec567312df529e895942ae1555429abda6569b9593ca3ec15433897fedf2",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/restore-followup.receipt.json": "39cb456744666341a47eaaab7b1ecbf1047a7294975a1442e99b61861e9335d1",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/runtime-start.receipt.json": "d166dc73e278b5d49b3460cedc8bf51768da3a1c412127064627d5fea84fd2f6",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-baseline.log.txt": "f088876a380260dbb00fe7e2c1540378b1df46db0acbaee402681a0d12958e51",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-baseline.receipt.json": "7055ea9298e8929db970de832d0ee91111478095fdf46f879b3efa111c7e1c4b",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-green.log.txt": "069f64d628677a506ced36738fa90d54e8b98b3d6e1fa56b8319ccef93f4bd22",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-green.receipt.json": "c66919dd321b626ed2f8be8e786568951497f79ceb9cd283caef63bc61d96d19",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-red.log.txt": "418611e24530ffaa2538247a24e1c02affef22705b07d4614539dcf12c29598a",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/sentinel-red.receipt.json": "07aa53579ca67e12f0080a2c3dec45e5de45c0f6d741ad4108a97ded1790a198",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/spa-agent-stop.receipt.json": "5c1e55f656c994d2fbbeeffed090ae6d866e38fcc0162c278f536eb4f754c299",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/spa-first-agent-stop.receipt.json": "f90b2a64dcc7c7bd675bf74ab66f95497dcbfb697b47e16c04e17c2df84b161b",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/spa-invocation-correction.receipt.json": "5969990c5b0ef77717a1699523900eff147071dc080cfe376e1abd71b58a89fa",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/spa-stale-session.receipt.json": "d3519f0075b6866f65b58f72250461cdf8cb4ae580acf5b3208d1005eb915e59",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/spa-worker-cleanup.receipt.json": "bbc197302d25c1481f426d62d9b032a263ebfe2c67d09200a5e69f73e1687df0",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-green.log.txt": "1407817ac318fbd3f6f4b8cb047818bf1beb83457ca71fe3784f38fefb7e6b03",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-green.receipt.json": "bc183c4a3cccb5479454d3baf4a88ce8e564da63cd0bab5e1fcdec163ed6f97a",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-corrected.log.txt": "b97fcbfc0b15fa0d2e8cfbd502d6da39d0e0d741cf1502becd7e0b5ead984736",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-corrected.receipt.json": "b83c8297ee65c07707135aaa4a92bc14da81dcda69a232f0cd26f7cae1e81edb",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-final.log.txt": "3cb8975774de11625c45e608dd2e58feccb0519d7d3b3dda7b57cb2b1484952b",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-final.receipt.json": "fc3ffeb21d3efabf767c444ba335a9f069fb96d1e0e92d87f59a609c0e4123c8",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-real.log.txt": "28f04b46db02dc20010b34d87a0c3fa577ce2582ce25a0eb2d60a544e874a460",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red-real.receipt.json": "8440119d7884dd463df1339940100b75f9483795f781326d507f121af554ce32",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red.log.txt": "863c1ed49635d1bdf391852ac94804f9c41b67f6d45aa3c8a7ff93aceec74889",
+            "docs/plans/2026-10-27-human-external-residuals_evidence/review2/transport-red.receipt.json": "ddf0bcc7db3b604f1e2a5234350b427f75388035bd0e05f2e63451f575383e09",
+            "src/main/mcp/aio-mcp-cli-transport.spec.ts": "0d58017002812b9b097245c45c75025e6f2912ed73904f80fd607158af3ac322"
+          }
+        },
+        "pendingInterventions": [],
+        "loopControl": {
+          "version": 1,
+          "loopRunId": "loop-1793077368969-086b89f9",
+          "workspaceCwd": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985",
+          "controlDir": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/.aio-loop-control/loop-1793077368969-086b89f9",
+          "controlFile": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/.aio-loop-control/loop-1793077368969-086b89f9/control.json",
+          "intentsDir": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/.aio-loop-control/loop-1793077368969-086b89f9/intents",
+          "currentIterationSeq": 0,
+          "cliPath": "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/.aio-loop-control/loop-1793077368969-086b89f9/aio-loop-control",
+          "createdAt": 1793077368971,
+          "updatedAt": 1793077368972
+        },
+        "terminalIntentHistory": [],
+        "completedFileRenameObserved": false,
+        "doneSentinelPresentAtStart": false,
+        "planChecklistFullyCheckedAtStart": false,
+        "uncompletedPlanFilesAtStart": [
+          "claude_oct-2-todo.md",
+          "claude_oct-todo.md",
+          "needjamesfor.md"
+        ],
+        "loopTasksLedgerResolvedAtStart": false,
+        "manualReviewOnly": true,
+        "tokensSinceLastTestImprovement": 0,
+        "highestTestPassCount": 0,
+        "iterationsOnCurrentStage": 0,
+        "recentWarnIterationSeqs": [],
+        "completionAttempts": 0,
+        "announceThenHaltNudgeCount": 0,
+        "unresolvedReviewThreads": [],
+        "recentEvidenceHashes": [],
+        "repeatedEvidenceCount": 0,
+        "consecutiveCleanReviewPasses": 0
+      }
+    }
+  }
+}

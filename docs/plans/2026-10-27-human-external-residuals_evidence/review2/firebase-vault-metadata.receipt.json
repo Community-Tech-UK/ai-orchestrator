@@ -1,0 +1,85 @@
+{
+  "purpose": "Recover non-secret Firebase project/account metadata for authorized IAM read; no credential values retained",
+  "steps": [
+    {
+      "step": "unlock isolated cache",
+      "exitCode": 0,
+      "stderrBytes": 0
+    },
+    {
+      "step": "sync",
+      "exitCode": 0,
+      "stderrBytes": 0
+    },
+    {
+      "step": "search",
+      "exitCode": 0,
+      "stderrBytes": 0
+    }
+  ],
+  "items": [
+    {
+      "id": "acea7c50-ca06-4d49-b183-b463017782b1",
+      "name": "MyTradeMail/SBE - Backblaze B2 dev backup application key",
+      "fieldNames": [
+        "MYTRADEMAIL_BACKUP_B2_BUCKET_ID",
+        "MYTRADEMAIL_BACKUP_B2_PREFIX",
+        "MYTRADEMAIL_BACKUP_B2_KEY_ID",
+        "MYTRADEMAIL_BACKUP_B2_APPLICATION_KEY",
+        "MYTRADEMAIL_BACKUP_B2_APPLICATION_KEY_CONFIRMED",
+        "MYTRADEMAIL_BACKUP_B2_RETENTION_DAYS",
+        "MYTRADEMAIL_BACKUP_B2_OBJECT_LOCK_DEFAULT",
+        "bucket_restriction",
+        "capabilities",
+        "prefix_restriction",
+        "created_at_utc"
+      ]
+    },
+    {
+      "id": "300c16a4-fc4b-4329-a321-b463017778b7",
+      "name": "MyTradeMail/SBE - Backblaze B2 prod backup application key",
+      "fieldNames": [
+        "MYTRADEMAIL_BACKUP_B2_BUCKET_ID",
+        "MYTRADEMAIL_BACKUP_B2_PREFIX",
+        "MYTRADEMAIL_BACKUP_B2_KEY_ID",
+        "MYTRADEMAIL_BACKUP_B2_APPLICATION_KEY",
+        "MYTRADEMAIL_BACKUP_B2_APPLICATION_KEY_CONFIRMED",
+        "MYTRADEMAIL_BACKUP_B2_RETENTION_DAYS",
+        "MYTRADEMAIL_BACKUP_B2_OBJECT_LOCK_DEFAULT",
+        "bucket_restriction",
+        "capabilities",
+        "prefix_restriction",
+        "created_at_utc"
+      ]
+    },
+    {
+      "id": "2c84c219-9e03-4ac2-b38f-b46301778c78",
+      "name": "MyTradeMail/SBE - backup encryption recovery keys",
+      "fieldNames": [
+        "prod_key_material",
+        "prod_key_sha256",
+        "prod_server_path",
+        "dev_key_material",
+        "dev_key_sha256",
+        "dev_server_path",
+        "cipher",
+        "kdf",
+        "pbkdf2_iterations",
+        "created_at_utc"
+      ]
+    },
+    {
+      "id": "a1dd05f8-625a-473c-9cc0-b4ce0082bd13",
+      "name": "Sentry DSNs - mytrademail production (Community Tech, EU)",
+      "fieldNames": [
+        "SENTRY_DSN",
+        "MTM_SENTRY_DSN",
+        "SBE_SENTRY_DSN",
+        "FCM_SERVICE_ACCOUNT_KEY_PATH"
+      ]
+    }
+  ],
+  "firebaseMetadata": [],
+  "lockExitCode": 0,
+  "temporaryVaultCacheRemoved": true
+}

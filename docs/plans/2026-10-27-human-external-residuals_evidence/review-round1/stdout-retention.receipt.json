@@ -1,0 +1,8 @@
+{
+  "at": "2026-10-27T03:35:36.522616+00:00",
+  "originalStdoutSha256": "b79413ebbd05cf0eb187d1d97a29b98e52ccee872f49c4edc4dcc0e8cda47c2b",
+  "originalLines": 1833,
+  "retainedLines": 1,
+  "retained": "electron-stdout.log.txt",
+  "scope": "Whitelisted startup diagnostics only. General debug output discarded; no claim of retaining all Electron stdout. The main-process fixture evidence is in copilot-main-log-slice.receipt.json."
+}

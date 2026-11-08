@@ -1,0 +1,4 @@
+Wrote single executable preparation blob to /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/aio-mcp-cli-sea/sea-prep.blob
+[36mStart injection of NODE_SEA_BLOB in /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/aio-mcp-cli-sea/aio-mcp...[0m
+[32m💉 Injection done![0m
+[sea] built /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/dist/aio-mcp-cli-sea/aio-mcp

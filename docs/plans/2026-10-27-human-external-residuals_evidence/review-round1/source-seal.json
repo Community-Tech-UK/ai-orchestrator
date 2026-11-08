@@ -1,0 +1,32 @@
+{
+  "at": "2026-10-27T03:35:18.479319+00:00",
+  "head": "2cbdb4acc7202730614e22323b7f9ca6fcad406d",
+  "sourceHashes": {
+    "src/main/app/user-data-path.ts": "6df57760623367c667885e042ddd74c3e329ec6f77811beddb5a5359cfccd256",
+    "src/main/instance/lifecycle/instance-spawn-preflight-chain.ts": "5c646f3f7c477757e6975a62f4445292a1e5fe8cba65b8a2e738baeb70817003",
+    "src/main/main-process-bootstrap.ts": "5b1b510e24f8a641e4bd49783b9a52b79789b80b199cf24cccfeb295583931bc",
+    "src/main/mcp/aio-mcp-dispatcher.ts": "d5288235730f5d054b4bae4daa1f9b0e6d349c64ede04867e4d8eb3bdf709ee4",
+    "src/main/mcp/copilot-account-cli-contracts.ts": "2db148ea2ea9f194d6c7667c37c0123effc12879e745d2da695b24788a6b93f8",
+    "src/main/mcp/copilot-account-cli.spec.ts": "fa0ca50dfee001e73af9a19e8a38aac314ae82a4d290e0a79cf3a071f7e773d6",
+    "src/main/mcp/copilot-account-cli.ts": "e8e983b5e4fecec88f673a96ceb60aec3da989ce3dadc3f42f3a82304122d4ba",
+    "src/main/mcp/orchestrator-tools-rpc-client.ts": "d167ef56aeeef85f45e8725152cd27cf243c85ab284693160c6ecb114883286a",
+    "src/main/mcp/orchestrator-tools-rpc-copilot-account.ts": "246990d94d83c0c165134b0fa3e222fcc72d4488023d50ec10de6fc0aae78323",
+    "src/main/mcp/orchestrator-tools-rpc-server.ts": "a94940b60bd330e5e296f97a980c2b707f4d7484ecbdf1118f020252307142f2",
+    "src/main/mcp/settings-cli.ts": "2e58e84b90c2dd9c599f5bc6788f240efd565015c4797e80f96405eef043aa54",
+    "src/main/plan-queue/plan-queue-doc-close.ts": "e7941f0db212f1e9b076fb55c9a4973dae6b815341dd6ff45f69bf5c257ff0fd",
+    "src/main/plan-queue/plan-queue-item-landing.ts": "04e9788e6843da0c28da15601ebb7e43c135c7ac9c6af8fa522cbbdafac08f00",
+    "src/main/plan-queue/plan-queue-landing.ts": "872ef34430132c5e1a3b42bc607b003f45bd1791b918298533de1b13f29ed875",
+    "src/main/plan-queue/plan-queue-squash.ts": "ccb8218c479884916a1485ded48444b942bb62c2beb8ae64296586973befe279",
+    "src/main/security/approval-adjudicator.ts": "c6233f00ad4d3bd3734cbb81619f361cc8e7c8219edf3222c7214a08a38183ea",
+    "src/main/vcs/pr-creation-service.ts": "e90a10fd10d5e81d3268817a96fee5bf95b493cf37dcda0c32206f11b0a76522",
+    "src/main/window-manager.ts": "8c9ba2b37ebc252fc4e421c9ed1d938ae2d4b47a2538d26b8878201665a4d6aa"
+  },
+  "compiledHashes": {
+    "dist/main/mcp/copilot-account-cli.js": "c627a5d5df5408ad842e13e42e57bf6976a2c208e12461bc4fb409b6c6317203",
+    "dist/main/mcp/orchestrator-tools-rpc-client.js": "1ada58a0de74d20da4d6266b0a72ad32171cb18515fe081f70c10d9d9d2f0ce4",
+    "dist/main/mcp/settings-cli.js": "c57b6c388267780107f663682173c22874b6cfe2caea95655e4772f2543fc3fa",
+    "dist/main/mcp/aio-mcp-dispatcher.js": "120722e8c71929175cf763ee819a924e47a7b2d540528b9d524a1f2be5972d44",
+    "dist/main/plan-queue/plan-queue-doc-close.js": "4c13fa23b81f65c8b4f2364b88d16122f68378cbf040304b879d299e0a116044"
+  },
+  "originalRunSourceHashesStillMatch": true
+}

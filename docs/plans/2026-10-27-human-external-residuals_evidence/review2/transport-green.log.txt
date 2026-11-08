@@ -1,0 +1,6 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/mcp/aio-mcp-cli-transport.spec.ts
+
+✓ 1 files · 6 tests passed in 4.7s
+  full log: _scratch/test-run.pid-23632.log

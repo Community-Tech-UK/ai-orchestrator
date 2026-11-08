@@ -1,0 +1,159 @@
+{
+  "at": "2026-10-27T05:27:54.822Z",
+  "retire": [
+    {
+      "success": true,
+      "data": {
+        "lifecycle": "retired",
+        "location": {
+          "type": "coordinator"
+        },
+        "provider": "openai-compatible",
+        "endpointId": "owned-review2",
+        "baseUrl": "http://100.113.93.104:1234",
+        "expectedModels": [
+          {
+            "modelId": "qwen/qwen3.6-35b-a3b",
+            "required": true,
+            "minContextLength": 131072
+          },
+          {
+            "modelId": "qwen/qwen3.5-9b",
+            "required": true
+          }
+        ],
+        "canary": {
+          "model": "qwen/qwen3.6-35b-a3b",
+          "timeoutMs": 30000,
+          "intervalMs": 600000
+        },
+        "endpointCheckIntervalMs": 60000,
+        "freshnessLimitMs": 120000,
+        "warningLatencyMs": 15000,
+        "routingRoles": [
+          "compression",
+          "memoryDistillation",
+          "webExtract",
+          "titleGeneration",
+          "routingClassification",
+          "approvalScoring",
+          "approvalAdjudication",
+          "loopScoring",
+          "retrievalHypothesis",
+          "branchScoring",
+          "subQueryExecution"
+        ],
+        "fallbackPolicy": "block-paid-fallback",
+        "slotFallbackPolicies": {},
+        "recovery": {
+          "automatic": false,
+          "maxAttempts": 2,
+          "cooldownMs": 300000
+        },
+        "id": "f13cb7be-bc52-4f9d-b1fb-28f7bad3f00b",
+        "label": "This computer · OpenAI-compatible",
+        "createdAt": 1793077265483,
+        "updatedAt": 1793078873360,
+        "retiredAt": 1793078873360
+      }
+    }
+  ],
+  "restored": {
+    "success": true,
+    "data": {
+      "ok": true
+    }
+  },
+  "flag": {
+    "success": true
+  },
+  "settingsEqual": {
+    "auxiliaryLlmEnabled": true,
+    "auxiliaryLlmRoutingMode": true,
+    "auxiliaryLlmAllowRemoteWorkerModels": true,
+    "auxiliaryLlmUseLocalhostOllama": true,
+    "auxiliaryLlmDailySpendCapUsd": true,
+    "auxiliaryLlmEndpointsJson": true,
+    "auxiliaryLlmSlotsJson": true,
+    "auxiliaryLlmQuickModel": true,
+    "auxiliaryLlmQualityModel": true
+  },
+  "adjudicationEnabled": false,
+  "permissionConfig": {
+    "success": true,
+    "data": {
+      "config": {
+        "enabled": true,
+        "defaultAction": "ask",
+        "cacheTTLMs": 3600000,
+        "maxCacheEntries": 1000,
+        "inheritParentPermissions": true,
+        "maxRuleDepth": 100,
+        "allowYoloOverride": true
+      },
+      "stats": {
+        "ruleSetCount": 2,
+        "totalRules": 15,
+        "cacheSize": 1,
+        "cacheHitRate": 0,
+        "sessionRulesCount": 0
+      }
+    }
+  },
+  "owned": [
+    {
+      "id": "cqmyxu1dg",
+      "sessionId": "aedc5791-cb3c-4cf6-b3b1-9bf3c798d421",
+      "providerSessionId": "aedc5791-cb3c-4cf6-b3b1-9bf3c798d421",
+      "historyThreadId": "4ea488f2-5ee7-4023-9f39-59fc2373fccf",
+      "status": "idle"
+    },
+    {
+      "id": "cgq0bcp51",
+      "sessionId": "10c90584-1f4e-4b88-a1f8-b23dc0675ae1",
+      "providerSessionId": "10c90584-1f4e-4b88-a1f8-b23dc0675ae1",
+      "historyThreadId": "1d034847-60a8-4afd-bfb3-b56cd897d569",
+      "status": "idle"
+    },
+    {
+      "id": "ci3xbjeq3",
+      "sessionId": "41c19a6b-c06b-415d-ba72-c5dc6afb7e9b",
+      "providerSessionId": "41c19a6b-c06b-415d-ba72-c5dc6afb7e9b",
+      "historyThreadId": "92032670-07b4-435c-8b70-9613a41abd42",
+      "status": "waiting_for_permission"
+    }
+  ],
+  "terminated": [
+    {
+      "id": "cqmyxu1dg",
+      "result": {
+        "success": true
+      }
+    },
+    {
+      "id": "cgq0bcp51",
+      "result": {
+        "success": true
+      }
+    },
+    {
+      "id": "ci3xbjeq3",
+      "result": {
+        "success": true
+      }
+    }
+  ],
+  "dismissed": [
+    {
+      "success": true,
+      "data": {
+        "dismissed": true
+      }
+    }
+  ],
+  "remainingInstances": {
+    "success": true,
+    "data": []
+  },
+  "remainingActiveTargets": []
+}

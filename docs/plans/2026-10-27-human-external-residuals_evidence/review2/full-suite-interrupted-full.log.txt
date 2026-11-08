@@ -1,0 +1,117 @@
+
+ RUN  v4.1.12 /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985
+
+(node:70590) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | src/main/cli/spawn-worker/cli-worker-cancelled-usage.spec.ts > worker cancellation accounting > drains closure before teardown acknowledgement (paid=false, graceful=false)
+[2026-10-27T05:29:36.394Z] [WARN] [SettingsMigrations] Migration failed (non-critical) {
+  error: "TypeError: Cannot read properties of undefined (reading 'getPath')"
+}
+
+stderr | src/main/cli/spawn-worker/cli-worker-cancelled-usage.spec.ts > worker cancellation accounting > drains closure before teardown acknowledgement (paid=true, graceful=false)
+[2026-10-27T05:29:39.715Z] [WARN] [SettingsMigrations] Migration failed (non-critical) {
+  error: "TypeError: Cannot read properties of undefined (reading 'getPath')"
+}
+
+stderr | src/main/cli/spawn-worker/cli-worker-cancelled-usage.spec.ts > worker cancellation accounting > drains closure before teardown acknowledgement (paid=true, graceful=true)
+[2026-10-27T05:29:42.978Z] [WARN] [SettingsMigrations] Migration failed (non-critical) {
+  error: "TypeError: Cannot read properties of undefined (reading 'getPath')"
+}
+
+stderr | src/main/cli/spawn-worker/cli-worker-cancelled-usage.spec.ts > worker cancellation accounting > settles a pending send and detaches after failed teardown (paid=false)
+[2026-10-27T05:29:49.353Z] [WARN] [SettingsMigrations] Migration failed (non-critical) {
+  error: "TypeError: Cannot read properties of undefined (reading 'getPath')"
+}
+
+stderr | src/main/cli/spawn-worker/cli-worker-cancelled-usage.spec.ts > worker cancellation accounting > settles a pending send and detaches after failed teardown (paid=true)
+[2026-10-27T05:29:49.459Z] [WARN] [SettingsMigrations] Migration failed (non-critical) {
+  error: "TypeError: Cannot read properties of undefined (reading 'getPath')"
+}
+
+stderr | src/main/cli/spawn-worker/cli-worker-cancelled-usage.spec.ts > worker cancellation accounting > owns teardown when cancelled during formatting
+[2026-10-27T05:29:49.563Z] [WARN] [SettingsMigrations] Migration failed (non-critical) {
+  error: "TypeError: Cannot read properties of undefined (reading 'getPath')"
+}
+
+stderr | src/main/cli/spawn-worker/cli-worker-cancelled-usage.spec.ts > worker cancellation accounting > owns teardown when cancelled during formatting
+Error: Adapter terminated
+    at CliWorkerProcessLifecycle.spawn (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/cli/spawn-worker/cli-worker-process-lifecycle.ts:14:80)
+    at CliAdapterWorkerProxy.spawnWorkerProcess (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/cli/spawn-worker/cli-adapter-worker-proxy.ts:342:27)
+    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/cli/spawn-worker/cli-adapter-worker-proxy.ts:244:18
+    at /Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/cli/spawn-worker/cli-worker-turn.ts:74:16
+    at new ZoneAwarePromise (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/node_modules/zone.js/fesm2015/zone.js:2238:23)
+    at waitForWorkerTurn (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/cli/spawn-worker/cli-worker-turn.ts:16:10)
+    at CliAdapterWorkerProxy.runTurn (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/cli/spawn-worker/cli-adapter-worker-proxy.ts:243:12)
+    at CliAdapterWorkerProxy.sendMessage (/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985/src/main/cli/spawn-worker/cli-adapter-worker-proxy.ts:228:33)
+
+stderr | src/main/cli/spawn-worker/cli-worker-cancelled-usage.spec.ts > worker cancellation accounting > owns teardown when cancelled during spawning
+[2026-10-27T05:29:49.618Z] [WARN] [SettingsMigrations] Migration failed (non-critical) {
+  error: "TypeError: Cannot read properties of undefined (reading 'getPath')"
+}
+
+ ✓ |main| src/main/cli/spawn-worker/cli-worker-cancelled-usage.spec.ts (7 tests) 13332ms
+     ✓ drains closure before teardown acknowledgement (paid=false, graceful=false)  3324ms
+     ✓ drains closure before teardown acknowledgement (paid=true, graceful=false)  3263ms
+     ✓ drains closure before teardown acknowledgement (paid=true, graceful=true)  6374ms
+(node:74658) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | src/main/cli/spawn-worker/cli-worker-failed-usage.spec.ts > failed native worker reviewer accounting > keeps semantic failure and records final paid usage once
+[2026-10-27T05:29:50.767Z] [WARN] [SettingsMigrations] Migration failed (non-critical) {
+  error: "TypeError: Cannot read properties of undefined (reading 'getPath')"
+}
+
+stderr | src/main/cli/spawn-worker/cli-worker-failed-usage.spec.ts > failed native worker reviewer accounting > keeps semantic failure and records final zero usage once
+[2026-10-27T05:29:54.082Z] [WARN] [SettingsMigrations] Migration failed (non-critical) {
+  error: "TypeError: Cannot read properties of undefined (reading 'getPath')"
+}
+
+stderr | src/main/cli/spawn-worker/cli-worker-failed-usage.spec.ts > failed native worker reviewer accounting > keeps semantic failure and records final unknown usage once
+[2026-10-27T05:29:57.392Z] [WARN] [SettingsMigrations] Migration failed (non-critical) {
+  error: "TypeError: Cannot read properties of undefined (reading 'getPath')"
+}
+
+stderr | src/main/cli/spawn-worker/cli-worker-failed-usage.spec.ts > worker thread loss finality > rejects native-error sends and releases accounting observers
+[2026-10-27T05:30:00.693Z] [WARN] [SettingsMigrations] Migration failed (non-critical) {
+  error: "TypeError: Cannot read properties of undefined (reading 'getPath')"
+}
+
+stderr | src/main/cli/spawn-worker/cli-worker-failed-usage.spec.ts > worker thread loss finality > rejects partial-output sends and releases accounting observers
+[2026-10-27T05:30:00.955Z] [WARN] [SettingsMigrations] Migration failed (non-critical) {
+  error: "TypeError: Cannot read properties of undefined (reading 'getPath')"
+}
+
+stderr | src/main/cli/spawn-worker/cli-worker-failed-usage.spec.ts > worker thread loss finality > rejects no-output sends and releases accounting observers
+[2026-10-27T05:30:01.212Z] [WARN] [SettingsMigrations] Migration failed (non-critical) {
+  error: "TypeError: Cannot read properties of undefined (reading 'getPath')"
+}
+
+stderr | src/main/cli/spawn-worker/cli-worker-failed-usage.spec.ts > actual one-shot native failed-result zero counters > retains observed paid token/cache evidence (final mode=no-result)
+[2026-10-27T05:30:01.320Z] [WARN] [SettingsMigrations] Migration failed (non-critical) {
+  error: "TypeError: Cannot read properties of undefined (reading 'getPath')"
+}
+
+stderr | src/main/cli/spawn-worker/cli-worker-failed-usage.spec.ts > actual one-shot native failed-result zero counters > retains observed paid token/cache evidence (final mode=unknown-zero-counters)
+[2026-10-27T05:30:04.496Z] [WARN] [SettingsMigrations] Migration failed (non-critical) {
+  error: "TypeError: Cannot read properties of undefined (reading 'getPath')"
+}
+
+stderr | src/main/cli/spawn-worker/cli-worker-failed-usage.spec.ts > actual one-shot native failed-result zero counters > retains observed paid token/cache evidence (final mode=paid-zero-counters)
+[2026-10-27T05:30:07.651Z] [WARN] [SettingsMigrations] Migration failed (non-critical) {
+  error: "TypeError: Cannot read properties of undefined (reading 'getPath')"
+}
+
+stderr | src/main/cli/spawn-worker/cli-worker-failed-usage.spec.ts > actual one-shot native failed-result zero counters > retains observed paid token/cache evidence (final mode=free-zero-counters)
+[2026-10-27T05:30:10.813Z] [WARN] [SettingsMigrations] Migration failed (non-critical) {
+  error: "TypeError: Cannot read properties of undefined (reading 'getPath')"
+}
+
+ ✓ |main| src/main/cli/spawn-worker/cli-worker-failed-usage.spec.ts (10 tests) 23214ms
+     ✓ keeps semantic failure and records final paid usage once  3317ms
+     ✓ keeps semantic failure and records final zero usage once  3311ms
+     ✓ keeps semantic failure and records final unknown usage once  3300ms
+     ✓ retains observed paid token/cache evidence (final mode=no-result)  3176ms
+     ✓ retains observed paid token/cache evidence (final mode=unknown-zero-counters)  3156ms
+     ✓ retains observed paid token/cache evidence (final mode=paid-zero-counters)  3161ms
+     ✓ retains observed paid token/cache evidence (final mode=free-zero-counters)  3165ms
+(node:94364) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)

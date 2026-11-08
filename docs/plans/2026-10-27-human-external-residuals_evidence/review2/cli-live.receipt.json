@@ -1,0 +1,72 @@
+{
+  "at": "2026-10-27T04:49:36.271834+00:00",
+  "builtCliAgainstRunningParent": true,
+  "accounts": [
+    {
+      "command": [
+        "copilot-account",
+        "list",
+        "--json"
+      ],
+      "exitCode": 0,
+      "parsed": true,
+      "bytes": 686,
+      "resultType": "list",
+      "count": 2,
+      "stderrBytes": 0
+    },
+    {
+      "command": [
+        "copilot-account",
+        "rules",
+        "--json"
+      ],
+      "exitCode": 0,
+      "parsed": true,
+      "bytes": 155,
+      "resultType": "list",
+      "count": 1,
+      "stderrBytes": 0
+    },
+    {
+      "command": [
+        "copilot-account",
+        "doctor",
+        "--json"
+      ],
+      "exitCode": 0,
+      "parsed": true,
+      "bytes": 196,
+      "resultType": "dict",
+      "count": null,
+      "stderrBytes": 0
+    },
+    {
+      "command": [
+        "copilot-account",
+        "route",
+        "/Users/suas/work/orchestrat0r/ai-orchestrator/.worktrees/queue/2026-09-27-livetest-human-exte-185985",
+        "--json"
+      ],
+      "exitCode": 0,
+      "parsed": true,
+      "bytes": 156,
+      "resultType": "dict",
+      "count": null,
+      "stderrBytes": 0
+    }
+  ],
+  "settings": {
+    "pipeExitCode": 0,
+    "pipeBytes": 115377,
+    "pipeParsed": true,
+    "fileExitCode": 0,
+    "fileBytes": 115377,
+    "fileParsed": true,
+    "equal": true,
+    "pipeSha256": "b1554dc05e5d4c65e8a2730a8fd9ca3be974aa6e4848311d261732026d83e0f9",
+    "fileSha256": "b1554dc05e5d4c65e8a2730a8fd9ca3be974aa6e4848311d261732026d83e0f9",
+    "count": 224,
+    "retainedSettingsValues": false
+  }
+}
