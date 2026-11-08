@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { recordCostAttribution } from '../core/system/cost-attribution';
 import type { AutomationAction, AutomationSchedule } from '../../shared/types/automation.types';
@@ -9,7 +10,7 @@ const action = (limits: Partial<AutomationAction> = {}): AutomationAction => ({ 
 function host(settle: Promise<unknown>) {
   const waitForInstanceSettled = vi.fn(() => settle);
   const interruptInstance = vi.fn(() => true);
-  return { waitForInstanceSettled, interruptInstance } as never as Parameters<typeof boundThreadWakeupTurn>[0] & {
+  return Object.assign(new EventEmitter(), { waitForInstanceSettled, interruptInstance }) as never as Parameters<typeof boundThreadWakeupTurn>[0] & EventEmitter & {
     waitForInstanceSettled: typeof waitForInstanceSettled; interruptInstance: typeof interruptInstance;
   };
 }
@@ -54,5 +55,29 @@ describe('thread wake-up turn limit', () => {
     await flush();
     turn('thread-1', 500);
     expect(h.interruptInstance).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['the turn completes without a reply', 'provider:normalized-event', { instanceId: 'thread-1', event: { kind: 'complete' } }],
+    ['the person interrupts it', 'instance:interrupt-requested', { instanceId: 'thread-1', origin: 'renderer-ipc' }],
+    ['the person sends their own message', 'instance:input-started', { instanceId: 'thread-1', autoContinuation: false }],
+  ])('stops watching when %s, so a later turn is never counted or interrupted', (_name, event, payload) => {
+    const h = host(new Promise(() => undefined));
+    boundThreadWakeupTurn(h, 'thread-1', 5_000, action({ maxProcessedTokens: 100 } as never), schedule);
+    h.emit(event, payload);
+    turn('thread-1', 500);
+    expect(h.interruptInstance).not.toHaveBeenCalled();
+    expect(h.listenerCount('provider:normalized-event')).toBe(0);
+  });
+
+  it('keeps watching through other threads, automatic input and this thread working', () => {
+    const h = host(new Promise(() => undefined));
+    boundThreadWakeupTurn(h, 'thread-1', 5_000, action({ maxProcessedTokens: 100 } as never), schedule);
+    h.emit('provider:normalized-event', { instanceId: 'other', event: { kind: 'complete' } });
+    h.emit('instance:interrupt-requested', { instanceId: 'other' });
+    h.emit('instance:input-started', { instanceId: 'thread-1', autoContinuation: true });
+    h.emit('provider:normalized-event', { instanceId: 'thread-1', event: { kind: 'output' } });
+    turn('thread-1', 500);
+    expect(h.interruptInstance).toHaveBeenCalledOnce();
   });
 });

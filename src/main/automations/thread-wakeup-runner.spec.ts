@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   Automation,
@@ -114,7 +115,7 @@ describe('ThreadWakeupRunner', () => {
     const destination: AutomationDestination = { kind: 'thread', instanceId: 'instance-1', reviveIfArchived: false };
     const waitForInstanceSettled = vi.fn(() => new Promise(() => undefined));
     const bounded = new ThreadWakeupRunner(
-      { sendInput, getInstance, waitForInstanceSettled, interruptInstance: vi.fn() } as unknown as InstanceManager,
+      Object.assign(new EventEmitter(), { sendInput, getInstance, waitForInstanceSettled, interruptInstance: vi.fn() }) as unknown as InstanceManager,
       { revive } as unknown as SessionRevivalService,
       { attachInstance, terminalizeRun } as unknown as AutomationStore,
       () => 3_000,
