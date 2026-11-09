@@ -1,4 +1,4 @@
-import { getControlSurface } from './control-surface.registry';
+import { CONTROL_SURFACES, getControlSurface } from './control-surface.registry';
 import type { ControlSurfaceId, ControlSurfaceItem } from './control-surface.types';
 
 interface HubDefinition {
@@ -70,4 +70,13 @@ export function navigationHubs(observationMemoryEnabled = false): readonly Navig
 
 export function hubOfSurface(id: ControlSurfaceId): { readonly id: string; readonly label: string } | undefined {
   return HUB_DEFINITIONS.find((hub) => hub.pages.includes(id));
+}
+
+/** The hub holding the page a URL opens, matching the longest page path (so `/memory/stats` beats `/memory`). */
+export function hubIdOfUrl(url: string): string | undefined {
+  const path = url.split(/[?#]/)[0];
+  const page = CONTROL_SURFACES
+    .filter((surface) => path === surface.path || path.startsWith(`${surface.path}/`))
+    .sort((a, b) => b.path.length - a.path.length)[0];
+  return page ? hubOfSurface(page.id)?.id : undefined;
 }

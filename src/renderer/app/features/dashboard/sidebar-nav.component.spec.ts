@@ -1,5 +1,6 @@
 import { ɵresolveComponentResources as resolveComponentResources, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { Router } from '@angular/router';
 import { RouterTestingModule } from '@angular/router/testing';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -31,7 +32,7 @@ describe('SidebarNavComponent', () => {
   beforeEach(async () => {
     localStorage.clear();
     await TestBed.configureTestingModule({
-      imports: [SidebarNavComponent, RouterTestingModule.withRoutes([])],
+      imports: [SidebarNavComponent, RouterTestingModule.withRoutes([{ path: '**', children: [] }])],
       providers: [
         {
           provide: AutomationStore,
@@ -70,6 +71,21 @@ describe('SidebarNavComponent', () => {
     const badge = fixture.nativeElement.querySelector('a[aria-label="Automations"] .nav-badge');
 
     expect(badge?.textContent?.trim()).toBe('2');
+  });
+
+  it('marks the hub of any open page, not only the page it opens on', async () => {
+    const active = () => [...fixture.nativeElement.querySelectorAll('a.nav-item[aria-current="true"]')]
+      .map(link => (link as HTMLAnchorElement).getAttribute('aria-label'));
+    expect(active()).toEqual([]);
+
+    await TestBed.inject(Router).navigateByUrl('/plan-queue');
+    fixture.detectChanges();
+    expect(active()).toEqual(['Work']);
+    expect(fixture.nativeElement.querySelector('a.nav-item.active')?.getAttribute('aria-label')).toBe('Work');
+
+    await TestBed.inject(Router).navigateByUrl('/memory/stats?tab=1');
+    fixture.detectChanges();
+    expect(active()).toEqual(['Memory & knowledge']);
   });
 
   it('does not render the Control Center Settings route in dashboard Tools & Views', () => {

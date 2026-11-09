@@ -100,9 +100,9 @@
 
     <div class="control-workspace">
       @if (activeHub(); as hub) {
-        @if (hub.pages.length > 1) {
+        @if (hubTabs().length > 1) {
           <nav class="hub-tabs" [attr.aria-label]="hub.label + ' pages'">
-            @for (page of hub.pages; track page.id) {
+            @for (page of hubTabs(); track page.id) {
               <a
                 class="hub-tab"
                 [routerLink]="page.path"

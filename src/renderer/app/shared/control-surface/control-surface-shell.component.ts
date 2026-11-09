@@ -1,6 +1,6 @@
 import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
 import { AppIconButtonDirective } from '../tooltip/icon-button.directive';
-import { ChangeDetectionStrategy, Component, DestroyRef, type ElementRef, computed, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, afterRenderEffect, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   ActivatedRoute,
@@ -42,6 +42,7 @@ export class ControlSurfaceShellComponent {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   private readonly settings = inject(SettingsStore);
   protected readonly navGroups = computed(() => listControlNavGroups(this.settings.settings().observationMemoryEnabled));
@@ -59,6 +60,12 @@ export class ControlSurfaceShellComponent {
   protected readonly activeHub = computed(() => {
     const hubId = hubOfSurface(this.activeSurface().id)?.id;
     return this.hubs().find(hub => hub.id === hubId);
+  });
+  /** The hub's pages, plus the open page when it has no tab of its own (hidden or switched off). */
+  protected readonly hubTabs = computed(() => {
+    const pages = this.activeHub()?.pages ?? [];
+    const open = this.activeSurface();
+    return !pages.length || pages.some(page => page.id === open.id) ? pages : [...pages, open];
   });
 
   /** Whether the contextual help pane is collapsed to a thin rail. */
@@ -79,6 +86,12 @@ export class ControlSurfaceShellComponent {
   protected readonly showControlNav = computed(() => this.activeSurface().id !== 'settings');
 
   constructor() {
+    // On a narrow window the strip scrolls sideways, so bring the open tab into view.
+    afterRenderEffect(() => {
+      this.activeSurfaceId();
+      const tab = this.host.nativeElement.querySelector<HTMLElement>('.hub-tab.active');
+      if (typeof tab?.scrollIntoView === 'function') tab.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+    });
     this.router.events
       .pipe(
         filter((event): event is NavigationEnd => event instanceof NavigationEnd),

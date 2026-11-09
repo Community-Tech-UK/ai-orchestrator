@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CONTROL_SURFACES } from './control-surface.registry';
-import { hubOfSurface, navigationHubs } from './navigation-hubs';
+import { hubIdOfUrl, hubOfSurface, navigationHubs } from './navigation-hubs';
 
 describe('navigation hubs', () => {
   it('lists about twelve hubs', () => {
@@ -39,5 +39,12 @@ describe('navigation hubs', () => {
     expect(first('reviews')).toBe('doc-review');
     expect(first('memory')).toBe('memory-review');
     expect(first('automations')).toBe('automations');
+  });
+
+  it('finds the hub of a URL by its longest page path', () => {
+    expect(hubIdOfUrl('/memory/stats?x=1')).toBe('memory');
+    expect(hubIdOfUrl('/plan-queue')).toBe('work');
+    expect(hubIdOfUrl('/compare/split')).toBe('usage');
+    expect(hubIdOfUrl('/')).toBeUndefined();
   });
 });

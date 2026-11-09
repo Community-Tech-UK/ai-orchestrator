@@ -10,19 +10,21 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { RouterLink, RouterLinkActive } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { NavigationEnd, Router, RouterLink } from '@angular/router';
+import { filter, map } from 'rxjs';
 
 import { SettingsStore } from '../../core/state/settings.store';
 import { AutomationStore } from '../../core/state/automation.store';
 import { DocReviewStore } from '../doc-review/doc-review.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { ControlSurfaceIconPipe } from '../../shared/control-surface/control-surface-icon.pipe';
-import { navigationHubs } from '../../shared/control-surface/navigation-hubs';
+import { hubIdOfUrl, navigationHubs } from '../../shared/control-surface/navigation-hubs';
 
 @Component({
   selector: 'app-sidebar-nav',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, AioTooltipDirective, ControlSurfaceIconPipe],
+  imports: [RouterLink, AioTooltipDirective, ControlSurfaceIconPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="sidebar-nav" [class.expanded]="expanded()">
@@ -44,7 +46,8 @@ import { navigationHubs } from '../../shared/control-surface/navigation-hubs';
           @for (hub of hubs(); track hub.id) {
             <a class="nav-item"
               [routerLink]="hub.path"
-              routerLinkActive="active"
+              [class.active]="hub.id === activeHubId()"
+              [attr.aria-current]="hub.id === activeHubId() ? 'true' : null"
               [appTooltip]="hub.summary"
               [attr.aria-label]="hub.label">
               <svg class="nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -68,6 +71,13 @@ export class SidebarNavComponent {
   private readonly docReviewStore = inject(DocReviewStore);
   readonly expanded = signal(true);
   private readonly settings = inject(SettingsStore);
+  private readonly router = inject(Router);
+  /** The hub of the open page, so every page in a hub marks it, not only the one it opens on. */
+  private readonly currentUrl = toSignal(
+    this.router.events.pipe(filter(event => event instanceof NavigationEnd), map(event => event.urlAfterRedirects)),
+    { initialValue: this.router.url },
+  );
+  readonly activeHubId = computed(() => hubIdOfUrl(this.currentUrl()));
   /**
    * One entry per hub with a page on the dashboard menu, opening on that page. A hub's count adds up the work
    * waiting in the pages it holds.

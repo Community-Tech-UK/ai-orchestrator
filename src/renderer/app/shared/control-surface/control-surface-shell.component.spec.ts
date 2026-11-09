@@ -270,6 +270,15 @@ describe('ControlSurfaceShellComponent', () => {
     expect(root.querySelector('nav.hub-tabs a[href="/models"]')).toBeTruthy();
   });
 
+  it('adds the open page as a tab when its hub does not list it', () => {
+    const route = TestBed.inject(ActivatedRoute);
+    route.snapshot.firstChild!.data['controlSurfaceId'] = 'training';
+    const other = TestBed.createComponent(ControlSurfaceShellComponent); other.detectChanges();
+    const root = other.nativeElement as HTMLElement;
+    expect(root.querySelector('nav.hub-tabs a[href="/training"]')?.getAttribute('aria-current')).toBe('page');
+    expect(root.querySelector('nav.hub-tabs a[href="/memory-review"]')).toBeTruthy();
+  });
+
   it('shows no tab strip for a hub with a single page', () => {
     const route = TestBed.inject(ActivatedRoute);
     route.snapshot.firstChild!.data['controlSurfaceId'] = 'browser';
