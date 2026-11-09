@@ -1294,6 +1294,24 @@ describe('Loop Mode invoker plumbing', () => {
     expect(child.alive).toBe(false);
   });
 
+  it('does not spawn a same-session child when the loop is cancelled while its adapter is being created', async () => {
+    registerDefaultLoopInvoker({} as never);
+    const child = lateSpawningChild();
+    let releaseResolve!: () => void;
+    hoisted.resolveCliType.mockImplementationOnce(() => new Promise((resolve) => { releaseResolve = () => resolve('claude'); }));
+    const finished = emitIteration({ config: { contextStrategy: 'same-session' } });
+    await tick(); await tick();
+    cancelLoop(); // lands in the await before the persistent adapter is registered
+    await tick();
+    releaseResolve();
+    await tick(); await tick();
+    child.releaseSpawn();
+    await finished;
+    await tick();
+    expect(hoisted.sendMessage).not.toHaveBeenCalled();
+    expect(child.alive).toBe(false);
+  });
+
   it('stops a child that spawns while the cancel teardown is still in flight', async () => {
     registerDefaultLoopInvoker({} as never);
     let openGate!: () => void;

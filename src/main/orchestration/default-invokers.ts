@@ -1,5 +1,6 @@
 import { assertLoopExecutionAuthority, hasPinnedLoopExecution, loopExecutionSpawnOptions, loopAdapterHonorsAuthority, rememberLoopExecutionSettings } from './loop-execution-authority';
 import { createTrackedAdapterTerminator } from './tracked-adapter-terminator';
+import { createLoopEndTracker } from './loop-end-tracker';
 import type { LoopConfig } from '../../shared/types/loop.types';
 /** Wire orchestration invocation events to the repository's CLI adapters. */
 
@@ -192,7 +193,9 @@ async function invokeCliTextResponse(params: {
    *  so the conversation persists across iterations. The caller owns the
    *  adapter lifecycle when this is set. */
   reusedAdapter?: unknown;
-  /** True when a reused adapter must be torn down after this turn because its owner let it go. */
+  /** True once the owning loop was cleaned up; the invocation stops before touching an adapter. */
+  loopEnded?: () => boolean;
+  /** True when a reused adapter must be torn down after this turn (its owner let it go). */
   reapReusedAdapter?: (adapter: unknown) => boolean;
   activity?: (activity: LoopInvocationActivity) => void;
   onAdapterReady?: (adapter: CliAdapter, model: string | undefined, cliType: string) => (() => void) | void;
@@ -313,6 +316,7 @@ async function invokeCliTextResponse(params: {
   const response = await breaker.execute(async () => {
     if (!isLoop) await waitForConsult();
     const decision = getWorkAdmission().check('consult', { remote: isLoop });
+    if (params.loopEnded?.()) throw new Error('instance-interrupted');
     if (!decision.allowed) throw new Error(isLoop ? 'instance-interrupted' : decision.detail);
     // Either reuse the caller's adapter (same-session loop) or create a
     // fresh one (one-shot — chat orchestration, debate, fresh-child loop).
@@ -938,7 +942,6 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   const loopBorrowedChat = new Set<string>(); // loops that ran inside the person's chat session (T13.1)
 
   const terminateTrackedAdapter = createTrackedAdapterTerminator(terminateCliAdapter);
-
   const trackAdapter = (
     adaptersByLoop: Map<string, Set<unknown>>,
     loopRunId: string,
@@ -953,10 +956,6 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       current.delete(adapter);
       if (current.size === 0) adaptersByLoop.delete(loopRunId);
     };
-  };
-
-  const trackActiveAdapter = (loopRunId: string, adapter: unknown): (() => void) => {
-    return trackAdapter(activeLoopAdapters, loopRunId, adapter);
   };
 
   // LF-1: recycle a loop's persistent same-session adapter to a fresh session.
@@ -1000,8 +999,9 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   // instantly (the listener already drained the maps) and `cancelLoop`'s
   // `awaitTerminalCleanup` would return before the actual CLI children
   // are torn down — the exact behaviour FU-8 exists to prevent.
-  const inFlightCleanups = new Map<string, Promise<void>>();
+  const inFlightCleanups = new Map<string, Promise<void>>(); const loopEnds = createLoopEndTracker();
   const cleanupLoopAdapters = (loopRunId: string): Promise<void> => {
+    loopEnds.end(loopRunId);
     const existing = inFlightCleanups.get(loopRunId);
     if (existing) return existing;
     const adapters = new Set<unknown>(activeLoopAdapters.get(loopRunId) ?? []);
@@ -1214,6 +1214,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       idempotencyKey: string;
     }
     const p = payload as Payload;
+    const loopEnded = loopEnds.watch(p.loopRunId);
     if (!p?.callback || typeof p.callback !== 'function') {
       logger.warn('loop:invoke-iteration payload missing callback');
       return;
@@ -1381,7 +1382,9 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
           });
           return undefined;
         });
-        if (reusedAdapter) {
+        if (reusedAdapter && loopEnded()) {
+          await terminateTrackedAdapter(reusedAdapter, false); // cancelled while it was being created; the invocation below refuses to run
+        } else if (reusedAdapter) {
           persistentLoopAdapters.set(p.loopRunId, reusedAdapter);
           persistentLoopAdapterModels.set(p.loopRunId, getLoopAdapterInvocation(reusedAdapter)?.model);
         }
@@ -1432,6 +1435,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         disableTools: p.disableTools === true,
         env: p.loopControlEnv,
         reusedAdapter,
+        loopEnded,
         activity: emitActivity,
         // Track + clean up adapters the loop owns. The instance's adapter is
         // borrowed (the instance owns its own lifecycle) so we skip both hooks
@@ -1450,7 +1454,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
               activeAdapterRef = adapter;
               noteLoopAdapterAccountScope(p.loopRunId, adapter, cliType, resolvedModel,
                 sameSession ? persistentLoopAdapterModels : undefined);
-              const stopTracking = trackActiveAdapter(p.loopRunId, adapter);
+              const stopTracking = trackAdapter(activeLoopAdapters, p.loopRunId, adapter);
               const stopEventCapture = observeLoopProviderRuntimeEvents({
                 adapter,
                 instanceManager,
