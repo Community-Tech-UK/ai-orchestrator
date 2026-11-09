@@ -158,7 +158,7 @@ sections below. The historical reproduction remains unchanged.
 | --- | --- |
 | LT-217 | **ONGOING GROWTH FIXED + REGRESSION-TESTED.** Internal attach/poll writes are suppressed and 90-day read retention is implemented. Optional compaction of the historical 1.36 GB is a separate destructive maintenance action. |
 | LT-218 | **FIXED + REGRESSION-TESTED; live unreadable-page recheck pending.** Snapshot results now carry `textUnavailableReason` instead of silently presenting an unreadable page as empty. |
-| LT-220 | **DECIDED + DOCUMENTATION CORRECTED.** Antigravity's missing tool-result visibility is an accepted capability gap; no adapter rewrite is planned. |
+| LT-220 | **FIXED 2026-11-07 (option a).** James approved the rewrite after plain-text mode was found to cut off every agy turn at five minutes: the adapter now runs `agy --output-format stream-json` and emits `tool_use`/`tool_result` messages, so tool results reach evidence capture. Live check of evidence records in a rebuilt app not yet done. |
 | LT-270 | **DECIDED + CONTRACT RESCOPED + LIVE EVIDENCE ACCEPTED.** The automatic path is a safety pause, not a compaction guarantee, on builds that do not confirm native compaction. |
 | LT-521 | **DOCUMENTATION CORRECTED.** The nonexistent shadow-decision log requirement was removed; behavior was already correct. |
 
@@ -379,15 +379,21 @@ sections below. The historical reproduction remains unchanged.
 | LT-1007 | P2 | **OPEN — observed 2026-11-08.** In a sandboxed host (queue worker), every OpenCode CLI probe exits 71 because the macOS signal-fence `sandbox-exec` wrapper cannot apply its policy. The app reports `No usable OpenCode install` and the startup panel names only hardened instances, so MiMo sessions cannot start and sign-in reads `Could not check`. Owner decision needed on the fallback policy. | [Detail](#lt-1007) | [Receipt](2026-10-10-mimo-multi-account_evidence/2026-11-08-queue-61bedf-r4/observations.md) |
 | LT-1013 | P2 | **OPEN — reproduced live 2026-10-27.** A 400,219-character context-fill message stalls the Electron main loop for 153,712 ms during the RLM keyword-search fallback before provider dispatch. The app recovers and honors a queued stop; exact cause remains unproven. | [LT-1013 detail](#lt-708--a-large-context-fill-send-blocks-the-main-loop-during-retrieval) | [Compaction reliability round 2](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-verifier-round-2) |
 | LT-1014 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1014 detail](#lt-715--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
+| LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-708 | P1 | **OPEN — reproduced live 2026-10-27.** A non-YOLO Claude session consuming a warm adapter has no defer hook. The genuine CLI error `This command requires approval` is not recognised as a permission denial, so the session becomes idle without an approval card. A fresh adapter shows the deferred-permission card for the same harmless command. | [LT-708 detail](#lt-708) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-plan-queue-worker) |
 | LT-710 | P2 | **REPRODUCED 2026-10-27; not fixed in this checkout.** Main and context-worker startup can collide on fresh-profile migration discovery. Reusing the migrated isolated profile reaches the renderer. This reuses the existing saved-login/housekeeping defect identifier; the housekeeping worker owns its fix. | [LT-710 detail](#lt-710) | [Worker auto-update live checks](2026-10-14-worker-auto-update_livetest.md#evidence-run--2026-10-27-plan-queue-worker); [active remediation follow-up](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-710) |
 | LT-709 | P2 | **OPEN — reproduced in the compiled runtime 2026-10-26; unimplemented.** A provider-slot runtime package installs, but its worker fails on a compiled `require('file://...')` before provider registration; the normal session-create schema also rejects its plugin provider identifier. Phase 1 records the failure and omits the custom-provider claim. | [LT-709 detail](#lt-709) | [Plugins cleanup Phase 1](2026-10-26-plugins-cleanup-and-global-connectors_plan_completed.md#phase-1-plugins-page-cleanup); [implementation status](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-709) |
 | LT-722 | P2 | **OPEN — reproduced live 2026-10-27 (1 of 3 triage runs that day); unimplemented.** A Plan Queue triage agent looked for `plan_queue_report_triage` only in its provider's own tool list, never in Harness's `orchestrator_tool_search`, so it could not report; both the Claude attempt and the Codex retry ended without answering and the document parked `triage-failed`. The triage prompt has no tool-discovery steps (the verifier prompt gained them separately). | [LT-722 detail](#lt-722) | [Implementation status](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-722) |
 | LT-723 | P2 | **CONFIRMED FIXED LIVE 2026-11-06. Source fix verified 2026-11-04; installed provisioning passed 2026-11-05; shared receipts and saving passed 2026-11-06.** Preparing a shared Plan Queue check parks the leader when a scripts-only Node project triggers unnecessary `npm ci` with the packaged app's stripped PATH. Dependency setup must be required by the checked-out project, use the discovered CLI environment, and choose `ci` only for an npm lockfile/shrinkwrap. | [LT-723 detail](#lt-723) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-04-balanced-rerun-failure); [verified source repair](2026-11-04-plan-queue-check-copy-provisioning_plan_completed.md); [installed evidence](2026-11-04-plan-queue-check-copy-provisioning_livetest_completed.md#evidence--2026-11-05-real-shared-check-and-later-member-recheck) |
 | LT-724 | P2 | **CONFIRMED FIXED LIVE 2026-11-06. Source fix verified 2026-11-05; the rebuilt installed run used one checklist for three jobs, with three separate reviews and mandatory landing sync.** A successful grouped checklist is rerun for its waiting member after the first member independently passes and lands. A real two-member group ran, but the later member lost shared receipt reuse and the run used three checklists for three jobs. Preserve checked-base provenance and strict proof while retaining separate reviews and mandatory serialized landing synchronization. | [LT-724 detail](#lt-724) | [Verified receipt-reuse repair](2026-11-05-plan-queue-group-receipt-reuse_plan_completed.md); [installed batching evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-05-real-group-with-lost-later-member-reuse) |
-| LT-725 | P2 | **SOURCE FIX VERIFIED 2026-11-06; rebuilt installed acceptance pending.** Automatic code context was mostly irrelevant on real messages: about 7% of top results were relevant and 75% of short messages got code. It now needs a source file named after two words of the message, and skips text too long to search whole. Blind review on unseen messages: 52% relevant, 12% of short messages get code. | [LT-725 detail](#lt-725) | [Fixing plan](2026-11-06-code-context-precision_plan_completed.md); [installed check 3](2026-11-06-search-and-memory-repair_plan_livetest.md#3-automatic-code-context-is-relevant-and-quiet-when-it-should-be) |
-| LT-726 | P2 | **SOURCE FIX VERIFIED 2026-11-06 in a Linux container; first AppImage release build pending.** Linux packages could not finish building, because `scripts/set-electron-fuses.js` opened `Harness` when the binary is `harness`, so the security fuses were never set. | [LT-726 detail](#lt-726) | [Fixing plan](2026-11-06-code-context-precision_plan_completed.md); [installed check 9](2026-11-06-search-and-memory-repair_plan_livetest.md#9-windows-and-linux-packages-hold-only-their-own-runtime) |
-| LT-727 | P1 | **SOURCE FIX VERIFIED 2026-11-06; rebuilt-app check pending.** Every Microsoft 365 connector tool call was refused before reaching Microsoft, because the connector rejected the standard `_meta` field that MCP clients add to a call. | [LT-727 detail](#lt-727) | [Check 3](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md#3-microsoft-365-account-routing-and-write-policy) |
+| LT-725 | P2 | **CONFIRMED FIXED LIVE 2026-11-07 for conversational messages; the build-output case is LT-729.** On the rebuilt app, 2 of about 45 typed messages in 17 hours got code, and every short reply stayed quiet. One was relevant; the other added gitignored build output (LT-729). Original report: Automatic code context was mostly irrelevant on real messages: about 7% of top results were relevant and 75% of short messages got code. It now needs a source file named after two words of the message, and skips text too long to search whole. Blind review on unseen messages: 52% relevant, 12% of short messages get code. | [LT-725 detail](#lt-725) | [Fixing plan](2026-11-06-code-context-precision_plan_completed.md); [installed check 3](2026-11-06-search-and-memory-repair_plan_livetest.md#3-automatic-code-context-is-relevant-and-quiet-when-it-should-be) |
+| LT-726 | P2 | **CONFIRMED FIXED 2026-11-07 in a release-equivalent AppImage build.** At commit bdf416f21 the release job's `--linux AppImage --x64` packaging finished, logged `Fuses applied successfully`, and the extracted `harness` reads back with all four fuses as intended. Its startup smoke fails for a separate reason (LT-731). Original report: Linux packages could not finish building, because `scripts/set-electron-fuses.js` opened `Harness` when the binary is `harness`, so the security fuses were never set. | [LT-726 detail](#lt-726) | [Fixing plan](2026-11-06-code-context-precision_plan_completed.md); [installed check 9](2026-11-06-search-and-memory-repair_plan_livetest.md#9-windows-and-linux-packages-hold-only-their-own-runtime) |
+| LT-727 | P1 | **FIXED LIVE IN CLAUDE 2026-11-07; Codex check pending.** On the rebuilt, restarted app, a Claude session listed mail folders through both connectors and Community Tech's calendars. The Codex check was blocked by the Codex usage limit, which resets 8 November. Every Microsoft 365 connector tool call was refused before reaching Microsoft, because the connector rejected the standard `_meta` field that MCP clients add to a call. | [LT-727 detail](#lt-727) | [Check 3](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md#3-microsoft-365-account-routing-and-write-policy) |
+| LT-728 | P1 | **SOURCE FIX VERIFIED 2026-11-07; rebuilt-app check pending.** A session revived after a crash never saved James's typed messages, because recovery redaction strips the field the transcript used to recognise them. Under the `enforce` evidence mode every Harness tool call from such a session is refused with `SOURCE_MESSAGE_MISSING`. Separately, a provider switch kept the old provider's evidence mode. | [LT-728 detail](#lt-728) | [Fixing plan](2026-11-07-revived-session-input-provenance_plan_completed.md); [installed checks](2026-11-07-revived-session-input-provenance_livetest.md) |
+| LT-729 | P2 | **SOURCE FIX VERIFIED 2026-11-07; rebuilt-app check pending.** On a copy of the live index one reconcile removed every ignored file (0 left in this repo, communitytech and 12steps). A stale cancel flag that blocked the reconcile is also fixed. Original report: The code index ignores nested `.gitignore` files and `.git/info/exclude`, reading only the workspace root's `.gitignore`, so build output and other files git ignores are indexed and can be added as code context. Measured on the live index: 22% of this repo's chunks, 94% of `~/work/communitytech`, 10–11% of three other projects. | [LT-729 detail](#lt-729) | [Fixing plan](2026-11-07-search-repair-livetest-defects_plan_completed.md); [installed checks](2026-11-07-search-repair-livetest-defects_plan_livetest.md); [Installed check 3](2026-11-06-search-and-memory-repair_plan_livetest.md#3-automatic-code-context-is-relevant-and-quiet-when-it-should-be) |
+| LT-730 | P2 | **SOURCE FIX VERIFIED 2026-11-07; a day of live use pending.** `skill-match` raised to 0.68 after scoring 1,549 real messages: no wrong skill on any short message, 10 of 34 test prompts still matched, and the dashboard test prompt no longer adds a skill. Original report: Both built-in skills added by meaning on ordinary messages were wrong: `docs-sweep` (0.629) on `fix all those issues then please`, `android-test` (0.639) on a pasted pairing code with a request for a prompt. The `skill-match` floor for the real model is 0.62; the one correct live match scored 0.670. | [LT-730 detail](#lt-730) | [Fixing plan](2026-11-07-search-repair-livetest-defects_plan_completed.md); [installed checks](2026-11-07-search-repair-livetest-defects_plan_livetest.md); [Installed check 6](2026-11-06-search-and-memory-repair_plan_livetest.md#6-skill-matching-fires-on-meaning-and-not-too-often) |
+| LT-731 | P2 | **SOURCE FIX VERIFIED 2026-11-07 in a release-equivalent container; first GitHub release run pending.** The workflow now runs `xvfb-run -a node scripts/packaged-startup-smoke.js`, which passed as root and non-root. Original report: The Linux release job's startup smoke can never pass: with no `DISPLAY` it runs `xvfb-run -a harness`, the app relaunches itself with its heap flag and the first process exits 0, so `xvfb-run` closes the display and the real app dies before it is ready. With a display kept up for the whole run, the same script passes. | [LT-731 detail](#lt-731) | [Fixing plan](2026-11-07-search-repair-livetest-defects_plan_completed.md); [installed checks](2026-11-07-search-repair-livetest-defects_plan_livetest.md); [Installed check 9](2026-11-06-search-and-memory-repair_plan_livetest.md#9-windows-and-linux-packages-hold-only-their-own-runtime) |
 
 | LT-1006 | P2 | **REPAIRS WIRED 2026-10-27; clean scoring still OPEN.** Fresh queue dependencies expose Vitest 4 to archived tasks whose quiet runner requires the Vitest 3 export map. Both broken and fixed task commands crash before tests. Temporary historical dependencies remove that crash but reveal LT-1002. Renumbered from this campaign's conflicting LT-709 label. | [LT-1000 detail](#lt-1006) | [Local-model checks A5–A8](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
 | LT-1001 | P1 | **OPEN, reproduced 2026-10-27.** A fresh isolated dev profile fails startup with a duplicate migration-name constraint while main and the context worker initialize the same database. Restarting that owned profile succeeds; no application fix made. | [LT-1001 detail](#lt-1001) | [Local-model campaign startup evidence](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
@@ -11961,6 +11967,56 @@ The source investigation recorded in the active repair plan identifies synchroni
 
 **Acceptance:** after a rebuild and restart, a new Claude session and a new Codex session each list folders through `m365-communitytech` and `m365-fortitude` using the ordinary connector tools. A regression test in `connector-rpc.spec.ts` covers the `_meta` call. Check 3 in the [owning live-test document](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md) stays open for the rest of its steps.
 
+<a id="lt-728"></a>
+
+## LT-728 — Typed messages not saved, so every Harness tool is refused
+
+**Observed:** on 7 November 2026, session `xhsbd42yj` (conversation `ae50cb86-7124-4fbd-9d8a-2c1c342b67e3`) was woken from hibernation at 00:32:49Z by James's message "rebuilt and resttarted I think". The app log shows `IPC INSTANCE_SEND_INPUT received` at 00:32:50.076Z, then `sendInput called` and an immediate provider-limit park at 00:32:51.226Z. The session's own output buffer (`session-continuity/states/xhsbd42yj.json`) holds the message as a `user` entry with id `edf31eff-cd06-4ac4-a0e2-3f9097e29f58`, timestamp 00:32:51.223Z and no metadata. The conversation ledger has no row with that id. The park notice published 3 ms later (`77b976c8-…`, ledger sequence 2860) was saved, as were the later provider-change notice and every assistant and tool row. A second message, "please continue" (`465c69af-…`, 00:39:07Z, just before an account switch), is also missing. The newest `user` row on the conversation is from 6 November 13:33Z under the previous instance id `xwmy5ab9e`. After the provider change and the resume fallback, every orchestrator tool call (`get_setting`, `plan_queue_status`) failed with `EVIDENCE_CAPTURE_REQUIRED execution=not_started reason=SOURCE_MESSAGE_MISSING`; tool search and describe still worked.
+
+**Root cause:** two faults, both reproduced and covered by tests in [the fixing plan](2026-11-07-revived-session-input-provenance_plan_completed.md).
+
+1. The session was revived by crash recovery when the app restarted on 6 November (its creation log hides the history id as `[recovery history identity omitted]`, which happens only for `metadata.reason === 'crash-recovery'`). `InstanceContinuityRecovery.redactProviderEnvelope` deliberately strips `raw` and `sessionId` from every envelope of a revived session. `ChatTranscriptBridge.messageFromEnvelope` kept a `user` output only when `raw.source === 'instance-output'`, its way of telling Harness's own published input from a provider echo. With `raw` gone, every typed message of a revived session was dropped, while assistant, system and tool rows, which do not depend on `raw`, were saved. Under `enforce`, `getLatestInputSource` then finds no input and every Harness tool call fails with `SOURCE_MESSAGE_MISSING`. The usage-limit hold and the account switch were coincidental.
+2. Evidence mode is per provider (`contextEvidenceModeByProvider`; on this machine Codex is `enforce`, Claude `off`). `RuntimeReconciler.applyRuntimeChangeLocked` swapped `instance.provider` without re-running `initializeInstanceEvidenceOwnership`, so after the Codex-to-Claude change at 00:36Z the session still enforced Codex's mode. After the session hibernated and was woken at 02:03Z, the wake path re-read the mode as Claude's `off`, and the same `plan_queue_status` call succeeded.
+
+**Required behaviour:** every message James sends to a session, including one that wakes a hibernated session or is held for a provider limit, is saved once as his message on the session's conversation, so Harness tools called while answering it are accepted.
+
+**Acceptance:** a regression test reproduces the lost row on the real send path (wake from hibernation, then a provider-limit hold) and passes after the fix. After a rebuild and restart, a hibernated session woken by a typed message can call `get_setting` successfully, and the ledger shows that message as a `user` row for the current instance.
+
+<a id="lt-729"></a>
+
+## LT-729 — Code index includes files git ignores
+
+**Observed:** on 7 November 2026 at 09:09, James's 12steps message `12steps.life has a broken meeting listing ...` got an `[Indexed Codebase Context]` block led by `apps/web/dist-xa/web/browser/find-meetings/friday/index.html`, a built page matched on `meetings` and `friday`. `apps/web/.gitignore` ignores `/dist-xa`. Feeding each workspace's indexed paths to `git check-ignore -v --stdin` on the live `codemem.sqlite` (read-only) found ignored content in every git workspace checked: `ai-orchestrator` 26,716 of 122,666 chunks (22%, `apps/mobile/ios/.gitignore`), `communitytech` 78,663 of 84,017 (94%, `.git/info/exclude`, old runner copies), `communitytech/work-finding` 8,136 of 79,544 (10%), `12steps` 2,441 of 23,246 (11%), `easy-tech/mytrademail` 1,715 of 15,507 (11%).
+
+**Root cause:** `CodeIndexManager.loadIgnoreRules` (`src/main/codemem/code-index-manager.ts`) builds its rules from `DEFAULT_CODE_INDEX_IGNORES` plus the workspace root's `.gitignore` only. Nested `.gitignore` files, `.git/info/exclude` and git's global excludes are never read. The same rules feed the watcher (`code-index-watcher.ts`) and the reconciler (`code-index-reconciler.ts`). `NON_SOURCE_FOLDER` in `code-search-query.ts` catches folders named exactly `dist` or `build`, not `dist-xa`.
+
+**Required behaviour:** in a git workspace the index skips every untracked file git ignores, by git's own rules, and drops chunks already indexed for such files. Non-git workspaces keep the current rules.
+
+**Acceptance:** a regression test with a nested `.gitignore` and an `.git/info/exclude` entry shows those files are not indexed or watched. After a rebuild, the `git check-ignore` count above falls to near 0 for each workspace, and ordinary code search still finds the right file at the measured rate.
+
+<a id="lt-730"></a>
+
+## LT-730 — Wrong built-in skills added by meaning
+
+**Observed:** `skill_activations` in `rlm/rlm.db` shows three skills added by meaning since the real model went live on 6 November 2026. `visual-redesign` (0.670) on the check 6 test prompt was right. The two from ordinary use were wrong: `docs-sweep` (0.629, 18:44 on 6 November) on `fix all those issues then please`, which injected its loop contract with the instruction to follow it; and `android-test` (0.639, 09:12 on 7 November) on a pasted Harness pairing code followed by `YOU should be able to get a pairing code via CLI ..., create a prompt for that`. Both were in this repo and came in an `[Orchestrator Memory Context]` block.
+
+**Root cause:** `skill-match` for `bge-small-en-v1.5-int8` is 0.62 (`src/main/rlm/embedding/embedding-model.ts`), set from 34 curated prompts where 0.62 gave no wrong skill. Real short or mixed messages reach 0.63–0.64 against unrelated skill descriptions. The calibration log already showed real messages' best skill score at p99 0.643, so the floor sits inside ordinary noise.
+
+**Required behaviour:** a built-in skill is added automatically only when the message is clearly about that skill's task; vague replies and pasted data add none.
+
+**Acceptance:** a test set of real messages that should add no skill (including the two above) adds none, while the curated prompts keep most of their right matches. After a rebuild, a day of normal use adds no unexpected skill. With three live examples the threshold choice is thin evidence: 0.64 would have removed both wrong ones and kept the right one, but drops right matches on the curated prompts from 25 to 21 of 34 (`similarity-calibration.log`).
+
+<a id="lt-731"></a>
+
+## LT-731 — Linux release startup smoke closes its own display
+
+**Observed:** on 7 November 2026 an agent on the Windows PC ran the release workflow's Linux x64 steps at commit bdf416f21 in a `node:24.22.1-bookworm` container: `npm ci`, `npm run build` and `npm run electron:build -- --linux AppImage --x64 --publish never` all exited 0, producing `Harness-0.1.0-linux-x86_64.AppImage` (403,594,716 bytes). `node scripts/packaged-startup-smoke.js`, run as the workflow runs it with no `DISPLAY`, exited 1 with `Packaged app process ... exited before startup completed`, both as root and as a non-root user. The app wrote `startup-smoke-pid` but never `startup-smoke-ready`, and afterwards neither the app nor Xvfb was running. With an Xvfb started separately and `DISPLAY=:99` set, the unchanged script exited 0.
+
+**Root cause:** `getLaunchCommand` in `scripts/packaged-startup-smoke.js` wraps the app in `xvfb-run -a` when `DISPLAY` is unset. `startHarnessMainProcess` in `src/main/main-process-bootstrap.ts` relaunches the app with `--js-flags=--max-old-space-size=8192` and exits the first process with code 0. `xvfb-run` treats the first process's exit as the end of the run and stops its X server, taking the relaunched app's display with it. The release workflow has never run (`gh run list` showed no run on 6 November), so this has not been seen in CI.
+
+**Required behaviour:** the Linux release job's smoke step passes when the packaged app starts correctly, and fails when it does not.
+
+**Acceptance:** the smoke keeps one display alive for the whole run (for example the workflow runs `xvfb-run -a node scripts/packaged-startup-smoke.js`, or the script starts and stops its own Xvfb), a test covers the Linux launch command, and the release job's Linux steps pass in a clean `node:24.22.1-bookworm` container.
 <a id="lt-732"></a>
 ## LT-732 — a warm Claude process bypasses a sidechat's inherited tool denials
 
@@ -12708,3 +12764,67 @@ smoke as the 7 November run passing through the translator with no separate forw
 change alters the frozen translator's behaviour, so the owning plan must decide whether it
 counts as a new translator identity before any scored cell uses it. Until then, IPv4 upstreams
 and the byte forwarder in that evidence folder are the only tested routes.
+
+## LT-1016
+
+### LT-1016 — a landing skipped its related tests after a checklist with no tests
+
+**Status: source fix verified 8 November 2026; rebuilt-app check pending.**
+
+### Observed behaviour
+
+Item `d6b89b52` (livetest run, checklist `npx tsc --noEmit` and `npm run lint`) landed as commit `3cb1ae812` on
+7 November 2026 at 20:19Z: 252 files, including `src/main/cli/adapters/claude-cli-permission-details.ts`,
+`src/main/orchestration/headless-review-runner.ts` and four spec files. Both receipts passed on exactly the
+landed tree (no difference outside closed documents), and the landing's `commitCheckMs` was 2,584 ms, far too
+short for `npm run test:staged` on that change. The hook's output is not kept on a successful landing, so the skip
+is shown by the matching tree, the eligibility rule and the timing, not by the printed line.
+
+### Root cause
+
+`checkedTreeForLanding` (`src/main/plan-queue/plan-queue-landing.ts`) granted the covered-tests proof whenever every
+receipt of the run's own checklist passed on the landing tree. It never required the checklist to contain a test
+run, so a livetest checklist of type check and lint stood in for the hook's tests. The approved design
+([batched checks plan, requirement 1](2026-11-02-plan-queue-batched-checks_plan_completed.md)) allowed the skip only
+for code that "already passed the full checklist".
+
+### Required behaviour and acceptance
+
+The proof needs, in addition, at least one checklist command that runs tests (`isTestCommand`, the same rule the
+receipt classifier uses) whose receipt is `passed`, meaning its output showed tests passing. A test command whose
+output was not recognised does not count. Acceptance: `plan-queue-landing.spec.ts` cases `no-test-run` and
+`unrecognised-tests` leave the hook without the proof (both failed before the fix), and `green` (with
+`npm run test:quiet`) still grants it. On the rebuilt app, a livetest landing that changes code runs the hook's
+related tests (commit check takes as long as the tests), and a plan landing with a green full checklist still skips
+them.
+
+## LT-1017
+
+### LT-1017 — the hook's test skip never fires for a normal plan landing
+
+**Status: source fix verified 8 November 2026; rebuilt-app check pending.**
+
+### Observed behaviour
+
+Five `plans` jobs landed in this repository on 8 November 2026 (12:29Z to 16:59Z), each with an eight-command
+checklist that all passed. Compared with each job's tested tree, every landed commit also changed
+`docs/generated/architecture-inventory.json`; one also carried base-branch changes. Commit checks took 83 to 264
+seconds, so the hook ran `test:staged` every time. Of the ten earlier livetest landings, nine differed from their
+tested tree in the same file.
+
+### Root cause
+
+Queue workers' checkpoint commits skip the hook, so the architecture list on a job's branch is stale. At landing the
+pre-commit hook runs the generators and stages their output before `test:staged`. `scripts/run-git-hook.js` then
+required the staged index to equal the tested tree exactly, so the rebuilt list alone cancelled the skip. The
+architecture list is documentation: no runtime code or test reads it (only its generator's own spec), and
+`test-staged.js` already leaves generated files out of its test selection.
+
+### Required behaviour and acceptance
+
+Before `test:staged`, the hook compares the staged index with the tested tree ignoring regenerated documentation
+(`DOCUMENTATION_ARTIFACTS`, the generated files under `docs/`), with `git diff-tree --quiet` and exact literal
+excludes. Regenerated code (`register-aliases.ts`, IPC channels) and any other difference still run the tests; any git
+failure runs them too. Acceptance: `run-git-hook.spec.ts` case `regenerated: documentation` skips (it failed before
+the fix), `regenerated: code` runs the tests, and the mocked changed-tree case still runs them. On the rebuilt app, a
+plan landing whose code equals its tested code has a short commit check.
