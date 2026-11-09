@@ -74,13 +74,13 @@
             <div class="pq-bulk-preview-list">
               <h4>Will change ({{ preview.willChange.length }})</h4>
               @for (item of preview.willChange; track item.id) {
-                <p>{{ documentBasename(item.documentPath) }}</p>
+                <p>{{ documentBasename(item.sourceRef) }}</p>
                 @for (finding of item.verdict?.findings ?? []; track $index) { <p>{{ detailFor(finding.summary)?.text }}</p> }
               }
               <h4>Left alone ({{ preview.leftAlone.length }})</h4>
-              @for (entry of preview.leftAlone; track entry.item.id) { <p>{{ documentBasename(entry.item.documentPath) }}: {{ entry.reason }}</p> }
+              @for (entry of preview.leftAlone; track entry.item.id) { <p>{{ documentBasename(entry.item.sourceRef) }}: {{ entry.reason }}</p> }
               <h4>Does not apply ({{ preview.notApplicable.length }})</h4>
-              @for (entry of preview.notApplicable; track entry.item.id) { <p>{{ documentBasename(entry.item.documentPath) }}: {{ entry.reason }}</p> }
+              @for (entry of preview.notApplicable; track entry.item.id) { <p>{{ documentBasename(entry.item.sourceRef) }}: {{ entry.reason }}</p> }
             </div>
           </section>
         }
@@ -109,7 +109,7 @@
   <div class="pq-parked-item">
     <div class="pq-parked-head">
       <div class="pq-parked-name">
-        <span class="pq-parked-doc" tabindex="0" [appTooltip]="item.documentPath">{{ documentBasename(item.documentPath) }}</span>
+        <span class="pq-parked-doc" tabindex="0" [appTooltip]="item.sourceRef">{{ documentBasename(item.sourceRef) }}</span>
         <div class="pq-parked-branch">
           @if (row.project) { <span class="pq-parked-project">{{ row.project }}</span> }
           {{ item.branchName ?? '(no branch)' }}

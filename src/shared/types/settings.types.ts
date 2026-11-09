@@ -549,6 +549,8 @@ export interface AppSettings
   planQueueAccountRules: PlanQueueAccountRules;
   /** Saved checklist per project folder; beats the gates a session passes to `plan_queue_start`. Operator-only, edited on the Plan Queue page. */
   planQueueFolderChecklists: PlanQueueFolderChecklist[];
+  /** The project folders a session may start a Plan Queue run in from another folder (`plan_queue_start`'s `workspace`). Operator-only, edited on the Plan Queue page. */
+  planQueueFolders: string[];
 
   // Conversational ping-pong review (bigchange_pingpong_review)
   /**

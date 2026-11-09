@@ -23,7 +23,7 @@ function makeItem(overrides: Partial<PlanQueueItemDto> = {}): PlanQueueItemDto {
   return {
     id: 'item-1',
     runId: 'run-1',
-    documentPath: 'docs/plans/foo_plan.md',
+    sourceRef: 'docs/plans/foo_plan.md',
     state: 'parked',
     round: 3,
     erroredRounds: 1,
@@ -57,9 +57,9 @@ describe('PlanQueueParkedListComponent', () => {
     ]);
     fixture.componentRef.setInput('items', [
       makeItem({ id: 'a', runId: 'run-1' }),
-      makeItem({ id: 'b', runId: 'run-2', documentPath: 'docs/plans/b_plan.md' }),
-      makeItem({ id: 'c', runId: 'run-2', documentPath: 'docs/plans/c_plan.md' }),
-      makeItem({ id: 'd', runId: 'run-3', documentPath: 'docs/plans/d_plan.md' }),
+      makeItem({ id: 'b', runId: 'run-2', sourceRef: 'docs/plans/b_plan.md' }),
+      makeItem({ id: 'c', runId: 'run-2', sourceRef: 'docs/plans/c_plan.md' }),
+      makeItem({ id: 'd', runId: 'run-3', sourceRef: 'docs/plans/d_plan.md' }),
     ]);
     fixture.detectChanges();
     return fixture.nativeElement as HTMLElement;
@@ -153,9 +153,9 @@ describe('PlanQueueParkedListComponent', () => {
 
   it('heads multiple ready documents once and keeps them before other set-aside work', () => {
     const verdict = { verdict: 'PASS' as const, findings: [], gatesRun: [], documentComplete: true, needJames: [] };
-    fixture.componentRef.setInput('items', [makeItem({ id: 'other', documentPath: 'other.md', updatedAt: 4 }),
-      makeItem({ id: 'first', documentPath: 'first.md', parkReason: 'land-blocked', verdict }),
-      makeItem({ id: 'second', documentPath: 'second.md', parkReason: 'land-blocked', verdict })]);
+    fixture.componentRef.setInput('items', [makeItem({ id: 'other', sourceRef: 'other.md', updatedAt: 4 }),
+      makeItem({ id: 'first', sourceRef: 'first.md', parkReason: 'land-blocked', verdict }),
+      makeItem({ id: 'second', sourceRef: 'second.md', parkReason: 'land-blocked', verdict })]);
     fixture.detectChanges();
     expect(Array.from(fixture.nativeElement.querySelectorAll('h3'), (node: Element) => node.textContent)
       .filter(text => text === 'Ready to review and merge')).toHaveLength(1);
@@ -166,7 +166,7 @@ describe('PlanQueueParkedListComponent', () => {
   });
 
   it('explains a reason once for the whole section, not on every job', () => {
-    fixture.componentRef.setInput('items', [makeItem({ id: 'a', documentPath: 'a.md' }), makeItem({ id: 'b', documentPath: 'b.md' })]);
+    fixture.componentRef.setInput('items', [makeItem({ id: 'a', sourceRef: 'a.md' }), makeItem({ id: 'b', sourceRef: 'b.md' })]);
     fixture.detectChanges();
     const text = fixture.nativeElement.textContent as string;
     expect(text.split('Ran out of all the rounds')).toHaveLength(2);
@@ -174,8 +174,8 @@ describe('PlanQueueParkedListComponent', () => {
   });
 
   it('keeps closed sections out of the page and fetches no diffstats for them', () => {
-    fixture.componentRef.setInput('items', [makeItem({ id: 'big-1', documentPath: 'a.md' }), makeItem({ id: 'big-2', documentPath: 'b.md' }),
-      makeItem({ id: 'small', documentPath: 'c.md', parkReason: 'worker-error' })]);
+    fixture.componentRef.setInput('items', [makeItem({ id: 'big-1', sourceRef: 'a.md' }), makeItem({ id: 'big-2', sourceRef: 'b.md' }),
+      makeItem({ id: 'small', sourceRef: 'c.md', parkReason: 'worker-error' })]);
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('.pq-parked-item')).toHaveLength(2);
     expect(store.diffstat.mock.calls.map(([id]) => id).sort()).toEqual(['big-1', 'big-2']);
@@ -186,7 +186,7 @@ describe('PlanQueueParkedListComponent', () => {
   });
 
   it('shows a long section a page at a time', () => {
-    fixture.componentRef.setInput('items', Array.from({ length: 30 }, (_, index) => makeItem({ id: `i${index}`, documentPath: `d${index}.md` })));
+    fixture.componentRef.setInput('items', Array.from({ length: 30 }, (_, index) => makeItem({ id: `i${index}`, sourceRef: `d${index}.md` })));
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('.pq-parked-item')).toHaveLength(25);
     const more = fixture.nativeElement.querySelector('.pq-parked-more') as HTMLButtonElement;
@@ -199,7 +199,7 @@ describe('PlanQueueParkedListComponent', () => {
   it('runs only a few git checks at once and works through the rest', async () => {
     const replies: ((value: string) => void)[] = [];
     store.diffstat.mockImplementation(() => new Promise<string>((resolve) => replies.push(resolve)));
-    fixture.componentRef.setInput('items', Array.from({ length: 6 }, (_, index) => makeItem({ id: `i${index}`, documentPath: `d${index}.md` })));
+    fixture.componentRef.setInput('items', Array.from({ length: 6 }, (_, index) => makeItem({ id: `i${index}`, sourceRef: `d${index}.md` })));
     fixture.detectChanges();
     expect(store.diffstat).toHaveBeenCalledTimes(4);
     replies.shift()!('1 file changed');
@@ -216,8 +216,8 @@ describe('PlanQueueParkedListComponent', () => {
 
   it('searches documents, branches and projects, opening each section with a match', () => {
     fixture.componentRef.setInput('runs', [{ id: 'run-1', workspaceCwd: '/work/alpha', config: {}, items: [] }, { id: 'run-2', workspaceCwd: '/work/beta', config: {}, items: [] }]);
-    fixture.componentRef.setInput('items', [makeItem({ id: 'a', documentPath: 'one.md' }), makeItem({ id: 'b', documentPath: 'two.md' }),
-      makeItem({ id: 'c', runId: 'run-2', documentPath: 'three.md', parkReason: 'worker-error', branchName: 'queue/three' })]);
+    fixture.componentRef.setInput('items', [makeItem({ id: 'a', sourceRef: 'one.md' }), makeItem({ id: 'b', sourceRef: 'two.md' }),
+      makeItem({ id: 'c', runId: 'run-2', sourceRef: 'three.md', parkReason: 'worker-error', branchName: 'queue/three' })]);
     fixture.detectChanges();
     const search = (value: string) => {
       const input = fixture.nativeElement.querySelector('.pq-parked-search') as HTMLInputElement;
@@ -232,8 +232,8 @@ describe('PlanQueueParkedListComponent', () => {
   });
 
   it('previews only the section it was opened from', () => {
-    fixture.componentRef.setInput('items', [makeItem({ id: 'a', documentPath: 'a.md' }), makeItem({ id: 'b', documentPath: 'b.md' }),
-      makeItem({ id: 'c', documentPath: 'c.md', parkReason: 'worker-error' })]);
+    fixture.componentRef.setInput('items', [makeItem({ id: 'a', sourceRef: 'a.md' }), makeItem({ id: 'b', sourceRef: 'b.md' }),
+      makeItem({ id: 'c', sourceRef: 'c.md', parkReason: 'worker-error' })]);
     fixture.detectChanges();
     const emitted: string[] = [];
     fixture.componentInstance.resumeItems.subscribe(ids => emitted.push(...ids));
@@ -244,11 +244,11 @@ describe('PlanQueueParkedListComponent', () => {
   });
 
   it('resumes exactly the reviewed list, even if a refresh changes the section meanwhile', () => {
-    const first = makeItem({ id: 'a', documentPath: 'a.md' });
-    fixture.componentRef.setInput('items', [first, makeItem({ id: 'b', documentPath: 'b.md' })]);
+    const first = makeItem({ id: 'a', sourceRef: 'a.md' });
+    fixture.componentRef.setInput('items', [first, makeItem({ id: 'b', sourceRef: 'b.md' })]);
     fixture.detectChanges();
     fixture.nativeElement.querySelector('.pq-bulk-resume').click(); fixture.detectChanges();
-    fixture.componentRef.setInput('items', [first, makeItem({ id: 'c', documentPath: 'c.md' })]);
+    fixture.componentRef.setInput('items', [first, makeItem({ id: 'c', sourceRef: 'c.md' })]);
     fixture.detectChanges();
     const emitted: string[] = [];
     fixture.componentInstance.resumeItems.subscribe(ids => emitted.push(...ids));
@@ -258,9 +258,9 @@ describe('PlanQueueParkedListComponent', () => {
   });
 
   it('keeps a job whose document has since merged out of a bulk preview', () => {
-    const merged = makeItem({ id: 'merged', runId: 'run-2', documentPath: 'a.md', state: 'landed', createdAt: 9 });
+    const merged = makeItem({ id: 'merged', runId: 'run-2', sourceRef: 'a.md', state: 'landed', createdAt: 9 });
     fixture.componentRef.setInput('runs', [{ id: 'run-1', workspaceCwd: '/w', config: {}, items: [] }, { id: 'run-2', workspaceCwd: '/w', config: {}, items: [merged] }]);
-    fixture.componentRef.setInput('items', [makeItem({ id: 'a', documentPath: 'a.md' }), makeItem({ id: 'b', documentPath: 'b.md' })]);
+    fixture.componentRef.setInput('items', [makeItem({ id: 'a', sourceRef: 'a.md' }), makeItem({ id: 'b', sourceRef: 'b.md' })]);
     fixture.detectChanges();
     fixture.nativeElement.querySelector('.pq-bulk-resume').click(); fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.pq-bulk-preview').textContent).not.toContain('a.md');
@@ -269,10 +269,10 @@ describe('PlanQueueParkedListComponent', () => {
 
   it('keeps the open section open when a refresh moves another section above it', () => {
     const verdict = { verdict: 'PASS' as const, findings: [], gatesRun: [], documentComplete: true, needJames: [] };
-    const reading = makeItem({ id: 'a', documentPath: 'a.md' });
+    const reading = makeItem({ id: 'a', sourceRef: 'a.md' });
     fixture.componentRef.setInput('items', [reading]);
     fixture.detectChanges();
-    fixture.componentRef.setInput('items', [reading, makeItem({ id: 'ready', documentPath: 'b.md', parkReason: 'land-blocked', verdict })]);
+    fixture.componentRef.setInput('items', [reading, makeItem({ id: 'ready', sourceRef: 'b.md', parkReason: 'land-blocked', verdict })]);
     fixture.detectChanges();
     const toggles = fixture.nativeElement.querySelectorAll('.pq-parked-section-toggle') as NodeListOf<HTMLButtonElement>;
     expect(toggles[0].textContent).toContain('Ready to review and merge');
@@ -281,8 +281,8 @@ describe('PlanQueueParkedListComponent', () => {
   });
 
   it('keeps a section the user opened open when the default section empties', () => {
-    const other = makeItem({ id: 'c', documentPath: 'c.md', parkReason: 'worker-error' });
-    fixture.componentRef.setInput('items', [makeItem({ id: 'a', documentPath: 'a.md' }), makeItem({ id: 'b', documentPath: 'b.md' }), other]);
+    const other = makeItem({ id: 'c', sourceRef: 'c.md', parkReason: 'worker-error' });
+    fixture.componentRef.setInput('items', [makeItem({ id: 'a', sourceRef: 'a.md' }), makeItem({ id: 'b', sourceRef: 'b.md' }), other]);
     fixture.detectChanges();
     (fixture.nativeElement.querySelectorAll('.pq-parked-section-toggle')[1] as HTMLButtonElement).click();
     fixture.detectChanges();
@@ -292,10 +292,10 @@ describe('PlanQueueParkedListComponent', () => {
   });
 
   it('opens the next section by default when the open one empties', () => {
-    fixture.componentRef.setInput('items', [makeItem({ id: 'a', documentPath: 'a.md' }), makeItem({ id: 'b', documentPath: 'b.md' }),
-      makeItem({ id: 'c', documentPath: 'c.md', parkReason: 'worker-error' })]);
+    fixture.componentRef.setInput('items', [makeItem({ id: 'a', sourceRef: 'a.md' }), makeItem({ id: 'b', sourceRef: 'b.md' }),
+      makeItem({ id: 'c', sourceRef: 'c.md', parkReason: 'worker-error' })]);
     fixture.detectChanges();
-    fixture.componentRef.setInput('items', [makeItem({ id: 'c', documentPath: 'c.md', parkReason: 'worker-error' })]);
+    fixture.componentRef.setInput('items', [makeItem({ id: 'c', sourceRef: 'c.md', parkReason: 'worker-error' })]);
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.pq-parked-section-toggle').getAttribute('aria-expanded')).toBe('true');
   });
@@ -313,7 +313,7 @@ describe('PlanQueueParkedListComponent', () => {
   });
 
   it('does not restart a reviewed job that has since become busy, and says so in its count', () => {
-    fixture.componentRef.setInput('items', [makeItem({ id: 'a', documentPath: 'a.md' }), makeItem({ id: 'b', documentPath: 'b.md' })]);
+    fixture.componentRef.setInput('items', [makeItem({ id: 'a', sourceRef: 'a.md' }), makeItem({ id: 'b', sourceRef: 'b.md' })]);
     fixture.detectChanges();
     fixture.nativeElement.querySelector('.pq-bulk-resume').click(); fixture.detectChanges();
     fixture.componentRef.setInput('busyDocuments', ['a.md']); fixture.detectChanges();
@@ -339,10 +339,10 @@ describe('PlanQueueParkedListComponent', () => {
 
   describe('a document that merged in a newer attempt', () => {
     const verdict = { verdict: 'PASS' as const, findings: [], gatesRun: [], documentComplete: true, needJames: [] };
-    const merged = makeItem({ id: 'merged', runId: 'run-2', documentPath: 'a.md', state: 'landed', createdAt: 9 });
+    const merged = makeItem({ id: 'merged', runId: 'run-2', sourceRef: 'a.md', state: 'landed', createdAt: 9 });
     beforeEach(() => {
       fixture.componentRef.setInput('runs', [{ id: 'run-1', workspaceCwd: '/w', config: {}, items: [] }, { id: 'run-2', workspaceCwd: '/w', config: {}, items: [merged] }]);
-      fixture.componentRef.setInput('items', [makeItem({ id: 'old', documentPath: 'a.md', parkReason: 'land-blocked', verdict })]);
+      fixture.componentRef.setInput('items', [makeItem({ id: 'old', sourceRef: 'a.md', parkReason: 'land-blocked', verdict })]);
       fixture.detectChanges();
     });
 
@@ -363,7 +363,7 @@ describe('PlanQueueParkedListComponent', () => {
 
   describe('trying all merges again', () => {
     const verdict = { verdict: 'PASS' as const, findings: [], gatesRun: [], documentComplete: true, needJames: [] };
-    const ready = (id: string, createdAt: number) => makeItem({ id, documentPath: `${id}.md`, parkReason: 'land-blocked', verdict, createdAt });
+    const ready = (id: string, createdAt: number) => makeItem({ id, sourceRef: `${id}.md`, parkReason: 'land-blocked', verdict, createdAt });
 
     it('previews first, says what it may cost, and sends the oldest first', () => {
       fixture.componentRef.setInput('items', [ready('newer', 5), ready('older', 2)]);
@@ -449,7 +449,7 @@ describe('PlanQueueParkedListComponent', () => {
   it('stops starting git checks once the list is gone', async () => {
     const replies: ((value: string) => void)[] = [];
     store.diffstat.mockImplementation(() => new Promise<string>((resolve) => replies.push(resolve)));
-    fixture.componentRef.setInput('items', Array.from({ length: 6 }, (_, index) => makeItem({ id: `i${index}`, documentPath: `d${index}.md` })));
+    fixture.componentRef.setInput('items', Array.from({ length: 6 }, (_, index) => makeItem({ id: `i${index}`, sourceRef: `d${index}.md` })));
     fixture.detectChanges();
     fixture.destroy();
     replies.shift()!('1 file changed');
@@ -609,7 +609,7 @@ describe('PlanQueueParkedListComponent', () => {
   });
 
   it('requires the bulk preview before resuming and exposes no bulk merge or discard', () => {
-    fixture.componentRef.setInput('items', [makeItem({ id: 'first', documentPath: 'a.md' }), makeItem({ id: 'second', documentPath: 'b.md' })]);
+    fixture.componentRef.setInput('items', [makeItem({ id: 'first', sourceRef: 'a.md' }), makeItem({ id: 'second', sourceRef: 'b.md' })]);
     fixture.detectChanges();
     const emitted: string[] = [];
     fixture.componentInstance.resumeItems.subscribe(ids => emitted.push(...ids));

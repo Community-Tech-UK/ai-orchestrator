@@ -68,7 +68,7 @@ beforeEach(() => {
   writeFileSync(join(source, 'base.txt'), 'tracked edit\n');
   writeFileSync(join(source, 'untracked.txt'), 'retained work\n');
   item = {
-    id: 'item-abc123', runId: 'run', documentPath: join(repo, 'docs/sample_plan.md'),
+    id: 'item-abc123', runId: 'run', sourceRef: join(repo, 'docs/sample_plan.md'),
     state: 'parked', round: 0, erroredRounds: 0, landingRefusals: 0, baseConflicts: 0,
     branchName: 'queue/sample-abc123', worktreePath: source, baseCommit: git(['rev-parse', 'HEAD']),
     checkpointCommit: null, verifiedMainCommit: null, landedCommit: null,
@@ -446,8 +446,8 @@ describe('ownership proof failures retain their real cause', () => {
 
   it('retains the real checker snapshot across a transient ownership failure during Pause', async () => {
     git(['restore', 'base.txt'], source);
-    item = { ...item, documentPath: join(repo, 'sample_plan.md'), state: 'awaiting-slot', checkpointCommit: item.baseCommit, parkReason: null };
-    writeFileSync(item.documentPath, '# Plan\n');
+    item = { ...item, sourceRef: join(repo, 'sample_plan.md'), state: 'awaiting-slot', checkpointCommit: item.baseCommit, parkReason: null };
+    writeFileSync(item.sourceRef, '# Plan\n');
     const run: PlanQueueRun = { id: item.runId, parentInstanceId: 'parent', parentHistoryThreadId: null,
       kind: 'plans', workspaceCwd: repo, status: 'running',
       config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, baseBranch: 'main', verifierGates: [] },

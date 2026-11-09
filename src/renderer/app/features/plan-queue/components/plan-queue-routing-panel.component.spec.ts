@@ -696,7 +696,7 @@ describe('PlanQueueRoutingPanelComponent', () => {
       workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null,
       config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, relaxSettings, routing: { workers: [{ provider: 'claude', model: 'opus' }], verifiers: [] } },
       items: states.map((state, index) => ({
-        id: `item-${index}`, runId: 'run-edit', documentPath: `/repo/${index}_plan.md`, state,
+        id: `item-${index}`, runId: 'run-edit', sourceRef: `/repo/${index}_plan.md`, state,
         round: 0, erroredRounds: 0, branchName: null, worktreePath: null,
         baseCommit: null, checkpointCommit: null, landedCommit: null,
         workerInstanceId: null, verifierInstanceId: null, question: null, answer: null,

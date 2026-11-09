@@ -6,7 +6,7 @@ import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
 import { createSqliteWasmDatabase, initSqliteWasm } from '../db/sqlite-wasm-driver';
 import { runLoopMigrations } from '../orchestration/loop-schema';
 import { WorkAdmission } from '../work-admission/work-admission';
-import { discoverPlanQueueDocuments } from './plan-queue-discovery';
+import { workSourceFor } from './plan-queue-work-sources';
 import { roundsKey, stepPlanProblem } from './plan-queue-sections';
 import { runToDto } from './plan-queue-messages';
 import { extractPlan, planSteps } from './plan-queue-plan-extract';
@@ -55,7 +55,7 @@ function plan(name: string, content: string): string {
 
 async function start(options: { queueDirectly?: boolean } = {}) {
   let id = 0;
-  const documents = await discoverPlanQueueDocuments(folder, 'plans');
+  const documents = await workSourceFor('markdown').discover(folder, { kind: 'plans' });
   claimDocumentsAndCreateItems({ store, now: () => 100, newId: () => `job-${++id}` }, run, documents, options);
   return store.listItems('run');
 }
@@ -64,7 +64,7 @@ describe('finding and starting a big plan', () => {
   it('makes one job per step for a big plan with step headings, the first one waiting for triage', async () => {
     const file = plan('big_plan.md', bigStepped);
     const items = await start();
-    expect(items.map(item => [item.documentPath, item.section, item.state])).toEqual([
+    expect(items.map(item => [item.sourceRef, item.section, item.state])).toEqual([
       [file, 1, 'discovered'], [file, 2, 'queued'], [file, 3, 'queued'],
     ]);
     expect(items.map(item => item.createdAt)).toEqual([100, 101, 102]);
@@ -94,7 +94,7 @@ describe('finding and starting a big plan', () => {
     it('makes jobs only for the steps that still have something to do, keeping a step with no checklist', async () => {
       const file = plan('part_plan.md', partDone);
       const items = await start();
-      expect(items.map(item => [item.documentPath, item.section, item.state])).toEqual([[file, 2, 'discovered'], [file, 3, 'queued']]);
+      expect(items.map(item => [item.sourceRef, item.section, item.state])).toEqual([[file, 2, 'discovered'], [file, 3, 'queued']]);
     });
 
     it('does the same when picked by name', async () => {
@@ -125,7 +125,7 @@ describe('finding and starting a big plan', () => {
     const rival: PlanQueueRun = { ...run, id: 'rival' };
     store.upsertRun(rival);
     const claim = () => claimDocumentsAndCreateItems({ store, now: () => 200, newId: () => `rival-${Math.random()}` }, rival,
-      [{ path: file, readiness: 'candidate' }], { queueDirectly: true });
+      [{ ref: file, readiness: 'candidate' }], { queueDirectly: true });
     expect(claim()).toEqual([file]);
     for (const item of store.listItems('run')) store.upsertItem({ ...item, state: 'landed' });
     expect(claim()).toEqual([]);

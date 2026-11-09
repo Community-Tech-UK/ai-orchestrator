@@ -14,7 +14,7 @@ const write = (file: string, content: string) => fs.writeFileSync(path.join(repo
 const commit = (message: string) => { git('add', '-A'); git('commit', '-qm', message); };
 const run = () => ({ id: 'run', workspaceCwd: repo, config: { baseBranch: 'main' } }) as unknown as PlanQueueRun;
 const item = (overrides: Partial<PlanQueueItem> = {}) => ({
-  id: 'item-1', runId: 'run', documentPath: path.join(repo, 'docs/alpha_plan.md'), state: 'parked',
+  id: 'item-1', runId: 'run', sourceRef: path.join(repo, 'docs/alpha_plan.md'), state: 'parked',
   branchName: null, worktreePath: null, checkpointCommit: null, detail: null, ...overrides,
 }) as PlanQueueItem;
 const ref = (id = 'item-1') => `${DISCARDED_REF_PREFIX}${id}`;

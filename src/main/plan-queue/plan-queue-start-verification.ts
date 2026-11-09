@@ -1,7 +1,7 @@
 /** The admitted check operation, under the leader's item lock. */
 import { syncItemWithBase } from './plan-queue-landing';
 import { hasCheckout } from './plan-queue-orphan-checkout';
-import { missingDocumentNote } from './plan-queue-readiness';
+import { workSourceFor } from './plan-queue-work-sources';
 import { buildConflictPrompt } from './plan-queue-prompts';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PlanQueueVerification } from './plan-queue-verification';
@@ -49,7 +49,7 @@ export async function startQueueVerification(ctx: StartVerificationContext, item
   const run = host.getRun(item.runId);
   const baseBranch = run.config.baseBranch;
   if (!baseBranch) throw new Error(`Plan queue run ${run.id} has no base branch`);
-  const gone = await missingDocumentNote(item.documentPath, run.workspaceCwd);
+  const gone = await workSourceFor(item.sourceKind).missingNote(item, run);
   if (gone) { await ctx.park(item, 'missing-document', gone); return; }
   if (!item.worktreePath || !(await hasCheckout(item.worktreePath))) {
     try { item = await host.worktrees.reattach(item, run.workspaceCwd); }

@@ -5,6 +5,7 @@ import * as path from 'path';
 import { classifyQuestionRisk } from '../../shared/attention/question-need';
 import {
   PlanQueueQuestionSchema,
+  triageRecordRef,
   type PlanQueueItemState,
   type PlanQueueQuestion,
   type PlanQueueReportTriageArgs,
@@ -14,6 +15,7 @@ import { buildQuestionsMessage, withSkipOption } from './plan-queue-messages';
 import type { PlanQueueStore } from './plan-queue-store';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { rememberTriageRecord } from './plan-queue-triage-memory';
+import { workSourceForRun } from './plan-queue-work-sources';
 import { stepPlanProblem } from './plan-queue-sections';
 
 const logger = getLogger('PlanQueueReadiness');
@@ -41,17 +43,19 @@ export function automaticDecisionPatch(question: PlanQueueQuestion): Partial<Pla
 
 /** Caller authorization stays in the coordinator; apply each record to its current row. */
 export function applyTriageRecords(host: ReadinessHost, run: PlanQueueRun, args: PlanQueueReportTriageArgs): { applied: number; unmatched: string[] } {
-  // Only a document's undecided job takes its record: a step job's later steps share the path but never wait for triage.
-  const byPath = new Map(host.store.listItems(run.id).filter((item) => item.state === 'discovered').map((item) => [path.resolve(item.documentPath), item.id]));
+  const source = workSourceForRun(run);
+  // Only a document's undecided job takes its record: a step job's later steps share the reference but never wait for triage.
+  const byRef = new Map(host.store.listItems(run.id).filter((item) => item.state === 'discovered').map((item) => [source.resolveRef(run, item.sourceRef), item.id]));
   const unmatched: string[] = [];
   let applied = 0;
   let asked = false;
   for (const record of args.records) {
-    const id = byPath.get(path.resolve(run.workspaceCwd, record.documentPath));
+    const reported = triageRecordRef(record);
+    const id = byRef.get(source.resolveRef(run, reported));
     const item = id ? host.getItem(id) : undefined;
     const currentRun = host.getRun(run.id);
     if (!item || item.state !== 'discovered' || (currentRun.status !== 'running' && currentRun.status !== 'paused')) {
-      unmatched.push(record.documentPath);
+      unmatched.push(reported);
       continue;
     }
     if (record.disposition === 'ready') host.transition(item, 'queued');
@@ -66,7 +70,7 @@ export function applyTriageRecords(host: ReadinessHost, run: PlanQueueRun, args:
       }
     }
     applied += 1;
-    rememberTriageRecord(host.store.history, item.documentPath, run.workspaceCwd, record, Date.now());
+    rememberTriageRecord(host.store.history, item.sourceRef, run.workspaceCwd, record, Date.now());
   }
   if (asked) {
     const questions = host.store.listItems(run.id).filter((item) => item.state === 'needs-answer' && item.question);
@@ -115,21 +119,21 @@ export async function reconcileWaitingDocuments(host: ReadinessHost, run: PlanQu
     let outcome: 'present' | 'completed' | 'missing' | 'refused' | 'unreadable';
     let detail: string;
     try {
-      const relative = path.relative(run.workspaceCwd, snapshot.documentPath);
+      const relative = path.relative(run.workspaceCwd, snapshot.sourceRef);
       if (relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) {
         throw new Error('Document is outside the run workspace');
       }
-      if (await documentExists(snapshot.documentPath, run.workspaceCwd)) {
+      if (await documentExists(snapshot.sourceRef, run.workspaceCwd)) {
         outcome = 'present';
         detail = '';
       } else {
-        const completed = completedName(snapshot.documentPath);
-        if (completed !== snapshot.documentPath && await documentExists(completed, run.workspaceCwd)) {
+        const completed = completedName(snapshot.sourceRef);
+        if (completed !== snapshot.sourceRef && await documentExists(completed, run.workspaceCwd)) {
           outcome = 'completed';
           detail = `Superseded by exact completed replacement: ${completed}. Queue entry retired; this is not a verification verdict.`;
         } else {
           outcome = 'missing';
-          detail = `Source document is missing and has no exact completed replacement: ${snapshot.documentPath}. Restore or reconcile the document before resuming.`;
+          detail = `Source document is missing and has no exact completed replacement: ${snapshot.sourceRef}. Restore or reconcile the document before resuming.`;
         }
       }
     } catch (error) {
@@ -141,7 +145,7 @@ export async function reconcileWaitingDocuments(host: ReadinessHost, run: PlanQu
     const currentRun = host.getRun(run.id);
     const item = host.getItem(snapshot.id);
     if (!['running', 'paused'].includes(currentRun.status) || !hasNotStarted(item)
-      || item.documentPath !== snapshot.documentPath) continue;
+      || item.sourceRef !== snapshot.sourceRef) continue;
     if (outcome === 'unreadable') {
       // Once per job: this runs on every pass. A read that never recovers parks the job when it starts.
       if (!reportedUnreadable.has(item.id)) logger.warn('Plan queue: could not inspect a waiting document', { itemId: item.id, detail });
@@ -149,7 +153,7 @@ export async function reconcileWaitingDocuments(host: ReadinessHost, run: PlanQu
     }
     else if (outcome === 'completed' && item.section != null) {
       // A step job never closes its plan, so the closed name means an earlier step's worker renamed it: say so, never retire it quietly.
-      const problem = await stepPlanProblem(item.documentPath);
+      const problem = await stepPlanProblem(item.sourceRef);
       host.transition(item, 'parked', { question: null, parkReason: 'missing-document', detail: problem ?? detail });
     }
     else if (outcome === 'completed') host.transition(item, 'skipped', { question: null, detail: detail.slice(0, 8000) });

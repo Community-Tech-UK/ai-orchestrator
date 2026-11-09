@@ -75,7 +75,7 @@ beforeEach(() => {
   item = newPlanQueueItem('item', run.id, join(repo, 'example_plan.md'), 1, {
     state: 'working', branchName: 'queue/example', worktreePath, checkpointCommit: git(['rev-parse', 'HEAD']), workerInstanceId: 'worker',
   });
-  writeFileSync(item.documentPath, '# Active plan\n'); store.upsertRun(run); store.upsertItem(item);
+  writeFileSync(item.sourceRef, '# Active plan\n'); store.upsertRun(run); store.upsertItem(item);
   instances = new Instances();
   instances.live.set('parent', { id: 'parent', status: 'idle', outputBuffer: [], provider: 'claude', workingDirectory: repo });
   instances.live.set('worker', { id: 'worker', status: 'busy', outputBuffer: [], provider: 'claude' });
@@ -312,7 +312,7 @@ it.each([false, true])('keeps an all-skipped run operational until active triage
     instances.live.delete(id);
   });
   coordinator.reportTriage(triage.id, { run_id: run.id, records: [
-    { documentPath: item.documentPath, disposition: 'skip', reason: 'no work needed' },
+    { documentPath: item.sourceRef, disposition: 'skip', reason: 'no work needed' },
   ] });
   await vi.waitFor(() => expect(instances.terminateInstance).toHaveBeenCalledWith(triage.id, true), waitBudget);
   try {
@@ -376,7 +376,7 @@ it.each(['pause', 'cancel'] as const)('%s cannot overtake cleanup initiated by t
   const stop = deferred();
   instances.terminateInstance.mockImplementation(async id => { if (id === triage.id) await stop.promise; instances.live.delete(id); });
   coordinator.reportTriage(triage.id, { run_id: run.id, records: [
-    { documentPath: item.documentPath, disposition: 'skip', reason: 'no work needed' },
+    { documentPath: item.sourceRef, disposition: 'skip', reason: 'no work needed' },
   ] });
   await vi.waitFor(() => expect(instances.terminateInstance).toHaveBeenCalledWith(triage.id, true), waitBudget);
   let settled = false;
@@ -527,7 +527,7 @@ it('finishes unfinished landed cleanup on its own, so a reopened run is not skip
   expect(store.getItem(item.id)).toMatchObject({ state: 'landed', workerInstanceId: 'worker' });
   instances.terminateInstance.mockImplementation(async id => { instances.live.delete(id); });
   const job = newPlanQueueItem('next', run.id, join(repo, 'next_plan.md'), 3, { state: 'queued' });
-  writeFileSync(job.documentPath, '# Next\n');
+  writeFileSync(job.sourceRef, '# Next\n');
   store.upsertItem(job);
   const prepare = vi.spyOn(coordinator.worktrees, 'prepare');
   coordinator.requestPump();

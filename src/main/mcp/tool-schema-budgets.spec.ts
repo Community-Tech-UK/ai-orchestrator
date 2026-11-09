@@ -25,7 +25,10 @@ const BUDGET = {
   // takes the full set to 74,770 bytes; next 1 KiB ceiling is 75,776.
   // Nov-08: main's land-anyway change and step 5.2 (finding kind and missing, deferred_checks, criteria_total on
   // plan_queue_report_verdict, descriptions already trimmed) together measure 76,140 bytes; next 1 KiB ceiling is 76,800.
-  orchestratorFull: { bytes: 76800, render: all, measure: measureOrchestratorToolSchemaBytes },
+  // Nov-09: the work-source layer adds `workspace` on plan_queue_start (the saved-folder start) and `sourceRef` on the
+  // triage items of plan_queue_report_triage (a source's own reference, alongside documentPath), which takes the full
+  // set to 76,866 bytes; next 1 KiB ceiling is 77,824.
+  orchestratorFull: { bytes: 77824, render: all, measure: measureOrchestratorToolSchemaBytes },
   orchestratorDeferredConnected: { bytes: 10240, render: () => deferred(true), measure: measureOrchestratorToolSchemaBytes },
   orchestratorDeferredOffline: { bytes: 4096, render: () => deferred(false), measure: measureOrchestratorToolSchemaBytes },
   orchestratorStableConnected: { bytes: 11264, render: () => stable(true), measure: measureOrchestratorToolSchemaBytes },

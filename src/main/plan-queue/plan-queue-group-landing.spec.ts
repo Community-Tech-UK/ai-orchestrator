@@ -219,8 +219,8 @@ function runtimeFlow() {
   } as unknown as PlanQueueFlowHost;
   const flow = new PlanQueueItemFlow(host);
   async function prepare(id: string) {
-    const documentPath = join(repo, `${id}_plan.md`); writeFileSync(documentPath, '# Work\n');
-    let item = await service.prepare(newPlanQueueItem(id, run.id, documentPath, 1, { state: 'preparing' }), repo);
+    const sourceRef = join(repo, `${id}_plan.md`); writeFileSync(sourceRef, '# Work\n');
+    let item = await service.prepare(newPlanQueueItem(id, run.id, sourceRef, 1, { state: 'preparing' }), repo);
     writeFileSync(join(item.worktreePath!, `${id}.txt`), id);
     item = await service.checkpoint(item, 'work'); return save({ ...item, state: 'awaiting-slot' });
   }
@@ -276,7 +276,7 @@ it.each(['unrelated-base', 'changed-head', 'changed-command', 'changed-source', 
     } else if (condition === 'changed-head') {
       writeFileSync(join(second.worktreePath!, 'two.txt'), 'new work'); await service.checkpoint(second, 'new work');
     } else if (condition === 'changed-command') store.upsertRun({ ...run, config: { ...run.config, verifierGates: ['npm run check'] } });
-    else if (condition === 'changed-source') writeFileSync(second.documentPath, '# Changed criteria\n');
+    else if (condition === 'changed-source') writeFileSync(second.sourceRef, '# Changed criteria\n');
     else if (condition === 'changed-linked-spec') writeFileSync(join(repo, 'two_spec_planned.md'), '# New linked criteria\n');
     else if (condition === 'dirty') writeFileSync(join(second.worktreePath!, 'two.txt'), 'uncommitted work');
     else if (condition === 'held-member') save({ ...store.getItem('one')!, heldAt: Date.now() });
@@ -367,7 +367,7 @@ it.each(['dirty', 'source', 'linked-spec', 'unrelated-base'] as const)(
       const receipts = await original.call(this, item);
       expect(receipts).toBeDefined();
       if (kind === 'dirty') writeFileSync(join(second.worktreePath!, 'two.txt'), 'untested dirty work');
-      else if (kind === 'source') writeFileSync(second.documentPath, '# Changed acceptance after proof\n');
+      else if (kind === 'source') writeFileSync(second.sourceRef, '# Changed acceptance after proof\n');
       else if (kind === 'linked-spec') writeFileSync(join(repo, 'two_spec_planned.md'), '# Changed linked acceptance\n');
       else {
         writeFileSync(join(repo, 'outside.txt'), 'outside'); git(['add', 'outside.txt']); git(['commit', '-qm', 'outside']);
@@ -399,7 +399,7 @@ it.each(['dirty', 'source', 'linked-spec', 'unrelated-base'] as const)('rejects 
   vi.spyOn(PlanQueueVerification.prototype, 'prompt').mockImplementationOnce(async function (this: PlanQueueVerification, item, currentRun, baseBranch) {
     if (kind === 'dirty') writeFileSync(join(second.worktreePath!, 'two.txt'), 'untested before prompt');
     else if (kind === 'source' || kind === 'linked-spec') {
-      writeFileSync(kind === 'source' ? second.documentPath : join(repo, 'two_spec_planned.md'), '# Replaced before prompt\n');
+      writeFileSync(kind === 'source' ? second.sourceRef : join(repo, 'two_spec_planned.md'), '# Replaced before prompt\n');
     } else {
       writeFileSync(join(repo, 'outside.txt'), 'outside'); git(['add', 'outside.txt']); git(['commit', '-qm', 'outside']);
     }

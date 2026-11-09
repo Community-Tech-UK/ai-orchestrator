@@ -77,7 +77,7 @@ describe('coordinator document selection', () => {
     const file = write(`docs/plans/${name}`);
     const { run } = await coordinator.startRun({ parentInstanceId: 'parent', kind: name.endsWith('_livetest.md') ? 'livetests' : 'plans', glob: `docs/plans/${name}` });
     await coordinator._whenSettledForTesting();
-    expect(store.listItems(run.id)).toMatchObject([{ documentPath: file, state: 'queued' }]);
+    expect(store.listItems(run.id)).toMatchObject([{ sourceRef: file, state: 'queued' }]);
     expect(instances.createInstance).not.toHaveBeenCalled();
     // The direct decision is durable, including after a fresh store read.
     expect(new PlanQueueStore(db).listItems(run.id)[0].state).toBe('queued');
@@ -102,7 +102,7 @@ describe('coordinator document selection', () => {
     const input = { parentInstanceId: 'parent', kind: 'plans' as const, glob: 'docs/plans/z-target_plan.md' };
     const [first, second] = await Promise.all([coordinator.startRun(input), coordinator.startRun(input)]);
     await coordinator._whenSettledForTesting();
-    expect([first, second].flatMap(result => result.run.items)).toMatchObject([{ documentPath: file, state: 'queued' }]);
+    expect([first, second].flatMap(result => result.run.items)).toMatchObject([{ sourceRef: file, state: 'queued' }]);
     expect([first, second].flatMap(result => result.excluded)).toEqual([file]);
     expect(instances.createInstance).not.toHaveBeenCalled();
   });
@@ -112,7 +112,7 @@ describe('coordinator document selection', () => {
     const { run } = await coordinator.startRun({ parentInstanceId: 'parent', kind: 'plans', glob: 'docs/plans/blocked_plan.md' });
     await coordinator._whenSettledForTesting();
     expect(new PlanQueueStore(db).listItems(run.id)).toMatchObject([{
-      documentPath: file, state: 'parked', parkReason: 'worker-error', detail: expect.stringContaining('does not exist'),
+      sourceRef: file, state: 'parked', parkReason: 'worker-error', detail: expect.stringContaining('does not exist'),
     }]);
     expect(instances.createInstance).not.toHaveBeenCalled();
   });

@@ -23,20 +23,20 @@ export function stepsToRun(documentPath: string): number[] | null {
 export function stepHold(items: readonly PlanQueueItem[], item: PlanQueueItem): { waitingFor: number; skipped: boolean } | null {
   if (item.section == null) return null;
   const before = items
-    .filter(other => other.documentPath === item.documentPath && other.section != null && other.section < item.section!)
+    .filter(other => other.sourceRef === item.sourceRef && other.section != null && other.section < item.section!)
     .sort((a, b) => b.section! - a.section!)[0];
   return !before || before.state === 'landed' ? null : { waitingFor: before.section!, skipped: before.state === 'skipped' };
 }
 
 /** The run's last job for a stepped document: the one that writes the plan's as-built summary. */
 export function isLastStepJob(items: readonly PlanQueueItem[], item: PlanQueueItem): boolean {
-  return item.section != null && !items.some(other => other.documentPath === item.documentPath && other.section != null && other.section > item.section!);
+  return item.section != null && !items.some(other => other.sourceRef === item.sourceRef && other.section != null && other.section > item.section!);
 }
 
 /** True when this landing finishes the plan: it is the last step job and every job before it has landed. */
 export function finishesPlan(items: readonly PlanQueueItem[], item: PlanQueueItem): boolean {
   return isLastStepJob(items, item)
-    && items.every(other => other.id === item.id || other.documentPath !== item.documentPath || other.section == null || other.state === 'landed');
+    && items.every(other => other.id === item.id || other.sourceRef !== item.sourceRef || other.section == null || other.state === 'landed');
 }
 
 /**
@@ -63,7 +63,7 @@ export function roundsKey(documentPath: string, section: number | null | undefin
  */
 export function stepLabelFor(items: readonly PlanQueueItem[], item: PlanQueueItem): { number: number; position: number; of: number; waitingFor: number | null } | undefined {
   if (item.section == null) return undefined;
-  const siblings = items.filter(other => other.documentPath === item.documentPath && other.section != null);
+  const siblings = items.filter(other => other.sourceRef === item.sourceRef && other.section != null);
   const hold = item.state === 'queued' ? stepHold(items, item) : null;
   return {
     number: item.section,

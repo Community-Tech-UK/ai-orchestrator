@@ -23,7 +23,7 @@ function harness(queueSessions: string[] = [], setAsideSessions: string[] = []) 
   const control = vi.spyOn(coordinator, 'control').mockResolvedValue();
   const runs = new Map<string, PlanQueueRunDto>([[RUN.id, RUN], ['run-done', { ...RUN, id: 'run-done', status: 'completed' }],
     ['run-cancelled', { ...RUN, id: 'run-cancelled', status: 'cancelled' }],
-    ['run-set-aside', { ...RUN, id: 'run-set-aside', status: 'completed', items: [{ id: 'item', runId: 'run-set-aside', documentPath: 'docs/plans/a_plan.md',
+    ['run-set-aside', { ...RUN, id: 'run-set-aside', status: 'completed', items: [{ id: 'item', runId: 'run-set-aside', sourceRef: 'docs/plans/a_plan.md',
       state: 'parked', round: 3, erroredRounds: 0, branchName: 'queue/a', worktreePath: null, baseCommit: null, checkpointCommit: null, landedCommit: null,
       workerInstanceId: null, verifierInstanceId: null, question: null, answer: null, parkReason: 'round-limit', detail: null, verdict: null, createdAt: 1, updatedAt: 1 }] }]]);
   vi.spyOn(coordinator, 'getRunDto').mockImplementation(id => runs.get(id) ?? null);

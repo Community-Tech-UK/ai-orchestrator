@@ -15,12 +15,11 @@
  */
 
 import { existsSync } from 'node:fs';
-import * as path from 'node:path';
 import type { PlanQueueParkReason } from '@contracts/schemas/plan-queue';
 import { gitExec } from '../workspace/git/git-exec';
 import { readGitStatusPaths } from '../workspace/git/git-status-stream';
 import { pathsCollide } from '../workspace/git/worktree-integration';
-import { rootEditWouldMerge } from './plan-queue-doc-merge';
+import { workSourceFor } from './plan-queue-work-sources';
 import { GENERATED_STATUSES, loadGeneratedFiles } from './plan-queue-generated-files';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { isLandingWait } from './plan-queue-state';
@@ -68,7 +67,7 @@ async function overlappingRootPaths(item: PlanQueueItem, run: PlanQueueRun, chan
   const blocked = new Set<string>();
   for (const change of overlaps) {
     const resolvable = generated?.artifacts.has(change.path) ? GENERATED_STATUSES.includes(change.status)
-      : change.status === '??' || (change.status === ' M' && await rootEditWouldMerge(repoRoot, baseTip, head, change.path));
+      : change.status === '??' || (change.status === ' M' && await workSourceFor(item.sourceKind).rootEditWouldMerge(repoRoot, baseTip, head, change.path));
     if (!resolvable) blocked.add(change.path);
   }
   return [...blocked];
@@ -113,7 +112,7 @@ export class PlanQueueLandingWaits {
     // Told once: a re-wait after an attempt keeps the original time, so it does not tell James again.
     if (item.landingWaitSince == null) {
       const run = host.getRun(item.runId);
-      host.notifyParent(run, `${path.basename(item.documentPath)} passed its checks but cannot land yet. ${reason} It lands by itself once these are committed or put away, and stops after 24 hours.`);
+      host.notifyParent(run, `${workSourceFor(item.sourceKind).fullName(item)} passed its checks but cannot land yet. ${reason} It lands by itself once these are committed or put away, and stops after 24 hours.`);
     }
     return null;
   }

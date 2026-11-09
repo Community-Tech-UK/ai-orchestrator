@@ -11,6 +11,7 @@ import type { PlanQueueCoordinator } from './plan-queue-coordinator';
 import { describeAccountRules, copilotLabel, poolLabel } from './plan-queue-account-rules';
 import { describeRouting, routeChoiceFromArgs } from './plan-queue-routing';
 import { recordWorkerReport } from './plan-queue-worker-report';
+import { readSavedPlanQueueFolders, resolveListedWorkspace } from './plan-queue-saved-folders';
 import { describeRunEvidence, PLAN_QUEUE_EVIDENCE_EVENT_LIMIT } from './plan-queue-run-evidence';
 import { describeQueueHealth } from '../../shared/utils/plan-queue-health-lines';
 import { planQueueRunCanMove } from '../../shared/utils/plan-queue-run-movable';
@@ -34,7 +35,7 @@ function setAsideRoles(roles: readonly ('workers' | 'checkers' | 'step-up')[]): 
 function itemSummary(item: PlanQueueItemDto) {
   return {
     itemId: item.id,
-    document: item.documentPath,
+    document: item.sourceRef,
     state: item.state,
     round: item.round,
     ...(item.question ? { question: item.question } : {}),
@@ -89,8 +90,11 @@ function toControlPayload(args: PlanQueueControlArgs): PlanQueueControlPayload {
 export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordinator): PlanQueueToolOperations {
   return {
     async start(callerInstanceId, args) {
+      // Checked before anything starts: a folder James has not listed is refused, in words the session can pass on.
+      const workspaceCwd = args.workspace === undefined ? undefined : await resolveListedWorkspace(args.workspace, readSavedPlanQueueFolders());
       const { run, excluded, routingSetAside, accountNotes, checklistSetAside } = await coordinator().startRun({
         parentInstanceId: callerInstanceId,
+        ...(workspaceCwd === undefined ? {} : { workspaceCwd }),
         kind: args.kind,
         glob: args.glob,
         config: {

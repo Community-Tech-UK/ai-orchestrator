@@ -33,7 +33,7 @@ function makeItem(overrides: Partial<PlanQueueRunDto['items'][number]> = {}): Pl
   return {
     id: 'item-1',
     runId: 'run-1',
-    documentPath: 'docs/plans/foo_plan.md',
+    sourceRef: 'docs/plans/foo_plan.md',
     state: 'working',
     round: 1,
     erroredRounds: 0,
@@ -323,7 +323,7 @@ describe('PlanQueueStore', () => {
       {
         runId: 'run-livetest',
         itemId: 'item-lt',
-        documentPath: 'docs/plans/foo_plan.md',
+        sourceRef: 'docs/plans/foo_plan.md',
         check: 'Manual UI check',
         reason: 'Needs a rebuilt app',
       },
@@ -391,7 +391,7 @@ describe('PlanQueueStore', () => {
   });
 
   describe('trying all merges again', () => {
-    const parked = (id: string) => ({ id, runId: 'run-1', documentPath: `${id}.md`, state: 'parked', updatedAt: 1 }) as PlanQueueItemDto;
+    const parked = (id: string) => ({ id, runId: 'run-1', sourceRef: `${id}.md`, state: 'parked', updatedAt: 1 }) as PlanQueueItemDto;
     const push = (items: PlanQueueItemDto[], status: PlanQueueRunDto['status'] = 'completed') =>
       stateChangedCallback?.({ runId: 'run-1', run: makeRun({ id: 'run-1', items, status }) });
     async function started(ids: string[]) {
@@ -483,7 +483,7 @@ describe('PlanQueueStore', () => {
 
     it('skips a job whose document got a new attempt after the preview', async () => {
       const { finished } = await started(['a', 'b']);
-      const rival = { ...parked('rival'), documentPath: 'b.md', state: 'working' } as PlanQueueItemDto;
+      const rival = { ...parked('rival'), sourceRef: 'b.md', state: 'working' } as PlanQueueItemDto;
       push([{ ...parked('a'), state: 'landed', updatedAt: 2 }, parked('b'), rival], 'running');
       await finished;
       expect(ipc.control).toHaveBeenCalledTimes(1);

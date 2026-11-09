@@ -23,7 +23,7 @@ function makeItem(overrides: Partial<PlanQueueItem>): PlanQueueItem {
   return {
     id: 'item-1',
     runId: 'run-1',
-    documentPath: join(repo, 'docs/a_plan.md'),
+    sourceRef: join(repo, 'docs/a_plan.md'),
     state: 'working',
     round: 0,
     erroredRounds: 0,

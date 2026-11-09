@@ -18,7 +18,7 @@ import { buildTitleUserPrompt, TITLE_SYSTEM_PROMPT } from '../instance/auto-titl
 import { CodexStandingNotes } from '../cli/adapters/codex/codex-standing-notes';
 
 const item: PlanQueueItem = {
-  id: 'item-budget', runId: 'run-budget', documentPath: '/workspace/docs/fixture_plan.md',
+  id: 'item-budget', runId: 'run-budget', sourceRef: '/workspace/docs/fixture_plan.md',
   state: 'queued', round: 1, erroredRounds: 0, baseConflicts: 0, landingRefusals: 0, branchName: 'queue/fixture',
   worktreePath: '/workspace/.worktrees/fixture', baseCommit: null, checkpointCommit: null,
   verifiedMainCommit: null, landedCommit: null, workerInstanceId: null, verifierInstanceId: null,

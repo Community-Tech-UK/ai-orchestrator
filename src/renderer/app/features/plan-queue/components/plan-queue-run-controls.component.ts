@@ -38,8 +38,8 @@ export class PlanQueueRunControlsComponent {
     if (run.holdReason) return 'On hold · no new work is starting';
     const current = run.items.find(item => ['preparing', 'working', 'fixing', 'verifying', 'landing'].includes(item.state) && item.stage?.name !== 'waiting-for-edits');
     const next = run.items.find(item => item.state === 'queued');
-    return 'Running' + (current ? ` · working on ${planQueueDocumentBasename(current.documentPath)}` : '')
-      + (next ? `${current ? ';' : ' ·'} next ${planQueueDocumentBasename(next.documentPath)}` : '');
+    return 'Running' + (current ? ` · working on ${planQueueDocumentBasename(current.sourceRef)}` : '')
+      + (next ? `${current ? ';' : ' ·'} next ${planQueueDocumentBasename(next.sourceRef)}` : '');
   });
 
   onPause(): void {

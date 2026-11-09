@@ -110,7 +110,9 @@ It also exposes the Plan Queue tools: `plan_queue_start` (args: `kind` =
 `max_rounds`, `relax_settings`, `verifier_gates`, `post_merge_gate`, and
 `workers` / `verifiers` provider-and-account choices in preference order, and one
 `step_up` choice a document is handed to once when its worker fails every round — pass
-those only when James asks for specific providers or accounts; his saved Plan
+those only when James asks for specific providers or accounts; optional `workspace`, the full path
+of a project's top folder to start the run in instead of this session's own folder, accepted only
+for a folder on James's saved Plan Queue folder list; his saved Plan
 Queue lists always win for any role he set; the gate lists default to this app's checklist, so pass the
 target repository's own commands or `[]` for any other repository), `plan_queue_status` (`run_id?`),
 `plan_queue_answer` (`item_id`, `option_id`) and `plan_queue_control`
@@ -212,7 +214,7 @@ automation-provider block-list (`providersExcludedFromAutomation`), the two GitH
 Copilot account-routing keys (`copilotAccountProfiles`, `copilotAccountRoutingRules`),
 the two account-pool keys (`providerAccountProfiles`,
 `providerAccountPools`, covering Claude, Codex and MiMo), the Plan Queue
-provider-and-account choice (`planQueueRouting`), the Plan Queue never-use and use-last account lists (`planQueueAccountRules`), the Plan Queue checklist for each project folder (`planQueueFolderChecklists`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
+provider-and-account choice (`planQueueRouting`), the Plan Queue never-use and use-last account lists (`planQueueAccountRules`), the Plan Queue checklist for each project folder (`planQueueFolderChecklists`), the Plan Queue folder list (`planQueueFolders`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
 `workspaceSecretsAllowAgentRequests`), the post-fill observation lock
 (`browserSecretObservationProtectionEnabled`), the macOS session signal
 fence (`providerSignalFenceEnabled`), and automatic Codex backup deletion
@@ -231,6 +233,9 @@ list is saved).
 that James chose "Always allow" for on the approval card: those connector calls no longer ask.
 It is written by that button and cleared with "Ask every time" on the connector in Settings → MCP Servers → Connectors;
 agents cannot add to it.
+`planQueueFolders` (30th anchor) is the saved Plan Queue folder list: the only folders a session may
+name with the `workspace` argument of `plan_queue_start`. Operator-only; any other folder is refused
+with a plain reason.
 
 The credential-vault unlock keys and the shared-tab credential-fill switch were
 anchors until 2026-08-29, when the operator had them widened so unattended

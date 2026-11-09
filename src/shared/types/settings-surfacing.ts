@@ -186,6 +186,7 @@ export const SETTING_SURFACING = {
   planQueueQuestionsDestination: 'tab',
   planQueueAccountRules: 'bespoke', // Plan Queue page panel
   planQueueFolderChecklists: 'bespoke', // Plan Queue page panel
+  planQueueFolders: 'bespoke', // Plan Queue page panel
   pingPongReviewerProvider: 'tab',
   pingPongMaxRounds: 'tab',
   voiceSttRoutingMode: 'bespoke', // voice tab

@@ -535,7 +535,8 @@ export interface MobilePlanQueueItemDto {
   runId: string;
   /** Display name of the plan document. */
   title: string;
-  documentPath: string;
+  /** The source's reference for the work: the absolute path of the document for markdown. */
+  sourceRef: string;
   state: MobilePlanQueueItemState;
   round: number;
   question: MobilePlanQueueQuestionDto | null;

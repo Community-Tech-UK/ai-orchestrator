@@ -33,7 +33,7 @@ export function assertPlanQueueRun(run: MobilePlanQueueRunDto): MobilePlanQueueR
     ...run,
     items: run.items.map((item) => {
       if (!ITEM_STATES.has(item.state)) throw new MobileRouteError('Unsupported plan queue item state', 500);
-      return { ...item, title: item.title || basename(item.documentPath) };
+      return { ...item, title: item.title || basename(item.sourceRef) };
     }),
   };
 }

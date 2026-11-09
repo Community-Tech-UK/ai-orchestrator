@@ -7,7 +7,7 @@ const NOW = 1_000 * MIN;
 
 function item(stage: PlanQueueItemStage | null, overrides: Partial<PlanQueueItemDto> = {}): PlanQueueItemDto {
   return {
-    id: 'item', runId: 'run', documentPath: '/repo/docs/plans/desk-shared-crm_plan.md', state: 'verifying', round: 0,
+    id: 'item', runId: 'run', sourceRef: '/repo/docs/plans/desk-shared-crm_plan.md', state: 'verifying', round: 0,
     erroredRounds: 0, branchName: null, worktreePath: null, baseCommit: null, checkpointCommit: null, landedCommit: null,
     workerInstanceId: null, verifierInstanceId: null, question: null, answer: null, parkReason: null, detail: null,
     verdict: null, createdAt: 1, updatedAt: 1, ...(stage ? { stage } : {}), ...overrides,

@@ -44,11 +44,11 @@ export function pinFromContent(itemId: string, content: string, recordedAt: numb
 
 /** The pin for a job's document as it is now; null when it cannot be read. */
 export async function readPlanPin(
-  item: Pick<PlanQueueItem, 'id' | 'documentPath'>,
+  item: Pick<PlanQueueItem, 'id' | 'sourceRef'>,
   recordedAt = Date.now(),
 ): Promise<PlanQueueItemPin | null> {
   try {
-    return pinFromContent(item.id, await readFile(item.documentPath, 'utf-8'), recordedAt);
+    return pinFromContent(item.id, await readFile(item.sourceRef, 'utf-8'), recordedAt);
   } catch {
     return null;
   }

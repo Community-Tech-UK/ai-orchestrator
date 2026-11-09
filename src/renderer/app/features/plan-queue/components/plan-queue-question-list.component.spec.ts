@@ -31,7 +31,7 @@ function makeItem(overrides: Partial<PlanQueueItemDto> = {}): PlanQueueItemDto {
   return {
     id: 'item-1',
     runId: 'run-1',
-    documentPath: '/repo/docs/plans/2026-09-18-thing_plan.md',
+    sourceRef: '/repo/docs/plans/2026-09-18-thing_plan.md',
     state: 'needs-answer',
     round: 0,
     erroredRounds: 0,
@@ -67,7 +67,7 @@ describe('PlanQueueQuestionListComponent', () => {
 
   it('labels each run group and each card with its document', () => {
     fixture.componentRef.setInput('groups', [
-      group({ runId: 'run-a', workspaceCwd: '/repo-a', items: [makeItem({ id: 'a-1' }), makeItem({ id: 'a-2', documentPath: '/repo-a/other_plan.md' })] }),
+      group({ runId: 'run-a', workspaceCwd: '/repo-a', items: [makeItem({ id: 'a-1' }), makeItem({ id: 'a-2', sourceRef: '/repo-a/other_plan.md' })] }),
       group({ runId: 'run-b', kind: 'livetests', workspaceCwd: '/repo-b', items: [makeItem({ id: 'b-1' })] }),
     ]);
     fixture.detectChanges();

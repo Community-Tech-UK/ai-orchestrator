@@ -63,7 +63,7 @@ function makeRun(overrides: Partial<PlanQueueRunDto> = {}): PlanQueueRunDto {
 const NEEDS_ANSWER_ITEM: PlanQueueItemDto = {
   id: 'item-1',
   runId: 'run-x',
-  documentPath: 'docs/plans/a_plan.md',
+  sourceRef: 'docs/plans/a_plan.md',
   state: 'needs-answer',
   round: 1,
   erroredRounds: 0,
@@ -232,14 +232,14 @@ describe('PlanQueuePageComponent', () => {
 
   it('previews bulk skip and leaves a job that starts before confirmation alone', async () => {
     const queued = { ...NEEDS_ANSWER_ITEM, state: 'queued' as const, question: null };
-    store.allRuns.set([makeRun({ items: [queued, { ...queued, id: 'other', documentPath: 'other_plan.md' }] })]);
+    store.allRuns.set([makeRun({ items: [queued, { ...queued, id: 'other', sourceRef: 'other_plan.md' }] })]);
     fixture.detectChanges(); await fixture.whenStable();
     const button = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
       .find(b => b.textContent?.includes('Skip all not started'));
     expect(button).toBeDefined(); button!.click(); fixture.detectChanges();
     expect(store.control).not.toHaveBeenCalled();
     expect(fixture.nativeElement.textContent).toContain('Will change');
-    store.allRuns.set([makeRun({ items: [{ ...queued, state: 'working', workerInstanceId: 'worker' }, { ...queued, id: 'other', documentPath: 'other_plan.md' }] })]);
+    store.allRuns.set([makeRun({ items: [{ ...queued, state: 'working', workerInstanceId: 'worker' }, { ...queued, id: 'other', sourceRef: 'other_plan.md' }] })]);
     fixture.detectChanges();
     const confirm = fixture.nativeElement.querySelector('.pq-confirm-skip') as HTMLButtonElement;
     confirm.click();
@@ -263,12 +263,12 @@ describe('PlanQueuePageComponent', () => {
   it('keeps questions and current work in Now, retained work in Set aside, and accounts in Setup', async () => {
     store.needsAnswerItems.set([NEEDS_ANSWER_ITEM]);
     store.questionGroups.set([{ runId: 'run-x', kind: 'plans', workspaceCwd: '/repo', items: [NEEDS_ANSWER_ITEM] }]);
-    store.needJamesReal.set([{ runId: 'run-1', itemId: 'item-1', documentPath: 'docs/x.md', check: 'c', reason: 'r' }]);
+    store.needJamesReal.set([{ runId: 'run-1', itemId: 'item-1', sourceRef: 'docs/x.md', check: 'c', reason: 'r' }]);
     store.parkedItems.set([PARKED_ITEM]); fixture.detectChanges(); await fixture.whenStable();
     const headings = () => Array.from(fixture.nativeElement.querySelectorAll('section.pq-section h2') as NodeListOf<HTMLElement>).map(h => h.textContent?.trim());
     expect(headings()).toEqual(['Needs your answer', 'Runs', 'Start a run', 'Queue health', 'Live checks that need you']);
     clickTab('Set aside'); expect(headings()).toEqual(['Set aside']);
-    clickTab('Setup'); expect(headings()).toEqual(['Providers and accounts', 'Account rules', 'Checks for each project folder']);
+    clickTab('Setup'); expect(headings()).toEqual(['Providers and accounts', 'Account rules', 'Checks for each project folder', 'Folders a session may start a run in']);
   });
 
   it('shows the surfaced error from the store', async () => {
@@ -498,7 +498,7 @@ describe('PlanQueuePageComponent', () => {
   it('shows the need-James panel only when there is something to report', async () => {
     expect(fixture.nativeElement.querySelector('.pq-need-james')).toBeNull();
 
-    store.needJamesReal.set([{ runId: 'run-1', itemId: 'item-1', documentPath: 'docs/x.md', check: 'c', reason: 'r' }]);
+    store.needJamesReal.set([{ runId: 'run-1', itemId: 'item-1', sourceRef: 'docs/x.md', check: 'c', reason: 'r' }]);
     fixture.detectChanges();
     await fixture.whenStable();
 

@@ -19,8 +19,12 @@ import { gitExec, WORKTREE_CHECKOUT_TIMEOUT_MS } from '../workspace/git/git-exec
 import { hermeticGitEnv } from '../workspace/git/git-env';
 import { isActivePlanDocumentPath } from '../workspace/git/active-plan-pattern';
 import { isOwnCheckout } from './plan-queue-git';
+import { LANDING_COMMIT_PREFIXES } from './plan-queue-work-source';
 
 const execFileAsync = promisify(execFile);
+
+/** The first line of a landing commit: a source's prefix (`LANDING_COMMIT_PREFIXES`) and ': '. */
+const LANDING_SUBJECT = new RegExp(`^(${LANDING_COMMIT_PREFIXES.join('|')}): `);
 
 /** How Git records the squash's `checkout --detach <full hash>` in the worktree's reflog. */
 const DETACH_ENTRY = /^checkout: moving from (.+) to ([0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -157,7 +161,7 @@ async function isLandingCommit(commit: string, itemId: string, worktreePath: str
     gitExec(['rev-list', '--parents', '-n', '1', commit], worktreePath),
     gitExec(['log', '-1', '--format=%B', commit], worktreePath),
   ]);
-  return parents.split(' ').length === 2 && /^(Plan|Livetest): /.test(message) && message.endsWith(`\nItem: ${itemId}`);
+  return parents.split(' ').length === 2 && LANDING_SUBJECT.test(message) && message.endsWith(`\nItem: ${itemId}`);
 }
 
 /** Whether `commit` has `file` in its tree. */

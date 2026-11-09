@@ -110,7 +110,7 @@ export async function decideNoProgress(
   if (!lastFail) return { kind: 'continue' };
   const current = progressFingerprint(
     item.checkpointCommit,
-    await documentContentSha256(item.documentPath),
+    await documentContentSha256(item.sourceRef),
     item.round,
   );
   const failed = progressFingerprint(lastFail.worktreeHead, lastFail.documentSha256, lastFail.round);

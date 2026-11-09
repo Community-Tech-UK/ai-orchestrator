@@ -25,12 +25,12 @@ const pass: PlanQueueVerdict = { verdict: 'PASS', findings: [], gatesRun: [], do
 beforeAll(() => initSqliteWasm());
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'queue-check-policy-'));
-  const documentPath = join(root, 'work_plan.md'); writeFileSync(documentPath, '# Work\n- [ ] Keep this criterion\n');
+  const sourceRef = join(root, 'work_plan.md'); writeFileSync(sourceRef, '# Work\n- [ ] Keep this criterion\n');
   db = createSqliteWasmDatabase(':memory:'); runLoopMigrations(db); store = new PlanQueueStore(db);
   store.upsertRun({ id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: root,
     status: 'running', config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, verifierGates: ['check'], baseBranch: 'main' },
     workerProvider: 'claude', workerModel: null, relaxation: null, startedAt: 1, endedAt: null });
-  store.upsertItem(newPlanQueueItem('item', 'run', documentPath, 1, { state: 'verifying', branchName: 'queue/test',
+  store.upsertItem(newPlanQueueItem('item', 'run', sourceRef, 1, { state: 'verifying', branchName: 'queue/test',
     checkpointCommit: 'head', worktreePath: root, workerInstanceId: 'worker' }));
   host = { history: store.history, getRun: (id: string) => store.getRun(id)!, getItem: (id: string) => store.getItem(id)!,
     save: (item: PlanQueueItem) => { store.upsertItem(item); return item; }, checksAdmitted: () => true,
@@ -55,8 +55,8 @@ describe('queue verification policy', () => {
   });
 
   it('cancels one concurrent preparation while the other writes its receipts', async () => {
-    const documentPath = join(root, 'other_plan.md'); writeFileSync(documentPath, '# Other work');
-    store.upsertItem({ ...host.getItem('item'), id: 'other', documentPath, worktreePath: `${root}/other` });
+    const sourceRef = join(root, 'other_plan.md'); writeFileSync(sourceRef, '# Other work');
+    store.upsertItem({ ...host.getItem('item'), id: 'other', sourceRef, worktreePath: `${root}/other` });
     const releases = new Map<string, () => void>();
     const execute = vi.fn((_command: string, cwd: string, signal?: AbortSignal) => new Promise<{ exitCode: number; output: string }>((resolve, reject) => {
       const abort = () => { signal?.removeEventListener('abort', abort); reject(signal?.reason); };
@@ -83,15 +83,15 @@ describe('queue verification policy', () => {
   it.each(['x', 'X'])('keeps a pinned criterion present when its checkbox is marked [%s]', async mark => {
     const policy = createPolicy(createGates(async () => ({ exitCode: 0, output: '' })));
     await policy.pin(host.getItem('item'));
-    writeFileSync(host.getItem('item').documentPath, `# Work\n- [${mark}] Keep this criterion\n`);
+    writeFileSync(host.getItem('item').sourceRef, `# Work\n- [${mark}] Keep this criterion\n`);
     expect(await policy.prompt(host.getItem('item'), host.getRun('run'), 'main')).toContain('"changes":[]');
-    writeFileSync(host.getItem('item').documentPath, `# Work\n- [${mark}] Keep this criterion only for one case\n`);
+    writeFileSync(host.getItem('item').sourceRef, `# Work\n- [${mark}] Keep this criterion only for one case\n`);
     expect(await policy.prompt(host.getItem('item'), host.getRun('run'), 'main')).toContain('"status":"reworded"');
   });
   it('hands the checker the plan Status, open work and a change summary instead of the whole document', async () => {
     const policy = createPolicy(createGates(async () => ({ exitCode: 0, output: '' })));
     await policy.pin(host.getItem('item'));
-    writeFileSync(host.getItem('item').documentPath, '# Work\n\n## Status\nNext: Step 9\n\n## Open\n- [ ] Keep this criterion\n');
+    writeFileSync(host.getItem('item').sourceRef, '# Work\n\n## Status\nNext: Step 9\n\n## Open\n- [ ] Keep this criterion\n');
     const prompt = await policy.prompt(host.getItem('item'), host.getRun('run'), 'main');
     expect(prompt).toContain('<plan_status>\nNext: Step 9\n</plan_status>');
     expect(prompt).toContain('- [ ] Keep this criterion');
@@ -187,8 +187,8 @@ describe('queue verification policy', () => {
     const policy = createPolicy(gates);
     expect(await policy.prepare(host.getItem('item'))).toEqual({ kind: 'ready' });
     await policy.prompt(host.getItem('item'), host.getRun('run'), 'main');
-    const reviewedHash = await documentContentSha256(host.getItem('item').documentPath);
-    writeFileSync(host.getItem('item').documentPath, '# Work\n- [ ] Keep this criterion\n- [ ] Added while reviewing\n');
+    const reviewedHash = await documentContentSha256(host.getItem('item').sourceRef);
+    writeFileSync(host.getItem('item').sourceRef, '# Work\n- [ ] Keep this criterion\n- [ ] Added while reviewing\n');
     expect(await policy.record(host.getItem('item'), pass)).toMatchObject({ verdict: 'FAIL', findings: [
       { summary: 'The source document changed while the checker was reviewing it.' },
     ] });
@@ -205,9 +205,9 @@ describe('queue verification policy', () => {
       output: 'src/work.ts(1,1): error TS2322: Failure' }));
     const policy = createPolicy(gates);
     await policy.prompt(host.getItem('item'), host.getRun('run'), 'main');
-    writeFileSync(host.getItem('item').documentPath, '# Updated after the checker was closed\n');
+    writeFileSync(host.getItem('item').sourceRef, '# Updated after the checker was closed\n');
     expect(await policy.prepare(host.getItem('item'))).toMatchObject({ kind: 'fix' });
-    expect(store.history.listVerdicts('item')[0].documentSha256).toBe(await documentContentSha256(host.getItem('item').documentPath));
+    expect(store.history.listVerdicts('item')[0].documentSha256).toBe(await documentContentSha256(host.getItem('item').sourceRef));
     expect(await policy.prepare(host.getItem('item'))).toMatchObject({ kind: 'fix', prompt: expect.stringContaining('Nothing changed') });
   });
 
@@ -223,8 +223,8 @@ describe('queue verification policy', () => {
     await policy.prepare(host.getItem('item'));
     if (prompted) await policy.prompt(host.getItem('item'), host.getRun('run'), 'main');
     for (let index = 0; index < 100; index++) {
-      const later = { ...host.getItem('item'), id: `later-${index}`, documentPath: join(root, `later-${index}_plan.md`) };
-      writeFileSync(later.documentPath, '# Another plan\n');
+      const later = { ...host.getItem('item'), id: `later-${index}`, sourceRef: join(root, `later-${index}_plan.md`) };
+      writeFileSync(later.sourceRef, '# Another plan\n');
       store.upsertItem(later);
       expect(await policy.prepare(later)).toEqual({ kind: 'ready' });
     }

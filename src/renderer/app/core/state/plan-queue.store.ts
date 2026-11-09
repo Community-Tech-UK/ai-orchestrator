@@ -19,7 +19,7 @@ import { planQueueIsDiscarded } from '../../../../shared/utils/plan-queue-discar
 export interface PlanQueueNeedJamesRecord {
   readonly runId: string;
   readonly itemId: string;
-  readonly documentPath: string;
+  readonly sourceRef: string;
   readonly check: string;
   readonly reason: string;
 }
@@ -113,7 +113,7 @@ export class PlanQueueStore {
           records.push({
             runId: run.id,
             itemId: item.id,
-            documentPath: item.documentPath,
+            sourceRef: item.sourceRef,
             check: entry.check,
             reason: entry.reason,
           });
@@ -283,7 +283,7 @@ export class PlanQueueStore {
   /** The same rule the preview applies through the page's busy documents. */
   private documentBusy(item: PlanQueueItemDto): boolean {
     return this.runsSignal().some(run => (run.status === 'running' || run.status === 'paused') && run.items.some(other =>
-      other.id !== item.id && other.documentPath === item.documentPath && !['parked', 'landed', 'skipped'].includes(other.state)));
+      other.id !== item.id && other.sourceRef === item.sourceRef && !['parked', 'landed', 'skipped'].includes(other.state)));
   }
 
   private runIsPaused(item: PlanQueueItemDto | undefined): boolean {

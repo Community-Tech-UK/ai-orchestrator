@@ -17,7 +17,7 @@ const write = (file: string, content: string) => {
 const commit = (message: string) => { git('add', '-A'); git('commit', '-qm', message); };
 const run = () => ({ id: 'run', workspaceCwd: repo, config: { baseBranch: 'main' } }) as unknown as PlanQueueRun;
 const item = (overrides: Partial<PlanQueueItem> = {}) => ({
-  id: 'item', runId: 'run', documentPath: path.join(repo, 'docs/a_plan.md'), state: 'parked', branchName: null, worktreePath: null,
+  id: 'item', runId: 'run', sourceRef: path.join(repo, 'docs/a_plan.md'), state: 'parked', branchName: null, worktreePath: null,
   detail: null, parkReason: 'worker-error', verdict: null, updatedAt: 1, ...overrides,
 }) as PlanQueueItem;
 
@@ -183,7 +183,7 @@ describe('PlanQueueSetAsideAgents', () => {
   });
 
   it('reports a failed discard and keeps going', async () => {
-    jobs = [item({ id: 'stuck', documentPath: '/repo/docs/stuck_plan.md' }), item({ id: 'empty' })];
+    jobs = [item({ id: 'stuck', sourceRef: '/repo/docs/stuck_plan.md' }), item({ id: 'empty' })];
     discard.mockImplementationOnce(async () => { throw new Error('branch is checked out'); });
     expect(await agents.clear(AGENT)).toMatchObject({ cleared: 1, failed: ['stuck_plan.md: branch is checked out'] });
   });

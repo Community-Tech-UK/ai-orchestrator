@@ -15,6 +15,7 @@ import type { PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import type { VerifierSelection } from './plan-queue-verifier-select';
 import { recordSessionStart } from './plan-queue-timings';
+import { workSourceFor } from './plan-queue-work-sources';
 
 const logger = getLogger('PlanQueueCheckerSpawn');
 
@@ -32,7 +33,6 @@ interface CheckerSpawnDeps {
   onVerifierOutcome(id: string, outcome: PlanQueueTurnOutcome): Promise<void>;
 }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
-function documentStem(documentPath: string): string { return documentPath.split(/[\\/]/).pop()!.replace(/\.md$/i, ''); }
 export async function spawnQueueChecker(deps: CheckerSpawnDeps, waiting: PlanQueueItem, run: PlanQueueRun,
   baseBranch: string, choice: Extract<VerifierSelection, { ok: true }>['choice']): Promise<void> {
     let item = waiting;
@@ -42,7 +42,7 @@ export async function spawnQueueChecker(deps: CheckerSpawnDeps, waiting: PlanQue
       const mainTip = deps.checkedBase(item.id);
       item = deps.host.save({ ...item, verifiedMainCommit: mainTip });
       const instance = await deps.host.instances.createInstance({
-        displayName: `Queue verifier · ${documentStem(item.documentPath)} (round ${item.round + 1})`,
+        displayName: `Queue verifier · ${workSourceFor(item.sourceKind).displayName(item)} (round ${item.round + 1})`,
         isRenamed: true,
         parentId: deps.host.liveParentId(run),
         workingDirectory: worktreePath,
@@ -52,7 +52,7 @@ export async function spawnQueueChecker(deps: CheckerSpawnDeps, waiting: PlanQue
         ...(choice.copilotProfileId ? { copilotAccountProfileId: choice.copilotProfileId } : {}),
         ...(choice.accountProfileIds?.length ? { allowedAccountProfileIds: choice.accountProfileIds } : {}),
         yoloMode: true,
-        metadata: { planQueueLargeDocument: isLargeQueueDocument(item.documentPath), planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'verifier', planQueueRound: item.round, planQueueRouting: JSON.stringify(run.config.routing) },
+        metadata: { planQueueLargeDocument: isLargeQueueDocument(item.sourceRef), planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'verifier', planQueueRound: item.round, planQueueRouting: JSON.stringify(run.config.routing) },
       });
       deps.host.registerRole(instance.id, { role: 'verifier', runId: run.id, itemId: item.id });
       recordSessionStart(deps.host, item.id, 'checker', instance.id, choice.provider, choice.modelOverride ?? deps.host.instances.getInstance(instance.id)?.currentModel);

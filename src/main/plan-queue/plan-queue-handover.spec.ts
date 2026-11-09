@@ -197,7 +197,7 @@ it('protects an assigned idle verifier that has not completed its Queue outcome'
 it.each([false, true])('preserves a pending question after transfer and follows its destination setting (chat=%s)', questionsToParent => {
   const { run, deps } = fixture();
   const question = { question: 'May this work proceed?', options: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }] };
-  const item = { id: 'pending', documentPath: '/repo/pending_plan.md', state: 'needs-answer', question } as PlanQueueItem;
+  const item = { id: 'pending', sourceRef: '/repo/pending_plan.md', state: 'needs-answer', question } as PlanQueueItem;
   const messenger = new PlanQueueParentMessenger({ ...deps, listItems: () => [item],
     ...(questionsToParent ? { questionsToParent: () => true } : {}) });
   deps.onParentChanged.mockImplementation(updated => messenger.onParentChanged(updated));

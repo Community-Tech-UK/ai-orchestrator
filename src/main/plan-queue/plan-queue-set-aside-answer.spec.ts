@@ -23,7 +23,7 @@ function setup() {
   const previous = newPlanQueueItem('previous', 'original', '/fixture/work_plan.md', 1,
     { state: 'parked', branchName: 'queue/saved', workerInstanceId: 'old-worker', parkReason: 'worker-error' });
   store.upsertItem(previous);
-  store.upsertItem(newPlanQueueItem('question', 'new', previous.documentPath, 3,
+  store.upsertItem(newPlanQueueItem('question', 'new', previous.sourceRef, 3,
     { state: 'needs-answer', question: setAsideQuestion(previous) }));
   let release!: () => void; let entered!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });

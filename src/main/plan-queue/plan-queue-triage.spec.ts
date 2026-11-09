@@ -102,7 +102,7 @@ describe('readiness batches and retries', () => {
       dir = mkdtempSync(join(tmpdir(), 'triage-headers-'));
       const file = join(dir, 'real_plan.md');
       writeFileSync(file, Array.from({ length: 60 }, (_, index) => `header line ${index + 1}`).join('\n'));
-      items[0] = { ...items[0], documentPath: file };
+      items[0] = { ...items[0], sourceRef: file };
       await start();
       const prompt = create.mock.calls[0][0].initialPrompt;
       expect(prompt).toContain('header line 40');

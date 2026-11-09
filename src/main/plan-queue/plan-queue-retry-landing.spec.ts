@@ -47,8 +47,8 @@ function fixture(patch: Partial<PlanQueueItem> = {}) {
   const store = new PlanQueueStore(db); store.upsertRun(run); store.upsertItem(item);
   store.history.recordVerdict({ itemId: item.id, runId: item.runId, round: item.round, verdict: 'PASS',
     findings: [], gatesRun: [], notChecked: [], worktreeHead: item.checkpointCommit,
-    documentReview: { version: 1, documentSha256: createHash('sha256').update(readFileSync(item.documentPath)).digest('hex'), linkedSpecSha256: [null, null] },
-    documentSha256: createHash('sha256').update(readFileSync(item.documentPath)).digest('hex') });
+    documentReview: { version: 1, documentSha256: createHash('sha256').update(readFileSync(item.sourceRef)).digest('hex'), linkedSpecSha256: [null, null] },
+    documentSha256: createHash('sha256').update(readFileSync(item.sourceRef)).digest('hex') });
   const save = (next: PlanQueueItem) => { item = next; store.upsertItem(next); return item; };
   const reattach = vi.fn(async (next: PlanQueueItem) => save({ ...next, worktreePath: join(repo, 'wt') }));
   const worktrees = { reattach, checkpoint: async (next: PlanQueueItem) => next, preflightPlanningFiles: async () => ({ moved: [], beside: [], failed: [] }), };
@@ -101,12 +101,12 @@ describe('verified retry landing', () => {
   it('reattaches first, retains PASS/round/base, and enqueues without an operator override', async () => {
     const test = fixture();
     const enqueue = vi.spyOn(test.flow, 'enqueueLanding').mockResolvedValue(undefined);
-    test.host.history.recordDocumentTransformation(test.get(), await appendParkedNote(test.get().documentPath, { branchName: 'queue/item-1', reason: 'land-blocked', commitCount: 2 }));
+    test.host.history.recordDocumentTransformation(test.get(), await appendParkedNote(test.get().sourceRef, { branchName: 'queue/item-1', reason: 'land-blocked', commitCount: 2 }));
     await test.flow.retryLanding('item-1');
     expect(test.get()).toMatchObject({ state: 'landing', verdict: { verdict: 'PASS' }, round: 2,
       verifiedMainCommit: 'base-verified', worktreePath: join(repo, 'wt'), parkReason: null, detail: null });
     expect(enqueue).toHaveBeenCalledWith('item-1');
-    expect(await readFile(test.get().documentPath, 'utf8')).not.toContain('Plan Queue parked work');
+    expect(await readFile(test.get().sourceRef, 'utf8')).not.toContain('Plan Queue parked work');
   });
 
   it.each([
@@ -198,12 +198,12 @@ describe('verified retry landing', () => {
 
   it('takes the parked note off on Resume, so a checker never reviews it', async () => {
     const test = fixture({ landedCommit: null });
-    await appendParkedNote(test.get().documentPath, { branchName: 'queue/item-1', reason: 'round-limit', commitCount: 1 });
+    await appendParkedNote(test.get().sourceRef, { branchName: 'queue/item-1', reason: 'round-limit', commitCount: 1 });
 
     await test.flow.resume('item-1');
 
     expect(test.get().state).toBe('queued');
-    expect(await readFile(test.get().documentPath, 'utf8')).not.toContain('Plan Queue parked work');
+    expect(await readFile(test.get().sourceRef, 'utf8')).not.toContain('Plan Queue parked work');
   });
 
   it('forgets cached check results on Resume, so the checks really run again', async () => {
@@ -219,8 +219,8 @@ describe('verified retry landing', () => {
     const test = fixture({ landedCommit: null });
     const real = join(repo, 'real_plan.md');
     await writeFile(real, '# Plan\n\n> Plan Queue parked work: `queue/item-1` — 1 commit(s), reason: round-limit.\n');
-    await rm(test.get().documentPath);
-    symlinkSync(real, test.get().documentPath);
+    await rm(test.get().sourceRef);
+    symlinkSync(real, test.get().sourceRef);
 
     await test.flow.resume('item-1');
 
@@ -230,13 +230,13 @@ describe('verified retry landing', () => {
 
   it('leaves the note alone while another attempt at the document is being checked', async () => {
     const test = fixture({ landedCommit: null });
-    await appendParkedNote(test.get().documentPath, { branchName: 'queue/item-1', reason: 'round-limit', commitCount: 1 });
+    await appendParkedNote(test.get().sourceRef, { branchName: 'queue/item-1', reason: 'round-limit', commitCount: 1 });
     vi.spyOn(test.store, 'documentBeingChecked').mockReturnValue(true);
 
     await test.flow.resume('item-1');
 
     expect(test.get().state).toBe('queued');
-    expect(await readFile(test.get().documentPath, 'utf8')).toContain('Plan Queue parked work');
+    expect(await readFile(test.get().sourceRef, 'utf8')).toContain('Plan Queue parked work');
   });
 
   it('still sets the job aside with the reason when saving its folder fails too', async () => {
@@ -262,7 +262,7 @@ describe('verified retry landing', () => {
     await writeFile(join(repo, 'a.txt'), 'base\n'); git(['add', 'a.txt']); git(['commit', '-qm', 'base']);
     const base = git(['rev-parse', 'HEAD']);
     const test = fixture({ baseCommit: base, checkpointCommit: base, verifiedMainCommit: base, landedCommit: 'f'.repeat(40) });
-    test.host.history.recordDocumentTransformation(test.get(), await appendParkedNote(test.get().documentPath, { branchName: 'queue/item-1', reason: 'land-blocked', commitCount: 1 }));
+    test.host.history.recordDocumentTransformation(test.get(), await appendParkedNote(test.get().sourceRef, { branchName: 'queue/item-1', reason: 'land-blocked', commitCount: 1 }));
     const landings: (string | null)[] = [];
     vi.spyOn(test.flow, 'enqueueLanding').mockImplementation(async () => { landings.push(test.get().landedCommit); });
 
@@ -277,7 +277,7 @@ describe('verified retry landing', () => {
     await writeFile(join(repo, 'a.txt'), 'base\n'); git(['add', 'a.txt']); git(['commit', '-qm', 'base']);
     const base = git(['rev-parse', 'HEAD']);
     const test = fixture({ baseCommit: base, checkpointCommit: base, verifiedMainCommit: base, landedCommit: base });
-    test.host.history.recordDocumentTransformation(test.get(), await appendParkedNote(test.get().documentPath, { branchName: 'queue/item-1', reason: 'land-blocked', commitCount: 1 }));
+    test.host.history.recordDocumentTransformation(test.get(), await appendParkedNote(test.get().sourceRef, { branchName: 'queue/item-1', reason: 'land-blocked', commitCount: 1 }));
     const landings: (string | null)[] = [];
     vi.spyOn(test.flow, 'enqueueLanding').mockImplementation(async () => { landings.push(test.get().landedCommit); });
 
@@ -407,7 +407,7 @@ describe('verified retry landing', () => {
       removeWithProof: async () => { git(['worktree', 'remove', '-f', join(repo, 'wt')]); test.save({ ...test.get(), worktreePath: null }); return { removed: true }; },
       deleteBranchWithProof: async () => { git(['branch', '-D', 'queue/item-1']); },
     });
-    test.host.history.recordDocumentTransformation(test.get(), await appendParkedNote(test.get().documentPath, { branchName: 'queue/item-1', reason: 'land-blocked', commitCount: 1 }));
+    test.host.history.recordDocumentTransformation(test.get(), await appendParkedNote(test.get().sourceRef, { branchName: 'queue/item-1', reason: 'land-blocked', commitCount: 1 }));
     await test.flow.retryLanding('item-1'); await test.flow.whenSettled();
     expect(test.get().state).toBe('landed');
     expect(test.get().verdict?.verdict).toBe('PASS');

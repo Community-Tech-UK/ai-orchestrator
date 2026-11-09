@@ -20,7 +20,7 @@ const MAX_REPEAT_FAILING_TESTS = 5;
 const LATE_ROUND = 3;
 const WORKING_STATES: ReadonlySet<string> = new Set(['preparing', 'working', 'fixing', 'verifying', 'landing']);
 
-export interface HealthItemRow { id: string; documentPath: string; state: string }
+export interface HealthItemRow { id: string; sourceRef: string; state: string }
 export interface HealthVerdictRow { itemId: string; verdict: string; gates: string; round: number; findings: string }
 export interface HealthStateRow { itemId: string; at: number; toState: string }
 export interface HealthTimingRow { itemId: string; at: number; reason: string; detail: string | null }
@@ -43,7 +43,7 @@ const WORKED_ITEMS_SQL = `SELECT i.id FROM plan_queue_items i
 /** Read the rows for the window and compute the measures. */
 export function readQueueHealth(db: SqliteDriver, now: number, windowDays = HEALTH_WINDOW_DAYS): PlanQueueHealth {
   const since = now - windowDays * DAY_MS;
-  const items = db.prepare(`SELECT id, document_path AS documentPath, state FROM plan_queue_items WHERE id IN (${WORKED_ITEMS_SQL})`)
+  const items = db.prepare(`SELECT id, document_path AS sourceRef, state FROM plan_queue_items WHERE id IN (${WORKED_ITEMS_SQL})`)
     .all<HealthItemRow>(since);
   const verdicts = db.prepare(`SELECT item_id AS itemId, verdict, gates_json AS gates, round, findings_json AS findings FROM plan_queue_verdicts
     WHERE item_id IN (${WORKED_ITEMS_SQL}) ORDER BY at, rowid`).all<HealthVerdictRow>(since);
@@ -79,7 +79,7 @@ function numbers(rows: readonly (Record<string, unknown> | null)[], key: string)
 
 /** One test failing for unrelated documents points at the test or the computer, not at the work. Measured only. */
 function repeatFailingTests(input: HealthInput): PlanQueueHealth['repeatFailingTests'] {
-  const documents = new Map(input.items.map(item => [item.id, item.documentPath]));
+  const documents = new Map(input.items.map(item => [item.id, item.sourceRef]));
   const failedIn = new Map<string, Set<string>>();
   for (const row of input.verdicts) {
     const gates = JSON.parse(row.gates) as { timedOut?: boolean; failingTests?: string[] }[];
@@ -110,8 +110,8 @@ function lateFindings(verdicts: readonly HealthVerdictRow[]): PlanQueueHealth['l
 export function computeQueueHealth(input: HealthInput): PlanQueueHealth {
   const settled = input.items.filter(item => item.state === 'landed' || item.state === 'parked');
   const landed = settled.filter(item => item.state === 'landed');
-  const documents = new Set(settled.map(item => item.documentPath));
-  const landedDocuments = new Set(landed.map(item => item.documentPath));
+  const documents = new Set(settled.map(item => item.sourceRef));
+  const landedDocuments = new Set(landed.map(item => item.sourceRef));
 
   const verdictsByItem = new Map<string, string[]>();
   for (const row of input.verdicts) verdictsByItem.set(row.itemId, [...(verdictsByItem.get(row.itemId) ?? []), row.verdict]);

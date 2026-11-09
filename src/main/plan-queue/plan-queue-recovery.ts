@@ -20,7 +20,6 @@ import { restoreCheckpointAfterVerification } from './plan-queue-run-hold';
 import { isLandingWait, isTerminalItemState } from './plan-queue-state';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { recordQueueRestart } from './plan-queue-restart-progress';
-export { recoverInterruptedDocumentMerges } from './plan-queue-doc-merge';
 
 const logger = getLogger('PlanQueueRecovery');
 

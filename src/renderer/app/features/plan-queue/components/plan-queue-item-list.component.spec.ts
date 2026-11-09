@@ -22,7 +22,7 @@ function makeItem(overrides: Partial<PlanQueueItemDto> = {}): PlanQueueItemDto {
   return {
     id: 'item-1',
     runId: 'run-1',
-    documentPath: 'docs/plans/2026-09-18-thing_plan.md',
+    sourceRef: 'docs/plans/2026-09-18-thing_plan.md',
     state: 'working',
     round: 1,
     erroredRounds: 0,
@@ -184,7 +184,7 @@ describe('PlanQueueItemListComponent', () => {
     const matches = documentName.matches.bind(documentName);
     vi.spyOn(documentName, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
     documentName.focus(); fixture.detectChanges();
-    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(item.documentPath);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(item.sourceRef);
     expect(documentName.hasAttribute('title')).toBe(false);
   });
 

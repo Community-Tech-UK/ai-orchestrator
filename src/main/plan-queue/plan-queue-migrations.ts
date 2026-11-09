@@ -43,14 +43,14 @@ export const PLAN_QUEUE_MIGRATIONS = [
 /**
  * Versions held for the Plan Queue autonomy-and-Linear programme (2026-11-03-plan-queue-autonomy-and-linear_plan.md,
  * "Migrations this programme adds"). Versions 40-43 are already taken (livetest port, base conflicts, the
- * legacy-history repair and the worker report), so the programme continues at 44. 45 (landing wait, step 4.2) has
- * landed and left this list, as 40, 41 and 43 did; 44 is still free, so a lower number can land after a higher one.
+ * legacy-history repair and the worker report), so the programme continues at 44. 44 (the source columns, step 6.2)
+ * and 45 (landing wait, step 4.2) have landed and left this list, as 40, 41 and 43 did; a lower number can land after
+ * a higher one.
  * When one of these lands, it must use exactly the
  * version and name listed here; a migration that needs a different shape takes the next free number after
  * the last entry and amends this list in the same change. Nothing else may use a number in this block.
  */
 export const PLAN_QUEUE_RESERVED_MIGRATIONS = [
-  { version: 44, name: '044_plan_queue_item_source_sort', purpose: 'source_kind and sort_key (step 6.2)' },
   { version: 46, name: '046_plan_queue_item_planning_file_hashes', purpose: 'moved planning-file hashes per path, as JSON (step 1.1)' },
   { version: 47, name: '047_plan_queue_item_worker_retry_backoff', purpose: 'persisted worker-retry backoff expiry (step 1.4), unless the restart counter covers it' },
   { version: 48, name: '048_plan_queue_item_linear_ticket', purpose: 'Linear item columns (ticket, approved brief, held change, criteria snapshot, claimed_at, cursors, last status written)' },

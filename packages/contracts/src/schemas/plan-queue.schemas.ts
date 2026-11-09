@@ -7,11 +7,16 @@
  */
 import { z } from 'zod';
 
+// The saved per-folder checklist and the folder list, in their own file to keep this one under the size limit.
+export * from './plan-queue-folders.schemas';
+
 // -------------------------------------------------------------------------
 // Enum schemas
 // -------------------------------------------------------------------------
 
 export const PlanQueueKindSchema = z.enum(['plans', 'livetests']);
+/** Where an item's work comes from. Markdown files are the only source so far (`plan-queue-work-source.ts`). */
+export const PlanQueueSourceKindSchema = z.enum(['markdown']);
 
 export const PlanQueueRunStatusSchema = z.enum(['running', 'paused', 'completed', 'cancelled']);
 
@@ -178,19 +183,33 @@ export const PlanQueueQuestionSchema = z.object({
   }
 });
 
+/**
+ * Names the work a triage record is about: `documentPath` is the markdown document's path, `sourceRef` the source's own
+ * reference for it (the same path for markdown). Either may be given; when both are, `sourceRef` wins.
+ */
+const TriageRecordRefSchema = { documentPath: PathSchema.optional(), sourceRef: PathSchema.optional() };
+const hasTriageRecordRef = (record: { documentPath?: string; sourceRef?: string }): boolean => record.documentPath !== undefined || record.sourceRef !== undefined;
+
 export const PlanQueueTriageRecordSchema = z.discriminatedUnion('disposition', [
-  z.object({ documentPath: PathSchema, disposition: z.literal('ready') }),
+  z.object({ ...TriageRecordRefSchema, disposition: z.literal('ready') }),
   z.object({
-    documentPath: PathSchema,
+    ...TriageRecordRefSchema,
     disposition: z.literal('needs-answer'),
     question: PlanQueueQuestionSchema,
   }),
   z.object({
-    documentPath: PathSchema,
+    ...TriageRecordRefSchema,
     disposition: z.literal('skip'),
     reason: z.string().min(1).max(2000),
   }),
-]);
+]).refine(hasTriageRecordRef, { message: 'A triage record needs a documentPath or a sourceRef' });
+
+/** The reference a triage record names, whichever of the two fields it used. */
+export function triageRecordRef(record: { documentPath?: string; sourceRef?: string }): string {
+  const ref = record.sourceRef ?? record.documentPath;
+  if (ref === undefined) throw new Error('A triage record needs a documentPath or a sourceRef');
+  return ref;
+}
 
 /**
  * One provider/account choice for queue sessions. `accountProfileIds` fences a
@@ -255,71 +274,6 @@ export const PlanQueueAccountRulesSchema = z.object({
 
 export const DEFAULT_PLAN_QUEUE_ACCOUNT_RULES: PlanQueueAccountRules = { never: [], last: [] };
 
-/**
- * James's saved checklist for one project folder: the commands Harness runs to
- * check a document before independent review, and after merging a moved base
- * branch. A folder with a saved checklist always uses it; a caller of
- * `plan_queue_start` cannot replace it. Each folder appears once, and a saved
- * checklist names at least one command.
- */
-export const PlanQueueFolderChecklistSchema = z.object({
-  folder: z.string().trim().min(1).max(1000),
-  verifierGates: z.array(z.string().trim().min(1).max(2000)).max(20),
-  postMergeGate: z.array(z.string().trim().min(1).max(2000)).max(10),
-}).strict().refine((list) => isAbsoluteChecklistFolder(list.folder), {
-  message: 'Give the full path of the folder, starting with / or a drive letter such as C:\\.',
-}).refine((list) => list.verifierGates.length + list.postMergeGate.length > 0, {
-  message: 'A saved checklist needs at least one command.',
-});
-
-/**
- * A folder path in one canonical spelling, so two spellings of the same folder
- * compare equal: either slash, repeated slashes, trailing slashes, `.` and `..`
- * segments. Pure string work (no filesystem, no `path` module) because the
- * renderer and the main process must agree on it. Used by the schema's
- * one-entry-per-folder rule, the editor and the run-time lookup.
- */
-export function normalizeChecklistFolder(folder: string): string {
-  const text = folder.trim();
-  const parts = text.split(/[\\/]+/);
-  const first = parts[0] ?? '';
-  let root = '';
-  if (first === '') {
-    root = /^[\\/]{2}[^\\/]/.test(text) ? '//' : '/';
-    parts.shift();
-  } else if (/^[A-Za-z]:$/.test(first)) {
-    root = `${first}/`;
-    parts.shift();
-  }
-  const kept: string[] = [];
-  for (const part of parts) {
-    if (part === '' || part === '.') continue;
-    if (part === '..') {
-      if (kept.length > 0 && kept[kept.length - 1] !== '..') kept.pop();
-      else if (root === '') kept.push(part);
-    } else {
-      kept.push(part);
-    }
-  }
-  return root + kept.join('/');
-}
-
-/**
- * True for a full path (`/work/shop`, `C:\work\shop`, `\\server\share`). A relative
- * folder can never equal the folder a run starts in, so it is refused when saved.
- * So is a Windows path with a root but no drive (`\shop`): it normalises to
- * `/shop`, which no run on a Windows drive (`C:/shop`) can match.
- */
-export function isAbsoluteChecklistFolder(folder: string): boolean {
-  return /^(\/|[A-Za-z]:[\\/]|\\\\[^\\/])/.test(folder.trim());
-}
-
-export const PlanQueueFolderChecklistsSchema = z.array(PlanQueueFolderChecklistSchema).max(50).refine((lists) => {
-  const folders = lists.map((list) => normalizeChecklistFolder(list.folder));
-  return new Set(folders).size === folders.length;
-}, { message: 'Each folder can have one checklist.' });
-
-export const DEFAULT_PLAN_QUEUE_FOLDER_CHECKLISTS: PlanQueueFolderChecklist[] = [];
 
 export const PlanQueueRunConfigSchema = z.object({
   glob: z.string().max(1000).optional(),
@@ -381,7 +335,10 @@ export const PlanQueueItemDtoSchema = z.object({
   spend: PlanQueueSpendSchema.nullable().optional(),
   id: IdSchema,
   runId: IdSchema,
-  documentPath: PathSchema,
+  /** The source's reference for the work: the absolute path of the document for markdown. */
+  sourceRef: PathSchema,
+  /** Absent means markdown. */
+  sourceKind: PlanQueueSourceKindSchema.optional(),
   /** Present for one step of a plan that runs one job per step: its number, its place among the run's jobs for the plan, and the step it waits for. */
   step: z.object({
     number: z.number().int().min(0),
@@ -603,6 +560,8 @@ export const PlanQueueStartArgsSchema = z.object({
   verifiers: z.array(PlanQueueRouteChoiceArgsSchema).max(10).optional(),
   /** Where a stuck document goes once; used only when James saved no step-up choice. */
   step_up: PlanQueueRouteChoiceArgsSchema.optional(),
+  /** Start the run in this project folder (an absolute path) instead of the session's own; only a folder on James's saved Plan Queue folder list. */
+  workspace: z.string().min(1).max(4000).optional(),
 }).strict();
 
 export const PlanQueueStatusArgsSchema = z.object({
@@ -645,6 +604,7 @@ export const PlanQueueStateChangedEventSchema = z.object({
 // -------------------------------------------------------------------------
 
 export type PlanQueueKind = z.infer<typeof PlanQueueKindSchema>;
+export type PlanQueueSourceKind = z.infer<typeof PlanQueueSourceKindSchema>;
 export type PlanQueueRunStatus = z.infer<typeof PlanQueueRunStatusSchema>;
 export type PlanQueueItemState = z.infer<typeof PlanQueueItemStateSchema>;
 export type PlanQueueParkReason = z.infer<typeof PlanQueueParkReasonSchema>;
@@ -660,7 +620,6 @@ export type PlanQueueRouteChoice = z.infer<typeof PlanQueueRouteChoiceSchema>;
 export type PlanQueueRouting = z.infer<typeof PlanQueueRoutingSchema>;
 export type PlanQueueAccountRef = z.infer<typeof PlanQueueAccountRefSchema>;
 export type PlanQueueAccountRules = z.infer<typeof PlanQueueAccountRulesSchema>;
-export type PlanQueueFolderChecklist = z.infer<typeof PlanQueueFolderChecklistSchema>;
 export type PlanQueueRouteChoiceArgs = z.infer<typeof PlanQueueRouteChoiceArgsSchema>;
 export type PlanQueueCheckWait = z.infer<typeof PlanQueueCheckWaitSchema>;
 export type PlanQueueItemStage = z.infer<typeof PlanQueueItemStageSchema>;

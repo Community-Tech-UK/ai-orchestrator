@@ -70,7 +70,7 @@ function write(base: string, rel: string, content: string): void {
 
 function makeItem(id = 'item-abc123'): PlanQueueItem {
   return {
-    id, runId: 'run-1', documentPath: join(root, 'docs/plans/2026-01-01-sample_plan.md'),
+    id, runId: 'run-1', sourceRef: join(root, 'docs/plans/2026-01-01-sample_plan.md'),
     state: 'preparing', round: 0, erroredRounds: 0, landingRefusals: 0, baseConflicts: 0, branchName: null, worktreePath: null,
     baseCommit: null, checkpointCommit: null, verifiedMainCommit: null, landedCommit: null,
     workerInstanceId: null, verifierInstanceId: null, question: null, answer: null, parkReason: null,

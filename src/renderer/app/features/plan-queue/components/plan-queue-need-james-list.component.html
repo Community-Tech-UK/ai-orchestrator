@@ -13,7 +13,7 @@
         <ul class="pq-need-james-checks">
           @for (record of group.records; track record.itemId + record.check) {
             <li class="pq-need-james-check">
-              <span class="pq-need-james-doc">{{ record.documentPath }}</span>
+              <span class="pq-need-james-doc">{{ record.sourceRef }}</span>
               <span class="pq-need-james-check-text">{{ record.check }}</span>
               <span class="pq-need-james-reason">{{ record.reason }}</span>
             </li>

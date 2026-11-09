@@ -8,7 +8,7 @@ import type { PlanQueueKeptFolders } from './plan-queue-kept-folders';
 import type { PlanQueueStore } from './plan-queue-store';
 import type { PlanQueueTriage } from './plan-queue-triage';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
-import { reconcileWaitingDocuments } from './plan-queue-readiness';
+import { workSourceForRun } from './plan-queue-work-sources';
 import { stepHold } from './plan-queue-sections';
 import { hasPendingLandingCleanup } from './plan-queue-item-landing';
 import { isLandingWait, isTerminalItemState, itemHoldsWorkerSlot, itemHoldsWorktree } from './plan-queue-state';
@@ -69,7 +69,7 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
     };
     const checklists: { item: PlanQueueItem; run: PlanQueueRun }[] = [];
     for (const snapshot of runs) {
-      await reconcileWaitingDocuments(host, snapshot);
+      await workSourceForRun(snapshot).reconcileWaiting(host, snapshot);
       if (host.isShuttingDown()) return;
       if (host.isControlling(snapshot.id) || host.triage?.isStopping(snapshot.id)) continue;
       const run = host.followParent(host.getRun(snapshot.id));

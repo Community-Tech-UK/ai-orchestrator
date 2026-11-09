@@ -67,7 +67,7 @@ function statusRules(ctx: ItemPromptContext): string[] {
   if (ctx.kind === 'livetests') return [];
   return [
     '- Keep one top-level `## Status` block (at most about 1,500 characters), rewritten in place. Never append dated status or as-built sections.',
-    `- Write round evidence to \`${documentHistoryPath(ctx.item.documentPath)}\` in the ROOT checkout, never in the worktree (an active history file on your branch is refused at landing). Read history only if Status points to it.`,
+    `- Write round evidence to \`${documentHistoryPath(ctx.item.sourceRef)}\` in the ROOT checkout, never in the worktree (an active history file on your branch is refused at landing). Read history only if Status points to it.`,
   ];
 }
 
@@ -96,7 +96,7 @@ function stepRules(ctx: ItemPromptContext): string[] {
 
 function documentRules(ctx: ItemPromptContext): string[] {
   return [
-    `- Your document is \`${ctx.item.documentPath}\`. It lives in the ROOT checkout \`${ctx.repoRoot}\` and is not in your worktree. Read and edit it at that absolute path; never copy it into the worktree.`,
+    `- Your document is \`${ctx.item.sourceRef}\`. It lives in the ROOT checkout \`${ctx.repoRoot}\` and is not in your worktree. Read and edit it at that absolute path; never copy it into the worktree.`,
     `- Make every code change in your worktree \`${ctx.worktreePath}\`. It is on branch \`${ctx.item.branchName ?? 'unknown'}\`, cut from the base branch.`,
     '- Other files that git tracks (for example a shared register) are edited in the worktree like code. Planning documents (names ending `_plan`, `_spec`, `_spec_planned`, `_livetest`, `_history` or `-decisions-for-james`, then `.md`) are always edited at their absolute path in the root checkout, even when git tracks them. Never create one inside your worktree: the coordinator moves any it finds there to the root checkout, and a file already at the root is never overwritten (the new one is saved beside it as `<name>.from-queue-<item>.md`).',
     '- Do not commit, stash, create or switch branches, or create worktrees. The queue coordinator commits your work to the branch for you.',
@@ -313,7 +313,7 @@ export function buildVerifierPrompt(ctx: VerifierPromptContext): string {
   return [
     'You are an independent Plan Queue verifier. Your goal is to judge, with fresh eyes, whether one document\'s work is genuinely complete. You did not do this work.',
     '',
-    `- The document is \`${ctx.item.documentPath}\` in the root checkout \`${ctx.repoRoot}\`.`,
+    `- The document is \`${ctx.item.sourceRef}\` in the root checkout \`${ctx.repoRoot}\`.`,
     `- The work is on branch \`${ctx.item.branchName ?? 'unknown'}\` in the worktree \`${ctx.worktreePath}\`. Review it with \`git diff $(git merge-base HEAD ${ctx.baseBranch})\` there.`,
     '- Do not edit, create or delete any tracked file, and do not commit. The coordinator compares the tree before and after your review and discards a verdict from a reviewer that changed it. Build output and caches that git ignores are fine.',
     '- Do not leave a copy of the worktree, a database cluster, a browser install or a compile cache beside the plan.',

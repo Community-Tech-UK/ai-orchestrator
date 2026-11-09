@@ -6,7 +6,7 @@ import { describeRunEvidence, PLAN_QUEUE_EVIDENCE_EVENT_LIMIT } from './plan-que
 const GROUP = { id: 'group-1', baseTip: 'base-tip', memberItemIds: ['lambda', 'mu', 'kappa'] };
 
 function item(id: string, overrides: Partial<PlanQueueItemDto> = {}): PlanQueueItemDto {
-  return { id, runId: 'run', documentPath: `/repo/docs/plans/${id}_plan.md`, state: 'landed', round: 1, erroredRounds: 0,
+  return { id, runId: 'run', sourceRef: `/repo/docs/plans/${id}_plan.md`, state: 'landed', round: 1, erroredRounds: 0,
     branchName: null, worktreePath: null, baseCommit: 'base-tip', checkpointCommit: `${id}-checkpoint`, landedCommit: `${id}-landed`,
     workerInstanceId: null, verifierInstanceId: null, question: null, answer: null, parkReason: null, detail: null,
     verdict: { verdict: 'PASS', findings: [], documentComplete: true, needJames: [], notChecked: [],

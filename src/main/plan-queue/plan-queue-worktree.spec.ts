@@ -35,7 +35,7 @@ function makeItem(overrides: Partial<PlanQueueItem> = {}): PlanQueueItem {
   return {
     id: 'item-abc123',
     runId: 'run-1',
-    documentPath: join(repo, 'docs/plans/2026-01-01-sample_plan.md'),
+    sourceRef: join(repo, 'docs/plans/2026-01-01-sample_plan.md'),
     state: 'preparing',
     round: 0,
     erroredRounds: 0,
@@ -101,7 +101,7 @@ describe('planQueueBranchName', () => {
   it('derives a queue/ branch from the document stem and item id', () => {
     expect(planQueueBranchName(makeItem())).toBe('queue/2026-01-01-sample-abc123');
     expect(
-      planQueueBranchName(makeItem({ documentPath: '/r/docs/x-feature_livetest.md', id: 'ZZ-99' })),
+      planQueueBranchName(makeItem({ sourceRef: '/r/docs/x-feature_livetest.md', id: 'ZZ-99' })),
     ).toBe('queue/x-feature-zz99');
   });
 });

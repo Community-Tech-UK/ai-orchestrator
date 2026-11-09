@@ -1,5 +1,4 @@
 /** Provider conversation recording and one fresh-start retry for a failed reopen. */
-import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
 import type { PlanQueueFlowHost, PlanQueueInstancePort } from './plan-queue-host';
 import { hasCheckout } from './plan-queue-orphan-checkout';
@@ -9,6 +8,7 @@ import { buildConflictPrompt, buildParkedCarryOver } from './plan-queue-prompts'
 import { readPlanBrief, type PlanBrief } from './plan-queue-plan-extract';
 import { isLastStepJob } from './plan-queue-sections';
 import type { PlanQueueRun, PlanQueueItem } from './plan-queue.types';
+import { workSourceFor } from './plan-queue-work-sources';
 const logger = getLogger('PlanQueueWorkerSessions');
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 
@@ -58,7 +58,7 @@ export class PlanQueueWorkerSessions {
   private answerFor(run: PlanQueueRun, item: PlanQueueItem): string | null {
     if (item.answer || item.section == null) return item.answer;
     const first = this.deps.host.store.listItems(run.id)
-      .filter(other => other.documentPath === item.documentPath && other.section != null)
+      .filter(other => other.sourceRef === item.sourceRef && other.section != null)
       .sort((a, b) => a.section! - b.section!)[0];
     return first?.answer ?? null;
   }
@@ -67,7 +67,7 @@ export class PlanQueueWorkerSessions {
   async promptContext(run: PlanQueueRun, item: PlanQueueItem) {
     return {
       ...this.continueContext(run, item),
-      ...(run.kind === 'plans' ? { brief: this.lastStepOfRun(run, item, await readPlanBrief(item.documentPath, item.section)) } : {}),
+      ...(run.kind === 'plans' ? { brief: this.lastStepOfRun(run, item, await readPlanBrief(item.sourceRef, item.section)) } : {}),
     };
   }
 
@@ -174,7 +174,7 @@ export function askJamesForWorker(host: Pick<PlanQueueFlowHost, 'save' | 'notify
   });
   host.notifyParent(
     host.getRun(saved.runId),
-    `Plan Queue: the worker for ${path.basename(saved.documentPath).replace(/\.md$/i, '')} is waiting for James.\n\n${text.slice(0, 1500)}\n\n`
+    `Plan Queue: the worker for ${workSourceFor(saved.sourceKind).displayName(saved)} is waiting for James.\n\n${text.slice(0, 1500)}\n\n`
       + `Ask James, then call plan_queue_answer with item_id "${saved.id}" and option_id "continue" or "park". James can also answer the worker directly in its own session.`,
     [saved],
   );

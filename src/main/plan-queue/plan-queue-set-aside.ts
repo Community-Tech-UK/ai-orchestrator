@@ -22,6 +22,7 @@ import { ORCHESTRATOR_TOOL_DESCRIBE_NAME, ORCHESTRATOR_TOOL_SEARCH_NAME } from '
 import { gitExec } from '../workspace/git/git-exec';
 import { hermeticGitEnv } from '../workspace/git/git-env';
 import { completedDocumentPath } from './plan-queue-doc-close';
+import { workSourceFor } from './plan-queue-work-sources';
 import type { PlanQueueInstancePort } from './plan-queue-host';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
@@ -167,8 +168,8 @@ Finish with a plain-English report for James. Use no ids, hashes or branch names
 export interface PlanQueueSetAsideDeps {
   store: {
     listParkedInFolder(folder: string): { item: PlanQueueItem; landedLater: boolean }[];
-    documentInPlay(item: Pick<PlanQueueItem, 'documentPath' | 'id' | 'section'>): boolean;
-    newerAttemptLanded(item: Pick<PlanQueueItem, 'documentPath' | 'createdAt' | 'section'>): boolean;
+    documentInPlay(item: Pick<PlanQueueItem, 'sourceRef' | 'id' | 'section'>): boolean;
+    newerAttemptLanded(item: Pick<PlanQueueItem, 'sourceRef' | 'createdAt' | 'section'>): boolean;
   };
   instances: Pick<PlanQueueInstancePort, 'createInstance' | 'getInstance'>;
   getRun(runId: string): PlanQueueRun;
@@ -227,7 +228,7 @@ export class PlanQueueSetAsideAgents {
     const latest = new Set<string>();
     const seen = new Set<string>();
     for (const { item } of jobs) {
-      const key = `${item.documentPath}#${item.section ?? ''}`;
+      const key = `${item.sourceRef}#${item.section ?? ''}`;
       if (!seen.has(key)) latest.add(item.id);
       seen.add(key);
     }
@@ -242,9 +243,9 @@ export class PlanQueueSetAsideAgents {
         return {
           itemId: item.id,
           runId: item.runId,
-          document: path.relative(folder, item.documentPath),
+          document: path.relative(folder, item.sourceRef),
           attempt: latest.has(item.id) ? 'latest' : 'earlier',
-          documentState: await documentState(item.documentPath),
+          documentState: await documentState(item.sourceRef),
           landedLater,
           reason: item.parkReason,
           checker: item.verdict?.verdict ?? null,
@@ -283,7 +284,7 @@ export class PlanQueueSetAsideAgents {
           cleared += 1;
         } catch (error) {
           kept.add(item.id);
-          failed.push(`${path.basename(item.documentPath)}: ${error instanceof Error ? error.message : String(error)}`);
+          failed.push(`${workSourceFor(item.sourceKind).fullName(item)}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
       return { cleared, left: this.jobs(folder).length, more, failed };

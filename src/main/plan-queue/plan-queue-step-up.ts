@@ -11,13 +11,13 @@
  * the saved mark is what stops a second handover.
  */
 
-import * as path from 'path';
 import type { PlanQueueVerdict } from '@contracts/schemas/plan-queue';
 import { findingKind } from './plan-queue-deferred-checks';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { buildStepUpInstruction, buildStepUpPrompt } from './plan-queue-prompts';
 import { describeRouteChoice } from './plan-queue-routing';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
+import { workSourceFor } from './plan-queue-work-sources';
 
 export interface PlanQueueStepUpDeps {
   host: PlanQueueFlowHost;
@@ -61,7 +61,7 @@ export async function stepUpItem(deps: PlanQueueStepUpDeps, item: PlanQueueItem,
   const parked = host.getItem(saved.id).state === 'parked';
   host.notifyParent(
     host.getRun(saved.runId),
-    `Plan Queue: ${path.basename(saved.documentPath)} failed its checks in all ${failedRounds} verification round(s), so it was handed to the stronger worker James chose (${choice}). `
+    `Plan Queue: ${workSourceFor(saved.sourceKind).fullName(saved)} failed its checks in all ${failedRounds} verification round(s), so it was handed to the stronger worker James chose (${choice}). `
       + (parked
         ? 'That worker could not start, so the document is parked; Resume continues with the stronger worker.'
         : `That worker gets up to ${run.config.maxRounds} more round(s). A document is handed over once; if it still fails, it parks for James.`),

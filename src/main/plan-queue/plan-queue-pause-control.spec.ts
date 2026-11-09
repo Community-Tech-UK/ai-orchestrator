@@ -79,7 +79,7 @@ beforeEach(() => {
   item = newPlanQueueItem('item', run.id, join(repo, 'example_plan.md'), 1, {
     state: 'working', branchName: 'queue/example', worktreePath, checkpointCommit: git(['rev-parse', 'HEAD']), workerInstanceId: 'worker',
   });
-  writeFileSync(item.documentPath, '# Active plan\n'); store.upsertRun(run); store.upsertItem(item);
+  writeFileSync(item.sourceRef, '# Active plan\n'); store.upsertRun(run); store.upsertItem(item);
   instances = new Instances();
   instances.live.set('parent', { id: 'parent', status: 'idle', outputBuffer: [], provider: 'claude', workingDirectory: repo });
   instances.live.set('worker', { id: 'worker', status: 'busy', outputBuffer: [], provider: 'claude' });
@@ -173,7 +173,7 @@ describe('Plan Queue pause controls in the coordinator', () => {
   it('keeps old running and paused runs in the page snapshot beyond fifty terminal runs', async () => {
     const paused = { ...run, id: 'old-paused', status: 'paused' as const, startedAt: 2, kind: 'livetests' as const };
     store.upsertRun(paused);
-    store.upsertItem(newPlanQueueItem('paused-question', paused.id, item.documentPath, 2, {
+    store.upsertItem(newPlanQueueItem('paused-question', paused.id, item.sourceRef, 2, {
       state: 'needs-answer', question: { question: 'Continue?', options: [{ id: 'go', label: 'Go' }, { id: 'stay', label: 'Stay' }] },
     }));
     for (let index = 0; index < 55; index++) {
@@ -203,10 +203,10 @@ describe('Plan Queue pause controls in the coordinator', () => {
     const completed = { ...run, id: 'old-completed', status: 'completed' as const, startedAt: 2, endedAt: 10 };
     const cancelled = { ...run, id: 'old-cancelled', status: 'cancelled' as const, kind: 'livetests' as const, startedAt: 3, endedAt: 11 };
     store.upsertRun(completed); store.upsertRun(cancelled);
-    store.upsertItem(newPlanQueueItem('retained-work', completed.id, item.documentPath, 2, {
+    store.upsertItem(newPlanQueueItem('retained-work', completed.id, item.sourceRef, 2, {
       state: 'parked', branchName: 'queue/retained', worktreePath: item.worktreePath, parkReason: 'round-limit',
     }));
-    store.upsertItem(newPlanQueueItem('branchless-triage', cancelled.id, item.documentPath, 3, {
+    store.upsertItem(newPlanQueueItem('branchless-triage', cancelled.id, item.sourceRef, 3, {
       state: 'parked', parkReason: 'triage-failed',
     }));
     for (let index = 0; index < 55; index++) {
@@ -343,9 +343,9 @@ describe('Plan Queue pause controls in the coordinator', () => {
   });
 
   it('retries a failed triage stop before cancelling a paused run', async () => {
-    const documentPath = join(repo, 'triage_plan.md');
-    writeFileSync(documentPath, '# Check this plan\n');
-    store.upsertItem(newPlanQueueItem('triage-item', run.id, documentPath, 2));
+    const sourceRef = join(repo, 'triage_plan.md');
+    writeFileSync(sourceRef, '# Check this plan\n');
+    store.upsertItem(newPlanQueueItem('triage-item', run.id, sourceRef, 2));
     coordinator.requestPump();
     await vi.waitFor(() => expect(instances.created.some(config => config.metadata?.['planQueueRole'] === 'triage')).toBe(true));
     const triage = [...instances.live.values()].find(session => session.metadata?.['planQueueRole'] === 'triage')!;
@@ -455,9 +455,9 @@ describe('Plan Queue pause controls in the coordinator', () => {
 
 
 async function startPendingTriage() {
-  const documentPath = join(repo, 'triage_plan.md');
-  writeFileSync(documentPath, '# Check this plan\n');
-  store.upsertItem(newPlanQueueItem('triage-item', run.id, documentPath, 2));
+  const sourceRef = join(repo, 'triage_plan.md');
+  writeFileSync(sourceRef, '# Check this plan\n');
+  store.upsertItem(newPlanQueueItem('triage-item', run.id, sourceRef, 2));
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   let markStarted!: () => void;

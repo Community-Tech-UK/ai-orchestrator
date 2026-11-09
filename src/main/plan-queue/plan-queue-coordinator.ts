@@ -19,7 +19,6 @@ import { claimDocumentsAndCreateItems } from './plan-queue-run-start';
 import { rememberJamesAnswer } from './plan-queue-triage-memory';
 import { EventEmitter } from 'events';
 import * as os from 'os';
-import * as path from 'path';
 import {
   type PlanQueueAccountRules,
   type PlanQueueAlert,
@@ -33,6 +32,7 @@ import {
   type PlanQueueRunConfig,
   type PlanQueueRunDto,
   type PlanQueueStateChangedEvent,
+  triageRecordRef,
 } from '@contracts/schemas/plan-queue';
 import { getLogger } from '../logging/logger';
 import { applyLiveAccountRules, liveQueueSessionsHost, type PlanQueueAccountRulesPort } from './plan-queue-account-rules-live';
@@ -46,7 +46,7 @@ import { adoptRunParent } from './plan-queue-run-parent';
 import { requestRunHandover, handoverRunParent } from './plan-queue-handover';
 import { planQueueRunCanMove } from '../../shared/utils/plan-queue-run-movable';
 import { PlanQueueParentMessenger } from './plan-queue-parent-messenger';
-import { discoverPlanQueueDocuments } from './plan-queue-discovery';
+import { allWorkSources, workSourceForRun } from './plan-queue-work-sources';
 import { defaultRunConfigFor, THIS_REPOSITORY_ROOT_COMMIT } from './plan-queue-default-gates';
 import { readSavedFolderChecklists, resolveRunGates, savedChecklistFor } from './plan-queue-folder-checklists';
 import { isExactPlanQueueSelection } from './plan-queue-discovery-paths';
@@ -69,8 +69,8 @@ import { withTestMachine } from './plan-queue-test-machine';
 import { PlanQueueTriage } from './plan-queue-triage';
 import { PlanQueueUserClose } from './plan-queue-user-close';
 import { reconcilePlanQueueWorktrees } from './plan-queue-reconciler';
-import { recoverInterruptedDocumentMerges, recoverPlanQueue } from './plan-queue-recovery';
-import { applyTriageRecords, PRE_START_STATES, reconcileWaitingDocuments } from './plan-queue-readiness';
+import { recoverPlanQueue } from './plan-queue-recovery';
+import { applyTriageRecords, PRE_START_STATES } from './plan-queue-readiness';
 import type { PlanQueueRelaxation } from './plan-queue-relaxation';
 import { assertRoutingInstalled, defaultPlanQueueRoutingDeps, resolveRunRouting, type PlanQueueRoutingDeps, type PlanQueueRoutingOverride, type ResolvedRunRouting } from './plan-queue-routing';
 import { assertItemTransition, isTerminalItemState, itemHoldsWorktree } from './plan-queue-state';
@@ -429,7 +429,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     const { callerGatesSetAside, ...gates } = resolveRunGates(defaults, input.config, savedChecklistFor(deps.folderChecklists(), repoRoot, startFolder));
     const config: PlanQueueRunConfig = { ...defaults, ...input.config, ...gates, glob, baseBranch, routing, startingSessionRoute: { provider: parent.provider, currentModel: parent.currentModel, accountProfileId: parent.accountProfileId, copilotAccountProfileId: parent.copilotAccountProfileId } };
     await assertRunReady(repoRoot, [...config.verifierGates, ...config.postMergeGate]);
-    const documents = await discoverPlanQueueDocuments(repoRoot, input.kind, glob);
+    const documents = await workSourceForRun({ kind: input.kind }).discover(repoRoot, { kind: input.kind, glob });
     // No await from here until the items are written: reading the owned set and
     // claiming documents is atomic on the main thread, so two concurrent starts
     // cannot both claim one document.
@@ -511,7 +511,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (!item.question || !option) throw new Error(`Item ${itemId} has no open question with option "${optionId}"`);
     if (item.state === 'needs-answer') {
       if (optionId === 'resume-set-aside') {
-        const previous = this.store.findLatestParkedItem(item.documentPath, run.parentInstanceId);
+        const previous = this.store.findLatestParkedItem(item.sourceRef, run.parentInstanceId);
         if (!previous) throw new Error('The earlier attempt is no longer set aside. Refresh this run before continuing.');
         this.authorizeControl(this.getRun(previous.runId), 'resume-item', callerInstanceId);
         this.refuseIfNewerAttemptLanded(previous);
@@ -668,7 +668,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (!this.triage?.isTriageFor(run.id, callerInstanceId)) {
       throw new Error('Only the triage agent for this run may report triage');
     }
-    if (args.records.some((record) => !this.triage?.includesDocument(run.id, path.resolve(run.workspaceCwd, record.documentPath)))) {
+    if (args.records.some((record) => !this.triage?.includesDocument(run.id, workSourceForRun(run).resolveRef(run, triageRecordRef(record))))) {
       throw new Error('Triage may report only documents in its current batch');
     }
     const result = applyTriageRecords(this, run, args);
@@ -680,8 +680,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   // ---------------------------------------------------------------------------
   /** Boot recovery; see plan-queue-recovery.ts. */
   async recover(): Promise<void> {
-    await recoverInterruptedDocumentMerges(this.store);
-    for (const run of this.store.listActiveRuns()) await reconcileWaitingDocuments(this, run);
+    for (const source of allWorkSources()) await source.recoverInterruptedMerges(this.store);
+    for (const run of this.store.listActiveRuns()) await workSourceForRun(run).reconcileWaiting(this, run);
     await recoverPlanQueue(this, this.requireFlow());
     this.requestPump();
   }

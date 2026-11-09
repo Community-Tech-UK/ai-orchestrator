@@ -53,7 +53,7 @@ function makeItem(overrides: Partial<PlanQueueItemDto> = {}): PlanQueueItemDto {
   return {
     id: 'item-1',
     runId: 'run-1',
-    documentPath: 'docs/plans/a_plan.md',
+    sourceRef: 'docs/plans/a_plan.md',
     state: 'queued',
     round: 0,
     erroredRounds: 0,

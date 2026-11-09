@@ -1,0 +1,49 @@
+<div class="pq-folder-list">
+  @if (folders().length === 0) {
+    <p class="pq-folder-list-note pq-folder-list-empty">No folders are listed, so a session can start runs only in its own folder.</p>
+  }
+
+  <ul class="pq-folder-list-items">
+    @for (folder of folders(); track folder) {
+      <li class="pq-folder-list-item">
+        <span class="pq-folder-list-path">{{ folder }}</span>
+        <button type="button" class="pq-folder-list-remove" [attr.aria-label]="'Remove ' + folder + ' from the list'" (click)="removeFolder(folder)">Remove</button>
+      </li>
+    }
+  </ul>
+
+  <div class="pq-folder-list-add">
+    <label class="pq-folder-list-field">
+      <span>Add a project folder (the top folder of its Git project, as a full path)</span>
+      <input type="text" class="pq-folder-list-new" list="pq-folder-list-suggestions" spellcheck="false"
+        [value]="newFolder()" (input)="setNewFolder($any($event.target).value)" (keydown.enter)="addFolder()" />
+    </label>
+    <datalist id="pq-folder-list-suggestions">
+      @for (folder of suggestedFolders(); track folder) {
+        <option [value]="folder"></option>
+      }
+    </datalist>
+    @if (newFolderNeedsFullPath()) {
+      <p class="pq-folder-list-error pq-folder-list-new-error" role="alert">Give the full path of the folder, starting with / or a drive letter such as C:\.</p>
+    }
+    <button type="button" class="pq-folder-list-add-button" [disabled]="!canAdd()" (click)="addFolder()">Add folder</button>
+  </div>
+
+  @if (problem(); as reason) {
+    <p class="pq-folder-list-error" role="alert">{{ reason }}</p>
+  }
+
+  <div class="pq-folder-list-actions">
+    <button type="button" class="pq-folder-list-save" [disabled]="!canSave()" (click)="save()">Save</button>
+    <button type="button" class="pq-folder-list-reset" [disabled]="!dirty() || saving()" (click)="resetToSaved()">Reset to saved</button>
+    @if (status(); as line) {
+      @if (line.kind === 'success') {
+        <span class="pq-folder-list-status pq-folder-list-status-ok" role="status">{{ line.text }}</span>
+      } @else {
+        <span class="pq-folder-list-status pq-folder-list-status-error" role="alert">{{ line.text }}</span>
+      }
+    } @else if (dirty()) {
+      <span class="pq-folder-list-status" role="status">Not saved yet. Sessions use the saved list until you press Save.</span>
+    }
+  </div>
+</div>

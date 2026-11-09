@@ -25,7 +25,7 @@ function git(args: string[], cwd = repo): string {
 
 function makeItem(): PlanQueueItem {
   return {
-    id: 'item-abc123', runId: 'run-1', documentPath: join(repo, 'docs/plans/2026-01-01-sample_plan.md'),
+    id: 'item-abc123', runId: 'run-1', sourceRef: join(repo, 'docs/plans/2026-01-01-sample_plan.md'),
     state: 'preparing', round: 0, erroredRounds: 0, landingRefusals: 0, baseConflicts: 0, branchName: null, worktreePath: null,
     baseCommit: null, checkpointCommit: null, verifiedMainCommit: null, landedCommit: null,
     workerInstanceId: null, verifierInstanceId: null, question: null, answer: null, parkReason: null,
@@ -90,6 +90,31 @@ describe('a checkout an interrupted landing left detached', () => {
     expect(readFileSync(join(wt, 'two.txt'), 'utf8')).toBe('two\n');
     expect(after.detail).toBeNull();
     expect(git(['for-each-ref', RESCUE_REF_PREFIX])).toBe('');
+  });
+
+  // The squash's own commit can exist when only the restore was killed. Which first words count as a landing is
+  // `LANDING_COMMIT_PREFIXES`: Plan and Livetest today, and Ticket for the Linear source that is coming.
+  it.each(['Plan', 'Livetest', 'Ticket'])('recognises the finished %s landing commit whose restore never ran', async (prefix) => {
+    const item = await itemWithWork();
+    strandAsLanding(item);
+    const wt = item.worktreePath!;
+    git(['commit', '-q', '--allow-empty', '-m', `${prefix}: sample\n\nLanded by Plan Queue after 1 verification round(s).\nItem: ${item.id}`], wt);
+
+    const after = await service.checkpoint(item, 'paused');
+
+    expect(git(['symbolic-ref', '--short', 'HEAD'], wt)).toBe(item.branchName);
+    expect(after.checkpointCommit).toBe(item.checkpointCommit);
+  });
+
+  it('leaves alone a detached folder whose newest commit is not a landing commit', async () => {
+    const item = await itemWithWork();
+    strandAsLanding(item);
+    const wt = item.worktreePath!;
+    git(['commit', '-q', '--allow-empty', '-m', `Fix: sample\n\nItem: ${item.id}`], wt);
+
+    await expect(service.checkpoint(item, 'paused')).rejects.toThrow();
+
+    expect(() => git(['symbolic-ref', '-q', 'HEAD'], wt)).toThrow();
   });
 
   it('sets aside files matching neither side, so cut-short and edited files never reach the branch', async () => {

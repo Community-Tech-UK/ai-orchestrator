@@ -76,14 +76,16 @@ export function assertItemTransition(from: PlanQueueItemState, to: PlanQueueItem
 export function newPlanQueueItem(
   id: string,
   runId: string,
-  documentPath: string,
+  sourceRef: string,
   createdAt: number,
   patch: Partial<PlanQueueItem> = {},
 ): PlanQueueItem {
   return {
     id,
     runId,
-    documentPath,
+    sourceRef,
+    sourceKind: 'markdown',
+    sortKey: '',
     state: 'discovered',
     heldAt: null,
     pendingInstruction: null,

@@ -26,7 +26,7 @@ describe('needs-you source mapping', () => {
     sources.permissions = [{ id: 'p', instanceId: 'a', description: 'Allow tool', createdAt: 1, expiresAt: now + 100 }];
     sources.browsers = [{ requestId: 'b', instanceId: 'a', createdAt: 2, expiresAt: now + 200 }];
     sources.fallbacks = [{ id: 'f', slot: 'summary', createdAt: 3, expiresAt: now + 300 }];
-    sources.plans = [1, 2].map((id) => ({ id: String(id), documentPath: '/plan/foo_plan.md', updatedAt: 4 }));
+    sources.plans = [1, 2].map((id) => ({ id: String(id), sourceRef: '/plan/foo_plan.md', updatedAt: 4 }));
     sources.memories = [{ id: 'm', title: 'Memory', status: 'pending', createdAt: 5 }];
     sources.sidechats = [{ parent: { kind: 'chat', chatId: 'c' }, parentTitle: 'Parent', needsAttention: 0, attentionSince: null },
       { parent: { kind: 'chat', chatId: 'd' }, parentTitle: 'Other', needsAttention: 1, attentionSince: 50 }];

@@ -20,6 +20,7 @@ import type {
   PlanQueueRunConfig,
   PlanQueueRunDto,
   PlanQueueRunStatus,
+  PlanQueueSourceKind,
   PlanQueueVerdict,
   PlanQueueWorkerReport,
 } from '@contracts/schemas/plan-queue';
@@ -58,6 +59,8 @@ interface ItemRow {
   id: string;
   run_id: string;
   document_path: string;
+  source_kind: string | null;
+  sort_key: string | null;
   state: string;
   round: number;
   errored_rounds: number;
@@ -227,7 +230,7 @@ export class PlanQueueStore {
         WHERE runs.id IN (${selectedIds}) ORDER BY runs.started_at DESC, runs.id DESC`)
         .all<RunRow & { check_runs: number | null; check_jobs: number | null }>(limit);
       const items = this.db.prepare(`SELECT * FROM plan_queue_items WHERE run_id IN (${selectedIds})
-        ORDER BY created_at, id`).all<ItemRow>(limit);
+        ORDER BY sort_key, created_at, id`).all<ItemRow>(limit);
       const itemsByRun = new Map<string, PlanQueueItem[]>();
       for (const row of items) {
         const group = itemsByRun.get(row.run_id) ?? [];
@@ -282,12 +285,12 @@ export class PlanQueueStore {
   private writeItem(item: PlanQueueItem): void {
     this.db.prepare(`
       INSERT INTO plan_queue_items (
-        id, run_id, document_path, state, round, errored_rounds, landing_refusals, branch_name, worktree_path,
+        id, run_id, document_path, source_kind, sort_key, state, round, errored_rounds, landing_refusals, branch_name, worktree_path,
         base_commit, checkpoint_commit, verified_main_commit, landed_commit,
         worker_instance_id, verifier_instance_id, question_json, answer, park_reason, detail,
         verdict_json, created_at, updated_at, held_at, pending_instruction, worker_provider, worker_model, stepped_up_at, worker_session_json, livetest_port, base_conflicts, discarded_at, discarded_by, discard_ref_expires_at,
         landing_wait_since, landing_wait_paths, landing_automatic, worker_report_json, round_activity_json, section
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         state                = excluded.state,
         round                = excluded.round,
@@ -326,7 +329,9 @@ export class PlanQueueStore {
     `).run(
       item.id,
       item.runId,
-      item.documentPath,
+      item.sourceRef,
+      item.sourceKind ?? 'markdown',
+      item.sortKey ?? '',
       item.state,
       item.round,
       item.erroredRounds,
@@ -372,19 +377,19 @@ export class PlanQueueStore {
     return row ? rowToItem(row) : null;
   }
 
-  findLatestParkedItem(documentPath: string, parentInstanceId: string): PlanQueueItem | null {
+  findLatestParkedItem(sourceRef: string, parentInstanceId: string): PlanQueueItem | null {
     const row = this.db.prepare(`SELECT item.* FROM plan_queue_items item
       JOIN plan_queue_runs run ON run.id = item.run_id
       WHERE item.document_path = ? AND item.section IS NULL AND item.state = 'parked' AND item.branch_name IS NOT NULL AND item.discarded_at IS NULL
         AND run.parent_instance_id = ? ORDER BY item.created_at DESC, item.id DESC LIMIT 1`)
-      .get<ItemRow>(documentPath, parentInstanceId);
+      .get<ItemRow>(sourceRef, parentInstanceId);
     return row ? rowToItem(row) : null;
   }
 
   /** Attempts at a document (or at one step of it), newest first. A skipped row never ran, and routine saves move `updated_at`, so creation orders them. */
-  latestAttempts(documentPath: string, limit: number, section: number | null = null): PlanQueueItem[] {
+  latestAttempts(sourceRef: string, limit: number, section: number | null = null): PlanQueueItem[] {
     return this.db.prepare(`SELECT * FROM plan_queue_items WHERE document_path = ? AND COALESCE(section, -1) = ? AND state != 'skipped' ORDER BY created_at DESC, id DESC LIMIT ?`)
-      .all<ItemRow>(documentPath, section ?? -1, limit).map(rowToItem);
+      .all<ItemRow>(sourceRef, section ?? -1, limit).map(rowToItem);
   }
 
   /** When an attempt last stopped. Discarding and retrying move `updated_at`, so that can't say whether a file changed since. */
@@ -393,9 +398,10 @@ export class PlanQueueStore {
       .get<{ at: number | null }>(itemId)?.at ?? null;
   }
 
+  /** In the order the run works them (`plan-queue-sort-key.ts`); rows from before sort keys existed keep `created_at` order. */
   listItems(runId: string): PlanQueueItem[] {
     return this.db
-      .prepare('SELECT * FROM plan_queue_items WHERE run_id = ? ORDER BY created_at, id')
+      .prepare('SELECT * FROM plan_queue_items WHERE run_id = ? ORDER BY sort_key, created_at, id')
       .all<ItemRow>(runId)
       .map(rowToItem);
   }
@@ -421,34 +427,34 @@ export class PlanQueueStore {
    * True when an attempt started after this one has merged. Compares creation: routine saves move `updated_at`.
    * The step jobs of one plan are different work, so a step is only compared with attempts at the same step.
    */
-  newerAttemptLanded(item: Pick<PlanQueueItem, 'documentPath' | 'createdAt' | 'section'>): boolean {
+  newerAttemptLanded(item: Pick<PlanQueueItem, 'sourceRef' | 'createdAt' | 'section'>): boolean {
     return this.db
       .prepare(`SELECT 1 FROM plan_queue_items WHERE document_path = ? AND COALESCE(section, -1) = ? AND state = 'landed' AND created_at > ? LIMIT 1`)
-      .get(item.documentPath, item.section ?? -1, item.createdAt) !== undefined;
+      .get(item.sourceRef, item.section ?? -1, item.createdAt) !== undefined;
   }
 
   /** Commits recorded by attempts started after this one. A recorded commit may never have reached the base: ask Git. */
-  newerAttemptCommits(item: Pick<PlanQueueItem, 'documentPath' | 'createdAt' | 'section'>): string[] {
+  newerAttemptCommits(item: Pick<PlanQueueItem, 'sourceRef' | 'createdAt' | 'section'>): string[] {
     return this.db
       .prepare('SELECT landed_commit FROM plan_queue_items WHERE document_path = ? AND COALESCE(section, -1) = ? AND created_at > ? AND landed_commit IS NOT NULL')
-      .all<{ landed_commit: string }>(item.documentPath, item.section ?? -1, item.createdAt)
+      .all<{ landed_commit: string }>(item.sourceRef, item.section ?? -1, item.createdAt)
       .map((row) => row.landed_commit);
   }
 
   /** True when another attempt's review of this document is in force. */
-  documentBeingChecked(documentPath: string, exceptItemId: string): boolean {
+  documentBeingChecked(sourceRef: string, exceptItemId: string): boolean {
     return this.db.prepare(`SELECT 1 FROM plan_queue_items WHERE document_path = ? AND id != ? AND state IN ('verifying', 'landing') LIMIT 1`)
-      .get(documentPath, exceptItemId) !== undefined;
+      .get(sourceRef, exceptItemId) !== undefined;
   }
 
   /** True when another item is working on this document (for a step job, on the same step: its later steps only wait). */
-  documentInPlay(item: Pick<PlanQueueItem, 'documentPath' | 'id' | 'section'>): boolean {
+  documentInPlay(item: Pick<PlanQueueItem, 'sourceRef' | 'id' | 'section'>): boolean {
     return this.db
       .prepare(`
         SELECT 1 FROM plan_queue_items
         WHERE document_path = ? AND COALESCE(section, -1) = ? AND id != ? AND state NOT IN ('landed', 'skipped', 'parked') LIMIT 1
       `)
-      .get(item.documentPath, item.section ?? -1, item.id) !== undefined;
+      .get(item.sourceRef, item.section ?? -1, item.id) !== undefined;
   }
 
   /** Dev-app ports recorded on items that are still in play (not landed, skipped or parked), except one item's own. */
@@ -617,7 +623,9 @@ function rowToItem(row: ItemRow): PlanQueueItem {
     ...(row.livetest_port === null || row.livetest_port === undefined ? {} : { livetestPort: row.livetest_port }),
     id: row.id,
     runId: row.run_id,
-    documentPath: row.document_path,
+    sourceRef: row.document_path,
+    sourceKind: (row.source_kind ?? 'markdown') as PlanQueueSourceKind,
+    sortKey: row.sort_key ?? '',
     heldAt: row.held_at ?? null,
     pendingInstruction: row.pending_instruction ?? null,
     state: row.state as PlanQueueItemState,

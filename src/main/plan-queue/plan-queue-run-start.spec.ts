@@ -41,7 +41,7 @@ afterEach(() => { db.close(); rmSync(folder, { recursive: true, force: true }); 
 
 const start = (queueDirectly: boolean) => {
   let id = 0;
-  claimDocumentsAndCreateItems({ store, now: () => 100, newId: () => `made-${++id}` }, run, [{ path: document, readiness: 'candidate' }], { queueDirectly });
+  claimDocumentsAndCreateItems({ store, now: () => 100, newId: () => `made-${++id}` }, run, [{ ref: document, readiness: 'candidate' }], { queueDirectly });
   return store.listItems('new')[0];
 };
 
@@ -54,7 +54,7 @@ describe('starting a document that keeps stopping the same way', () => {
     expect(start(false).state).toBe('skipped');
     store.upsertRun({ ...run, id: 'newer', parentInstanceId: 'parent-newer' });
     run = { ...store.getRun('newer')! };
-    claimDocumentsAndCreateItems({ store, now: () => 200, newId: () => 'made-again' }, run, [{ path: document, readiness: 'candidate' }], {});
+    claimDocumentsAndCreateItems({ store, now: () => 200, newId: () => 'made-again' }, run, [{ ref: document, readiness: 'candidate' }], {});
     expect(store.listItems('newer')[0].state).toBe('skipped');
   });
 
@@ -63,12 +63,48 @@ describe('starting a document that keeps stopping the same way', () => {
   });
 });
 
+describe('the order and source of a new run\'s items (step 6)', () => {
+  // The folder is made fresh for each test, so the candidates are too.
+  const candidates = () => ['c_plan.md', 'a_plan.md', 'b_plan.md'].map(name => ({ ref: join(folder, name), readiness: 'candidate' as const }));
+  const startThree = (target: PlanQueueRun, documents = candidates()) => {
+    let id = 0;
+    for (const candidate of documents) writeFileSync(candidate.ref, '# Plan\n');
+    claimDocumentsAndCreateItems({ store, now: () => 500, newId: () => `three-${++id}` }, target, documents);
+    return store.listItems(target.id);
+  };
+
+  it('records the source and a sort key for each item in discovery order, however the clock ticks', () => {
+    const documents = candidates();
+    const items = startThree(run, documents);
+    expect(items.map(item => item.sourceRef)).toEqual(documents.map(candidate => candidate.ref));
+    expect(items.every(item => item.sourceKind === 'markdown')).toBe(true);
+    expect(items.map(item => item.sortKey)).toEqual(['9.000000.000000', '9.000000.000001', '9.000000.000002']);
+  });
+
+  it('keeps that order when the sort key, not the creation time, is what differs', () => {
+    const documents = candidates();
+    const items = startThree(run, documents);
+    // Put the creation times in the opposite order: the run still follows its sort keys.
+    items.forEach((item, index) => db.prepare('UPDATE plan_queue_items SET created_at = ? WHERE id = ?').run(1_000 - index, item.id));
+    expect(store.listItems(run.id).map(item => item.sourceRef)).toEqual(documents.map(candidate => candidate.ref));
+  });
+
+  it('gives a second run started over the same documents nothing, because the first owns them', () => {
+    const documents = candidates();
+    startThree(run, documents);
+    store.upsertRun({ ...run, id: 'second', parentInstanceId: 'parent-second' });
+    const second = store.getRun('second')!;
+    expect(claimDocumentsAndCreateItems({ store, now: () => 600, newId: () => 'again' }, second, documents)).toEqual(documents.map(candidate => candidate.ref));
+    expect(store.listItems('second')).toEqual([]);
+  });
+});
+
 describe('a plan too big for one job', () => {
   const bigPlan = (lines: string[]) => { const path = join(folder, 'big_plan.md'); writeFileSync(path, ['# Big', ...lines].join('\n')); return path; };
   const startWith = (path: string, queueDirectly = false, kind: PlanQueueRun['kind'] = 'plans') => {
     const target = { ...run, kind };
-    claimDocumentsAndCreateItems({ store, now: () => 100, newId: () => `big-${kind}-${queueDirectly}` }, target, [{ path, readiness: 'candidate' }], { queueDirectly });
-    return store.listItems(run.id).find(item => item.documentPath === path)!;
+    claimDocumentsAndCreateItems({ store, now: () => 100, newId: () => `big-${kind}-${queueDirectly}` }, target, [{ ref: path, readiness: 'candidate' }], { queueDirectly });
+    return store.listItems(run.id).find(item => item.sourceRef === path)!;
   };
 
   it('is left out of a bulk start, saying why, when it has many unticked items', () => {

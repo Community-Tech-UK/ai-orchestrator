@@ -20,7 +20,7 @@ import {
   ProviderAccountPoolsSchema,
   ProviderAccountProfilesSchema,
 } from '@contracts/schemas/provider-account';
-import { PlanQueueAccountRulesSchema, PlanQueueFolderChecklistsSchema, PlanQueueRoutingSchema } from '@contracts/schemas/plan-queue';
+import { PlanQueueAccountRulesSchema, PlanQueueFolderChecklistsSchema, PlanQueueFoldersSchema, PlanQueueRoutingSchema } from '@contracts/schemas/plan-queue';
 
 export type SettingsToolPolicyTier = 'open' | 'read-only' | 'secret';
 
@@ -107,6 +107,9 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   // Plan Queue folder checklists (2026-11-04): the commands the queue runs in a
   // shell for a folder. An agent that could write them could run any command.
   'planQueueFolderChecklists',
+  // Plan Queue folder list (2026-11-08): the folders a session may start a run in from another folder.
+  // An agent that could add one could start runs, in a shell, in any project on the machine.
+  'planQueueFolders',
   // Authorizes automatic deletion of backup copies; the operator decides.
   'codexBackupKeepThree',
   'computerUseEnabled',
@@ -525,6 +528,7 @@ export const SETTINGS_TOOL_POLICY = {
   planQueueQuestionsDestination: open(z.enum(['queue-page', 'parent-chat'])),
   planQueueAccountRules: readOnly(false, PlanQueueAccountRulesSchema),
   planQueueFolderChecklists: readOnly(false, PlanQueueFolderChecklistsSchema),
+  planQueueFolders: readOnly(false, PlanQueueFoldersSchema),
   pingPongReviewerProvider: open(
     z.enum(['auto', ...REMOTE_REVIEWER_PROVIDER_IDS]),
   ),

@@ -76,10 +76,10 @@ beforeEach(async () => {
 });
 afterEach(() => { vi.restoreAllMocks(); db.close(); rmSync(root, { recursive: true, force: true }); });
 async function checkedItem(id = 'item', content = reviewed, runId = 'run', section?: number): Promise<PlanQueueItem> {
-  const documentPath = join(root, `${id}_plan.md`);
+  const sourceRef = join(root, `${id}_plan.md`);
   const worktreePath = join(root, `${id}-worktree`); mkdirSync(worktreePath);
-  writeFileSync(documentPath, content);
-  const item = newPlanQueueItem(id, runId, documentPath, 1, { state: 'verifying', branchName: `queue/${id}`,
+  writeFileSync(sourceRef, content);
+  const item = newPlanQueueItem(id, runId, sourceRef, 1, { state: 'verifying', branchName: `queue/${id}`,
     worktreePath, checkpointCommit: 'head', verifiedMainCommit: 'base', ...(section === undefined ? {} : { section }) });
   store.upsertItem(item);
   const verification = new PlanQueueVerification(host, new PlanQueueGateRunner(), { lock: async (_id, action) => action(), waiting: () => false });
@@ -89,8 +89,8 @@ async function checkedItem(id = 'item', content = reviewed, runId = 'run', secti
   return host.transition(item, 'landing', { verdict, round: 1 });
 }
 function expectOpen(item: PlanQueueItem): void {
-  expect(readFileSync(item.documentPath, 'utf8')).toContain(addition);
-  expect(existsSync(item.documentPath.replace('.md', '_completed.md'))).toBe(false);
+  expect(readFileSync(item.sourceRef, 'utf8')).toContain(addition);
+  expect(existsSync(item.sourceRef.replace('.md', '_completed.md'))).toBe(false);
   expect(host.getItem(item.id).state).toBe('parked');
 }
 describe('reviewed root document through landing and closure', () => {
@@ -103,7 +103,7 @@ describe('reviewed root document through landing and closure', () => {
     store = new PlanQueueStore(db); host = { ...host, store, history: store.history }; flow = new PlanQueueItemFlow(host);
     await flow.enqueueLanding(item.id); await flow.whenSettled();
     expect(host.getItem(item.id).state).toBe('parked');
-    expect(existsSync(item.documentPath)).toBe(true);
+    expect(existsSync(item.sourceRef)).toBe(true);
     expect(existsSync(join(root, 'item_spec_completed.md'))).toBe(false);
     if (change !== 'removed') expect(readFileSync(spec, 'utf8')).toContain(addition);
     expect(landItemBranch).not.toHaveBeenCalled();
@@ -112,7 +112,7 @@ describe('reviewed root document through landing and closure', () => {
   it('promotes nothing when the document changed after its commit was built, as it can during a landing wait', async () => {
     const item = await checkedItem();
     host.save({ ...item, landedCommit: 'built-before-the-wait', landingWaitSince: 1 });
-    writeFileSync(item.documentPath, reviewed + addition);
+    writeFileSync(item.sourceRef, reviewed + addition);
     await flow.enqueueLanding(item.id); await flow.whenSettled();
     expect(landItemBranch).not.toHaveBeenCalled();
     expectOpen(item);
@@ -127,7 +127,7 @@ describe('reviewed root document through landing and closure', () => {
     await flow.enqueueLanding(item.id); await flow.whenSettled();
     expect(host.getItem(item.id)).toMatchObject({ state: 'parked', landedCommit: 'promoted' });
     expect(readFileSync(spec, 'utf8')).toContain(addition);
-    expect(existsSync(item.documentPath)).toBe(true);
+    expect(existsSync(item.sourceRef)).toBe(true);
     expect(existsSync(join(root, 'item_spec_completed.md'))).toBe(false);
   });
 
@@ -144,7 +144,7 @@ describe('reviewed root document through landing and closure', () => {
     await enteredLanding;
     // A fresh flow still reads the persisted verdict identity, never an in-memory review map.
     const secondLanding = flow.enqueueLanding(second.id);
-    writeFileSync(second.documentPath, reviewed + addition);
+    writeFileSync(second.sourceRef, reviewed + addition);
     release(); await firstLanding; await secondLanding; await flow.whenSettled();
     expectOpen(second);
     expect(host.getItem(first.id).state).toBe('landed');
@@ -169,7 +169,7 @@ describe('reviewed root document through landing and closure', () => {
     await flow.enqueueLanding(item.id); await flow.whenSettled();
     expect(host.getItem(item.id).state).toBe('parked');
     expect(readFileSync(spec, 'utf8')).toContain(addition);
-    expect(existsSync(item.documentPath)).toBe(true);
+    expect(existsSync(item.sourceRef)).toBe(true);
     expect(existsSync(join(root, 'item_plan_completed.md'))).toBe(false);
   });
 
@@ -180,7 +180,7 @@ describe('reviewed root document through landing and closure', () => {
       findings: [], gatesRun: [], notChecked: [], worktreeHead: original.worktreeHead, documentSha256: original.documentSha256 });
     await flow.enqueueLanding(item.id); await flow.whenSettled();
     expect(host.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'land-blocked' });
-    expect(existsSync(item.documentPath)).toBe(true);
+    expect(existsSync(item.sourceRef)).toBe(true);
     expect(existsSync(join(root, 'item_plan_completed.md'))).toBe(false);
     expect(landItemBranch).not.toHaveBeenCalled();
     expect(store.history.listVerdicts(item.id)[0]).toEqual(original);
@@ -191,7 +191,7 @@ describe('reviewed root document through landing and closure', () => {
     writeFileSync(join(root, 'item_history.md'), 'Shared history remains active.\n');
     await flow.enqueueLanding(item.id); await flow.whenSettled();
     expect(host.getItem(item.id).state).toBe('landed');
-    expect(existsSync(item.documentPath)).toBe(false);
+    expect(existsSync(item.sourceRef)).toBe(false);
     expect(readFileSync(join(root, 'item_plan_completed.md'), 'utf8')).toContain('Original implemented criterion.');
     expect(readFileSync(join(root, 'item_history.md'), 'utf8')).toBe('Shared history remains active.\n');
   });
@@ -199,7 +199,7 @@ describe('reviewed root document through landing and closure', () => {
   it('keeps requirements added at the promotion to final-closure boundary active', async () => {
     const item = await checkedItem();
     vi.mocked(landItemBranch).mockImplementationOnce(async () => {
-      writeFileSync(item.documentPath, reviewed + addition);
+      writeFileSync(item.sourceRef, reviewed + addition);
       return { status: 'landed', commit: 'promoted' };
     });
     await flow.enqueueLanding(item.id); await flow.whenSettled();
@@ -209,11 +209,11 @@ describe('reviewed root document through landing and closure', () => {
 
   it('keeps legacy PASS work without a durable review identity open for a new check', async () => {
     const reviewedItem = await checkedItem();
-    const item = { ...reviewedItem, id: 'legacy', documentPath: join(root, 'legacy_plan.md') };
-    writeFileSync(item.documentPath, reviewed);
+    const item = { ...reviewedItem, id: 'legacy', sourceRef: join(root, 'legacy_plan.md') };
+    writeFileSync(item.sourceRef, reviewed);
     store.upsertItem(item);
     await flow.enqueueLanding(item.id); await flow.whenSettled();
-    expect(readFileSync(item.documentPath, 'utf8')).toBe(reviewed);
+    expect(readFileSync(item.sourceRef, 'utf8')).toBe(reviewed);
     expect(existsSync(join(root, 'legacy_plan_completed.md'))).toBe(false);
     expect(host.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'land-blocked', branchName: item.branchName });
     expect(host.getItem(item.id).detail).toContain('check it again');
@@ -226,7 +226,7 @@ describe('reviewed root document through landing and closure', () => {
     vi.mocked(fs.writeFile).mockImplementation(async (...args) => {
       await write(...args);
       if (String(args[0]).includes('item_plan_completed.md.') && String(args[0]).endsWith('.tmp')) {
-        writeFileSync(item.documentPath, reviewed + addition);
+        writeFileSync(item.sourceRef, reviewed + addition);
       }
     });
     await flow.enqueueLanding(item.id); await flow.whenSettled();
@@ -236,25 +236,25 @@ describe('reviewed root document through landing and closure', () => {
   it.each(['original descriptor', 'active path'] as const)('refuses a diet transform with a concurrent %s requirement before closure', async writer => {
     const item = await checkedItem('item', reviewed + '## Status\nReady\n## Status\nReady\n## As-built\n### 3 November\nJournal.\n');
     const original = store.history.listVerdicts(item.id)[0];
-    const before = readFileSync(item.documentPath, 'utf8');
-    const originalFd = disk.openSync(item.documentPath, 'a');
+    const before = readFileSync(item.sourceRef, 'utf8');
+    const originalFd = disk.openSync(item.sourceRef, 'a');
     const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
     let injected = false;
     const append = () => {
       if (injected) return;
       injected = true;
       if (writer === 'original descriptor') disk.writeSync(originalFd, addition);
-      else disk.appendFileSync(item.documentPath, addition);
+      else disk.appendFileSync(item.sourceRef, addition);
     };
     // Exercise the old destructive write and its complete-before-visible replacement boundary.
     vi.mocked(disk.writeFileSync).mockImplementation((file, data, options) => {
-      if (typeof file === 'number' && existsSync(item.documentPath)
-        && disk.fstatSync(file).ino === disk.statSync(item.documentPath).ino) append();
+      if (typeof file === 'number' && existsSync(item.sourceRef)
+        && disk.fstatSync(file).ino === disk.statSync(item.sourceRef).ino) append();
       return actual.writeFileSync(file, data, options);
     });
     vi.mocked(disk.linkSync).mockImplementation((from, to) => {
       actual.linkSync(from, to);
-      if (String(to) === item.documentPath) append();
+      if (String(to) === item.sourceRef) append();
     });
     try {
       await flow.enqueueLanding(item.id); await flow.whenSettled();
@@ -264,9 +264,9 @@ describe('reviewed root document through landing and closure', () => {
       const retained = copies.filter(name => name.startsWith('.item_plan.md.aio-retained-'));
       expect(retained).toHaveLength(1);
       expect(readFileSync(join(root, retained[0]), 'utf8')).toBe(before + (writer === 'original descriptor' ? addition : ''));
-      if (writer === 'active path') expect(readFileSync(item.documentPath, 'utf8')).toContain(addition);
+      if (writer === 'active path') expect(readFileSync(item.sourceRef, 'utf8')).toContain(addition);
       expect(host.getItem(item.id).state).toBe('parked');
-      expect(existsSync(item.documentPath)).toBe(true);
+      expect(existsSync(item.sourceRef)).toBe(true);
       expect(existsSync(join(root, 'item_plan_completed.md'))).toBe(false);
       expect(landItemBranch).not.toHaveBeenCalled();
       expect(store.history.listVerdicts(item.id)[0]).toEqual(original);
@@ -281,12 +281,12 @@ describe('reviewed root document through landing and closure', () => {
     await dietAtCheckpoint(item, store.history);
     store = new PlanQueueStore(db); host = { ...host, store, history: store.history }; flow = new PlanQueueItemFlow(host);
     expect(store.history.listVerdicts(item.id)[0]).toEqual(originalReview);
-    if (changed) writeFileSync(item.documentPath, readFileSync(item.documentPath, 'utf8') + addition);
+    if (changed) writeFileSync(item.sourceRef, readFileSync(item.sourceRef, 'utf8') + addition);
     await flow.enqueueLanding(item.id); await flow.whenSettled();
     if (changed) { expectOpen(item); return; }
     expect(host.getItem(item.id).state).toBe('landed');
     expect(readFileSync(join(root, 'item_history.md'), 'utf8')).toBe(journal);
-    expect(existsSync(item.documentPath)).toBe(false);
+    expect(existsSync(item.sourceRef)).toBe(false);
   });
 
   it('lands nothing and keeps the plan open when its Status names work on another branch', async () => {
@@ -297,7 +297,7 @@ describe('reviewed root document through landing and closure', () => {
     expect(parked.parkReason).toBe('land-blocked');
     expect(parked.detail).toContain('its Status names other unlanded work');
     expect(landItemBranch).not.toHaveBeenCalled();
-    expect(existsSync(item.documentPath)).toBe(true);
+    expect(existsSync(item.sourceRef)).toBe(true);
     expect(existsSync(join(root, 'elsewhere_plan_completed.md'))).toBe(false);
   });
 
@@ -316,7 +316,7 @@ describe('reviewed root document through landing and closure', () => {
     host.save({ ...host.getItem(item.id), verdict: { ...item.verdict!, documentComplete: false } });
     await flow.enqueueLanding(item.id); await flow.whenSettled();
     expect(host.getItem(item.id).state).toBe('landed');
-    const text = readFileSync(item.documentPath, 'utf8');
+    const text = readFileSync(item.sourceRef, 'utf8');
     expect(text).toContain('On main: yes (');
     expect(text).not.toContain('On main: no');
     expect(text).toContain('Next: Step 2.');
@@ -325,27 +325,27 @@ describe('reviewed root document through landing and closure', () => {
 
   it('lands a step job without closing its plan, even on a passing verdict, and says only that the step landed', async () => {
     const item = await checkedItem('stepped', '# Plan\n\n## Status\n\nOn main: no (queue/stepped)\n\n## Step 2. Two\n\n- [x] Done.\n', 'run', 2);
-    store.upsertItem(newPlanQueueItem('later', 'run', item.documentPath, 9, { state: 'queued', section: 3 }));
+    store.upsertItem(newPlanQueueItem('later', 'run', item.sourceRef, 9, { state: 'queued', section: 3 }));
     await flow.enqueueLanding(item.id); await flow.whenSettled();
     expect(host.getItem(item.id).state).toBe('landed');
     expect(landItemBranch).toHaveBeenCalledOnce();
     expect(vi.mocked(landItemBranch).mock.calls[0][5]).toEqual([]);
     expect(existsSync(join(root, 'stepped_plan_completed.md'))).toBe(false);
-    expect(readFileSync(item.documentPath, 'utf8')).toMatch(/On main: Step 2 landed \(\w+\); the other steps may still be open/);
+    expect(readFileSync(item.sourceRef, 'utf8')).toMatch(/On main: Step 2 landed \(\w+\); the other steps may still be open/);
   });
 
   it.each([['landed', 'yes ('], ['parked', 'Step 3 landed (']] as const)('says the whole plan is on main only when the last step lands after every earlier one (earlier step %s)', async (earlier, wording) => {
     const item = await checkedItem('finale', '# Plan\n\n## Status\n\nOn main: no (queue/finale)\n\n## Step 3. Three\n\n- [x] Done.\n', 'run', 3);
-    store.upsertItem(newPlanQueueItem('before', 'run', item.documentPath, 0, { state: earlier, section: 2 }));
+    store.upsertItem(newPlanQueueItem('before', 'run', item.sourceRef, 0, { state: earlier, section: 2 }));
     await flow.enqueueLanding(item.id); await flow.whenSettled();
     expect(host.getItem(item.id).state).toBe('landed');
-    expect(readFileSync(item.documentPath, 'utf8')).toContain(`On main: ${wording}`);
+    expect(readFileSync(item.sourceRef, 'utf8')).toContain(`On main: ${wording}`);
     expect(existsSync(join(root, 'finale_plan_completed.md'))).toBe(false);
   });
 
   it('sets a step job aside, promoting nothing, when its plan was renamed to the closed name in the root checkout', async () => {
     const item = await checkedItem('renamed', '# Plan\n\n- [x] Done.\n', 'run', 2);
-    disk.renameSync(item.documentPath, join(root, 'renamed_plan_completed.md'));
+    disk.renameSync(item.sourceRef, join(root, 'renamed_plan_completed.md'));
     await flow.enqueueLanding(item.id); await flow.whenSettled();
     expect(host.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'missing-document', detail: expect.stringContaining('a step job never closes its plan') });
     expect(landItemBranch).not.toHaveBeenCalled();
@@ -356,7 +356,7 @@ describe('reviewed root document through landing and closure', () => {
     host.save({ ...host.getItem(item.id), verdict: { ...item.verdict!, documentComplete: false } });
     await flow.enqueueLanding(item.id); await flow.whenSettled();
     expect(host.getItem(item.id).state).toBe('landed');
-    const text = readFileSync(item.documentPath, 'utf8');
+    const text = readFileSync(item.sourceRef, 'utf8');
     expect(text).toContain(`${heading}\n\nOn main: yes (`);
     expect(text.match(/^## Status/gm)).toHaveLength(1);
     expect(text).toContain('Next: Step 2.');
@@ -376,6 +376,6 @@ describe('reviewed root document through landing and closure', () => {
     host.save({ ...host.getItem(item.id), verdict: { ...item.verdict!, documentComplete: false } });
     await flow.enqueueLanding(item.id); await flow.whenSettled();
     expect(host.getItem(item.id).state).toBe('landed');
-    expect(readFileSync(item.documentPath, 'utf8')).toBe('# Live checks\n\n- [x] Done.\n');
+    expect(readFileSync(item.sourceRef, 'utf8')).toBe('# Live checks\n\n- [x] Done.\n');
   });
 });

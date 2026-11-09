@@ -11,6 +11,7 @@ import type {
   PlanQueueQuestion,
   PlanQueueRunConfig,
   PlanQueueRunStatus,
+  PlanQueueSourceKind,
   PlanQueueRoundActivity,
   PlanQueueVerdict,
   PlanQueueWorkerReport,
@@ -66,8 +67,20 @@ export interface PlanQueueItem {
   spend?: PlanQueueSpend;
   id: string;
   runId: string;
-  /** Absolute path of the document in the ROOT checkout (never the worktree). */
-  documentPath: string;
+  /**
+   * The source's reference for the work (stored in the `document_path` column, a legacy name). For markdown it is the
+   * absolute path of the document in the ROOT checkout (never the worktree); other code reaches it through the item's
+   * work source (`plan-queue-work-sources.ts`).
+   */
+  sourceRef: string;
+  /** Which source `sourceRef` belongs to. Written when the item is created. Absent (a fixture from before sources existed) means markdown. */
+  sourceKind?: PlanQueueSourceKind;
+  /**
+   * The order the run works its items in (`plan-queue-sort-key.ts`). Written when the item is created and left alone by
+   * every later save, so a stale snapshot cannot undo a re-prioritisation (which will have its own writer). Absent on a
+   * fixture; '' on a row from before the column existed, which sorts first, in `created_at` order.
+   */
+  sortKey?: string;
   state: PlanQueueItemState;
   round: number;
   erroredRounds: number;

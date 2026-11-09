@@ -36,9 +36,9 @@ describe('PlanQueueNeedJamesListComponent', () => {
 
   it('groups records by run and shows each check with its document and reason', () => {
     const records: PlanQueueNeedJamesRecord[] = [
-      { runId: 'run-a', itemId: 'item-1', documentPath: 'docs/livetest_1.md', check: 'Manual UI verify', reason: 'Needs a rebuilt app' },
-      { runId: 'run-a', itemId: 'item-2', documentPath: 'docs/livetest_2.md', check: 'External service call', reason: 'Needs live credentials' },
-      { runId: 'run-b', itemId: 'item-3', documentPath: 'docs/livetest_3.md', check: 'Mobile build', reason: 'Needs a device' },
+      { runId: 'run-a', itemId: 'item-1', sourceRef: 'docs/livetest_1.md', check: 'Manual UI verify', reason: 'Needs a rebuilt app' },
+      { runId: 'run-a', itemId: 'item-2', sourceRef: 'docs/livetest_2.md', check: 'External service call', reason: 'Needs live credentials' },
+      { runId: 'run-b', itemId: 'item-3', sourceRef: 'docs/livetest_3.md', check: 'Mobile build', reason: 'Needs a device' },
     ];
     fixture.componentRef.setInput('records', records);
     fixture.componentRef.setInput('policyGatedCount', 0);

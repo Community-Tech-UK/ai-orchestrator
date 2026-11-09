@@ -25,7 +25,7 @@ function createService(): PlanQueueWorktreeService {
 }
 
 async function member(id: string, file: string, content: string): Promise<{ itemId: string; head: string }> {
-  const item: PlanQueueItem = { id, runId: 'run', documentPath: join(repo, `${id}_plan.md`), state: 'preparing',
+  const item: PlanQueueItem = { id, runId: 'run', sourceRef: join(repo, `${id}_plan.md`), state: 'preparing',
     round: 0, erroredRounds: 0, landingRefusals: 0, baseConflicts: 0, branchName: null, worktreePath: null,
     baseCommit: null, checkpointCommit: null, verifiedMainCommit: null, landedCommit: null, workerInstanceId: null,
     verifierInstanceId: null, question: null, answer: null, parkReason: null, detail: null, verdict: null,

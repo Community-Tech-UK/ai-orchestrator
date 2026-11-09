@@ -30,6 +30,7 @@ import { UnresolvedMergeError, unresolvedMergeFiles } from './plan-queue-git';
 import { assertQueueCheckout, assertQueueCheckoutOwnership, InvalidQueueCheckoutError, retainedQueuePathExists, setAsideHalfRemovedCheckout } from './plan-queue-orphan-checkout';
 import { recoverLandingLeftover } from './plan-queue-landing-leftover';
 import type { PlanQueueItem } from './plan-queue.types';
+import { workSourceFor } from './plan-queue-work-sources';
 import type { PlanQueueHistoryStore } from './plan-queue-history-store';
 import { dietAtCheckpoint } from './plan-queue-plan-diet';
 import { planningExclusions, planningMoveNote, relocatePlanningFiles, type PlanningMoveReport } from './plan-queue-planning-files';
@@ -99,13 +100,9 @@ export type RemovalResult =
   | { removed: true }
   | { removed: false; reason: RemovalRefusal; detail: string };
 
-export function planQueueBranchName(item: Pick<PlanQueueItem, 'id' | 'documentPath'>): string {
-  const stem = path
-    .basename(item.documentPath)
-    .replace(/\.md$/i, '')
-    .replace(/_(plan|livetest)$/i, '');
+export function planQueueBranchName(item: Pick<PlanQueueItem, 'id' | 'sourceRef' | 'sourceKind'>): string {
   const suffix = item.id.replace(/[^a-z0-9]/gi, '').slice(-6).toLowerCase();
-  return `${PLAN_QUEUE_BRANCH_PREFIX}${sanitizeBranchName(stem)}-${suffix}`;
+  return `${PLAN_QUEUE_BRANCH_PREFIX}${sanitizeBranchName(workSourceFor(item.sourceKind).branchSlug(item))}-${suffix}`;
 }
 
 export class PlanQueueWorktreeService {
@@ -152,7 +149,7 @@ export class PlanQueueWorktreeService {
   async prepare(item: PlanQueueItem, repoRoot: string): Promise<PlanQueueItem> {
     const branchName = planQueueBranchName(item);
     let prepared = item;
-    await this.deps.creator.createWorktree(item.id, path.basename(item.documentPath), {
+    await this.deps.creator.createWorktree(item.id, workSourceFor(item.sourceKind).fullName(item), {
       branchName,
       repoRoot,
       skipInstall: this.deps.skipInstall,
@@ -258,7 +255,7 @@ export class PlanQueueWorktreeService {
       await gitExec(['add', '-A', ...scope], worktreePath);
       const status = await gitExec(['status', '--porcelain', ...scope], worktreePath);
       if (status) {
-        const message = `Plan queue checkpoint: ${label}\n\nItem: ${item.id}\nDocument: ${item.documentPath}`;
+        const message = `Plan queue checkpoint: ${label}\n\nItem: ${item.id}\n${workSourceFor(item.sourceKind).checkpointTrailer(item)}`;
         await gitExec(
           ['commit', '--no-verify', '--no-gpg-sign', '-m', message],
           worktreePath,

@@ -42,21 +42,21 @@ describe('queue ownership is proven before any mutation', () => {
     const branch = 'queue/example-item';
     const wt = join(repo, '.worktrees', branch);
     git(repo, 'worktree', 'add', '-qb', branch, wt);
-    const documentPath = join(repo, 'example_plan.md');
+    const sourceRef = join(repo, 'example_plan.md');
     const document = '# Plan\n## Status\nActive\n## Status\nActive\n## As-built\n### 3 November\nKeep this journal.\n';
     const unrelated = join(dir, 'unrelated.md');
     const history = join(repo, 'example_history.md');
-    writeFileSync(documentPath, document); writeFileSync(unrelated, 'Unrelated bytes\n'); symlinkSync(unrelated, history);
+    writeFileSync(sourceRef, document); writeFileSync(unrelated, 'Unrelated bytes\n'); symlinkSync(unrelated, history);
     const before = snapshot(repo);
     writeFileSync(join(wt, 'base.txt'), 'item work\n');
     const service = new PlanQueueWorktreeService({ repoRootForItem: () => repo, saveItem: () => undefined,
       creator: { getAllSessions: () => [], createWorktree: async () => { throw new Error('unused'); }, cleanupWorktree: async () => undefined } });
-    const item = newPlanQueueItem('item', 'run', documentPath, 1, { branchName: branch, worktreePath: wt });
+    const item = newPlanQueueItem('item', 'run', sourceRef, 1, { branchName: branch, worktreePath: wt });
     const checkpoint = await service.checkpoint(item, 'paused');
     expect(checkpoint.checkpointCommit).toBe(git(wt, 'rev-parse', 'HEAD'));
     expect(git(wt, 'show', 'HEAD:base.txt')).toBe('item work');
     expect(snapshot(repo)).toEqual(before);
-    expect(readFileSync(documentPath, 'utf8')).toBe(document);
+    expect(readFileSync(sourceRef, 'utf8')).toBe(document);
     expect(readFileSync(unrelated, 'utf8')).toBe('Unrelated bytes\n');
     expect(lstatSync(history).isSymbolicLink()).toBe(true);
   });
@@ -88,16 +88,16 @@ describe('queue ownership is proven before any mutation', () => {
     const branch = 'queue/example-item';
     const wt = join(repo, '.worktrees', branch);
     git(foreign, 'worktree', 'add', '-qb', branch, wt);
-    const documentPath = join(repo, 'example_plan.md');
+    const sourceRef = join(repo, 'example_plan.md');
     const document = '# Plan\n## Status\nActive\n## Status\nActive\n## As-built\n### 2026-11-02\nKeep this journal.\n';
-    writeFileSync(documentPath, document);
+    writeFileSync(sourceRef, document);
     // A landing marker makes the old recovery path mutate even before its late ownership check.
     writeFileSync(join(git(wt, 'rev-parse', '--absolute-git-dir'), 'plan-queue-landing'), git(wt, 'rev-parse', 'HEAD'));
     if (operation !== 'remove-clean') {
       writeFileSync(join(wt, 'base.txt'), 'foreign edit\n');
       git(wt, 'add', 'base.txt');
     }
-    const item = newPlanQueueItem('item', 'run', documentPath, 1, { branchName: branch, worktreePath: wt,
+    const item = newPlanQueueItem('item', 'run', sourceRef, 1, { branchName: branch, worktreePath: wt,
       checkpointCommit: git(wt, 'rev-parse', 'HEAD'), state: 'parked' });
     const before = [snapshot(repo), snapshot(foreign), snapshot(wt)];
     const stopLeftoversIn = vi.fn(async () => 0);
@@ -108,7 +108,7 @@ describe('queue ownership is proven before any mutation', () => {
       : operation === 'reattach' ? service.reattach(item, repo) : service.removeWithProof(item, repo))
       .then(result => 'removed' in result && !result.removed ? 'refused' : 'accepted', () => 'refused');
     expect([snapshot(repo), snapshot(foreign), snapshot(wt)]).toEqual(before);
-    expect(readFileSync(documentPath, 'utf8')).toBe(document);
+    expect(readFileSync(sourceRef, 'utf8')).toBe(document);
     expect(existsSync(join(repo, 'example_history.md'))).toBe(false);
     expect(stopLeftoversIn).not.toHaveBeenCalled(); expect(cleanupWorktree).not.toHaveBeenCalled();
     expect(outcome).toBe('refused');
@@ -125,16 +125,16 @@ describe('queue ownership is proven before any mutation', () => {
     } else {
       writeFileSync(join(git(wt, 'rev-parse', '--absolute-git-dir'), 'gitdir'), `${join(dir, 'absent', '.git')}\n`);
     }
-    const documentPath = join(repo, 'example_plan.md');
+    const sourceRef = join(repo, 'example_plan.md');
     const document = '# Plan\n## Status\nActive\n## Status\nActive\n## As-built\n### 2026-11-02\nKeep this journal.\n';
-    writeFileSync(documentPath, document);
+    writeFileSync(sourceRef, document);
     const before = snapshot(repo);
     const service = new PlanQueueWorktreeService({ repoRootForItem: () => repo, saveItem: () => undefined,
       creator: { getAllSessions: () => [], createWorktree: async () => { throw new Error('unused'); }, cleanupWorktree: async () => undefined } });
-    const item = newPlanQueueItem('item', 'run', documentPath, 1, { branchName: branch, worktreePath: wt });
+    const item = newPlanQueueItem('item', 'run', sourceRef, 1, { branchName: branch, worktreePath: wt });
     const refused = await service.checkpoint(item, 'paused').then(() => false, () => true);
     expect(snapshot(repo)).toEqual(before);
-    expect(readFileSync(documentPath, 'utf8')).toBe(document);
+    expect(readFileSync(sourceRef, 'utf8')).toBe(document);
     expect(existsSync(join(repo, 'example_history.md'))).toBe(false);
     expect(refused).toBe(true);
   });

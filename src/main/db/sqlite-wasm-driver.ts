@@ -336,6 +336,33 @@ export function openSqliteWasmFileReadOnly(filePath: string): SqliteDriver {
 }
 
 /**
+ * Load an on-disk SQLite file into a private, WRITABLE in-memory copy, for tests that run a migration on a copy of a
+ * real database. The source file is only read: the copy lives in the WASM heap and is never written back, so the
+ * original is never touched. Same 2 GiB limit as `openSqliteWasmFileReadOnly`. Tests only.
+ */
+export function openSqliteWasmFileCopy(filePath: string): SqliteDriver {
+  if (!sqlite3) {
+    throw new Error('sqlite-wasm not initialized — call initSqliteWasm() first');
+  }
+  const bytes = readFileSync(filePath);
+  const db = new sqlite3.oo1.DB(':memory:', 'c');
+  const ptr = sqlite3.wasm.allocFromTypedArray(new Uint8Array(bytes));
+  const rc = sqlite3.capi.sqlite3_deserialize(
+    db,
+    'main',
+    ptr,
+    bytes.length,
+    bytes.length,
+    sqlite3.capi.SQLITE_DESERIALIZE_RESIZEABLE | sqlite3.capi.SQLITE_DESERIALIZE_FREEONCLOSE,
+  );
+  if (rc !== sqlite3.capi.SQLITE_OK) {
+    db.close();
+    throw new Error(`Failed to load "${filePath}" as an in-memory SQLite copy (sqlite3_deserialize rc=${rc})`);
+  }
+  return new SqliteWasmDriver(db);
+}
+
+/**
  * Test-fixture helper: an in-memory driver plus a way to export its exact
  * SQLite bytes. Lets specs build a fixture using REAL production schema/seed
  * code (e.g. `migrate()` + `CasStore`, same as `synthetic-suite.ts`'s

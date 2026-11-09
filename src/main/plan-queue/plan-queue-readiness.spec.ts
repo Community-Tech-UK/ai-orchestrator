@@ -132,7 +132,7 @@ describe('applyTriageRecords', () => {
     const item = addItem();
     store.upsertRun({ ...run, status: 'paused' });
     const result = applyTriageRecords(host, run, { run_id: run.id, records: [
-      { documentPath: item.documentPath, disposition: 'needs-answer', question: technicalQuestion() },
+      { documentPath: item.sourceRef, disposition: 'needs-answer', question: technicalQuestion() },
     ] });
     expect(result).toEqual({ applied: 1, unmatched: [] });
     expect(host.getItem(item.id)).toMatchObject({ state: 'queued', question: null });
@@ -145,9 +145,9 @@ describe('applyTriageRecords', () => {
     store.upsertRun({ ...run, status: 'cancelled', endedAt: 2 });
     const before = host.getItem(item.id);
     const result = applyTriageRecords(host, run, { run_id: run.id, records: [
-      { documentPath: item.documentPath, disposition: 'needs-answer', question: technicalQuestion() },
+      { documentPath: item.sourceRef, disposition: 'needs-answer', question: technicalQuestion() },
     ] });
-    expect(result).toEqual({ applied: 0, unmatched: [item.documentPath] });
+    expect(result).toEqual({ applied: 0, unmatched: [item.sourceRef] });
     expect(host.getItem(item.id)).toEqual(before);
     expect(host.transition).not.toHaveBeenCalled();
     expect(host.notifyParent).not.toHaveBeenCalled();
@@ -156,10 +156,10 @@ describe('applyTriageRecords', () => {
   it('re-reads a duplicate record instead of overwriting a decision already applied', () => {
     const item = addItem();
     const result = applyTriageRecords(host, run, { run_id: run.id, records: [
-      { documentPath: item.documentPath, disposition: 'needs-answer', question: technicalQuestion() },
-      { documentPath: item.documentPath, disposition: 'skip', reason: 'A later duplicate must not replace the applied decision.' },
+      { documentPath: item.sourceRef, disposition: 'needs-answer', question: technicalQuestion() },
+      { documentPath: item.sourceRef, disposition: 'skip', reason: 'A later duplicate must not replace the applied decision.' },
     ] });
-    expect(result).toEqual({ applied: 1, unmatched: [item.documentPath] });
+    expect(result).toEqual({ applied: 1, unmatched: [item.sourceRef] });
     expect(host.getItem(item.id)).toMatchObject({ state: 'queued', question: null });
     expect(host.getItem(item.id).answer).toContain('Use the documented quiet runner');
     expect(host.transition).toHaveBeenCalledTimes(1);
@@ -173,7 +173,7 @@ describe('reconcileWaitingDocuments', () => {
     try {
       writeFileSync(path.join(external, 'a_plan.md'), 'outside');
       symlinkSync(external, path.join(workspace, 'linked'));
-      const item = addItem({ state: 'queued', documentPath: path.join(workspace, 'linked', 'a_plan.md') });
+      const item = addItem({ state: 'queued', sourceRef: path.join(workspace, 'linked', 'a_plan.md') });
       await reconcileWaitingDocuments(host, run);
       expect(host.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'worker-error' });
       expect(host.getItem(item.id).detail).toMatch(/outside/i);
@@ -181,7 +181,7 @@ describe('reconcileWaitingDocuments', () => {
   });
   it.each(['EACCES', 'EMFILE', 'EIO'])('tries again on a %s read, which says nothing about the document and would hit every job at once', async code => {
     const item = addItem({ state: 'needs-answer', question: technicalQuestion() });
-    writeFileSync(item.documentPath, 'Active plan');
+    writeFileSync(item.sourceRef, 'Active plan');
     vi.mocked(realFs.lstat).mockRejectedValueOnce(Object.assign(new Error('Could not read'), { code }));
     await reconcileWaitingDocuments(host, run);
     expect(host.getItem(item.id)).toMatchObject({ state: 'needs-answer', parkReason: null });
@@ -190,7 +190,7 @@ describe('reconcileWaitingDocuments', () => {
 
   it('parks a directory masquerading as a document', async () => {
     const item = addItem();
-    mkdirSync(item.documentPath);
+    mkdirSync(item.sourceRef);
     await reconcileWaitingDocuments(host, run);
     expect(host.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'worker-error', verdict: null });
     expect(host.getItem(item.id).detail).toContain('not a regular file');
@@ -206,7 +206,7 @@ describe('reconcileWaitingDocuments', () => {
 
   it('preserves cancellation that occurs while a filesystem check is pending', async () => {
     const item = addItem({ state: 'needs-answer', question: technicalQuestion() });
-    writeFileSync(item.documentPath.replace(/\.md$/, '_completed.md'), 'Completed successor');
+    writeFileSync(item.sourceRef.replace(/\.md$/, '_completed.md'), 'Completed successor');
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     vi.mocked(realFs.lstat).mockImplementationOnce(async (file) => {
@@ -214,7 +214,7 @@ describe('reconcileWaitingDocuments', () => {
       return originalLstat(file);
     });
     const reconciliation = reconcileWaitingDocuments(host, run);
-    expect(realFs.lstat).toHaveBeenCalledWith(item.documentPath);
+    expect(realFs.lstat).toHaveBeenCalledWith(item.sourceRef);
     store.upsertRun({ ...run, status: 'cancelled', endedAt: 2 });
     store.upsertItem({ ...item, state: 'skipped', question: null, detail: 'Run cancelled by James.' });
     release();
@@ -225,7 +225,7 @@ describe('reconcileWaitingDocuments', () => {
 
   it('retires only an exact completed replacement without inventing PASS evidence', async () => {
     const item = addItem({ state: 'needs-answer', question: technicalQuestion() });
-    const completed = item.documentPath.replace(/\.md$/, '_completed.md');
+    const completed = item.sourceRef.replace(/\.md$/, '_completed.md');
     writeFileSync(completed, 'Closed document');
     await reconcileWaitingDocuments(host, run);
     expect(host.getItem(item.id)).toMatchObject({ state: 'skipped', question: null, verdict: null, answer: null, landedCommit: null });
@@ -252,8 +252,8 @@ describe('reconcileWaitingDocuments', () => {
 
   it('retains an active source when a completed sibling also exists', async () => {
     const item = addItem({ state: 'needs-answer', question: { ...technicalQuestion(), decision: { kind: 'human-input', reason: 'Needs a human fact.' } } });
-    writeFileSync(item.documentPath, 'Active plan');
-    writeFileSync(item.documentPath.replace(/\.md$/, '_completed.md'), 'Closed sibling');
+    writeFileSync(item.sourceRef, 'Active plan');
+    writeFileSync(item.sourceRef.replace(/\.md$/, '_completed.md'), 'Closed sibling');
     await reconcileWaitingDocuments(host, run);
     expect(host.getItem(item.id)).toMatchObject({ state: 'needs-answer', question: item.question, verdict: null });
     expect(host.transition).not.toHaveBeenCalled();

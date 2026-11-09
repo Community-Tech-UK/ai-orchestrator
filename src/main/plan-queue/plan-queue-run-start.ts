@@ -10,18 +10,13 @@ import type { PlanQueueItemState, PlanQueueQuestion } from '@contracts/schemas/p
 import type { PlanQueueHistoryStore } from './plan-queue-history-store';
 import type { PlanQueueStore } from './plan-queue-store';
 import { isTerminalItemState, newPlanQueueItem } from './plan-queue-state';
-import { rememberedOutcomeForPath, type RememberedOutcome } from './plan-queue-triage-memory';
+import type { RememberedOutcome } from './plan-queue-triage-memory';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
-import { existsSync, readFileSync, statSync } from 'fs';
-import { repeatedStopNote } from './plan-queue-document-memory';
+import { existsSync } from 'fs';
 import { automaticDecisionPatch } from './plan-queue-readiness';
-import { stepsToRun } from './plan-queue-sections';
-
-export interface DiscoveredPlanQueueDocument {
-  path: string;
-  readiness: 'candidate' | 'not-ready';
-  reason?: string | null;
-}
+import { buildSortKey } from './plan-queue-sort-key';
+import type { WorkCandidate } from './plan-queue-work-source';
+import { workSourceForRun } from './plan-queue-work-sources';
 
 export interface PlanQueueRunStartDeps {
   store: PlanQueueStore;
@@ -29,23 +24,6 @@ export interface PlanQueueRunStartDeps {
   memory?: PlanQueueHistoryStore;
   now: () => number;
   newId: () => string;
-}
-
-/** One worker rarely finishes more than this in a job (step 5.1); revisit with Queue health's numbers. */
-const OVERSIZED_BYTES = 50_000;
-const OVERSIZED_OPEN_ITEMS = 20;
-
-/** Why a bulk start leaves a plan out as too big for one job, or null. Picking it by name still starts it. */
-export function oversizedNote(documentPath: string): string | null {
-  let size: number;
-  try { size = statSync(documentPath).size; } catch { return null; }
-  const kilobytes = Math.round(size / 1000);
-  // Too big already: no need to read it, and this runs on the main thread.
-  if (size > OVERSIZED_BYTES) return `Left out of this run: at ${kilobytes} KB it is likely too big for one job. Split it, or pick it by name to start it anyway.`;
-  let open: number;
-  try { open = readFileSync(documentPath, 'utf8').match(/^\s*[-*] \[ \]/gm)?.length ?? 0; } catch { return null; }
-  if (open <= OVERSIZED_OPEN_ITEMS) return null;
-  return `Left out of this run: with ${open} unticked items it is likely too big for one job. Split it, or pick it by name to start it anyway.`;
 }
 
 /** Every step's checklist is ticked, so a job for any of them would have nothing to do. */
@@ -60,32 +38,32 @@ const NEEDS_PLAN_DETAIL = 'No implementation plan exists. The spec remains open;
 export function claimDocumentsAndCreateItems(
   deps: PlanQueueRunStartDeps,
   run: PlanQueueRun,
-  documents: readonly DiscoveredPlanQueueDocument[],
+  documents: readonly WorkCandidate[],
   options: { queueDirectly?: boolean } = {},
 ): string[] {
+  const source = workSourceForRun(run);
   const owned = documentsOwnedByActiveRuns(deps.store);
-  const excluded = documents.filter((doc) => owned.has(doc.path)).map((doc) => doc.path);
+  const excluded = documents.filter((doc) => owned.has(doc.ref)).map((doc) => doc.ref);
   const now = deps.now();
   let order = 0;
-  documents.filter((doc) => !owned.has(doc.path)).forEach((doc) => {
-    // createdAt carries discovery order: items list in the order they were found.
+  documents.filter((doc) => !owned.has(doc.ref)).forEach((doc) => {
+    // createdAt and sortKey carry discovery order: items list in the order they were found.
     // An unplanned spec must stay open: its required planning rename would
     // invalidate this item's path. Implementation belongs to its linked plan.
-    const needsPlan = doc.readiness === 'not-ready' && doc.path.toLowerCase().endsWith('_spec.md');
+    const needsPlan = source.awaitsPlan(doc);
     // A plan too big for one job runs one job per step, whether it was picked by name or found; without steps it stays too big.
-    const tooBig = needsPlan || run.kind !== 'plans' ? null : oversizedNote(doc.path);
-    const open = tooBig ? stepsToRun(doc.path) : null;
+    const open = needsPlan ? null : source.stepJobs(doc, run);
     const steps = open?.length ? open : null;
     // A set-aside offer is for a whole-document job; a step job is resumed from Set aside.
-    const previous = needsPlan || open ? null : deps.store.findLatestParkedItem(doc.path, run.parentInstanceId);
+    const previous = needsPlan || open ? null : deps.store.findLatestParkedItem(doc.ref, run.parentInstanceId);
     const previousRun = previous ? deps.store.getRun(previous.runId) : null;
     // Merged work has moved on from this attempt, so offering to resume it would be an option that always fails.
     const setAside = previous && previousRun?.parentInstanceId === run.parentInstanceId && !deps.store.newerAttemptLanded(previous) ? previous : null;
     const leftOut = open?.length === 0 ? EVERY_STEP_DONE
       : options.queueDirectly || needsPlan || setAside ? null
-        : (steps ? null : tooBig) ?? repeatedStopNote(deps.store, doc.path, steps?.[0]);
+        : source.leftOutNote(doc, run, deps.store, steps?.[0] ?? null);
     const remembered = !options.queueDirectly && !needsPlan && doc.readiness === 'candidate' && !setAside
-      ? rememberedOutcomeForPath(deps.memory, doc.path, run.workspaceCwd)
+      ? source.rememberedOutcome(doc, run, deps.memory)
       : { kind: 'none', detail: '' } as RememberedOutcome;
     const patch = (leftOut ? { state: 'skipped' as PlanQueueItemState, detail: leftOut } : rememberedPatch(remembered))
       ?? (setAside
@@ -100,7 +78,11 @@ export function claimDocumentsAndCreateItems(
     // The first step takes the document's readiness decision; later steps wait their turn behind it.
     const laterPatch = patch.state === 'skipped' || patch.state === 'parked' ? patch : { state: 'queued' as PlanQueueItemState, detail: null };
     (steps ?? [null]).forEach((section, position) => {
-      deps.store.upsertItem(newPlanQueueItem(deps.newId(), run.id, doc.path, now + order++, { ...(position === 0 ? patch : laterPatch), ...(section === null ? {} : { section }) }));
+      const slot = order++;
+      deps.store.upsertItem(newPlanQueueItem(deps.newId(), run.id, doc.ref, now + slot, {
+        ...(position === 0 ? patch : laterPatch), ...(section === null ? {} : { section }),
+        sourceKind: source.kind, sortKey: buildSortKey({ discoveryIndex: slot }),
+      }));
     });
   });
   return excluded;
@@ -152,6 +134,6 @@ function documentsOwnedByActiveRuns(store: PlanQueueStore): Set<string> {
     store.listActiveRuns()
       .flatMap((run) => store.listItems(run.id))
       .filter((item) => !isTerminalItemState(item.state) || (item.worktreePath !== null && existsSync(item.worktreePath)))
-      .map((item) => item.documentPath),
+      .map((item) => item.sourceRef),
   );
 }

@@ -203,7 +203,7 @@ describe('PlanQueueRunOwnerComponent', () => {
   it('shows nothing for a finished run with nothing set aside, and offers Move while it holds set-aside work', async () => {
     await render(makeRun({ status: 'completed' }));
     expect(element().querySelector('.pq-run-owner')).toBeNull();
-    const parked = { id: 'item', runId: 'run-1', documentPath: 'docs/plans/a_plan.md', state: 'parked' as const, round: 3, erroredRounds: 0,
+    const parked = { id: 'item', runId: 'run-1', sourceRef: 'docs/plans/a_plan.md', state: 'parked' as const, round: 3, erroredRounds: 0,
       branchName: 'queue/a', worktreePath: null, baseCommit: null, checkpointCommit: null, landedCommit: null, workerInstanceId: null,
       verifierInstanceId: null, question: null, answer: null, parkReason: 'round-limit' as const, detail: null, verdict: null, createdAt: 1, updatedAt: 1 };
     fixture.componentRef.setInput('run', makeRun({ status: 'completed', items: [parked] }));

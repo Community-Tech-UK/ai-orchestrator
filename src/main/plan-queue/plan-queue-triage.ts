@@ -142,7 +142,7 @@ export class PlanQueueTriage {
       }
     }
     // Triage judges readiness from each plan's first 40 lines rather than reading every document whole.
-    const documents = session.itemIds.map((id) => this.host.getItem(id).documentPath);
+    const documents = session.itemIds.map((id) => this.host.getItem(id).sourceRef);
     const headers = documents.map((documentPath) => ({ path: documentPath, header: readPlanHeader(documentPath) }));
     if (this.triageByRun.get(run.id) !== session || this.host.tracker.isShuttingDown()) return;
     session.provider = choice?.provider ?? run.workerProvider ?? '';
@@ -154,7 +154,7 @@ export class PlanQueueTriage {
         ...(choice.copilotProfileId ? { copilotAccountProfileId: choice.copilotProfileId } : {}),
         ...(choice.accountProfileIds?.length ? { allowedAccountProfileIds: [...choice.accountProfileIds] } : {}) }
         : run.workerModel ? { modelOverride: run.workerModel } : {}),
-      yoloMode: true, metadata: { planQueueLargeDocument: session.itemIds.some((id) => isLargeQueueDocument(this.host.getItem(id).documentPath)), planQueueRunId: run.id, planQueueRole: 'triage', ...(choice ? { planQueueTriageRetry: true, planQueueRouting: JSON.stringify(run.config.routing) } : {}) },
+      yoloMode: true, metadata: { planQueueLargeDocument: session.itemIds.some((id) => isLargeQueueDocument(this.host.getItem(id).sourceRef)), planQueueRunId: run.id, planQueueRole: 'triage', ...(choice ? { planQueueTriageRetry: true, planQueueRouting: JSON.stringify(run.config.routing) } : {}) },
     });
     if (this.triageByRun.get(run.id) !== session || this.host.tracker.isShuttingDown()
       || this.host.getRun(run.id).status !== 'running') {
@@ -174,8 +174,8 @@ export class PlanQueueTriage {
     return this.triageByRun.get(runId)?.instanceId === instanceId;
   }
 
-  includesDocument(runId: string, documentPath: string): boolean {
-    return this.triageByRun.get(runId)?.itemIds.some((id) => this.host.getItem(id).documentPath === documentPath) ?? false;
+  includesDocument(runId: string, sourceRef: string): boolean {
+    return this.triageByRun.get(runId)?.itemIds.some((id) => this.host.getItem(id).sourceRef === sourceRef) ?? false;
   }
 
   onOutcome(instanceId: string, runId: string, outcome: PlanQueueTurnOutcome): void {

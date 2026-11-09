@@ -306,7 +306,7 @@ const triageAllReady: Script = (instance) => {
   const documents = instance.config.initialPrompt!.match(/<documents>\n([\s\S]*?)\n<\/documents>/)![1].split('\n');
   coordinator.reportTriage(instance.id, {
     run_id: runId,
-    records: run.items.filter((i) => i.state === 'discovered' && documents.includes(i.documentPath)).map((i) => ({ documentPath: i.documentPath, disposition: 'ready' as const })),
+    records: run.items.filter((i) => i.state === 'discovered' && documents.includes(i.sourceRef)).map((i) => ({ documentPath: i.sourceRef, disposition: 'ready' as const })),
   });
 };
 
@@ -497,7 +497,7 @@ describe('PlanQueueCoordinator parent thread recovery and adoption', { timeout: 
     fake.live.delete(parent.id);
     const restored = fake.addParent(); restored.historyThreadId = 'history-parent';
     coordinator.reportTriage(triage.id, { run_id: run.id, records: [{
-      documentPath: run.items[0].documentPath, disposition: 'needs-answer', question: {
+      documentPath: run.items[0].sourceRef, disposition: 'needs-answer', question: {
         question: 'May this work expand its scope?', options: [{ id: 'continue', label: 'Approve' }, { id: 'skip', label: 'Leave it' }],
         decision: { kind: 'human-authority', reason: 'Scope requires human authority.' },
       },
@@ -795,7 +795,7 @@ describe('PlanQueueCoordinator — autonomous readiness and current documents', 
     const parent = fake.addParent();
     fake.scripts.triage = (instance) => {
       const runId = instance.config.metadata!['planQueueRunId'] as string;
-      const doc = coordinator.getRunDto(runId)!.items[0].documentPath;
+      const doc = coordinator.getRunDto(runId)!.items[0].sourceRef;
       coordinator.reportTriage(instance.id, { run_id: runId, records: [{
         documentPath: doc, disposition: 'needs-answer', question: { ...question, decision: {
           kind: 'technical', recommendedOptionId: 'existing', reason: 'The existing service owns the runtime path.',
@@ -824,7 +824,7 @@ describe('PlanQueueCoordinator — autonomous readiness and current documents', 
     fake.scripts.triage = (instance) => {
       const runId = instance.config.metadata!['planQueueRunId'] as string;
       coordinator.reportTriage(instance.id, { run_id: runId, records: [{
-        documentPath: coordinator.getRunDto(runId)!.items[0].documentPath,
+        sourceRef: coordinator.getRunDto(runId)!.items[0].sourceRef,
         disposition: 'needs-answer', question: { ...question, ...(kind ? { decision: { kind, reason: 'A real human boundary remains.' } } : {}) },
       }] });
     };
@@ -1301,7 +1301,7 @@ describe('PlanQueueCoordinator — whole run against a temp repo', { timeout: 30
     fake.scripts.triage = (instance) => {
       const runId = instance.config.metadata!['planQueueRunId'] as string;
       coordinator.reportTriage(instance.id, { run_id: runId, records: [{
-        documentPath: coordinator.getRunDto(runId)!.items[0].documentPath,
+        sourceRef: coordinator.getRunDto(runId)!.items[0].sourceRef,
         disposition: 'needs-answer', question: {
           question: 'May this work expand the approved scope?',
           options: [{ id: 'proceed', label: 'Approve the scope' }, { id: 'skip', label: 'Leave it' }],
@@ -1545,7 +1545,7 @@ describe('PlanQueueCoordinator — boot recovery', { timeout: 30_000 }, () => {
     fake.scripts.triage = (instance) => {
       const runId = instance.config.metadata!['planQueueRunId'] as string;
       coordinator.reportTriage(instance.id, { run_id: runId, records: [{
-        documentPath: coordinator.getRunDto(runId)!.items[0].documentPath,
+        sourceRef: coordinator.getRunDto(runId)!.items[0].sourceRef,
         disposition: 'needs-answer', question: {
           question: 'May this work expand the approved scope?',
           options: [{ id: 'proceed', label: 'Approve the scope' }, { id: 'skip', label: 'Leave it' }],

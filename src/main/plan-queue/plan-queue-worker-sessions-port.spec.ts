@@ -58,7 +58,7 @@ describe('PlanQueueWorkerSessions.promptContext', () => {
     try {
       const file = join(dir, 'a_plan.md');
       writeFileSync(file, '# A\n\n## Status\nNext: Step 2\n\n## Open\n- [ ] Open item\n');
-      const plans = setup('plans', { documentPath: file });
+      const plans = setup('plans', { sourceRef: file });
       const context = await plans.sessions.promptContext(plans.run, plans.current());
       expect(context.brief).toEqual({ status: 'Next: Step 2', acceptance: '- [ ] Open item' });
       const livetests = setup('livetests');

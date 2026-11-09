@@ -39,9 +39,9 @@ beforeEach(() => {
     relaxation: null, workerProvider: null, workerModel: null, startedAt: 1, endedAt: null };
   store.upsertRun(run);
   for (const [index, id] of ['leader', 'member'].entries()) {
-    const documentPath = join(root, `${id}_plan.md`); writeFileSync(documentPath, '# Work');
+    const sourceRef = join(root, `${id}_plan.md`); writeFileSync(sourceRef, '# Work');
     const cwd = join(root, id); heads.set(cwd, `${id}-head`);
-    store.upsertItem(newPlanQueueItem(id, run.id, documentPath, index, { state: 'awaiting-slot', worktreePath: cwd,
+    store.upsertItem(newPlanQueueItem(id, run.id, sourceRef, index, { state: 'awaiting-slot', worktreePath: cwd,
       branchName: `queue/${id}`, checkpointCommit: `${id}-head` }));
   }
   host = { store, history: store.history, getRun: (id: string) => store.getRun(id)!, getItem: (id: string) => store.getItem(id)!,

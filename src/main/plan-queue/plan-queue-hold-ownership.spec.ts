@@ -110,7 +110,7 @@ function refusedCheckoutSnapshot() {
   return {
     tracked: readFileSync(join(cwd, 'feature.txt')),
     untracked: readFileSync(join(cwd, 'untracked.txt')),
-    document: readFileSync(unsafe.documentPath),
+    document: readFileSync(unsafe.sourceRef),
     head: git(['rev-parse', 'HEAD'], cwd),
     headLog: git(['reflog', 'show', '--format=%H', 'HEAD'], cwd),
     branch: git(['rev-parse', 'queue/unsafe']),

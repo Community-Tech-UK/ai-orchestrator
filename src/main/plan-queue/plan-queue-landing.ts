@@ -26,7 +26,7 @@ import { QUEUE_TEST_ENV, runInProcessGroup } from './plan-queue-process';
 import { buildLandingCommit, type LandingDocument } from './plan-queue-squash';
 import type { PlanQueueItem } from './plan-queue.types';
 import { LandingTimer } from './plan-queue-timings';
-import { createDocumentOverlapResolver, recoverDocumentMergeForItem, resolveRegisterClash } from './plan-queue-doc-merge';
+import { workSourceFor } from './plan-queue-work-sources';
 
 const logger = getLogger('PlanQueueLanding');
 
@@ -98,7 +98,7 @@ export async function syncItemWithBase(item: PlanQueueItem, baseBranch: string, 
         .filter((line) => CONFLICT_CODES.has(line.slice(0, 2)))
         .map((line) => line.slice(3).trim());
       if (conflictFiles.length === 0) throw new Error(`Merging ${baseBranch} failed without conflicts`);
-      if (!await resolveRegisterClash(worktreePath, conflictFiles)) return { status: 'conflict', conflictFiles };
+      if (!await workSourceFor(item.sourceKind).resolveSyncConflict(worktreePath, conflictFiles)) return { status: 'conflict', conflictFiles };
     }
     return { status: 'merged', head: await gitExec(['rev-parse', 'HEAD'], worktreePath) };
   });
@@ -155,7 +155,7 @@ async function promote(
   await writeIntegrationRefs(repoRoot, integrationBranch, commit);
   const promotion = await promoteIntegrationBranch(repoRoot, baseBranch, integrationBranch, commit, {
     dirtyRootPolicy: 'block-overlap',
-    resolveDirtyOverlap: createDocumentOverlapResolver({ itemId: item.id }),
+    resolveDirtyOverlap: workSourceFor(item.sourceKind).overlapResolver(item.id),
   });
   await deleteIntegrationRefs(repoRoot, integrationBranch);
   if (promotion.status === 'blocked') {
@@ -174,7 +174,7 @@ async function promote(
       itemId: item.id,
       message: promotion.documentMergeInterrupted,
     });
-    const recovered = await recoverDocumentMergeForItem(repoRoot, item.id);
+    const recovered = await workSourceFor(item.sourceKind).recoverLandingMerge(repoRoot, item.id);
     return recovered.ok
       ? { status: 'landed', commit: promotion.tip, ...(recovered.mergedPaths.length ? { mergedPaths: recovered.mergedPaths } : {}) }
       : { status: 'blocked', reason: recovered.reason };
@@ -278,7 +278,7 @@ export async function landItemBranch(
     message: commitMessage,
     documents,
     greenTestedTree: checkedTreeForLanding(item, configuredCommands),
-    ...(item.section != null ? { stepPlan: path.relative(repoRoot, item.documentPath) } : {}),
+    ...(item.section != null ? { stepPlan: path.relative(repoRoot, item.sourceRef) } : {}),
     signal,
     timer,
   });

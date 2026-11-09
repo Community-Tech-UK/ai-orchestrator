@@ -17,7 +17,7 @@ function itemEvidence(item: PlanQueueItemDto, now: number) {
   const checkedTogether = planQueueCheckGroupLabel(item);
   return {
     itemId: item.id,
-    document: planQueueDocumentLabel(item.documentPath),
+    document: planQueueDocumentLabel(item.sourceRef),
     onPage: {
       ...(step ? { step: step.text, stepHint: step.hint } : {}),
       ...(checkedTogether ? { checkedTogether } : {}),
@@ -32,7 +32,7 @@ function itemEvidence(item: PlanQueueItemDto, now: number) {
 
 /** `events` come newest first and may hold one more than the limit, which is how a shortened timeline is noticed. */
 export function describeRunEvidence(run: PlanQueueRunDto, events: readonly PlanQueueItemEvent[], now: number) {
-  const documents = new Map(run.items.map(item => [item.id, planQueueDocumentLabel(item.documentPath)]));
+  const documents = new Map(run.items.map(item => [item.id, planQueueDocumentLabel(item.sourceRef)]));
   const checks = planQueueChecksLabel(run.checks);
   return {
     startedAt: new Date(run.startedAt).toISOString(),

@@ -21,16 +21,9 @@ import { existsSync } from 'fs';
 import type { PlanQueueParkReason } from '@contracts/schemas/plan-queue';
 import { getLogger } from '../logging/logger';
 import { gitExec } from '../workspace/git/git-exec';
-import {
-  assertNoOtherUnlandedWork,
-  documentsAreCommitted,
-  prepareClosedDocuments,
-  renameDocumentsInPlace,
-  retireActiveDocuments,
-  type PreparedDocuments,
-} from './plan-queue-doc-close';
-import { recoverDocumentMergeForItem } from './plan-queue-doc-merge';
-import { assertDocumentReview, readDocumentReview, type DocumentReview } from './plan-queue-document-review';
+import type { PreparedDocuments } from './plan-queue-doc-close';
+import type { DocumentReview } from './plan-queue-document-review';
+import { workSourceFor } from './plan-queue-work-sources';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { mergeCheckStillOwed, recordMergeCheckOwed } from './plan-queue-check-timeouts';
 import { landItemBranch, runPostMergeGate, syncItemWithBase } from './plan-queue-landing';
@@ -156,7 +149,7 @@ export class PlanQueueItemLanding {
 
     // A recorded promotion is not complete until pending root edits are restored.
     // This runs before the already-landed shortcut, outside any Git write thunk.
-    const recovered = await recoverDocumentMergeForItem(repoRoot, item.id);
+    const recovered = await workSourceFor(item.sourceKind).recoverLandingMerge(repoRoot, item.id);
     if (!recovered.ok) {
       await this.ctx.park(item, 'land-blocked', recovered.reason);
       return;
@@ -177,7 +170,7 @@ export class PlanQueueItemLanding {
     const alreadyLanded = item.landedCommit !== null && (await isAncestor(item.landedCommit, baseTip, repoRoot));
     if (!alreadyLanded) {
       signal.throwIfAborted();
-      const planProblem = item.section == null ? null : await stepPlanProblem(item.documentPath);
+      const planProblem = item.section == null ? null : await stepPlanProblem(item.sourceRef);
       if (planProblem) { await this.ctx.park(item, 'missing-document', planProblem); return; }
       // The request-time check cannot see the future: a resumed attempt can reach this point after a newer one merged.
       if (options.landAnywayBy === undefined && (host.store.newerAttemptLanded(item) || await this.newerAttemptOnBase(item, baseTip, repoRoot))) {
@@ -202,7 +195,7 @@ export class PlanQueueItemLanding {
     }
     // A plan that stays open says whether its work is on main; a closed one carries that in its closed copy. Live-test documents have no such line.
     if (!closeDocuments && run.kind === 'plans') {
-      try { await updatePlanIntegrationStatus(item.documentPath, item.branchName ?? '', item.landedCommit!, item.section, finishesPlan(host.store.listItems(item.runId), item)); }
+      try { await updatePlanIntegrationStatus(item.sourceRef, item.branchName ?? '', item.landedCommit!, item.section, finishesPlan(host.store.listItems(item.runId), item)); }
       catch (error) { notes.push(`Code landed, but the plan's "On main" line could not be updated: ${errorMessage(error)}`); }
     }
 
@@ -312,7 +305,7 @@ export class PlanQueueItemLanding {
     }
     // A recorded commit carries its closed documents, so it needs no check, unless the landing waited: they could be edited meanwhile.
     if (closeDocuments && (!item.landedCommit || item.landingWaitSince != null)) {
-      assertDocumentReview(await readDocumentReview(item.documentPath), this.reviewedDocuments(item));
+      await workSourceFor(item.sourceKind).assertUnchangedSince(item, this.reviewedDocuments(item));
     }
     if (!item.landedCommit) {
       item = await host.worktrees.checkpoint(item, 'final');
@@ -333,15 +326,14 @@ export class PlanQueueItemLanding {
     let prepared: PreparedDocuments = { mode: 'commit', documents: [] };
     if (closeDocuments && !item.landedCommit) {
       try {
-        await assertNoOtherUnlandedWork(item.documentPath, item.branchName ?? '');
-        prepared = await prepareClosedDocuments(item.documentPath, repoRoot, item.worktreePath, this.reviewedDocuments(item));
+        prepared = await workSourceFor(item.sourceKind).prepareClose(item, repoRoot, item.worktreePath, this.reviewedDocuments(item));
       } catch (error) {
         await this.ctx.park(item, 'land-blocked', `Nothing was landed: the documents could not be closed (${errorMessage(error)}).`);
         return null;
       }
     }
 
-    const message = `${run.kind === 'livetests' ? 'Livetest' : 'Plan'}: ${documentStemOf(item.documentPath)}${item.section == null ? '' : ` (Step ${item.section})`}\n\n`
+    const message = `${workSourceFor(item.sourceKind).commitSubject(item, run)}\n\n`
       + `Landed by Plan Queue after ${item.round} verification round(s).\nItem: ${item.id}`;
     const result = await landItemBranch(
       item,
@@ -477,25 +469,6 @@ export class PlanQueueItemLanding {
 
   /** Retire the root copies the landing commit superseded, or rename never-committed documents in place. */
   private async finishDocuments(item: PlanQueueItem, repoRoot: string, baseBranch: string): Promise<string[]> {
-    const reviewedSha256 = this.reviewedDocuments(item);
-    if (await documentsAreCommitted(item.documentPath, repoRoot)) {
-      try {
-        return await retireActiveDocuments(item.documentPath, repoRoot, baseBranch, reviewedSha256);
-      } catch (error) {
-        throw new Error(`The closed documents landed with the code; removing the old root copies failed: ${errorMessage(error)}`, { cause: error });
-      }
-    }
-    // Never committed (outside the repository or ignored): close in place,
-    // revalidating the accepted bytes rather than adopting a later snapshot.
-    try {
-      await renameDocumentsInPlace(item.documentPath, reviewedSha256, item.landedCommit!);
-      return [];
-    } catch (error) {
-      throw new Error(`Code landed, but the uncommitted documents remain open: ${errorMessage(error)}`, { cause: error });
-    }
+    return workSourceFor(item.sourceKind).finishClose(item, repoRoot, baseBranch, this.reviewedDocuments(item));
   }
-}
-
-function documentStemOf(documentPath: string): string {
-  return (documentPath.split(/[\\/]/).pop() ?? documentPath).replace(/\.md$/i, '');
 }

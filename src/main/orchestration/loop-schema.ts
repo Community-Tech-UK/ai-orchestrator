@@ -558,9 +558,21 @@ export const LOOP_MIGRATIONS: readonly LoopMigration[] = [
     up: `ALTER TABLE plan_queue_items ADD COLUMN worker_report_json TEXT;`,
   },
   {
-    // Plan Queue: a landing blocked by the root checkout's uncommitted code waits instead of parking. 44
-    // stays held for the source columns (`PLAN_QUEUE_RESERVED_MIGRATIONS`); the array keeps it in order when it
-    // lands, and the runner applies by version, so landing 45 first is safe.
+    // Plan Queue: where an item's work comes from and the order a run works its items in (step 6.2 of the
+    // autonomy-and-Linear programme). Plain ADD COLUMN, so `plan_queue_items` is not rebuilt by this migration: the
+    // `document_path` column stays, and now holds the source reference (the absolute path for markdown). Migration
+    // 54 rebuilds the table from its live columns, so it keeps these two. Existing rows are markdown with an empty sort key, which sorts first and in
+    // `created_at` order, the order they always had. Landed after 45 on a database that already had 45 to 52: the
+    // runner applies by version, so the number held for it still works.
+    version: 44,
+    name: '044_plan_queue_item_source_sort',
+    up: `
+      ALTER TABLE plan_queue_items ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'markdown';
+      ALTER TABLE plan_queue_items ADD COLUMN sort_key TEXT NOT NULL DEFAULT '';
+    `,
+  },
+  {
+    // Plan Queue: a landing blocked by the root checkout's uncommitted code waits instead of parking.
     version: 45,
     name: '045_plan_queue_item_landing_wait',
     up: `

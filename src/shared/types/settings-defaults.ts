@@ -317,6 +317,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   planQueueQuestionsDestination: 'queue-page',
   planQueueAccountRules: { never: [], last: [] },
   planQueueFolderChecklists: [],
+  planQueueFolders: [],
 
   // Conversational ping-pong review
   pingPongReviewerProvider: 'auto',

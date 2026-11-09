@@ -69,7 +69,7 @@ export class PlanQueueVerification {
   private async prepareChecks(item: PlanQueueItem, grouped: PlanQueueGateReceipt[] | undefined): Promise<Preparation> {
     this.checkedDocuments.delete(item.id);
     const run = this.host.getRun(item.runId);
-    const fingerprint = JSON.stringify(progressFingerprint(item.checkpointCommit, await documentContentSha256(item.documentPath), item.round));
+    const fingerprint = JSON.stringify(progressFingerprint(item.checkpointCommit, await documentContentSha256(item.sourceRef), item.round));
     const warned = this.host.history.listEvents(item.id).some(event => event.reason === 'no-progress-warning' && event.detailHead === fingerprint);
     const progress = await decideNoProgress(this.host.history.listVerdicts(item.id), item, warned);
     if (progress.kind === 'park') return { ...progress, reason: 'no-progress' };
@@ -137,7 +137,7 @@ export class PlanQueueVerification {
     const configured = this.host.getRun(item.runId).config.verifierGates;
     const red = blockingGateReceipts(receipts);
     const missing = configured.length > 0 && (receipts.length !== configured.length || receipts.some(receipt => receipt.head !== head));
-    const currentReview = await readDocumentReview(item.documentPath);
+    const currentReview = await readDocumentReview(item.sourceRef);
     const documentHash = currentReview.documentSha256;
     const checkedHash = this.checkedDocuments.get(item.id);
     const changedDocument = !documentHash || (checkedHash !== undefined && JSON.stringify(checkedHash) !== JSON.stringify(currentReview));
@@ -146,7 +146,7 @@ export class PlanQueueVerification {
       : checkedHash === undefined ? 'The checker did not record which source document it reviewed.' : null;
     // A deferred check (plans only) must be in the worker's report and written down beside the plan, or the PASS cannot stand.
     const deferredProblems = this.host.getRun(item.runId).kind === 'plans'
-      ? await deferredPassProblems(reported, item.workerReport, item.documentPath) : [];
+      ? await deferredPassProblems(reported, item.workerReport, item.sourceRef) : [];
     const problems = machineProblem ? [{ severity: 'high' as const, kind: 'code' as const, confidence: 100, summary: machineProblem }] : deferredProblems;
     const validated: PlanQueueVerdict = reported.verdict === 'PASS' && problems.length
       ? { ...reported, verdict: 'FAIL', documentComplete: false, findings: [...reported.findings, ...problems] }
@@ -173,9 +173,9 @@ export class PlanQueueVerification {
       status: 'unconfirmed, re-check', workerClaim: events
         .find(event => event.reason === 'worker-claim' && event.round === row.round)?.detailHead ?? 'No claimed fix was recorded.' }));
     const pin = this.host.history.getPin(item.id);
-    const currentBytes = await fs.readFile(item.documentPath);
+    const currentBytes = await fs.readFile(item.sourceRef);
     const current = currentBytes.toString('utf8');
-    const relative = path.relative(run.workspaceCwd, item.documentPath);
+    const relative = path.relative(run.workspaceCwd, item.sourceRef);
     const docDiff = item.baseCommit && !relative.startsWith('..')
       ? await gitExec(['diff', `${item.baseCommit}..HEAD`, '--', relative], item.worktreePath!) : '';
     const receipts = this.receipts.get(item.id) ?? [];
@@ -185,12 +185,12 @@ export class PlanQueueVerification {
       if (!await this.groups.confirmPending(item.id, receipts)) {
         throw new Error('The work or source document changed before its checker started; it will be checked again.');
       }
-    } else this.checkedDocuments.set(item.id, await readDocumentReview(item.documentPath));
+    } else this.checkedDocuments.set(item.id, await readDocumentReview(item.sourceRef));
     return buildVerifierPrompt({ item, kind: run.kind, repoRoot: run.workspaceCwd, worktreePath: item.worktreePath!, baseBranch,
       gates: run.config.verifierGates, receipts: this.receipts.get(item.id) ?? [],
       // The checker reads the plan's Status and open work and a change summary, then sections by line range.
       diffStat: bounded(await gitExec(['diff', '--stat', `${baseBranch}...HEAD`], item.worktreePath!), PLAN_BRIEF_BYTES, '[Change summary truncated. Run git diff --stat for the rest.]'),
-      ...(run.kind === 'plans' ? { brief: await readPlanBrief(item.documentPath, item.section) } : {}),
+      ...(run.kind === 'plans' ? { brief: await readPlanBrief(item.sourceRef, item.section) } : {}),
       earlierRounds: rows.length ? JSON.stringify({ earlier, diffSinceLastCheck: diff }) : undefined,
       documentChanges: pin ? JSON.stringify({ originalHash: pin.documentSha256, originalUnchecked: pin.unchecked,
         changes: comparePinnedUnchecked(pin.unchecked, extractChecklistItems(current, 'all')), diff: docDiff }) : undefined });

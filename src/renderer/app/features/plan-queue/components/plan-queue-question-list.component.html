@@ -10,7 +10,7 @@
         @for (item of group.items; track item.id) {
           @if (item.question) {
             <div class="pq-question-item">
-              <div class="pq-question-doc" tabindex="0" [appTooltip]="item.documentPath">{{ documentBasename(item.documentPath) }}</div>
+              <div class="pq-question-doc" tabindex="0" [appTooltip]="item.sourceRef">{{ documentBasename(item.sourceRef) }}</div>
               <app-plan-queue-question-card [question]="item.question" (submitAnswer)="onAnswer(item.id, $event)" />
             </div>
           }

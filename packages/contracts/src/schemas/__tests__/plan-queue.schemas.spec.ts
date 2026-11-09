@@ -4,6 +4,7 @@ import {
   PlanQueueItemDtoSchema, PlanQueueRoutingSchema, PlanQueueStartArgsSchema,
   PlanQueueReportVerdictArgsSchema, PlanQueueParkReasonSchema,
   PlanQueueFolderChecklistsSchema, normalizeChecklistFolder, isAbsoluteChecklistFolder,
+  PlanQueueFoldersSchema, PlanQueueSourceKindSchema, triageRecordRef,
   DEFAULT_PLAN_QUEUE_CONFIG, PlanQueueRunConfigSchema, PlanQueueGateRunSchema, PlanQueueRunDtoSchema,
 } from '../plan-queue.schemas';
 
@@ -157,7 +158,7 @@ describe('Plan Queue routing controls', () => {
   });
   it('accepts an item with or without a recorded handover', () => {
     const item = {
-      id: 'item', runId: 'run', documentPath: '/repo/a_plan.md', state: 'fixing', round: 0, erroredRounds: 0, branchName: null, worktreePath: null,
+      id: 'item', runId: 'run', sourceRef: '/repo/a_plan.md', state: 'fixing', round: 0, erroredRounds: 0, branchName: null, worktreePath: null,
       baseCommit: null, checkpointCommit: null, landedCommit: null, workerInstanceId: null, verifierInstanceId: null, question: null, answer: null,
       parkReason: null, detail: null, verdict: null, createdAt: 1, updatedAt: 1,
     };
@@ -197,5 +198,51 @@ describe('Plan Queue folder checklists: one entry per folder', () => {
       expect(result.error?.issues[0]?.message).toContain('full path');
     }
     expect(PlanQueueFolderChecklistsSchema.safeParse([entry('/work/shop'), entry('C:\\work\\shop')]).success).toBe(true);
+  });
+});
+
+describe('Plan Queue folder list (step 6.4)', () => {
+  it('accepts full paths and refuses a relative one in plain words', () => {
+    expect(PlanQueueFoldersSchema.safeParse(['/work/shop', 'C:\\work\\blog']).success).toBe(true);
+    const result = PlanQueueFoldersSchema.safeParse(['docs']);
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toContain('full path');
+  });
+
+  it('lists a folder once, whatever its spelling', () => {
+    expect(PlanQueueFoldersSchema.safeParse(['/work/shop', '/work/base/../shop/']).success).toBe(false);
+    expect(PlanQueueFoldersSchema.safeParse(['/work/shop', '/work/shop-two']).success).toBe(true);
+  });
+
+  it('is not part of the start arguments a session sends: only the workspace to start in is', () => {
+    expect(PlanQueueStartArgsSchema.parse({ kind: 'plans', workspace: '/work/shop' })).toEqual({ kind: 'plans', workspace: '/work/shop' });
+    expect(PlanQueueStartArgsSchema.safeParse({ kind: 'plans', planQueueFolders: ['/work/shop'] }).success).toBe(false);
+    expect(PlanQueueStartArgsSchema.safeParse({ kind: 'plans', workspace: '' }).success).toBe(false);
+  });
+});
+
+describe('Plan Queue work source fields (step 6.3)', () => {
+  it('knows the markdown source and nothing else yet', () => {
+    expect(PlanQueueSourceKindSchema.parse('markdown')).toBe('markdown');
+    expect(PlanQueueSourceKindSchema.safeParse('linear').success).toBe(false);
+  });
+
+  it('names an item by its source reference, with the kind optional', () => {
+    const item = { id: 'i', runId: 'r', sourceRef: '/repo/a_plan.md', state: 'queued', round: 0, erroredRounds: 0, branchName: null, worktreePath: null,
+      baseCommit: null, checkpointCommit: null, landedCommit: null, workerInstanceId: null, verifierInstanceId: null, question: null, answer: null,
+      parkReason: null, detail: null, verdict: null, createdAt: 1, updatedAt: 1 };
+    expect(PlanQueueItemDtoSchema.parse(item)).toMatchObject({ sourceRef: '/repo/a_plan.md' });
+    expect(PlanQueueItemDtoSchema.parse({ ...item, sourceKind: 'markdown' })).toMatchObject({ sourceKind: 'markdown' });
+    expect(PlanQueueItemDtoSchema.safeParse({ ...item, sourceRef: undefined, documentPath: '/repo/a_plan.md' }).success).toBe(false);
+  });
+
+  it('lets a triage record name its work by sourceRef beside documentPath, and prefers sourceRef', () => {
+    const record = { disposition: 'ready' as const };
+    expect(PlanQueueReportTriageArgsSchema.safeParse({ run_id: 'r', records: [{ ...record, documentPath: '/repo/a_plan.md' }] }).success).toBe(true);
+    expect(PlanQueueReportTriageArgsSchema.safeParse({ run_id: 'r', records: [{ ...record, sourceRef: '/repo/a_plan.md' }] }).success).toBe(true);
+    expect(PlanQueueReportTriageArgsSchema.safeParse({ run_id: 'r', records: [record] }).success).toBe(false);
+    expect(triageRecordRef({ documentPath: '/repo/old.md', sourceRef: '/repo/new.md' })).toBe('/repo/new.md');
+    expect(triageRecordRef({ documentPath: '/repo/old.md' })).toBe('/repo/old.md');
+    expect(() => triageRecordRef({})).toThrow(/documentPath or a sourceRef/);
   });
 });

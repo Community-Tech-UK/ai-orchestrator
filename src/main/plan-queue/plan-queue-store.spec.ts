@@ -33,7 +33,9 @@ function makeItem(overrides: Partial<PlanQueueItem> = {}): PlanQueueItem {
   return {
     id: 'item-1',
     runId: 'run-1',
-    documentPath: '/repo/docs/plans/a_plan.md',
+    sourceRef: '/repo/docs/plans/a_plan.md',
+    sourceKind: 'markdown',
+    sortKey: '',
     state: 'discovered',
     roundActivity: [],
     round: 0,
@@ -298,7 +300,7 @@ describe('PlanQueueStore', () => {
 
       runLoopMigrations(old);
       expect(old.prepare('SELECT * FROM plan_queue_runs').get()).toEqual({ ...runBefore, unpriced_tokens: 0, hold_reason: null });
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, held_at: null, pending_instruction: null, worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, source_kind: 'markdown', sort_key: '', held_at: null, pending_instruction: null, worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('legacy-item')).toMatchObject({ heldAt: null, pendingInstruction: null, state: 'fixing', round: 2 });
 
@@ -349,7 +351,7 @@ describe('PlanQueueStore', () => {
         VALUES ('item-23', 'run-23', '/repo/a_plan.md', 'awaiting-slot', 1, 0, 2, 2)`).run();
       const before = old.prepare('SELECT * FROM plan_queue_items').get<Record<string, unknown>>();
       runLoopMigrations(old);
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, source_kind: 'markdown', sort_key: '', worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('item-23')).not.toHaveProperty('workerProvider');
       expect(() => runLoopMigrations(old)).not.toThrow();
@@ -378,7 +380,7 @@ describe('PlanQueueStore', () => {
       const before = old.prepare('SELECT * FROM plan_queue_items').get<Record<string, unknown>>();
       expect(Object.keys(before!)).not.toContain('stepped_up_at');
       runLoopMigrations(old);
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, source_kind: 'markdown', sort_key: '', stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('item-24')).toMatchObject({ state: 'parked', round: 3, workerProvider: 'claude', workerModel: 'haiku' });
       expect(upgraded.getItem('item-24')).not.toHaveProperty('steppedUpAt');
@@ -417,7 +419,7 @@ describe('PlanQueueStore', () => {
     store.upsertRun(makeRun({ id: 'old-completed', status: 'completed', startedAt: 1 }));
     store.upsertRun(makeRun({ id: 'old-cancelled', status: 'cancelled', kind: 'livetests', startedAt: 2 }));
     store.upsertItem(makeItem({ id: 'retained', runId: 'old-completed', state: 'parked', branchName: 'queue/retained', parkReason: 'round-limit' }));
-    store.upsertItem(makeItem({ id: 'second-parked', runId: 'old-completed', documentPath: '/repo/second_plan.md', state: 'parked' }));
+    store.upsertItem(makeItem({ id: 'second-parked', runId: 'old-completed', sourceRef: '/repo/second_plan.md', state: 'parked' }));
     store.upsertItem(makeItem({ id: 'branchless', runId: 'old-cancelled', state: 'parked', parkReason: 'triage-failed' }));
     for (let index = 0; index < 55; index++) {
       store.upsertRun(makeRun({ id: `inert-${index}`, status: index % 2 ? 'completed' : 'cancelled', startedAt: 100 + index }));
@@ -466,7 +468,7 @@ describe('PlanQueueStore', () => {
     store.upsertRun(makeRun());
     store.upsertItem(makeItem({ id: 'plain' }));
     store.upsertItem(
-      makeItem({ id: 'owner', documentPath: '/repo/docs/plans/b_plan.md', branchName: 'queue/b' }),
+      makeItem({ id: 'owner', sourceRef: '/repo/docs/plans/b_plan.md', branchName: 'queue/b' }),
     );
 
     expect(store.listItemsWithGitOwnership().map((i) => i.id)).toEqual(['owner']);
@@ -535,7 +537,7 @@ it('upgrades v25 with existing queue work to worker-session storage and repeats 
     expect(itemBefore).not.toHaveProperty('worker_session_json');
     runLoopMigrations(old);
     expect(old.prepare('SELECT * FROM plan_queue_runs').get()).toEqual({ ...runBefore, unpriced_tokens: 0, hold_reason: null });
-    expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null });
+    expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, source_kind: 'markdown', sort_key: '', worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null });
     const upgraded = new PlanQueueStore(old);
     const item = upgraded.getItem('item-25')!;
     expect(item).toMatchObject({ state: 'queued', round: 2, erroredRounds: 1, heldAt: 180,
@@ -556,23 +558,23 @@ it('upgrades v25 with existing queue work to worker-session storage and repeats 
 });
 
 describe('which attempt at a document is newest', () => {
-  const documentPath = '/repo/docs/plans/shared_plan.md';
+  const sourceRef = '/repo/docs/plans/shared_plan.md';
   function attempt(id: string, createdAt: number, overrides: Partial<PlanQueueItem> = {}) {
     store.upsertRun(makeRun({ id: `run-${id}`, parentInstanceId: 'parent-1' }));
-    store.upsertItem(makeItem({ id, runId: `run-${id}`, documentPath, state: 'parked', branchName: `queue/${id}`, createdAt, updatedAt: createdAt, ...overrides }));
+    store.upsertItem(makeItem({ id, runId: `run-${id}`, sourceRef, state: 'parked', branchName: `queue/${id}`, createdAt, updatedAt: createdAt, ...overrides }));
   }
 
   it('goes by when an attempt started, so a routine save cannot promote an older one', () => {
     attempt('older', 10, { updatedAt: 999 });
     attempt('newer', 20);
-    expect(store.findLatestParkedItem(documentPath, 'parent-1')?.id).toBe('newer');
+    expect(store.findLatestParkedItem(sourceRef, 'parent-1')?.id).toBe('newer');
     expect(store.listParkedInFolder('/repo').map(({ item }) => item.id)).toEqual(['newer', 'older']);
   });
 
   it('never offers a discarded job as the earlier attempt, even when its branch was left in place', () => {
     attempt('kept', 10);
     attempt('discarded', 20, { discardedAt: 30, discardedBy: 'James' });
-    expect(store.findLatestParkedItem(documentPath, 'parent-1')?.id).toBe('kept');
+    expect(store.findLatestParkedItem(sourceRef, 'parent-1')?.id).toBe('kept');
   });
 
   it('reports a newer merged attempt even after the older row is saved again', () => {
@@ -591,7 +593,7 @@ describe('which attempt at a document is newest', () => {
     if (merged) attempt('merged', 20, { state: 'landed' });
     const run = makeRun({ id: 'run-next', parentInstanceId: 'parent-1' });
     store.upsertRun(run);
-    claimDocumentsAndCreateItems({ store, now: () => 100, newId: () => 'next' }, run, [{ path: documentPath, readiness: 'candidate' }]);
+    claimDocumentsAndCreateItems({ store, now: () => 100, newId: () => 'next' }, run, [{ ref: sourceRef, readiness: 'candidate' }]);
     expect(store.getItem('next')?.state).toBe(state);
   });
 

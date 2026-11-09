@@ -109,11 +109,11 @@ export class PlanQueueParkedListComponent {
     const byDocument = new Map<string, ParkedRow[]>();
     for (const item of this.items()) {
       const run = runs.get(item.runId);
-      const mergedSince = (newestMerged.get(item.documentPath) ?? 0) > item.createdAt;
+      const mergedSince = (newestMerged.get(item.sourceRef) ?? 0) > item.createdAt;
       const display = planQueueDisplayParkReason(item, { maxRounds: run?.config.maxRounds, mergedSince });
       const row = { item, display, project: projectName(run?.workspaceCwd), mergedSince, sectionKey: this.sectionKeyFor(item, display) };
-      const attempts = byDocument.get(item.documentPath) ?? [];
-      attempts.push(row); byDocument.set(item.documentPath, attempts);
+      const attempts = byDocument.get(item.sourceRef) ?? [];
+      attempts.push(row); byDocument.set(item.sourceRef, attempts);
     }
     return [...byDocument.entries()].map(([path, attempts]) => {
       attempts.sort((a, b) => b.item.createdAt - a.item.createdAt || b.item.id.localeCompare(a.item.id));
@@ -168,7 +168,7 @@ export class PlanQueueParkedListComponent {
   private readonly newestMerged = computed(() => {
     const newestMerged = new Map<string, number>();
     for (const item of this.runs().flatMap(run => run.items)) {
-      if (item.state === 'landed') newestMerged.set(item.documentPath, Math.max(item.createdAt, newestMerged.get(item.documentPath) ?? 0));
+      if (item.state === 'landed') newestMerged.set(item.sourceRef, Math.max(item.createdAt, newestMerged.get(item.sourceRef) ?? 0));
     }
     return newestMerged;
   });
@@ -356,5 +356,5 @@ function projectName(folder: string | undefined): string {
 }
 
 function rowMatches(row: ParkedRow, needle: string): boolean {
-  return `${row.item.documentPath} ${row.item.branchName ?? ''} ${row.project} ${row.display?.label ?? ''}`.toLowerCase().includes(needle);
+  return `${row.item.sourceRef} ${row.item.branchName ?? ''} ${row.project} ${row.display?.label ?? ''}`.toLowerCase().includes(needle);
 }

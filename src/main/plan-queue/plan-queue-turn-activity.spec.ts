@@ -18,7 +18,7 @@ const run: PlanQueueRun = {
   workerProvider: 'claude', workerModel: null, startedAt: 1, endedAt: null,
 };
 const item: PlanQueueItem = {
-  id: 'item', runId: run.id, documentPath: '/fixture/a_plan.md', state: 'working', round: 0,
+  id: 'item', runId: run.id, sourceRef: '/fixture/a_plan.md', state: 'working', round: 0,
   erroredRounds: 0, landingRefusals: 0, baseConflicts: 0, branchName: null, worktreePath: null, baseCommit: null,
   checkpointCommit: null, verifiedMainCommit: null, landedCommit: null, workerInstanceId: 'worker',
   verifierInstanceId: null, question: null, answer: null, parkReason: null, detail: null,
@@ -93,7 +93,7 @@ describe('queue round activity persistence', () => {
       db.prepare('INSERT INTO plan_queue_runs (id,parent_instance_id,kind,workspace_cwd,status,config_json,started_at,updated_at) VALUES (?,?,?,?,?,?,?,?)')
         .run(run.id, 'parent', 'plans', '/fixture', 'running', JSON.stringify(run.config), 1, 1);
       db.prepare('INSERT INTO plan_queue_items (id,run_id,document_path,state,created_at,updated_at) VALUES (?,?,?,?,?,?)')
-        .run(item.id, run.id, item.documentPath, 'working', 1, 1);
+        .run(item.id, run.id, item.sourceRef, 'working', 1, 1);
       runLoopMigrations(db); runLoopMigrations(db);
       expect(itemToDto(new PlanQueueStore(db).getItem(item.id)!, undefined)).toMatchObject({ roundActivity: [] });
     } finally { db.close(); }

@@ -11,8 +11,8 @@ export function projectPlanQueueItem(item: PlanQueueItemDto): MobilePlanQueueIte
   return {
     id: item.id,
     runId: item.runId,
-    title: titleOf(item.documentPath),
-    documentPath: item.documentPath,
+    title: titleOf(item.sourceRef),
+    sourceRef: item.sourceRef,
     state: item.state,
     round: item.round,
     question: item.question,

@@ -73,7 +73,7 @@ function makeItemWithWork(files: Record<string, string>, id = 'item-abc123'): Pl
   return {
     id,
     runId: 'run-1',
-    documentPath: join(repo, 'docs/sample_plan.md'),
+    sourceRef: join(repo, 'docs/sample_plan.md'),
     state: 'landing',
     round: 1,
     erroredRounds: 0,

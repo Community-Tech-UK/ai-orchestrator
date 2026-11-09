@@ -67,7 +67,7 @@ beforeEach(() => {
     registerRole: (id, role) => { roles.set(id, role); }, unregisterRole: (id) => { roles.delete(id); }, roleOf: (id) => roles.get(id),
     notifyParent: vi.fn(), liveParentId: () => 'parent', resolveRunParent: () => 'parent', requestPump: vi.fn(), selectVerifier: vi.fn(), livetestPortsInUse: () => [],
   };
-  writeFileSync(item.documentPath, '# Test plan\n');
+  writeFileSync(item.sourceRef, '# Test plan\n');
   flow = new PlanQueueItemFlow(host);
 });
 afterEach(() => { rmSync(directory, { recursive: true, force: true }); vi.restoreAllMocks(); vi.clearAllMocks(); });

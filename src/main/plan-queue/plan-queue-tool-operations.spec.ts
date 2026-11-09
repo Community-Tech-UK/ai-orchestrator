@@ -1,18 +1,28 @@
-import { describe, expect, it, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
 import { createPlanQueueToolDefinitions } from '../mcp/plan-queue-tools';
 import { PlanQueueCoordinator } from './plan-queue-coordinator';
 import { PLAN_QUEUE_EVIDENCE_EVENT_LIMIT } from './plan-queue-run-evidence';
 import { createPlanQueueToolOperations } from './plan-queue-tool-operations';
 
+const saved = vi.hoisted(() => ({ folders: [] as string[] }));
 const questionsDestination = vi.hoisted(() => ({ value: 'queue-page' }));
 vi.mock('../core/config/settings-manager', () => ({
-  // The run summary's account-rules line reads these; none are set here.
+  // The run summary's account-rules line reads these; none are set here. `planQueueFolders` is James's saved folder list.
   getSettingsManager: () => ({
     get: () => questionsDestination.value,
-    getAll: () => ({ planQueueAccountRules: { never: [], last: [] }, providerAccountProfiles: [], copilotAccountProfiles: [] }),
+    getAll: () => ({ planQueueAccountRules: { never: [], last: [] }, providerAccountProfiles: [], copilotAccountProfiles: [], planQueueFolders: saved.folders }),
   }),
 }));
+
+const emptyRun = (workspaceCwd: string) => ({ run: { id: 'run', parentInstanceId: 'caller', kind: 'plans' as const,
+  workspaceCwd, status: 'running' as const, config: DEFAULT_PLAN_QUEUE_CONFIG.plans,
+  workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null, items: [] },
+excluded: [], routingSetAside: [], accountNotes: [], checklistSetAside: false });
 
 describe('Plan Queue tool operation adoption routing', () => {
   it.each([
@@ -24,7 +34,7 @@ describe('Plan Queue tool operation adoption routing', () => {
     vi.spyOn(coordinator, 'startRun').mockResolvedValue({ run: { id: 'dest-run', parentInstanceId: 'caller', kind: 'plans',
       workspaceCwd: '/repo', status: 'running', config: DEFAULT_PLAN_QUEUE_CONFIG.plans,
       workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null,
-      items: [{ id: 'item', runId: 'dest-run', documentPath: '/repo/a_plan.md', state: 'queued', round: 0, erroredRounds: 0, branchName: null, worktreePath: null,
+      items: [{ id: 'item', runId: 'dest-run', sourceRef: '/repo/a_plan.md', state: 'queued', round: 0, erroredRounds: 0, branchName: null, worktreePath: null,
         baseCommit: null, checkpointCommit: null, landedCommit: null, workerInstanceId: null, verifierInstanceId: null, question: null, answer: null,
         parkReason: null, detail: null, verdict: null, createdAt: 1, updatedAt: 1 }] },
     excluded: [], routingSetAside: [], accountNotes: [], checklistSetAside: false });
@@ -72,7 +82,7 @@ describe('Plan Queue tool operation adoption routing', () => {
 
   it('leaves the session-list stage out of plan_queue_status, which is already very large', () => {
     const coordinator = new PlanQueueCoordinator();
-    const item = { id: 'item', runId: 'run', documentPath: '/repo/a_plan.md', state: 'verifying' as const, round: 0, erroredRounds: 0,
+    const item = { id: 'item', runId: 'run', sourceRef: '/repo/a_plan.md', state: 'verifying' as const, round: 0, erroredRounds: 0,
       branchName: null, worktreePath: null, baseCommit: null, checkpointCommit: null, landedCommit: null, workerInstanceId: null,
       verifierInstanceId: null, question: null, answer: null, parkReason: null, detail: 'Running checks', verdict: null,
       stage: { name: 'checks' as const, startedAt: 1 }, createdAt: 1, updatedAt: 1 };
@@ -179,7 +189,7 @@ it('passes a step-up choice through start and set-routing, and names it when Jam
   const startRun = vi.spyOn(coordinator, 'startRun').mockResolvedValue({ run: { id: 'new-run', parentInstanceId: 'caller', kind: 'plans',
     workspaceCwd: '/repo', status: 'running', config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, routing: { workers: [{ provider: 'claude', model: 'haiku' }], verifiers: [], stepUp: { provider: 'claude', model: 'opus' } } },
     workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null,
-    items: [{ id: 'item', runId: 'new-run', documentPath: '/repo/a_plan.md', state: 'fixing', round: 0, erroredRounds: 0, branchName: 'queue/a', worktreePath: null,
+    items: [{ id: 'item', runId: 'new-run', sourceRef: '/repo/a_plan.md', state: 'fixing', round: 0, erroredRounds: 0, branchName: 'queue/a', worktreePath: null,
       baseCommit: null, checkpointCommit: null, landedCommit: null, workerInstanceId: null, verifierInstanceId: null, question: null, answer: null,
       parkReason: null, detail: null, verdict: null, steppedUpAt: Date.UTC(2026, 9, 27), createdAt: 1, updatedAt: 1 }] },
   excluded: [], routingSetAside: ['workers', 'step-up'], accountNotes: [], checklistSetAside: false });
@@ -195,4 +205,47 @@ it('passes a step-up choice through start and set-routing, and names it when Jam
   const control = vi.spyOn(coordinator, 'control').mockResolvedValue();
   await ops.control('parent', { action: 'set-routing', run_id: 'run', routing: { workers: [], verifiers: [], step_up: { provider: 'claude', model: 'opus' } } });
   expect(control).toHaveBeenCalledWith({ action: 'set-routing', runId: 'run', routing: { workers: [], verifiers: [], stepUp: { provider: 'claude', model: 'opus' } } }, 'parent');
+});
+
+describe('plan_queue_start workspace (step 6.4)', () => {
+  const folders: string[] = [];
+  afterEach(() => { saved.folders = []; for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true }); });
+  const project = (): string => {
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), 'pq-workspace-')));
+    folders.push(folder);
+    execFileSync('git', ['init', '-q'], { cwd: folder });
+    return folder;
+  };
+
+  it('refuses a folder that is not on the saved list, in plain words, and starts nothing', async () => {
+    const coordinator = new PlanQueueCoordinator();
+    const startRun = vi.spyOn(coordinator, 'startRun');
+    saved.folders = ['/work/shop'];
+    await expect(createPlanQueueToolOperations(() => coordinator).start('caller', { kind: 'plans', workspace: '/work/elsewhere' }))
+      .rejects.toThrow(/\/work\/elsewhere is not on James's Plan Queue folder list.*Only James can add a folder, on the Plan Queue page/);
+    expect(startRun).not.toHaveBeenCalled();
+  });
+
+  it('refuses every folder while the list is empty', async () => {
+    const coordinator = new PlanQueueCoordinator();
+    const startRun = vi.spyOn(coordinator, 'startRun');
+    await expect(createPlanQueueToolOperations(() => coordinator).start('caller', { kind: 'plans', workspace: project() })).rejects.toThrow(/not on James's Plan Queue folder list/);
+    expect(startRun).not.toHaveBeenCalled();
+  });
+
+  it('starts the run in a listed project folder', async () => {
+    const coordinator = new PlanQueueCoordinator();
+    const folder = project();
+    saved.folders = [folder];
+    const startRun = vi.spyOn(coordinator, 'startRun').mockResolvedValue(emptyRun(folder));
+    await createPlanQueueToolOperations(() => coordinator).start('caller', { kind: 'plans', workspace: folder });
+    expect(startRun).toHaveBeenCalledWith(expect.objectContaining({ parentInstanceId: 'caller', workspaceCwd: folder }));
+  });
+
+  it('still starts in the session\'s own folder when no workspace is named, whatever is on the list', async () => {
+    const coordinator = new PlanQueueCoordinator();
+    const startRun = vi.spyOn(coordinator, 'startRun').mockResolvedValue(emptyRun('/repo'));
+    await createPlanQueueToolOperations(() => coordinator).start('caller', { kind: 'plans' });
+    expect(startRun.mock.calls[0]?.[0]).not.toHaveProperty('workspaceCwd');
+  });
 });

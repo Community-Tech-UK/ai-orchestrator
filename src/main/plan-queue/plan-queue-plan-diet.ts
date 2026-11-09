@@ -362,14 +362,14 @@ export async function maybeDietDocument(input: PlanDietInput): Promise<PlanDietR
 export async function dietAtCheckpoint(item: PlanQueueItem, memory?: PlanQueueHistoryStore): Promise<void> {
   try {
     const result = await maybeDietDocument({
-      documentPath: item.documentPath,
-      historyPath: documentHistoryPath(item.documentPath),
+      documentPath: item.sourceRef,
+      historyPath: documentHistoryPath(item.sourceRef),
       bytesAtJobStart: memory?.getPin(item.id)?.documentBytes ?? null,
     });
     memory?.recordDocumentTransformation(item, result.transformation);
   } catch (error) {
     logger.warn('Plan queue plan diet failed; the checkpoint continues', {
-      document: item.documentPath,
+      document: item.sourceRef,
       error: error instanceof Error ? error.message : String(error),
     });
   }

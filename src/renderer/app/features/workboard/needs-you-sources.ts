@@ -14,7 +14,7 @@ export interface NeedsYouSources {
   permissions: readonly { id: string; instanceId: string; description: string; createdAt: number; expiresAt: number }[];
   browsers: readonly { requestId: string; instanceId?: string; createdAt: number; expiresAt: number }[];
   fallbacks: readonly { id: string; slot: string; createdAt: number; expiresAt: number }[];
-  plans: readonly { id: string; documentPath: string; updatedAt: number }[];
+  plans: readonly { id: string; sourceRef: string; updatedAt: number }[];
   documents: readonly { id: string; title: string; status: string; createdAt: number }[];
   memories: readonly { id: string; title: string; status: string; createdAt: number }[];
   sidechats: readonly Pick<SideChatAttention, 'parent' | 'parentTitle' | 'needsAttention' | 'attentionSince'>[];
@@ -77,7 +77,7 @@ export function requestEntries(sources: NeedsYouSources, now: number): NeedsYouE
     if (item.expiresAt > now) add('paid-fallback', item.id, 'Allow a paid model?', item.createdAt, { detail: item.slot, deadlineAt: item.expiresAt, route: '/local-ai' });
   }
   const plans = new Map<string, NeedsYouSources['plans'][number][]>();
-  for (const item of sources.plans) plans.set(item.documentPath, [...(plans.get(item.documentPath) ?? []), item]);
+  for (const item of sources.plans) plans.set(item.sourceRef, [...(plans.get(item.sourceRef) ?? []), item]);
   for (const [path, items] of plans) {
     add('plan-queue-question', path, `Plan Queue has ${items.length} ${items.length === 1 ? 'question' : 'questions'} for you`,
       Math.min(...items.map((i) => i.updatedAt)), { detail: planQueueDocumentLabel(path), route: '/plan-queue', version: items.map((i) => `${i.id}:${i.updatedAt}`).sort().join('|') });

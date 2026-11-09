@@ -4,7 +4,7 @@ import type { PlanQueueItem } from './plan-queue.types';
 
 /** Durable restart attempts, keyed by the same work/document/round fingerprint as verification. */
 export async function recordQueueRestart(host: PlanQueueFlowHost, item: PlanQueueItem): Promise<number> {
-  const fingerprint = JSON.stringify(progressFingerprint(item.checkpointCommit ?? item.baseCommit, await documentContentSha256(item.documentPath), item.round));
+  const fingerprint = JSON.stringify(progressFingerprint(item.checkpointCommit ?? item.baseCommit, await documentContentSha256(item.sourceRef), item.round));
   let count = 1;
   for (const event of host.history.listEvents(item.id, 100)) {
     if (event.round !== item.round) break;

@@ -16,7 +16,7 @@ import type {
   PlanQueueQuestion,
   PlanQueueRunDto,
 } from '@contracts/schemas/plan-queue';
-import { documentStem } from './plan-queue-item-flow';
+import { workSourceFor } from './plan-queue-work-sources';
 import { planQueueChecksLabel } from '../../shared/utils/plan-queue-item-display';
 import { isNotReachedItem } from '../../shared/utils/plan-queue-item-outcome';
 import { relaxedSettingsFor } from './plan-queue-relaxation';
@@ -33,7 +33,8 @@ export function itemToDto(item: PlanQueueItem, stage: PlanQueueItemStage | undef
     ...(stage ? { stage } : {}),
     id: item.id,
     runId: item.runId,
-    documentPath: item.documentPath,
+    sourceRef: item.sourceRef,
+    sourceKind: item.sourceKind ?? 'markdown',
     heldAt: item.heldAt ?? null,
     pendingInstruction: item.pendingInstruction ?? null,
     steppedUpAt: item.steppedUpAt ?? null,
@@ -80,7 +81,7 @@ export function runToDto(run: PlanQueueRun, items: readonly PlanQueueItem[], che
     relaxedSettings: relaxedSettingsFor(run),
     startedAt: run.startedAt,
     endedAt: run.endedAt,
-    items: items.map(item => itemToDto(item, stages.get(item.id), totalRounds.get(roundsKey(item.documentPath, item.section)), stepLabelFor(items, item))),
+    items: items.map(item => itemToDto(item, stages.get(item.id), totalRounds.get(roundsKey(item.sourceRef, item.section)), stepLabelFor(items, item))),
   };
 }
 
@@ -113,7 +114,7 @@ function needJamesLines(items: readonly PlanQueueItem[]): { real: string[]; poli
     const entries: PlanQueueNeedJamesEntry[] = item.verdict?.needJames ?? [];
     for (const entry of entries) {
       if (entry.classification === 'real') {
-        real.push(`- ${documentStem(item.documentPath)}: ${entry.check} — ${entry.reason}`);
+        real.push(`- ${workSourceFor(item.sourceKind).displayName(item)}: ${entry.check} — ${entry.reason}`);
       } else if (entry.classification === 'policy-gated') {
         policyGated += 1;
       }
@@ -134,7 +135,7 @@ export function buildRunSummaryMessage(run: PlanQueueRun, items: readonly PlanQu
   if (parked.length) {
     lines.push('', 'Parked (retained branches are named below; Resume, Land anyway or Discard in the Plan Queue panel):');
     for (const item of parked) {
-      lines.push(`- ${documentStem(item.documentPath)}: ${item.parkReason ?? 'unknown'}${item.branchName ? ` on \`${item.branchName}\`` : ''}${item.detail ? ` — ${item.detail.slice(0, 300)}` : ''}`);
+      lines.push(`- ${workSourceFor(item.sourceKind).displayName(item)}: ${item.parkReason ?? 'unknown'}${item.branchName ? ` on \`${item.branchName}\`` : ''}${item.detail ? ` — ${item.detail.slice(0, 300)}` : ''}`);
     }
   }
   if (run.kind === 'livetests') {

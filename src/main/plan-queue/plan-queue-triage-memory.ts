@@ -180,14 +180,14 @@ export function rememberTriageRecord(
 /** Remember James's answer, keyed by document content plus the question. */
 export function rememberJamesAnswer(
   memory: PlanQueueHistoryStore | undefined,
-  item: Pick<PlanQueueItem, 'documentPath'>,
+  item: Pick<PlanQueueItem, 'sourceRef'>,
   repoRoot: string,
   question: string,
   option: { id: string; label: string },
   decidedAt: number,
 ): void {
   if (!memory) return;
-  const key = triageMemoryKey(item.documentPath, repoRoot);
+  const key = triageMemoryKey(item.sourceRef, repoRoot);
   if (!key) return;
   const answer: PlanQueueTriageAnswer = { question, optionId: option.id, optionLabel: option.label };
   memory.rememberTriageAnswer(key, answer, decidedAt);

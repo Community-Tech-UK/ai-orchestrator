@@ -142,6 +142,14 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
     hidden: true,
   },
   {
+    key: 'planQueueFolders',
+    label: 'Plan Queue folder list',
+    description: 'The project folders a session may start a Plan Queue run in from another folder. A session that names any other folder is refused. Managed from the Plan Queue page. Set only from there — not changeable by agents.',
+    type: 'json',
+    category: 'review',
+    hidden: true,
+  },
+  {
     key: 'crossModelReviewLocalEnabled',
     label: 'Enable local reviewer',
     description: 'Run an additional review with the selected local model when one is available.',

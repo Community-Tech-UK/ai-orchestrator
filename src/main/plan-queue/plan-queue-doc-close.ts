@@ -474,7 +474,7 @@ export async function appendParkedBranchNote(item: PlanQueueItem, run: PlanQueue
   const commitCount = await commitsAhead(run.workspaceCwd, run.config.baseBranch, item.branchName);
   if (commitCount <= 0) return null;
   try {
-    const change = await appendParkedNote(item.documentPath, { branchName: item.branchName, reason, commitCount });
+    const change = await appendParkedNote(item.sourceRef, { branchName: item.branchName, reason, commitCount });
     history.recordDocumentTransformation(item, change);
     return null;
   } catch (error) {

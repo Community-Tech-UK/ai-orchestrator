@@ -11,6 +11,7 @@ import { PlanQueueStore } from '../../core/state/plan-queue.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { PlanQueueAccountRulesPanelComponent } from './components/plan-queue-account-rules-panel.component';
 import { PlanQueueFolderChecklistsPanelComponent } from './components/plan-queue-folder-checklists-panel.component';
+import { PlanQueueFolderListPanelComponent } from './components/plan-queue-folder-list-panel.component';
 import { PlanQueueHealthComponent } from './components/plan-queue-health.component';
 import { PlanQueueNeedJamesListComponent } from './components/plan-queue-need-james-list.component';
 import { PlanQueueParkedListComponent, type PlanQueueSetAsideAgentView } from './components/plan-queue-parked-list.component';
@@ -38,6 +39,7 @@ const SET_ASIDE_AGENT_METADATA = 'planQueueSetAsideFolder';
     AioTooltipDirective,
     PlanQueueAccountRulesPanelComponent,
     PlanQueueFolderChecklistsPanelComponent,
+    PlanQueueFolderListPanelComponent,
     PlanQueueHealthComponent,
     PlanQueueNeedJamesListComponent,
     PlanQueueParkedListComponent,
@@ -75,7 +77,7 @@ export class PlanQueuePageComponent implements OnInit {
   protected readonly activeItems = computed(() => this.activeRuns().flatMap(run => run.items));
   protected readonly historyRuns = computed(() => this.store.allRuns().filter(run => run.status === 'completed' || run.status === 'cancelled'));
   protected readonly busyDocuments = computed(() => this.activeRuns().flatMap(run => run.items)
-    .filter(item => item.state !== 'parked' && item.state !== 'landed' && item.state !== 'skipped').map(item => item.documentPath));
+    .filter(item => item.state !== 'parked' && item.state !== 'landed' && item.state !== 'skipped').map(item => item.sourceRef));
   protected readonly checkerRunId = signal<string | null>(null);
   protected readonly checkerRuns = computed(() => this.store.allRuns().filter(run => run.id === this.checkerRunId()));
   protected readonly kindLabel = planQueueKindLabel;

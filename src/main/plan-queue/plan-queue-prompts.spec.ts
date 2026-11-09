@@ -25,7 +25,7 @@ import { blockingGateReceipts, PlanQueueGateRunner } from './plan-queue-gate-rec
 const item = {
   id: 'item-0123456789',
   runId: 'run-1',
-  documentPath: '/repo/docs/plans/2026-01-01-alpha_plan.md',
+  sourceRef: '/repo/docs/plans/2026-01-01-alpha_plan.md',
   branchName: 'queue/2026-01-01-alpha-456789',
 } as PlanQueueItem;
 
@@ -259,8 +259,8 @@ describe('plan queue prompts', () => {
     expect(prompt).toContain('create and link its implementation plan');
     expect(prompt).toContain('Do not invent an approval requirement or claim the spec is complete');
     const example = PlanQueueReportTriageArgsSchema.parse(lastJsonBlock(prompt));
-    expect(example.records.some((record) => record.disposition === 'skip' && record.documentPath.endsWith('_spec.md'))).toBe(true);
-    expect(example.records.some((record) => record.disposition !== 'skip' && record.documentPath.endsWith('_spec.md'))).toBe(false);
+    expect(example.records.some((record) => record.disposition === 'skip' && record.documentPath?.endsWith('_spec.md'))).toBe(true);
+    expect(example.records.some((record) => record.disposition !== 'skip' && record.documentPath?.endsWith('_spec.md'))).toBe(false);
   });
 
   it.each(['plans', 'livetests'] as const)('gives %s workers autonomy without implying a recorded answer grants authority', (kind) => {

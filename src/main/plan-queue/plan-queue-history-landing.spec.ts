@@ -49,7 +49,7 @@ beforeEach(() => {
   item = newPlanQueueItem('history-item', 'run', join(repo, 'docs/shared_plan.md'), 1, {
     state: 'landing', worktreePath, branchName: 'queue/history', baseCommit: git(['rev-parse', 'main']),
   });
-  writeFileSync(item.documentPath, '# Plan\n## As-built\nImplemented.\n');
+  writeFileSync(item.sourceRef, '# Plan\n## As-built\nImplemented.\n');
   writeFileSync(join(repo, 'docs/shared_livetest.md'), '# Still open\n');
   service = new PlanQueueWorktreeService({ repoRootForItem: () => repo,
     creator: { getAllSessions: () => [], createWorktree: vi.fn(), cleanupWorktree: vi.fn() },
@@ -63,7 +63,7 @@ afterEach(() => {
 });
 
 async function prepare() {
-  const prepared = await prepareClosedDocuments(item.documentPath, repo, item.worktreePath, null);
+  const prepared = await prepareClosedDocuments(item.sourceRef, repo, item.worktreePath, null);
   if (prepared.mode !== 'commit') throw new Error('Expected committed closure');
   return prepared.documents;
 }
@@ -93,8 +93,8 @@ describe.skipIf(!existsSync(guard))('coordinator history closure with the instal
     store.upsertRun(run);
     store.upsertItem({ ...item, verdict: { verdict: 'PASS', documentComplete: true, gatesRun: [], needJames: [], notChecked: [], findings: [] } });
     store.history.recordVerdict({ itemId: item.id, runId: item.runId, round: 1, verdict: 'PASS', findings: [], gatesRun: [],
-      documentReview: await readDocumentReview(item.documentPath),
-      notChecked: [], worktreeHead: item.checkpointCommit, documentSha256: createHash('sha256').update(readFileSync(item.documentPath)).digest('hex') });
+      documentReview: await readDocumentReview(item.sourceRef),
+      notChecked: [], worktreeHead: item.checkpointCommit, documentSha256: createHash('sha256').update(readFileSync(item.sourceRef)).digest('hex') });
     const instances = Object.assign(new EventEmitter(), {
       getInstance: () => undefined, getAllInstances: () => [], adoptOrphanInstance: () => false,
       createInstance: vi.fn(), sendInput: vi.fn(), terminateInstance: vi.fn(), restartFreshInstance: vi.fn(),
@@ -115,7 +115,7 @@ describe.skipIf(!existsSync(guard))('coordinator history closure with the instal
       expect(readFileSync(join(repo, immutable), 'utf8')).toContain(candidateHistory);
       expect(readFileSync(join(repo, immutable), 'utf8')).toContain(rootHistory);
       expect(readFileSync(join(repo, history), 'utf8')).toBe(rootHistory);
-      expect(existsSync(item.documentPath)).toBe(false);
+      expect(existsSync(item.sourceRef)).toBe(false);
       expect(existsSync(join(repo, 'docs/shared_livetest.md'))).toBe(true);
       expect(readFileSync(join(repo, '.git/history-guard-runs'), 'utf8')).toBe('guard-passed\n');
     } finally {
@@ -153,8 +153,8 @@ describe.skipIf(!existsSync(guard))('coordinator history closure with the instal
     expect(readFileSync(join(repo, '.git/history-guard-runs'), 'utf8')).toBe('guard-passed\n');
     expect(git(['rev-parse', item.branchName!])).toBe(checkpoint);
     expect(readFileSync(join(item.worktreePath!, history), 'utf8')).toBe(candidateHistory);
-    expect(await retireActiveDocuments(item.documentPath, repo, 'main', null)).toEqual([expect.stringContaining('Kept shared_plan.md')]);
-    expect(existsSync(item.documentPath)).toBe(true);
+    expect(await retireActiveDocuments(item.sourceRef, repo, 'main', null)).toEqual([expect.stringContaining('Kept shared_plan.md')]);
+    expect(existsSync(item.sourceRef)).toBe(true);
   });
 
   it('retries after a refusing hook and resumes a recorded commit without replacing closed evidence', async () => {
@@ -181,9 +181,9 @@ describe.skipIf(!existsSync(guard))('coordinator history closure with the instal
     expect(result).toEqual({ status: 'landed', commit: built });
     const immutable = documents.find(doc => /_history_[a-f0-9]{64}_completed.md$/.test(doc.relativePath))!;
     expect(readFileSync(join(repo, immutable.relativePath), 'utf8')).toBe(immutable.content);
-    expect(await retireActiveDocuments(item.documentPath, repo, 'main', null)).toEqual([]);
-    expect(await retireActiveDocuments(item.documentPath, repo, 'main', null)).toEqual([]);
-    expect(existsSync(item.documentPath)).toBe(false);
+    expect(await retireActiveDocuments(item.sourceRef, repo, 'main', null)).toEqual([]);
+    expect(await retireActiveDocuments(item.sourceRef, repo, 'main', null)).toEqual([]);
+    expect(existsSync(item.sourceRef)).toBe(false);
     expect(readFileSync(join(repo, history), 'utf8')).toBe(rootHistory);
     expect(existsSync(join(repo, 'docs/shared_livetest.md'))).toBe(true);
     expect(readFileSync(join(repo, '.git/history-guard-runs'), 'utf8')).toBe('guard-passed\n');

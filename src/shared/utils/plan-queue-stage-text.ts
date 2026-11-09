@@ -43,7 +43,7 @@ const CHECK_WAIT_UNKNOWN = { text: 'waiting for its turn to be checked', hint: '
 export function planQueueStageLine(item: PlanQueueItemDto, now: number): PlanQueueStageLine | null {
   const stage = item.stage;
   if (!stage) return null;
-  const name = planQueueDocumentLabel(item.documentPath);
+  const name = planQueueDocumentLabel(item.sourceRef);
   // A start slightly ahead of this clock is negative here, which reads as just started.
   const elapsed = stage.startedAt === null ? null : now - stage.startedAt;
   // A landing can wait a day for edits; that isn't a step running long.

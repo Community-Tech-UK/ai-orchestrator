@@ -44,7 +44,7 @@ export class PlanQueueSkipPendingComponent {
     return (this.selection() ?? []).filter(item => notStarted(item) && !changed.has(item.id));
   });
   protected readonly notApplicable = computed(() => (this.selection() ?? []).filter(item => !notStarted(item)));
-  protected readonly name = (item: PlanQueueItemDto) => item.documentPath.split(/[\\/]/).pop();
+  protected readonly name = (item: PlanQueueItemDto) => item.sourceRef.split(/[\\/]/).pop();
   protected readonly count = pluralise;
 
   skipSelected(): void {

@@ -134,6 +134,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
         workers: { type: 'array', maxItems: 10, items: ROUTE_CHOICE_SCHEMA, description: 'Providers, models and accounts the workers may use, in preference order: each new worker session starts on the first with usage left. Used only when James saved no worker list on the Plan Queue page; his list always wins. Omit to use his list, else this session\'s own provider, model and account. Pass only when James asked for specific providers or accounts.' },
         verifiers: { type: 'array', maxItems: 10, items: ROUTE_CHOICE_SCHEMA, description: 'Checkers this run may use, in preference order: each check uses the first that can run with usage left. Used only when James saved no checker list; his list always wins. Omit to use his list, else automatic selection. Pass only when James asked for specific checkers.' },
         step_up: { ...ROUTE_CHOICE_SCHEMA, description: STEP_UP_DESCRIPTION },
+        workspace: { type: 'string', description: 'Start the run in this project folder (the full path of its Git project\'s top folder) instead of this session\'s own folder. Allowed only for a folder on James\'s saved Plan Queue folder list, which only he can edit, on the Plan Queue page; any other folder is refused. Omit to use this session\'s own folder.' },
       },
       required: ['kind'],
       additionalProperties: false,
@@ -211,6 +212,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
             type: 'object',
             properties: {
               documentPath: { type: 'string', description: 'Absolute path of the document.' },
+              sourceRef: { type: 'string', description: 'The source\'s own reference for the work, as listed in the batch; for a document it is the same absolute path. Give this or documentPath; when both are given, sourceRef is used.' },
               disposition: { type: 'string', enum: ['ready', 'needs-answer', 'skip'] },
               reason: { type: 'string', description: 'Required for skip.' },
               question: {
@@ -236,7 +238,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
                 additionalProperties: false,
               },
             },
-            required: ['documentPath', 'disposition'],
+            anyOf: [{ required: ['documentPath', 'disposition'] }, { required: ['sourceRef', 'disposition'] }],
             additionalProperties: false,
           },
         },

@@ -24,13 +24,12 @@ import { remindUnattendedWorker } from './plan-queue-routine-clarification';
  * scheduling (which item runs next) and routes instance outcomes here.
  */
 
-import * as path from 'path';
 import type { PlanQueueParkReason, PlanQueueVerdict } from '@contracts/schemas/plan-queue';
 import type { InstanceProvider } from '../../shared/types/instance.types';
 import { AUTOMATION_FAILURE_STATUSES } from '../../shared/types/instance-status-policy';
 import { getLogger } from '../logging/logger';
 import { holdFromReclaim, releaseReclaimHold } from '../process/reclaim-holds';
-import { appendParkedBranchNote, removeParkedNote } from './plan-queue-doc-close';
+import { workSourceFor } from './plan-queue-work-sources';
 import {
   branchExists,
   UnresolvedMergeError,
@@ -82,10 +81,6 @@ const CHECK_RETRY_MS = 60_000;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-export function documentStem(documentPath: string): string {
-  return path.basename(documentPath).replace(/\.md$/i, '');
 }
 
 export class PlanQueueItemFlow {
@@ -301,7 +296,7 @@ export class PlanQueueItemFlow {
     try {
       const workingDirectory = await requireOwnWorkFolder(item, run.workspaceCwd);
       const instance = await this.host.instances.createInstance({
-        displayName: `Queue · ${documentStem(item.documentPath)}`,
+        displayName: `Queue · ${workSourceFor(item.sourceKind).displayName(item)}`,
         isRenamed: true,
         parentId: this.host.liveParentId(run),
         workingDirectory,
@@ -310,7 +305,7 @@ export class PlanQueueItemFlow {
         ...(run.workerModel ? { modelOverride: run.workerModel } : {}),
         yoloMode: true,
         // A handed-over document's every later worker takes the run's step-up choice (`queueWorkerChoices`).
-        metadata: { planQueueLargeDocument: isLargeQueueDocument(item.documentPath), planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'worker', planQueueRound: item.round, ...(continuePrompt ? { planQueueContinuePrompt: continuePrompt } : {}), ...(item.steppedUpAt ? { planQueueSteppedUp: true } : {}) },
+        metadata: { planQueueLargeDocument: isLargeQueueDocument(item.sourceRef), planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'worker', planQueueRound: item.round, ...(continuePrompt ? { planQueueContinuePrompt: continuePrompt } : {}), ...(item.steppedUpAt ? { planQueueSteppedUp: true } : {}) },
       });
       this.host.registerRole(instance.id, { role: 'worker', runId: run.id, itemId: item.id });
       const started = this.host.instances.getInstance(instance.id);
@@ -673,9 +668,9 @@ export class PlanQueueItemFlow {
       const resumed = this.host.getItem(itemId);
       if (resumed.checkpointCommit) this.verification.forgetResults(resumed.checkpointCommit);
       // Unless another attempt is being checked or landing: its review holds these bytes, note and all.
-      if (resumed.branchName && !this.host.store.documentBeingChecked(resumed.documentPath, resumed.id)) {
+      if (resumed.branchName && !this.host.store.documentBeingChecked(resumed.sourceRef, resumed.id)) {
         // A document that can't safely be edited keeps its note, as it always did; the Resume still goes ahead.
-        const change = await removeParkedNote(resumed.documentPath, resumed.branchName).catch((error: unknown) => {
+        const change = await workSourceFor(resumed.sourceKind).removeParkNote(resumed, resumed.branchName).catch((error: unknown) => {
           logger.warn('Plan queue: the parked note stayed in the document', { itemId, error: errorMessage(error) });
           return undefined;
         });
@@ -728,7 +723,7 @@ export class PlanQueueItemFlow {
       item = this.host.save({ ...item, worktreePath: null });
     }
 
-    const noteFailure = await appendParkedBranchNote(item, run, reason, this.host.history);
+    const noteFailure = await workSourceFor(item.sourceKind).appendParkNote(item, run, reason, this.host.history);
     if (noteFailure) notes.push(noteFailure);
 
     this.host.transition(item, 'parked', { heldAt: null, parkReason: reason, detail: notes.join(' ').slice(0, 8000) });
@@ -778,7 +773,7 @@ export class PlanQueueItemFlow {
       }
       const run = this.host.getRun(item.runId);
       const reattached = await this.host.worktrees.reattach(item, run.workspaceCwd);
-      const change = await removeParkedNote(reattached.documentPath, reattached.branchName!);
+      const change = await workSourceFor(reattached.sourceKind).removeParkNote(reattached, reattached.branchName!);
       this.host.history.recordDocumentTransformation(reattached, change);
       // A commit not yet on the base carries the document as it was before the note, which no longer matches: build it again.
       const stale = change && reattached.landedCommit

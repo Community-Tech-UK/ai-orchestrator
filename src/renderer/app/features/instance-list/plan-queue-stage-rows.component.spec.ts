@@ -24,7 +24,7 @@ const START = Date.UTC(2026, 10, 5, 10, 0, 0);
 
 function job(id: string, stage: PlanQueueItemStage | null, overrides: Partial<PlanQueueItemDto> = {}): PlanQueueItemDto {
   return {
-    id, runId: 'run', documentPath: `/repo/docs/plans/${id}_plan.md`, state: 'verifying', round: 0, erroredRounds: 0,
+    id, runId: 'run', sourceRef: `/repo/docs/plans/${id}_plan.md`, state: 'verifying', round: 0, erroredRounds: 0,
     branchName: null, worktreePath: null, baseCommit: null, checkpointCommit: null, landedCommit: null,
     workerInstanceId: null, verifierInstanceId: null, question: null, answer: null, parkReason: null, detail: null,
     verdict: null, createdAt: 1, updatedAt: 1, ...(stage ? { stage } : {}), ...overrides,
