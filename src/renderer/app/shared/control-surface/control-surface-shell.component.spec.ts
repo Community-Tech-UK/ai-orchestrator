@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ControlSurfaceShellComponent } from './control-surface-shell.component';
 import { routes } from '../../app.routes';
+import { navigationHubs } from './navigation-hubs';
 import { CONTROL_SURFACE_HELP } from '../help/control-surface-help';
 import { HelpPaneComponent } from '../help/help-pane.component';
 
@@ -154,7 +155,7 @@ describe('ControlSurfaceShellComponent router lifecycle', () => {
         if (url === '/settings') {
           expect(harness.routeNativeElement?.querySelector('#control-center-navigation')).toBeNull();
         } else if (title && url !== '/nested/logs') {
-          expect(harness.routeNativeElement?.querySelector('.control-nav-item.active')?.getAttribute('href')).toBe(url);
+          expect(harness.routeNativeElement?.querySelector('.hub-tab.active')?.getAttribute('href')).toBe(url);
         }
       }
     } finally {
@@ -242,22 +243,38 @@ describe('ControlSurfaceShellComponent', () => {
     fixture.detectChanges();
   });
 
-  it('hides more tools by default, and remembers an explicit expansion', () => {
-    expect(fixture.nativeElement.querySelector('a[href="/plugins"]')).toBeNull();
-    fixture.nativeElement.querySelector('.control-more-toggle').click();
-    fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('a[href="/plugins"]')).toBeTruthy();
-    expect(localStorage.getItem('aiorch.control.moreToolsOpen')).toBe('true');
-    const restored = TestBed.createComponent(ControlSurfaceShellComponent); restored.detectChanges();
-    expect(restored.nativeElement.querySelector('a[href="/plugins"]')).toBeTruthy();
+  it('lists one menu entry per hub instead of every page', () => {
+    const entries = [...fixture.nativeElement.querySelectorAll('.control-nav-item')] as HTMLAnchorElement[];
+    expect(entries).toHaveLength(navigationHubs(false).length);
+    expect(entries.map(entry => entry.getAttribute('aria-label'))).toContain('Reviews');
+    expect(fixture.nativeElement.querySelector('.control-nav a[href="/plugins"]')).toBeNull();
+    expect(fixture.nativeElement.textContent).not.toContain('More tools');
   });
 
-  it('opens more tools automatically on a more route without persisting', () => {
+  it('shows the open hub as the current entry, with its pages as tabs', () => {
+    const current = fixture.nativeElement.querySelector('.control-nav-item[aria-current="true"]') as HTMLAnchorElement;
+    expect(current.getAttribute('aria-label')).toBe('Automations');
+    const tabs = fixture.nativeElement.querySelector('nav.hub-tabs') as HTMLElement;
+    expect(tabs.getAttribute('aria-label')).toBe('Automations pages');
+    expect([...tabs.querySelectorAll('a')].map(tab => tab.textContent?.trim())).toEqual(['Automations', 'Workflows', 'Hooks']);
+    expect(tabs.querySelector('a[aria-current="page"]')?.textContent?.trim()).toBe('Automations');
+  });
+
+  it('reaches a page that only has a tab through its hub', () => {
     const route = TestBed.inject(ActivatedRoute);
     route.snapshot.firstChild!.data['controlSurfaceId'] = 'plugins';
     const other = TestBed.createComponent(ControlSurfaceShellComponent); other.detectChanges();
-    expect(other.nativeElement.querySelector('a[href="/plugins"]')).toBeTruthy();
-    expect(localStorage.getItem('aiorch.control.moreToolsOpen')).toBeNull();
+    const root = other.nativeElement as HTMLElement;
+    expect(root.querySelector('.control-nav-item[aria-current="true"]')?.getAttribute('aria-label')).toBe('Agents & models');
+    expect(root.querySelector('nav.hub-tabs a[href="/plugins"]')?.getAttribute('aria-current')).toBe('page');
+    expect(root.querySelector('nav.hub-tabs a[href="/models"]')).toBeTruthy();
+  });
+
+  it('shows no tab strip for a hub with a single page', () => {
+    const route = TestBed.inject(ActivatedRoute);
+    route.snapshot.firstChild!.data['controlSurfaceId'] = 'browser';
+    const other = TestBed.createComponent(ControlSurfaceShellComponent); other.detectChanges();
+    expect(other.nativeElement.querySelector('nav.hub-tabs')).toBeNull();
   });
 
   it('hides the shell navigation on Settings, even with a stored collapsed menu', () => {
@@ -283,17 +300,24 @@ describe('ControlSurfaceShellComponent', () => {
     expect(router.navigateByUrl).toHaveBeenCalledWith('/');
   });
 
-  it('renders title and grouped Control Center navigation from the registry', () => {
+  it('renders title and hub navigation from the registry', () => {
     const text = fixture.nativeElement.textContent as string;
 
     expect(text).toContain('Control Center');
     expect(text).toContain('Automations');
     expect(text).toContain('Settings');
-    expect(text).toContain('Browser Gateway');
+    expect(text).toContain('Connections');
     expect(fixture.nativeElement.querySelector('h1')?.textContent).toBe('Automations');
-    const computersLink = fixture.nativeElement.querySelector('a[href="/remote-nodes"]') as HTMLAnchorElement;
-    expect(computersLink.textContent?.trim()).toBe('Other computers');
-    expect(computersLink.getAttribute('aria-label')).toBe('Other computers');
+    const connections = fixture.nativeElement.querySelector('a[href="/mcp"]') as HTMLAnchorElement;
+    expect(connections.textContent?.trim()).toBe('Connections');
+    expect(connections.getAttribute('aria-label')).toBe('Connections');
+  });
+
+  it('names a page by its registry label on the tab', () => {
+    const route = TestBed.inject(ActivatedRoute);
+    route.snapshot.firstChild!.data['controlSurfaceId'] = 'remote-nodes';
+    const other = TestBed.createComponent(ControlSurfaceShellComponent); other.detectChanges();
+    expect(other.nativeElement.querySelector('nav.hub-tabs a[href="/remote-nodes"]')?.textContent?.trim()).toBe('Other computers');
   });
 
   it('remembers when the Control Center navigation is collapsed', () => {

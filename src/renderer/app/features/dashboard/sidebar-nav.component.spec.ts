@@ -46,18 +46,30 @@ describe('SidebarNavComponent', () => {
     fixture.detectChanges();
   });
 
-  it('renders dashboard tools from the Control Surface registry', () => {
-    const text = fixture.nativeElement.textContent as string;
+  it('lists one entry per hub instead of every tool', () => {
+    const links = [...fixture.nativeElement.querySelectorAll('a.nav-item')] as HTMLAnchorElement[];
+    const names = links.map(link => link.getAttribute('aria-label'));
 
-    expect(text).toContain('Automations');
-    expect(text).toContain('Browser Gateway');
-    expect(text).not.toContain('Models');
-    fixture.componentInstance.toggleMore();
-    fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Models');
-    expect(fixture.nativeElement.textContent).toContain('Background Jobs');
-    expect(localStorage.getItem('aiorch.toolsViews.moreOpen')).toBe('true');
-    expect(text).toContain('Workboard');
+    expect(names).toEqual([
+      'Work', 'Automations', 'Reviews', 'Agents & models', 'Memory & knowledge', 'Code', 'Search',
+      'Usage & health', 'Browser', 'Connections', 'Storage',
+    ]);
+    expect(fixture.nativeElement.textContent).not.toContain('More tools');
+  });
+
+  it('opens each hub on its first dashboard page', () => {
+    const links = [...fixture.nativeElement.querySelectorAll('a.nav-item')] as HTMLAnchorElement[];
+    const href = (label: string) => links.find(link => link.getAttribute('aria-label') === label)?.getAttribute('href');
+
+    expect(href('Work')).toBe('/work');
+    expect(href('Agents & models')).toBe('/models');
+    expect(href('Browser')).toBe('/browser');
+  });
+
+  it('shows the unread automation count on the Automations hub', () => {
+    const badge = fixture.nativeElement.querySelector('a[aria-label="Automations"] .nav-badge');
+
+    expect(badge?.textContent?.trim()).toBe('2');
   });
 
   it('does not render the Control Center Settings route in dashboard Tools & Views', () => {

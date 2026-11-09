@@ -206,7 +206,46 @@
   stroke-linejoin: round;
 }
 
+.control-workspace {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.hub-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.hub-tab {
+  padding: 0.45rem 0.7rem;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.hub-tab:hover {
+  color: var(--text-primary);
+}
+
+.hub-tab.active {
+  border-bottom-color: var(--primary-color);
+  color: var(--text-primary);
+}
+
+.hub-tab:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: -2px;
+}
+
 .control-content {
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -311,17 +350,6 @@
   }
 }
 
-.control-more-toggle {
-  width: 100%;
-  padding: 0.6rem 0.25rem;
-  margin-block: 0.5rem;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font: inherit;
-  cursor: pointer;
-}
 @media (min-width: 841px) {
   .control-shell.no-nav .control-body,
   .control-shell.no-nav.nav-collapsed .control-body {

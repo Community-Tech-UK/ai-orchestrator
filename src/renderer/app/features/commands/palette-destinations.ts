@@ -1,5 +1,6 @@
 import type { ExtendedCommand } from '../../core/state/command.store';
 import type { ControlSurfaceItem } from '../../shared/control-surface/control-surface.types';
+import { hubOfSurface } from '../../shared/control-surface/navigation-hubs';
 import type { SettingsNavItem } from '../settings/settings-navigation';
 
 export interface PaletteDestination extends ExtendedCommand {
@@ -18,7 +19,7 @@ export function buildDestinations(
   });
   return [
     ...surfaces.map(surface => entry(surface.id, `Go to ${surface.label}`, surface.subtitle ?? '',
-      [surface.label, surface.group], { path: surface.path })),
+      [surface.label, surface.group, hubOfSurface(surface.id)?.label ?? ''], { path: surface.path })),
     ...settingsTabs.filter(tab => !duplicates.has(tab.id)).map(tab => entry(`settings:${tab.id}`,
       `Go to Settings: ${tab.label}`, tab.summary, [tab.label, tab.keywords ?? '', tab.group ?? ''],
       { path: '/settings', fragment: tab.id })),

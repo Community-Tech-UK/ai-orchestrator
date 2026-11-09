@@ -458,7 +458,7 @@ describe('Wave 7 cross-wave smoke', () => {
     expect(commandTypesTs).toContain("actionId: 'app.open-browser'");
     expect(commandTypesTs).toContain("actionId: 'app.open-doctor'");
     expect(workspaceRailTs).toContain('routerLink="/browser"');
-    expect(sidebarNavTs).toContain('listDashboardNavGroups');
+    expect(sidebarNavTs).toContain('navigationHubs');
     expect(controlSurfaceRegistryTs).toContain("id: 'browser'");
     expect(controlSurfaceRegistryTs).toContain("path: '/browser'");
   });

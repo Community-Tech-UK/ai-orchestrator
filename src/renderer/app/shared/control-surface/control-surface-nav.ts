@@ -15,5 +15,3 @@ export type {
   ControlSurfaceNavGroup,
   ControlSurfaceRouteData,
 } from './control-surface.types';
-
-export { splitNavGroupsByTier } from './control-surface-tiers';

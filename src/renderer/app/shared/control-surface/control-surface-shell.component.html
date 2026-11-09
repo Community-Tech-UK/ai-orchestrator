@@ -79,57 +79,44 @@
             <p class="control-nav-empty" role="status">Nothing matches “{{ navQuery().trim() }}”.</p>
           }
         } @else {
-            @for (group of navTiers().everyday; track group.id) {
-              <section class="control-nav-group">
-                <h2>{{ group.label }}</h2>
-                @for (item of group.items; track item.id) {
-                  <a
-                    class="control-nav-item"
-                    [routerLink]="item.path"
-                    routerLinkActive="active"
-                    [routerLinkActiveOptions]="{ exact: isExactNavMatch(item.path) }"
-                    [appTooltip]="item.label"
-                    [attr.aria-label]="item.label"
-                  >
-                    <svg class="control-nav-icon" viewBox="0 0 24 24" aria-hidden="true" [innerHTML]="item.icon | controlSurfaceIcon"></svg>
-                    <span>{{ item.label }}</span>
-                  </a>
-                }
-              </section>
+          <section class="control-nav-group">
+            @for (hub of hubs(); track hub.id) {
+              <a
+                class="control-nav-item"
+                [routerLink]="hub.path"
+                [class.active]="activeHub()?.id === hub.id"
+                [attr.aria-current]="activeHub()?.id === hub.id ? 'true' : null"
+                [appTooltip]="hub.summary"
+                [attr.aria-label]="hub.label"
+              >
+                <svg class="control-nav-icon" viewBox="0 0 24 24" aria-hidden="true" [innerHTML]="hub.icon | controlSurfaceIcon"></svg>
+                <span>{{ hub.label }}</span>
+              </a>
             }
-            <button type="button" class="control-more-toggle" (click)="toggleMore()"
-              [attr.aria-expanded]="moreVisible()" aria-controls="control-center-more-tools">
-              More tools ({{ navTiers().moreCount }})
-            </button>
-            @if (moreVisible()) {
-              <div id="control-center-more-tools">
-                @for (group of navTiers().more; track group.id) {
-                  <section class="control-nav-group">
-                    <h2>{{ group.label }}</h2>
-                    @for (item of group.items; track item.id) {
-                      <a
-                        class="control-nav-item"
-                        [routerLink]="item.path"
-                        routerLinkActive="active"
-                        [routerLinkActiveOptions]="{ exact: isExactNavMatch(item.path) }"
-                        [appTooltip]="item.label"
-                        [attr.aria-label]="item.label"
-                      >
-                        <svg class="control-nav-icon" viewBox="0 0 24 24" aria-hidden="true" [innerHTML]="item.icon | controlSurfaceIcon"></svg>
-                        <span>{{ item.label }}</span>
-                      </a>
-                    }
-                  </section>
-                }
-              </div>
-            }
+          </section>
         }
       </aside>
     }
 
-    <main class="control-content">
-      <router-outlet />
-    </main>
+    <div class="control-workspace">
+      @if (activeHub(); as hub) {
+        @if (hub.pages.length > 1) {
+          <nav class="hub-tabs" [attr.aria-label]="hub.label + ' pages'">
+            @for (page of hub.pages; track page.id) {
+              <a
+                class="hub-tab"
+                [routerLink]="page.path"
+                [class.active]="page.id === activeSurface().id"
+                [attr.aria-current]="page.id === activeSurface().id ? 'page' : null"
+              >{{ page.label }}</a>
+            }
+          </nav>
+        }
+      }
+      <main class="control-content">
+        <router-outlet />
+      </main>
+    </div>
 
     @if (showHelpPane()) {
       <app-help-pane

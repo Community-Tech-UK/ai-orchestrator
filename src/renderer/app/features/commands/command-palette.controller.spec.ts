@@ -45,6 +45,10 @@ describe('global command palette', () => {
     expect(destinations().map(d => d.label)).toContain('Go to Costs & Usage');
     expect(destinations().length).toBeLessThanOrEqual(12);
   });
+  it('finds a page by the name of the hub it sits in', () => {
+    controller.setQuery('usage & health');
+    expect(destinations().map(d => d.label)).toContain('Go to Logs');
+  });
   it('reaches every surface and nonduplicate settings tab by its label', () => {
     const all = buildDestinations(CONTROL_SURFACES, NAV_ITEMS);
     expect(all).toHaveLength(CONTROL_SURFACES.length + NAV_ITEMS.length - 7);

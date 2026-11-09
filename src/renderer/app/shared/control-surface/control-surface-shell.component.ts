@@ -1,6 +1,5 @@
 import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
 import { AppIconButtonDirective } from '../tooltip/icon-button.directive';
-import { splitNavGroupsByTier, readNavPreference, writeNavPreference } from './control-surface-tiers';
 import { ChangeDetectionStrategy, Component, DestroyRef, type ElementRef, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
@@ -9,7 +8,6 @@ import {
   NavigationEnd,
   Router,
   RouterLink,
-  RouterLinkActive,
   RouterOutlet,
 } from '@angular/router';
 import { filter, startWith } from 'rxjs';
@@ -22,6 +20,7 @@ import {
 import type { ControlSurfaceId, ControlSurfaceItem } from './control-surface.types';
 import { ControlSurfaceIconPipe } from './control-surface-icon.pipe';
 import { searchControlNav } from './control-surface-search';
+import { hubOfSurface, navigationHubs } from './navigation-hubs';
 import { HelpPaneComponent } from '../help/help-pane.component';
 import { CONTROL_SURFACE_HELP } from '../help/control-surface-help';
 import { SettingsStore } from '../../core/state/settings.store';
@@ -34,7 +33,7 @@ const NAV_COLLAPSED_KEY = 'aiorch.control.navCollapsed';
 @Component({
   selector: 'app-control-surface-shell',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, HelpPaneComponent, AioTooltipDirective, AppIconButtonDirective, ControlSurfaceIconPipe],
+  imports: [RouterLink, RouterOutlet, HelpPaneComponent, AioTooltipDirective, AppIconButtonDirective, ControlSurfaceIconPipe],
   templateUrl: './control-surface-shell.component.html',
   styleUrl: './control-surface-shell.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -50,17 +49,16 @@ export class ControlSurfaceShellComponent {
   protected readonly navQuery = signal('');
   /** Null while the search box is empty, which shows the normal page list. */
   protected readonly navResults = computed(() => searchControlNav(this.navQuery(), this.navGroups()));
-  protected readonly navTiers = computed(() => splitNavGroupsByTier(this.navGroups()));
-  protected readonly moreOpen = signal(readNavPreference('aiorch.control.moreToolsOpen'));
-  protected readonly moreVisible = computed(() => this.moreOpen() || this.activeSurface().tier === 'more');
-  protected toggleMore(): void {
-    this.moreOpen.update(open => !open);
-    writeNavPreference('aiorch.control.moreToolsOpen', this.moreOpen());
-  }
+  protected readonly hubs = computed(() => navigationHubs(this.settings.settings().observationMemoryEnabled));
   private readonly activeSurfaceId = signal<ControlSurfaceId | null>(null);
   protected readonly activeSurface = computed<ControlSurfaceItem>(() => {
     const id = this.activeSurfaceId();
     return id ? getControlSurface(id) : getControlSurface('settings');
+  });
+  /** The hub holding the open page; its other pages show as tabs above the page. */
+  protected readonly activeHub = computed(() => {
+    const hubId = hubOfSurface(this.activeSurface().id)?.id;
+    return this.hubs().find(hub => hub.id === hubId);
   });
 
   /** Whether the contextual help pane is collapsed to a thin rail. */
@@ -120,10 +118,6 @@ export class ControlSurfaceShellComponent {
     if (!first || (event as KeyboardEvent).isComposing) return;
     void this.router.navigate([first.path], { queryParams: first.queryParams, fragment: first.fragment });
     this.clearNavSearch();
-  }
-
-  protected isExactNavMatch(path: string): boolean {
-    return path !== '/campaigns' && path !== '/channels';
   }
 
   /** Toggle the help pane and remember the choice. */

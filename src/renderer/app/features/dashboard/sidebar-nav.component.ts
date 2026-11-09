@@ -1,9 +1,8 @@
 /**
  * Sidebar Navigation Component
- * Collapsible navigation menu with grouped links to dashboard-visible surfaces.
+ * Collapsible navigation menu with one link per hub. The hub's other pages are tabs inside the Control Center.
  */
 
-import { readNavPreference, writeNavPreference } from '../../shared/control-surface/control-surface-tiers';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -16,13 +15,14 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
 import { SettingsStore } from '../../core/state/settings.store';
 import { AutomationStore } from '../../core/state/automation.store';
 import { DocReviewStore } from '../doc-review/doc-review.store';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { ControlSurfaceIconPipe } from '../../shared/control-surface/control-surface-icon.pipe';
-import { listDashboardNavGroups, splitNavGroupsByTier } from '../../shared/control-surface/control-surface-nav';
+import { navigationHubs } from '../../shared/control-surface/navigation-hubs';
 
 @Component({
   selector: 'app-sidebar-nav',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, ControlSurfaceIconPipe],
+  imports: [RouterLink, RouterLinkActive, AioTooltipDirective, ControlSurfaceIconPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="sidebar-nav" [class.expanded]="expanded()">
@@ -41,57 +41,21 @@ import { listDashboardNavGroups, splitNavGroupsByTier } from '../../shared/contr
 
       @if (expanded()) {
         <nav class="nav-menu" role="navigation" aria-label="Feature navigation">
-          @for (group of tiers().everyday; track group.id) {
-            <div class="nav-group">
-              <span class="group-label">{{ group.label }}</span>
-              @for (item of group.items; track item.id) {
-                <a class="nav-item"
-                  [routerLink]="item.path"
-                  routerLinkActive="active">
-                  <svg class="nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                    [innerHTML]="item.icon | controlSurfaceIcon">
-                  </svg>
-                  <span class="nav-label">{{ item.label }}</span>
-                  @if (item.id === 'automations' && unreadAutomations() > 0) {
-                    <span class="nav-badge">{{ unreadAutomations() }}</span>
-                  }
-                  @if (item.id === 'doc-review' && pendingDocReviews() > 0) {
-                    <span class="nav-badge">{{ pendingDocReviews() }}</span>
-                  }
-                </a>
+          @for (hub of hubs(); track hub.id) {
+            <a class="nav-item"
+              [routerLink]="hub.path"
+              routerLinkActive="active"
+              [appTooltip]="hub.summary"
+              [attr.aria-label]="hub.label">
+              <svg class="nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                [innerHTML]="hub.icon | controlSurfaceIcon">
+              </svg>
+              <span class="nav-label">{{ hub.label }}</span>
+              @if (hub.badge) {
+                <span class="nav-badge">{{ hub.badge }}</span>
               }
-            </div>
-          }
-          <button type="button" class="nav-toggle" (click)="toggleMore()"
-            [attr.aria-expanded]="moreOpen()" aria-controls="tools-views-more-tools">
-            More tools ({{ tiers().moreCount }})
-          </button>
-          @if (moreOpen()) {
-            <div id="tools-views-more-tools">
-          @for (group of tiers().more; track group.id) {
-            <div class="nav-group">
-              <span class="group-label">{{ group.label }}</span>
-              @for (item of group.items; track item.id) {
-                <a class="nav-item"
-                  [routerLink]="item.path"
-                  routerLinkActive="active">
-                  <svg class="nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                    [innerHTML]="item.icon">
-                  </svg>
-                  <span class="nav-label">{{ item.label }}</span>
-                  @if (item.id === 'automations' && unreadAutomations() > 0) {
-                    <span class="nav-badge">{{ unreadAutomations() }}</span>
-                  }
-                  @if (item.id === 'doc-review' && pendingDocReviews() > 0) {
-                    <span class="nav-badge">{{ pendingDocReviews() }}</span>
-                  }
-                </a>
-              }
-            </div>
-          }
-            </div>
+            </a>
           }
         </nav>
       }
@@ -104,13 +68,22 @@ export class SidebarNavComponent {
   private readonly docReviewStore = inject(DocReviewStore);
   readonly expanded = signal(true);
   private readonly settings = inject(SettingsStore);
-  readonly groups = computed(() => listDashboardNavGroups(this.settings.settings().observationMemoryEnabled));
-  readonly tiers = computed(() => splitNavGroupsByTier(this.groups()));
-  readonly moreOpen = signal(readNavPreference('aiorch.toolsViews.moreOpen'));
-  toggleMore(): void {
-    this.moreOpen.update(open => !open);
-    writeNavPreference('aiorch.toolsViews.moreOpen', this.moreOpen());
-  }
+  /**
+   * One entry per hub with a page on the dashboard menu, opening on that page. A hub's count adds up the work
+   * waiting in the pages it holds.
+   */
+  readonly hubs = computed(() => navigationHubs(this.settings.settings().observationMemoryEnabled).flatMap(hub => {
+    const entry = hub.pages.find(page => page.showInDashboardNav);
+    if (!entry) return [];
+    const badge = hub.pages.reduce((count, page) => count + this.waitingOn(page.id), 0);
+    return [{ ...hub, path: entry.path, badge }];
+  }));
   readonly unreadAutomations = this.automationStore.unreadCount;
   readonly pendingDocReviews = this.docReviewStore.pendingCount;
+
+  private waitingOn(pageId: string): number {
+    if (pageId === 'automations') return this.unreadAutomations();
+    if (pageId === 'doc-review') return this.pendingDocReviews();
+    return 0;
+  }
 }
