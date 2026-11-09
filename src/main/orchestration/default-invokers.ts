@@ -1,4 +1,5 @@
 import { assertLoopExecutionAuthority, hasPinnedLoopExecution, loopExecutionSpawnOptions, loopAdapterHonorsAuthority, rememberLoopExecutionSettings } from './loop-execution-authority';
+import { createTrackedAdapterTerminator } from './tracked-adapter-terminator';
 import type { LoopConfig } from '../../shared/types/loop.types';
 /** Wire orchestration invocation events to the repository's CLI adapters. */
 
@@ -191,6 +192,8 @@ async function invokeCliTextResponse(params: {
    *  so the conversation persists across iterations. The caller owns the
    *  adapter lifecycle when this is set. */
   reusedAdapter?: unknown;
+  /** True when a reused adapter must be torn down after this turn because its owner let it go. */
+  reapReusedAdapter?: (adapter: unknown) => boolean;
   activity?: (activity: LoopInvocationActivity) => void;
   onAdapterReady?: (adapter: CliAdapter, model: string | undefined, cliType: string) => (() => void) | void;
   cleanupAdapter?: (adapter: CliAdapter, graceful: boolean) => Promise<void>;
@@ -398,7 +401,7 @@ async function invokeCliTextResponse(params: {
       detachActivity();
       // Caller owns the lifecycle when reusing an adapter (same-session
       // loops keep it alive across iterations and tear it down on terminate).
-      if (ownsAdapter) {
+      if (ownsAdapter || params.reapReusedAdapter?.(adapter)) {
         await (finishConsult ? finishConsult() : cleanup(adapter, false)).catch((cleanupError: unknown) => {
           logger.warn('One-shot invocation adapter cleanup failed', {
             correlationId: params.correlationId,
@@ -925,8 +928,6 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   // Borrowed adapters belong to their chat instance. Track them only for the
   // timeout interrupt; terminal loop cleanup must never terminate them.
   const borrowedLoopAdapters = new Map<string, Set<unknown>>();
-  // Only concurrent teardowns share one: terminate() before the child spawns is a no-op, so a later call must run.
-  const terminatingAdapters = new WeakMap<object, Promise<void>>();
   // LF-1: cumulative same-session tokens per loop, used to decide when to
   // recycle the persistent adapter to a fresh session (context discipline).
   const loopContextTokens = new Map<string, number>();
@@ -936,14 +937,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   const loopOccupancyUnavailableNotified = new Set<string>();
   const loopBorrowedChat = new Set<string>(); // loops that ran inside the person's chat session (T13.1)
 
-  const terminateTrackedAdapter = (adapter: unknown, graceful: boolean): Promise<void> => {
-    if (!adapter || typeof adapter !== 'object') return terminateCliAdapter(adapter, graceful);
-    const existing = terminatingAdapters.get(adapter);
-    if (existing) return existing;
-    const promise = terminateCliAdapter(adapter, graceful).finally(() => terminatingAdapters.delete(adapter));
-    terminatingAdapters.set(adapter, promise);
-    return promise;
-  };
+  const terminateTrackedAdapter = createTrackedAdapterTerminator(terminateCliAdapter);
 
   const trackAdapter = (
     adaptersByLoop: Map<string, Set<unknown>>,
@@ -1471,7 +1465,9 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
             },
         cleanupAdapter: borrowedFromInstance
           ? undefined
-          : (adapter, graceful) => terminateTrackedAdapter(adapter, graceful),
+          : (adapter, graceful) => terminateTrackedAdapter(adapter, graceful, true),
+        // A same-session adapter outlives its turn; if its loop ended or recycled it mid-turn, stop it now.
+        reapReusedAdapter: borrowedFromInstance ? undefined : (adapter) => persistentLoopAdapters.get(p.loopRunId) !== adapter,
       });
       if (sameSession && reusedAdapter) {
         enableAdapterResume(reusedAdapter);

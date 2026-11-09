@@ -1265,33 +1265,62 @@ describe('Loop Mode invoker plumbing', () => {
     await finished;
   });
 
-  it('leaves no child running when the loop is cancelled before the adapter has spawned its process', async () => {
-    registerDefaultLoopInvoker({} as never);
-    // Mirrors Codex app-server / ACP: sendMessage awaits an async spawn() before a process exists,
-    // and terminate() only kills a process that exists (BaseCliAdapter.terminate returns early otherwise).
-    let childAlive = false;
-    let releaseSpawn!: () => void;
-    hoisted.terminate.mockImplementation(async () => { childAlive = false; });
+  // Mirrors Codex app-server / ACP: sendMessage awaits an async spawn() before a process exists, and a
+  // terminate() that starts before then sees no process (BaseCliAdapter.terminate returns early).
+  function lateSpawningChild() {
+    const child = { alive: false, releaseSpawn: () => undefined as void };
+    hoisted.terminate.mockImplementation(async () => { child.alive = false; });
     hoisted.sendMessage.mockImplementation(async () => {
-      await new Promise<void>((resolve) => { releaseSpawn = resolve; });
-      childAlive = true;
+      await new Promise<void>((resolve) => { child.releaseSpawn = resolve; });
+      child.alive = true;
       return { content: 'late result after cancellation', usage: { totalTokens: 1 } };
     });
+    return child;
+  }
+  const tick = () => new Promise<void>((r) => setImmediate(r));
+  const cancelLoop = () => hoisted.loopCoordinatorRef.current.emit('loop:state-changed', { loopRunId: 'loop-1', state: { status: 'cancelled' } });
 
-    const finished = emitIteration({ config: { contextStrategy: 'fresh-child' } });
-    await new Promise<void>((r) => setImmediate(r));
-    await new Promise<void>((r) => setImmediate(r));
-
-    hoisted.loopCoordinatorRef.current.emit('loop:state-changed', { loopRunId: 'loop-1', state: { status: 'cancelled' } });
-    await new Promise<void>((r) => setImmediate(r));
-    expect(hoisted.terminate).toHaveBeenCalledTimes(1);
-    expect(childAlive).toBe(false); // nothing spawned yet
-
-    releaseSpawn(); // the child now spawns, after the cancel
+  it.each(['fresh-child', 'same-session'])('leaves no child running when a %s loop is cancelled before the adapter has spawned', async (contextStrategy) => {
+    registerDefaultLoopInvoker({} as never);
+    const child = lateSpawningChild();
+    const finished = emitIteration({ config: { contextStrategy } });
+    await tick(); await tick();
+    cancelLoop();
+    await tick();
+    expect(child.alive).toBe(false); // nothing spawned yet
+    child.releaseSpawn(); // the child now spawns, after the cancel
     await finished;
-    await new Promise<void>((r) => setImmediate(r));
+    await tick();
+    expect(child.alive).toBe(false);
+  });
 
-    expect(childAlive).toBe(false);
+  it('stops a child that spawns while the cancel teardown is still in flight', async () => {
+    registerDefaultLoopInvoker({} as never);
+    let openGate!: () => void;
+    const gate = new Promise<void>((resolve) => { openGate = resolve; });
+    // The first terminate checks for a process before the child exists, then lingers (Codex background-work settle).
+    const child = { alive: false, releaseSpawn: () => undefined as void };
+    let calls = 0;
+    hoisted.terminate.mockImplementation(async () => {
+      const hadProcess = child.alive;
+      if (calls++ === 0) await gate;
+      if (hadProcess || calls > 1) child.alive = false;
+    });
+    hoisted.sendMessage.mockImplementation(async () => {
+      await new Promise<void>((resolve) => { child.releaseSpawn = resolve; });
+      child.alive = true;
+      return { content: 'late', usage: { totalTokens: 1 } };
+    });
+    const finished = emitIteration({ config: { contextStrategy: 'fresh-child' } });
+    await tick(); await tick();
+    cancelLoop();
+    await tick();
+    child.releaseSpawn();
+    await tick(); await tick();
+    openGate();
+    await finished;
+    await tick(); await tick();
+    expect(child.alive).toBe(false);
   });
 
   it('does not terminate a child for resumable provider-limit state changes', async () => {
