@@ -536,8 +536,8 @@ describe('privileged settings CLI writability reporting', () => {
   });
 
   it('holds the operator-only anchor count the docs quote', () => {
-    // docs/AIO_MCP_CLI.md and docs/llm/AIO_MCP_CLI_REFERENCE.md both state 28
-    // anchors and enumerate them by group. History: the count reached 21 on
+    // docs/AIO_MCP_CLI.md states 29 anchors, and it and
+    // docs/llm/AIO_MCP_CLI_REFERENCE.md enumerate them by group. History: the count reached 21 on
     // 2026-08-26 (`computerUseAutonomyLevel` took the Computer Use group from
     // five keys to six, after Copilot account routing added two on 2026-08-25,
     // `providersExcludedFromAutomation` on 2026-08-19 and `allowPrCreation`

@@ -126,7 +126,7 @@ const ALLOWLIST: Record<string, number> = {
   // Thin pressKey/viewport delegates; page-level impl in browser-input-control-driver.ts.
   'src/main/browser-gateway/puppeteer-browser-driver.ts': 717,
   // Self-allowlisted: the registry below grows one line per documented ceiling.
-  'scripts/check-ts-max-loc.ts': 707,
+  'scripts/check-ts-max-loc.ts': 706,
   // Raised 700 -> 704 for close_tab / close_matching RPC dispatch cases.
   'src/main/browser-gateway/browser-gateway-rpc-server.ts': 704,
   // Health aggregator: one section per surface. Crossed 700 with the per-node
