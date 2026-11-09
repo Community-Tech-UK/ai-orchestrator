@@ -49,7 +49,7 @@ import { hubIdOfUrl, navigationHubs } from '../../shared/control-surface/navigat
               [class.active]="hub.id === activeHubId()"
               [attr.aria-current]="hub.id === activeHubId() ? 'true' : null"
               [appTooltip]="hub.summary"
-              [attr.aria-label]="hub.label">
+              [attr.aria-label]="hub.ariaLabel">
               <svg class="nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                 [innerHTML]="hub.icon | controlSurfaceIcon">
@@ -86,7 +86,9 @@ export class SidebarNavComponent {
     const entry = hub.pages.find(page => page.showInDashboardNav);
     if (!entry) return [];
     const badge = hub.pages.reduce((count, page) => count + this.waitingOn(page.id), 0);
-    return [{ ...hub, path: entry.path, badge }];
+    // The visible count sits beside the label, so the spoken name carries it too.
+    const ariaLabel = badge ? `${hub.label}, ${badge} waiting` : hub.label;
+    return [{ ...hub, path: entry.path, badge, ariaLabel }];
   }));
   readonly unreadAutomations = this.automationStore.unreadCount;
   readonly pendingDocReviews = this.docReviewStore.pendingCount;

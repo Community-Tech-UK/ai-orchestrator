@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { AutomationStore } from '../../core/state/automation.store';
+import { DocReviewStore } from '../doc-review/doc-review.store';
 import { SidebarNavComponent } from './sidebar-nav.component';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
@@ -40,6 +41,7 @@ describe('SidebarNavComponent', () => {
             unreadCount: signal(2).asReadonly(),
           },
         },
+        { provide: DocReviewStore, useValue: { pendingCount: signal(3).asReadonly() } },
       ],
     }).compileComponents();
 
@@ -49,7 +51,7 @@ describe('SidebarNavComponent', () => {
 
   it('lists one entry per hub instead of every tool', () => {
     const links = [...fixture.nativeElement.querySelectorAll('a.nav-item')] as HTMLAnchorElement[];
-    const names = links.map(link => link.getAttribute('aria-label'));
+    const names = links.map(link => link.querySelector('.nav-label')?.textContent?.trim());
 
     expect(names).toEqual([
       'Work', 'Automations', 'Reviews', 'Agents & models', 'Memory & knowledge', 'Code', 'Search',
@@ -67,10 +69,17 @@ describe('SidebarNavComponent', () => {
     expect(href('Browser')).toBe('/browser');
   });
 
-  it('shows the unread automation count on the Automations hub', () => {
-    const badge = fixture.nativeElement.querySelector('a[aria-label="Automations"] .nav-badge');
+  it('shows the unread automation count on the Automations hub, and says it in the hub name', () => {
+    const link = fixture.nativeElement.querySelector('a[aria-label="Automations, 2 waiting"]');
 
-    expect(badge?.textContent?.trim()).toBe('2');
+    expect(link?.querySelector('.nav-badge')?.textContent?.trim()).toBe('2');
+    expect(fixture.nativeElement.querySelector('a[aria-label="Work"]')).not.toBeNull();
+  });
+
+  it('says the pending doc review count in the Reviews hub name', () => {
+    const link = fixture.nativeElement.querySelector('a[aria-label="Reviews, 3 waiting"]');
+
+    expect(link?.querySelector('.nav-badge')?.textContent?.trim()).toBe('3');
   });
 
   it('marks the hub of any open page, not only the page it opens on', async () => {
