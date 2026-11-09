@@ -286,6 +286,41 @@ describe('ControlSurfaceShellComponent', () => {
     expect(other.nativeElement.querySelector('nav.hub-tabs')).toBeNull();
   });
 
+  it('scrolls the open hub and its tab into view, for the sideways strip on a narrow window', () => {
+    // jsdom has no scrollIntoView, so record calls through a stand-in for this test only.
+    const scrolled: [string, unknown][] = [];
+    HTMLElement.prototype.scrollIntoView = function (this: HTMLElement, options?: unknown) {
+      scrolled.push([this.getAttribute('aria-label') ?? this.textContent?.trim() ?? '', options]);
+    };
+    try {
+      TestBed.inject(ActivatedRoute).snapshot.firstChild!.data['controlSurfaceId'] = 'cost';
+      const other = TestBed.createComponent(ControlSurfaceShellComponent); other.detectChanges();
+      const nearest = { inline: 'nearest', block: 'nearest' };
+      expect(scrolled).toEqual([['Usage & health', nearest], ['Costs & Usage', nearest]]);
+
+      // Collapsing and expanding the menu, or clearing a search, redraws the strip, so the open hub comes back.
+      const toggle = () => {
+        (other.nativeElement.querySelector('.control-nav-toggle') as HTMLButtonElement).click();
+        other.detectChanges();
+      };
+      scrolled.length = 0;
+      toggle();
+      toggle();
+      expect(scrolled.filter(([name]) => name === 'Usage & health')).toHaveLength(2);
+      const search = other.nativeElement.querySelector('.control-nav-search-input') as HTMLInputElement;
+      search.value = 'cost';
+      search.dispatchEvent(new Event('input'));
+      other.detectChanges();
+      scrolled.length = 0;
+      search.value = '';
+      search.dispatchEvent(new Event('input'));
+      other.detectChanges();
+      expect(scrolled[0]).toEqual(['Usage & health', nearest]);
+    } finally {
+      delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+    }
+  });
+
   it('hides the shell navigation on Settings, even with a stored collapsed menu', () => {
     localStorage.setItem('aiorch.control.navCollapsed', 'true');
     TestBed.inject(ActivatedRoute).snapshot.firstChild!.data['controlSurfaceId'] = 'settings';

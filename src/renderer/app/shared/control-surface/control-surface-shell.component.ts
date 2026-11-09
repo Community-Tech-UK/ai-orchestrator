@@ -50,6 +50,8 @@ export class ControlSurfaceShellComponent {
   protected readonly navQuery = signal('');
   /** Null while the search box is empty, which shows the normal page list. */
   protected readonly navResults = computed(() => searchControlNav(this.navQuery(), this.navGroups()));
+  /** Whether the menu shows the hubs rather than search results. */
+  private readonly showingHubs = computed(() => this.navResults() === null);
   protected readonly hubs = computed(() => navigationHubs(this.settings.settings().observationMemoryEnabled));
   private readonly activeSurfaceId = signal<ControlSurfaceId | null>(null);
   protected readonly activeSurface = computed<ControlSurfaceItem>(() => {
@@ -86,11 +88,16 @@ export class ControlSurfaceShellComponent {
   protected readonly showControlNav = computed(() => this.activeSurface().id !== 'settings');
 
   constructor() {
-    // On a narrow window the strip scrolls sideways, so bring the open tab into view.
+    // On a narrow window the hub strip and the tab row scroll sideways, so bring the open hub and tab into view.
+    // Collapsing the menu or clearing a search redraws the strip from the start, so those bring it back too.
     afterRenderEffect(() => {
       this.activeSurfaceId();
-      const tab = this.host.nativeElement.querySelector<HTMLElement>('.hub-tab.active');
-      if (typeof tab?.scrollIntoView === 'function') tab.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+      this.controlNavCollapsed();
+      this.showingHubs();
+      for (const selector of ['.control-nav-hubs .control-nav-item.active', '.hub-tab.active']) {
+        const link = this.host.nativeElement.querySelector<HTMLElement>(selector);
+        if (typeof link?.scrollIntoView === 'function') link.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+      }
     });
     this.router.events
       .pipe(

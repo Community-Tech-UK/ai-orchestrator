@@ -310,10 +310,9 @@
     padding: 0.75rem;
   }
 
-  /* Stacked layout: nav strip above, content below, help pane under that. Those
-     implicit auto rows already share the container's height correctly here, so
-     drop the wide layout's single explicit row — inheriting it would hand the
-     whole cell to the nav and crush the content to nothing. */
+  /* Stacked layout: nav strip above, content below. Drop the wide layout's single
+     explicit row, because inheriting it would hand the whole cell to the nav and
+     crush the content. Standard pages that show the menu set their own rows below. */
   .control-shell.nav-collapsed .control-body,
   .control-body {
     grid-template-columns: 1fr;
@@ -347,6 +346,39 @@
 
   .control-shell.nav-collapsed .control-nav-group {
     min-width: 0;
+  }
+
+  /* One group holds all the hubs, so in the strip they sit in a row that scrolls sideways
+     instead of stacking a dozen rows above the page. */
+  .layout-standard .control-nav-hubs {
+    display: flex;
+    gap: 0.25rem;
+  }
+
+  .layout-standard .control-nav-hubs .control-nav-item {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  /* With the menu as a strip, the strip keeps its natural height and the page takes the rest. Left to the implicit
+     rows, a short page would hand its spare height to the strip. The third row is the help pane's, which is hidden
+     at this width. */
+  .control-shell.layout-standard:not(.no-nav) .control-body {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  /* Collapsed, the strip is a row of icons: keep the toggle at the start, give each icon a usable target and let the
+     row scroll like the expanded one. */
+  .control-shell.nav-collapsed.layout-standard .control-nav {
+    overflow-x: auto;
+  }
+
+  .control-shell.nav-collapsed.layout-standard .control-nav-toggle {
+    margin: 0;
+  }
+
+  .control-shell.nav-collapsed.layout-standard .control-nav-hubs .control-nav-item {
+    padding-inline: 0.5rem;
   }
 }
 

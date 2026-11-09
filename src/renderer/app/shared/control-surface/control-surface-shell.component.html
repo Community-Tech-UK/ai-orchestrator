@@ -79,7 +79,7 @@
             <p class="control-nav-empty" role="status">Nothing matches “{{ navQuery().trim() }}”.</p>
           }
         } @else {
-          <section class="control-nav-group">
+          <section class="control-nav-group control-nav-hubs">
             @for (hub of hubs(); track hub.id) {
               <a
                 class="control-nav-item"
