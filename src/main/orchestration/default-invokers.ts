@@ -925,7 +925,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   // Borrowed adapters belong to their chat instance. Track them only for the
   // timeout interrupt; terminal loop cleanup must never terminate them.
   const borrowedLoopAdapters = new Map<string, Set<unknown>>();
-  const terminatedAdapters = new WeakSet<object>();
+  // Only concurrent teardowns share one: terminate() before the child spawns is a no-op, so a later call must run.
+  const terminatingAdapters = new WeakMap<object, Promise<void>>();
   // LF-1: cumulative same-session tokens per loop, used to decide when to
   // recycle the persistent adapter to a fresh session (context discipline).
   const loopContextTokens = new Map<string, number>();
@@ -935,12 +936,13 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   const loopOccupancyUnavailableNotified = new Set<string>();
   const loopBorrowedChat = new Set<string>(); // loops that ran inside the person's chat session (T13.1)
 
-  const terminateTrackedAdapter = async (adapter: unknown, graceful: boolean): Promise<void> => {
-    if (adapter && typeof adapter === 'object') {
-      if (terminatedAdapters.has(adapter)) return;
-      terminatedAdapters.add(adapter);
-    }
-    await terminateCliAdapter(adapter, graceful);
+  const terminateTrackedAdapter = (adapter: unknown, graceful: boolean): Promise<void> => {
+    if (!adapter || typeof adapter !== 'object') return terminateCliAdapter(adapter, graceful);
+    const existing = terminatingAdapters.get(adapter);
+    if (existing) return existing;
+    const promise = terminateCliAdapter(adapter, graceful).finally(() => terminatingAdapters.delete(adapter));
+    terminatingAdapters.set(adapter, promise);
+    return promise;
   };
 
   const trackAdapter = (
@@ -960,7 +962,6 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   };
 
   const trackActiveAdapter = (loopRunId: string, adapter: unknown): (() => void) => {
-    if (adapter && typeof adapter === 'object') terminatedAdapters.delete(adapter);
     return trackAdapter(activeLoopAdapters, loopRunId, adapter);
   };
 
@@ -968,8 +969,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   // Terminates the current adapter, drops it from both tracking maps, and zeroes
   // the cumulative-token counter so the NEXT iteration creates a fresh adapter.
   // Durable disk state (STAGE/NOTES/ITERATION_LOG/plan + the goal persisted each
-  // iteration) re-anchors the fresh session. terminateTrackedAdapter dedupes via
-  // a WeakSet so a later teardown of the same adapter is a no-op.
+  // iteration) re-anchors the fresh session. terminateTrackedAdapter shares one
+  // in-flight teardown between concurrent callers.
   const recyclePersistentLoopAdapter = async (loopRunId: string): Promise<void> => {
     const adapter = persistentLoopAdapters.get(loopRunId);
     persistentLoopAdapters.delete(loopRunId);

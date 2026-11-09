@@ -1265,6 +1265,35 @@ describe('Loop Mode invoker plumbing', () => {
     await finished;
   });
 
+  it('leaves no child running when the loop is cancelled before the adapter has spawned its process', async () => {
+    registerDefaultLoopInvoker({} as never);
+    // Mirrors Codex app-server / ACP: sendMessage awaits an async spawn() before a process exists,
+    // and terminate() only kills a process that exists (BaseCliAdapter.terminate returns early otherwise).
+    let childAlive = false;
+    let releaseSpawn!: () => void;
+    hoisted.terminate.mockImplementation(async () => { childAlive = false; });
+    hoisted.sendMessage.mockImplementation(async () => {
+      await new Promise<void>((resolve) => { releaseSpawn = resolve; });
+      childAlive = true;
+      return { content: 'late result after cancellation', usage: { totalTokens: 1 } };
+    });
+
+    const finished = emitIteration({ config: { contextStrategy: 'fresh-child' } });
+    await new Promise<void>((r) => setImmediate(r));
+    await new Promise<void>((r) => setImmediate(r));
+
+    hoisted.loopCoordinatorRef.current.emit('loop:state-changed', { loopRunId: 'loop-1', state: { status: 'cancelled' } });
+    await new Promise<void>((r) => setImmediate(r));
+    expect(hoisted.terminate).toHaveBeenCalledTimes(1);
+    expect(childAlive).toBe(false); // nothing spawned yet
+
+    releaseSpawn(); // the child now spawns, after the cancel
+    await finished;
+    await new Promise<void>((r) => setImmediate(r));
+
+    expect(childAlive).toBe(false);
+  });
+
   it('does not terminate a child for resumable provider-limit state changes', async () => {
     registerDefaultLoopInvoker({} as never);
     let resolveSend!: (value: { content: string; usage: { totalTokens: number } }) => void;
