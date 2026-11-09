@@ -83,7 +83,7 @@ describe('McpPageComponent template', () => {
 describe('McpPageComponent connector forms', () => {
   const connectors = signal<OrchestratorMcpDto[]>([]);
   const ipc = {
-    orchestratorUpsert: vi.fn(), connectorAuth: vi.fn(), connectorAddMicrosoft365: vi.fn(),
+    orchestratorUpsert: vi.fn(), connectorAuth: vi.fn(), connectorAddMicrosoft365: vi.fn(), connectorForgetAlwaysAllowed: vi.fn(),
     mcpGetServers: vi.fn(), mcpGetTools: vi.fn(), mcpGetResources: vi.fn(), mcpGetPrompts: vi.fn(),
   };
   let component: McpPageComponent;
@@ -112,6 +112,21 @@ describe('McpPageComponent connector forms', () => {
       injectInto: ['claude', 'codex', 'gemini', 'copilot', 'cursor', 'grok', 'opencode'],
     }]);
     expect(component.connectorSummary('example')).toBe('Used by: Claude, Codex, Gemini, Copilot, Cursor, Grok, OpenCode');
+  });
+
+  it('lists the Microsoft 365 changes that no longer ask, and makes them ask again', async () => {
+    const record = {
+      id: 'm365', name: 'm365-example', scope: 'orchestrator' as const, transport: 'stdio' as const, kind: 'microsoft365' as const,
+      autoConnect: true, readOnly: false as const, createdAt: 0, updatedAt: 0,
+    };
+    connectors.set([{ record, injectInto: [], alwaysAllowed: ['graph_mail_send', 'graph_calendar_delete_event'] }]);
+    expect(component.connectorAlwaysAllowed('m365')).toBe('sending mail, deleting calendar events');
+    connectors.set([{ record, injectInto: [], alwaysAllowed: [] }]);
+    expect(component.connectorAlwaysAllowed('m365')).toBe('');
+
+    ipc.connectorForgetAlwaysAllowed.mockResolvedValue({ success: true });
+    await component.forgetAlwaysAllowed(record);
+    expect(ipc.connectorForgetAlwaysAllowed).toHaveBeenCalledWith({ serverId: 'm365' });
   });
 
   it('stores a bearer through auth only and clears it after saving', async () => {

@@ -3,22 +3,30 @@
  * part of or on its own, and this Mac last. In Settings it changes things; on the Control Center page (`readOnly`) it
  * only shows.
  */
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
 import { SettingsStore } from '../../core/state/settings.store';
 import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.service';
+import { ProviderAccountIpcService } from '../../core/services/ipc/provider-account-ipc.service';
 import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import { presentError } from '../../../../shared/present-error';
 import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 import type { TestMachineView, WorkToday } from '../../../../shared/types/computers.types';
 import type { ComputerChoice } from '../../../../shared/types/settings.types';
+import type { PooledProvider } from '../../../../shared/types/provider-account.types';
 import {
   buildComputerRows,
   changedChoices,
+  describeFolders,
   describeNow,
   describeTakes,
   describeToday,
+  describeTools,
   movedChoices,
+  providersWithAccounts,
+  workerSettingsFiles,
+  type ComputerDetail,
   type ComputerRow,
+  type DetailLine,
 } from './computers-list.model';
 
 /** Field by field, so the order keys were stored in can't make a kept change look lost. */
@@ -42,6 +50,7 @@ const SLOT_CHOICES = [1, 2, 3, 4, 5, 6, 7, 8];
 export class ComputersListComponent {
   private readonly store = inject(SettingsStore);
   private readonly ipc = inject(RemoteNodeIpcService);
+  private readonly accounts = inject(ProviderAccountIpcService);
 
   /** Paired computers, connected or not, as the roster has them. */
   readonly nodes = input<readonly RemoteNodeRosterEntry[]>([]);
@@ -55,6 +64,10 @@ export class ComputersListComponent {
   protected readonly saveFailure = signal<string | null>(null);
   protected readonly saving = signal(false);
   private readonly now = signal(Date.now());
+  /** This Mac's names for its Claude and Codex accounts, keyed `provider:profileId`, to name them on other computers. */
+  private readonly accountLabels = signal(new Map<string, string>());
+  /** Tools whose names have been asked for: reading them runs this Mac's own sign-in checks, so once each. */
+  private readonly labelsRequested = new Set<string>();
   /** Counts saved test-machine changes, so a refresh that started before one can't put the old values back. */
   private testMachineChanges = 0;
 
@@ -73,6 +86,9 @@ export class ComputersListComponent {
 
   constructor() {
     void this.load();
+    effect(() => {
+      for (const provider of providersWithAccounts(this.rows())) void this.loadAccountLabels(provider);
+    });
     const timer = setInterval(() => {
       this.now.set(Date.now());
       void this.load();
@@ -86,6 +102,37 @@ export class ComputersListComponent {
 
   protected describeTakes(row: ComputerRow): string {
     return describeTakes(row);
+  }
+
+  protected describeTools(detail: ComputerDetail): DetailLine[] {
+    const labels = this.accountLabels();
+    return describeTools(detail, (provider, profileId) => labels.get(`${provider}:${profileId}`));
+  }
+
+  protected describeFolders(detail: ComputerDetail): string {
+    return describeFolders(detail);
+  }
+
+  protected settingsFiles(detail: ComputerDetail): { home: string; service: string } {
+    return workerSettingsFiles(detail.platform);
+  }
+
+  /**
+   * Only for a tool another computer reports extra accounts for: the default account needs no name, and the read
+   * checks each of this Mac's accounts for that tool. Without the names an account is shown by its ID, which is
+   * still right, so a failed read changes nothing else.
+   */
+  private async loadAccountLabels(provider: PooledProvider): Promise<void> {
+    if (this.labelsRequested.has(provider)) return;
+    this.labelsRequested.add(provider);
+    try {
+      const { profiles } = await this.accounts.list(provider);
+      this.accountLabels.update(labels => new Map([
+        ...labels, ...profiles.map(profile => [`${profile.provider}:${profile.id}`, profile.label] as const),
+      ]));
+    } catch {
+      // Named by ID instead.
+    }
   }
 
   private async load(): Promise<void> {

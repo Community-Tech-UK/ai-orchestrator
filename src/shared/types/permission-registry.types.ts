@@ -10,6 +10,11 @@ export interface PermissionRequest {
   description: string;
   toolName?: string;
   details?: Record<string, unknown>;
+  /**
+   * Set only by a requester that can remember a yes. Says in plain words what
+   * "Always allow" covers; the card then offers that choice beside the one-off approval.
+   */
+  alwaysAllowCovers?: string;
   createdAt: number;
   timeoutMs: number;
 }
@@ -34,6 +39,8 @@ export interface PermissionDecision {
   /** `cancelled`: withdrawn because the turn stopped or the agent exited before anyone answered. */
   decidedBy: 'user' | 'auto_approve' | 'timeout' | 'parent_deny' | 'cancelled';
   decidedAt: number;
+  /** The person chose "Always allow". Only possible when the request set `alwaysAllowCovers`. */
+  always?: boolean;
 }
 
 export type OrchestrationRole =

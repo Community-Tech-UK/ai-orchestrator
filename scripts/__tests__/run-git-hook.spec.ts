@@ -109,12 +109,17 @@ describe('run-git-hook', () => {
     expect(runHook('pre-commit', { env: { AIO_PLAN_QUEUE_TESTS_COVERED: '1',
       ...(proof === 'missing' ? {} : { AIO_PLAN_QUEUE_TESTS_COVERED_TREE: tree }) },
       spawnSync: (command, args) => { calls.push({ command, args });
-        return args[0] === 'write-tree' ? { status: proof === 'failed' ? 1 : 0, stdout: `${'b'.repeat(40)}\n` } : { status: 0 }; },
+        if (args[0] === 'write-tree') return { status: proof === 'failed' ? 1 : 0, stdout: `${'b'.repeat(40)}\n` };
+        // A different staged tree: git reports code differences outside the regenerated documentation.
+        return args[0] === 'diff-tree' ? { status: 1 } : { status: 0 }; },
     })).toBe(0);
-    expect(calls.filter(call => call.args[0] !== 'write-tree')).toEqual(getHookCommands('pre-commit'));
+    expect(calls.filter(call => call.args[0] !== 'write-tree' && call.args[0] !== 'diff-tree')).toEqual(getHookCommands('pre-commit'));
   });
 
-  it.each([false, true])('rechecks the real staged tree after generators (code changed: %s)', changed => {
+  // The architecture list is documentation no test reads, and workers' own commits skip the hook, so nearly every landing
+  // rebuilds it. A fresher copy must not cost the skip; a regenerated code file must.
+  it.each(['nothing', 'code', 'documentation'] as const)('rechecks the real staged tree after generators (regenerated: %s)', regenerated => {
+    const changed = regenerated === 'code';
     const root = mkdtempSync(join(tmpdir(), 'queue-hook-proof-'));
     try {
       const git = (args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -123,7 +128,8 @@ describe('run-git-hook', () => {
       const calls = join(root, '.git', 'npm-calls');
       const npm = join(bin, 'npm');
       writeFileSync(npm, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$HOOK_CALLS"\n'
-        + 'if [ "$2" = "generate:aliases" ] && [ "$CHANGE_CODE" = "1" ]; then echo changed >> src/main/register-aliases.ts; fi\n');
+        + 'if [ "$2" = "generate:aliases" ] && [ "$REGENERATED" = "code" ]; then echo changed >> src/main/register-aliases.ts; fi\n'
+        + 'if [ "$2" = "generate:architecture" ] && [ "$REGENERATED" = "documentation" ]; then echo changed >> docs/generated/architecture-inventory.json; fi\n');
       chmodSync(npm, 0o755);
       for (const file of ['src/main/register-aliases.ts', 'src/preload/generated/channels.ts', 'docs/generated/architecture-inventory.json']) {
         mkdirSync(join(root, file, '..'), { recursive: true }); writeFileSync(join(root, file), 'original\n');
@@ -134,7 +140,7 @@ describe('run-git-hook', () => {
       writeFileSync(runner, readFileSync(require.resolve('../run-git-hook.js')));
       writeFileSync(join(root, '.git', 'generated-artifacts.json'), readFileSync(require.resolve('../generated-artifacts.json')));
       execFileSync(process.execPath, [runner, 'pre-commit'], { cwd: root, env: {
-        ...process.env, PATH: `${bin}:${process.env['PATH'] ?? ''}`, HOOK_CALLS: calls, CHANGE_CODE: changed ? '1' : '0',
+        ...process.env, PATH: `${bin}:${process.env['PATH'] ?? ''}`, HOOK_CALLS: calls, REGENERATED: regenerated,
         AIO_PLAN_QUEUE_TESTS_COVERED: '1', AIO_PLAN_QUEUE_TESTS_COVERED_TREE: tree,
       }, stdio: ['ignore', 'pipe', 'pipe'] });
       const commands = readFileSync(calls, 'utf8').trim().split('\n');

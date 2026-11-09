@@ -259,8 +259,8 @@ Because of that, the two surfaces have different write boundaries:
 The `CLI-Write` column (`cliWritable` under `--json`) answers "can this CLI
 change it". The `Policy` column reports the safe MCP tool tier instead, so a
 `read-only` policy does not imply the CLI is blocked. `CLI-Write: no` marks the
-27 operator-only authorization anchors: the six Computer Use policy keys, the
-four Microsoft Graph OAuth and calendar-allowlist keys, the context-evidence
+28 operator-only authorization anchors: the six Computer Use policy keys, the
+five Microsoft Graph keys (OAuth, the calendar allowlist and the "Always allow" change list), the context-evidence
 rollout mode, the three Local AI Guard fallback-policy and budget keys, the
 WS-B1 per-project PR-creation opt-in map (`allowPrCreation`), the licence-scoping
 automation-provider block-list (`providersExcludedFromAutomation`), the two GitHub

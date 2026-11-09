@@ -23,6 +23,27 @@ describe('PermissionRegistry', () => {
     expect(registry.getPendingCount()).toBe(0);
   });
 
+  it('records "always" only for a person\'s yes to a request that offered it', async () => {
+    const registry = PermissionRegistry.getInstance();
+    const request = (id: string, alwaysAllowCovers?: string) => registry.requestPermission({
+      id, instanceId: 'inst-1', action: 'microsoft365_mutation', description: 'Send mail?',
+      ...(alwaysAllowCovers ? { alwaysAllowCovers } : {}), createdAt: Date.now(), timeoutMs: 5000,
+    });
+    const offered = request('offered', 'Always allow sends mail.');
+    const notOffered = request('not-offered');
+    const denied = request('denied', 'Always allow sends mail.');
+    const automatic = request('automatic', 'Always allow sends mail.');
+    registry.resolve('offered', true, 'user', true);
+    registry.resolve('not-offered', true, 'user', true);
+    registry.resolve('denied', false, 'user', true);
+    registry.resolve('automatic', true, 'auto_approve', true);
+
+    expect((await offered).always).toBe(true);
+    expect((await notOffered).always).toBeUndefined();
+    expect((await denied).always).toBeUndefined();
+    expect((await automatic).always).toBeUndefined();
+  });
+
   it('should deny on timeout', async () => {
     vi.useFakeTimers();
     const registry = PermissionRegistry.getInstance();

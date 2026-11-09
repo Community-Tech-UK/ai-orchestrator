@@ -80,12 +80,37 @@ export function validateWorkerAccountRoute(
   }
 }
 
-const defaultBindingCheck: WorkerBindingCheck = async (profile, nodeId) => {
+/** This node's own sign-in check, always fresh. */
+export const checkWorkerAccountBinding: WorkerBindingCheck = async (profile, nodeId) => {
   const { ProviderAccountBindingService } = await import(
     '../main/providers/account-pool/provider-account-binding-service'
   );
   return new ProviderAccountBindingService().checkBinding(profile, nodeId, { force: true });
 };
+
+/** The profile a binding check reads on this node: only its provider, ID, expected identity and MiMo region matter. */
+export function workerAccountProfile(
+  provider: PooledProvider,
+  profileId: string,
+  expectedIdentity: string | null,
+  region?: OpenCodeAccountRegion,
+): ProviderAccountProfile {
+  return {
+    id: profileId,
+    provider,
+    label: profileId,
+    expectedIdentity,
+    expectedAccountKey: null,
+    planLabel: null,
+    priority: 0,
+    enabled: true,
+    automationPolicy: 'allow-routed',
+    isLegacy: profileId === LEGACY_ACCOUNT_PROFILE_ID,
+    ...(region ? { region } : {}),
+    createdAt: 0,
+    updatedAt: 0,
+  };
+}
 
 /**
  * Independently re-validates the route, verifies this node's own binding and
@@ -97,27 +122,12 @@ const defaultBindingCheck: WorkerBindingCheck = async (profile, nodeId) => {
 export async function materializeWorkerAccountRoute(
   cliType: string,
   route: unknown,
-  checkBinding: WorkerBindingCheck = defaultBindingCheck,
+  checkBinding: WorkerBindingCheck = checkWorkerAccountBinding,
 ): Promise<ResolvedAccountRoute> {
   validateWorkerAccountRoute(cliType, route);
-  const isLegacy = route.profileId === LEGACY_ACCOUNT_PROFILE_ID;
   const expectedIdentity = route.expectedIdentity ?? null;
   const status = await checkBinding(
-    {
-      id: route.profileId,
-      provider: route.provider,
-      label: route.profileId,
-      expectedIdentity,
-      expectedAccountKey: null,
-      planLabel: null,
-      priority: 0,
-      enabled: true,
-      automationPolicy: 'allow-routed',
-      isLegacy,
-      ...(route.region ? { region: route.region } : {}),
-      createdAt: 0,
-      updatedAt: 0,
-    },
+    workerAccountProfile(route.provider, route.profileId, expectedIdentity, route.region),
     WORKER_ACCOUNT_NODE_ID,
   );
   if (status.state !== 'authenticated') {

@@ -255,6 +255,7 @@ describe('scheduled run settlement through provider communication', () => {
     const account = { accountKey: 'account', username: 'sender@example.test', tenant: 'fixture-tenant', createdAt: 1, updatedAt: 1 };
     const graph = new GraphConnectorService({ authManager: { connectAccount: vi.fn(), listAccounts: async () => [], removeAccount: vi.fn() },
       listStoredAccounts: () => [account], writableAccountEmails: () => [account.username], updateWritableAccountEmails: vi.fn(),
+      alwaysAllowedChanges: () => ({}), updateAlwaysAllowedChanges: vi.fn(),
       createGraphClient: requestContext => new GraphClient({ tokenProvider: { getAccessToken: async () => 'PLACEHOLDER_ACCESS' }, fetch, requestContext }),
     });
     const args = toolName === 'graph_mail_send' ? { messageId: 'draft' } : toolName === 'graph_calendar_delete_event' ? { eventId: 'event' }

@@ -207,6 +207,14 @@ describe('scheduled job execution contract', () => {
     event('complete');
     expect(store.listRuns({ automationId: a.id })[0]).toMatchObject({ status: 'failed', error: 'No result or assistant text was returned' });
   });
+  it('tells a session whose run already ended that its result cannot be recorded, and why', async () => {
+    const a = await fire();
+    // A held call shown to a person: the run ends needing approval, but the session lives on and may report after Allow.
+    manager.emit('instance:input-required', { instanceId: 'root', requestId: 'ask', metadata: { type: 'deferred_permission', tool_name: 'mcp__orchestrator__plan_queue_start' } });
+    expect(store.listRuns({ automationId: a.id })[0]).toMatchObject({ status: 'failed', error: 'Automation requires unattended permission approval' });
+    expect(() => runner.recordResult('root', { outcome: 'done', notify: true }))
+      .toThrow('This scheduled run has already ended (failed: Automation requires unattended permission approval), so Harness cannot record its result');
+  });
   it('does not repeat work which already reported a completed semantic result', async () => {
     const a = await fire(); runner.recordResult('root', { outcome: 'done', notify: true });
     const fresh = new AutomationRunner(store, undefined, () => clock, (() => ({})) as never);

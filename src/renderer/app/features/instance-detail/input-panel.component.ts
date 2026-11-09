@@ -105,6 +105,7 @@ import { setTextareaValueAtEnd } from './input-panel-textarea';
 import { ComposerQuotaNoticeComponent } from './composer-quota-notice.component';
 import { describePostureSentence, postureFromInstance } from '../../../../shared/session-posture';
 import { ComposerBannersComponent } from './composer-banners.component';
+import { ToolLoopBannerComponent } from './tool-loop-banner.component';
 import { ComposerRecoveryBannerComponent } from './composer-recovery-banner.component';
 import { RunReadinessBannerComponent, RunReadinessGate } from './run-readiness-banner.component';
 import { runRestoreFrame } from './restore-frame';
@@ -159,6 +160,7 @@ const LOOP_START_ACK_TIMEOUT_MS = 30_000;
     CompactModelPickerComponent,
     ComposerAutocompleteComponent,
     ComposerBannersComponent,
+    ToolLoopBannerComponent,
     ComposerQueueComponent,
     ComposerRecoveryBannerComponent,
     ComposerToolbarComponent,

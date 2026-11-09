@@ -20,8 +20,13 @@ export class PermissionRegistryIpcService {
     return this.call(() => this.api?.permissionRegistryListPending(instanceId ? { instanceId } : {}));
   }
 
-  async resolve(requestId: string, granted: boolean, reason?: string): Promise<IpcResponse<{ requestId: string; granted: boolean }>> {
-    return this.call(() => this.api?.permissionRegistryResolve({ requestId, granted, reason }));
+  async resolve(
+    requestId: string,
+    granted: boolean,
+    reason?: string,
+    always = false,
+  ): Promise<IpcResponse<{ requestId: string; granted: boolean }>> {
+    return this.call(() => this.api?.permissionRegistryResolve({ requestId, granted, reason, ...(always ? { always } : {}) }));
   }
 
   async extend(requestId: string, extraMs: number): Promise<IpcResponse<PendingApprovalItem>> {

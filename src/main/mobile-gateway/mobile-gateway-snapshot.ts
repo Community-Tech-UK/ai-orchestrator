@@ -2,19 +2,23 @@ import * as os from "os";
 import { WebSocket } from "ws";
 import type { Instance } from "../../shared/types/instance.types";
 import type { LoopState } from "../../shared/types/loop.types";
-import type {
-  MobileInstanceDto,
-  MobilePauseDto,
-  MobilePromptDto,
-  MobileQueuedMessageDto,
-  MobileServerEvent,
-  MobileSnapshot,
+import {
+  MOBILE_OWNER_PROFILE_ID,
+  type MobileInstanceDto,
+  type MobilePauseDto,
+  type MobilePromptDto,
+  type MobileQueuedMessageDto,
+  type MobileServerEvent,
+  type MobileSnapshot,
 } from "../../shared/types/mobile-gateway.types";
 import { isActiveLoopRuntimeState } from "../orchestration/loop-runtime-status";
 import { buildProjects, serializeInstance } from "./mobile-gateway-serializers";
 import { isHiddenFromMobile } from "./mobile-gateway-session-visibility";
 
 const SNAPSHOT_COALESCE_MS = 100;
+
+/** Any live event except a snapshot, which is always built per person. */
+export type MobileBroadcastEvent = Exclude<MobileServerEvent, { type: "snapshot" }>;
 
 export interface MobileGatewaySnapshotDeps {
   readonly clients: Set<WebSocket>;
@@ -25,6 +29,10 @@ export interface MobileGatewaySnapshotDeps {
   getActiveLoops(): Pick<LoopState, "chatId" | "status" | "endedAt">[];
   hasUnreadCompletion(instanceId: string): boolean;
   getQueuedMessages(instanceId: string): MobileQueuedMessageDto[] | undefined;
+  /** The person a connected phone belongs to; undefined sends that phone nothing. */
+  profileOfClient(client: WebSocket): string | undefined;
+  /** The person a session belongs to, including one that has just been removed. */
+  profileOfInstance(instanceId: string): string;
   debug?(message: string, data: Record<string, unknown>): void;
   now?(): number;
 }
@@ -42,9 +50,12 @@ export class MobileGatewaySnapshotService {
     this.snapshotTimer = null;
   }
 
-  buildSnapshot(): MobileSnapshot {
+  /** Everything one person may see: their own sessions and the prompts on them. */
+  buildSnapshot(profileId: string): MobileSnapshot {
     const promptCounts = new Map<string, number>();
-    const prompts = this.deps.getPrompts();
+    const prompts = this.deps
+      .getPrompts()
+      .filter((prompt) => this.promptProfile(prompt) === profileId);
     for (const prompt of prompts) {
       promptCounts.set(
         prompt.instanceId,
@@ -57,6 +68,7 @@ export class MobileGatewaySnapshotService {
       .getInstances()
       // A session with a question waiting is always listed, so its prompt can be answered in context.
       .filter((instance) => instance.status !== "terminated"
+        && this.deps.profileOfInstance(instance.id) === profileId
         && (!isHiddenFromMobile(instance) || promptCounts.has(instance.id)))
       .map((instance) => this.serializeInstance(instance, activeLoopChatIds))
       .map((dto) => this.withTransientState(dto, promptCounts));
@@ -84,17 +96,87 @@ export class MobileGatewaySnapshotService {
     if (this.snapshotTimer || !this.deps.isRunning()) return;
     this.snapshotTimer = setTimeout(() => {
       this.snapshotTimer = null;
-      this.broadcast({ type: "snapshot", data: this.buildSnapshot() });
+      this.broadcastSnapshots();
     }, SNAPSHOT_COALESCE_MS);
   }
 
-  broadcast(event: MobileServerEvent): void {
+  /** Send each connected phone the snapshot for its own person. */
+  broadcastSnapshots(): void {
+    this.send((profileId) => ({ type: "snapshot", data: this.buildSnapshot(profileId) }));
+  }
+
+  /** Send an event to every connected phone whose person may see it. */
+  broadcast(event: MobileBroadcastEvent): void {
+    this.send((profileId) => this.eventForProfile(event, profileId));
+  }
+
+  private send(forProfile: (profileId: string) => MobileServerEvent | null): void {
     if (this.deps.clients.size === 0) return;
-    const raw = JSON.stringify(event);
-    if (event.type === "snapshot") this.recordSnapshotMeasurement(raw);
+    const rawByProfile = new Map<string, string | null>();
     for (const client of this.deps.clients) {
-      if (client.readyState === WebSocket.OPEN) client.send(raw);
+      if (client.readyState !== WebSocket.OPEN) continue;
+      const profileId = this.deps.profileOfClient(client);
+      if (profileId === undefined) continue;
+      let raw = rawByProfile.get(profileId);
+      if (raw === undefined) {
+        const event = forProfile(profileId);
+        raw = event ? JSON.stringify(event) : null;
+        if (event?.type === "snapshot" && raw) this.recordSnapshotMeasurement(raw);
+        rawByProfile.set(profileId, raw);
+      }
+      if (raw !== null) client.send(raw);
     }
+  }
+
+  /**
+   * What one person receives for an event: session events only for their own
+   * sessions, the pause state for everyone (it stops their work too), and all
+   * other Harness-wide state for the owner alone. Every event type must be
+   * listed here, so a new one cannot reach a member by default.
+   */
+  private eventForProfile(
+    event: MobileBroadcastEvent,
+    profileId: string,
+  ): MobileServerEvent | null {
+    const isOwner = profileId === MOBILE_OWNER_PROFILE_ID;
+    switch (event.type) {
+      case "instance-output":
+      case "instance-created":
+        return this.deps.profileOfInstance(
+          event.type === "instance-output" ? event.data.instanceId : event.data.id,
+        ) === profileId ? event : null;
+      case "instance-removed":
+        return this.deps.profileOfInstance(event.data.instanceId) === profileId ? event : null;
+      case "instance-state": {
+        const data = event.data.filter((dto) => this.deps.profileOfInstance(dto.id) === profileId);
+        return data.length > 0 ? { type: "instance-state", data } : null;
+      }
+      case "permission-prompt":
+        return this.promptProfile(event.data) === profileId ? event : null;
+      case "permission-cleared":
+        return event.data.instanceId === undefined
+          ? (isOwner ? event : null)
+          : this.deps.profileOfInstance(event.data.instanceId) === profileId ? event : null;
+      case "pause-state":
+        return event;
+      case "pong":
+      case "quota-state":
+      case "loop-state":
+      case "plan-queue-state":
+        return isOwner ? event : null;
+      default: {
+        const unhandled: never = event;
+        void unhandled;
+        return null;
+      }
+    }
+  }
+
+  /** Browser approvals act on the owner's browser, so only the owner sees them. */
+  private promptProfile(prompt: MobilePromptDto): string {
+    return prompt.kind === "browser"
+      ? MOBILE_OWNER_PROFILE_ID
+      : this.deps.profileOfInstance(prompt.instanceId);
   }
 
   private recordSnapshotMeasurement(raw: string): void {

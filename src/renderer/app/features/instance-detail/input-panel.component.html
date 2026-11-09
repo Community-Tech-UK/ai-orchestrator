@@ -1,4 +1,7 @@
 <div class="input-panel">
+  <!-- The session may be stuck repeating tool calls: Stop this turn or Let it continue -->
+  <app-tool-loop-banner [instanceId]="instanceId()" />
+
   <!-- Quota-park + hardened-denial session bars (they gate the composer) -->
   <app-composer-banners
     [instanceId]="instanceId()"

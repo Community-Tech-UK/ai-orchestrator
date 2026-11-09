@@ -52,7 +52,8 @@ describe('native recovery diagnostics actual sink', () => {
           observeToolLoopEvent({ getAutoInterruptSetting: setting, interruptInstance: interrupt }, instance.id,
             { kind: 'tool_result', toolName: 'write', toolUseId: `call-${i}`, success: true, output: source });
         }
-        if (mode === 'tool-interrupt') { expect(interrupt).toHaveBeenCalledOnce(); expect(getInstanceTurnEnding(instance.id)).toBeDefined(); expect(getDoomLoopDetector().hasAutoInterruptedThisTurn(instance.id)).toBe(true); }
+        // A stop that throws leaves the turn running, so neither the turn-ending reason nor the once-per-turn guard is kept.
+        if (mode === 'tool-interrupt') { expect(interrupt).toHaveBeenCalledOnce(); expect(getInstanceTurnEnding(instance.id)).toBeUndefined(); expect(getDoomLoopDetector().hasAutoInterruptedThisTurn(instance.id)).toBe(false); }
         else expect(interrupt).not.toHaveBeenCalled();
       } else if (mode.endsWith('tick')) {
         vi.useFakeTimers();

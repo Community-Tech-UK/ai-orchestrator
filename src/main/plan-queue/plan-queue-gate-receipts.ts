@@ -61,6 +61,11 @@ function ranOn(output: string): string | undefined {
   return [...stripVTControlCharacters(output).matchAll(/^\s*Ran on (.+?) in \d/gm)].at(-1)?.[1]?.slice(0, MAX_MACHINE_CHARS);
 }
 
+/** A checklist command that runs tests, so its output can say whether tests ran. */
+export function isTestCommand(command: string): boolean {
+  return /\b(?:test(?::[\w-]+)?|vitest|jest|pytest|mocha)\b/i.test(command);
+}
+
 export function classifyGateEvidence(command: string, exitCode: number, output: string): GateEvidence {
   const plain = stripVTControlCharacters(output);
   if (exitCode !== 0) return 'failed';
@@ -68,7 +73,7 @@ export function classifyGateEvidence(command: string, exitCode: number, output: 
   if (/\b0 tests? passed|\bTests\s*:?\s+0 passed|\b0 passing\b/i.test(plain)) return 'no-tests-found';
   const goPackages = plain.split(/\r?\n/).filter(line => /^\s*(?:ok|\?)\s+\S+/.test(line));
   if (goPackages.length && goPackages.every(line => /\[(?:no tests to run|no test files)\]\s*$/.test(line))) return 'no-tests-found';
-  if (/\b(?:test(?::[\w-]+)?|vitest|jest|pytest|mocha)\b/i.test(command)) {
+  if (isTestCommand(command)) {
     return /\d+ tests? passed|Tests\s*:?\s+\d+ passed|\d+ passed.*(?:in|\[)|\b[1-9]\d* passing\b|^ok\s+\S+\s+(?:[\d.]+s|\(cached\))/im.test(plain) ? 'passed' : 'not-recognised';
   }
   return 'passed';

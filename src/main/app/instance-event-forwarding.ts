@@ -11,6 +11,7 @@ import { getCrossModelReviewService } from '../orchestration/cross-model-review-
 import { getDebateCoordinator } from '../orchestration/debate-coordinator';
 import { getDoomLoopDetector } from '../orchestration/doom-loop-detector';
 import { toolLoopNotice } from '../orchestration/tool-loop-notice';
+import { willAutoInterruptToolLoop } from '../instance/instance-tool-loop-wiring';
 import { getNotificationService } from '../notifications/notification-service';
 import { getSettingsManager } from '../core/config/settings-manager';
 import type { UserActionRequest } from '../orchestration/orchestration-handler';
@@ -525,8 +526,9 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
 
   // WS-A2: result-aware tool-loop detections (repeat-no-progress, ping-pong,
   // runaway). Channel name kept as `instance:doom-loop` for continuity with
-  // the schema/validation wiring already registered for it; the payload
-  // shape itself is the new `ToolLoopDetectionEvent`.
+  // the schema/validation wiring already registered for it; the payload is
+  // the `ToolLoopDetectionEvent` fields plus `harnessStopping`
+  // (`InstanceDoomLoopEventSchema`).
   getDoomLoopDetector().on('tool-loop-detected', (event) => {
     logger.warn('Forwarding tool loop detection to renderer', {
       instanceId: event.instanceId,
@@ -534,18 +536,34 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       severity: event.severity,
       toolName: typeof event.toolName === 'string' ? textDiagnostic(event.toolName) : undefined,
       count: event.count,
+      autoStopFailed: event.autoStopFailed === true,
     });
-    windowManager.sendToRenderer('instance:doom-loop', event);
+    const instance = instanceManager.getInstance(event.instanceId);
+    // Forwarded before the wiring's auto-interrupt runs, so this is the same
+    // rule it is about to apply; a failed stop re-emits with `autoStopFailed`.
+    const harnessStopping = event.autoStopFailed !== true && willAutoInterruptToolLoop(
+      event, instance?.provider, getSettingsManager().get('toolLoopAutoInterrupt'));
+    windowManager.sendToRenderer('instance:doom-loop', {
+      instanceId: event.instanceId,
+      detector: event.detector,
+      severity: event.severity,
+      toolName: event.toolName,
+      count: event.count,
+      windowDescription: event.windowDescription,
+      harnessStopping,
+    });
     // N2: the toast this renders is the right surface for someone watching and
     // the wrong one for someone who is not — and an agent repeating a tool call
     // burns money mostly while nobody is looking.
     try {
       const notice = toolLoopNotice({
         severity: event.severity === 'critical' ? 'critical' : 'warning',
+        detector: event.detector,
         toolName: event.toolName,
-        windowDescription: event.windowDescription,
-        autoInterruptEnabled:
-          getSettingsManager().get('toolLoopAutoInterrupt') === true,
+        count: event.count,
+        // A notice names the session: several can be stuck at once, and each entry offers to stop one.
+        instanceName: instance?.displayName,
+        harnessWillStop: harnessStopping,
       });
       if (notice) {
         getNotificationService().notify({
@@ -554,7 +572,8 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
           title: notice.title,
           body: notice.body,
           urgency: notice.urgency,
-          fingerprintFields: { instanceId: event.instanceId, toolName: event.toolName },
+          // A failed automatic stop is new news: its own record and desktop alert, not a silent edit of "Harness is stopping it".
+          fingerprintFields: { instanceId: event.instanceId, toolName: event.toolName, autoStopFailed: event.autoStopFailed === true },
         });
       }
     } catch (err) {

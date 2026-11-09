@@ -90,6 +90,7 @@ describe('browser credential settings: 2026-08-29 privileged-CLI widening', () =
       'graphAuthority',
       'graphScopesJson',
       'graphAgentWritableAccountsJson',
+      'graphAlwaysAllowedChanges',
       'localAiGuardDefaultFallbackPolicy',
       'localAiGuardDailyFallbackBudgetUsd',
       'localAiGuardConfirmAboveInputTokens',

@@ -287,7 +287,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   // Cross-Model Review
   crossModelReviewEnabled: true,
-  crossModelReviewDailyLimit: 20,
+  crossModelReviewDailyLimit: 100,
   crossModelReviewDepth: 'structured',
   crossModelReviewMaxReviewers: 2,
   crossModelReviewProviders: ['cursor', 'antigravity', 'codex'],
@@ -356,6 +356,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mobileGatewayPort: 4879,
   mobileGatewayBindInterface: 'tailscale' as const,
   mobileGatewayDevices: '[]',
+  mobileGatewayProfiles: '[]',
   mobileGatewayTlsCertPath: '',
   mobileGatewayTlsKeyPath: '',
   mobileGatewayApnsKeyP8: '',
@@ -390,6 +391,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     'User.Read',
   ]),
   graphAgentWritableAccountsJson: JSON.stringify(['james@communitytech.co.uk']),
+  graphAlwaysAllowedChanges: {},
   ...DEFAULT_DESKTOP_COMPUTER_USE_SETTINGS,
   // Codex per-round token ceiling (Oct-2 Phase D, Decision 16a). Kept literal: this module is in the context
   // worker's import closure, so it must not gain a runtime import. codex-turn-token-ceiling.spec.ts pins these.

@@ -30,6 +30,7 @@ import type { PendingApprovalItem } from '../../../../shared/types/permission-re
 import { PermissionRegistryIpcService } from '../services/ipc/permission-registry-ipc.service';
 import { PermissionApprovalsStore } from './permission-approvals.store';
 import {
+  alwaysAllowLabel,
   classifyPermissionRisk,
   describeApprovalScope,
   formatDetails,
@@ -76,6 +77,9 @@ const EXTEND_MS = 2 * 60_000;
                 @if (scope(item); as howLong) {
                   <span class="approval-lasts">{{ howLong.lasts }}</span>
                 }
+                @if (item.alwaysAllowCovers) {
+                  <span class="approval-lasts approval-always">{{ item.alwaysAllowCovers }}</span>
+                }
                 @if (details(item); as d) {
                   <details class="approval-more">
                     <summary>Details</summary>
@@ -89,7 +93,15 @@ const EXTEND_MS = 2 * 60_000;
                   class="banner-btn primary"
                   [disabled]="working() !== null"
                   (click)="approve(item)"
-                >{{ working() === item.id ? 'Approving…' : approveLabel(item) }}</button>
+                >{{ working() === item.id && !choseAlways() ? 'Approving…' : approveLabel(item) }}</button>
+                @if (alwaysLabel(item); as alwaysText) {
+                  <button
+                    type="button"
+                    class="banner-btn always"
+                    [disabled]="working() !== null"
+                    (click)="approveAlways(item)"
+                  >{{ working() === item.id && choseAlways() ? 'Saving…' : alwaysText }}</button>
+                }
                 <button
                   type="button"
                   class="banner-btn danger"
@@ -308,6 +320,8 @@ export class PendingApprovalsBannerComponent implements OnInit {
 
   readonly pendingRequests = this.approvals.pendingRequests;
   readonly working = signal<string | null>(null);
+  /** Whether the decision in progress is "Always allow", so only that button says Saving…. */
+  readonly choseAlways = signal(false);
   readonly errorMessage = signal<string | null>(null);
   private readonly now = this.approvals.now;
 
@@ -345,8 +359,16 @@ export class PendingApprovalsBannerComponent implements OnInit {
     return describeApprovalScope(item)?.allowLabel ?? 'Approve';
   }
 
+  alwaysLabel(item: PendingApprovalItem): string | null {
+    return alwaysAllowLabel(item);
+  }
+
   async approve(item: PendingApprovalItem): Promise<void> {
     await this.decide(item, true);
+  }
+
+  async approveAlways(item: PendingApprovalItem): Promise<void> {
+    await this.decide(item, true, true);
   }
 
   async deny(item: PendingApprovalItem): Promise<void> {
@@ -371,17 +393,20 @@ export class PendingApprovalsBannerComponent implements OnInit {
     }
   }
 
-  private async decide(item: PendingApprovalItem, granted: boolean): Promise<void> {
+  private async decide(item: PendingApprovalItem, granted: boolean, always = false): Promise<void> {
     if (this.working()) {
       return;
     }
     this.working.set(item.id);
+    this.choseAlways.set(always);
     this.errorMessage.set(null);
     try {
       const response = await this.permissionRegistry.resolve(
         item.id,
         granted,
-        granted ? 'Approved from pending approvals banner' : 'Denied from pending approvals banner',
+        always ? 'Always allowed from pending approvals banner'
+          : granted ? 'Approved from pending approvals banner' : 'Denied from pending approvals banner',
+        always,
       );
       if (!response.success) {
         this.errorMessage.set(response.error?.message ?? 'Failed to submit your decision.');
@@ -391,6 +416,7 @@ export class PendingApprovalsBannerComponent implements OnInit {
       await this.refresh();
     } finally {
       this.working.set(null);
+      this.choseAlways.set(false);
     }
   }
 

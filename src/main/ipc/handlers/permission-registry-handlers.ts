@@ -68,10 +68,21 @@ export function registerPermissionRegistryHandlers(
       PermissionRegistryResolveRequestSchema,
       async (request): Promise<IpcResponse<{ requestId: string; granted: boolean }>> => {
         const registry = getPermissionRegistry();
-        if (!registry.getPending(request.requestId)) {
+        const pending = registry.getPending(request.requestId);
+        if (!pending) {
           return notPending(request.requestId);
         }
-        registry.resolve(request.requestId, request.granted, 'user');
+        if (request.always && (!request.granted || !pending.alwaysAllowCovers)) {
+          return {
+            success: false,
+            error: {
+              code: 'PERMISSION_REGISTRY_ALWAYS_UNAVAILABLE',
+              message: 'This request cannot be allowed always. Allow it once or deny it.',
+              timestamp: Date.now(),
+            },
+          };
+        }
+        registry.resolve(request.requestId, request.granted, 'user', request.always);
         return { success: true, data: { requestId: request.requestId, granted: request.granted } };
       },
       { ensureTrustedSender: deps.ensureTrustedSender },

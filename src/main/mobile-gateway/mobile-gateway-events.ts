@@ -2,7 +2,6 @@ import type { LoopState } from "../../shared/types/loop.types";
 import type { ProviderRuntimeEventEnvelope } from "@contracts/types/provider-runtime-events";
 import type {
   MobilePauseDto,
-  MobileServerEvent,
 } from "../../shared/types/mobile-gateway.types";
 import { toOutputMessageFromProviderEnvelope } from "../providers/provider-output-event";
 import {
@@ -15,6 +14,7 @@ import type { MobileGatewayPromptStore } from "./mobile-gateway-prompt-store";
 import type { MobileGatewayStreamCursor } from "./mobile-gateway-stream-cursor";
 import { isOperatorSession } from "./mobile-gateway-session-visibility";
 import { isActiveLoopRuntimeState } from "../orchestration/loop-runtime-status";
+import type { MobileBroadcastEvent } from "./mobile-gateway-snapshot";
 
 /** Minimal EventEmitter surface the gateway subscribes to and detaches from. */
 export interface EmitterLike {
@@ -43,7 +43,7 @@ export interface MobileGatewayEventDeps {
   promptStore: MobileGatewayPromptStore;
   streamCursor: MobileGatewayStreamCursor;
   hasClients(): boolean;
-  broadcast(event: MobileServerEvent): void;
+  broadcast(event: MobileBroadcastEvent): void;
   scheduleSnapshotBroadcast(): void;
   isInstanceBeingViewed(instanceId: string): boolean;
   clearInstanceQueue(instanceId: string): void;
@@ -58,6 +58,8 @@ export interface MobileGatewayEventDeps {
     event?: "update" | "end",
   ): void;
   clearLiveActivityTokens(instanceId: string): void;
+  /** Drop the remembered owner of a removed session once its last events are out. */
+  forgetInstanceProfile(instanceId: string): void;
   warn(message: string, data?: Record<string, unknown>): void;
 }
 
@@ -196,6 +198,7 @@ export class MobileGatewayEvents {
     this.deps.streamCursor.drop(instanceId);
     this.deps.sendLiveActivityPush(instanceId, "idle", "end");
     this.deps.clearLiveActivityTokens(instanceId);
+    this.deps.forgetInstanceProfile(instanceId);
     this.deps.scheduleSnapshotBroadcast();
   }
 

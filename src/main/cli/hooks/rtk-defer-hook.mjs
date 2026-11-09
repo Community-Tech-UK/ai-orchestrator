@@ -44,6 +44,31 @@ const AUTO_APPROVE_TOOLS = new Set([
 
 const LOG_RETENTION_DAYS = 60;
 
+// PermissionRequest is wired only for sessions Harness started itself (no live
+// prompt channel). It fires only for calls Claude would have to ask about, and
+// refuses them with text that tells the model whether a person was asked and
+// what would allow the call. Both constants must equal their TypeScript twins
+// (HARNESS_UNASKED_PREFIX in src/main/cli/adapters/claude-permission-response.ts,
+// CLAUDE_ALLOW_RULE_TOOLS in src/shared/permissions/claude-allow-rule-tools.ts);
+// a spec checks them.
+const HARNESS_UNASKED_PREFIX = 'Harness: nobody was asked about this call. ';
+const CLAUDE_ALLOW_RULE_TOOLS = ['Write', 'Edit', 'Read', 'Bash'];
+function permissionRequestRefusal(toolName) {
+  const tool = toolName || 'this tool';
+  // Harness raises its "Always allow" card for these tools from Claude's own
+  // wording, so the text keeps that first sentence and adds what is true here.
+  if (CLAUDE_ALLOW_RULE_TOOLS.includes(toolName)) {
+    return `Claude requested permissions to use ${tool}, but you haven't granted it yet. `
+      + 'Harness is showing the user a card for this call that can allow it; if they allow it, Harness restarts this session '
+      + 'and trying again will then work. Until then nothing will let it through, so say in your reply what you could not do.';
+  }
+  return HARNESS_UNASKED_PREFIX
+    + `Claude Code needs approval to run ${tool} here, and Harness cannot ask for it while this session runs on its own, `
+    + 'so nothing the user clicks now can let this call through. Do not ask them to approve a prompt. Carry on without it if you can; '
+    + 'when you report, name the tool and say it can be allowed by switching on Auto-approve for this session or scheduled job, '
+    + 'or by adding a Claude allow rule for it.';
+}
+
 /** Return the JSON payload Claude Code expects on stdout. */
 function buildReply({ decision, reason, updatedInput }) {
   const hookSpecificOutput = {
@@ -262,6 +287,12 @@ if (process.env.ORCHESTRATOR_RTK_REWRITE_ONLY === '1') {
 const input = JSON.parse(rawInput);
 const toolName = input.tool_name || '';
 const toolUseId = input.tool_use_id || '';
+
+if (input.hook_event_name === 'PermissionRequest') {
+  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest',
+    decision: { behavior: 'deny', message: permissionRequestRefusal(input.tool_name) } } }));
+  process.exit(0);
+}
 
 const rewriteStarted = Date.now();
 const { updatedInput, forceDefer, rewriteDecision, rewriteExit } = maybeRewriteBashCommand(input);

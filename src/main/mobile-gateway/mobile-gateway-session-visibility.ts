@@ -1,4 +1,5 @@
 import type { Instance } from "../../shared/types/instance.types";
+import { MOBILE_OWNER_PROFILE_ID } from "../../shared/types/mobile-gateway.types";
 import { isAutomationAttentionStatus } from "../../shared/types/instance-status-policy";
 import { isProjectRailHiddenSession } from "../../shared/utils/project-rail-hidden-session";
 
@@ -34,4 +35,16 @@ export function isOperatorSession(instance: SessionView): boolean {
   if (typeof metadata["planQueueRole"] === "string") return false;
   if (typeof metadata["automationId"] === "string") return metadata["automationRevealed"] === true;
   return !BACKGROUND_SPEND_PURPOSES.has(metadata["spendPurpose"]);
+}
+
+/** Instance metadata key naming the phone-app person a session belongs to. */
+export const MOBILE_PROFILE_METADATA_KEY = "mobileProfileId";
+
+/**
+ * The person a session belongs to. Sessions started anywhere but a member's
+ * phone carry no stamp and belong to the owner of the Mac.
+ */
+export function sessionProfileId(instance: Pick<Instance, "metadata">): string {
+  const stamped = instance.metadata?.[MOBILE_PROFILE_METADATA_KEY];
+  return typeof stamped === "string" && stamped ? stamped : MOBILE_OWNER_PROFILE_ID;
 }

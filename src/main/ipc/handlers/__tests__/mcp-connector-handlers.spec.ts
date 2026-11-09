@@ -7,15 +7,17 @@ const state = vi.hoisted(() => ({
   upsert: vi.fn(), broadcast: vi.fn(),
   records: [] as { record: { id: string; name: string } }[],
   connectAccount: vi.fn(),
+  forgetAlwaysAllowed: vi.fn(),
+  storedRecord: { id: 'connector', name: 'remote-example', kind: 'remote', authType: 'bearer' } as Record<string, unknown>,
   managedServers: new Set<string>(),
 }));
 vi.mock('electron', () => ({ ipcMain: { handle: (channel: string, handler: (event: unknown, payload: unknown) => Promise<unknown>) => state.handlers.set(channel, handler) } }));
 vi.mock('../../../mcp/mcp-manager', () => ({ getMcpManager: () => ({ on: vi.fn(), getServerStatus: vi.fn(), addServer: vi.fn(), upsertServer: vi.fn(), removeServer: async (id: string) => { state.managedServers.delete(id); } }) }));
 vi.mock('../../../mcp/mcp-lifecycle-manager', () => ({ getMcpLifecycleManager: () => ({}) }));
 vi.mock('../../../mcp/connector-auth-service', () => ({ getConnectorAuthService: () => state }));
-vi.mock('../../../graph/graph-connector-service', () => ({ getGraphConnectorService: () => ({ connectAccount: state.connectAccount, isWritable: async () => false }) }));
+vi.mock('../../../graph/graph-connector-service', () => ({ getGraphConnectorService: () => ({ connectAccount: state.connectAccount, isWritable: async () => false, forgetAlwaysAllowed: state.forgetAlwaysAllowed }) }));
 vi.mock('../../../mcp/mcp-multi-provider-singletons', () => ({
-  getOrchestratorMcpRepository: () => ({ list: () => state.records, get: () => ({ record: { id: 'connector', name: 'remote-example', kind: 'remote', authType: 'bearer' } }) }),
+  getOrchestratorMcpRepository: () => ({ list: () => state.records, get: () => ({ record: state.storedRecord }) }),
   getCliMcpConfigService: () => ({
     getMultiProviderState: async () => ({ orchestrator: [], providers: [], stateVersion: 1 }),
     orchestratorUpsert: state.upsert,
@@ -28,6 +30,7 @@ describe('Connector handlers', () => {
     vi.clearAllMocks(); state.handlers.clear();
     state.records = [];
     state.managedServers.clear();
+    state.storedRecord = { id: 'connector', name: 'remote-example', kind: 'remote', authType: 'bearer' };
     state.connectAccount.mockResolvedValue({ accountKey: 'PLACEHOLDER_ACCOUNT', username: 'person@example.test', tenant: 'PLACEHOLDER_TENANT' });
     state.upsert.mockReturnValue({ record: { id: 'connector', name: 'm365-example', kind: 'microsoft365' } });
     registerMcpHandlers({ windowManager: { sendToRenderer: state.broadcast } as unknown as WindowManager });
@@ -46,6 +49,16 @@ describe('Connector handlers', () => {
     expect(result).toEqual({ success: true });
     expect(state.setBearerToken).toHaveBeenCalledWith('connector', 'PLACEHOLDER_TOKEN');
     expect(JSON.stringify(result)).not.toContain('PLACEHOLDER_TOKEN');
+  });
+
+  it('makes every change on a Microsoft 365 connector\'s account ask again', async () => {
+    const handler = state.handlers.get('mcp:connector:forget-always-allowed');
+    expect(handler).toBeDefined();
+    expect(await handler!({}, { serverId: 'connector' })).toMatchObject({ success: false });
+    expect(state.forgetAlwaysAllowed).not.toHaveBeenCalled();
+    state.storedRecord = { id: 'connector', name: 'm365-example', kind: 'microsoft365', accountId: 'PLACEHOLDER_ACCOUNT' };
+    expect(await handler!({}, { serverId: 'connector' })).toEqual({ success: true });
+    expect(state.forgetAlwaysAllowed).toHaveBeenCalledWith('PLACEHOLDER_ACCOUNT');
   });
 
   it('creates an account connector after Microsoft sign-in', async () => {

@@ -23,6 +23,8 @@ vi.mock('./worker-account-route', () => ({
   listWorkerAccountProfileIds: vi.fn(() => ({})),
   listWorkerOpenCodeAccountProfileIds: vi.fn(async () => []),
 }));
+// The sign-in check would start the real `claude auth status`.
+vi.mock('./worker-sign-ins', () => ({ getCachedWorkerSignIns: vi.fn(() => undefined) }));
 
 const COMMIT = 'd'.repeat(40);
 

@@ -98,6 +98,10 @@ export const McpConnectorSetWritableSchema = z.object({
   allowed: z.boolean(),
 }).strict();
 
+export const McpConnectorForgetAlwaysAllowedSchema = z.object({
+  serverId: z.string().min(1).max(200),
+}).strict();
+
 export const McpInjectionTargetsPayloadSchema = z.object({
   serverId: z.string().min(1).max(200),
   providers: z.array(injectionProviderEnum),

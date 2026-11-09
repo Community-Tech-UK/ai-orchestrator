@@ -39,7 +39,9 @@ auto-approve is never hidden. Phase 3 owns the header layout change; current hel
 
 ## 4. Notices
 
-- A banner only if it changes what Send does. Anything else is one quiet transcript line with one action.
+- A banner only if it changes what Send does, or asks for a decision about the turn that is running now, such as
+  stopping a session that may be stuck; that one sits beside Stop, because a transcript line scrolls away while the
+  turn runs. Anything else is one quiet transcript line with one action.
 - At most one banner row; extra ones collapse to N more. Errors stay until dismissed and offer the fix as a button.
   A notice names the session and opens it. Phase 3 owns the shared banner mechanism; this is the admission rule.
 

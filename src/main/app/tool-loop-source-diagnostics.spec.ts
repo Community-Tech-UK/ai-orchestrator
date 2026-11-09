@@ -183,7 +183,7 @@ describe('actual native tool names through manager output bridge and loop detect
     });
     const renderer = vi.fn();
     const manager = Object.assign(new EventEmitter(), {
-      getInstance: () => null,
+      getInstance: () => ({ displayName: 'Fix login', provider: 'claude' }),
       getOrchestrationHandler: () => new EventEmitter()
     });
     setupInstanceEventForwarding({
@@ -236,7 +236,13 @@ describe('actual native tool names through manager output bridge and loop detect
       if (autoInterrupt)
         expect(getInstanceTurnEnding('LOCAL_LOOP_INSTANCE')).toBe('doom_loop');
       expect(renderer.mock.calls.some(([channel, event]) => channel === 'instance:doom-loop' && event.toolName === marker && event.severity === 'critical')).toBe(true);
+      // The renderer learns whether Harness is stopping the turn, so it offers no decision it cannot honour.
+      expect(renderer.mock.calls.find(([channel, event]) => channel === 'instance:doom-loop' && event.severity === 'critical')?.[1].harnessStopping).toBe(autoInterrupt);
       expect(forwardingState.notification!.list().some(record => record.body.includes(marker) && record.fingerprint.includes(marker))).toBe(true);
+      // The notice names the session and says truthfully whether Harness is stopping it.
+      const body = forwardingState.notification!.list().find(record => record.kind === 'tool-loop')?.body ?? '';
+      expect(body.startsWith('Fix login: ')).toBe(true);
+      expect(body.endsWith(autoInterrupt ? 'Harness is stopping it.' : 'It keeps going until you stop it.')).toBe(true);
       const rows = state.manager!.getRecentLogs();
       expect(rows.some(row => row.message === 'Forwarding tool loop detection to renderer')).toBe(true);
       expect(rows.some(r => r.subsystem === 'DoomLoopDetector' && r.message === 'Tool loop critical')).toBe(true);

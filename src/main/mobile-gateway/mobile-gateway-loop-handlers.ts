@@ -7,10 +7,10 @@ import type {
   MobileLoopStage,
   MobileLoopStatus,
   MobileLoopVerdict,
-  MobileServerEvent,
 } from '../../shared/types/mobile-gateway.types';
 import { MOBILE_LOOP_STATUSES } from '../../shared/types/mobile-gateway.types';
 import { MobileRouteError, sendJsonResponse } from './mobile-gateway-http-utils';
+import type { MobileBroadcastEvent } from './mobile-gateway-snapshot';
 
 const STATUSES = new Set<string>(MOBILE_LOOP_STATUSES);
 const STAGES = new Set<string>(['PLAN', 'REVIEW', 'IMPLEMENT']);
@@ -134,7 +134,7 @@ export class MobileGatewayLoopHandlers {
 
   constructor(private readonly deps: {
     getControl(): GatewayLoopControl;
-    broadcast(event: MobileServerEvent): void;
+    broadcast(event: MobileBroadcastEvent): void;
     sendPush(run: MobileLoopRunDto, kind: 'completed' | 'failed' | 'needs-review'): void;
   }) {}
 

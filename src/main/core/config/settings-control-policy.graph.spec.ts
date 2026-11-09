@@ -7,6 +7,7 @@ describe('Microsoft Graph settings control policy', () => {
     'graphAuthority',
     'graphScopesJson',
     'graphAgentWritableAccountsJson',
+    'graphAlwaysAllowedChanges',
   ] as const)('keeps %s operator-only in privileged CLI mode', (key) => {
     expect(() => assertPrivilegedSettingsCliWritable(key)).toThrow(/operator-only/);
   });

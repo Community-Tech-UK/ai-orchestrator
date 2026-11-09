@@ -3,6 +3,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  computed,
   effect,
   HostListener,
   OnInit,
@@ -12,9 +13,9 @@ import {
 import { SessionNavigator } from '../../core/services/session-navigator.service';
 import { NotificationCenterStore } from '../../core/state/notification-center.store';
 import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
-import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import type { NotificationRecord } from '../../../../shared/types/notification.types';
+import { TOOL_LOOP_CONTINUE_CONSEQUENCE } from '../../../../shared/tool-loop-summary';
 
 @Component({
   selector: 'app-notification-center',
@@ -55,7 +56,7 @@ import type { NotificationRecord } from '../../../../shared/types/notification.t
                 <div class="notification-center-item-body">
                   @if (record.instanceId) {
                     <button type="button" class="notification-session" (click)="openSession(record)">
-                      <strong>{{ record.title }}</strong><span>{{ record.body }}</span>
+                      <strong>{{ record.title }}</strong><span [id]="'notification-body-' + record.id">{{ record.body }}</span>
                     </button>
                   } @else {
                     <strong>{{ record.title }}</strong><span>{{ record.body }}</span>
@@ -67,14 +68,27 @@ import type { NotificationRecord } from '../../../../shared/types/notification.t
                       <button
                         type="button"
                         class="notification-center-action"
-                        (click)="interruptLoop(record)"
-                      >Interrupt now</button>
+                        [attr.aria-describedby]="'notification-body-' + record.id"
+                        [disabled]="isStopping(record)"
+                        (click)="stopTurn(record)"
+                      >{{ isStopping(record) ? 'Stopping…' : 'Stop this turn' }}</button>
                       <button
                         type="button"
                         class="notification-center-action"
-                        (click)="enableAutoInterrupt()"
-                      >Turn on auto-interrupt</button>
+                        [attr.aria-describedby]="'notification-body-' + record.id"
+                        [disabled]="isStopping(record)"
+                        (click)="letContinue(record)"
+                      >Let it continue</button>
+                      @if (!autoInterruptOn()) {
+                        <button
+                          type="button"
+                          class="notification-center-action"
+                          (click)="enableAutoInterrupt()"
+                        >Turn on auto-interrupt</button>
+                      }
                     </div>
+                    <span>{{ continueConsequence }}</span>
+                    @if (stopErrorFor(record); as message) { <span class="notification-center-error" role="alert">{{ message }}</span> }
                   }
                 </div>
                 <button
@@ -186,7 +200,9 @@ import type { NotificationRecord } from '../../../../shared/types/notification.t
       padding: 0.2rem 0.35rem;
     }
     .notification-center-dismiss:hover { background: var(--glass-strong); color: var(--text-primary); }
-    .notification-center-actions { display: flex; gap: 0.35rem; margin-top: 0.35rem; }
+    .notification-center-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.35rem; }
+    .notification-center-action:disabled { cursor: default; opacity: 0.6; }
+    li span.notification-center-error { color: var(--error-color); }
     .notification-center-action {
       background: var(--bg-elevated);
       border: 1px solid var(--border-color);
@@ -203,10 +219,12 @@ export class NotificationCenterComponent implements OnInit {
   protected readonly store = inject(NotificationCenterStore);
   private readonly navigator = inject(SessionNavigator);
   private readonly toolLoopAlerts = inject(ToolLoopAlertStore);
-  private readonly instances = inject(InstanceStore);
   private readonly settings = inject(SettingsStore);
   private readonly elementRef = inject<ElementRef<HTMLElement>>(ElementRef);
   protected readonly open = signal(false);
+  protected readonly continueConsequence = TOOL_LOOP_CONTINUE_CONSEQUENCE;
+  /** Keyed by the alert (session and detection time), so a later alert never shows an old failure. */
+  private readonly stopError = signal<{ instanceId: string; detectedAt: number; text: string } | null>(null);
 
   constructor() {
     effect(() => {
@@ -240,23 +258,66 @@ export class NotificationCenterComponent implements OnInit {
   /**
    * N2 — a stored notification carries frozen text. Gating the actions on the
    * LIVE alert rather than on the record's own body is the point: once the loop
-   * has resolved, "Interrupt now" would be offering to interrupt a turn that
+   * has resolved, "Stop this turn" would be offering to interrupt a turn that
    * already ended, and the body's promise ("it will keep going") is no longer
-   * true. Also hidden once auto-interrupt is on, for the same reason — the
-   * consequence the record describes no longer applies.
+   * true. The auto-interrupt setting does not hide them: it never stops a
+   * read-only tool, and it only acts when a detection fires, so a live alert is
+   * still a live decision. When Harness does stop the turn, the alert clears.
    */
   protected showToolLoopActions(record: NotificationRecord): boolean {
-    if (record.kind !== 'tool-loop') return false;
-    if (this.settings.settings().toolLoopAutoInterrupt === true) return false;
-    return this.toolLoopAlerts.hasCriticalAlert(record.instanceId);
+    return record.kind === 'tool-loop' && record.instanceId !== undefined
+      && this.latestToolLoopRecordIds().get(record.instanceId) === record.id
+      && this.toolLoopAlerts.hasCriticalAlert(record.instanceId);
   }
 
-  protected interruptLoop(record: NotificationRecord): void {
+  /**
+   * The newest tool-loop record per session. Only that one offers the choice:
+   * older records describe earlier detections, and buttons on them would act on
+   * the current one.
+   */
+  private readonly latestToolLoopRecordIds = computed(() => {
+    const latest = new Map<string, NotificationRecord>();
+    for (const record of this.store.records()) {
+      if (record.kind !== 'tool-loop' || !record.instanceId) continue;
+      const current = latest.get(record.instanceId);
+      if (!current || (record.updatedAt ?? record.createdAt) > (current.updatedAt ?? current.createdAt)) latest.set(record.instanceId, record);
+    }
+    return new Map([...latest].map(([instanceId, record]) => [instanceId, record.id]));
+  });
+
+  protected autoInterruptOn(): boolean {
+    return this.settings.settings().toolLoopAutoInterrupt === true;
+  }
+
+  protected isStopping(record: NotificationRecord): boolean {
+    return this.toolLoopAlerts.isStopping(record.instanceId);
+  }
+
+  protected stopErrorFor(record: NotificationRecord): string | null {
+    const state = this.stopError();
+    const alert = this.toolLoopAlerts.alertFor(record.instanceId);
+    return state && alert && state.instanceId === alert.instanceId && state.detectedAt === alert.detectedAt ? state.text : null;
+  }
+
+  /** Same as Stop in the session; a successful stop clears the alert, which hides these actions. */
+  protected async stopTurn(record: NotificationRecord): Promise<void> {
+    const alert = this.toolLoopAlerts.alertFor(record.instanceId);
+    if (!alert) return;
+    const { instanceId, detectedAt } = alert;
+    this.stopError.set(null);
+    const failed = { instanceId, detectedAt, text: 'Could not stop this turn. Open the session and use Stop.' };
+    try {
+      if (!await this.toolLoopAlerts.stopTurn(instanceId)) this.stopError.set(failed);
+    } catch {
+      this.stopError.set(failed);
+    }
+  }
+
+  /** The operator has decided; keeping the alert would keep asking. */
+  protected letContinue(record: NotificationRecord): void {
     if (!record.instanceId) return;
-    const instanceId = record.instanceId;
-    void this.instances.interruptInstance(instanceId);
-    // The operator has acted; keeping the alert would keep offering the action.
-    this.toolLoopAlerts.acknowledge(instanceId);
+    this.stopError.set(null);
+    this.toolLoopAlerts.letContinue(record.instanceId);
   }
 
   protected enableAutoInterrupt(): void {

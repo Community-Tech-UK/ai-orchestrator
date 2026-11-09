@@ -24,6 +24,7 @@ function setup(options: { connected?: boolean; expired?: boolean } = {}) {
   const service = new GraphConnectorService({
     authManager: { connectAccount: vi.fn(), listAccounts: async () => accounts, removeAccount: vi.fn() },
     writableAccountEmails: () => [], updateWritableAccountEmails: vi.fn(),
+    alwaysAllowedChanges: () => ({}), updateAlwaysAllowedChanges: vi.fn(),
     listStoredAccounts: () => accounts,
     createGraphClient: (requestContext) => new GraphClient({
       tokenProvider: { getAccessToken }, requestContext,

@@ -45,6 +45,8 @@ export interface OrchestratorMcpDto {
   injectInto: readonly OrchestratorRuntimeInjectionProvider[];
   authStatus?: ConnectorAuthStatus;
   agentsMayWrite?: boolean;
+  /** Microsoft 365 change tools James chose "Always allow" for on this connector's account. */
+  alwaysAllowed?: readonly string[];
 }
 
 export interface McpMultiProviderStateDto {

@@ -1,10 +1,10 @@
 import type {
   MobilePromptDto,
-  MobileServerEvent,
 } from "../../shared/types/mobile-gateway.types";
+import type { MobileBroadcastEvent } from "./mobile-gateway-snapshot";
 
 export interface MobilePromptStoreDeps {
-  broadcast(event: MobileServerEvent): void;
+  broadcast(event: MobileBroadcastEvent): void;
   scheduleSnapshotBroadcast(): void;
   sendPush(prompt: MobilePromptDto): void;
 }
@@ -150,10 +150,7 @@ export class MobileGatewayPromptStore {
     const prompt = this.prompts.get(requestId);
     if (!prompt) return;
     this.prompts.delete(requestId);
-    this.deps.broadcast({
-      type: "permission-cleared",
-      data: { requestId, instanceId: prompt.instanceId },
-    });
+    this.broadcastCleared(prompt);
     this.deps.scheduleSnapshotBroadcast();
   }
 
@@ -161,11 +158,21 @@ export class MobileGatewayPromptStore {
     for (const [id, prompt] of this.prompts) {
       if (prompt.instanceId !== instanceId) continue;
       this.prompts.delete(id);
-      this.deps.broadcast({
-        type: "permission-cleared",
-        data: { requestId: id, instanceId },
-      });
+      this.broadcastCleared(prompt);
     }
+  }
+
+  /**
+   * A browser approval belongs to the owner, whichever session asked, so its
+   * clear carries no session id and is routed to the owner alone.
+   */
+  private broadcastCleared(prompt: MobilePromptDto): void {
+    this.deps.broadcast({
+      type: "permission-cleared",
+      data: prompt.kind === "browser"
+        ? { requestId: prompt.requestId }
+        : { requestId: prompt.requestId, instanceId: prompt.instanceId },
+    });
   }
 
   private add(prompt: MobilePromptDto): void {

@@ -19,6 +19,7 @@ import { FileAttachmentSchema } from '@contracts/schemas/common';
 import { BrowserAttachExistingTabRequestSchema } from '@contracts/schemas/browser';
 import { withoutNestedExtensionInstanceId } from '../browser-gateway/browser-extension-rpc-payloads';
 import { WorkerAgentBuildSummarySchema } from './worker-agent-build-schema';
+import { WorkerAccountProfileIdsSchema, WorkerSignInsSchema } from './worker-account-capability-schemas';
 import {
   LocalAiDiagnosticReportSchema,
   LocalAiProbeResultSchema,
@@ -191,12 +192,8 @@ const WorkerNodeCapabilitiesSchema = z.object({
   hostReadiness: HostReadinessSchema,
   connectionNotice: z.string().max(500).optional().catch(undefined),
   hasDocker: z.boolean(),
-  // Drop a malformed placement hint without rejecting worker liveness.
-  accountProfileIds: z.object({
-    claude: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/)).max(16).optional(),
-    codex: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/)).max(16).optional(),
-    opencode: z.array(z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/)).max(16).optional(),
-  }).optional().catch(undefined),
+  accountProfileIds: WorkerAccountProfileIdsSchema,
+  signIns: WorkerSignInsSchema,
   maxConcurrentInstances: z.number().int().positive(),
   workingDirectories: z.array(z.string()),
   browsableRoots: z.array(z.string()).default([]),

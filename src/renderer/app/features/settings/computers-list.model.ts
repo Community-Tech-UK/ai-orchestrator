@@ -2,9 +2,12 @@
  * The Computers list: paired computers in the order Harness tries them, test machines that belong to none of them,
  * and this Mac last. Pure, so the order, the moves and the words can be tested without a screen.
  */
-import type { ComputerChoice } from '../../../../shared/types/settings.types';
-import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
+import type { CanonicalCliType, ComputerChoice } from '../../../../shared/types/settings.types';
+import type { NodePlatform, RemoteNodeRosterEntry, WorkerNodeSignIn } from '../../../../shared/types/worker-node.types';
 import type { TestMachineView, WorkToday } from '../../../../shared/types/computers.types';
+import { LEGACY_ACCOUNT_PROFILE_ID } from '../../../../shared/types/provider-account.types';
+import { providerName } from '../../../../shared/display-names';
+import { servicePaths } from '../../../../shared/service/worker-service-paths';
 
 export const THIS_MAC = 'this-mac';
 /** A test machine's row when it belongs to no paired computer here: `test-machine:` and its host. */
@@ -26,7 +29,24 @@ export interface ComputerRow {
   paused: boolean;
   /** Other work it takes through the Advanced switches, in words. */
   alsoTakes: string[];
+  /** What a connected paired computer reported about its AI tools and folders. Null for every other row. */
+  detail: ComputerDetail | null;
 }
+
+export interface ComputerDetail {
+  platform: NodePlatform;
+  tools: readonly CanonicalCliType[];
+  /** Null until the computer's helper has checked, or when it is too old to check. */
+  signIns: readonly WorkerNodeSignIn[] | null;
+  folders: readonly string[];
+  projectCount: number;
+}
+
+/** One line about a computer's AI tools. `command` is what to run on that computer, shown as code. */
+export interface DetailLine { text: string; command?: string }
+
+/** A saved account's name here, if this Mac has one for it. */
+export type AccountLabel = (provider: WorkerNodeSignIn['provider'], profileId: string) => string | undefined;
 
 export interface OffloadSwitches { browser: boolean; android: boolean }
 
@@ -72,20 +92,32 @@ export function buildComputerRows(
       testMachine: machine,
       paused: choice.paused || machine?.paused === true,
       alsoTakes,
+      detail: node.connected ? detailOf(node) : null,
     };
   });
   const ownedMachines = new Set(owned.values());
   for (const machine of testMachines.filter(entry => !ownedMachines.has(entry))) {
     rows.push({
       id: `${TEST_MACHINE}:${machine.host}`, kind: 'test-machine', name: machine.label, away: false, awaySince: null,
-      sessionsRunning: 0, choice: null, testMachine: machine, paused: machine.paused, alsoTakes: [],
+      sessionsRunning: 0, choice: null, testMachine: machine, paused: machine.paused, alsoTakes: [], detail: null,
     });
   }
   rows.push({
     id: THIS_MAC, kind: 'this-mac', name: 'This Mac', away: false, awaySince: null, sessionsRunning: 0,
-    choice: null, testMachine: null, paused: false, alsoTakes: [],
+    choice: null, testMachine: null, paused: false, alsoTakes: [], detail: null,
   });
   return rows;
+}
+
+function detailOf(node: RemoteNodeRosterEntry): ComputerDetail {
+  const caps = node.capabilities;
+  return {
+    platform: caps.platform,
+    tools: caps.supportedClis,
+    signIns: caps.signIns ?? null,
+    folders: caps.workingDirectories,
+    projectCount: caps.discoveredProjects.length,
+  };
 }
 
 /** Every paired computer's choice, in the list's order, so the saved order is complete after any change. */
@@ -154,7 +186,74 @@ export function describeTakes(row: ComputerRow): string {
     ...row.alsoTakes,
   ];
   if (!kinds.length) return 'Takes nothing.';
-  const list = kinds.length === 1 ? kinds[0]! : `${kinds.slice(0, -1).join(', ')} and ${kinds.at(-1)!}`;
+  const list = listInWords(kinds);
   const room = row.testMachine && (row.testMachine.testRuns || row.testMachine.checks) ? `, ${row.testMachine.slots} test runs or checks at once` : '';
   return `Takes ${list}${room}.`;
+}
+
+/** "a, b and c". */
+function listInWords(items: readonly string[]): string {
+  return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)!}`;
+}
+
+const SIGN_IN_COMMAND: Record<WorkerNodeSignIn['provider'], string> = { claude: 'claude auth login', codex: 'codex login' };
+
+/**
+ * The AI tools a computer has, and for Claude and Codex whether each account is signed in there, as that computer
+ * last checked. A default sign-in that is missing comes with the command that fixes it; any other account is named,
+ * by this Mac's name for it when there is one.
+ */
+export function describeTools(detail: ComputerDetail, accountLabel: AccountLabel): DetailLine[] {
+  if (!detail.tools.length) return [{ text: 'No AI tools were found there, so it can\'t take agent sessions.' }];
+  const lines: DetailLine[] = [{ text: `AI tools there: ${listInWords(detail.tools.map(tool => providerName(tool)))}.` }];
+  const checked = (['claude', 'codex'] as const).filter(tool => detail.tools.includes(tool));
+  if (!checked.length) return lines;
+  if (!detail.signIns) {
+    return [...lines, { text: 'Its sign-ins haven\'t been checked yet. If this doesn\'t change within a few minutes, update Harness on that computer.' }];
+  }
+  const signIns = detail.signIns.filter(sign => checked.includes(sign.provider));
+  for (const entry of signIns) {
+    const tool = providerName(entry.provider);
+    const isDefault = entry.profileId === LEGACY_ACCOUNT_PROFILE_ID;
+    const who = isDefault ? tool : `${tool} account ${accountLabel(entry.provider, entry.profileId) ?? entry.profileId}`;
+    if (entry.state === 'signed-in') {
+      lines.push({ text: entry.identity ? `${who} is signed in as ${entry.identity}.` : `${who} is signed in.` });
+    } else if (entry.state === 'unknown') {
+      lines.push({ text: `${who}: its sign-in couldn't be read there.` });
+    } else if (isDefault) {
+      lines.push({ text: `${who} isn't signed in. To sign in, run this on that computer:`, command: SIGN_IN_COMMAND[entry.provider] });
+    } else {
+      lines.push({ text: `${who} isn't signed in there.` });
+    }
+  }
+  if (signIns.some(entry => entry.state !== 'signed-in')) {
+    lines.push({ text: 'Computers check their sign-ins every 10 minutes, so a new one can take that long to show here.' });
+  }
+  return lines;
+}
+
+/** The tools whose extra accounts a computer reports, so this Mac's names are read only for those. */
+export function providersWithAccounts(rows: readonly ComputerRow[]): WorkerNodeSignIn['provider'][] {
+  const providers = rows.flatMap(row => row.detail?.signIns ?? [])
+    .filter(entry => entry.profileId !== LEGACY_ACCOUNT_PROFILE_ID)
+    .map(entry => entry.provider);
+  return [...new Set(providers)];
+}
+
+/** The folders a computer opens, and how many projects it found in them. */
+export function describeFolders(detail: ComputerDetail): string {
+  if (!detail.folders.length) return 'It opens no folders, so no session can run there.';
+  const projects = detail.projectCount === 1 ? '1 project' : `${detail.projectCount} projects`;
+  return `Opens folders in ${listInWords(detail.folders)}, with ${projects} found there.`;
+}
+
+/**
+ * Where a computer's worker keeps its folder list: in the home folder there, or the system-wide file when it runs as a
+ * service (`src/worker-agent/index.ts` reads the service file in service mode).
+ */
+export function workerSettingsFiles(platform: NodePlatform): { home: string; service: string } {
+  return {
+    home: platform === 'win32' ? '.orchestrator\\worker-node.json' : '.orchestrator/worker-node.json',
+    service: servicePaths(platform).configFile,
+  };
 }

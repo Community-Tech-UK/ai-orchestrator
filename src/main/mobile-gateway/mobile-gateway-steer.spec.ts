@@ -27,7 +27,9 @@ describe('Mobile steering HTTP boundary', () => {
       })),
       wakeInstance: vi.fn(async () => undefined),
     });
-    const registry = new MobileDeviceRegistry({ load: () => undefined, save: () => undefined });
+    const registry = new MobileDeviceRegistry({
+      load: () => undefined, save: () => undefined, loadProfiles: () => undefined, saveProfiles: () => undefined,
+    });
     const pause = Object.assign(new EventEmitter(), {
       toPayload: () => ({ isPaused: false, reasons: [], pausedAt: null, lastChange: 0 }), addReason: vi.fn(), removeReason: vi.fn(),
     });

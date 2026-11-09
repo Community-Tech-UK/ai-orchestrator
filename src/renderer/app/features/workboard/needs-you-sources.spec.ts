@@ -31,9 +31,15 @@ describe('needs-you source mapping', () => {
     sources.sidechats = [{ parent: { kind: 'chat', chatId: 'c' }, parentTitle: 'Parent', needsAttention: 0, attentionSince: null },
       { parent: { kind: 'chat', chatId: 'd' }, parentTitle: 'Other', needsAttention: 1, attentionSince: 50 }];
     sources.outstanding = [{ id: 'o', kind: 'decision-applied', status: 'open', riskClass: null, firstSeenRound: 1, userResponse: null, text: 'Choice', createdAt: 6, updatedAt: 6, chatId: 'a' }];
-    sources.toolLoops = [{ instanceId: 't', toolName: 'Bash', detectedAt: 7 }];
+    sources.toolLoops = [{ instanceId: 't', detector: 'repeat-no-progress', toolName: 'Bash', count: 12, detectedAt: 7, sessionName: 'Fix login' }];
     const result = requestEntries(sources, now);
     expect(result).toHaveLength(8);
+    // A possibly stuck session says what is asked and what it has been doing, not just a tool name.
+    expect(result.find((item) => item.source === 'tool-loop')).toMatchObject({
+      title: 'Fix login may be stuck: stop it or let it continue',
+      detail: 'It has run Bash 12 times in a row and got the same result each time.',
+      instanceId: 't',
+    });
     expect(result.find((item) => item.source === 'browser-approval')?.deadlineAt).toBe(now + 200);
     expect(result.find((item) => item.source === 'plan-queue-question')?.title).toBe('Plan Queue has 2 questions for you');
     expect(result.find((item) => item.source === 'loop-decision')?.kind).toBe('applied');
@@ -52,7 +58,8 @@ describe('needs-you source mapping', () => {
     expect(needsYouReason(entry('permission-request', { title: 'Run npm install' }))).toBe('Wants permission: Run npm install');
     expect(needsYouReason(entry('browser-approval'))).toBe('Wants your OK for a browser step');
     expect(needsYouReason(entry('loop-question', { title: 'Waiting for you', detail: 'Ship it?' }))).toBe('Asked you: Ship it?');
-    expect(needsYouReason(entry('tool-loop', { title: 'Repeated tool calls need your decision' }))).toBe('Repeated tool calls need your decision');
+    // The session list shows the name beside the reason, so the reason leaves it out.
+    expect(needsYouReason(entry('tool-loop', { title: 'Fix login may be stuck: stop it or let it continue' }))).toBe('May be stuck: stop it or let it continue');
   });
   it('maps each correlated Workboard source once', () => {
     for (const kind of ['instance', 'loop-run', 'automation-run', 'repo-job'] as const) {

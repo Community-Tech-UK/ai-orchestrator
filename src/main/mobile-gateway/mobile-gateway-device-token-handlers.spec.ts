@@ -7,7 +7,11 @@ function deps(revoked = true) {
   const revokeDevice = vi.fn().mockReturnValue(revoked);
   const sendJson = vi.fn();
   return {
-    deps: { registry: { revokeDevice } as unknown as MobileDeviceRegistry, sendJson },
+    deps: {
+      registry: { revokeDevice } as unknown as MobileDeviceRegistry,
+      sendJson,
+      ownsInstance: () => true,
+    },
     revokeDevice,
     sendJson,
   };

@@ -372,6 +372,10 @@ export function createWorkspaceDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
       return ipcRenderer.invoke(ch.MCP_CONNECTOR_SET_WRITABLE, payload);
     },
 
+    mcpConnectorForgetAlwaysAllowed: (payload: unknown): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.MCP_CONNECTOR_FORGET_ALWAYS_ALLOWED, payload);
+    },
+
     mcpProviderUserUpsert: (payload: unknown): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.MCP_PROVIDER_USER_UPSERT, payload);
     },

@@ -10,6 +10,9 @@
  * testable without Electron.
  */
 
+import { describeToolLoop, type ToolLoopDetector } from '../../shared/tool-loop-summary';
+import { friendlyToolName } from '../../shared/permissions/friendly-tool-name';
+
 export type ToolLoopSeverity = 'warning' | 'critical';
 
 export interface ToolLoopNotice {
@@ -20,18 +23,17 @@ export interface ToolLoopNotice {
 
 export interface ToolLoopNoticeInput {
   severity: ToolLoopSeverity;
+  detector: ToolLoopDetector;
   toolName: string;
-  /** Human wording of the detection window, e.g. "8 calls in 2 minutes". */
-  windowDescription: string;
+  count: number;
   instanceName?: string;
-  /** Whether auto-interrupt will act on this without the operator. */
-  autoInterruptEnabled: boolean;
+  /** Whether Harness stops the turn itself (`willAutoInterruptToolLoop`). */
+  harnessWillStop: boolean;
 }
 
 // Chosen so the worst case stays inside MAX_BODY_CHARS with the fixed wording:
 // a notification body that overflows is truncated by the OS mid-sentence.
 const MAX_TOOL_CHARS = 40;
-const MAX_WINDOW_CHARS = 60;
 const MAX_NAME_CHARS = 30;
 /** Upper bound on the rendered body, asserted by the spec. */
 export const MAX_BODY_CHARS = 220;
@@ -48,23 +50,28 @@ function clip(text: string, max: number): string {
  * toast, and promoting every one of them to a desktop notification would train
  * the operator to dismiss the class — which costs exactly when a real one
  * arrives. `critical` means the detector is confident.
+ *
+ * The words come from the shared `tool-loop-summary`, so this notification and
+ * its notification-centre entry read the same as the bar in the session.
  */
 export function toolLoopNotice(input: ToolLoopNoticeInput): ToolLoopNotice | null {
   if (input.severity !== 'critical') return null;
 
   const who = input.instanceName ? `${clip(input.instanceName, MAX_NAME_CHARS)}: ` : '';
-  const tool = clip(input.toolName, MAX_TOOL_CHARS);
-  const window = clip(input.windowDescription, MAX_WINDOW_CHARS);
+  // Clip each name the detector joined with "/", so a long first name cannot cut off the second,
+  // after making tool-server names readable (clipping first would leave "mcp__…" raw).
+  const toolName = input.toolName.split('/').map((name) => clip(friendlyToolName(name), MAX_TOOL_CHARS)).join('/');
+  const what = describeToolLoop({ detector: input.detector, toolName, count: input.count });
 
   // Say what will happen next, so the notification is actionable rather than
   // merely alarming. The two cases need genuinely different responses.
-  const consequence = input.autoInterruptEnabled
-    ? 'Auto-interrupt will stop it.'
-    : 'It will keep going until you stop it — auto-interrupt is off.';
+  const consequence = input.harnessWillStop
+    ? 'Harness is stopping it.'
+    : 'It keeps going until you stop it.';
 
   return {
-    title: 'Agent stuck in a tool loop',
-    body: `${who}repeating ${tool} (${window}). ${consequence}`,
+    title: 'A session may be stuck',
+    body: `${who}${what} ${consequence}`,
     urgency: 'critical',
   };
 }

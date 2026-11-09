@@ -16,7 +16,6 @@
           [value]="filterInput()"
           (input)="onFilterChange($event)"
         />
-        <app-session-attention-tabs [value]="statusFilter()" (changed)="setStatusFilter($event)" />
         <div class="filters-anchor">
           <button
             type="button"
@@ -133,6 +132,7 @@
             </div>
           }
         </div>
+        <app-session-attention-tabs [value]="statusFilter()" (changed)="setStatusFilter($event)" />
       </div>
 
       <app-instance-list-load-failure (recovered)="railFilter.focus()" />

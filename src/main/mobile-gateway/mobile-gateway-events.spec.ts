@@ -51,7 +51,7 @@ describe('MobileGatewayEvents output cursors', () => {
       broadcast: vi.fn(), scheduleSnapshotBroadcast: vi.fn(), isInstanceBeingViewed: () => false,
       clearInstanceQueue: vi.fn(), clearSendInFlight: vi.fn(), drainQueue: vi.fn(),
       drainAllQueues: vi.fn(), sendCompletionPush: vi.fn(), notifyDesktopViewed: vi.fn(), sendLiveActivityPush,
-      clearLiveActivityTokens, warn: vi.fn(),
+      clearLiveActivityTokens, forgetInstanceProfile: vi.fn(), warn: vi.fn(),
     });
     events.attach();
 
@@ -89,7 +89,7 @@ describe('MobileGatewayEvents output cursors', () => {
       scheduleSnapshotBroadcast: vi.fn(), isInstanceBeingViewed: () => false,
       clearInstanceQueue: vi.fn(), clearSendInFlight: vi.fn(), drainQueue: vi.fn(),
       drainAllQueues: vi.fn(), sendCompletionPush: vi.fn(), notifyDesktopViewed: vi.fn(), sendLiveActivityPush: vi.fn(),
-      clearLiveActivityTokens: vi.fn(), warn: vi.fn(),
+      clearLiveActivityTokens: vi.fn(), forgetInstanceProfile: vi.fn(), warn: vi.fn(),
     });
     events.attach();
 

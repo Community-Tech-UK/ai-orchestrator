@@ -1,4 +1,5 @@
-import { HARNESS_READ_ONLY_TOOLS } from './harness-tool-allowlist';
+import { HARNESS_ALLOWED_TOOLS } from './harness-tool-allowlist';
+import { claudePermissionHooks, type CommandHookEntry } from './claude-permission-hooks';
 import { CLAUDE_READ_ONLY_REVIEW_TOOLS, MACHINE_SESSION_DISABLED_PLUGINS } from './claude-machine-session-policy';
 /**
  * Claude CLI argv construction — extracted from `ClaudeCliAdapter.buildArgs()`
@@ -80,13 +81,8 @@ export function buildClaudeSettingsOverlay(
     precomputeCompactionEnabled?: false;
     hooks?: {
       PreCompact?: { hooks: { type: 'command'; command: string; timeout: number }[] }[];
-      PreToolUse?: {
-        matcher: string;
-        hooks: {
-          type: 'command';
-          command: string;
-        }[];
-      }[];
+      PreToolUse?: CommandHookEntry[];
+      PermissionRequest?: CommandHookEntry[];
     };
   } = {};
 
@@ -109,23 +105,13 @@ export function buildClaudeSettingsOverlay(
   Object.assign(settings, claudeOutputCapSettings(
     resolveClaudeBashOutputMaxChars(spawnOptions.bashOutputMaxChars), cliVersion,
   ));
-  const bashHookCommand = resolveBashHookCommand({
+  const hookCommand = resolveBashHookCommand({
     yoloMode: spawnOptions.yoloMode,
     permissionHookPath: permissionHookEnabled ? spawnOptions.permissionHookPath : undefined,
     rtk: spawnOptions.rtk,
   });
-  if (bashHookCommand) {
-    settings.hooks = {
-      ...settings.hooks,
-      PreToolUse: [{
-        matcher: 'Bash',
-        hooks: [{
-          type: 'command',
-          command: bashHookCommand,
-        }],
-      }],
-    };
-  }
+  const permissionHooks = claudePermissionHooks(hookCommand, spawnOptions);
+  if (permissionHooks) settings.hooks = { ...settings.hooks, ...permissionHooks };
 
   return Object.keys(settings).length > 0 ? JSON.stringify(settings) : undefined;
 }
@@ -226,7 +212,7 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
       });
     }
 
-    const allowed = [...new Set([...(spawnOptions.allowedTools ?? []), ...HARNESS_READ_ONLY_TOOLS])];
+    const allowed = [...new Set([...(spawnOptions.allowedTools ?? []), ...HARNESS_ALLOWED_TOOLS])];
     args.push('--allowedTools', allowed.join(','));
   }
 

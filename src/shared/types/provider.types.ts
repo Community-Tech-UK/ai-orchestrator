@@ -260,6 +260,7 @@ export const PROVIDER_MODEL_REPLACEMENTS: Readonly<
  * OpenAI model identifiers
  */
 export const OPENAI_MODELS = {
+  GPT61_SOL: 'gpt-6.1-sol',
   GPT6_ASTRA: 'gpt-6-astra',
   GPT56_SOL: 'gpt-5.6-sol',
   GPT56_TERRA: 'gpt-5.6-terra',
@@ -565,6 +566,7 @@ export const PROVIDER_MODEL_LIST: Record<string, ModelDisplayInfo[]> = {
     { id: OPENAI_MODELS.GPT56_TERRA, name: 'GPT-5.6 Terra', tier: 'balanced', family: 'GPT' },
     { id: OPENAI_MODELS.GPT56_LUNA, name: 'GPT-5.6 Luna', tier: 'fast', family: 'GPT' },
     { id: OPENAI_MODELS.GPT6_ASTRA, name: 'GPT-6 Astra', tier: 'powerful', family: 'GPT' },
+    { id: OPENAI_MODELS.GPT61_SOL, name: 'GPT-6.1 Sol', tier: 'powerful', family: 'GPT' },
     { id: OPENAI_MODELS.GPT55, name: 'GPT-5.5', tier: 'powerful', pinned: true, family: 'GPT' },
     { id: OPENAI_MODELS.GPT53_CODEX, name: 'GPT-5.3 Codex', tier: 'balanced', family: 'GPT' },
     { id: OPENAI_MODELS.GPT53_CODEX_SPARK, name: 'GPT-5.3 Codex Spark', tier: 'fast', family: 'GPT' },

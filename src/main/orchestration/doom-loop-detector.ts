@@ -46,6 +46,12 @@ export interface ToolLoopDetectionEvent {
   toolName: string;
   count: number;
   windowDescription: string;
+  /**
+   * Set only on the re-emit from `reportAutoStopFailed`: Harness tried to stop
+   * the turn for this detection and the interrupt threw, so the turn is still
+   * running and the user has to decide after all.
+   */
+  autoStopFailed?: true;
 }
 
 /** Normalized tool-use observation fed to `recordToolUse`. */
@@ -284,6 +290,17 @@ export class DoomLoopDetector extends EventEmitter {
   /** Marks the current turn as having already auto-interrupted (idempotency guard for callers). */
   markAutoInterrupted(instanceId: string): void {
     this.getOrCreateState(instanceId).autoInterrupted = true;
+  }
+
+  /**
+   * An auto-interrupt for `detection` threw. Clears the guard so a later
+   * detection in this turn may try again, and re-emits the detection marked
+   * `autoStopFailed` so listeners stop saying Harness is stopping the turn.
+   */
+  reportAutoStopFailed(detection: ToolLoopDetectionEvent): void {
+    const state = this.states.get(detection.instanceId);
+    if (state) state.autoInterrupted = false;
+    this.emit('tool-loop-detected', { ...detection, autoStopFailed: true });
   }
 
   // ============ Cleanup ============

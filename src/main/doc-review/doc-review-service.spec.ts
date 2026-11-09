@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, symlin
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { DocReviewService } from './doc-review-service';
 
 /**
  * Unit tests for DocReviewService: session lifecycle, artifact-path security (inside
@@ -665,5 +666,79 @@ describe('DocReviewService', () => {
     });
     service.dismiss(session.id);
     expect(service.listSessions()).toHaveLength(0);
+  });
+
+  describe('closing reviews for completed documents', () => {
+    function writeDoc(relative: string): void {
+      const path = join(workspace, relative);
+      mkdirSync(join(path, '..'), { recursive: true });
+      writeFileSync(path, '# Plan\n');
+    }
+
+    async function pendingReview(
+      service: DocReviewService,
+      sourcePath: string | undefined,
+      name: string,
+    ) {
+      return service.createSession({
+        instanceId: 'inst-1',
+        workspacePath: workspace,
+        title: name,
+        artifactPath: writeArtifact(`${name}.html`),
+        ...(sourcePath ? { sourcePath } : {}),
+      });
+    }
+
+    it('closes a pending review once its plan is renamed to the completed name', async () => {
+      const { getDocReviewService, DOC_REVIEW_CHANGED_EVENT } = await loadService();
+      const service = getDocReviewService();
+      const review = await pendingReview(service, 'docs/plans/2026-09-03-backlog_plan.md', 'backlog');
+      const spec = await pendingReview(service, join(workspace, 'docs/plans/2026-10-02-chats_spec_planned.md'), 'chats');
+      writeDoc('docs/plans/2026-09-03-backlog_plan_completed.md');
+      writeDoc('docs/plans/2026-10-02-chats_spec_completed.md');
+      const events: unknown[] = [];
+      service.on(DOC_REVIEW_CHANGED_EVENT, (event) => events.push(event));
+
+      const closed = await service.closeReviewsForCompletedSources();
+
+      expect(closed.map((session) => session.id).sort()).toEqual([review.id, spec.id].sort());
+      expect(service.listSessions()).toHaveLength(0);
+      expect(events).toEqual(expect.arrayContaining([
+        { kind: 'dismissed', reviewId: review.id },
+        { kind: 'dismissed', reviewId: spec.id },
+      ]));
+    });
+
+    it('keeps reviews whose document is still active, missing without a completed copy, or not named', async () => {
+      const { getDocReviewService } = await loadService();
+      const service = getDocReviewService();
+      writeDoc('docs/plans/active_plan.md');
+      writeDoc('docs/plans/active_plan_completed.md');
+      await pendingReview(service, 'docs/plans/active_plan.md', 'active');
+      await pendingReview(service, 'docs/plans/moved_plan.md', 'moved');
+      await pendingReview(service, undefined, 'unnamed');
+      writeDoc('docs/plans/finished_plan_completed.md');
+      await pendingReview(service, 'docs/plans/finished_plan_completed.md', 'finished-report');
+
+      expect(await service.closeReviewsForCompletedSources()).toEqual([]);
+      expect(service.listSessions('pending')).toHaveLength(4);
+    });
+
+    it('never removes a decided review, even one decided while the check runs', async () => {
+      const { getDocReviewService } = await loadService();
+      const service = getDocReviewService();
+      const decidedEarlier = await pendingReview(service, 'docs/plans/early_plan.md', 'early');
+      await service.submitDecision(decidedEarlier.id, { overall: 'approved', decisions: [] });
+      const racing = await pendingReview(service, 'docs/plans/racing_plan.md', 'racing');
+      writeDoc('docs/plans/early_plan_completed.md');
+      writeDoc('docs/plans/racing_plan_completed.md');
+
+      const sweep = service.closeReviewsForCompletedSources();
+      const decision = service.submitDecision(racing.id, { overall: 'approved', decisions: [] });
+
+      expect(await sweep).toEqual([]);
+      await decision;
+      expect(service.listSessions().map((session) => session.status)).toEqual(['approved', 'approved']);
+    });
   });
 });

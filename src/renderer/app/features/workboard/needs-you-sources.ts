@@ -6,6 +6,7 @@ import { planQueueDocumentLabel } from '../../../../shared/utils/plan-queue-item
 import type { LoopOutstandingItem } from '../../../../shared/types/loop-outstanding.types';
 import type { PendingRequest } from '../../core/state/pending-request.store';
 import { friendlyToolName } from '../../../../shared/permissions/friendly-tool-name';
+import { TOOL_LOOP_TITLE, describeToolLoop, type ToolLoopSummaryInput } from '../../../../shared/tool-loop-summary';
 
 export type OutstandingNeed = Pick<LoopOutstandingItem, 'id' | 'kind' | 'status' | 'riskClass' | 'firstSeenRound'
   | 'userResponse' | 'text' | 'chatId' | 'createdAt' | 'updatedAt'>;
@@ -18,7 +19,7 @@ export interface NeedsYouSources {
   memories: readonly { id: string; title: string; status: string; createdAt: number }[];
   sidechats: readonly Pick<SideChatAttention, 'parent' | 'parentTitle' | 'needsAttention' | 'attentionSince'>[];
   outstanding: readonly OutstandingNeed[];
-  toolLoops: readonly { instanceId: string; toolName: string; detectedAt: number }[];
+  toolLoops: readonly (ToolLoopSummaryInput & { instanceId: string; detectedAt: number; sessionName?: string })[];
 }
 
 export function workboardEntry(item: WorkboardItem): NeedsYouEntry {
@@ -49,6 +50,8 @@ export function needsYouReason(entry: NeedsYouEntry, statusSentence?: string,
     case 'permission-request': return `Wants permission: ${entry.title}`;
     case 'browser-approval': return 'Wants your OK for a browser step';
     case 'loop-question': return entry.detail ? `Asked you: ${entry.detail}` : entry.title;
+    // The session list already shows the name beside this line.
+    case 'tool-loop': return TOOL_LOOP_TITLE;
   }
   const name = SOURCE_NAMES[entry.source];
   if (!name) return entry.title;
@@ -97,7 +100,9 @@ export function requestEntries(sources: NeedsYouSources, now: number): NeedsYouE
     add(need === 'applied' ? 'loop-decision' : 'loop-question', item.id, loopQuestionLabel(need), item.createdAt,
       { kind: need === 'applied' ? 'applied' : 'answer', detail: item.text, instanceId: item.chatId, route: '/work', version: String(item.updatedAt) });
   }
-  for (const item of sources.toolLoops) add('tool-loop', item.instanceId, 'Repeated tool calls need your decision', item.detectedAt,
-    { instanceId: item.instanceId, detail: item.toolName });
+  // The card names the session, so two stuck sessions never show two identical "Stop this turn" cards.
+  for (const item of sources.toolLoops) add('tool-loop', item.instanceId,
+    item.sessionName ? `${item.sessionName} may be stuck: stop it or let it continue` : TOOL_LOOP_TITLE, item.detectedAt,
+    { instanceId: item.instanceId, detail: describeToolLoop(item) });
   return entries;
 }

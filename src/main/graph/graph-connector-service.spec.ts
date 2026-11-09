@@ -5,6 +5,7 @@ import { GraphClient } from './graph-client';
 
 function setup() {
   let permitted = ['james@communitytech.co.uk'];
+  let alwaysAllowed: Record<string, string[]> = {};
   const accounts = [{ accountKey: 'work-key', username: 'james@communitytech.co.uk', tenant: 'tenant', createdAt: 1, updatedAt: 1, scopes: ['Calendars.ReadWrite'], tokenStatus: 'valid' as const }];
   const authManager = {
     connectAccount: vi.fn(async () => accounts[0]),
@@ -19,8 +20,10 @@ function setup() {
   };
   const service = new GraphConnectorService({ authManager, createGraphClient: () => graphClient, writableAccountEmails: () => permitted,
     listStoredAccounts: () => accounts,
-    updateWritableAccountEmails: (emails) => { permitted = emails; } });
-  return { service, authManager, graphClient, revokeWrites: () => { permitted = []; } };
+    updateWritableAccountEmails: (emails) => { permitted = emails; },
+    alwaysAllowedChanges: () => alwaysAllowed,
+    updateAlwaysAllowedChanges: (changes) => { alwaysAllowed = changes; } });
+  return { service, authManager, graphClient, revokeWrites: () => { permitted = []; }, alwaysAllowed: () => alwaysAllowed };
 }
 
 describe('GraphConnectorService', () => {
@@ -61,6 +64,7 @@ describe('GraphConnectorService', () => {
       authManager: { connectAccount: vi.fn(), listAccounts: vi.fn(), removeAccount: vi.fn() },
       listStoredAccounts: () => accounts,
       writableAccountEmails: () => permitted, updateWritableAccountEmails: vi.fn(),
+      alwaysAllowedChanges: () => ({}), updateAlwaysAllowedChanges: vi.fn(),
       createGraphClient: (requestContext) => new GraphClient({
         tokenProvider: { getAccessToken: async () => { permitted = []; return 'TOKEN_PLACEHOLDER'; } },
         fetch, requestContext,
@@ -69,5 +73,35 @@ describe('GraphConnectorService', () => {
     await expect(service.callTool('account', 'graph_mail_send', { messageId: 'draft-placeholder' }, true, async () => true))
       .rejects.toThrow(/not permitted/);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('remembers "Always allow" per account email and change, and forgets it on request', () => {
+    const { service, alwaysAllowed } = setup();
+    expect(service.isAlwaysAllowed('work-key', 'graph_mail_send')).toBe(false);
+    service.allowAlways('work-key', 'graph_mail_send');
+    service.allowAlways('work-key', 'graph_mail_send');
+    expect(alwaysAllowed()).toEqual({ 'james@communitytech.co.uk': ['graph_mail_send'] });
+    expect(service.isAlwaysAllowed('work-key', 'graph_mail_send')).toBe(true);
+    expect(service.isAlwaysAllowed('work-key', 'graph_calendar_delete_event')).toBe(false);
+    expect(service.listAlwaysAllowed('work-key')).toEqual(['graph_mail_send']);
+    service.forgetAlwaysAllowed('work-key');
+    expect(alwaysAllowed()).toEqual({});
+    expect(service.isAlwaysAllowed('work-key', 'graph_mail_send')).toBe(false);
+  });
+
+  it('refuses to remember a read, or a change on an account that is not connected', () => {
+    const { service } = setup();
+    expect(() => service.allowAlways('work-key', 'graph_mail_read')).toThrow(/Not a Microsoft 365 change/);
+    expect(() => service.allowAlways('unknown', 'graph_mail_send')).toThrow(/not connected/);
+    expect(service.isAlwaysAllowed('unknown', 'graph_mail_send')).toBe(false);
+  });
+
+  it('still refuses an always-allowed change once agents may no longer write to the account', async () => {
+    const { service, graphClient, revokeWrites } = setup();
+    service.allowAlways('work-key', 'graph_mail_send');
+    revokeWrites();
+    await expect(service.callTool('work-key', 'graph_mail_send', { messageId: 'draft-1' }, true, async () => true))
+      .rejects.toThrow(/not permitted/);
+    expect(graphClient.sendMailDraft).not.toHaveBeenCalled();
   });
 });

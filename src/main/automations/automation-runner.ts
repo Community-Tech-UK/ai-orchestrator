@@ -40,7 +40,6 @@ import {
   automationFromSnapshot,
   automationShellFromRunSnapshot,
   FAILURE_STATUSES,
-  WAIT_STATUSES,
 } from './automation-runner-snapshots';
 import type {
   RetrySchedulerCallback,
@@ -163,6 +162,10 @@ export class AutomationRunner {
       this.handleInstanceRemoved(instanceId);
     });
     instanceManager.on('instance:provider-limit-parked', (parked: ProviderLimitParkedEvent) => this.endRunHeldOnLimit(parked));
+    // A Claude held call ends the run only once a person is shown it: a saved rule or the reviewer may answer it first.
+    instanceManager.on('instance:input-required', (ask: { instanceId: string; metadata?: Record<string, unknown> }) => {
+      if (ask.metadata?.['type'] === 'deferred_permission') this.failTrackedInstance(ask.instanceId, 'Automation requires unattended permission approval', { retryable: false });
+    });
 
     const pausedRuns = GlobalPauseService.peek()?.getState().entries
       .filter((entry) => entry.kind === 'automation-run' && !['void', 'resumed', 'failed'].includes(entry.state))
@@ -549,11 +552,14 @@ export class AutomationRunner {
       return;
     }
 
-    if (WAIT_STATUSES.has(event.status)) {
-      // A run that parks awaiting human approval/input is a deterministic
-      // "needs a human" outcome, not a transient error — retrying just spawns
-      // an identical session that walks to the same gate and re-parks. Mark it
-      // non-retryable so the run fails once without duplicating sessions.
+    // A run that parks awaiting human approval/input is a deterministic "needs a
+    // human" outcome, not a transient error — retrying just spawns an identical
+    // session that walks to the same gate and re-parks. Mark it non-retryable so
+    // the run fails once without duplicating sessions. Claude's waiting_for_permission
+    // is a held or live call that Harness may still answer from a saved rule, so it
+    // ends the run when its ask reaches a person instead (see initialize()).
+    if (event.status === 'waiting_for_input'
+      || (event.status === 'waiting_for_permission' && this.instanceManager?.getInstance(envelope.instanceId)?.provider !== 'claude')) {
       this.failTrackedInstance(
         envelope.instanceId,
         event.status === 'waiting_for_permission'
@@ -717,6 +723,7 @@ export class AutomationRunner {
     const runId = invocation?.runId ?? this.trackingByInstance.get(instanceId)?.runId ?? (typeof metadataRunId === 'string' ? metadataRunId : undefined);
     if (!runId) throw new Error('automation_result is only available to the scheduled job that owns this session');
     const run = this.store.getRun(runId);
+    if (run && run.status !== 'running' && run.instanceId === instanceId) throw new Error(`This scheduled run has already ended (${run.status}${run.error ? `: ${run.error}` : ''}), so Harness cannot record its result and nothing will change that. Say what you found in your reply instead.`);
     if (!run || run.status !== 'running' || run.configSnapshot?.destination.kind !== 'newInstance' || run.configSnapshot.action.systemAction
       || (!invocation && run.instanceId !== null && run.instanceId !== instanceId)) throw new Error('automation_result requires an active owned agent run');
     this.store.recordResult(runId, result);
@@ -746,7 +753,7 @@ export class AutomationRunner {
     if (this.limits?.check(instanceId)) return;
     if (!isReceiptCurrent(tracking.completionReceipt, this.instanceManager?.getInstance(instanceId))) return;
     if (this.limits?.hasActiveDescendants(instanceId)) return;
-    const error = completedAutomationTurnError(tracking, this.store.getRunFacts(tracking.runId).result);
+    const error = completedAutomationTurnError(tracking, this.store.getRunFacts(tracking.runId).result, this.instanceManager?.getInstance(instanceId));
     if (error) {
       this.failTrackedInstance(instanceId, error, { retryable: false });
       return;

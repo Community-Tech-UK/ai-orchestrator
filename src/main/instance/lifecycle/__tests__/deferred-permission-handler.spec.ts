@@ -48,7 +48,11 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
 }
 
 describe('DeferredPermissionHandler', () => {
-  it.each([[true, 'Use local files.'], [false, 'Use local files.'], [false, undefined], [false, '   ']] as const)('writes the decision and resumes (approved=%s, note=%s)', async (approved, denyNote) => {
+  it.each([
+    [true, 'Use local files.', undefined], [false, 'Use local files.', undefined], [false, undefined, undefined], [false, '   ', undefined],
+    // A refusal nobody saw (a saved rule, the reviewer) never claims the user declined.
+    [false, undefined, 'A saved rule refuses it.'],
+  ] as const)('writes the decision and resumes (approved=%s, note=%s, autoReason=%s)', async (approved, denyNote, autoReason) => {
     const instance = makeInstance();
     const oldAdapter = {
       getName: vi.fn().mockReturnValue('claude-cli'),
@@ -101,12 +105,13 @@ describe('DeferredPermissionHandler', () => {
     };
     const handler = new DeferredPermissionHandler(deps, ops, services);
 
-    await handler.resumeAfterDeferredPermission(instance.id, approved, undefined, { denyNote });
+    await handler.resumeAfterDeferredPermission(instance.id, approved, undefined, { denyNote, autoReason });
 
     expect(services.writeDecision).toHaveBeenCalledWith(
       'tool-1',
       approved ? 'allow' : 'deny',
-      approved ? 'User approved via orchestrator UI' : denyNote?.trim()
+      approved ? 'User approved via orchestrator UI' : autoReason
+        ? 'Harness: nobody was asked about this call. A saved rule refuses it.' : denyNote?.trim()
         ? 'Harness: the user declined this call. Use local files.' : 'User denied via orchestrator UI',
       undefined,  // no updatedInput — plain allow
     );

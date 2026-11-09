@@ -117,7 +117,6 @@ export interface MobileGatewayInstanceRouteDeps {
   streamCursor: MobileGatewayStreamCursor;
   markCompletionViewed(instanceId: string): void;
   scheduleSnapshotBroadcast(): void;
-  buildSnapshotInstances(): MobileInstanceDto[];
   serializeInstance(instance: Instance): MobileInstanceDto;
   resolveNodeId(nameOrId: string): string | null;
   getModelCatalog(): MobileModelCatalogSource | undefined;
@@ -169,15 +168,10 @@ export class MobileGatewayInstanceRoutes {
     }
     if (segments[1] !== "instances") return false;
 
-    if (segments.length === 2) {
-      if (method === "GET") {
-        sendJsonResponse(res, 200, this.deps.buildSnapshotInstances());
-        return true;
-      }
-      if (method === "POST") {
-        await this.handleCreate(req, res);
-        return true;
-      }
+    // Listing sessions is per person, so the gateway answers GET itself.
+    if (segments.length === 2 && method === "POST") {
+      await this.handleCreate(req, res);
+      return true;
     }
 
     if (segments.length === 4) {

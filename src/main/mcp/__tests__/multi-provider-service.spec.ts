@@ -46,10 +46,20 @@ describe('MCP multi-provider service', () => {
       orchestratorRepo: new OrchestratorMcpRepository(db, secrets),
       connectorAuth: { status: () => ({ state: 'not-required' }) },
       agentsMayWrite: async () => false,
+      alwaysAllowed: (accountId) => (accountId === 'account' ? ['graph_mail_send'] : []),
       graphAccounts: async () => [],
       redaction: new RedactionService(new SecretClassifier()),
       cwdProvider: () => tmp,
     });
+  });
+
+  it('lists the always-allowed Microsoft 365 changes on that account\'s connector', async () => {
+    const repo = new OrchestratorMcpRepository(db, new McpSecretStorage({ safeStorage: { isEncryptionAvailable: () => false } }));
+    repo.upsert({ name: 'm365-example', kind: 'microsoft365', accountId: 'account', transport: 'stdio' });
+    repo.upsert({ name: 'local-example', transport: 'stdio', command: 'node' });
+    const { orchestrator } = await service.getMultiProviderState();
+    expect(orchestrator.find((entry) => entry.record.name === 'm365-example')?.alwaysAllowed).toEqual(['graph_mail_send']);
+    expect(orchestrator.find((entry) => entry.record.name === 'local-example')).not.toHaveProperty('alwaysAllowed');
   });
 
   afterEach(() => {

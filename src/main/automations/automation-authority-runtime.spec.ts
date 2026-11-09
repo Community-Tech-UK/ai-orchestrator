@@ -73,6 +73,14 @@ describe('automation caller authority through MCP, persistence and real spawn de
     return spawned!;
   }
 
+  it('inherits an auto-approving caller when auto-approval is omitted, so unattended runs can use tools', async () => {
+    caller = { provider: 'claude', currentModel: 'sonnet', reasoningEffort: 'low', yoloMode: true };
+    await invoke('create_automation', { name: 'Record connector result', prompt: 'Edit the register', runAt: new Date(NOW + 3_600_000).toISOString() });
+    const [job] = await store.list();
+    expect(job.action).toMatchObject({ yoloMode: true, executionAuthority: { yoloMode: true } });
+    expect((await spawn(job.id)).yoloMode).toBe(true);
+  });
+
   it('pins omitted auto-approval before saving, even when instance creation defaults it on', async () => {
     await invoke('create_automation', { name: 'Monitor status', prompt: 'Check status', cron: '*/10 * * * *' });
     const [job] = await store.list();

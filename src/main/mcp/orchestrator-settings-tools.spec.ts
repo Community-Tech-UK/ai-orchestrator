@@ -535,7 +535,7 @@ describe('privileged settings CLI writability reporting', () => {
   });
 
   it('holds the operator-only anchor count the docs quote', () => {
-    // docs/AIO_MCP_CLI.md and docs/llm/AIO_MCP_CLI_REFERENCE.md both state 27
+    // docs/AIO_MCP_CLI.md and docs/llm/AIO_MCP_CLI_REFERENCE.md both state 28
     // anchors and enumerate them by group. History: the count reached 21 on
     // 2026-08-26 (`computerUseAutonomyLevel` took the Computer Use group from
     // five keys to six, after Copilot account routing added two on 2026-08-25,
@@ -558,12 +558,14 @@ describe('privileged settings CLI writability reporting', () => {
     // `planQueueAccountRules` became the 26th: it decides which accounts
     // unattended Plan Queue sessions must avoid or use last. On 2026-11-04
     // `planQueueFolderChecklists` became the 27th: its commands run in a shell,
-    // so an agent that could edit them could run anything.
-    // Fail here if a 28th is added, or one is removed, without updating the
+    // so an agent that could edit them could run anything. On 2026-11-08
+    // `graphAlwaysAllowedChanges` became the 28th: an agent that could add to it
+    // could send mail or change calendars as James without anyone being asked.
+    // Fail here if a 29th is added, or one is removed, without updating the
     // prose.
     const anchors = [...privilegedList().values()].filter((setting) => !setting.cliWritable);
 
-    expect(anchors).toHaveLength(27);
+    expect(anchors).toHaveLength(28);
   });
 
   it('keeps the saved Plan Queue folder checklists out of reach of every agent-reachable settings tool', async () => {

@@ -19,6 +19,7 @@ import { gitExec, gitExecSafe } from '../workspace/git/git-exec';
 import { getGitWriteQueue } from '../workspace/git/git-write-queue';
 import { integrationOwnershipRef, promoteIntegrationBranch } from '../workspace/git/worktree-integration';
 import { CONFLICT_CODES } from './plan-queue-git';
+import { isTestCommand } from './plan-queue-gate-receipts';
 import { assertQueueCheckout } from './plan-queue-orphan-checkout';
 import { QUEUE_TEST_ENV, runInProcessGroup } from './plan-queue-process';
 import { buildLandingCommit, type LandingDocument } from './plan-queue-squash';
@@ -206,15 +207,21 @@ async function strayHistoryReason(item: PlanQueueItem, branchName: string, baseB
     + `its own changes need moving onto the current ${baseBranch} before it can land.`;
 }
 
-/** Only complete, green machine receipts for this checklist may cover a hook's tests. */
+/**
+ * Only complete, green machine receipts for this checklist may cover a hook's tests, and only when the checklist
+ * itself ran tests that reported passing. A checklist without a test run (a livetest's type check and lint) proves
+ * nothing about tests, so the hook still runs them.
+ */
 function checkedTreeForLanding(item: PlanQueueItem, commands: readonly string[]): string | null {
   const verdict = item.verdict;
   if (verdict?.verdict !== 'PASS' || !commands.length || verdict.gatesRun.length !== commands.length) return null;
   const tree = verdict.gatesRun[0].testedTree;
   if (!tree || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(tree)) return null;
-  return verdict.gatesRun.every((receipt, index) => receipt.command === commands[index] && receipt.testedTree === tree
+  const green = verdict.gatesRun.every((receipt, index) => receipt.command === commands[index] && receipt.testedTree === tree
     && receipt.exitCode === 0 && !receipt.timedOut
-    && (receipt.classification === 'passed' || receipt.classification === 'not-recognised')) ? tree : null;
+    && (receipt.classification === 'passed' || receipt.classification === 'not-recognised'));
+  const ranTests = verdict.gatesRun.some(receipt => isTestCommand(receipt.command) && receipt.classification === 'passed');
+  return green && ranTests ? tree : null;
 }
 
 /**

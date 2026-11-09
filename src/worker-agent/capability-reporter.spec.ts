@@ -9,7 +9,9 @@ vi.mock('./worker-account-route', () => ({
 const probes = vi.hoisted(() => ({
   ios: vi.fn(),
   host: vi.fn(),
+  signIns: vi.fn(),
 }));
+vi.mock('./worker-sign-ins', () => ({ getCachedWorkerSignIns: probes.signIns }));
 vi.mock('./ios/ios-readiness', () => ({ getCachedIosAutomation: probes.ios }));
 vi.mock('./host-readiness', () => ({ getCachedHostReadiness: probes.host }));
 vi.mock('./opencode-worker-capability', () => ({ readWorkerOpenCodeMajor: async () => undefined }));
@@ -784,10 +786,12 @@ describe('capability-reporter readiness extras', () => {
     vi.clearAllMocks();
     probes.ios.mockReturnValue(undefined);
     probes.host.mockReturnValue(undefined);
+    probes.signIns.mockReturnValue(undefined);
   });
 
   it('omits the new fields when nothing is cached or given', async () => {
     const caps = await reportCapabilities(['/tmp/one']);
+    expect(caps).not.toHaveProperty('signIns');
     expect(caps).not.toHaveProperty('iosAutomation');
     expect(caps).not.toHaveProperty('hostReadiness');
     expect(caps).not.toHaveProperty('connectionNotice');
@@ -828,6 +832,22 @@ describe('capability-reporter readiness extras', () => {
       if (originalLocal === undefined) delete process.env['LOCALAPPDATA']; else process.env['LOCALAPPDATA'] = originalLocal;
       vi.mocked(fs.accessSync).mockImplementation(() => { throw new Error('not found'); });
     }
+  });
+
+  it('sends the last sign-in check, which the heartbeat validator keeps, and drops a malformed one', async () => {
+    const signIns = [
+      { provider: 'claude', profileId: 'legacy', state: 'signed-in', identity: 'person@example.invalid' },
+      { provider: 'codex', profileId: 'legacy', state: 'signed-out' },
+    ];
+    probes.signIns.mockReturnValue(signIns);
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Synthetic unavailable endpoint')));
+    const capabilities = await reportCapabilities(['/tmp/one']).finally(() => vi.unstubAllGlobals());
+    expect(probes.signIns).toHaveBeenCalledWith({ supportedClis: capabilities.supportedClis, accountProfileIds: {} });
+    const parse = (value: unknown) => NodeHeartbeatParamsSchema.parse({
+      nodeId: 'worker-placeholder', capabilities: { ...capabilities, signIns: value }, activeInstances: 0,
+    }).capabilities.signIns;
+    expect(parse(signIns)).toEqual(signIns);
+    expect(parse([{ provider: 'claude', profileId: '../escape', state: 'signed-in' }])).toBeUndefined();
   });
 
   it('defaults Local Network to unknown', async () => {

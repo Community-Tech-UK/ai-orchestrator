@@ -118,6 +118,7 @@ export const WORKSPACE_CHANNELS = {
   MCP_CONNECTOR_AUTH: 'mcp:connector:auth',
   MCP_CONNECTOR_ADD_MICROSOFT365: 'mcp:connector:add-microsoft365',
   MCP_CONNECTOR_SET_WRITABLE: 'mcp:connector:set-writable',
+  MCP_CONNECTOR_FORGET_ALWAYS_ALLOWED: 'mcp:connector:forget-always-allowed',
   MCP_PROVIDER_USER_UPSERT: 'mcp:provider:user:upsert',
   MCP_PROVIDER_USER_DELETE: 'mcp:provider:user:delete',
   MCP_PROVIDER_OPEN_SCOPE_FILE: 'mcp:provider:open-scope-file',

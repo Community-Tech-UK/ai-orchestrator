@@ -648,14 +648,20 @@ describe('renderer event validation', () => {
     expect(validateRendererEventPayload(IPC_CHANNELS.CROSS_MODEL_REVIEW_REVIEWER_UNAVAILABLE, {
       dropped: [{ cli: 'gemini', error: 'not detected on PATH' }],
     })).toBe(true);
-    expect(validateRendererEventPayload('instance:doom-loop', {
+    const doomLoop = {
       instanceId: 'instance-1',
       detector: 'repeat-no-progress',
       severity: 'warn',
       toolName: 'Bash',
       count: 5,
       windowDescription: '3 consecutive identical calls',
-    })).toBe(true);
+      harnessStopping: false,
+    };
+    expect(validateRendererEventPayload('instance:doom-loop', doomLoop)).toBe(true);
+    // The renderer needs to know whether Harness is stopping the turn; main's internal retry marker never crosses.
+    const { harnessStopping: _omitted, ...withoutStopping } = doomLoop;
+    expect(validateRendererEventPayload('instance:doom-loop', withoutStopping)).toBe(false);
+    expect(validateRendererEventPayload('instance:doom-loop', { ...doomLoop, autoStopFailed: true })).toBe(false);
     expect(validateRendererEventPayload(IPC_CHANNELS.INPUT_REQUIRED, {
       instanceId: 'instance-1',
       requestId: 'request-1',

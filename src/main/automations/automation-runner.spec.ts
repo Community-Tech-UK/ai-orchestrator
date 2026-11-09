@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildToolOutcomeMessage } from '../../shared/types/tool-outcome';
+import { projectToolOutcome } from '../instance/turn-tool-outcome-projection';
+import type { OutputMessage } from '../../shared/types/instance.types';
 import { EventEmitter } from 'events';
 import type { Automation, AutomationRun } from '../../shared/types/automation.types';
 import type { InstanceManager } from '../instance/instance-manager';
@@ -918,6 +921,73 @@ describe('AutomationRunner thread wakeups', () => {
       expect(instance.metadata['automationRunSucceeded']).toBeUndefined();
       expect(instance.metadata['automationRevealed']).toBe(true);
       expect(manager.queueInstanceUpdate).toHaveBeenCalledWith('i-limit', {});
+    });
+
+    it.each([
+      ['refused', 'failed', true, 'Automation could not report its result'],
+      ['accepted', 'succeeded', false, undefined],
+    ] as const)('a run whose automation_result call was %s ends as a %s run', async (_label, status, isError, error) => {
+      const instance = await fireHiddenRun(`i-report-${status}`);
+      // The session history as production builds it: the hidden outcome record folded into its tool_use.
+      const call = { id: 'call', timestamp: 1, type: 'tool_use' as const, content: 'Using tool: mcp__orchestrator__automation_result',
+        metadata: { id: 'toolu_1', name: 'mcp__orchestrator__automation_result', input: { outcome: 'done', notify: false } } };
+      const outcome = buildToolOutcomeMessage({ toolUseId: 'toolu_1', isError, toolName: 'mcp__orchestrator__automation_result',
+        resultText: isError ? "Claude requested permissions to use mcp__orchestrator__automation_result, but you haven't granted it yet." : '' }, 'o', 2);
+      const history: OutputMessage[] = [projectToolOutcome([call], outcome)!,
+        { id: 'a', timestamp: 3, type: 'assistant', content: 'I could not report the result.' }];
+      Object.assign(instance, { outputBuffer: history });
+      manager.emit('provider:normalized-event', { instanceId: `i-report-${status}`, event: { kind: 'output', messageType: 'assistant', content: 'I could not report the result.' } });
+      manager.emit('provider:normalized-event', { instanceId: `i-report-${status}`, event: { kind: 'complete' } });
+
+      expect(store.terminalizeRun).toHaveBeenLastCalledWith(expect.any(String), status, error, expect.anything(), expect.anything());
+    });
+
+    it('keeps a held call\'s run open until a person is asked, so a saved Always allow lets it finish', async () => {
+      const instance = await fireHiddenRun('i-held');
+      Object.assign(instance, { provider: 'claude' });
+      vi.mocked(store.terminalizeRun).mockClear();
+      manager.emit('instance:event', { instanceId: 'i-held', event: { kind: 'status_changed', status: 'waiting_for_permission' } });
+      // A saved rule answered it: the session resumes and finishes the turn normally.
+      expect(store.terminalizeRun).not.toHaveBeenCalled();
+      manager.emit('provider:normalized-event', { instanceId: 'i-held', event: { kind: 'complete' } });
+      expect(store.terminalizeRun).toHaveBeenLastCalledWith(expect.any(String), 'succeeded', undefined, expect.anything(), expect.anything());
+      expect(instance.metadata['automationRunSucceeded']).toBe(true);
+    });
+
+    it('accepts the completion of a session resumed on a new process after a saved rule answered its held call', async () => {
+      const instance = await fireHiddenRun('i-resumed');
+      Object.assign(instance, { provider: 'claude' });
+      vi.mocked(store.terminalizeRun).mockClear();
+      manager.emit('instance:event', { instanceId: 'i-resumed', event: { kind: 'status_changed', status: 'waiting_for_permission' } });
+      // The resume wires a new adapter (setupAdapterEvents bumps the generation); the turn's request count is unchanged.
+      Object.assign(instance, { adapterGeneration: 2, requestCount: 1 });
+      manager.emit('provider:normalized-event', { instanceId: 'i-resumed', adapterGeneration: 2, event: { kind: 'complete', requestCountAtCompletion: 1 } });
+      expect(store.terminalizeRun).toHaveBeenLastCalledWith(expect.any(String), 'succeeded', undefined, expect.anything(), expect.anything());
+    });
+
+    it('ends a held call\'s run as needing approval once the ask is shown to a person', async () => {
+      Object.assign(await fireHiddenRun('i-asked'), { provider: 'claude' });
+      manager.emit('instance:event', { instanceId: 'i-asked', event: { kind: 'status_changed', status: 'waiting_for_permission' } });
+      manager.emit('instance:input-required', { instanceId: 'i-asked', requestId: 'ask', metadata: { type: 'deferred_permission' } });
+      expect(store.terminalizeRun).toHaveBeenLastCalledWith(expect.any(String), 'failed', 'Automation requires unattended permission approval', expect.anything(), expect.anything());
+    });
+
+    it.each(['codex', 'copilot'])('still ends a %s run at once when it waits for permission (no held call to answer)', async (provider) => {
+      Object.assign(await fireHiddenRun(`i-wait-${provider}`), { provider });
+      manager.emit('instance:event', { instanceId: `i-wait-${provider}`, event: { kind: 'status_changed', status: 'waiting_for_permission' } });
+      expect(store.terminalizeRun).toHaveBeenLastCalledWith(expect.any(String), 'failed', 'Automation requires unattended permission approval', expect.anything(), expect.anything());
+    });
+
+    it('flags a failed report in Codex\'s form too: a separate tool_result named after the tool', async () => {
+      const instance = await fireHiddenRun('i-codex');
+      const history: OutputMessage[] = [
+        { id: 'r', timestamp: 1, type: 'tool_result', content: 'Tool orchestrator/automation_result failed', metadata: { id: 'item-1', name: 'automation_result', is_error: true } },
+        { id: 'a', timestamp: 2, type: 'assistant', content: 'I could not report the result.' },
+      ];
+      Object.assign(instance, { outputBuffer: history });
+      manager.emit('provider:normalized-event', { instanceId: 'i-codex', event: { kind: 'output', messageType: 'assistant', content: 'I could not report the result.' } });
+      manager.emit('provider:normalized-event', { instanceId: 'i-codex', event: { kind: 'complete' } });
+      expect(store.terminalizeRun).toHaveBeenLastCalledWith(expect.any(String), 'failed', 'Automation could not report its result', expect.anything(), expect.anything());
     });
 
     it('reveals a hidden run whose automation is deleted mid-run', async () => {

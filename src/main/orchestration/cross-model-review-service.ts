@@ -311,7 +311,7 @@ export class CrossModelReviewService extends EventEmitter {
     if (!dispatch.reviewers.length && dispatch.blockedReason) return { status: 'no-reviewers' as const };
     const { request } = dispatch;
     Object.assign(request, source);
-    const reservation = reserveReviewDispatch({ limit: settings.crossModelReviewDailyLimit ?? 20,
+    const reservation = reserveReviewDispatch({ limit: settings.crossModelReviewDailyLimit ?? DEFAULT_SETTINGS.crossModelReviewDailyLimit,
       reviewId: request.id, instanceId: instance.id, trigger });
     if (!reservation.allowed) {
       const { allowed: _allowed, ...dailyUsage } = reservation;
@@ -910,7 +910,7 @@ export class CrossModelReviewService extends EventEmitter {
     const settings = getSettingsManager().getAll();
     return {
       enabled: settings.crossModelReviewEnabled,
-      dailyUsage: getReviewDailyUsage(settings.crossModelReviewDailyLimit ?? 20),
+      dailyUsage: getReviewDailyUsage(settings.crossModelReviewDailyLimit ?? DEFAULT_SETTINGS.crossModelReviewDailyLimit),
       reviewers: this.reviewerPool.getStatus(),
       pendingReviews: this.pendingReviews.size,
       unavailableReviewers: this.unavailableReviewers,

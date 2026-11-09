@@ -26,11 +26,16 @@ export function enforceAutomationAuthority(action: AutomationAction, caller: Aut
   if (!EFFORTS.includes(reasoningEffort) || EFFORTS.indexOf(reasoningEffort) > EFFORTS.indexOf(ceilingEffort!)) refuse('effort');
   const provider = action.provider && action.provider !== 'auto' ? action.provider : caller.provider;
   const callerModel = verifiedAutomationModel(caller.provider, caller.currentModel);
-  const model = verifiedAutomationModel(provider, action.model || (provider === caller.provider ? caller.currentModel : undefined));
-  if (!model || !callerModel || TIERS[model.tier] > TIERS[callerModel.tier]) return refuse('model (the effective model tier is unknown or higher)');
+  const requestedModel = action.model || (provider === caller.provider ? caller.currentModel : undefined);
+  const model = verifiedAutomationModel(provider, requestedModel);
+  if (!callerModel) return refuse(`model (the tier of this session's model "${caller.currentModel ?? 'default'}" is not in Harness's model list)`);
+  if (!model) return refuse(`model (the tier of the job's model "${requestedModel ?? 'default'}" is not in Harness's model list)`);
+  if (TIERS[model.tier] > TIERS[callerModel.tier]) return refuse('model');
   if (provider !== 'claude' && provider !== 'codex') return refuse('authority (this runtime cannot enforce the limits)');
-  const next: AutomationAction = { ...action, provider, model: model.id, reasoningEffort, yoloMode: action.yoloMode ?? false,
-    executionAuthority: Object.freeze({ provider, model: model.id, modelTier: model.tier, reasoningEffort, yoloMode: action.yoloMode ?? false }) };
+  // Like model and effort, an unset auto-approval inherits the caller's own value.
+  const yoloMode = action.yoloMode ?? caller.yoloMode;
+  const next: AutomationAction = { ...action, provider, model: model.id, reasoningEffort, yoloMode,
+    executionAuthority: Object.freeze({ provider, model: model.id, modelTier: model.tier, reasoningEffort, yoloMode }) };
   assertAutomationLoopShape(next);
   boundAutomationSpawnOptions(next.executionAuthority, provider, next);
   return next;

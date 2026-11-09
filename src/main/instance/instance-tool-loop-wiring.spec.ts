@@ -11,9 +11,10 @@
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { observeToolLoopEvent, resolveToolLoopWiringDeps, type ToolLoopWiringDeps } from './instance-tool-loop-wiring';
+import { observeToolLoopEvent, resolveToolLoopWiringDeps, willAutoInterruptToolLoop, type ToolLoopWiringDeps } from './instance-tool-loop-wiring';
 import { DoomLoopDetector, getDoomLoopDetector, type ToolLoopDetectionEvent } from '../orchestration/doom-loop-detector';
 import type { ProviderRuntimeEvent } from '@contracts/types/provider-runtime-events';
+import { getInstanceTurnEnding } from './instance-turn-ending-state';
 
 const noopDeps: ToolLoopWiringDeps = {
   getAutoInterruptSetting: () => false,
@@ -276,6 +277,21 @@ describe('provider mutating-tool backstop', () => {
     expect(interrupt).toHaveBeenCalledTimes(1);
   });
 
+  it('a stop that throws hands the decision back: re-emitted as failed, with the guard cleared so a later detection may retry', () => {
+    const interrupt = vi.fn((): boolean => { throw new Error('adapter gone'); });
+    const deps: ToolLoopWiringDeps = { getAutoInterruptSetting: () => true, getProvider: () => 'codex', interruptInstance: interrupt };
+    const detections: ToolLoopDetectionEvent[] = [];
+    getDoomLoopDetector().on('tool-loop-detected', (event: ToolLoopDetectionEvent) => detections.push(event));
+    for (let i = 0; i < 6; i++) {
+      observeToolLoopEvent(deps, 'inst-1', { kind: 'tool_use', toolName: 'write', toolUseId: `w${i}`, input: { path: 'x', content: 'same' } });
+      observeToolLoopEvent(deps, 'inst-1', { kind: 'tool_result', toolName: 'write', toolUseId: `w${i}`, success: true, output: 'unchanged' });
+    }
+    const critical = detections.filter((event) => event.severity === 'critical');
+    expect(critical.map((event) => event.autoStopFailed === true)).toEqual([false, true]);
+    expect(getDoomLoopDetector().hasAutoInterruptedThisTurn('inst-1')).toBe(false);
+    expect(getInstanceTurnEnding('inst-1')).toBeUndefined();
+  });
+
   it.each(['claude', 'opencode', 'copilot'])('never interrupts %s read-only loops even with the global setting on', (provider) => {
     const interrupt = vi.fn(() => true);
     const deps: ToolLoopWiringDeps = { getAutoInterruptSetting: () => true, getProvider: () => provider, interruptInstance: interrupt };
@@ -294,5 +310,25 @@ describe('provider mutating-tool backstop', () => {
       observeToolLoopEvent(deps, 'inst-1', { kind: 'tool_result', toolName: 'Run deploy command', toolUseId: `e${i}`, success: true, output: 'same' });
     }
     expect(interrupt).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('willAutoInterruptToolLoop (shared with the notification wording)', () => {
+  const critical = { severity: 'critical', detector: 'repeat-no-progress', toolName: 'Bash' } as const;
+
+  it('stops nothing for a warning, or for a read-only tool even with auto-interrupt on', () => {
+    expect(willAutoInterruptToolLoop({ ...critical, severity: 'warn' }, 'claude', true)).toBe(false);
+    expect(willAutoInterruptToolLoop({ ...critical, toolName: 'Read' }, 'codex', true)).toBe(false);
+  });
+
+  it('follows the auto-interrupt setting for other sessions', () => {
+    expect(willAutoInterruptToolLoop(critical, 'codex', true)).toBe(true);
+    expect(willAutoInterruptToolLoop(critical, 'codex', false)).toBe(false);
+  });
+
+  it('always stops a Claude or OpenCode session repeating a changing call, even with the setting off', () => {
+    expect(willAutoInterruptToolLoop(critical, 'claude', false)).toBe(true);
+    expect(willAutoInterruptToolLoop(critical, 'opencode', false)).toBe(true);
+    expect(willAutoInterruptToolLoop({ ...critical, detector: 'runaway' }, 'claude', false)).toBe(false);
   });
 });

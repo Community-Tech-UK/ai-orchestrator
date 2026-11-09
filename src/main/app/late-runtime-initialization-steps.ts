@@ -35,6 +35,7 @@ import { getSessionContinuityManager } from '../session/session-continuity';
 import { getSessionAdmissionService } from '../session/session-admission-service';
 import { getInstanceProviderLimitHandler } from '../instance/instance-provider-limit-handler';
 import { initializeArtifactCleanupMaintenance } from '../session/artifact-cleanup-maintenance';
+import { initializeCompletedReviewSweep } from '../doc-review/doc-review-completed-sweep';
 import { registerBuiltinTerminationGates } from '../session/builtin-termination-gates';
 import { initializeSessionRecoveryRuntime } from './session-recovery-initialization';
 import { getResourceGovernor } from '../process/resource-governor';
@@ -349,6 +350,7 @@ export function createLateRuntimeInitializationSteps(
     { name: 'Codex state backup pruning', fn: () => { pruneCodexStateBackups(); } },
     { name: 'Stale Codex temp home sweep', fn: () => { sweepStaleCodexTempHomes(); initializeCodexTempHomeMaintenance(); } },
     { name: 'Artifact cleanup maintenance', fn: () => { initializeArtifactCleanupMaintenance(); } },
+    { name: 'Close reviews for completed documents', fn: () => { initializeCompletedReviewSweep(); } },
     { name: 'Low disk space watcher', fn: () => { startLowDiskSpaceWatcher(app.getPath('userData')); } },
     { name: 'Scratch folder sweep', fn: () => { startScratchSweepScheduler(); } },
     {

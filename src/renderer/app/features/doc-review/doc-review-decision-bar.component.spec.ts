@@ -43,6 +43,8 @@ it('asks to scroll to a clicked item and offers the recommendations shortcut onl
   (fixture.nativeElement.querySelectorAll('button.item')[1] as HTMLButtonElement).click();
   expect(selected).toHaveBeenCalledWith('decisions');
 
+  // Kept apart from the overall-verdict buttons so it is not read as a fourth verdict.
+  expect(findShortcut()!.closest('.controls')).toBeNull();
   findShortcut()!.click();
   expect(accepted).toHaveBeenCalledOnce();
 });

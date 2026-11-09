@@ -6,6 +6,7 @@ import {
   type BuildClaudeCliArgsInput,
 } from './claude-cli-argv-builder';
 import type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
+import { HELD_ORCHESTRATOR_TOOL_MATCHER } from './harness-tool-allowlist';
 import { CLAUDE_SUBAGENT_WAITING_RULE } from './claude-subagent-policy';
 import { readFileSync, statSync } from 'node:fs';
 import { _setOutputCapSettingsReaderForTesting } from './claude-output-caps';
@@ -398,8 +399,7 @@ describe('security-guidance plugin switch-off in the --settings overlay (Step 4 
     expect(overlay.enabledPlugins).toEqual({ [SECURITY_PLUGIN_ID]: false });
     expect(overlay.fastMode).toBe(true);
     expect(overlay.ultracode).toBe(true);
-    expect(overlay.hooks.PreToolUse).toHaveLength(1);
-    expect(overlay.hooks.PreToolUse[0].matcher).toBe('Bash');
+    expect(overlay.hooks.PreToolUse.map((entry: { matcher: string }) => entry.matcher)).toEqual(['Bash', HELD_ORCHESTRATOR_TOOL_MATCHER]);
     expect(overlay.hooks.PreToolUse[0].hooks[0].command).toContain('/hook.js');
 
     // The same merge through the final argv for an auto-approve machine session with RTK.
@@ -497,9 +497,43 @@ describe('Claude Bash PreToolUse hook by approval mode (Step 18b item 3)', () =>
       spawnOptions: { yoloMode: false, permissionHookPath: DEFER_HOOK, rtk: rtk(RTK_HOOK) },
     }));
     const hooks = hooksOf(args);
-    expect(hooks).toHaveLength(1);
-    expect(hooks![0].hooks).toHaveLength(1);
-    expect(hooks![0].hooks[0].command).toContain(DEFER_HOOK);
-    expect(hooks![0].hooks[0].command).not.toContain(RTK_HOOK);
+    expect(hooks!.map(entry => entry.matcher)).toEqual(['Bash', HELD_ORCHESTRATOR_TOOL_MATCHER]);
+    for (const entry of hooks!) {
+      expect(entry.hooks).toHaveLength(1);
+      expect(entry.hooks[0].command).toContain(DEFER_HOOK);
+      expect(entry.hooks[0].command).not.toContain(RTK_HOOK);
+    }
+  });
+});
+
+describe('Harness tool approvals in ask-first sessions (2026-11-08 scheduled-session approvals)', () => {
+  const HOOK = '/placeholder/hooks/defer-permission-hook.mjs';
+  type Entry = { matcher: string; hooks: { type: string; command: string }[] };
+  const hooksIn = (overlay: string | undefined) => (JSON.parse(overlay!) as { hooks?: { PreToolUse?: Entry[]; PermissionRequest?: Entry[] } }).hooks;
+
+  it('a scheduled session holds non-allowed Harness tools and answers every other ask with an honest refusal', () => {
+    const hooks = hooksIn(buildClaudeSettingsOverlay({ machineSession: 'automation', permissionHookPath: HOOK }, true));
+    expect(hooks?.PreToolUse?.map(entry => entry.matcher)).toEqual(['Bash', HELD_ORCHESTRATOR_TOOL_MATCHER]);
+    expect(hooks?.PermissionRequest).toHaveLength(1);
+    // Claude asks this hook only about calls it would refuse; the script words the refusal per tool.
+    const refusal = new RegExp(hooks!.PermissionRequest![0].matcher);
+    for (const tool of ['Write', 'Edit', 'mcp__linear__save_issue', 'WebFetch']) expect(refusal.test(tool)).toBe(true);
+    for (const entry of [...hooks!.PreToolUse!, ...hooks!.PermissionRequest!]) expect(entry.hooks[0].command).toContain(HOOK);
+  });
+
+  it('a session a person drives holds Harness tools but keeps Claude\'s own refusal card', () => {
+    const hooks = hooksIn(buildClaudeSettingsOverlay({ permissionHookPath: HOOK }, true));
+    expect(hooks?.PreToolUse?.map(entry => entry.matcher)).toEqual(['Bash', HELD_ORCHESTRATOR_TOOL_MATCHER]);
+    expect(hooks?.PermissionRequest).toBeUndefined();
+  });
+
+  it('auto-approve and read-only review sessions get neither entry', () => {
+    const yolo = buildClaudeCliArgs(baseInput({ shouldUsePermissionHook: true,
+      spawnOptions: { yoloMode: true, machineSession: 'automation', permissionHookPath: HOOK } }));
+    expect(yolo.join(' ')).not.toContain('PermissionRequest');
+    expect(yolo.join(' ')).not.toContain('mcp__orchestrator__');
+    const review = buildClaudeCliArgs(baseInput({ shouldUsePermissionHook: true,
+      spawnOptions: { yoloMode: false, readOnlyReview: true, machineSession: 'review', permissionHookPath: HOOK } }));
+    expect(review.join(' ')).not.toContain('PreToolUse');
   });
 });

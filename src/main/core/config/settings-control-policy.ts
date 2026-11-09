@@ -122,6 +122,9 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   'graphAuthority',
   'graphScopesJson',
   'graphAgentWritableAccountsJson',
+  // Standing "Always allow" answers for Microsoft 365 changes. An agent that
+  // could add one could send mail as James without anyone being asked.
+  'graphAlwaysAllowedChanges',
   'localAiGuardDefaultFallbackPolicy',
   'localAiGuardDailyFallbackBudgetUsd',
   'localAiGuardConfirmAboveInputTokens',
@@ -551,6 +554,7 @@ export const SETTINGS_TOOL_POLICY = {
   mobileGatewayPort: readOnly(true),
   mobileGatewayBindInterface: readOnly(true),
   mobileGatewayDevices: secret(),
+  mobileGatewayProfiles: readOnly(),
   mobileGatewayTlsCertPath: secret(true),
   mobileGatewayTlsKeyPath: secret(true),
   mobileGatewayApnsKeyP8: secret(true),
@@ -577,6 +581,7 @@ export const SETTINGS_TOOL_POLICY = {
   graphAuthority: readOnly(true),
   graphScopesJson: readOnly(true),
   graphAgentWritableAccountsJson: readOnly(true),
+  graphAlwaysAllowedChanges: readOnly(),
   computerUseEnabled: readOnly(),
   computerUseAllowedAppsJson: readOnly(),
   computerUseDeniedAppsJson: readOnly(),

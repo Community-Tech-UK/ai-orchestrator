@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getOperatorDatabase } from '../operator/operator-database';
 import { getMcpSecretStorage } from '../mcp/secret-storage';
@@ -16,11 +17,17 @@ const MUTATION_TOOLS = new Set([
   'graph_mail_create_draft', 'graph_mail_send',
 ]);
 
+/** Account email (lower case) to the change tools James chose "Always allow" for. */
+export type AlwaysAllowedChanges = Record<string, string[]>;
+const AlwaysAllowedChangesSchema = z.record(z.string(), z.array(z.string()));
+
 export interface GraphConnectorServiceOptions {
   authManager: Pick<GraphAuthManager, 'connectAccount' | 'listAccounts' | 'removeAccount'>;
   createGraphClient: (context: GraphRequestContext) => NonNullable<GraphConnectorDependencies['graphClient']>;
   writableAccountEmails: () => readonly string[];
   updateWritableAccountEmails: (emails: string[]) => void;
+  alwaysAllowedChanges: () => AlwaysAllowedChanges;
+  updateAlwaysAllowedChanges: (changes: AlwaysAllowedChanges) => void;
   listStoredAccounts: () => readonly GraphAccount[];
 }
 
@@ -48,6 +55,9 @@ export class GraphConnectorService {
           try { return parseStringList(settings.get('graphAgentWritableAccountsJson')); }
           catch { return []; }
         },
+        // Anything malformed reads as "nothing is always allowed", so every change asks again.
+        alwaysAllowedChanges: () => AlwaysAllowedChangesSchema.catch({}).parse(settings.get('graphAlwaysAllowedChanges')),
+        updateAlwaysAllowedChanges: (changes) => settings.set('graphAlwaysAllowedChanges', changes),
       });
     }
     return this.instance;
@@ -84,6 +94,37 @@ export class GraphConnectorService {
     const emails = this.options.writableAccountEmails().filter((email) => email.trim().toLowerCase() !== username);
     if (allowed) emails.push(account.username);
     this.options.updateWritableAccountEmails(emails);
+  }
+
+  /** The connected account's email, for telling James which account an approval covers. */
+  accountEmail(accountKey: string): string | undefined {
+    return this.options.listStoredAccounts().find((candidate) => candidate.accountKey === accountKey)?.username;
+  }
+
+  isAlwaysAllowed(accountKey: string, toolName: string): boolean {
+    return this.listAlwaysAllowed(accountKey).includes(toolName);
+  }
+
+  listAlwaysAllowed(accountKey: string): string[] {
+    const email = this.accountEmail(accountKey)?.trim().toLowerCase();
+    return email ? this.options.alwaysAllowedChanges()[email] ?? [] : [];
+  }
+
+  allowAlways(accountKey: string, toolName: string): void {
+    if (!MUTATION_TOOLS.has(toolName)) throw new Error(`Not a Microsoft 365 change: ${toolName}`);
+    const email = this.accountEmail(accountKey)?.trim().toLowerCase();
+    if (!email) throw new Error('This Microsoft 365 account is not connected. Sign in again in Settings → Connectors.');
+    const changes = this.options.alwaysAllowedChanges();
+    if (changes[email]?.includes(toolName)) return;
+    this.options.updateAlwaysAllowedChanges({ ...changes, [email]: [...(changes[email] ?? []), toolName] });
+  }
+
+  /** Every change on this account asks again. */
+  forgetAlwaysAllowed(accountKey: string): void {
+    const email = this.accountEmail(accountKey)?.trim().toLowerCase();
+    if (!email) return;
+    const { [email]: _forgotten, ...rest } = this.options.alwaysAllowedChanges();
+    this.options.updateAlwaysAllowedChanges(rest);
   }
 
   listTools(accountKey: string, mailEnabled = false) {

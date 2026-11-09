@@ -3,6 +3,7 @@ import type { CliMessage } from '../adapters/base-cli-adapter';
 import { resolveClaudeDebugLogging } from '../adapters/claude-env-pack';
 import { claudeOutputCapSettings, resolveClaudeBashOutputMaxChars } from '../adapters/claude-output-caps';
 import { DEFAULT_DISALLOWED_TOOLS } from '../adapters/host-cli-tool-policy';
+import { claudePermissionHooks, type ClaudePermissionHooks } from '../adapters/claude-permission-hooks';
 import { resolveBashHookCommand } from '../hooks/hook-path-resolver';
 import { wrapRtkAwareness } from '../rtk/rtk-awareness';
 import { wrapSystemInstructions } from '../adapters/system-instruction-wrapper';
@@ -69,33 +70,18 @@ function buildClaudeSettingsOverlay(options: UnifiedSpawnOptions): string | unde
   const settings: {
     ultracode?: true;
     bashOutputMaxChars?: number;
-    hooks?: {
-      PreToolUse: {
-        matcher: string;
-        hooks: { type: 'command'; command: string }[];
-      }[];
-    };
+    hooks?: ClaudePermissionHooks;
   } = {};
   if (options.reasoningEffort === 'workflow') {
     settings.ultracode = true;
   }
   Object.assign(settings, claudeOutputCapSettings(resolveClaudeBashOutputMaxChars(options.bashOutputMaxChars), null));
-  const bashHookCommand = resolveBashHookCommand({
+  const permissionHooks = claudePermissionHooks(resolveBashHookCommand({
     yoloMode: options.yoloMode,
     permissionHookPath: options.permissionHookPath,
     rtk: options.rtk,
-  });
-  if (bashHookCommand) {
-    settings.hooks = {
-      PreToolUse: [{
-        matcher: 'Bash',
-        hooks: [{
-          type: 'command',
-          command: bashHookCommand,
-        }],
-      }],
-    };
-  }
+  }), options);
+  if (permissionHooks) settings.hooks = permissionHooks;
   return Object.keys(settings).length > 0 ? JSON.stringify(settings) : undefined;
 }
 

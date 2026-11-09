@@ -5,12 +5,13 @@ import { InstanceStore } from '../state/instance.store';
 import { NotificationCenterStore } from '../state/notification-center.store';
 import { ToolLoopAlertStore } from '../state/tool-loop-alert.store';
 import { SessionNavigator } from '../services/session-navigator.service';
+import { describeToolLoop, type ToolLoopSummaryInput } from '../../../../shared/tool-loop-summary';
 
-interface ToolLoopEvent {
+interface ToolLoopEvent extends ToolLoopSummaryInput {
   instanceId: string;
   severity: 'warn' | 'critical';
-  toolName: string;
-  windowDescription: string;
+  /** Harness is stopping the turn itself (`InstanceDoomLoopEventSchema`). */
+  harnessStopping: boolean;
 }
 
 /** App-wide notification listeners survive navigation to every secondary page. */
@@ -49,9 +50,16 @@ export class NotificationShellService {
     if (this.unsubscribe) return;
     this.unsubscribe = this.ipc.on('instance:doom-loop', data => {
       const event = data as ToolLoopEvent;
-      const critical = event.severity === 'critical';
+      // Harness stopping the turn itself leaves nothing to decide: say so, and
+      // let the toast time out instead of staying until the alert clears.
+      const stopping = event.severity === 'critical' && event.harnessStopping;
+      const critical = event.severity === 'critical' && !stopping;
       if (critical) this.criticalToastIds.add(event.instanceId);
-      this.toast.show(`${critical ? 'Tool loop (critical)' : 'Tool loop warning'}: ${event.toolName} · ${event.windowDescription}`,
+      else this.criticalToastIds.delete(event.instanceId);
+      // Name the session: the toast is often seen from a different one.
+      const name = this.instances.getInstance(event.instanceId)?.displayName || 'A session';
+      const headline = event.severity === 'critical' ? `${name} may be stuck.` : `${name} may be repeating itself.`;
+      this.toast.show(`${headline} ${describeToolLoop(event)}${stopping ? ' Harness is stopping it.' : ''}`,
         critical ? 'error' : 'warning', { key: `tool-loop:${event.instanceId}`,
           action: { label: 'Show session', run: () => this.navigator.openSession(event.instanceId) } });
     }) ?? null;

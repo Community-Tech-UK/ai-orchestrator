@@ -84,6 +84,18 @@ describe('InstancePermissionRequestFlow', () => {
     maybeAdjudicate.mockReset();
   });
 
+  it.each(['allow', 'deny'] as const)('says so, and shows no card, when the saved-rule %s cannot resume the session', async (action) => {
+    evaluate.mockReturnValue(gateDecision(action));
+    const host = createHost({ resumeAfterDeferredPermission: vi.fn(async () => { throw new Error('No deferred tool use pending'); }) });
+    await new InstancePermissionRequestFlow(host).handleInputRequired({ instanceId: 'inst-1', requestId: 'held', prompt: 'Allow?', timestamp: 1,
+      metadata: { type: 'deferred_permission', tool_name: 'mcp__orchestrator__plan_queue_start', tool_input: {} } });
+    // A person's answer would take the same failing resume, so no card; the note never claims the call was allowed.
+    expect(host.emit).not.toHaveBeenCalledWith('instance:input-required', expect.anything());
+    expect(host.addToOutputBuffer).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      content: 'Harness answered the mcp__orchestrator__plan_queue_start approval automatically but could not resume the session (No deferred tool use pending). Restart the session to continue.',
+    }));
+  });
+
   it('auto-denies permission_denial prompts and does not forward them', async () => {
     evaluate.mockReturnValue(gateDecision('deny'));
     const host = createHost();
@@ -297,7 +309,9 @@ describe('live permission resources and strict once', () => {
     const host = createHost();
     await new InstancePermissionRequestFlow(host).handleInputRequired({ instanceId: 'inst-1', requestId: 'adjudicated', prompt: 'Allow?', timestamp: 1,
       metadata: { type: 'deferred_permission', live: true, tool_name: 'WebFetch' } });
-    expect(host.resumeAfterDeferredPermission).toHaveBeenCalledWith('inst-1', false, { requestId: 'adjudicated' });
+    // The model is told the reviewer refused it, never that a person did.
+    expect(host.resumeAfterDeferredPermission).toHaveBeenCalledWith('inst-1', false, { requestId: 'adjudicated',
+      autoReason: "Harness's automatic approval check refused WebFetch (risk high): policy" });
   });
 });
 

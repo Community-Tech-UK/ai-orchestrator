@@ -22,6 +22,7 @@ import {
   McpConnectorAuthPayloadSchema,
   McpConnectorAddMicrosoft365Schema,
   McpConnectorSetWritableSchema,
+  McpConnectorForgetAlwaysAllowedSchema,
   McpInjectionTargetsPayloadSchema,
   McpProviderScopePayloadSchema,
   McpProviderUserDeletePayloadSchema,
@@ -754,6 +755,22 @@ export function registerMcpHandlers(deps: {
         return { success: true };
       } catch (error) {
         return { success: false, error: { code: 'MCP_CONNECTOR_SET_WRITABLE_FAILED', message: (error as Error).message, timestamp: Date.now() } };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MCP_CONNECTOR_FORGET_ALWAYS_ALLOWED,
+    async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
+      try {
+        const validated = validateIpcPayload(McpConnectorForgetAlwaysAllowedSchema, payload, 'MCP_CONNECTOR_FORGET_ALWAYS_ALLOWED');
+        const record = getOrchestratorMcpRepository().get(validated.serverId)?.record;
+        if (record?.kind !== 'microsoft365' || !record.accountId) throw new Error('Choose a Microsoft 365 connector first.');
+        getGraphConnectorService().forgetAlwaysAllowed(record.accountId);
+        await broadcastMultiProviderState();
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: { code: 'MCP_CONNECTOR_FORGET_ALWAYS_ALLOWED_FAILED', message: (error as Error).message, timestamp: Date.now() } };
       }
     },
   );

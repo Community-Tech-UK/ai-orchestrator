@@ -254,6 +254,17 @@ export interface WorkerNodeFileTransferRoot {
   approvalRequired?: boolean;
 }
 
+/** One Claude Code or Codex account's sign-in on a worker. Never a path or a credential. */
+export interface WorkerNodeSignIn {
+  provider: 'claude' | 'codex';
+  /** `legacy` is the tool's own default sign-in (`claude auth login`, `codex login`). */
+  profileId: string;
+  /** `unknown` when the check could not read it (a timeout, an unexpected answer, a non-subscription sign-in). */
+  state: 'signed-in' | 'signed-out' | 'unknown';
+  /** Claude only: the address it is signed in as, when Claude reports one. */
+  identity?: string;
+}
+
 export interface WorkerNodeFileTransferSummary {
   enabled: boolean;
   maxFileBytes: number;
@@ -305,6 +316,12 @@ export interface WorkerNodeCapabilities {
    * whether the profile is actually signed in there.
    */
   accountProfileIds?: Partial<Record<PooledProvider, string[]>>;
+  /**
+   * Whether each Claude Code / Codex account is signed in on this node, checked there every 10 minutes, so the
+   * Computers page can say so. Absent until the first check finishes, and from older workers. Display only: the
+   * spawn-time binding check still decides.
+   */
+  signIns?: WorkerNodeSignIn[];
   hasBrowserRuntime: boolean;
   hasBrowserMcp: boolean;
   /** Present when the node reports browser-automation config (newer workers). */

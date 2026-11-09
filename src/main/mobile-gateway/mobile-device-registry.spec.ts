@@ -3,12 +3,15 @@ import {
   MobileDeviceRegistry,
   type MobileDevicePersistence,
 } from './mobile-device-registry';
+import { MOBILE_OWNER_PROFILE_ID } from '../../shared/types/mobile-gateway.types';
 
 function memPersistence(): MobileDevicePersistence & {
   dump: () => string | undefined;
+  dumpProfiles: () => string | undefined;
   saveCount: () => number;
 } {
   let store: string | undefined;
+  let profiles: string | undefined;
   let saves = 0;
   return {
     load: () => store,
@@ -16,7 +19,12 @@ function memPersistence(): MobileDevicePersistence & {
       saves += 1;
       store = json;
     },
+    loadProfiles: () => profiles,
+    saveProfiles: (json: string) => {
+      profiles = json;
+    },
     dump: () => store,
+    dumpProfiles: () => profiles,
     saveCount: () => saves,
   };
 }
@@ -90,9 +98,9 @@ describe('MobileDeviceRegistry', () => {
     expect(registry.setApnsToken(result.device.deviceId, 'apns-abc')).toBe(true);
     expect(registry.listDevices()[0].hasApnsToken).toBe(true);
     expect(registry.getDeviceById(result.device.deviceId)?.apnsToken).toBe('apns-abc');
-    expect(registry.apnsTargets()).toEqual([{ deviceId: result.device.deviceId, token: 'apns-abc' }]);
+    expect(registry.apnsTargets(MOBILE_OWNER_PROFILE_ID)).toEqual([{ deviceId: result.device.deviceId, token: 'apns-abc' }]);
     expect(registry.clearApnsToken('apns-abc')).toBe(true);
-    expect(registry.apnsTargets()).toEqual([]);
+    expect(registry.apnsTargets(MOBILE_OWNER_PROFILE_ID)).toEqual([]);
   });
 
   it('clears every legacy device record containing the same rejected APNs token', () => {
@@ -114,7 +122,7 @@ describe('MobileDeviceRegistry', () => {
     registry = new MobileDeviceRegistry(persistence);
 
     expect(registry.clearApnsToken('duplicate-invalid')).toBe(true);
-    expect(registry.apnsTargets()).toEqual([{ deviceId: 'other', token: 'unrelated' }]);
+    expect(registry.apnsTargets(MOBILE_OWNER_PROFILE_ID)).toEqual([{ deviceId: 'other', token: 'unrelated' }]);
   });
 
   it('moves a physical APNs token to the newest pairing', () => {
@@ -128,11 +136,11 @@ describe('MobileDeviceRegistry', () => {
     expect(registry.setLiveActivityToken(first.device.deviceId, 'inst-1', 'activity-token')).toBe(true);
     expect(registry.setApnsToken(second.device.deviceId, 'same-phone-token')).toBe(true);
 
-    expect(registry.apnsTargets()).toEqual([
+    expect(registry.apnsTargets(MOBILE_OWNER_PROFILE_ID)).toEqual([
       { deviceId: second.device.deviceId, token: 'same-phone-token' },
     ]);
     expect(registry.getDeviceById(first.device.deviceId)?.apnsToken).toBeUndefined();
-    expect(registry.liveActivityTargetsFor('inst-1')).toEqual([
+    expect(registry.liveActivityTargetsFor('inst-1', MOBILE_OWNER_PROFILE_ID)).toEqual([
       { deviceId: second.device.deviceId, token: 'activity-token' },
     ]);
   });
@@ -147,7 +155,7 @@ describe('MobileDeviceRegistry', () => {
     });
 
     it('rejects an expired pairing token', () => {
-      const pairing = registry.issuePairing(1_000);
+      const pairing = registry.issuePairing({ ttlMs: 1_000 });
       vi.setSystemTime(new Date('2026-01-01T00:00:05Z')); // +5s
       expect(registry.pair({ pairingToken: pairing.pairingToken }).status).toBe('rejected');
     });
@@ -238,19 +246,19 @@ describe('live activity tokens', () => {
     const { deviceId } = pairDevice();
 
     expect(registry.setLiveActivityToken(deviceId, 'inst-1', 'tok-a')).toBe(true);
-    expect(registry.liveActivityTokensFor('inst-1')).toEqual(['tok-a']);
-    expect(registry.liveActivityTokensFor('inst-2')).toEqual([]);
+    expect(registry.liveActivityTargetsFor('inst-1', MOBILE_OWNER_PROFILE_ID).map((target) => target.token)).toEqual(['tok-a']);
+    expect(registry.liveActivityTargetsFor('inst-2', MOBILE_OWNER_PROFILE_ID).map((target) => target.token)).toEqual([]);
 
     // Empty token clears the registration.
     expect(registry.setLiveActivityToken(deviceId, 'inst-1', '')).toBe(true);
-    expect(registry.liveActivityTokensFor('inst-1')).toEqual([]);
+    expect(registry.liveActivityTargetsFor('inst-1', MOBILE_OWNER_PROFILE_ID).map((target) => target.token)).toEqual([]);
   });
 
   it('clears tokens for a removed instance across devices', () => {
     const { deviceId } = pairDevice();
     registry.setLiveActivityToken(deviceId, 'inst-1', 'tok-a');
     registry.clearLiveActivityTokensForInstance('inst-1');
-    expect(registry.liveActivityTokensFor('inst-1')).toEqual([]);
+    expect(registry.liveActivityTargetsFor('inst-1', MOBILE_OWNER_PROFILE_ID).map((target) => target.token)).toEqual([]);
   });
 
   it('clears an invalid activity token by value', () => {
@@ -258,7 +266,7 @@ describe('live activity tokens', () => {
     registry.setLiveActivityToken(deviceId, 'inst-1', 'dead-token');
 
     expect(registry.clearLiveActivityToken('dead-token')).toBe(true);
-    expect(registry.liveActivityTokensFor('inst-1')).toEqual([]);
+    expect(registry.liveActivityTargetsFor('inst-1', MOBILE_OWNER_PROFILE_ID).map((target) => target.token)).toEqual([]);
   });
 
   it('rejects tokens for unknown devices', () => {
@@ -270,12 +278,12 @@ describe('live activity tokens', () => {
     registry.setApnsToken(old.deviceId, 'physical-token');
     registry.setLiveActivityToken(old.deviceId, 'inst-1', 'activity-token');
     registry.revokeDevice(old.deviceId);
-    expect(registry.liveActivityTargetsFor('inst-1')).toEqual([]);
+    expect(registry.liveActivityTargetsFor('inst-1', MOBILE_OWNER_PROFILE_ID)).toEqual([]);
 
     const replacement = pairDevice();
     registry.setApnsToken(replacement.deviceId, 'physical-token');
 
-    expect(registry.liveActivityTargetsFor('inst-1')).toEqual([
+    expect(registry.liveActivityTargetsFor('inst-1', MOBILE_OWNER_PROFILE_ID)).toEqual([
       { deviceId: replacement.deviceId, token: 'activity-token' },
     ]);
   });
@@ -290,7 +298,7 @@ describe('live activity tokens', () => {
     const replacement = pairDevice();
     registry.setApnsToken(replacement.deviceId, 'physical-token');
 
-    expect(registry.liveActivityTargetsFor('ended-instance')).toEqual([]);
+    expect(registry.liveActivityTargetsFor('ended-instance', MOBILE_OWNER_PROFILE_ID)).toEqual([]);
   });
 
   it('purges retired activities when APNs rejects the physical device token', () => {
@@ -302,7 +310,7 @@ describe('live activity tokens', () => {
     expect(registry.clearApnsToken('invalid-physical-token')).toBe(true);
     const replacement = pairDevice();
     registry.setApnsToken(replacement.deviceId, 'invalid-physical-token');
-    expect(registry.liveActivityTargetsFor('inst-1')).toEqual([]);
+    expect(registry.liveActivityTargetsFor('inst-1', MOBILE_OWNER_PROFILE_ID)).toEqual([]);
   });
 
   it('purges a retired activity token when ActivityKit APNs rejects it', () => {
@@ -321,9 +329,9 @@ describe('live activity tokens', () => {
     registry.setApnsToken(replacementA.deviceId, 'physical-token-a');
     const replacementB = pairDevice();
     registry.setApnsToken(replacementB.deviceId, 'physical-token-b');
-    expect(registry.liveActivityTargetsFor('inst-1')).toEqual([]);
-    expect(registry.liveActivityTargetsFor('inst-2')).toEqual([]);
-    expect(registry.liveActivityTargetsFor('inst-safe')).toEqual([
+    expect(registry.liveActivityTargetsFor('inst-1', MOBILE_OWNER_PROFILE_ID)).toEqual([]);
+    expect(registry.liveActivityTargetsFor('inst-2', MOBILE_OWNER_PROFILE_ID)).toEqual([]);
+    expect(registry.liveActivityTargetsFor('inst-safe', MOBILE_OWNER_PROFILE_ID)).toEqual([
       { deviceId: replacementA.deviceId, token: 'valid-activity-token' },
     ]);
   });
@@ -343,11 +351,103 @@ describe('live activity tokens', () => {
       const replacement = pairDevice();
       registry.setApnsToken(replacement.deviceId, 'physical-token');
 
-      expect(registry.liveActivityTargetsFor('inst-1')).toEqual([
+      expect(registry.liveActivityTargetsFor('inst-1', MOBILE_OWNER_PROFILE_ID)).toEqual([
         { deviceId: replacement.deviceId, token: 'activity-token' },
       ]);
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('MobileDeviceRegistry people', () => {
+  function pairFor(registry: MobileDeviceRegistry, profileId?: string) {
+    const result = registry.pair({
+      pairingToken: registry.issuePairing(profileId ? { profileId } : {}).pairingToken,
+    });
+    if (result.status !== 'paired') throw new Error(result.reason);
+    return result.device;
+  }
+
+  it('remembers people across a restart', () => {
+    const persistence = memPersistence();
+    const added = new MobileDeviceRegistry(persistence).addMember('  Second person  ');
+
+    const reloaded = new MobileDeviceRegistry(persistence);
+
+    expect(added.name).toBe('Second person');
+    expect(reloaded.listMembers()).toEqual([added]);
+  });
+
+  it('pairs a phone to the person named in the pairing', () => {
+    const registry = new MobileDeviceRegistry(memPersistence());
+    const member = registry.addMember('Second person');
+
+    const ownerPhone = pairFor(registry);
+    const memberPhone = pairFor(registry, member.profileId);
+
+    expect(ownerPhone.profileId).toBe(MOBILE_OWNER_PROFILE_ID);
+    expect(memberPhone.profileId).toBe(member.profileId);
+    expect(registry.listDevices().map((d) => [d.deviceId, d.profileId])).toEqual(
+      expect.arrayContaining([
+        [ownerPhone.deviceId, MOBILE_OWNER_PROFILE_ID],
+        [memberPhone.deviceId, member.profileId],
+      ]),
+    );
+  });
+
+  it('refuses a pairing for someone who does not exist', () => {
+    const registry = new MobileDeviceRegistry(memPersistence());
+
+    expect(() => registry.issuePairing({ profileId: 'nobody' })).toThrow();
+    expect(() => registry.addMember('   ')).toThrow();
+  });
+
+  it('treats phones paired before people existed as the owner', () => {
+    const persistence = memPersistence();
+    persistence.save(JSON.stringify([{
+      deviceId: 'old-phone', label: 'iPhone', token: 'old-token', createdAt: 1,
+      lastSeenAt: 1, expiresAt: Date.now() + 60_000, apnsToken: 'old-push-placeholder',
+    }]));
+    const registry = new MobileDeviceRegistry(persistence);
+    const member = registry.addMember('Second person');
+
+    expect(registry.listDevices()[0]?.profileId).toBe(MOBILE_OWNER_PROFILE_ID);
+    expect(registry.apnsTargets(MOBILE_OWNER_PROFILE_ID)).toEqual([
+      { deviceId: 'old-phone', token: 'old-push-placeholder' },
+    ]);
+    expect(registry.apnsTargets(member.profileId)).toEqual([]);
+  });
+
+  it("removing a person revokes only their phones and their unused pairings", () => {
+    const registry = new MobileDeviceRegistry(memPersistence());
+    const member = registry.addMember('Second person');
+    const ownerPhone = pairFor(registry);
+    const memberPhone = pairFor(registry, member.profileId);
+    const unused = registry.issuePairing({ profileId: member.profileId });
+    const revoked: string[] = [];
+    registry.onDeviceRevoked((deviceId) => revoked.push(deviceId));
+
+    expect(registry.removeMember(member.profileId)).toBe(true);
+
+    expect(revoked).toEqual([memberPhone.deviceId]);
+    expect(registry.validateToken(memberPhone.token)).toBeNull();
+    expect(registry.validateToken(ownerPhone.token)?.deviceId).toBe(ownerPhone.deviceId);
+    expect(registry.pair({ pairingToken: unused.pairingToken }).status).toBe('rejected');
+    expect(registry.listMembers()).toEqual([]);
+    expect(registry.removeMember(member.profileId)).toBe(false);
+  });
+
+  it('refuses a phone whose person is missing from the saved list', () => {
+    const persistence = memPersistence();
+    const registry = new MobileDeviceRegistry(persistence);
+    const member = registry.addMember('Second person');
+    const phone = pairFor(registry, member.profileId);
+    persistence.saveProfiles('[]');
+
+    const reloaded = new MobileDeviceRegistry(persistence);
+
+    expect(reloaded.validateToken(phone.token)).toBeNull();
+    expect(reloaded.hasProfile(member.profileId)).toBe(false);
   });
 });

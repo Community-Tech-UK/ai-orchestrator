@@ -20,7 +20,7 @@ import { planSessionRecovery, computeResumeConfigFingerprint } from './session-r
 import { getSessionContinuityManagerIfInitialized } from '../../session/session-continuity';
 import { applyProviderSessionDurability } from './provider-session-durability';
 import { livePermissionsOf, type ResumeDeferredOptions } from './deferred-permission-options';
-import { HARNESS_DENY_PREFIX } from '../../cli/adapters/claude-permission-response';
+import { harnessRefusal } from '../../cli/adapters/claude-permission-response';
 
 const logger = getLogger('DeferredPermissionHandler');
 
@@ -129,7 +129,7 @@ export class DeferredPermissionHandler {
       throw new Error(`Instance ${instanceId} not found`);
     }
     const livePermissions = livePermissionsOf(this.deps.getAdapter(instanceId));
-    if (livePermissions?.answer(options?.requestId, { approved, updatedInput, note: options?.denyNote })) {
+    if (livePermissions?.answer(options?.requestId, { approved, updatedInput, note: options?.denyNote, autoReason: options?.autoReason })) {
       await livePermissions.whenAnswered?.(options?.requestId);
       return;
     }
@@ -177,8 +177,7 @@ export class DeferredPermissionHandler {
             decisionVerb,
             approved
               ? 'User approved via orchestrator UI (interrupt in flight)'
-              : options?.denyNote?.trim() ? HARNESS_DENY_PREFIX + options.denyNote.trim()
-                : 'User denied via orchestrator UI (interrupt in flight)',
+              : harnessRefusal({ note: options?.denyNote, autoReason: options?.autoReason }, 'User denied via orchestrator UI (interrupt in flight)'),
             updatedInput,
           );
         }
@@ -260,8 +259,8 @@ export class DeferredPermissionHandler {
       this.services.writeDecision(
         deferred.toolUseId,
         decisionVerb,
-        approved ? 'User approved via orchestrator UI' : options?.denyNote?.trim()
-          ? HARNESS_DENY_PREFIX + options.denyNote.trim() : 'User denied via orchestrator UI',
+        approved ? 'User approved via orchestrator UI'
+          : harnessRefusal({ note: options?.denyNote, autoReason: options?.autoReason }, 'User denied via orchestrator UI'),
         updatedInput,
       );
 

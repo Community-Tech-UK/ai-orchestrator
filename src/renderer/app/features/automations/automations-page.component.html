@@ -403,11 +403,11 @@
                     <input name="loopVerifyCommand" placeholder="Auto-detect from the working directory" [ngModel]="form().loopVerifyCommand" (ngModelChange)="patchForm({ loopVerifyCommand: $event })" />
                     <span class="hint">The loop only completes autonomously when this command passes. Leave blank to use the working directory's own verifier (package.json verify / test / lint / typecheck).</span>
                   </label>
+                  <label class="checkbox">
+                    <input name="loopIsolateWorkspace" type="checkbox" [ngModel]="form().loopIsolateWorkspace" (ngModelChange)="patchForm({ loopIsolateWorkspace: $event })" />
+                    <span>Isolated worktree</span>
+                  </label>
                   <div class="form-grid">
-                    <label class="checkbox">
-                      <input name="loopIsolateWorkspace" type="checkbox" [ngModel]="form().loopIsolateWorkspace" (ngModelChange)="patchForm({ loopIsolateWorkspace: $event })" />
-                      <span>Isolated worktree</span>
-                    </label>
                     <label>
                       <span>Max iterations</span>
                       <input name="loopMaxIterations" type="number" min="1" [ngModel]="form().loopMaxIterations" (ngModelChange)="patchForm({ loopMaxIterations: $event })" />
@@ -421,7 +421,7 @@
 
                 <div class="form-grid">
                   <div class="model-choice">
-                    <span class="model-choice__label">Model</span>
+                    <span>Model</span>
                     <div class="model-choice__mode" role="group" aria-label="Automation model routing">
                       <button
                         type="button"

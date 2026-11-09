@@ -2,13 +2,13 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import type {
   MobilePlanQueueItemDto,
   MobilePlanQueueRunDto,
-  MobileServerEvent,
 } from '../../shared/types/mobile-gateway.types';
 import {
   MOBILE_PLAN_QUEUE_ITEM_STATES,
   MOBILE_PLAN_QUEUE_RUN_STATUSES,
 } from '../../shared/types/mobile-gateway.types';
 import { MobileRouteError, sendJsonResponse, readJsonBody } from './mobile-gateway-http-utils';
+import type { MobileBroadcastEvent } from './mobile-gateway-snapshot';
 
 const ITEM_STATES = new Set<string>(MOBILE_PLAN_QUEUE_ITEM_STATES);
 const RUN_STATUSES = new Set<string>(MOBILE_PLAN_QUEUE_RUN_STATUSES);
@@ -55,7 +55,7 @@ export class MobileGatewayPlanQueueHandlers {
 
   constructor(private readonly deps: {
     getSource(): GatewayPlanQueueSource;
-    broadcast(event: MobileServerEvent): void;
+    broadcast(event: MobileBroadcastEvent): void;
     sendNeedsAnswerPush(item: MobilePlanQueueItemDto): void;
   }) {}
 

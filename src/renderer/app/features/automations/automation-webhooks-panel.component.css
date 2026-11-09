@@ -53,25 +53,47 @@ label {
 .checkbox {
   flex-direction: row;
   align-items: center;
-  min-height: 37px;
+  gap: 8px;
+  min-height: 40px;
   color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
 }
 
-input,
+input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--primary-color);
+  cursor: pointer;
+}
+
+input:not([type='checkbox']),
 select {
   width: 100%;
   border-radius: 8px;
   border: 1px solid var(--border-color);
-  background: var(--bg-primary);
+  background-color: var(--bg-primary);
   color: var(--text-primary);
   padding: 9px;
   font: inherit;
   font-size: 13px;
 }
 
+/* Room for the drop-down arrow the global select style draws. */
+select {
+  padding-right: 32px;
+}
+
 .form-actions {
   display: flex;
   align-items: center;
+}
+
+/* The Create Route button sits in the field row, so it takes the field's height. */
+.form-actions .btn {
+  padding-block: 9px;
+  line-height: inherit;
 }
 
 .btn {

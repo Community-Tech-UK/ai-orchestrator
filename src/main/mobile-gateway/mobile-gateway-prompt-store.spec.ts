@@ -23,4 +23,17 @@ describe('MobileGatewayPromptStore copy', () => {
     store.handleUserAction({ id: 'question', instanceId: 'session', requestType: 'ask_questions', title: 'Which folder?', message: 'Choose a folder.' });
     expect(store.get('question')).toMatchObject({ title: 'Which folder?', message: 'Choose a folder.' });
   });
+
+  it('clears a browser approval without naming the session that asked', () => {
+    const deps = { broadcast: vi.fn(), scheduleSnapshotBroadcast: vi.fn(), sendPush: vi.fn() };
+    const store = new MobileGatewayPromptStore(deps);
+    store.syncBrowser([{
+      id: 'browser', requestId: 'browser', instanceId: 'session', kind: 'browser',
+      title: 'Browser', message: 'Allow?', createdAt: 1,
+    }]);
+
+    store.clearForInstance('session');
+
+    expect(deps.broadcast).toHaveBeenLastCalledWith({ type: 'permission-cleared', data: { requestId: 'browser' } });
+  });
 });

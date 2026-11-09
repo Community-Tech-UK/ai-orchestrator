@@ -10,6 +10,7 @@ const FAILURE_COPY = {
   'Instance entered superseded': { text: 'The session was replaced before the run finished.', next: 'Check the replacement session before running the automation again.' },
   'Automation requires unattended permission approval': { text: 'The automation stopped because it needs your approval.', next: 'Open the session to review the request.' },
   'Automation requires unattended user input': { text: 'The automation stopped because it needs your answer.', next: 'Open the session to answer the question.' },
+  'Automation could not report its result': { text: 'The automation finished, but its report to Harness was refused.', next: 'Open the session to see what it found and why the report was refused.' },
   'Automation instance was removed': { text: 'The session was removed before the run finished.', next: 'Run the automation again when you are ready.' },
   'App restarted before automation run completed': { text: 'Harness restarted before the run finished.', next: 'Check the work already done before running the automation again.' },
 } satisfies Record<string, Omit<UserMessage, 'detail'>>;

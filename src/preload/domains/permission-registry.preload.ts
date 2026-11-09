@@ -17,6 +17,7 @@ export function createPermissionRegistryDomain(ipcRenderer: IpcRenderer, ch: typ
     permissionRegistryResolve: (payload: {
       requestId: string;
       granted: boolean;
+      always?: boolean;
       reason?: string;
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.PERMISSION_REGISTRY_RESOLVE, payload);

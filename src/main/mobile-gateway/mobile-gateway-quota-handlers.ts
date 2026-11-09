@@ -3,7 +3,6 @@ import type {
   MobileQuotaAccountDto,
   MobileQuotaProviderDto,
   MobileQuotaStateDto,
-  MobileServerEvent,
 } from '../../shared/types/mobile-gateway.types';
 import {
   quotaAccountSections,
@@ -13,6 +12,7 @@ import {
 import type { ServerResponse } from 'http';
 import { sendJsonResponse } from './mobile-gateway-http-utils';
 import type { EmitterLike } from './mobile-gateway-events';
+import type { MobileBroadcastEvent } from './mobile-gateway-snapshot';
 
 export interface GatewayQuotaSource extends EmitterLike {
   getAll(): ProviderQuotaState;
@@ -100,7 +100,7 @@ export class MobileGatewayQuotaHandlers {
     getSource(): GatewayQuotaSource;
     /** Account-pool profiles, for account names and order. */
     getAccountProfiles(): readonly QuotaAccountProfile[];
-    broadcast(event: MobileServerEvent): void;
+    broadcast(event: MobileBroadcastEvent): void;
     sendExhaustedPush(): void;
   }) {}
 

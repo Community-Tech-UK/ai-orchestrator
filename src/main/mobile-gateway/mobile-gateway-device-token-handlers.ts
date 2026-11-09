@@ -6,6 +6,8 @@ import type { MobileDeviceRegistry } from './mobile-device-registry';
 interface DeviceTokenHandlerDeps {
   registry: MobileDeviceRegistry;
   sendJson: (res: ServerResponse, statusCode: number, payload: unknown) => void;
+  /** Whether the calling phone's person owns this session. */
+  ownsInstance(instanceId: string): boolean;
 }
 
 /** POST /api/devices/:id/apns-token — register the device's APNs push token. */
@@ -52,6 +54,10 @@ export async function handleLiveActivityTokenRequest(
   const token = typeof body.token === 'string' ? body.token.trim() : '';
   if (!instanceId) {
     deps.sendJson(res, 400, { error: 'instanceId required' });
+    return;
+  }
+  if (!deps.ownsInstance(instanceId)) {
+    deps.sendJson(res, 404, { error: 'Instance not found' });
     return;
   }
   const ok = deps.registry.setLiveActivityToken(deviceId, instanceId, token);
@@ -117,7 +123,7 @@ export async function handleMobileDeviceRoutes(
 
 /** POST /pair — the unauthenticated pairing exchange that mints a device token. */
 export async function handleMobilePair(
-  deps: DeviceTokenHandlerDeps,
+  deps: Pick<DeviceTokenHandlerDeps, 'registry' | 'sendJson'>,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {

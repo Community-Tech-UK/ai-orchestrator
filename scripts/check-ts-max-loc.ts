@@ -126,7 +126,7 @@ const ALLOWLIST: Record<string, number> = {
   // Thin pressKey/viewport delegates; page-level impl in browser-input-control-driver.ts.
   'src/main/browser-gateway/puppeteer-browser-driver.ts': 717,
   // Self-allowlisted: the registry below grows one line per documented ceiling.
-  'scripts/check-ts-max-loc.ts': 704,
+  'scripts/check-ts-max-loc.ts': 706,
   // Raised 700 -> 704 for close_tab / close_matching RPC dispatch cases.
   'src/main/browser-gateway/browser-gateway-rpc-server.ts': 704,
   // Health aggregator: one section per surface. Crossed 700 with the per-node
@@ -227,7 +227,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/core/config/claude-md-loader.ts': 804,
   // Raised 776 -> 840 for the interSessionMessaging readOnly() MCP settings
   // policy entry (cross-session messaging, 2026-09-16).
-  'src/main/core/config/settings-control-policy.ts': 846, // +5: one entry per Oct-2 Phase D setting (checker catalog, four Codex round limits); +1: computers (remote-first plan)
+  'src/main/core/config/settings-control-policy.ts': 850, // +5: one entry per Oct-2 Phase D setting (checker catalog, four Codex round limits); +1: computers (remote-first plan); +4: Microsoft 365 "Always allow" setting
   'src/main/core/error-recovery.ts': 990,
   // Main process — history
   // Raised from 1582 for the fix to the intermittent "written as 0 bytes" CI
@@ -623,6 +623,8 @@ const ALLOWLIST: Record<string, number> = {
   // Plan Queue account preferences on Instance and InstanceCreateConfig add 15 lines.
   'src/shared/types/instance.types.ts': 915,
   'src/shared/types/loop.types.ts': 780,
+  // Crossed 700 adding gpt-6.1-sol (2026-11-08); re-tighten by moving the static model list out.
+  'src/shared/types/provider.types.ts': 702,
   // Crossed 700 from the WS-B3 `approvalAdjudicationEnabled` field alongside a
   // concurrent, unrelated primitive-type extraction into settings-primitives.types.ts
   // already in progress in this working tree; re-tighten once that split lands.

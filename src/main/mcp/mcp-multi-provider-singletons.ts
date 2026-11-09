@@ -106,6 +106,7 @@ export function getCliMcpConfigService(): CliMcpConfigService {
       orchestratorRepo: getOrchestratorMcpRepository(),
       connectorAuth: { status: (serverId) => getConnectorAuthService().status(serverId) },
       agentsMayWrite: (accountId) => getGraphConnectorService().isWritable(accountId),
+      alwaysAllowed: (accountId) => getGraphConnectorService().listAlwaysAllowed(accountId),
       graphAccounts: () => getGraphConnectorService().listAccounts(),
       redaction: new RedactionService(new SecretClassifier()),
       cwdProvider,

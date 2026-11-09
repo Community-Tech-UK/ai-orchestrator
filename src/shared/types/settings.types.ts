@@ -616,6 +616,12 @@ export interface AppSettings
   graphScopesJson: string;
   /** JSON array of account emails agents may mutate; reads remain available to all connected accounts. */
   graphAgentWritableAccountsJson: string;
+  /**
+   * Microsoft 365 changes James chose "Always allow" for: account email (lower case) to the
+   * operations that no longer ask, such as `graph_mail_send`. Written by the approval card and
+   * cleared from the connector's row in Settings; anything malformed means "ask every time".
+   */
+  graphAlwaysAllowedChanges: Record<string, string[]>;
 
   // Notifications
   /** Show a desktop notification when an agent transitions from busy to idle. Default: true. */

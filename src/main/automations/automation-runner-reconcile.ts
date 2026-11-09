@@ -5,9 +5,25 @@ import { FAILURE_STATUSES, WAIT_STATUSES } from './automation-runner-snapshots';
 import type { RunTracking } from './automation-runner-helpers';
 import { classifyFinalOutputProviderLimit } from './automation-run-provider-limit';
 
+/** Stored run error for a job whose automation_result call failed and that recorded no result. */
+export const RESULT_REPORT_FAILED = 'Automation could not report its result';
+
+/**
+ * A failed automation_result call in the session history. Claude's outcome is folded into its tool_use record
+ * (turn-tool-outcome-projection.ts); Codex records a separate tool_result named after the tool.
+ */
+function resultReportFailed(instance: Instance | undefined): boolean {
+  return instance?.outputBuffer.some((message) => {
+    const name = message.metadata?.['name'] ?? message.metadata?.['toolName'];
+    return (message.type === 'tool_use' || message.type === 'tool_result') && message.metadata?.['is_error'] === true
+      && typeof name === 'string' && /(?:^|__|\.)automation_result$/.test(name);
+  }) === true;
+}
+
 /** Evaluate the final output only after the caller has established settled completion. */
-export function completedAutomationTurnError(tracking: RunTracking, result: AutomationResult | null): string | null {
+export function completedAutomationTurnError(tracking: RunTracking, result: AutomationResult | null, instance: Instance | undefined): string | null {
   return classifyFinalOutputProviderLimit(tracking.lastAssistantOutput)
+    ?? (!result && resultReportFailed(instance) ? RESULT_REPORT_FAILED : null)
     ?? (!result && !tracking.seenAssistantOutput ? 'No result or assistant text was returned' : null);
 }
 

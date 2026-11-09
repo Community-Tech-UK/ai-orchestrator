@@ -32,14 +32,13 @@ function makeDeps(overrides: {
       sendLiveActivity,
     },
     registry: {
-      apnsTokens: () => overrides.tokens ?? ['token-1'],
       apnsTargets: () => (overrides.tokens ?? ['token-1']).map((token, index) => ({ deviceId: `host-${index}`, token })),
-      liveActivityTokensFor: () => ['activity-token'],
       liveActivityTargetsFor: () => [{ deviceId: 'host-0', token: 'activity-token' }],
       clearApnsToken,
       clearLiveActivityToken,
     },
     instanceManager: overrides.instanceManager ?? null,
+    profileOfInstance: () => 'owner',
     logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   };
   return { deps: deps as never, send, sendLiveActivity, clearApnsToken, clearLiveActivityToken };

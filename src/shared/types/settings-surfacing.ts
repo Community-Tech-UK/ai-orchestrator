@@ -215,6 +215,7 @@ export const SETTING_SURFACING = {
   mobileGatewayPort: 'internal',
   mobileGatewayBindInterface: 'internal',
   mobileGatewayDevices: 'internal',
+  mobileGatewayProfiles: 'internal',
   mobileGatewayTlsCertPath: 'bespoke', // mobile tab
   mobileGatewayTlsKeyPath: 'bespoke', // mobile tab
   mobileGatewayApnsKeyP8: 'bespoke', // mobile tab
@@ -238,6 +239,7 @@ export const SETTING_SURFACING = {
   graphAuthority: 'tab',
   graphScopesJson: 'tab',
   graphAgentWritableAccountsJson: 'tab',
+  graphAlwaysAllowedChanges: 'bespoke', // approval card and the Microsoft 365 connector row
   rtkEnabled: 'tab',
   rtkBundledOnly: 'tab',
   rtkAutoApproveScope: 'tab',

@@ -81,6 +81,23 @@ function getHookCommands(hookName) {
   }));
 }
 
+// Regenerated documentation, not code: nothing at run time or in a test reads it. Queue workers commit without this
+// hook, so nearly every landing rebuilds it, and a fresher copy alone must not count as untested code. Regenerated
+// code files (aliases, IPC channels) still do.
+const DOCUMENTATION_ARTIFACTS = GENERATED_ARTIFACTS.filter((file) => file.startsWith('docs/'));
+
+/** True only when the staged index is the tested tree, apart from regenerated documentation. Any git failure is false. */
+function stagedCodeMatches(run, cwd, env, testedTree) {
+  const git = { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] };
+  const tree = run('git', ['write-tree'], git);
+  if (tree.error || tree.signal || tree.status !== 0) return false;
+  const staged = String(tree.stdout).trim();
+  if (staged === testedTree) return true;
+  const diff = run('git', ['diff-tree', '--quiet', '-r', testedTree, staged, '--', '.',
+    ...DOCUMENTATION_ARTIFACTS.map((file) => `:(exclude,literal)${file}`)], git);
+  return !diff.error && !diff.signal && diff.status === 0;
+}
+
 function runHook(hookName, options = {}) {
   const commands = getHookCommands(hookName);
   const run = options.spawnSync ?? spawnSync;
@@ -99,11 +116,9 @@ function runHook(hookName, options = {}) {
       && env.AIO_PLAN_QUEUE_TESTS_COVERED === '1'
       && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(env.AIO_PLAN_QUEUE_TESTS_COVERED_TREE ?? '')) {
       // Earlier generators may have staged different code. Reuse evidence only
-      // after ALL those steps, against the exact index the tests would judge.
-      const tree = run('git', ['write-tree'], { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-      if (!tree.error && !tree.signal && tree.status === 0
-        && String(tree.stdout).trim() === env.AIO_PLAN_QUEUE_TESTS_COVERED_TREE) {
-        console.log('Skipping related tests: this exact staged tree already passed the queue checklist.');
+      // after ALL those steps, against the index the tests would judge.
+      if (stagedCodeMatches(run, cwd, env, env.AIO_PLAN_QUEUE_TESTS_COVERED_TREE)) {
+        console.log('Skipping related tests: this staged code already passed the queue checklist.');
         continue;
       }
     }

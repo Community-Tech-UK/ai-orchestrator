@@ -121,6 +121,33 @@ describe('PendingApprovalsBannerComponent', () => {
     expect(element.querySelector('.approval-lasts')?.textContent?.trim()).toBe(lasts);
   });
 
+  it('offers "Always allow" with what it covers, and sends that choice', async () => {
+    const covers = 'Always allow means no session asks again before it sends mail from person@example.test.';
+    const fixture = setup([makeItem({ action: 'microsoft365_mutation', alwaysAllowCovers: covers })]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.querySelector('.banner-btn.primary')?.textContent?.trim()).toBe('Allow this once');
+    expect(element.querySelector('.approval-always')?.textContent?.trim()).toBe(covers);
+    const always = element.querySelector<HTMLButtonElement>('.banner-btn.always');
+    expect(always?.textContent?.trim()).toBe('Always allow');
+    always?.click();
+    await fixture.whenStable();
+
+    expect(service.resolve).toHaveBeenCalledWith('grant_1', true, expect.any(String), true);
+  });
+
+  it('offers no "Always allow" when the request cannot remember a yes', async () => {
+    const fixture = setup([makeItem({ action: 'microsoft365_mutation' })]);
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const element: HTMLElement = fixture.nativeElement;
+    expect(element.querySelector('.banner-btn.always')).toBeNull();
+    expect(element.querySelector('.approval-always')).toBeNull();
+  });
+
   it('keeps the plain Approve button and makes no promise when it cannot tell how long an approval stands', async () => {
     const fixture = setup([makeItem()]);
     await fixture.whenStable();
@@ -154,7 +181,7 @@ describe('PendingApprovalsBannerComponent', () => {
     approveButton?.click();
     await fixture.whenStable();
 
-    expect(service.resolve).toHaveBeenCalledWith('grant_1', true, expect.any(String));
+    expect(service.resolve).toHaveBeenCalledWith('grant_1', true, expect.any(String), false);
   });
 
   it('Deny calls resolve(id, false)', async () => {
@@ -168,7 +195,7 @@ describe('PendingApprovalsBannerComponent', () => {
     denyButton?.click();
     await fixture.whenStable();
 
-    expect(service.resolve).toHaveBeenCalledWith('grant_1', false, expect.any(String));
+    expect(service.resolve).toHaveBeenCalledWith('grant_1', false, expect.any(String), false);
   });
 
   it('Extend calls extend(id, 2 minutes) for the short Computer Use window', async () => {

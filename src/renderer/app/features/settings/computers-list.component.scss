@@ -144,3 +144,18 @@
 .toggle-input:checked + .toggle-track .toggle-thumb {
   transform: translateX(16px);
 }
+
+.computer-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+
+  code {
+    font-family: var(--font-mono, monospace);
+    overflow-wrap: anywhere;
+  }
+
+  summary {
+    cursor: pointer;
+  }
+}

@@ -161,6 +161,10 @@
                 }
                 @if (activeManagementTab() === 'orchestrator' && server.kind === 'microsoft365') {
                   <label class="checkbox-row compact-check"><input type="checkbox" [checked]="connectorMayWrite(server.id)" [disabled]="working()" (change)="setConnectorWritable(server, $event)" />Allow agents to change calendars, draft mail and send mail for this account</label>
+                  @if (connectorAlwaysAllowed(server.id); as alwaysAllowed) {
+                    <span class="panel-subtitle">Allowed without asking: {{ alwaysAllowed }}.</span>
+                    <button class="btn small" type="button" [disabled]="working()" (click)="forgetAlwaysAllowed(server)">Ask every time</button>
+                  }
                 }
                 @if (canEditManagementServer(server)) {
                   <button class="btn small" type="button" [disabled]="working()" (click)="beginEditManagementServer(server)">Edit</button>

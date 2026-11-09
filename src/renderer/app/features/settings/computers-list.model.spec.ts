@@ -4,7 +4,12 @@ import type { TestMachineView, WorkToday } from '../../../../shared/types/comput
 import {
   buildComputerRows,
   changedChoices,
+  describeFolders,
   describeNow,
+  describeTools,
+  providersWithAccounts,
+  workerSettingsFiles,
+  type ComputerDetail,
   describeTakes,
   describeToday,
   movedChoices,
@@ -130,5 +135,86 @@ describe('what a computer takes, in words', () => {
     expect(describeTakes(laptop!)).toBe('Takes nothing.');
     expect(describeTakes(mac!)).toBe('Takes anything the others can\'t, and work that needs this Mac.');
     expect(describeTakes(pc!)).toBe('Takes agent sessions, test runs and browser work, 4 test runs or checks at once.');
+  });
+});
+
+describe('a computer\'s AI tools and folders, in words', () => {
+  const caps = node('pc').capabilities;
+  const detail = (change: Partial<ComputerDetail> = {}): ComputerDetail => ({
+    platform: 'win32', tools: ['claude', 'codex', 'copilot'], signIns: null, folders: ['C:\\Work'], projectCount: 3, ...change,
+  });
+  const noLabels = () => undefined;
+
+  it('comes from a connected paired computer only', () => {
+    const [up, away, mac] = buildComputerRows([
+      node('up', { capabilities: { ...caps, supportedClis: ['codex'], workingDirectories: ['C:\\Work'],
+        discoveredProjects: [{ path: 'C:\\Work\\a', name: 'a', markers: [] }],
+        signIns: [{ provider: 'codex', profileId: 'legacy', state: 'signed-in' }] } }),
+      node('away', { connected: false }),
+    ], [], [], ON);
+    expect(up!.detail).toEqual({
+      platform: 'win32', tools: ['codex'], signIns: [{ provider: 'codex', profileId: 'legacy', state: 'signed-in' }],
+      folders: ['C:\\Work'], projectCount: 1,
+    });
+    expect(away!.detail).toBeNull();
+    expect(mac!.detail).toBeNull();
+  });
+
+  it('says each default sign-in, with the command when one is missing, and names other accounts', () => {
+    const lines = describeTools(detail({
+      signIns: [
+        { provider: 'claude', profileId: 'legacy', state: 'signed-in', identity: 'person@example.invalid' },
+        { provider: 'claude', profileId: 'work', state: 'signed-out' },
+        { provider: 'claude', profileId: 'spare', state: 'unknown' },
+        { provider: 'codex', profileId: 'legacy', state: 'signed-out' },
+      ],
+    }), (provider, id) => (provider === 'claude' && id === 'work' ? 'Comtech' : undefined));
+    expect(lines).toEqual([
+      { text: 'AI tools there: Claude, Codex and Copilot.' },
+      { text: 'Claude is signed in as person@example.invalid.' },
+      { text: 'Claude account Comtech isn\'t signed in there.' },
+      { text: 'Claude account spare: its sign-in couldn\'t be read there.' },
+      { text: 'Codex isn\'t signed in. To sign in, run this on that computer:', command: 'codex login' },
+      { text: 'Computers check their sign-ins every 10 minutes, so a new one can take that long to show here.' },
+    ]);
+    expect(describeTools(detail({ tools: ['codex'], signIns: [{ provider: 'codex', profileId: 'legacy', state: 'signed-in' }] }), noLabels))
+      .toEqual([{ text: 'AI tools there: Codex.' }, { text: 'Codex is signed in.' }]);
+  });
+
+  it('asks for this Mac\'s account names only for tools another computer reports extra accounts for', () => {
+    const withSignIns = (id: string, signIns: ComputerDetail['signIns']) =>
+      node(id, { capabilities: { ...caps, supportedClis: ['claude', 'codex'], ...(signIns ? { signIns: [...signIns] } : {}) } });
+    const rows = buildComputerRows([
+      withSignIns('a', [{ provider: 'claude', profileId: 'legacy', state: 'signed-in' }, { provider: 'codex', profileId: 'legacy', state: 'signed-out' }]),
+      withSignIns('b', null),
+    ], [], [], ON);
+    expect(providersWithAccounts(rows)).toEqual([]);
+    const more = buildComputerRows([
+      withSignIns('a', [{ provider: 'codex', profileId: 'work', state: 'signed-in' }]),
+      withSignIns('b', [{ provider: 'codex', profileId: 'spare', state: 'signed-out' }]),
+    ], [], [], ON);
+    expect(providersWithAccounts(more)).toEqual(['codex']);
+  });
+
+  it('says when sign-ins haven\'t been checked, and doesn\'t ask about tools it can\'t check', () => {
+    expect(describeTools(detail(), noLabels).at(-1)).toEqual({
+      text: 'Its sign-ins haven\'t been checked yet. If this doesn\'t change within a few minutes, update Harness on that computer.',
+    });
+    expect(describeTools(detail({ tools: ['copilot'] }), noLabels)).toEqual([{ text: 'AI tools there: Copilot.' }]);
+    expect(describeTools(detail({ tools: [] }), noLabels)).toEqual([
+      { text: 'No AI tools were found there, so it can\'t take agent sessions.' },
+    ]);
+  });
+
+  it('names the folders it opens, and where to add one on that computer', () => {
+    expect(describeFolders(detail())).toBe('Opens folders in C:\\Work, with 3 projects found there.');
+    expect(describeFolders(detail({ folders: ['/a', '/b'], projectCount: 1 }))).toBe('Opens folders in /a and /b, with 1 project found there.');
+    expect(describeFolders(detail({ folders: [] }))).toBe('It opens no folders, so no session can run there.');
+    expect(workerSettingsFiles('win32')).toEqual({
+      home: '.orchestrator\\worker-node.json', service: 'C:\\ProgramData\\Orchestrator\\worker-node.json',
+    });
+    expect(workerSettingsFiles('darwin')).toEqual({
+      home: '.orchestrator/worker-node.json', service: '/Library/Application Support/Orchestrator/worker-node.json',
+    });
   });
 });

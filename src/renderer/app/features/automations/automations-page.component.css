@@ -69,6 +69,7 @@
 
     /* Chat composer */
     .chat, .form, .summary { display: flex; flex-direction: column; gap: 14px; }
+    .summary > p { margin: 0; }
     .draft-card { border: 1px solid var(--border-color); border-radius: 10px; padding: 14px; background: var(--bg-primary); display: flex; flex-direction: column; gap: 8px; }
     .draft-name { font-size: 15px; font-weight: 600; }
     .draft-desc { color: var(--text-muted); font-size: 12px; }
@@ -78,20 +79,30 @@
 
     /* Form */
     .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-    .form-grid--compact { grid-template-columns: repeat(4, max-content); }
+    .form-grid--compact { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 28px; }
+    .webhook-filter-row { grid-template-columns: minmax(0, 1fr) 120px minmax(0, 1fr) auto; align-items: end; }
+    /* Buttons beside a field take the field's height so their tops line up. */
+    .template-actions .btn, .webhook-filter-row > .btn { padding-block: 9px; line-height: inherit; }
     .template-actions { display: flex; align-items: end; gap: 8px; }
     label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--text-muted); }
-    .model-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; color: var(--text-muted); font-size: 12px; }
-    .model-choice__label { line-height: 1; }
+    .model-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; color: var(--text-muted); font-size: 12px; }
     .model-choice__mode { display: inline-flex; padding: 2px; border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-primary); }
-    .model-choice__mode-btn { border: 0; border-radius: 6px; padding: 5px 10px; background: transparent; color: var(--text-muted); font: inherit; cursor: pointer; }
+    .model-choice__mode-btn { border: 0; border-radius: 6px; padding: 8px 12px; background: transparent; color: var(--text-muted); font: inherit; cursor: pointer; }
     .model-choice__mode-btn.is-active { background: var(--bg-tertiary); color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,.22); }
     .model-choice__mode-btn:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 1px; }
-    .checkbox { flex-direction: row; align-items: center; color: var(--text-primary); }
+    /* Tick box in the first column, its label (and any hint) in the second. */
+    .checkbox { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 2px 8px; color: var(--text-primary); font-size: 13px; cursor: pointer; }
+    .checkbox > .hint { grid-column: 2; }
+    .checkbox > label { color: inherit; font-size: inherit; cursor: pointer; }
+    input[type='checkbox'] { width: 15px; height: 15px; margin: 2px 0 0; accent-color: var(--primary-color); cursor: pointer; }
     .hint { color: var(--text-muted); font-size: 11px; }
-    input, select, textarea { width: 100%; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); padding: 9px; font: inherit; font-size: 13px; }
+    p.hint { margin: 0; }
+    input:not([type='checkbox']), select, textarea { width: 100%; border-radius: 8px; border: 1px solid var(--border-color); background-color: var(--bg-primary); color: var(--text-primary); padding: 9px; font: inherit; font-size: 13px; }
+    /* Room for the drop-down arrow the global select style draws. */
+    select { padding-right: 32px; }
     textarea { resize: vertical; min-height: 90px; }
 
+    .form > .btn, .summary > .btn { align-self: flex-start; }
     .actions { display: flex; align-items: center; gap: 8px; }
     .actions--start { justify-content: flex-start; }
 
@@ -120,6 +131,6 @@
     .preflight-group ul { margin: 0; padding-left: 18px; }
     .preflight-group li { margin: 3px 0; overflow-wrap: anywhere; }
     .preflight-group code { border: 1px solid var(--border-color); border-radius: 4px; padding: 5px 6px; background: var(--bg-secondary); overflow-wrap: anywhere; font-size: 11px; }
-    @media (max-width: 640px) { .form-grid, .form-grid--compact, .stats { grid-template-columns: 1fr; } .run-row { grid-template-columns: 1fr; } }
+    @media (max-width: 640px) { .form-grid, .webhook-filter-row, .stats { grid-template-columns: 1fr; } .run-row { grid-template-columns: 1fr; } }
 
 .run-row--quiet { color: var(--text-muted); border-color: var(--border-color); background: var(--bg-tertiary); }

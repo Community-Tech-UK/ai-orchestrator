@@ -16,6 +16,8 @@ export const PermissionRegistryListPendingRequestSchema = z.object({
 export const PermissionRegistryResolveRequestSchema = z.object({
   requestId: requestIdSchema,
   granted: z.boolean(),
+  /** "Always allow": only valid with granted, and only for a request that offers it. */
+  always: z.boolean().optional(),
   /** Optional operator note recorded for the calling code's own audit trail. */
   reason: z.string().trim().max(2000).optional(),
 }).strict();

@@ -3,7 +3,10 @@ import type { LivePermissionAnswer } from '../../cli/adapters/claude-live-permis
 export interface ResumeDeferredOptions {
   yoloMode?: boolean;
   requestId?: string;
+  /** The person's typed reason for refusing. */
   denyNote?: string;
+  /** Why Harness refused without asking anyone (a saved rule, the reviewer). */
+  autoReason?: string;
 }
 export interface LivePermissionPort {
   hasPending(): boolean;

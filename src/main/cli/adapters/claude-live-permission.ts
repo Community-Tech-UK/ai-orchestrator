@@ -1,14 +1,17 @@
 import { generateId } from '../../../shared/utils/id-generator';
 import { isAdapterOnLoan } from '../../instance/lifecycle/adapter-loan-registry';
 import { getLogger } from '../../logging/logger';
-import { HARNESS_DENY_PREFIX, HARNESS_INTERACTIVE_DENY } from './claude-permission-response';
+import { HARNESS_DENY_PREFIX, HARNESS_INTERACTIVE_DENY, HARNESS_UNASKED_PREFIX, harnessRefusal } from './claude-permission-response';
 import { describeLiveAsk } from './describe-live-ask';
 
 const logger = getLogger('ClaudeLivePermissionBroker');
 export interface LivePermissionAnswer {
   approved: boolean;
   updatedInput?: Record<string, unknown>;
+  /** The person's typed reason for refusing. */
   note?: string;
+  /** Why Harness refused without asking anyone (a saved rule, the reviewer). */
+  autoReason?: string;
 }
 export interface ClaudeLivePermissionHost {
   emit(event: string, payload: unknown): boolean;
@@ -51,7 +54,7 @@ export class ClaudeLivePermissionBroker {
       if (!controlId || typeof toolName !== 'string' || !toolName || !record(input)) throw new Error('Invalid permission envelope');
       const id = this.instanceId?.();
       if (id && isAdapterOnLoan(id)) {
-        void this.reply(controlId, { behavior: 'deny', message: HARNESS_DENY_PREFIX
+        void this.reply(controlId, { behavior: 'deny', message: HARNESS_UNASKED_PREFIX
           + 'No person is watching this loop round, so this call was not made. Carry on without it or try another way.' }).catch(() => undefined);
         return true;
       }
@@ -99,7 +102,7 @@ export class ClaudeLivePermissionBroker {
     ask.answering = true;
     ask.completion = this.reply(ask.controlId, answer.approved
       ? { behavior: 'allow', updatedInput: answer.updatedInput ?? ask.input }
-      : { behavior: 'deny', message: HARNESS_DENY_PREFIX + (answer.note?.trim() || 'Continue without this call or try another way.') })
+      : { behavior: 'deny', message: harnessRefusal(answer, HARNESS_DENY_PREFIX + 'Continue without this call or try another way.') })
       .then(() => {
         if (this.pending.get(ask.controlId) !== ask) throw new Error('Live permission request was withdrawn');
         this.finishAnswer(ask, 'decided');

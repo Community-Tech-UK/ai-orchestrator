@@ -3,9 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { MAX_BODY_CHARS, toolLoopNotice } from './tool-loop-notice';
 
 const base = {
+  detector: 'repeat-no-progress',
   toolName: 'Read',
-  windowDescription: '8 calls in 2 minutes',
-  autoInterruptEnabled: false,
+  count: 9,
+  harnessWillStop: false,
 } as const;
 
 describe('toolLoopNotice (N2)', () => {
@@ -17,42 +18,56 @@ describe('toolLoopNotice (N2)', () => {
     expect(toolLoopNotice({ ...base, severity: 'warning' })).toBeNull();
   });
 
-  it('notifies for a critical detection', () => {
+  it('notifies for a critical detection in the same plain words as the session bar', () => {
     const notice = toolLoopNotice({ ...base, severity: 'critical' });
-    expect(notice?.urgency).toBe('critical');
-    expect(notice?.body).toContain('Read');
-    expect(notice?.body).toContain('8 calls in 2 minutes');
+    expect(notice).toEqual({
+      title: 'A session may be stuck',
+      body: 'It has run Read 9 times in a row and got the same result each time. It keeps going until you stop it.',
+      urgency: 'critical',
+    });
+  });
+
+  it('never shows the detector\'s log wording or the word "loop"', () => {
+    for (const detector of ['repeat-no-progress', 'ping-pong', 'runaway'] as const) {
+      const notice = toolLoopNotice({ ...base, detector, severity: 'critical' });
+      expect(`${notice?.title} ${notice?.body}`).not.toMatch(/loop|consecutive|canary/i);
+    }
   });
 
   /** The two cases need different responses from the human, so say which it is. */
-  it('says the loop will continue when auto-interrupt is off', () => {
-    const notice = toolLoopNotice({ ...base, severity: 'critical' });
-    expect(notice?.body).toContain('auto-interrupt is off');
-  });
-
-  it('says it will be stopped when auto-interrupt is on', () => {
-    const notice = toolLoopNotice({ ...base, severity: 'critical', autoInterruptEnabled: true });
-    expect(notice?.body).toContain('Auto-interrupt will stop it');
+  it('says Harness is stopping it when it will', () => {
+    const notice = toolLoopNotice({ ...base, severity: 'critical', harnessWillStop: true });
+    expect(notice?.body).toContain('Harness is stopping it.');
     expect(notice?.body).not.toContain('until you stop it');
   });
 
   it('names the instance when several are running', () => {
     const notice = toolLoopNotice({ ...base, severity: 'critical', instanceName: 'api-refactor' });
-    expect(notice?.body).toContain('api-refactor');
+    expect(notice?.body).toMatch(/^api-refactor: It has run Read/);
   });
 
-  it('reads sensibly without an instance name', () => {
-    expect(toolLoopNotice({ ...base, severity: 'critical' })?.body).toMatch(/^repeating /);
+  it('keeps both tool names when two long ones are clipped', () => {
+    const notice = toolLoopNotice({ ...base, detector: 'ping-pong', severity: 'critical', toolName: `${'a'.repeat(60)}/${'b'.repeat(60)}` });
+    expect(notice?.body).toMatch(/^It keeps switching between a+… and b+… and getting/);
+  });
+
+  it('shows a long tool-server name readably rather than clipping its raw form', () => {
+    const notice = toolLoopNotice({ ...base, severity: 'critical', toolName: `mcp__browser-gateway__${'browser_snapshot_'.repeat(4)}` });
+    expect(notice?.body).toMatch(/^It has run browser_snapshot_/);
+    expect(notice?.body).not.toContain('mcp__');
   });
 
   it('clips runaway inputs rather than shipping a wall of text', () => {
-    const notice = toolLoopNotice({
-      ...base,
-      severity: 'critical',
-      toolName: 't'.repeat(200),
-      windowDescription: 'w'.repeat(200),
-      instanceName: 'i'.repeat(200),
-    });
-    expect(notice!.body.length).toBeLessThanOrEqual(MAX_BODY_CHARS);
+    for (const detector of ['repeat-no-progress', 'ping-pong', 'runaway'] as const) {
+      const notice = toolLoopNotice({
+        ...base,
+        detector,
+        severity: 'critical',
+        toolName: 't'.repeat(200),
+        count: 999_999,
+        instanceName: 'i'.repeat(200),
+      });
+      expect(notice!.body.length).toBeLessThanOrEqual(MAX_BODY_CHARS);
+    }
   });
 });

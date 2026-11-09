@@ -212,6 +212,11 @@ export class McpIpcService {
     return this.api.mcpConnectorSetWritable(payload);
   }
 
+  async connectorForgetAlwaysAllowed(payload: { serverId: string }): Promise<IpcResponse> {
+    if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
+    return this.api.mcpConnectorForgetAlwaysAllowed(payload);
+  }
+
   async providerUserUpsert(payload: unknown): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };
     return this.api.mcpProviderUserUpsert(payload);

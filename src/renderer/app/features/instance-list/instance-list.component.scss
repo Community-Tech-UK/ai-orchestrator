@@ -4,10 +4,15 @@
       min-height: 0;
     }
 
+    /* min-width: 0 so the list takes the sidebar's width. Without it the
+       widest row decides the width (a long name, change counts, the selected
+       row's time), the sidebar clips the right edge with the row buttons, and
+       the list shifts sideways whenever that widest row changes. */
     .instance-list-container {
       display: flex;
       flex-direction: column;
       flex: 1;
+      min-width: 0;
       min-height: 0;
     }
 
@@ -47,6 +52,7 @@
 
     .filter-bar {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: 8px;
       padding: 0 16px 10px;
@@ -56,6 +62,13 @@
     .filter-bar > .filter-input {
       flex: 1;
       min-width: 0;
+    }
+
+    /* Its own line under the search box. Sharing one line squeezed the search
+       box to nothing at the usual sidebar width. Last in the template, so
+       keyboard order matches what is on screen. */
+    .filter-bar > app-session-attention-tabs {
+      flex-basis: 100%;
     }
 
     .filters-anchor {

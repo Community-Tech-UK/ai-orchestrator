@@ -1,7 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { resumeInstanceAfterBrowserDecision } from '../ipc/handlers/browser-gateway-handlers';
 import { getLogger } from '../logging/logger';
-import type { MobileServerEvent } from '../../shared/types/mobile-gateway.types';
 import { MobileGatewayBrowserApprovalHandlers, type BrowserPromptSink } from './mobile-gateway-browser-approval-handlers';
 import { createLiveBrowserApprovalSource } from './mobile-gateway-browser-approval-source';
 import { MobileGatewayDocReviewHandlers } from './mobile-gateway-doc-review-handlers';
@@ -16,6 +15,7 @@ import {
   sendMobileLoopPush,
   sendMobilePlanQueuePush,
 } from './mobile-gateway-push';
+import type { MobileBroadcastEvent } from './mobile-gateway-snapshot';
 
 const logger = getLogger('MobileGatewayAwayFeatures');
 
@@ -34,7 +34,7 @@ export class MobileGatewayAwayFeatures {
   private readonly historyContinue: MobileGatewayHistoryContinueHandlers;
 
   constructor(private readonly deps: {
-    broadcast(event: MobileServerEvent): void;
+    broadcast(event: MobileBroadcastEvent): void;
     pushDeps(): PushDeps;
     prompts(): BrowserPromptSink;
     instanceManager(): unknown;

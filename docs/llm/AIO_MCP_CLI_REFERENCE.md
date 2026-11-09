@@ -204,8 +204,8 @@ them are writable, including `browserVaultMasterPasswordFile`: it is
 secret-tier, so its value is redacted, but since 2026-08-29 it is no longer
 operator-only. See "Redaction And Secrets" below.
 
-The operator-only anchors are the six Computer Use policy keys, the four Microsoft
-Graph OAuth and calendar-allowlist keys, the context-evidence rollout mode,
+The operator-only anchors are the six Computer Use policy keys, the five Microsoft
+Graph keys (OAuth, the calendar allowlist and the "Always allow" change list), the context-evidence rollout mode,
 the three Local AI Guard fallback-policy and budget keys, the WS-B1
 per-project PR-creation opt-in map (`allowPrCreation`), the licence-scoping
 automation-provider block-list (`providersExcludedFromAutomation`), the two GitHub
@@ -226,6 +226,10 @@ automations that wake an existing session.
 checks and post-merge commands: operator-only, and it overrides the `verifier_gates` and
 `post_merge_gate` a session passes to `plan_queue_start` (callers may add gates only where no
 list is saved).
+`graphAlwaysAllowedChanges` (28th anchor) lists the Microsoft 365 changes, per account email,
+that James chose "Always allow" for on the approval card: those connector calls no longer ask.
+It is written by that button and cleared with "Ask every time" on the connector in Settings → MCP Servers → Connectors;
+agents cannot add to it.
 
 The credential-vault unlock keys and the shared-tab credential-fill switch were
 anchors until 2026-08-29, when the operator had them widened so unattended

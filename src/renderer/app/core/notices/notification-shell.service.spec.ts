@@ -21,7 +21,7 @@ describe('NotificationShellService', () => {
     vi.clearAllMocks(); selected.set(null); liveIds.set(new Set());
     TestBed.configureTestingModule({ providers: [
       { provide: IpcFacadeService, useValue: { on: (_channel: string, callback: typeof listener) => { listener = callback; return vi.fn(); } } },
-      { provide: InstanceStore, useValue: { selectedInstanceId: selected } },
+      { provide: InstanceStore, useValue: { selectedInstanceId: selected, getInstance: (id: string) => id === 'a' ? { displayName: 'Offload heavy work' } : undefined } },
       { provide: ToolLoopAlertStore, useValue: { liveIds } },
       { provide: NotificationCenterStore, useValue: center },
       { provide: SessionNavigator, useValue: { openSession } },
@@ -30,19 +30,35 @@ describe('NotificationShellService', () => {
   it('keeps critical tool-loop errors until their live cause clears and opens the session', () => {
     const shell = TestBed.inject(NotificationShellService); const toast = TestBed.inject(ToastService);
     shell.start(); liveIds.set(new Set(['a']));
-    listener({ instanceId: 'a', severity: 'critical', toolName: 'Read', windowDescription: 'Repeated' });
+    listener({ instanceId: 'a', detector: 'repeat-no-progress', severity: 'critical', toolName: 'Read', count: 9, windowDescription: '3 consecutive identical calls', harnessStopping: false });
     TestBed.tick();
-    expect(toast.toasts()[0].type).toBe('error'); toast.toasts()[0].action?.run();
+    expect(toast.toasts()[0].type).toBe('error');
+    // Names the session and says what it has been doing, in plain words rather than the detector's log wording.
+    expect(toast.toasts()[0].text).toBe('Offload heavy work may be stuck. It has run Read 9 times in a row and got the same result each time.');
+    toast.toasts()[0].action?.run();
     expect(openSession).toHaveBeenCalledWith('a');
     liveIds.set(new Set()); TestBed.tick(); expect(toast.toasts()).toEqual([]);
   });
+  it('says Harness is stopping it, and lets that toast time out rather than wait for a decision', () => {
+    vi.useFakeTimers();
+    try {
+      TestBed.inject(NotificationShellService).start();
+      listener({ instanceId: 'a', detector: 'repeat-no-progress', severity: 'critical', toolName: 'Edit', count: 9, windowDescription: 'x', harnessStopping: true });
+      const toast = TestBed.inject(ToastService);
+      expect(toast.toasts()[0]).toMatchObject({ type: 'warning',
+        text: 'Offload heavy work may be stuck. It has run Edit 9 times in a row and got the same result each time. Harness is stopping it.' });
+      vi.advanceTimersByTime(8000); expect(toast.toasts()).toEqual([]);
+    } finally { vi.useRealTimers(); }
+  });
+
   it('marks the selected session seen and gives warnings the warning timeout', () => {
     vi.useFakeTimers();
     try {
       TestBed.inject(NotificationShellService).start(); selected.set('a'); TestBed.tick();
       expect(center.markSessionSeen).toHaveBeenCalledWith('a');
-      listener({ instanceId: 'a', severity: 'warn', toolName: 'Read', windowDescription: 'Repeated' });
+      listener({ instanceId: 'unknown', detector: 'runaway', severity: 'warn', toolName: 'Read', count: 200, windowDescription: '200 tool calls in one turn', harnessStopping: false });
       const toast = TestBed.inject(ToastService); expect(toast.toasts()[0].type).toBe('warning');
+      expect(toast.toasts()[0].text).toBe('A session may be repeating itself. It has used tools 200 times in this turn without finishing.');
       vi.advanceTimersByTime(8000); expect(toast.toasts()).toEqual([]);
     } finally { vi.useRealTimers(); }
   });

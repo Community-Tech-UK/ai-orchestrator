@@ -41,7 +41,9 @@ describe('mobile quota authenticated runtime projection and lifecycle', () => {
   beforeEach(async () => {
     quota = new QuotaSource(); pushes = []; sockets = []; profiles = [];
     const source = Object.assign(new EventEmitter(), { getAllInstances: () => [], getInstance: () => undefined, getOrchestrationHandler: () => new EventEmitter() });
-    const registry = new MobileDeviceRegistry({ load: () => undefined, save: () => undefined });
+    const registry = new MobileDeviceRegistry({
+      load: () => undefined, save: () => undefined, loadProfiles: () => undefined, saveProfiles: () => undefined,
+    });
     const paired = registry.pair({ pairingToken: registry.issuePairing().pairingToken });
     if (paired.status !== 'paired') throw new Error('Pairing failed');
     token = paired.device.token;

@@ -76,3 +76,24 @@ describe('project dropdown stacking', () => {
     expect(block).toMatch(/overflow:\s*hidden auto/);
   });
 });
+
+describe('session list width', () => {
+  it('sizes the list to the sidebar, not to its widest row', () => {
+    // Reported 2026-11-08: the container sits in the flex :host, so without
+    // min-width: 0 a row with change counts made the whole list wider than the
+    // sidebar, which clipped the row buttons and shifted as rows changed.
+    expect(scss).toMatch(/:host\s*\{[^}]*display:\s*flex/);
+    const block = /\.instance-list-container\s*\{([^}]*)\}/.exec(scss)?.[1] ?? '';
+    expect(block).toMatch(/(^|[\s;])min-width:\s*0\s*;/);
+  });
+
+  it('puts the attention filters on their own line, so the search box keeps its room', () => {
+    // Last in the bar, so keyboard and screen-reader order match the layout.
+    const bar = html.slice(html.indexOf('class="filter-bar"'), html.indexOf('<app-instance-list-load-failure'));
+    expect(bar.indexOf('<app-session-attention-tabs')).toBeGreaterThan(bar.indexOf('class="filters-anchor"'));
+    expect(bar.indexOf('class="filters-anchor"')).toBeGreaterThan(bar.indexOf('class="filter-input"'));
+    expect(/\.filter-bar\s*\{([^}]*)\}/.exec(scss)?.[1] ?? '').toMatch(/flex-wrap:\s*wrap/);
+    const block = /\.filter-bar > app-session-attention-tabs\s*\{([^}]*)\}/.exec(scss)?.[1] ?? '';
+    expect(block).toMatch(/flex-basis:\s*100%/);
+  });
+});

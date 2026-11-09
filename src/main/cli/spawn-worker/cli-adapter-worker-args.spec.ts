@@ -117,16 +117,26 @@ describe('worker Claude Bash PreToolUse hook (Step 18b item 3)', () => {
     const args = buildWorkerArgs('claude',
       { yoloMode: false, permissionHookPath: DEFER_HOOK, rtk: rtk(RTK_HOOK) }, null, message);
     const hooks = hooksOf(args);
-    expect(hooks).toHaveLength(1);
-    expect(hooks![0].hooks[0].command).toContain(DEFER_HOOK);
-    expect(hooks![0].hooks[0].command).not.toContain(RTK_HOOK);
+    // Bash plus Harness's own tools that are held for approval.
+    expect(hooks).toHaveLength(2);
+    for (const entry of hooks!) {
+      expect(entry.hooks[0].command).toContain(DEFER_HOOK);
+      expect(entry.hooks[0].command).not.toContain(RTK_HOOK);
+    }
   });
 
   it.each([
     ['auto-approve with the rewrite-only script', { yoloMode: true, permissionHookPath: DEFER_HOOK, rtk: rtk(RTK_HOOK) }],
     ['auto-approve without it', { yoloMode: true, permissionHookPath: DEFER_HOOK, rtk: rtk() }],
     ['non-auto-approve', { yoloMode: false, permissionHookPath: DEFER_HOOK, rtk: rtk(RTK_HOOK) }],
+    ['a non-auto-approve scheduled session', { yoloMode: false, machineSession: 'automation', permissionHookPath: DEFER_HOOK, rtk: rtk(RTK_HOOK) }],
   ] as const)('both overlay builders agree on the hook for %s', (_label, options) => {
+    const allHooks = (args: string[]) => {
+      const index = args.indexOf('--settings');
+      const hooks = index === -1 ? undefined : (JSON.parse(args[index + 1]) as { hooks?: Record<string, unknown> }).hooks;
+      return { PreToolUse: hooks?.['PreToolUse'], PermissionRequest: hooks?.['PermissionRequest'] };
+    };
     expect(hooksOf(buildWorkerArgs('claude', options, null, message))).toEqual(hooksOf(direct(options)));
+    expect(allHooks(buildWorkerArgs('claude', options, null, message))).toEqual(allHooks(direct(options)));
   });
 });

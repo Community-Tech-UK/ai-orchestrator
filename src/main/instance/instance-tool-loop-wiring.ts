@@ -50,7 +50,7 @@ import type { CliToolCall } from '../cli/adapters/base-cli-adapter';
 import type { ProviderRuntimeEvent } from '@contracts/types/provider-runtime-events';
 import { isMutatingProviderTool, isReadOnlyProviderTool } from '../cli/adapters/acp-doom-loop-permission';
 import { isToolResultFailed } from '../../shared/tool-outcome';
-import { recordInstanceTurnEnding } from './instance-turn-ending-state';
+import { clearInstanceTurnEnding, recordInstanceTurnEnding } from './instance-turn-ending-state';
 
 const logger = getLogger('InstanceToolLoopWiring');
 
@@ -172,18 +172,32 @@ function toToolResultObservationFromOutput(
   return { callId, resultHash: observed.resultHash, isError: readOutputMetadataIsError(metadata) };
 }
 
+/**
+ * Whether Harness stops the turn itself for this detection: a critical one on a
+ * tool that is not read-only, when auto-interrupt is on, or always for a
+ * Claude/OpenCode session repeating a changing call with no progress (their
+ * native backstop). Shared with the notification so it never says "it keeps
+ * going" about a turn Harness is already stopping.
+ */
+export function willAutoInterruptToolLoop(
+  detection: Pick<ToolLoopDetectionEvent, 'severity' | 'detector' | 'toolName'>,
+  provider: string | undefined,
+  autoInterruptSetting: unknown,
+): boolean {
+  if (detection.severity !== 'critical') return false;
+  if (isReadOnlyProviderTool(detection.toolName)) return false;
+  const nativeBackstop = (provider === 'opencode' || provider === 'claude')
+    && detection.detector === 'repeat-no-progress' && isMutatingProviderTool(detection.toolName);
+  return nativeBackstop || autoInterruptSetting === true;
+}
+
 function maybeAutoInterruptOnToolLoop(
   deps: ToolLoopWiringDeps,
   detector: DoomLoopDetector,
   instanceId: string,
   detection: ToolLoopDetectionEvent,
 ): void {
-  if (detection.severity !== 'critical') return;
-  if (isReadOnlyProviderTool(detection.toolName)) return;
-  const provider = deps.getProvider?.(instanceId);
-  const nativeBackstop = (provider === 'opencode' || provider === 'claude')
-    && detection.detector === 'repeat-no-progress' && isMutatingProviderTool(detection.toolName);
-  if (!nativeBackstop && deps.getAutoInterruptSetting() !== true) return;
+  if (!willAutoInterruptToolLoop(detection, deps.getProvider?.(instanceId), deps.getAutoInterruptSetting())) return;
   if (detector.hasAutoInterruptedThisTurn(instanceId)) return;
 
   detector.markAutoInterrupted(instanceId);
@@ -196,6 +210,9 @@ function maybeAutoInterruptOnToolLoop(
     windowDescription: detection.windowDescription,
   });
 
+  // A `false` return means the session was not mid-turn, or its process or
+  // node is already gone; either way no turn is left running. Only a throw
+  // leaves the turn going, so only a throw hands the decision back.
   try {
     deps.interruptInstance(instanceId);
   } catch (err) {
@@ -203,6 +220,8 @@ function maybeAutoInterruptOnToolLoop(
       instanceId,
       ...errorDiagnostic(err),
     });
+    clearInstanceTurnEnding(instanceId);
+    detector.reportAutoStopFailed(detection);
   }
 }
 

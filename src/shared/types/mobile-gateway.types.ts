@@ -84,9 +84,25 @@ export {
   MOBILE_PLAN_QUEUE_RUN_STATUSES,
 } from '@contracts/types/mobile-gateway';
 
+/**
+ * The person who owns this Mac. Their phone gets all of Harness except other
+ * people's sessions. Phones paired before profiles existed carry no profile id
+ * and belong to them.
+ */
+export const MOBILE_OWNER_PROFILE_ID = 'owner';
+
+/** Another person who uses the phone app with only their own sessions. */
+export interface MobileMemberProfile {
+  profileId: string;
+  name: string;
+  createdAt: number;
+}
+
 /** A paired phone, as persisted by the gateway. The bearer `token` is secret. */
 export interface MobileDevice {
   deviceId: string;
+  /** Absent on phones paired before profiles existed, which means the owner. */
+  profileId?: string;
   label: string;
   token: string;
   createdAt: number;
@@ -99,6 +115,7 @@ export interface MobileDevice {
 /** Device view safe to surface in the desktop UI (no bearer token). */
 export interface MobileDeviceSummary {
   deviceId: string;
+  profileId: string;
   label: string;
   createdAt: number;
   lastSeenAt: number;
@@ -109,6 +126,8 @@ export interface MobileDeviceSummary {
 /** One-time credential encoded into the pairing QR. */
 export interface MobilePairingCredential {
   pairingToken: string;
+  /** Whose phone the pairing creates. */
+  profileId: string;
   createdAt: number;
   expiresAt: number;
 }

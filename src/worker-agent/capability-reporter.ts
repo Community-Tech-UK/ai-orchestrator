@@ -29,6 +29,7 @@ import type { CanonicalCliType } from '../shared/types/settings.types';
 import { ProjectDiscovery } from '../main/remote-node/project-discovery';
 import { getAccountProfilesRoot } from '../main/cli/adapters/account-pool/provider-account-home-resolver';
 import { listWorkerAccountProfileIds, listWorkerOpenCodeAccountProfileIds } from './worker-account-route';
+import { getCachedWorkerSignIns } from './worker-sign-ins';
 import { getLatestHostHealthSample } from './host-health-sampler';
 import {
   OLLAMA_LOCAL_BASE_URL,
@@ -144,6 +145,7 @@ export async function reportCapabilities(
   }
 
   // Cached values only: the first report carries none and a later one picks them up, so connecting never waits.
+  const signIns = getCachedWorkerSignIns({ supportedClis, accountProfileIds });
   const iosAutomation = getCachedIosAutomation({ workingDirectories, configDir: extras.configDir });
   const hostReadiness = getCachedHostReadiness({
     localNetwork: extras.localNetwork ?? 'unknown',
@@ -191,6 +193,7 @@ export async function reportCapabilities(
     ...(extras.connectionNotice ? { connectionNotice: extras.connectionNotice.slice(0, 500) } : {}),
     hasDocker: detectDocker(),
     ...(Object.keys(accountProfileIds).length > 0 ? { accountProfileIds } : {}),
+    ...(signIns ? { signIns } : {}),
     maxConcurrentInstances,
     // WS15: this worker buffers durable events and supports seq/ack/replay.
     streamDurability: 1,

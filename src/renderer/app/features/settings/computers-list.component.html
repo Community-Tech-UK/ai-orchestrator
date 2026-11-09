@@ -128,6 +128,28 @@
             </label>
           </div>
         }
+
+        @if (row.detail; as detail) {
+          <div class="computer-detail">
+            @for (line of describeTools(detail); track $index) {
+              <p class="field-hint">
+                {{ line.text }}
+                @if (line.command) {
+                  <code>{{ line.command }}</code>
+                }
+              </p>
+            }
+            <p class="field-hint">{{ describeFolders(detail) }}</p>
+            @let files = settingsFiles(detail);
+            <details class="field-hint">
+              <summary>How to add a folder</summary>
+              On that computer, add the folder to <code>workingDirectories</code> in <code>{{ files.home }}</code> in
+              your home folder, then restart the Harness worker there. If the worker runs as a service, the file is
+              <code>{{ files.service }}</code> instead, and Restart in its details under Other computers in the Control
+              Center restarts it.
+            </details>
+          </div>
+        }
       </li>
     }
   </ol>

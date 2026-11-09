@@ -130,10 +130,15 @@ const fakeRecentDirs: GatewayRecentDirsSource = {
 
 function memPersistence(): MobileDevicePersistence {
   let store: string | undefined;
+  let profiles: string | undefined;
   return {
     load: () => store,
     save: (j: string) => {
       store = j;
+    },
+    loadProfiles: () => profiles,
+    saveProfiles: (j: string) => {
+      profiles = j;
     },
   };
 }

@@ -40,6 +40,14 @@ import { parseOptionalStringArray, parseOptionalStringRecord } from './mcp-manag
 import type { McpTransport } from '../../../../shared/types/mcp-orchestrator.types';
 import { mcpScopeLabel } from './mcp-scope-label';
 
+/** How the connector row names each Microsoft 365 change that no longer asks. */
+const ALWAYS_ALLOWED_CHANGE_WORDS: Record<string, string> = {
+  graph_mail_send: 'sending mail',
+  graph_calendar_create_event: 'creating calendar events',
+  graph_calendar_update_event: 'changing calendar events',
+  graph_calendar_delete_event: 'deleting calendar events',
+};
+
 // ─── Local interfaces ────────────────────────────────────────────────────────
 
 interface McpServer {
@@ -647,6 +655,17 @@ export class McpPageComponent implements OnInit, OnDestroy {
   async setConnectorWritable(server: RedactedMcpServerDto, event: Event): Promise<void> {
     await this.runManagementOp(() => this.mcpIpc.connectorSetWritable({ serverId: server.id, allowed: (event.target as HTMLInputElement).checked }),
       'Account permissions updated.', 'Could not change account permissions.');
+  }
+
+  /** The changes this connector's account makes without asking, in plain words, or '' when every change asks. */
+  connectorAlwaysAllowed(serverId: string): string {
+    const tools = this.multiProviderStore.orchestrator().find((entry) => entry.record.id === serverId)?.alwaysAllowed ?? [];
+    return tools.map((tool) => ALWAYS_ALLOWED_CHANGE_WORDS[tool] ?? tool.replace(/^graph_/, '').replaceAll('_', ' ')).join(', ');
+  }
+
+  async forgetAlwaysAllowed(server: RedactedMcpServerDto): Promise<void> {
+    await this.runManagementOp(() => this.mcpIpc.connectorForgetAlwaysAllowed({ serverId: server.id }),
+      'Every change on this account asks again.', 'Could not change account permissions.');
   }
 
   connectorSummary(serverId: string): string {

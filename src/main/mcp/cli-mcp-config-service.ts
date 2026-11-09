@@ -16,6 +16,7 @@ export interface CliMcpConfigServiceDeps {
   orchestratorRepo: OrchestratorMcpRepository;
   connectorAuth: { status(serverId: string): ConnectorAuthStatus };
   agentsMayWrite: (accountId: string) => Promise<boolean>;
+  alwaysAllowed: (accountId: string) => readonly string[];
   graphAccounts: () => Promise<readonly { accountKey: string; tokenStatus: 'valid' | 'reauth_required' }[]>;
   redaction: RedactionService;
   cwdProvider: () => string;
@@ -129,7 +130,10 @@ export class CliMcpConfigService {
         ? { state: accounts.find((account) => account.accountKey === record.accountId)?.tokenStatus === 'valid' ? 'signed-in' : 'expired' }
         : this.deps.connectorAuth.status(record.id),
       ...(record.kind === 'microsoft365' && record.accountId
-        ? { agentsMayWrite: await this.deps.agentsMayWrite(record.accountId) } : {}),
+        ? {
+          agentsMayWrite: await this.deps.agentsMayWrite(record.accountId),
+          alwaysAllowed: this.deps.alwaysAllowed(record.accountId),
+        } : {}),
     })));
   }
 

@@ -4,6 +4,10 @@ import { connectorAccessRegistry, type ConnectorAccessRegistry } from './connect
 import type { ConnectorAuthService } from './connector-auth-service';
 import type { GraphConnectorService } from '../graph/graph-connector-service';
 import type { GraphRequestContext } from '../graph/graph-client';
+import type { PermissionRegistry } from '../orchestration/permission-registry';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('ConnectorRpc');
 
 const PayloadSchema = z
   .object({
@@ -38,10 +42,12 @@ async function dependencies(): Promise<ConnectorRpcDependencies> {
     { getOrchestratorMcpRepository },
     { getConnectorAuthService },
     { getGraphConnectorService },
+    { getPermissionRegistry },
   ] = await Promise.all([
     import('./mcp-multi-provider-singletons'),
     import('./connector-auth-service'),
     import('../graph/graph-connector-service'),
+    import('../orchestration/permission-registry'),
   ]);
   return {
     access: connectorAccessRegistry,
@@ -51,21 +57,61 @@ async function dependencies(): Promise<ConnectorRpcDependencies> {
       listTools: (...args) => getGraphConnectorService().listTools(...args),
       callTool: (...args) => getGraphConnectorService().callTool(...args),
     },
-    authorizeMutation: async (instanceId, { accountKey, toolName, args, connectorName }) => {
-      const { getPermissionRegistry } = await import('../orchestration/permission-registry');
-      const { randomUUID } = await import('node:crypto');
-      const decision = await getPermissionRegistry().requestPermission({
-        id: `connector_${randomUUID()}`,
-        instanceId,
-        action: 'microsoft365_mutation',
-        toolName,
-        ...buildConnectorMutationApproval(connectorName, accountKey, toolName, args),
-        createdAt: Date.now(),
-        timeoutMs: 5 * 60_000,
-      });
-      return decision.granted && decision.decidedBy === 'user';
-    },
+    authorizeMutation: (instanceId, request) =>
+      authorizeConnectorMutation(getPermissionRegistry(), getGraphConnectorService(), instanceId, request),
   };
+}
+
+/**
+ * Asks James to approve one Microsoft 365 change, unless he already chose
+ * "Always allow" for this kind of change on this account. Only a person's yes
+ * counts; auto-approval and timeouts never send mail or change a calendar.
+ */
+export async function authorizeConnectorMutation(
+  registry: Pick<PermissionRegistry, 'requestPermission' | 'listPending' | 'resolve'>,
+  standing: Pick<GraphConnectorService, 'accountEmail' | 'isAlwaysAllowed' | 'allowAlways'>,
+  instanceId: string,
+  { accountKey, toolName, args, connectorName }: { accountKey: string; toolName: string; args: Record<string, unknown>; connectorName: string },
+): Promise<boolean> {
+  if (standing.isAlwaysAllowed(accountKey, toolName)) {
+    logger.info('Microsoft 365 change allowed by a standing approval', { instanceId, connectorName, toolName });
+    return true;
+  }
+  const { randomUUID } = await import('node:crypto');
+  const email = standing.accountEmail(accountKey);
+  const decision = await registry.requestPermission({
+    id: `connector_${randomUUID()}`,
+    instanceId,
+    action: 'microsoft365_mutation',
+    toolName,
+    ...buildConnectorMutationApproval(connectorName, accountKey, toolName, args),
+    ...(email ? { alwaysAllowCovers: `Always allow means no session asks again before it ${ALWAYS_ALLOW_PHRASES[toolName] ?? `does ${describeChange(toolName)} on`} ${email}. You can take it back in Settings → MCP Servers → Connectors.` } : {}),
+    createdAt: Date.now(),
+    timeoutMs: 5 * 60_000,
+  });
+  const approved = decision.granted && decision.decidedBy === 'user';
+  if (approved && decision.always) {
+    standing.allowAlways(accountKey, toolName);
+    // Cards already waiting for the same change on this account are covered by that answer too.
+    for (const waiting of registry.listPending()) {
+      if (waiting.action === 'microsoft365_mutation' && waiting.toolName === toolName && waiting.details?.['accountKey'] === accountKey) {
+        registry.resolve(waiting.id, true, 'user');
+      }
+    }
+  }
+  return approved;
+}
+
+/** Reads between "before it" and the account email, for the line that says what "Always allow" covers. */
+const ALWAYS_ALLOW_PHRASES: Record<string, string> = {
+  graph_mail_send: 'sends mail from',
+  graph_calendar_create_event: 'creates calendar events on',
+  graph_calendar_update_event: 'changes calendar events on',
+  graph_calendar_delete_event: 'deletes calendar events on',
+};
+
+function describeChange(toolName: string): string {
+  return toolName.replace(/^graph_/, '').replaceAll('_', ' ');
 }
 export async function dispatchConnectorRpc(
   method: string,
@@ -204,7 +250,7 @@ export function buildConnectorMutationApproval(
             : '';
   const subject = label(args['subject']);
   return {
-    description: `Allow ${toolName.replace(/^graph_/, '').replaceAll('_', ' ')} through ${connectorName}${subject ? `, subject ${subject}` : ''}?${warning}`,
+    description: `Allow ${describeChange(toolName)} through ${connectorName}${subject ? `, subject ${subject}` : ''}?${warning}`,
     details: {
       accountKey,
       connectorName,

@@ -5,7 +5,10 @@ import {
   liveActivityStatusKey,
   presentInstanceStatus,
 } from '../../shared/attention/instance-status-presentation';
-import type { MobilePromptDto } from '../../shared/types/mobile-gateway.types';
+import {
+  MOBILE_OWNER_PROFILE_ID,
+  type MobilePromptDto,
+} from '../../shared/types/mobile-gateway.types';
 import type { ApnsAlert, ApnsSendResult, MobileApnsSender } from './mobile-apns-sender';
 import type { MobileDeviceRegistry } from './mobile-device-registry';
 import type { SubsystemLogger } from '../logging/logger';
@@ -21,6 +24,8 @@ interface MobileGatewayPushDeps {
   apnsSender: MobileApnsSender;
   registry: MobileDeviceRegistry;
   instanceManager: PushInstanceSource | null;
+  /** The person a session belongs to; their phones alone hear about it. */
+  profileOfInstance(instanceId: string): string;
   logger: SubsystemLogger;
 }
 
@@ -38,12 +43,18 @@ function invalidDeviceToken(result: ApnsSendResult): boolean {
   );
 }
 
+/**
+ * Push to one person's phones. `profileId` is required so every alert names
+ * who it is for: a session's alerts go to that session's person, and
+ * Harness-wide alerts to the owner.
+ */
 function sendPersonalizedAlerts(
   deps: MobileGatewayPushDeps,
+  profileId: string,
   build: (hostDeviceId: string) => ApnsAlert,
   logMessage: string,
 ): void {
-  const targets = deps.registry.apnsTargets();
+  const targets = deps.registry.apnsTargets(profileId);
   if (targets.length === 0) return;
   void Promise.all(targets.map(async ({ deviceId, token }) => {
     const results = await deps.apnsSender.send([token], build(deviceId));
@@ -72,7 +83,11 @@ export function sendMobilePromptPush(deps: MobileGatewayPushDeps, prompt: Mobile
           : needsOk
         : prompt.title;
     const body = where ? `${agent} · ${where}` : agent;
-    sendPersonalizedAlerts(deps, (hostDeviceId) => ({
+    // Browser approvals act on the owner's browser, whichever session asked.
+    const profileId = prompt.kind === 'browser'
+      ? MOBILE_OWNER_PROFILE_ID
+      : deps.profileOfInstance(prompt.instanceId);
+    sendPersonalizedAlerts(deps, profileId, (hostDeviceId) => ({
         title,
         body,
         category: 'AIO_APPROVAL',
@@ -162,7 +177,10 @@ function performLiveActivityPush(
   try {
     const sender = deps.apnsSender;
     if (!sender.isConfigured()) return;
-    const targets = deps.registry.liveActivityTargetsFor(instanceId);
+    const targets = deps.registry.liveActivityTargetsFor(
+      instanceId,
+      deps.profileOfInstance(instanceId),
+    );
     if (targets.length === 0) return;
     const instance = deps.instanceManager?.getInstance(instanceId);
     const where = instance?.workingDirectory
@@ -219,7 +237,7 @@ export function sendBrowserEscalationPush(
     const sender = deps.apnsSender;
     if (!sender.isConfigured()) return;
     const kindLabel = escalation.kind.replace(/_/g, ' ');
-    sendPersonalizedAlerts(deps, (hostDeviceId) => ({
+    sendPersonalizedAlerts(deps, MOBILE_OWNER_PROFILE_ID, (hostDeviceId) => ({
         title: `Browser agent parked: ${kindLabel}`,
         body: escalation.reason.slice(0, 160),
         category: 'AIO_BROWSER_ESCALATION',
@@ -250,7 +268,7 @@ export function sendMobileCompletionPush(
       ? crossPlatformBasename(instance.workingDirectory)
       : '';
     const agent = instance?.displayName || 'Agent';
-    sendPersonalizedAlerts(deps, (hostDeviceId) => ({
+    sendPersonalizedAlerts(deps, deps.profileOfInstance(instanceId), (hostDeviceId) => ({
         title: `${agent} finished`,
         body: where ? `${presentInstanceStatus('idle').label} · ${where}` : 'Ready for your next message',
         category: 'AIO_COMPLETE',
@@ -281,7 +299,7 @@ export function clearMobilePushThrottle(): void {
 export function sendMobileQuotaPush(deps: MobileGatewayPushDeps): void {
   try {
     if (!deps.apnsSender.isConfigured()) return;
-    sendPersonalizedAlerts(deps, hostDeviceId => ({
+    sendPersonalizedAlerts(deps, MOBILE_OWNER_PROFILE_ID, hostDeviceId => ({
       title: 'Usage limit reached',
       body: 'Open Harness to check usage and reset times.',
       data: { kind: 'quota', hostDeviceId },
@@ -298,7 +316,7 @@ export function sendMobileAutomationFailurePush(
 ): void {
   try {
     if (!deps.apnsSender.isConfigured()) return;
-    sendPersonalizedAlerts(deps, hostDeviceId => ({
+    sendPersonalizedAlerts(deps, MOBILE_OWNER_PROFILE_ID, hostDeviceId => ({
       title: 'Automation failed',
       body: 'Open Harness to review the failed run.',
       category: 'AIO_AUTOMATION_FAILED',
@@ -328,7 +346,7 @@ export function sendMobileLoopPush(
       : 'Loop failed';
   try {
     if (!deps.apnsSender.isConfigured()) return;
-    sendPersonalizedAlerts(deps, (hostDeviceId) => ({
+    sendPersonalizedAlerts(deps, MOBILE_OWNER_PROFILE_ID, (hostDeviceId) => ({
       title,
       body: 'Open Harness to see the loop.',
       category: 'AIO_LOOP',
@@ -344,7 +362,7 @@ export function sendMobileLoopPush(
 export function sendMobilePlanQueuePush(deps: MobileGatewayPushDeps, itemId: string): void {
   try {
     if (!deps.apnsSender.isConfigured()) return;
-    sendPersonalizedAlerts(deps, (hostDeviceId) => ({
+    sendPersonalizedAlerts(deps, MOBILE_OWNER_PROFILE_ID, (hostDeviceId) => ({
       title: 'Plan Queue needs your answer',
       body: 'Open Harness to answer the question.',
       category: 'AIO_PLAN_QUEUE',
@@ -360,7 +378,7 @@ export function sendMobilePlanQueuePush(deps: MobileGatewayPushDeps, itemId: str
 export function sendMobileDocReviewPush(deps: MobileGatewayPushDeps, reviewId: string): void {
   try {
     if (!deps.apnsSender.isConfigured()) return;
-    sendPersonalizedAlerts(deps, (hostDeviceId) => ({
+    sendPersonalizedAlerts(deps, MOBILE_OWNER_PROFILE_ID, (hostDeviceId) => ({
       title: 'Document review is ready',
       body: 'Open Harness to approve or reject it.',
       category: 'AIO_DOC_REVIEW',

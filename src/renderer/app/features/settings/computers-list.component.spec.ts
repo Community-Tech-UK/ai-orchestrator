@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { ComputersListComponent } from './computers-list.component';
 import { SettingsStore } from '../../core/state/settings.store';
 import { RemoteNodeIpcService } from '../../core/services/ipc/remote-node-ipc.service';
+import { ProviderAccountIpcService } from '../../core/services/ipc/provider-account-ipc.service';
 import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 import type { TestMachineView, WorkToday } from '../../../../shared/types/computers.types';
 import type { ComputerChoice } from '../../../../shared/types/settings.types';
@@ -60,6 +61,9 @@ describe('ComputersListComponent', () => {
       { ok: true; testMachine: TestMachineView } | { ok: false; error: unknown }
     > => ({ ok: true, testMachine: { ...ALL_MACHINES.find(machine => machine.host === host)!, ...change } })),
   };
+  const accounts = {
+    list: vi.fn(async (_provider?: string) => ({ profiles: [{ id: 'work', provider: 'claude', label: 'Comtech' }], pools: {} })),
+  };
   let fixture: ComponentFixture<ComputersListComponent>;
 
   async function render(nodes: RemoteNodeRosterEntry[], readOnly = false): Promise<HTMLElement> {
@@ -95,6 +99,7 @@ describe('ComputersListComponent', () => {
       providers: [
         { provide: SettingsStore, useValue: store },
         { provide: RemoteNodeIpcService, useValue: ipc },
+        { provide: ProviderAccountIpcService, useValue: accounts },
       ],
     }).compileComponents();
   });
@@ -108,6 +113,42 @@ describe('ComputersListComponent', () => {
     expect(element.textContent).toContain('Away');
     expect(element.textContent).toContain('Test runs: 59 on the Windows PC, 8 here.');
     expect(element.textContent).toContain('8 ran here because the Windows PC could not be reached.');
+  });
+
+  it('shows each connected computer\'s AI tools, sign-ins by this Mac\'s names, and folders, in both views', async () => {
+    const pc = node('windows-pc', { capabilities: { ...node('x').capabilities, supportedClis: ['claude', 'codex'],
+      workingDirectories: ['C:\\Users\\shutu\\Documents\\Work'],
+      signIns: [
+        { provider: 'claude', profileId: 'work', state: 'signed-in' },
+        { provider: 'codex', profileId: 'legacy', state: 'signed-out' },
+      ] } });
+    for (const readOnly of [false, true]) {
+      const element = await render([pc, node('laptop', { connected: false })], readOnly);
+      const details = [...element.querySelectorAll('.computer-detail')];
+      expect(details).toHaveLength(1);
+      const text = details[0]!.textContent!.replace(/\s+/g, ' ');
+      expect(text).toContain('AI tools there: Claude and Codex.');
+      expect(text).toContain('Claude account Comtech is signed in.');
+      expect(details[0]!.querySelector('p code')?.textContent).toBe('codex login');
+      expect(text).toContain('Opens folders in C:\\Users\\shutu\\Documents\\Work, with 0 projects found there.');
+      expect(text).toContain('.orchestrator\\worker-node.json');
+      expect(text).toContain('C:\\ProgramData\\Orchestrator\\worker-node.json');
+    }
+    // Reading names runs this Mac's own sign-in checks: only for the tool with an extra account, once per list.
+    expect(accounts.list.mock.calls).toEqual([['claude'], ['claude']]);
+  });
+
+  it('reads no account names when every computer reports only default sign-ins', async () => {
+    await render([node('windows-pc', { capabilities: { ...node('x').capabilities, supportedClis: ['codex'],
+      signIns: [{ provider: 'codex', profileId: 'legacy', state: 'signed-in' }] } })]);
+    expect(accounts.list).not.toHaveBeenCalled();
+  });
+
+  it('names an account by its ID when this Mac\'s accounts can\'t be read', async () => {
+    accounts.list.mockRejectedValueOnce(new Error('Not in Electron'));
+    const element = await render([node('windows-pc', { capabilities: { ...node('x').capabilities, supportedClis: ['claude'],
+      signIns: [{ provider: 'claude', profileId: 'work', state: 'signed-out' }] } })]);
+    expect(element.querySelector('.computer-detail')!.textContent).toContain('Claude account work isn\'t signed in there.');
   });
 
   it('shows a second test machine on its own row, changes it by its own name, and names both in today\'s work', async () => {
@@ -175,7 +216,7 @@ describe('ComputersListComponent', () => {
     await fixture.whenStable();
     fixture.detectChanges();
     expect(element.querySelector('[role="alert"]')?.textContent).toBe('That change wasn\'t saved.');
-    expect(element.querySelector('details')?.textContent).toContain('No test machine is set up on this Mac.');
+    expect(element.querySelector('[role="alert"] + details')?.textContent).toContain('No test machine is set up on this Mac.');
   });
 
   it('only shows in read-only mode, saying what each computer takes', async () => {
@@ -192,7 +233,7 @@ describe('ComputersListComponent', () => {
     await fixture.whenStable();
     fixture.detectChanges();
     expect(element.querySelector('[role="alert"]')?.textContent).toBe('That change wasn\'t saved.');
-    expect(element.querySelector('details')?.textContent).toContain('Disk full');
+    expect(element.querySelector('[role="alert"] + details')?.textContent).toContain('Disk full');
     expect(pause.checked).toBe(false);
     expect(ipc.changeTestMachine).not.toHaveBeenCalled();
   });
@@ -216,7 +257,7 @@ describe('ComputersListComponent', () => {
     await fixture.whenStable();
     fixture.detectChanges();
     expect(element.querySelector('[role="alert"]')?.textContent).toBe('That change wasn\'t saved.');
-    expect(element.querySelector('details')?.textContent).toContain('Main process unreachable');
+    expect(element.querySelector('[role="alert"] + details')?.textContent).toContain('Main process unreachable');
     expect(sessions.checked).toBe(false);
   });
 
@@ -265,7 +306,7 @@ describe('ComputersListComponent', () => {
     ipc.getTestMachines.mockResolvedValueOnce({ ok: false, error: { message: 'The test machine settings file names no host.' } });
     const element = await render([node('windows-pc')]);
     expect(element.querySelector('[role="alert"]')?.textContent).toContain('couldn\'t be read');
-    expect(element.querySelector('details')?.textContent).toContain('names no host');
+    expect(element.querySelector('[role="alert"] + details')?.textContent).toContain('names no host');
     expect(names(element)).toEqual(['windows-pc', 'This Mac']);
   });
 });

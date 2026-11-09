@@ -24,7 +24,7 @@ export const SETTINGS_SECTION_TARGETS: readonly SettingsSectionTarget[] = [
   { tab: 'cli-health', anchor: 'updates', label: 'CLI health', keywords: 'version update install diagnose' },
   { tab: 'doctor', anchor: 'diagnostics', label: 'Doctor', keywords: 'diagnostics troubleshoot startup health' },
   { tab: 'models', anchor: 'models', label: 'Models', keywords: 'provider model overrides' },
-  { tab: 'mcp', anchor: 'servers', label: 'MCP servers', keywords: 'tools servers context protocol' },
+  { tab: 'mcp', anchor: 'servers', label: 'MCP servers', keywords: 'tools servers context protocol connectors microsoft 365 mail calendar always allow' },
   { tab: 'hooks', anchor: 'events', label: 'Hooks', keywords: 'lifecycle commands events scripts triggers' },
   { tab: 'ecosystem', anchor: 'plugins', label: 'Ecosystem', keywords: 'plugins integrations extensions tools commands agents' },
   { tab: 'worktrees', anchor: 'worktrees', label: 'Worktrees', keywords: 'git branch parallel workspace' },

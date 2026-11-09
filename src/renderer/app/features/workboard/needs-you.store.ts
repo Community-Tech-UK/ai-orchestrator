@@ -115,7 +115,7 @@ export class NeedsYouStore {
       // A live question already explains why the session needs an answer.
       if (answerSessions.has(id)) return [];
       const alert = this.tools.alertFor(id);
-      return alert ? [alert] : [];
+      return alert ? [{ ...alert, sessionName: this.instances.getInstance(id)?.displayName }] : [];
     });
     const requests = requestEntries({ permissions: this.activePermissions(), browsers: this.activeBrowsers(),
       fallbacks: this.activeFallbacks(), plans: this.plans.needsAnswerItems(), documents: this.activeDocuments(),

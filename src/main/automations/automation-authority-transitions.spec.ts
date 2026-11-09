@@ -134,6 +134,30 @@ describe('authenticated automation execution transitions', () => {
     expect((await store.get(job.id))?.enabled).toBe(false);
   });
 
+  it('lets a Codex session on gpt-6.1-sol rewrite the prompt of a gpt-6.1-sol job', async () => {
+    const job = await seed({ action: { prompt: 'Old search', workingDirectory: '/repo', provider: 'codex',
+      model: 'gpt-6.1-sol', reasoningEffort: 'medium' } });
+    caller = { provider: 'codex', currentModel: 'gpt-6.1-sol', reasoningEffort: 'high', yoloMode: false };
+    await update({ id: job.id, prompt: 'New search' });
+    expect(await store.get(job.id)).toMatchObject({ action: { prompt: 'New search', provider: 'codex', model: 'gpt-6.1-sol',
+      executionAuthority: { model: 'gpt-6.1-sol', modelTier: 'powerful', reasoningEffort: 'medium' } } });
+  });
+
+  it('still refuses a balanced Codex session editing a gpt-6.1-sol job', async () => {
+    const job = await seed({ action: { prompt: 'Old search', workingDirectory: '/repo', provider: 'codex',
+      model: 'gpt-6.1-sol', reasoningEffort: 'medium' } });
+    caller = { provider: 'codex', currentModel: 'gpt-5.6-terra', reasoningEffort: 'high', yoloMode: false };
+    await expect(update({ id: job.id, prompt: 'New search' })).rejects.toThrow(/model above the calling session/);
+    expect(await store.get(job.id)).toEqual(job);
+  });
+
+  it('names a job model whose tier Harness does not know', async () => {
+    const job = await seed({ action: { prompt: 'Old search', workingDirectory: '/repo', provider: 'codex',
+      model: 'gpt-9-unlisted', reasoningEffort: 'medium' } });
+    caller = { provider: 'codex', currentModel: 'gpt-5.6-sol', reasoningEffort: 'high', yoloMode: false };
+    await expect(update({ id: job.id, prompt: 'New search' })).rejects.toThrow(/job's model "gpt-9-unlisted" is not in Harness's model list/);
+  });
+
   it('leaves human reactivation and schedule updates unrestricted', async () => {
     const job = await seed({ enabled: false });
     await impl.updateAutomation({ id: job.id, enabled: true, cron: '* * * * *', confirmedByUser: true });

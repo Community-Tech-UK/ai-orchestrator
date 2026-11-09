@@ -429,20 +429,24 @@ describe('landItemBranch', () => {
       };
     }
 
-    it.each(['green', 'missing-command', 'wrong-command', 'failed', 'timeout', 'empty-tests', 'legacy', 'mixed-tree', 'failed-verdict'] as const)(
-      'grants duplicate-test proof only for a complete green checklist: %s', async evidence => {
+    it.each(['green', 'missing-command', 'wrong-command', 'failed', 'timeout', 'empty-tests', 'legacy', 'mixed-tree', 'failed-verdict',
+      'no-test-run', 'unrecognised-tests'] as const)(
+      'grants duplicate-test proof only for a complete green checklist that ran tests: %s', async evidence => {
         installHook('printf "%s\\n" "${AIO_PLAN_QUEUE_TESTS_COVERED:-unset}" > "$(git rev-parse --git-common-dir)/hook-test-proof"');
         const item = makeItemWithWork({ 'one.txt': '1\n' });
         const tree = git(['rev-parse', 'HEAD^{tree}'], item.worktreePath!);
-        const commands = ['first-check', 'second-check'];
+        // A livetest checklist (type check and lint) passes without running a single test; it must not stand in
+        // for the hook's related tests.
+        const commands = evidence === 'no-test-run' ? ['npx tsc --noEmit', 'npm run lint'] : ['npx tsc --noEmit', 'npm run test:quiet'];
         item.verdict = { verdict: evidence === 'failed-verdict' ? 'FAIL' : 'PASS', findings: [], documentComplete: true,
           needJames: [], gatesRun: commands.map(command => ({ command, exitCode: 0, testedTree: tree, classification: 'passed' })) };
-        const first = item.verdict.gatesRun[0];
+        const [first, tests] = item.verdict.gatesRun;
         if (evidence === 'missing-command') item.verdict.gatesRun.pop();
         if (evidence === 'wrong-command') first.command = 'a-different-check';
         if (evidence === 'failed') first.exitCode = 1;
         if (evidence === 'timeout') first.timedOut = true;
-        if (evidence === 'empty-tests') first.classification = 'no-tests-found';
+        if (evidence === 'empty-tests') tests.classification = 'no-tests-found';
+        if (evidence === 'unrecognised-tests') tests.classification = 'not-recognised';
         if (evidence === 'legacy') delete first.testedTree;
         if (evidence === 'mixed-tree') first.testedTree = git(['rev-parse', 'main^{tree}']);
         const result = await landItemBranch(item, repo, 'main', 'Plan: checked', commands);

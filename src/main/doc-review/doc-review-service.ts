@@ -5,6 +5,7 @@ import { basename, isAbsolute, join } from 'node:path';
 import { getLogger } from '../logging/logger';
 import { renderPlanArtifact, upgradeArtifactRuntime } from './artifact-renderer';
 import { DocReviewStore, type DocReviewStorePort } from './doc-review-store';
+import { isReviewSourceCompleted } from './doc-review-completed-sources';
 import {
   DOC_REVIEW_DIR_NAME,
   ensureDocReviewIgnored,
@@ -445,6 +446,29 @@ export class DocReviewService extends EventEmitter {
   dismiss(reviewId: string): void {
     if (!this.getStore().remove(reviewId)) return;
     this.emit(DOC_REVIEW_CHANGED_EVENT, { kind: 'dismissed', reviewId });
+  }
+
+  /**
+   * Close pending reviews whose source document has since been completed. A finished
+   * plan's questions no longer need James, and answering one would only wake its
+   * session for work that is already done.
+   */
+  async closeReviewsForCompletedSources(): Promise<DocReviewSession[]> {
+    const closed: DocReviewSession[] = [];
+    for (const session of this.listSessions('pending')) {
+      if (!session.sourcePath) continue;
+      if (!(await isReviewSourceCompleted(session.workspacePath, session.sourcePath))) continue;
+      // James may have decided it while the file checks ran; a decision always wins.
+      if (this.getStore().get(session.id)?.status !== 'pending') continue;
+      this.dismiss(session.id);
+      closed.push(session);
+      logger.info('Closed a pending review because its document is completed', {
+        reviewId: session.id,
+        title: session.title,
+        sourcePath: session.sourcePath,
+      });
+    }
+    return closed;
   }
 
   /** Prune decided sessions older than PRUNE_AFTER_MS. */

@@ -14,6 +14,8 @@ export interface MobileGatewaySettings {
   mobileGatewayBindInterface: 'tailscale' | 'all';
   /** JSON array of paired MobileDevice records. */
   mobileGatewayDevices: string;
+  /** JSON array of MobileMemberProfile records: people other than the owner. */
+  mobileGatewayProfiles: string;
   // Optional TLS (wss://). Tailscale already encrypts the link E2E, so this is
   // extra hardening only. Point these at a `tailscale cert <host>.<tailnet>.ts.net`
   // key/cert (publicly trusted, so iOS connects without a trust prompt). Empty =>

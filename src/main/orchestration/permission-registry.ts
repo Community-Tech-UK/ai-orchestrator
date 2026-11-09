@@ -48,15 +48,22 @@ export class PermissionRegistry extends EventEmitter {
     });
   }
 
-  resolve(requestId: string, granted: boolean, decidedBy: PermissionDecision['decidedBy']): void {
+  /**
+   * `always` is honoured only for a person's yes to a request that offered it
+   * (`alwaysAllowCovers`); anything else resolves as a one-off decision.
+   */
+  resolve(requestId: string, granted: boolean, decidedBy: PermissionDecision['decidedBy'], always = false): void {
     const entry = this.pending.get(requestId);
     if (!entry) return;
     clearTimeout(entry.timer);
     this.pending.delete(requestId);
-    const decision: PermissionDecision = { requestId, granted, decidedBy, decidedAt: Date.now() };
+    const remembered = always && granted && decidedBy === 'user' && Boolean(entry.request.alwaysAllowCovers);
+    const decision: PermissionDecision = {
+      requestId, granted, decidedBy, decidedAt: Date.now(), ...(remembered ? { always: true } : {}),
+    };
     entry.resolve(decision);
     this.emit('permission:resolved', decision);
-    logger.info('Permission resolved', { requestId, granted, decidedBy });
+    logger.info('Permission resolved', { requestId, granted, decidedBy, always: remembered });
   }
 
   getPendingCount(): number { return this.pending.size; }

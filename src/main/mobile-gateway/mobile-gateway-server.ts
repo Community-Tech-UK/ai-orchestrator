@@ -9,10 +9,10 @@ import { createServer as createHttpsServer } from "https";
 import type { AddressInfo } from "net";
 import { URL } from "url";
 import { WebSocketServer, WebSocket } from "ws";
-import type {
-  MobileGatewayStatus,
-  MobilePauseDto,
-  MobileSnapshot,
+import {
+  MOBILE_OWNER_PROFILE_ID,
+  type MobileGatewayStatus,
+  type MobilePauseDto,
 } from "../../shared/types/mobile-gateway.types";
 import { getLogger } from "../logging/logger";
 import { getPauseCoordinator } from "../pause/pause-coordinator";
@@ -20,6 +20,7 @@ import { getRecentDirectoriesManager } from "../core/config/recent-directories-m
 import { getLoopCoordinator } from "../orchestration/loop-coordinator";
 import { resolveBindHost } from "./tailscale-interface";
 import {
+  deviceProfileId,
   getMobileDeviceRegistry,
   type MobileDeviceRegistry,
 } from "./mobile-device-registry";
@@ -46,8 +47,15 @@ import {
   closeSocketsForDevice,
   handleWsUpgrade,
   isInstanceBeingViewed,
+  startWsHeartbeat,
+  type MobileViewer,
   type WsHandlerDeps,
 } from "./mobile-gateway-ws-handlers";
+import {
+  handleMobileMemberRequest,
+  handleMobilePersonView,
+  MobileSessionOwners,
+} from "./mobile-gateway-member-routes";
 import type {
   GatewayChatHistorySource,
   GatewayInstanceHistorySource,
@@ -124,7 +132,6 @@ export type {
 
 const logger = getLogger("MobileGateway");
 const MESSAGE_REPLAY_LIMIT = 300;
-const WS_HEARTBEAT_MS = 30_000;
 
 export interface GatewayRecentDirsSource {
   getDirectories(options?: {
@@ -184,7 +191,11 @@ export class MobileGatewayServer {
   private readonly clients = new Set<WebSocket>();
   private readonly clientAlive = new WeakMap<WebSocket, boolean>();
   private readonly activeViewByClient = new Map<WebSocket, string>();
-  private readonly deviceIdByClient = new Map<WebSocket, string>();
+  private readonly viewerByClient = new Map<WebSocket, MobileViewer>();
+  private readonly owners = new MobileSessionOwners(
+    (instanceId) => this.deps?.instanceManager.getInstance(instanceId),
+    (profileId) => this.registry.hasProfile(profileId),
+  );
   private boundHost = "";
   private boundPort = 0;
   private tailscaleIp: string | null = null;
@@ -237,7 +248,6 @@ export class MobileGatewayServer {
     markCompletionViewed: (instanceId) =>
       this.events.markCompletionViewed(instanceId),
     scheduleSnapshotBroadcast: () => this.snapshots.scheduleBroadcast(),
-    buildSnapshotInstances: () => this.snapshots.buildSnapshot().instances,
     serializeInstance: (instance) => this.snapshots.serializeInstance(instance),
     resolveNodeId: (nameOrId) => this.resolveNodeId(nameOrId),
     getModelCatalog: () => this.deps?.modelCatalog,
@@ -256,6 +266,8 @@ export class MobileGatewayServer {
       this.events.hasUnreadCompletion(instanceId),
     getQueuedMessages: (instanceId) =>
       this.instanceRoutes.queuedMessages(instanceId),
+    profileOfClient: (client) => this.viewerByClient.get(client)?.profileId,
+    profileOfInstance: (instanceId) => this.owners.profileOf(instanceId),
     debug: (message, data) => logger.debug(message, data),
   });
 
@@ -284,6 +296,7 @@ export class MobileGatewayServer {
       sendMobileLiveActivityPush(this.pushDeps(), instanceId, status, event),
     clearLiveActivityTokens: (instanceId) =>
       this.registry.clearLiveActivityTokensForInstance(instanceId),
+    forgetInstanceProfile: (instanceId) => this.owners.forget(instanceId),
     warn: (message, data) => logger.warn(message, data),
   });
 
@@ -405,7 +418,7 @@ export class MobileGatewayServer {
     this.quota.attach();
     this.automations.attach();
     this.away.attach();
-    this.startHeartbeat();
+    this.heartbeatTimer ??= startWsHeartbeat(this.wsDeps());
     logger.info("Mobile gateway started", {
       host: this.boundHost,
       port: this.boundPort,
@@ -452,7 +465,8 @@ export class MobileGatewayServer {
     }
     this.unsubscribeRevocations?.();
     this.unsubscribeRevocations = null;
-    this.deviceIdByClient.clear();
+    this.viewerByClient.clear();
+    this.owners.clear();
     this.boundPort = 0;
     this.startedAt = 0;
     this.secure = false;
@@ -486,10 +500,6 @@ export class MobileGatewayServer {
       pairedDeviceCount: this.registry.deviceCount(),
       pushConfigured: this.safeIsPushConfigured(),
     };
-  }
-
-  buildSnapshot(): MobileSnapshot {
-    return this.snapshots.buildSnapshot();
   }
 
   notifyBrowserEscalation(escalation: BrowserEscalationPushInput): void {
@@ -549,31 +559,6 @@ export class MobileGatewayServer {
     }
   }
 
-  private startHeartbeat(): void {
-    if (this.heartbeatTimer) return;
-    this.heartbeatTimer = setInterval(() => {
-      for (const client of this.clients) {
-        if (this.clientAlive.get(client) === false) {
-          this.clients.delete(client);
-          this.activeViewByClient.delete(client);
-          try {
-            client.terminate();
-          } catch {
-            // Already gone.
-          }
-          continue;
-        }
-        this.clientAlive.set(client, false);
-        try {
-          client.ping();
-        } catch {
-          // The next heartbeat will reap it.
-        }
-      }
-    }, WS_HEARTBEAT_MS);
-    this.heartbeatTimer.unref?.();
-  }
-
   private pauseState(): MobilePauseDto {
     try {
       return this.pause.toPayload();
@@ -587,6 +572,7 @@ export class MobileGatewayServer {
       apnsSender: this.apnsSender,
       registry: this.registry,
       instanceManager: this.deps?.instanceManager ?? null,
+      profileOfInstance: (instanceId: string) => this.owners.profileOf(instanceId),
       logger,
     };
   }
@@ -598,8 +584,9 @@ export class MobileGatewayServer {
       clients: this.clients,
       clientAlive: this.clientAlive,
       activeViewByClient: this.activeViewByClient,
-      deviceIdByClient: this.deviceIdByClient,
-      buildSnapshot: () => this.snapshots.buildSnapshot(),
+      viewerByClient: this.viewerByClient,
+      buildSnapshot: (profileId) => this.snapshots.buildSnapshot(profileId),
+      profileOfInstance: (instanceId) => this.owners.profileOf(instanceId),
       markCompletionViewed: (instanceId) =>
         this.events.markCompletionViewed(instanceId),
     };
@@ -626,7 +613,7 @@ export class MobileGatewayServer {
       return;
     }
     if (url.pathname === "/pair" && method === "POST") {
-      await handleMobilePair(this.deviceTokenDeps(), req, res);
+      await handleMobilePair(this.deviceTokenDeps(MOBILE_OWNER_PROFILE_ID), req, res);
       return;
     }
     const device = this.registry.validateToken(
@@ -637,42 +624,25 @@ export class MobileGatewayServer {
       return;
     }
     const segments = url.pathname.split("/").filter(Boolean);
+    const profileId = deviceProfileId(device);
     try {
+      if (profileId !== MOBILE_OWNER_PROFILE_ID) {
+        return await this.handleMemberRequest(req, res, url, segments, method, {
+          deviceId: device.deviceId,
+          profileId,
+        });
+      }
       if (segments[0] === "api") {
         if (await this.automations.handle(req, res, segments, method)) return;
         if (this.quota.handle(res, segments, method)) return;
         if (await this.away.handle(req, res, segments, method)) return;
         if (await this.instanceRoutes.handle(req, res, url, segments, method))
           return;
-        if (
-          segments[1] === "projects" &&
-          segments.length === 2 &&
-          method === "GET"
-        ) {
-          return this.sendJson(
-            res,
-            200,
-            this.snapshots.buildSnapshot().projects,
-          );
+        if (handleMobilePersonView(this.personView(MOBILE_OWNER_PROFILE_ID), res, segments, method)) {
+          return;
         }
-        if (
-          segments[1] === "snapshot" &&
-          segments.length === 2 &&
-          method === "GET"
-        ) {
-          return this.sendJson(res, 200, this.snapshots.buildSnapshot());
-        }
-        if (
-          segments[1] === "prompts" &&
-          segments.length === 2 &&
-          method === "GET"
-        ) {
-          return this.sendJson(res, 200, this.promptStore.values());
-        }
-        if (segments[1] === "pause" && segments.length === 2) {
-          if (method === "GET")
-            return this.sendJson(res, 200, this.pauseState());
-          if (method === "POST") return await this.handleSetPause(req, res);
+        if (segments[1] === "pause" && segments.length === 2 && method === "POST") {
+          return await this.handleSetPause(req, res);
         }
         if (
           segments[1] === "recent-dirs" &&
@@ -694,7 +664,7 @@ export class MobileGatewayServer {
         }
         if (
           await handleMobileDeviceRoutes(
-            this.deviceTokenDeps(),
+            this.deviceTokenDeps(MOBILE_OWNER_PROFILE_ID),
             req,
             res,
             segments,
@@ -714,6 +684,31 @@ export class MobileGatewayServer {
         error: error instanceof Error ? error.message : "Internal error",
       });
     }
+  }
+
+  private async handleMemberRequest(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+    segments: string[],
+    method: string,
+    viewer: MobileViewer,
+  ): Promise<void> {
+    await handleMobileMemberRequest({
+      ...this.personView(viewer.profileId),
+      ownsInstance: (instanceId) => this.owners.owns(viewer.profileId, instanceId),
+      handleInstanceRoute: () => this.instanceRoutes.handle(req, res, url, segments, method),
+      handleDeviceRoute: () => handleMobileDeviceRoutes(
+        this.deviceTokenDeps(viewer.profileId), req, res, segments, method, viewer.deviceId,
+      ),
+    }, res, segments, method);
+  }
+
+  private personView(profileId: string) {
+    return {
+      buildSnapshot: () => this.snapshots.buildSnapshot(profileId),
+      pauseState: () => this.pauseState(),
+    };
   }
 
   private async handleSetPause(
@@ -758,9 +753,11 @@ export class MobileGatewayServer {
     };
   }
 
-  private deviceTokenDeps() {
+  private deviceTokenDeps(profileId: string) {
     return {
       registry: this.registry,
+      ownsInstance: (instanceId: string) =>
+        this.owners.profileOf(instanceId) === profileId,
       sendJson: (res: ServerResponse, statusCode: number, payload: unknown) =>
         this.sendJson(res, statusCode, payload),
     };

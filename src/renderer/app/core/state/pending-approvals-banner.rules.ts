@@ -50,7 +50,14 @@ export interface ApprovalScopeInfo {
 }
 
 /** Each of these asks again for the next operation, so one approval covers one operation. */
-const ONE_OPERATION_ACTIONS = new Set(['store_release_mutation', 'calendar_mutation', 'calendar_account_connect']);
+const ONE_OPERATION_ACTIONS = new Set([
+  'store_release_mutation', 'calendar_mutation', 'calendar_account_connect', 'microsoft365_mutation',
+]);
+
+/** The "Always allow" button, offered only when the request says what it would cover. */
+export function alwaysAllowLabel(item: Pick<PendingApprovalItem, 'alwaysAllowCovers'>): string | null {
+  return item.alwaysAllowCovers ? PERMISSION_SCOPE_WORDS.always.allow : null;
+}
 
 function scopeInfo(words: PermissionScopeWords, tail = ''): ApprovalScopeInfo {
   return { allowLabel: words.allow, lasts: `Lasts ${words.lasts}${tail}.` };

@@ -124,6 +124,32 @@ describe('registerPermissionRegistryHandlers', () => {
     expect(decision.decidedBy).toBe('user');
   });
 
+  it('resolve(always: true) passes the "Always allow" choice to the requester that offered it', async () => {
+    const decisionPromise = getPermissionRegistry().requestPermission({
+      id: 'mail_1', instanceId: 'inst-1', action: 'microsoft365_mutation', description: 'Send mail?',
+      alwaysAllowCovers: 'Always allow means no session asks again.', createdAt: Date.now(), timeoutMs: 300_000,
+    });
+
+    const result = await invoke('permission-registry:resolve', { requestId: 'mail_1', granted: true, always: true });
+    expect(result.success).toBe(true);
+    expect(await decisionPromise).toMatchObject({ granted: true, decidedBy: 'user', always: true });
+  });
+
+  it.each([
+    ['a request that does not offer it', undefined, true],
+    ['a denial', 'Always allow means no session asks again.', false],
+  ])('refuses "always" for %s and leaves the request waiting', async (_case, alwaysAllowCovers, granted) => {
+    getPermissionRegistry().requestPermission({
+      id: 'release_2', instanceId: 'inst-1', action: 'store_release_mutation', description: 'Release?',
+      ...(alwaysAllowCovers ? { alwaysAllowCovers } : {}), createdAt: Date.now(), timeoutMs: 300_000,
+    });
+
+    const result = await invoke('permission-registry:resolve', { requestId: 'release_2', granted, always: true });
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('PERMISSION_REGISTRY_ALWAYS_UNAVAILABLE');
+    expect(getPermissionRegistry().getPending('release_2')).toBeDefined();
+  });
+
   it('resolve() on an unknown requestId returns a not-pending error instead of silently no-op-succeeding', async () => {
     const result = await invoke('permission-registry:resolve', { requestId: 'missing', granted: true });
     expect(result.success).toBe(false);

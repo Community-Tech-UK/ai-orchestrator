@@ -17,6 +17,17 @@ import type { DocReviewItemState, DocReviewOverall } from './doc-review.types';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="bar">
+      @if (items().length > 0) {
+        <div class="items-head">
+          <button
+            type="button"
+            class="recommend-btn"
+            appTooltip="Answer everything you haven't answered yet with the agent's recommendations"
+            [disabled]="busy()"
+            (click)="recommendationsAccepted.emit()"
+          >Go with your recommendations</button>
+        </div>
+      }
       <div class="items">
         @for (item of items(); track item.info.id) {
           <button type="button" class="item" (click)="itemSelected.emit(item.info.id)">
@@ -42,15 +53,6 @@ import type { DocReviewItemState, DocReviewOverall } from './doc-review.types';
       </div>
 
       <div class="controls">
-        @if (items().length > 0) {
-          <button
-            type="button"
-            class="verdict-btn"
-            appTooltip="Answer everything you haven't answered yet with the agent's recommendations"
-            [disabled]="busy()"
-            (click)="recommendationsAccepted.emit()"
-          >Go with your recommendations</button>
-        }
         <div class="overall" role="group" aria-label="Overall verdict">
           @for (option of overallOptions; track option.value) {
             <button
@@ -90,6 +92,17 @@ import type { DocReviewItemState, DocReviewOverall } from './doc-review.types';
         flex-direction: column;
         gap: 12px;
       }
+      .items-head { display: flex; justify-content: flex-end; margin-bottom: -6px; }
+      .recommend-btn {
+        appearance: none; border: 1px solid var(--pill-accent-fg); border-radius: 999px;
+        background: var(--pill-accent-bg); color: var(--pill-accent-fg);
+        padding: 4px 12px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+        transition: box-shadow var(--transition-fast), transform var(--transition-fast);
+      }
+      .recommend-btn:hover:not(:disabled) { box-shadow: 0 0 0 1px var(--pill-accent-fg); }
+      .recommend-btn:active:not(:disabled) { transform: scale(0.96); }
+      .recommend-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+      .recommend-btn:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 1px; }
       .items { display: flex; flex-direction: column; gap: 6px; max-height: 160px; overflow: auto; }
       .item {
         appearance: none; border: 0; background: transparent; font: inherit; text-align: left;
@@ -134,7 +147,7 @@ import type { DocReviewItemState, DocReviewOverall } from './doc-review.types';
       .submit { margin-left: auto; background: var(--primary-color); color: var(--button-on-primary); border-color: var(--primary-color); }
       .submit:disabled { opacity: 0.5; cursor: not-allowed; }
       .verdict-btn:focus-visible, .general:focus, .submit:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 1px; }
-      @media (prefers-reduced-motion: reduce) { .verdict-btn, .submit { transition: none; } }
+      @media (prefers-reduced-motion: reduce) { .verdict-btn, .submit, .recommend-btn { transition: none; } }
     `,
   ],
 })

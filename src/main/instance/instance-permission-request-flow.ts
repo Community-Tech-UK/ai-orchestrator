@@ -14,13 +14,14 @@ import { maybeAdjudicateDeferredPermission, resetAdjudicatorBreaker } from '../s
 import { getToolExecutionGate, type ToolExecutionGateDecision } from '../security/tool-execution-gate';
 import type { InstanceContextPort } from './instance-context-port';
 import { deferredPermissionResource } from './deferred-permission-resource';
+import type { ResumeDeferredOptions } from './lifecycle/deferred-permission-options';
 
 const logger = getLogger('InstanceManager');
 
 export interface InstancePermissionRequestHost {
   getInstance(id: string): Instance | undefined;
   sendInputResponse(instanceId: string, response: string, permissionKey?: string): Promise<void>;
-  resumeAfterDeferredPermission(instanceId: string, approved: boolean, options?: { requestId?: string; denyNote?: string }): Promise<void>;
+  resumeAfterDeferredPermission(instanceId: string, approved: boolean, options?: Pick<ResumeDeferredOptions, 'requestId' | 'denyNote' | 'autoReason'>): Promise<void>;
   addToOutputBuffer(instance: Instance, msg: OutputMessage): void;
   publishOutput(instanceId: string, message: OutputMessage): void;
   emit(event: string, payload: unknown): boolean;
@@ -55,7 +56,7 @@ export class InstancePermissionRequestFlow {
       logger.warn('Live permission gate failed closed', { instanceId: payload.instanceId, requestId: payload.requestId });
       try {
         await this.host.resumeAfterDeferredPermission(payload.instanceId, false, {
-          requestId: payload.requestId, denyNote: 'Harness could not evaluate this call. Continue without it or try another way.',
+          requestId: payload.requestId, autoReason: 'Harness could not evaluate this call. Continue without it or try another way.',
         });
       } catch { logger.error('Unable to deliver live permission gate refusal'); }
       this.clearPending(payload.instanceId, payload.requestId);
@@ -280,27 +281,15 @@ export class InstancePermissionRequestFlow {
           metadataType: metaType,
         });
 
-        // Auto-resume with the decision
-        try {
-          await this.host.resumeAfterDeferredPermission(
-            payload.instanceId,
-            decision.action === 'allow',
-            { requestId: payload.requestId },
-          );
-          this.clearPending(payload.instanceId, payload.requestId);
-        } catch (err) {
-          logger.error('Auto-resume after deferred permission failed',
-            err instanceof Error ? err : undefined,
-            { instanceId: payload.instanceId });
-        }
-
-        // Add system note
+        const resumeError = await this.autoResume(payload, decision.action === 'allow',
+          decision.action === 'deny' ? ruleRefusal(toolName || 'this tool', decision) : undefined);
         if (instance) {
           const msg = {
             id: generateId(),
             timestamp: Date.now(),
             type: 'system' as const,
-            content: `Permission auto-${decision.action === 'allow' ? 'allowed' : 'denied'} for ${toolName}: ${decision.reason}${decision.action === 'deny' ? savedDecisionHint(decision) : ''}`,
+            content: resumeError ? resumeFailedNote(toolName, resumeError)
+              : `Permission auto-${decision.action === 'allow' ? 'allowed' : 'denied'} for ${toolName}: ${decision.reason}${decision.action === 'deny' ? savedDecisionHint(decision) : ''}`,
             metadata: {
               permissionDecision: true,
               ...toPermissionGateMetadata(decision),
@@ -331,18 +320,15 @@ export class InstancePermissionRequestFlow {
             source: 'adjudicator',
             metadataType: metaType,
           });
-          try {
-            await this.host.resumeAfterDeferredPermission(payload.instanceId, adjudicated.approved, { requestId: payload.requestId });
-            this.clearPending(payload.instanceId, payload.requestId);
-          } catch (err) {
-            logger.error('Auto-resume after adjudicated permission failed', err instanceof Error ? err : undefined, { instanceId: payload.instanceId });
-          }
+          const resumeError = await this.autoResume(payload, adjudicated.approved, adjudicated.approved ? undefined
+            : `Harness's automatic approval check refused ${toolName || 'this tool'} (risk ${adjudicated.riskLevel}): ${adjudicated.reason}`);
           if (instance) {
             const msg = {
               id: generateId(),
               timestamp: Date.now(),
               type: 'system' as const,
-              content: `Permission ${adjudicated.approved ? 'allowed' : 'denied'} by adjudicator (risk ${adjudicated.riskLevel}) for ${toolName}: ${adjudicated.reason}`,
+              content: resumeError ? resumeFailedNote(toolName, resumeError)
+                : `Permission ${adjudicated.approved ? 'allowed' : 'denied'} by adjudicator (risk ${adjudicated.riskLevel}) for ${toolName}: ${adjudicated.reason}`,
               metadata: { permissionDecision: true, adjudicated: true, ...toPermissionGateMetadata(decision) },
             };
             this.host.addToOutputBuffer(instance, msg);
@@ -383,6 +369,23 @@ export class InstancePermissionRequestFlow {
       instanceId: payload.instanceId,
       requestId: payload.requestId,
     });
+  }
+
+  /**
+   * Resume a held call Harness answered itself (a saved rule or the reviewer). Returns the error when the
+   * session could not be resumed. No card is shown then: a person's answer takes the same resume path, which
+   * fails the same way, so the caller posts a note saying the session needs a restart.
+   */
+  private async autoResume(payload: InputRequiredPayload, approved: boolean, autoReason: string | undefined): Promise<string | undefined> {
+    try {
+      await this.host.resumeAfterDeferredPermission(payload.instanceId, approved, { requestId: payload.requestId, ...(autoReason ? { autoReason } : {}) });
+      this.clearPending(payload.instanceId, payload.requestId);
+      return undefined;
+    } catch (err) {
+      logger.error('Automatic answer to a held call could not resume the session',
+        err instanceof Error ? err : undefined, { instanceId: payload.instanceId });
+      return err instanceof Error ? err.message : String(err);
+    }
   }
 
   recordUserDecision(params: {
@@ -453,6 +456,15 @@ export class InstancePermissionRequestFlow {
       timestamp: Date.now(),
     });
   }
+}
+
+function resumeFailedNote(toolName: string | undefined, error: string): string {
+  return `Harness answered the ${toolName || 'tool'} approval automatically but could not resume the session (${error}). Restart the session to continue.`;
+}
+
+/** What the model is told when a held call is refused by policy, so it never reports that a person said no. */
+function ruleRefusal(toolName: string, decision: ToolExecutionGateDecision): string {
+  return `Harness's permission rules refuse ${toolName}. Reason: ${decision.reason}${savedDecisionHint(decision)}`;
 }
 
 function savedDecisionHint(decision: ToolExecutionGateDecision): string {
