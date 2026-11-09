@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createTrackedAdapterTerminator } from './tracked-adapter-terminator';
+import { EventEmitter } from 'node:events';
+import { createTrackedAdapterTerminator, stopAdapterAtSpawn } from './tracked-adapter-terminator';
 
 describe('createTrackedAdapterTerminator', () => {
   it('shares one teardown between concurrent graceful callers', async () => {
@@ -58,5 +59,26 @@ describe('createTrackedAdapterTerminator', () => {
     await stop(adapter, false, true);
     expect(terminate).toHaveBeenCalledTimes(2);
     expect(terminate).toHaveBeenLastCalledWith(adapter, false);
+  });
+});
+
+describe('stopAdapterAtSpawn', () => {
+  it('stops the child after a spawn announced when it must stop, and only then', async () => {
+    const adapter = new EventEmitter();
+    const stop = vi.fn(async () => undefined);
+    let must = false;
+    const unsubscribe = stopAdapterAtSpawn(adapter, () => must, stop);
+    adapter.emit('spawned', 1);
+    await Promise.resolve();
+    expect(stop).not.toHaveBeenCalled();
+    must = true;
+    adapter.emit('spawned', 2);
+    expect(stop).not.toHaveBeenCalled(); // deferred: the adapter has not stored the child yet
+    await Promise.resolve();
+    expect(stop).toHaveBeenCalledTimes(1);
+    unsubscribe();
+    adapter.emit('spawned', 3);
+    await Promise.resolve();
+    expect(stop).toHaveBeenCalledTimes(1);
   });
 });

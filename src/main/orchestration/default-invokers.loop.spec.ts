@@ -1331,6 +1331,32 @@ describe('Loop Mode invoker plumbing', () => {
     expect(execute).not.toHaveBeenCalled(); // three early cancels must not trip the shared breaker (threshold 3)
   });
 
+  it.each(['fresh-child', 'same-session'])('kills a %s child at spawn, not at turn end, when its loop was cancelled first', async (contextStrategy) => {
+    registerDefaultLoopInvoker({} as never);
+    // Like the real adapters: the child spawns inside sendMessage (announced with `spawned`) and the turn
+    // then keeps running in that same call.
+    const child = { alive: false };
+    let releaseSpawn!: () => void;
+    let endTurn!: () => void;
+    hoisted.terminate.mockImplementation(async () => { child.alive = false; });
+    hoisted.sendMessage.mockImplementation(async () => {
+      await new Promise<void>((resolve) => { releaseSpawn = resolve; });
+      child.alive = true;
+      hoisted.adapterRef.current.emit('spawned', 4242);
+      await new Promise<void>((resolve) => { endTurn = resolve; });
+      return { content: 'turn that should never have run', usage: { totalTokens: 1 } };
+    });
+    const finished = emitIteration({ config: { contextStrategy } });
+    await tick(); await tick();
+    cancelLoop();
+    await tick();
+    releaseSpawn();
+    await tick(); await tick();
+    expect(child.alive).toBe(false); // killed while the turn is still running
+    endTurn();
+    await finished;
+  });
+
   it('stops a child that spawns while the cancel teardown is still in flight', async () => {
     registerDefaultLoopInvoker({} as never);
     let openGate!: () => void;

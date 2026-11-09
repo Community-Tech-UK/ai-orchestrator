@@ -1,3 +1,7 @@
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('TrackedAdapterTerminator');
+
 /**
  * Teardown for adapters a loop owns. terminate() before the child has spawned is a no-op, so a
  * teardown must never be remembered as "done": a later call has to run again.
@@ -31,4 +35,25 @@ function waitUpTo(promise: Promise<void>, ms: number): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<void>((resolve) => { timer = setTimeout(resolve, ms); });
   return Promise.race([promise.catch(() => undefined), timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Stops a loop-owned child the moment it exists when its loop has already ended. Real adapters spawn inside
+ * sendMessage and run the whole turn in that same call, so waiting for sendMessage to return leaves the child
+ * running (and editing the workspace) until the turn ends. BaseCliAdapter.spawnProcess emits `spawned` for every
+ * real child; the Codex app-server adapter emits it once its server is up. Returns the unsubscribe function.
+ */
+export function stopAdapterAtSpawn(
+  adapter: unknown,
+  mustStop: () => boolean,
+  stop: () => Promise<void>,
+): () => void {
+  const emitter = adapter as { on?: (event: string, listener: () => void) => void; off?: (event: string, listener: () => void) => void };
+  if (typeof emitter.on !== 'function') return () => undefined;
+  // The event fires inside spawnProcess, before the adapter stores the child; stop on the next microtask.
+  const onSpawned = (): void => {
+    if (mustStop()) queueMicrotask(() => { stop().catch((error: unknown) => logger.warn('Stopping a child spawned after its loop ended failed', { error: String(error) })); });
+  };
+  emitter.on('spawned', onSpawned);
+  return () => emitter.off?.('spawned', onSpawned);
 }

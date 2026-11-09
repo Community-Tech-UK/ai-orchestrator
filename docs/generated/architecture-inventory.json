@@ -6439,7 +6439,7 @@
     },
     {
       "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 2294
+      "lines": 2320
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",

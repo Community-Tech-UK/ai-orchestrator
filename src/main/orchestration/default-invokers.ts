@@ -1,5 +1,5 @@
 import { assertLoopExecutionAuthority, hasPinnedLoopExecution, loopExecutionSpawnOptions, loopAdapterHonorsAuthority, rememberLoopExecutionSettings } from './loop-execution-authority';
-import { createTrackedAdapterTerminator } from './tracked-adapter-terminator';
+import { createTrackedAdapterTerminator, stopAdapterAtSpawn } from './tracked-adapter-terminator';
 import { createLoopEndTracker } from './loop-end-tracker';
 import type { LoopConfig } from '../../shared/types/loop.types';
 /** Wire orchestration invocation events to the repository's CLI adapters. */
@@ -326,6 +326,8 @@ async function invokeCliTextResponse(params: {
     const cleanup = params.cleanupAdapter ?? terminateCliAdapter;
     const finishConsult = isLoop ? undefined : trackConsultAdapter(adapter, () => ownsAdapter ? cleanup(adapter, false) : Promise.resolve());
     const untrackAdapter = params.onAdapterReady?.(adapter, model, cliType) ?? (() => { /* noop */ });
+    const stopWatchingSpawn = stopAdapterAtSpawn(adapter, // loop-owned only, never a chat-borrowed adapter
+      () => (ownsAdapter ? params.loopEnded?.() : params.reapReusedAdapter?.(adapter)) === true, () => cleanup(adapter, false));
     const detachActivity = params.activity
       ? attachInvocationActivity(adapter, params.activity, {
           autoAnswerInputRequired: params.autoAnswerInputRequired && (!params.executionConfig || spawnOptions.yoloMode === true),
@@ -400,6 +402,7 @@ async function invokeCliTextResponse(params: {
       }
       return await sendRecordedOrchestrationCall(adapter, record, () => adapter.sendMessage(message));
     } finally {
+      stopWatchingSpawn();
       toolsDisable?.restore();
       detachActivity();
       // Caller owns the lifecycle when reusing an adapter (same-session
@@ -939,7 +942,6 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   // unknown-observation diagnostic stays bounded instead of firing per iteration.
   const loopOccupancyUnavailableNotified = new Set<string>();
   const loopBorrowedChat = new Set<string>(); // loops that ran inside the person's chat session (T13.1)
-
   const terminateTrackedAdapter = createTrackedAdapterTerminator(terminateCliAdapter);
   const trackAdapter = (
     adaptersByLoop: Map<string, Set<unknown>>,
@@ -1214,11 +1216,11 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
       idempotencyKey: string;
     }
     const p = payload as Payload;
-    const loopEnded = loopEnds.watch(p.loopRunId);
     if (!p?.callback || typeof p.callback !== 'function') {
       logger.warn('loop:invoke-iteration payload missing callback');
       return;
     }
+    const loopEnded = loopEnds.watch(p.loopRunId);
     try { assertLoopExecutionAuthority({ ...p.config, provider: p.provider }); }
     catch (error) { p.callback({ error: (error as Error).message }); return; }
     const workspaceDir = loopExecutionCwd(p);
@@ -1317,7 +1319,6 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     let reusedAdapter = borrow.reusedAdapter;
     // Everything from here to the invocation's `finally` is covered by the loan.
     try {
-
     // LF-4 RPI: a PLAN→IMPLEMENT context reset recycles the persistent adapter
     // first, so the IMPLEMENT iteration starts from a fresh session anchored on
     // the finalized plan (durable disk state) rather than the planning chatter.
@@ -1390,7 +1391,6 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         }
       }
     }
-
     // WS5: capture the before-snapshot OUTSIDE the try so the error path can
     // still observe the workspace delta (when isolation is active this is the
     // worktree, not the repo root). Observer failure ⇒ `unknown` evidence.
