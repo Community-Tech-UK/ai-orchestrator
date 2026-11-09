@@ -59,18 +59,35 @@ export function stopAdapterAtSpawn(
 }
 
 /**
- * A child stopped because its loop ended makes sendMessage reject, which would count against the provider's shared
- * circuit breaker. Pass `signal` to `breaker.execute` (an aborted call records neither success nor failure) and
- * route the call's rejection through `translate`.
+ * Loop-stop handling for one invocation. A loop-owned child (one the loop created, or a persistent one its loop
+ * let go) is killed the moment it spawns once its loop has ended, never a chat-borrowed adapter. The stopped
+ * child makes sendMessage reject, which must not count against the provider's shared circuit breaker: pass
+ * `signal` to `breaker.execute` (an aborted call records neither success nor failure) and route the call's
+ * rejection through `watch(...).translate`.
  */
-export function createLoopStopSignal(): { signal: AbortSignal; translate: (error: unknown, stopped: boolean) => unknown } {
+export function createLoopStopGuard(loop: {
+  loopEnded?: () => boolean;
+  reapReusedAdapter?: (adapter: unknown) => boolean;
+}): {
+  signal: AbortSignal;
+  watch: (adapter: unknown, ownsAdapter: boolean, stop: () => Promise<void>) => {
+    translate: (error: unknown) => unknown;
+    unwatch: () => void;
+  };
+} {
   const controller = new AbortController();
   return {
     signal: controller.signal,
-    translate: (error, stopped) => {
-      if (!stopped) return error;
-      controller.abort();
-      return new Error('instance-interrupted');
+    watch: (adapter, ownsAdapter, stop) => {
+      const mustStop = (): boolean => (ownsAdapter ? loop.loopEnded?.() : loop.reapReusedAdapter?.(adapter)) === true;
+      return {
+        unwatch: stopAdapterAtSpawn(adapter, mustStop, stop),
+        translate: (error) => {
+          if (!mustStop()) return error;
+          controller.abort();
+          return new Error('instance-interrupted');
+        },
+      };
     },
   };
 }

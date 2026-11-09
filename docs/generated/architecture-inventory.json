@@ -6563,7 +6563,7 @@
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",
-      "lines": 1724
+      "lines": 1730
     },
     {
       "path": "src/main/local-ai-guard/local-ai-health-repository.spec.ts",

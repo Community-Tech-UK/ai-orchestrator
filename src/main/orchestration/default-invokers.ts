@@ -1,8 +1,9 @@
 import { assertLoopExecutionAuthority, hasPinnedLoopExecution, loopExecutionSpawnOptions, loopAdapterHonorsAuthority, rememberLoopExecutionSettings } from './loop-execution-authority';
-import { createLoopStopSignal, createTrackedAdapterTerminator, shouldReapPersistent, stopAdapterAtSpawn } from './tracked-adapter-terminator';
+import { createLoopStopGuard, createTrackedAdapterTerminator, shouldReapPersistent } from './tracked-adapter-terminator';
 import { createLoopEndTracker } from './loop-end-tracker';
 import type { LoopConfig } from '../../shared/types/loop.types';
 /** Wire orchestration invocation events to the repository's CLI adapters. */
+
 import type { InstanceManager } from '../instance/instance-manager';
 import { endAdapterLoan } from '../instance/lifecycle/adapter-loan-registry';
 import { decideAdapterBorrow } from './loop-adapter-borrow';
@@ -312,7 +313,7 @@ async function invokeCliTextResponse(params: {
       );
   const prompt = buildUserPrompt(params.prompt, params.context);
   if (params.loopEnded?.()) throw new Error('instance-interrupted'); // not a provider failure: stays outside the breaker
-  const stop = createLoopStopSignal();
+  const loopStop = createLoopStopGuard(params);
   const response = await breaker.execute(async () => {
     if (!isLoop) await waitForConsult();
     const decision = getWorkAdmission().check('consult', { remote: isLoop });
@@ -326,8 +327,7 @@ async function invokeCliTextResponse(params: {
     const cleanup = params.cleanupAdapter ?? terminateCliAdapter;
     const finishConsult = isLoop ? undefined : trackConsultAdapter(adapter, () => ownsAdapter ? cleanup(adapter, false) : Promise.resolve());
     const untrackAdapter = params.onAdapterReady?.(adapter, model, cliType) ?? (() => { /* noop */ });
-    const mustStop = (): boolean => (ownsAdapter ? params.loopEnded?.() : params.reapReusedAdapter?.(adapter)) === true;
-    const stopWatchingSpawn = stopAdapterAtSpawn(adapter, mustStop, () => cleanup(adapter, false));
+    const stopGuard = loopStop.watch(adapter, ownsAdapter, () => cleanup(adapter, false));
     const detachActivity = params.activity
       ? attachInvocationActivity(adapter, params.activity, {
           autoAnswerInputRequired: params.autoAnswerInputRequired && (!params.executionConfig || spawnOptions.yoloMode === true),
@@ -401,8 +401,10 @@ async function invokeCliTextResponse(params: {
         }
       }
       return await sendRecordedOrchestrationCall(adapter, record, () => adapter.sendMessage(message));
-    } catch (error) { throw stop.translate(error, mustStop()); } finally {
-      stopWatchingSpawn();
+    } catch (error) {
+      throw stopGuard.translate(error);
+    } finally {
+      stopGuard.unwatch();
       toolsDisable?.restore();
       detachActivity();
       // Caller owns the lifecycle when reusing an adapter (same-session
@@ -419,7 +421,7 @@ async function invokeCliTextResponse(params: {
       untrackAdapter();
       if (!ownsAdapter) await finishConsult?.();
     }
-  }, stop.signal);
+  }, loopStop.signal);
 
   await waitForCompletionUsage(response);
   const reportedCost = typeof response.usage?.cost === 'number' && Number.isFinite(response.usage.cost)
@@ -942,7 +944,9 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   // unknown-observation diagnostic stays bounded instead of firing per iteration.
   const loopOccupancyUnavailableNotified = new Set<string>();
   const loopBorrowedChat = new Set<string>(); // loops that ran inside the person's chat session (T13.1)
+
   const terminateTrackedAdapter = createTrackedAdapterTerminator(terminateCliAdapter);
+
   const trackAdapter = (
     adaptersByLoop: Map<string, Set<unknown>>,
     loopRunId: string,
@@ -1319,6 +1323,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
     let reusedAdapter = borrow.reusedAdapter;
     // Everything from here to the invocation's `finally` is covered by the loan.
     try {
+
     // LF-4 RPI: a PLAN→IMPLEMENT context reset recycles the persistent adapter
     // first, so the IMPLEMENT iteration starts from a fresh session anchored on
     // the finalized plan (durable disk state) rather than the planning chatter.
@@ -1391,6 +1396,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
         }
       }
     }
+
     // WS5: capture the before-snapshot OUTSIDE the try so the error path can
     // still observe the workspace delta (when isolation is active this is the
     // worktree, not the repo root). Observer failure ⇒ `unknown` evidence.
