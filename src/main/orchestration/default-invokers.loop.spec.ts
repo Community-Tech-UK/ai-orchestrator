@@ -1312,6 +1312,25 @@ describe('Loop Mode invoker plumbing', () => {
     expect(child.alive).toBe(false);
   });
 
+  it('creates no adapter and counts no breaker failure when a fresh-child loop is cancelled while its provider is being resolved', async () => {
+    registerDefaultLoopInvoker({} as never);
+    const execute = vi.fn(async <T>(fn: () => Promise<T>) => fn());
+    hoisted.getBreaker.mockImplementation(() => ({ execute }));
+    for (let seq = 0; seq < 3; seq += 1) {
+      let release!: () => void;
+      hoisted.resolveCliType.mockImplementationOnce(() => new Promise((resolve) => { release = () => resolve('claude'); }));
+      const finished = emitIteration({ seq, config: { contextStrategy: 'fresh-child' } });
+      await tick(); await tick();
+      cancelLoop();
+      await tick();
+      release();
+      const result = await finished;
+      expect(result).toMatchObject({ error: expect.stringContaining('instance-interrupted') });
+    }
+    expect(hoisted.createAdapter).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled(); // three early cancels must not trip the shared breaker (threshold 3)
+  });
+
   it('stops a child that spawns while the cancel teardown is still in flight', async () => {
     registerDefaultLoopInvoker({} as never);
     let openGate!: () => void;

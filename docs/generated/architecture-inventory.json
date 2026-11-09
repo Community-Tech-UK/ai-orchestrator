@@ -6438,12 +6438,12 @@
       "lines": 2339
     },
     {
-      "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
-      "lines": 2285
+      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
+      "lines": 2294
     },
     {
-      "path": "src/main/orchestration/default-invokers.loop.spec.ts",
-      "lines": 2275
+      "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
+      "lines": 2285
     },
     {
       "path": "docs/plans/2026-10-10-oct-housekeeping_plan_completed.md",

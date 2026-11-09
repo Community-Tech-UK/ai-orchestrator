@@ -4,6 +4,8 @@
  */
 export function createTrackedAdapterTerminator(
   terminate: (adapter: unknown, graceful: boolean) => Promise<void>,
+  /** Longest an `afterInFlight` pass waits for a teardown already in flight before running anyway. */
+  inFlightWaitMs = 5000,
 ): (adapter: unknown, graceful: boolean, afterInFlight?: boolean) => Promise<void> {
   const inFlight = new WeakMap<object, { graceful: boolean; promise: Promise<void> }>();
   // Concurrent callers share one teardown, except that a forced call is never absorbed by a graceful one.
@@ -14,7 +16,7 @@ export function createTrackedAdapterTerminator(
     const existing = inFlight.get(adapter);
     if (existing && !afterInFlight && (graceful || !existing.graceful)) return existing.promise;
     const run = existing && afterInFlight
-      ? existing.promise.catch(() => undefined).then(() => terminate(adapter, graceful))
+      ? waitUpTo(existing.promise, inFlightWaitMs).then(() => terminate(adapter, graceful))
       : terminate(adapter, graceful);
     const entry = {
       graceful,
@@ -23,4 +25,10 @@ export function createTrackedAdapterTerminator(
     inFlight.set(adapter, entry);
     return entry.promise;
   };
+}
+
+function waitUpTo(promise: Promise<void>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => { timer = setTimeout(resolve, ms); });
+  return Promise.race([promise.catch(() => undefined), timeout]).finally(() => clearTimeout(timer));
 }

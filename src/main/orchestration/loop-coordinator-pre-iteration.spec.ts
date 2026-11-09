@@ -76,6 +76,26 @@ describe('LoopCoordinator pre-iteration persistence marker', () => {
     expect(anchorSeqs[10]).toBe(10);
   }, 20_000);
 
+  // Passes on main: loopRoundAdmitted() rejects a non-running loop right before invokeChild. Kept as a guard.
+  it('does not start a child when the loop is cancelled while a pre-iteration hook is running', async () => {
+    const invoked = vi.fn();
+    coordinator.on('loop:invoke-iteration', invoked);
+    let hookRan!: () => void;
+    const hookStarted = new Promise<void>((resolve) => { hookRan = resolve; });
+    coordinator.registerPreIterationHook(async ({ state }) => {
+      hookRan();
+      void coordinator.cancelLoop(state.id);
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    });
+    const config = defaultLoopConfig(workspace, 'cancel before the child starts');
+    config.completion.verifyCommand = '';
+    const state = await coordinator.startLoop('chat-cancel-pre-hook', config);
+    await hookStarted;
+    await new Promise<void>((resolve) => setTimeout(resolve, 300));
+    expect(invoked).not.toHaveBeenCalled();
+    expect(coordinator.getLoop(state.id)?.status).toBe('cancelled');
+  }, 20_000);
+
   it('sets an in-flight idempotency marker before invoking the child and clears it after sealing the iteration', async () => {
     const preIterationStates: LoopState[] = [];
     coordinator.registerPreIterationHook(({ state }) => {

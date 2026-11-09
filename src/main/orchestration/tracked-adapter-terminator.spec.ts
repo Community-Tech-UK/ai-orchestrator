@@ -47,4 +47,16 @@ describe('createTrackedAdapterTerminator', () => {
     await Promise.all([first, own]);
     expect(terminate).toHaveBeenCalledTimes(2);
   });
+
+  it('stops waiting for a teardown that never settles and runs its own pass', async () => {
+    const terminate = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>(() => undefined))
+      .mockResolvedValue(undefined);
+    const stop = createTrackedAdapterTerminator(terminate, 20);
+    const adapter = {};
+    void stop(adapter, true);
+    await stop(adapter, false, true);
+    expect(terminate).toHaveBeenCalledTimes(2);
+    expect(terminate).toHaveBeenLastCalledWith(adapter, false);
+  });
 });

@@ -193,9 +193,8 @@ async function invokeCliTextResponse(params: {
    *  so the conversation persists across iterations. The caller owns the
    *  adapter lifecycle when this is set. */
   reusedAdapter?: unknown;
-  /** True once the owning loop was cleaned up; the invocation stops before touching an adapter. */
+  /** loopEnded: loop cleaned up, stop before touching an adapter. reapReusedAdapter: tear down a reused adapter its owner let go. */
   loopEnded?: () => boolean;
-  /** True when a reused adapter must be torn down after this turn (its owner let it go). */
   reapReusedAdapter?: (adapter: unknown) => boolean;
   activity?: (activity: LoopInvocationActivity) => void;
   onAdapterReady?: (adapter: CliAdapter, model: string | undefined, cliType: string) => (() => void) | void;
@@ -313,10 +312,10 @@ async function invokeCliTextResponse(params: {
         params.copilotOrigin ?? copilotOriginForRoutingIntent(params.routingIntent),
       );
   const prompt = buildUserPrompt(params.prompt, params.context);
+  if (params.loopEnded?.()) throw new Error('instance-interrupted'); // not a provider failure: stays outside the breaker
   const response = await breaker.execute(async () => {
     if (!isLoop) await waitForConsult();
     const decision = getWorkAdmission().check('consult', { remote: isLoop });
-    if (params.loopEnded?.()) throw new Error('instance-interrupted');
     if (!decision.allowed) throw new Error(isLoop ? 'instance-interrupted' : decision.detail);
     // Either reuse the caller's adapter (same-session loop) or create a
     // fresh one (one-shot — chat orchestration, debate, fresh-child loop).
@@ -999,7 +998,8 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
   // instantly (the listener already drained the maps) and `cancelLoop`'s
   // `awaitTerminalCleanup` would return before the actual CLI children
   // are torn down — the exact behaviour FU-8 exists to prevent.
-  const inFlightCleanups = new Map<string, Promise<void>>(); const loopEnds = createLoopEndTracker();
+  const inFlightCleanups = new Map<string, Promise<void>>();
+  const loopEnds = createLoopEndTracker();
   const cleanupLoopAdapters = (loopRunId: string): Promise<void> => {
     loopEnds.end(loopRunId);
     const existing = inFlightCleanups.get(loopRunId);
