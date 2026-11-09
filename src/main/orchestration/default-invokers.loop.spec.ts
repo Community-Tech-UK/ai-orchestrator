@@ -22,6 +22,7 @@ import { getDefaultModelForCli } from '../../shared/types/provider.types';
 import { getModelRouter } from '../routing/model-router';
 import { getLoopAccountFailover, _resetLoopAccountFailoverForTesting } from '../providers/account-pool/loop-account-failover';
 import type { LoopChildResult } from './loop-coordinator';
+import { shouldReapPersistent } from './tracked-adapter-terminator';
 import { LoopProviderLimitHandler } from './loop-provider-limit-handler';
 import { ProviderLimitLedger, createProviderLimitLedgerSchema } from '../core/system/provider-limit-ledger';
 import Database from 'better-sqlite3';
@@ -1355,6 +1356,42 @@ describe('Loop Mode invoker plumbing', () => {
     expect(child.alive).toBe(false); // killed while the turn is still running
     endTurn();
     await finished;
+  });
+
+  it('does not charge the breaker when a child stopped at spawn makes sendMessage reject', async () => {
+    registerDefaultLoopInvoker({} as never);
+    const failures: unknown[] = [];
+    const real = { calls: 0 };
+    hoisted.getBreaker.mockImplementation(() => ({
+      // Mirrors CircuitBreaker.execute: an aborted signal records neither success nor failure.
+      execute: async <T>(fn: () => Promise<T>, signal?: AbortSignal) => {
+        real.calls += 1;
+        try { return await fn(); } catch (error) { if (!signal?.aborted) failures.push(error); throw error; }
+      },
+    }));
+    let releaseSpawn!: () => void;
+    hoisted.terminate.mockImplementation(async () => undefined);
+    hoisted.sendMessage.mockImplementation(async () => {
+      await new Promise<void>((resolve) => { releaseSpawn = resolve; });
+      hoisted.adapterRef.current.emit('spawned', 4242);
+      await tick(); await tick();
+      throw new Error('ACP adapter terminated before the request completed.'); // what the stopped child's turn does
+    });
+    const finished = emitIteration({ config: { contextStrategy: 'fresh-child' } });
+    await tick(); await tick();
+    cancelLoop();
+    await tick();
+    releaseSpawn();
+    await finished;
+    expect(real.calls).toBe(1);
+    expect(failures).toEqual([]);
+  });
+
+  it('keeps a same-session adapter alive at spawn when its registry entry is simply missing', () => {
+    expect(shouldReapPersistent(undefined, {})).toBe(false);
+    const adapter = {};
+    expect(shouldReapPersistent(adapter, adapter)).toBe(false);
+    expect(shouldReapPersistent({}, adapter)).toBe(true);
   });
 
   it('stops a child that spawns while the cancel teardown is still in flight', async () => {

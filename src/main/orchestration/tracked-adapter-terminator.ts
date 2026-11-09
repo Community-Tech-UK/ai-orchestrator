@@ -57,3 +57,25 @@ export function stopAdapterAtSpawn(
   emitter.on('spawned', onSpawned);
   return () => emitter.off?.('spawned', onSpawned);
 }
+
+/**
+ * A child stopped because its loop ended makes sendMessage reject, which would count against the provider's shared
+ * circuit breaker. Pass `signal` to `breaker.execute` (an aborted call records neither success nor failure) and
+ * route the call's rejection through `translate`.
+ */
+export function createLoopStopSignal(): { signal: AbortSignal; translate: (error: unknown, stopped: boolean) => unknown } {
+  const controller = new AbortController();
+  return {
+    signal: controller.signal,
+    translate: (error, stopped) => {
+      if (!stopped) return error;
+      controller.abort();
+      return new Error('instance-interrupted');
+    },
+  };
+}
+
+/** A reused adapter is let go once a recycle replaced it; a missing entry alone (never registered) is not. */
+export function shouldReapPersistent(held: unknown, adapter: unknown): boolean {
+  return held !== undefined && held !== adapter;
+}

@@ -1,9 +1,8 @@
 import { assertLoopExecutionAuthority, hasPinnedLoopExecution, loopExecutionSpawnOptions, loopAdapterHonorsAuthority, rememberLoopExecutionSettings } from './loop-execution-authority';
-import { createTrackedAdapterTerminator, stopAdapterAtSpawn } from './tracked-adapter-terminator';
+import { createLoopStopSignal, createTrackedAdapterTerminator, shouldReapPersistent, stopAdapterAtSpawn } from './tracked-adapter-terminator';
 import { createLoopEndTracker } from './loop-end-tracker';
 import type { LoopConfig } from '../../shared/types/loop.types';
 /** Wire orchestration invocation events to the repository's CLI adapters. */
-
 import type { InstanceManager } from '../instance/instance-manager';
 import { endAdapterLoan } from '../instance/lifecycle/adapter-loan-registry';
 import { decideAdapterBorrow } from './loop-adapter-borrow';
@@ -313,6 +312,7 @@ async function invokeCliTextResponse(params: {
       );
   const prompt = buildUserPrompt(params.prompt, params.context);
   if (params.loopEnded?.()) throw new Error('instance-interrupted'); // not a provider failure: stays outside the breaker
+  const stop = createLoopStopSignal();
   const response = await breaker.execute(async () => {
     if (!isLoop) await waitForConsult();
     const decision = getWorkAdmission().check('consult', { remote: isLoop });
@@ -326,8 +326,8 @@ async function invokeCliTextResponse(params: {
     const cleanup = params.cleanupAdapter ?? terminateCliAdapter;
     const finishConsult = isLoop ? undefined : trackConsultAdapter(adapter, () => ownsAdapter ? cleanup(adapter, false) : Promise.resolve());
     const untrackAdapter = params.onAdapterReady?.(adapter, model, cliType) ?? (() => { /* noop */ });
-    const stopWatchingSpawn = stopAdapterAtSpawn(adapter, // loop-owned only, never a chat-borrowed adapter
-      () => (ownsAdapter ? params.loopEnded?.() : params.reapReusedAdapter?.(adapter)) === true, () => cleanup(adapter, false));
+    const mustStop = (): boolean => (ownsAdapter ? params.loopEnded?.() : params.reapReusedAdapter?.(adapter)) === true;
+    const stopWatchingSpawn = stopAdapterAtSpawn(adapter, mustStop, () => cleanup(adapter, false));
     const detachActivity = params.activity
       ? attachInvocationActivity(adapter, params.activity, {
           autoAnswerInputRequired: params.autoAnswerInputRequired && (!params.executionConfig || spawnOptions.yoloMode === true),
@@ -401,7 +401,7 @@ async function invokeCliTextResponse(params: {
         }
       }
       return await sendRecordedOrchestrationCall(adapter, record, () => adapter.sendMessage(message));
-    } finally {
+    } catch (error) { throw stop.translate(error, mustStop()); } finally {
       stopWatchingSpawn();
       toolsDisable?.restore();
       detachActivity();
@@ -419,7 +419,7 @@ async function invokeCliTextResponse(params: {
       untrackAdapter();
       if (!ownsAdapter) await finishConsult?.();
     }
-  });
+  }, stop.signal);
 
   await waitForCompletionUsage(response);
   const reportedCost = typeof response.usage?.cost === 'number' && Number.isFinite(response.usage.cost)
@@ -1471,7 +1471,7 @@ export function registerDefaultLoopInvoker(instanceManager: InstanceManager): vo
           ? undefined
           : (adapter, graceful) => terminateTrackedAdapter(adapter, graceful, true),
         // A same-session adapter outlives its turn; if its loop ended or recycled it mid-turn, stop it now.
-        reapReusedAdapter: borrowedFromInstance ? undefined : (adapter) => persistentLoopAdapters.get(p.loopRunId) !== adapter,
+        reapReusedAdapter: borrowedFromInstance ? undefined : (adapter) => loopEnded() || shouldReapPersistent(persistentLoopAdapters.get(p.loopRunId), adapter),
       });
       if (sameSession && reusedAdapter) {
         enableAdapterResume(reusedAdapter);
