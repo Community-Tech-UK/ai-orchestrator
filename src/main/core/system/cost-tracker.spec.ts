@@ -1,15 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CostEntryEventSchema } from '../../../../packages/contracts/src/schemas/cost-events.schemas';
 import { CostTracker, type CostEntry } from './cost-tracker';
-import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../../persistence/rlm/rlm-schema';
+import { useSqliteTemplate } from '../../db/sqlite-template.test-helpers';
 
-function createDb(): SqliteDriver {
-  const db = defaultDriverFactory(':memory:');
+const rlmTemplate = useSqliteTemplate((db) => {
   createTables(db);
   createMigrationsTable(db);
   runMigrations(db);
+});
+
+function createDb(): SqliteDriver {
+  const db = rlmTemplate.open();
   return db;
 }
 

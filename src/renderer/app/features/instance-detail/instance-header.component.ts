@@ -427,16 +427,16 @@ export class InstanceHeaderComponent implements OnInit {
   readonly desiredRuntimeLabel = computed<string | null>(() => {
     const pending = this.instance().desiredRuntime;
     if (!pending) return null;
-    // A queued change that is ONLY a yolo flip must not render a misleading
-    // "Provider · default model" chip — the pending-yolo indicator covers it.
+    // A queued change that is ONLY a yolo flip or an account move must not
+    // render a misleading "Provider · default model" chip — the pending-yolo
+    // indicator and the account chip cover those.
     const inst = this.instance();
-    const isYoloOnly =
-      pending.yoloMode !== undefined
-      && pending.model === undefined
+    const keepsModel =
+      pending.model === undefined
       && pending.modelRuntimeTarget === undefined
       && pending.reasoningEffort === undefined
       && (!pending.provider || pending.provider === inst.provider);
-    if (isYoloOnly) return null;
+    if (keepsModel && (pending.yoloMode !== undefined || pending.accountProfileId !== undefined)) return null;
     const providerLabel = pending.provider ? providerName(pending.provider, { model: pending.model }) : null;
     if (pending.modelRuntimeTarget?.kind === 'local-model') {
       return `Local · ${pending.modelRuntimeTarget.modelId}`;

@@ -26,6 +26,7 @@ import { getLogger } from '../../logging/logger';
 import { getGitWriteQueue } from './git-write-queue';
 import { hermeticGitEnv } from './git-env';
 import { readGitStatusPaths } from './git-status-stream';
+import { ignoredFilesBlockReason, NO_OVERWRITE_IGNORE } from './ignored-file-guard';
 import type { DirtyOverlapPreparation, DirtyOverlapResolver } from './dirty-overlap.types';
 export type { DirtyOverlapResolver } from './dirty-overlap.types';
 import type { MergeStrategy } from '../../../shared/types/worktree.types';
@@ -338,8 +339,8 @@ export function integrationOwnershipRef(integrationBranch: string): string {
  *
  * A base checked out at the repository root is advanced with `merge --ff-only`
  * so both its ref and working tree move together. An unchecked base is advanced
- * with a compare-and-swap `update-ref`. A base owned by any other worktree, a
- * dirty root, or a non-fast-forward topology is reported as blocked.
+ * with a compare-and-swap `update-ref`. A base owned by any other worktree, a dirty root, a root file Git
+ * ignores in the way (`git status` does not list those), or a non-fast-forward topology is reported as blocked.
  */
 export async function promoteIntegrationBranch(
   repoRoot: string,
@@ -425,6 +426,8 @@ export async function promoteIntegrationBranch(
           reason: `${baseBranch} is not the active root branch`,
         };
       }
+      const ignoredFilesBlock = await ignoredFilesBlockReason(repoRoot, integrationTip);
+      if (ignoredFilesBlock) return { status: 'blocked', reason: ignoredFilesBlock };
       let hasRootChanges = false;
       let resolution: Extract<DirtyOverlapPreparation, { ok: true }> | undefined;
       const nestedWorktrees = nestedWorktreePaths(checkouts, repoRoot);
@@ -468,7 +471,7 @@ export async function promoteIntegrationBranch(
 
       let mergedPaths: string[] | undefined;
       try {
-        await git(['merge', '--ff-only', '--no-verify', integrationBranch], repoRoot);
+        await git(['merge', '--ff-only', '--no-verify', NO_OVERWRITE_IGNORE, integrationBranch], repoRoot);
       } catch (err) {
         // The ff failed, so HEAD never moved: restore what the resolver set aside.
         let message = err instanceof Error ? err.message : String(err);

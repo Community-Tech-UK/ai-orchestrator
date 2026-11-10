@@ -400,10 +400,6 @@ describe('VerificationResultsComponent', () => {
   // ============================================
 
   describe('Component Creation', () => {
-    it('should create the component', () => {
-      expect(component).toBeTruthy();
-    });
-
     it('should initialize with summary tab selected', () => {
       fixture.detectChanges();
       expect(component.selectedTab()).toBe('summary');
@@ -452,29 +448,23 @@ describe('VerificationResultsComponent', () => {
       fixture.detectChanges();
     });
 
-    it('should have all expected tabs', () => {
-      const tabs = fixture.nativeElement.querySelectorAll('.tab-btn');
-      expect(tabs.length).toBeGreaterThanOrEqual(3); // summary, comparison, raw (debate only if applicable)
+    function tabButtons(): HTMLButtonElement[] {
+      return Array.from(fixture.nativeElement.querySelectorAll('.tab-btn'));
+    }
+
+    it('shows every tab, including Debate Rounds when debate rounds exist', () => {
+      expect(tabButtons().map((tab) => tab.textContent?.trim()))
+        .toEqual(['Summary', 'Comparison', 'Debate Rounds', 'Raw Responses']);
     });
 
-    it('should switch to comparison tab', () => {
-      component.selectTab('comparison');
-      expect(component.selectedTab()).toBe('comparison');
-    });
+    it('opens the clicked tab and marks it active', () => {
+      tabButtons().find((tab) => tab.textContent?.trim() === 'Comparison')!.click();
+      fixture.detectChanges();
 
-    it('should switch to debate tab when debate rounds exist', () => {
-      component.selectTab('debate');
-      expect(component.selectedTab()).toBe('debate');
-    });
-
-    it('should switch to raw tab', () => {
-      component.selectTab('raw');
-      expect(component.selectedTab()).toBe('raw');
-    });
-
-    it('should show debate tab only when debate rounds exist', () => {
-      const tabNav = fixture.nativeElement.querySelector('.tab-navigation');
-      expect(tabNav.textContent).toContain('Debate');
+      expect(fixture.nativeElement.querySelectorAll('.comparison-card').length).toBe(3);
+      expect(fixture.nativeElement.querySelector('.synthesis-content')).toBeNull();
+      expect(tabButtons().filter((tab) => tab.classList.contains('active')).map((tab) => tab.textContent?.trim()))
+        .toEqual(['Comparison']);
     });
 
     it('should hide debate tab when no debate rounds', () => {
@@ -576,13 +566,6 @@ describe('VerificationResultsComponent', () => {
       const personalities =
         fixture.nativeElement.querySelectorAll('.agent-personality');
       expect(personalities.length).toBe(3);
-    });
-
-    it('should display comparison cards', () => {
-      const comparisonCards = fixture.nativeElement.querySelectorAll(
-        '.comparison-card'
-      );
-      expect(comparisonCards.length).toBe(3); // 3 agents in mock data
     });
   });
 
@@ -703,11 +686,9 @@ describe('VerificationResultsComponent', () => {
 
   describe('Helper Methods', () => {
     it('should format time correctly', () => {
-      const formatted = component.formatTime(
-        mockVerificationResult.completedAt
-      );
-      expect(formatted).toBeTruthy();
-      expect(typeof formatted).toBe('string');
+      const completedAt = mockVerificationResult.completedAt;
+      expect(component.formatTime(completedAt)).toBe(new Date(completedAt).toLocaleString());
+      expect(component.formatTime(undefined)).toBe('Unknown');
     });
 
     it('should format duration correctly', () => {
@@ -727,9 +708,10 @@ describe('VerificationResultsComponent', () => {
     });
 
     it('should get agreement icon based on strength', () => {
-      expect(component.getAgreementIcon(0.9)).toBeTruthy();
-      expect(component.getAgreementIcon(0.6)).toBeTruthy();
-      expect(component.getAgreementIcon(0.3)).toBeTruthy();
+      expect(component.getAgreementIcon(0.9)).toBe('✓');
+      expect(component.getAgreementIcon(0.6)).toBe('⚠');
+      expect(component.getAgreementIcon(0.3)).toBe('✗');
+      expect(component.getAgreementIcon(undefined)).toBe('❓');
     });
 
     it('should format personality correctly', () => {

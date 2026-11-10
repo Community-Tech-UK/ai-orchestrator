@@ -4,7 +4,6 @@ import { AutomationRunSchema, AutomationUpdatePayloadSchema } from '@contracts/s
 import type { input } from 'zod';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import type { Automation } from '../../../shared/types/automation.types';
-import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../../persistence/rlm/rlm-schema';
 import { AutomationStore } from '../../automations/automation-store';
@@ -32,8 +31,15 @@ vi.mock('../../security/task-preflight-service', () => ({ getTaskPreflightServic
 vi.mock('../../automations/automation-templates', () => ({ listAutomationTemplates: vi.fn() }));
 
 import { registerAutomationHandlers } from './automation-handlers';
+import { useSqliteTemplate } from '../../db/sqlite-template.test-helpers';
 
 describe('automation form scheduling', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    db.pragma('foreign_keys = ON');
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   const now = 1_700_000_000_000;
   let db: SqliteDriver;
   let store: AutomationStore;
@@ -42,8 +48,7 @@ describe('automation form scheduling', () => {
 
   beforeEach(async () => {
     vi.useFakeTimers(); vi.setSystemTime(now); vi.clearAllMocks(); mocks.handlers.clear();
-    db = defaultDriverFactory(':memory:'); db.pragma('foreign_keys = ON');
-    createTables(db); createMigrationsTable(db); runMigrations(db);
+    db = rlmTemplate.open(); db.pragma('foreign_keys = ON');
     store = new AutomationStore(db, { prepare: async () => [], replacePrepared: () => undefined,
       listForAutomation: async () => [] } as unknown as AutomationAttachmentService);
     mocks.store = store;

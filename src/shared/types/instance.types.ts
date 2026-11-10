@@ -8,7 +8,7 @@ import type { ActivityState } from './activity.types';
 import type { ImageResolveFailureReason, ImageResolveKind } from '@contracts/schemas/image';
 import type { InstanceStatus } from '@contracts/types/instance-events';
 import type { CanonicalCliType } from './settings.types';
-import type { InternalInputMetadata } from './input-provenance.types';
+import type { InternalInputMetadata, PersonInputOrigin } from './input-provenance.types';
 import type {
   TerminationPolicy,
   ContextInheritanceConfig,
@@ -98,6 +98,8 @@ export interface ForkConfig {
    * Avoids the race where the queue drains before the new instance reaches 'idle'.
    */
   initialPrompt?: string;
+  /** A person typed `initialPrompt` (edit and resend). */
+  initialPromptOrigin?: PersonInputOrigin;
   attachments?: FileAttachment[];
   preserveRuntimeSettings?: boolean;
   supersedeSource?: boolean;
@@ -275,8 +277,8 @@ export interface OutputMessage {
     crossSessionMessage?: CrossSessionMessageMetadata;
     /** Set when Harness authored this input (LT-657); such messages are `type: 'system'`. */
     internalInput?: InternalInputMetadata;
-    /** Shown as a user message but not typed in this session: an agent wrote it, or it was copied from a parent. It cannot grant `@session` read scope. */
-    agentAuthored?: boolean;
+    /** A person typed or spoke this message in this session. Only such messages can grant `@session` read scope. */
+    inputOrigin?: PersonInputOrigin;
   };
   /** File attachments associated with this message. */
   attachments?: FileAttachment[];
@@ -706,8 +708,8 @@ export interface InstanceCreateConfig extends AutomationAuthorityScope {
   /** Explicit native OpenCode 2 workspace context; existing sandbox and worker-root policies still apply. */
   additionalDirectories?: string[];
   initialPrompt?: string;
-  /** An agent wrote `initialPrompt`, so it must not count as the user's own words. */
-  initialPromptAgentAuthored?: boolean;
+  /** A person typed `initialPrompt`. Trusted create-time ingress only; never restored or inferred. */
+  initialPromptOrigin?: PersonInputOrigin;
   /** Trusted create-time ingress only; never restored or inferred from transcript buffers. */
   initialUserMessageSource?: 'current-submission';
   /**

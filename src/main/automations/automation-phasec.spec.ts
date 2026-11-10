@@ -13,6 +13,7 @@ import type { InstanceManager } from '../instance/instance-manager';
 import type { AutomationAttachmentService } from './automation-attachment-service';
 import type { InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { AutomationAction } from '../../shared/types/automation.types';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const output = vi.hoisted(() => ({ dir: '' }));
 vi.mock('electron', () => ({ app: { getPath: () => output.dir } }));
@@ -22,6 +23,11 @@ vi.mock('./automation-account-rules', () => ({ automationAccountPreferences: asy
 vi.mock('../channels/channel-manager', () => ({ getChannelManager: () => ({ getAdapter: () => undefined }) }));
 
 describe('scheduled job execution contract', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   let db: ReturnType<typeof defaultDriverFactory>;
   let store: AutomationStore;
   let clock: number;
@@ -33,8 +39,7 @@ describe('scheduled job execution contract', () => {
     vi.useFakeTimers();
     clock = 10_000;
     output.dir = mkdtempSync(join(process.cwd(), '_scratch', 'automation-phasec-'));
-    db = defaultDriverFactory(':memory:');
-    createTables(db); createMigrationsTable(db); runMigrations(db);
+    db = rlmTemplate.open();
     store = new AutomationStore(db, { prepare: async () => [], replacePrepared: () => undefined,
       listForAutomation: async () => [] } as unknown as AutomationAttachmentService);
     runs = new Map();

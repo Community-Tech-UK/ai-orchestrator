@@ -7,6 +7,7 @@ import { DISCARDED_REF_PREFIX, DISCARDED_WORK_KEPT_MS, keepDiscardedWork, PlanQu
 import { RESCUE_REF_PREFIX } from './plan-queue-landing-leftover';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { planQueueBranchName } from './plan-queue-worktree';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
 let repo: string;
 const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf-8' }).trim();
@@ -30,13 +31,19 @@ function branchWithWork(): { branchName: string; tip: string } {
   return { branchName, tip };
 }
 
-beforeEach(() => {
-  repo = fs.mkdtempSync(path.join(os.tmpdir(), 'pq-discard-'));
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate((dir) => {
+  repo = dir;
   git('init', '-q', '-b', 'main');
   git('config', 'user.email', 'test@example.com');
   git('config', 'user.name', 'Test');
   write('app.ts', 'one\n');
   commit('start');
+});
+
+beforeEach(() => {
+  repo = fs.mkdtempSync(path.join(os.tmpdir(), 'pq-discard-'));
+  baseRepository.copyTo(repo);
 });
 
 afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });

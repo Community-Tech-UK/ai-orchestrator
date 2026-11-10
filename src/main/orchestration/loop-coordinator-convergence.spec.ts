@@ -14,7 +14,7 @@
  * deterministic.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -28,6 +28,9 @@ import {
 } from './loop-coordinator';
 import { bugFreeVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
+
+vi.mock('./loop-coordinator-utils', async (importOriginal) =>
+  (await import('./loop-coordinator-test-pause')).withShortIterationPause(await importOriginal()));
 
 /** Write a loop-state file into the run's per-run state dir (.aio-loop-state/<runId>/). */
 function writeRunState(payload: unknown, name: string, content: string): void {

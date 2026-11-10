@@ -2885,5 +2885,11 @@
     "owner": "src/renderer/app/features/plan-queue/components/plan-queue-item-list.component.ts",
     "text": "This plan runs one job per step. A step starts once the step before it has been merged, so it builds on that work. A step that is set aside holds the later ones until you resume it and it is merged.",
     "why": "long"
+  },
+  {
+    "id": "e8dfedc8b890959f",
+    "owner": "src/renderer/app/shared/components/provider-account-chip.component.ts",
+    "text": "The account this conversation runs on. Pick another to move it there once the session is free.",
+    "why": "long"
   }
 ]

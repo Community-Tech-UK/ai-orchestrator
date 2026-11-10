@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GitWriteQueue } from '../workspace/git/git-write-queue';
 import { landItemBranch, runPostMergeGate, syncItemWithBase } from './plan-queue-landing';
 import type { PlanQueueItem } from './plan-queue.types';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
 /** One-shot hook used to fail a document-merge write inside the real resolver. */
 const hook = vi.hoisted(() => ({ failWrite: '', beforeWrite: null as (() => Promise<void>) | null, target: '' }));
@@ -97,6 +98,16 @@ function makeItemWithWork(files: Record<string, string>, id = 'item-abc123'): Pl
   };
 }
 
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate((dir) => {
+  repo = dir;
+  git(['init', '-q', '-b', 'main']);
+  git(['config', 'user.name', 'Plan Queue Test']);
+  git(['config', 'user.email', 'plan-queue@example.invalid']);
+  git(['config', 'commit.gpgsign', 'false']);
+  commitOnMain('a.txt', 'base\n');
+});
+
 beforeEach(() => {
   GitWriteQueue._resetForTesting();
   hookBudget.timeoutMs = null;
@@ -104,11 +115,7 @@ beforeEach(() => {
   hook.target = '';
   hook.failWrite = '';
   repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-land-')));
-  git(['init', '-q', '-b', 'main']);
-  git(['config', 'user.name', 'Plan Queue Test']);
-  git(['config', 'user.email', 'plan-queue@example.invalid']);
-  git(['config', 'commit.gpgsign', 'false']);
-  commitOnMain('a.txt', 'base\n');
+  baseRepository.copyTo(repo);
 });
 
 afterEach(() => {

@@ -32,6 +32,7 @@ export function createSessionDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHA
       forkAfterMessageId?: string;
       displayName?: string;
       initialPrompt?: string;
+      initialPromptOrigin?: { kind: 'person'; typedAt: number };
       attachments?: { name: string; type: string; size: number; data?: string }[];
       preserveRuntimeSettings?: boolean;
       supersedeSource?: boolean;

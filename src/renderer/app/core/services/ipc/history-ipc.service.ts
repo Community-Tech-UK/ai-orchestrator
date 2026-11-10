@@ -140,6 +140,8 @@ export class HistoryIpcService {
       attachments?: { name: string; type: string; size: number; data?: string }[];
       preserveRuntimeSettings?: boolean;
       supersedeSource?: boolean;
+      /** Set only when a person typed `initialPrompt`. */
+      initialPromptOrigin?: { kind: 'person'; typedAt: number };
     },
   ): Promise<IpcResponse> {
     if (!this.api) return { success: false, error: { message: 'Not in Electron' } };

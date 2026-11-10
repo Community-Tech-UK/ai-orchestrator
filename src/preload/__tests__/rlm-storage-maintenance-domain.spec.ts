@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { IpcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../generated/channels';
 import { createMemoryDomain } from '../domains/memory.preload';
+import { createRlmStorageMaintenanceDomain } from '../domains/rlm-storage-maintenance.preload';
 
 describe('RLM storage maintenance preload surface', () => {
   it('uses validated request shapes and removes the progress listener', async () => {
@@ -43,5 +44,16 @@ describe('RLM storage maintenance preload surface', () => {
       IPC_CHANNELS.RLM_STORAGE_MAINTENANCE_PROGRESS,
       listener,
     );
+  });
+});
+
+describe('RLM maintenance preload', () => {
+  it('passes only set fields and optional selected backup names', async () => {
+    const invoke = vi.fn().mockResolvedValue({ success: true });
+    const api = createRlmStorageMaintenanceDomain({ invoke } as never, IPC_CHANNELS);
+    await api.rlmStorageRunMaintenance();
+    expect(invoke).toHaveBeenLastCalledWith(IPC_CHANNELS.RLM_STORAGE_RUN_MAINTENANCE, {});
+    await api.rlmStorageRunMaintenance('loop-1', ['old.db']);
+    expect(invoke).toHaveBeenLastCalledWith(IPC_CHANNELS.RLM_STORAGE_RUN_MAINTENANCE, { loopRunId: 'loop-1', deleteOldBackups: ['old.db'] });
   });
 });

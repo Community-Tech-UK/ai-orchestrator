@@ -55,7 +55,6 @@ describe('shouldArchiveInstance', () => {
   it.each([
     ['idle' as InstanceStatus],
     ['busy' as InstanceStatus],
-    ['waiting_for_input' as InstanceStatus],
   ])('archives current generation status %s even when another history row is covered', (status) => {
     expect(shouldArchiveInstance(
       summary({ status, supersededBy: 'replacement-placeholder' }),

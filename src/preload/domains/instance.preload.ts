@@ -62,6 +62,8 @@ export function createInstanceDomain(
       hardened?: boolean; signalFence?: boolean;
       /** Stable per-submission key; a retry with the same key is deduplicated. */
       idempotencyKey?: string;
+      /** Set only when a person typed `message`. */
+      origin?: { kind: 'person'; typedAt: number };
     }): Promise<IpcResponse> => {
       return ipcRenderer.invoke(
         ch.INSTANCE_CREATE_WITH_MESSAGE,

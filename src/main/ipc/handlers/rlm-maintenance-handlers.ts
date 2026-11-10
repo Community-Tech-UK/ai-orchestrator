@@ -26,7 +26,7 @@ export function registerRlmMaintenanceHandlers(dependencies: {
     IPC_CHANNELS.RLM_STORAGE_PREVIEW_MAINTENANCE,
     validatedHandler(IPC_CHANNELS.RLM_STORAGE_PREVIEW_MAINTENANCE, RlmMaintenanceRequestSchema, async (request) => ({
       success: true,
-      data: service.preview(request),
+      data: await service.preview(request),
     })),
   );
   ipcMain.handle(

@@ -200,8 +200,10 @@ export class WelcomeCoordinatorService {
     }
 
     onCreatingChange(true);
+    // The composer's text is James's own words, so it is marked as typed by a person.
     const result = await this.store.createInstanceWithMessageResult({
       ...plan.config,
+      typedByPerson: true,
       ...(submissionId ? { idempotencyKey: submissionId } : {}),
     });
 
@@ -288,7 +290,7 @@ export class WelcomeCoordinatorService {
     }
 
     onCreatingChange(true);
-    const instanceId = await this.store.createInstanceWithMessageAndReturnId(plan.config);
+    const instanceId = await this.store.createInstanceWithMessageAndReturnId({ ...plan.config, typedByPerson: true });
     if (!instanceId) {
       onCreatingChange(false);
       this.clearWelcomeNodeSelection();

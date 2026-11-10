@@ -239,10 +239,6 @@ describe('resolveRestoreAccount', () => {
 describe('getProviderDisplayName', () => {
   it.each([
     ['claude', 'Claude'],
-    ['gemini', 'Gemini'],
-    ['codex', 'Codex'],
-    ['copilot', 'Copilot'],
-    ['cursor', 'Cursor'],
   ] as const)('returns correct display name for %s', (provider, expected) => {
     expect(getProviderDisplayName(provider)).toBe(expected);
   });

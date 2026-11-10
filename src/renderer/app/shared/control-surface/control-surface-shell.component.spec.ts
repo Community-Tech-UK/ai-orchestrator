@@ -152,8 +152,9 @@ describe('ControlSurfaceShellComponent router lifecycle', () => {
         } else {
           expect(help).toBeNull();
         }
+        if (title) expect(harness.routeNativeElement?.querySelector('#control-center-navigation')).not.toBeNull();
         if (url === '/settings') {
-          expect(harness.routeNativeElement?.querySelector('#control-center-navigation')).toBeNull();
+          expect(harness.routeNativeElement?.querySelector('.control-nav-item.active')?.getAttribute('href')).toBe(url);
         } else if (title && url !== '/nested/logs') {
           expect(harness.routeNativeElement?.querySelector('.hub-tab.active')?.getAttribute('href')).toBe(url);
         }
@@ -179,15 +180,10 @@ describe('ControlSurfaceShellComponent router lifecycle', () => {
           ['.control-back', '/', null],
         ] as const) {
           const control = harness.routeNativeElement?.querySelector<HTMLElement>(selector);
-          if (!control && router.url === '/settings' && selector !== '.control-back') {
-            // Settings has its own menu and hides the Control Center navigation, so leave it by address.
-            await harness.navigateByUrl(url);
-          } else {
-            expect(control).toBeTruthy();
-            const navigation = firstValueFrom(router.events.pipe(filter((event) => event instanceof NavigationEnd)));
-            control!.click();
-            await navigation;
-          }
+          expect(control).toBeTruthy();
+          const navigation = firstValueFrom(router.events.pipe(filter((event) => event instanceof NavigationEnd)));
+          control!.click();
+          await navigation;
           await harness.fixture.whenStable();
           harness.detectChanges();
           await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -196,7 +192,7 @@ describe('ControlSurfaceShellComponent router lifecycle', () => {
           expect(router.url).toBe(url);
           expect(harness.routeNativeElement?.querySelector('h1')?.textContent ?? null).toBe(title);
           expect(harness.routeNativeElement?.querySelector('.control-nav-item.active')?.getAttribute('href') ?? null)
-            .toBe(title && url !== '/settings' ? url : null);
+            .toBe(title ? url : null);
           const help = harness.routeDebugElement?.query(By.directive(HelpPaneComponent));
           if (title === 'Automations') {
             expect(help?.componentInstance.entry()).toBe(CONTROL_SURFACE_HELP['automations']);
@@ -321,13 +317,12 @@ describe('ControlSurfaceShellComponent', () => {
     }
   });
 
-  it('hides the shell navigation on Settings, even with a stored collapsed menu', () => {
+  it('shows the shell navigation on Settings, including a stored collapsed menu', () => {
     localStorage.setItem('aiorch.control.navCollapsed', 'true');
     TestBed.inject(ActivatedRoute).snapshot.firstChild!.data['controlSurfaceId'] = 'settings';
     const settings = TestBed.createComponent(ControlSurfaceShellComponent); settings.detectChanges();
-    expect(settings.nativeElement.querySelector('#control-center-navigation')).toBeNull();
-    expect(settings.nativeElement.querySelector('.control-shell.no-nav.nav-collapsed')).toBeTruthy();
-    expect(fixture.nativeElement.querySelector('#control-center-navigation')).toBeTruthy();
+    expect(settings.nativeElement.querySelector('#control-center-navigation')).toBeTruthy();
+    expect(settings.nativeElement.querySelector('.control-shell.nav-collapsed')).toBeTruthy();
   });
 
   it('renders a visible text Back button', () => {

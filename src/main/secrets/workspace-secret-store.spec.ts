@@ -14,7 +14,6 @@ vi.mock('../logging/logger', () => ({
   }),
 }));
 
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type { SafeStorageAccessor } from '../session/safe-storage-accessor';
 import {
@@ -28,11 +27,17 @@ import {
   WorkspaceSecretStore,
   normaliseName,
 } from './workspace-secret-store';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const WS_A = '/ws/a';
 const WS_B = '/ws/b';
 const TOKEN = 'ghp_exampleplaceholdervalue0000000000';
 
+const rlmTemplate = useSqliteTemplate((db) => {
+  createTables(db);
+  createMigrationsTable(db);
+  runMigrations(db);
+});
 const dbs: SqliteDriver[] = [];
 
 /**
@@ -40,11 +45,8 @@ const dbs: SqliteDriver[] = [];
  * from its own memory would happily keep passing if the SQL were deleted.
  */
 function openDb(): SqliteDriver {
-  const db = defaultDriverFactory(':memory:');
+  const db = rlmTemplate.open();
   dbs.push(db);
-  createTables(db);
-  createMigrationsTable(db);
-  runMigrations(db);
   return db;
 }
 

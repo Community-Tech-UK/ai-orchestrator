@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, sy
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 
 /**
  * remote-run.sh for real: real systemd scopes and `flock` on Linux, a real process group and Perl
@@ -49,12 +49,14 @@ writeFileSync(process.argv[2], JSON.stringify({ numTotalTests: files.length, tes
 process.exit(files.some(file => file.includes('fails')) ? 3 : 0);
 `;
 
+// Tests run side by side, each on its own machine folder, so nothing is tidied until the whole file is done: tidying
+// after each test would close the connections of runs still going in other tests.
 const temps: string[] = [];
 const children: ChildProcessWithoutNullStreams[] = [];
-afterEach(() => {
+afterAll(() => {
   for (const child of children.splice(0)) child.stdin.end();
   for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true });
-});
+}, 60_000);
 
 const git = (cwd: string, ...args: string[]): string =>
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...args], { cwd, encoding: 'utf8' }).trim();
@@ -215,7 +217,7 @@ function setUpProject() {
   return { ...machine, commit, runProject, calls };
 }
 
-describe.runIf(canRunHere())('remote-run.sh running another project', () => {
+describe.runIf(canRunHere()).concurrent('remote-run.sh running another project', () => {
   it('keeps to its own store and checkout, and leaves the default ones alone', async () => {
     const machine = setUpProject();
     const run = await machine.runProject('own-store');
@@ -300,7 +302,7 @@ case "$1" in
 esac
 `;
 
-describe.runIf(process.platform === 'darwin')('remote-run.sh running Undistilled on a Mac', () => {
+describe.runIf(process.platform === 'darwin').concurrent('remote-run.sh running Undistilled on a Mac', () => {
   function setUpUndistilled() {
     const machine = setUp();
     const bin = join(machine.base, 'fake-bin');
@@ -357,8 +359,9 @@ describe.runIf(process.platform === 'darwin')('remote-run.sh running Undistilled
   }, LIMIT);
 });
 
+// Each test has its own machine folder, so they run side by side; only the one that times a wait runs alone.
 describe.runIf(canRunHere())('remote-run.sh on a real machine', () => {
-  it('runs a snapshot and reports its fingerprint, then hands back the report', async () => {
+  it.concurrent('runs a snapshot and reports its fingerprint, then hands back the report', async () => {
     const machine = setUp();
     const commit = machine.snapshot('pass');
     const run = startRun(machine.script, 'pass-run', commit);
@@ -374,14 +377,14 @@ describe.runIf(canRunHere())('remote-run.sh on a real machine', () => {
     expect(existsSync(join(machine.base, 'runs', run.id))).toBe(false);
   }, LIMIT);
 
-  it('passes on the suite\'s own exit code', async () => {
+  it.concurrent('passes on the suite\'s own exit code', async () => {
     const machine = setUp();
     const run = startRun(machine.script, 'fail-run', machine.snapshot('fail'));
     await run.finished;
     expect(run.result()).toMatchObject({ status: 'ok', exit: 1 });
   }, LIMIT);
 
-  it('leaves nothing behind when a run finishes normally, even a detached child', async () => {
+  it.concurrent('leaves nothing behind when a run finishes normally, even a detached child', async () => {
     const machine = setUp();
     const run = startRun(machine.script, 'leftover-run', machine.snapshot('pass'));
     await run.finished;
@@ -389,7 +392,7 @@ describe.runIf(canRunHere())('remote-run.sh on a real machine', () => {
     expect(await waitFor(() => !isAlive(detached))).toBe(true);
   }, LIMIT);
 
-  it('kills everything the run started, detached children included, when the connection closes', async () => {
+  it.concurrent('kills everything the run started, detached children included, when the connection closes', async () => {
     const machine = setUp();
     const run = startRun(machine.script, 'dropped-run', machine.snapshot('hang'));
     expect(await waitFor(() => machine.pids().length === 2)).toBe(true);
@@ -403,7 +406,7 @@ describe.runIf(canRunHere())('remote-run.sh on a real machine', () => {
     expect(run.result()).toMatchObject({ status: 'setup-failed' });
   }, LIMIT);
 
-  it('frees its slot when a run dies, so the next run gets it', async () => {
+  it.concurrent('frees its slot when a run dies, so the next run gets it', async () => {
     const machine = setUp();
     const first = startRun(machine.script, 'dying-run', machine.snapshot('hang'));
     expect(await waitFor(() => machine.pids().length === 2)).toBe(true);
@@ -419,7 +422,7 @@ describe.runIf(canRunHere())('remote-run.sh on a real machine', () => {
     expect(second.result()).toMatchObject({ status: 'ok', exit: 0 });
   }, LIMIT);
 
-  it('reports no slot when all of them stay busy past the wait', async () => {
+  it.concurrent('reports no slot when all of them stay busy past the wait', async () => {
     const machine = setUp(2);
     const commit = machine.snapshot('pass');
     mkdirSync(join(machine.base, 'slots'), { recursive: true });
@@ -434,6 +437,7 @@ describe.runIf(canRunHere())('remote-run.sh on a real machine', () => {
     expect(run.result()).toMatchObject({ status: 'no-slot' });
   }, LIMIT);
 
+  // Not concurrent: it times the run, which other runs starting beside it would slow.
   it('reports no slot at once when asked not to wait, and waits as usual for any other value', async () => {
     const machine = setUp(4);
     const commit = machine.snapshot('pass');
@@ -459,7 +463,7 @@ describe.runIf(canRunHere())('remote-run.sh on a real machine', () => {
     expect(usual.tookMs).toBeGreaterThanOrEqual(4000);
   }, LIMIT);
 
-  it('uses only as many slots as the Mac asks for', async () => {
+  it.concurrent('uses only as many slots as the Mac asks for', async () => {
     const machine = setUp(2);
     const commit = machine.snapshot('pass');
     mkdirSync(join(machine.base, 'slots'), { recursive: true });
@@ -478,7 +482,7 @@ describe.runIf(canRunHere())('remote-run.sh on a real machine', () => {
     expect(output).toContain('"status":"no-slot"');
   }, LIMIT);
 
-  it('runs only the related tests when given a list, keeping awkward names as data', async () => {
+  it.concurrent('runs only the related tests when given a list, keeping awkward names as data', async () => {
     const machine = setUp();
     const commit = machine.snapshot('pass');
     const files = ['src/a $(touch pwned);b.ts', "src/it's.ts"];
@@ -498,7 +502,7 @@ describe.runIf(canRunHere())('remote-run.sh on a real machine', () => {
     expect(existsSync(join(machine.base, 'slots/1/repo/pwned'))).toBe(false);
   }, LIMIT);
 
-  it('passes on the related run\'s own exit code', async () => {
+  it.concurrent('passes on the related run\'s own exit code', async () => {
     const machine = setUp();
     const commit = machine.snapshot('pass');
     const id = `related-fail-${process.pid}`;
@@ -511,7 +515,7 @@ describe.runIf(canRunHere())('remote-run.sh on a real machine', () => {
     expect(output).toContain('"exit":3');
   }, LIMIT);
 
-  it('runs every listed check in the snapshot instead of the tests, and reports each one', async () => {
+  it.concurrent('runs every listed check in the snapshot instead of the tests, and reports each one', async () => {
     const machine = setUp();
     writeFileSync(join(machine.project, 'package.json'), JSON.stringify({
       name: 'stub', version: '1.0.0', scripts: { lint: 'echo "lint failed at $PWD"; exit 3', typecheck: 'echo typecheck passed' },
@@ -536,7 +540,7 @@ describe.runIf(canRunHere())('remote-run.sh on a real machine', () => {
     expect(report.every(check => Number.isInteger(check.durationMs) && check.durationMs >= 0)).toBe(true);
   }, LIMIT);
 
-  it('names a setup fault rather than reporting tests', async () => {
+  it.concurrent('names a setup fault rather than reporting tests', async () => {
     const machine = setUp();
     writeFileSync(join(machine.project, 'scripts/ci-npm-ci.sh'), 'exit 1\n');
     const run = startRun(machine.script, 'broken-run', machine.snapshot('pass'));

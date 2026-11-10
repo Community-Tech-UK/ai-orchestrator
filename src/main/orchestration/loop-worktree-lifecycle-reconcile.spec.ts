@@ -20,6 +20,7 @@ import {
   type PendingManagedWorktreeLifecycle,
 } from './loop-worktree-lifecycle-reconcile';
 import { GitWriteQueue } from '../workspace/git/git-write-queue';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
@@ -39,9 +40,9 @@ let originalSessionTip: string;
 let originalIntegrationTip: string;
 const branchName = 'task-recovery';
 
-beforeEach(async () => {
-  GitWriteQueue._resetForTesting();
-  repo = mkdtempSync(join(tmpdir(), 'lifecycle-reconcile-'));
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate(async (dir) => {
+  repo = dir;
   await git(['init', '-q', '-b', 'main'], repo);
   await git(['config', 'user.email', 'test@example.com'], repo);
   await git(['config', 'user.name', 'Test'], repo);
@@ -50,6 +51,12 @@ beforeEach(async () => {
   writeFileSync(join(repo, 'base.txt'), 'base\n');
   await git(['add', '-A'], repo);
   await git(['commit', '-q', '--no-gpg-sign', '-m', 'base'], repo);
+});
+
+beforeEach(async () => {
+  GitWriteQueue._resetForTesting();
+  repo = mkdtempSync(join(tmpdir(), 'lifecycle-reconcile-'));
+  baseRepository.copyTo(repo);
 
   worktreePath = join(repo, '.worktrees', branchName);
   await git(['worktree', 'add', '-q', '-b', branchName, worktreePath, 'main'], repo);

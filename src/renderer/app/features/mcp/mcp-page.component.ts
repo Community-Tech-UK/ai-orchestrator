@@ -43,6 +43,7 @@ import { mcpScopeLabel } from './mcp-scope-label';
 /** How the connector row names each Microsoft 365 change that no longer asks. */
 const ALWAYS_ALLOWED_CHANGE_WORDS: Record<string, string> = {
   graph_mail_send: 'sending mail',
+  graph_mail_delete_draft: 'deleting drafts',
   graph_calendar_create_event: 'creating calendar events',
   graph_calendar_update_event: 'changing calendar events',
   graph_calendar_delete_event: 'deleting calendar events',

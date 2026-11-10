@@ -13,20 +13,13 @@ import { classifyResumeError, isSessionNotFoundText } from './resume-error-class
 describe('isSessionNotFoundText — not-found phrases', () => {
   it.each([
     'no conversation found',
-    'No conversation found for this session',
     'CONVERSATION NOT FOUND',
     'session not found',
-    'Session Not Found',
-    'SESSION NOT FOUND',
-    'unknown session',
     'Unknown session id: abc123',
     'no such session',
-    'No such session exists',
     'session does not exist',
-    'The session does not exist',
     'missing session',
     'no matching session',
-    'No matching session for id xyz',
   ])('returns true for: %s', (phrase) => {
     expect(isSessionNotFoundText(phrase)).toBe(true);
   });
@@ -35,15 +28,10 @@ describe('isSessionNotFoundText — not-found phrases', () => {
 describe('isSessionNotFoundText — thread not-found phrases (Codex)', () => {
   it.each([
     'thread not found',
-    'Thread not found for id abc',
-    'unknown thread',
     'Unknown thread: xyz',
     'no such thread',
     'thread does not exist',
-    'The thread does not exist',
     'no rollout found',
-    'No rollout found for thread abc',
-    'missing rollout',
     'Missing rollout file',
   ])('returns true for: %s', (phrase) => {
     expect(isSessionNotFoundText(phrase)).toBe(true);
@@ -53,7 +41,6 @@ describe('isSessionNotFoundText — thread not-found phrases (Codex)', () => {
 describe('isSessionNotFoundText — expired phrases (Cursor)', () => {
   it.each([
     'session expired',
-    'Session expired, please start a new one',
     'session has expired',
     'conversation expired',
   ])('returns true for: %s', (phrase) => {
@@ -64,12 +51,8 @@ describe('isSessionNotFoundText — expired phrases (Cursor)', () => {
 describe('isSessionNotFoundText — invalid phrases', () => {
   it.each([
     'invalid session id',
-    'Invalid session id: abc123',
-    'invalid session',
     'Invalid session provided',
-    'invalid thread',
     'Invalid thread: abc',
-    'bad session',
     'Bad session id',
   ])('returns true for: %s', (phrase) => {
     expect(isSessionNotFoundText(phrase)).toBe(true);

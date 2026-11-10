@@ -9,12 +9,13 @@ export interface NewSessionDraft {
   provider: string;
   model?: string;
   reasoningEffort?: MobileReasoningEffort;
+  accountProfileId?: string;
 }
 
 function serializeNewSessionDraft(draft: NewSessionDraft): string {
   // Explicit fields keep native image blobs out of Preferences.
-  const { text, directory, provider, model, reasoningEffort } = draft;
-  return JSON.stringify({ text, directory, provider, model, reasoningEffort });
+  const { text, directory, provider, model, reasoningEffort, accountProfileId } = draft;
+  return JSON.stringify({ text, directory, provider, model, reasoningEffort, accountProfileId });
 }
 
 const REASONING_EFFORTS: MobileReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'workflow'];
@@ -30,6 +31,7 @@ export function parseNewSessionDraft(serialized: string): NewSessionDraft | null
       model: typeof draft['model'] === 'string' ? draft['model'] : undefined,
       reasoningEffort: REASONING_EFFORTS.includes(draft['reasoningEffort'] as MobileReasoningEffort)
         ? draft['reasoningEffort'] as MobileReasoningEffort : undefined,
+      accountProfileId: typeof draft['accountProfileId'] === 'string' ? draft['accountProfileId'] : undefined,
     };
   } catch {
     return null;
@@ -40,12 +42,13 @@ export function parseNewSessionDraft(serialized: string): NewSessionDraft | null
 export function mergeEarlyNewSessionDraft(serialized: string, early: NewSessionDraft, initial: NewSessionDraft): string {
   const saved = parseNewSessionDraft(serialized);
   const configChanged = early.provider !== initial.provider || early.model !== initial.model
-    || early.reasoningEffort !== initial.reasoningEffort;
+    || early.reasoningEffort !== initial.reasoningEffort || early.accountProfileId !== initial.accountProfileId;
   const config = !saved || configChanged ? early : saved;
   return serializeNewSessionDraft({
     text: [early.text.trimEnd(), saved?.text].filter(Boolean).join('\n\n'),
     directory: early.directory || saved?.directory || '',
     provider: config.provider, model: config.model, reasoningEffort: config.reasoningEffort,
+    accountProfileId: config.accountProfileId,
   });
 }
 

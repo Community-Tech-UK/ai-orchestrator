@@ -1,9 +1,12 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { defaultLoopConfig, type ProgressSignalEvidence } from '../../shared/types/loop.types';
+
+vi.mock('./loop-coordinator-utils', async (importOriginal) =>
+  (await import('./loop-coordinator-test-pause')).withShortIterationPause(await importOriginal()));
 
 describe('LoopCoordinator resource governor', () => {
   let workspace: string;

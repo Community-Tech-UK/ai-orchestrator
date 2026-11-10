@@ -11,6 +11,7 @@ import { landItemBranch } from './plan-queue-landing';
 import { buildLandingCommit, returnToItemCheckout } from './plan-queue-squash';
 import { PlanQueueCheckoutOwnershipError, PlanQueueWorktreeService } from './plan-queue-worktree';
 import type { PlanQueueItem } from './plan-queue.types';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
 // Real git through many child processes, like the other real-git specs.
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
@@ -53,10 +54,9 @@ function strandAsLanding(item: PlanQueueItem): void {
   writeFileSync(join(wt, 'one.txt'), 'one\n');
 }
 
-beforeEach(() => {
-  WorktreeManager._resetForTesting();
-  GitWriteQueue._resetForTesting();
-  repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-leftover-')));
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate((dir) => {
+  repo = dir;
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'Plan Queue Test']);
   git(['config', 'user.email', 'plan-queue@example.invalid']);
@@ -65,6 +65,13 @@ beforeEach(() => {
   writeFileSync(join(repo, 'b.txt'), 'shared\n');
   git(['add', '-A']);
   git(['commit', '-q', '-m', 'base']);
+});
+
+beforeEach(() => {
+  WorktreeManager._resetForTesting();
+  GitWriteQueue._resetForTesting();
+  repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-leftover-')));
+  baseRepository.copyTo(repo);
   saved = [];
   service = new PlanQueueWorktreeService({ repoRootForItem: () => repo, creator: WorktreeManager.getInstance(), saveItem: (item) => saved.push(item), skipInstall: true });
 });

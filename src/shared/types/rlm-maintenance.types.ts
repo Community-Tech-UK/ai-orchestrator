@@ -20,10 +20,13 @@ export interface RlmMaintenanceRequest {
   deleteOldBackups?: string[];
 }
 
+/**
+ * Cheap enough to fetch whenever a session page appears: it never measures the
+ * external content folder (only the maintenance preview does, asynchronously).
+ */
 export interface RlmStorageHealth {
   level: RlmStorageHealthLevel;
   databaseSizeBytes: number;
-  externalContentSizeBytes: number;
   reclaimableDatabaseBytes: number;
   warningThresholdBytes: number;
   hardLimitBytes: number;

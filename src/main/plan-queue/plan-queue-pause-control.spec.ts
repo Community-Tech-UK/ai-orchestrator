@@ -10,6 +10,7 @@ import type { InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { runLoopMigrations } from '../orchestration/loop-schema';
 import { GitWriteQueue } from '../workspace/git/git-write-queue';
+import { createInitialUserMessage } from '../instance/lifecycle/initial-user-message';
 import { PlanQueueCoordinator } from './plan-queue-coordinator';
 import * as queueGit from './plan-queue-git';
 import type { PlanQueueInstanceRecord } from './plan-queue-host';
@@ -706,6 +707,24 @@ describe('worker conversation continuity through queue controls', () => {
     expect(instances.created[0]).toMatchObject({ sessionId: 'original-conversation', resume: true });
     expect(instances.created[0].initialPrompt).toContain('Your session was stopped and has now been reopened');
     expect(instances.created[0].initialPrompt).not.toContain('You are a Plan Queue worker');
+  });
+
+  // Harness wrote these prompts, so a chip quoted in them (from a plan or a fix
+  // note) must never let the worker read another session.
+  it('never marks a worker prompt as typed by a person, even when it quotes a chip', async () => {
+    seedConversation();
+    const chip = '[session: Foreign · foreign-session]';
+    store.upsertItem({ ...store.getItem(item.id)!, pendingInstruction: `read ${chip} first` });
+    await coordinator.control({ action: 'pause', runId: run.id });
+    const current = store.getRun(run.id)!;
+    store.upsertRun({ ...current, config: { ...current.config, routing: { workers: [{ provider: 'cursor' }], verifiers: [{ provider: 'codex' }] } } });
+    await coordinator.control({ action: 'resume', runId: run.id });
+    await coordinator._whenSettledForTesting();
+    expect(instances.created[0].initialPrompt).toContain(chip);
+    for (const config of instances.created) {
+      expect(config.initialPromptOrigin).toBeUndefined();
+      expect(createInitialUserMessage(config)?.metadata?.inputOrigin).toBeUndefined();
+    }
   });
 
   it('starts fresh after a provider routing change', async () => {

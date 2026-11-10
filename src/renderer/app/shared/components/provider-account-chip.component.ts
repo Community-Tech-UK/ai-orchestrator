@@ -41,6 +41,7 @@ import type {
   ProviderAccountPools,
 } from '../../../../shared/types/provider-account.types';
 import { isPooledProvider, pooledProviderLabel } from '../../../../shared/types/provider-account.types';
+import { isModelSwitchAllowedStatus } from '../../../../shared/types/instance-status-policy';
 import { AioTooltipDirective } from '../tooltip/aio-tooltip.directive';
 
 /** Same promise as Settings → Accounts. A second account stays off until the user confirms it. */
@@ -58,7 +59,7 @@ const OWNERSHIP_COPY: Record<PooledProvider, { subscription: string; vendor: str
   template: `
     @if (poolActive()) {
       <div class="provider-account-chip" [class.compact]="mode() === 'session'" [class.blocked]="blockedText()">
-        <span class="dot" [class.blocked]="blockedText()" aria-hidden="true"></span>
+        <span class="dot" [class.blocked]="blockedText()" [class.pending]="pendingProfileId()" aria-hidden="true"></span>
         <span class="text">{{ blockedText() ?? label() }}</span>
         <select
           class="override"
@@ -87,6 +88,7 @@ const OWNERSHIP_COPY: Record<PooledProvider, { subscription: string; vendor: str
     .provider-account-chip.compact { padding: 1px 8px; font-size: 11px; }
     .provider-account-chip.blocked { border-color: var(--error-color, #d33); }
     .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success-color, #4a9); }
+    .dot.pending { background: var(--warning-color, #d9a441); }
     .dot.blocked { background: var(--error-color, #d33); }
     .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* Stretched over the whole chip (not just a sliver) so the whole lozenge is clickable. */
@@ -158,14 +160,30 @@ export class ProviderAccountChipComponent {
   });
   readonly poolActive = computed(() => this.selectableAccounts().length > 1);
   readonly selectedValue = computed(() => {
-    if (this.mode() === 'session') return this.currentProfileId();
+    if (this.mode() === 'session') return this.pendingProfileId() ?? this.currentProfileId();
     if (this.mode() === 'continuation') return this.chosenProfileId() || this.currentProfileId();
     return this.chosenProfileId() ?? '';
   });
 
   readonly currentProfileId = computed(() => this.accountProfileId() ?? 'legacy');
 
+  /**
+   * Session placement: an account move that is waiting for the session to be
+   * free (it was busy or asleep when the move was confirmed). The session
+   * still runs on the current account until then.
+   */
+  readonly pendingProfileId = computed<string | null>(() => {
+    const id = this.instanceId();
+    if (this.mode() !== 'session' || !id) return null;
+    const pending = this.instances.getInstance(id)?.desiredRuntime?.accountProfileId;
+    return pending && pending !== this.currentProfileId() ? pending : null;
+  });
+
   readonly accountAriaLabel = computed(() => {
+    const pending = this.pendingProfileId();
+    if (pending) {
+      return `Moving from ${this.labelFor(this.currentProfileId())} to ${this.labelFor(pending)} once the session is free. Pick ${this.labelFor(this.currentProfileId())} to stay`;
+    }
     if (this.mode() === 'session') return 'Switch this session to another account';
     if (this.mode() === 'continuation') return 'Account to continue this session on';
     return 'Account for this session';
@@ -173,7 +191,9 @@ export class ProviderAccountChipComponent {
 
   readonly label = computed(() => {
     if (this.mode() === 'session') {
-      return this.labelFor(this.currentProfileId());
+      const pending = this.pendingProfileId();
+      const current = this.labelFor(this.currentProfileId());
+      return pending ? `${current} → ${this.labelFor(pending)}` : current;
     }
     if (this.mode() === 'continuation') {
       return this.labelFor(this.chosenProfileId() || this.currentProfileId());
@@ -197,7 +217,7 @@ export class ProviderAccountChipComponent {
 
   readonly title = computed(() => {
     if (this.mode() === 'session') {
-      return 'The account this conversation runs on. Pick another to move it there.';
+      return 'The account this conversation runs on. Pick another to move it there once the session is free.';
     }
     if (this.mode() === 'continuation') {
       return 'The account this conversation will continue on. Pick another to continue there.';
@@ -257,20 +277,25 @@ export class ProviderAccountChipComponent {
       this.accountChosen.emit(value || null);
       return;
     }
-    if (!boundInstance || value === this.currentProfileId()) return;
-    // Say what the move will cost before asking (T17); nothing is added when it costs nothing.
-    const cost = await this.runtimePreview.preview(boundInstance, { accountProfileId: value });
-    if (dropped()) return;
-    const confirmed = await this.confirmService.confirm({ message: `Move this conversation to "${this.labelFor(value)}"? The current session ends and the conversation continues on that account.${cost ? ` ${cost.text}` : ''}`, confirmLabel: 'Move conversation', danger: true });
-    if (dropped()) return;
-    if (!confirmed) {
-      target.value = this.currentProfileId();
-      return;
+    const pending = this.pendingProfileId();
+    if (!boundInstance || value === (pending ?? this.currentProfileId())) return;
+    // Staying on the live account withdraws the waiting move; nothing ends, so nothing to confirm.
+    const withdrawing = pending !== null && value === this.currentProfileId() && this.moveStillWaiting(boundInstance);
+    if (!withdrawing) {
+      // Say what the move will cost before asking (T17); nothing is added when it costs nothing.
+      const cost = await this.runtimePreview.preview(boundInstance, { accountProfileId: value });
+      if (dropped()) return;
+      const confirmed = await this.confirmService.confirm({ message: `Move this conversation to "${this.labelFor(value)}"? The current session ends and the conversation continues on that account.${cost ? ` ${cost.text}` : ''}`, confirmLabel: 'Move conversation', danger: true });
+      if (dropped()) return;
+      if (!confirmed) {
+        target.value = this.selectedValue();
+        return;
+      }
     }
     const response = await this.ipc.switchSession(boundInstance, value);
     if (dropped()) return;
     this.errorSignal.set(response.success ? null : response.error?.message ?? 'The account could not be switched.');
-    if (!response.success) target.value = this.currentProfileId();
+    if (!response.success) target.value = this.selectedValue();
   }
 
   /**
@@ -313,6 +338,17 @@ export class ProviderAccountChipComponent {
       };
     });
     return true;
+  }
+
+  /**
+   * A queued move is only parked while the session is busy or asleep. Once the
+   * session is free or restarting, the move may already be under way, and
+   * picking the old account then is a second move that ends the session again.
+   */
+  private moveStillWaiting(instanceId: string): boolean {
+    const status = this.instances.getInstance(instanceId)?.status;
+    return status !== undefined && !isModelSwitchAllowedStatus(status)
+      && status !== 'initializing' && status !== 'respawning';
   }
 
   private labelFor(profileId: string): string {

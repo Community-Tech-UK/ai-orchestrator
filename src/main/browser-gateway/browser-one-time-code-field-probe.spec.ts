@@ -63,9 +63,8 @@ describe('one-time code box page function', () => {
     ['split digit boxes', `<form>${'<input maxlength="1">'.repeat(6)}</form>`],
     ['a code box whose label mentions the email it was sent to', '<label for="i7">Enter the verification code sent to your email</label><input id="i7">'],
     ['an emailed-code field named for both', '<input name="emailOtp">'],
+    // A contact word beside a code word in the name (emailCode, phoneCode, mobile_code) takes one path.
     ['a labelled emailCode box', '<label for="ec">Verification code</label><input id="ec" name="emailCode">'],
-    ['a labelled phoneCode box', '<label for="pc">Verification code</label><input id="pc" name="phoneCode">'],
-    ['a labelled mobile_code box', '<label for="mc">Verification code</label><input id="mc" name="mobile_code">'],
     ['an email_code box with a code placeholder', '<input id="email_code" placeholder="One time code">'],
   ])('recognises %s', (_label, html) => {
     expect(probe(html).codeField).toBe(true);

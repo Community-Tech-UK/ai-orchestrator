@@ -37,19 +37,18 @@ class MemoryPromptHistoryStore implements PromptHistoryStoreBackend {
     return this.data[key];
   }
 
-  set<K extends keyof PromptHistoryStoreV1>(key: K, value: PromptHistoryStoreV1[K]): void {
-    this.data = {
-      ...this.data,
-      [key]: value,
-    };
-  }
-
   setMany(values: Partial<PromptHistoryStoreV1>): void {
     this.data = {
       ...this.data,
       ...values,
     };
   }
+
+  async flush(): Promise<void> {
+    // Nothing is pending in memory-only storage.
+  }
+
+  keepBackupCopy = vi.fn(async () => undefined);
 }
 
 function getHandler(channel: string): (...args: unknown[]) => unknown {

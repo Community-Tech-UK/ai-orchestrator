@@ -18,6 +18,7 @@ export interface CreateInstanceInput {
   provider: string;
   model: string | undefined;
   reasoningEffort: MobileReasoningEffort | undefined;
+  accountProfileId: string | undefined;
   prompt: string;
   attachments: MobileAttachmentDto[];
 }
@@ -100,6 +101,7 @@ export function buildCreateInstanceRequest(
     provider: input.provider,
     model: input.model,
     reasoningEffort: input.reasoningEffort,
+    accountProfileId: input.accountProfileId,
     initialPrompt: prompt || undefined,
     attachments: input.attachments.length ? input.attachments : undefined,
   };

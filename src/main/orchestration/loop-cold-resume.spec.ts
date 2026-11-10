@@ -24,6 +24,9 @@ vi.mock('../context/compaction-coordinator', () => ({ getCompactionCoordinator: 
 import { LoopCoordinator } from './loop-coordinator';
 import { registerDefaultLoopInvoker } from './default-invokers';
 
+vi.mock('./loop-coordinator-utils', async (importOriginal) =>
+  (await import('./loop-coordinator-test-pause')).withShortIterationPause(await importOriginal()));
+
 describe('first resumed cold loop dispatch', () => {
   let coordinator: LoopCoordinator, workspace: string, clock: number;
   let sends: string[], order: string[], prompts: string[];

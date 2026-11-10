@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import type { InstanceManager } from '../instance/instance-manager';
@@ -12,6 +11,7 @@ import type { AutomationAttachmentService } from './automation-attachment-servic
 import { AutomationRunner } from './automation-runner';
 import { getAutomationEvents, resetAutomationEventsForTesting } from './automation-events';
 import { classifyFinalOutputProviderLimit } from './automation-run-provider-limit';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const output = vi.hoisted(() => ({ dir: '' }));
 vi.mock('electron', () => ({
@@ -32,12 +32,16 @@ const SPEND_LIMIT_NOTICE =
   "You've hit your monthly spend limit · raise it at claude.ai/settings/usage?from=cc_cli_limit_message"
   + ' · your weekly limit resets 11pm (Europe/London)';
 
-function createDb(): SqliteDriver {
-  const db = defaultDriverFactory(':memory:');
+const rlmTemplate = useSqliteTemplate((db) => {
   db.pragma('foreign_keys = ON');
   createTables(db);
   createMigrationsTable(db);
   runMigrations(db);
+});
+
+function createDb(): SqliteDriver {
+  const db = rlmTemplate.open();
+  db.pragma('foreign_keys = ON');
   return db;
 }
 

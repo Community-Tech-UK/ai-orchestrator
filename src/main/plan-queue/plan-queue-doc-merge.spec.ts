@@ -33,6 +33,7 @@ import { integrationOwnershipRef, promoteIntegrationBranch } from '../workspace/
 import { createDocumentOverlapResolver, recoverDocumentMergeForItem, recoverInterruptedDocumentMerges } from './plan-queue-doc-merge';
 import { newPlanQueueItem } from './plan-queue-state';
 import type { PlanQueueStore } from './plan-queue-store';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
 // Every test drives real git through many child processes. Alone each takes
 // about a second, but under the full suite's load several exceeded the 5s
@@ -47,18 +48,25 @@ const git = (args: string[]) => execFileSync('git', args, { cwd: repo, encoding:
 let baseTip: string;
 let integrationTip: string;
 
-beforeEach(async () => {
-  hook.beforeManifest = null;
-  hook.beforeWrite = null; hook.beforeRead = null; hook.beforeRename = null; hook.target = '';
-  GitWriteQueue._resetForTesting();
-  repo = await mkdtemp(join(tmpdir(), 'queue-doc-merge-'));
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate(async (dir) => {
+  repo = dir;
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'Queue Test']);
   git(['config', 'user.email', 'queue@example.invalid']);
   git(['config', 'commit.gpgsign', 'false']);
   await writeFile(join(repo, 'register.md'), base);
   await writeFile(join(repo, 'source.ts'), 'base\n');
-  git(['add', '.']); git(['commit', '-qm', 'base']); baseTip = git(['rev-parse', 'HEAD']);
+  git(['add', '.']); git(['commit', '-qm', 'base']);
+});
+
+beforeEach(async () => {
+  hook.beforeManifest = null;
+  hook.beforeWrite = null; hook.beforeRead = null; hook.beforeRename = null; hook.target = '';
+  GitWriteQueue._resetForTesting();
+  repo = await mkdtemp(join(tmpdir(), 'queue-doc-merge-'));
+  baseRepository.copyTo(repo);
+  baseTip = git(['rev-parse', 'HEAD']);
 });
 afterEach(async () => { await rm(repo, { recursive: true, force: true }); GitWriteQueue._resetForTesting(); });
 

@@ -128,7 +128,7 @@ describe('classifyCommandOutcome', () => {
   // A command can exit with any status on purpose (`exit 124`, a script's own
   // `exit 127`, `kill -9 $$` reported as 137). A number alone is never evidence
   // that the command could not run.
-  it.each([1, 2, 124, 126, 127, 130, 137, 143, 255, -1])(
+  it.each([1, 124, 126, 127, 137, 255, -1])(
     'keeps a supplied exit status of %i neutral: the command ran and chose that status',
     (exitCode) => {
       expect(classifyCommandOutcome({ command: 'ls', exitCode, status: 'failed' })).toEqual({

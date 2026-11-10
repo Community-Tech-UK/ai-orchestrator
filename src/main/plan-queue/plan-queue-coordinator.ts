@@ -619,7 +619,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       case 'skip-item':
         if (this.answering.has(item.id)) throw new Error('This document is applying an answer. Wait for it to finish before skipping.');
         if (!PRE_START_STATES.has(item.state) || item.branchName || item.worktreePath) throw new Error(`Item is ${item.state}; only an item that has not started can be skipped`);
-        this.transition(item, 'skipped', { workerSession: undefined, question: null, detail: 'Skipped by James.' });
+        this.transition(item, 'skipped', { workerSession: undefined, question: null, detail: `Skipped by ${actor}.` });
         break;
       case 'resume-item':
         await flow.resume(item.id);
@@ -813,6 +813,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       },
       isQueueInstance: (id) => this.isQueueInstance(id),
       setAsideFolder: (id) => this.setAside?.folderOf(id),
+      checkPersonTurn: (id) => this.requireDeps().personTurns.checkPersonTurn(id),
     });
   }
   private authorizeLandAnyway(run: PlanQueueRun, item: PlanQueueItem, caller: string | undefined) {

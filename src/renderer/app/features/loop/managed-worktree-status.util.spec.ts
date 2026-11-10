@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { managedWorktreeStatus } from './managed-worktree-status.util';
+import { IGNORED_FILES_UNCHECKED_REASON, ignoredFilesReason } from '../../../../shared/copy/ignored-files-copy';
 
 describe('managedWorktreeStatus', () => {
   it.each(['integration', 'finalization', 'recovery'])('translates legacy %s reasons without exposing stored wording', kind => {
@@ -72,6 +73,35 @@ describe('managedWorktreeStatus', () => {
     }, 'completed')?.detail).toBe(
       'manual attention required; inspect Harness logs · saved on task-loop',
     );
+  });
+
+  it.each([
+    ['a file Git ignores', ignoredFilesReason(['documents/new.md'])],
+    ['several of them', ignoredFilesReason(['cache/', 'out', 'a.txt', 'b.txt', 'c.txt', 'd.txt'])],
+    ['a check that could not run', IGNORED_FILES_UNCHECKED_REASON],
+  ])('shows why files Git ignores blocked promotion: %s', (_label, reason) => {
+    expect(managedWorktreeStatus({
+      phase: 'blocked',
+      baseBranch: 'main',
+      sessionBranch: 'task-loop',
+      integrationBranch: 'integration/main',
+      lastError: reason,
+      updatedAt: 1,
+    }, 'completed')?.detail)
+      .toBe(`${reason} Harness tries again the next time it starts. · saved on task-loop and integration/main`);
+  });
+
+  it.each([
+    ['first', ['/Users/someone/x']],
+    ['later', ['a.txt', '/Users/someone/x']],
+  ])('hides an absolute path in an ignored-files reason (%s in the list)', (_label, places) => {
+    expect(managedWorktreeStatus({
+      phase: 'blocked',
+      baseBranch: 'main',
+      sessionBranch: 'task-loop',
+      lastError: ignoredFilesReason(places),
+      updatedAt: 1,
+    }, 'completed')?.detail).toBe('manual attention required; inspect Harness logs · saved on task-loop');
   });
 
   it('shows an operator-resolved workspace as resolved rather than promoted', () => {

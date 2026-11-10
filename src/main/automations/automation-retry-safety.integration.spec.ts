@@ -14,6 +14,7 @@ import { createAutomationNetworkGate } from './automation-network-gate';
 import type { AutomationNetworkGate } from './automation-network-gate';
 import { getAutomationEvents, resetAutomationEventsForTesting } from './automation-events';
 import { RESTART_INTERRUPTION } from './automation-restart-retry';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/automation-retry-safety' }, powerMonitor: new EventEmitter() }));
 vi.mock('../plugins/hook-emitter', () => ({ emitPluginHook: vi.fn() }));
@@ -23,6 +24,12 @@ vi.mock('../channels/channel-manager', () => ({ getChannelManager: () => ({ getA
 async function flush() { for (let i = 0; i < 30; i++) await Promise.resolve(); }
 
 describe('retry safety through the real scheduler and store', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    db.pragma('foreign_keys = ON');
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   let db: ReturnType<typeof defaultDriverFactory>;
   let store: AutomationStore;
   let runner: AutomationRunner;
@@ -36,8 +43,7 @@ describe('retry safety through the real scheduler and store', () => {
   beforeEach(() => {
     vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-03T10:00:00Z'));
     WorkAdmission._resetForTesting(); resetAutomationEventsForTesting();
-    db = defaultDriverFactory(':memory:'); db.pragma('foreign_keys = ON');
-    createTables(db); createMigrationsTable(db); runMigrations(db);
+    db = rlmTemplate.open(); db.pragma('foreign_keys = ON');
     store = new AutomationStore(db, { prepare: async () => [], replacePrepared: () => undefined, listForAutomation: async () => [] } as never);
     instances = new Map(); online = true; accountPreferencesWait = undefined;
     const restored = new Promise<{ ready: boolean; waitedMs: number }>(resolve => { restoreNetwork = () => resolve({ ready: true, waitedMs: 61_000 }); });

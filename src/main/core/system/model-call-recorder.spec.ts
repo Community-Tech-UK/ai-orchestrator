@@ -88,7 +88,7 @@ describe('recordModelCall', () => {
     expect(records[0]).toMatchObject({ costSource: 'free', costKnown: true, usage: { cost: 0 } });
   });
 
-  it.each(['error', 'cancelled', 'budget-exceeded'] as const)('records %s without inventing a price', outcome => {
+  it.each(['error', 'cancelled'] as const)('records %s without inventing a price', outcome => {
     recordModelCall({ purpose: 'review', provider: 'claude', model: 'fixture-model', usage: { inputTokens: 100 }, outcome });
     expect(records[0]).toMatchObject({ outcome, costSource: 'unknown', costKnown: false });
   });

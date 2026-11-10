@@ -350,7 +350,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
     confirm({ success: true, data: { id: 'restored-1', provider: 'codex', currentModel: 'gpt-6-astra', status: 'idle' } });
     await pending;
     if (path === 'loop') {
-      expect(loopStore.start).toHaveBeenCalledWith('restored-1', validLoopConfig(), []);
+      expect(loopStore.start).toHaveBeenCalledWith('restored-1', validLoopConfig(), [], { typedByPerson: true });
       expect(onResolved).toHaveBeenCalledWith(true);
     } else {
       expect(forkSession).toHaveBeenCalledWith('restored-1', 0, expect.any(String), 'Edited', expect.objectContaining({ preserveRuntimeSettings: true }));
@@ -379,7 +379,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
     expect(sessions.selection('history-1')?.provider).toBe('codex');
     loopStore.start.mockResolvedValue({ ok: true });
     await fixture.componentInstance.onHistoryPreviewLoopStartRequested({ config: { ...validLoopConfig(), provider: 'codex' }, firstMessage: 'Continue', attachments: [], onResolved });
-    expect(loopStore.start).toHaveBeenCalledWith('restored-1', expect.objectContaining({ provider: 'codex' }), []);
+    expect(loopStore.start).toHaveBeenCalledWith('restored-1', expect.objectContaining({ provider: 'codex' }), [], { typedByPerson: true });
     expect(historyStore.restoreEntry).toHaveBeenCalledOnce();
   });
 
@@ -454,7 +454,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
     });
 
     expect(historyStore.restoreEntry).toHaveBeenCalledWith('history-1', '/tmp/project');
-    expect(loopStore.start).toHaveBeenCalledWith('restored-1', config, []);
+    expect(loopStore.start).toHaveBeenCalledWith('restored-1', config, [], { typedByPerson: true });
     expect(loopPromptHistory.remember).toHaveBeenCalledWith('Continue until done');
     expect(resolved).toEqual([{ ok: true, error: undefined }]);
   });
@@ -486,6 +486,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
         attachments: undefined,
         preserveRuntimeSettings: true,
         supersedeSource: true,
+        initialPromptOrigin: { kind: 'person', typedAt: expect.any(Number) },
       },
     );
     expect(instanceStore.addInstanceFromData).toHaveBeenCalledWith({ id: 'fork-1' });

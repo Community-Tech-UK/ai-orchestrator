@@ -22,6 +22,7 @@ function dependencies(): GraphConnectorDependencies {
       listMailFolders: vi.fn(async (account) => [{ account }]),
       createMailDraft: vi.fn(async (account) => ({ account })),
       sendMailDraft: vi.fn(async () => undefined),
+      deleteMailDraft: vi.fn(async () => undefined),
     },
     writableAccountEmails: ['james@communitytech.co.uk'],
     authorizeMutation: vi.fn(async () => true),
@@ -85,6 +86,7 @@ describe('Microsoft 365 connector tools', () => {
     const tools = listGraphConnectorTools('work-key', deps, true);
     expect(tools.filter((tool) => tool.name.startsWith('graph_mail_')).map((tool) => tool.name)).toEqual([
       'graph_mail_search', 'graph_mail_read', 'graph_mail_list_folders', 'graph_mail_create_draft', 'graph_mail_send',
+      'graph_mail_delete_draft',
     ]);
     await expect(callGraphConnectorTool('work-key', 'graph_mail_create_draft', { ...draft, account: 'other-key' }, deps, true)).rejects.toThrow();
     await expect(callGraphConnectorTool('work-key', 'graph_mail_create_draft', { ...draft, toRecipients: [{ emailAddress: { address: 'invalid' } }] }, deps, true)).rejects.toThrow();
@@ -110,6 +112,58 @@ describe('Microsoft 365 connector tools', () => {
       .resolves.toEqual({ ok: true });
     expect(deps.graphClient?.sendMailDraft).toHaveBeenCalledWith('work-key', 'draft-1');
     expect(deps.authorizeMutation).toHaveBeenCalledTimes(1);
+  });
+
+  describe('graph_mail_delete_draft', () => {
+    const stored = { id: 'draft-1', isDraft: true, subject: 'Old version', toRecipients: [{ emailAddress: { address: 'to@example.test' } }], ccRecipients: [] };
+    const run = (deps: GraphConnectorDependencies, account = 'work-key') =>
+      callGraphConnectorTool(account, 'graph_mail_delete_draft', { messageId: 'draft-1' }, deps, true);
+
+    it('deletes an approved draft and shows the approval card its subject and recipients', async () => {
+      const deps = dependencies();
+      deps.graphClient!.readMail = vi.fn(async () => ({ ...stored, body: { content: 'PRIVATE' } }));
+      await expect(run(deps)).resolves.toEqual({ ok: true });
+      expect(deps.authorizeMutation).toHaveBeenCalledWith({
+        accountKey: 'work-key', toolName: 'graph_mail_delete_draft',
+        args: { messageId: 'draft-1', subject: 'Old version', toRecipients: stored.toRecipients, ccRecipients: [] },
+      });
+      expect(deps.graphClient?.deleteMailDraft).toHaveBeenCalledWith('work-key', 'draft-1');
+    });
+
+    it('refuses a message that is not a draft, before raising a card', async () => {
+      const deps = dependencies();
+      deps.graphClient!.readMail = vi.fn(async () => ({ ...stored, isDraft: false }));
+      await expect(run(deps)).rejects.toThrow(/isn't a draft/);
+      expect(deps.authorizeMutation).not.toHaveBeenCalled();
+      expect(deps.graphClient?.deleteMailDraft).not.toHaveBeenCalled();
+    });
+
+    it('refuses a draft that was sent while the approval card was open', async () => {
+      const deps = dependencies();
+      let sent = false;
+      deps.graphClient!.readMail = vi.fn(async () => ({ ...stored, isDraft: !sent }));
+      deps.authorizeMutation = vi.fn(async () => { sent = true; return true; });
+      await expect(run(deps)).rejects.toThrow(/isn't a draft/);
+      expect(deps.graphClient?.deleteMailDraft).not.toHaveBeenCalled();
+    });
+
+    it('refuses without approval, and on a read-only account without looking anything up', async () => {
+      const deps = dependencies();
+      deps.graphClient!.readMail = vi.fn(async () => stored);
+      deps.authorizeMutation = vi.fn(async () => false);
+      await expect(run(deps)).rejects.toThrow(/approval/);
+      expect(deps.graphClient?.deleteMailDraft).not.toHaveBeenCalled();
+      const readOnly = dependencies();
+      await expect(run(readOnly, 'other-key')).rejects.toThrow(/not permitted/);
+      expect(readOnly.graphClient?.readMail).not.toHaveBeenCalled();
+    });
+
+    it('gives a plain error, and raises no card, when the draft cannot be found', async () => {
+      const deps = dependencies();
+      deps.graphClient!.readMail = vi.fn(async () => { throw new Error('graph_api_error:404:The specified object was not found in the store.'); });
+      await expect(run(deps)).rejects.toThrow("That draft wasn't found. It may already have been deleted or sent.");
+      expect(deps.authorizeMutation).not.toHaveBeenCalled();
+    });
   });
 
   it('returns a serializable confirmation after deleting an event with an empty Graph response', async () => {

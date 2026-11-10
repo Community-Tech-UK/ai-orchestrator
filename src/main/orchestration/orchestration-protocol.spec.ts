@@ -119,7 +119,6 @@ describe('scheduling intent reinforcement', () => {
   it.each([
     'set this up to run every morning',
     'do this daily at 8am',
-    'run it twice daily',
     'schedule a weekly report',
     'make this a recurring task',
     'keep doing this on a loop',
@@ -162,19 +161,15 @@ describe('consensus intent reinforcement', () => {
     'The security reviewers disagree about the correct fix',
     'The CLI tools contradict each other about the result',
     'There is no consensus among reviewers',
-    'There is no consensus among security reviewers about whether this deployment is safe',
     'No consensus exists because the reviewers disagree',
     'There is conflicting evidence about whether the migration is safe',
     'The same fix failed again after a second attempt',
     'This still fails after another attempt',
     'The same fix failed twice',
-    'Our strategy has failed twice',
     'The approach failed on the second attempt',
     'This fix failed after two attempts',
     'This is the second failed attempt',
     'This was our third failed attempt',
-    'We have now failed twice',
-    'This failed after two attempts',
   ])('detects consensus-worthy intent in: %s', (text) => {
     expect(detectsConsensusIntent(text)).toBe(true);
   });

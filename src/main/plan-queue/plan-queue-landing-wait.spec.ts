@@ -13,6 +13,7 @@ import type { SqliteDriver } from '../db/sqlite-driver';
 import { runLoopMigrations } from '../orchestration/loop-schema';
 import { getWorkAdmission, WorkAdmission } from '../work-admission/work-admission';
 import { GitWriteQueue } from '../workspace/git/git-write-queue';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 import { landItemBranch } from './plan-queue-landing';
 import { landingBlockers, LANDING_WAIT_LIMIT_MS, MAX_LANDING_WAITERS } from './plan-queue-landing-wait';
 import type { PlanQueueFlowHost } from './plan-queue-host';
@@ -68,16 +69,11 @@ function makeHost(): PlanQueueFlowHost {
   } as unknown as PlanQueueFlowHost;
 }
 
-beforeEach(() => {
-  GitWriteQueue._resetForTesting();
-  parent = realpathSync(mkdtempSync(join(tmpdir(), 'queue-landing-wait-')));
-  repo = join(parent, 'root');
-  mkdirSync(repo);
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate((dir) => {
+  repo = dir;
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'Queue Test']); git(['config', 'user.email', 'queue@example.invalid']); git(['config', 'commit.gpgsign', 'false']);
-  mkdirSync(join(parent, 'hooks'));
-  writeFileSync(join(parent, 'hooks', 'pre-commit'), `#!/bin/sh\necho ran >> "${join(parent, 'hook.log')}"\n`);
-  chmodSync(join(parent, 'hooks', 'pre-commit'), 0o755);
   mkdirSync(join(repo, 'src')); mkdirSync(join(repo, 'gen')); mkdirSync(join(repo, 'scripts')); mkdirSync(join(repo, 'docs'));
   for (const file of ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/d.ts', 'src/shared.ts']) writeFileSync(join(repo, file), SOURCE);
   writeFileSync(join(repo, 'gen/out.json'), '{}\n');
@@ -85,6 +81,17 @@ beforeEach(() => {
   writeFileSync(join(repo, 'docs/register.md'), 'alpha\nbeta\ngamma\n');
   writeFileSync(join(repo, 'scripts/generated-artifacts.json'), JSON.stringify({ artifacts: ['gen/out.json'], generators: ['generate:out'] }));
   git(['add', '-A']); git(['commit', '-q', '-m', 'base']);
+});
+
+beforeEach(() => {
+  GitWriteQueue._resetForTesting();
+  parent = realpathSync(mkdtempSync(join(tmpdir(), 'queue-landing-wait-')));
+  repo = join(parent, 'root');
+  mkdirSync(repo);
+  baseRepository.copyTo(repo);
+  mkdirSync(join(parent, 'hooks'));
+  writeFileSync(join(parent, 'hooks', 'pre-commit'), `#!/bin/sh\necho ran >> "${join(parent, 'hook.log')}"\n`);
+  chmodSync(join(parent, 'hooks', 'pre-commit'), 0o755);
   // From here the hook runs only for a landing commit (the tests' own commits skip it), so its log shows exactly those.
   git(['config', 'core.hooksPath', join(parent, 'hooks')]);
 

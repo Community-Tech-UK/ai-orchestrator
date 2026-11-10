@@ -1,20 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { createCostLogSessionLinks } from './usage-insight-runtime';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const DAY = 86_400_000;
 const SINCE = Date.parse('2026-10-13T12:00:00Z');
 
 describe('createCostLogSessionLinks', () => {
-  let db: SqliteDriver;
-  beforeEach(() => {
-    db = defaultDriverFactory(':memory:');
-    // The real schema, so the query is checked against the real table and columns.
+  const rlmTemplate = useSqliteTemplate((db) => {
     createTables(db);
     createMigrationsTable(db);
     runMigrations(db);
+  });
+  let db: SqliteDriver;
+  beforeEach(() => {
+    // The real schema, so the query is checked against the real table and columns.
+    db = rlmTemplate.open();
   });
   afterEach(() => db.close());
 

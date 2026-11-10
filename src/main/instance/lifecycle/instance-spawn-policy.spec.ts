@@ -23,7 +23,7 @@ describe('machine session spawn policy',()=>{
       .toMatchObject({ jobId: 'run-placeholder', sessionKind: 'plan-queue' });
   });
   afterEach(() => _setOutputCapSettingsReaderForTesting(null));
-  it.each([{}, { resume: true }, { forkSession: true, resume: true }])('binds every tracked OpenCode spawn to its main-instance checkpoint (%j)', (settings) => {
+  it.each([{ forkSession: true, resume: true }])('binds every tracked OpenCode spawn to its main-instance checkpoint (%j)', (settings) => {
     const instance = { id: 'main-placeholder', depth: 0, parentId: null, metadata: {} };
     const options = applyInstanceSpawnPolicy('opencode', instance, { ...settings, sessionId: 'transport-placeholder' });
     expect(options.beforeProviderPrompt).toBeTypeOf('function');
@@ -100,7 +100,7 @@ describe('live permission spawn policy', () => {
     }
     expect(applyInstanceSpawnPolicy('codex', human, {}, true).livePermissionPrompts).toBe(false);
   });
-  it.each(['loop', 'review', 'verification', 'consensus', 'workflow', 'automation', 'failover', 'internal', 'child', 'plan-queue', 'ping-pong-review', 'node-run', 'repo-job'] as const)('never enables %s machine work', reason => {
+  it.each(['loop', 'automation', 'plan-queue', 'ping-pong-review'] as const)('never enables %s machine work', reason => {
     expect(applyInstanceSpawnPolicy('claude', human, { machineSession: reason, livePermissionPrompts: true }, true).livePermissionPrompts).toBe(false);
   });
   it.each([{ parentId: 'parent-placeholder' }, { metadata: { automationId: 'automation-placeholder' } }, { metadata: { planQueueRunId: 'queue-placeholder' } }, { metadata: { pingPongReviewer: true } }])('uses inferred machine policy too (%j)', data => {

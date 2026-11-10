@@ -1,5 +1,6 @@
 import { generateId } from '../../../shared/utils/id-generator';
 import type { InstanceCreateConfig, OutputMessage } from '../../../shared/types/instance.types';
+import { personInputOrigin } from '../person-input-origin';
 
 export function getSeededInitialUserMessage(config: InstanceCreateConfig): OutputMessage | undefined {
   const outputBuffer = config.initialOutputBuffer;
@@ -35,7 +36,7 @@ export function createInitialUserMessage(config: InstanceCreateConfig): OutputMe
     timestamp: Date.now(),
     type: 'user',
     content: config.initialPrompt ?? '',
-    ...(config.initialPromptAgentAuthored ? { metadata: { agentAuthored: true } } : {}),
+    ...(config.initialPromptOrigin ? { metadata: { inputOrigin: personInputOrigin(config.initialPromptOrigin) } } : {}),
     attachments: config.attachments?.map((attachment) => ({
       name: attachment.name,
       type: attachment.type,

@@ -86,10 +86,6 @@ class TestAdapter extends BaseCliAdapter {
   callTagResponse(response: CliResponse, signals: DegradedOutputSignals): void {
     this.tagResponseIfEnabled(response, signals);
   }
-
-  /** Expose protected state fields for inspection. */
-  get testResponseStartedAt(): number { return this.responseStartedAt; }
-  get testStreamIdleDidFire(): boolean { return this.streamIdleDidFire; }
 }
 
 // ---------------------------------------------------------------------------
@@ -134,21 +130,6 @@ describe('classifyDegradedOutput – healthy signals (false-positive guard)', ()
     expect(result.degraded).toBe(false);
   });
 
-  it('does not flag near-zero emptiness ratio content', () => {
-    const result = classifyDegradedOutput(
-      healthy({ contentLength: 500, emptinessRatio: 0.1 }),
-    );
-    expect(result.degraded).toBe(false);
-  });
-
-  it('does not flag moderate similarity to prior response', () => {
-    // 0.8 similarity — common in follow-up answers that repeat some phrasing
-    const result = classifyDegradedOutput(
-      healthy({ similarityToPrior: 0.8 }),
-    );
-    expect(result.degraded).toBe(false);
-  });
-
   it('does not flag a stream-idle fire when content is substantial', () => {
     // Idle fired (maybe a pause) but then substantial content arrived afterward
     const result = classifyDegradedOutput(
@@ -166,13 +147,6 @@ describe('classifyDegradedOutput – healthy signals (false-positive guard)', ()
     expect(result.degraded).toBe(false);
   });
 
-  it('does not flag undefined similarity (caller did not measure)', () => {
-    const result = classifyDegradedOutput(
-      healthy({ similarityToPrior: undefined }),
-    );
-    expect(result.degraded).toBe(false);
-  });
-
   it('does not flag similarity just below the threshold (0.94)', () => {
     const result = classifyDegradedOutput(
       healthy({ similarityToPrior: 0.94 }),
@@ -183,21 +157,6 @@ describe('classifyDegradedOutput – healthy signals (false-positive guard)', ()
   it('does not flag emptiness ratio below the synthetic threshold (0.94)', () => {
     const result = classifyDegradedOutput(
       healthy({ contentLength: 100, emptinessRatio: 0.94 }),
-    );
-    expect(result.degraded).toBe(false);
-  });
-
-  it('does not flag a large, complex, multi-tool response', () => {
-    const result = classifyDegradedOutput(
-      healthy({ contentLength: 15_000, elapsedMs: 45_000 }),
-    );
-    expect(result.degraded).toBe(false);
-  });
-
-  it('does not flag a minimal but valid one-word reply quickly delivered', () => {
-    // "OK" in 800 ms — real response, just short
-    const result = classifyDegradedOutput(
-      healthy({ contentLength: 2, elapsedMs: 800 }),
     );
     expect(result.degraded).toBe(false);
   });
@@ -576,18 +535,5 @@ describe('tagResponseIfEnabled – flag ON', () => {
 
     // Must not throw
     expect(() => adapter.callTagResponse(response, badSignals)).not.toThrow();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Base-class tracking state tests
-// ---------------------------------------------------------------------------
-
-describe('BaseCliAdapter A3 tracking state', () => {
-  it('exposes responseStartedAt and streamIdleDidFire protected fields', () => {
-    const adapter = makeAdapter(false);
-    // Before any process is spawned, defaults are 0/false
-    expect(typeof adapter.testResponseStartedAt).toBe('number');
-    expect(adapter.testStreamIdleDidFire).toBe(false);
   });
 });

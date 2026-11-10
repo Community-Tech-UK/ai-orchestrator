@@ -7,6 +7,7 @@ import { getWorkAdmission, WorkAdmission } from '../work-admission/work-admissio
 import type { AutomationAttachmentService } from './automation-attachment-service';
 import { AutomationStore } from './automation-store';
 import { AutomationRunner } from './automation-runner';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/ai-orchestrator-test' }, powerMonitor: new EventEmitter() }));
 vi.mock('../plugins/hook-emitter', () => ({ emitPluginHook: vi.fn() }));
@@ -17,12 +18,16 @@ const databases: ReturnType<typeof defaultDriverFactory>[] = [];
 const admissions: WorkAdmission[] = [];
 afterEach(() => { admissions.splice(0).forEach(admission => admission.dispose()); vi.restoreAllMocks(); WorkAdmission._resetForTesting(); databases.splice(0).forEach(db => db.close()); });
 
+const rlmTemplate = useSqliteTemplate((db) => {
+  createTables(db);
+  createMigrationsTable(db);
+  runMigrations(db);
+});
 async function setup(level: 1 | 2, holdBeforeDispatch = false) {
   const admission = new WorkAdmission({ cpuCount: () => 1, loadAverage: () => [100, 100, 100] });
   admissions.push(admission);
   vi.spyOn(WorkAdmission, 'getInstance').mockReturnValue(admission);
-  const db = defaultDriverFactory(':memory:'); databases.push(db);
-  createTables(db); createMigrationsTable(db); runMigrations(db);
+  const db = rlmTemplate.open(); databases.push(db);
   const store = new AutomationStore(db, { prepare: async () => [], replacePrepared: () => undefined, listForAutomation: async () => [] } as unknown as AutomationAttachmentService);
   const createInstance = vi.fn(async () => ({ id: 'remote-instance', status: 'busy', outputBuffer: [] }));
   const manager = Object.assign(new EventEmitter(), { createInstance });

@@ -163,8 +163,9 @@ describe('running the steps in order', () => {
     };
     return { host, starts };
   }
-  const steps = (...states: PlanQueueItem['state'][]) => states.map((state, index) =>
-    newPlanQueueItem(`step-${index + 1}`, 'run', join(folder, 'big_plan.md'), index + 1, { state, section: index + 1 }));
+  const stepsFrom = (first: number, ...states: PlanQueueItem['state'][]) => states.map((state, index) =>
+    newPlanQueueItem(`step-${first + index}`, 'run', join(folder, 'big_plan.md'), index + 1, { state, section: first + index }));
+  const steps = (...states: PlanQueueItem['state'][]) => stepsFrom(1, ...states);
 
   it('does not start step 2 before step 1 has landed, then starts it', async () => {
     writeFileSync(join(folder, 'big_plan.md'), '# Big');
@@ -175,6 +176,17 @@ describe('running the steps in order', () => {
     items[0].state = 'landed';
     await pumpPlanQueue(host);
     expect(starts).toEqual(['step-1', 'step-2']);
+  });
+
+  it('starts the first step that has a job straight away when the steps before it are already ticked off', async () => {
+    writeFileSync(join(folder, 'big_plan.md'), '# Big');
+    const items = stepsFrom(4, 'queued', 'queued');
+    const { host, starts } = pumpOf(items);
+    await pumpPlanQueue(host);
+    expect(starts).toEqual(['step-4']);
+    items[0].state = 'landed';
+    await pumpPlanQueue(host);
+    expect(starts).toEqual(['step-4', 'step-5']);
   });
 
   it.each(['parked', 'working', 'verifying', 'landing'] as const)('holds the later steps while step 1 is %s', async (state) => {

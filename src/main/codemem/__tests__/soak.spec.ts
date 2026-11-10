@@ -6,8 +6,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migrate } from '../cas-schema';
 import { CasStore } from '../cas-store';
 import { CodeIndexManager } from '../code-index-manager';
+import { CodeRetrievalService } from '../code-retrieval-service';
 import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../../db/sqlite-driver';
+import { searchAcrossSources, writeRetrievalWorkspace } from './code-retrieval-workspace.test-helpers';
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -62,4 +64,37 @@ describe('codemem soak', () => {
     );
     expect(store.searchWorkspaceChunks(result.workspaceHash, '199', 5)).toHaveLength(0);
   }, 30_000);
+});
+
+// The search ceiling for `code-retrieval-load.spec.ts`'s workspace, at full size. A real-clock limit belongs
+// here, in the slow tier that CI runs on its own machine, not in the default suite on a busy Mac.
+describe('codemem search speed', () => {
+  let workDir: string;
+  let db: SqliteDriver;
+  let store: CasStore;
+  let mgr: CodeIndexManager;
+
+  beforeEach(() => {
+    workDir = join(tmpdir(), `codemem-search-speed-${Date.now()}-${Math.random()}`);
+    db = defaultDriverFactory(':memory:');
+    migrate(db);
+    store = new CasStore(db);
+    mgr = new CodeIndexManager({ store });
+  });
+
+  afterEach(async () => {
+    await mgr.stop();
+    db.close();
+    await rm(workDir, { recursive: true, force: true });
+  });
+
+  it('keeps every search under 500 ms with 3,000 generated files beside 500 source files', async () => {
+    await writeRetrievalWorkspace(workDir, 1_000);
+    const result = await mgr.coldIndex(workDir);
+    expect(store.searchWorkspaceChunks(result.workspaceHash, 'generated dependency', 10)).toHaveLength(0);
+
+    const slowestMs = await searchAcrossSources(new CodeRetrievalService({ store }), workDir);
+
+    expect(slowestMs).toBeLessThan(500);
+  }, 60_000);
 });

@@ -12,6 +12,8 @@ const deflateAsync = promisify(deflate);
 const MAX_FILES = 10_000;
 const MAX_BYTES = 128 * 1024 * 1024;
 const MAX_FILE_BYTES = 32 * 1024 * 1024;
+/** How long one snapshot may take, and each git call in a snapshot or a comparison. */
+export const SNAPSHOT_TIME_LIMIT_MS = 2_000;
 /**
  * File and folder times come from the filesystem, not the JS clock. Linux stamps them from a coarse kernel clock
  * (a 10 ms tick on the WSL2 test machine, which measured 7 to 18 ms behind the JS clock; macOS showed
@@ -39,9 +41,9 @@ function gitEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   for (const key of Object.keys(env)) if (key.startsWith('GIT_')) delete env[key];
   return { ...env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C', ...extra };
 }
-async function git(cwd: string, args: string[], env = gitEnv(), signal?: AbortSignal): Promise<string> {
+async function git(cwd: string, args: string[], timeLimitMs: number, env = gitEnv(), signal?: AbortSignal): Promise<string> {
   const { stdout } = await execFileAsync('git', ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', ...args], {
-    cwd, env, signal, timeout: 2_000, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8',
+    cwd, env, signal, timeout: timeLimitMs, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8',
   });
   return stdout;
 }
@@ -67,15 +69,16 @@ async function preparePrivateRepo(objectDir: string): Promise<void> {
  * The deadline and byte/file budgets make large or slow folders truthfully unavailable.
  */
 export async function snapshotWorkingTree(workingDirectory: string, objectDir: string,
-  signal?: AbortSignal, settledAt?: number, baselinePaths: readonly string[] = []): Promise<WorkingTreeSnapshot> {
-  const deadline = Date.now() + 2_000;
+  signal?: AbortSignal, settledAt?: number, baselinePaths: readonly string[] = [],
+  timeLimitMs = SNAPSHOT_TIME_LIMIT_MS): Promise<WorkingTreeSnapshot> {
+  const deadline = Date.now() + timeLimitMs;
   const check = () => { signal?.throwIfAborted(); if (Date.now() > deadline) throw new SnapshotBudgetError('snapshot deadline'); };
   const tooCloseToSettlement = (stat: { mtimeMs: number; ctimeMs: number }): boolean =>
     settledAt !== undefined && (stat.mtimeMs > settledAt - BOUNDARY_UNCERTAINTY_MS || stat.ctimeMs > settledAt - BOUNDARY_UNCERTAINTY_MS);
   let repoRoot: string;
   let indexPath: string;
   try {
-    const located = (await git(workingDirectory, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-path', 'index'], undefined, signal)).trim().split('\n');
+    const located = (await git(workingDirectory, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-path', 'index'], timeLimitMs, undefined, signal)).trim().split('\n');
     [repoRoot, indexPath] = located;
     if (!repoRoot || !indexPath) throw new Error('git did not locate the index');
   }
@@ -103,11 +106,11 @@ export async function snapshotWorkingTree(workingDirectory: string, objectDir: s
     const shared = (await fs.readdir(path.dirname(indexPath))).filter(name => /^sharedindex\.[0-9a-f]+$/.test(name));
     if (shared.length > 32) throw new SnapshotBudgetError('shared-index budget');
     for (const name of shared) await copyIndex(path.join(path.dirname(indexPath), name), path.join(objectDir, '.repo', name));
-    tracked = await git(repoRoot, ['ls-files', '--cached', '-z'], { ...privateEnv(objectDir), GIT_INDEX_FILE: enumerationIndex }, signal);
+    tracked = await git(repoRoot, ['ls-files', '--cached', '-z'], timeLimitMs, { ...privateEnv(objectDir), GIT_INDEX_FILE: enumerationIndex }, signal);
   }
   // Using an empty index preserves original .gitignore/info-exclude/global rules without
   // asking git to read or refresh the real (possibly split) index. Tracked paths are unioned above.
-  const others = await git(repoRoot, ['ls-files', '--others', '--exclude-standard', '-z'],
+  const others = await git(repoRoot, ['ls-files', '--others', '--exclude-standard', '-z'], timeLimitMs,
     gitEnv({ GIT_INDEX_FILE: path.join(objectDir, '.empty-index') }), signal);
   const files = [...new Set([...tracked.split('\0'), ...others.split('\0'), ...baselinePaths].filter(Boolean))];
   if (files.length > MAX_FILES) throw new SnapshotBudgetError('snapshot file budget');
@@ -186,7 +189,7 @@ export async function snapshotWorkingTree(workingDirectory: string, objectDir: s
   check();
   // --index-info reads only already-written objects; it never consults filters or the real index.
   const child = execFile('git', ['update-index', '-z', '--index-info'], {
-    cwd: repoRoot, env, signal, timeout: 2_000, maxBuffer: 16 * 1024 * 1024,
+    cwd: repoRoot, env, signal, timeout: timeLimitMs, maxBuffer: 16 * 1024 * 1024,
   });
   await new Promise<void>((resolve, reject) => {
     child.once('error', reject);
@@ -195,7 +198,7 @@ export async function snapshotWorkingTree(workingDirectory: string, objectDir: s
     child.stdin!.end(records.join(''));
   });
   check();
-  const tree = (await git(repoRoot, ['write-tree'], env, signal)).trim();
+  const tree = (await git(repoRoot, ['write-tree'], timeLimitMs, env, signal)).trim();
   return { tree, repoRoot, objectDir, objectsPath: objectDir, completedAt: Date.now(), paths: files };
 }
 
@@ -203,6 +206,7 @@ export async function snapshotWorkingTree(workingDirectory: string, objectDir: s
 export async function diffTrees(
   start: WorkingTreeSnapshot,
   end: WorkingTreeSnapshot,
+  timeLimitMs = SNAPSHOT_TIME_LIMIT_MS,
 ): Promise<{ files: TurnFileChange[]; total: number }> {
   if (start.tree === end.tree) return { files: [], total: 0 };
   if (start.repoRoot !== end.repoRoot) throw new Error('snapshots are from different repositories');
@@ -211,8 +215,8 @@ export async function diffTrees(
   const env = privateEnv(end.objectDir, objectFolders(start.objectDir));
   const common = [ 'diff-tree', '-r', '--no-renames', '--no-ext-diff', '--no-textconv', '-z'];
   const [names, numbers] = await Promise.all([
-    git(start.repoRoot, [...common, '--name-status', start.tree, end.tree], env),
-    git(start.repoRoot, [...common, '--numstat', start.tree, end.tree], env),
+    git(start.repoRoot, [...common, '--name-status', start.tree, end.tree], timeLimitMs, env),
+    git(start.repoRoot, [...common, '--numstat', start.tree, end.tree], timeLimitMs, env),
   ]);
 
   const counts = new Map<string, { added: number | null; deleted: number | null }>();

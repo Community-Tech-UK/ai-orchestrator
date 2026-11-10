@@ -218,6 +218,25 @@ export class ProviderAccountsTabComponent implements OnInit {
       && this.byProvider()[account.provider].filter((entry) => entry.enabled).length === 1;
   }
 
+  /**
+   * The store adds a second account switched off, and refuses to switch it on,
+   * until the pool's ownership is confirmed, so the toggle explains and blocks.
+   */
+  waitsForOwnership(account: ProviderAccountView): boolean {
+    return !account.enabled
+      && this.poolsSignal()?.[account.provider]?.acknowledgedOwnershipAt === null
+      && this.byProvider()[account.provider].some((entry) => entry.enabled);
+  }
+
+  /** What to do instead of removing the existing sign-in; nothing once it is already off. */
+  legacyNextStep(account: ProviderAccountView): string | null {
+    if (!account.enabled) return null;
+    if (!this.isOnlyEnabled(account)) return 'Untick Enabled to stop Harness using it.';
+    return this.poolsSignal()?.[account.provider]?.acknowledgedOwnershipAt === null
+      ? 'Confirm below that these are your own accounts, switch on another account, then switch this one off.'
+      : 'Switch on another account first, then switch this one off.';
+  }
+
   doctorWarnings(provider: PooledProvider): string[] {
     return this.doctorSignal()[provider]?.warnings ?? [];
   }
@@ -361,9 +380,16 @@ export class ProviderAccountsTabComponent implements OnInit {
     await this.mutate(() => this.ipc.update({ provider: account.provider, profileId: account.id, adoptObservedIdentity: true }), account);
   }
 
-  async setEnabled(account: ProviderAccountView, enabled: boolean): Promise<void> {
+  /**
+   * A refused change leaves the bound value unchanged, so Angular never resets
+   * the box; put it back to the account's real state here.
+   */
+  async setEnabled(account: ProviderAccountView, toggle: HTMLInputElement): Promise<void> {
+    const enabled = toggle.checked;
     if (enabled === account.enabled) return;
     await this.mutate(() => this.ipc.update({ provider: account.provider, profileId: account.id, enabled }), account);
+    toggle.checked = this.accountsSignal()
+      .find((entry) => entry.provider === account.provider && entry.id === account.id)?.enabled ?? account.enabled;
   }
 
   async setAutomationPolicy(account: ProviderAccountView, automationPolicy: AccountAutomationPolicy): Promise<void> {

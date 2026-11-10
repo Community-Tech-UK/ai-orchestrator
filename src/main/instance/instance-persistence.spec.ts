@@ -222,6 +222,24 @@ describe('InstancePersistenceManager', () => {
     );
   });
 
+  it('marks an edited resend as typed only when the edited message was itself typed by a person', async () => {
+    const initialPromptOrigin = { kind: 'person' as const, typedAt: 123 };
+    sourceInstance.outputBuffer = [
+      message('assistant-1'),
+      { ...message('typed-2'), type: 'user', metadata: { inputOrigin: { kind: 'person', typedAt: 50 } } },
+      { ...message('harness-3'), type: 'user', content: 'Queue worker prompt [session: Other · other]' },
+    ];
+    loadMessagesMock.mockResolvedValue([]);
+
+    await manager.forkInstance({ instanceId: sourceInstance.id, sourceMessageId: 'typed-2', initialPrompt: 'edited', initialPromptOrigin });
+    await manager.forkInstance({ instanceId: sourceInstance.id, sourceMessageId: 'typed-2', initialPrompt: 'edited' });
+    await manager.forkInstance({ instanceId: sourceInstance.id, sourceMessageId: 'harness-3', initialPrompt: 'edited', initialPromptOrigin });
+
+    expect(createInstanceMock.mock.calls[0][0]).toMatchObject({ initialPrompt: 'edited', initialPromptOrigin });
+    expect(createInstanceMock.mock.calls[1][0].initialPromptOrigin).toBeUndefined();
+    expect(createInstanceMock.mock.calls[2][0].initialPromptOrigin).toBeUndefined();
+  });
+
   it('preserves a provider-decided runtime instead of escalating the fork to the default', async () => {
     // An instance with no stored effort is one running provider-decided. Passing
     // `undefined` would read as "unchosen" at spawn and re-apply the app default

@@ -1,19 +1,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver, SqliteStatement } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import type { LocalAiRoutingEvent } from '../../shared/types/local-ai-guard.types';
 import { getLocalAiFallbackSpend, type LocalAiFallbackSpendQuery } from './local-ai-fallback-spend';
 import { LocalAiHealthRepository } from './local-ai-health-repository';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const dbs: SqliteDriver[] = [];
 
-function openMigratedDb(): SqliteDriver {
-  const db = defaultDriverFactory(':memory:');
-  dbs.push(db);
+const rlmTemplate = useSqliteTemplate((db) => {
   createTables(db);
   createMigrationsTable(db);
   runMigrations(db);
+});
+
+function openMigratedDb(): SqliteDriver {
+  const db = rlmTemplate.open();
+  dbs.push(db);
   return db;
 }
 

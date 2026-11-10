@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AutomationCreatePayloadSchema, AutomationRunChangedEventSchema } from '@contracts/schemas/automation';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import type { AutomationRun, ClaimedAutomationRun } from '../../shared/types/automation.types';
-import { createSqliteWasmDatabase } from '../db/sqlite-wasm-driver';
 import { createTables, createMigrationsTable, runMigrations } from '../persistence/rlm/rlm-schema';
 import { MainEventBus } from '../event-bus/main-event-bus';
 import { ElectronWindowTransport } from '../event-bus/electron-window-transport';
@@ -14,6 +13,7 @@ import { AutomationStore } from './automation-store';
 import { AutomationCheckStore, _resetAutomationCheckStoreForTesting } from './automation-check-store';
 import { runAutomationPreCheckGate } from './automation-pre-check-gate';
 import { hashCheckOutput } from './automation-pre-check';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const state = vi.hoisted(() => ({ directory: '', db: null as SqliteDriver | null }));
 vi.mock('electron', () => ({ app: { getPath: () => state.directory } }));
@@ -28,13 +28,15 @@ vi.mock('../notifications/notification-service', () => ({ getNotificationService
 let db: SqliteDriver;
 let store: AutomationStore;
 let checks: AutomationCheckStore;
-beforeEach(() => {
-  state.directory = mkdtempSync(join(tmpdir(), 'aio-runtime-prompt-'));
-  db = createSqliteWasmDatabase(':memory:');
-  state.db = db;
+const rlmTemplate = useSqliteTemplate((db) => {
   createTables(db);
   createMigrationsTable(db);
   runMigrations(db);
+});
+beforeEach(() => {
+  state.directory = mkdtempSync(join(tmpdir(), 'aio-runtime-prompt-'));
+  db = rlmTemplate.open();
+  state.db = db;
   store = new AutomationStore(db, new AutomationAttachmentService(db));
   checks = new AutomationCheckStore(db);
   _resetAutomationCheckStoreForTesting();

@@ -70,8 +70,37 @@ export class DesiredRuntimeQueue {
   private readonly accountCompletions = new Map<string, AccountChangeCompletion>();
   /** A live stamp may still precede a write held behind the session mutex. */
   private readonly applying = new Map<string, ActiveRuntimeChange>();
+  /**
+   * Settles when the instance's scheduled or running apply (and any follow-up
+   * it schedules) is done. The apply replaces the adapter, so input must not
+   * reach the session in between.
+   */
+  private readonly inFlight = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: DesiredRuntimeQueueDeps) {}
+
+  /**
+   * Resolves once no runtime change is scheduled or running for the instance,
+   * or `undefined` when none is. A follow-up change scheduled by a finishing
+   * apply is waited for too. Never rejects: the caller re-checks the instance.
+   */
+  whenSettled(instanceId: string): Promise<void> | undefined {
+    if (!this.inFlight.has(instanceId)) return undefined;
+    return (async () => {
+      for (let work = this.inFlight.get(instanceId); work; work = this.inFlight.get(instanceId)) await work;
+    })();
+  }
+
+  /** Track an apply until `finish` is called (after all of its bookkeeping, including any follow-up schedule). */
+  private trackInFlight(instanceId: string): () => void {
+    let finish!: () => void;
+    const work = new Promise<void>((resolve) => { finish = resolve; });
+    this.inFlight.set(instanceId, work);
+    return () => {
+      if (this.inFlight.get(instanceId) === work) this.inFlight.delete(instanceId);
+      finish();
+    };
+  }
 
   /**
    * Whether the change may be applied right now. Status alone is not enough:
@@ -135,6 +164,8 @@ export class DesiredRuntimeQueue {
       this.applying.set(instanceId, immediate);
       instance.desiredRuntime = desired;
       this.deps.publishPendingState(instance);
+      // Finished at the very end of `finally`; the parking below and any follow-up schedule run synchronously before a waiter resumes.
+      const finishInFlight = this.trackInFlight(instanceId);
       let requeued = false;
       let failedPermanently = false;
       try {
@@ -157,15 +188,20 @@ export class DesiredRuntimeQueue {
         // Became busy, or a loop took the adapter mid-flight — queue below.
         requeued = true;
       } finally {
-        this.applying.delete(instanceId);
-        const live = this.deps.getInstance(instanceId);
-        if (!requeued) {
-          this.finishYoloCleanup(instanceId, immediate.yoloCleanup, failedPermanently ? desired : undefined);
-          this.clearAppliedPendingState(instanceId, desired);
-          if (live) this.onSettled(live);
-        } else {
-          retryAfterParking = immediate.boundaryObserved;
-          yoloCleanupAfterParking = immediate.yoloCleanup;
+        try {
+          this.applying.delete(instanceId);
+          const live = this.deps.getInstance(instanceId);
+          if (!requeued) {
+            this.finishYoloCleanup(instanceId, immediate.yoloCleanup, failedPermanently ? desired : undefined);
+            this.clearAppliedPendingState(instanceId, desired);
+            if (live) this.onSettled(live);
+          } else {
+            retryAfterParking = immediate.boundaryObserved;
+            yoloCleanupAfterParking = immediate.yoloCleanup;
+          }
+        } finally {
+          // A throw in the bookkeeping must not leave every later send waiting out its budget.
+          finishInFlight();
         }
       }
     }
@@ -326,8 +362,9 @@ export class DesiredRuntimeQueue {
       return;
     }
     this.scheduled.add(instanceId);
+    const finish = this.trackInFlight(instanceId);
     setImmediate(() => {
-      void this.apply(instanceId);
+      void this.apply(instanceId).finally(finish);
     });
   }
 

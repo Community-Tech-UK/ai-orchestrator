@@ -216,6 +216,18 @@ describe('GraphClient', () => {
     )).toBe(true);
   });
 
+  it('deletes a mail draft with a plain DELETE for the named account, never permanentDelete', async () => {
+    const requests: { url: string; method?: string }[] = [];
+    const tokens: string[] = [];
+    const client = new GraphClient({
+      tokenProvider: { getAccessToken: async (accountKey: string) => { tokens.push(accountKey); return 'PLACEHOLDER_ACCESS'; } },
+      fetch: async (url, init) => { requests.push({ url: String(url), method: init?.method }); return new Response(null, { status: 204 }); },
+    });
+    await expect(client.deleteMailDraft('account-b', 'draft/1')).resolves.toBeUndefined();
+    expect(requests).toEqual([{ url: 'https://graph.microsoft.com/v1.0/me/messages/draft%2F1', method: 'DELETE' }]);
+    expect(tokens).toEqual(['account-b']);
+  });
+
   it('retries a 429 after its Retry-After delay', async () => {
     const delays: number[] = [];
     let attempts = 0;

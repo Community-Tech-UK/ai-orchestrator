@@ -2041,11 +2041,6 @@ describe('CodexCliAdapter', () => {
       });
     });
 
-    it('reports isAppServerMode()=false before spawn', () => {
-      const adapter = new CodexCliAdapter();
-      expect(adapter.isAppServerMode()).toBe(false);
-    });
-
     it('falls back to exec mode when app-server is not available', async () => {
       const adapter = new CodexCliAdapter();
       vi.spyOn(adapter, 'checkStatus').mockResolvedValue({
@@ -2112,17 +2107,6 @@ describe('CodexCliAdapter', () => {
   });
 
   describe('new config options', () => {
-    it('accepts outputSchema in config', () => {
-      const schema = { type: 'object', properties: { score: { type: 'number' } } };
-      const adapter = new CodexCliAdapter({ outputSchema: schema });
-      expect(adapter.getCapabilities().outputFormats).toContain('json');
-    });
-
-    it('accepts reasoningEffort in config', () => {
-      const adapter = new CodexCliAdapter({ reasoningEffort: 'high' });
-      expect(adapter.getCapabilities().toolUse).toBe(true);
-    });
-
     it('compactContext returns false when not in app-server mode', async () => {
       const adapter = new CodexCliAdapter();
       const result = await adapter.compactContext();

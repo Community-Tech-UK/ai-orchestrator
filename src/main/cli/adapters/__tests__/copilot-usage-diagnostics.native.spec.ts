@@ -128,7 +128,11 @@ const malformedCases = [
 ];
 
 describe('Copilot native usage diagnostic boundary', () => {
-  it.each(fields.flatMap(field => malformedCases.map(test => ({ field, ...test }))))(
+  // All value kinds on one field; the other fields share copilotUsageDiagnostic, so one present and one
+  // missing value each prove they are wired through it.
+  it.each(fields.flatMap(field => malformedCases
+    .filter(test => field === 'premiumRequests' || test.name === 'source string' || test.name === 'missing')
+    .map(test => ({ field, ...test }))))(
     'describes $name in $field without logging source or changing native usage',
     async ({ field, json, diagnostic }) => {
       const usageJson = '{' + fields.flatMap(key => {

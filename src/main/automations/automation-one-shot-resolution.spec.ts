@@ -1,7 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getMocks, makeHarness, makeFakeAdapter } from '../instance/__tests__/instance-lifecycle-source-diagnostics.fixture';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { AutomationStore } from './automation-store';
 import { AutomationRunner } from './automation-runner';
@@ -17,6 +16,7 @@ import type { Instance, InstanceCreateConfig } from '../../shared/types/instance
 import { _setSettingsReaderForTesting } from '../cli/adapters/claude-env-pack';
 import { attemptInstanceFailover } from '../instance/instance-failover';
 import { AutomationRunSchema, AutomationSchema } from '@contracts/schemas/automation';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const detection = vi.hoisted(() => ({ available: ['claude', 'codex'] }));
 vi.mock('../cli/cli-detection', async importOriginal => ({
@@ -31,6 +31,11 @@ vi.mock('../session/artifact-attribution-store', () => ({ getArtifactAttribution
 const mocks = getMocks();
 const NOW = Date.UTC(2026, 9, 20, 12);
 describe('one-shot MCP authority through persistence, actual lifecycle and actual provider/model resolution', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   let db: SqliteDriver;
   let store: AutomationStore;
   let harness: ReturnType<typeof makeHarness>;
@@ -49,7 +54,7 @@ describe('one-shot MCP authority through persistence, actual lifecycle and actua
     mocks.createAdapter.mockReturnValue(makeFakeAdapter());
     caller = { provider: 'claude', currentModel: 'sonnet', reasoningEffort: 'low', yoloMode: false };
     spawned = undefined; startup = undefined;
-    db = defaultDriverFactory(':memory:'); createTables(db); createMigrationsTable(db); runMigrations(db);
+    db = rlmTemplate.open();
     store = new AutomationStore(db, { prepare: async () => [], replacePrepared: () => undefined,
       listForAutomation: async () => [] } as unknown as AutomationAttachmentService);
     harness = makeHarness(); resetAutomationEventsForTesting();

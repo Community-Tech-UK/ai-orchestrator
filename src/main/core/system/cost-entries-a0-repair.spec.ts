@@ -2,13 +2,18 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
-import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../../persistence/rlm/rlm-schema';
 import { _resetCostAttributionForTesting } from './cost-attribution';
 import { costProviderKey, repairCostEntriesA0, repairStoredCostEntriesA0 } from './cost-entries-a0-repair';
+import { useSqliteTemplate } from '../../db/sqlite-template.test-helpers';
 
 describe('A0 stored cost repair', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   let db: SqliteDriver;
   let directory: string;
   const providers = new Map([[costProviderKey('mixed', 'claude-opus-5'), 'copilot'], [costProviderKey('cursor', 'gpt-6.1-sol'), 'cursor']]);
@@ -22,7 +27,7 @@ describe('A0 stored cost repair', () => {
     directory = mkdtempSync(join(tmpdir(), 'a0-repair-'));
     vi.stubEnv('AIO_COST_ATTRIBUTION_DIR', directory);
     _resetCostAttributionForTesting();
-    db = defaultDriverFactory(':memory:'); createTables(db); createMigrationsTable(db); runMigrations(db);
+    db = rlmTemplate.open();
     db.prepare("UPDATE maintenance_markers SET completed_at=1000 WHERE name='a0-per-turn-booking-live'").run();
     row('a', 'first', 'shared', 'opus', 100, 0.5);
     row('b', 'second', 'shared', 'sonnet', 200, 1.25);

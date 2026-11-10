@@ -94,13 +94,12 @@ export class SessionTranscriptReader {
       const ownMessages = await this.deps.getCompleteInstanceMessages(caller);
       const grants = new Set<string>();
       for (const message of ownMessages) {
-        // Only the user's own words can point at a session. Relayed
-        // cross-session text and Harness input are excluded by metadata, with
-        // the relay wrapper as a fallback for buffers whose provenance was
-        // lost before it was carried through continuity. Agent-written spawn
-        // prompts and messages copied from a parent are not this user's words.
-        if (message.type !== 'user' || message.metadata?.crossSessionMessage || message.metadata?.internalInput
-          || message.metadata?.agentAuthored
+        // Only words a person typed in this session can point at a session.
+        // Harness prompts, automations, agent-written spawn prompts, relays and
+        // messages copied from a parent never carry the marker. The relay
+        // wrapper is refused as well, in case a relay reached the buffer
+        // through a path that kept a marker it should not have.
+        if (message.type !== 'user' || message.metadata?.inputOrigin?.kind !== 'person'
           || isCrossSessionMessageText(message.content)) continue;
         for (const match of message.content.matchAll(/\[session: [^\]\r\n]* · ([^\]\s]+)\]/g)) grants.add(match[1]);
       }

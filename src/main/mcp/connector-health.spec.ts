@@ -54,7 +54,7 @@ describe('Microsoft 365 connector health', () => {
   it('checks actual calendar and enabled mail access using authenticated read-only requests', async () => {
     const test = setup();
     const tools = await listConnectorTools(record, { getAccessToken: vi.fn() });
-    expect(tools).toHaveLength(10);
+    expect(tools).toHaveLength(11);
     expect(test.requests.map(({ url, init }) => [init?.method, url])).toEqual([
       ['GET', 'https://graph.microsoft.com/v1.0/me/calendars'],
       ['GET', 'https://graph.microsoft.com/v1.0/me/mailFolders'],

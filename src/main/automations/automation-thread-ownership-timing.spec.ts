@@ -2,7 +2,6 @@ import { EventEmitter } from 'events';
 import { expect, it, vi } from 'vitest';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { InstanceSendInputOptions } from '../instance/instance-input-cancellation';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { trackConsult } from '../work-admission/consult-admission';
 import { WorkAdmission } from '../work-admission/work-admission';
@@ -12,6 +11,7 @@ import { getAutomationEvents, resetAutomationEventsForTesting } from './automati
 import { createGlobalPauseRuntime } from '../global-pause/global-pause-runtime';
 import { GlobalPauseService } from '../global-pause/global-pause-service';
 import { GlobalPauseStore } from '../global-pause/global-pause-store';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const ports=vi.hoisted(()=>({store:null as unknown,runner:null as unknown,revive:vi.fn(),control:vi.fn()}));
 vi.mock('electron',()=>({app:{getPath:()=>'/tmp/ai-orchestrator-test'},powerMonitor:new EventEmitter()}));
@@ -27,11 +27,16 @@ type PickupTiming='before-engine'|'checkpoint'|'consult'|'startup-settle'|'engin
 const cases=([ 'before-engine','checkpoint','consult','startup-settle','engine-settle'] as PickupTiming[])
   .flatMap(timing=>[false,true].map(finished=>({timing,finished,dispatched:true})));
 cases.push({timing:'consult',finished:false,dispatched:false});
+const rlmTemplate = useSqliteTemplate((db) => {
+  createTables(db);
+  createMigrationsTable(db);
+  runMigrations(db);
+});
 function deferred(){let resolve!:()=>void;const promise=new Promise<void>(done=>{resolve=done;});return {promise,resolve};}
 
 it.each(cases)('leaves manually picked-up work alone during collection: %j',async({timing,finished,dispatched})=>{
   GlobalPauseService._resetForTesting();WorkAdmission._resetForTesting();resetAutomationEventsForTesting();ports.control.mockReset();
-  const db=defaultDriverFactory(':memory:');createTables(db);createMigrationsTable(db);runMigrations(db);
+  const db=rlmTemplate.open();
   const store=new AutomationStore(db,{prepare:async()=>[],replacePrepared:()=>undefined,listForAutomation:async()=>[]} as never);
   const sending=deferred(),earlierStop=deferred(),releaseEarlier=deferred();
   const providerMessages:string[]=[];

@@ -1852,6 +1852,11 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   private persistComposerText(value: string): void {
+    // While the last sent message is being edited the box holds that message,
+    // not the draft. The draft stays saved as it was, so Escape, a session
+    // switch or a reload brings it back instead of the half-edited message.
+    if (this.editMode()) return;
+
     if (this.isDraftComposer()) {
       this.newSessionDraft.setPrompt(value);
       return;

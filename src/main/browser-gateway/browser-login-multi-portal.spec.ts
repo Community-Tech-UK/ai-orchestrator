@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { InMemoryLoginRecipeStore, LoginFingerprintStore, type LoginRecipeRecordStore } from './browser-login-recipe-store';
 import { SqliteLoginRecipeStore } from './browser-unattended-sqlite-stores';
 import { checkSessionOperation, type CheckSessionDeps } from './browser-session-relogin';
 import type { BrowserGatewayResult } from '@contracts/types/browser';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const ORIGIN = 'https://supplier.example';
 const PROFILE = 'existing-tab:n.windows-pc:1:1';
@@ -15,14 +15,16 @@ function allowed<T>(data: T): BrowserGatewayResult<T> {
 }
 
 describe.each(['sqlite', 'memory'])('shared-origin buyer login recipes (LT-708, %s)', (backend) => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   let db: SqliteDriver;
   let records: LoginRecipeRecordStore;
   let store: LoginFingerprintStore;
   beforeEach(() => {
-    db = defaultDriverFactory(':memory:');
-    createTables(db);
-    createMigrationsTable(db);
-    runMigrations(db);
+    db = rlmTemplate.open();
     records = backend === 'sqlite' ? new SqliteLoginRecipeStore(db) : new InMemoryLoginRecipeStore();
     store = new LoginFingerprintStore(records);
   });

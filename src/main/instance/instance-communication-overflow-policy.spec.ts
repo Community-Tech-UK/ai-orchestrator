@@ -266,7 +266,7 @@ describe('InstanceCommunicationOverflowPolicy', () => {
     expect(getInstanceTurnEnding(instance.id)).toBe('context_overflow');
   });
 
-  it.each(['stop', 'new-user-input', 'new-adapter'])('does not dispatch or change status after %s during compaction', async (cause) => {
+  it.each(['stop', 'new-adapter'])('does not dispatch or change status after %s during compaction', async (cause) => {
     const tracker = new InstanceCommunicationOverflowTracker();
     const adapter = { sendInput: vi.fn().mockResolvedValue(undefined) };
     let currentAdapter = adapter;
@@ -281,7 +281,8 @@ describe('InstanceCommunicationOverflowPolicy', () => {
     });
     const pending = policy.recoverSendInputOverflow({ instanceId: instance.id, instance, errorText: 'context overflow', message: 'original', adapter: adapter as unknown as CliAdapter });
     if (cause === 'new-adapter') currentAdapter = { sendInput: vi.fn() };
-    else invalidateInstanceRecoveryEpoch(instance.id); // actual coordinator boundary, before requestCount changes
+    // Stop and new user input both cross this same coordinator boundary, before requestCount changes.
+    else invalidateInstanceRecoveryEpoch(instance.id);
     release();
     await expect(pending).resolves.toBe(true);
     expect(adapter.sendInput).not.toHaveBeenCalled();

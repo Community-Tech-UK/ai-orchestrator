@@ -10,7 +10,7 @@ import { evaluateContextWindowGuard } from '../context/context-window-guard';
 import { getCrossModelReviewService } from '../orchestration/cross-model-review-service';
 import { getDebateCoordinator } from '../orchestration/debate-coordinator';
 import { getDoomLoopDetector } from '../orchestration/doom-loop-detector';
-import { toolLoopNotice } from '../orchestration/tool-loop-notice';
+import { shouldTellUserAboutToolLoop, toolLoopNotice } from '../orchestration/tool-loop-notice';
 import { willAutoInterruptToolLoop } from '../instance/instance-tool-loop-wiring';
 import { getNotificationService } from '../notifications/notification-service';
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -530,6 +530,13 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
   // the `ToolLoopDetectionEvent` fields plus `harnessStopping`
   // (`InstanceDoomLoopEventSchema`).
   getDoomLoopDetector().on('tool-loop-detected', (event) => {
+    const instance = instanceManager.getInstance(event.instanceId);
+    // Forwarded before the wiring's auto-interrupt runs, so this is the same
+    // rule it is about to apply; a failed stop re-emits with `autoStopFailed`.
+    const harnessStopping = event.autoStopFailed !== true && willAutoInterruptToolLoop(
+      event, instance?.provider, getSettingsManager().get('toolLoopAutoInterrupt'));
+    // The detector has already logged every detection; only the ones a person should act on go further.
+    if (!shouldTellUserAboutToolLoop(event, harnessStopping)) return;
     logger.warn('Forwarding tool loop detection to renderer', {
       instanceId: event.instanceId,
       detector: event.detector,
@@ -538,11 +545,6 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       count: event.count,
       autoStopFailed: event.autoStopFailed === true,
     });
-    const instance = instanceManager.getInstance(event.instanceId);
-    // Forwarded before the wiring's auto-interrupt runs, so this is the same
-    // rule it is about to apply; a failed stop re-emits with `autoStopFailed`.
-    const harnessStopping = event.autoStopFailed !== true && willAutoInterruptToolLoop(
-      event, instance?.provider, getSettingsManager().get('toolLoopAutoInterrupt'));
     windowManager.sendToRenderer('instance:doom-loop', {
       instanceId: event.instanceId,
       detector: event.detector,
@@ -557,7 +559,6 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
     // burns money mostly while nobody is looking.
     try {
       const notice = toolLoopNotice({
-        severity: event.severity === 'critical' ? 'critical' : 'warning',
         detector: event.detector,
         toolName: event.toolName,
         count: event.count,
@@ -565,17 +566,15 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
         instanceName: instance?.displayName,
         harnessWillStop: harnessStopping,
       });
-      if (notice) {
-        getNotificationService().notify({
-          kind: 'tool-loop',
-          instanceId: event.instanceId,
-          title: notice.title,
-          body: notice.body,
-          urgency: notice.urgency,
-          // A failed automatic stop is new news: its own record and desktop alert, not a silent edit of "Harness is stopping it".
-          fingerprintFields: { instanceId: event.instanceId, toolName: event.toolName, autoStopFailed: event.autoStopFailed === true },
-        });
-      }
+      getNotificationService().notify({
+        kind: 'tool-loop',
+        instanceId: event.instanceId,
+        title: notice.title,
+        body: notice.body,
+        urgency: notice.urgency,
+        // A failed automatic stop is new news: its own record and desktop alert, not a silent edit of "Harness is stopping it".
+        fingerprintFields: { instanceId: event.instanceId, toolName: event.toolName, autoStopFailed: event.autoStopFailed === true },
+      });
     } catch (err) {
       logger.debug('Tool loop notification failed', {
         error: err instanceof Error ? err.message : String(err),

@@ -120,6 +120,16 @@ describe('native failed Claude turn → durable worker transport → controller 
     child.stdout?.emit('data', Buffer.from(values.map(value => JSON.stringify(value)).join('\n') + '\n'));
   }
   function completeFrames(): (RpcNotification | RpcRequest)[] { return frames.filter(frame => frame.method === 'instance.complete'); }
+  // The fake child exits but never closes, so terminating it waits out the adapter's 3 s
+  // close deadline (claude-one-shot-lifecycle.ts). Run that deadline on fake timers.
+  async function pastCloseDeadline(terminate: () => Promise<unknown>): Promise<void> {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const done = terminate();
+      await vi.advanceTimersByTimeAsync(3_500);
+      await done;
+    } finally { vi.useRealTimers(); }
+  }
 
   it.each([[false, false], [false, true], [true, false], [true, true]] as const)('serializes one settled row per turn, offline=%s, sameChunk=%s', async (offline, sameChunk) => {
     await remote.sendInput('First'); emit(result(0.5, 100, 20));
@@ -210,7 +220,7 @@ describe('native failed Claude turn → durable worker transport → controller 
   it.each(['terminate', 'force-cleanup', 'exit'] as const)('settles pending controller billing once on remote %s cleanup', async ending => {
     await remote.sendInput('Failed before transport cleanup'); emit(partial, overloaded);
     expect(controllerResponses).toHaveLength(1); expect(getCostTracker().getEntries()).toHaveLength(0);
-    if (ending === 'terminate') await remote.terminate(false);
+    if (ending === 'terminate') await pastCloseDeadline(() => remote.terminate(false));
     else if (ending === 'force-cleanup') remote.forceCleanup();
     else remote.handleRemoteExit(0, null);
     expect(getCostTracker().getEntries()).toHaveLength(1);
@@ -226,7 +236,7 @@ describe('native failed Claude turn → durable worker transport → controller 
     await remote.sendInput('Failed without native result'); emit(partial, overloaded);
     expect(nativeResponses).toHaveLength(1); expect(controllerResponses).toHaveLength(1);
     expect(getCostTracker().getEntries()).toHaveLength(0);
-    await manager.terminate('worker-instance');
+    await pastCloseDeadline(() => manager.terminate('worker-instance'));
     expect(controllerResponses).toHaveLength(1);
     expect(controllerResponses[0].metadata?.['turnErrored']).toBe(true);
     expect(controllerResponses[0].usage?.cost).toBeUndefined();

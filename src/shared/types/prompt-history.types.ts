@@ -39,6 +39,12 @@ export interface PromptHistoryStoreV1 {
 export interface PromptHistoryDelta {
   instanceId: string;
   record: PromptHistoryRecord;
+  /**
+   * Project lists this change touched, keyed by their `projectPath`. A list
+   * with no entries was removed. The renderer applies these instead of
+   * rebuilding every project list from every session.
+   */
+  projectAliases?: PromptHistoryProjectAlias[];
 }
 
 export interface PromptHistorySnapshot {

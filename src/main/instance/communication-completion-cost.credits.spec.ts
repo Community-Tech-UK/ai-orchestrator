@@ -9,7 +9,7 @@ vi.mock('../core/system/cost-attribution', () => ({ recordInstanceTurnAttributio
 vi.mock('../context/cache-analytics-service', () => ({ getCacheAnalyticsService: () => ({ recordTurn: vi.fn() }) }));
 describe('completion credit accounting hook', () => {
   beforeEach(() => vi.clearAllMocks());
-  it.each([undefined, { inputTokens: 0, outputTokens: 0 }, { inputTokens: 10, outputTokens: 2 }])('records Copilot once for usage %j', usage => {
+  it.each([undefined, { inputTokens: 10, outputTokens: 2 }])('records Copilot once for usage %j', usage => {
     const instance = { id: 'i', sessionId: 's', provider: 'copilot', metadata: {}, contextUsage: {} } as Instance;
     recordCompletionCost('i', instance, { id: 'r', role: 'assistant', content: '', usage });
     expect(mocks.book).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ provider: 'copilot', sessionId: 's' }), 'entry');

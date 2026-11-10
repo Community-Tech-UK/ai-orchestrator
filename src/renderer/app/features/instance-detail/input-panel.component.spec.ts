@@ -41,7 +41,7 @@ import { ColdCacheResumeService } from './cold-cache-resume.service';
 import { ComposerRecoveryBannerComponent } from './composer-recovery-banner.component';
 import { RunReadinessBannerComponent } from './run-readiness-banner.component';
 import { InlineHintComponent } from '../../shared/hint/inline-hint.component';
-import type { InstanceStatus } from '../../core/state/instance/instance.types';
+import type { InstanceStatus, OutputMessage } from '../../core/state/instance/instance.types';
 import type { ContextUsage, InstanceWaitReason } from '../../../../shared/types/instance.types';
 import { ComposerQuotaNoticeComponent } from './composer-quota-notice.component';
 import { ProviderQuotaStore } from '../../core/state/provider-quota.store';
@@ -576,6 +576,155 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     } finally {
       dispose();
     }
+  });
+
+  describe('editing the last sent message', () => {
+    const conversation: OutputMessage[] = [
+      { id: 'user-1', timestamp: 1, type: 'user', content: 'First question' },
+      { id: 'assistant-1', timestamp: 2, type: 'assistant', content: 'First answer' },
+      { id: 'user-2', timestamp: 3, type: 'user', content: 'Second question' },
+      { id: 'assistant-2', timestamp: 4, type: 'assistant', content: 'Second answer' },
+      { id: 'tool-1', timestamp: 5, type: 'tool_use', content: 'tool call' },
+    ];
+
+    function typeDraft(value: string, caret = value.length): void {
+      const textarea = getTextarea();
+      textarea.value = value;
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      textarea.setSelectionRange(caret, caret);
+      fixture.detectChanges();
+    }
+
+    function press(key: string): boolean {
+      const handled = !getTextarea().dispatchEvent(keydown(key));
+      fixture.detectChanges();
+      return handled;
+    }
+
+    function banner(): string | null {
+      return fixture.nativeElement.querySelector('.edit-mode-bar')?.textContent?.trim() ?? null;
+    }
+
+    it('loads the last user message on Up from the start of the composer, and only then', () => {
+      fixture.componentRef.setInput('outputMessages', conversation.filter(m => m.type !== 'user'));
+      typeDraft('', 0);
+      expect(press('ArrowUp')).toBe(false);
+      expect(banner()).toBeNull();
+
+      fixture.componentRef.setInput('outputMessages', conversation);
+      typeDraft('my draft');
+      expect(press('ArrowUp')).toBe(false);
+      expect(banner()).toBeNull();
+      expect(component.message()).toBe('my draft');
+
+      getTextarea().setSelectionRange(0, 0);
+      expect(press('ArrowUp')).toBe(true);
+      expect(banner()).toBe('Editing last message');
+      expect(component.message()).toBe('Second question');
+      flushAnimationFrames();
+      expect(getTextarea().value).toBe('Second question');
+      expect(getTextarea().selectionStart).toBe('Second question'.length);
+    });
+
+    it('restores the earlier draft on Escape, even after Up is pressed again while editing', () => {
+      fixture.componentRef.setInput('outputMessages', conversation);
+      typeDraft('my draft', 0);
+      press('ArrowUp');
+      flushAnimationFrames();
+      getTextarea().setSelectionRange(0, 0);
+      press('ArrowUp');
+      expect(component.message()).toBe('Second question');
+
+      expect(press('Escape')).toBe(true);
+      flushAnimationFrames();
+      expect(banner()).toBeNull();
+      expect(component.message()).toBe('my draft');
+      expect(getTextarea().value).toBe('my draft');
+    });
+
+    it('keeps the earlier draft saved while the loaded message is changed, and shows it again on Escape', () => {
+      fixture.componentRef.setInput('outputMessages', conversation);
+      typeDraft('my draft', 0);
+      press('ArrowUp');
+      flushAnimationFrames();
+
+      typeDraft('Second question, half reworded');
+      expect(component.message()).toBe('Second question, half reworded');
+      expect(draftService.getDraft('inst-1')).toBe('my draft');
+
+      expect(press('Escape')).toBe(true);
+      flushAnimationFrames();
+      expect(banner()).toBeNull();
+      expect(component.message()).toBe('my draft');
+      expect(getTextarea().value).toBe('my draft');
+      expect(draftService.getDraft('inst-1')).toBe('my draft');
+    });
+
+    it('resends the edited text as a replacement for that message on Enter, even while busy', () => {
+      const resent: unknown[] = [];
+      const sent: string[] = [];
+      component.resendEdited.subscribe(event => resent.push(event));
+      component.sendMessage.subscribe(text => sent.push(text));
+      fixture.componentRef.setInput('isBusy', true);
+      fixture.componentRef.setInput('outputMessages', conversation);
+      typeDraft('', 0);
+      press('ArrowUp');
+      flushAnimationFrames();
+
+      typeDraft('   ');
+      expect(press('Enter')).toBe(true);
+      expect(resent).toEqual([]);
+      expect(banner()).toBe('Editing last message');
+
+      typeDraft('  Second question, reworded  ');
+      expect(press('Enter')).toBe(true);
+      expect(resent).toEqual([{
+        messageIndex: 2,
+        messageId: 'user-2',
+        text: '  Second question, reworded  ',
+        attachments: undefined,
+        retryMode: 'transcript-only',
+      }]);
+      expect(sent).toEqual([]);
+      expect(banner()).toBeNull();
+      expect(component.message()).toBe('');
+      expect(draftService.getDraft('inst-1')).toBe('');
+    });
+
+    it('leaves edit mode when the user switches to another session', () => {
+      draftService.drafts.set('inst-2', 'Draft on the other session');
+      fixture.componentRef.setInput('outputMessages', conversation);
+      typeDraft('', 0);
+      press('ArrowUp');
+      flushAnimationFrames();
+      expect(banner()).toBe('Editing last message');
+
+      fixture.componentRef.setInput('instanceId', 'inst-2');
+      fixture.detectChanges();
+      flushAnimationFrames();
+      expect(banner()).toBeNull();
+      expect(component.message()).toBe('Draft on the other session');
+
+      // Escape now belongs to the new session: there is no edit to cancel.
+      expect(press('Escape')).toBe(false);
+      expect(component.message()).toBe('Draft on the other session');
+    });
+
+    it('shows the earlier draft, not the half-edited message, on returning to a session left while editing', () => {
+      fixture.componentRef.setInput('outputMessages', conversation);
+      typeDraft('my draft', 0);
+      press('ArrowUp');
+      flushAnimationFrames();
+      typeDraft('Second question, half reworded');
+
+      fixture.componentRef.setInput('instanceId', 'inst-2');
+      fixture.detectChanges();
+      fixture.componentRef.setInput('instanceId', 'inst-1');
+      fixture.detectChanges();
+      flushAnimationFrames();
+      expect(banner()).toBeNull();
+      expect(component.message()).toBe('my draft');
+    });
   });
 
   it('does not let a ghost-text Escape reach the document-level cancel binding', async () => {

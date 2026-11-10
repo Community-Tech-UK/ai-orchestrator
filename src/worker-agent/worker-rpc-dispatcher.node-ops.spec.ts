@@ -1,5 +1,6 @@
 import { execFile, execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -17,7 +18,9 @@ import {
 import { WorkerRpcDispatcher } from './worker-rpc-dispatcher';
 import type { RpcMessage } from './worker-rpc-types';
 import {
+  IDLE_UNTIL_TEST_PROCESS_GONE,
   ProcessFixtureRegistry,
+  exitOnceProcessGone,
   isFixtureProcessAlive,
   waitForFixtureProcessExit,
 } from '../tests/fixtures/process-fixture';
@@ -182,10 +185,17 @@ describe('WorkerRpcDispatcher node.exec', () => {
     const fixtureTag = `aio-node-exec-no-ps-${process.pid}-${Date.now()}`;
     let child: ChildProcess | undefined;
     const killProcess = vi.fn((pid: number, signal?: string | number) => process.kill(pid, signal));
+    // The child writes this file once its TERM handler is in place; spawnProcess returns only then, and the
+    // timeout starts after it returns, so a short timeout cannot race the child's start-up.
+    const readyDir = await mkdtemp(join(tmpdir(), 'aio-node-exec-no-ps-'));
+    const readyFile = join(readyDir, 'ready');
+    const pause = new Int32Array(new SharedArrayBuffer(4));
     const executor = new WorkerNodeExecutor([process.cwd()], undefined, Date.now, {
       platform: process.platform,
       spawnProcess: ((...args: Parameters<typeof spawn>) => {
         child = fixtures.spawn(...args);
+        const deadline = Date.now() + 10_000;
+        while (!existsSync(readyFile) && Date.now() < deadline) Atomics.wait(pause, 0, 0, 5);
         return child;
       }) as typeof spawn,
       execFileProcess: (() => {
@@ -197,11 +207,20 @@ describe('WorkerRpcDispatcher node.exec', () => {
       undefined, [process.cwd()], (params) => executor.execute(params),
     );
 
-    await dispatcher.handleRpcRequest(request('node.exec', {
-      executable: process.execPath,
-      args: ['-e', 'process.on("SIGTERM",()=>{});process.stdout.write("ready");setInterval(()=>{},1000)', fixtureTag],
-      timeoutMs: 2_000,
-    }, 'service'));
+    try {
+      await dispatcher.handleRpcRequest(request('node.exec', {
+        executable: process.execPath,
+        args: [
+          '-e',
+          'process.on("SIGTERM",()=>{});require("fs").writeFileSync(process.argv[2],"");process.stdout.write("ready");' + IDLE_UNTIL_TEST_PROCESS_GONE,
+          fixtureTag,
+          readyFile,
+        ],
+        timeoutMs: 50,
+      }, 'service'));
+    } finally {
+      await rm(readyDir, { recursive: true, force: true });
+    }
 
     expect(sendError).not.toHaveBeenCalled();
     expect(sendResult).toHaveBeenCalledWith(73, expect.objectContaining({
@@ -233,7 +252,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
       executable: process.execPath,
       args: [
         '-e',
-        'process.on("SIGTERM",()=>setTimeout(()=>{process.stdout.write("late success");process.exit(0)},800));setInterval(()=>{},1000)',
+        'process.on("SIGTERM",()=>setTimeout(()=>{process.stdout.write("late success");process.exit(0)},800));' + IDLE_UNTIL_TEST_PROCESS_GONE,
       ],
       timeoutMs: 150,
     }, 'service'));
@@ -260,7 +279,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
         executable: process.execPath,
         args: [
           '-e',
-          'const child=require("node:child_process").spawn(process.execPath,["-e","setTimeout(()=>process.exit(0),1000)"],{stdio:["ignore","inherit","inherit"]});require("node:fs").writeFileSync(process.argv[1],String(child.pid));setInterval(()=>{},1000)',
+          'const child=require("node:child_process").spawn(process.execPath,["-e","setTimeout(()=>process.exit(0),1000)"],{stdio:["ignore","inherit","inherit"]});require("node:fs").writeFileSync(process.argv[1],String(child.pid));' + IDLE_UNTIL_TEST_PROCESS_GONE,
           descendantPidPath,
         ],
         timeoutMs: 300,
@@ -295,9 +314,9 @@ describe('WorkerRpcDispatcher node.exec', () => {
           '-e',
           'const {spawn}=require("node:child_process");const fs=require("node:fs");'
             + 'const child=spawn(process.execPath,["-e",'
-            + '"const fs=require(\\"node:fs\\");let n=0;const p=process.argv[1];fs.writeFileSync(p,String(n));setInterval(()=>fs.writeFileSync(p,String(++n)),25)",'
+            + '"const fs=require(\\"node:fs\\");let n=0;const p=process.argv[1];fs.writeFileSync(p,String(n));setInterval(()=>{fs.writeFileSync(p,String(++n));' + exitOnceProcessGone() + '},25)",'
             + 'process.argv[2]],{detached:true,stdio:"ignore"});'
-            + 'fs.writeFileSync(process.argv[1],String(child.pid));setInterval(()=>{},1000)',
+            + 'fs.writeFileSync(process.argv[1],String(child.pid));' + IDLE_UNTIL_TEST_PROCESS_GONE,
           descendantPidPath,
           heartbeatPath,
         ],
@@ -342,7 +361,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
               '-e',
               'const {spawn}=require("node:child_process");const fs=require("node:fs");'
                 + 'const child=spawn(process.execPath,["-e",'
-                + '"const fs=require(\\"node:fs\\");let n=0;const p=process.argv[1];fs.writeFileSync(p,String(n));setInterval(()=>fs.writeFileSync(p,String(++n)),25)",'
+                + '"const fs=require(\\"node:fs\\");let n=0;const p=process.argv[1];fs.writeFileSync(p,String(n));setInterval(()=>{fs.writeFileSync(p,String(++n));' + exitOnceProcessGone() + '},25)",'
                 + 'process.argv[2]],{detached:true,stdio:["ignore","inherit","inherit"]});'
                 + 'fs.writeFileSync(process.argv[1],String(child.pid));setTimeout(()=>process.exit(0),0)',
               descendantPidPath,
@@ -557,7 +576,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
           '-e',
           'process.stdout.write("o".repeat(150000));process.stderr.write("e".repeat(150000));'
             + 'require("node:fs").writeFileSync(process.argv[1],String(process.pid));'
-            + 'process.on("SIGTERM",()=>{});setInterval(()=>{},1000)',
+            + 'process.on("SIGTERM",()=>{});' + IDLE_UNTIL_TEST_PROCESS_GONE,
           childPidPath,
         ],
         timeoutMs: 300,
@@ -732,7 +751,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
       executable: process.execPath,
       args: [
         '-e',
-        'process.on("SIGTERM",()=>{});setTimeout(()=>{process.stdout.write("o".repeat(150000));process.stderr.write("e".repeat(150000))},300);setInterval(()=>{},1000)',
+        'process.on("SIGTERM",()=>{});setTimeout(()=>{process.stdout.write("o".repeat(150000));process.stderr.write("e".repeat(150000))},300);' + IDLE_UNTIL_TEST_PROCESS_GONE,
       ],
       timeoutMs: 150,
     }, 'service')).finally(() => { completed = true; });

@@ -1,10 +1,10 @@
 /**
- * N2 — a tool loop deserves more than a toast.
+ * N2 — which tool-loop detections reach a person, and in what words.
  *
- * `instance:doom-loop` is forwarded to the renderer and shown as a toast
- * (`app.component.ts`). A toast is fine when someone is watching; it is exactly
- * the wrong surface when they are not, and an agent stuck repeating one tool
- * call is a money-burning failure that mostly happens while nobody is looking.
+ * `instance:doom-loop` is forwarded to the renderer (toast, the bar above the
+ * session's message box, the session-list badge) and raised as a desktop
+ * notification. Every one of those is an interruption, so only detections a
+ * person should act on get through; the rest stay in the log.
  *
  * Pure so the "which detections are worth interrupting a human for" decision is
  * testable without Electron.
@@ -12,23 +12,43 @@
 
 import { describeToolLoop, type ToolLoopDetector } from '../../shared/tool-loop-summary';
 import { friendlyToolName } from '../../shared/permissions/friendly-tool-name';
-
-export type ToolLoopSeverity = 'warning' | 'critical';
+import type { ToolLoopDetectionEvent } from './doom-loop-detector';
 
 export interface ToolLoopNotice {
   title: string;
   body: string;
-  urgency: 'normal' | 'critical';
+  urgency: 'critical';
 }
 
 export interface ToolLoopNoticeInput {
-  severity: ToolLoopSeverity;
   detector: ToolLoopDetector;
   toolName: string;
   count: number;
   instanceName?: string;
   /** Whether Harness stops the turn itself (`willAutoInterruptToolLoop`). */
   harnessWillStop: boolean;
+}
+
+export type ToolLoopDetectionForUser = Pick<ToolLoopDetectionEvent, 'severity' | 'detector' | 'autoStopFailed'>;
+
+/**
+ * Whether a detection is shown to the user at all.
+ *
+ * - A `warn` is the detector's first guess ("might be repeating"). It offered
+ *   nothing to do and fired often enough (three identical calls, such as a
+ *   skill loaded three times) that the user learned to ignore the whole class.
+ *   Only `critical`, at twice the warning threshold, is shown.
+ * - `runaway` counts tool calls in one turn. A long working turn passes 200 and
+ *   400 calls routinely, so on its own it says nothing about being stuck. It is
+ *   shown only when Harness acted on it: it is stopping the turn, or tried and
+ *   failed, so the user learns why the turn ended or that it did not.
+ */
+export function shouldTellUserAboutToolLoop<T extends ToolLoopDetectionForUser>(
+  detection: T,
+  harnessWillStop: boolean,
+): detection is T & { severity: 'critical' } {
+  if (detection.severity !== 'critical') return false;
+  return detection.detector !== 'runaway' || harnessWillStop || detection.autoStopFailed === true;
 }
 
 // Chosen so the worst case stays inside MAX_BODY_CHARS with the fixed wording:
@@ -44,19 +64,12 @@ function clip(text: string, max: number): string {
 }
 
 /**
- * Only `critical` notifies.
- *
- * A `warning` is the detector saying "this might be a loop"; it already has a
- * toast, and promoting every one of them to a desktop notification would train
- * the operator to dismiss the class — which costs exactly when a real one
- * arrives. `critical` means the detector is confident.
- *
- * The words come from the shared `tool-loop-summary`, so this notification and
- * its notification-centre entry read the same as the bar in the session.
+ * The desktop notification for a detection `shouldTellUserAboutToolLoop` let
+ * through. The words come from the shared `tool-loop-summary`, so this
+ * notification and its notification-centre entry read the same as the bar in
+ * the session.
  */
-export function toolLoopNotice(input: ToolLoopNoticeInput): ToolLoopNotice | null {
-  if (input.severity !== 'critical') return null;
-
+export function toolLoopNotice(input: ToolLoopNoticeInput): ToolLoopNotice {
   const who = input.instanceName ? `${clip(input.instanceName, MAX_NAME_CHARS)}: ` : '';
   // Clip each name the detector joined with "/", so a long first name cannot cut off the second,
   // after making tool-server names readable (clipping first would leave "mcp__…" raw).

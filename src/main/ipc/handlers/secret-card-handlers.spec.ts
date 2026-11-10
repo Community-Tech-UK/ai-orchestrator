@@ -3,7 +3,6 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@contracts/channels';
-import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../../db/sqlite-driver';
 import type { SafeStorageAccessor } from '../../session/safe-storage-accessor';
 import { createMigrationsTable, createTables, runMigrations } from '../../persistence/rlm/rlm-schema';
@@ -25,6 +24,7 @@ vi.mock('../../logging/logger', () => ({
 }));
 
 import { registerSecretCardHandlers } from './secret-card-handlers';
+import { useSqliteTemplate } from '../../db/sqlite-template.test-helpers';
 
 const TOKEN = 'ghp_exampleplaceholdervalue0000000000';
 const INSTANCE = 'inst-1';
@@ -47,6 +47,11 @@ function fakeSafeStorage(available = true): SafeStorageAccessor {
   };
 }
 
+const rlmTemplate = useSqliteTemplate((db) => {
+  createTables(db);
+  createMigrationsTable(db);
+  runMigrations(db);
+});
 let db: SqliteDriver;
 let notified: Array<{ instanceId: string; message: string }>;
 
@@ -57,10 +62,7 @@ function setup(overrides: {
   resolveSecret?: (instanceId: string, requestId: string, approved: boolean, reference?: string) => boolean;
   handled?: (event: { instanceId: string; requestId: string; outcome: 'saved' | 'declined' }) => void;
 } = {}): void {
-  db = defaultDriverFactory(':memory:');
-  createTables(db);
-  createMigrationsTable(db);
-  runMigrations(db);
+  db = rlmTemplate.open();
   notified = [];
 
   const store = new WorkspaceSecretStore({

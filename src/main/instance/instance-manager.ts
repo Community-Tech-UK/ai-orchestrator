@@ -183,6 +183,7 @@ import { findPendingInitialPrompt, takePendingInitialPromptGuidance } from './li
 import { compactForOverflow } from './overflow-compaction-route';
 import { captureOverflowRecoveryOwner } from './overflow-recovery-owner';
 import { findMessageDeliveryTarget, withMessageDelivery } from './message-delivery';
+import { personInputOrigin, withoutInputOrigin } from './person-input-origin';
 import { getSendInputTimeoutMs } from '../../shared/utils/send-refusal';
 const logger = getLogger('InstanceManager');
 const CHILD_STARTUP_TIMEOUT_MS = 60_000;
@@ -1464,6 +1465,7 @@ export class InstanceManager extends EventEmitter {
   private awaitInputReady(instance: Instance, options?: InstanceSendInputOptions): Promise<void> {
     return awaitInstanceInputReady({
       wake: (id) => this.lifecycle.wakeInstance(id),
+      runtimeChangeSettled: (id) => this.lifecycle.whenRuntimeChangeSettled(id),
       waitWithBudget: (work, inst, message) => this.awaitWithBudget(work, this.computeInitWaitBudgetMs(inst), message),
       getInstance: (id) => this.state.getInstance(id),
     }, instance, options);
@@ -1652,7 +1654,12 @@ export class InstanceManager extends EventEmitter {
       instance.requestCount++;
       instance.lastActivity = Date.now();
     }
-    if (nativeCommand) return await dispatchNativeOpenCodeCommand({ instance, command: nativeCommand, originalInput: message, options,
+    // Words a person typed or spoke themselves carry their origin and time; Harness-written and
+    // cross-session text never does, whatever the caller passed.
+    const personOrigin = options?.origin && !internalSource && !options.crossSessionSourceId && !options.autoContinuation
+      ? personInputOrigin(options.origin)
+      : undefined;
+    if (nativeCommand) return await dispatchNativeOpenCodeCommand({ instance, command: nativeCommand, originalInput: message, options, personOrigin,
       deferredCommit: deferInputCommitUntilDispatch, getAdapter: () => this.state.getAdapter(instanceId), recordPromptHistory,
       emitUser: (output) => this.emitOutputMessage(instanceId, output),
       send: (prompt, nativeOptions) => this.communication.sendInput(instanceId, prompt, attachments, null, nativeOptions),
@@ -1731,11 +1738,6 @@ export class InstanceManager extends EventEmitter {
         },
       };
     }
-    // Words a person typed or spoke themselves carry their origin and time; Harness-written and
-    // cross-session text never does, whatever the caller passed.
-    const personOrigin = options?.origin && !internalSource && !options.crossSessionSourceId && !options.autoContinuation
-      ? { kind: 'person' as const, typedAt: Math.min(options.origin.typedAt, Date.now()) }
-      : undefined;
     if (personOrigin) userMessage.metadata = { ...userMessage.metadata, inputOrigin: personOrigin };
     // Every input is the session's latest input, so a later notice, automation prompt or steer displaces a person's message.
     getInputTurnRegistry().noteInput(instanceId, { messageId: userMessage.id, personTypedAt: personOrigin?.typedAt ?? null });
@@ -1964,9 +1966,10 @@ export class InstanceManager extends EventEmitter {
     // child's own output when auto-capturing a result. Without this tag, the
     // child's "last assistant" message could be one of the parent's messages
     // we copied in for context — producing an echo-back result.
+    // The parent's typed messages were not typed in the child, so they cannot grant `@session` reads there.
     const seededOutputBuffer = parent.outputBuffer.filter((m) => m.type !== 'tool_outcome').slice(-50).map((msg) => ({
       ...msg,
-      metadata: { ...msg.metadata, seededFromParent: true, agentAuthored: true },
+      metadata: { ...withoutInputOrigin(msg.metadata), seededFromParent: true },
     }));
 
     const child = await this.createInstance({
@@ -1974,7 +1977,6 @@ export class InstanceManager extends EventEmitter {
       displayName: spawnCommand.name || `Child of ${parent.displayName}`,
       parentId,
       initialPrompt: childPrompt,
-      initialPromptAgentAuthored: true,
       yoloMode: false,
       agentId: childAgentId,
       modelOverride: routingDecision.model,
@@ -2297,14 +2299,15 @@ export class InstanceManager extends EventEmitter {
     // Tag seeded messages so handleChildExit can distinguish them from the child's
     // own output when auto-capturing a result (otherwise a child that produces no
     // output would have its "last assistant" message resolve to one of the parent's
-    // messages we copied in — producing an echo-back result).
+    // messages we copied in — producing an echo-back result). The parent's typed
+    // messages were not typed in the child, so they cannot grant `@session` reads there.
     const initialOutputForChild = parent.outputBuffer
       .slice(-20)
       .filter((msg) => msg.type === 'assistant' || msg.type === 'user' || msg.type === 'tool_result')
       .map((msg) => ({
         ...msg,
         content: stripOrchestrationMarkers(msg.content),
-        metadata: { ...msg.metadata, seededFromParent: true, agentAuthored: true },
+        metadata: { ...withoutInputOrigin(msg.metadata), seededFromParent: true },
       }))
       .filter((msg) => msg.content.length > 0);
 
@@ -2313,7 +2316,6 @@ export class InstanceManager extends EventEmitter {
       displayName: command.name || `Child of ${parent.displayName}`,
       parentId: parentId,
       initialPrompt: childPrompt,
-      initialPromptAgentAuthored: true,
       yoloMode: command.yoloMode === true,
       agentId: childAgentId,
       modelOverride: routingDecision.model,

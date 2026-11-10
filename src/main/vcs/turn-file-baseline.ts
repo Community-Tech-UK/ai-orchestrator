@@ -26,7 +26,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { OutputMessage } from '../../shared/types/instance.types';
-import { snapshotWorkingTree, diffTrees, NotAGitFolderError, SnapshotBudgetError, type WorkingTreeSnapshot } from './turn-snapshot-git';
+import { snapshotWorkingTree, diffTrees, NotAGitFolderError, SnapshotBudgetError, SNAPSHOT_TIME_LIMIT_MS, type WorkingTreeSnapshot } from './turn-snapshot-git';
 export { snapshotWorkingTree, diffTrees } from './turn-snapshot-git';
 import { turnStartKind } from '../../shared/turn-start';
 import type {
@@ -39,18 +39,29 @@ import { toOutputMessageFromProviderEnvelope } from '../providers/provider-outpu
 
 const logger = getLogger('TurnFileBaseline');
 
-/**
- * Provider writes wait at most this long, including queued work. A snapshot that cannot finish in
- * time leaves that turn without a count; it never holds up the message. Measured on a loaded Mac:
- * about 0.4 ms per file plus 120 ms for the git calls, so about 450 files fit in this time.
- */
-const DISPATCH_WAIT_MS = 300;
-/**
- * The snapshot taken when a turn ends holds nothing up, so it keeps the longer limit; the snapshot's
- * own two-second deadline still caps it. Cutting it at the dispatch wait would drop the count of any
- * turn that added a few hundred files.
- */
-const END_SNAPSHOT_WAIT_MS = 2_500;
+/** How long the service waits for its git work. A limit that runs out leaves that turn without a count. */
+export interface TurnBaselineTimeLimits {
+  /**
+   * Provider writes wait at most this long, including queued work. A snapshot that cannot finish in
+   * time leaves that turn without a count; it never holds up the message. Measured on a loaded Mac:
+   * about 0.4 ms per file plus 120 ms for the git calls, so about 450 files fit in this time.
+   */
+  dispatchWaitMs: number;
+  /**
+   * The snapshot taken when a turn ends holds nothing up, so it keeps the longer limit; the snapshot's
+   * own deadline (`snapshotMs`) still caps it. Cutting it at the dispatch wait would drop the count of
+   * any turn that added a few hundred files.
+   */
+  endSnapshotWaitMs: number;
+  /** One snapshot, and each git call in a snapshot or a comparison. */
+  snapshotMs: number;
+}
+
+const TIME_LIMITS: TurnBaselineTimeLimits = {
+  dispatchWaitMs: 300,
+  endSnapshotWaitMs: 2_500,
+  snapshotMs: SNAPSHOT_TIME_LIMIT_MS,
+};
 /**
  * A folder whose snapshot ran out of time or went over its limits is not tried again for this long,
  * so every later message to it goes out at once instead of paying the wait again.
@@ -137,6 +148,9 @@ export class TurnFileBaselineService {
   private getInstanceInfo: (instanceId: string) => TurnBaselineInstanceInfo | undefined = () => undefined;
   private running = 0;
   private readonly waiting: (() => void)[] = [];
+
+  /** Specs that run real git on a loaded machine pass longer limits; the app uses these. */
+  constructor(private readonly limits: TurnBaselineTimeLimits = TIME_LIMITS) {}
 
   /** Starts listening to the instance manager. Call once at startup. */
   attach(
@@ -366,7 +380,8 @@ export class TurnFileBaselineService {
         state.objectDirs.add(objectDir);
         const start = await baseline;
         snapshotting = true;
-        const snapshot = await snapshotWorkingTree(info.workingDirectory, objectDir, controller.signal, settledAt, start && typeof start !== 'string' ? start.paths : []);
+        const snapshot = await snapshotWorkingTree(info.workingDirectory, objectDir, controller.signal, settledAt,
+          start && typeof start !== 'string' ? start.paths : [], this.limits.snapshotMs);
         controller.signal.throwIfAborted();
         return snapshot;
       } catch (error) {
@@ -380,7 +395,7 @@ export class TurnFileBaselineService {
         controller.abort();
         if (folder && snapshotting) this.slowFolders.set(folder, Date.now());
         resolve('git-error');
-      }, settledAt === undefined ? DISPATCH_WAIT_MS : END_SNAPSHOT_WAIT_MS);
+      }, settledAt === undefined ? this.limits.dispatchWaitMs : this.limits.endSnapshotWaitMs);
     });
     return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
   }
@@ -409,7 +424,7 @@ export class TurnFileBaselineService {
       return;
     }
     try {
-      const { files, total } = await diffTrees(start, end);
+      const { files, total } = await diffTrees(start, end, this.limits.snapshotMs);
       segment.result = {
         state: 'ready',
         total,

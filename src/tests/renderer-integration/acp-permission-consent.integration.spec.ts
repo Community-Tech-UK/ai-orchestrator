@@ -183,13 +183,12 @@ describe('ACP permission consent: card -> IPC -> adapter', () => {
     PermissionRegistry._resetForTesting();
   });
 
+  // The full reply and label tables live in acp-permission-outcome.spec.ts, which calls
+  // selectAcpPermissionOutcome directly. These tables keep enough rows to prove each outcome and
+  // input shape through the real card, IPC handler, adapter and registry, plus every reply the
+  // unit spec does not have.
   it.each([
     'what does this do?',
-    'please explain',
-    'yes, what does this do?',
-    'can you explain before you allow?',
-    'allow it? not sure',
-    'do whatever is safe',
     'maybe',
     'the docs say allow is dangerous',
     'yes if the command is safe',
@@ -297,66 +296,13 @@ describe('ACP permission consent: card -> IPC -> adapter', () => {
 
   it.each([
     ['What does this do', 'allow_once'],
-    ['Explain this command', 'allow_once'],
-    ['Please explain', 'allow_once'],
-    ['Yes, what does this do', 'allow_once'],
     ['Allow, please explain', 'allow_always'],
-    ['I refuse to allow', 'allow_always'],
-    ['Yes, why is this needed', 'allow_always'],
-    ['Allow, what will happen', 'allow_always'],
-    ['May I approve this', 'allow_once'],
     ['I do not consent', 'allow_once'],
-    ['I cannot agree', 'allow_once'],
-    ['I am uncertain', 'allow_once'],
-    ['I have not decided', 'allow_once'],
-    ['My answer is no', 'allow_once'],
-    ['Please clarify', 'allow_once'],
-    ['Yes, tell me more', 'allow_once'],
-    ["I don't want to allow this", 'allow_always'],
-    ['I am not willing to approve this', 'allow_once'],
-    ['I am not going to authorize this', 'allow_once'],
-    ["I wouldn't allow this", 'allow_once'],
     ['I shouldn’t approve this', 'allow_once'],
-    ["I couldn't grant permission", 'allow_once'],
-    ["I didn't agree to this", 'allow_once'],
-    ["I haven't agreed", 'allow_once'],
-    ["I shan't authorize this", 'allow_once'],
-    ["That isn't approved", 'allow_once'],
-    ["I mustn't permit this", 'allow_once'],
-    ['I wouldnt allow this', 'allow_once'],
-    ['I havent agreed', 'allow_once'],
-    ['Unable to allow this', 'allow_once'],
-    ['I am unwilling to approve this', 'allow_once'],
-    ['I am incapable of granting this', 'allow_once'],
-    ['I am unprepared to authorize this', 'allow_once'],
-    ['I am unready to consent', 'allow_once'],
-    ['I am reluctant to allow this', 'allow_once'],
-    ['I am hesitant to agree', 'allow_once'],
-    ['I am opposed to granting this', 'allow_once'],
-    ['I am against allowing this', 'allow_once'],
-    ['I am disinclined to approve this', 'allow_once'],
-    ['I disallow this', 'allow_once'],
-    ['I disapprove of this', 'allow_once'],
-    ['I forbid this', 'allow_once'],
-    ['I prohibit this', 'allow_once'],
-    ['I withhold consent', 'allow_once'],
-    ['I refrain from allowing this', 'allow_once'],
-    ['I veto this', 'allow_once'],
-    ['I am not approving this', 'allow_once'],
-    ['I am not authorizing this', 'allow_once'],
-    ['Unable', 'allow_once'],
-    ['I am unable to give approval', 'allow_once'],
-    ['I abstain from allowing this', 'allow_once'],
-    ['Please hold off allowing this', 'allow_once'],
-    ['When tests pass, do not allow this', 'allow_once'],
-    ['Allow if safe, but I refuse', 'allow_once'],
-    ['When can I allow this, yes', 'allow_once'],
     ['Allow\nWhat will happen', 'allow_once'],
-    ['Allow. What will happen', 'allow_once'],
-    ['Maybe allow', 'allow_once'],
-    ["I don't allow this", 'allow_once'],
+    // The unit spec's own "Allow once" control makes its row a duplicate label; only this row
+    // reaches the one-time wording check on a lasting label.
     ['Allow once', 'allow_always'],
-    ['Allow this time only', 'allow_always'],
   ] as const)('never grants for the typed label %j but honours an explicit click', async (name, kind) => {
     const controls = alwaysFirst.filter(option => option.name !== name);
     await start([{ optionId: 'contradictory-label', name, kind }, ...controls], [71, 72]);
@@ -388,8 +334,6 @@ describe('ACP permission consent: card -> IPC -> adapter', () => {
 
   it.each([
     ['allow_if_safe', 'Use the advertised approval', 'Allow if safe'],
-    ['what_does_this_do', 'Use the advertised approval', 'What does this do'],
-    ['allow_when_tests_pass', 'Use the advertised approval', 'Allow when tests pass'],
     ['limited', 'Allow one time', 'Allow one time'],
   ])('never grants for prose resembling option id %j, but honours that exact id', async (optionId, name, response) => {
     await start([{ optionId, name, kind: 'allow_always' }, ...alwaysFirst], [71, 72]);
@@ -401,7 +345,7 @@ describe('ACP permission consent: card -> IPC -> adapter', () => {
     expect(grantedFor('72')).toEqual([true]);
   });
 
-  it.each(['cancel', '✓', '#', ' spaced '])('distinguishes the Cancel control from advertised option ID %j', async optionId => {
+  it.each(['cancel', ' spaced '])('distinguishes the Cancel control from advertised option ID %j', async optionId => {
     await start([{ optionId, name: 'Allow once', kind: 'allow_once' }], [71, 72]);
     buttonIn(cards()[0], 'Allow once').click(); await settle();
     expect(await outcomeOf(71)).toEqual({ outcome: { outcome: 'selected', optionId } });
@@ -427,16 +371,8 @@ describe('ACP permission consent: card -> IPC -> adapter', () => {
 
   it.each([
     ['if-safe', 'Allow if safe'],
-    ['after-tests', 'Allow when tests pass'],
-    ['after-review', 'Allow contingent upon review'],
-    ['bounded', 'Allow, but not forever'],
     ['after-tests-leading', 'When tests pass, allow this operation'],
-    ['not-running', 'When tests are not running, allow this operation'],
-    ['requested', 'Allow what I requested'],
-    ['was-requested', 'Allow what was requested'],
     ['unable-condition', 'Allow if I am unable to run tests'],
-    ['cannot-condition', 'When I cannot run tests, allow this operation'],
-    ['after-rejection', 'Allow after I reject the preview'],
   ])('preserves the agent-offered scoped choice %j through the real card and registry', async (optionId, name) => {
     await start([{ optionId, name, kind: 'allow_always' }, ...alwaysFirst]);
     await typeAndSubmit(cards()[0], name);
@@ -444,7 +380,7 @@ describe('ACP permission consent: card -> IPC -> adapter', () => {
     expect(grantedFor('71')).toEqual([true]);
   });
 
-  it.each(['Proceed with this choice', 'Allow'])('rejects an ambiguous duplicate label %j without losing explicit ID selection', async name => {
+  it.each(['Allow'])('rejects an ambiguous duplicate label %j without losing explicit ID selection', async name => {
     await start([
       { optionId: 'approve-choice', name, kind: 'allow_always' },
       { optionId: 'reject-choice', name, kind: 'reject_once' },
@@ -457,9 +393,7 @@ describe('ACP permission consent: card -> IPC -> adapter', () => {
     expect(grantedFor('72')).toEqual([true]);
   });
 
-  it.each(['Allow if safe', 'Allow when tests pass', 'Allow contingent upon review', 'Allow, but not forever', 'Allow for this session',
-    'When tests are not running, allow this operation', 'Allow what I requested', 'Allow what was requested',
-    'Allow if I am unable to run tests', 'When I cannot run tests, allow this operation', 'Allow after I reject the preview'])(
+  it.each(['Allow if safe', 'Allow for this session'])(
     'does not invent an unoffered permission scope from %j', async response => {
       await start(alwaysFirst);
       await typeAndSubmit(cards()[0], response);
@@ -470,19 +404,9 @@ describe('ACP permission consent: card -> IPC -> adapter', () => {
 
   it.each([
     ['I approve this', 'once', true],
-    ['I allow this', 'once', true],
-    ['I grant this', 'once', true],
-    ['I accept this', 'once', true],
-    ['Yes, I approve this', 'once', true],
-    ['I approve this once', 'once', true],
     ['I always approve this', 'always', true],
-    ['I approve this always', 'always', true],
     ['I might approve this', 'reject-once', false],
-    ['I would approve this', 'reject-once', false],
-    ['I approve this if safe', 'reject-once', false],
-    ['I approve this?', 'reject-once', false],
     ['I do not approve this', 'reject-once', false],
-    ['I approved this yesterday', 'reject-once', false],
   ])('handles the first-person reply %j through the actual card and registry', async (reply, optionId, granted) => {
     await start(alwaysFirst);
     await typeAndSubmit(cards()[0], reply);

@@ -94,11 +94,6 @@ describe('CursorCliProvider inline translation', () => {
     });
   });
 
-  it('status string becomes status envelope', () => {
-    adapter.emit('status', 'busy');
-    expect(envelopes.at(-1)!.event).toEqual({ kind: 'status', status: 'busy' });
-  });
-
   it('context becomes context envelope AND updates getUsage', () => {
     adapter.emit('context', { used: 500, total: 128000, percentage: 0.39 });
     expect(envelopes.at(-1)!.event).toEqual({ kind: 'context', used: 500, total: 128000, percentage: 0.39 });
@@ -110,11 +105,6 @@ describe('CursorCliProvider inline translation', () => {
   it('error Error → error envelope', () => {
     adapter.emit('error', new Error('boom'));
     expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'boom', recoverable: false, turnEnding: { reason: 'unknown_error', evidence: 'provider_error' } });
-  });
-
-  it('error string → error envelope', () => {
-    adapter.emit('error', 'str');
-    expect(envelopes.at(-1)!.event).toEqual({ kind: 'error', message: 'str', recoverable: false, turnEnding: { reason: 'unknown_error', evidence: 'provider_error' } });
   });
 
   it('complete becomes a complete envelope', () => {

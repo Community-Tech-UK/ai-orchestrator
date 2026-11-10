@@ -125,6 +125,7 @@ export class BackgroundTaskManager extends EventEmitter {
   private admissionGates = new Map<string, () => boolean>();
   private runningTasks = new Set<string>();
   private cancelledTasks = new Set<string>();
+  private timedOutTasks = new Set<string>();
   private paused = false;
   private processingQueue = false;
 
@@ -450,7 +451,7 @@ export class BackgroundTaskManager extends EventEmitter {
           message,
         });
       },
-      isCancelled: () => this.cancelledTasks.has(task.id),
+      isCancelled: () => this.cancelledTasks.has(task.id) || this.timedOutTasks.has(task.id),
       getPayload: <T>() => (task.payload as T) || ({} as T),
       emit: (event: string, data: unknown) => {
         this.emit(`task:${event}`, { taskId: task.id, data });
@@ -459,7 +460,7 @@ export class BackgroundTaskManager extends EventEmitter {
 
     // Set up timeout
     const timeoutId = setTimeout(() => {
-      this.cancelledTasks.add(task.id);
+      this.timedOutTasks.add(task.id);
       this.emit('task-timeout', { taskId: task.id, timeout: task.timeout });
     }, task.timeout);
 
@@ -468,14 +469,9 @@ export class BackgroundTaskManager extends EventEmitter {
 
       clearTimeout(timeoutId);
 
-      // Check if cancelled during execution
-      if (this.cancelledTasks.has(task.id)) {
-        task.status = 'cancelled';
-        task.completedAt = Date.now();
-        if (!task.notified) {
-          task.notified = true;
-          this.emit('task-cancelled', task);
-        }
+      // Check if cancelled or timed out during execution
+      if (context.isCancelled()) {
+        this.endCancelled(task);
       } else {
         task.status = 'completed';
         task.result = result;
@@ -491,8 +487,10 @@ export class BackgroundTaskManager extends EventEmitter {
 
       task.error = (error as Error).message;
 
-      // Check if should retry
-      if (task.retryCount < task.maxRetries && !this.cancelledTasks.has(task.id)) {
+      // A cancel request wins over whatever the executor throws afterwards
+      if (this.cancelledTasks.has(task.id)) {
+        this.endCancelled(task);
+      } else if (task.retryCount < task.maxRetries && !this.timedOutTasks.has(task.id)) {
         task.status = 'pending';
         task.retryCount++;
         task.progress = 0;
@@ -508,6 +506,7 @@ export class BackgroundTaskManager extends EventEmitter {
     } finally {
       this.runningTasks.delete(task.id);
       this.cancelledTasks.delete(task.id);
+      this.timedOutTasks.delete(task.id);
 
       // Move to history if terminal state
       if (['completed', 'failed', 'cancelled'].includes(task.status)) {
@@ -518,6 +517,15 @@ export class BackgroundTaskManager extends EventEmitter {
       if (!this.paused) {
         this.processQueue();
       }
+    }
+  }
+
+  private endCancelled(task: Task): void {
+    task.status = 'cancelled';
+    task.completedAt = Date.now();
+    if (!task.notified) {
+      task.notified = true;
+      this.emit('task-cancelled', task);
     }
   }
 

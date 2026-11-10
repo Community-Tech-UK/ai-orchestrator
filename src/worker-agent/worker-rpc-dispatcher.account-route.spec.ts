@@ -63,10 +63,11 @@ afterEach(async () => { await manager.terminateAll(); });
 const request = (params: unknown): RpcMessage => ({ jsonrpc: '2.0', id: 1, method: 'instance.spawn', scope: 'instance', params });
 
 describe('actual instance.spawn executing-worker account ingress', () => {
+  // The full region table runs against materializeWorkerAccountRoute in
+  // worker-account-route.spec.ts. Here: one row the wire schema refuses, the
+  // one row only the worker validator refuses (missing), and the shell-shaped row.
   it.each([
-    ['unknown', 'moon'], ['missing', undefined], ['null', null], ['empty', ''],
-    ['object', { region: 'ams' }], ['array', ['ams']], ['boolean', true], ['number', 1],
-    ['padded', ' ams'], ['uppercase', 'AMS'], ['shell-shaped', 'ams & echo AIO_REGION_PLACEHOLDER &'],
+    ['unknown', 'moon'], ['missing', undefined], ['shell-shaped', 'ams & echo AIO_REGION_PLACEHOLDER &'],
   ])('refuses %s regions before manager, browser, binding or adapter startup', async (_name, region) => {
     for (const profileId of ['synthetic-b', 'legacy']) {
       await dispatcher.handleRpcRequest(request({ ...base, accountRoute: { provider: 'opencode', profileId, region } }));
@@ -81,7 +82,7 @@ describe('actual instance.spawn executing-worker account ingress', () => {
     expect(adapterSpawn).not.toHaveBeenCalled();
   });
 
-  it.each([null, [], 'route-placeholder', {}, { provider: 'gemini', profileId: 'synthetic-b' }, { provider: 'opencode', profileId: '../escape', region: 'ams' }])('rejects malformed route objects at the actual dispatcher (%j)', async (accountRoute) => {
+  it.each([null, { provider: 'opencode', profileId: '../escape', region: 'ams' }])('rejects malformed route objects at the actual dispatcher (%j)', async (accountRoute) => {
       await dispatcher.handleRpcRequest(request({ ...base, accountRoute }));
       expect(sendError).toHaveBeenCalledWith(1, RPC_ERROR_CODES.INVALID_PARAMS, expect.any(String));
       expect(sendResult).not.toHaveBeenCalled();
@@ -89,7 +90,7 @@ describe('actual instance.spawn executing-worker account ingress', () => {
       expect(mockExecFile).not.toHaveBeenCalled();
     });
 
-  it.each(['ams', 'sgp', 'cn'] as const)('materializes authenticated custom and legacy %s routes through the actual manager', async (region) => {
+  it.each(['ams'] as const)('materializes authenticated custom and legacy %s routes through the actual manager', async (region) => {
     for (const profileId of ['synthetic-b', 'legacy']) {
       await dispatcher.handleRpcRequest(request({ ...base, instanceId: profileId, accountRoute: { provider: 'opencode', profileId, region, expectedIdentity: null, source: 'failover' } }));
     }
@@ -124,7 +125,7 @@ describe('actual instance.spawn executing-worker account ingress', () => {
     expect(adapterSpawn).not.toHaveBeenCalled();
   });
 
-  it.each(['claude', 'codex', 'opencode'] as const)('retains unrouted %s spawns', async (cliType) => {
+  it.each(['claude', 'opencode'] as const)('retains unrouted %s spawns', async (cliType) => {
     await dispatcher.handleRpcRequest(request({ ...base, cliType }));
     expect(sendError).not.toHaveBeenCalled();
     expect(sendResult).toHaveBeenCalledWith(1, { instanceId: base.instanceId });

@@ -25,6 +25,7 @@ import type {
   MobileModelCatalog,
   MobileRecentDirDto,
   MobileReasoningEffort,
+  MobileSessionAccountPlan,
   MobileSessionPlan,
 } from '../../core/models';
 import { VoiceInputService } from '../../core/voice-input.service';
@@ -101,6 +102,8 @@ export class NewSessionComponent implements OnInit {
   protected readonly provider = signal<(typeof PROVIDERS)[number]>('auto');
   protected readonly model = signal<string | undefined>(undefined);
   protected readonly reasoningEffort = signal<MobileReasoningEffort | undefined>(undefined);
+  /** Undefined lets Harness choose the account. */
+  protected readonly accountProfileId = signal<string | undefined>(undefined);
   protected readonly plan = signal<MobileSessionPlan | null>(null);
   protected readonly planLoading = signal(false);
   protected readonly planError = signal<string | null>(null);
@@ -154,9 +157,25 @@ export class NewSessionComponent implements OnInit {
   protected readonly compactPlanSummary = computed(() => {
     const plan = this.plan();
     if (!plan) return this.planLoading() ? 'Resolving…' : this.providerDisplay();
-    return [plan.modelLabel || plan.providerLabel, plan.reasoningEffortLabel]
+    return [plan.modelLabel || plan.providerLabel, plan.reasoningEffortLabel, this.chosenAccountLabel()]
       .filter((value): value is string => Boolean(value))
       .join(' · ');
+  });
+  /**
+   * The last accounts the host offered. Kept while a pick re-resolves the plan so
+   * the list does not vanish under the person's finger; cleared with the provider.
+   */
+  protected readonly accountPlan = signal<MobileSessionAccountPlan | null>(null);
+  /** The kept list's summary describes an older choice, so it shows only for the latest check. */
+  protected readonly accountSummary = computed(() => {
+    if (this.planLoading()) return 'Checking accounts…';
+    if (this.planError()) return 'Accounts could not be checked';
+    return this.accountPlan()?.summary ?? '';
+  });
+  /** Only an account the person picked; the automatic choice is in the settings sheet. */
+  private readonly chosenAccountLabel = computed(() => {
+    const id = this.accountProfileId();
+    return id ? this.accountPlan()?.options.find((option) => option.id === id)?.label : undefined;
   });
   protected readonly modelsForProvider = computed(() => this.modelCatalog()?.[this.provider()] ?? []);
   protected readonly reasoningOptions = computed(() => reasoningOptionsForProvider(this.provider()));
@@ -195,7 +214,8 @@ export class NewSessionComponent implements OnInit {
       const provider = this.provider();
       const model = this.model();
       const reasoningEffort = this.reasoningEffort();
-      void this.resolvePlan(provider, model, reasoningEffort);
+      const accountProfileId = this.accountProfileId();
+      void this.resolvePlan(provider, model, reasoningEffort, accountProfileId);
     });
 
     effect(() => {
@@ -250,10 +270,12 @@ export class NewSessionComponent implements OnInit {
       this.firstPrompt.update((text) => joinDraftText(text, draft.text));
       if (!preset && this.selectedDir() === initial.directory) this.selectedDir.set(draft.directory);
       if (this.provider() === initial.provider && this.model() === initial.model && this.reasoningEffort() === initial.reasoningEffort
+        && this.accountProfileId() === initial.accountProfileId
         && PROVIDERS.includes(draft.provider as (typeof PROVIDERS)[number])) {
         this.provider.set(draft.provider as (typeof PROVIDERS)[number]);
         this.model.set(draft.model);
         this.reasoningEffort.set(draft.reasoningEffort);
+        this.accountProfileId.set(draft.accountProfileId);
       }
     }
     // Recovery can reach storage between the first image read and this async load.
@@ -302,7 +324,15 @@ export class NewSessionComponent implements OnInit {
       this.provider.set(provider);
       this.model.set(undefined);
       this.reasoningEffort.set(defaultReasoningEffortForProvider(provider));
+      // Accounts belong to one provider.
+      this.accountProfileId.set(undefined);
+      this.accountPlan.set(null);
     }
+    this.haptics.tap();
+  }
+
+  protected chooseAccount(accountProfileId: string | undefined): void {
+    this.accountProfileId.set(accountProfileId);
     this.haptics.tap();
   }
 
@@ -317,7 +347,7 @@ export class NewSessionComponent implements OnInit {
   }
 
   protected retryPlan(): void {
-    void this.resolvePlan(this.provider(), this.model(), this.reasoningEffort());
+    void this.resolvePlan(this.provider(), this.model(), this.reasoningEffort(), this.accountProfileId());
   }
 
   protected async openModelSheet(): Promise<void> {
@@ -448,6 +478,7 @@ export class NewSessionComponent implements OnInit {
           provider: this.provider(),
           model: this.model(),
           reasoningEffort: this.reasoningEffort(),
+          accountProfileId: this.accountProfileId(),
           prompt: this.firstPrompt(),
           attachments: this.attachments(),
         }),
@@ -476,14 +507,22 @@ export class NewSessionComponent implements OnInit {
     provider: string,
     model: string | undefined,
     reasoningEffort: MobileReasoningEffort | undefined,
+    accountProfileId: string | undefined,
   ): Promise<void> {
     const request = ++this.planReq;
     this.planLoading.set(true);
     this.planError.set(null);
     this.plan.set(null);
     try {
-      const plan = await this.gateway.sessionPlan(provider, model, reasoningEffort);
-      if (request === this.planReq && this.isCurrentHost()) this.plan.set(plan);
+      const plan = await this.gateway.sessionPlan(provider, model, reasoningEffort, accountProfileId);
+      if (request !== this.planReq || !this.isCurrentHost()) return;
+      this.plan.set(plan);
+      this.accountPlan.set(plan.account ?? null);
+      // A removed or switched-off account must not ride along to the create.
+      if (accountProfileId && this.accountProfileId() === accountProfileId
+        && !plan.account?.options.some((option) => option.id === accountProfileId)) {
+        this.accountProfileId.set(undefined);
+      }
     } catch (err) {
       if (request === this.planReq) {
         this.plan.set(null);
@@ -519,7 +558,7 @@ export class NewSessionComponent implements OnInit {
   private currentDraft() {
     return {
       text: this.firstPrompt(), directory: this.selectedDir(), provider: this.provider(),
-      model: this.model(), reasoningEffort: this.reasoningEffort(),
+      model: this.model(), reasoningEffort: this.reasoningEffort(), accountProfileId: this.accountProfileId(),
     };
   }
 

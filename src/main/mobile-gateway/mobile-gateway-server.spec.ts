@@ -1692,6 +1692,19 @@ describe('MobileGatewayServer', () => {
     );
   });
 
+  it('marks a first message typed on the phone as typed by a person, and only when there is one', async () => {
+    const token = await pairToken();
+    await authed(token, '/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({ workingDirectory: '/repo/gamma', initialPrompt: 'read [session: Other · other]' }),
+    });
+    await authed(token, '/api/instances', { method: 'POST', body: JSON.stringify({ workingDirectory: '/repo/gamma' }) });
+
+    const calls = vi.mocked(source.createInstance).mock.calls;
+    expect(calls.at(-2)?.[0].initialPromptOrigin).toEqual({ kind: 'person', typedAt: expect.any(Number) });
+    expect(calls.at(-1)?.[0]).not.toHaveProperty('initialPromptOrigin');
+  });
+
   it('forwards a valid mobile reasoning effort to createInstance', async () => {
     const token = await pairToken();
     const res = await authed(token, '/api/instances', {
@@ -1722,6 +1735,27 @@ describe('MobileGatewayServer', () => {
     expect(source.createInstance).toHaveBeenCalledWith(
       expect.objectContaining({ reasoningEffort: undefined }),
     );
+  });
+
+  it('starts on the account the phone picked and refuses one that is not an account id', async () => {
+    const token = await pairToken();
+    const res = await authed(token, '/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({ workingDirectory: '/repo/gamma', provider: 'claude', accountProfileId: 'claudecomtech-7e12' }),
+    });
+    expect(res.status).toBe(200);
+    expect(vi.mocked(source.createInstance).mock.calls.at(-1)?.[0].accountProfileId).toBe('claudecomtech-7e12');
+
+    await authed(token, '/api/instances', { method: 'POST', body: JSON.stringify({ workingDirectory: '/repo/gamma' }) });
+    expect(vi.mocked(source.createInstance).mock.calls.at(-1)?.[0]).not.toHaveProperty('accountProfileId');
+
+    const calls = vi.mocked(source.createInstance).mock.calls.length;
+    const bad = await authed(token, '/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({ workingDirectory: '/repo/gamma', accountProfileId: '../other-home' }),
+    });
+    expect(bad.status).toBe(400);
+    expect(source.createInstance).toHaveBeenCalledTimes(calls);
   });
 
   it('forwards initial-message attachments to createInstance', async () => {

@@ -9,7 +9,6 @@ import { describeToolLoop, type ToolLoopSummaryInput } from '../../../../shared/
 
 interface ToolLoopEvent extends ToolLoopSummaryInput {
   instanceId: string;
-  severity: 'warn' | 'critical';
   /** Harness is stopping the turn itself (`InstanceDoomLoopEventSchema`). */
   harnessStopping: boolean;
 }
@@ -48,19 +47,19 @@ export class NotificationShellService {
   start(): void {
     this.center.init();
     if (this.unsubscribe) return;
+    // Main forwards only the detections worth a person's attention
+    // (`shouldTellUserAboutToolLoop`), so every event here gets a toast.
     this.unsubscribe = this.ipc.on('instance:doom-loop', data => {
       const event = data as ToolLoopEvent;
       // Harness stopping the turn itself leaves nothing to decide: say so, and
       // let the toast time out instead of staying until the alert clears.
-      const stopping = event.severity === 'critical' && event.harnessStopping;
-      const critical = event.severity === 'critical' && !stopping;
-      if (critical) this.criticalToastIds.add(event.instanceId);
-      else this.criticalToastIds.delete(event.instanceId);
+      const stopping = event.harnessStopping;
+      if (stopping) this.criticalToastIds.delete(event.instanceId);
+      else this.criticalToastIds.add(event.instanceId);
       // Name the session: the toast is often seen from a different one.
       const name = this.instances.getInstance(event.instanceId)?.displayName || 'A session';
-      const headline = event.severity === 'critical' ? `${name} may be stuck.` : `${name} may be repeating itself.`;
-      this.toast.show(`${headline} ${describeToolLoop(event)}${stopping ? ' Harness is stopping it.' : ''}`,
-        critical ? 'error' : 'warning', { key: `tool-loop:${event.instanceId}`,
+      this.toast.show(`${name} may be stuck. ${describeToolLoop(event)}${stopping ? ' Harness is stopping it.' : ''}`,
+        stopping ? 'warning' : 'error', { key: `tool-loop:${event.instanceId}`,
           action: { label: 'Show session', run: () => this.navigator.openSession(event.instanceId) } });
     }) ?? null;
   }

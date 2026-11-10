@@ -17,6 +17,7 @@ function setup() {
     createEvent: vi.fn(async () => ({ id: 'event-1' })), updateEvent: async () => ({}), deleteEvent: async () => undefined,
     searchMail: async () => [], readMail: async () => ({}), listMailFolders: async () => [],
     createMailDraft: async () => ({}), sendMailDraft: vi.fn(async () => undefined),
+    deleteMailDraft: vi.fn(async () => undefined),
   };
   const service = new GraphConnectorService({ authManager, createGraphClient: () => graphClient, writableAccountEmails: () => permitted,
     listStoredAccounts: () => accounts,
@@ -44,6 +45,12 @@ describe('GraphConnectorService', () => {
     })).rejects.toThrow(/not permitted/);
     expect(graphClient.sendMailDraft).not.toHaveBeenCalled();
     expect(await service.isWritable('work-key')).toBe(false);
+  });
+
+  it('accepts "Always allow" for deleting drafts', () => {
+    const { service, alwaysAllowed } = setup();
+    service.allowAlways('work-key', 'graph_mail_delete_draft');
+    expect(alwaysAllowed()).toEqual({ 'james@communitytech.co.uk': ['graph_mail_delete_draft'] });
   });
 
   it('adds and removes only the selected connected account from the existing write policy', async () => {

@@ -48,8 +48,8 @@ const policies: { name: string; policy: Partial<UnifiedSpawnOptions> }[] = [
   { name: 'context ceiling', policy: { contextCeilingTokens: 100_000 } },
   { name: 'turn limit', policy: { maxTurns: 8 } },
   { name: 'budget cap', policy: { maxBudgetUsd: 1 } },
+  // `node-run` takes the same branch as `review`; its own refusal and carry tests are below.
   { name: 'machine-session policy', policy: { machineSession: 'review' } },
-  { name: 'run_on_node machine session', policy: { machineSession: 'node-run' } },
   {
     name: 'read-only yolo reviewer with limits',
     policy: { readOnlyReview: true, yoloMode: true, machineSession: 'review', maxTurns: 8, contextCeilingTokens: 100_000 },

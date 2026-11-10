@@ -18,6 +18,12 @@ import * as preCheck from './automation-pre-check';
 const checkStoreSlot = vi.hoisted(() => ({ store: null as AutomationCheckStore | null }));
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/ai-orchestrator-check-retry-test' } }));
+// Checks run through plain `/bin/sh -c`, not the developer's login shell: its profile start-up follows the
+// computer's load and timed these tests out on a busy Mac. The login shell is covered by automation-pre-check.spec.ts.
+vi.mock('../orchestration/loop-completion-detector', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../orchestration/loop-completion-detector')>(),
+  buildVerifyInvocation: (command: string) => ({ file: '/bin/sh', args: ['-c', command], useShellOption: false }),
+}));
 vi.mock('../plugins/hook-emitter', () => ({ emitPluginHook: vi.fn() }));
 // Account routing has its own tests; these runs must not read real settings.
 vi.mock('./automation-account-rules', () => ({ automationAccountPreferences: async () => undefined }));

@@ -128,6 +128,11 @@ export class GraphClient {
     await this.request(accountKey, 'POST', `/me/messages/${encode(messageId)}/send`);
   }
 
+  /** Plain DELETE moves a message to Deleted Items; permanentDelete is deliberately never used. */
+  async deleteMailDraft(accountKey: string, messageId: string): Promise<void> {
+    await this.request(accountKey, 'DELETE', `/me/messages/${encode(messageId)}`);
+  }
+
   private async listCollection(accountKey: string, initialUrl: string, limit = Infinity): Promise<GraphRecord[]> {
     const values: GraphRecord[] = [];
     let nextUrl: string | undefined = initialUrl;

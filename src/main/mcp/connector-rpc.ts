@@ -105,12 +105,14 @@ export async function authorizeConnectorMutation(
 /** Reads between "before it" and the account email, for the line that says what "Always allow" covers. */
 const ALWAYS_ALLOW_PHRASES: Record<string, string> = {
   graph_mail_send: 'sends mail from',
+  graph_mail_delete_draft: 'deletes drafts in',
   graph_calendar_create_event: 'creates calendar events on',
   graph_calendar_update_event: 'changes calendar events on',
   graph_calendar_delete_event: 'deletes calendar events on',
 };
 
 function describeChange(toolName: string): string {
+  if (toolName === 'graph_mail_delete_draft') return 'deleting a draft';
   return toolName.replace(/^graph_/, '').replaceAll('_', ' ');
 }
 export async function dispatchConnectorRpc(
@@ -247,15 +249,28 @@ export function buildConnectorMutationApproval(
           ? ' This may send attendee cancellation notices.'
           : toolName === 'graph_mail_send'
             ? ' This sends the draft to its recipients.'
-            : '';
+            : toolName === 'graph_mail_delete_draft'
+              ? ' This moves the draft to Deleted Items.'
+              : '';
   const subject = label(args['subject']);
+  const addresses = (key: string): string => {
+    const list = Array.isArray(args[key]) ? args[key].map((recipient: unknown) =>
+      label((recipient as { emailAddress?: { address?: unknown } } | null)?.emailAddress?.address)).filter(Boolean) : [];
+    return list.length > 10 ? `${list.slice(0, 10).join(', ')} and ${list.length - 10} more` : list.join(', ');
+  };
+  const to = addresses('toRecipients');
+  const cc = addresses('ccRecipients');
+  const who = toolName === 'graph_mail_delete_draft'
+    ? `${to ? `, to ${to}` : ''}${cc ? `, cc ${cc}` : ''}` : '';
   return {
-    description: `Allow ${describeChange(toolName)} through ${connectorName}${subject ? `, subject ${subject}` : ''}?${warning}`,
+    description: `Allow ${describeChange(toolName)} through ${connectorName}${subject ? `, subject ${subject}` : ''}${who}?${warning}`,
     details: {
       accountKey,
       connectorName,
       operation: toolName,
       subject,
+      to,
+      cc,
       eventId: label(args['eventId']),
       messageId: label(args['messageId']),
       attendeeCount,

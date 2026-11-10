@@ -51,16 +51,16 @@ describe('NotificationShellService', () => {
     } finally { vi.useRealTimers(); }
   });
 
-  it('marks the selected session seen and gives warnings the warning timeout', () => {
-    vi.useFakeTimers();
-    try {
-      TestBed.inject(NotificationShellService).start(); selected.set('a'); TestBed.tick();
-      expect(center.markSessionSeen).toHaveBeenCalledWith('a');
-      listener({ instanceId: 'unknown', detector: 'runaway', severity: 'warn', toolName: 'Read', count: 200, windowDescription: '200 tool calls in one turn', harnessStopping: false });
-      const toast = TestBed.inject(ToastService); expect(toast.toasts()[0].type).toBe('warning');
-      expect(toast.toasts()[0].text).toBe('A session may be repeating itself. It has used tools 200 times in this turn without finishing.');
-      vi.advanceTimersByTime(8000); expect(toast.toasts()).toEqual([]);
-    } finally { vi.useRealTimers(); }
+  it('marks the selected session seen', () => {
+    TestBed.inject(NotificationShellService).start(); selected.set('a'); TestBed.tick();
+    expect(center.markSessionSeen).toHaveBeenCalledWith('a');
+  });
+
+  it('names an unknown session plainly when Harness stops a long turn', () => {
+    TestBed.inject(NotificationShellService).start();
+    listener({ instanceId: 'unknown', detector: 'runaway', severity: 'critical', toolName: 'Bash', count: 400, windowDescription: '400 tool calls in one turn', harnessStopping: true });
+    expect(TestBed.inject(ToastService).toasts()[0].text)
+      .toBe('A session may be stuck. It has used tools 400 times in this turn without finishing. Harness is stopping it.');
   });
 });
 

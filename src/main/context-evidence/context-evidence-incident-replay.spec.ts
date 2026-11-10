@@ -9,7 +9,7 @@
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { ContextPressureSample } from '@contracts/types/context-evidence';
 import {
   ContextSafetyPolicy,
@@ -46,62 +46,70 @@ describe('governed context-evidence incident replay', () => {
   });
 
   // Real AES-256-GCM + fsync-per-blob capture over 44 records is I/O bound
-  // (~8s locally); give it headroom above the default 5s test timeout.
-  it('preserves byte-for-byte evidence, builds inspectable cards, bounds the working set, and retrieves exact citations with truthful metrics', async () => {
-    const { manifest } = readIncidentManifest();
-    const services = createIncidentReplayServices({ userDataPath });
+  // (about 8 s locally). Both tests below read the same replay result, so the
+  // replay runs once, in its own temp directory, instead of once per test.
+  describe('full manifest replay', () => {
+    let replayDataPath: string;
+    let manifest: ReturnType<typeof readIncidentManifest>['manifest'];
+    let services: ReturnType<typeof createIncidentReplayServices>;
+    let result: Awaited<ReturnType<typeof runIncidentReplay>>;
 
-    const result = await runIncidentReplay(services, manifest);
+    beforeAll(async () => {
+      replayDataPath = await mkdtemp(join(tmpdir(), 'aio-incident-replay-full-'));
+      ({ manifest } = readIncidentManifest());
+      services = createIncidentReplayServices({ userDataPath: replayDataPath });
+      result = await runIncidentReplay(services, manifest);
+    }, 30_000);
 
-    expect(result.totalCalls).toBe(44);
-    expect(result.externalizableCount).toBe(25);
-    expect(result.totalResultCharacters).toBe(900_532);
-    expect(result.captured).toHaveLength(44);
-    expect(result.captured.every((call) => call.roundTripEqual)).toBe(true);
-    expect(result.cardsBuilt).toBe(25);
-
-    // Truthful metrics: the ledger's own record count/byte sum must match what was replayed.
-    const records = services.ledger.allRecords();
-    expect(records).toHaveLength(44);
-    expect(records.reduce((sum, record) => sum + record.byteCount, 0)).toBe(900_532);
-    expect(records.every((record) => record.status === 'complete')).toBe(true);
-
-    // Working set stays within the declared allocation / normal 60% ceiling.
-    expect(result.workingSet.governedTokens).toBeLessThanOrEqual(
-      Math.floor(manifest.incident.contextWindowTokens * 0.6),
-    );
-
-    // Exact authenticated retrieval of a cited range.
-    expect(result.sampleCitation.contentDigest).toMatch(/^[a-f0-9]{64}$/);
-    const verify = await services.retrievalService.verify({
-      requester: { id: 'test', path: 'local', localSensitiveAuthorized: true, localRestrictedAuthorized: true },
-      conversationId: result.conversationId,
-      evidenceId: result.sampleCitation.evidenceId,
-      startByte: result.sampleCitation.startByte,
-      endByte: result.sampleCitation.endByte,
-      contentDigest: result.sampleCitation.contentDigest,
+    afterAll(async () => {
+      await rm(replayDataPath, { recursive: true, force: true });
     });
-    expect(verify.verified).toBe(true);
 
-    // The accuracy gate passes the cited claim.
-    expect(result.accuracyGateVerdict).toBe('pass');
-  }, 30_000);
+    it('preserves byte-for-byte evidence, builds inspectable cards, bounds the working set, and retrieves exact citations with truthful metrics', async () => {
+      expect(result.totalCalls).toBe(44);
+      expect(result.externalizableCount).toBe(25);
+      expect(result.totalResultCharacters).toBe(900_532);
+      expect(result.captured).toHaveLength(44);
+      expect(result.captured.every((call) => call.roundTripEqual)).toBe(true);
+      expect(result.cardsBuilt).toBe(25);
 
-  // Same I/O-bound replay as above; see the comment there.
-  it('measures at least a 60% cumulative-input reduction under enforce while the accuracy gate still passes', async () => {
-    const { manifest } = readIncidentManifest();
-    const services = createIncidentReplayServices({ userDataPath });
+      // Truthful metrics: the ledger's own record count/byte sum must match what was replayed.
+      const records = services.ledger.allRecords();
+      expect(records).toHaveLength(44);
+      expect(records.reduce((sum, record) => sum + record.byteCount, 0)).toBe(900_532);
+      expect(records.every((record) => record.status === 'complete')).toBe(true);
 
-    const result = await runIncidentReplay(services, manifest);
+      // Working set stays within the declared allocation / normal 60% ceiling.
+      expect(result.workingSet.governedTokens).toBeLessThanOrEqual(
+        Math.floor(manifest.incident.contextWindowTokens * 0.6),
+      );
 
-    expect(result.workingSet.baselineCumulativeInputTokens).toBe(5_693_312);
-    expect(result.workingSet.reductionPercent).toBeGreaterThanOrEqual(0.6);
-    expect(result.workingSet.cumulativeReductionPercent).toBeGreaterThanOrEqual(0.6);
-    expect(result.workingSet.governedCumulativeInputTokens).toBeLessThan(
-      result.workingSet.baselineCumulativeInputTokens,
-    );
-    expect(result.accuracyGateVerdict).toBe('pass');
-  }, 30_000);
+      // Exact authenticated retrieval of a cited range.
+      expect(result.sampleCitation.contentDigest).toMatch(/^[a-f0-9]{64}$/);
+      const verify = await services.retrievalService.verify({
+        requester: { id: 'test', path: 'local', localSensitiveAuthorized: true, localRestrictedAuthorized: true },
+        conversationId: result.conversationId,
+        evidenceId: result.sampleCitation.evidenceId,
+        startByte: result.sampleCitation.startByte,
+        endByte: result.sampleCitation.endByte,
+        contentDigest: result.sampleCitation.contentDigest,
+      });
+      expect(verify.verified).toBe(true);
+
+      // The accuracy gate passes the cited claim.
+      expect(result.accuracyGateVerdict).toBe('pass');
+    });
+
+    it('measures at least a 60% cumulative-input reduction under enforce while the accuracy gate still passes', () => {
+      expect(result.workingSet.baselineCumulativeInputTokens).toBe(5_693_312);
+      expect(result.workingSet.reductionPercent).toBeGreaterThanOrEqual(0.6);
+      expect(result.workingSet.cumulativeReductionPercent).toBeGreaterThanOrEqual(0.6);
+      expect(result.workingSet.governedCumulativeInputTokens).toBeLessThan(
+        result.workingSet.baselineCumulativeInputTokens,
+      );
+      expect(result.accuracyGateVerdict).toBe('pass');
+    });
+  });
 
   it('never duplicates evidence across a simulated restart mid-capture', async () => {
     const services = createIncidentReplayServices({ userDataPath });

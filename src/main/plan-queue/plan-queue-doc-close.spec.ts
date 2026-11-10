@@ -14,6 +14,7 @@ import {
   removeParkedNote,
   retireActiveDocuments,
 } from './plan-queue-doc-close';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
 let repo: string;
 
@@ -82,9 +83,9 @@ function write(relative: string, content: string): string {
   return full;
 }
 
-beforeEach(() => {
-  GitWriteQueue._resetForTesting();
-  repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-docs-')));
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate((dir) => {
+  repo = dir;
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'Plan Queue Test']);
   git(['config', 'user.email', 'plan-queue@example.invalid']);
@@ -92,6 +93,12 @@ beforeEach(() => {
   write('a.txt', 'base\n');
   git(['add', '-A']);
   git(['commit', '-q', '-m', 'base']);
+});
+
+beforeEach(() => {
+  GitWriteQueue._resetForTesting();
+  repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-docs-')));
+  baseRepository.copyTo(repo);
 });
 
 afterEach(() => {

@@ -468,15 +468,18 @@ export class GatewayClient {
    * Preview which provider/model/thinking a new session would start with, given
    * the chosen provider ('auto' or specific) and optional model override. The
    * host resolves it because it depends on the host's installed CLIs + settings.
+   * It also lists the accounts the session may start on, and which one it would.
    */
   async sessionPlan(
     provider: string,
     model?: string,
     reasoningEffort?: MobileReasoningEffort,
+    accountProfileId?: string,
   ): Promise<MobileSessionPlan> {
     const params = new URLSearchParams({ provider });
     if (model) params.set('model', model);
     if (reasoningEffort) params.set('reasoningEffort', reasoningEffort);
+    if (accountProfileId) params.set('accountProfileId', accountProfileId);
     return this.request<MobileSessionPlan>('GET', `/api/session-plan?${params.toString()}`);
   }
 

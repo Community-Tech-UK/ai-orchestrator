@@ -221,8 +221,7 @@ describe('tryAccountSwitchInPlace (MiMo multi-account live switch)', () => {
   });
 
   it.each([
-    ['minimal', 'low'], ['low', 'low'], ['medium', 'medium'], ['high', 'high'],
-    ['xhigh', 'high'], ['max', 'high'], ['ultra', 'high'],
+    ['minimal', 'low'], ['medium', 'medium'], ['high', 'high'], ['ultra', 'high'],
   ] as const)('restores mapped %s effort after the real native model resets it', async (requested, mapped) => {
     mocks.profiles = [mimoProfile('max-b-2b3c')];
     const modelA = 'aio-mimo-max-a-1a2b/mimo-v2.6-pro';
@@ -362,8 +361,15 @@ describe('tryAccountSwitchInPlace (MiMo multi-account live switch)', () => {
     });
   });
 
-  describe.each(['ams', 'sgp', 'cn'] as const)('actual legacy %s live handoff', (region) => {
-    it.each(['xiaomi-token-plan', 'xiaomi-token-plan-ams', 'xiaomi-token-plan-sgp', 'xiaomi-token-plan-cn'])(
+  // The region only names the target (`xiaomi-token-plan-<region>`); the logical
+  // provider and the native failure modes do not depend on it. Every region and
+  // every logical provider still has a row; the failure modes run on `ams`.
+  describe.each([
+    ['ams', ['xiaomi-token-plan', 'xiaomi-token-plan-ams', 'xiaomi-token-plan-sgp', 'xiaomi-token-plan-cn']],
+    ['sgp', ['xiaomi-token-plan']],
+    ['cn', ['xiaomi-token-plan']],
+  ] as const)('actual legacy %s live handoff', (region, logicalProviders) => {
+    it.each(logicalProviders)(
       'selects the native target for logical provider %s', async (logicalProvider) => {
         mocks.profiles = [mimoProfile('legacy', region)];
         const expected = `xiaomi-token-plan-${region}/mimo-v2.6-pro`;
@@ -392,7 +398,10 @@ describe('tryAccountSwitchInPlace (MiMo multi-account live switch)', () => {
         } finally { proc.exit(); }
       },
     );
+  });
 
+  describe('actual legacy ams live handoff', () => {
+    const region = 'ams';
     it.each(['refused', 'unavailable', 'mismatched-response', 'superseded-notification'] as const)(
       'leaves account and announcements untouched when native selection is %s', async (mode) => {
         mocks.profiles = [mimoProfile('legacy', region)];

@@ -68,16 +68,16 @@ describe('parseOpenCodeModelMetadataBlocks', () => {
 });
 
 describe('resolveOpenCodeSessionModel regional account targets', () => {
-  describe.each(['xiaomi-token-plan', 'xiaomi-token-plan-ams', 'xiaomi-token-plan-sgp', 'xiaomi-token-plan-cn'])(
-    'logical provider %s', (logicalProvider) => {
-      it.each(['xiaomi-token-plan-ams', 'xiaomi-token-plan-sgp', 'xiaomi-token-plan-cn'])(
-        'selects the derived legacy target %s while keeping the model suffix', (target) => {
-          expect(resolveOpenCodeSessionModel(`${logicalProvider}/mimo-v2.6-pro`, target))
-            .toBe(`${target}/mimo-v2.6-pro`);
-        },
-      );
-    },
-  );
+  // One row per alternative of each pattern: every logical provider once, every target at least once.
+  it.each([
+    ['xiaomi-token-plan', 'xiaomi-token-plan-ams'],
+    ['xiaomi-token-plan-ams', 'xiaomi-token-plan-sgp'],
+    ['xiaomi-token-plan-sgp', 'xiaomi-token-plan-cn'],
+    ['xiaomi-token-plan-cn', 'xiaomi-token-plan-ams'],
+  ])('logical provider %s selects the derived legacy target %s while keeping the model suffix', (logicalProvider, target) => {
+    expect(resolveOpenCodeSessionModel(`${logicalProvider}/mimo-v2.6-pro`, target))
+      .toBe(`${target}/mimo-v2.6-pro`);
+  });
 
   it.each(['xiaomi-token-plan', 'xiaomi-token-plan-eu', 'xiaomi-token-plan-ams-extra',
     'xiaomi-token-planning-ams', 'xiaomi-token-plan-sgp/model', 'openrouter'])(

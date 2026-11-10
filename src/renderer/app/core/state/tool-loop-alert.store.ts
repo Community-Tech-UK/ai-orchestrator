@@ -22,9 +22,10 @@
  * and offering "Stop this turn" for a turn that already ended is worse than
  * offering nothing.
  *
- * Only `critical` is retained. A `warning` is the detector saying "this might
- * be a loop"; it has its toast, and badging every one would train the operator
- * to ignore the badge — which costs exactly when a real one appears.
+ * Main sends only detections worth a person's attention
+ * (`shouldTellUserAboutToolLoop` in `tool-loop-notice.ts`): a detector's first
+ * "might be repeating" warning, or a long turn that is merely busy, never
+ * arrives here, so every alert that does is one worth badging.
  */
 import { DestroyRef, Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 
@@ -41,7 +42,7 @@ import type { ToolLoopDetector } from '../../../../shared/tool-loop-summary';
 interface ToolLoopEventPayload {
   instanceId: string;
   detector: ToolLoopDetector;
-  severity: 'warn' | 'critical';
+  severity: 'critical';
   toolName: string;
   count: number;
   windowDescription: string;
@@ -108,7 +109,6 @@ export class ToolLoopAlertStore {
     // subscribes independently rather than being threaded through the toast.
     const cleanup = this.ipc.on('instance:doom-loop', (data) => {
       const event = data as ToolLoopEventPayload;
-      if (event.severity !== 'critical') return;
       if (event.harnessStopping) {
         // Offering "Stop this turn" now would send a second interrupt, which
         // main treats as "force it"; and "Let it continue" could not be honoured.

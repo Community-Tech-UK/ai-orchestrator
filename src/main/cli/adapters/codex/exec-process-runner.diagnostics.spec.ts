@@ -1,3 +1,6 @@
+import { EventEmitter } from 'node:events';
+import { PassThrough, Writable } from 'node:stream';
+import type { ChildProcess } from 'node:child_process';
 import { describe, expect, it, vi } from 'vitest';
 import type { OutputMessage } from '../../../../shared/types/instance.types';
 import { createMockProcess } from '../codex-cli-adapter.test-helpers';
@@ -192,4 +195,37 @@ describe('Codex exec stderr lines', () => {
     await expect(pending).rejects.toThrow(/unauthorized: token expired/);
     await pending.catch((error: Error) => expect(error.message).not.toMatch(/2026-10-18T/));
   });
+});
+
+it('releases exact buffered native stdout and stderr once the actual Writable callback accepts input', async () => {
+  let release!: (error?: Error | null) => void;
+  const stdin = new Writable({ write(_chunk, _encoding, callback) { release = callback; } });
+  const child = Object.assign(new EventEmitter(), { stdin, stdout: new PassThrough(), stderr: new PassThrough(), pid: 123456789, killed: false, exitCode: null, signalCode: null }) as unknown as ChildProcess;
+  let active: ChildProcess | null = null;
+  const output = vi.fn();
+  const pending = runCodexExecProcess({ spawn: () => child, setProcess: process => active = process, isActiveProcess: process => active === process, message: { role: 'user', content: 'LOCAL_PROMPT' }, phase: 'startup', timeoutMs: 1000, deadlineMs: 1000, turnIdleTimeoutMs: 1000, emitOutput: output, emitExit: vi.fn(), emitHeartbeat: vi.fn(), onThreadId: vi.fn(), generateResponseId: () => 'LOCAL_RESPONSE' });
+  child.stdout!.emit('data', Buffer.from(JSON.stringify({ type: 'item.created', item: { type: 'command_execution', command: 'LOCAL_COMMAND' } }) + '\n'));
+  child.stderr!.emit('data', Buffer.from('WARN LOCAL_NATIVE_DIAGNOSTIC\n'));
+  expect(output).not.toHaveBeenCalled();
+  release();
+  await new Promise(resolve => setImmediate(resolve));
+  try {
+    const shown = output.mock.calls.map(([message]) => message);
+    expect(shown).toHaveLength(2);
+    expect(shown[0].content).toBe('Running command: LOCAL_COMMAND');
+    // The released stderr line is a plain sentence; the provider's own words stay behind Details.
+    expect(shown[1].metadata?.['diagnostic']).toBe(true);
+    expect(shown[1].content).not.toContain('LOCAL_NATIVE_DIAGNOSTIC');
+    expect(shown[1].metadata?.['errorPresentation']).toMatchObject({ rawDetail: 'WARN LOCAL_NATIVE_DIAGNOSTIC' });
+  }
+  finally {
+    (child as unknown as {
+      exitCode: number;
+    }).exitCode = 0;
+    child.emit('close', 0, null);
+    await pending;
+    expect(stdin.listenerCount('error')).toBe(0);
+    expect(stdin.listenerCount('close')).toBe(0);
+    expect(active).toBeNull();
+  }
 });

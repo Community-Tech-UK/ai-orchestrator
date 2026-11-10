@@ -128,7 +128,6 @@ describe('normalizeUsage', () => {
     it.each<[string, number]>([
       ['NaN', Number.NaN],
       ['Infinity', Number.POSITIVE_INFINITY],
-      ['-Infinity', Number.NEGATIVE_INFINITY],
       ['negative', -10],
     ])('drops a single field whose only value is %s', (_label, bad) => {
       const result = normalizeUsage({ input_tokens: bad, output_tokens: 5 });

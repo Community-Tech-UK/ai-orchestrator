@@ -9,6 +9,7 @@ import type { SubsystemLogger } from '../../logging/logger';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import type { FileAttachment, InstanceProvider } from '../../../shared/types/instance.types';
 import type { InstanceManager } from '../../instance/instance-manager';
+import type { PersonInputOrigin } from '../../../shared/types/input-provenance.types';
 import { createInitialUserMessage, serializeInstance } from './instance-handler-serializers';
 
 /** Shape actually consumed here; kept structural so the Zod type stays the source of truth. */
@@ -32,6 +33,7 @@ export interface CreateWithMessageInput {
   copilotAccountProfileId?: string;
   copilotConfirmProtectedOverride?: boolean;
   accountProfileId?: string;
+  origin?: PersonInputOrigin;
 }
 
 /**
@@ -67,7 +69,7 @@ export async function createInstanceWithMessage(
     initialPrompt: validated.message,
     initialUserMessageSource: 'current-submission',
     attachments,
-    initialOutputBuffer: [createInitialUserMessage(validated.message, attachments)],
+    initialOutputBuffer: [createInitialUserMessage(validated.message, attachments, validated.origin)],
     launchMode: validated.launchMode,
     agentId: validated.agentId,
     provider: validated.provider as InstanceProvider | undefined,

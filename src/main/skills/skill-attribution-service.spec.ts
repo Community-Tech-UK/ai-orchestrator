@@ -1,18 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { RLM_MIGRATIONS_051_055 } from '../persistence/rlm/rlm-migrations-051-055';
 import { SkillAttributionService, getSkillAttribution } from './skill-attribution-service';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
-const dbs: SqliteDriver[] = [];
-
-function openMigratedDb(): SqliteDriver {
-  const db = defaultDriverFactory(':memory:');
-  dbs.push(db);
+const rlmTemplate = useSqliteTemplate((db) => {
   createTables(db);
   createMigrationsTable(db);
   runMigrations(db);
+});
+const dbs: SqliteDriver[] = [];
+
+function openMigratedDb(): SqliteDriver {
+  const db = rlmTemplate.open();
+  dbs.push(db);
   return db;
 }
 

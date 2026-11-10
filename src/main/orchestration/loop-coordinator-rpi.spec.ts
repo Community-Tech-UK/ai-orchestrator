@@ -3,7 +3,7 @@
  * regenerate-on-stall.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +11,9 @@ import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { passingVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig, LOOP_MAX_PLAN_REGENERATIONS } from '../../shared/types/loop.types';
+
+vi.mock('./loop-coordinator-utils', async (importOriginal) =>
+  (await import('./loop-coordinator-test-pause')).withShortIterationPause(await importOriginal()));
 
 /** Write a loop-state file into the run's per-run state dir (.aio-loop-state/<runId>/). */
 function writeRunState(payload: unknown, name: string, content: string): void {

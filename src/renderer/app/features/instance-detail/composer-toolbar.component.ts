@@ -415,8 +415,10 @@ export class ComposerToolbarComponent {
   readonly desiredRuntimeLabel = computed<string | null>(() => {
     const pending = this.desiredRuntime();
     if (!pending) return null;
-    if (pending.yoloMode !== undefined && pending.model === undefined && pending.modelRuntimeTarget === undefined
-      && pending.reasoningEffort === undefined && (!pending.provider || pending.provider === this.provider())) return null;
+    // A yolo flip or an account move alone keeps the model; their own indicators show them.
+    const keepsModel = pending.model === undefined && pending.modelRuntimeTarget === undefined
+      && pending.reasoningEffort === undefined && (!pending.provider || pending.provider === this.provider());
+    if (keepsModel && (pending.yoloMode !== undefined || pending.accountProfileId !== undefined)) return null;
     const providerLabel = pending.provider
       ? PROVIDER_MENU_LABELS[pending.provider as PickerProvider] ?? pending.provider
       : null;

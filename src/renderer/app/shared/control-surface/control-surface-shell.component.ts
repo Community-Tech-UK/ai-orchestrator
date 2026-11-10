@@ -85,8 +85,6 @@ export class ControlSurfaceShellComponent {
    */
   protected readonly showHelpPane = computed(() => this.activeSurface().id !== 'settings');
 
-  protected readonly showControlNav = computed(() => this.activeSurface().id !== 'settings');
-
   constructor() {
     // On a narrow window the hub strip and the tab row scroll sideways, so bring the open hub and tab into view.
     // Collapsing the menu or clearing a search redraws the strip from the start, so those bring it back too.

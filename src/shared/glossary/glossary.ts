@@ -46,9 +46,14 @@ export const GLOSSARY = {
     term: 'session', label: 'session', plain: 'One conversation with one AI agent.', group: 'Session', vocabulary: { never: [/\binstances?\b/i, /\bthreads?\b/i], enforcement: 'planned', owner: 'Phase 3 C7' },
     avoid: ['instance', 'thread'],
   },
+  job: {
+    label: 'Job',
+    plain: 'One piece of queue work: a whole plan, or one step of a big plan.',
+    group: 'Status',
+  },
   worker: {
     label: 'Worker',
-    plain: 'A worker is either a computer that runs agents, or one queue agent doing one document.',
+    plain: 'A worker is either a computer that runs agents, or one queue agent doing one job.',
     group: 'Flagged',
     flag: 'Two meanings share this word: a worker computer, and a worker agent on the plan queue. The surrounding words say which.',
   },

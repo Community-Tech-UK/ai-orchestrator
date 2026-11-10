@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   buildLoopControlEnv,
+  cleanupLoopControl,
   commitImportedIntent,
   importLoopTerminalIntents,
   listArchivedImportedIntents,
@@ -255,6 +256,28 @@ describe('loop-control CLI contract', () => {
   it('returns an empty list when imported/ does not exist (no orphans)', async () => {
     const empty = await listArchivedImportedIntentsByLoop(workspace, runtime.loopRunId);
     expect(empty).toEqual([]);
+  });
+});
+
+describe('loop-control cleanup while the loop is still writing', () => {
+  // A cancelled loop's runner can be part-way through its per-iteration control update when
+  // termination removes the directory, which made the update's rename fail with ENOENT.
+  it('lets an update that is already running finish, then removes the directory', async () => {
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      const loop = await prepareLoopControl(workspace, `loop-race-${attempt}`);
+      const write = writeLoopControlFile(loop, 1);
+      const cleanup = cleanupLoopControl(loop);
+      await expect(Promise.all([write, cleanup])).resolves.toEqual([undefined, undefined]);
+      expect(fs.existsSync(loop.controlDir)).toBe(false);
+    }
+  });
+
+  it('does not recreate the directory for an update that starts after cleanup', async () => {
+    await cleanupLoopControl(runtime);
+
+    await writeLoopControlFile(runtime, 3);
+
+    expect(fs.existsSync(runtime.controlDir)).toBe(false);
   });
 });
 

@@ -1398,32 +1398,16 @@ describe('ChannelMessageRouter', () => {
       expect(() => router.assertSendable('/tmp/output.txt')).not.toThrow();
     });
 
-    it('blocks paths containing .env', () => {
-      expect(() => router.assertSendable('/app/.env')).toThrow('Cannot send file from restricted path');
-    });
-
-    it('blocks paths containing credentials', () => {
-      expect(() => router.assertSendable('/app/credentials/key.json')).toThrow();
-    });
-
-    it('blocks paths containing tokens', () => {
-      expect(() => router.assertSendable('/config/tokens/auth.json')).toThrow();
-    });
-
-    it('blocks paths containing secrets', () => {
-      expect(() => router.assertSendable('/etc/secrets/db_pass')).toThrow();
-    });
-
-    it('blocks paths containing .ssh', () => {
-      expect(() => router.assertSendable('/home/user/.ssh/id_rsa')).toThrow();
-    });
-
-    it('blocks paths containing access.json', () => {
-      expect(() => router.assertSendable('/app/access.json')).toThrow();
-    });
-
-    it('blocks paths with mixed case (case-insensitive check)', () => {
-      expect(() => router.assertSendable('/app/.ENV')).toThrow();
+    it.each([
+      ['.env', '/app/.env'],
+      ['credentials', '/app/credentials/key.json'],
+      ['tokens', '/config/tokens/auth.json'],
+      ['secrets', '/etc/secrets/db_pass'],
+      ['.ssh', '/home/user/.ssh/id_rsa'],
+      ['access.json', '/app/access.json'],
+      ['.ENV in mixed case (case-insensitive check)', '/app/.ENV'],
+    ])('blocks paths containing %s', (_label, filePath) => {
+      expect(() => router.assertSendable(filePath)).toThrow('Cannot send file from restricted path');
     });
   });
 

@@ -4,8 +4,15 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getKnownModelsForCli } from '../instance/lifecycle/create-validation-helpers';
 import { resolveAvailableModelSelection } from '../instance/lifecycle/model-selection-degradation';
 import { resolveInitialModel } from '../instance/lifecycle/resolve-initial-model';
+import { getProviderAccountRoutingService } from '../providers/account-pool/provider-account-routing-service';
+import { getProviderAccountStore } from '../providers/account-pool/provider-account-store';
 import type { CliType as SettingsCliType } from '../../shared/types/settings.types';
-import type { MobileSessionPlan } from '../../shared/types/mobile-gateway.types';
+import type { MobileSessionAccountPlan, MobileSessionPlan } from '../../shared/types/mobile-gateway.types';
+import {
+  isLogicalMiMoModel,
+  isPooledProvider,
+  type AccountRouteSource,
+} from '../../shared/types/provider-account.types';
 import {
   getDefaultModelForCli,
   getDefaultReasoningEffort,
@@ -56,6 +63,8 @@ export async function resolveMobileSessionPlan(params: {
   provider?: string;
   model?: string;
   reasoningEffort?: ReasoningEffort;
+  /** The account the person picked; one that is no longer offered is ignored. */
+  accountProfileId?: string;
 }): Promise<MobileSessionPlan> {
   const settings = getSettingsManager().getAll();
 
@@ -95,6 +104,7 @@ export async function resolveMobileSessionPlan(params: {
   }
 
   const reasoningEffort = params.reasoningEffort ?? getDefaultReasoningEffort(resolvedProvider, resolvedModel);
+  const account = await resolveMobileAccountPlan(resolvedProvider, resolvedModel ?? null, params.accountProfileId);
 
   return {
     provider: resolvedProvider,
@@ -105,5 +115,54 @@ export async function resolveMobileSessionPlan(params: {
     modelLabel: resolvedModel ? getModelShortName(resolvedModel, resolvedProvider) : null,
     reasoningEffort: reasoningEffort ?? null,
     reasoningEffortLabel: reasoningEffort ? EFFORT_LABELS[reasoningEffort] : null,
+    ...(account ? { account } : {}),
   };
+}
+
+const ROUTE_REASONS: Record<AccountRouteSource, string> = {
+  explicit: 'you chose this account',
+  default: 'chosen automatically',
+  failover: 'moved here at a usage limit',
+  preemptive: 'moved here before a usage limit',
+  persisted: 'the account this conversation runs on',
+  legacy: 'your existing sign-in',
+};
+
+/**
+ * The accounts a new session may be started on, matching the desktop composer's
+ * account chip: accounts that are turned on and not barred from use, in the
+ * host's priority order, plus the account the pool would pick and why. Null
+ * when the provider has no pool or fewer than two accounts can be chosen.
+ * OpenCode accounts only apply to MiMo models, as at spawn.
+ */
+async function resolveMobileAccountPlan(
+  provider: string,
+  model: string | null,
+  chosenId: string | undefined,
+): Promise<MobileSessionAccountPlan | null> {
+  if (!isPooledProvider(provider)) return null;
+  if (provider === 'opencode' && !isLogicalMiMoModel(model)) return null;
+  const profiles = getProviderAccountStore().listProfiles(provider)
+    .filter((profile) => profile.enabled && profile.automationPolicy !== 'disabled')
+    .sort((a, b) => a.priority - b.priority);
+  if (profiles.length < 2) return null;
+
+  const labelFor = (id: string) => profiles.find((profile) => profile.id === id)?.label ?? id;
+  const explicitProfileId = chosenId && profiles.some((profile) => profile.id === chosenId) ? chosenId : undefined;
+  const preview = await getProviderAccountRoutingService().preview({
+    provider,
+    model,
+    ...(explicitProfileId ? { explicitProfileId } : {}),
+    origin: 'interactive',
+  });
+  const options = profiles.map((profile) => ({ id: profile.id, label: profile.label }));
+  if (!preview.outcome.ok) {
+    return { options, summary: preview.outcome.detail };
+  }
+  const route = preview.outcome.route;
+  const skipped = preview.considered.find((entry) => entry.vetoReason === 'parked' || entry.vetoReason === 'exhausted');
+  const reason = skipped && route.source === 'default'
+    ? `${labelFor(skipped.profileId)} is at its limit`
+    : ROUTE_REASONS[route.source];
+  return { options, summary: `${route.profileLabel ?? labelFor(route.profileId)} · ${reason}` };
 }

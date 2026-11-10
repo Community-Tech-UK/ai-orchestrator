@@ -16,7 +16,7 @@
  * indices and fork at the wrong message.
  */
 
-import type { InternalInputMetadata } from '../types/input-provenance.types';
+import type { InternalInputMetadata, PersonInputOrigin } from '../types/input-provenance.types';
 import type { CrossSessionMessageMetadata, Instance, OutputMessage } from '../types/instance.types';
 
 /**
@@ -190,7 +190,7 @@ export interface RetainableHistoryEntry {
   timestamp: number;
   internalInput?: InternalInputMetadata;
   crossSessionMessage?: CrossSessionMessageMetadata;
-  agentAuthored?: boolean;
+  inputOrigin?: PersonInputOrigin;
 }
 
 /**
@@ -209,12 +209,12 @@ export function promptsFromDiscardedEntries(
   return discarded
     .filter((entry) => entry.role === 'user')
     .map((entry, idx) => {
-      // Who wrote it must survive the rebuild: a bare prompt would read as the user's own words.
-      const { internalInput, crossSessionMessage, agentAuthored } = entry;
+      // Who wrote it must survive the rebuild, including whether a person typed it.
+      const { internalInput, crossSessionMessage, inputOrigin } = entry;
       const provenance = {
         ...(internalInput ? { internalInput } : {}),
         ...(crossSessionMessage ? { crossSessionMessage } : {}),
-        ...(agentAuthored ? { agentAuthored } : {}),
+        ...(inputOrigin ? { inputOrigin } : {}),
       };
       return {
         id: `${idPrefix}${entry.id || idx}`,

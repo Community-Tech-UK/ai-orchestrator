@@ -1,12 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserPermissionGrant } from '@contracts/types/browser';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { BrowserApprovalStore } from './browser-approval-store';
 import { CredentialAuthorizationService, InMemoryCredentialAuthorizationStore } from './browser-credential-authorization-store';
 import { CredentialVaultError } from './browser-credential-vault';
 import { BrowserCredentialAccessService } from './browser-credential-access-service';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
+const rlmTemplate = useSqliteTemplate((db) => {
+  createTables(db);
+  createMigrationsTable(db);
+  runMigrations(db);
+});
 const closers: (() => void)[] = [];
 afterEach(() => { closers.splice(0).forEach((close) => close()); });
 
@@ -14,8 +19,7 @@ function harness() {
   let now = Date.now();
   let target = { origin: 'https://login.example.test', scope: 'node-placeholder', computerName: 'Windows test computer' };
   let session = { instanceId: 'instance-placeholder', taskScope: 'conversation:placeholder', sessionName: 'Test task' };
-  const db = defaultDriverFactory(':memory:');
-  createTables(db); createMigrationsTable(db); runMigrations(db); closers.push(() => db.close());
+  const db = rlmTemplate.open(); closers.push(() => db.close());
   const store = new BrowserApprovalStore(db);
   const auth = new CredentialAuthorizationService(new InMemoryCredentialAuthorizationStore(), () => now);
   const grants: BrowserPermissionGrant[] = [];

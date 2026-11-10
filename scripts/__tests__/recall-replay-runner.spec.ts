@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import type { spawn } from 'node:child_process';
+import { spawn as realSpawn, type spawn } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const subprocess = { spawn: vi.fn() };
 import { makeRecallRunner, RecallProcessNotRetiredError } from '../../src/main/context/recall-replay/recall-cli-runner';
@@ -66,11 +66,38 @@ describe('recall CLI retirement', () => {
 });
 
 it.runIf(process.platform !== 'win32')('retires a real synthetic Node process which ignores TERM, without a provider call', async () => {
-  const result = await makeRecallRunner(process.execPath, {})({
-    args: ['-e', "process.on('SIGTERM',()=>process.stdout.write('term-ignored\\n'));process.stdout.write('ready\\n');setInterval(()=>{},1000)"],
-    cwd: process.cwd(), timeoutMs: 1_000,
-  });
-  expect(result).toMatchObject({ exitCode: null, timedOut: true });
-  expect(result.stdout).toContain('ready');
-  expect(result.stdout).toContain('term-ignored');
+  // A real process and real signals; only the runner's own deadline and 10 s stop grace run on fake timers, each
+  // advanced once the child has shown it reached that point.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    // Resolved from the child's own output: vi.waitFor and vi.waitUntil would advance the fake clock while polling.
+    let seen = '';
+    const waiting: { text: string; resolve: () => void }[] = [];
+    const saw = (text: string) => new Promise<void>(resolve => {
+      if (seen.includes(text)) resolve();
+      else waiting.push({ text, resolve });
+    });
+    const launch = ((...args: Parameters<typeof spawn>) => {
+      const child = realSpawn(...args);
+      child.stdout?.on('data', chunk => {
+        seen += String(chunk);
+        for (const waiter of waiting) if (seen.includes(waiter.text)) waiter.resolve();
+      });
+      return child;
+    }) as typeof spawn;
+    const run = makeRecallRunner(process.execPath, {}, launch)({
+      args: ['-e', "process.on('SIGTERM',()=>process.stdout.write('term-ignored\\n'));process.stdout.write('ready\\n');setInterval(()=>{},1000)"],
+      cwd: process.cwd(), timeoutMs: 1_000,
+    });
+    await saw('ready');
+    await vi.advanceTimersByTimeAsync(1_000);
+    await saw('term-ignored');
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await run;
+    expect(result).toMatchObject({ exitCode: null, timedOut: true });
+    expect(result.stdout).toContain('ready');
+    expect(result.stdout).toContain('term-ignored');
+  } finally {
+    vi.useRealTimers();
+  }
 }, 15_000);

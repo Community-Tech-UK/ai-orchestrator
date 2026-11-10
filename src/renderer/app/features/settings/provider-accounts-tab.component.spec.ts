@@ -226,6 +226,8 @@ describe('ProviderAccountsTabComponent', () => {
   });
 
   it('locks the Enabled toggle on the only enabled account', async () => {
+    // Confirmed ownership, so only the last-enabled rule applies here.
+    pools = { ...pools, claude: { ...pools.claude, acknowledgedOwnershipAt: 1 } };
     const section = claudeSection(await render());
     const toggles = Array.from(section.querySelectorAll<HTMLInputElement>('.account-card input[type="checkbox"]'));
     expect(toggles.map((toggle) => toggle.disabled)).toEqual([false, false]);
@@ -353,12 +355,83 @@ describe('ProviderAccountsTabComponent', () => {
     }
   });
 
-  it('surfaces a failed change as an error, not silently', async () => {
+  it('labels a switched-off account so a lower account holding Default makes sense', async () => {
+    const cards = Array.from(claudeSection(await render()).querySelectorAll('.account-card'));
+    expect(cards.map((card) => card.querySelector('.chip.off')?.textContent?.trim() ?? null)).toEqual([null, 'Switched off']);
+  });
+
+  it('keeps a second account off until ownership is confirmed, says so, and leaves its box unticked when clicked', async () => {
+    const fixture = await render();
+    const card = claudeSection(fixture).querySelectorAll<HTMLElement>('.account-card')[1]!;
+    const toggle = card.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    // The store would refuse this change; the box must not be left looking ticked.
+    toggle.click();
+    await settle(fixture);
+    expect(toggle.checked).toBe(false);
+    expect(ipc.update).not.toHaveBeenCalled();
+    expect(toggle.getAttribute('aria-disabled')).toBe('true');
+    expect(card.textContent).toContain('stays switched off until you confirm below that these are your own accounts');
+  });
+
+  it('lets a switched-off account be switched on once ownership is confirmed', async () => {
+    pools = { ...pools, claude: { ...pools.claude, acknowledgedOwnershipAt: 1 } };
+    const fixture = await render();
+    const card = claudeSection(fixture).querySelectorAll<HTMLElement>('.account-card')[1]!;
+    expect(card.textContent).not.toContain('until you confirm');
+    const toggle = card.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    expect(toggle.getAttribute('aria-disabled')).toBeNull();
+    toggle.click();
+    await settle(fixture);
+    expect(ipc.update).toHaveBeenCalledExactlyOnceWith({ provider: 'claude', profileId: 'max-b-1a2b', enabled: true });
+  });
+
+  it('explains why the existing sign-in has no Remove button once there is another account', async () => {
+    const original = ipc.list.getMockImplementation();
+    const second = account({ id: 'max-b-1a2b', label: 'Max B', priority: 1, isLegacy: false, enabled: true });
+    try {
+      ipc.list.mockImplementation(async () => ({ profiles: [account(), second], pools }));
+      let legacyCard = claudeSection(await render()).querySelector<HTMLElement>('.account-card')!;
+      expect(legacyCard.textContent).toContain('so it can’t be removed. Untick Enabled to stop Harness using it.');
+      expect(Array.from(legacyCard.querySelectorAll('button')).some((button) => button.textContent?.trim() === 'Remove')).toBe(false);
+
+      // The only account on, before ownership is confirmed: the other account cannot be switched on yet.
+      ipc.list.mockImplementation(async () => ({ profiles: [account(), { ...second, enabled: false }], pools }));
+      legacyCard = claudeSection(await render()).querySelector<HTMLElement>('.account-card')!;
+      expect(legacyCard.textContent).toContain(
+        'so it can’t be removed. Confirm below that these are your own accounts, switch on another account, then switch this one off.',
+      );
+
+      const confirmed = { ...pools, claude: { ...pools.claude, acknowledgedOwnershipAt: 1 } };
+      ipc.list.mockImplementation(async () => ({ profiles: [account(), { ...second, enabled: false }], pools: confirmed }));
+      legacyCard = claudeSection(await render()).querySelector<HTMLElement>('.account-card')!;
+      expect(legacyCard.textContent).toContain('so it can’t be removed. Switch on another account first, then switch this one off.');
+
+      // Already off: nothing more to do, so no instruction follows.
+      ipc.list.mockImplementation(async () => ({ profiles: [account({ enabled: false }), second], pools: confirmed }));
+      legacyCard = claudeSection(await render()).querySelector<HTMLElement>('.account-card')!;
+      expect(legacyCard.querySelector('.hint')?.textContent?.trim()).toBe(
+        'This is the sign-in that was set up before you added accounts here, so it can’t be removed.',
+      );
+
+      ipc.list.mockImplementation(async () => ({ profiles: [account()], pools }));
+      legacyCard = claudeSection(await render()).querySelector<HTMLElement>('.account-card')!;
+      expect(legacyCard.textContent).not.toContain('can’t be removed');
+    } finally {
+      if (original) ipc.list.mockImplementation(original);
+    }
+  });
+
+  it('surfaces a failed change as an error and puts the box back to the real state', async () => {
+    pools = { ...pools, claude: { ...pools.claude, acknowledgedOwnershipAt: 1 } };
     ipc.update.mockResolvedValueOnce({ success: false, error: { message: 'Confirm that every Claude account is yours first.' } });
     const fixture = await render();
-    await fixture.componentInstance.setEnabled(fixture.componentInstance.accountsFor('claude')[1]!, true);
-    fixture.detectChanges();
+    const toggle = claudeSection(fixture).querySelectorAll<HTMLElement>('.account-card')[1]!
+      .querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    toggle.click();
+    await settle(fixture);
+    expect(ipc.update).toHaveBeenCalledExactlyOnceWith({ provider: 'claude', profileId: 'max-b-1a2b', enabled: true });
     expect(fixture.nativeElement.querySelector('.error-banner')?.textContent).toContain('Confirm that every Claude account');
+    expect(toggle.checked).toBe(false);
   });
 
   it('renames an account through the in-app modal instead of the no-op window.prompt', async () => {

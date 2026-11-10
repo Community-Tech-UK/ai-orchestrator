@@ -660,6 +660,25 @@ describe('LOOP_START handler — kickoff prompt persistence', () => {
     );
   });
 
+  it('marks an instance-detail loop goal as typed by a person only when the renderer says so', async () => {
+    const appendSyntheticUserMessage = vi.fn();
+    const instanceManager = makeInstanceManager([], {
+      getInstance: vi.fn(() => ({ id: 'inst-1', outputBuffer: [] })),
+      appendSyntheticUserMessage,
+    });
+    hoisted.coordinator.startLoop.mockResolvedValue(makeLoopState({ status: 'running', endedAt: null }));
+    hoisted.chatService.tryGetChat.mockReturnValue(null);
+    registerLoopHandlers({ windowManager: { sendToRenderer: vi.fn() } as never, instanceManager });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_START);
+    const typedAt = Date.now() - 1_000;
+
+    await handler({}, { ...(defaultStartPayload() as object), origin: { kind: 'person', typedAt } });
+    await handler({}, defaultStartPayload());
+
+    expect(appendSyntheticUserMessage.mock.calls[0][2].metadata.inputOrigin).toEqual({ kind: 'person', typedAt });
+    expect(appendSyntheticUserMessage.mock.calls[1][2].metadata).not.toHaveProperty('inputOrigin');
+  });
+
   it('still returns the new state when chatId resolves to neither a chat nor an instance', async () => {
     const windowManager = { sendToRenderer: vi.fn() };
     const instanceManager = makeInstanceManager([], {
@@ -921,6 +940,27 @@ describe('LOOP_INTERVENE handler', () => {
         }),
       }),
     );
+  });
+
+  it('marks an instance-detail hint as typed by a person only when the renderer says so', async () => {
+    const appendSyntheticUserMessage = vi.fn();
+    const instanceManager = makeInstanceManager([], {
+      getInstance: vi.fn(() => ({ id: 'inst-1', outputBuffer: [] })),
+      appendSyntheticUserMessage,
+    });
+    const state = makeLoopState({ status: 'running', endedAt: null });
+    hoisted.coordinator.intervene.mockReturnValue(true);
+    hoisted.coordinator.getLoop.mockReturnValue(state);
+    hoisted.chatService.tryGetChat.mockReturnValue(null);
+    registerLoopHandlers({ windowManager: { sendToRenderer: vi.fn() } as never, instanceManager });
+    const handler = findIpcHandler(IPC_CHANNELS.LOOP_INTERVENE);
+    const typedAt = Date.now() - 1_000;
+
+    await handler({}, { loopRunId: state.id, message: 'typed hint', origin: { kind: 'person', typedAt } });
+    await handler({}, { loopRunId: state.id, message: 'fix these findings', kind: 'steer' });
+
+    expect(appendSyntheticUserMessage.mock.calls[0][2].metadata.inputOrigin).toEqual({ kind: 'person', typedAt });
+    expect(appendSyntheticUserMessage.mock.calls[1][2].metadata).not.toHaveProperty('inputOrigin');
   });
 });
 

@@ -322,3 +322,145 @@ describe('VcsManager Phase 2d items 8/9/11', () => {
     expect(events.length).toBe(0);
   });
 });
+
+// ============================================================
+// pullFastForward — fetch, then a fast-forward that will not replace ignored files
+// ============================================================
+
+describe('VcsManager pullFastForward', () => {
+  const tempPaths: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(
+      tempPaths.map(tempPath => fs.rm(tempPath, { recursive: true, force: true })),
+    );
+    tempPaths.length = 0;
+  });
+
+  /** A clone of a repo that has since committed `file`, so the clone is one commit behind. */
+  async function cloneOneBehind(file: string): Promise<{ origin: string; clone: string }> {
+    const origin = await makeRepo('vcs-pull-origin-');
+    tempPaths.push(origin);
+    await fs.writeFile(path.join(origin, 'base.txt'), 'base\n');
+    run(origin, ['add', '-A']);
+    run(origin, ['commit', '-q', '-m', 'base']);
+    const clone = await fs.mkdtemp(path.join(os.tmpdir(), 'vcs-pull-clone-'));
+    tempPaths.push(clone);
+    run(os.tmpdir(), ['clone', '-q', origin, clone]);
+    await fs.writeFile(path.join(origin, file), 'from upstream\n');
+    run(origin, ['add', '-A']);
+    run(origin, ['commit', '-q', '-m', `add ${file}`]);
+    return { origin, clone };
+  }
+
+  const head = (repo: string): string => run(repo, ['rev-parse', 'HEAD']).trim();
+
+  it('fetches and fast-forwards to the upstream', async () => {
+    const { origin, clone } = await cloneOneBehind('new.txt');
+
+    const result = await new VcsManager(clone).pullFastForward();
+
+    expect(result.exitCode).toBe(0);
+    expect(head(clone)).toBe(head(origin));
+    expect(await fs.readFile(path.join(clone, 'new.txt'), 'utf8')).toBe('from upstream\n');
+  });
+
+  it('refreshes the remote\'s other branches and tags, as git pull does', async () => {
+    const { origin, clone } = await cloneOneBehind('new.txt');
+    run(origin, ['switch', '-q', '-c', 'feature']);
+    await fs.writeFile(path.join(origin, 'feature.txt'), 'feature\n');
+    run(origin, ['add', '-A']);
+    run(origin, ['commit', '-q', '-m', 'feature']);
+    run(origin, ['tag', 'v1']);
+    run(origin, ['switch', '-q', 'main']);
+
+    await new VcsManager(clone).pullFastForward();
+
+    expect(head(clone)).toBe(head(origin));
+    expect(run(clone, ['rev-parse', 'origin/feature']).trim()).toBe(run(origin, ['rev-parse', 'feature']).trim());
+    expect(run(clone, ['tag', '--list', 'v1']).trim()).toBe('v1');
+  });
+
+  it('fast-forwards to an explicit remote and branch', async () => {
+    const { origin, clone } = await cloneOneBehind('new.txt');
+
+    await new VcsManager(clone).pullFastForward({ remote: 'origin', branch: 'main' });
+
+    expect(head(clone)).toBe(head(origin));
+  });
+
+  it.each([
+    ['the upstream', {}],
+    ['an explicit remote and branch', { remote: 'origin', branch: 'main' }],
+  ])('refuses rather than replaces an ignored file where %s adds one', async (_label, options) => {
+    const { origin, clone } = await cloneOneBehind('new.txt');
+    const before = head(clone);
+    await fs.writeFile(path.join(clone, '.git', 'info', 'exclude'), 'new.txt\n');
+    await fs.writeFile(path.join(clone, 'new.txt'), 'mine\n');
+    const vcs = new VcsManager(clone);
+
+    await expect(vcs.pullFastForward(options)).rejects.toThrow(/would be overwritten by merge/);
+    expect(head(clone)).toBe(before);
+    expect(await fs.readFile(path.join(clone, 'new.txt'), 'utf8')).toBe('mine\n');
+
+    // Once the file is out of the way the same pull goes ahead.
+    await fs.rm(path.join(clone, 'new.txt'));
+    await vcs.pullFastForward(options);
+    expect(head(clone)).toBe(head(origin));
+  });
+
+  it('fails, as git pull does, when the upstream is gone from the remote', async () => {
+    const { origin, clone } = await cloneOneBehind('new.txt');
+    run(origin, ['branch', '-m', 'main', 'trunk']);
+    const before = head(clone);
+
+    await expect(new VcsManager(clone).pullFastForward()).rejects.toThrow();
+    expect(head(clone)).toBe(before);
+  });
+
+  it('pulls, as git pull does, from a remote that has no fetch rule', async () => {
+    const { origin, clone } = await cloneOneBehind('new.txt');
+    run(clone, ['config', '--unset', 'remote.origin.fetch']);
+
+    await new VcsManager(clone).pullFastForward();
+
+    expect(head(clone)).toBe(head(origin));
+  });
+
+  it('fails, as git pull does, when the branch has no upstream', async () => {
+    const { clone } = await cloneOneBehind('new.txt');
+    run(clone, ['switch', '-q', '-c', 'lonely']);
+    const before = head(clone);
+
+    await expect(new VcsManager(clone).pullFastForward()).rejects.toThrow();
+    expect(head(clone)).toBe(before);
+  });
+
+  it('pulls, as git pull does, when a tag has the same name as the branch', async () => {
+    const { origin, clone } = await cloneOneBehind('new.txt');
+    run(clone, ['tag', 'main']);
+
+    await new VcsManager(clone).pullFastForward();
+
+    expect(head(clone)).toBe(head(origin));
+  });
+
+  it('fails, as git pull does, when the branch follows more than one upstream branch', async () => {
+    const { origin, clone } = await cloneOneBehind('new.txt');
+    run(origin, ['branch', 'other']);
+    run(clone, ['config', '--add', 'branch.main.merge', 'refs/heads/other']);
+    const before = head(clone);
+
+    await expect(new VcsManager(clone).pullFastForward()).rejects.toThrow();
+    expect(head(clone)).toBe(before);
+  });
+
+  it('fails, as git pull does, when no branch is checked out', async () => {
+    const { clone } = await cloneOneBehind('new.txt');
+    run(clone, ['switch', '-q', '--detach']);
+    const before = head(clone);
+
+    await expect(new VcsManager(clone).pullFastForward()).rejects.toThrow();
+    expect(head(clone)).toBe(before);
+  });
+});

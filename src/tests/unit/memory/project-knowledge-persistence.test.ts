@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
 import type { SqliteDriver } from '../../../main/db/sqlite-driver';
 import * as schema from '../../../main/persistence/rlm/rlm-schema';
 import * as kgStore from '../../../main/persistence/rlm/rlm-knowledge-graph';
@@ -15,18 +15,22 @@ import {
   upsertProjectKnowledgeSource,
 } from '../../../main/persistence/rlm/rlm-project-knowledge';
 import type { ProjectKnowledgeSourceKind } from '../../../shared/types/knowledge-graph.types';
+import { useSqliteTemplate } from '../../../main/db/sqlite-template.test-helpers';
 
 describe('project knowledge persistence', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    db.pragma('foreign_keys = ON');
+    schema.createTables(db);
+    schema.createMigrationsTable(db);
+    schema.runMigrations(db);
+  });
   let db: SqliteDriver;
   let rawDb: Database.Database;
 
   beforeEach(() => {
-    rawDb = new Database(':memory:');
+    rawDb = rlmTemplate.open() as unknown as Database.Database;
     rawDb.pragma('foreign_keys = ON');
     db = rawDb as unknown as SqliteDriver;
-    schema.createTables(db);
-    schema.createMigrationsTable(db);
-    schema.runMigrations(db);
   });
 
   it('upserts canonical source rows and detects changed fingerprints', () => {

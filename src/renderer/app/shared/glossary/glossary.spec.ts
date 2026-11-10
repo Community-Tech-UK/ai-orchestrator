@@ -14,7 +14,7 @@ describe('Glossary', () => {
     }
   });
   it('has useful, unambiguous entries including every canonical vocabulary term', () => {
-    expect(Object.keys(GLOSSARY)).toHaveLength(47);
+    expect(Object.keys(GLOSSARY)).toHaveLength(48);
     const names = new Set<string>();
     for (const entry of Object.values(GLOSSARY) as GlossaryEntry[]) {
       expect(entry.plain.trim().length).toBeGreaterThan(0);

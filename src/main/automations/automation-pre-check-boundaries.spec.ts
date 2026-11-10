@@ -7,7 +7,6 @@ import type { IpcResponse } from '../../shared/types/ipc.types';
 import type { Automation, ClaimedAutomationRun } from '../../shared/types/automation.types';
 import type { AutomationAttachmentService } from './automation-attachment-service';
 import type { SqliteDriver } from '../db/sqlite-driver';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { createTables, createMigrationsTable, runMigrations } from '../persistence/rlm/rlm-schema';
 import { AutomationStore } from './automation-store';
 import { AutomationCheckStore } from './automation-check-store';
@@ -15,6 +14,7 @@ import { createAutomationToolImplementations } from './automation-tool-impl';
 import { registerAutomationHandlers } from '../ipc/handlers/automation-handlers';
 import { runAutomationPreCheckGate } from './automation-pre-check-gate';
 import * as preCheck from './automation-pre-check';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const state = vi.hoisted(() => ({
   root: '', store: null as AutomationStore | null, checks: null as AutomationCheckStore | null,
@@ -45,14 +45,19 @@ vi.mock('../notifications/notification-service', () => ({ getNotificationService
 vi.mock('../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }) }));
 
 describe('automation check update and dispatch boundaries', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    db.pragma('foreign_keys = ON');
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   let db: SqliteDriver;
   let store: AutomationStore;
   const invoke = (channel: string, payload: unknown) => state.handlers.get(channel)!({}, payload);
   beforeEach(() => {
     state.root = mkdtempSync(join(tmpdir(), 'automation-boundary-'));
-    db = defaultDriverFactory(':memory:');
+    db = rlmTemplate.open();
     db.pragma('foreign_keys = ON');
-    createTables(db); createMigrationsTable(db); runMigrations(db);
     store = state.store = new AutomationStore(db, {
       prepare: async () => [], replacePrepared: () => undefined, listForAutomation: async () => [],
     } as unknown as AutomationAttachmentService);

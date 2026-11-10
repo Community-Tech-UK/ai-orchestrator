@@ -277,6 +277,7 @@ vi.mock('../instance-lifecycle', () => {
     interruptInstance(): boolean { return true; }
     hibernateInstance(): Promise<void> { return Promise.resolve(); }
     wakeInstance(): Promise<void> { return Promise.resolve(); }
+    whenRuntimeChangeSettled(): Promise<void> | undefined { return undefined; }
     enterPlanMode(): Instance { throw new Error('not implemented'); }
     exitPlanMode(): Instance { throw new Error('not implemented'); }
     approvePlan(): Instance { throw new Error('not implemented'); }

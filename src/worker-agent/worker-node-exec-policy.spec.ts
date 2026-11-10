@@ -34,7 +34,7 @@ import {
   resolveTrustedNodeExecExecutable,
 } from './worker-node-command-resolver';
 
-import { ProcessFixtureRegistry } from '../tests/fixtures/process-fixture';
+import { IDLE_UNTIL_TEST_PROCESS_GONE, ProcessFixtureRegistry, exitOnceProcessGone } from '../tests/fixtures/process-fixture';
 
 const processes = new ProcessFixtureRegistry();
 const SCRIPT_LIMIT_BYTES = 256 * 1024;
@@ -321,12 +321,12 @@ describe('trusted node.exec command resolution', () => {
   });
 
   it.each([
+    // One rule check with one mask runs for both records: each right once on the
+    // candidate, and the parent once to prove it is checked too.
     ['candidate GENERIC_WRITE', 0, 0x40000000],
     ['parent GENERIC_WRITE', 1, 0x40000000],
     ['candidate GENERIC_ALL', 0, 0x10000000],
-    ['parent GENERIC_ALL', 1, 0x10000000],
     ['candidate MAXIMUM_ALLOWED', 0, 0x02000000],
-    ['parent MAXIMUM_ALLOWED', 1, 0x02000000],
   ])('rejects an untrusted Windows principal with %s', async (_caseName, targetIndex, rights) => {
     const parentPath = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0';
     const records = secureWindowsAclRecords(TRUSTED_WINDOWS_POWERSHELL, parentPath);
@@ -664,11 +664,11 @@ describe('WorkerNodeExecutor PowerShell file policy', () => {
         'const { spawn } = require("node:child_process");',
         'const { writeFileSync } = require("node:fs");',
         'const child = spawn(process.execPath, ["-e",',
-        `  'const {writeFileSync}=require("node:fs");let n=0;setInterval(()=>writeFileSync(${JSON.stringify(heartbeatPath)},String(++n)),25)'`,
+        `  ${JSON.stringify(`const {writeFileSync}=require("node:fs");let n=0;setInterval(()=>{writeFileSync(${JSON.stringify(heartbeatPath)},String(++n));${exitOnceProcessGone()}},25)`)}`,
         '], { stdio: "ignore", env: process.env });',
         `writeFileSync(${JSON.stringify(childPidPath)}, String(child.pid));`,
         'require("node:fs").closeSync(0);',
-        'setInterval(() => {}, 1_000);',
+        `${IDLE_UNTIL_TEST_PROCESS_GONE};`,
       ].join('\n'));
       await chmod(wrapperPath, 0o755);
       let descendantPid: number | undefined;

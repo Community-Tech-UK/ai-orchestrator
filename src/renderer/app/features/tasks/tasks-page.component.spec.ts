@@ -125,25 +125,27 @@ describe('TasksPageComponent — RepoJobStore wiring', () => {
     expect(component.loading()).toBe(true);
   });
 
-  it('manual Refresh calls store.refresh(true)', async () => {
-    storeRefresh.mockClear();
-
-    await component.refresh();
-
-    expect(storeRefresh).toHaveBeenCalledWith(true);
-  });
-
-  it('refresh(false) (the polling path) calls store.refresh(false)', async () => {
-    storeRefresh.mockClear();
-
-    await component.refresh(false);
-
-    expect(storeRefresh).toHaveBeenCalledWith(false);
-  });
-
   it('constructor kicks off one initial showLoading refresh', () => {
     // The constructor already ran during TestBed.createComponent() in beforeEach.
     expect(storeRefresh).toHaveBeenCalledWith(true);
+  });
+
+  it('polls every 4 s without the loading indicator', async () => {
+    // The poll is armed in the constructor, so rebuild the page on a fake interval clock.
+    fixture.destroy();
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      fixture = TestBed.createComponent(TasksPageComponent);
+      storeRefresh.mockClear();
+
+      await vi.advanceTimersByTimeAsync(4000);
+
+      expect(storeRefresh).toHaveBeenCalledTimes(1);
+      expect(storeRefresh).toHaveBeenCalledWith(false);
+    } finally {
+      fixture.destroy();
+      vi.useRealTimers();
+    }
   });
 
   it('surfaces the store error message when refresh() fails', async () => {
@@ -190,18 +192,6 @@ describe('TasksPageComponent — RepoJobStore wiring', () => {
     expect(component.filteredJobs().map((job) => job.id)).toEqual(['job-1']);
   });
 
-  it('the Cancel button click handler calls store.cancel(jobId)', async () => {
-    await component.cancel('job-1');
-
-    expect(storeCancel).toHaveBeenCalledWith('job-1');
-  });
-
-  it('the Rerun button click handler calls store.rerun(jobId)', async () => {
-    await component.rerun('job-1');
-
-    expect(storeRerun).toHaveBeenCalledWith('job-1');
-  });
-
   it('a failed cancel surfaces the store error and does not clear it optimistically', async () => {
     storeCancel.mockResolvedValueOnce(false);
     storeError.set('cannot cancel');
@@ -220,12 +210,22 @@ describe('TasksPageComponent — RepoJobStore wiring', () => {
     expect(component.error()).toBe('cannot rerun');
   });
 
-  it('a successful cancel clears any prior page error', async () => {
+  it('a successful rerun of the chosen job clears any prior page error', async () => {
+    component.error.set('previous failure');
+
+    await component.rerun('job-1');
+
+    expect(storeRerun).toHaveBeenCalledWith('job-1');
+    expect(component.error()).toBeNull();
+  });
+
+  it('a successful cancel of the chosen job clears any prior page error', async () => {
     component.error.set('previous failure');
     storeCancel.mockResolvedValueOnce(true);
 
     await component.cancel('job-1');
 
+    expect(storeCancel).toHaveBeenCalledWith('job-1');
     expect(component.error()).toBeNull();
   });
 });

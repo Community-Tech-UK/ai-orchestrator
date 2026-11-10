@@ -7,6 +7,7 @@ import { ORCHESTRATOR_TOOL_DESCRIBE_NAME } from '../mcp/orchestrator-mcp-deferra
 import { PLAN_QUEUE_TOOL_NAMES } from '../mcp/plan-queue-tools';
 import { inspectSetAsideWork, PlanQueueSetAsideAgents, SET_ASIDE_FOLDER_METADATA, setAsideAgentBrief, type PlanQueueSetAsideDeps } from './plan-queue-set-aside';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
 let repo: string;
 const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf-8' }).trim();
@@ -28,13 +29,19 @@ function branchWith(name: string, file: string, content: string): void {
   git('checkout', '-q', 'main');
 }
 
-beforeEach(() => {
-  repo = fs.mkdtempSync(path.join(os.tmpdir(), 'pq-set-aside-'));
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate((dir) => {
+  repo = dir;
   git('init', '-q', '-b', 'main');
   git('config', 'user.email', 'test@example.com');
   git('config', 'user.name', 'Test');
   write('src/app.ts', 'one\n');
   commit('start');
+});
+
+beforeEach(() => {
+  repo = fs.mkdtempSync(path.join(os.tmpdir(), 'pq-set-aside-'));
+  baseRepository.copyTo(repo);
 });
 
 afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });

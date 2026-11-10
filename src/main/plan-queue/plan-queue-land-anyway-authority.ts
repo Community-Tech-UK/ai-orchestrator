@@ -58,7 +58,7 @@ const TURN_REFUSALS: Record<PersonTurnRefusal, string> = {
 };
 
 /** Local time as HH:MM, for the note ("after James's message at 14:02"). */
-function clockTime(epochMs: number): string {
+export function clockTime(epochMs: number): string {
   const date = new Date(epochMs);
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }

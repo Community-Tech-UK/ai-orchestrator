@@ -81,8 +81,9 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
       chatId: string,
       config: LoopConfigInput,
       attachments?: { name: string; data: Uint8Array }[],
+      origin?: { kind: 'person'; typedAt: number },
     ): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.LOOP_START, { chatId, config, attachments }),
+      ipcRenderer.invoke(ch.LOOP_START, { chatId, config, attachments, ...(origin ? { origin } : {}) }),
     loopPause: (loopRunId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_PAUSE, { loopRunId }),
     loopResume: (loopRunId: string): Promise<IpcResponse> =>
@@ -92,12 +93,14 @@ export function createLoopDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
       message: string,
       kind?: LoopPendingInputKind,
       drainMode?: LoopQueueDrainMode,
+      origin?: { kind: 'person'; typedAt: number },
     ): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_INTERVENE, {
         loopRunId,
         message,
         ...(kind ? { kind } : {}),
         ...(drainMode ? { drainMode } : {}),
+        ...(origin ? { origin } : {}),
       }),
     loopCancel: (loopRunId: string): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.LOOP_CANCEL, { loopRunId }),

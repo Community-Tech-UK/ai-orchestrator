@@ -185,4 +185,11 @@ describe('Structured New Session recovery', () => {
     expect(parseNewSessionDraft(recovered)).toEqual({ text: 'Early\n\nSaved', directory: '/saved', provider: 'codex', model: undefined, reasoningEffort: undefined });
     expect(recovered).not.toContain('image-placeholder');
   });
+
+  it('keeps a chosen account, and drops one that is not text', () => {
+    const initial = { text: '', directory: '', provider: 'auto' };
+    const early = { ...initial, provider: 'claude', accountProfileId: 'claudecomtech-7e12' };
+    expect(parseNewSessionDraft(mergeEarlyNewSessionDraft('', early, initial))?.accountProfileId).toBe('claudecomtech-7e12');
+    expect(parseNewSessionDraft(JSON.stringify({ ...initial, accountProfileId: 7 }))?.accountProfileId).toBeUndefined();
+  });
 });

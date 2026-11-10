@@ -10,6 +10,9 @@ import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types
 import { resolveLoopArtifactPaths } from './loop-artifact-paths';
 import { unknownAttemptEvidence } from './loop-invocation-attempt';
 
+vi.mock('./loop-coordinator-utils', async (importOriginal) =>
+  (await import('./loop-coordinator-test-pause')).withShortIterationPause(await importOriginal()));
+
 let cwd: string; let coordinator: LoopCoordinator;
 beforeEach(() => { cwd = mkdtempSync(join(tmpdir(),'loop-phase2-')); coordinator = new LoopCoordinator(); coordinator.setCleanReviewClassifier(async () => ({ clean: false, confidence: 1, reason: 'still editing' })); });
 afterEach(async () => { for (const loop of coordinator.getActiveLoops()) await coordinator.cancelLoop(loop.id); vi.restoreAllMocks(); rmSync(cwd,{ recursive: true, force: true }); });

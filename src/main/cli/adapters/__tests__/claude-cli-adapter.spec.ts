@@ -158,7 +158,7 @@ vi.mock('../../cli-path-resolver', () => ({
   resolveCommandOnPath: vi.fn(() => null),
 }));
 
-import { ClaudeCliAdapter, DEFER_MIN_VERSION } from '../claude-cli-adapter';
+import { ClaudeCliAdapter } from '../claude-cli-adapter';
 import type { CliResponse } from '../base-cli-adapter.types';
 import { InputFormatter } from '../../input-formatter';
 import * as transcriptRegistry from '../claude-transcript-registry';
@@ -346,19 +346,6 @@ describe('ClaudeCliAdapter', () => {
     it('clearDeferredToolUse keeps null state stable', () => {
       adapter.clearDeferredToolUse();
       expect(adapter.getDeferredToolUse()).toBeNull();
-    });
-  });
-
-  describe('setResume', () => {
-    it('toggles resume mode without throwing', () => {
-      expect(() => adapter.setResume(true)).not.toThrow();
-      expect(() => adapter.setResume(false)).not.toThrow();
-    });
-  });
-
-  describe('DEFER_MIN_VERSION', () => {
-    it('exposes a semver-like minimum version string', () => {
-      expect(DEFER_MIN_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
     });
   });
 
@@ -550,10 +537,15 @@ describe('NdjsonParser (used by ClaudeCliAdapter for stream parsing)', () => {
   it('recovers complete lines when the buffer exceeds the configured cap', () => {
     const smallParser = new NdjsonParser(1); // 1 KB cap
     const bigLine = JSON.stringify({ type: 'assistant', content: 'x'.repeat(2000) });
-    const msgs = smallParser.parse(bigLine + '\n');
-    // Recovery salvages parseable complete lines even when the buffer limit is
-    // exceeded, so we expect at least one message rather than data loss.
-    expect(msgs.length).toBeGreaterThanOrEqual(0);
+    // Recovery salvages complete lines whole; with no partial line, nothing stays buffered.
+    expect(smallParser.parse(bigLine + '\n')).toEqual([expect.objectContaining({ content: 'x'.repeat(2000) })]);
+    expect(smallParser.hasPendingData()).toBe(false);
+    // A trailing partial line is kept buffered and completes on the next chunk.
+    const msgs = smallParser.parse(bigLine + '\n' + '{"type":"assistant","co');
+    expect(msgs).toHaveLength(1);
+    expect((msgs[0] as { content?: string }).content).toBe('x'.repeat(2000));
+    expect(smallParser.hasPendingData()).toBe(true);
+    expect(smallParser.parse('ntent":"tail"}\n')).toEqual([expect.objectContaining({ content: 'tail' })]);
   });
 });
 

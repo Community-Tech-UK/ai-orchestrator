@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RLMDatabase } from '../persistence/rlm-database';
 import { RlmMaintenanceDatabaseAdapter } from './rlm-storage-maintenance-database';
 
@@ -108,17 +108,32 @@ describe('RlmMaintenanceDatabaseAdapter (native SQLite)', () => {
     expect(fs.existsSync(prefixDirectory)).toBe(false);
   });
 
-  it('measures database/content storage and leaves no freelist after vacuum', () => {
+  it('measures database/content storage and leaves no freelist after vacuum', async () => {
     seedStore('stale', 'old-session', CUTOFF - 1, null, true);
+    expect(await adapter.measureExternalContent()).toBeGreaterThan(0);
     const pruned = adapter.prune(CUTOFF, new Set());
     adapter.deleteExternalContent(pruned.externalContentFiles);
-    const beforeVacuum = adapter.measure();
+    const beforeVacuum = adapter.measureDatabase();
     adapter.vacuum();
-    const measured = adapter.measure();
+    const measured = adapter.measureDatabase();
     expect(database.getDatabasePath()).toBe(path.join(root, 'rlm.db'));
     expect(measured.databaseSizeBytes).toBeGreaterThan(0);
-    expect(measured.externalContentSizeBytes).toBe(0);
+    expect(await adapter.measureExternalContent()).toBe(0);
     expect(measured.reclaimableDatabaseBytes).toBeLessThanOrEqual(beforeVacuum.reclaimableDatabaseBytes);
+  });
+
+  it('measures a missing external content folder as 0', async () => {
+    fs.rmSync(database.getContentDir(), { recursive: true, force: true });
+
+    await expect(adapter.measureExternalContent()).resolves.toBe(0);
+  });
+
+  it('measures the database without reading the external content folder', () => {
+    seedStore('stale', 'old-session', CUTOFF - 1, null, true);
+    const getContentDir = vi.spyOn(database, 'getContentDir');
+
+    expect(adapter.measureDatabase().databaseSizeBytes).toBeGreaterThan(0);
+    expect(getContentDir).not.toHaveBeenCalled();
   });
 
   function seedStore(

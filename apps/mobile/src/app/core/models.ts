@@ -69,6 +69,7 @@ export type {
   MobileRecentDirDto,
   MobileRespondRequest,
   MobileServerEvent,
+  MobileSessionAccountPlan,
   MobileSessionPlan,
   MobileSnapshot,
   MobileUserActionRequestType,

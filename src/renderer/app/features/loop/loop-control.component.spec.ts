@@ -757,6 +757,7 @@ describe('LoopControlComponent', () => {
       hintMode: () => 'hint' | 'follow-up';
       onQueueFollowUp: () => void;
       onHintSubmitted: (message: string) => Promise<void>;
+      onFixFindings: (message: string) => Promise<void>;
     };
     bannerButton('Inject hint').click();
     await settle(fixture);
@@ -770,13 +771,18 @@ describe('LoopControlComponent', () => {
 
     expect(ci.hintModalOpen()).toBe(false);
     // Task 18: the store threads kind + drainMode (undefined for a plain hint).
-    expect(ipc.intervene).toHaveBeenCalledWith('loop-1', 'try a different verification path', undefined, undefined);
+    // The hint is James's own words, so it is marked as typed by a person.
+    expect(ipc.intervene).toHaveBeenCalledWith('loop-1', 'try a different verification path', undefined, undefined, { kind: 'person', typedAt: expect.any(Number) });
 
     // Task 18: queuing a follow-up sets the mode and enqueues with kind 'follow-up'.
     ci.onQueueFollowUp();
     expect(ci.hintMode()).toBe('follow-up');
     await ci.onHintSubmitted('check the edge case before finishing');
-    expect(ipc.intervene).toHaveBeenLastCalledWith('loop-1', 'check the edge case before finishing', 'follow-up', undefined);
+    expect(ipc.intervene).toHaveBeenLastCalledWith('loop-1', 'check the edge case before finishing', 'follow-up', undefined, { kind: 'person', typedAt: expect.any(Number) });
+
+    // A steer built from review findings is not James's own words.
+    await ci.onFixFindings('Fix the findings below');
+    expect(ipc.intervene).toHaveBeenLastCalledWith('loop-1', 'Fix the findings below', 'steer', undefined, undefined);
 
     bannerButton('Resume anyway').click();
     await settle(fixture);

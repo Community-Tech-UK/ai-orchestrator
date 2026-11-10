@@ -651,9 +651,9 @@ describe('renderer event validation', () => {
     const doomLoop = {
       instanceId: 'instance-1',
       detector: 'repeat-no-progress',
-      severity: 'warn',
+      severity: 'critical',
       toolName: 'Bash',
-      count: 5,
+      count: 6,
       windowDescription: '3 consecutive identical calls',
       harnessStopping: false,
     };
@@ -662,6 +662,8 @@ describe('renderer event validation', () => {
     const { harnessStopping: _omitted, ...withoutStopping } = doomLoop;
     expect(validateRendererEventPayload('instance:doom-loop', withoutStopping)).toBe(false);
     expect(validateRendererEventPayload('instance:doom-loop', { ...doomLoop, autoStopFailed: true })).toBe(false);
+    // A warning is never shown, so it never crosses to the renderer.
+    expect(validateRendererEventPayload('instance:doom-loop', { ...doomLoop, severity: 'warn' })).toBe(false);
     expect(validateRendererEventPayload(IPC_CHANNELS.INPUT_REQUIRED, {
       instanceId: 'instance-1',
       requestId: 'request-1',

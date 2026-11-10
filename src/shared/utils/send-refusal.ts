@@ -5,9 +5,10 @@ export function isKnownSendRefusal(message: string): boolean {
     'interrupt recovery', 'cannot send while compacting', 'previous turn is still running', 'runtime already has an active turn',
     'activeturnnotsteerable', 'queued input is waiting for the provider limit',
     'failed to submit turn input: thread busy',
-    // Main waits for a starting, waking or respawning session inside the send; when that wait runs out the
+    // Main waits for a starting, waking, respawning or switching session inside the send; when that wait runs out the
     // message was never handed over, and the renderer must queue it again (instance-input-ready.ts).
     'instance initialization timed out', 'instance wake timed out', 'instance respawn timed out',
+    'instance runtime change timed out',
     'is recovering. please wait for it to be ready'].some(signature => text.includes(signature));
 }
 

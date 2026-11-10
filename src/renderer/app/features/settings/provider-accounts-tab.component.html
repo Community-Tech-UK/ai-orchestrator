@@ -45,6 +45,9 @@
                   @if (account.planLabel) {
                     <span class="chip plan">{{ account.planLabel }}</span>
                   }
+                  @if (!account.enabled) {
+                    <span class="chip off">Switched off</span>
+                  }
                 </div>
                 <span class="status" [attr.data-state]="account.binding?.state ?? 'unavailable'">
                   @if (provider.id === 'opencode') { Coding sign-in: }
@@ -58,13 +61,20 @@
                 <input
                   type="checkbox"
                   [checked]="account.enabled"
-                  (change)="setEnabled(account, $any($event.target).checked)"
+                  (change)="setEnabled(account, $any($event.target))"
                   [disabled]="busy()"
-                  [appTooltipDisabledReason]="isOnlyEnabled(account) ? 'At least one account must stay enabled' : null"
+                  [appTooltipDisabledReason]="isOnlyEnabled(account) ? 'At least one account must stay enabled' : waitsForOwnership(account) ? 'Confirm below that these are yours' : null"
                 />
                 Enabled
               </label>
             </div>
+
+            @if (waitsForOwnership(account)) {
+              <p class="hint">This account stays switched off until you confirm below that these are your own accounts.</p>
+            }
+            @if (account.isLegacy && count > 1) {
+              <p class="hint">This is the sign-in that was set up before you added accounts here, so it can’t be removed. {{ legacyNextStep(account) }}</p>
+            }
 
             @if (account.binding?.state === 'identity-mismatch' && account.binding?.observedIdentity) {
               <p class="mismatch">

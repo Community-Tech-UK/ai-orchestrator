@@ -1,7 +1,6 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { performance } from 'node:perf_hooks';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migrate } from '../cas-schema';
 import { CasStore } from '../cas-store';
@@ -9,33 +8,19 @@ import { CodeIndexManager } from '../code-index-manager';
 import { CodeRetrievalService } from '../code-retrieval-service';
 import type { SqliteDriver } from '../../db/sqlite-driver';
 import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
+import { searchAcrossSources, writeRetrievalWorkspace } from './code-retrieval-workspace.test-helpers';
 
-async function writeFixtureBatch(
-  files: { path: string; content: string }[],
-  batchSize = 100,
-): Promise<void> {
-  for (let offset = 0; offset < files.length; offset += batchSize) {
-    await Promise.all(
-      files
-        .slice(offset, offset + batchSize)
-        .map((file) => writeFile(file.path, file.content, 'utf8')),
-    );
-  }
-}
-
-describe('CodeRetrievalService load behavior', () => {
+// What gets indexed and what each search returns. How fast the searches are, over the same workspace with
+// 1,000 generated files in each ignored folder, is checked by the slow tier (`soak.spec.ts`), where a
+// real-clock ceiling is not at the mercy of whatever else a developer's machine is doing.
+describe('CodeRetrievalService over a workspace with generated folders', () => {
   let workDir: string;
   let db: SqliteDriver;
   let store: CasStore;
   let manager: CodeIndexManager;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     workDir = join(tmpdir(), `codemem-load-${Date.now()}-${Math.random()}`);
-    await mkdir(join(workDir, 'src'), { recursive: true });
-    await mkdir(join(workDir, 'node_modules/pkg'), { recursive: true });
-    await mkdir(join(workDir, 'dist'), { recursive: true });
-    await mkdir(join(workDir, 'build'), { recursive: true });
-
     db = defaultDriverFactory(':memory:');
     migrate(db);
     store = new CasStore(db);
@@ -48,44 +33,9 @@ describe('CodeRetrievalService load behavior', () => {
     await rm(workDir, { recursive: true, force: true });
   });
 
-  it('ignores generated folders and keeps repeated retrieval bounded', async () => {
-    const sourceFiles = Array.from({ length: 500 }, (_, index) => {
-      const suffix = index.toString().padStart(4, '0');
-      return {
-        path: join(workDir, 'src', `file-${suffix}.ts`),
-        content: [
-          `export function uniqueSourceToken${suffix}(): string {`,
-          `  return 'unique source token ${suffix}';`,
-          '}',
-          '',
-        ].join('\n'),
-      };
-    });
-    const generatedFiles = [
-      ...Array.from({ length: 1000 }, (_, index) => {
-        const suffix = index.toString().padStart(4, '0');
-        return {
-          path: join(workDir, 'node_modules/pkg', `file-${suffix}.ts`),
-          content: `export const generatedDependencyToken${suffix} = 'generated dependency token';\n`,
-        };
-      }),
-      ...Array.from({ length: 1000 }, (_, index) => {
-        const suffix = index.toString().padStart(4, '0');
-        return {
-          path: join(workDir, 'dist', `file-${suffix}.js`),
-          content: `export const generatedDependencyToken${suffix} = 'generated dependency token';\n`,
-        };
-      }),
-      ...Array.from({ length: 1000 }, (_, index) => {
-        const suffix = index.toString().padStart(4, '0');
-        return {
-          path: join(workDir, 'build', `file-${suffix}.js`),
-          content: `export const generatedDependencyToken${suffix} = 'generated dependency token';\n`,
-        };
-      }),
-    ];
-
-    await writeFixtureBatch([...sourceFiles, ...generatedFiles]);
+  it('leaves generated folders out of the index and ranks each source file first for its own words', async () => {
+    // Ignoring is decided per path, so ten files in each generated folder prove it as well as a thousand.
+    await writeRetrievalWorkspace(workDir, 10);
 
     const indexResult = await manager.coldIndex(workDir);
 
@@ -93,26 +43,6 @@ describe('CodeRetrievalService load behavior', () => {
     expect(store.searchWorkspaceChunks(indexResult.workspaceHash, 'unique source token 0042', 10)[0]).toEqual(
       expect.objectContaining({ pathFromRoot: 'src/file-0042.ts' }),
     );
-
-    const retrieval = new CodeRetrievalService({ store });
-    let maxDurationMs = 0;
-    for (let index = 0; index < 50; index += 1) {
-      const suffix = (index % 500).toString().padStart(4, '0');
-      const start = performance.now();
-      const results = await retrieval.search({
-        workspacePath: workDir,
-        query: `unique source token ${suffix}`,
-        limit: 5,
-      });
-      maxDurationMs = Math.max(maxDurationMs, performance.now() - start);
-
-      expect(results[0]).toEqual(expect.objectContaining({
-        relativePath: `src/file-${suffix}.ts`,
-        source: 'fts',
-      }));
-      expect(results.every((result) => result.content.length <= 3600)).toBe(true);
-    }
-
-    expect(maxDurationMs).toBeLessThan(500);
+    await searchAcrossSources(new CodeRetrievalService({ store }), workDir);
   }, 60_000);
 });

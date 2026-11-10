@@ -562,13 +562,6 @@ describe('rpc-schemas', () => {
       expect(TerminalExitParamsSchema.safeParse({ sessionId: 't', exitCode: 0, signal: null }).success).toBe(true);
       expect(TerminalExitParamsSchema.safeParse({ sessionId: 't', exitCode: null }).success).toBe(true);
     });
-
-    it('registers terminal methods in the coordinator->node schema map', () => {
-      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['terminal.create']).toBe(TerminalCreateParamsSchema);
-      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['terminal.input']).toBe(TerminalInputParamsSchema);
-      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['terminal.resize']).toBe(TerminalResizeParamsSchema);
-      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['terminal.kill']).toBe(TerminalKillParamsSchema);
-    });
   });
 
   describe('provider diagnostics schema', () => {
@@ -580,10 +573,6 @@ describe('rpc-schemas', () => {
     it('rejects auto because diagnostics need a concrete provider runtime', () => {
       expect(ProviderDiagnoseParamsSchema.safeParse({ provider: 'auto' }).success).toBe(false);
     });
-
-    it('registers provider.diagnose in the coordinator->node schema map', () => {
-      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['provider.diagnose']).toBe(ProviderDiagnoseParamsSchema);
-    });
   });
 
   describe('file transfer schemas', () => {
@@ -594,11 +583,6 @@ describe('rpc-schemas', () => {
         data: Buffer.from('bytes').toString('base64'),
         mkdirp: true,
       }).success).toBe(true);
-    });
-
-    it('registers fs.readFile and fs.writeFile in the coordinator->node schema map', () => {
-      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['fs.readFile']).toBe(FsReadFileParamsSchema);
-      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['fs.writeFile']).toBe(FsWriteFileParamsSchema);
     });
 
     it('accepts fileTransfer in service config.update payloads', () => {
@@ -657,10 +641,6 @@ describe('rpc-schemas', () => {
         ...validOpenAiCompatible,
         task: 'summarize',
       }).success).toBe(false);
-    });
-
-    it('registers audio.transcribe in the coordinator->node schema map', () => {
-      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['audio.transcribe']).toBe(AudioTranscribeParamsSchema);
     });
   });
 
@@ -741,10 +721,6 @@ describe('rpc-schemas', () => {
     it('rejects unknown provider value', () => {
       expect(AuxiliaryModelListParamsSchema.safeParse({ provider: 'anthropic' }).success).toBe(false);
     });
-
-    it('registers auxiliaryModel.list in the coordinator->node schema map', () => {
-      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['auxiliaryModel.list']).toBe(AuxiliaryModelListParamsSchema);
-    });
   });
 
   describe('AuxiliaryModelGenerateParamsSchema', () => {
@@ -803,10 +779,6 @@ describe('rpc-schemas', () => {
       const { provider: _, ...withoutProvider } = validGenerate;
       expect(AuxiliaryModelGenerateParamsSchema.safeParse(withoutProvider).success).toBe(false);
     });
-
-    it('registers auxiliaryModel.generate in the coordinator->node schema map', () => {
-      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['auxiliaryModel.generate']).toBe(AuxiliaryModelGenerateParamsSchema);
-    });
   });
 
   describe('local model session schemas', () => {
@@ -840,16 +812,31 @@ describe('rpc-schemas', () => {
         .toBe(true);
       expect(LocalModelSessionIdParamsSchema.safeParse({ sessionId: '' }).success).toBe(false);
     });
+  });
 
-    it('registers local model session methods in coordinator->node schema map', () => {
-      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['localModel.session.start'])
-        .toBe(LocalModelSessionStartParamsSchema);
-      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['localModel.session.sendInput'])
-        .toBe(LocalModelSessionSendInputParamsSchema);
-      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['localModel.session.terminate'])
-        .toBe(LocalModelSessionIdParamsSchema);
-      expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS['localModel.session.interrupt'])
-        .toBe(LocalModelSessionIdParamsSchema);
+  // Which schema validates which coordinator->node method is part of the wire contract.
+  // (The three localAi.health methods are checked with their payloads below.)
+  describe('coordinator->node schema map', () => {
+    it('registers each method against its own params schema', () => {
+      const registered: [string, unknown][] = [
+        ['terminal.create', TerminalCreateParamsSchema],
+        ['terminal.input', TerminalInputParamsSchema],
+        ['terminal.resize', TerminalResizeParamsSchema],
+        ['terminal.kill', TerminalKillParamsSchema],
+        ['provider.diagnose', ProviderDiagnoseParamsSchema],
+        ['fs.readFile', FsReadFileParamsSchema],
+        ['fs.writeFile', FsWriteFileParamsSchema],
+        ['audio.transcribe', AudioTranscribeParamsSchema],
+        ['auxiliaryModel.list', AuxiliaryModelListParamsSchema],
+        ['auxiliaryModel.generate', AuxiliaryModelGenerateParamsSchema],
+        ['localModel.session.start', LocalModelSessionStartParamsSchema],
+        ['localModel.session.sendInput', LocalModelSessionSendInputParamsSchema],
+        ['localModel.session.terminate', LocalModelSessionIdParamsSchema],
+        ['localModel.session.interrupt', LocalModelSessionIdParamsSchema],
+      ];
+      for (const [method, schema] of registered) {
+        expect(COORDINATOR_TO_NODE_PARAM_SCHEMAS[method], method).toBe(schema);
+      }
     });
   });
 

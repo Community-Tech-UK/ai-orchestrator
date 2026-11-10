@@ -11,6 +11,7 @@ import type {
 } from '@contracts/schemas/loop';
 import type { AwayRecapPayload } from '@contracts/schemas/loop';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
+import type { PersonInputOrigin } from '../../../../../shared/types/input-provenance.types';
 import type { AnchorStatus, EvidenceClass, FindingAnchor } from '../../../../../shared/types/review-evidence';
 
 /**
@@ -281,6 +282,7 @@ export class LoopIpcService {
     chatId: string,
     config: LoopStartConfigInput,
     attachments?: { name: string; data: Uint8Array }[],
+    origin?: PersonInputOrigin,
   ): Promise<IpcResponse<{ state: LoopStatePayload }>> {
     const api = this.api;
     if (!api) return notInElectron();
@@ -292,7 +294,7 @@ export class LoopIpcService {
         },
       };
     }
-    return api.loopStart(chatId, config, attachments) as Promise<IpcResponse<{ state: LoopStatePayload }>>;
+    return api.loopStart(chatId, config, attachments, origin) as Promise<IpcResponse<{ state: LoopStatePayload }>>;
   }
 
   async pause(loopRunId: string): Promise<IpcResponse<LoopControlResult>> {
@@ -310,9 +312,10 @@ export class LoopIpcService {
     message: string,
     kind?: LoopPendingInputKind,
     drainMode?: LoopQueueDrainMode,
+    origin?: PersonInputOrigin,
   ): Promise<IpcResponse<LoopControlResult>> {
     if (!this.api) return notInElectron();
-    return this.api.loopIntervene(loopRunId, message, kind, drainMode) as Promise<IpcResponse<LoopControlResult>>;
+    return this.api.loopIntervene(loopRunId, message, kind, drainMode, origin) as Promise<IpcResponse<LoopControlResult>>;
   }
 
   async cancel(loopRunId: string): Promise<IpcResponse<LoopControlResult>> {

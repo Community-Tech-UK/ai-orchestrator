@@ -130,10 +130,20 @@ export async function prepareLoopControl(
   return runtime;
 }
 
-export async function writeLoopControlFile(
-  runtime: LoopControlRuntime,
-  currentIterationSeq: number,
-): Promise<void> {
+/** Writes still running per runtime: cleanup waits for them, then closes the runtime to later writes. */
+const pendingControlWrites = new WeakMap<LoopControlRuntime, Set<Promise<void>>>();
+const closedRuntimes = new WeakSet<LoopControlRuntime>();
+
+export async function writeLoopControlFile(runtime: LoopControlRuntime, currentIterationSeq: number): Promise<void> {
+  if (closedRuntimes.has(runtime)) return;
+  const pending = pendingControlWrites.get(runtime) ?? new Set<Promise<void>>();
+  pendingControlWrites.set(runtime, pending);
+  const write = writeControlFile(runtime, currentIterationSeq);
+  pending.add(write);
+  await write.finally(() => pending.delete(write));
+}
+
+async function writeControlFile(runtime: LoopControlRuntime, currentIterationSeq: number): Promise<void> {
   runtime.currentIterationSeq = currentIterationSeq;
   runtime.updatedAt = Date.now();
   const controlFile: LoopControlFile = {
@@ -472,6 +482,9 @@ export function summarizeLoopControlPrompt(runtime: LoopControlRuntime): string 
 
 export async function cleanupLoopControl(runtime: LoopControlRuntime | undefined): Promise<void> {
   if (!runtime) return;
+  closedRuntimes.add(runtime);
+  // A failed write is the writer's to report; cleanup only needs it to have stopped.
+  await Promise.allSettled(pendingControlWrites.get(runtime) ?? []);
   await fs.rm(runtime.controlDir, { recursive: true, force: true }).catch((err: unknown) => {
     logger.warn('Failed to cleanup loop-control directory', {
       loopRunId: runtime.loopRunId,

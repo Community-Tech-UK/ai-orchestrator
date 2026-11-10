@@ -29,6 +29,10 @@ import { buildCampaignFromPlan, INTEGRATION_GATE_NODE_ID } from './campaign-plan
 import { validateCampaignSpec } from './campaign-coordinator';
 import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
 import type { LoopStageMachine } from './loop-stage-machine';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
+
+vi.mock('./loop-coordinator-utils', async (importOriginal) =>
+  (await import('./loop-coordinator-test-pause')).withShortIterationPause(await importOriginal()));
 
 type LoopExecution = (state: LoopState, stageMachine: LoopStageMachine) => Promise<void>;
 
@@ -79,8 +83,9 @@ async function waitForCondition(predicate: () => boolean, timeoutMs = 8000): Pro
   throw new Error('condition was not met before timeout');
 }
 
-beforeEach(() => {
-  workspace = mkdtempSync(join(tmpdir(), 'loop-ws9-'));
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate((dir) => {
+  workspace = dir;
   writeFileSync(join(workspace, 'STAGE.md'), 'IMPLEMENT\n');
   writeFileSync(join(workspace, 'app.js'), 'const x = 0;\n');
   git(['init', '-q']);
@@ -89,6 +94,11 @@ beforeEach(() => {
   git(['config', 'commit.gpgsign', 'false']);
   git(['add', '.']);
   git(['commit', '-q', '-m', 'seed']);
+});
+
+beforeEach(() => {
+  workspace = mkdtempSync(join(tmpdir(), 'loop-ws9-'));
+  baseRepository.copyTo(workspace);
   vi.spyOn(CompletedFileWatcher.prototype, 'start').mockImplementation(() => undefined);
   vi.spyOn(CompletedFileWatcher.prototype, 'stop').mockResolvedValue();
   vi.spyOn(CompletedFileWatcher.prototype, 'scanOnce').mockReturnValue(null);

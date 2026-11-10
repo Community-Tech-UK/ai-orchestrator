@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { afterEach, describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import type { SqliteDriver } from '../db/sqlite-driver';
+import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import {
   SessionAdmissionStore,
   MAX_PENDING_ADMISSIONS_PER_INSTANCE,
@@ -313,5 +314,23 @@ describe('SessionAdmissionStore', () => {
       expect(result.reclaimed).toBe(0);
       expect(store.get('q-fresh')?.state).toBe('promoting');
     });
+  });
+});
+
+describe('queued messages after session revival', () => {
+  const db = defaultDriverFactory(':memory:');
+  afterEach(() => db.close());
+  it('moves only unsent rows to the new runtime and retains content, attachments and order', () => {
+    const store = new SessionAdmissionStore(db);
+    store.createQueued({ admissionId: 'old-first', instanceId: 'old', message: 'First', attachmentFiles: [] });
+    store.createQueued({ admissionId: 'old-second', instanceId: 'old', message: 'Second', contextBlock: 'Keep context' });
+    store.create({ admissionId: 'delivered', instanceId: 'old', origin: 'user', message: 'Already sent', state: 'delivered' });
+    store.reassignQueued('old', 'revived');
+    expect(store.listQueued('old')).toEqual([]);
+    expect(store.listQueued('revived').map((row) => [row.admissionId, row.message, row.contextBlock]))
+      .toEqual([['old-first', 'First', null], ['old-second', 'Second', 'Keep context']]);
+    expect(store.get('delivered')?.instanceId).toBe('old');
+    store.reassignQueued('old', 'revived');
+    expect(store.listQueued('revived')).toHaveLength(2);
   });
 });

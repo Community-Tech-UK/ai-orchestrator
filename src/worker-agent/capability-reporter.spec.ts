@@ -2,9 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('./worker-cli-versions', () => ({ readWorkerCliVersions: vi.fn().mockResolvedValue({ claude: '2.1.296' }) }));
 // Capabilities are exercised without installed-provider discovery or account reads.
+// Defaults: no account homes, no MiMo accounts, OpenCode version unreadable.
+const accounts = vi.hoisted(() => ({
+  homes: vi.fn((): Record<string, string[]> => ({})),
+  openCode: vi.fn(async (): Promise<string[]> => []),
+  openCodeMajor: vi.fn(async (): Promise<1 | 2 | undefined> => undefined),
+}));
 vi.mock('./worker-account-route', () => ({
-  listWorkerAccountProfileIds: () => ({}),
-  listWorkerOpenCodeAccountProfileIds: async () => [],
+  listWorkerAccountProfileIds: accounts.homes,
+  listWorkerOpenCodeAccountProfileIds: accounts.openCode,
 }));
 const probes = vi.hoisted(() => ({
   ios: vi.fn(),
@@ -14,7 +20,7 @@ const probes = vi.hoisted(() => ({
 vi.mock('./worker-sign-ins', () => ({ getCachedWorkerSignIns: probes.signIns }));
 vi.mock('./ios/ios-readiness', () => ({ getCachedIosAutomation: probes.ios }));
 vi.mock('./host-readiness', () => ({ getCachedHostReadiness: probes.host }));
-vi.mock('./opencode-worker-capability', () => ({ readWorkerOpenCodeMajor: async () => undefined }));
+vi.mock('./opencode-worker-capability', () => ({ readWorkerOpenCodeMajor: accounts.openCodeMajor }));
 vi.mock('./browser-extension-folder', () => ({ workerBrowserExtensionFolder: () => '/repo/resources/browser-extension' }));
 
 // Mock dependencies that are not available in the test environment.
@@ -868,5 +874,85 @@ describe('busyCoresSinceLastReport', () => {
     expect(busyCoresSinceLastReport(cores([100, 0], [25, 75]))).toBe(1.3);
     expect(busyCoresSinceLastReport(cores([100, 0], [25, 75]))).toBeUndefined();
     expect(busyCoresSinceLastReport(cores([200, 0]))).toBeUndefined();
+  });
+});
+
+// Moved from __tests__/capability-reporter.spec.ts, which reached the real `opencode auth list`
+// and real local model/speech endpoints (a 5 s timeout in the 27 October full run:
+// docs/plans/2026-10-27-browser-input-controls_evidence/round3/capability-timeout-investigation.json).
+// This file mocks the account route; the endpoints are refused here as elsewhere in this file.
+describe('capability-reporter basics', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    // As in the original file: every command lookup succeeds, so every CLI counts as installed.
+    vi.mocked(execFileSync).mockImplementation(() => Buffer.from(''));
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('ECONNREFUSED'))));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns valid capabilities with correct platform', async () => {
+    const caps = await reportCapabilities([]);
+    expect(caps.platform).toBe(process.platform);
+    expect(caps.arch).toBe(process.arch);
+    expect(caps.cpuCores).toBeGreaterThan(0);
+    expect(caps.totalMemoryMB).toBeGreaterThan(0);
+    expect(caps.availableMemoryMB).toBeGreaterThan(0);
+    expect(caps.maxConcurrentInstances).toBe(10);
+    expect(Array.isArray(caps.supportedClis)).toBe(true);
+    expect(Array.isArray(caps.workingDirectories)).toBe(true);
+  });
+
+  it('includes provided working directories', async () => {
+    const caps = await reportCapabilities(['/tmp/project']);
+    expect(caps.workingDirectories).toContain('/tmp/project');
+    // Without this the coordinator refuses every policy-bearing remote Claude
+    // session (including plain run_on_node) on this worker.
+    expect(caps.claudeSpawnPolicy).toBe(2);
+  });
+});
+
+describe('capability-reporter OpenCode advertisement', () => {
+  beforeEach(() => {
+    // OpenCode and Claude are on PATH; nothing else is.
+    vi.mocked(execFileSync).mockImplementation(((_cmd: string, args: string[]) => {
+      if (Array.isArray(args) && (args[0] === 'opencode' || args[0] === 'claude')) return Buffer.from('');
+      throw new Error('not found');
+    }) as unknown as typeof execFileSync);
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('ECONNREFUSED'))));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('advertises the OpenCode major version an installed OpenCode reports', async () => {
+    accounts.openCodeMajor.mockResolvedValueOnce(2);
+    const caps = await reportCapabilities([]);
+    expect(caps.supportedClis).toContain('opencode');
+    expect(caps.openCodeMajor).toBe(2);
+  });
+
+  it('advertises no OpenCode major version when the installed version cannot be read', async () => {
+    accounts.openCodeMajor.mockResolvedValueOnce(undefined);
+    const caps = await reportCapabilities([]);
+    expect(caps.supportedClis).toContain('opencode');
+    expect(caps).not.toHaveProperty('openCodeMajor');
+  });
+
+  it('advertises MiMo account ids from the OpenCode key store beside the account homes', async () => {
+    accounts.homes.mockReturnValueOnce({ claude: ['work'] });
+    accounts.openCode.mockResolvedValueOnce(['legacy', 'mimo-b']);
+    const caps = await reportCapabilities([]);
+    expect(caps.accountProfileIds).toEqual({ claude: ['work'], opencode: ['legacy', 'mimo-b'] });
+  });
+
+  it('advertises no account ids when no account is set up on this node', async () => {
+    accounts.homes.mockReturnValueOnce({});
+    accounts.openCode.mockResolvedValueOnce([]);
+    const caps = await reportCapabilities([]);
+    expect(caps).not.toHaveProperty('accountProfileIds');
   });
 });

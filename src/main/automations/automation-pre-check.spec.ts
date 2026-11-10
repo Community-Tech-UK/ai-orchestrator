@@ -2,7 +2,6 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import {
   createMigrationsTable,
@@ -25,13 +24,18 @@ import {
   runAutomationPreCheck,
   type AutomationPreCheckContext,
 } from './automation-pre-check';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
-function createDb(): SqliteDriver {
-  const db = defaultDriverFactory(':memory:');
+const rlmTemplate = useSqliteTemplate((db) => {
   db.pragma('foreign_keys = ON');
   createTables(db);
   createMigrationsTable(db);
   runMigrations(db);
+});
+
+function createDb(): SqliteDriver {
+  const db = rlmTemplate.open();
+  db.pragma('foreign_keys = ON');
   return db;
 }
 

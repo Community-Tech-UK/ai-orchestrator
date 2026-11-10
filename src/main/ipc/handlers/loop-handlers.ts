@@ -333,7 +333,7 @@ export function registerLoopHandlers(deps: {
       // re-evaluates against a conversation that already contains the
       // user bubble for the loop goal.
       try {
-        appendLoopStartPrompt(state, chatService, deps.instanceManager);
+        appendLoopStartPrompt(state, chatService, deps.instanceManager, validated.origin);
       } catch (err) {
         logger.warn('Failed to append loop start event', {
           loopRunId: state.id,
@@ -411,7 +411,7 @@ export function registerLoopHandlers(deps: {
             // be silently swallowed by appendSystemEvent's dedupe and the
             // second nudge would vanish from chat history, which is exactly
             // the failure mode this whole change exists to fix.
-            appendLoopInterveneMessage(state, validated.message, chatService, deps.instanceManager);
+            appendLoopInterveneMessage(state, validated.message, chatService, deps.instanceManager, validated.origin);
           } catch (err) {
             logger.warn('Failed to append loop intervention', {
               loopRunId: validated.loopRunId,

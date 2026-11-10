@@ -241,15 +241,23 @@ async function terminateInstance(instanceId: string, graceful: boolean): Promise
   });
 }
 
+/** SIGTERMs every owned child and resolves once all have closed, SIGKILLing any left after the grace. */
 async function shutdown(): Promise<void> {
-  const ids = Array.from(sessions.keys());
-  for (const instanceId of ids) {
-    killProcessGroup(sessions.get(instanceId)?.process.pid, 'SIGTERM');
+  const owned = Array.from(sessions.values());
+  const allClosed = Promise.all(owned.map((session) =>
+    new Promise<void>((resolve) => session.process.once('close', () => resolve()))));
+  for (const session of owned) {
+    killProcessGroup(session.process.pid, 'SIGTERM');
   }
-  await new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS));
-  for (const instanceId of ids) {
-    const session = sessions.get(instanceId);
-    if (session?.alive) killProcessGroup(session.process.pid, 'SIGKILL');
+  let grace: ReturnType<typeof setTimeout> | undefined;
+  const graceElapsed = new Promise<true>((resolve) => {
+    grace = setTimeout(() => resolve(true), SHUTDOWN_GRACE_MS);
+  });
+  const timedOut = await Promise.race([allClosed.then(() => false), graceElapsed]);
+  clearTimeout(grace);
+  if (!timedOut) return;
+  for (const session of owned) {
+    if (session.alive) killProcessGroup(session.process.pid, 'SIGKILL');
   }
 }
 

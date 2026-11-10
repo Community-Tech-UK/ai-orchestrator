@@ -17,6 +17,7 @@ import { PlanQueueItemFlow } from './plan-queue-item-flow';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { PlanQueueWorktreeService } from './plan-queue-worktree';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
@@ -53,15 +54,21 @@ function retainedPath(): string {
 function breakMetadata(): void { rmSync(metadata, { recursive: true }); }
 async function settleQueue(): Promise<void> { await GitWriteQueue.getInstance().enqueue('fixture-drain', async () => undefined); }
 
-beforeEach(() => {
-  GitWriteQueue._resetForTesting();
-  repo = realpathSync(mkdtempSync(join(tmpdir(), 'queue-orphan-spec-')));
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate((dir) => {
+  repo = dir;
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'Queue Fixture']);
   git(['config', 'user.email', 'queue@example.invalid']);
   writeFileSync(join(repo, 'base.txt'), 'base\n');
   git(['add', '.']);
   git(['-c', 'commit.gpgsign=false', 'commit', '-qm', 'base']);
+});
+
+beforeEach(() => {
+  GitWriteQueue._resetForTesting();
+  repo = realpathSync(mkdtempSync(join(tmpdir(), 'queue-orphan-spec-')));
+  baseRepository.copyTo(repo);
   source = join(repo, '.worktrees/queue/sample-abc123');
   git(['worktree', 'add', '-qb', 'queue/sample-abc123', source]);
   metadata = git(['rev-parse', '--absolute-git-dir'], source);

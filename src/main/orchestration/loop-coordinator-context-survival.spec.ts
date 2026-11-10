@@ -1,12 +1,15 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import type { LoopContextSurvivalManager } from './loop-context-survival';
 import { loopStateFile, resolveLoopArtifactPaths } from './loop-artifact-paths';
 import { passingVerifyCommand } from './loop-test-commands';
+
+vi.mock('./loop-coordinator-utils', async (importOriginal) =>
+  (await import('./loop-coordinator-test-pause')).withShortIterationPause(await importOriginal()));
 
 function childResult(seq: number): LoopChildResult {
   return {

@@ -10,7 +10,7 @@
  * files change every round.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -20,6 +20,9 @@ import { mkdirSync } from 'node:fs';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 import { passingVerifyCommand } from './loop-test-commands';
+
+vi.mock('./loop-coordinator-utils', async (importOriginal) =>
+  (await import('./loop-coordinator-test-pause')).withShortIterationPause(await importOriginal()));
 
 function writeRunState(payload: unknown, name: string, content: string): void {
   const p = payload as { loopRunId: string; workspaceCwd: string };

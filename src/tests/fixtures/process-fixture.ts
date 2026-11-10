@@ -50,6 +50,21 @@ function waitForCapturedChildExit(child: ChildProcess): Promise<void> {
   ), 2_000);
 }
 
+/**
+ * Fixture source: one statement that ends the fixture once process `pid` (by default the test process building
+ * the source) is gone. A fixture that ignores signals or idles on a timer is normally stopped by the code under
+ * test or by `cleanup()`; when a test worker is killed mid-run neither happens, and the child would idle for ever.
+ * Run this on the fixture's own interval. While the test process is alive it does nothing, so what a test proves
+ * (signals ignored, survivors, escalation) is unchanged. As in `isFixtureProcessAlive`, only ESRCH means gone.
+ * The source uses single quotes only, so it fits inside a double-quoted nested `-e` string.
+ */
+export function exitOnceProcessGone(pid = process.pid): string {
+  return `try{process.kill(${pid},0)}catch(e){if(e.code==='ESRCH')process.exit()}`;
+}
+
+/** Keeps a fixture alive until it is stopped, or until the test process that started it is gone. */
+export const IDLE_UNTIL_TEST_PROCESS_GONE = `setInterval(()=>{${exitOnceProcessGone()}},1000)`;
+
 /** Register before awaiting product execution so assertion/error paths cannot leak fixtures. */
 export class ProcessFixtureRegistry {
   private readonly children = new Set<ChildProcess>();

@@ -1,6 +1,22 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { BackgroundTaskManager } from '../background-task-manager';
 
+/** Resolves when the task reaches a terminal event (completed, failed or cancelled). */
+function settled(manager: BackgroundTaskManager, taskId: string): Promise<void> {
+  const events = ['task-completed', 'task-failed', 'task-cancelled'] as const;
+  return new Promise(resolve => {
+    const onEvent = (task: { id: string }) => {
+      if (task.id !== taskId) return;
+      for (const event of events) manager.off(event, onEvent);
+      resolve();
+    };
+    for (const event of events) manager.on(event, onEvent);
+  });
+}
+
+/** A short pause after the terminal event, so a duplicate event would still be counted. */
+const afterSettle = () => new Promise(resolve => setTimeout(resolve, 20));
+
 describe('BackgroundTaskManager', () => {
   let manager: BackgroundTaskManager;
 
@@ -22,8 +38,8 @@ describe('BackgroundTaskManager', () => {
         type: 'fast',
       });
 
-      // Wait for task to complete
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await settled(manager, task.id);
+      await afterSettle();
 
       const completions = completedHandler.mock.calls.filter(
         (c: unknown[]) => (c[0] as { id: string }).id === task.id
@@ -45,7 +61,8 @@ describe('BackgroundTaskManager', () => {
         maxRetries: 0,
       });
 
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await settled(manager, task.id);
+      await afterSettle();
 
       const failures = failedHandler.mock.calls.filter(
         (c: unknown[]) => (c[0] as { id: string }).id === task.id
@@ -53,13 +70,22 @@ describe('BackgroundTaskManager', () => {
       expect(failures).toHaveLength(1);
     });
 
-    it('emits task-cancelled only once per task', async () => {
+    it.each([
+      ['throws', true],
+      ['returns', false],
+    ])('emits task-cancelled exactly once when a running task is cancelled and its executor then %s', async (_label, throws) => {
       const cancelledHandler = vi.fn();
+      const otherHandler = vi.fn();
       manager.on('task-cancelled', cancelledHandler);
+      manager.on('task-failed', otherHandler);
+      manager.on('task-completed', otherHandler);
 
+      // The executor stays running until the test has asked to cancel it.
+      let release!: () => void;
+      const released = new Promise<void>(resolve => { release = resolve; });
       manager.registerExecutor('slow', async (_task, ctx) => {
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        if (ctx.isCancelled()) throw new Error('cancelled');
+        await released;
+        if (throws && ctx.isCancelled()) throw new Error('cancelled');
         return 'done';
       });
 
@@ -69,16 +95,45 @@ describe('BackgroundTaskManager', () => {
         cancellable: true,
       });
 
-      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(manager.getTask(task.id)?.status).toBe('running');
+      const done = settled(manager, task.id);
       manager.cancel(task.id);
+      release();
 
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await done;
+      await afterSettle();
 
       const cancellations = cancelledHandler.mock.calls.filter(
         (c: unknown[]) => (c[0] as { id: string }).id === task.id
       );
-      // At most one cancellation event
-      expect(cancellations.length).toBeLessThanOrEqual(1);
+      expect(cancellations).toHaveLength(1);
+      expect(otherHandler).not.toHaveBeenCalled();
+      expect(manager.getHistory().find(t => t.id === task.id)?.status).toBe('cancelled');
+    });
+
+    it('fails, without retrying, a task whose executor throws after its timeout', async () => {
+      const failedHandler = vi.fn();
+      const retryHandler = vi.fn();
+      manager.on('task-failed', failedHandler);
+      manager.on('task-retry-scheduled', retryHandler);
+
+      let release!: () => void;
+      const released = new Promise<void>(resolve => { release = resolve; });
+      manager.on('task-timeout', () => release());
+      manager.registerExecutor('slow', async (_task, ctx) => {
+        await released;
+        if (ctx.isCancelled()) throw new Error('timed out');
+        return 'done';
+      });
+
+      const task = manager.submit({ name: 'timeout-test', type: 'slow', timeout: 10 });
+
+      await settled(manager, task.id);
+      await afterSettle();
+
+      expect(failedHandler).toHaveBeenCalledTimes(1);
+      expect(retryHandler).not.toHaveBeenCalled();
+      expect(manager.getHistory().find(t => t.id === task.id)?.status).toBe('failed');
     });
   });
 
@@ -104,7 +159,8 @@ describe('BackgroundTaskManager', () => {
         dependsOn: [depTask.id],
       });
 
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await settled(manager, dependentTask.id);
+      await afterSettle();
 
       const dependentFailures = failedHandler.mock.calls.filter(
         (c: unknown[]) => (c[0] as { id: string }).id === dependentTask.id
@@ -122,8 +178,10 @@ describe('BackgroundTaskManager', () => {
       // Use maxConcurrent=1 so the dep task stays pending while blocker runs
       manager.configure({ maxConcurrent: 1 });
 
+      let releaseBlocker!: () => void;
+      const blockerReleased = new Promise<void>(resolve => { releaseBlocker = resolve; });
       manager.registerExecutor('blocker', async () => {
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await blockerReleased;
         return 'blocking';
       });
       manager.registerExecutor('ok', async () => 'ok');
@@ -146,10 +204,14 @@ describe('BackgroundTaskManager', () => {
       });
 
       // Cancel the dep task while it's still pending — triggers immediate transition
+      expect(manager.getTask(depTask.id)?.status).toBe('pending');
+      const done = settled(manager, dependentTask.id);
       manager.cancel(depTask.id);
 
-      // Wait for queue processing to propagate the dependency failure
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Free the slot; queue processing then propagates the dependency failure
+      releaseBlocker();
+      await done;
+      await afterSettle();
 
       const dependentFailures = failedHandler.mock.calls.filter(
         (c: unknown[]) => (c[0] as { id: string }).id === dependentTask.id
@@ -174,7 +236,8 @@ describe('BackgroundTaskManager', () => {
         dependsOn: [depTask.id],
       });
 
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await settled(manager, dependentTask.id);
+      await afterSettle();
 
       const dependentCompletions = completedHandler.mock.calls.filter(
         (c: unknown[]) => (c[0] as { id: string }).id === dependentTask.id

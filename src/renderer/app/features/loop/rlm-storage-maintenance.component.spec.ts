@@ -260,7 +260,6 @@ function fakeStore() {
   const health = signal({
     level: 'warning' as 'healthy' | 'warning' | 'critical',
     databaseSizeBytes: 10 * 1024 ** 3,
-    externalContentSizeBytes: 20,
     reclaimableDatabaseBytes: 30,
     warningThresholdBytes: 10 * 1024 ** 3,
     hardLimitBytes: 12 * 1024 ** 3,
@@ -344,7 +343,6 @@ function maintenanceApi(status: ReturnType<typeof successResult> | ReturnType<ty
       data: {
         level: 'warning' as const,
         databaseSizeBytes: 10 * 1024 ** 3,
-        externalContentSizeBytes: 20,
         reclaimableDatabaseBytes: 30,
         warningThresholdBytes: 10 * 1024 ** 3,
         hardLimitBytes: 12 * 1024 ** 3,

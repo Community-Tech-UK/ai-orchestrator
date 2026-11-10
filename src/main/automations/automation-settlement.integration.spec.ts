@@ -245,10 +245,14 @@ describe('scheduled run settlement through provider communication', () => {
     settle(); await flush();
     expect(run()).toMatchObject({ status: 'succeeded', processedTokens: 0 });
   });
-  it.each(['graph_mail_send', 'graph_calendar_create_event', 'graph_calendar_update_event', 'graph_calendar_delete_event', 'graph_mail_create_draft'])('marks %s before the actual connector mutation, retaining ambiguous delivery on restart', async toolName => {
+  it.each(['graph_mail_send', 'graph_calendar_create_event', 'graph_calendar_update_event', 'graph_calendar_delete_event', 'graph_mail_create_draft', 'graph_mail_delete_draft'])('marks %s before the actual connector mutation, retaining ambiguous delivery on restart', async toolName => {
     const run = await fire(); add('child', 'root');
     const access = new ConnectorAccessRegistry(); access.grant('child', ['connector']);
-    const fetch = vi.fn(async () => {
+    const fetch = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      // Deleting a draft reads it first; reads are not deliveries.
+      if (init?.method === undefined || init.method === 'GET') {
+        return new Response(JSON.stringify({ id: 'draft', isDraft: true, subject: 'Example', toRecipients: [] }), { status: 200 });
+      }
       expect(store.getRunFacts(run().id).deliveryStartedAt).not.toBeNull();
       throw new Error('ambiguous transport failure');
     });
@@ -258,14 +262,14 @@ describe('scheduled run settlement through provider communication', () => {
       alwaysAllowedChanges: () => ({}), updateAlwaysAllowedChanges: vi.fn(),
       createGraphClient: requestContext => new GraphClient({ tokenProvider: { getAccessToken: async () => 'PLACEHOLDER_ACCESS' }, fetch, requestContext }),
     });
-    const args = toolName === 'graph_mail_send' ? { messageId: 'draft' } : toolName === 'graph_calendar_delete_event' ? { eventId: 'event' }
+    const args = toolName === 'graph_mail_send' || toolName === 'graph_mail_delete_draft' ? { messageId: 'draft' } : toolName === 'graph_calendar_delete_event' ? { eventId: 'event' }
       : toolName === 'graph_mail_create_draft' ? { subject: 'Example', body: { contentType: 'text', content: 'Example' }, toRecipients: [{ emailAddress: { address: 'recipient@example.test' } }] }
       : { ...(toolName.includes('update') ? { eventId: 'event' } : {}), subject: 'Example', start: { dateTime: '2026-11-01T10:00:00', timeZone: 'UTC' }, end: { dateTime: '2026-11-01T11:00:00', timeZone: 'UTC' } };
     await expect(dispatchConnectorRpc('connectors.graph', 'child', { name: 'example', method: 'tools/call', params: { name: toolName, arguments: args } }, {
       access, repo: { list: () => [{ record: { id: 'connector', name: 'example', kind: 'microsoft365', autoConnect: true, accountId: 'account', mailEnabled: true } }] },
       auth: { getAccessToken: vi.fn() }, graph, authorizeMutation: async () => true,
     }, { beforeMutation: () => runner.markDeliveryStartedForCaller('child') })).rejects.toThrow('ambiguous transport failure');
-    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls.filter(([, init]) => init?.method !== undefined && init.method !== 'GET')).toHaveLength(1);
     const fresh = new AutomationRunner(store, undefined, () => clock, (() => ({})) as never); fresh.initialize(manager as unknown as InstanceManager);
     expect(store.listPendingRetries()).toHaveLength(0);
     expect(store.getRunFacts(run().id).deliveryStartedAt).not.toBeNull();

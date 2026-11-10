@@ -15,6 +15,7 @@ import {
 } from './plan-queue-planning-files';
 import { PlanQueueWorktreeService } from './plan-queue-worktree';
 import type { PlanQueueItem } from './plan-queue.types';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
 /** One-shot hooks: `beforeCreate` runs just before the next exclusive create (to swap a folder for a link). */
 const hook = vi.hoisted(() => ({
@@ -82,13 +83,9 @@ function branchFiles(item: PlanQueueItem): string[] {
   return git(['ls-tree', '-r', '--name-only', item.branchName!]).split('\n');
 }
 
-beforeEach(() => {
-  WorktreeManager._resetForTesting();
-  GitWriteQueue._resetForTesting();
-  root = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-planning-')));
-  outside = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-planning-outside-')));
-  dataDir = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-planning-data-')));
-  _setPlanQueueDataDirForTesting(dataDir);
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate((dir) => {
+  root = dir;
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'Plan Queue Test']);
   git(['config', 'user.email', 'plan-queue@example.invalid']);
@@ -98,6 +95,16 @@ beforeEach(() => {
   write(root, 'docs/plans/tracked_plan.md', '# tracked on base\n');
   git(['add', '-A']);
   git(['commit', '-q', '-m', 'base']);
+});
+
+beforeEach(() => {
+  WorktreeManager._resetForTesting();
+  GitWriteQueue._resetForTesting();
+  root = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-planning-')));
+  outside = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-planning-outside-')));
+  dataDir = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-planning-data-')));
+  _setPlanQueueDataDirForTesting(dataDir);
+  baseRepository.copyTo(root);
   saved = [];
   service = new PlanQueueWorktreeService({ repoRootForItem: () => root, creator: WorktreeManager.getInstance(),
     saveItem: (item) => saved.push(item), skipInstall: true });

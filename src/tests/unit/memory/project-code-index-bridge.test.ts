@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile, unlink } from 'fs/promises';
 import { dirname, join } from 'path';
 import { tmpdir } from 'os';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
 import type { SqliteDriver } from '../../../main/db/sqlite-driver';
 import * as schema from '../../../main/persistence/rlm/rlm-schema';
 import { ProjectCodeIndexBridge, type ProjectCodeIndexSource } from '../../../main/memory/project-code-index-bridge';
@@ -10,8 +10,15 @@ import type { CodebaseMiningStatus } from '../../../shared/types/knowledge-graph
 import type { WorkspaceManifestRow, WorkspaceSymbolRecord } from '../../../main/codemem/types';
 import { listProjectKnowledgeSources } from '../../../main/persistence/rlm/rlm-project-knowledge';
 import { listProjectCodeSymbols } from '../../../main/persistence/rlm/rlm-project-code-index';
+import { useSqliteTemplate } from '../../../main/db/sqlite-template.test-helpers';
 
 describe('ProjectCodeIndexBridge', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    db.pragma('foreign_keys = ON');
+    schema.createTables(db);
+    schema.createMigrationsTable(db);
+    schema.runMigrations(db);
+  });
   let db: SqliteDriver;
   let rawDb: Database.Database;
   let tempDirs: string[];
@@ -19,12 +26,9 @@ describe('ProjectCodeIndexBridge', () => {
   beforeEach(() => {
     ProjectCodeIndexBridge._resetForTesting();
     vi.clearAllMocks();
-    rawDb = new Database(':memory:');
+    rawDb = rlmTemplate.open() as unknown as Database.Database;
     rawDb.pragma('foreign_keys = ON');
     db = rawDb as unknown as SqliteDriver;
-    schema.createTables(db);
-    schema.createMigrationsTable(db);
-    schema.runMigrations(db);
     tempDirs = [];
   });
 

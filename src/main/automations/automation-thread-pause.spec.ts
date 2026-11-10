@@ -2,7 +2,6 @@ import { EventEmitter } from 'events';
 import { expect, it, vi } from 'vitest';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { InstanceSendInputOptions } from '../instance/instance-input-cancellation';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { pauseConsults } from '../work-admission/consult-admission';
 import { WorkAdmission } from '../work-admission/work-admission';
@@ -12,6 +11,7 @@ import { getAutomationEvents, resetAutomationEventsForTesting } from './automati
 import { createGlobalPauseRuntime } from '../global-pause/global-pause-runtime';
 import { GlobalPauseService } from '../global-pause/global-pause-service';
 import { GlobalPauseStore } from '../global-pause/global-pause-store';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const ports=vi.hoisted(()=>({store:null as unknown,runner:null as unknown,revive:vi.fn()}));
 vi.mock('electron',()=>({app:{getPath:()=>'/tmp/ai-orchestrator-test'},powerMonitor:new EventEmitter()}));
@@ -21,6 +21,11 @@ vi.mock('../session/session-queue-service',()=>({getSessionQueueService:()=>({re
 vi.mock('./index',()=>({getAutomationStore:()=>ports.store,getAutomationRunner:()=>ports.runner}));
 vi.mock('../session/session-admission-service',()=>({getSessionAdmissionService:()=>({registerRedeliveryHandler:vi.fn(),admitAutomatedWrite:()=>({kind:'admitted',admissionId:'receipt'}),markDelivered:vi.fn(),markFailed:vi.fn()})}));
 
+const rlmTemplate = useSqliteTemplate((db) => {
+  createTables(db);
+  createMigrationsTable(db);
+  runMigrations(db);
+});
 it.each([
   {dispatched:false,recorded:false,pickup:false,stopFails:false,closed:false,manualFinished:false,duringResume:false},
   {dispatched:true,recorded:false,pickup:false,stopFails:false,closed:false,manualFinished:false,duringResume:false},
@@ -32,7 +37,7 @@ it.each([
   {dispatched:true,recorded:true,pickup:false,stopFails:false,closed:false,manualFinished:false,duringResume:true},
 ])('resumes thread wakeup once across the provider boundary: %j',async({dispatched,recorded,pickup,stopFails,closed,manualFinished,duringResume})=>{
   GlobalPauseService._resetForTesting(); WorkAdmission._resetForTesting(); resetAutomationEventsForTesting();
-  const db=defaultDriverFactory(':memory:');createTables(db);createMigrationsTable(db);runMigrations(db);
+  const db=rlmTemplate.open();
   const store=new AutomationStore(db,{prepare:async()=>[],replacePrepared:()=>undefined,listForAutomation:async()=>[]} as never);
   let entered!:()=>void;const sending=new Promise<void>(resolve=>{entered=resolve;});
   const providerMessages:string[]=[];

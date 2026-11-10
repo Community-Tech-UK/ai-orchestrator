@@ -38,6 +38,7 @@ describe('native OpenCode command from IPC through the actual manager to ACP', (
     communication.queueContinuityPreamble(instance.id, 'Fixture hidden continuity');
     const manager = Object.create(InstanceManager.prototype) as InstanceManager;
     Object.assign(manager, { state: { getInstance: () => instance, getAdapter: () => adapter, isInstancePending: () => false }, communication,
+      lifecycle: { whenRuntimeChangeSettled: () => undefined },
       orchestrationMgr: { getOrchestrationHandler: () => ({ getPendingUserActionsForInstance: () => [] }) }, hasReceivedFirstMessage: new Set<string>(),
       context: { getInputContext: async () => ({}) }, publishOutput: vi.fn() });
     mocks.commands.mockResolvedValue({ command: { id: 'builtin-compact', name: 'compact' }, execution: { type: 'compact' }, resolvedPrompt: '' });

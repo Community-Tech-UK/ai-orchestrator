@@ -82,12 +82,6 @@ describe('ToolLoopAlertStore (N2)', () => {
     expect(store.hasCriticalAlert('i1')).toBe(false);
   });
 
-  it('ignores a warning, which already has its toast', () => {
-    const { store, emit, critical } = setup();
-    emit({ ...critical, severity: 'warn' });
-    expect(store.hasCriticalAlert('i1')).toBe(false);
-  });
-
   it('exposes the detail the badge and actions need', () => {
     const { store, emit, critical } = setup();
     emit(critical);

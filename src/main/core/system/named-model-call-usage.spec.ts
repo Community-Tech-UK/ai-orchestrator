@@ -30,6 +30,20 @@ const recap = JSON.stringify({ summary: 'Fixture', keyPoints: [], openQuestions:
 const paid = { inputTokens: 100, outputTokens: 10, cost: 0.42, byModel: [{ model: 'fixture-observed-model', inputTokens: 100, outputTokens: 10, costUsd: 0.42 }] };
 const paths = ['council', 'compare', 'magic-prompt', 'title', 'reviewer', 'review-host'] as const;
 type Path = typeof paths[number];
+const modes = ['usage', 'complete', 'attached-usage', 'attached-partial', 'cancelled', 'unknown', 'zero', 'success'] as const;
+type Mode = typeof modes[number];
+
+/**
+ * Every path reads usage through observeModelCallUsage and books it through
+ * recordModelCall, so council runs every kind of usage evidence. The other
+ * paths keep one row per branch of their own: success, cancelled, and a failed
+ * send that carries paid usage. Title never sends, so one row shows that.
+ */
+function modesFor(path: Path): readonly Mode[] {
+  if (path === 'council') return modes;
+  if (path === 'title') return ['success'];
+  return ['success', 'cancelled', 'attached-partial'];
+}
 
 function run(path: Path, adapter: unknown, signal = new AbortController().signal): Promise<unknown> {
   state.adapter = adapter;
@@ -65,7 +79,7 @@ describe('actual named sends retain observed paid usage on settlement', () => {
   afterEach(() => { stop(); vi.unstubAllEnvs(); AutoTitleService._resetForTesting(); });
 
   describe.each(paths)('%s public send', path => {
-    it.each(['usage', 'complete', 'attached-usage', 'attached-partial', 'cancelled', 'unknown', 'zero', 'success'] as const)(path === 'title' ? 'keeps title CLI disabled despite available %s evidence' : 'records one row for %s evidence', async mode => {
+    it.each(modesFor(path))(path === 'title' ? 'keeps title CLI disabled despite available %s evidence' : 'records one row for %s evidence', async mode => {
       const adapter = Object.assign(new EventEmitter(), { sendMessage: vi.fn(async () => {
         if (mode === 'success') {
           adapter.emit('usage', paid);

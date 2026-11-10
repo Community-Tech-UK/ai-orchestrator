@@ -37,13 +37,48 @@ import { providerName, providerToolName } from './display-names';
 /** The one file that defines the names, so it is the one file allowed to contain them. */
 const NAME_MODULE = 'src/shared/display-names.ts';
 
+// The tree is walked, read and parsed once per file run, not once per scan: the
+// scans only read what these caches hold, and every scan still sees every file.
+const listedRoots = new Map<string, string[]>();
+const texts = new Map<string, string>();
+const trees = new Map<string, ReturnType<typeof parseSource>>();
+
+function sourcesUnder(roots: readonly string[]): string[] {
+  return roots.flatMap((root) => {
+    let listed = listedRoots.get(root);
+    if (!listed) {
+      listed = listProductionSources([root]);
+      listedRoots.set(root, listed);
+    }
+    return listed;
+  });
+}
+
+function textOf(path: string): string {
+  let text = texts.get(path);
+  if (text === undefined) {
+    text = readSource(path);
+    texts.set(path, text);
+  }
+  return text;
+}
+
+function treeOf(path: string): ReturnType<typeof parseSource> {
+  let tree = trees.get(path);
+  if (!tree) {
+    tree = parseSource(path, textOf(path));
+    trees.set(path, tree);
+  }
+  return tree;
+}
+
 function scanForMaps(): Map<string, number[]> {
   const found = new Map<string, number[]>();
-  for (const path of listProductionSources(['src', 'packages', 'apps/mobile/src'])) {
-    const text = readSource(path);
+  for (const path of sourcesUnder(['src', 'packages', 'apps/mobile/src'])) {
+    const text = textOf(path);
     // Cheap pre-filter: a map names at least two providers.
     if ([...PROVIDER_IDS].filter((id) => text.includes(id)).length < 2) continue;
-    const hits = findLocalProviderMaps(parseSource(path, text));
+    const hits = findLocalProviderMaps(treeOf(path));
     if (hits.length > 0) found.set(path, hits.map((hit) => hit.line));
   }
   return found;
@@ -51,11 +86,11 @@ function scanForMaps(): Map<string, number[]> {
 
 function scanForToolNames(): Map<string, string[]> {
   const found = new Map<string, string[]>();
-  for (const path of listProductionSources(['src', 'packages'])) {
+  for (const path of sourcesUnder(['src', 'packages'])) {
     if (path === NAME_MODULE) continue;
-    const text = readSource(path);
+    const text = textOf(path);
     if (![...TOOL_NAME_LITERALS].some((name) => text.includes(name))) continue;
-    const hits = findHandWrittenToolNames(parseSource(path, text));
+    const hits = findHandWrittenToolNames(treeOf(path));
     if (hits.length > 0) found.set(path, hits.map((hit) => `${hit.line}:${JSON.stringify(hit.text)}`));
   }
   return found;
@@ -63,8 +98,8 @@ function scanForToolNames(): Map<string, string[]> {
 
 describe('display-names guard: nothing writes provider names by hand', () => {
   it('reads the whole source tree, so a silent scan of nothing cannot pass', () => {
-    expect(listProductionSources(['src']).length).toBeGreaterThan(1500);
-    expect(listProductionSources(['apps/mobile/src']).length).toBeGreaterThan(50);
+    expect(sourcesUnder(['src']).length).toBeGreaterThan(1500);
+    expect(sourcesUnder(['apps/mobile/src']).length).toBeGreaterThan(50);
   });
 
   it('has no local map of provider display names anywhere (zero allowed)', () => {
@@ -87,7 +122,7 @@ describe('display-names guard: nothing writes provider names by hand', () => {
     }
     expect(source).toContain("'MiMo via OpenCode'");
     // And the exemption is a single file, not a folder.
-    expect(listProductionSources(['src']).filter((path) => path === NAME_MODULE)).toEqual([NAME_MODULE]);
+    expect(sourcesUnder(['src']).filter((path) => path === NAME_MODULE)).toEqual([NAME_MODULE]);
   });
 });
 

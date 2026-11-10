@@ -7,6 +7,9 @@ import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { cleanupLoopCoordinatorSpec } from './loop-coordinator-test-cleanup';
 import { resolveLoopArtifactPaths } from './loop-artifact-paths';
 
+vi.mock('./loop-coordinator-utils', async (importOriginal) =>
+  (await import('./loop-coordinator-test-pause')).withShortIterationPause(await importOriginal()));
+
 // Keep app settings and provider/model discovery outside the fixture. Stage
 // reads, prompt selection, thread proof and the child-invocation event are real.
 vi.mock('../core/config/settings-manager', () => ({

@@ -10,7 +10,7 @@
  * status exact).
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   LOOP_BENCHMARK_SCENARIOS,
   LOOP_BENCHMARK_RESULT_VERSION,
@@ -19,6 +19,9 @@ import {
 import baseline from './loop-convergence-baseline.json';
 import { LoopStageMachine } from './loop-stage-machine';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
+
+vi.mock('./loop-coordinator-utils', async (importOriginal) =>
+  (await import('./loop-coordinator-test-pause')).withShortIterationPause(await importOriginal()));
 
 interface BaselineEntry {
   childCalls: number;

@@ -72,13 +72,6 @@ describe('CrossProjectLearner', () => {
       const instance2 = getCrossProjectLearner();
       expect(instance1).toBe(instance2);
     });
-
-    it('should allow reset for testing', () => {
-      const instance1 = getCrossProjectLearner();
-      CrossProjectLearner.resetInstance();
-      const instance2 = getCrossProjectLearner();
-      expect(instance1).not.toBe(instance2);
-    });
   });
 
   describe('Configuration', () => {

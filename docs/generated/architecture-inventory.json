@@ -6251,7 +6251,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
-      "lines": 6485
+      "lines": 6488
     },
     {
       "path": "docs/superpowers/plans/2026-04-21-mcp-multi-provider-management_completed.md",
@@ -6266,16 +6266,16 @@
       "lines": 4621
     },
     {
-      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 4467
-    },
-    {
       "path": "docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md",
       "lines": 4454
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave1-command-registry-and-overlay-plan_completed.md",
       "lines": 4447
+    },
+    {
+      "path": "src/main/plan-queue/plan-queue-coordinator.b11gbase.spec.ts",
+      "lines": 4346
     },
     {
       "path": "docs/superpowers/plans/2026-04-28-wave6-doctor-diagnostics-updates-artifacts-plan_completed.md",
@@ -6299,11 +6299,11 @@
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
-      "lines": 3633
+      "lines": 3617
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3609
+      "lines": 3614
     },
     {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
@@ -6391,19 +6391,19 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2501
+      "lines": 2503
     },
     {
       "path": "src/main/app/orchestrator-tools-step.spec.ts",
-      "lines": 2460
+      "lines": 2477
+    },
+    {
+      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
+      "lines": 2436
     },
     {
       "path": "scripts/__tests__/codex-helper-trial-report.spec.ts",
       "lines": 2415
-    },
-    {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
-      "lines": 2402
     },
     {
       "path": "src/main/history/history-manager.spec.ts",
@@ -6443,7 +6443,7 @@
     },
     {
       "path": "src/main/channels/__tests__/channel-message-router.spec.ts",
-      "lines": 2142
+      "lines": 2126
     },
     {
       "path": "docs/superpowers/plans/2026-04-09-resilient-codex-resume-and-agent-observability_completed.md",
@@ -6495,7 +6495,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1978
+      "lines": 1983
     },
     {
       "path": "src/main/session/session-continuity.spec.ts",
@@ -6550,16 +6550,20 @@
       "lines": 1730
     },
     {
+      "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
+      "lines": 1680
+    },
+    {
       "path": "src/main/local-ai-guard/local-ai-health-repository.spec.ts",
-      "lines": 1660
+      "lines": 1663
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-rpc-server.spec.ts",
       "lines": 1655
     },
     {
-      "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
-      "lines": 1640
+      "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
+      "lines": 1638
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -6572,10 +6576,6 @@
     {
       "path": "docs/superpowers/plans/2026-03-15-session-resume-improvements_completed.md",
       "lines": 1616
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
-      "lines": 1587
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-full-voice-conversation_completed.md",
@@ -6618,12 +6618,12 @@
       "lines": 1516
     },
     {
-      "path": "src/main/mcp/orchestrator-tools-rpc-server.spec.ts",
-      "lines": 1513
+      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
+      "lines": 1515
     },
     {
-      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
-      "lines": 1503
+      "path": "src/main/mcp/orchestrator-tools-rpc-server.spec.ts",
+      "lines": 1513
     },
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
@@ -6655,7 +6655,7 @@
     },
     {
       "path": "src/main/automations/automation-retry-integration.spec.ts",
-      "lines": 1451
+      "lines": 1455
     },
     {
       "path": "src/main/ipc/handlers/__tests__/session-handlers.spec.ts",
@@ -6668,10 +6668,6 @@
     {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.ts",
       "lines": 1428
-    },
-    {
-      "path": "src/main/instance/auto-title-service.spec.ts",
-      "lines": 1420
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-phase-b-context-token-efficiency_completed.md",
@@ -6710,6 +6706,10 @@
       "lines": 1351
     },
     {
+      "path": "src/main/instance/lifecycle/desired-runtime-queue.spec.ts",
+      "lines": 1350
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-02-phase-a-type-safety-utilities_completed.md",
       "lines": 1347
     },
@@ -6722,12 +6722,12 @@
       "lines": 1343
     },
     {
-      "path": "src/main/cli/adapters/__tests__/claude-cli-adapter.spec.ts",
-      "lines": 1343
-    },
-    {
       "path": "src/main/plugins/plugin-manager.ts",
       "lines": 1341
+    },
+    {
+      "path": "src/main/cli/adapters/__tests__/claude-cli-adapter.spec.ts",
+      "lines": 1335
     },
     {
       "path": "src/main/orchestration/orchestration-handler.ts",
@@ -6748,6 +6748,10 @@
     {
       "path": "src/main/app/instance-event-forwarding.spec.ts",
       "lines": 1327
+    },
+    {
+      "path": "src/main/workspace/git/vcs-manager.ts",
+      "lines": 1326
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-fixes-and-ui_completed.md",
@@ -6782,12 +6786,12 @@
       "lines": 1296
     },
     {
-      "path": "src/main/workspace/git/vcs-manager.ts",
-      "lines": 1296
-    },
-    {
       "path": "src/main/storage/scratch-sweep.ts",
       "lines": 1285
+    },
+    {
+      "path": "src/main/instance/auto-title-service.spec.ts",
+      "lines": 1282
     },
     {
       "path": "src/main/local-ai-guard/local-ai-incident-service.spec.ts",
@@ -6800,6 +6804,10 @@
     {
       "path": "packages/contracts/src/schemas/__tests__/loop.schemas.spec.ts",
       "lines": 1278
+    },
+    {
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.spec.ts",
+      "lines": 1275
     },
     {
       "path": "docs/plans/2026-03-02-architectural-remediation-plan_completed.md",
@@ -6838,10 +6846,6 @@
       "lines": 1250
     },
     {
-      "path": "src/main/instance/lifecycle/desired-runtime-queue.spec.ts",
-      "lines": 1248
-    },
-    {
       "path": "docs/fable_todo_completed.md",
       "lines": 1246
     },
@@ -6860,6 +6864,14 @@
     {
       "path": "docs/superpowers/plans/2026-03-21-discord-whatsapp-channels_completed.md",
       "lines": 1239
+    },
+    {
+      "path": "src/main/instance/instance-provider-limit-handler.spec.ts",
+      "lines": 1238
+    },
+    {
+      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
+      "lines": 1238
     },
     {
       "path": "src/main/orchestration/__tests__/campaign-coordinator.spec.ts",
@@ -6896,10 +6908,6 @@
     {
       "path": "src/main/providers/__tests__/unified-model-catalog-service.spec.ts",
       "lines": 1205
-    },
-    {
-      "path": "src/main/instance/instance-provider-limit-handler.spec.ts",
-      "lines": 1204
     },
     {
       "path": "docs/plans/2026-06-27-supergoal-inspired-loop-planning-audit_completed.md",
@@ -6946,6 +6954,10 @@
       "lines": 1181
     },
     {
+      "path": "src/renderer/app/features/loop/loop-control.component.spec.ts",
+      "lines": 1180
+    },
+    {
       "path": "src/main/remote-node/__tests__/rpc-event-router.spec.ts",
       "lines": 1179
     },
@@ -6956,10 +6968,6 @@
     {
       "path": "src/main/orchestration/multi-verify-coordinator.ts",
       "lines": 1177
-    },
-    {
-      "path": "src/renderer/app/features/loop/loop-control.component.spec.ts",
-      "lines": 1174
     },
     {
       "path": "src/renderer/app/features/instance-list/instance-list.component.scss",
@@ -6978,16 +6986,20 @@
       "lines": 1161
     },
     {
-      "path": "src/main/remote-node/__tests__/rpc-schemas.spec.ts",
-      "lines": 1156
-    },
-    {
       "path": "src/renderer/app/features/mcp/mcp-page.component.ts",
-      "lines": 1155
+      "lines": 1156
     },
     {
       "path": "docs/plans/completed/claude2_completed.md",
       "lines": 1145
+    },
+    {
+      "path": "src/main/remote-node/__tests__/rpc-schemas.spec.ts",
+      "lines": 1143
+    },
+    {
+      "path": "src/renderer/app/core/state/loop.store.spec.ts",
+      "lines": 1140
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-wave2-navigation-pickers-prompt-recall-design_completed.md",
@@ -7010,11 +7022,11 @@
       "lines": 1128
     },
     {
-      "path": "docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md",
-      "lines": 1127
+      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
+      "lines": 1128
     },
     {
-      "path": "src/renderer/app/core/state/loop.store.spec.ts",
+      "path": "docs/superpowers/specs/2026-04-28-wave1-command-registry-and-overlay-design_completed.md",
       "lines": 1127
     },
     {
@@ -7023,10 +7035,6 @@
     },
     {
       "path": "src/renderer/app/core/state/instance/instance-list.store.spec.ts",
-      "lines": 1126
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.spec.ts",
       "lines": 1126
     },
     {
@@ -7044,10 +7052,6 @@
     {
       "path": "src/main/history/__tests__/history-manager-native-import.spec.ts",
       "lines": 1112
-    },
-    {
-      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
-      "lines": 1111
     },
     {
       "path": "src/main/browser-gateway/browser-health-service.spec.ts",
@@ -7178,6 +7182,10 @@
       "lines": 990
     },
     {
+      "path": "src/main/orchestration/loop-coordinator-review-driven.spec.ts",
+      "lines": 988
+    },
+    {
       "path": "src/main/local-ai-guard/local-ai-guard.integration.spec.ts",
       "lines": 987
     },
@@ -7206,15 +7214,11 @@
       "lines": 982
     },
     {
-      "path": "src/main/context-evidence/encrypted-evidence-blob-store.spec.ts",
-      "lines": 981
-    },
-    {
       "path": "src/main/instance/__tests__/instance-manager-context-deadline.spec.ts",
-      "lines": 981
+      "lines": 982
     },
     {
-      "path": "src/main/orchestration/loop-coordinator-review-driven.spec.ts",
+      "path": "src/main/context-evidence/encrypted-evidence-blob-store.spec.ts",
       "lines": 981
     },
     {
@@ -7252,6 +7256,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-27-phase1-orchestration-protocol-tests_completed.md",
       "lines": 963
+    },
+    {
+      "path": "src/worker-agent/capability-reporter.spec.ts",
+      "lines": 959
     },
     {
       "path": "docs/superpowers/plans/2026-05-03-browser-gateway-first-milestone_completed.md",
@@ -7298,6 +7306,10 @@
       "lines": 935
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-reload-no-effect.spec.ts",
+      "lines": 935
+    },
+    {
       "path": "src/renderer/app/core/services/new-session-draft.service.ts",
       "lines": 931
     },
@@ -7311,7 +7323,7 @@
     },
     {
       "path": "src/shared/types/instance.types.ts",
-      "lines": 924
+      "lines": 926
     },
     {
       "path": "src/preload/domains/orchestration.preload.ts",
@@ -7322,16 +7334,12 @@
       "lines": 919
     },
     {
-      "path": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.spec.ts",
+      "path": "src/renderer/app/features/instance-detail/composer-toolbar.component.spec.ts",
       "lines": 915
     },
     {
       "path": "src/main/browser-gateway/browser-mcp-tools.ts",
       "lines": 912
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-reload-no-effect.spec.ts",
-      "lines": 911
     },
     {
       "path": "src/main/ipc/learning-ipc-handler.spec.ts",
@@ -7346,19 +7354,19 @@
       "lines": 909
     },
     {
+      "path": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.spec.ts",
+      "lines": 908
+    },
+    {
+      "path": "src/main/orchestration/loop-coordinator-terminal-intents.spec.ts",
+      "lines": 906
+    },
+    {
       "path": "src/main/browser-gateway/browser-gateway-action-guard.spec.ts",
       "lines": 903
     },
     {
-      "path": "src/renderer/app/features/instance-detail/composer-toolbar.component.spec.ts",
-      "lines": 903
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-09-remote-session-latency_completed.md",
-      "lines": 900
-    },
-    {
-      "path": "src/main/orchestration/loop-coordinator-terminal-intents.spec.ts",
       "lines": 900
     },
     {
@@ -7374,12 +7382,20 @@
       "lines": 899
     },
     {
+      "path": "src/worker-agent/worker-rpc-dispatcher.node-ops.spec.ts",
+      "lines": 898
+    },
+    {
       "path": "src/main/workspace/lsp-manager.ts",
       "lines": 896
     },
     {
       "path": "docs/AIO_MCP_CLI.md",
       "lines": 894
+    },
+    {
+      "path": "src/main/plan-queue/plan-queue-pause-control.spec.ts",
+      "lines": 892
     },
     {
       "path": "src/main/ipc/handlers/mcp-handlers.ts",
@@ -7422,7 +7438,7 @@
       "lines": 879
     },
     {
-      "path": "src/worker-agent/worker-rpc-dispatcher.node-ops.spec.ts",
+      "path": "src/shared/types/settings.types.ts",
       "lines": 879
     },
     {
@@ -7431,10 +7447,6 @@
     },
     {
       "path": "src/renderer/app/shared/components/provider-quota-chip/provider-quota-chip.component.spec.ts",
-      "lines": 877
-    },
-    {
-      "path": "src/shared/types/settings.types.ts",
       "lines": 877
     },
     {
@@ -7454,12 +7466,16 @@
       "lines": 874
     },
     {
-      "path": "src/main/plan-queue/plan-queue-pause-control.spec.ts",
-      "lines": 873
+      "path": "src/main/plan-queue/plan-queue-coordinator-recovery.spec.ts",
+      "lines": 871
     },
     {
-      "path": "src/worker-agent/capability-reporter.spec.ts",
-      "lines": 873
+      "path": "src/main/plan-queue/plan-queue-coordinator-routing.spec.ts",
+      "lines": 870
+    },
+    {
+      "path": "src/main/instance/__tests__/instance-lifecycle-system-prompt-contract.spec.ts",
+      "lines": 868
     },
     {
       "path": "docs/plans/2026-06-26-loop-engine-overhaul-spec_completed.md",
@@ -7470,15 +7486,19 @@
       "lines": 867
     },
     {
+      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
+      "lines": 865
+    },
+    {
       "path": "docs/superpowers/specs/2026-08-25-copilot-account-routing_spec_completed.md",
       "lines": 864
     },
     {
-      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
-      "lines": 864
+      "path": "docs/superpowers/plans/_archive/2026-07-13-codex-context-pressure-guard-superseded.md",
+      "lines": 862
     },
     {
-      "path": "docs/superpowers/plans/_archive/2026-07-13-codex-context-pressure-guard-superseded.md",
+      "path": "src/renderer/app/features/models/model-selection-panel.component.spec.ts",
       "lines": 862
     },
     {
@@ -7526,6 +7546,10 @@
       "lines": 848
     },
     {
+      "path": "src/main/automations/automation-store.spec.ts",
+      "lines": 847
+    },
+    {
       "path": "src/main/orchestration/loop-completion-detector.ts",
       "lines": 846
     },
@@ -7536,14 +7560,6 @@
     {
       "path": "docs/superpowers/specs/2026-04-05-bash-validation-pipeline-design_completed.md",
       "lines": 844
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-lifecycle-system-prompt-contract.spec.ts",
-      "lines": 844
-    },
-    {
-      "path": "src/main/automations/automation-store.spec.ts",
-      "lines": 843
     },
     {
       "path": "src/main/instance/lifecycle/runtime-reconciler.ts",
@@ -7582,10 +7598,6 @@
       "lines": 838
     },
     {
-      "path": "src/shared/types/history.types.spec.ts",
-      "lines": 837
-    },
-    {
       "path": "docs/plans/2026-07-30-sibling-audit-round2_plan_completed.md",
       "lines": 833
     },
@@ -7594,7 +7606,7 @@
       "lines": 832
     },
     {
-      "path": "src/renderer/app/features/models/model-selection-panel.component.spec.ts",
+      "path": "src/renderer/app/features/settings/provider-accounts-tab.component.spec.ts",
       "lines": 831
     },
     {
@@ -7635,10 +7647,6 @@
     },
     {
       "path": "src/renderer/app/features/automations/automations-page.component.ts",
-      "lines": 816
-    },
-    {
-      "path": "src/renderer/app/features/verification/results/verification-results.component.spec.ts",
       "lines": 816
     },
     {
@@ -7686,15 +7694,15 @@
       "lines": 803
     },
     {
+      "path": "src/renderer/app/core/state/loop.store.ts",
+      "lines": 802
+    },
+    {
       "path": "src/main/codemem/code-index-manager.ts",
       "lines": 801
     },
     {
       "path": "src/main/memory/procedural-store.ts",
-      "lines": 801
-    },
-    {
-      "path": "src/renderer/app/core/state/loop.store.ts",
       "lines": 801
     }
   ]

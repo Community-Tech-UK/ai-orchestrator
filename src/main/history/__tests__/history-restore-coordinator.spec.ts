@@ -595,12 +595,22 @@ describe('HistoryRestoreCoordinator', () => {
           ? { getResumeAttemptResult: () => ({ source: 'native' as const, confirmed: false }) }
           : undefined;
 
-      const startedAt = Date.now();
-      const result = await makeSlowProbeCoordinator().restore(manager, 'entry-1');
-      const elapsed = Date.now() - startedAt;
+      // Fake clock: the 4 s window is stepped through instead of waited out.
+      vi.useFakeTimers();
+      try {
+        let settled = false;
+        const pending = makeSlowProbeCoordinator().restore(manager, 'entry-1')
+          .finally(() => { settled = true; });
 
-      expect(result.restoreMode).toBe('resume-unconfirmed');
-      expect(elapsed).toBeGreaterThanOrEqual(3_500);
+        await vi.advanceTimersByTimeAsync(3_900);
+        expect(settled).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(200);
+        const result = await pending;
+        expect(result.restoreMode).toBe('resume-unconfirmed');
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('treats a forked resume’s new session id as success, not as a wrong-session failure', async () => {

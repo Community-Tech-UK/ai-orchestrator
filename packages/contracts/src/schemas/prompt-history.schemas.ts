@@ -19,6 +19,7 @@ export const PromptHistoryRecordSchema = z.object({
 
 export const PromptHistoryProjectAliasSchema = z.object({
   projectPath: z.string().min(1).max(10000),
+  // Empty when a cleared session held the list's last entries.
   entries: z.array(PromptHistoryEntrySchema).max(500),
   updatedAt: z.number().int().nonnegative(),
 });
@@ -37,6 +38,7 @@ export const PromptHistoryClearInstancePayloadSchema = z.object({
 export const PromptHistoryDeltaPayloadSchema = z.object({
   instanceId: InstanceIdSchema,
   record: PromptHistoryRecordSchema,
+  projectAliases: z.array(PromptHistoryProjectAliasSchema).max(500).optional(),
 });
 
 export type PromptHistoryRecordPayload = z.infer<typeof PromptHistoryRecordPayloadSchema>;

@@ -18,6 +18,9 @@ const state = vi.hoisted(() => ({ directory: '/tmp/inert-automation-stats', chec
 vi.mock('electron', () => ({ app: { getPath: () => state.directory, isPackaged: false }, Notification: { isSupported: () => false }, BrowserWindow: { getAllWindows: () => [] } }));
 vi.mock('./automation-check-store', async (importOriginal) => ({ ...await importOriginal<typeof import('./automation-check-store')>(), getAutomationCheckStore: () => state.checkStore }));
 vi.mock('../process/resource-governor', () => ({ getResourceGovernor: () => ({ getCreationBlockReason: () => 'inert fixture capacity' }) }));
+// Checks run through plain `/bin/sh -c`, not the developer's login shell: its profile start-up follows the
+// computer's load and timed these tests out on a busy Mac. The login shell is covered by automation-pre-check.spec.ts.
+vi.mock('../orchestration/loop-completion-detector', async (importOriginal) => ({ ...await importOriginal<typeof import('../orchestration/loop-completion-detector')>(), buildVerifyInvocation: (command: string) => ({ file: '/bin/sh', args: ['-c', command], useShellOption: false }) }));
 vi.mock('../plugins/hook-emitter', () => ({ emitPluginHook: vi.fn() }));
 vi.mock('../channels/channel-manager', () => ({ getChannelManager: () => ({ getAdapter: vi.fn(), emitResponseSent: vi.fn() }) }));
 vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => ({ get: () => undefined, getAll: () => ({}) }) }));

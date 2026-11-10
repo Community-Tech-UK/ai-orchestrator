@@ -150,6 +150,10 @@ export class InstancePersistenceManager {
       initialOutputBuffer: forkedMessages,
       initialRetainedPrompts: inheritedPrompts,
       initialPrompt: config.initialPrompt,
+      // An edit keeps the typed mark only when the message being edited was typed
+      // by a person: resending a Harness or agent prompt does not make it James's words.
+      initialPromptOrigin: sourceMessage?.type === 'user' && sourceMessage.metadata?.inputOrigin?.kind === 'person'
+        ? config.initialPromptOrigin : undefined,
       initialContextBlock,
       attachments: config.attachments ?? sourceMessage?.attachments,
     };

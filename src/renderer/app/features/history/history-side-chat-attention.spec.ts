@@ -174,13 +174,20 @@ describe.each(['project rail', 'History sidebar'] as const)('%s sidechat attenti
     if (presentation === 'History sidebar') expect(closed).toHaveBeenCalledOnce();
   });
 
-  it('provides the accessible state as a real hover tooltip', async () => {
-    badge().dispatchEvent(new MouseEvent('mouseenter'));
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    fixture.detectChanges();
-    expect(document.querySelector('[role="tooltip"]')?.textContent?.trim())
-      .toBe(badge().getAttribute('aria-label'));
-    expect(badge().hasAttribute('title')).toBe(false);
+  it('provides the accessible state as a real hover tooltip', () => {
+    // Only the timer clock is faked: the tooltip's open delay is a setTimeout,
+    // and its skip window still reads the real Date.now().
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      badge().dispatchEvent(new MouseEvent('mouseenter'));
+      vi.advanceTimersByTime(600);
+      fixture.detectChanges();
+      expect(document.querySelector('[role="tooltip"]')?.textContent?.trim())
+        .toBe(badge().getAttribute('aria-label'));
+      expect(badge().hasAttribute('title')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('opens the parent selector immediately for quiet sidechats without fetching or restoring the parent', async () => {

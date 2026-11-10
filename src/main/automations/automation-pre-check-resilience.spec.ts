@@ -8,7 +8,6 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { AutomationRun, ClaimedAutomationRun } from '../../shared/types/automation.types';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { AutomationCheckStore } from './automation-check-store';
@@ -30,6 +29,7 @@ vi.mock('../notifications/notification-service', () => ({
 
 import { normalizeCheckOutput, runAutomationPreCheck } from './automation-pre-check';
 import { runAutomationPreCheckGate } from './automation-pre-check-gate';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 /** The pre-repair implementation, kept verbatim as the equivalence oracle. */
 function legacyNormalize(output: string): string {
@@ -98,6 +98,12 @@ describe('normalizeCheckOutput (8b, linear)', () => {
 });
 
 describe('a state folder that cannot be created (8b)', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    db.pragma('foreign_keys = ON');
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   let db: SqliteDriver;
   let workDir: string;
   let marker: string;
@@ -118,11 +124,8 @@ describe('a state folder that cannot be created (8b)', () => {
     tempRoots.push(workDir);
     marker = path.join(workDir, 'command-ran');
 
-    db = defaultDriverFactory(':memory:');
+    db = rlmTemplate.open();
     db.pragma('foreign_keys = ON');
-    createTables(db);
-    createMigrationsTable(db);
-    runMigrations(db);
     db.prepare(`
       INSERT INTO automations
         (id, name, enabled, active, workspace_id, schedule_type, schedule_json, trigger_json,

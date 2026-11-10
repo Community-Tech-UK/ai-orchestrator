@@ -58,20 +58,24 @@ export function openCodeAccountLoginCommand(
     "const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),cp=require('node:child_process');",
     `const choices=${JSON.stringify(selected ? [selected.command] : ['opencode2', 'opencode'])}.flatMap(command=>{const target=targetFor(command,process.platform);const result=cp.spawnSync(target.command,['--version'],{encoding:'utf8',shell:target.shell,windowsHide:true,timeout:5000,maxBuffer:65536});const major=(${supportedOpenCodeMajor.toString()})(result.status===0?String(result.stdout):'');return major?[{command,major}]:[];});`,
     selected ? `const chosen=choices.find(row=>row.major===${selected.major});` : "const chosen=choices.find(row=>row.major===2)||choices.find(row=>row.major===1);",
-    "if(!chosen)throw Error('No supported OpenCode command found. Install OpenCode 2.0.30 or newer.');",
+    // A refusal prints one plain line. An uncaught throw would dump this whole one-line script and a stack
+    // trace into the user's terminal, and could not be told from a crash.
+    "if(!chosen){console.error('No supported OpenCode command found. Install OpenCode 2.0.30 or newer.');process.exitCode=1;}else{",
   ].join('');
+  /** Every route runs inside the refusal's `else`, so a refused command starts nothing. */
+  const encode = (route: string) => encodeScript(`${prelude}${route}}`);
   const login = (args: string) => `const target=targetFor(chosen.command,process.platform);const child=cp.spawn(target.command,${args},{stdio:'inherit',shell:target.shell});child.on('error',()=>process.exitCode=1);child.on('close',code=>process.exitCode=code??1);`;
-  if (profile.isLegacy && !profile.region) return encodeScript(prelude + login("chosen.major===2?['auth','login','--standalone']:['auth','login']"));
+  if (profile.isLegacy && !profile.region) return encode(login("chosen.major===2?['auth','login','--standalone']:['auth','login']"));
   const providerName = opencodeAccountProviderName(profile);
   // A pinned 2.x selection has already been rechecked above. Omitting the
   // unreachable 1.x catalog keeps long Windows paths inside cmd.exe's limit.
-  if (selected?.major === 2) return encodeScript(prelude + v2LoginScript(providerName, 'opencode', 'chosen.command'));
+  if (selected?.major === 2) return encode(v2LoginScript(providerName, 'opencode', 'chosen.command'));
   const v2 = `if(chosen.major===2){${v2LoginScript(providerName, 'opencode', 'chosen.command')}}else{`;
-  if (profile.isLegacy) return encodeScript(prelude + v2 + login(JSON.stringify(['auth', 'login', '-p', providerName])) + '}');
+  if (profile.isLegacy) return encode(v2 + login(JSON.stringify(['auth', 'login', '-p', providerName])) + '}');
   // No provider model metadata is fabricated: auth accepts an empty catalog
   // model map. Runtime model definitions are still generated at session spawn.
   const script = [
-    prelude, v2,
+    v2,
     `const provider=${JSON.stringify(providerName)},catalog={[provider]:{id:provider,name:provider,env:[],npm:'@ai-sdk/openai-compatible',models:{}}};`,
     "const dir=fs.mkdtempSync(path.join(os.tmpdir(),'aio-mimo-login-'));",
     "const cleanup=()=>{process.stdin.unpipe();process.stdin.pause();fs.rmSync(dir,{recursive:true,force:true});};",
@@ -90,5 +94,5 @@ export function openCodeAccountLoginCommand(
   ].join('');
   // Base64 carries only this audited ASCII script. It prevents JSON/path
   // quoting from changing meaning across POSIX, cmd.exe and AppleScript.
-  return encodeScript(script);
+  return encode(script);
 }

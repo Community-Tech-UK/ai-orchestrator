@@ -16,6 +16,7 @@ import type { PlanQueueInstanceRecord } from './plan-queue-host';
 import { newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueStore } from './plan-queue-store';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
 // These repositories exercise Git and session ownership. Command execution is
 // controlled here; the gate runner has its own execution and receipt coverage.
@@ -57,13 +58,19 @@ const git = (args: string[], cwd = repo) => execFileSync('git', args, { cwd, enc
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 const waitBudget = { timeout: 10_000 };
 
-beforeEach(() => {
-  PlanQueueCoordinator._resetForTesting(); GitWriteQueue._resetForTesting();
-  repo = mkdtempSync(join(tmpdir(), 'queue-pause-control-'));
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate((dir) => {
+  repo = dir;
   git(['init', '-q', '-b', 'main']); git(['config', 'user.name', 'Queue Test']); git(['config', 'user.email', 'queue@example.invalid']);
   git(['config', 'commit.gpgsign', 'false']);
   writeFileSync(join(repo, '.gitignore'), '.worktrees/\n');
   writeFileSync(join(repo, 'feature.txt'), 'base\n'); git(['add', '.']); git(['commit', '-qm', 'base']);
+});
+
+beforeEach(() => {
+  PlanQueueCoordinator._resetForTesting(); GitWriteQueue._resetForTesting();
+  repo = mkdtempSync(join(tmpdir(), 'queue-pause-control-'));
+  baseRepository.copyTo(repo);
   const worktreePath = join(repo, '.worktrees', 'queue', 'example');
   mkdirSync(join(repo, '.worktrees', 'queue'), { recursive: true });
   git(['worktree', 'add', '-qb', 'queue/example', worktreePath]);

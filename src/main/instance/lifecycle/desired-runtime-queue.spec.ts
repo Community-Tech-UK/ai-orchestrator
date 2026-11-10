@@ -1245,3 +1245,105 @@ describe('DesiredRuntimeQueue — confirmed account completion', () => {
   });
 
 });
+
+describe('DesiredRuntimeQueue — input waits for an in-flight change', () => {
+  function held() {
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => { release = resolve; });
+    return { promise, release };
+  }
+
+  it('has nothing to wait for when no change is scheduled or running', async () => {
+    const h = makeHarness(makeInstance('busy'));
+    expect(h.queue.whenSettled('inst-1')).toBeUndefined();
+    await h.queue.requestChange('inst-1', { provider: 'codex', model: 'gpt-5.5' });
+    // Parked while busy is not in flight: a send then queues behind the busy turn as usual.
+    expect(h.queue.whenSettled('inst-1')).toBeUndefined();
+  });
+
+  it('holds input from the moment a settle schedules the apply until the new adapter is in place', async () => {
+    const gate = held();
+    const instance = makeInstance('hibernated');
+    const h = makeHarness(instance, async (_id, desired) => {
+      await gate.promise;
+      instance.provider = desired.provider;
+      return instance;
+    });
+    await h.queue.requestChange('inst-1', { provider: 'codex', model: 'gpt-5.5' });
+
+    // The wake settles the instance; the apply is only scheduled, not yet started.
+    instance.status = 'idle';
+    h.queue.onSettled(instance);
+    let settled = false;
+    const wait = h.queue.whenSettled('inst-1');
+    expect(wait).toBeDefined();
+    void wait!.then(() => { settled = true; });
+
+    await flushMacrotasks();
+    expect(h.applyChange).toHaveBeenCalledTimes(1);
+    expect(settled).toBe(false);
+
+    gate.release();
+    await wait;
+    expect(instance.provider).toBe('codex');
+    expect(h.queue.whenSettled('inst-1')).toBeUndefined();
+  });
+
+  it('also waits for a follow-up change scheduled while the first one ran', async () => {
+    const gates = [held(), held()];
+    const instance = makeInstance('busy');
+    const h = makeHarness(instance, async (_id, desired) => {
+      await gates[h.applyChange.mock.calls.length - 1]!.promise;
+      instance.provider = desired.provider;
+      if (desired.model !== undefined) instance.currentModel = desired.model;
+      return instance;
+    });
+    await h.queue.requestChange('inst-1', { provider: 'codex', model: 'gpt-5.5' });
+    instance.status = 'idle';
+    h.queue.onSettled(instance);
+    let settled = false;
+    const wait = h.queue.whenSettled('inst-1')!;
+    void wait.then(() => { settled = true; });
+    await flushMacrotasks();
+
+    // A newer request lands mid-apply; it parks behind the running one and is scheduled when it exits.
+    void h.queue.requestChange('inst-1', { provider: 'codex', model: 'gpt-5.6' });
+    gates[0]!.release();
+    await flushMacrotasks();
+    await flushMacrotasks();
+    expect(h.applyChange).toHaveBeenCalledTimes(2);
+    expect(settled).toBe(false);
+
+    gates[1]!.release();
+    await wait;
+    expect(instance.currentModel).toBe('gpt-5.6');
+  });
+
+  it('holds input while an immediate change from a settled session runs', async () => {
+    const gate = held();
+    const instance = makeInstance('idle');
+    const h = makeHarness(instance, async (_id, desired) => {
+      await gate.promise;
+      instance.provider = desired.provider;
+      return instance;
+    });
+    const request = h.queue.requestChange('inst-1', { provider: 'codex', model: 'gpt-5.5' });
+    const wait = h.queue.whenSettled('inst-1');
+    expect(wait).toBeDefined();
+    gate.release();
+    await request;
+    await wait;
+    expect(h.queue.whenSettled('inst-1')).toBeUndefined();
+  });
+
+  it('settles (never rejects) when the apply fails', async () => {
+    const instance = makeInstance('busy');
+    const h = makeHarness(instance, async () => { throw new Error('Example CLI missing'); });
+    await h.queue.requestChange('inst-1', { provider: 'codex', model: 'gpt-5.5' });
+    instance.status = 'idle';
+    h.queue.onSettled(instance);
+    const wait = h.queue.whenSettled('inst-1')!;
+    await expect(wait).resolves.toBeUndefined();
+    expect(h.queue.whenSettled('inst-1')).toBeUndefined();
+  });
+});

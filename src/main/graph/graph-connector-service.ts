@@ -14,7 +14,7 @@ import { GraphTokenStore, type GraphAccount } from './graph-token-store';
 
 const MUTATION_TOOLS = new Set([
   'graph_calendar_create_event', 'graph_calendar_update_event', 'graph_calendar_delete_event',
-  'graph_mail_create_draft', 'graph_mail_send',
+  'graph_mail_create_draft', 'graph_mail_send', 'graph_mail_delete_draft',
 ]);
 
 /** Account email (lower case) to the change tools James chose "Always allow" for. */

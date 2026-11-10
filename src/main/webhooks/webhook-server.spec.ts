@@ -1,7 +1,6 @@
 import * as crypto from 'crypto';
 import * as http from 'http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import {
   createMigrationsTable,
@@ -11,6 +10,7 @@ import {
 import { WebhookServer } from './webhook-server';
 import { WebhookStore } from './webhook-store';
 import type { Automation } from '../../shared/types/automation.types';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const mocks = vi.hoisted(() => ({
   fire: vi.fn(),
@@ -35,12 +35,16 @@ vi.mock('../logging/logger', () => ({
   }),
 }));
 
-function createDb(): SqliteDriver {
-  const db = defaultDriverFactory(':memory:');
+const rlmTemplate = useSqliteTemplate((db) => {
   db.pragma('foreign_keys = ON');
   createTables(db);
   createMigrationsTable(db);
   runMigrations(db);
+});
+
+function createDb(): SqliteDriver {
+  const db = rlmTemplate.open();
+  db.pragma('foreign_keys = ON');
   return db;
 }
 

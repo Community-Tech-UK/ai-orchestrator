@@ -382,4 +382,6 @@ export interface CreateInstanceWithMessageOptions {
    * instance instead of spawning a duplicate session.
    */
   idempotencyKey?: string;
+  /** Only for words James typed himself in the new-session composer (see PersonInputOrigin). */
+  typedByPerson?: boolean;
 }

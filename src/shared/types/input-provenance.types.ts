@@ -44,8 +44,10 @@ export interface InternalInputMetadata {
  * agent's words (a review or diff packet, a question-card answer) never carries
  * it, even when the person clicks to send it, and neither does steering a
  * running turn. A stored message without it, including every older one, counts
- * as not typed by a person. Used to decide whether a session may land Plan
- * Queue work without a passing check (docs/plans/2026-11-04-pq-b1-land-anyway_plan.md).
+ * as not typed by a person. It is the only thing that lets an `@session` chip
+ * in a message grant read access to that session, and it is used to decide
+ * whether a session may land Plan Queue work without a passing check
+ * (docs/plans/2026-11-04-pq-b1-land-anyway_plan.md).
  */
 export interface PersonInputOrigin {
   kind: 'person';

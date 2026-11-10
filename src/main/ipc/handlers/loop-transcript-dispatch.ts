@@ -10,6 +10,8 @@ import {
   buildLoopTerminalChatSummary,
 } from '../../orchestration/loop-chat-summary';
 import { getLogger } from '../../logging/logger';
+import type { PersonInputOrigin } from '../../../shared/types/input-provenance.types';
+import { personInputOrigin } from '../../instance/person-input-origin';
 
 const logger = getLogger('LoopTranscriptDispatch');
 
@@ -23,11 +25,15 @@ type ChatService = ReturnType<typeof getChatService>;
  * but write to different stores. We dispatch here so the kickoff prompt lands
  * in the correct transcript and triggers the right auto-rename hook for the
  * surface the user is actually looking at.
+ *
+ * `origin` is set only when a person typed the goal in Harness; /goal,
+ * automations and Harness hints leave it out.
  */
 export function appendLoopStartPrompt(
   state: LoopState,
   chatService: ChatService,
   instanceManager: InstanceManager,
+  origin?: PersonInputOrigin,
 ): void {
   const chat = chatService.tryGetChat(state.chatId);
   if (chat) {
@@ -51,6 +57,7 @@ export function appendLoopStartPrompt(
         kind: 'loop-start',
         loopRunId: state.id,
         workspaceCwd: state.config.workspaceCwd,
+        ...(origin ? { inputOrigin: personInputOrigin(origin) } : {}),
       },
     });
     return;
@@ -61,11 +68,13 @@ export function appendLoopStartPrompt(
   });
 }
 
+/** `origin` is set only when a person typed the hint or follow-up. */
 export function appendLoopInterveneMessage(
   state: LoopState,
   message: string,
   chatService: ChatService,
   instanceManager: InstanceManager,
+  origin?: PersonInputOrigin,
 ): void {
   const interventionId = randomUUID();
   const chat = chatService.tryGetChat(state.chatId);
@@ -90,6 +99,7 @@ export function appendLoopInterveneMessage(
         kind: 'loop-intervene',
         loopRunId: state.id,
         interventionId,
+        ...(origin ? { inputOrigin: personInputOrigin(origin) } : {}),
       },
     });
     return;

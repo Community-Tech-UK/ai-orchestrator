@@ -7,6 +7,9 @@ import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 import { LoopStateSchema } from '@contracts/schemas/loop';
 import { cleanupLoopCoordinatorSpec } from './loop-coordinator-test-cleanup';
 
+vi.mock('./loop-coordinator-utils', async (importOriginal) =>
+  (await import('./loop-coordinator-test-pause')).withShortIterationPause(await importOriginal()));
+
 vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => ({ getAll: () => ({ defaultCli: 'claude', loopModelByProvider: {}, auxiliaryLlmRoutingClassificationEnabled: false }), get: () => undefined }) }));
 vi.mock('../cli/adapters/adapter-factory', () => ({ resolveCliType: async () => 'claude' }));
 vi.mock('./invocation-model-resolver', () => ({ resolveLoopChildModel: async () => 'test-model' }));

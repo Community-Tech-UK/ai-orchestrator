@@ -3,7 +3,7 @@ import type { ExecutionLocation, NodePlacementPrefs } from '../../shared/types/w
 import type { AccountInvocationOrigin, AccountRouteSource } from '../../shared/types/provider-account.types';
 import type { AccountPreferences, CrossSessionMessageMetadata, InstanceProvider, ThinkingContent } from '../../shared/types/instance.types';
 import type { CopilotRouteSource } from '../../shared/types/copilot-account.types';
-import type { InternalInputMetadata } from '../../shared/types/input-provenance.types';
+import type { InternalInputMetadata, PersonInputOrigin } from '../../shared/types/input-provenance.types';
 import type { RequestReceiptMetadata } from '../../shared/utils/request-receipt-message';
 import type { PresentedError } from '../../shared/present-error';
 import type {
@@ -237,8 +237,12 @@ export interface ConversationEntry {
    * retention as a user prompt.
    */
   crossSessionMessage?: CrossSessionMessageMetadata;
-  /** An agent wrote this user-looking entry, or it came from a parent; it must not grant `@session` read scope. */
-  agentAuthored?: boolean;
+  /**
+   * A person typed this entry in this session. Only such entries grant
+   * `@session` read scope, so it must survive hibernate, wake and crash
+   * revival. Absent on records written before this field existed.
+   */
+  inputOrigin?: PersonInputOrigin;
   /** How a system notice is shown. A closed set; see `continuity-notice-metadata.ts`. */
   notice?: ContinuityNoticeMetadata;
 }

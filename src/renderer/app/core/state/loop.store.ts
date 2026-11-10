@@ -25,6 +25,7 @@ import {
   isTerminalLoopStatePayload,
 } from './loop-state-status';
 import { snapshotFinalSummaryContext, snapshotFinalSpend } from './loop-store-summary';
+import { typedOrigin } from './instance/instance-messaging-queue-utils';
 import { loopStateToRunSummary, upsertRecentRun } from './loop-store-recent-runs';
 import { coverageSuffix, followUpDrainedActivity, steeringDowngradedActivity } from './loop-store-task18-activity';
 import { createBranchEpisodeStore } from './loop-store-branch-episodes';
@@ -455,7 +456,7 @@ export class LoopStore {
   async start(
     chatId: string,
     config: LoopStartConfigInput,
-    attachments?: { name: string; data: Uint8Array }[],
+    attachments?: { name: string; data: Uint8Array }[], options: { typedByPerson?: boolean } = {},
   ): Promise<{ ok: boolean; error?: string; errorCode?: string }> {
     if (this.startingByChat.has(chatId)) {
       return { ok: false, error: 'A loop is already starting for this chat — please wait.' };
@@ -465,7 +466,7 @@ export class LoopStore {
     }
     this.startingByChat.add(chatId);
     try {
-      const r = await this.ipc.start(chatId, config, attachments);
+      const r = await this.ipc.start(chatId, config, attachments, typedOrigin(options.typedByPerson));
       if (!r.success) {
         return {
           ok: false,
@@ -502,11 +503,11 @@ export class LoopStore {
     loopRunId: string,
     message: string,
     kind?: LoopPendingInputKind,
-    drainMode?: LoopQueueDrainMode,
+    drainMode?: LoopQueueDrainMode, options: { typedByPerson?: boolean } = {}, // typedByPerson: James's own words only
   ): Promise<void> {
     // Task 18: thread kind + drainMode end-to-end (renderer → ipc → main), so a
     // `follow-up` (optionally `one-at-a-time`) can be enqueued from the renderer.
-    const response = await this.ipc.intervene(loopRunId, message, kind, drainMode);
+    const response = await this.ipc.intervene(loopRunId, message, kind, drainMode, typedOrigin(options.typedByPerson));
     const ok = this.applyControlResponse(loopRunId, response, 'hint');
     if (ok) {
       const label = kind === 'follow-up'

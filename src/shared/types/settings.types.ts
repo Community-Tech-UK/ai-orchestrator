@@ -622,7 +622,7 @@ export interface AppSettings
   graphAgentWritableAccountsJson: string;
   /**
    * Microsoft 365 changes James chose "Always allow" for: account email (lower case) to the
-   * operations that no longer ask, such as `graph_mail_send`. Written by the approval card and
+   * operations that no longer ask, such as `graph_mail_send` or `graph_mail_delete_draft`. Written by the approval card and
    * cleared from the connector's row in Settings; anything malformed means "ask every time".
    */
   graphAlwaysAllowedChanges: Record<string, string[]>;
@@ -698,13 +698,15 @@ export interface AppSettings
    * ping-pong, or runaway tool-call pattern). AIO only observes provider CLI
    * tool events — it cannot veto a tool call inside the CLI process — so this
    * is the one point where the orchestrator can actually intervene: sending
-   * the existing interrupt to the stuck turn. Warning events (renderer notice)
-   * are always emitted regardless of this setting; only the auto-interrupt
-   * action is gated.
+   * the existing interrupt to the stuck turn. Every detection is logged
+   * regardless of this setting; which ones reach the user is decided by
+   * `shouldTellUserAboutToolLoop` (`tool-loop-notice.ts`), and a critical
+   * `runaway` is shown only when Harness is stopping (or failed to stop) that
+   * turn, which depends on this setting.
    *
    * DEFAULT: false — ships dormant until validated against real stuck-loop
-   * transcripts. When false, behavior is unchanged: detections are still
-   * logged/forwarded, but no turn is ever interrupted automatically.
+   * transcripts. When false, no turn is ever interrupted automatically
+   * (except the Claude/OpenCode native backstop in `willAutoInterruptToolLoop`).
    */
   toolLoopAutoInterrupt: boolean;
 

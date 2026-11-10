@@ -229,34 +229,44 @@ describe('browser.reload and effect verification', () => {
   });
 
   it('fails a no-effect click with before/after URL, title and text evidence after one dispatch', async () => {
-    const snapshot = {
-      tabId: 42, windowId: 7, url: existingTab.url, title: 'Before', text: 'Before text',
-      inspectionState: 'readable',
-    };
-    const sendCommand = vi.fn(async (request: { command: string }) => (
-      request.command === 'click' ? { clicked: true } : snapshot
-    ));
-    const { service } = makeService({
-      existingTab,
-      grants: [inputGrant()],
-      extensionCommandStore: { sendCommand },
-    });
+    vi.useFakeTimers();
+    vi.setSystemTime(800_000);
+    try {
+      const snapshot = {
+        tabId: 42, windowId: 7, url: existingTab.url, title: 'Before', text: 'Before text',
+        inspectionState: 'readable',
+      };
+      // Each snapshot takes 700 ms, so one starts inside the 2 s effect window and finishes past it.
+      const sendCommand = vi.fn(async (request: { command: string }) => {
+        if (request.command === 'click') return { clicked: true };
+        vi.setSystemTime(Date.now() + 700);
+        return snapshot;
+      });
+      const { service } = makeService({
+        existingTab,
+        grants: [inputGrant()],
+        extensionCommandStore: { sendCommand },
+        mutationEffectDelay: async (ms) => { vi.setSystemTime(Date.now() + ms); },
+      });
 
-    const result = await service.click({
-      ...context,
-      selector: '#save',
-      expectUrlChange: true,
-    });
+      const result = await service.click({
+        ...context,
+        selector: '#save',
+        expectUrlChange: true,
+      });
 
-    expect(result).toMatchObject({
-      decision: 'allowed', outcome: 'failed', reason: 'browser_click_no_effect',
-      data: {
-        before: { url: existingTab.url, title: 'Before', text: 'Before text' },
-        after: { url: existingTab.url, title: 'Before', text: 'Before text' },
-        suggestedAction: 'browser.reload',
-      },
-    });
-    expect(sendCommand.mock.calls.filter(([request]) => request.command === 'click')).toHaveLength(1);
+      expect(result).toMatchObject({
+        decision: 'allowed', outcome: 'failed', reason: 'browser_click_no_effect',
+        data: {
+          before: { url: existingTab.url, title: 'Before', text: 'Before text' },
+          after: { url: existingTab.url, title: 'Before', text: 'Before text' },
+          suggestedAction: 'browser.reload',
+        },
+      });
+      expect(sendCommand.mock.calls.filter(([request]) => request.command === 'click')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('never uses or exposes a post-dispatch shared-tab observation outside allowed origins', async () => {
@@ -717,42 +727,49 @@ describe('browser.reload and effect verification', () => {
   });
 
   it('revises the same durable journal entry when effect verification fails', async () => {
-    const snapshot = {
-      tabId: 42, windowId: 7, url: existingTab.url, title: 'Before', text: 'Before text',
-      inspectionState: 'readable',
-    };
-    const sendCommand = vi.fn(async (request: { command: string }) => (
-      request.command === 'click' ? { clicked: true } : snapshot
-    ));
-    const writeJournal = {
-      recordIntent: vi.fn().mockResolvedValue(7),
-      recordOutcome: vi.fn().mockResolvedValue(undefined),
-      list: vi.fn().mockResolvedValue([]),
-    };
-    const persistenceSentinel = {
-      needsPreWriteCheck: vi.fn(() => false),
-      scan: vi.fn().mockResolvedValue({ state: 'ok', checkedAt: 1 }),
-      forgetTarget: vi.fn(),
-    };
-    const { service } = makeService({
-      existingTab,
-      grants: [inputGrant()],
-      extensionCommandStore: { sendCommand },
-      writeJournal,
-      persistenceSentinel,
-    });
+    vi.useFakeTimers();
+    vi.setSystemTime(900_000);
+    try {
+      const snapshot = {
+        tabId: 42, windowId: 7, url: existingTab.url, title: 'Before', text: 'Before text',
+        inspectionState: 'readable',
+      };
+      const sendCommand = vi.fn(async (request: { command: string }) => (
+        request.command === 'click' ? { clicked: true } : snapshot
+      ));
+      const writeJournal = {
+        recordIntent: vi.fn().mockResolvedValue(7),
+        recordOutcome: vi.fn().mockResolvedValue(undefined),
+        list: vi.fn().mockResolvedValue([]),
+      };
+      const persistenceSentinel = {
+        needsPreWriteCheck: vi.fn(() => false),
+        scan: vi.fn().mockResolvedValue({ state: 'ok', checkedAt: 1 }),
+        forgetTarget: vi.fn(),
+      };
+      const { service } = makeService({
+        existingTab,
+        grants: [inputGrant()],
+        extensionCommandStore: { sendCommand },
+        writeJournal,
+        persistenceSentinel,
+        mutationEffectDelay: async (ms) => { vi.setSystemTime(Date.now() + ms); },
+      });
 
-    const result = await service.click({
-      ...context, selector: '#save', expectUrlChange: true,
-    });
-    await Promise.resolve();
+      const result = await service.click({
+        ...context, selector: '#save', expectUrlChange: true,
+      });
+      await Promise.resolve();
 
-    expect(result).toMatchObject({ reason: 'browser_click_no_effect' });
-    expect(writeJournal.recordOutcome).toHaveBeenLastCalledWith(expect.objectContaining({
-      seq: 7,
-      outcome: 'failed',
-      reason: 'browser_click_no_effect',
-    }));
+      expect(result).toMatchObject({ reason: 'browser_click_no_effect' });
+      expect(writeJournal.recordOutcome).toHaveBeenLastCalledWith(expect.objectContaining({
+        seq: 7,
+        outcome: 'failed',
+        reason: 'browser_click_no_effect',
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('waits for a delayed selector-text effect without redispatching the click', async () => {
@@ -782,30 +799,37 @@ describe('browser.reload and effect verification', () => {
   });
 
   it('applies the same no-effect reason to evaluate and dispatches the expression once', async () => {
-    const snapshot = {
-      tabId: 42, windowId: 7, url: existingTab.url, title: 'Before', text: 'Before text',
-      inspectionState: 'readable',
-    };
-    const sendCommand = vi.fn(async (request: { command: string }) => (
-      request.command === 'evaluate' ? { type: 'undefined' } : snapshot
-    ));
-    const { service } = makeService({
-      existingTab,
-      extensionCommandStore: { sendCommand },
-      autoApproveRequests: () => true,
-    });
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    try {
+      const snapshot = {
+        tabId: 42, windowId: 7, url: existingTab.url, title: 'Before', text: 'Before text',
+        inspectionState: 'readable',
+      };
+      const sendCommand = vi.fn(async (request: { command: string }) => (
+        request.command === 'evaluate' ? { type: 'undefined' } : snapshot
+      ));
+      const { service } = makeService({
+        existingTab,
+        extensionCommandStore: { sendCommand },
+        autoApproveRequests: () => true,
+        mutationEffectDelay: async (ms) => { vi.setSystemTime(Date.now() + ms); },
+      });
 
-    const result = await service.evaluate({
-      ...context,
-      expression: 'window.save()',
-      expectChange: { urlContains: '/done' },
-    });
+      const result = await service.evaluate({
+        ...context,
+        expression: 'window.save()',
+        expectChange: { urlContains: '/done' },
+      });
 
-    expect(result).toMatchObject({
-      decision: 'allowed', outcome: 'failed', reason: 'browser_click_no_effect',
-      data: { suggestedAction: 'browser.reload' },
-    });
-    expect(sendCommand.mock.calls.filter(([request]) => request.command === 'evaluate')).toHaveLength(1);
+      expect(result).toMatchObject({
+        decision: 'allowed', outcome: 'failed', reason: 'browser_click_no_effect',
+        data: { suggestedAction: 'browser.reload' },
+      });
+      expect(sendCommand.mock.calls.filter(([request]) => request.command === 'evaluate')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('flags a managed snapshot when the renderer heartbeat has wedged', async () => {

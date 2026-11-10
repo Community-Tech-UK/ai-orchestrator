@@ -777,9 +777,33 @@ describe('instance-lifecycle system-prompt composition (WS-B4 regression)', () =
     }
   });
 
-  it.each((['ollama', 'openai-compatible', 'antigravity', 'opencode', 'grok', 'claude', 'gemini'] as const).flatMap(profile =>
-    (['auto', 'default', 'explicit'] as const).filter(selection => selection !== 'explicit' || (profile !== 'ollama' && profile !== 'openai-compatible'))
-      .flatMap(selection => (['concise', 'user-append', 'user-replace'] as const).map(style => ({ profile, selection, style })))))(
+  // Style handling reads only the requested provider; the resolved profile changes only
+  // the prompt pair (gemini, antigravity) and the local-model route. So: every profile on
+  // `auto` and every CLI profile on `explicit` with the strongest style (user-replace),
+  // one `default` row, and the other two style branches (built-in, user append), one of
+  // them on a two-prompt profile.
+  it.each<{
+    profile: 'ollama' | 'openai-compatible' | 'antigravity' | 'opencode' | 'grok' | 'claude' | 'gemini';
+    selection: 'auto' | 'default' | 'explicit';
+    style: 'concise' | 'user-append' | 'user-replace';
+  }>([
+    { profile: 'ollama', selection: 'auto', style: 'user-replace' },
+    { profile: 'openai-compatible', selection: 'auto', style: 'user-replace' },
+    { profile: 'antigravity', selection: 'auto', style: 'user-replace' },
+    { profile: 'opencode', selection: 'auto', style: 'user-replace' },
+    { profile: 'grok', selection: 'auto', style: 'user-replace' },
+    { profile: 'claude', selection: 'auto', style: 'user-replace' },
+    { profile: 'gemini', selection: 'auto', style: 'user-replace' },
+    { profile: 'antigravity', selection: 'explicit', style: 'user-replace' },
+    { profile: 'opencode', selection: 'explicit', style: 'user-replace' },
+    { profile: 'grok', selection: 'explicit', style: 'user-replace' },
+    { profile: 'claude', selection: 'explicit', style: 'user-replace' },
+    { profile: 'gemini', selection: 'explicit', style: 'user-replace' },
+    { profile: 'claude', selection: 'default', style: 'user-replace' },
+    { profile: 'claude', selection: 'auto', style: 'concise' },
+    { profile: 'claude', selection: 'auto', style: 'user-append' },
+    { profile: 'gemini', selection: 'auto', style: 'user-append' },
+  ])(
     'preserves requested $selection style policy ($style) and brief metadata on resolved $profile', async ({ profile, selection, style }) => {
       const refuseNetwork = (): never => { throw new Error('HTTP execution forbidden in output-style fixture'); };
       const networkGuards = [vi.spyOn(http, 'get').mockImplementation(refuseNetwork), vi.spyOn(http, 'request').mockImplementation(refuseNetwork),

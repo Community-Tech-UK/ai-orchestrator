@@ -165,6 +165,53 @@ export function getDirectorySize(dirPath: string): number {
   return size;
 }
 
+const DIRECTORY_SIZE_STAT_BATCH = 64;
+
+/**
+ * Get the total size of a directory without blocking the event loop.
+ *
+ * The RLM content folder can hold hundreds of thousands of files; walking it
+ * with the sync version on the Electron main thread froze the app for seconds.
+ * Unlike the sync walk, other main-process work runs between steps and can
+ * delete content while the walk is under way, so a file or folder that
+ * disappears mid-walk counts as 0. A missing root still rejects.
+ */
+export async function getDirectorySizeAsync(dirPath: string): Promise<number> {
+  return directorySizeAsync(dirPath, true);
+}
+
+async function directorySizeAsync(dirPath: string, isRoot: boolean): Promise<number> {
+  const entries = isRoot
+    ? await fs.promises.readdir(dirPath, { withFileTypes: true })
+    : await zeroIfRemoved(fs.promises.readdir(dirPath, { withFileTypes: true }), []);
+  let size = 0;
+  const files: string[] = [];
+  for (const entry of entries) {
+    const entryPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      size += await directorySizeAsync(entryPath, false);
+    } else {
+      files.push(entryPath);
+    }
+  }
+  for (let index = 0; index < files.length; index += DIRECTORY_SIZE_STAT_BATCH) {
+    const batch = files.slice(index, index + DIRECTORY_SIZE_STAT_BATCH);
+    const sizes = await Promise.all(batch.map((file) =>
+      zeroIfRemoved(fs.promises.stat(file).then((stat) => stat.size), 0)));
+    for (const fileSize of sizes) size += fileSize;
+  }
+  return size;
+}
+
+async function zeroIfRemoved<T>(operation: Promise<T>, removed: T): Promise<T> {
+  try {
+    return await operation;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return removed;
+    throw error;
+  }
+}
+
 /**
  * Ensure directories exist.
  */

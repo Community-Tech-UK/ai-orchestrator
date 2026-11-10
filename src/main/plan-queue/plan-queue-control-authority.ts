@@ -18,12 +18,18 @@
  *
  * Set aside agent: the session James starts from the Set aside tab may discard or
  * restore any job, and retry a merge, resume a job or merge one without checks in
- * its own folder. It may do nothing else, even on a run it would otherwise be able
- * to adopt. It clears empty jobs through plan-queue-set-aside.ts.
+ * its own folder. When James asks, it may also skip a job there that has not
+ * started, such as a fresh attempt that stops an older one from merging: only in
+ * its reply to a message James typed, using the same check of who sent the latest
+ * message as Land anyway (plan-queue-land-anyway-authority.ts). It may do nothing else,
+ * even on a run it would otherwise be able to adopt. It clears empty jobs through
+ * plan-queue-set-aside.ts.
  */
 
 import type { PlanQueueControlPayload } from '@contracts/schemas/plan-queue';
+import type { PersonTurnCheck } from '../instance/input-turn-registry';
 import { getLogger } from '../logging/logger';
+import { clockTime } from './plan-queue-land-anyway-authority';
 import type { PlanQueueRun } from './plan-queue.types';
 
 const logger = getLogger('PlanQueueControlAuthority');
@@ -56,6 +62,8 @@ export interface PlanQueueCallerLookup {
   isQueueInstance(instanceId: string): boolean;
   /** The folder a Set aside agent may sort out; undefined for every other session. */
   setAsideFolder(instanceId: string): string | undefined;
+  /** Whether the caller is answering a message James typed (`InputTurnRegistry`). */
+  checkPersonTurn(instanceId: string): PersonTurnCheck;
 }
 
 /** @param callerInstanceId set for MCP callers, who must be the run's parent session. */
@@ -77,10 +85,15 @@ export function authorizePlanQueueControl(
 ): string {
   const setAsideFolder = callerInstanceId === undefined ? undefined : lookup.setAsideFolder(callerInstanceId);
   if (setAsideFolder !== undefined) {
-    if (!DISCARD_ACTIONS.has(action) && (!SET_ASIDE_AGENT_ACTIONS.has(action) || setAsideFolder !== run.workspaceCwd)) {
-      throw new Error('The Set aside agent may only retry a merge, resume a job or merge one without checks in its own folder, or discard or restore a job. List this for James.');
-    }
-    return `the Set aside agent (session ${callerInstanceId})`;
+    const agent = `the Set aside agent (session ${callerInstanceId})`;
+    const ownFolder = setAsideFolder === run.workspaceCwd;
+    if (DISCARD_ACTIONS.has(action) || (ownFolder && SET_ASIDE_AGENT_ACTIONS.has(action))) return agent;
+    const turn = ownFolder && action === 'skip-item' ? lookup.checkPersonTurn(callerInstanceId!) : null;
+    if (turn?.ok) return `${agent}, after James's message at ${clockTime(turn.typedAt)}`;
+    const providerNote = turn?.reason === 'provider-cannot-report'
+      ? " This session's provider can't report when a turn starts, so Harness can't tell it is answering James; he can skip the job on the Plan Queue page."
+      : '';
+    throw new Error(`The Set aside agent may only retry a merge, resume a job or merge one without checks in its own folder, skip a job there that has not started in its reply to a message James typed, or discard or restore a job. List this for James.${providerNote}`);
   }
   if (action === 'request-handover') {
     if (!callerInstanceId || !lookup.instanceExists(callerInstanceId) || lookup.isQueueInstance(callerInstanceId)) {

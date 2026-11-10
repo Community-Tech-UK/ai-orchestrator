@@ -8,6 +8,7 @@ import {
   DisplayNameSchema,
   FileAttachmentSchema,
   RequiredModelIdSchema,
+  PersonInputOriginSchema,
 } from './common.schemas';
 import { ProviderAccountProfileIdSchema } from './provider-account.schemas';
 export * from './session-admission.schemas';
@@ -330,6 +331,8 @@ export const SessionForkPayloadSchema = z.object({
   forkAfterMessageId: z.string().min(1).max(200).optional(),
   displayName: DisplayNameSchema.optional(),
   initialPrompt: z.string().optional(),
+  /** Set when a person typed `initialPrompt` (edit and resend). */
+  initialPromptOrigin: PersonInputOriginSchema.optional(),
   attachments: z.array(FileAttachmentSchema).max(10).optional(),
   preserveRuntimeSettings: z.boolean().optional(),
   supersedeSource: z.boolean().optional(),

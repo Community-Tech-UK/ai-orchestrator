@@ -102,6 +102,7 @@ export function outputMessageToContinuityEntry(
   const compactionMethod = metadataString(message.metadata, ['method', 'compactionMethod']);
   const internalInput = message.metadata?.internalInput;
   const crossSessionMessage = message.metadata?.crossSessionMessage;
+  const inputOrigin = message.type === 'user' ? message.metadata?.inputOrigin : undefined;
   // The restart divider is a transcript reset (`isTranscriptReset`) and the
   // marker `activeMessagesOf`/`isSessionBoundaryMessage` filter on. Its `kind`
   // must survive continuity: hibernate/wake rebuilds the visible buffer from
@@ -126,7 +127,7 @@ export function outputMessageToContinuityEntry(
     timestamp: message.timestamp,
     ...(internalInput ? { internalInput: { ...internalInput } } : {}),
     ...(crossSessionMessage ? { crossSessionMessage: { ...crossSessionMessage } } : {}),
-    ...(message.metadata?.agentAuthored ? { agentAuthored: true } : {}),
+    ...(inputOrigin ? { inputOrigin: { ...inputOrigin } } : {}),
     ...(sessionBoundary ? { sessionBoundary } : {}),
     ...(notice ? { notice } : {}),
     ...(tokens === undefined ? {} : { tokens }),
@@ -248,7 +249,7 @@ export function continuityEntryToOutputMessage(entry: ConversationEntry): Output
     || entry.sessionBoundary
     || entry.internalInput
     || entry.crossSessionMessage
-    || entry.agentAuthored
+    || entry.inputOrigin
     || entry.notice
     || entry.retrievedContextDeliveries
     || entry.retrievedContextMetadata
@@ -287,7 +288,7 @@ export function continuityEntryToOutputMessage(entry: ConversationEntry): Output
           : {}),
         ...(entry.internalInput ? { internalInput: { ...entry.internalInput } } : {}),
         ...(entry.crossSessionMessage ? { crossSessionMessage: { ...entry.crossSessionMessage } } : {}),
-        ...(entry.agentAuthored ? { agentAuthored: true } : {}),
+        ...(entry.inputOrigin ? { inputOrigin: { ...entry.inputOrigin } } : {}),
       }
     : undefined;
 

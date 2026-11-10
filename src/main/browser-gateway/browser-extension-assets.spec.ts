@@ -5122,9 +5122,12 @@ describe('browser extension assets', () => {
       expect(harness.chrome.windows.update).not.toHaveBeenCalled();
     });
 
-    it.each(['width', 'height'].flatMap((field) => (
-      [undefined, 0, -1, NaN, Infinity].map((value) => ({ field, value }))
-    )))('rejects invalid Chrome window $field $value', async ({ field, value }) => {
+    // readChromeWindowBounds has two checks: every bound finite, and width/height above 0.
+    // Each non-finite kind appears once; the 0 boundary is checked for both fields.
+    it.each([
+      { field: 'width', value: 0 }, { field: 'width', value: NaN }, { field: 'width', value: Infinity },
+      { field: 'height', value: 0 }, { field: 'height', value: undefined },
+    ])('rejects invalid Chrome window $field $value', async ({ field, value }) => {
       const harness = loadBackgroundHarnessForTest();
       await flushPromises();
       harness.chrome.windows.get.mockResolvedValue({ id: 7, state: 'normal', left: 0, top: 0, width: 1280, height: 800, [field]: value });

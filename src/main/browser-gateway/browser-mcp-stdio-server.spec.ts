@@ -49,17 +49,25 @@ describe('fetchPreviouslyRevealedToolNames', () => {
   });
 
   it('reports a hung parent as a FAILED restore, not as "nothing was revealed"', async () => {
-    const client: BrowserGatewayRpcClientLike = {
-      call: vi.fn().mockReturnValue(new Promise(() => undefined)),
-    };
-    // The distinction that matters: conflating these two made a revealed tool
-    // silently vanish from a later execution cell with no diagnostic.
-    await expect(fetchPreviouslyRevealedToolNames(client)).resolves.toEqual({
-      names: [],
-      restored: false,
-      attempts: 3,
-    });
-  }, 20_000);
+    // Fake timers stand in for three 2 s attempts and two 250 ms retry delays.
+    vi.useFakeTimers();
+    try {
+      const client: BrowserGatewayRpcClientLike = {
+        call: vi.fn().mockReturnValue(new Promise(() => undefined)),
+      };
+      const restore = fetchPreviouslyRevealedToolNames(client);
+      await vi.advanceTimersByTimeAsync(3 * 2_000 + 2 * 250);
+      // The distinction that matters: conflating these two made a revealed tool
+      // silently vanish from a later execution cell with no diagnostic.
+      await expect(restore).resolves.toEqual({
+        names: [],
+        restored: false,
+        attempts: 3,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('retries a transiently busy parent instead of dropping the revealed surface', async () => {
     const call = vi.fn()

@@ -23,8 +23,11 @@ case "$cmd" in
     commit="${'$'}{@: -3:1}"
     echo "$cmd" > "$FAKE_DIR/run-args"
     [ -f "remote-checks/runs/$id/related.json" ] && cp "remote-checks/runs/$id/related.json" "$FAKE_DIR/related-list"
-    # A list run that takes a while, so a test can tell whether anything waited for it.
-    [ -f "remote-checks/runs/$id/related.json" ] && [ -f "$FAKE_DIR/slow-related" ] && sleep "$(cat "$FAKE_DIR/slow-related")"
+    # A list run that ends only after this machine has been asked for another run's report, so a test can tell
+    # whether anything waited for it. Gives up after 20 s, when the test has failed anyway.
+    if [ -f "remote-checks/runs/$id/related.json" ] && [ -f "$FAKE_DIR/related-waits-for-fetch" ]; then
+      for _ in $(seq 1 200); do grep -q ' fetch ' "$FAKE_DIR/ssh.log" && break; sleep 0.1; done
+    fi
     [ -f "remote-checks/runs/$id/checks.list" ] && cp "remote-checks/runs/$id/checks.list" "$FAKE_DIR/checks-list"
     repo=remote-checks/repo.git
     node_file=.nvmrc

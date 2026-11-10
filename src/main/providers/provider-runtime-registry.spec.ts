@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { DiagnosisResult, ProbeResult } from './provider-doctor';
-import { ProviderRuntimeRegistry, normalizeDiagnosisProvider } from './provider-runtime-registry';
+import { ProviderRuntimeRegistry, normalizeDiagnosisProvider, parseCliShadowReport } from './provider-runtime-registry';
 import { ProviderRuntimeService } from './provider-runtime-service';
 import type { AdapterRuntimeCapabilities } from '../cli/adapters/base-cli-adapter';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
@@ -225,5 +225,34 @@ describe('ProviderRuntimeService registry integration', () => {
         source: 'adapter-create-failed',
       },
     });
+  });
+});
+
+describe('parseCliShadowReport', () => {
+  it('accepts a well-formed shadow report', () => {
+    expect(parseCliShadowReport({
+      cli: 'claude',
+      installs: [
+        { path: '/usr/bin/claude', installed: true, version: '1.2.3' },
+      ],
+      activePath: '/usr/bin/claude',
+      activeVersion: '1.2.3',
+    })).toEqual({
+      cli: 'claude',
+      installs: [
+        { path: '/usr/bin/claude', installed: true, version: '1.2.3' },
+      ],
+      activePath: '/usr/bin/claude',
+      activeVersion: '1.2.3',
+    });
+  });
+
+  it('rejects malformed metadata instead of casting it', () => {
+    expect(parseCliShadowReport(null)).toBeUndefined();
+    expect(parseCliShadowReport({ cli: 'claude' })).toBeUndefined();
+    expect(parseCliShadowReport({
+      cli: 'claude',
+      installs: [{ path: 12, installed: true }],
+    })).toBeUndefined();
   });
 });

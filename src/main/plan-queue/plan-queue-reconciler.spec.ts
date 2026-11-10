@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as gitIo from '../workspace/git/git-exec';
 import { reconcilePlanQueueWorktrees } from './plan-queue-reconciler';
 import type { PlanQueueItem } from './plan-queue.types';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
 let repo: string;
 
@@ -48,8 +49,9 @@ function makeItem(overrides: Partial<PlanQueueItem>): PlanQueueItem {
   };
 }
 
-beforeEach(() => {
-  repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-rec-')));
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate((dir) => {
+  repo = dir;
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'Plan Queue Test']);
   git(['config', 'user.email', 'plan-queue@example.invalid']);
@@ -57,6 +59,11 @@ beforeEach(() => {
   writeFileSync(join(repo, 'a.txt'), 'base\n');
   git(['add', '-A']);
   git(['commit', '-q', '-m', 'base']);
+});
+
+beforeEach(() => {
+  repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-rec-')));
+  baseRepository.copyTo(repo);
 });
 
 afterEach(() => {

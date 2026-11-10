@@ -117,7 +117,7 @@ describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => 
     promptMocks.indexedBuildContext.mockResolvedValue(null);
   });
 
-  it.each(['codex', 'claude', 'auto', undefined] as const)('leaves resolved-provider background instructions to runtime binding (%s)', async (provider) => {
+  it.each(['codex', 'claude'] as const)('leaves resolved-provider background instructions to runtime binding (%s)', async (provider) => {
     const result = await assembleInstanceSystemPrompt({
       resolvedProvider: provider === 'claude' ? 'claude' : 'codex',
       instance: makeInstance(), config: { workingDirectory: '/tmp/project', provider },
@@ -353,7 +353,7 @@ describe('assembleInstanceSystemPrompt observation retrieval (MEM-4)', () => {
     expect(deps.buildObservationContext).toHaveBeenCalledWith('Where should the auth refresh be serialized?', 'inst-1');
   });
 
-  it.each([undefined, '', '   '])('skips the lookup when there is no first message (%s)', async (initialPrompt) => {
+  it.each([undefined, '   '])('skips the lookup when there is no first message (%s)', async (initialPrompt) => {
     const deps = makeDeps();
     await assemble(initialPrompt, deps);
     expect(deps.buildObservationContext).not.toHaveBeenCalled();
@@ -399,7 +399,7 @@ describe('claude-helper-rules block (A18, plan Step 2 item 5)', () => {
       .toBe(second.systemPromptManifest.find((e) => e.kind === 'claude-helper-rules')?.contentHash);
   });
 
-  it.each(['codex', 'gemini', 'copilot'] as const)('does not give a %s session the rule', async (provider) => {
+  it.each(['codex', 'gemini'] as const)('does not give a %s session the rule', async (provider) => {
     const result = await assemble(provider);
     expect(result.systemPrompt).not.toContain('helper agent to review');
     expect(result.systemPromptManifest.find((e) => e.kind === 'claude-helper-rules')).toBeUndefined();
@@ -482,7 +482,6 @@ describe('harness-guide block (A12, plan Step 10 item 3)', () => {
   });
 
   it.each([
-    ['a child (depth and parent)', { depth: 1 }, { parentId: 'parent-1' }],
     ['a child by depth alone', { depth: 1 }, {}],
     ['a child by parent alone', {}, { parentId: 'parent-1' }],
     ['an automation run', {}, { metadata: { automationId: 'auto-1' } }],

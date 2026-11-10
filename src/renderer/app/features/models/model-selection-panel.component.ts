@@ -133,7 +133,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
           >
         </label>
 
-        @if (visibleNote(); as switchNote) { <p class="model-picker-note" role="note">{{ switchNote }}</p> }
+        @if (visibleNote(); as switchNote) { <p class="model-picker-note" role="note" id="model-picker-switch-note">{{ switchNote }}</p> }
 
         <div class="model-picker-list" role="list" aria-label="Models">
           @for (row of visibleRows(); track row.key) {
@@ -164,7 +164,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
                 type="button"
                 class="model-picker-row__select"
                 [attr.aria-current]="row.selected ? 'true' : null"
-                [attr.aria-describedby]="activeTab() === 'favorites' && row.switchNote ? 'switch-' + reasoningSelectId(row) : null"
+                [attr.aria-describedby]="activeTab() === 'favorites' && row.switchNote ? 'model-picker-switch-note' : null"
                 [appTooltipTpl]="modelHoverCard"
                 [appTooltipDisabledReason]="row.disabledReason ?? null"
                 (click)="selectRow(row)"
@@ -242,9 +242,6 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
                   <span class="model-picker-row__shortcut" aria-hidden="true">{{ row.shortcut }}</span>
                 }
               </div>
-              @if (activeTab() === 'favorites' && row.switchNote) {
-                <p class="model-picker-note model-picker-row__switch-note" role="note" [id]="'switch-' + reasoningSelectId(row)">{{ row.switchNote }}</p>
-              }
             </div>
           } @empty {
             <div class="model-picker-empty" role="status">{{ emptyStateLabel() }}</div>
@@ -355,6 +352,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
 
     .model-picker-main {
       min-width: 0;
+      min-height: 0; /* lets the list scroll instead of growing past the panel */
       display: flex;
       flex-direction: column;
       padding: 10px;
@@ -362,7 +360,6 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
     }
 
     .model-picker-note { margin: 0; color: var(--text-muted, #8f8f96); font-size: 12px; line-height: 1.4; }
-    .model-picker-row__switch-note { grid-column: 2 / -1; padding: 0 6px 4px 0; }
 
     .model-picker-search {
       position: relative;
@@ -723,8 +720,28 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
   readonly noteForProvider = input<((provider: PickerProvider) => string | null) | null>(null);
   protected readonly visibleNote = computed(() => {
     const tab = this.activeTab();
-    if (tab === 'favorites') return this.noteForProvider() ? null : this.note();
+    if (tab === 'favorites') return this.noteForProvider() ? this.pointedRow()?.switchNote ?? this.sharedFavoriteNote() : this.note();
     return this.noteForProvider()?.(tab) ?? this.note();
+  });
+  /**
+   * Favourites can mix providers, so the note follows the row under the pointer
+   * or focus, and falls back to the most common one (ties go to the current
+   * provider's note). Rows never print their own note.
+   */
+  private readonly pointedRow = signal<ModelPickerRow | null>(null);
+  private readonly sharedFavoriteNote = computed(() => {
+    const rows = this.visibleRows();
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      if (row.switchNote) counts.set(row.switchNote, (counts.get(row.switchNote) ?? 0) + 1);
+    }
+    const currentNote = rows.find(row => row.provider === this._selectedProvider())?.switchNote ?? null;
+    let shared: string | null = null;
+    for (const [note, count] of counts) {
+      const best = shared === null ? 0 : counts.get(shared) ?? 0;
+      if (count > best || (count === best && note === currentNote)) shared = note;
+    }
+    return shared;
   });
 
   private readonly _providers = computed(() => this.providers() ?? []);
@@ -902,7 +919,7 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
     this.searchTerm.set((event.target as HTMLInputElement).value);
   }
 
-  protected pointAtRow(row: ModelPickerRow | null): void { this.rowPreview.emit(rowPreviewOf(row)); }
+  protected pointAtRow(row: ModelPickerRow | null): void { this.pointedRow.set(row); this.rowPreview.emit(rowPreviewOf(row)); }
   protected pointAtReasoning(row: ModelPickerRow): void { this.rowPreview.emit(reasoningPreviewOf(row, (option) => this.reasoningOptionValue(option))); }
   protected selectRow(row: ModelPickerRow): void {
     if (row.disabledReason) return;

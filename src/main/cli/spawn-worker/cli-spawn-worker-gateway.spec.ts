@@ -196,6 +196,20 @@ describe('worker ownership after thread failure', () => {
     expect(factory).toHaveBeenCalledTimes(2);
   });
 
+  it('does not start a worker when a restart scheduled before close comes due', async () => {
+    vi.useFakeTimers();
+    const workers: FakeWorker[] = [];
+    const gateway = new CliSpawnWorkerGateway({ workerFactory: () => {
+      const worker = new FakeWorker(); workers.push(worker); return worker;
+    } });
+    workers[0]!.emit('exit', 1); // worker lost: a restart is now scheduled
+    await gateway.close();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(workers).toHaveLength(1);
+    await expect(gateway.spawnInstance({ instanceId: 'after-close', command: 'node', args: [], cwd: '/tmp', env: {} }))
+      .rejects.toThrow('CLI spawn worker unavailable');
+  });
+
   it('does not kill or notify a child that already reported exit', async () => {
     const worker = new FakeWorker();
     const gateway = new CliSpawnWorkerGateway({ workerFactory: () => worker });

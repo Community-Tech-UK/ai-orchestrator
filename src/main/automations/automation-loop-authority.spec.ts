@@ -1,6 +1,5 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { AutomationStore } from './automation-store';
@@ -22,6 +21,7 @@ import type { AutomationAttachmentService } from './automation-attachment-servic
 import type { AutomationCallerAuthority } from './automation-agent-authority';
 import type { AutomationAction, ClaimedAutomationRun } from '../../shared/types/automation.types';
 import type { LoopConfig, LoopStage, LoopState } from '../../shared/types/loop.types';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const h = vi.hoisted(() => ({
   coordinator: null as unknown as EventEmitter,
@@ -47,6 +47,11 @@ vi.mock('../session/artifact-attribution-store', () => ({ getArtifactAttribution
 
 const NOW = Date.UTC(2026, 9, 20, 12);
 describe('approved automation LOOP authority reaches actual adapter options', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   let db: SqliteDriver;
   let store: AutomationStore;
   let caller: AutomationCallerAuthority | undefined;
@@ -59,7 +64,7 @@ describe('approved automation LOOP authority reaches actual adapter options', ()
     }));
     h.settings.automationDefaultModel = 'sonnet'; h.settings.modelPickerFavorites = ['claude:sonnet'];
     caller = { provider: 'claude', currentModel: 'sonnet', reasoningEffort: 'low', yoloMode: false };
-    db = defaultDriverFactory(':memory:'); createTables(db); createMigrationsTable(db); runMigrations(db);
+    db = rlmTemplate.open();
     store = new AutomationStore(db, { prepare: async () => [], replacePrepared: () => undefined,
       listForAutomation: async () => [] } as unknown as AutomationAttachmentService);
   });

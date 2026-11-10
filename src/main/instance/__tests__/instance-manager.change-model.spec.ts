@@ -400,6 +400,7 @@ vi.mock('../../orchestration/orchestration-protocol', () => ({
     `[Orchestrator Response]\nAction: ${action}\nStatus: ${success ? 'SUCCESS' : 'FAILED'}\n${JSON.stringify(data)}\n[/Orchestrator Response]`
   ),
   detectsSchedulingIntent: vi.fn().mockReturnValue(false),
+  stripOrchestrationMarkers: vi.fn((text: string) => text),
 }));
 
 // ---------------------------------------------------------------------------
@@ -471,6 +472,7 @@ vi.mock('../../routing', () => ({
   getModelRouter: vi.fn(() => ({
     route: vi.fn().mockReturnValue({ model: 'claude-sonnet', provider: 'claude' }),
   })),
+  applyProviderResolution: vi.fn((decision: unknown) => decision),
 }));
 
 // ---------------------------------------------------------------------------
@@ -858,6 +860,8 @@ import { generateChildPrompt } from '../../orchestration/orchestration-protocol'
 import { getWorkerNodeRegistry, WorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import type { RoutingDecision } from '../../routing';
 import type { SpawnChildCommand } from '../../orchestration/orchestration-protocol';
+import { SessionTranscriptReader } from '../../session/session-transcript-reader';
+import type { Instance } from '../../../shared/types/instance.types';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -1469,6 +1473,53 @@ describe('InstanceManager', () => {
         undefined,
         { executionPlatform: 'win32', workerName: 'windows-pc' },
       );
+    });
+
+    // Only words a person typed in a session can grant `@session` reads there. A
+    // child's spawn prompt is agent-written, and the parent messages copied into
+    // it were typed in the parent, so neither may grant in the child.
+    it.each(['orchestrator child', 'command subtask'] as const)('a %s gets no message that can grant a session read', async (kind) => {
+      const chip = '[session: Foreign · foreign-session]';
+      const parent = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR, displayName: 'Parent' });
+      await parent.readyPromise;
+      parent.outputBuffer.push({
+        id: 'typed-chip', timestamp: Date.now(), type: 'user', content: `Look at ${chip}`,
+        metadata: { inputOrigin: { kind: 'person', typedAt: Date.now() } },
+      });
+      vi.mocked(generateChildPrompt).mockReturnValueOnce(`Child task: read ${chip}`);
+      const created: Instance[] = [];
+      manager.on('instance:created', (instance: Instance) => created.push(instance));
+      const routingDecision: RoutingDecision = { model: 'claude-sonnet', complexity: 'moderate', tier: 'balanced', confidence: 0.9, reason: 'test routing' };
+      const internals = manager as unknown as {
+        createChildInstance: (parentId: string, command: SpawnChildCommand, routing: RoutingDecision) => Promise<Instance>;
+        spawnCommandSubtask: (parentId: string, task: string, options: { commandName: string }) => Promise<void>;
+      };
+      if (kind === 'orchestrator child') {
+        await internals.createChildInstance(parent.id, { action: 'spawn_child', task: `read ${chip}` }, routingDecision);
+      } else {
+        await internals.spawnCommandSubtask(parent.id, `read ${chip}`, { commandName: 'review' });
+      }
+      const child = created.find((instance) => instance.parentId === parent.id);
+      if (!child) throw new Error('child was not created');
+      await child.readyPromise;
+      // The spawn prompt joins the buffer when it is delivered, just after the session is ready.
+      await vi.waitFor(() => expect(child.outputBuffer.map((message) => message.content)).toContain(`Child task: read ${chip}`));
+
+      const childUserMessages = child.outputBuffer.filter((message) => message.type === 'user');
+      expect(childUserMessages.map((message) => message.content)).toEqual(expect.arrayContaining([`Look at ${chip}`, `Child task: read ${chip}`]));
+      expect(childUserMessages.every((message) => message.metadata?.inputOrigin === undefined)).toBe(true);
+      expect(parent.outputBuffer.find((message) => message.id === 'typed-chip')?.metadata?.inputOrigin).toMatchObject({ kind: 'person' });
+
+      const foreign = { id: 'foreign-session', displayName: 'Foreign', workingDirectory: '/foreign', parentId: null, outputBuffer: [], lastActivity: 1 } as unknown as Instance;
+      const reader = new SessionTranscriptReader({
+        getInstance: (id) => (id === child.id ? child : id === foreign.id ? foreign : undefined),
+        getAllInstances: () => [child, foreign],
+        getSettings: () => ({ interSessionMessaging: { enabled: false } }),
+        history: { getEntries: () => [], loadConversation: async () => null },
+        getCompleteInstanceMessages: async (instance) => instance.outputBuffer,
+        scratchDirectory: '/scratch', writeAudit: () => undefined,
+      });
+      expect(await reader.read(child.id, { session: 'foreign-session' })).toMatchObject({ outcome: 'not-allowed' });
     });
   });
 

@@ -86,6 +86,23 @@ export interface MobileSessionPlan {
   modelLabel: string | null;
   reasoningEffort: MobileReasoningEffort | null;
   reasoningEffortLabel: string | null;
+  /**
+   * Claude, Codex or MiMo accounts the person can pick for this session.
+   * Absent when fewer than two can be chosen, and from hosts that predate it.
+   */
+  account?: MobileSessionAccountPlan;
+}
+
+export interface MobileSessionAccountOption {
+  id: string;
+  label: string;
+}
+
+export interface MobileSessionAccountPlan {
+  /** Accounts in the host's priority order. */
+  options: MobileSessionAccountOption[];
+  /** "ClaudeSUAS · chosen automatically", or why no account can be used. */
+  summary: string;
 }
 
 export interface MobileProjectDto {
@@ -362,6 +379,8 @@ export interface MobileCreateInstanceRequest {
   provider?: string;
   model?: string;
   reasoningEffort?: MobileReasoningEffort;
+  /** Claude, Codex or MiMo account to start on; omitted lets Harness choose. */
+  accountProfileId?: string;
   initialPrompt?: string;
   attachments?: MobileAttachmentDto[];
 }

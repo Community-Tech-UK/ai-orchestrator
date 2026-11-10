@@ -4,6 +4,7 @@
  * loop formatters; rendered by the loop summary and the past-runs panel.
  */
 import type { LoopWorktreeLifecycle } from '../../../../shared/types/loop.types';
+import { isIgnoredFilesReason } from '../../../../shared/copy/ignored-files-copy';
 
 export interface ManagedWorktreeStatusView {
   tone: 'active' | 'success' | 'blocked' | 'preserved';
@@ -46,7 +47,7 @@ function publicWorktreeBlockReason(reason: string | undefined): string {
     'Session adds active plan/spec/livetest documents; land it manually',
     'Session branch changed outside Harness; review it before landing',
   ]);
-  if (exactReasons.has(reason)) return reason;
+  if (exactReasons.has(reason) || isIgnoredFilesReason(reason)) return reason;
   if (
     /^[A-Za-z0-9._/-]+ cannot be fast-forwarded to [A-Za-z0-9._/-]+$/.test(reason)
     // Repository-relative path only; an absolute path could leak the user's home layout.
@@ -73,6 +74,8 @@ export function managedWorktreeStatus(
   switch (lifecycle.phase) {
     case 'blocked': {
       const reason = publicWorktreeBlockReason(lifecycle.lastError);
+      // Nothing on this screen retries the merge; the start-up check does, for a run blocked at promotion.
+      const nextStep = isIgnoredFilesReason(reason) ? ' Harness tries again the next time it starts.' : '';
       // A failed harvest means the output was never committed: it exists only
       // in the worktree folder, so claiming it is "saved on" a branch is false.
       const location = lifecycle.lastError === HARVEST_FAILED_REASON
@@ -81,7 +84,7 @@ export function managedWorktreeStatus(
       return {
         tone: 'blocked',
         label: lifecycle.integrationBranch ? 'promotion blocked' : 'workspace blocked',
-        detail: `${reason} · ${location}`,
+        detail: `${reason}${nextStep} · ${location}`,
       };
     }
     case 'promoted':

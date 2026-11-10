@@ -178,13 +178,13 @@ describe('NewSessionComponent provider settings', () => {
 });
 
 
-async function setupSession(options: { quota?: () => MobileQuotaStateDto; recentDirs?: ReturnType<typeof vi.fn>; createInstance?: ReturnType<typeof vi.fn>; draft?: string; draftLoad?: ReturnType<typeof vi.fn>; beforeReady?: (root: HTMLElement) => void; realDrafts?: DraftStore; hostId?: string; navigationState?: unknown; legacyText?: string; historyReentry?: boolean } = {}) {
+async function setupSession(options: { quota?: () => MobileQuotaStateDto; recentDirs?: ReturnType<typeof vi.fn>; createInstance?: ReturnType<typeof vi.fn>; draft?: string; draftLoad?: ReturnType<typeof vi.fn>; beforeReady?: (root: HTMLElement) => void; realDrafts?: DraftStore; hostId?: string; navigationState?: unknown; legacyText?: string; historyReentry?: boolean; sessionPlan?: ReturnType<typeof vi.fn> } = {}) {
   const gateway = {
     online: signal(true), state: signal('connected'), snapshot: signal(null),
     dataHostId: signal(options.hostId ?? 'host-a'), quotaEvent: signal<{ hostId: string; data: MobileQuotaStateDto } | null>(null),
     quota: vi.fn().mockImplementation(async () => options.quota?.()),
     recentDirs: options.recentDirs ?? vi.fn().mockResolvedValue([{ path: '/work/b', displayName: 'Project B', lastAccessed: 0, isPinned: false }]),
-    sessionPlan: vi.fn().mockResolvedValue(RESOLVED_PLAN),
+    sessionPlan: options.sessionPlan ?? vi.fn().mockResolvedValue(RESOLVED_PLAN),
     models: vi.fn().mockResolvedValue({ codex: [] }),
     createInstance: options.createInstance ?? vi.fn().mockResolvedValue({ id: 'created', workingDirectory: '/work/b' }),
   };
@@ -600,5 +600,82 @@ describe('New Session folder and submission behavior', () => {
     expect(root.textContent).toContain('Photo permission denied');
     root.querySelector<HTMLButtonElement>('button[aria-label="Dictate message"]')!.click(); await settle();
     expect(root.textContent).toContain('Dictation');
+  });
+});
+
+describe('New Session account choice', () => {
+  const ACCOUNT_PLAN: MobileSessionPlan = {
+    ...RESOLVED_PLAN, provider: 'claude', providerLabel: 'Claude',
+    account: {
+      options: [{ id: 'legacy', label: 'ClaudeSUAS' }, { id: 'claudecomtech-7e12', label: 'ClaudeComTech' }],
+      summary: 'ClaudeSUAS · chosen automatically',
+    },
+  };
+  const planFor = vi.fn(async (_provider: string, _model?: string, _effort?: string, accountProfileId?: string): Promise<MobileSessionPlan> =>
+    accountProfileId
+      ? { ...ACCOUNT_PLAN, account: { ...ACCOUNT_PLAN.account!, summary: 'ClaudeComTech · you chose this account' } }
+      : ACCOUNT_PLAN);
+  const accountRow = (root: HTMLElement, label: string) => [...root.querySelectorAll<HTMLButtonElement>('[aria-label="Account"] button')]
+    .find((button) => button.textContent?.includes(label))!;
+
+  it('lists the host accounts, previews the one picked and starts the session on it', async () => {
+    const { root, gateway, settle } = await setupSession({ sessionPlan: vi.fn(planFor) });
+    root.querySelector<HTMLButtonElement>('[aria-label="Session settings"]')!.click(); await settle();
+    expect(accountRow(root, 'Choose automatically').getAttribute('aria-pressed')).toBe('true');
+    expect(accountRow(root, 'Choose automatically').textContent).toContain('ClaudeSUAS · chosen automatically');
+
+    accountRow(root, 'ClaudeComTech').click(); await settle();
+    expect(gateway.sessionPlan).toHaveBeenLastCalledWith('auto', undefined, undefined, 'claudecomtech-7e12');
+    expect(accountRow(root, 'ClaudeComTech').getAttribute('aria-pressed')).toBe('true');
+    expect(accountRow(root, 'ClaudeComTech').textContent).toContain('you chose this account');
+    expect(root.querySelector('button[aria-label="Session settings"]')!.textContent).toContain('ClaudeComTech');
+
+    root.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true })); await settle();
+    expect(gateway.createInstance).toHaveBeenCalledWith(expect.objectContaining({ accountProfileId: 'claudecomtech-7e12' }));
+  });
+
+  it('keeps the account list on screen while the host checks the picked account', async () => {
+    let finish!: (plan: MobileSessionPlan) => void;
+    const sessionPlan = vi.fn(planFor);
+    const { root, settle } = await setupSession({ sessionPlan });
+    root.querySelector<HTMLButtonElement>('[aria-label="Session settings"]')!.click(); await settle();
+    sessionPlan.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    accountRow(root, 'ClaudeComTech').click(); await settle();
+    expect(accountRow(root, 'ClaudeComTech').getAttribute('aria-pressed')).toBe('true');
+    expect(accountRow(root, 'ClaudeComTech').textContent).toContain('Checking accounts…');
+    finish(await planFor('auto', undefined, undefined, 'claudecomtech-7e12')); await settle();
+    expect(accountRow(root, 'ClaudeComTech').textContent).toContain('you chose this account');
+  });
+
+  it('does not show an older account summary when checking the picked account fails', async () => {
+    const sessionPlan = vi.fn(planFor);
+    const { root, gateway, settle } = await setupSession({ sessionPlan });
+    root.querySelector<HTMLButtonElement>('[aria-label="Session settings"]')!.click(); await settle();
+    sessionPlan.mockRejectedValueOnce(new Error('Host unreachable'));
+    accountRow(root, 'ClaudeComTech').click(); await settle();
+    expect(accountRow(root, 'ClaudeComTech').textContent).toContain('Accounts could not be checked');
+    expect(root.textContent).not.toContain('ClaudeSUAS · chosen automatically');
+    root.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true })); await settle();
+    expect(gateway.createInstance).toHaveBeenCalledWith(expect.objectContaining({ accountProfileId: 'claudecomtech-7e12' }));
+  });
+
+  it('goes back to the automatic choice when the provider changes', async () => {
+    const { root, gateway, settle } = await setupSession({ sessionPlan: vi.fn(planFor) });
+    root.querySelector<HTMLButtonElement>('[aria-label="Session settings"]')!.click(); await settle();
+    accountRow(root, 'ClaudeComTech').click(); await settle();
+    buttonContaining(root, 'Run with Claude').click(); await settle();
+    expect(gateway.sessionPlan).toHaveBeenLastCalledWith('claude', undefined, 'high', undefined);
+    expect(accountRow(root, 'Choose automatically').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('drops a saved account the host no longer offers and shows no Account section without a pool', async () => {
+    const { root, gateway, settle } = await setupSession({
+      draft: JSON.stringify({ text: '', directory: '/work/a', provider: 'codex', accountProfileId: 'removed-account' }),
+    });
+    root.querySelector<HTMLButtonElement>('[aria-label="Session settings"]')!.click(); await settle();
+    expect(gateway.sessionPlan).toHaveBeenCalledWith('codex', undefined, undefined, 'removed-account');
+    expect(root.querySelector('[aria-label="Account"]')).toBeNull();
+    root.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true })); await settle();
+    expect(gateway.createInstance).toHaveBeenCalledWith(expect.objectContaining({ accountProfileId: undefined }));
   });
 });

@@ -640,6 +640,11 @@ export class InstanceLifecycleManager extends EventEmitter {
     });
   }
 
+  /** Settles once no queued runtime change is scheduled or running for the instance; undefined when none is. */
+  whenRuntimeChangeSettled(instanceId: string): Promise<void> | undefined {
+    return this.desiredRuntimeQueue.whenSettled(instanceId);
+  }
+
   private resetTerminalStateForRestart(instance: Instance): void {
     if (instance.status !== 'terminated' && instance.status !== 'failed') {
       return;

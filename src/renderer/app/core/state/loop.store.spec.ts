@@ -860,10 +860,23 @@ describe('LoopStore', () => {
     ipc.intervene.mockResolvedValue({ success: true, data: { ok: true } });
 
     await store.intervene('loop-1', 'run before finishing', 'follow-up', 'one-at-a-time');
-    expect(ipc.intervene).toHaveBeenCalledWith('loop-1', 'run before finishing', 'follow-up', 'one-at-a-time');
+    expect(ipc.intervene).toHaveBeenCalledWith('loop-1', 'run before finishing', 'follow-up', 'one-at-a-time', undefined);
 
     await store.intervene('loop-1', 'plain hint');
-    expect(ipc.intervene).toHaveBeenLastCalledWith('loop-1', 'plain hint', undefined, undefined);
+    expect(ipc.intervene).toHaveBeenLastCalledWith('loop-1', 'plain hint', undefined, undefined, undefined);
+  });
+
+  it('sends the typed-by-a-person marker only for a hint or goal James typed', async () => {
+    ipc.intervene.mockResolvedValue({ success: true, data: { ok: true } });
+    ipc.start.mockResolvedValue({ success: true, data: {} });
+
+    await store.intervene('loop-1', 'typed hint', undefined, undefined, { typedByPerson: true });
+    expect(ipc.intervene).toHaveBeenLastCalledWith('loop-1', 'typed hint', undefined, undefined, { kind: 'person', typedAt: expect.any(Number) });
+
+    await store.start('chat-typed', validConfig(), undefined, { typedByPerson: true });
+    expect(ipc.start).toHaveBeenLastCalledWith('chat-typed', validConfig(), undefined, { kind: 'person', typedAt: expect.any(Number) });
+    await store.start('chat-plain', validConfig());
+    expect(ipc.start).toHaveBeenLastCalledWith('chat-plain', validConfig(), undefined, undefined);
   });
 
   describe('recent-run read model (Workboard)', () => {

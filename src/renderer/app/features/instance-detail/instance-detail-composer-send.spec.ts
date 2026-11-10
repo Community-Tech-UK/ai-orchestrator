@@ -43,6 +43,39 @@ describe('InstanceDetailComponent compact then send', () => {
     expect(drafts.getPendingFiles(instance.id)).toEqual([]);
   });
 
+  it('asks for the typed mark on an edited resend (main keeps it only for a typed source message)', async () => {
+    const forkSession = vi.fn().mockResolvedValue({ success: true, data: { id: 'fork' } });
+    const detail = Object.assign(Object.create(InstanceDetailComponent.prototype) as object, {
+      instance: () => ({ id: 'session' }),
+      ipc: { forkSession },
+      store: { addInstanceFromData: vi.fn(), setSelectedInstance: vi.fn() },
+    }) as unknown as InstanceDetailComponent;
+
+    await detail.onResendEdited({ messageIndex: 2, messageId: 'user-2', text: 'edited [session: Other · other]' });
+
+    expect(forkSession).toHaveBeenCalledOnce();
+    expect(forkSession.mock.calls[0][4]).toMatchObject({ initialPromptOrigin: { kind: 'person', typedAt: expect.any(Number) } });
+  });
+
+  it('marks a loop goal as typed by a person only when it came from the message box', async () => {
+    const start = vi.fn().mockResolvedValue({ ok: true });
+    const detail = Object.assign(Object.create(InstanceDetailComponent.prototype) as object, {
+      store: { selectedInstance: () => ({ id: 'session' }), setError: vi.fn() },
+      loopStore: { start },
+      loopPromptHistory: { remember: vi.fn() },
+    }) as unknown as InstanceDetailComponent;
+    const config = { initialPrompt: 'goal', workspaceCwd: '/repo' };
+    const onResolved = vi.fn();
+
+    await detail.onLoopStartRequested({ config: config as never, firstMessage: 'goal', attachments: [], onResolved });
+    // An empty message box means the goal is the loop panel's prompt, which may be Harness's default or an old goal.
+    await detail.onLoopStartRequested({ config: config as never, firstMessage: '  ', attachments: [], onResolved });
+
+    expect(start).toHaveBeenNthCalledWith(1, 'session', config, [], { typedByPerson: true });
+    expect(start).toHaveBeenNthCalledWith(2, 'session', config, [], { typedByPerson: false });
+    expect(onResolved).toHaveBeenCalledWith(true);
+  });
+
   it('keeps pending attachments and restores text when compaction fails', async () => {
     const file = new File(['image'], 'screenshot.png', { type: 'image/png' });
     const instance = { id: 'session', provider: 'claude', status: 'idle',

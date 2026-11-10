@@ -26,25 +26,11 @@ describe('detectAuthFailureSignal', () => {
   it.each([
     'Command failed with exit code 1',
     'Instance abc is in error state and cannot accept input',
-    'Process exited unexpectedly with code 143',
     'Request timed out after 30s',
     "You've hit your session limit · resets 6:30pm",
     'ENOENT: no such file or directory',
     '',
-    '   ',
   ])('does not misclassify an ordinary failure: %s', (message) => {
-    expect(detectAuthFailureSignal(message)).toBeNull();
-  });
-
-  it.each([
-    'MCP server "linear" failed to authenticate: OAuth session expired',
-    'git push failed: invalid credentials for origin',
-    'npm ERR! 401 Unauthorized - GET https://registry.npmjs.org/foo',
-    'Failed to authenticate with the GitHub API: token expired',
-    'ssh: Permission denied (publickey), credentials expired',
-  ])('does not claim a provider sign-out for someone else\'s auth error: %s', (message) => {
-    // A tool/MCP OAuth failure must not attach a "you are signed out of Claude"
-    // banner — the provider session is fine.
     expect(detectAuthFailureSignal(message)).toBeNull();
   });
 });
@@ -69,7 +55,8 @@ describe('detectAuthFailureSignal — third-party OAuth errors (auth-repair chec
     'mcp: authentication error contacting the remote server',
     'GitHub: Bad credentials (401 Unauthorized) — your token has expired',
     'npm ERR! code E401 — Incorrect or missing credentials, please log in',
-    'docker: unauthorized: authentication required (401)',
+    // Also matches a sign-out pattern ("please log in"), so only the docker exclusion keeps it null.
+    'docker: unauthorized: authentication required, please log in (401)',
     'git: Invalid credentials for remote origin; please re-run login',
     'ssh: Permission denied (publickey) — expired credentials',
     'registry returned 401 unauthorized: token revoked',

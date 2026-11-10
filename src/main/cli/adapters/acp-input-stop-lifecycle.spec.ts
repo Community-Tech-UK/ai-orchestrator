@@ -98,6 +98,8 @@ function heldPrompt(proc: ReturnType<typeof createInitializedAgentHarness>, resp
 
 describe('ordinary ACP Stop while native input is pending', () => {
   it.each(['EIO', 'response-before-stop', 'write-timeout'] as const)('keeps failed receipt and lifecycle owner quiet after %s without dispatch controls', async (failureMode) => {
+    // Fake clock for the 5 s stdin write timeout (child-stdin-write.ts); stream callbacks stay real.
+    if (failureMode === 'write-timeout') vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const f = await fixture();
     const input = heldPrompt(f.proc, failureMode === 'response-before-stop');
     const nativeFailure = Object.assign(new Error('synthetic late stopped EIO'), { code: 'EIO' });
@@ -107,8 +109,10 @@ describe('ordinary ACP Stop while native input is pending', () => {
       expect(f.handler.interrupt(f.instance.id, 'renderer-ipc')).toBe(true);
       expect(f.instance.status).toBe('interrupting');
       if (failureMode !== 'write-timeout') input.complete(nativeFailure);
-      await expect(sending).rejects.toMatchObject({ name: 'AbortError', cause: failureMode === 'write-timeout'
+      const rejected = expect(sending).rejects.toMatchObject({ name: 'AbortError', cause: failureMode === 'write-timeout'
         ? expect.objectContaining({ message: 'stdin write timeout after 5000ms — process may be stuck' }) : nativeFailure });
+      if (failureMode === 'write-timeout') await vi.advanceTimersByTimeAsync(5_000);
+      await rejected;
       await vi.waitFor(() => expect(f.instance.respawnPromise).toBeUndefined());
       expect(input.submitted).toEqual(['session/prompt', 'session/cancel']);
       expect(input.native).toEqual(['session/prompt']);
@@ -123,8 +127,8 @@ describe('ordinary ACP Stop while native input is pending', () => {
       expect(f.failed).toHaveBeenCalledOnce();
       expect(f.rows()).toHaveLength(1);
       expect(f.rows()[0]).toMatchObject({ state: 'failed', deliveredAt: null });
-    } finally { f.handler.noteInterruptSettled(f.instance.id); f.manager.cleanupCircuitBreaker(f.instance.id); f.proc.exit(); }
-  }, 10_000);
+    } finally { f.handler.noteInterruptSettled(f.instance.id); f.manager.cleanupCircuitBreaker(f.instance.id); f.proc.exit(); vi.useRealTimers(); }
+  });
 
   it('retains delivered receipt when the pending native callback succeeds after ordinary Stop', async () => {
     const f = await fixture();

@@ -22,6 +22,7 @@ import { assertItemTransition, newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueStore } from './plan-queue-store';
 import { PlanQueueWorktreeService } from './plan-queue-worktree';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 let repo: string;
@@ -42,14 +43,20 @@ function transition(item: PlanQueueItem, state: PlanQueueItem['state'], patch: P
 }
 
 beforeAll(() => initSqliteWasm());
-beforeEach(() => {
-  WorktreeManager._resetForTesting(); GitWriteQueue._resetForTesting();
-  repo = realpathSync(mkdtempSync(join(tmpdir(), 'queue-group-landing-')));
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate((dir) => {
+  repo = dir;
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'Queue Test']); git(['config', 'user.email', 'queue@example.invalid']);
   git(['config', 'commit.gpgsign', 'false']); git(['config', 'core.hooksPath', '.git/no-hooks']);
   writeFileSync(join(repo, '.gitignore'), '.worktrees/\n*.md\n');
   writeFileSync(join(repo, 'base.txt'), 'base\n'); git(['add', '-A']); git(['commit', '-qm', 'base']);
+});
+
+beforeEach(() => {
+  WorktreeManager._resetForTesting(); GitWriteQueue._resetForTesting();
+  repo = realpathSync(mkdtempSync(join(tmpdir(), 'queue-group-landing-')));
+  baseRepository.copyTo(repo);
   base = git(['rev-parse', 'main']); gateLog = join(repo, '.git', 'post-merge-runs');
   db = createSqliteWasmDatabase(':memory:'); runLoopMigrations(db); store = new PlanQueueStore(db);
   run = { id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: repo,

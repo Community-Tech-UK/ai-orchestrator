@@ -12,6 +12,9 @@ import {
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { LoopCoordinator, type LoopChildResult } from './loop-coordinator';
 
+vi.mock('./loop-coordinator-utils', async (importOriginal) =>
+  (await import('./loop-coordinator-test-pause')).withShortIterationPause(await importOriginal()));
+
 let workspace: string;
 let coordinator: LoopCoordinator;
 

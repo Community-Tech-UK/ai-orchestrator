@@ -236,6 +236,9 @@ describe('actual native tool names through manager output bridge and loop detect
       if (autoInterrupt)
         expect(getInstanceTurnEnding('LOCAL_LOOP_INSTANCE')).toBe('doom_loop');
       expect(renderer.mock.calls.some(([channel, event]) => channel === 'instance:doom-loop' && event.toolName === marker && event.severity === 'critical')).toBe(true);
+      // The warning at three identical calls stays in the log: only the critical one reaches the screen.
+      expect(detections.some(d => d.severity === 'warn')).toBe(true);
+      expect(renderer.mock.calls.filter(([channel]) => channel === 'instance:doom-loop')).toHaveLength(1);
       // The renderer learns whether Harness is stopping the turn, so it offers no decision it cannot honour.
       expect(renderer.mock.calls.find(([channel, event]) => channel === 'instance:doom-loop' && event.severity === 'critical')?.[1].harnessStopping).toBe(autoInterrupt);
       expect(forwardingState.notification!.list().some(record => record.body.includes(marker) && record.fingerprint.includes(marker))).toBe(true);

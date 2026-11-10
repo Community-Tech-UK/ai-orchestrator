@@ -362,10 +362,6 @@ describe('VerificationDashboardComponent', () => {
   // ============================================
 
   describe('Component Creation', () => {
-    it('should create the component', () => {
-      expect(component).toBeTruthy();
-    });
-
     it('should load draft on construction', () => {
       expect(mockDraftService.getDraft).toHaveBeenCalledWith(
         VERIFICATION_DRAFT_KEY
@@ -528,14 +524,13 @@ describe('VerificationDashboardComponent', () => {
       fixture.detectChanges();
     });
 
-    it('should have prompt textarea', () => {
-      const textarea = fixture.nativeElement.querySelector('.form-textarea');
-      expect(textarea).toBeTruthy();
-    });
-
-    it('should have strategy selector', () => {
-      const selector = fixture.nativeElement.querySelector('.strategy-cards');
-      expect(selector).toBeTruthy();
+    it('shows the prompt box, the strategy cards and the Start Verification button', () => {
+      expect(fixture.nativeElement.querySelector('.form-textarea')).toBeTruthy();
+      expect(fixture.nativeElement.querySelector('.strategy-cards')).toBeTruthy();
+      const startBtn = fixture.nativeElement.querySelector(
+        '.action-btn.primary'
+      );
+      expect(startBtn?.textContent).toContain('Start Verification');
     });
 
     it('should display all strategies', () => {
@@ -553,13 +548,6 @@ describe('VerificationDashboardComponent', () => {
       expect(mockVerificationStore.setDefaultConfig).toHaveBeenCalledWith({
         synthesisStrategy: 'consensus'
       });
-    });
-
-    it('should have start verification button', () => {
-      const startBtn = fixture.nativeElement.querySelector(
-        '.action-btn.primary'
-      );
-      expect(startBtn?.textContent).toContain('Start Verification');
     });
   });
 
@@ -793,15 +781,14 @@ describe('VerificationDashboardComponent', () => {
       fixture.detectChanges();
     });
 
-    it('should toggle config panel', () => {
-      component.store.toggleConfigPanel();
-      expect(mockVerificationStore.toggleConfigPanel).toHaveBeenCalled();
-    });
-
-    it('should have advanced options button', () => {
-      const advancedBtn =
-        fixture.nativeElement.querySelector('.action-btn.text');
-      expect(advancedBtn).toBeTruthy();
+    it('opens the agent config panel from Advanced Options', () => {
+      expect(fixture.nativeElement.querySelector('app-agent-config-panel')).toBeNull();
+      const advancedBtn = Array.from<HTMLButtonElement>(
+        fixture.nativeElement.querySelectorAll('.action-btn.text')
+      ).find((button) => button.textContent?.includes('Advanced Options'));
+      advancedBtn!.click();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('app-agent-config-panel')).not.toBeNull();
     });
   });
 
@@ -905,10 +892,16 @@ describe('VerificationDashboardComponent', () => {
       fixture.detectChanges();
     });
 
-    it('should toggle agents section collapse', () => {
-      const initialState = component.agentsCollapsed();
-      component.toggleAgentsCollapsed();
-      expect(component.agentsCollapsed()).toBe(!initialState);
+    it('expands and collapses the agents section from its header', () => {
+      const header = (): HTMLElement =>
+        fixture.nativeElement.querySelector('.section-header.clickable');
+      expect(header().getAttribute('aria-expanded')).toBe('false');
+      header().click();
+      fixture.detectChanges();
+      expect(header().getAttribute('aria-expanded')).toBe('true');
+      header().click();
+      fixture.detectChanges();
+      expect(header().getAttribute('aria-expanded')).toBe('false');
     });
   });
 });

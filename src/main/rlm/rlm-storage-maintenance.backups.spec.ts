@@ -16,10 +16,10 @@ describe('RLM maintenance scratch backup protection', () => {
       const content = join(directory, older.replace(/\.db$/, '_content'));
       mkdirSync(content);
       writeFileSync(join(content, 'section.txt'), 'content');
-      const measurement = { databaseSizeBytes: 100, externalContentSizeBytes: 0, reclaimableDatabaseBytes: 50 };
       const service = new RlmStorageMaintenanceService({
         database: {
-          measure: () => measurement,
+          measureDatabase: () => ({ databaseSizeBytes: 100, reclaimableDatabaseBytes: 50 }),
+          measureExternalContent: async () => 0,
           inspect: () => ({ eligibleStoreCount: 0, protectedLiveStoreCount: 0, protectedCodebaseAutoStoreCount: 0 }),
           checkpoint: () => undefined,
           backup: async (targetPath) => { writeFileSync(targetPath, 'verified'); return { dbBackupPath: targetPath }; },
@@ -34,7 +34,7 @@ describe('RLM maintenance scratch backup protection', () => {
         listBackups: () => listBackupSets(directory),
         pruneBackups: (keep, names) => pruneOldBackups(directory, keep, names),
       });
-      expect(service.preview({}).backups.map((backup) => backup.wouldBeRemoved)).toEqual([false, true]);
+      expect((await service.preview({})).backups.map((backup) => backup.wouldBeRemoved)).toEqual([false, true]);
       const result = await service.run(selected ? { deleteOldBackups: [older] } : {});
       expect(result).toMatchObject({ status: 'success', backupsPruned: selected ? 1 : 0, backupsKept: selected ? 1 : 2 });
       expect(listBackupSets(directory)).toHaveLength(selected ? 2 : 3);

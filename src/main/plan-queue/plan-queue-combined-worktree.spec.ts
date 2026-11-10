@@ -8,6 +8,7 @@ import { WorktreeManager } from '../workspace/git/worktree-manager';
 import * as dependencyProvisioning from '../workspace/git/worktree-deps';
 import { PlanQueueWorktreeService } from './plan-queue-worktree';
 import type { PlanQueueItem } from './plan-queue.types';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
@@ -41,10 +42,9 @@ function scratchMarkers(): string[] {
   return existsSync(dir) ? readdirSync(dir).map(name => join(dir, name)) : [];
 }
 
-beforeEach(() => {
-  WorktreeManager._resetForTesting();
-  GitWriteQueue._resetForTesting();
-  repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-combined-')));
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate((dir) => {
+  repo = dir;
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'Queue Test']);
   git(['config', 'user.email', 'queue@example.invalid']);
@@ -52,6 +52,13 @@ beforeEach(() => {
   writeFileSync(join(repo, 'base.txt'), 'base\n');
   git(['add', '-A']);
   git(['commit', '-qm', 'base']);
+});
+
+beforeEach(() => {
+  WorktreeManager._resetForTesting();
+  GitWriteQueue._resetForTesting();
+  repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-combined-')));
+  baseRepository.copyTo(repo);
   base = git(['rev-parse', 'HEAD']);
   service = createService();
 });

@@ -717,7 +717,7 @@ export class LoopControlComponent implements OnDestroy {
     const loopId = this.controlLoopId();
     const trimmed = message.trim();
     if (!loopId || !trimmed) return;
-    await this.store.intervene(loopId, trimmed, this.hintMode() === 'follow-up' ? 'follow-up' : undefined);
+    await this.store.intervene(loopId, trimmed, this.hintMode() === 'follow-up' ? 'follow-up' : undefined, undefined, { typedByPerson: true });
   }
 
   /** N4 — structured findings for an activity row, or null for every other row. */

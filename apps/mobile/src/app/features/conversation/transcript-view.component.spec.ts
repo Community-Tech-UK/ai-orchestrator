@@ -132,25 +132,8 @@ describe('Windowed memoised transcript', () => {
     expect(root.querySelector('.message')?.textContent).toContain('700');
   }, 60_000);
 
-  it('parses each of 1000 messages once across repeated transcript renders and invalidates changed content', async () => {
-    const parse = vi.spyOn(marked, 'parse');
-    const fixture = await setup();
-    const root = fixture.nativeElement as HTMLElement;
-    for (let page = 0; page < 6; page++) {
-      root.querySelector<HTMLButtonElement>('[aria-label="Show earlier messages"]')!.click();
-      fixture.detectChanges();
-      await fixture.whenStable();
-    }
-    expect(root.querySelectorAll('.message')).toHaveLength(1000);
-    fixture.componentRef.setInput('messages', messages.map(message => ({ ...message })));
-    await fixture.whenStable();
-    expect(parse).toHaveBeenCalledTimes(1000);
-    fixture.componentRef.setInput('messages', messages.map((message, index) => index === 999 ? { ...message, content: 'Changed **tail**' } : message));
-    await fixture.whenStable();
-    expect(parse).toHaveBeenCalledTimes(1001);
-    expect(root.querySelector('.message:last-child strong')?.textContent).toBe('tail');
-    parse.mockRestore();
-  }, 60_000);
+  // "parses each of 1000 messages once…" lives in transcript-view.memoisation.spec.ts:
+  // in this file, earlier renders slow Angular's [innerHTML] sanitiser until it overruns its budget.
 
   it('releases memoised messages when the transcript is dropped', async () => {
     const fixture = await setup();

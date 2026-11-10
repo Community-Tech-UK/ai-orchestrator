@@ -388,7 +388,9 @@ describe('opening responses and notifications retain native arrival order', () =
 
 describe.each([false, true])('legacy regional factory startup (resume=%s)', (resume) => {
   describe.each(['mimo-v2.6-pro', 'mimo-v2.6-flash'])('native model %s', (modelId) => {
-    describe.each(['ams', 'sgp', 'cn'] as const)('target region %s', (region) => {
+    // ams reads from sgp and every other region from ams; cn takes the sgp branch (its native model is
+    // derived in opencode-account-spawn.spec.ts).
+    describe.each(['ams', 'sgp'] as const)('target region %s', (region) => {
       it.each(['confirmed', 'refused', 'mismatched-response', 'superseded-notification'] as const)(
         'requires the derived native regional selection when %s', async (mode) => {
           mocks.worker = resume;

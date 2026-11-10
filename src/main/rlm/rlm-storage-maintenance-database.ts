@@ -5,14 +5,14 @@ import type { SqliteDriver } from '../db/sqlite-driver';
 import { RLMDatabase } from '../persistence/rlm-database';
 import {
   contentRelativePath,
-  getDirectorySize,
+  getDirectorySizeAsync,
   resolveContentPath,
 } from '../persistence/rlm/rlm-content';
 import type {
   ExternalContentCleanupSummary,
+  RlmDatabaseMeasurement,
   RlmMaintenanceDatabasePort,
   RlmMaintenanceInspection,
-  RlmMaintenanceMeasurement,
 } from './rlm-storage-maintenance';
 
 interface StoreCountRow { count: number }
@@ -27,7 +27,7 @@ interface ContentFileRow { id: string; content_file: string }
 export class RlmMaintenanceDatabaseAdapter implements RlmMaintenanceDatabasePort {
   constructor(private readonly database: RLMDatabase) {}
 
-  measure(): RlmMaintenanceMeasurement {
+  measureDatabase(): RlmDatabaseMeasurement {
     const db = this.database.getRawDb();
     const pageSize = Number(db.pragma('page_size', { simple: true })) || 0;
     const pageCount = Number(db.pragma('page_count', { simple: true })) || 0;
@@ -38,9 +38,13 @@ export class RlmMaintenanceDatabaseAdapter implements RlmMaintenanceDatabasePort
         fileSize(databasePath) + fileSize(`${databasePath}-wal`),
         pageSize * pageCount,
       ),
-      externalContentSizeBytes: directorySize(this.database.getContentDir()),
       reclaimableDatabaseBytes: pageSize * freePages,
     };
+  }
+
+  async measureExternalContent(): Promise<number> {
+    // An unreadable or missing folder has always measured as 0 here.
+    try { return await getDirectorySizeAsync(this.database.getContentDir()); } catch { return 0; }
   }
 
   inspect(cutoffTimestamp: number, protectedSessionIds: Set<string>): RlmMaintenanceInspection {
@@ -235,6 +239,3 @@ function fileSize(filePath: string): number {
   try { return fs.statSync(filePath).size; } catch { return 0; }
 }
 
-function directorySize(directoryPath: string): number {
-  try { return getDirectorySize(directoryPath); } catch { return 0; }
-}

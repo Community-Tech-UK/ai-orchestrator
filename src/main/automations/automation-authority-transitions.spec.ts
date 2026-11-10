@@ -8,9 +8,15 @@ import { getAutomationEvents, resetAutomationEventsForTesting } from './automati
 import type { AutomationCallerAuthority } from './automation-agent-authority';
 import type { AutomationAttachmentService } from './automation-attachment-service';
 import type { CreateAutomationInput } from '../../shared/types/automation.types';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const NOW = Date.UTC(2026, 9, 31, 12);
 describe('authenticated automation execution transitions', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   let db: ReturnType<typeof defaultDriverFactory>;
   let store: AutomationStore;
   let impl: ReturnType<typeof createAutomationToolImplementations>;
@@ -19,8 +25,7 @@ describe('authenticated automation execution transitions', () => {
   let settled: string[];
 
   beforeEach(() => {
-    db = defaultDriverFactory(':memory:');
-    createTables(db); createMigrationsTable(db); runMigrations(db);
+    db = rlmTemplate.open();
     store = new AutomationStore(db, { prepare: async () => [], replacePrepared: () => undefined,
       listForAutomation: async () => [] } as unknown as AutomationAttachmentService);
     resetAutomationEventsForTesting();

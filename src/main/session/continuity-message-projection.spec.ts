@@ -86,6 +86,24 @@ describe('outputMessagesToContinuityEntries', () => {
     ]);
   });
 
+  // Only a message a person typed grants `@session` read scope, so the marker
+  // must survive hibernate, wake and crash revival, including a trip through JSON.
+  it('round-trips the typed-by-a-person marker on a user message, and only there', () => {
+    const inputOrigin = { kind: 'person' as const, typedAt: 7 };
+    const messages: OutputMessage[] = [
+      { id: 'u1', timestamp: 1, type: 'user', content: '[session: Other · other]', metadata: { inputOrigin } },
+      { id: 'u2', timestamp: 2, type: 'user', content: 'Harness prompt [session: Other · other]' },
+      { id: 'a1', timestamp: 3, type: 'assistant', content: 'reply', metadata: { inputOrigin } },
+    ];
+
+    const entries = outputMessagesToContinuityEntries(messages);
+    expect(entries.map((entry) => entry.inputOrigin ?? null)).toEqual([inputOrigin, null, null]);
+
+    const persisted = JSON.parse(JSON.stringify(entries.map((entry) => normalizeConversationEntryForPersistence(entry, false)))) as ConversationEntry[];
+    const restored = persisted.map(continuityEntryToOutputMessage);
+    expect(restored.map((message) => message.metadata?.inputOrigin ?? null)).toEqual([inputOrigin, null, null]);
+  });
+
   // The restart divider's marker identity must survive continuity: hibernate
   // persists the visible buffer as entries and wake rebuilds it through
   // `restoreWokenOutputBuffer`, so a dropped `kind` leaves `read_session`'s

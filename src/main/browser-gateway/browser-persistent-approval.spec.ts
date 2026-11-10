@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserGatewayResult, BrowserGrantMode, BrowserProfile } from '@contracts/types/browser';
 import { PERSISTENT_BROWSER_GRANT_EXPIRES_AT } from '@contracts/types/browser';
 import { BrowserApproveRequestPayloadSchema, BrowserPermissionGrantSchema, BrowserRequestGrantRequestSchema } from '@contracts/schemas/browser';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { BrowserApprovalStore } from './browser-approval-store';
@@ -14,17 +13,20 @@ import { findMatchingBrowserGrant } from './browser-grant-policy';
 import { BrowserGrantRequestOperations } from './browser-grant-request-operations';
 import { BrowserExistingTabOperations } from './browser-existing-tab-operations';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
+const rlmTemplate = useSqliteTemplate((db) => {
+  createTables(db);
+  createMigrationsTable(db);
+  runMigrations(db);
+});
 const dbs: SqliteDriver[] = [];
 const origin = { scheme: 'https' as const, hostPattern: 'entra.microsoft.com', includeSubdomains: false };
 const hint = 'Type the new client secret.';
 
 function fixture(managed = false) {
-  const db = defaultDriverFactory(':memory:');
+  const db = rlmTemplate.open();
   dbs.push(db);
-  createTables(db);
-  createMigrationsTable(db);
-  runMigrations(db);
   const approvalStore = new BrowserApprovalStore(db);
   const grantStore = new BrowserGrantStore(db);
   const profile: BrowserProfile = { id: 'managed-profile', label: 'Test', mode: 'session', browser: 'chrome',

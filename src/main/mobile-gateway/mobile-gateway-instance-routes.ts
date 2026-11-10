@@ -40,6 +40,7 @@ import {
   shouldQueueInput,
 } from "./mobile-input-queue";
 import { validateMobileInput } from './mobile-input-validation';
+import { ProviderAccountProfileIdSchema } from '@contracts/schemas/provider-account';
 import type { ResumeDeferredOptions } from '../instance/lifecycle/deferred-permission-options';
 import { stopLoopsForSessions } from '../orchestration/loop-stop-for-sessions';
 import type { PersonInputOrigin } from '../../shared/types/input-provenance.types';
@@ -275,6 +276,7 @@ export class MobileGatewayInstanceRoutes {
       provider,
       model,
       reasoningEffort,
+      accountProfileId: url.searchParams.get("accountProfileId") ?? undefined,
     });
     sendJsonResponse(res, 200, plan);
   }
@@ -602,6 +604,7 @@ export class MobileGatewayInstanceRoutes {
       provider?: unknown;
       model?: unknown;
       reasoningEffort?: unknown;
+      accountProfileId?: unknown;
       initialPrompt?: unknown;
       attachments?: unknown;
       forceNodeId?: unknown;
@@ -628,6 +631,15 @@ export class MobileGatewayInstanceRoutes {
       VALID_REASONING_EFFORTS.has(body.reasoningEffort)
         ? (body.reasoningEffort as ReasoningEffort)
         : undefined;
+    let accountProfileId: string | undefined;
+    if (body.accountProfileId !== undefined) {
+      const parsed = ProviderAccountProfileIdSchema.safeParse(body.accountProfileId);
+      if (!parsed.success) {
+        sendJsonResponse(res, 400, { error: "accountProfileId is not a valid account" });
+        return;
+      }
+      accountProfileId = parsed.data;
+    }
 
     let forceNodeId =
       typeof body.forceNodeId === "string" && body.forceNodeId.trim()
@@ -646,14 +658,20 @@ export class MobileGatewayInstanceRoutes {
       forceNodeId = resolved;
     }
 
+    const initialPrompt =
+      typeof body.initialPrompt === "string" ? body.initialPrompt : undefined;
     const config: InstanceCreateConfig = {
       workingDirectory,
-      initialPrompt:
-        typeof body.initialPrompt === "string" ? body.initialPrompt : undefined,
+      initialPrompt,
+      // The phone's new-session box is a person typing, like its send box.
+      ...(initialPrompt?.trim()
+        ? { initialPromptOrigin: { kind: "person" as const, typedAt: Date.now() } }
+        : {}),
       attachments,
       provider,
       modelOverride: typeof body.model === "string" ? body.model : undefined,
       reasoningEffort,
+      ...(accountProfileId ? { accountProfileId } : {}),
       forceNodeId,
     };
     const instance = await this.source().createInstance(config);

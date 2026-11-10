@@ -8,6 +8,8 @@ import {
 } from '../../core/services/ipc/provider-account-ipc.service';
 import { defaultProviderAccountPools } from '../../../../shared/types/provider-account.types';
 import { ProviderAccountChipComponent } from './provider-account-chip.component';
+import { InstanceStateService } from '../../core/state/instance/instance-state.service';
+import type { Instance } from '../../core/state/instance/instance.types';
 
 function account(overrides: Partial<ProviderAccountView> = {}): ProviderAccountView {
   return {
@@ -246,6 +248,90 @@ describe('ProviderAccountChipComponent', () => {
     select.value = 'max-b-1a2b';
     await fixture.componentInstance.onSelect({ target: select } as unknown as Event);
     expect(ipc.switchSession).toHaveBeenCalledWith('inst-1', 'max-b-1a2b');
+  });
+
+  describe('a move that waits for the session to be free', () => {
+    function sleepingSession(desiredRuntime?: Instance['desiredRuntime']): Instance {
+      return { id: 'inst-1', displayName: 'Session', createdAt: 1, parentId: null, childrenIds: [], agentId: 'build',
+        agentMode: 'build', provider: 'claude', accountProfileId: 'legacy', status: 'hibernated',
+        contextUsage: { used: 0, total: 1, percentage: 0 }, lastActivity: 1, sessionId: 'session-a',
+        historyThreadId: 'history', providerSessionId: 'native-a', restartEpoch: 0,
+        workingDirectory: '/tmp/account-pending-fixture', yoloMode: false, launchMode: 'interactive', outputBuffer: [],
+        ...(desiredRuntime ? { desiredRuntime } : {}) };
+    }
+    const sessionInputs = { provider: 'claude', mode: 'session', instanceId: 'inst-1', accountProfileId: 'legacy' };
+
+    it('names both accounts and ticks the one it is moving to', async () => {
+      TestBed.inject(InstanceStateService).addInstance(sleepingSession({
+        provider: 'claude', accountProfileId: 'max-b-1a2b', accountHandoffKind: 'explicit', accountHandoffConfirmed: true,
+      }));
+      const fixture = await render(sessionInputs);
+      expect(fixture.nativeElement.querySelector('.text')?.textContent).toBe('Max A → Max B');
+      expect(fixture.nativeElement.querySelector('.dot.pending')).not.toBeNull();
+      const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+      expect(select.value).toBe('max-b-1a2b');
+      expect(select.getAttribute('aria-label')).toBe('Moving from Max A to Max B once the session is free. Pick Max A to stay');
+    });
+
+    it('shows the live account again once the move lands', async () => {
+      const instances = TestBed.inject(InstanceStateService);
+      instances.addInstance(sleepingSession({ provider: 'claude', accountProfileId: 'max-b-1a2b' }));
+      const fixture = await render(sessionInputs);
+      instances.updateInstance('inst-1', { accountProfileId: 'max-b-1a2b', desiredRuntime: undefined, status: 'idle' });
+      fixture.componentRef.setInput('accountProfileId', 'max-b-1a2b');
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.text')?.textContent).toBe('Max B');
+      expect(fixture.nativeElement.querySelector('.dot.pending')).toBeNull();
+      expect(fixture.nativeElement.querySelector('select')?.getAttribute('aria-label')).toBe('Switch this session to another account');
+    });
+
+    it('does not show a move for a queued change that keeps the account', async () => {
+      TestBed.inject(InstanceStateService).addInstance(sleepingSession({ provider: 'claude', model: 'sonnet' }));
+      const fixture = await render(sessionInputs);
+      expect(fixture.nativeElement.querySelector('.text')?.textContent).toBe('Max A');
+    });
+
+    it('withdraws the waiting move without asking when the live account is picked', async () => {
+      const confirm = vi.spyOn(TestBed.inject(ConfirmService), 'confirm');
+      TestBed.inject(InstanceStateService).addInstance(sleepingSession({ provider: 'claude', accountProfileId: 'max-b-1a2b' }));
+      const fixture = await render(sessionInputs);
+      const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+
+      select.value = 'max-b-1a2b';
+      await fixture.componentInstance.onSelect({ target: select } as unknown as Event);
+      expect(ipc.switchSession).not.toHaveBeenCalled();
+
+      select.value = 'legacy';
+      await fixture.componentInstance.onSelect({ target: select } as unknown as Event);
+      expect(confirm).not.toHaveBeenCalled();
+      expect(ipc.switchSession).toHaveBeenCalledWith('inst-1', 'legacy');
+    });
+
+    it.each(['initializing', 'idle'] as const)('asks first when the move may already be under way (%s)', async (status) => {
+      const confirm = vi.spyOn(TestBed.inject(ConfirmService), 'confirm').mockResolvedValue(false);
+      const instances = TestBed.inject(InstanceStateService);
+      instances.addInstance(sleepingSession({ provider: 'claude', accountProfileId: 'max-b-1a2b' }));
+      instances.updateInstance('inst-1', { status });
+      const fixture = await render(sessionInputs);
+      const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+      select.value = 'legacy';
+      await fixture.componentInstance.onSelect({ target: select } as unknown as Event);
+      expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('Move this conversation to "Max A"?') }));
+      expect(ipc.switchSession).not.toHaveBeenCalled();
+      expect(select.value).toBe('max-b-1a2b');
+    });
+
+    it('puts the dropdown back on the waiting move when withdrawing it fails', async () => {
+      ipc.switchSession.mockResolvedValueOnce({ success: false, error: { message: 'That account no longer exists.' } } as never);
+      TestBed.inject(InstanceStateService).addInstance(sleepingSession({ provider: 'claude', accountProfileId: 'max-b-1a2b' }));
+      const fixture = await render(sessionInputs);
+      const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+      select.value = 'legacy';
+      await fixture.componentInstance.onSelect({ target: select } as unknown as Event);
+      fixture.detectChanges();
+      expect(select.value).toBe('max-b-1a2b');
+      expect(fixture.nativeElement.textContent).toContain('That account no longer exists.');
+    });
   });
 
   it('ignores an older preview that resolves after a newer one', async () => {

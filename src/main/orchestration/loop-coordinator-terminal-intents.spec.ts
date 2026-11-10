@@ -12,6 +12,10 @@ import {
   getRecallTraceStore,
   _resetRecallTraceStoreForTesting,
 } from '../memory/retrieval-eval/recall-trace-store';
+import { useRealIterationPause } from './loop-coordinator-test-pause';
+
+vi.mock('./loop-coordinator-utils', async (importOriginal) =>
+  (await import('./loop-coordinator-test-pause')).withShortIterationPause(await importOriginal()));
 
 // LT-29x test setup: the real SettingsManager (`conf` under the hood) throws
 // "Please specify the `projectName` option" outside a real Electron app
@@ -231,6 +235,8 @@ describe('LoopCoordinator terminal intents', () => {
   }, 20_000);
 
   it('imports a fail intent at the next pre-iteration boundary before spawning again', async () => {
+    // Writes the intent between iterations, which needs the real gap.
+    useRealIterationPause();
     const failed = waitForEvent<{ reason: string }>(coordinator, 'loop:failed');
     let loopControlEnv: NodeJS.ProcessEnv | undefined;
     let invokeCount = 0;

@@ -1,5 +1,7 @@
 import { generateId } from '../../../shared/utils/id-generator';
 import type { FileAttachment, OutputMessage } from '../../../shared/types/instance.types';
+import type { PersonInputOrigin } from '../../../shared/types/input-provenance.types';
+import { personInputOrigin } from '../../instance/person-input-origin';
 
 export function serializeInstance(
   instance: object & { communicationTokens?: unknown },
@@ -22,12 +24,14 @@ export function serializeInstance(
 export function createInitialUserMessage(
   message: string,
   attachments?: FileAttachment[],
+  origin?: PersonInputOrigin,
 ): OutputMessage {
   return {
     id: generateId(),
     timestamp: Date.now(),
     type: 'user',
     content: message,
+    ...(origin ? { metadata: { inputOrigin: personInputOrigin(origin) } } : {}),
     attachments: attachments?.map((attachment) => ({
       name: attachment.name,
       type: attachment.type,

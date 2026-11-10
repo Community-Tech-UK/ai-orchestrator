@@ -81,7 +81,8 @@ const MAX_LOG_STRING_LENGTH = 4096;
 const MAX_LOG_STACK_LENGTH = 8192;
 const MAX_LOG_OBJECT_DEPTH = 4;
 const MAX_LOG_OBJECT_KEYS = 40;
-const MAX_LOG_ARRAY_ITEMS = 25;
+/** Longer lists are cut to this many items, with a count of the rest. */
+export const MAX_LOG_ARRAY_ITEMS = 25;
 
 function summarizeObject(value: object): string {
   const constructorName = value.constructor?.name;

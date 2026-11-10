@@ -1,7 +1,6 @@
 import { EventEmitter } from 'events';
 import { expect, it, vi } from 'vitest';
 import type { InstanceManager } from '../instance/instance-manager';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { pauseConsults } from '../work-admission/consult-admission';
 import { getWorkAdmission, WorkAdmission } from '../work-admission/work-admission';
@@ -12,6 +11,7 @@ import { GlobalPauseService } from '../global-pause/global-pause-service';
 import { GlobalPauseStore } from '../global-pause/global-pause-store';
 import { markAutomaticStartupInputDispatched } from '../work-admission/automatic-startup';
 import { deliverInitialPromptAfterSpawn } from '../instance/lifecycle/initial-prompt-recovery';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 const ports = vi.hoisted(() => ({store: null as unknown, runner: null as unknown, resumeLoop: vi.fn(), revive: vi.fn()}));
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/ai-orchestrator-test' }, powerMonitor: new EventEmitter() }));
 vi.mock('../plugins/hook-emitter', () => ({ emitPluginHook: vi.fn() }));
@@ -21,9 +21,14 @@ vi.mock('../orchestration/loop-resume', () => ({resumeLoopRun: ports.resumeLoop}
 vi.mock('../session/session-revival-service',()=>({SessionRevivalService:class{revive=ports.revive;}}));
 vi.mock('./index', () => ({getAutomationStore: () => ports.store, getAutomationRunner: () => ports.runner}));
 
+const rlmTemplate = useSqliteTemplate((db) => {
+  createTables(db);
+  createMigrationsTable(db);
+  runMigrations(db);
+});
 it.each(['first', 'retry'] as const)('restart pause waits for admitted %s dispatch and resumes its original prompt once', async dispatchKind => {
   WorkAdmission._resetForTesting();
-  const db = defaultDriverFactory(':memory:'); createTables(db); createMigrationsTable(db); runMigrations(db);
+  const db = rlmTemplate.open();
   const store = new AutomationStore(db, {prepare: async () => [], replacePrepared: () => undefined, listForAutomation: async () => []} as never);
   const instances: unknown[] = [];
   let entered!: () => void, release!: () => void;
@@ -58,7 +63,7 @@ it.each(['first', 'retry'] as const)('restart pause waits for admitted %s dispat
 
 it('keeps an attached automation running when restart cancels its background initial prompt', async () => {
   WorkAdmission._resetForTesting();
-  const db=defaultDriverFactory(':memory:'); createTables(db); createMigrationsTable(db); runMigrations(db);
+  const db=rlmTemplate.open();
   const store=new AutomationStore(db,{prepare:async()=>[],replacePrepared:()=>undefined,listForAutomation:async()=>[]} as never);
   let failReady!: (error: Error) => void;
   const readyPromise=new Promise<void>((_resolve,reject)=>{failReady=reject;});
@@ -91,7 +96,7 @@ it('resumes and retracks a late attached loop through its recorded automation en
 
 it.each([false,true])('resumes an attached automation exactly once, original prompt already delivered: %s', async delivered => {
  WorkAdmission._resetForTesting();
- const db=defaultDriverFactory(':memory:');createTables(db);createMigrationsTable(db);runMigrations(db);
+ const db=rlmTemplate.open();
  const attachments=[{name:'brief.txt',type:'text/plain',size:18,data:'attachment fixture'}];
  const store=new AutomationStore(db,{prepare:async()=>[],replacePrepared:()=>undefined,listForAutomation:async()=>attachments} as never);
  let release!:()=>void;const starting=new Promise<void>(resolve=>{release=resolve;});const originalSend=vi.fn(async(_prompt:string,_attachments?:unknown[])=>undefined);

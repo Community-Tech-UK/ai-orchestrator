@@ -1,24 +1,19 @@
 // src/tests/unit/memory/codebase-miner.test.ts
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type Database from 'better-sqlite3';
-import type { SqliteDriver } from '../../../main/db/sqlite-driver';
+import { createMigrationsTable, createTables, runMigrations } from '../../../main/persistence/rlm/rlm-schema';
 import * as fs from 'fs/promises';
 import * as path from 'node:path';
 
 let _testDb: InstanceType<typeof Database> | undefined;
 
 vi.mock('../../../main/persistence/rlm-database', async () => {
-  const BetterSQLite3 = (await import('better-sqlite3')).default;
-  const schema = await import('../../../main/persistence/rlm/rlm-schema');
   return {
     getRLMDatabase: () => ({
       getRawDb: () => {
         if (!_testDb || !_testDb.open) {
-          _testDb = new BetterSQLite3(':memory:');
+          _testDb = rlmTemplate.open() as unknown as InstanceType<typeof Database>;
           _testDb.pragma('foreign_keys = ON');
-          schema.createTables(_testDb as unknown as SqliteDriver);
-          schema.createMigrationsTable(_testDb as unknown as SqliteDriver);
-          schema.runMigrations(_testDb as unknown as SqliteDriver);
         }
         return _testDb;
       },
@@ -47,6 +42,14 @@ import {
   listProjectKnowledgeSources,
   upsertProjectKnowledgeSource,
 } from '../../../main/persistence/rlm/rlm-project-knowledge';
+import { useSqliteTemplate } from '../../../main/db/sqlite-template.test-helpers';
+
+const rlmTemplate = useSqliteTemplate((db) => {
+  db.pragma('foreign_keys = ON');
+  createTables(db);
+  createMigrationsTable(db);
+  runMigrations(db);
+});
 
 const mockedFs = vi.mocked(fs);
 

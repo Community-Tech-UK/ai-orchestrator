@@ -118,6 +118,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
         forkAfterMessageId: validated.forkAfterMessageId,
         displayName: validated.displayName,
         initialPrompt: validated.initialPrompt,
+        initialPromptOrigin: validated.initialPromptOrigin,
         attachments: validated.attachments?.map((attachment) => ({
           ...attachment,
           data: attachment.data ?? '',

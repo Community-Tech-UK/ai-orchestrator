@@ -1,18 +1,21 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { defaultDriverFactory } from '../../../main/db/better-sqlite3-driver';
 import type { SqliteDriver } from '../../../main/db/sqlite-driver';
 import * as verbatimStore from '../../../main/persistence/rlm/rlm-verbatim';
 import { createTables, createMigrationsTable, runMigrations } from '../../../main/persistence/rlm/rlm-schema';
+import { useSqliteTemplate } from '../../../main/db/sqlite-template.test-helpers';
 
 describe('rlm-verbatim persistence', () => {
-  let db: SqliteDriver;
-
-  beforeEach(() => {
-    db = defaultDriverFactory(':memory:');
+  const rlmTemplate = useSqliteTemplate((db) => {
     db.pragma('foreign_keys = ON');
     createTables(db);
     createMigrationsTable(db);
     runMigrations(db);
+  });
+  let db: SqliteDriver;
+
+  beforeEach(() => {
+    db = rlmTemplate.open();
+    db.pragma('foreign_keys = ON');
   });
 
   afterEach(() => {

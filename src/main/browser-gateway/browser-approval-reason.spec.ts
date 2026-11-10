@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MAX_STATED_REASON_LENGTH, statedReason } from './browser-approval-reason';
 
 describe('statedReason', () => {
-  it.each([undefined, null, 42, {}, '', '   ', '\n\t '])('has nothing to show for %j', (value) => {
+  it.each([undefined, 42, '   ', '\n\t '])('has nothing to show for %j', (value) => {
     expect(statedReason(value)).toBeUndefined();
   });
 

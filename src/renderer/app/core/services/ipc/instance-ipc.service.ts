@@ -84,6 +84,8 @@ export interface CreateInstanceWithMessageConfig {
 
   /** Stable per-submission key; a retry with the same key is deduplicated. */
   idempotencyKey?: string;
+  /** Set only when a person typed `message` (see PersonInputOrigin). */
+  origin?: PersonInputOrigin;
 }
 
 export interface PersistedQueuedMessage {

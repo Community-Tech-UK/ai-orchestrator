@@ -3,7 +3,6 @@
   [class.layout-standard]="activeSurface().layout === 'standard'"
   [class.layout-wide]="activeSurface().layout === 'wide'"
   [class.layout-fullBleed]="activeSurface().layout === 'fullBleed'"
-  [class.no-nav]="!showControlNav()"
   [class.nav-collapsed]="controlNavCollapsed()"
 >
   <header class="control-header">
@@ -25,78 +24,76 @@
   </header>
 
   <div class="control-body">
-    @if (showControlNav()) {
-      <aside id="control-center-navigation" class="control-nav" aria-label="Control Center navigation">
-        <button
-          class="control-nav-toggle"
-          type="button"
-          (click)="toggleControlNav()"
-          aria-controls="control-center-navigation"
-          [attr.aria-expanded]="!controlNavCollapsed()"
-          [appIconButton]="controlNavCollapsed() ? 'Expand navigation' : 'Collapse navigation'"
-          [appTooltipShowWhenExpanded]="true"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
-        @if (!controlNavCollapsed()) {
-          <div class="control-nav-search">
-            <input
-              #navSearchInput
-              class="control-nav-search-input"
-              type="search"
-              placeholder="Find a page or setting…"
-              aria-label="Search pages and settings"
-              [value]="navQuery()"
-              (input)="onNavSearch($event)"
-              (keydown.enter)="openFirstNavResult($event)"
-              (keydown.escape)="onNavSearchEscape($event)"
-            />
-          </div>
-        }
-        @if (navResults(); as resultGroups) {
-          @for (group of resultGroups; track group.id) {
-            <section class="control-nav-group">
-              <h2>{{ group.label }}</h2>
-              @for (result of group.results; track result.id) {
-                <a
-                  class="control-nav-item control-nav-result"
-                  [routerLink]="result.path"
-                  [queryParams]="result.queryParams"
-                  [fragment]="result.fragment"
-                  (click)="onNavResultChosen()"
-                >
-                  <svg class="control-nav-icon" viewBox="0 0 24 24" aria-hidden="true" [innerHTML]="result.icon | controlSurfaceIcon"></svg>
-                  <span class="control-nav-result-text">
-                    {{ result.label }}
-                    @if (result.section) { <small>{{ result.section }}</small> }
-                  </span>
-                </a>
-              }
-            </section>
-          } @empty {
-            <p class="control-nav-empty" role="status">Nothing matches “{{ navQuery().trim() }}”.</p>
-          }
-        } @else {
-          <section class="control-nav-group control-nav-hubs">
-            @for (hub of hubs(); track hub.id) {
+    <aside id="control-center-navigation" class="control-nav" aria-label="Control Center navigation">
+      <button
+        class="control-nav-toggle"
+        type="button"
+        (click)="toggleControlNav()"
+        aria-controls="control-center-navigation"
+        [attr.aria-expanded]="!controlNavCollapsed()"
+        [appIconButton]="controlNavCollapsed() ? 'Expand navigation' : 'Collapse navigation'"
+        [appTooltipShowWhenExpanded]="true"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M15 18l-6-6 6-6" />
+        </svg>
+      </button>
+      @if (!controlNavCollapsed()) {
+        <div class="control-nav-search">
+          <input
+            #navSearchInput
+            class="control-nav-search-input"
+            type="search"
+            placeholder="Find a page or setting…"
+            aria-label="Search pages and settings"
+            [value]="navQuery()"
+            (input)="onNavSearch($event)"
+            (keydown.enter)="openFirstNavResult($event)"
+            (keydown.escape)="onNavSearchEscape($event)"
+          />
+        </div>
+      }
+      @if (navResults(); as resultGroups) {
+        @for (group of resultGroups; track group.id) {
+          <section class="control-nav-group">
+            <h2>{{ group.label }}</h2>
+            @for (result of group.results; track result.id) {
               <a
-                class="control-nav-item"
-                [routerLink]="hub.path"
-                [class.active]="activeHub()?.id === hub.id"
-                [attr.aria-current]="activeHub()?.id === hub.id ? 'true' : null"
-                [appTooltip]="hub.summary"
-                [attr.aria-label]="hub.label"
+                class="control-nav-item control-nav-result"
+                [routerLink]="result.path"
+                [queryParams]="result.queryParams"
+                [fragment]="result.fragment"
+                (click)="onNavResultChosen()"
               >
-                <svg class="control-nav-icon" viewBox="0 0 24 24" aria-hidden="true" [innerHTML]="hub.icon | controlSurfaceIcon"></svg>
-                <span>{{ hub.label }}</span>
+                <svg class="control-nav-icon" viewBox="0 0 24 24" aria-hidden="true" [innerHTML]="result.icon | controlSurfaceIcon"></svg>
+                <span class="control-nav-result-text">
+                  {{ result.label }}
+                  @if (result.section) { <small>{{ result.section }}</small> }
+                </span>
               </a>
             }
           </section>
+        } @empty {
+          <p class="control-nav-empty" role="status">Nothing matches “{{ navQuery().trim() }}”.</p>
         }
-      </aside>
-    }
+      } @else {
+        <section class="control-nav-group control-nav-hubs">
+          @for (hub of hubs(); track hub.id) {
+            <a
+              class="control-nav-item"
+              [routerLink]="hub.path"
+              [class.active]="activeHub()?.id === hub.id"
+              [attr.aria-current]="activeHub()?.id === hub.id ? 'true' : null"
+              [appTooltip]="hub.summary"
+              [attr.aria-label]="hub.label"
+            >
+              <svg class="control-nav-icon" viewBox="0 0 24 24" aria-hidden="true" [innerHTML]="hub.icon | controlSurfaceIcon"></svg>
+              <span>{{ hub.label }}</span>
+            </a>
+          }
+        </section>
+      }
+    </aside>
 
     <div class="control-workspace">
       @if (activeHub(); as hub) {

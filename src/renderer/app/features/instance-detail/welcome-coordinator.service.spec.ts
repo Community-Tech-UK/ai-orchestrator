@@ -194,6 +194,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       reasoningEffort: 'high',
       launchMode: 'orchestrated',
       forceNodeId: undefined,
+      typedByPerson: true,
     });
     expect(orchestration.workflowCanTransition).toHaveBeenCalledWith({
       instanceId: 'inst-new',
@@ -270,6 +271,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       reasoningEffort: 'high',
       launchMode: 'interactive',
       forceNodeId: undefined,
+      typedByPerson: true,
     });
   });
 
@@ -411,6 +413,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       modelRuntimeTarget,
       launchMode: undefined,
       forceNodeId: 'node-1',
+      typedByPerson: true,
     });
   });
 
@@ -437,6 +440,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
       reasoningEffort: 'high',
       launchMode: 'orchestrated',
       forceNodeId: undefined,
+      typedByPerson: true,
     });
   });
 

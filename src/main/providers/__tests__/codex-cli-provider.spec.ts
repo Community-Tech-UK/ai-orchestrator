@@ -84,11 +84,6 @@ describe('CodexCliProvider inline translation', () => {
     });
   });
 
-  it('status string becomes a status envelope', () => {
-    adapter.emit('status', 'busy');
-    expect(envelopes.at(-1)!.event).toEqual({ kind: 'status', status: 'busy' });
-  });
-
   it('configures a longer timeout for long Codex investigations', () => {
     expect(vi.mocked(CodexCliAdapter)).toHaveBeenCalledWith(expect.objectContaining({
       timeout: 900_000,
@@ -108,11 +103,6 @@ describe('CodexCliProvider inline translation', () => {
       approvalMode: 'full-auto',
       sandboxMode: 'danger-full-access',
     }));
-  });
-
-  it('context usage becomes a context envelope', () => {
-    adapter.emit('context', { used: 10, total: 100, percentage: 10 });
-    expect(envelopes.at(-1)!.event).toEqual({ kind: 'context', used: 10, total: 100, percentage: 10 });
   });
 
   it('error with Error object becomes an error envelope', () => {

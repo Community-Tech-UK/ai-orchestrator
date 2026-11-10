@@ -34,7 +34,7 @@ import {
 import { LoopPhase4ConfigSchema } from './loop-phase4.schemas';
 import { LoopAutoUnstickStateSchema } from './loop-auto-unstick.schemas';
 import { LoopActivityKindSchema } from './loop-activity.schemas';
-import { RequiredModelIdSchema } from './common.schemas';
+import { PersonInputOriginSchema, RequiredModelIdSchema } from './common.schemas';
 export * from './loop-audit.schemas';
 export * from './loop-phase4.schemas';
 export * from './loop-auto-unstick.schemas';
@@ -798,11 +798,10 @@ export const LoopAttachmentSchema = z.object({
 export const LoopStartPayloadSchema = z.object({
   chatId: z.string().min(1),
   config: LoopConfigInputSchema,
-  /** Optional attachments. The coordinator copies these into
-   *  `<workspaceCwd>/.aio-loop-attachments/<loopRunId>/` and prepends the
-   *  loop's initialPrompt with their relative paths so each iteration's
-   *  CLI can read them via its workspace tools. */
+  /** Optional attachments, copied into `<workspaceCwd>/.aio-loop-attachments/<loopRunId>/` and listed at the
+   *  start of the loop's initialPrompt so each iteration's CLI can read them via its workspace tools. */
   attachments: z.array(LoopAttachmentSchema).optional(),
+  origin: PersonInputOriginSchema.optional(), // a person typed the goal; never /goal, automations or Harness hints
 });
 
 export const LoopByIdPayloadSchema = z.object({
@@ -815,6 +814,7 @@ export const LoopInterveneePayloadSchema = z.object({
   kind: LoopPendingInputKindSchema.optional(),
   /** Task 18: drain policy for a `follow-up` message (absent = `all`). */
   drainMode: LoopQueueDrainModeSchema.optional(),
+  origin: PersonInputOriginSchema.optional(), // a person typed the hint; never a steer built from findings
 });
 
 export const LoopListByChatPayloadSchema = z.object({

@@ -39,6 +39,7 @@ import {
 } from './runtime-change-preview.controller';
 import { CompactionPreviewDialogComponent } from './compaction-preview-dialog.component';
 import { InstanceStore, type InstanceProvider, type OutputMessage } from '../../core/state/instance.store';
+import { typedOrigin } from '../../core/state/instance/instance-messaging-queue-utils';
 import { HistoryStore } from '../../core/state/history.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { IpcFacadeService, RecentDirectoriesIpcService } from '../../core/services/ipc';
@@ -111,6 +112,15 @@ interface HistoryPreviewView {
   messages: OutputMessage[];
   restoring: boolean;
   error: string | null;
+}
+
+/**
+ * A loop goal counts as typed by a person only when it came from the message box.
+ * With an empty box the goal is the loop panel's prompt, which can be Harness's
+ * default or a copy of an earlier run's goal.
+ */
+function loopGoalTyped(firstMessage: string): { typedByPerson: boolean } {
+  return { typedByPerson: firstMessage.trim().length > 0 };
 }
 
 interface ResendEditedEvent {
@@ -823,7 +833,7 @@ export class InstanceDetailComponent {
         return;
       }
 
-      const r = await this.loopStore.start(instanceId, payload.config, payload.attachments);
+      const r = await this.loopStore.start(instanceId, payload.config, payload.attachments, loopGoalTyped(payload.firstMessage));
       if (!r.ok) {
         const msg = r.error ?? 'unknown error';
         // WS8: plan-scope refusals route to the Campaign import flow.
@@ -899,7 +909,8 @@ export class InstanceDetailComponent {
     // inside the fork's background init (right after CLI spawns). Sending via
     // a separate IPC after fork raced the renderer's status-gated queue: the
     // queue would drain before the new instance reached 'idle', and the
-    // message would silently land nowhere.
+    // message would silently land nowhere. Main keeps the typed mark only when the
+    // message being edited was itself typed by a person.
     const result = await this.ipc.forkSession(
       instanceId,
       event.messageIndex,
@@ -911,6 +922,7 @@ export class InstanceDetailComponent {
         attachments: event.attachments,
         preserveRuntimeSettings: true,
         supersedeSource: true,
+        initialPromptOrigin: typedOrigin(true),
       },
     );
 
@@ -1265,7 +1277,7 @@ export class InstanceDetailComponent {
       const directiveForHistory = config.iterationPrompt ?? config.initialPrompt;
       const inst = this.store.selectedInstance();
       if (inst) {
-        const r = await this.loopStore.start(inst.id, config, attachments);
+        const r = await this.loopStore.start(inst.id, config, attachments, loopGoalTyped(firstMessage));
         if (r.ok) {
           this.loopPromptHistory.remember(directiveForHistory);
           onResolved(true);
@@ -1282,7 +1294,7 @@ export class InstanceDetailComponent {
         config,
         (creating) => this.isCreatingInstance.set(creating),
         async (newChatId, loopConfig) => {
-          const r = await this.loopStore.start(newChatId, loopConfig, attachments);
+          const r = await this.loopStore.start(newChatId, loopConfig, attachments, loopGoalTyped(firstMessage));
           if (!r.ok) lastStartError = r.error;
           return r;
         },

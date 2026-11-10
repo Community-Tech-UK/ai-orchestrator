@@ -10,7 +10,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeTokenCost } from '../../shared/data/model-pricing';
 import type { UsageCauseId, UsageInsightReport, UsageInsightResponse } from '../../shared/usage-insight/usage-insight.types';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { ClaudeTranscriptScanner } from './claude-transcript-usage-scanner';
@@ -23,6 +22,7 @@ import {
 import { UsageAttributionReader } from './usage-attribution-reader';
 import { createCostLogSessionLinks } from './usage-insight-runtime';
 import { UsageInsightService } from './usage-insight-service';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const NOW = Date.parse('2026-10-20T12:00:00Z');
 const MINUTE = 60_000;
@@ -57,6 +57,11 @@ const T = [
 ] as const;
 
 describe('Where your usage went, end to end', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   let home: string;
   let logs: string;
   let db: SqliteDriver;
@@ -64,10 +69,7 @@ describe('Where your usage went, end to end', () => {
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), 'usage-e2e-home-'));
     logs = mkdtempSync(join(tmpdir(), 'usage-e2e-logs-'));
-    db = defaultDriverFactory(':memory:');
-    createTables(db);
-    createMigrationsTable(db);
-    runMigrations(db);
+    db = rlmTemplate.open();
     arrange();
   });
   afterEach(() => {

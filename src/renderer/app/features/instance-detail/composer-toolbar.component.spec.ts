@@ -380,6 +380,18 @@ describe('ComposerToolbarComponent', () => {
     );
   });
 
+  it('leaves an account-only move to the account chip instead of a "default model" chip', () => {
+    const w = component as unknown as Record<string, unknown>;
+    w['desiredRuntime'] = () => ({ provider: 'claude', accountProfileId: 'max-b', accountHandoffConfirmed: true });
+    expect(component.desiredRuntimeLabel()).toBeNull();
+  });
+
+  it('still labels a model change queued together with an account move', () => {
+    const w = component as unknown as Record<string, unknown>;
+    w['desiredRuntime'] = () => ({ provider: 'claude', accountProfileId: 'max-b', model: 'sonnet' });
+    expect(component.desiredRuntimeLabel()).toBe('Claude · sonnet');
+  });
+
   it('exposes Local Models in the live picker for runtime-target switching', () => {
     expect(component.pickerProviders).toContain('local-model');
   });

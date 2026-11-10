@@ -19,6 +19,7 @@ import { integrationOwnershipRef, promoteIntegrationBranch } from '../workspace/
 import { createDocumentOverlapResolver, recoverDocumentMergeForItem, recoverInterruptedDocumentMerges } from './plan-queue-doc-merge';
 import { newPlanQueueItem } from './plan-queue-state';
 import type { PlanQueueStore } from './plan-queue-store';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
 // Real git and a real `npm run` per landing: give the file the budget the other real-git specs use.
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
@@ -88,12 +89,18 @@ function recoveryStore() {
   } as unknown as Pick<PlanQueueStore, 'listWorkspaceRoots' | 'getItem' | 'getRun' | 'upsertItem'>;
 }
 
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate((dir) => {
+  repo = dir;
+  git(['init', '-q', '-b', 'main']);
+  git(['config', 'user.name', 'Queue Test']); git(['config', 'user.email', 'queue@example.invalid']); git(['config', 'commit.gpgsign', 'false']);
+});
+
 beforeEach(async () => {
   hook.beforeManifest = null;
   GitWriteQueue._resetForTesting();
   repo = await mkdtemp(join(tmpdir(), 'queue-generated-'));
-  git(['init', '-q', '-b', 'main']);
-  git(['config', 'user.name', 'Queue Test']); git(['config', 'user.email', 'queue@example.invalid']); git(['config', 'commit.gpgsign', 'false']);
+  baseRepository.copyTo(repo);
 });
 afterEach(async () => { await rm(repo, { recursive: true, force: true }); GitWriteQueue._resetForTesting(); });
 

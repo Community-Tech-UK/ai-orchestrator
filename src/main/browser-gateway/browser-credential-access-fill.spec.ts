@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserPermissionGrant } from '@contracts/types/browser';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { BrowserApprovalStore } from './browser-approval-store';
 import { BrowserCredentialAccessService } from './browser-credential-access-service';
@@ -16,6 +15,7 @@ import {
   resolveCredentialAccessSession,
   setCredentialAccessSessionResolver,
 } from './browser-credential-access-session';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 // The test browser is makeService's isolated driver; its trusted registry
 // boundary mirrors that driver's exact target and computer identity.
@@ -33,6 +33,11 @@ vi.mock('../remote-node/remote-node-roster-service', async (importOriginal) => (
   getRemoteNodeRosterService: () => ({ get: () => ({ connected: computer.connected, status: computer.connected ? 'connected' : 'disconnected' }) }),
 }));
 
+const rlmTemplate = useSqliteTemplate((db) => {
+  createTables(db);
+  createMigrationsTable(db);
+  runMigrations(db);
+});
 const closers: (() => void)[] = [];
 afterEach(() => {
   closers.splice(0).forEach((close) => close());
@@ -52,8 +57,7 @@ function harness() {
     (id) => [primary, other, ...copies].find((session) => session.instanceId === id),
     () => [primary, other, ...copies],
   );
-  const db = defaultDriverFactory(':memory:');
-  createTables(db); createMigrationsTable(db); runMigrations(db);
+  const db = rlmTemplate.open();
   closers.push(() => db.close());
   const store = new BrowserApprovalStore(db);
   const authorizations = new CredentialAuthorizationService(new InMemoryCredentialAuthorizationStore(), () => now);

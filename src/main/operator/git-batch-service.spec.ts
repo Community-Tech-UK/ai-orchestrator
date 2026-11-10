@@ -49,9 +49,28 @@ describe('GitBatchService', () => {
         stderrBytes: expect.any(Number),
         durationMs: expect.any(Number),
       }),
+      // The pull: a bare fetch, its upstream by name, then a fast-forward that refuses to replace ignored files.
       expect.objectContaining({
         cmd: 'git',
-        args: ['pull', '--ff-only'],
+        args: ['fetch'],
+        cwd: clone,
+        exitCode: 0,
+        stdoutBytes: expect.any(Number),
+        stderrBytes: expect.any(Number),
+        durationMs: expect.any(Number),
+      }),
+      expect.objectContaining({
+        cmd: 'git',
+        args: ['fetch', '--write-fetch-head', '--end-of-options', 'origin', 'refs/heads/main'],
+        cwd: clone,
+        exitCode: 0,
+        stdoutBytes: expect.any(Number),
+        stderrBytes: expect.any(Number),
+        durationMs: expect.any(Number),
+      }),
+      expect.objectContaining({
+        cmd: 'git',
+        args: ['merge', '--ff-only', '--no-overwrite-ignore', 'FETCH_HEAD'],
         cwd: clone,
         exitCode: 0,
         stdoutBytes: expect.any(Number),
@@ -59,6 +78,27 @@ describe('GitBatchService', () => {
         durationMs: expect.any(Number),
       }),
     ]);
+  }, GIT_INTEGRATION_TIMEOUT_MS);
+
+  it('reports a repository as failed rather than replace a file Git ignores', async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'git-batch-ignored-'));
+    tempPaths.push(workspace);
+    const { seed, clone } = setupTrackingRepo(workspace);
+    await fs.writeFile(path.join(seed, 'feature.txt'), 'feature\n', 'utf-8');
+    git(seed, ['add', 'feature.txt']);
+    git(seed, ['commit', '-m', 'feature']);
+    git(seed, ['push']);
+    await fs.writeFile(path.join(clone, '.git', 'info', 'exclude'), 'feature.txt\n', 'utf-8');
+    await fs.writeFile(path.join(clone, 'feature.txt'), 'mine\n', 'utf-8');
+
+    const result = await new GitBatchService().pullAll(workspace, { concurrency: 2 });
+
+    expect(result.results[0]).toMatchObject({
+      repositoryPath: clone,
+      status: 'failed',
+      error: expect.stringContaining('would be overwritten by merge'),
+    });
+    expect(await fs.readFile(path.join(clone, 'feature.txt'), 'utf-8')).toBe('mine\n');
   }, GIT_INTEGRATION_TIMEOUT_MS);
 
   it('skips dirty and no-remote repositories', async () => {

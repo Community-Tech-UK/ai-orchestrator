@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createInstanceWithMessage, logCreateWithMessageReceived } from './instance-create-with-message';
 import type { SubsystemLogger } from '../../logging/logger';
+import { InstanceCreateWithMessagePayloadSchema } from '@contracts/schemas/instance';
 
 function makeLogger() {
   const info = vi.fn();
@@ -104,6 +105,25 @@ describe('createInstanceWithMessage', () => {
     // prompt with no screenshots attached.
     expect(args.initialOutputBuffer).toHaveLength(1);
     expect(args.initialOutputBuffer[0].attachments).toEqual(attachments);
+  });
+
+  it('marks the first message as typed by a person only when the composer says so', async () => {
+    const manager = makeManager();
+    const typedAt = Date.now() - 1_000;
+
+    await createInstanceWithMessage(manager, { message: 'typed [session: Other · other]', origin: { kind: 'person', typedAt } }, '/repo', undefined);
+    await createInstanceWithMessage(manager, { message: 'not typed [session: Other · other]' }, '/repo', undefined);
+
+    const calls = (manager as unknown as { createInstance: ReturnType<typeof vi.fn> }).createInstance.mock.calls;
+    expect(calls[0][0].initialOutputBuffer[0].metadata).toEqual({ inputOrigin: { kind: 'person', typedAt } });
+    expect(calls[1][0].initialOutputBuffer[0].metadata).toBeUndefined();
+  });
+
+  it('accepts only a well-formed typed marker at the boundary', () => {
+    const base = { workingDirectory: '/repo', message: 'hi' };
+    expect(InstanceCreateWithMessagePayloadSchema.safeParse({ ...base, origin: { kind: 'person', typedAt: 5 } }).success).toBe(true);
+    expect(InstanceCreateWithMessagePayloadSchema.safeParse({ ...base, origin: { kind: 'harness', typedAt: 5 } }).success).toBe(false);
+    expect(InstanceCreateWithMessagePayloadSchema.safeParse({ ...base, origin: { kind: 'person', typedAt: 5, extra: true } }).success).toBe(false);
   });
 
   it('forwards a per-session fence-off choice', async () => {

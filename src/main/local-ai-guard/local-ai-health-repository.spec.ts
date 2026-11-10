@@ -1460,12 +1460,15 @@ describe('LocalAiHealthRepository', () => {
     const db = openDb();
     const repository = new LocalAiHealthRepository(db);
     const now = 100 * dayMs;
-    for (let index = 0; index < 10_001; index += 1) {
-      repository.appendRoutingEvent(event(`bulk-${String(index).padStart(5, '0')}`, now - 1, {
-        knownCostUsd: 1,
-        estimatedCostUsd: 0.5,
-      }));
-    }
+    // One transaction for the seed rows; summarize() reads them the same way.
+    db.transaction(() => {
+      for (let index = 0; index < 10_001; index += 1) {
+        repository.appendRoutingEvent(event(`bulk-${String(index).padStart(5, '0')}`, now - 1, {
+          knownCostUsd: 1,
+          estimatedCostUsd: 0.5,
+        }));
+      }
+    })();
 
     expect(repository.summarize('24h', now)).toMatchObject({
       proposedFallbacks: 10_001,

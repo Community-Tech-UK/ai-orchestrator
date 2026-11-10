@@ -180,6 +180,17 @@ describe('selectAcpPermissionOutcome typed replies', () => {
     expect(selectAcpPermissionOutcome(advertised, 'contradictory-label')).toEqual(selected('contradictory-label'));
   });
 
+  // The table's "Allow once" row collides with the shared "Allow once" control and stops at the
+  // duplicate-label check; without that control the label is unique and must still be refused.
+  it('never grants a lasting option from its own one-time label', () => {
+    const advertised: AcpPermissionOption[] = [
+      { optionId: 'contradictory-label', name: 'Allow once', kind: 'allow_always' },
+      ...options.filter(option => option.name !== 'Allow once'),
+    ];
+    expect(selectAcpPermissionOutcome(advertised, 'Allow once')).toEqual(selected('reject-once'));
+    expect(selectAcpPermissionOutcome(advertised, 'contradictory-label')).toEqual(selected('contradictory-label'));
+  });
+
   it('preserves an affirmative label and a separate advertised explanation choice', () => {
     const advertised: AcpPermissionOption[] = [
       { optionId: 'first', name: 'Allow this first', kind: 'allow_once' },

@@ -6,7 +6,6 @@ import type {
   BrowserTarget,
 } from '@contracts/types/browser';
 import { BrowserRequestGrantRequestSchema } from '@contracts/schemas/browser';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { BrowserApprovalStore } from './browser-approval-store';
@@ -17,6 +16,7 @@ import { BrowserGatewayActionGuard, type BrowserGatewayActionGuardOptions } from
 import { BrowserManualHandoffOperations } from './browser-manual-handoff-operations';
 import type { BrowserExistingTabAttachment } from './browser-extension-tab-store';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 /**
  * The agent's stated reason, from the tool call to the person who decides:
@@ -25,6 +25,11 @@ import type { BrowserGatewayResultInput } from './browser-gateway-result';
  * database is real; only the browser itself is faked.
  */
 
+const rlmTemplate = useSqliteTemplate((db) => {
+  createTables(db);
+  createMigrationsTable(db);
+  runMigrations(db);
+});
 const dbs: SqliteDriver[] = [];
 afterEach(() => { for (const db of dbs.splice(0)) db.close(); });
 
@@ -33,11 +38,8 @@ const result = <T>(value: BrowserGatewayResultInput<T>): BrowserGatewayResult<T>
   ({ ...value, auditId: 'audit' }) as BrowserGatewayResult<T>;
 
 function database(): { db: SqliteDriver; store: BrowserApprovalStore } {
-  const db = defaultDriverFactory(':memory:');
+  const db = rlmTemplate.open();
   dbs.push(db);
-  createTables(db);
-  createMigrationsTable(db);
-  runMigrations(db);
   return { db, store: new BrowserApprovalStore(db) };
 }
 

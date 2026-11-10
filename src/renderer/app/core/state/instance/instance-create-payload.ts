@@ -1,6 +1,7 @@
 import type { CreateInstanceWithMessageConfig } from '../../services/ipc/instance-ipc.service';
 import type { InstanceAttachment } from './instance-attachments';
 import type { CreateInstanceWithMessageOptions } from './instance-list.store';
+import { typedOrigin } from './instance-messaging-queue-utils';
 
 /**
  * Assemble the `INSTANCE_CREATE_WITH_MESSAGE` payload.
@@ -43,5 +44,6 @@ export function buildCreateWithMessagePayload(
     ...(options.accountProfileId ? { accountProfileId: options.accountProfileId } : {}),
     forceNodeId: options.forceNodeId,
     ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
+    ...(options.typedByPerson ? { origin: typedOrigin(true) } : {}),
   };
 }

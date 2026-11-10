@@ -127,6 +127,37 @@ describe('Microsoft 365 connector approvals', () => {
   });
 });
 
+describe('Microsoft 365 draft deletion approval', () => {
+  it('shows the draft subject and recipients and says it goes to Deleted Items', () => {
+    const approval = buildConnectorMutationApproval('m365-example', 'account', 'graph_mail_delete_draft', {
+      messageId: 'draft-1', subject: 'Old\nversion',
+      toRecipients: [{ emailAddress: { address: 'to@example.test' } }],
+      ccRecipients: [{ emailAddress: { address: 'cc@example.test' } }],
+    });
+    expect(approval.description).toBe(
+      'Allow deleting a draft through m365-example, subject Old version, to to@example.test, cc cc@example.test? This moves the draft to Deleted Items.',
+    );
+    expect(approval.details).toMatchObject({ subject: 'Old version', to: 'to@example.test', cc: 'cc@example.test', messageId: 'draft-1' });
+  });
+
+  it('offers "Always allow" for deleting drafts in the account', async () => {
+    const asked: PermissionRequest[] = [];
+    const registry = {
+      requestPermission: vi.fn(async (permission: PermissionRequest): Promise<PermissionDecision> => {
+        asked.push(permission);
+        return { requestId: permission.id, granted: true, decidedBy: 'user', decidedAt: 1, always: true };
+      }),
+      listPending: vi.fn(() => []),
+      resolve: vi.fn(),
+    };
+    const standing = { accountEmail: vi.fn(() => 'person@example.test'), isAlwaysAllowed: vi.fn(() => false), allowAlways: vi.fn() };
+    await expect(authorizeConnectorMutation(registry, standing, 'session',
+      { accountKey: 'account', toolName: 'graph_mail_delete_draft', args: { messageId: 'draft-1' }, connectorName: 'm365-example' })).resolves.toBe(true);
+    expect(asked[0].alwaysAllowCovers).toContain('before it deletes drafts in person@example.test');
+    expect(standing.allowAlways).toHaveBeenCalledWith('account', 'graph_mail_delete_draft');
+  });
+});
+
 describe('Microsoft 365 "Always allow"', () => {
   const request = { accountKey: 'account', toolName: 'graph_mail_send', args: { messageId: 'draft' }, connectorName: 'm365-example' };
   function setup(decision: Partial<PermissionDecision>, alreadyAllowed = false) {

@@ -1,6 +1,5 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { AutomationStore } from './automation-store';
@@ -16,6 +15,7 @@ import { getDefaultAgent } from '../../shared/types/agent.types';
 import { buildInstanceRecord } from '../instance/lifecycle/instance-create-builder';
 import { resolveSpawnReasoningEffort } from '../instance/lifecycle/reasoning-effort-resolution';
 import type { InstanceManager } from '../instance/instance-manager';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const settings = vi.hoisted(() => ({ automationDefaultCli: 'claude' as const, automationDefaultModel: 'sonnet', modelPickerFavorites: ['claude:sonnet'] }));
 vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => ({ getAll: () => settings }) }));
@@ -26,13 +26,18 @@ vi.mock('../channels/channel-manager', () => ({ getChannelManager: () => ({ getA
 
 const NOW = Date.UTC(2026, 9, 20, 12);
 describe('automation caller authority through MCP, persistence and real spawn defaults', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   let db: SqliteDriver;
   let store: AutomationStore;
   let caller: AutomationCallerAuthority | undefined;
   beforeEach(() => {
     vi.useFakeTimers(); vi.setSystemTime(NOW);
     settings.automationDefaultModel = 'sonnet'; settings.modelPickerFavorites = ['claude:sonnet'];
-    db = defaultDriverFactory(':memory:'); createTables(db); createMigrationsTable(db); runMigrations(db);
+    db = rlmTemplate.open();
     store = new AutomationStore(db, { prepare: async () => [], replacePrepared: () => undefined, listForAutomation: async () => [] } as unknown as AutomationAttachmentService);
     caller = { provider: 'claude', currentModel: 'sonnet', reasoningEffort: 'low', yoloMode: false };
     resetAutomationEventsForTesting();

@@ -72,6 +72,7 @@ export type {
   MobileRenameRequest,
   MobileRespondRequest,
   MobileServerEvent,
+  MobileSessionAccountPlan,
   MobileSessionPlan,
   MobileSnapshot,
   MobileUserActionRequestType,

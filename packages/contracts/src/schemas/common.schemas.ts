@@ -18,6 +18,9 @@ export const FileAttachmentSchema = z.object({
   data: z.string().optional(), // Base64 encoded
 });
 
+/** Words a person typed or spoke themselves; never set for text built from an agent's words (see PersonInputOrigin). */
+export const PersonInputOriginSchema = z.object({ kind: z.literal('person'), typedAt: z.number().int().positive() }).strict();
+
 /**
  * Validate an IPC payload against a schema.
  * Returns the validated data or throws a descriptive error.

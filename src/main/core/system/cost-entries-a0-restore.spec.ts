@@ -2,7 +2,6 @@ import { beforeEach, afterEach, describe, it, expect } from 'vitest';
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { defaultDriverFactory } from '../../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../../persistence/rlm/rlm-schema';
 import { costProviderKey, repairCostEntriesA0 } from './cost-entries-a0-repair';
@@ -19,12 +18,18 @@ import {
   restoreStoredCostEntriesA0Backup,
   rollbackCostEntriesA0Restore,
 } from './cost-entries-a0-restore';
+import { useSqliteTemplate } from '../../db/sqlite-template.test-helpers';
 
 // Isolated LT-707 fixtures: the pre-Phase-A repair (two-argument
 // repairCostEntriesA0 with the migration-clock cutoff) reproduces the audited
 // damage — valid post-boundary per-turn rows differenced into smaller costs —
 // entirely in memory, never against a real database.
 describe('LT-707 cost history restoration', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   let db: SqliteDriver;
   const providers = new Map([
     [costProviderKey('reseller', 'claude-opus-5'), 'copilot'],
@@ -43,8 +48,7 @@ describe('LT-707 cost history restoration', () => {
     db.prepare('SELECT name FROM maintenance_markers WHERE name=?').get(name);
 
   beforeEach(() => {
-    db = defaultDriverFactory(':memory:');
-    createTables(db); createMigrationsTable(db); runMigrations(db);
+    db = rlmTemplate.open();
     db.prepare("UPDATE maintenance_markers SET completed_at=1000 WHERE name='a0-per-turn-booking-live'").run();
   });
   afterEach(() => db.close());

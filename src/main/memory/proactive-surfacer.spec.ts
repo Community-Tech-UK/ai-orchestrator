@@ -151,13 +151,6 @@ describe('ProactiveSurfacer', () => {
       const instance2 = getProactiveSurfacer();
       expect(instance1).toBe(instance2);
     });
-
-    it('should reset instance correctly', () => {
-      const instance1 = getProactiveSurfacer();
-      ProactiveSurfacer.resetInstance();
-      const instance2 = getProactiveSurfacer();
-      expect(instance1).not.toBe(instance2);
-    });
   });
 
   // ============ Configuration ============

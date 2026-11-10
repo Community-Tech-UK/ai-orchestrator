@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { machineSessionReasonOf, machineSessionReasonForOrigin } from './machine-session';
+import { COPILOT_AUTOMATIC_ORIGINS } from '../types/copilot-account.types';
+import { MACHINE_SESSION_REASONS, machineSessionReasonOf, machineSessionReasonForOrigin } from './machine-session';
 describe('machine session identity',()=>{
   it('keeps manual/channel sessions interactive and honors queue/reviewer priority',()=>{
     expect(machineSessionReasonOf({metadata:{spendPurpose:'channel'}})).toBeNull();expect(machineSessionReasonForOrigin('interactive')).toBeNull();
@@ -10,15 +11,13 @@ describe('machine session identity',()=>{
 });
 
 describe('machineSessionReasonForOrigin', () => {
-  it.each(['automation', 'review', 'verification', 'loop', 'workflow', 'consensus', 'failover', 'internal'] as const)(
-    'maps automatic origin %s to itself',
-    (origin) => {
-      expect(machineSessionReasonForOrigin(origin)).toBe(origin);
-    },
-  );
-
-  it("maps 'interactive' to null", () => {
-    expect(machineSessionReasonForOrigin('interactive')).toBeNull();
+  // One branch: every automatic origin maps to itself. Which origins are automatic is
+  // pinned by copilot-account-automation.spec.ts; here each must also be a known reason.
+  it('maps every automatic origin to itself, a known machine-session reason', () => {
+    for (const origin of COPILOT_AUTOMATIC_ORIGINS) {
+      expect(machineSessionReasonForOrigin(origin), origin).toBe(origin);
+      expect(MACHINE_SESSION_REASONS, origin).toContain(origin);
+    }
   });
 });
 

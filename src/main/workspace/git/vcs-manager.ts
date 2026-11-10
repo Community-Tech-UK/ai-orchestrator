@@ -9,6 +9,7 @@ import { execFile, execFileSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { promisify } from 'util';
+import { fastForwardPullCommands } from './ignored-file-guard';
 
 // ============================================
 // Types
@@ -1022,15 +1023,44 @@ export class VcsManager {
     });
   }
 
+  /**
+   * `git pull --ff-only`, as a fetch and then a fast-forward, because `git pull` cannot refuse
+   * to replace files Git ignores where incoming files go. Without an explicit remote and branch
+   * it pulls the current branch's upstream, read from the same settings `git pull` reads.
+   */
   async pullFastForward(options: GitPullFastForwardOptions = {}): Promise<GitCommandResult> {
-    const args = ['pull', '--ff-only'];
-    if (options.remote && options.branch) {
-      args.push(options.remote, options.branch);
+    // One time limit for the whole pull, as when it was a single `git pull`.
+    const deadline = Date.now() + (options.timeoutMs ?? 60000);
+    const results: GitCommandResult[] = [];
+    const run = async (args: string[]) => {
+      results.push(await this.execGitAsync(args, { timeoutMs: Math.max(1, deadline - Date.now()), signal: options.signal }));
+    };
+    let source: readonly [remote: string, ref: string] | undefined;
+    if (options.remote && options.branch) source = [options.remote, options.branch];
+    else {
+      // Like a bare `git pull`: a bare `git fetch` (refreshing the remote's other branches and tags), then the upstream.
+      await run(['fetch']);
+      source = this.upstreamToPull();
     }
-    return this.execGitAsync(args, {
-      timeoutMs: options.timeoutMs ?? 60000,
-      signal: options.signal,
-    });
+    for (const args of fastForwardPullCommands(...source)) await run(args);
+    return {
+      ...results[results.length - 1],
+      stdout: results.map((result) => result.stdout).join(''),
+      stderr: results.map((result) => result.stderr).join(''),
+      durationMs: results.reduce((total, result) => total + result.durationMs, 0),
+    };
+  }
+
+  /** The current branch's upstream, from the settings `git pull` reads: its remote and the branch there. */
+  private upstreamToPull(): [remote: string, ref: string] {
+    const branch = this.execGit(['branch', '--show-current'])?.trim();
+    if (!branch) throw new Error('Nothing to pull: no branch is checked out.');
+    const remote = this.execGit(['config', '--get', `branch.${branch}.remote`])?.trim();
+    const refs = this.execGit(['config', '--get-all', `branch.${branch}.merge`])?.trim().split('\n') ?? [];
+    if (!remote || !refs[0]) throw new Error(`Nothing to pull: ${branch} does not follow an upstream branch.`);
+    // `git pull --ff-only` refuses this too: one fast-forward cannot reach several branches.
+    if (refs.length > 1) throw new Error(`Nothing was pulled: ${branch} follows more than one upstream branch.`);
+    return [remote, refs[0]];
   }
 
   /**

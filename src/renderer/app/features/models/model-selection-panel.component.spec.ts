@@ -10,6 +10,7 @@ import { ModelUsageMemoryService } from './model-usage-memory.service';
 import { UnifiedCatalogStore } from './unified-catalog.store';
 import type { UnifiedModelEntry } from '../../../../shared/types/unified-model-catalog.types';
 import { describeModelSwitchEffect } from './model-switch-note';
+import { DEFAULT_FAVORITE_MODEL_KEYS } from './default-favorites';
 
 const PROVIDER_LABELS: Record<string, string> = {
   claude: 'Claude',
@@ -239,13 +240,17 @@ describe('ModelSelectionPanelComponent', () => {
     }));
     fixture.detectChanges();
     const rows = Array.from(fixture.nativeElement.querySelectorAll('.model-picker-row')) as HTMLElement[];
-    expect(rows[0].querySelector('[role="note"]')?.textContent).toContain('Switches in place.');
-    expect(rows[1].querySelector('[role="note"]')?.textContent).toContain('Switching provider starts a new session.');
-    expect(rows[1].textContent).not.toContain('Switches in place.');
+    // One row each: the tie goes to the current provider's note, shown once above the list.
+    const sharedNote = fixture.nativeElement.querySelector('#model-picker-switch-note') as HTMLElement;
+    expect(sharedNote.textContent).toContain('Switches in place.');
+    expect(rows[0].querySelector('.model-picker-row__select')?.getAttribute('aria-describedby')).toBe(sharedNote.id);
+    // Rows never print their own note; the top note follows the row under the pointer.
+    expect(fixture.nativeElement.querySelectorAll('.model-picker-row [role="note"]').length).toBe(0);
+    rows[1].dispatchEvent(new Event('mouseenter'));
+    fixture.detectChanges();
+    expect(sharedNote.textContent).toContain('Switching provider starts a new session.');
     const targetButton = rows[1].querySelector('.model-picker-row__select') as HTMLButtonElement;
-    const targetNote = rows[1].querySelector('[role="note"]') as HTMLElement;
-    expect(targetButton.contains(targetNote)).toBe(false);
-    expect(targetButton.getAttribute('aria-describedby')).toBe(targetNote.id);
+    expect(targetButton.getAttribute('aria-describedby')).toBe(sharedNote.id);
     const emitted: UnifiedSelection[] = [];
     fixture.componentInstance.selection.subscribe(selection => emitted.push(selection));
     (rows[1].querySelector('.model-picker-row__select') as HTMLButtonElement).click();
@@ -260,6 +265,32 @@ describe('ModelSelectionPanelComponent', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('[role="note"]')).toHaveLength(1);
     expect(fixture.nativeElement.querySelector('[role="note"]')?.textContent).toContain('Switching provider');
+  });
+
+  it('breaks a tie between favourite notes toward the current provider, not the first row', () => {
+    setInputs({ selectedProvider: 'codex', selectedModelId: 'gpt-5.5' });
+    fixture.componentRef.setInput('noteForProvider', (provider: PickerProvider) => `Note for ${provider}`);
+    fixture.detectChanges();
+    const rows = Array.from(fixture.nativeElement.querySelectorAll('.model-picker-row')) as HTMLElement[];
+    expect(rows.map(row => row.querySelector('.model-picker-row__provider')?.textContent?.trim() ?? '')).toEqual(['Claude', 'Codex']);
+    expect(fixture.nativeElement.querySelector('#model-picker-switch-note')?.textContent).toBe('Note for codex');
+    expect(fixture.nativeElement.querySelectorAll('.model-picker-row [role="note"]').length).toBe(0);
+    rows[0].dispatchEvent(new Event('mouseenter'));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('#model-picker-switch-note')?.textContent).toBe('Note for claude');
+  });
+
+  it('shows a favourite switch note once when every row shares it', () => {
+    const favourites = DEFAULT_FAVORITE_MODEL_KEYS.filter(key => key.startsWith('claude:')).map(key => key.slice('claude:'.length));
+    setInputs({ providers: ['claude'], modelsForProvider: () => favourites.map(id => ({ id, name: id, tier: 'balanced' as const })) });
+    fixture.componentRef.setInput('noteForProvider', () => 'Switches in place.');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.model-picker-row').length).toBeGreaterThan(1);
+    const notes = Array.from(fixture.nativeElement.querySelectorAll('[role="note"]')) as HTMLElement[];
+    expect(notes.map(note => note.textContent?.trim())).toEqual(['Switches in place.']);
+    for (const button of Array.from(fixture.nativeElement.querySelectorAll('.model-picker-row__select')) as HTMLElement[]) {
+      expect(button.getAttribute('aria-describedby')).toBe('model-picker-switch-note');
+    }
   });
 
   it('uses Ctrl shortcut labels away from Apple platforms', () => {

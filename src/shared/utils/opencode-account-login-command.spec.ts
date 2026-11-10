@@ -6,6 +6,14 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openCodeAccountLoginCommand, openCodeLoginSpawnTarget, type OpenCodeLoginSelection } from './opencode-account-login-command';
 import { V2_LOGIN_CLI_FIXTURE } from './opencode-account-login.test-helper';
 
+/**
+ * A deliberate refusal prints its one line and nothing else. A crash also prints this message, after the whole
+ * one-line script and before a stack trace, so a check that only looks for the message cannot tell the two apart.
+ */
+function expectRefusal(stderr: string): void {
+  expect(stderr).toBe('No supported OpenCode command found. Install OpenCode 2.0.30 or newer.\n');
+}
+
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 function execute(exitCode = 0, signal?: 'SIGINT' | 'SIGTERM') {
@@ -61,7 +69,7 @@ describe('portable OpenCode account sign-in', () => {
     const script = atob(command.match(/Buffer.from\('([^']+)'/)![1]);
     const result = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', env: { ...process.env, PATH: '', TMPDIR: root } });
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('No supported OpenCode command found');
+    expectRefusal(result.stderr);
     expect(readdirSync(root)).toEqual([]);
   });
   it.each(['../escape', 'b & echo unsafe', 'b%PATH%', "b'", 'b"', 'Upper', ''])('rejects unsafe profile %s before shell encoding', (id) => {
@@ -122,14 +130,15 @@ function executeVersioned(profile: typeof loginProfiles[number], versions: Recor
 }
 
 describe('generated login version boundary', () => {
-  it.each(['2.0.30rc', '2.0.30-alpha.1', '2.0.30.1', '2.0.29', '2.0.30+', '2.0.30+bad..metadata', '3.0.0', 'unknown'])(
-    'refuses unsupported %s before any account login or import', (version) => {
-      for (const profile of loginProfiles) {
-        const { result, calls } = executeVersioned(profile, { opencode2: version });
-        expect(result.status, `${version}: ${result.stderr}`).toBe(1);
-        expect(calls).toEqual([]);
-        expect(result.stderr).toContain('No supported OpenCode command found');
-      }
+  // The refusal is in the prelude every profile's script shares, so each version
+  // runs once, and the rows rotate through the three profile kinds.
+  it.each(['2.0.30rc', '2.0.30-alpha.1', '2.0.30.1', '2.0.29', '2.0.30+', '2.0.30+bad..metadata', '3.0.0', 'unknown']
+    .map((version, index) => [version, loginProfiles[index % loginProfiles.length]!] as const))(
+    'refuses unsupported %s before any account login or import', (version, profile) => {
+      const { result, calls } = executeVersioned(profile, { opencode2: version });
+      expect(result.status, `${version}: ${result.stderr}`).toBe(1);
+      expect(calls).toEqual([]);
+      expectRefusal(result.stderr);
     },
   );
 
@@ -159,6 +168,7 @@ describe('generated login version boundary', () => {
       const { result, calls } = executeVersioned(loginProfiles[0]!, { opencode: version }, { command: 'opencode', major: 2 });
       expect(result.status).toBe(1);
       expect(calls).toEqual([]);
+      expectRefusal(result.stderr);
     },
   );
 
@@ -166,7 +176,7 @@ describe('generated login version boundary', () => {
     const { result, calls } = executeVersioned(loginProfiles[0]!, { opencode2: version });
     expect(result.status, result.stderr).toBe(1);
     expect(calls).toEqual([]);
-    expect(result.stderr).toContain('No supported OpenCode command found');
+    expectRefusal(result.stderr);
   }, 15000);
 
   it.each([0, 3, Number.NaN])('rejects unsupported selected major %s while building the command', (major) => {

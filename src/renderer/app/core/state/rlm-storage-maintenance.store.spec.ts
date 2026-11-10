@@ -178,7 +178,6 @@ function health() {
   return {
     level: 'warning' as const,
     databaseSizeBytes: RLM_STORAGE_WARNING_BYTES,
-    externalContentSizeBytes: 10,
     reclaimableDatabaseBytes: 20,
     warningThresholdBytes: RLM_STORAGE_WARNING_BYTES,
     hardLimitBytes: RLM_STORAGE_HARD_LIMIT_BYTES,

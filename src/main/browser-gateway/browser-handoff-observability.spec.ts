@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BrowserAuditEntrySchema } from '@contracts/schemas/browser';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { BrowserAuditStore } from './browser-audit-store';
 import { BrowserExtensionCommandStore } from './browser-extension-command-store';
 import { BrowserGatewayResultRecorder } from './browser-gateway-result';
 import { makeService } from './browser-gateway-service.test-helpers';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const logs = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
 vi.mock('../logging/logger', () => ({ getLogger: () => logs }));
@@ -21,6 +21,11 @@ const tab = {
 const request = { instanceId: 'reader-1', provider: 'codex', profileId: tab.profileId, targetId: tab.targetId };
 
 describe('browser handoff observability', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   let commands: BrowserExtensionCommandStore;
   let db: SqliteDriver;
   let audit: BrowserAuditStore;
@@ -30,10 +35,7 @@ describe('browser handoff observability', () => {
     vi.setSystemTime(1_000_000);
     vi.clearAllMocks();
     commands = new BrowserExtensionCommandStore();
-    db = defaultDriverFactory(':memory:');
-    createTables(db);
-    createMigrationsTable(db);
-    runMigrations(db);
+    db = rlmTemplate.open();
     audit = new BrowserAuditStore(db);
   });
 

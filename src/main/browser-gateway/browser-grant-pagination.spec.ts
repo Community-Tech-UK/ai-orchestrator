@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserGatewayResult, BrowserListGrantsRequest, BrowserPermissionGrant } from '@contracts/types/browser';
 import { PERSISTENT_BROWSER_GRANT_EXPIRES_AT } from '@contracts/types/browser';
 import { BrowserListGrantsRequestSchema } from '@contracts/schemas/browser';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { BrowserApprovalStore } from './browser-approval-store';
 import { BrowserGrantStore, type BrowserGrantInput } from './browser-grant-store';
 import { BrowserGatewayApprovalOperations } from './browser-gateway-approval-operations';
 import type { BrowserGatewayResultInput } from './browser-gateway-result';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const input: BrowserGrantInput = {
   mode: 'persistent', instanceId: 'instance-1', provider: 'codex', nodeId: 'windows-pc',
@@ -23,6 +23,11 @@ function cursor(grant: BrowserPermissionGrant): NonNullable<BrowserListGrantsReq
 }
 
 describe('browser grant keyset pagination', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   let db: SqliteDriver;
   let store: BrowserGrantStore;
   let operations: BrowserGatewayApprovalOperations;
@@ -30,10 +35,7 @@ describe('browser grant keyset pagination', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
-    db = defaultDriverFactory(':memory:');
-    createTables(db);
-    createMigrationsTable(db);
-    runMigrations(db);
+    db = rlmTemplate.open();
     store = new BrowserGrantStore(db);
     operations = new BrowserGatewayApprovalOperations({
       grantStore: store, approvalStore: new BrowserApprovalStore(db),

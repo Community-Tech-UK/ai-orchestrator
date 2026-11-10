@@ -56,7 +56,7 @@ export function boundSessionStateForPersistence(state: SessionState, maxFileByte
       const recent = { id: entry.id, role: entry.role, timestamp: entry.timestamp, content: '',
         ...(entry.internalInput ? { internalInput: entry.internalInput } : {}),
         ...(entry.crossSessionMessage ? { crossSessionMessage: entry.crossSessionMessage } : {}),
-        ...(entry.agentAuthored ? { agentAuthored: true } : {}) };
+        ...(entry.inputOrigin ? { inputOrigin: entry.inputOrigin } : {}) };
       let low = 0; let high = Math.min(content.length, remaining);
       while (low < high) {
         const length = Math.ceil((low + high) / 2);

@@ -154,6 +154,8 @@ describe('ACP actual input receipt persistence', () => {
   });
 
   it('keeps a bounded native write timeout quiet after Stop cancels dispatch', async () => {
+    // Fake clock for the 5 s stdin write timeout (child-stdin-write.ts); stream callbacks stay real.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const { proc, adapter, instance, manager, rows, delivered, failed } = await fixture();
     const controller = new AbortController();
     const errors = vi.fn();
@@ -170,6 +172,7 @@ describe('ACP actual input receipt persistence', () => {
       await started;
       controller.abort();
       instance.status = 'idle';
+      await vi.advanceTimersByTimeAsync(5_000);
       await expect(pending).resolves.toBeUndefined();
       expect(errors).not.toHaveBeenCalled();
       expect(statuses).toEqual(['busy']);
@@ -177,8 +180,8 @@ describe('ACP actual input receipt persistence', () => {
       expect(delivered).not.toHaveBeenCalled();
       expect(failed).toHaveBeenCalledOnce();
       expect(rows()[0]).toMatchObject({ state: 'failed', deliveredAt: null });
-    } finally { proc.exit(); }
-  }, 10_000);
+    } finally { proc.exit(); vi.useRealTimers(); }
+  });
 
   it('fails a receipt on the original process error with only the process listener reporting it', async () => {
     const { proc, adapter, instance, manager, rows, delivered, failed } = await fixture();

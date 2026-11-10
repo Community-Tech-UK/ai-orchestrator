@@ -305,7 +305,7 @@ export class InstanceTerminationCoordinator {
           base: result.base,
         });
       } else {
-        logger.info('Session branch merge-back skipped', { instanceId, reason: result.reason });
+        logger.info('Session branch merge-back skipped', { instanceId, reason: result.reason, detail: result.detail });
       }
     } catch (error) {
       logger.warn('Session branch merge-back failed; continuing teardown', {

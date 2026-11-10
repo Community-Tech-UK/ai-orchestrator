@@ -79,8 +79,21 @@ describe('actual remote instance telemetry transport', () => {
 
   afterEach(async () => {
     remote?.forceCleanup();
-    await manager.terminateAll();
-    proc?.exit();
+    // The fake ACP process has a made-up pid. Its adapter's stop signal would reach whatever real process group has
+    // that number, then wait out a 5 s grace for an exit that never comes; the fake exits on that signal instead.
+    const signalReal = process.kill.bind(process);
+    const kill = vi.spyOn(process, 'kill').mockImplementation((pid: number, signal?: string | number) => {
+      const fake = proc;
+      if (!fake || Math.abs(pid) !== fake.pid) return signalReal(pid, signal);
+      queueMicrotask(() => { if (!fake.killed) fake.exit(null, String(signal)); });
+      return true;
+    });
+    try {
+      await manager.terminateAll();
+    } finally {
+      kill.mockRestore();
+    }
+    if (proc && !proc.killed) proc.exit();
     proc = undefined;
     notifier.flushOutputBuffer();
     router.stop();

@@ -8,6 +8,7 @@ import {
 import {
   RlmStorageMaintenanceService,
   type RlmMaintenanceDatabasePort,
+  type RlmMaintenanceMeasurement,
 } from './rlm-storage-maintenance';
 
 const NOW = Date.UTC(2026, 6, 11, 12);
@@ -23,7 +24,17 @@ describe('RlmStorageMaintenanceService', () => {
     expect(service.getHealth()).toMatchObject({ level, databaseSizeBytes });
   });
 
-  it('previews the exact 60-day cutoff and protects live and codebase-auto stores', () => {
+  it('never measures the external content folder for a health check', () => {
+    const { service, database } = makeService();
+
+    service.getHealth();
+
+    expect(database.measureDatabase).toHaveBeenCalledOnce();
+    expect(database.measureExternalContent).not.toHaveBeenCalled();
+    expect(service.getHealth()).not.toHaveProperty('externalContentSizeBytes');
+  });
+
+  it('previews the exact 60-day cutoff and protects live and codebase-auto stores', async () => {
     const { service, database } = makeService();
     database.inspect.mockReturnValue({
       eligibleStoreCount: 1,
@@ -31,7 +42,7 @@ describe('RlmStorageMaintenanceService', () => {
       protectedCodebaseAutoStoreCount: 3,
     });
 
-    const preview = service.preview({ loopRunId: 'loop-1' });
+    const preview = await service.preview({ loopRunId: 'loop-1' });
 
     expect(database.inspect).toHaveBeenCalledWith(
       NOW - RLM_STALE_STORE_RETENTION_MS,
@@ -43,6 +54,7 @@ describe('RlmStorageMaintenanceService', () => {
       eligibleStoreCount: 1,
       protectedLiveStoreCount: 2,
       protectedCodebaseAutoStoreCount: 3,
+      externalContentSizeBytes: 200,
       canRun: true,
     });
   });
@@ -51,19 +63,19 @@ describe('RlmStorageMaintenanceService', () => {
     const listBackups = () => [{ name: 'new.db', createdAt: 3, bytes: 10 }, { name: 'kept.db', createdAt: 2, bytes: 10 }, { name: 'old.db', createdAt: 1, bytes: 10 }];
     const pruneBackups = vi.fn(() => ({ deleted: 0, bytesFreed: 0, failed: 0 }));
     const { service } = makeService({}, { listBackups, pruneBackups });
-    expect(service.preview({}).backups.map((backup) => backup.wouldBeRemoved)).toEqual([false, true, true]);
+    expect((await service.preview({})).backups.map((backup) => backup.wouldBeRemoved)).toEqual([false, true, true]);
     await service.run({ deleteOldBackups: ['new.db', 'kept.db', '../unknown.db'] });
     expect(pruneBackups).not.toHaveBeenCalled();
   });
 
-  it('allows compaction-only maintenance only when free pages are reclaimable', () => {
+  it('allows compaction-only maintenance only when free pages are reclaimable', async () => {
     const empty = makeService({ reclaimableDatabaseBytes: 0 });
     empty.database.inspect.mockReturnValue({
       eligibleStoreCount: 0,
       protectedLiveStoreCount: 0,
       protectedCodebaseAutoStoreCount: 0,
     });
-    expect(empty.service.preview({}).canRun).toBe(false);
+    expect((await empty.service.preview({})).canRun).toBe(false);
 
     const compactable = makeService({ reclaimableDatabaseBytes: 4096 });
     compactable.database.inspect.mockReturnValue({
@@ -71,7 +83,7 @@ describe('RlmStorageMaintenanceService', () => {
       protectedLiveStoreCount: 0,
       protectedCodebaseAutoStoreCount: 0,
     });
-    expect(compactable.service.preview({}).canRun).toBe(true);
+    expect((await compactable.service.preview({})).canRun).toBe(true);
   });
 
   it('keeps every backup when deletion was not selected', async () => {
@@ -109,7 +121,7 @@ describe('RlmStorageMaintenanceService', () => {
       getProtectedSessionIds: vi.fn(() => protectedIds.shift() ?? new Set<string>()),
     });
 
-    service.preview({});
+    await service.preview({});
     await service.run({});
 
     expect(database.prune).toHaveBeenCalledWith(
@@ -240,17 +252,18 @@ describe('RlmStorageMaintenanceService', () => {
 });
 
 function makeService(
-  measurementOverrides: Partial<ReturnType<RlmMaintenanceDatabasePort['measure']>> = {},
+  measurementOverrides: Partial<RlmMaintenanceMeasurement> = {},
   dependencyOverrides: Partial<ConstructorParameters<typeof RlmStorageMaintenanceService>[0]> = {},
 ) {
-  const measurement = {
+  const { externalContentSizeBytes, ...databaseMeasurement } = {
     databaseSizeBytes: 1000,
     externalContentSizeBytes: 200,
     reclaimableDatabaseBytes: 100,
     ...measurementOverrides,
   };
   const database = {
-    measure: vi.fn(() => measurement),
+    measureDatabase: vi.fn(() => databaseMeasurement),
+    measureExternalContent: vi.fn(async () => externalContentSizeBytes),
     inspect: vi.fn(() => ({
       eligibleStoreCount: 1,
       protectedLiveStoreCount: 0,

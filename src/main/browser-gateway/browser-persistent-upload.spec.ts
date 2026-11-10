@@ -3,12 +3,17 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserCreateGrantRequest } from '@contracts/types/browser';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { BrowserGrantStore } from './browser-grant-store';
 import { makeProfile, makeService } from './browser-gateway-service.test-helpers';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const cleanups: (() => void)[] = [];
+const rlmTemplate = useSqliteTemplate((db) => {
+  createTables(db);
+  createMigrationsTable(db);
+  runMigrations(db);
+});
 const scenarios = [
   { existing: false, nodeId: 'local' }, { existing: true, nodeId: 'local' },
   { existing: false, nodeId: 'windows-pc' }, { existing: true, nodeId: 'windows-pc' },
@@ -23,9 +28,8 @@ function fixture(existing: boolean, nodeId = 'local') {
     fs.mkdirSync(directory, { recursive: true });
     fs.writeFileSync(path.join(directory, 'artifact.txt'), 'test');
   }
-  const db = defaultDriverFactory(':memory:');
+  const db = rlmTemplate.open();
   cleanups.push(() => { db.close(); fs.rmSync(root, { recursive: true, force: true }); });
-  createTables(db); createMigrationsTable(db); runMigrations(db);
   const store = new BrowserGrantStore(db);
   const profile = makeProfile({ userDataDir: profileRoot, executionNodeId: nodeId === 'local' ? undefined : nodeId });
   const profileId = nodeId === 'local' ? 'existing-tab:7:42' : `existing-tab:n.${nodeId}:7:42`;

@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@contracts/channels';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { GovernedProposalStore, getGovernedProposalStore } from '../memory/governed-proposal-store';
@@ -13,6 +12,7 @@ vi.mock('electron', () => ({
 }));
 
 import { registerGovernedProposalHandlers } from './governed-proposal-ipc-handler';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const fakeEvent = {} as Parameters<Parameters<typeof ipcMain.handle>[1]>[0];
 
@@ -26,11 +26,14 @@ function handlerFor(channel: string): RegisteredHandler {
 
 let db: SqliteDriver;
 
+const rlmTemplate = useSqliteTemplate((db) => {
+  createTables(db);
+  createMigrationsTable(db);
+  runMigrations(db);
+});
+
 function openMigratedDb(): SqliteDriver {
-  const database = defaultDriverFactory(':memory:');
-  createTables(database);
-  createMigrationsTable(database);
-  runMigrations(database);
+  const database = rlmTemplate.open();
   return database;
 }
 

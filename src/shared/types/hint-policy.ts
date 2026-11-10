@@ -77,7 +77,10 @@ export const HINTS: Readonly<Record<HintId, HintCopy>> = {
     // "A tool call is repeating with no progress" described only ONE of the
     // detector's three kinds (`doom-loop-detector.ts`): `repeat-no-progress`,
     // `ping-pong` (alternating A/B/A/B) and `runaway` (a burst in one turn) all
-    // escalate to critical independently, and this hint fires for any of them.
+    // escalate to critical independently. This hint fires for the first two: a
+    // `runaway` reaches the user only when Harness is stopping the turn, so it
+    // never leaves a live alert with auto-interrupt off
+    // (`shouldTellUserAboutToolLoop` in `tool-loop-notice.ts`).
     id: 'tool-loop-auto-interrupt-off',
     title: 'Nothing will stop this loop but you',
     body:

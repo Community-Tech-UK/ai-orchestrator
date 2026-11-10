@@ -47,6 +47,7 @@ describe('RendererErrorHandler', () => {
         level: 'error',
         message: 'bridge test',
         context: 'RendererErrorHandler',
+        metadata: expect.objectContaining({ name: 'Error', message: 'bridge test' }),
       }),
     );
   });
@@ -89,20 +90,6 @@ describe('RendererErrorHandler', () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringContaining('RendererErrorHandler'),
       err,
-    );
-  });
-
-  it('forwards Error instances to main-process logger via IPC', async () => {
-    const err = new Error('ipc test');
-    handler.handleError(err);
-
-    await Promise.resolve();
-
-    expect(logMessageMock).toHaveBeenCalledWith(
-      'error',
-      'ipc test',
-      'RendererErrorHandler',
-      expect.objectContaining({ name: 'Error', message: 'ipc test' }),
     );
   });
 

@@ -11,6 +11,7 @@ import { PlanQueueCheckoutOwnershipError, PlanQueueWorktreeService, planQueueBra
 import { InvalidQueueCheckoutError } from './plan-queue-orphan-checkout';
 import type { PlanQueueItem } from './plan-queue.types';
 import * as gitCommands from '../workspace/git/git-exec';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
 // Every test drives real git through dozens of child processes. Alone each takes
 // about a second, but under the full suite's load one exceeded the 5s default
@@ -69,10 +70,9 @@ function installRefusingHook(): void {
   git(['config', 'core.hooksPath', hooks]);
 }
 
-beforeEach(() => {
-  WorktreeManager._resetForTesting();
-  GitWriteQueue._resetForTesting();
-  repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-wt-')));
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate((dir) => {
+  repo = dir;
   git(['init', '-q', '-b', 'main']);
   git(['config', 'user.name', 'Plan Queue Test']);
   git(['config', 'user.email', 'plan-queue@example.invalid']);
@@ -81,6 +81,13 @@ beforeEach(() => {
   writeFileSync(join(repo, 'a.txt'), 'base\n');
   git(['add', '-A']);
   git(['commit', '-q', '-m', 'base']);
+});
+
+beforeEach(() => {
+  WorktreeManager._resetForTesting();
+  GitWriteQueue._resetForTesting();
+  repo = realpathSync(mkdtempSync(join(tmpdir(), 'plan-queue-wt-')));
+  baseRepository.copyTo(repo);
 
   saved = [];
   service = new PlanQueueWorktreeService({ repoRootForItem: () => repo,

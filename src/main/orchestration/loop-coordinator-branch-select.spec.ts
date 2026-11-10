@@ -15,6 +15,9 @@ import type { LoopBranchSelector } from './loop-branch-select';
 import { passingVerifyCommand } from './loop-test-commands';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 
+vi.mock('./loop-coordinator-utils', async (importOriginal) =>
+  (await import('./loop-coordinator-test-pause')).withShortIterationPause(await importOriginal()));
+
 let workspace: string;
 let coordinator: LoopCoordinator;
 

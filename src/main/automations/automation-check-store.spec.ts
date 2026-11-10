@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import {
   createMigrationsTable,
@@ -8,13 +7,18 @@ import {
 } from '../persistence/rlm/rlm-schema';
 import { AutomationCheckStore, CHECK_OUTPUT_MAX_CHARS } from './automation-check-store';
 import type { AutomationRun } from '../../shared/types/automation.types';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
-function createDb(): SqliteDriver {
-  const db = defaultDriverFactory(':memory:');
+const rlmTemplate = useSqliteTemplate((db) => {
   db.pragma('foreign_keys = ON');
   createTables(db);
   createMigrationsTable(db);
   runMigrations(db);
+});
+
+function createDb(): SqliteDriver {
+  const db = rlmTemplate.open();
+  db.pragma('foreign_keys = ON');
   return db;
 }
 

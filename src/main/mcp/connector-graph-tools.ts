@@ -18,6 +18,7 @@ export interface GraphMailClientForTools {
   listMailFolders(accountKey: string, folderId?: string): Promise<unknown>;
   createMailDraft(accountKey: string, message: Record<string, unknown>): Promise<unknown>;
   sendMailDraft(accountKey: string, messageId: string): Promise<unknown>;
+  deleteMailDraft(accountKey: string, messageId: string): Promise<unknown>;
 }
 
 export interface GraphConnectorDependencies extends CalendarToolDependencies {
@@ -56,6 +57,7 @@ export const MailCreateDraftArgsSchema = z.object({
   bccRecipients: z.array(RecipientSchema).max(100).optional(),
 }).strict();
 export const MailSendArgsSchema = MailReadArgsSchema;
+export const MailDeleteDraftArgsSchema = MailReadArgsSchema;
 
 const CALENDAR_MUTATION_SCHEMAS = {
   graph_calendar_create_event: CalendarCreateEventToolArgsSchema,
@@ -112,6 +114,8 @@ function mailTools(accountKey: string, dependencies: GraphConnectorDependencies)
     handler: (client: GraphMailClientForTools, args: T) => Promise<unknown>,
     write = false,
     approval = false,
+    /** Looks the target up so the approval card can say what is being changed. */
+    describeForApproval?: (client: GraphMailClientForTools, args: T) => Promise<Record<string, unknown>>,
   ): McpServerToolDefinition => ({
     name, description,
     inputSchema: z.toJSONSchema(schema) as Record<string, unknown>,
@@ -119,7 +123,15 @@ function mailTools(accountKey: string, dependencies: GraphConnectorDependencies)
       const parsed = schema.parse(args);
       await requireConnectedAccount(dependencies, accountKey);
       if (write) await requireWritableAccountKey(dependencies, accountKey);
-      if (approval) await authorizeMutation(dependencies, accountKey, name, parsed);
+      if (approval) {
+        let approvalArgs: Record<string, unknown> = parsed;
+        if (describeForApproval) {
+          if (!dependencies.graphClient) throw new Error('Microsoft 365 tools are unavailable in this process.');
+          dependencies.assertActive?.();
+          approvalArgs = await describeForApproval(dependencies.graphClient, parsed);
+        }
+        await authorizeMutation(dependencies, accountKey, name, approvalArgs);
+      }
       if (write) await requireWritableAccountKey(dependencies, accountKey);
       if (!dependencies.graphClient) throw new Error('Microsoft 365 tools are unavailable in this process.');
       dependencies.assertActive?.();
@@ -137,7 +149,39 @@ function mailTools(accountKey: string, dependencies: GraphConnectorDependencies)
       MailCreateDraftArgsSchema, (client, args) => client.createMailDraft(accountKey, args), true),
     tool('graph_mail_send', 'Send an existing draft from this agent-writable Microsoft 365 account. Requires operator approval.',
       MailSendArgsSchema, (client, args) => client.sendMailDraft(accountKey, args.messageId), true, true),
+    tool('graph_mail_delete_draft', 'Delete an unsent draft from this agent-writable Microsoft 365 account. It goes to Deleted Items. Requires operator approval.',
+      MailDeleteDraftArgsSchema, async (client, args) => {
+        // Read again after approval: a draft sent while the card was open must not be deleted.
+        await requireDraft(client, accountKey, args.messageId);
+        await withDraftNotFound(() => client.deleteMailDraft(accountKey, args.messageId));
+      }, true, true, async (client, args) => {
+        const draft = await requireDraft(client, accountKey, args.messageId);
+        return {
+          messageId: args.messageId, subject: draft['subject'],
+          toRecipients: draft['toRecipients'], ccRecipients: draft['ccRecipients'],
+        };
+      }),
   ];
+}
+
+/** Reads a message and refuses unless it is an unsent draft, so this tool can never delete real mail. */
+async function requireDraft(client: GraphMailClientForTools, accountKey: string, messageId: string): Promise<Record<string, unknown>> {
+  const message = await withDraftNotFound(() => client.readMail(accountKey, messageId));
+  if (typeof message !== 'object' || message === null || (message as Record<string, unknown>)['isDraft'] !== true) {
+    throw new Error("That message isn't a draft, so it wasn't deleted.");
+  }
+  return message as Record<string, unknown>;
+}
+
+async function withDraftNotFound<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof Error && /graph_api_error:404/.test(error.message)) {
+      throw new Error("That draft wasn't found. It may already have been deleted or sent.", { cause: error });
+    }
+    throw error;
+  }
 }
 
 function withoutAccount(schema: Record<string, unknown>): Record<string, unknown> {

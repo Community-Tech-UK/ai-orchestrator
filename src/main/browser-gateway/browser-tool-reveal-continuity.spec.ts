@@ -126,11 +126,20 @@ describe('browser tool reveal continuity', () => {
     store.recordRevealed(INSTANCE_ID, ['browser.health']);
     const hungParent = { call: vi.fn().mockReturnValue(new Promise(() => undefined)) };
 
-    const { restore } = await startForwarder(hungParent);
+    // Fake timers stand in for the restore's three 2 s attempts and two 250 ms retry delays.
+    vi.useFakeTimers();
+    let restore: Awaited<ReturnType<typeof startForwarder>>['restore'];
+    try {
+      const started = startForwarder(hungParent);
+      await vi.advanceTimersByTimeAsync(3 * 2_000 + 2 * 250);
+      ({ restore } = await started);
+    } finally {
+      vi.useRealTimers();
+    }
 
     expect(restore.restored).toBe(false);
     // The parent is the source of truth and stays intact, so the next
     // forwarder start recovers the full surface.
     expect(store.getRevealed(INSTANCE_ID)).toEqual(['browser.health']);
-  }, 20_000);
+  });
 });

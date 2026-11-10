@@ -12,12 +12,22 @@
  *     and returns { merged: false, reason: 'conflict' } without corrupting the base.
  *   - passes AIO_ALLOW_MAIN_UPDATE=1 so the stay-on-main reference-transaction guard
  *     treats this as a deliberate, audited integration.
+ *   - never replaces a file Git ignores: the switches and the fast-forward refuse, and
+ *     the merge is checked first, returning { merged: false, reason: 'ignored-files' }.
  *
  * The git command sequence here is the TypeScript port of scripts/finish-to-main.sh,
- * which is covered by an isolated 7/7 git-behaviour test.
+ * which is covered by an isolated 7/7 git-behaviour test. The ignored-file checks
+ * are not in the script.
  */
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import {
+  fastForwardPullCommands,
+  ignoredFilesBlockReason,
+  mergeResultTree,
+  NO_OVERWRITE_IGNORE,
+} from '../../workspace/git/ignored-file-guard';
+import { IGNORED_FILES_UNCHECKED_REASON } from '../../../shared/copy/ignored-files-copy';
 
 const execFileAsync = promisify(execFile);
 
@@ -29,6 +39,7 @@ export type SessionMergeReason =
   | 'no-base'
   | 'no-commits'
   | 'dirty'
+  | 'ignored-files'
   | 'conflict'
   | 'error';
 
@@ -115,17 +126,41 @@ export async function mergeSessionBranchToMain(workingDirectory: string): Promis
     return { merged: false, reason: 'dirty', branch, base };
   }
 
-  if ((await tryGit(root, ['switch', base], env)) === null) {
+  if ((await tryGit(root, ['switch', NO_OVERWRITE_IGNORE, base], env)) === null) {
     return { merged: false, reason: 'error', branch, base, detail: 'could not switch to base branch' };
   }
-  // Best-effort sync with a remote if one exists; ignore failures (offline / no upstream).
-  await tryGit(root, ['pull', '--ff-only'], env);
+  // Best-effort: bring the base up to date with its upstream, fetched by name; ignore failures
+  // (offline / no upstream / an ignored file in the way). Like `git pull --ff-only`, skip it when
+  // the base follows several branches, which one fast-forward cannot reach.
+  const upstreamRemote = await tryGit(root, ['config', '--get', `branch.${base}.remote`], env);
+  const upstreamRefs = (await tryGit(root, ['config', '--get-all', `branch.${base}.merge`], env))?.split('\n') ?? [];
+  if (upstreamRemote && upstreamRefs.length === 1 && upstreamRefs[0]) {
+    for (const args of fastForwardPullCommands(upstreamRemote, upstreamRefs[0])) {
+      if ((await tryGit(root, args, env)) === null) break;
+    }
+  }
+
+  // A three-way merge replaces ignored files whatever its options, so look before merging.
+  let blocked: string | null;
+  try {
+    blocked = await ignoredFilesBlockReason(root, await mergeResultTree(root, branch));
+  } catch (error) {
+    // Only working out the merge throws; the check itself blocks with a reason instead.
+    await tryGit(root, ['switch', NO_OVERWRITE_IGNORE, branch], env);
+    const message = error instanceof Error ? error.message : String(error);
+    return { merged: false, reason: 'error', branch, base, detail: `could not work out what the merge would change: ${message}` };
+  }
+  if (blocked) {
+    await tryGit(root, ['switch', NO_OVERWRITE_IGNORE, branch], env);
+    const reason = blocked === IGNORED_FILES_UNCHECKED_REASON ? 'error' : 'ignored-files';
+    return { merged: false, reason, branch, base, detail: blocked };
+  }
 
   try {
     await git(root, ['merge', '--no-ff', '-m', `Merge ${branch} into ${base}`, branch], env);
   } catch {
     await tryGit(root, ['merge', '--abort'], env);
-    await tryGit(root, ['switch', branch], env);
+    await tryGit(root, ['switch', NO_OVERWRITE_IGNORE, branch], env);
     return { merged: false, reason: 'conflict', branch, base };
   }
 

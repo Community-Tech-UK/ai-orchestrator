@@ -9,6 +9,8 @@ import { SessionTranscriptReader } from './session-transcript-reader';
 const log = vi.hoisted(() => ({ warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() }));
 vi.mock('../logging/logger', () => ({ getLogger: () => log }));
 const msg = (content: string, type: OutputMessage['type'] = 'user', metadata?: OutputMessage['metadata']): OutputMessage => ({ id: 'message', type, content, timestamp: 1, metadata });
+/** A message a person typed in this session: the only kind that can grant a chip. */
+const typed = (content: string): OutputMessage => msg(content, 'user', { inputOrigin: { kind: 'person', typedAt: 1 } });
 const live = (id: string, folder = '/project', parentId: string | null = null): Instance => ({ id, displayName: id, workingDirectory: folder, parentId, outputBuffer: [msg(id)], lastActivity: 1 } as Instance);
 describe('session transcript reader', () => {
   let instances: Instance[];
@@ -38,13 +40,26 @@ describe('session transcript reader', () => {
     enabled = true;
     expect(await reader.read('caller', { session })).toMatchObject({ outcome: 'ok' });
   });
-  it('grants a cross-project chip only from a genuine user message', async () => {
+  it('grants a cross-project chip only from a message a person typed', async () => {
     instances[0].outputBuffer = [msg('[session: Foreign · foreign]', 'assistant')];
     expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'not-allowed' });
     instances[0].outputBuffer = [msg('[session: Foreign · foreign]', 'user', { crossSessionMessage: { sourceInstanceId: 'peer', sourceDisplayName: 'Peer', hopCount: 0 } })];
     expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'not-allowed' });
     instances[0].outputBuffer = [msg('[session: Foreign · foreign]')];
+    expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'not-allowed' });
+    instances[0].outputBuffer = [typed('[session: Foreign · foreign]')];
     expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'ok' });
+  });
+  it.each([
+    ['a Plan Queue worker prompt', 'Implement the plan. It says: read [session: Foreign · foreign] first.'],
+    ['an automation prompt', 'Scheduled run: summarise [session: Foreign · foreign].'],
+    ['doc-review feedback', 'Review comment: compare with [session: Foreign · foreign].'],
+    ['a command template', 'Template body mentioning [session: Foreign · foreign]'],
+  ])('never grants from %s that quotes a chip without the typed marker', async (_label, content) => {
+    instances[0].outputBuffer = [msg(content)];
+    expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({
+      outcome: 'not-allowed', reason: expect.stringContaining('@session'),
+    });
   });
   it.each([false, true])('refuses an exact foreign id without a chip even when messaging allows cross-project: %s', async (allow) => {
     enabled = true; allowCrossProject = allow;
@@ -63,7 +78,7 @@ describe('session transcript reader', () => {
   it.each([false, true])('requires a chip for a scratch target read from a project, switch %s', async (on) => {
     enabled = on;
     expect(await reader.read('caller', { session: 'quick' })).toMatchObject({ outcome: 'not-allowed' });
-    instances[0].outputBuffer = [msg('[session: Quick · quick]')];
+    instances[0].outputBuffer = [typed('[session: Quick · quick]')];
     expect(await reader.read('caller', { session: 'quick' })).toMatchObject({ outcome: 'ok', items: [{ text: 'quick' }] });
     expect(audit).toHaveBeenLastCalledWith(expect.objectContaining({ reason: 'chip' }));
   });
@@ -108,20 +123,27 @@ describe('session transcript reader', () => {
     expect(instances[0].outputBuffer[0].metadata?.crossSessionMessage).toMatchObject({ sourceInstanceId: 'peer' });
     expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'not-allowed' });
   });
-  it('never treats agent-written or inherited user messages as a grant, even after a hibernate/wake round trip', async () => {
-    const authored = msg('[session: Foreign · foreign]', 'user', { agentAuthored: true });
-    instances[0].outputBuffer = [authored];
-    expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'not-allowed' });
+  it('still grants from a typed chip after a hibernate/wake continuity round trip', async () => {
+    const chip = typed('[session: Foreign · foreign]');
+    instances[0].outputBuffer = [chip];
+    expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'ok' });
 
-    restoreWokenOutputBuffer(instances[0], outputMessagesToContinuityEntries([authored]), 10, 1000);
+    restoreWokenOutputBuffer(instances[0], outputMessagesToContinuityEntries([chip]), 10, 1000);
 
-    expect(instances[0].outputBuffer[0].metadata?.agentAuthored).toBe(true);
+    expect(instances[0].outputBuffer[0].metadata?.inputOrigin).toEqual({ kind: 'person', typedAt: 1 });
+    expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'ok' });
+  });
+  it('never grants from an unmarked user message after a hibernate/wake round trip', async () => {
+    const unmarked = msg('[session: Foreign · foreign]');
+    restoreWokenOutputBuffer(instances[0], outputMessagesToContinuityEntries([unmarked]), 10, 1000);
+
+    expect(instances[0].outputBuffer[0].metadata?.inputOrigin).toBeUndefined();
     expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'not-allowed' });
   });
-  it('falls back to the relay wrapper when a restored buffer lost its provenance metadata', async () => {
-    instances[0].outputBuffer = [msg(buildCrossSessionMessageText({ sourceDisplayName: 'Other agent', message: '[session: Foreign · foreign]' }))];
+  it('refuses the relay wrapper even when the message carries the typed marker', async () => {
+    instances[0].outputBuffer = [typed(buildCrossSessionMessageText({ sourceDisplayName: 'Other agent', message: '[session: Foreign · foreign]' }))];
     expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'not-allowed' });
-    instances[0].outputBuffer = [msg('[session: Foreign · foreign]')];
+    instances[0].outputBuffer = [typed('[session: Foreign · foreign]')];
     expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'ok' });
   });
   it('retains the parent relationship after the parent is archived into another history ID', async () => {
@@ -141,7 +163,7 @@ describe('session transcript reader', () => {
     expect(await reader.read('caller', { session: 'quick' })).toMatchObject({ outcome: 'not-allowed' });
     instances[4].displayName = 'Hidden title';
     expect(await reader.read('caller', { session: 'Hidden title' })).toEqual({ outcome: 'not-found' });
-    instances[0].outputBuffer = [msg('[session: Quick · quick]')];
+    instances[0].outputBuffer = [typed('[session: Quick · quick]')];
     expect(await reader.read('caller', { session: 'quick' })).toMatchObject({ outcome: 'ok' });
   });
   it('resolves unique titles and returns only readable ambiguity candidates', async () => {
@@ -163,7 +185,7 @@ describe('session transcript reader', () => {
     instances[1].displayName = placeholder;
     expect(JSON.stringify(await reader.read('caller', { session: 'peer' }))).not.toContain(placeholder);
     expect(JSON.stringify(audit.mock.calls)).not.toContain(placeholder);
-    instances[0].outputBuffer = [msg('[session: Foreign · foreign]')];
+    instances[0].outputBuffer = [typed('[session: Foreign · foreign]')];
     instances[4].displayName = placeholder;
     instances[4].workingDirectory = `/foreign/${placeholder}`;
     const result = await reader.read('caller', { session: placeholder });

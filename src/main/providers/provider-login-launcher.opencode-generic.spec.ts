@@ -50,8 +50,11 @@ function execute(command: string, version: string, platform: NodeJS.Platform = '
   if (!encoded) throw new Error('The portable terminal command was not encoded.');
   const probes: { command: string; args: string[] }[] = [];
   const auth: { command: string; args: string[]; shell: boolean }[] = [];
+  const errors: string[] = [];
+  const terminal: { platform: NodeJS.Platform; exitCode?: number } = { platform };
   const run = () => runInNewContext(Buffer.from(encoded, 'base64').toString('utf8'), {
-    process: { platform },
+    process: terminal,
+    console: { error: (line: string) => errors.push(line) },
     require: (id: string): unknown => {
       if (id === 'node:child_process') return {
         spawnSync: (selected: string, args: string[]) => {
@@ -67,8 +70,10 @@ function execute(command: string, version: string, platform: NodeJS.Platform = '
       throw new Error(`Unexpected terminal script import: ${id}`);
     },
   });
-  return { probes, auth, run };
+  return { probes, auth, run, errors, terminal };
 }
+
+const REFUSAL = 'No supported OpenCode command found. Install OpenCode 2.0.30 or newer.';
 
 describe('generic OpenCode Doctor sign-in at the terminal boundary', () => {
   it.each([
@@ -87,7 +92,9 @@ describe('generic OpenCode Doctor sign-in at the terminal boundary', () => {
   it.each(['2.0.18', '3.0.0', '2.0.30-beta.1', 'unavailable'])('refuses a replaced selected binary reporting %s before auth', async (version) => {
     const selected = '/fixture/opencode2';
     const execution = execute(await genericLogin(selected, 2), version);
-    expect(execution.run).toThrow('No supported OpenCode command found');
+    execution.run();
+    expect(execution.errors).toEqual([REFUSAL]);
+    expect(execution.terminal.exitCode).toBe(1);
     expect(execution.probes).toEqual([{ command: selected, args: ['--version'] }]);
     expect(execution.auth).toEqual([]);
   });
@@ -99,7 +106,9 @@ describe('generic OpenCode Doctor sign-in at the terminal boundary', () => {
     supported.run();
     expect(supported.auth).toEqual([{ command: selected, args: ['auth', 'login'], shell: false }]);
     const replaced = execute(command, '2.0.30');
-    expect(replaced.run).toThrow('No supported OpenCode command found');
+    replaced.run();
+    expect(replaced.errors).toEqual([REFUSAL]);
+    expect(replaced.terminal.exitCode).toBe(1);
     expect(replaced.auth).toEqual([]);
   });
 });

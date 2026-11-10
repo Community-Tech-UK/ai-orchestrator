@@ -29,6 +29,7 @@ import type { LoopStatus } from '../../shared/types/loop.types';
 import { resolveLoopArtifactPaths } from './loop-artifact-paths';
 import { prepareLoopControl } from './loop-control';
 import { loopExecutionCwd, loopStateCwd, type LoopCwdConfig } from './loop-cwd';
+import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 30_000 });
 
@@ -41,12 +42,9 @@ async function git(args: string[], cwd: string): Promise<string> {
 let repo: string;
 let manager: WorktreeManager;
 
-beforeEach(async () => {
-  GitWriteQueue._resetForTesting();
-  _resetWorktreeManagerForTesting();
-  manager = getWorktreeManager();
-  manager.configure({ installDeps: false });
-  repo = mkdtempSync(join(tmpdir(), 'campaign-landing-'));
+/** Every test starts from its own copy of this repository, built once for the file. */
+const baseRepository = useGitRepoTemplate(async (dir) => {
+  repo = dir;
   await git(['init', '-q', '-b', 'main'], repo);
   await git(['config', 'user.email', 'test@example.com'], repo);
   await git(['config', 'user.name', 'Test'], repo);
@@ -55,6 +53,15 @@ beforeEach(async () => {
   writeFileSync(join(repo, 'base.txt'), 'base\n');
   await git(['add', '-A'], repo);
   await git(['commit', '-q', '-m', 'base'], repo);
+});
+
+beforeEach(async () => {
+  GitWriteQueue._resetForTesting();
+  _resetWorktreeManagerForTesting();
+  manager = getWorktreeManager();
+  manager.configure({ installDeps: false });
+  repo = mkdtempSync(join(tmpdir(), 'campaign-landing-'));
+  baseRepository.copyTo(repo);
 });
 
 afterEach(() => {

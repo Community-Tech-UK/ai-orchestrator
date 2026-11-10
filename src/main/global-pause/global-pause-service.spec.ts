@@ -1,12 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { GlobalPauseStore } from './global-pause-store';
 import { GlobalPauseService } from './global-pause-service';
 import { GlobalPauseUnsafeError, type GlobalPauseRuntime, type PauseSessionSnapshot } from './global-pause-runtime.types';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 describe('GlobalPauseService', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    db.pragma('foreign_keys = ON');
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   let db: SqliteDriver;
   let store: GlobalPauseStore;
   let runtime: GlobalPauseRuntime;
@@ -14,8 +20,7 @@ describe('GlobalPauseService', () => {
   let now: number;
   const session: PauseSessionSnapshot = { id: 'chat', displayName: 'Chat', busy: true, lastRequest: 'Fix export', lastReply: 'Added guard', helperReplies: [] };
   beforeEach(() => {
-    db = defaultDriverFactory(':memory:'); db.pragma('foreign_keys = ON');
-    createTables(db); createMigrationsTable(db); runMigrations(db);
+    db = rlmTemplate.open(); db.pragma('foreign_keys = ON');
     store = new GlobalPauseStore(db); now = 100;
     runtime = { sessions: () => [session], engines: async () => [], pauseEngines: async () => undefined, stopHelpers: async () => undefined,
       interruptSession: async () => true,

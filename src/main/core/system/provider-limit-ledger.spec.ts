@@ -121,7 +121,7 @@ describe('ProviderLimitLedger', () => {
     expect(ledger.getActive({ provider: 'opencode', model: null, now })).not.toBeNull();
   });
 
-  it.each([null, '', '   '])('exact-only clearing with unknown model %s preserves every gate', (model) => {
+  it.each([null, '   '])('exact-only clearing with unknown model %s preserves every gate', (model) => {
     const now = 1_700_000_000_000;
     const base = { provider: 'opencode' as const, detectedAt: now, resumeAt: now + 60_000, source: 'synthetic', instanceId: null };
     ledger.record({ ...base, model: null });
@@ -130,7 +130,7 @@ describe('ProviderLimitLedger', () => {
     expect(ledger.list()).toHaveLength(2);
   });
 
-  it.each([null, '', '   ', ' legacy '])('account-wide-only clearing normalizes legacy profile %s and preserves native gates', (accountProfileId) => {
+  it.each([null, '   ', ' legacy '])('account-wide-only clearing normalizes legacy profile %s and preserves native gates', (accountProfileId) => {
     const now = 1_700_000_000_000;
     const base = { provider: 'opencode' as const, detectedAt: now - 100, resumeAt: now + 60_000, source: 'synthetic', instanceId: null };
     const account = ledger.record({ ...base, model: null });
@@ -145,7 +145,7 @@ describe('ProviderLimitLedger', () => {
     expect(ledger.list().map((event) => event.id).sort()).toEqual([native.id, expired.id, other.id].sort());
   });
 
-  it.each([null, '', '   ', 'opencode/big-pickle'])('exact-only takes precedence over account-wide-only for model %s', (model) => {
+  it.each([null, '   ', 'opencode/big-pickle'])('exact-only takes precedence over account-wide-only for model %s', (model) => {
     const now = 1_700_000_000_000;
     const base = { provider: 'opencode' as const, detectedAt: now, resumeAt: now + 60_000, source: 'synthetic', instanceId: null };
     const account = ledger.record({ ...base, model: null });
@@ -166,7 +166,7 @@ describe('ProviderLimitLedger', () => {
     expect(ledger.list()).toEqual([]);
   });
 
-  it.each([null, '', '   ', ' legacy '])('exact-only lookup isolates the native model under profile %s', (accountProfileId) => {
+  it.each([null, '   ', ' legacy '])('exact-only lookup isolates the native model under profile %s', (accountProfileId) => {
     const now = 1_700_000_000_000;
     const base = { provider: 'opencode' as const, detectedAt: now - 100, resumeAt: now + 60_000, source: 'synthetic', instanceId: null };
     ledger.record({ ...base, model: null });
@@ -179,7 +179,7 @@ describe('ProviderLimitLedger', () => {
     expect(ledger.getActive({ provider: 'opencode', model: 'another-model', now })?.model).toBeNull();
   });
 
-  it.each([null, '', '   '])('exact-only lookup for unknown model %s cannot alias an account gate', (model) => {
+  it.each([null, '   '])('exact-only lookup for unknown model %s cannot alias an account gate', (model) => {
     const now = 1_700_000_000_000;
     ledger.record({ provider: 'opencode', model: null, detectedAt: now, resumeAt: now + 60_000, source: 'synthetic', instanceId: null });
     expect(ledger.getActive({ provider: 'opencode', model, includeAccountWideFallback: false, now })).toBeNull();

@@ -1,6 +1,5 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { AutomationStore } from './automation-store';
@@ -10,12 +9,19 @@ import { CatchUpCoordinator } from './catch-up-coordinator';
 import { getAutomationEvents, resetAutomationEventsForTesting } from './automation-events';
 import type { AutomationAttachmentService } from './automation-attachment-service';
 import { RESTART_INTERRUPTION } from './automation-restart-retry';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/automation-retry-test' }, powerMonitor: new EventEmitter() }));
 vi.mock('../plugins/hook-emitter', () => ({ emitPluginHook: vi.fn() }));
 vi.mock('../channels/channel-manager', () => ({ getChannelManager: () => ({ getAdapter: vi.fn(), emitResponseSent: vi.fn() }) }));
 
 describe('recurring scheduling after a stale restart retry', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    db.pragma('foreign_keys = ON');
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   let db: SqliteDriver;
   let store: AutomationStore;
   let scheduler: AutomationScheduler;
@@ -23,8 +29,7 @@ describe('recurring scheduling after a stale restart retry', () => {
   beforeEach(() => {
     vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-03T10:00:00Z'));
     resetAutomationEventsForTesting();
-    db = defaultDriverFactory(':memory:'); db.pragma('foreign_keys = ON');
-    createTables(db); createMigrationsTable(db); runMigrations(db);
+    db = rlmTemplate.open(); db.pragma('foreign_keys = ON');
     store = new AutomationStore(db, { prepare: async () => [], replacePrepared: () => undefined,
       listForAutomation: async () => [] } as unknown as AutomationAttachmentService);
     const events = getAutomationEvents();

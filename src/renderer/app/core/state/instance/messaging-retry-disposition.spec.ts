@@ -16,6 +16,7 @@ describe('messaging-retry-disposition', () => {
     ['initializing', 'Instance initialization timed out'],
     ['waking', 'Instance wake timed out'],
     ['respawning', 'Instance respawn timed out'],
+    ['initializing', 'Instance runtime change timed out'],
     ['respawning', 'Instance abc is recovering. Please wait for it to be ready.'],
   ] as const)('retries the refusal main gives a session that is still %s: %s', (status, message) => {
     expect(getRetryDisposition(status, message).shouldRetry).toBe(true);

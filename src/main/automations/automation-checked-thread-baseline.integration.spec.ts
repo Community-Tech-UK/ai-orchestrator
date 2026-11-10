@@ -18,13 +18,13 @@ import { AutomationStore } from './automation-store';
 import { AutomationCheckStore } from './automation-check-store';
 import { getAutomationEvents, resetAutomationEventsForTesting } from './automation-events';
 import { createTables, createMigrationsTable, runMigrations } from '../persistence/rlm/rlm-schema';
-import { createSqliteWasmDatabaseWithExport } from '../db/sqlite-wasm-driver';
 import { InstanceCommunicationManager } from '../instance/instance-communication';
 import { GeminiCliAdapter } from '../cli/adapters/gemini-cli-adapter';
 import { createInstance } from '../../shared/types/instance.types';
 import type { InstanceManager } from '../instance/instance-manager';
 import type { InstanceSendInputOptions } from '../instance/instance-input-cancellation';
 import type { SqliteDriver } from '../db/sqlite-driver';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 const slot = vi.hoisted(() => ({ db: null as SqliteDriver | null, directory: '/tmp/inert-checked-thread-probe', checkStore: null as AutomationCheckStore | null }));
 vi.mock('electron', () => ({ app: { getPath: () => slot.directory, isPackaged: false }, Notification: { isSupported: () => false }, BrowserWindow: { getAllWindows: () => [] } }));
 vi.mock('./automation-check-store', async (importOriginal) => ({
@@ -39,6 +39,12 @@ vi.mock('../channels/channel-manager', () => ({ getChannelManager: () => ({ getA
 vi.mock('../core/config/settings-manager', () => ({ getSettingsManager: () => ({ get: () => undefined, getAll: () => ({}) }) }));
 vi.mock('../commands/command-manager', () => ({ getCommandManager: vi.fn() }));
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
+const rlmTemplate = useSqliteTemplate((db) => {
+  db.pragma('foreign_keys=ON');
+  createTables(db);
+  createMigrationsTable(db);
+  runMigrations(db);
+});
 let db: SqliteDriver;
 let store: AutomationStore;
 let checkStore: AutomationCheckStore;
@@ -48,12 +54,9 @@ beforeEach(() => {
   SessionAdmissionStore._resetForTesting();
   _resetInstanceProviderLimitHandlerForTesting();
   slot.directory = mkdtempSync(join(tmpdir(), 'aio-checked-thread-gate-'));
-  ({ driver: db } = createSqliteWasmDatabaseWithExport());
+  db = rlmTemplate.open();
   slot.db = db;
   db.pragma('foreign_keys=ON');
-  createTables(db);
-  createMigrationsTable(db);
-  runMigrations(db);
   store = new AutomationStore(db, { prepare: async () => [], replacePrepared: () => undefined, listForAutomation: async () => [] } as unknown as ConstructorParameters<typeof AutomationStore>[1]);
   checkStore = new AutomationCheckStore(db);
   slot.checkStore = checkStore;

@@ -135,6 +135,19 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
     expect(fixture.nativeElement.textContent).not.toContain('YOLO');
   });
 
+  it('leaves a queued account move to the account chip instead of a "default model" chip', () => {
+    fixture.componentRef.setInput('instance', { ...instance('claude'),
+      desiredRuntime: { provider: 'claude', accountProfileId: 'max-b', accountHandoffConfirmed: true } });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.desiredRuntimeLabel()).toBeNull();
+    expect(fixture.nativeElement.querySelector('.pending-model-badge')).toBeNull();
+
+    fixture.componentRef.setInput('instance', { ...instance('claude'),
+      desiredRuntime: { provider: 'claude', accountProfileId: 'max-b', model: 'sonnet' } });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.desiredRuntimeLabel()).toBe('Claude · sonnet');
+  });
+
   it('shows measured Copilot premium usage and explicitly marks missing data unavailable', () => {
     fixture.componentRef.setInput('instance', instance('copilot'));
     fixture.detectChanges();

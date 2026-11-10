@@ -1,16 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import { GlobalPauseStore } from './global-pause-store';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 describe('GlobalPauseStore', () => {
+  const rlmTemplate = useSqliteTemplate((db) => {
+    db.pragma('foreign_keys = ON');
+    createTables(db);
+    createMigrationsTable(db);
+    runMigrations(db);
+  });
   let db: SqliteDriver;
   let store: GlobalPauseStore;
   beforeEach(() => {
-    db = defaultDriverFactory(':memory:');
+    db = rlmTemplate.open();
     db.pragma('foreign_keys = ON');
-    createTables(db); createMigrationsTable(db); runMigrations(db);
     store = new GlobalPauseStore(db);
   });
   afterEach(() => db.close());

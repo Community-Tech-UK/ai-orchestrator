@@ -10,6 +10,7 @@ import {
   diffTrees,
   snapshotWorkingTree,
   type TurnBaselineResult,
+  type TurnBaselineTimeLimits,
 } from './turn-file-baseline';
 
 import * as snapshotGit from './turn-snapshot-git';
@@ -178,19 +179,29 @@ describe('TurnFileBaselineService', () => {
     if (result.state !== 'ready') throw new Error(`expected a ready result, got ${JSON.stringify(result)}`);
     return result;
   };
+  /**
+   * The app's limits are short on purpose: a send waits at most 300 ms for its snapshot, and a snapshot that
+   * runs out of time leaves the turn without a count. Real git on a loaded machine can take longer than that,
+   * so the tests of what gets counted run with these limits, and only the tests about the limits use the app's.
+   */
+  const UNHURRIED: TurnBaselineTimeLimits = { dispatchWaitMs: 60_000, endSnapshotWaitMs: 60_000, snapshotMs: 60_000 };
+  /** Replaces the service under test with one using `limits` (the app's when left out). */
+  const startService = (limits?: TurnBaselineTimeLimits) => {
+    service?.dispose();
+    events = new EventEmitter();
+    service = new TurnFileBaselineService(limits);
+    service.attach(events, () => ({ workingDirectory, executionLocation: location }));
+  };
 
   beforeEach(async () => {
-    TurnFileBaselineService._resetForTesting();
     repo = await makeRepo();
     workingDirectory = repo;
     location = { type: 'local' };
-    events = new EventEmitter();
-    service = TurnFileBaselineService.getInstance();
-    service.attach(events, () => ({ workingDirectory, executionLocation: location }));
+    startService(UNHURRIED);
   });
 
   afterEach(async () => {
-    TurnFileBaselineService._resetForTesting();
+    service.dispose();
     await fs.rm(repo, { recursive: true, force: true });
   });
 
@@ -399,7 +410,8 @@ describe('TurnFileBaselineService', () => {
     expect(state.objectDirs.size).toBe(0);
     expect(state.segments.length).toBe(32);
     expect(await service.getResult('inst-1', 'u0')).toEqual({ state: 'unavailable', reason: 'no-baseline' });
-  }, 30_000);
+    // 35 turns of real git, each waited for in full: 8 s at load 21, 40 s with every git call 60 ms slower.
+  }, 120_000);
 
   it('never scavenges another live or unknown temp folder, even when it is old', async () => {
     const unknown = await fs.mkdtemp(path.join(os.tmpdir(), 'aio-turn-objects-'));
@@ -416,6 +428,7 @@ describe('TurnFileBaselineService', () => {
   });
 
   it('bounds a stalled baseline before provider dispatch and records unavailable', async () => {
+    startService();
     let entered!: () => void;
     const started = new Promise<void>(resolve => { entered = resolve; });
     const mock = vi.spyOn(snapshotGit, 'snapshotWorkingTree').mockImplementation(async (_cwd, _dir, signal) => {
@@ -453,6 +466,7 @@ describe('TurnFileBaselineService', () => {
     });
 
     beforeEach(() => {
+      startService();
       calls = 0;
       mock = vi.spyOn(snapshotGit, 'snapshotWorkingTree');
     });
@@ -470,16 +484,27 @@ describe('TurnFileBaselineService', () => {
     });
 
     it('lets the end-of-turn snapshot take longer than a send may wait, since nothing is held up for it', async () => {
-      mock.mockImplementation(async (cwd, dir, signal, settledAt, paths) => {
-        if (settledAt !== undefined) await new Promise(resolve => setTimeout(resolve, 600));
-        return realSnapshot(cwd, dir, signal, settledAt, paths);
-      });
-      userInput('u1');
-      await service.getResult('inst-1', 'u1');
-      await fs.writeFile(path.join(repo, 'a.txt'), 'agent change\n');
-      await complete();
+      // Both snapshots are taken outside the service, so the only time spent inside its limits is the
+      // end snapshot's 600 ms, twice what a send may wait.
+      const objects = await fs.mkdtemp(path.join(os.tmpdir(), 'turn-baseline-objects-'));
+      try {
+        const before = await realSnapshot(repo, objects);
+        mock.mockImplementation(async () => before);
+        userInput('u1');
+        await service.getResult('inst-1', 'u1');
+        await fs.writeFile(path.join(repo, 'a.txt'), 'agent change\n');
+        const after = await realSnapshot(repo, objects);
+        mock.mockImplementation(async (_cwd, _dir, _signal, settledAt) => {
+          expect(settledAt).toBeDefined(); // only the end-of-turn snapshot is left
+          await new Promise(resolve => setTimeout(resolve, 600));
+          return after;
+        });
+        await complete();
 
-      expect(ready(await service.getResult('inst-1', 'u1')).files.map(file => file.path)).toEqual(['a.txt']);
+        expect(ready(await service.getResult('inst-1', 'u1')).files.map(file => file.path)).toEqual(['a.txt']);
+      } finally {
+        await fs.rm(objects, { recursive: true, force: true });
+      }
     });
 
     it('stops trying after a snapshot fails for being over its limits', async () => {

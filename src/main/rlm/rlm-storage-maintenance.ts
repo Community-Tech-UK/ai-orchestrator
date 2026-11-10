@@ -19,10 +19,13 @@ import {
 
 const logger = getLogger('RlmStorageMaintenance');
 
-export interface RlmMaintenanceMeasurement {
+export interface RlmDatabaseMeasurement {
   databaseSizeBytes: number;
-  externalContentSizeBytes: number;
   reclaimableDatabaseBytes: number;
+}
+
+export interface RlmMaintenanceMeasurement extends RlmDatabaseMeasurement {
+  externalContentSizeBytes: number;
 }
 
 export interface RlmMaintenanceInspection {
@@ -50,7 +53,10 @@ export interface ExternalContentCleanupSummary {
 }
 
 export interface RlmMaintenanceDatabasePort {
-  measure(): RlmMaintenanceMeasurement;
+  /** Pragmas and file stats only; safe to call on every health check. */
+  measureDatabase(): RlmDatabaseMeasurement;
+  /** Walks the external content folder, which can hold hundreds of thousands of files. */
+  measureExternalContent(): Promise<number>;
   inspect(cutoffTimestamp: number, protectedSessionIds: Set<string>): RlmMaintenanceInspection;
   checkpoint(): void;
   backup(targetPath: string, options: { includeContent: true }): Promise<{ dbBackupPath: string }>;
@@ -107,7 +113,7 @@ export class RlmStorageMaintenanceService extends EventEmitter {
   }
 
   getHealth(): RlmStorageHealth {
-    const measured = this.dependencies.database.measure();
+    const measured = this.dependencies.database.measureDatabase();
     const level = measured.databaseSizeBytes >= RLM_STORAGE_HARD_LIMIT_BYTES
       ? 'critical'
       : measured.databaseSizeBytes >= RLM_STORAGE_WARNING_BYTES
@@ -123,10 +129,10 @@ export class RlmStorageMaintenanceService extends EventEmitter {
     };
   }
 
-  preview(_request: RlmMaintenanceRequest) {
+  async preview(_request: RlmMaintenanceRequest) {
     const generatedAt = this.dependencies.now();
     const cutoffTimestamp = generatedAt - RLM_STALE_STORE_RETENTION_MS;
-    const measured = this.dependencies.database.measure();
+    const measured = await this.measure();
     const inspection = this.dependencies.database.inspect(
       cutoffTimestamp,
       this.dependencies.getProtectedSessionIds(),
@@ -163,7 +169,7 @@ export class RlmStorageMaintenanceService extends EventEmitter {
     let before: RlmMaintenanceMeasurement | null = null;
 
     try {
-      before = this.dependencies.database.measure();
+      before = await this.measure();
       this.assertCanStartStage();
       // Establish the execution-time candidate set before spending I/O on the
       // backup. This is informational only; pruning recomputes protection once
@@ -222,7 +228,7 @@ export class RlmStorageMaintenanceService extends EventEmitter {
       this.report(stage, 'Reloading RLM context from compacted persistence');
       await this.dependencies.reload();
 
-      const after = this.dependencies.database.measure();
+      const after = await this.measure();
       let backupRetention = { deleted: 0, bytesFreed: 0, failed: 0 };
       const earlierBackups = this.dependencies.listBackups();
       const createdBackupName = path.basename(backup.dbBackupPath);
@@ -322,6 +328,14 @@ export class RlmStorageMaintenanceService extends EventEmitter {
       this.activeOperation = null;
       this.dependencies.setMaintenanceGate(false);
     }
+  }
+
+  private async measure(): Promise<RlmMaintenanceMeasurement> {
+    const database = this.dependencies.database.measureDatabase();
+    return {
+      ...database,
+      externalContentSizeBytes: await this.dependencies.database.measureExternalContent(),
+    };
   }
 
   private report(stage: RlmMaintenanceStage, message: string): void {

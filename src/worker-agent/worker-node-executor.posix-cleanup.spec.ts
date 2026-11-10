@@ -1,14 +1,44 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ProcessFixtureRegistry } from '../tests/fixtures/process-fixture';
+import { IDLE_UNTIL_TEST_PROCESS_GONE, ProcessFixtureRegistry } from '../tests/fixtures/process-fixture';
 import { ExecFileError } from './service/exec-file';
 import { execFileCaptureWithBoundedTermination, type NodeExecRuntime } from './worker-node-executor';
 import { NODE_EXEC_OWNERSHIP_MARKER_ENV } from './worker-node-process-tree';
 
 const fixtures = new ProcessFixtureRegistry();
-afterEach(() => fixtures.cleanup());
+const readyDirs: string[] = [];
+afterEach(async () => {
+  await fixtures.cleanup();
+  for (const dir of readyDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+/** A child that ignores TERM, says so in a file, then prints `ready` and stays alive. */
+const SIGNAL_IGNORING_CHILD = 'process.on("SIGTERM",()=>{});require("fs").writeFileSync(process.argv[1],"");'
+  + 'process.stdout.write("ready");' + IDLE_UNTIL_TEST_PROCESS_GONE;
+
+/**
+ * Spawns as asked, then returns only once the child has written `readyFile`, so its TERM handler is in place. The
+ * code under test starts its timeout after spawnProcess returns, so the timeout can be short without racing the
+ * child's start-up on a busy machine.
+ */
+function spawnWhenReady(spawnChild: typeof spawn): { spawnProcess: typeof spawn; readyFile: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'posix-cleanup-ready-'));
+  readyDirs.push(dir);
+  const readyFile = join(dir, 'ready');
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  const spawnProcess = ((...args: Parameters<typeof spawn>) => {
+    const child = spawnChild(...args);
+    const deadline = Date.now() + 10_000;
+    while (!existsSync(readyFile) && Date.now() < deadline) Atomics.wait(pause, 0, 0, 5);
+    return child;
+  }) as typeof spawn;
+  return { spawnProcess, readyFile };
+}
 
 function inspectionFailure(mode: 'callback' | 'throw' | 'hang' | 'empty'): typeof execFile {
   return ((...args: unknown[]) => {
@@ -62,13 +92,14 @@ describe.skipIf(process.platform === 'win32')('POSIX node.exec direct-child clea
     async (mode) => {
       const children: ChildProcess[] = [];
       const signals: [number, string | number | undefined][] = [];
+      const { spawnProcess, readyFile } = spawnWhenReady(((...args: Parameters<typeof spawn>) => {
+        const child = fixtures.spawn(...args);
+        children.push(child);
+        return child;
+      }) as typeof spawn);
       const runtime: NodeExecRuntime = {
         platform: process.platform,
-        spawnProcess: ((...args: Parameters<typeof spawn>) => {
-          const child = fixtures.spawn(...args);
-          children.push(child);
-          return child;
-        }) as typeof spawn,
+        spawnProcess,
         execFileProcess: inspectionFailure(mode),
         killProcess: (pid, signal) => {
           signals.push([pid, signal]);
@@ -76,8 +107,8 @@ describe.skipIf(process.platform === 'win32')('POSIX node.exec direct-child clea
         },
       };
       const error = await execFileCaptureWithBoundedTermination(process.execPath, [
-        '-e', 'process.on("SIGTERM",()=>{});process.stdout.write("ready");setInterval(()=>{},1000)',
-      ], { timeoutMs: 2_000 }, runtime).catch((error: unknown) => error);
+        '-e', SIGNAL_IGNORING_CHILD, readyFile,
+      ], { timeoutMs: 50 }, runtime).catch((error: unknown) => error);
 
       expect(error).toBeInstanceOf(ExecFileError);
       expect(error).toMatchObject({ exitCode: null, stdout: 'ready', stderr: expect.stringContaining('cleanupIncomplete') });
@@ -87,11 +118,12 @@ describe.skipIf(process.platform === 'win32')('POSIX node.exec direct-child clea
   );
 
   it.each(['', 'invalid-marker'])('kills its child even with unusable marker %j', async (marker) => {
+    const { spawnProcess, readyFile } = spawnWhenReady(fixtures.spawn);
     const error = await execFileCaptureWithBoundedTermination(process.execPath, [
-      '-e', 'process.on("SIGTERM",()=>{});process.stdout.write("ready");setInterval(()=>{},1000)',
-    ], { timeoutMs: 2_000 }, {
+      '-e', SIGNAL_IGNORING_CHILD, readyFile,
+    ], { timeoutMs: 50 }, {
       platform: process.platform,
-      spawnProcess: fixtures.spawn,
+      spawnProcess,
       execFileProcess: inspectionFailure('empty'),
       killProcess: (pid, signal) => process.kill(pid, signal),
       createOwnershipMarker: () => marker,

@@ -7,7 +7,6 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'events';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createMigrationsTable, createTables, runMigrations } from '../persistence/rlm/rlm-schema';
 import type { InstanceManager } from '../instance/instance-manager';
@@ -19,6 +18,7 @@ import { AutomationScheduler } from './automation-scheduler';
 import { CatchUpCoordinator } from './catch-up-coordinator';
 import { getAutomationEvents, resetAutomationEventsForTesting } from './automation-events';
 import { createAutomationNetworkGate } from './automation-network-gate';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 vi.mock('electron', () => ({
   app: { getPath: vi.fn(() => '/tmp/ai-orchestrator-test') },
@@ -31,12 +31,16 @@ vi.mock('../channels/channel-manager', () => ({
   getChannelManager: () => ({ getAdapter: vi.fn(), emitResponseSent: vi.fn() }),
 }));
 
-function createDb(): SqliteDriver {
-  const db = defaultDriverFactory(':memory:');
+const rlmTemplate = useSqliteTemplate((db) => {
   db.pragma('foreign_keys = ON');
   createTables(db);
   createMigrationsTable(db);
   runMigrations(db);
+});
+
+function createDb(): SqliteDriver {
+  const db = rlmTemplate.open();
+  db.pragma('foreign_keys = ON');
   return db;
 }
 

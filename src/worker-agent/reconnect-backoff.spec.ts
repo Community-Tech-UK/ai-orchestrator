@@ -66,3 +66,12 @@ describe('nextReconnectDelayMs escalation', () => {
     expect(nextReconnectDelayMs(0, noJitter)).toBe(Math.floor(RECONNECT_CONFIG.initialMs / 2));
   });
 });
+
+// Moved from __tests__/reconnect-backoff.test.ts (its other three tests repeated the escalation tests above).
+describe('reconnect-backoff', () => {
+  it('always returns a positive number', () => {
+    for (let i = 0; i < 50; i++) {
+      expect(nextReconnectDelayMs(i)).toBeGreaterThan(0);
+    }
+  });
+});

@@ -24,6 +24,10 @@ import { buildLoopCheckpoint } from './loop-checkpoint';
 import { defaultLoopConfig, type LoopState } from '../../shared/types/loop.types';
 import { passingVerifyCommand } from './loop-test-commands';
 import { loopStateFile, resolveLoopArtifactPaths } from './loop-artifact-paths';
+import { useRealIterationPause } from './loop-coordinator-test-pause';
+
+vi.mock('./loop-coordinator-utils', async (importOriginal) =>
+  (await import('./loop-coordinator-test-pause')).withShortIterationPause(await importOriginal()));
 
 let workspace: string;
 let coordinator: LoopCoordinator;
@@ -210,6 +214,8 @@ describe('loop auto-unstick', () => {
   }, 15_000);
 
   it('broadcasts a recovered streak so checkpoint persistence cannot restore a stale cap', async () => {
+    // Counts auto-unsticks up to iteration 3; later iterations must not have started yet.
+    useRealIterationPause();
     writeFileSync(join(workspace, 'STAGE.md'), 'IMPLEMENT\n');
     let invocation = 0;
     let autoUnsticks = 0;

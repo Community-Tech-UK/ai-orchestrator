@@ -13,11 +13,12 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   integrateViaWorktree,
   integrateIntoSharedBranch,
@@ -42,6 +43,7 @@ async function git(args: string[], cwd: string): Promise<string> {
 let repo: string;
 
 async function commitFile(file: string, content: string, msg: string): Promise<void> {
+  mkdirSync(dirname(join(repo, file)), { recursive: true });
   writeFileSync(join(repo, file), content);
   await git(['add', '-A'], repo);
   await git(['commit', '-q', '--no-gpg-sign', '-m', msg], repo);
@@ -523,6 +525,83 @@ describe('promoteIntegrationBranch', () => {
       process.env['PATH'] = oldPath;
     }
     expect(await git(['rev-parse', 'release'], repo)).toBe(releaseBefore);
+  });
+
+  describe('files Git ignores in the root checkout', () => {
+    // Ignore rules for the root working tree only, added after the work was committed.
+    function ignoreInRoot(...patterns: string[]): void {
+      writeFileSync(join(repo, '.git', 'info', 'exclude'), `${patterns.join('\n')}\n`);
+    }
+
+    it.each(['block-any', 'block-overlap'] as const)(
+      'blocks rather than replaces an ignored file at a promoted path (%s)',
+      async (dirtyRootPolicy) => {
+        await integrateFeature(`task-ignored-${dirtyRootPolicy}`);
+        const mainBefore = await git(['rev-parse', 'main'], repo);
+        ignoreInRoot('promoted.txt');
+        writeFileSync(join(repo, 'promoted.txt'), 'operator notes\n');
+
+        const result = await promoteIntegrationBranch(repo, 'main', 'integration/main', undefined, { dirtyRootPolicy });
+
+        expect(result).toEqual({
+          status: 'blocked',
+          reason: 'The main folder has a file Git ignores at promoted.txt, which Git would replace without asking'
+            + ' if this goes ahead. Move it out of the way.',
+        });
+        expect(await git(['rev-parse', 'main'], repo)).toBe(mainBefore);
+        expect(readFileSync(join(repo, 'promoted.txt'), 'utf8')).toBe('operator notes\n');
+      },
+    );
+
+    it('blocks when a folder of ignored files sits where a promoted file goes', async () => {
+      await integrateFeature('task-ignored-folder', 'cache');
+      const mainBefore = await git(['rev-parse', 'main'], repo);
+      ignoreInRoot('cache/');
+      mkdirSync(join(repo, 'cache'));
+      writeFileSync(join(repo, 'cache', 'local.bin'), 'local\n');
+
+      const result = await promoteIntegrationBranch(repo, 'main', 'integration/main');
+
+      expect(result).toEqual({
+        status: 'blocked',
+        reason: 'The main folder has files Git ignores in cache/, which Git would replace without asking'
+          + ' if this goes ahead. Move them out of the way.',
+      });
+      expect(await git(['rev-parse', 'main'], repo)).toBe(mainBefore);
+      expect(readFileSync(join(repo, 'cache', 'local.bin'), 'utf8')).toBe('local\n');
+    });
+
+    it('blocks when an ignored file sits where a promoted folder goes', async () => {
+      await integrateFeature('task-ignored-parent', 'out/report.txt');
+      const mainBefore = await git(['rev-parse', 'main'], repo);
+      ignoreInRoot('out');
+      writeFileSync(join(repo, 'out'), 'local file\n');
+
+      const result = await promoteIntegrationBranch(repo, 'main', 'integration/main');
+
+      expect(result).toEqual({
+        status: 'blocked',
+        reason: 'The main folder has a file Git ignores at out, which Git would replace without asking'
+          + ' if this goes ahead. Move it out of the way.',
+      });
+      expect(await git(['rev-parse', 'main'], repo)).toBe(mainBefore);
+      expect(readFileSync(join(repo, 'out'), 'utf8')).toBe('local file\n');
+    });
+
+    it('promotes past ignored files beside or apart from the promoted ones and leaves them alone', async () => {
+      const integrationTip = await integrateFeature('task-ignored-elsewhere', 'logs/new.txt');
+      ignoreInRoot('*.log');
+      writeFileSync(join(repo, 'local.log'), 'local\n');
+      mkdirSync(join(repo, 'logs'));
+      writeFileSync(join(repo, 'logs', 'old.log'), 'kept\n');
+
+      const result = await promoteIntegrationBranch(repo, 'main', 'integration/main');
+
+      expect(result).toEqual({ status: 'promoted', method: 'checked-out-ff', tip: integrationTip });
+      expect(readFileSync(join(repo, 'logs', 'new.txt'), 'utf8')).toBe('promoted work\n');
+      expect(readFileSync(join(repo, 'local.log'), 'utf8')).toBe('local\n');
+      expect(readFileSync(join(repo, 'logs', 'old.log'), 'utf8')).toBe('kept\n');
+    });
   });
 
   it('is idempotent when the base already equals the integration tip', async () => {

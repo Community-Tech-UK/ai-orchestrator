@@ -1,5 +1,6 @@
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { ParsedCommand } from '../../shared/types/command.types';
+import type { PersonInputOrigin } from '../../shared/types/input-provenance.types';
 import { generateId } from '../../shared/utils/id-generator';
 import { resolveNativeOpenCodeCommand } from '../commands/provider-native-commands';
 import type { InstanceSendInputOptions } from './instance-input-cancellation';
@@ -7,6 +8,8 @@ import type { InstanceSendInputOptions } from './instance-input-cancellation';
 /** Native commands keep ordinary admission, but cannot enter Harness template/context expansion. */
 export async function dispatchNativeOpenCodeCommand(context: {
   instance: Instance; command: ParsedCommand; originalInput: string; options?: InstanceSendInputOptions;
+  /** Set when a person typed the command; stored on the user message like any typed send. */
+  personOrigin?: PersonInputOrigin;
   deferredCommit: boolean; getAdapter: () => unknown; recordPromptHistory: () => void;
   emitUser: (message: OutputMessage) => void;
   send: (prompt: string, options: InstanceSendInputOptions) => Promise<void>;
@@ -19,7 +22,7 @@ export async function dispatchNativeOpenCodeCommand(context: {
   };
   const userMessage: OutputMessage = { id: generateId(), timestamp: Date.now(), type: 'user', content: context.originalInput,
     metadata: { command: { name: command.command.name, resolved: true, executionType: command.execution.type,
-      providerNativeCommandId: command.command.id } } };
+      providerNativeCommandId: command.command.id }, ...(context.personOrigin ? { inputOrigin: context.personOrigin } : {}) } };
   if (!options?.isRetry && !context.deferredCommit) context.emitUser(userMessage);
   await context.send(command.resolvedPrompt, { ...options, providerNativeCommandId: command.command.id,
     beforeProviderDispatch: () => {

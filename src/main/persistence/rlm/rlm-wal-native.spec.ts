@@ -23,17 +23,21 @@ const lockScript = String.raw`
     "const Database = require(workerData.modulePath);" +
     "const flags = new Int32Array(workerData.flags);" +
     "const db = new Database(workerData.filename);" +
+    "const reader = new Database(workerData.filename);" +
     "try {" +
     "  db.exec('BEGIN IMMEDIATE');" +
     "  Atomics.store(flags, 0, 1); Atomics.notify(flags, 0);" +
     "  Atomics.wait(flags, 2, 0, 10000);" +
     "  Atomics.wait(flags, 1, 0, workerData.persistent ? 4500 : 200);" +
+    // Take the read lock before giving up the write lock: a writer lock still admits readers,
+    // and releasing first would leave a moment in which the journal mode can change.
     "  if (workerData.persistent) {" +
-    "    db.exec('ROLLBACK; BEGIN; SELECT * FROM preserved');" +
+    "    reader.exec('BEGIN'); reader.prepare('SELECT * FROM preserved').all();" +
+    "    db.exec('ROLLBACK');" +
     "    Atomics.wait(flags, 1, 0, 15000);" +
-    "  }" +
-    "  db.exec('ROLLBACK');" +
-    "} finally { db.close(); }",
+    "    reader.exec('ROLLBACK');" +
+    "  } else db.exec('ROLLBACK');" +
+    "} finally { reader.close(); db.close(); }",
     { eval: true, workerData: { filename, flags: flags.buffer, persistent,
       modulePath: require.resolve('better-sqlite3') } }
   );

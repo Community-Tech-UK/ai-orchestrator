@@ -8,6 +8,7 @@ import {
   type PromptHistoryRecord,
   type PromptHistorySnapshot,
 } from '../../../../shared/types/prompt-history.types';
+import { normalizeCrossPlatformPath } from '../../../../shared/utils/cross-platform-path';
 
 function emptyRecord(instanceId: string): PromptHistoryRecord {
   return {
@@ -94,12 +95,13 @@ export class PromptHistoryStore {
 
   async clearForInstance(instanceId: string): Promise<void> {
     const revision = this.bumpRevision(instanceId);
+    const removedIds = new Set(this.getEntriesForInstance(instanceId).map((entry) => entry.id));
     this._byInstance.update((records) => {
       const next = { ...records };
       delete next[instanceId];
       return next;
     });
-    this.rebuildProjectAliases();
+    this.removeFromProjectAliases(removedIds);
 
     const response = await this.ipc.clearInstance(instanceId);
     if (this.mutationRevisions.get(instanceId) !== revision) {
@@ -114,8 +116,37 @@ export class PromptHistoryStore {
     return this._byInstance()[instanceId]?.entries ?? [];
   }
 
+  /**
+   * Main keys project lists by a realpath-normalised path the renderer cannot
+   * compute. Each entry keeps the folder path it was recorded with, so map
+   * those paths back to the list holding them: a session in a folder reached
+   * through a symlink still finds its project's prompts.
+   */
+  private readonly projectKeysByPath = computed(() => {
+    const index = new Map<string, Set<string>>();
+    for (const [key, alias] of Object.entries(this._byProject())) {
+      for (const entry of alias.entries) {
+        const entryPath = entry.projectPath ? normalizeCrossPlatformPath(entry.projectPath) : '';
+        if (!entryPath || entryPath === key) continue;
+        const keys = index.get(entryPath) ?? new Set<string>();
+        keys.add(key);
+        index.set(entryPath, keys);
+      }
+    }
+    return index;
+  });
+
   getEntriesForProject(projectPath: string): readonly PromptHistoryEntry[] {
-    return this._byProject()[projectPath]?.entries ?? [];
+    const trimmed = projectPath.trim();
+    const normalized = normalizeCrossPlatformPath(trimmed);
+    const aliases = this._byProject();
+    const keys = new Set([trimmed, normalized, ...(this.projectKeysByPath().get(normalized) ?? [])]);
+    const lists = [...keys].map((key) => aliases[key]?.entries ?? []).filter((entries) => entries.length > 0);
+    if (lists.length <= 1) {
+      return lists[0] ?? [];
+    }
+    return dedupeByText(lists.flat().sort((left, right) => right.createdAt - left.createdAt))
+      .slice(0, PROMPT_HISTORY_MAX);
   }
 
   getEntriesForRecall(request: PromptRecallRequest): readonly PromptHistoryEntry[] {
@@ -163,7 +194,20 @@ export class PromptHistoryStore {
         [delta.instanceId]: delta.record,
       };
     });
-    this.rebuildProjectAliases();
+    if (delta.projectAliases?.length) {
+      const changed = delta.projectAliases;
+      this._byProject.update((aliases) => {
+        const next = { ...aliases };
+        for (const alias of changed) {
+          if (alias.entries.length === 0) {
+            delete next[alias.projectPath];
+          } else {
+            next[alias.projectPath] = alias;
+          }
+        }
+        return next;
+      });
+    }
   }
 
   private insertLocal(instanceId: string, entry: PromptHistoryEntry): PromptHistoryRecord {
@@ -180,36 +224,34 @@ export class PromptHistoryStore {
         [instanceId]: nextRecord,
       };
     });
-    this.rebuildProjectAliases();
+    const projectPath = entry.projectPath ? normalizeCrossPlatformPath(entry.projectPath) : '';
+    if (projectPath) {
+      this._byProject.update((aliases) => ({
+        ...aliases,
+        [projectPath]: {
+          projectPath,
+          entries: dedupeByText([entry, ...(aliases[projectPath]?.entries ?? [])]).slice(0, PROMPT_HISTORY_MAX),
+          updatedAt: Date.now(),
+        },
+      }));
+    }
     return nextRecord;
   }
 
-  private rebuildProjectAliases(): void {
-    const grouped = new Map<string, PromptHistoryEntry[]>();
-
-    for (const record of Object.values(this._byInstance())) {
-      for (const entry of record.entries) {
-        const projectPath = entry.projectPath?.trim();
-        if (!projectPath) {
-          continue;
+  private removeFromProjectAliases(entryIds: ReadonlySet<string>): void {
+    if (entryIds.size === 0) return;
+    this._byProject.update((aliases) => {
+      const next: Record<string, PromptHistoryProjectAlias> = {};
+      for (const [key, alias] of Object.entries(aliases)) {
+        const entries = alias.entries.filter((entry) => !entryIds.has(entry.id));
+        if (entries.length === alias.entries.length) {
+          next[key] = alias;
+        } else if (entries.length > 0) {
+          next[key] = { ...alias, entries };
         }
-        const entries = grouped.get(projectPath) ?? [];
-        entries.push(entry);
-        grouped.set(projectPath, entries);
       }
-    }
-
-    const aliases: Record<string, PromptHistoryProjectAlias> = {};
-    for (const [projectPath, entries] of grouped) {
-      aliases[projectPath] = {
-        projectPath,
-        entries: dedupeByText(entries.sort((left, right) => right.createdAt - left.createdAt))
-          .slice(0, PROMPT_HISTORY_MAX),
-        updatedAt: Date.now(),
-      };
-    }
-
-    this._byProject.set(aliases);
+      return next;
+    });
   }
 
   private bumpRevision(instanceId: string): number {

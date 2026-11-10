@@ -226,15 +226,15 @@ describe('ProviderQuotaSettingsTabComponent', () => {
       expect(component.intervals().claude).toBe(5 * 60 * 1000);
     });
 
-    it('refresh calls store.refresh for that provider', () => {
+    it('refreshes only the clicked provider, or every provider from Refresh all', () => {
       fixture.detectChanges();
-      component.refresh('codex');
-      expect(store.refresh).toHaveBeenCalledWith('codex');
-    });
+      const rows = Array.from<HTMLTableRowElement>(fixture.nativeElement.querySelectorAll('tbody tr'));
+      const codexRow = rows.find((row) => row.querySelector('.provider-cell')?.textContent?.trim() === 'Codex');
+      codexRow!.querySelector<HTMLButtonElement>('.action-cell button')!.click();
+      expect(store.refresh).toHaveBeenCalledExactlyOnceWith('codex');
+      expect(store.refreshAll).not.toHaveBeenCalled();
 
-    it('refreshAll calls store.refreshAll', () => {
-      fixture.detectChanges();
-      component.refreshAll();
+      fixture.nativeElement.querySelector('.footer-actions button').click();
       expect(store.refreshAll).toHaveBeenCalledTimes(1);
     });
 

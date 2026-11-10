@@ -88,7 +88,7 @@ describe('IpcMainHandler.registerHandlers Phase 1 registrations', () => {
     // Collaborators whose return value registerHandlers() dereferences.
     mocks.results.set('getAutoTitleService', () => ({ setLiveTitleSource: stub('setLiveTitleSource') }));
     mocks.results.set('getProviderQuotaService', () => ({ startIdleRefresh: vi.fn() }));
-    mocks.results.set('getPromptHistoryService', () => ({ pruneOnStart: vi.fn() }));
+    mocks.results.set('getPromptHistoryService', () => ({ pruneOnStart: vi.fn(async () => undefined) }));
     mocks.results.set('getContextWorkerClient', () => ({}));
     mocks.results.set('getCostTracker', () => ({}));
   });

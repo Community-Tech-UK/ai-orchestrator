@@ -363,7 +363,7 @@
   /* With the menu as a strip, the strip keeps its natural height and the page takes the rest. Left to the implicit
      rows, a short page would hand its spare height to the strip. The third row is the help pane's, which is hidden
      at this width. */
-  .control-shell.layout-standard:not(.no-nav) .control-body {
+  .control-shell.layout-standard .control-body {
     grid-template-rows: auto minmax(0, 1fr) auto;
   }
 
@@ -379,12 +379,5 @@
 
   .control-shell.nav-collapsed.layout-standard .control-nav-hubs .control-nav-item {
     padding-inline: 0.5rem;
-  }
-}
-
-@media (min-width: 841px) {
-  .control-shell.no-nav .control-body,
-  .control-shell.no-nav.nav-collapsed .control-body {
-    grid-template-columns: minmax(0, 1fr) auto;
   }
 }

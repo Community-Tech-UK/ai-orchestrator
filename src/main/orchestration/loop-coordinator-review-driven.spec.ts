@@ -13,7 +13,7 @@
  *   5. Ambiguous completion claims are not clean passes.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -31,6 +31,10 @@ import {
 } from '../../shared/types/loop.types';
 import { classifyCleanReviewText } from './loop-clean-review-classifier';
 import { CLEAN_REVIEW_SENTINEL } from './loop-terminal-sentinels';
+import { useRealIterationPause } from './loop-coordinator-test-pause';
+
+vi.mock('./loop-coordinator-utils', async (importOriginal) =>
+  (await import('./loop-coordinator-test-pause')).withShortIterationPause(await importOriginal()));
 
 const PHRASE = 'There are no outstanding issues';
 const CLEAN_OUTPUT = `${PHRASE}\n${CLEAN_REVIEW_SENTINEL}`;
@@ -591,6 +595,8 @@ describe('LoopCoordinator review-driven completion', () => {
   }, 30_000);
 
   it('does not audit a verified no-change claim when the agent explicitly declares more work', async () => {
+    // Reads the state at iteration 4, before later iterations can pause the loop for lack of progress.
+    useRealIterationPause();
     const output = [
       'Completed WS2 and verified 152 tests pass.',
       'WS3 through WS16 remain open in LOOP_TASKS.md.',
@@ -659,7 +665,7 @@ describe('LoopCoordinator review-driven completion', () => {
   it('resets the clean-pass streak when production code changes', async () => {
     // clean, then a production change (resets), then clean → only 1 in the
     // streak, so it must NOT have converged after these three iterations.
-    driveLoop([
+    const driver = driveLoop([
       childResult(`Work.\n${CLEAN_OUTPUT}`),
       childResult(`Found a bug, fixed it.\n${CLEAN_OUTPUT}`, [fileChange('src/app.ts')]),
       childResult(`Re-reviewed.\n${CLEAN_OUTPUT}`),
@@ -671,8 +677,8 @@ describe('LoopCoordinator review-driven completion', () => {
     let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
     try {
       state = await startReviewDrivenLoop('chat-rd-reset');
-      // Wait long enough for ~4 iterations (1.5s tail each) to elapse.
-      await sleep(7_000);
+      // A fourth invocation means the third (clean) iteration has been judged.
+      await waitForCondition(() => driver.invocations() >= 4);
       expect(completed).toBe(false);
       expect(coordinator.getLoop(state.id)?.consecutiveCleanReviewPasses ?? 0).toBeLessThan(2);
     } finally {
@@ -930,7 +936,7 @@ describe('LoopCoordinator review-driven completion', () => {
   }, 30_000);
 
   it('does not treat ambiguous completion claims as a clean pass', async () => {
-    driveLoop([
+    const driver = driveLoop([
       childResult('I think it is basically done now.'),
       childResult('Looks fine to me, shipping.'),
     ]);
@@ -941,7 +947,8 @@ describe('LoopCoordinator review-driven completion', () => {
     let state: Awaited<ReturnType<LoopCoordinator['startLoop']>> | undefined;
     try {
       state = await startReviewDrivenLoop('chat-rd-no-phrase');
-      await sleep(5_000);
+      // A third invocation means both ambiguous claims have been judged.
+      await waitForCondition(() => driver.invocations() >= 3);
       expect(completed).toBe(false);
       expect(coordinator.getLoop(state.id)?.consecutiveCleanReviewPasses ?? 0).toBe(0);
     } finally {

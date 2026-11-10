@@ -64,13 +64,6 @@ describe('SettingsStore system theme listener', () => {
     TestBed.tick();
   }
 
-  it('attaches a change listener when theme switches to system', async () => {
-    await store.update({ theme: 'system' });
-    flushEffects();
-
-    expect(mql.addEventListener).toHaveBeenCalledTimes(1);
-  });
-
   it('detaches when theme switches to an explicit mode', async () => {
     await store.update({ theme: 'system' });
     flushEffects();

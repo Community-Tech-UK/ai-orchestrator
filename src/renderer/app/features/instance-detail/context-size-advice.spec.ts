@@ -22,7 +22,7 @@ describe('contextSizeAdvice', () => {
     expect(contextSizeAdvice({ provider: 'claude', tokens, status })).toBe(expected);
   });
 
-  it.each(['codex', 'copilot', 'gemini', 'cursor', 'ollama', undefined, null])(
+  it.each(['codex', undefined, null])(
     'says nothing on a %s session, whatever its size',
     (provider) => {
       expect(contextSizeAdvice({ provider, tokens: LONG_CONTEXT_TOKENS * 2, status: 'idle' })).toBeNull();

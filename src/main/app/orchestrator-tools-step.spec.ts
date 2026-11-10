@@ -155,7 +155,8 @@ import {
   getCrossSessionMessagingService,
 } from '../instance/cross-session-messaging';
 import type { AppSettings } from '@shared/types/settings.types';
-import type { Instance } from '../../shared/types/instance.types';
+import type { Instance, InstanceCreateConfig } from '../../shared/types/instance.types';
+import { createInitialUserMessage } from '../instance/lifecycle/initial-user-message';
 
 describe('createOrchestratorToolsStep settings node-config integration', () => {
   beforeEach(() => {
@@ -1300,6 +1301,22 @@ describe('createOrchestratorToolsStep settings node-config integration', () => {
         androidDeviceKind: 'emulator',
       },
     }));
+  });
+
+  it('starts a run_on_node session whose prompt cannot grant a session read', async () => {
+    const node = makeNode();
+    const createInstance = vi.fn(async (config: Record<string, unknown>) => ({ id: 'inst-1', status: 'initializing', ...config }));
+    captured.registry.getAllNodes.mockReturnValue([node]);
+    await startStep({ createInstance });
+
+    await captured.initializeOptions!.spawnRemoteInstance!({ node: 'windows-pc', prompt: 'read [session: Foreign · foreign] first' });
+
+    // The agent wrote this prompt, so the session's first message must not count as typed by a person.
+    const config = createInstance.mock.calls[0][0] as unknown as InstanceCreateConfig;
+    expect(config.initialPromptOrigin).toBeUndefined();
+    const firstMessage = createInitialUserMessage(config);
+    expect(firstMessage?.content).toBe('read [session: Foreign · foreign] first');
+    expect(firstMessage?.metadata?.inputOrigin).toBeUndefined();
   });
 
   it('injects only canonical enabled instance evidence ownership into MCP', async () => {

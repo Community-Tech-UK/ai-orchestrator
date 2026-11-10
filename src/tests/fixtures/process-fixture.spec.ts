@@ -4,7 +4,13 @@ import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
-import { captureFixtureSpawns, isFixtureProcessAlive, ProcessFixtureRegistry, waitForFixtureProcessExit } from './process-fixture';
+import {
+  captureFixtureSpawns,
+  exitOnceProcessGone,
+  isFixtureProcessAlive,
+  ProcessFixtureRegistry,
+  waitForFixtureProcessExit,
+} from './process-fixture';
 
 it('stops a tracked fixture before a delayed PID-file write after setup fails', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'aio-fixture-early-failure-'));
@@ -147,5 +153,25 @@ it('captures a real launch through a previously imported spawn before PID-file r
       restore();
       await rm(dir, { recursive: true, force: true });
     }
+  }
+}, 10_000);
+
+it('ends a signal-ignoring fixture once the process that started it is gone, and not before', async () => {
+  const fixtures = new ProcessFixtureRegistry();
+  try {
+    // Stands in for a test worker that is killed outright mid-test, so neither the code under test nor cleanup runs.
+    const worker = fixtures.spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+    await once(worker, 'spawn');
+    const child = fixtures.spawn(process.execPath, ['-e',
+      `process.on("SIGTERM",()=>{});setInterval(()=>{${exitOnceProcessGone(worker.pid)}},50)`,
+    ], { stdio: 'ignore' });
+    await once(child, 'spawn');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(isFixtureProcessAlive(child.pid!)).toBe(true);
+
+    worker.kill('SIGKILL');
+    await waitForFixtureProcessExit(child.pid!, 5_000);
+  } finally {
+    await fixtures.cleanup();
   }
 }, 10_000);

@@ -76,13 +76,15 @@ export const CrossModelReviewReviewerRateLimitClearedEventSchema = z.object({
  * WS-A2 — `instance:doom-loop`: a result-aware tool-loop detection
  * (`ToolLoopDetectionEvent` in `src/main/orchestration/doom-loop-detector.ts`)
  * as sent by `setupInstanceEventForwarding()`, plus `harnessStopping`: Harness
- * is stopping the turn itself, so the renderer offers no decision.
+ * is stopping the turn itself, so the renderer offers no decision. Only
+ * detections worth showing are sent (`shouldTellUserAboutToolLoop`), and those
+ * are always critical; a warning stays in the main-process log.
  * `.strict()` rejects unknown keys, so this must track that payload exactly.
  */
 export const InstanceDoomLoopEventSchema = z.object({
   instanceId: z.string(),
   detector: z.enum(['repeat-no-progress', 'ping-pong', 'runaway']),
-  severity: z.enum(['warn', 'critical']),
+  severity: z.literal('critical'),
   toolName: z.string(),
   count: z.number().int(),
   windowDescription: z.string(),

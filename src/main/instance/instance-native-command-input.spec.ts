@@ -43,6 +43,17 @@ describe('resolved native command transcript provenance', () => {
     expect(buildUserMessages(emitted, 200000).count).toBe(0);
   });
 
+  it('marks the transcript message as typed by a person only when the send says so', async () => {
+    const typed = fixture();
+    const personOrigin = { kind: 'person' as const, typedAt: 99 };
+    await dispatchNativeOpenCodeCommand({ ...typed.context, personOrigin, send: async () => undefined });
+    expect(typed.emitted[0].metadata).toMatchObject({ inputOrigin: personOrigin, command: { name: 'fixture-native' } });
+
+    const untyped = fixture();
+    await dispatchNativeOpenCodeCommand({ ...untyped.context, send: async () => undefined });
+    expect(untyped.emitted[0].metadata?.inputOrigin).toBeUndefined();
+  });
+
   it('does not duplicate an already committed user message on retry', async () => {
     const { context, emitted, history, instance } = fixture();
     await dispatchNativeOpenCodeCommand({ ...context, options: { isRetry: true }, send: async (_prompt, options) => { options.beforeProviderDispatch?.(); } });

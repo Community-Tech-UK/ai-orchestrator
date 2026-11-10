@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import {
   InstanceIdSchema, SessionIdSchema, DisplayNameSchema, WorkingDirectorySchema,
-  FileAttachmentSchema, ModelIdSchema, RequiredModelIdSchema,
+  FileAttachmentSchema, ModelIdSchema, RequiredModelIdSchema, PersonInputOriginSchema,
 } from './common.schemas';
 import { CopilotProfileIdSchema } from './copilot-account.schemas';
 import { ProviderAccountProfileIdSchema } from './provider-account.schemas';
@@ -246,6 +246,8 @@ export const InstanceCreateWithMessagePayloadSchema = z.object({
    * `instance-create-idempotency.ts`.
    */
   idempotencyKey: z.string().min(1).max(200).optional(),
+  /** Set when a person typed `message` in the new-session composer. */
+  origin: PersonInputOriginSchema.optional(),
 }).refine(openCodeAdditionalDirectoriesOnly, additionalDirectoriesProviderError);
 
 // ============ Instance Input ============
@@ -267,8 +269,7 @@ export const InstanceSendInputPayloadSchema = z.object({
   userMessageId: z.string().min(1).max(200).optional(),
   /** A queued user message being drained automatically, rather than a fresh submission. */
   automatedInput: z.boolean().optional(),
-  /** Words a person typed or spoke themselves; never set for text built from an agent's words (see PersonInputOrigin). */
-  origin: z.object({ kind: z.literal('person'), typedAt: z.number().int().positive() }).strict().optional(),
+  origin: PersonInputOriginSchema.optional(),
   /** Explicit durable queue ownership; validated again at provider dispatch. */
   queuedAdmissionId: z.string().min(1).max(200).optional(),
   /** Optional stable key for at-most-once delivery (B2); repeated keys skip dispatch. */

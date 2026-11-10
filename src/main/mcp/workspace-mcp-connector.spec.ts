@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { defaultDriverFactory } from '../db/better-sqlite3-driver';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import {
   createMigrationsTable,
@@ -12,16 +11,20 @@ import { WorkspaceMcpConnectorService } from './workspace-mcp-connector-service'
 import { materializeWorkspaceMcpConnectors } from './workspace-mcp-connector-materialize';
 import { toSecretWorkspaceId } from '../secrets/secret-workspace-key';
 import { REDACTED_SENTINEL } from '../../shared/types/mcp-dtos.types';
+import { useSqliteTemplate } from '../db/sqlite-template.test-helpers';
 
 const dbs: SqliteDriver[] = [];
 const TOKEN = 'ghp_exampleplaceholdervalue0000000000';
 
-function openDb(): SqliteDriver {
-  const db = defaultDriverFactory(':memory:');
-  dbs.push(db);
+const rlmTemplate = useSqliteTemplate((db) => {
   createTables(db);
   createMigrationsTable(db);
   runMigrations(db);
+});
+
+function openDb(): SqliteDriver {
+  const db = rlmTemplate.open();
+  dbs.push(db);
   return db;
 }
 

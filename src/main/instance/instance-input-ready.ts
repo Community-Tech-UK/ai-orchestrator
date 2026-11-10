@@ -10,6 +10,8 @@ const SEND_TERMINAL_STATUSES = new Set<InstanceStatus>(['terminated', 'failed', 
 
 export interface InputReadyHost {
   wake(instanceId: string): Promise<void>;
+  /** Settles when no queued runtime change (account move, model swap) is scheduled or running; undefined when none is. */
+  runtimeChangeSettled(instanceId: string): Promise<void> | undefined;
   /** Waits for `work`, giving up after the instance's init budget (scaled by host load and replay size). */
   waitWithBudget(work: Promise<void>, instance: Instance, timeoutMessage: string): Promise<void>;
   getInstance(instanceId: string): Instance | undefined;
@@ -78,6 +80,18 @@ export async function awaitInstanceInputReady(
     if (instance.status === 'error' || instance.status === 'failed') {
       throw new Error('Instance respawn after interrupt failed');
     }
+  }
+
+  // A change queued while the session was busy or asleep (an account move, a
+  // model swap) applies as soon as it settles, and replaces the adapter. The
+  // waits above are what settle it (a wake, a first start, an interrupt
+  // respawn), so check only after them. Input arriving meanwhile used to reach
+  // the communication layer with no adapter and was refused as an inconsistent state.
+  const runtimeChange = host.runtimeChangeSettled(instanceId);
+  if (runtimeChange) {
+    logger.info('Send waits for a queued runtime change to finish', { instanceId, status: instance.status });
+    await host.waitWithBudget(runtimeChange, instance, 'Instance runtime change timed out');
+    throwIfInstanceInputAborted(options?.signal);
   }
 
   // The waits above can outlive the instance: a wedged init/respawn may only
