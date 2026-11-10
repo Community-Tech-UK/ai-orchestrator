@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-04-plan-queue-autonomous-decisions_livetest.md",
+      "sha256": "6e175de81b0b43550e28734e7c0875a07f46ceb1391258113e1ebfc39f3b88a0",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-04-plan-queue-autonomous-decisions_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-04-plan-queue-autonomous-decisions_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-04-plan-queue-autonomous-decisions_livetest_completed.md",
+      "sha256": "8347ee5cb3416ee5df33610ee35c20b51e412fba95a541aef41e285bca88a9a1"
+    }
+  ]
+}
