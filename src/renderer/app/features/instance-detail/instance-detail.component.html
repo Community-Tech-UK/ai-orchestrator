@@ -160,7 +160,7 @@
           @if (showCrossModelReviewPanel() && currentReview()) {
             <app-cross-model-review-panel
               [review]="currentReview()"
-              [provider]="inst.provider"
+              [agentName]="getProviderDisplayName(inst.provider, inst.currentModel)"
               (actionPerformed)="onReviewAction($event)"
             />
           }

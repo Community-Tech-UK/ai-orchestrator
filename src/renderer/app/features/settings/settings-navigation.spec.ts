@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import { NAV_ITEMS, SETTINGS_EXTERNAL_LINKS, resolveSettingsLayout } from './settings-navigation';
+import { buildSettingsNav } from './settings-nav-model';
 
 describe('settings navigation', () => {
+  it('names the review tab "Second opinion" and still finds it by its old name', () => {
+    expect(NAV_ITEMS.find((item) => item.id === 'review')?.label).toBe('Second opinion');
+    const tabIds = buildSettingsNav('cross-model').pages.flatMap((entry) => entry.matchingTabs.map((tab) => tab.id));
+    expect(tabIds).toContain('review');
+  });
+
   it('groups Connections with network and remote controls', () => {
     const connections = NAV_ITEMS.find((item) => item.id === 'connections');
     const networkIndex = NAV_ITEMS.findIndex((item) => item.id === 'network');

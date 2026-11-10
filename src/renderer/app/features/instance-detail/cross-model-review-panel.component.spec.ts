@@ -39,11 +39,11 @@ describe('CrossModelReviewPanelComponent local review authority', () => {
     }).compileComponents();
   });
 
-  it('names the live agent in the actionable button', () => {
+  it("names the session's agent: 'Ask Codex to fix these'", () => {
     const fixture = TestBed.createComponent(CrossModelReviewPanelComponent);
     fixture.componentRef.setInput('review', review([result('gemini', 'remote', true)], undefined));
-    fixture.componentRef.setInput('provider', 'codex'); fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Ask Codex to Address');
+    fixture.componentRef.setInput('agentName', 'Codex'); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Ask Codex to fix these');
     expect(fixture.nativeElement.textContent).toContain('Show all');
     expect(fixture.nativeElement.textContent).toContain('Raw review');
   });
@@ -65,29 +65,22 @@ describe('CrossModelReviewPanelComponent local review authority', () => {
   });
 
   describe('the "ask the session to address it" button', () => {
-    function panel(provider: string | null, withConcern = true) {
-      const value = review(
-        [result('codex', 'remote', withConcern)],
-        undefined,
-      );
+    function panel(agentName?: string) {
+      const value = review([result('codex', 'remote', true)], undefined);
       const component = TestBed.runInInjectionContext(() => new CrossModelReviewPanelComponent());
       (component as unknown as { review: ReturnType<typeof signal<AggregatedReview | null>> }).review = signal(value);
-      (component as unknown as { provider: ReturnType<typeof signal<string | null>> }).provider = signal(provider);
+      if (agentName !== undefined) {
+        (component as unknown as { agentName: ReturnType<typeof signal<string>> }).agentName = signal(agentName);
+      }
       return component;
     }
 
-    it.each([
-      ['claude', 'Ask Claude to Address'],
-      ['codex', 'Ask Codex to Address'],
-      ['copilot', 'Ask Copilot to Address'],
-      ['cursor', 'Ask Cursor to Address'],
-      ['opencode', 'Ask OpenCode to Address'],
-    ])('names the session\'s own provider: %s', (provider, label) => {
-      expect(panel(provider).askPrimaryLabel()).toBe(label);
+    it.each(['Claude', 'Codex', 'Copilot', 'Cursor', 'OpenCode'])('names the session\'s agent: %s', (name) => {
+      expect(panel(name).askPrimaryLabel()).toBe(`Ask ${name} to fix these`);
     });
 
-    it('does not guess Claude when the session\'s provider is not known', () => {
-      expect(panel(null).askPrimaryLabel()).toBe('Ask This Session to Address');
+    it('falls back to a neutral name when none is passed', () => {
+      expect(panel().askPrimaryLabel()).toBe('Ask the agent to fix these');
     });
 
     it('renders that label on the real button, and still offers it only when there are concerns', async () => {
@@ -99,20 +92,20 @@ describe('CrossModelReviewPanelComponent local review authority', () => {
       const reviewSignal = signal<AggregatedReview | null>(review([result('claude', 'remote', true)], undefined));
       const instance = fixture.componentInstance as unknown as {
         review: typeof reviewSignal;
-        provider: ReturnType<typeof signal<string | null>>;
+        agentName: ReturnType<typeof signal<string>>;
       };
       instance.review = reviewSignal;
-      instance.provider = signal('codex');
+      instance.agentName = signal('Codex');
       fixture.detectChanges();
 
       const labelsNow = () => [...fixture.nativeElement.querySelectorAll('button')]
         .map((button: HTMLButtonElement) => button.textContent?.trim());
-      expect(labelsNow()).toContain('Ask Codex to Address');
-      expect(labelsNow()).not.toContain('Ask Claude to Address');
+      expect(labelsNow()).toContain('Ask Codex to fix these');
+      expect(labelsNow()).not.toContain('Ask Claude to fix these');
 
       reviewSignal.set(review([result('claude', 'remote', false)], undefined));
       fixture.detectChanges();
-      expect(labelsNow()).not.toContain('Ask Codex to Address');
+      expect(labelsNow()).not.toContain('Ask Codex to fix these');
     });
   });
 

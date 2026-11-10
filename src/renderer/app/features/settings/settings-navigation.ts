@@ -146,7 +146,7 @@ export const NAV_ITEMS: SettingsNavItem[] = [
   {
     id: 'review',
     label: 'Second opinion',
-    summary: 'Verify agent output with secondary models.',
+    summary: "Have another model check an agent's work",
     group: 'Agent behavior',
     keywords: 'verification verify reviewers gemini codex cross-model review second opinion',
   },

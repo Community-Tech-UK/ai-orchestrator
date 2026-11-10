@@ -18,7 +18,6 @@ import {
   countReviewResultsWithConcerns,
   getReviewResultConcernItems,
 } from '../../../../shared/utils/cross-model-review-concerns';
-import { providerName } from '../../../../shared/display-names';
 
 @Component({
   selector: 'app-cross-model-review-panel',
@@ -262,14 +261,11 @@ import { providerName } from '../../../../shared/display-names';
 })
 export class CrossModelReviewPanelComponent {
   review = input<AggregatedReview | null>(null);
-  /** The reviewed session's own provider, so the button names whoever will act on the concerns. */
-  provider = input<string | null>(null);
+  /** The reviewed session's agent, so the button names whoever will act on the concerns. */
+  agentName = input('the agent');
   actionPerformed = output<{ reviewId: string; instanceId: string; action: ReviewActionType }>();
 
-  askPrimaryLabel = computed(() => {
-    const provider = this.provider();
-    return provider ? `Ask ${providerName(provider)} to Address` : 'Ask This Session to Address';
-  });
+  askPrimaryLabel = computed(() => `Ask ${this.agentName()} to fix these`);
 
   expanded = signal(true);
   showingFull = signal(false);
