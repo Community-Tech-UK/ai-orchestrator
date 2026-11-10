@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-07-automation-standard-opus_plan_livetest.md",
+      "sha256": "6df0a86d63bb0893654e8e53758d848d9b7753768182114766cefc86d9d64aca",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-07-automation-standard-opus_plan_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-07-automation-standard-opus_plan_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-07-automation-standard-opus_plan_livetest_completed.md",
+      "sha256": "6df0a86d63bb0893654e8e53758d848d9b7753768182114766cefc86d9d64aca"
+    }
+  ]
+}
