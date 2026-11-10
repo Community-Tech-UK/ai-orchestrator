@@ -6254,10 +6254,6 @@
       "lines": 6485
     },
     {
-      "path": "docs/plans/2026-10-10-oct-phase1-token-levers_plan.md",
-      "lines": 6371
-    },
-    {
       "path": "docs/superpowers/plans/2026-04-21-mcp-multi-provider-management_completed.md",
       "lines": 5547
     },
@@ -6268,10 +6264,6 @@
     {
       "path": "src/main/instance/instance-communication.spec.ts",
       "lines": 4621
-    },
-    {
-      "path": "docs/plans/2026-10-10-oct-phase3-calm-screen_plan.md",
-      "lines": 4591
     },
     {
       "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
@@ -6336,10 +6328,6 @@
     {
       "path": "docs/plans/2026-10-10-oct-phase0-confirmed-fixes_plan_completed.md",
       "lines": 3249
-    },
-    {
-      "path": "docs/plans/2026-10-11-oct-followups_plan.md",
-      "lines": 3049
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase1-contracts-package_completed.md",
@@ -6408,10 +6396,6 @@
     {
       "path": "src/main/app/orchestrator-tools-step.spec.ts",
       "lines": 2460
-    },
-    {
-      "path": "docs/plans/2026-10-10-oct-phase5-later_plan.md",
-      "lines": 2427
     },
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
@@ -6640,10 +6624,6 @@
     {
       "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
       "lines": 1503
-    },
-    {
-      "path": "docs/plans/2026-10-10-oct-phase3-calm-screen_history.md",
-      "lines": 1491
     },
     {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
@@ -6998,10 +6978,6 @@
       "lines": 1155
     },
     {
-      "path": "docs/plans/2026-10-20-oct2-phaseA-safety-and-truth_plan.md",
-      "lines": 1145
-    },
-    {
       "path": "docs/plans/completed/claude2_completed.md",
       "lines": 1145
     },
@@ -7016,10 +6992,6 @@
     {
       "path": "src/main/ipc/handlers/__tests__/pair-both-handlers.spec.ts",
       "lines": 1136
-    },
-    {
-      "path": "docs/plans/2026-09-27-livetest-human-external-residuals_livetest.md",
-      "lines": 1135
     },
     {
       "path": "src/main/review/local-review-tool-runner.spec.ts",
@@ -7242,10 +7214,6 @@
       "lines": 981
     },
     {
-      "path": "docs/plans/2026-10-10-oct-phase5-later_history.md",
-      "lines": 978
-    },
-    {
       "path": "src/main/browser-gateway/browser-credential-vault.spec.ts",
       "lines": 978
     },
@@ -7310,10 +7278,6 @@
       "lines": 942
     },
     {
-      "path": "docs/plans/2026-10-14-local-model-plan-execute-ab_plan.md",
-      "lines": 938
-    },
-    {
       "path": "src/renderer/app/features/editor/editor-page.component.ts",
       "lines": 938
     },
@@ -7336,10 +7300,6 @@
     {
       "path": "src/renderer/app/features/memory/memory-browser.component.ts",
       "lines": 928
-    },
-    {
-      "path": "docs/plans/2026-10-11-oct-followups_history.md",
-      "lines": 924
     },
     {
       "path": "src/shared/types/instance.types.ts",
@@ -7520,10 +7480,6 @@
     {
       "path": "docs/superpowers/plans/2026-05-10-main-process-multicore-offload_completed.md",
       "lines": 858
-    },
-    {
-      "path": "docs/plans/2026-10-18-plan-queue-checkout-timeout_history.md",
-      "lines": 857
     },
     {
       "path": "docs/superpowers/specs/2026-04-17-wave2-provider-normalization-design_completed.md",
