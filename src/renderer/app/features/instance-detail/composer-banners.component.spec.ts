@@ -78,7 +78,8 @@ describe('ComposerBannersComponent auth repair', () => {
 
   it('shows a signed-out banner naming the provider', () => {
     expect(component.authRequired()).toMatchObject({ kind: 'auth-required', provider: 'claude' });
-    expect(component.authLabel()).toContain('Signed out of claude');
+    expect(component.authLabel()).toContain('Signed out of Claude')
+    expect(component.authDetail()).toContain('The Claude credentials expired');
   });
 
   it('shows no auth banner for other wait reasons', () => {

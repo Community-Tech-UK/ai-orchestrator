@@ -27,6 +27,7 @@ import { InstanceStore } from '../../core/state/instance.store';
 import type { InstanceStatus } from '../../core/state/instance/instance.types';
 import type { InstanceWaitReason } from '../../../../shared/types/instance.types';
 import { isPooledProvider } from '../../../../shared/types/provider-account.types';
+import { accountFamilyName } from '../../../../shared/display-names';
 import { formatQuotaParkCountdown } from './input-panel-formatters';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { isSandboxCredentialFailure, isSandboxFileDenial } from '../../../../shared/sandbox-failure-keywords';
@@ -296,12 +297,12 @@ export class ComposerBannersComponent {
 
   readonly authLabel = computed(() => {
     const auth = this.authRequired();
-    return auth ? `Signed out of ${auth.provider} — sign in to resume this session.` : null;
+    return auth ? `Signed out of ${accountFamilyName(auth.provider)} — sign in to resume this session.` : null;
   });
   readonly authDetail = computed(() => {
     const auth = this.authRequired();
     if (!auth) return '';
-    return `The ${auth.provider} credentials expired during this session. Sign in and the interrupted turn is re-sent automatically; "Retry now" checks immediately.`;
+    return `The ${accountFamilyName(auth.provider)} credentials expired during this session. Sign in and the interrupted turn is re-sent automatically; "Retry now" checks immediately.`;
   });
 
   async onSignIn(provider: string): Promise<void> {
