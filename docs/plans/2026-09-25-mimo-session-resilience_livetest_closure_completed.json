@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-09-25-mimo-session-resilience_livetest.md",
+      "sha256": "d1dfd421d0feb54b1ef20d27fd2204641797d92bb541f9c4da76158ebe077f32",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-09-25-mimo-session-resilience_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-09-25-mimo-session-resilience_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-09-25-mimo-session-resilience_livetest_completed.md",
+      "sha256": "02c02ffaaa5f831a4271d5d2a0f2826ff0c919d26a17617208ed9a6a0606c5bf"
+    }
+  ]
+}
