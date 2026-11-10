@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-10-queue-hook-probe_plan.md",
+      "sha256": "27537a65d14623c9338e0a66c8c3920e5f3496b6e75017f6bdfdb36628fc4e41",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-10-queue-hook-probe_history.md",
+      "sha256": "7eccefeebcf45e332e4a04eb48808aef0bcb5ef63d302b619603b114f76dd42d",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-10-queue-hook-probe_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-10-queue-hook-probe_plan_completed.md",
+      "sha256": "f571017abcb91381e172281d2a31a305c065dde1454635ef7f69da863f44a8cb"
+    },
+    {
+      "relativePath": "2026-11-10-queue-hook-probe_plan_history_f483ca35bd78b4d3a31d72f021d8b667c370a34188bde744cb71399ee29807e8_completed.md",
+      "sha256": "2a113048ce2476e9beccfd95ca0ffdd3eaf17a95d70f313e2b869e332d494157"
+    }
+  ]
+}
