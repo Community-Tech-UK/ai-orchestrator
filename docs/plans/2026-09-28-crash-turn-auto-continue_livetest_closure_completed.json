@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-09-28-crash-turn-auto-continue_livetest.md",
+      "sha256": "36a6bb4d89ddbd03361975007c687bc42fe2c90082a6b2bda8f46945a99a36ee",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-09-28-crash-turn-auto-continue_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-09-28-crash-turn-auto-continue_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-09-28-crash-turn-auto-continue_livetest_completed.md",
+      "sha256": "c73fb4b387af8b175e23aa63054f01adbb850f9b7b4df308fba60f87d5af1986"
+    }
+  ]
+}
