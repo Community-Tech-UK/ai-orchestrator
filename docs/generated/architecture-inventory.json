@@ -6406,16 +6406,16 @@
       "lines": 2400
     },
     {
+      "path": "src/main/history/history-manager.spec.ts",
+      "lines": 2380
+    },
+    {
       "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
       "lines": 2376
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
       "lines": 2372
-    },
-    {
-      "path": "src/main/history/history-manager.spec.ts",
-      "lines": 2357
     },
     {
       "path": "src/main/orchestration/default-invokers.loop.spec.ts",
@@ -6543,7 +6543,7 @@
     },
     {
       "path": "src/main/history/history-manager.ts",
-      "lines": 1733
+      "lines": 1735
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",

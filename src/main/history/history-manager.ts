@@ -1512,8 +1512,10 @@ export class HistoryManager {
       return false;
     }
 
+    // New notices say so in `metadata.resumeFailed`; the exact wordings keep older archives working.
     return (
-      content === 'Session restarted automatically (resume failed)'
+      message.metadata?.['resumeFailed'] === true
+      || content === 'Session restarted automatically (resume failed)'
       || content === 'Interrupted — session restarted (resume failed)'
       || content === INTERRUPT_RESTARTED_NOTICE
     );

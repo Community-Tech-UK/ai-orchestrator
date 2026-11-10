@@ -1756,6 +1756,29 @@ describe('HistoryManager', () => {
     expect(entries[0]?.messageCount).toBe(4);
   });
 
+  it('treats a system notice flagged resumeFailed as a failed resume whatever its wording', async () => {
+    const { HistoryManager } = await import('./history-manager');
+    const manager = track(new HistoryManager());
+
+    const flagged = makeInstance({
+      id: 'instance-flagged-resume-failed',
+      historyThreadId: 'thread-flagged-resume-failed',
+      sessionId: 'native-session',
+      providerSessionId: 'native-session',
+      outputBuffer: [
+        message('message-user-1', 'user', 'Continue the refactor plan', 101),
+        {
+          ...message('message-system-1', 'system', 'Reworded notice that matches no known text', 102),
+          metadata: { resumeFailed: true },
+        },
+      ],
+    });
+
+    await manager.archiveInstance(flagged, 'terminated');
+
+    expect(manager.getEntries()[0]?.nativeResumeFailedAt).toBe(102);
+  });
+
   it('uses the fresh session id once replay fallback receives new assistant output', async () => {
     const { HistoryManager } = await import('./history-manager');
     const manager = track(new HistoryManager());
