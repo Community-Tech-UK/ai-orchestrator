@@ -121,6 +121,14 @@ export class PlanQueueWorktreeService {
     return { inUse: paths.size, maxConcurrent: this.deps.creator.getConfig?.().maxConcurrent ?? 5 };
   }
 
+  /**
+   * How many work folders the queue's active jobs may hold across every run, from the app-wide setting; 0 means no
+   * limit. Only test creators lack `getConfig`; they get no limit here, unlike `worktreeUsage`'s display fallback.
+   */
+  queueFolderLimit(): number {
+    return this.deps.creator.getConfig?.().maxConcurrent ?? 0;
+  }
+
   /** The pump's check slots bound these temporary queue-owned comparison folders. */
   async withBaseline<T>(repoRoot: string, baseSha: string, action: (cwd: string) => Promise<T>): Promise<T> {
     const options = { repoRoot, baseTip: baseSha, creator: this.deps.creator, skipInstall: this.deps.skipInstall };
@@ -141,10 +149,11 @@ export class PlanQueueWorktreeService {
 
   /**
    * Create the item's worktree. Branch and path are saved through `onPrepared`,
-   * which WorktreeManager calls before it touches git. The queue's worker slots
-   * already limit its checkouts, and a paused item keeps its checkout, so they
-   * stay outside the app-wide worktree limit (they used to fill it and starve
-   * every other run).
+   * which WorktreeManager calls before it touches git. Queue checkouts stay
+   * outside WorktreeManager's own count, because paused and set-aside items
+   * keep theirs and used to fill it and starve every other run. Instead the
+   * pump keeps the queue's active jobs, across all runs, within the same
+   * setting (`queueFolderLimit`), and kept folders don't count.
    */
   async prepare(item: PlanQueueItem, repoRoot: string): Promise<PlanQueueItem> {
     const branchName = planQueueBranchName(item);

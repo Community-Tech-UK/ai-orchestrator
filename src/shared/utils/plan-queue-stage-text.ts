@@ -36,6 +36,7 @@ const CHECK_WAITS: Record<PlanQueueCheckWait, { text: string; hint: string }> = 
   'tidying-up': { text: 'waiting while Harness tidies up a finished job', hint: 'Nothing new starts in this run until a finished job\'s session and folder are cleared away.' },
   'trying-later': { text: 'waiting to try again', hint: 'Its checks could not start last time, so Harness will try again shortly.' },
   'checked-together': { text: 'waiting to be checked with another job', hint: 'It will be checked as part of another job\'s group.' },
+  'no-free-folder': { text: 'waiting for a free work folder', hint: 'Plan Queue jobs are using as many work folders as the "Worktrees in use at once" setting allows. Its checks start when one frees up.' },
 };
 const CHECK_WAIT_UNKNOWN = { text: 'waiting for its turn to be checked', hint: 'The work is done and waits for Harness to check it.' };
 
@@ -61,8 +62,10 @@ export function planQueueStageLine(item: PlanQueueItemDto, now: number): PlanQue
         'Harness is adding this job to the base branch and running the commit checks, so no session shows it.');
     case 'waiting-for-checks': {
       const wait = stage.checkWait ? CHECK_WAITS[stage.checkWait] : CHECK_WAIT_UNKNOWN;
-      // The queue's own note is more exact when it has one (usage, a closed checker).
-      return line('waiting', `${name}: ${wait.text}`, foldDetail(item.detail)?.preview ?? wait.hint);
+      // The queue's own note is more exact when it has one (usage, a closed checker), but a held job's note only says
+      // it was paused, which is no longer why it waits.
+      const note = stage.checkWait === 'no-free-folder' ? undefined : foldDetail(item.detail)?.preview;
+      return line('waiting', `${name}: ${wait.text}`, note ?? wait.hint);
     }
     case 'waiting-for-edits':
       return line('waiting', `${name}: passed, waiting for uncommitted edits in the main folder`,

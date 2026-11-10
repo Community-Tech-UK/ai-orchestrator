@@ -32,6 +32,7 @@ describe('planQueueStageLine', () => {
     ['tidying-up', 'waiting while Harness tidies up a finished job'],
     ['trying-later', 'waiting to try again'],
     ['checked-together', 'waiting to be checked with another job'],
+    ['no-free-folder', 'waiting for a free work folder'],
   ] as const)('gives the real reason for a %s wait', (checkWait, words) => {
     expect(text({ name: 'waiting-for-checks', startedAt: NOW - 4 * MIN, checkWait })).toBe(`desk-shared-crm: ${words}, 4 min`);
   });
@@ -44,6 +45,11 @@ describe('planQueueStageLine', () => {
     const stage: PlanQueueItemStage = { name: 'waiting-for-checks', startedAt: NOW, checkWait: 'trying-later' };
     expect(planQueueStageLine(item(stage), NOW)?.hint).toBe('Its checks could not start last time, so Harness will try again shortly.');
     expect(planQueueStageLine(item(stage, { detail: 'No usage left on this account.' }), NOW)?.hint).toBe('No usage left on this account.');
+  });
+
+  it('explains a wait for a work folder itself, as a held job\'s note only says it was paused', () => {
+    const stage: PlanQueueItemStage = { name: 'waiting-for-checks', startedAt: NOW, checkWait: 'no-free-folder' };
+    expect(planQueueStageLine(item(stage, { detail: 'Paused' }), NOW)?.hint).toContain('"Worktrees in use at once" setting');
   });
 
   it('is null for a job with no such step', () => {

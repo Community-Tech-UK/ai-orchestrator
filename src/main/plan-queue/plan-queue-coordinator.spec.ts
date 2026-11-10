@@ -3740,7 +3740,7 @@ describe('queue spend reductions', { timeout: 30_000 }, () => {
     prepare.mockRestore();
   });
 
-  it('starts queue work while the shared worktree limit is full, and its checkouts never use that limit up', async () => {
+  it('counts queue work against the same limit on its own: a full shared limit does not stop it, and its checkouts never use that limit up', async () => {
     planDoc('2026-01-01-limit-one');
     planDoc('2026-01-01-limit-two');
     fake.scripts.worker = never;
@@ -3751,12 +3751,19 @@ describe('queue spend reductions', { timeout: 30_000 }, () => {
     const holder = await manager.createWorktree('loop-holder', 'loop holder', options);
 
     const { run } = await coordinator.startRun({ parentInstanceId: fake.addParent().id, kind: 'plans', config: { workerSlots: 2 } });
-    await vi.waitFor(() => expect(store.listItems(run.id).map((item) => item.state)).toEqual(['working', 'working']), { timeout: 15_000, interval: 50 });
+    await vi.waitFor(() => expect(store.listItems(run.id).map((item) => item.state)).toEqual(['working', 'queued']), { timeout: 15_000, interval: 50 });
 
-    // With two queue checkouts in use, the place the loop frees is still available to the next loop.
+    // The queue checkout in use doesn't count for loops: the place the loop frees is still available to the next loop.
     await expect(manager.createWorktree('loop-blocked', 'loop blocked', options)).rejects.toBeInstanceOf(WorktreeCapacityError);
     await manager.cleanupWorktree(holder.id, { force: true });
     await expect(manager.createWorktree('loop-next', 'loop next', options)).resolves.toBeDefined();
+
+    // The queue's own count keeps its second job waiting until the setting allows two.
+    coordinator.requestPump(); await coordinator._whenSettledForTesting();
+    expect(store.listItems(run.id).map((item) => item.state)).toEqual(['working', 'queued']);
+    manager.configure({ maxConcurrent: 2 });
+    coordinator.requestPump();
+    await vi.waitFor(() => expect(store.listItems(run.id).map((item) => item.state)).toEqual(['working', 'working']), { timeout: 15_000, interval: 50 });
   });
 
   it('finishes failed gate comparisons when queue folders exceed the shared worktree limit', async () => {

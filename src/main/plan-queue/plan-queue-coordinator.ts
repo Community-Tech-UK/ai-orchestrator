@@ -471,7 +471,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   }
   listRunEvents(runId: string, limit: number) { return this.history.listRunEvents(runId, limit); }
   /** Steps with no session (checks, landing, waits), timed from stored history; see plan-queue-item-stage.ts. */
-  private stagesOf(items: readonly PlanQueueItem[]) { return itemStages(this.history, items, this.sessionStartedAt, id => this.store.waits.whyWaiting(id)); }
+  private stagesOf(items: readonly PlanQueueItem[]) { return itemStages(this.history, items, this.sessionStartedAt, this.store.waits); }
 
   /** The "Queue health" measures for the recent window, from the stored events and verdicts. */
   getQueueHealth(): PlanQueueHealth { return withTestMachine(this.requireDeps().store.queueHealth(), Date.now()); }
@@ -698,7 +698,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       loadAverage: () => this.requireDeps().loadAverage(), followParent: run => this.require(this.parents).follow(run),
       isShuttingDown: () => this.tracker.isShuttingDown(), isControlling: id => this.runControl.isControlling(id),
       finishRun: (run, status) => this.finishRun(run, status), logItemError: (item, error) => this.logItemError(item, error),
-      announceRun: runId => this.announce({ runId }),
+      announceRun: runId => this.announce({ runId }), queueFolderLimit: () => this.worktrees.queueFolderLimit(),
     });
   }
   private async routeOutcome(instanceId: string, outcome: PlanQueueTurnOutcome): Promise<void> {

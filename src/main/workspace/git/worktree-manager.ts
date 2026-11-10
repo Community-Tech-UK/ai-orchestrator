@@ -112,8 +112,9 @@ export class WorktreeManager extends EventEmitter {
       onPrepared?: (session: WorktreeSession) => void | Promise<void>;
       /**
        * False when the caller already limits how many worktrees it runs (the
-       * Plan Queue's worker slots). Such a worktree skips the shared limit and
-       * does not use up a place in it, so a paused queue cannot block a loop.
+       * Plan Queue keeps its active jobs within the same setting by its own
+       * count). Such a worktree skips the shared limit and does not use up a
+       * place in it, so a paused queue cannot block a loop.
        */
       countsTowardLimit?: boolean;
     }

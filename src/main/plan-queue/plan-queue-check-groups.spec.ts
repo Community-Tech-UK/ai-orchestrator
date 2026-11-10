@@ -95,7 +95,7 @@ describe('combined queue checks', () => {
       liveParentId: () => 'parent', registerRole: vi.fn(), tracker: { track: vi.fn() },
     });
     const flow = new PlanQueueItemFlow(host);
-    const pumpHost = { ...host, flow, triage: null, loadAverage: () => [0, 0, 0], followParent: (value: PlanQueueRun) => value,
+    const pumpHost = { ...host, flow, triage: null, loadAverage: () => [0, 0, 0], queueFolderLimit: () => 0, followParent: (value: PlanQueueRun) => value,
       isShuttingDown: () => false, isControlling: () => false, resolveRunParent: () => 'parent', finishRun: vi.fn(),
       notifyParent: vi.fn(), logItemError: (_value: PlanQueueItem, error: unknown) => { throw error; }, announceRun: vi.fn() };
     try {

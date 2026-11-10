@@ -150,14 +150,14 @@ describe('running the steps in order', () => {
   function pumpOf(items: PlanQueueItem[]) {
     const starts: string[] = [];
     const host: Parameters<typeof pumpPlanQueue>[0] = {
-      store: { listActiveRuns: () => [run], listItems: () => items, listItemsWithKeptFolders: () => [], listFoldersWithDiscardedItems: () => [],
-        waits: { blocked: () => undefined, explain: () => false, started: () => undefined, prune: () => undefined, waitingSince: () => undefined } } as unknown as PlanQueueStore,
+      store: { listActiveRuns: () => [run], listAutomaticLandingsInEndedRuns: () => [], listItems: () => items, listItemsWithKeptFolders: () => [], listFoldersWithDiscardedItems: () => [],
+        waits: { blocked: () => undefined, explain: () => false, started: () => undefined, prune: () => undefined, paused: () => undefined, waitingSince: () => undefined } } as unknown as PlanQueueStore,
       flow: { startItem: async item => { starts.push(item.id); }, startVerification: async () => undefined, isWaitingForUsage: () => false, isClaimed: () => false,
         recheckLandingWait: async () => undefined, keptFolders: { retryDue: () => undefined }, breaker: { canStart: () => true, started: () => undefined } as never,
         discardedRefs: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined }, checklistTurns: new Set<string>(), finishLandingCleanup: async () => undefined },
       triage: null, getRun: () => run, getItem: id => items.find(item => item.id === id)!,
       transition: (item, state, patch) => Object.assign(item, patch, { state }),
-      notifyParent: () => undefined, resolveRunParent: () => 'chat', loadAverage: () => [0, 0, 0], followParent: value => value,
+      notifyParent: () => undefined, resolveRunParent: () => 'chat', loadAverage: () => [0, 0, 0], queueFolderLimit: () => 0, followParent: value => value,
       isShuttingDown: () => false, isControlling: () => false, finishRun: () => undefined,
       logItemError: (_item, error) => { throw error; }, announceRun: () => undefined,
     };

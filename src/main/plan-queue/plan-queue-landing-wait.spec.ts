@@ -518,7 +518,7 @@ describe('4.2: a blocked landing waits instead of parking', () => {
           isWaitingForUsage: () => false, isClaimed: () => false, breaker: { canStart: () => true, started: () => undefined } as never, finishLandingCleanup: async () => undefined, keptFolders: { retryDue: () => undefined }, discardedRefs: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined }, checklistTurns: new Set<string>(),
           recheckLandingWait: (id: string) => flow.recheckLandingWait(id) },
         triage: null, getRun: () => run, getItem: item, transition: (next, state, patch) => host.transition(next, state, patch),
-        notifyParent: () => undefined, resolveRunParent: () => 'chat', loadAverage: () => [0, 0, 0], followParent: (value) => value,
+        notifyParent: () => undefined, resolveRunParent: () => 'chat', loadAverage: () => [0, 0, 0], queueFolderLimit: () => 0, followParent: (value) => value,
         isShuttingDown: () => false, isControlling: () => false, finishRun: () => undefined, announceRun: () => undefined,
         logItemError: (_item, error) => { throw error; },
       });

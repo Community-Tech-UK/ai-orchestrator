@@ -306,7 +306,7 @@ export const PlanQueueSpendSchema = z.object({ tokens: z.number().int().nonnegat
 
 /** What the scheduler found on its latest pass when it did not start a job's checks. */
 export const PlanQueueCheckWaitSchema = z.enum([
-  'other-checks', 'computer-busy', 'harness-held', 'run-on-hold', 'tidying-up', 'trying-later', 'checked-together',
+  'other-checks', 'computer-busy', 'harness-held', 'run-on-hold', 'tidying-up', 'trying-later', 'checked-together', 'no-free-folder',
 ]);
 
 /**

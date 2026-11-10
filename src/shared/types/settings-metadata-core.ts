@@ -139,7 +139,7 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'maxConcurrentWorktrees',
     label: 'Worktrees in use at once',
-    description: 'How many separate working copies loops and other Harness work may use at the same time, across all projects. The Plan Queue follows its own worker limit instead. 0 means no limit.',
+    description: 'How many separate working copies loops and other Harness work may use at the same time, across all projects. Plan Queue jobs have their own count with the same limit, and copies kept by paused or set-aside jobs don\'t count. 0 means no limit.',
     type: 'number',
     category: 'orchestration',
     min: 0,

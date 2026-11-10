@@ -158,6 +158,9 @@ export class PlanQueueSlotWaits {
       freeToStartMs: freed >= since ? Math.max(0, at - freed) : null });
   }
 
+  /** An item in a paused run is not waiting: after the pause its wait is timed from then, not from before it. */
+  paused(itemId: string): void { this.blockedSince.delete(itemId); }
+
   /** Forget items that are no longer waiting for a start (parked, skipped, run ended). */
   prune(stillWaiting: ReadonlySet<string>): void {
     for (const id of this.blockedSince.keys()) if (!stillWaiting.has(id)) this.blockedSince.delete(id);

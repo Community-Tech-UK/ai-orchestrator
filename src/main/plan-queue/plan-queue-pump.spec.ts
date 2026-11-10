@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
+import { DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueItemState } from '@contracts/schemas/plan-queue';
 import { pumpPlanQueue } from './plan-queue-pump';
 import { newPlanQueueItem } from './plan-queue-state';
 import type { PlanQueueRun } from './plan-queue.types';
@@ -10,6 +10,7 @@ import { PlanQueueStore } from './plan-queue-store';
 import { createSqliteWasmDatabase, initSqliteWasm } from '../db/sqlite-wasm-driver';
 import { runLoopMigrations } from '../orchestration/loop-schema';
 import { getWorkAdmission, WorkAdmission } from '../work-admission/work-admission';
+import { PlanQueueSlotWaits } from './plan-queue-timings';
 
 // Work admission reads the real load average on the light levels; keep this Mac's load out of the result.
 vi.mock('os', async (importOriginal) => {
@@ -31,13 +32,13 @@ describe('Plan Queue admission wiring', () => {
       const items = [worker, check];
       const starts: string[] = [];
       const host: Parameters<typeof pumpPlanQueue>[0] = {
-        store: { listActiveRuns: () => [run], listItems: () => items, listItemsWithKeptFolders: () => [], waits: { blocked: () => undefined, explain: () => false, started: () => undefined, prune: () => undefined, waitingSince: () => undefined } } as unknown as PlanQueueStore,
+        store: { listActiveRuns: () => [run], listAutomaticLandingsInEndedRuns: () => [], listItems: () => items, listItemsWithKeptFolders: () => [], waits: { blocked: () => undefined, explain: () => false, started: () => undefined, prune: () => undefined, paused: () => undefined, waitingSince: () => undefined } } as unknown as PlanQueueStore,
         flow: { startItem: async item => { starts.push(item.id); }, startVerification: async item => { starts.push(item.id); }, isWaitingForUsage: () => false, isClaimed: () => false, recheckLandingWait: async () => undefined, keptFolders: { retryDue: () => undefined }, breaker: { canStart: () => true, started: () => undefined } as never, discardedRefs: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined }, checklistTurns: new Set<string>(), finishLandingCleanup: async () => undefined },
         triage: { isStopping: () => false, maybeStart: () => { starts.push('triage'); } },
         getRun: () => run, getItem: id => items.find(item => item.id === id)!,
         transition: (item, state, patch) => Object.assign(item, patch, { state }),
         notifyParent: () => undefined, resolveRunParent: () => 'chat',
-        loadAverage: () => [0, 0, 0], followParent: value => value,
+        loadAverage: () => [0, 0, 0], queueFolderLimit: () => 0, followParent: value => value,
         isShuttingDown: () => false, isControlling: () => false,
         finishRun: () => { throw new Error('The active run must not finish'); },
         logItemError: (_item, error) => { throw error; }, announceRun: () => undefined,
@@ -58,8 +59,8 @@ describe('Plan Queue admission wiring', () => {
     function pumpOf(runs: PlanQueueRun[], items: ReturnType<typeof newPlanQueueItem>[], turns: Set<string>) {
       const starts: string[] = [];
       const host = {
-        store: { listActiveRuns: () => runs, listItems: (id: string) => items.filter(item => item.runId === id), listItemsWithKeptFolders: () => [],
-          listFoldersWithDiscardedItems: () => [], waits: { blocked: () => undefined, explain: () => false, started: () => undefined, prune: () => undefined, waitingSince: () => undefined } },
+        store: { listActiveRuns: () => runs, listAutomaticLandingsInEndedRuns: () => [], listItems: (id: string) => items.filter(item => item.runId === id), listItemsWithKeptFolders: () => [],
+          listFoldersWithDiscardedItems: () => [], waits: { blocked: () => undefined, explain: () => false, started: () => undefined, prune: () => undefined, paused: () => undefined, waitingSince: () => undefined } },
         flow: { startItem: async () => undefined, isWaitingForUsage: () => false, isClaimed: () => false, keptFolders: { retryDue: () => undefined },
           breaker: { canStart: () => true, started: () => undefined } as never, discardedRefs: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined }, checklistTurns: turns,
           startVerification: async (item: { id: string; runId: string }) => {
@@ -68,7 +69,7 @@ describe('Plan Queue admission wiring', () => {
           } },
         triage: null, getRun: (id: string) => runs.find(run => run.id === id)!, getItem: (id: string) => items.find(item => item.id === id)!,
         transition: (item: object, state: string, patch: object) => Object.assign(item, patch, { state }),
-        notifyParent: () => undefined, resolveRunParent: () => 'chat', loadAverage: () => [0, 0, 0], followParent: (value: PlanQueueRun) => value,
+        notifyParent: () => undefined, resolveRunParent: () => 'chat', loadAverage: () => [0, 0, 0], queueFolderLimit: () => 0, followParent: (value: PlanQueueRun) => value,
         isShuttingDown: () => false, isControlling: () => false, finishRun: () => undefined,
         logItemError: (_item: unknown, error: unknown) => { throw error; }, announceRun: () => undefined,
       } as unknown as Parameters<typeof pumpPlanQueue>[0];
@@ -181,6 +182,138 @@ describe('Plan Queue admission wiring', () => {
     });
   });
 
+  describe('work folders across runs', () => {
+    const roots: string[] = [];
+    afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+    type Row = PlanQueueItemState | `held ${PlanQueueItemState}`;
+    // `landing waiting` is a landing that waits for uncommitted edits in the main folder.
+    function setUp(limit: number, layout: Record<string, (Row | 'landing waiting')[]>, options: { paused?: string[]; endedLandings?: number; waits?: PlanQueueSlotWaits } = {}) {
+      const runs: PlanQueueRun[] = Object.keys(layout).map((id, index) => {
+        const root = mkdtempSync(join(tmpdir(), `queue-folders-${id}-`)); roots.push(root);
+        return { id, parentInstanceId: 'chat', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: root, status: options.paused?.includes(id) ? 'paused' : 'running',
+          config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, workerSlots: 8 }, relaxation: null, workerProvider: null, workerModel: null, startedAt: index, endedAt: null };
+      });
+      const items = runs.flatMap(run => layout[run.id].map((row, n) => {
+        const document = join(run.workspaceCwd, `${n}_plan.md`); writeFileSync(document, '# Work');
+        const state = row.replace('held ', '').replace(' waiting', '') as PlanQueueItemState;
+        // A paused run holds its jobs: as queued rows, or as awaiting-slot once their work was done.
+        return newPlanQueueItem(`${run.id}-${n}`, run.id, document, n,
+          { state, heldAt: row.startsWith('held ') ? 1 : null, landingWaitPaths: row === 'landing waiting' ? ['src/a.ts'] : [] });
+      }));
+      const starts: string[] = [];
+      const waits = new Map<string, string>();
+      const host = {
+        store: { listActiveRuns: () => runs, listAutomaticLandingsInEndedRuns: () => Array.from({ length: options.endedLandings ?? 0 }), listItems: (id: string) => items.filter(item => item.runId === id),
+          listItemsWithKeptFolders: () => [], listFoldersWithDiscardedItems: () => [],
+          waits: options.waits ?? { blocked: () => undefined, explain: (id: string, why: string) => { waits.set(id, why); return false; }, started: () => undefined, prune: () => undefined, paused: () => undefined, waitingSince: () => undefined } },
+        // As in the real flow, a held job keeps `heldAt` until its session spawns, minutes after it starts.
+        flow: { startItem: async (item: { id: string }) => { starts.push(item.id); Object.assign(items.find(row => row.id === item.id)!, { state: 'preparing' }); },
+          startVerification: async (item: { id: string }) => { starts.push(`check ${item.id}`); Object.assign(items.find(row => row.id === item.id)!, { state: 'verifying' }); },
+          isWaitingForUsage: () => false, isClaimed: () => false,
+          recheckLandingWait: async () => undefined, keptFolders: { retryDue: () => undefined }, breaker: { canStart: () => true, started: () => undefined },
+          discardedRefs: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined }, checklistTurns: new Set<string>(), finishLandingCleanup: async () => undefined },
+        triage: null, getRun: (id: string) => runs.find(run => run.id === id)!, getItem: (id: string) => items.find(item => item.id === id)!,
+        transition: (item: object, state: string, patch: object) => Object.assign(item, patch, { state }),
+        notifyParent: () => undefined, resolveRunParent: () => 'chat', loadAverage: () => [0, 0, 0], queueFolderLimit: () => limit,
+        followParent: (value: PlanQueueRun) => value, isShuttingDown: () => false, isControlling: () => false, finishRun: () => undefined,
+        logItemError: (_item: unknown, error: unknown) => { throw error; }, announceRun: () => undefined,
+      } as unknown as Parameters<typeof pumpPlanQueue>[0];
+      return { host, starts, items, waits, runs };
+    }
+
+    it('keeps two runs together within the limit, and a job that cannot start waits for a free folder', async () => {
+      const { host, starts } = setUp(4, { a: ['working', 'verifying', 'queued', 'queued'], b: ['landing', 'queued', 'queued'] });
+      await pumpPlanQueue(host);
+      expect(starts).toEqual(['a-2']);
+      await pumpPlanQueue(host);
+      expect(starts).toEqual(['a-2']);
+    });
+
+    it('does not count folders kept by set-aside jobs or by a paused run, including paused jobs whose work was done', async () => {
+      const { host, starts } = setUp(2, { a: ['parked', 'parked', 'parked', 'queued'], b: ['parked', 'queued'],
+        held: ['held queued', 'held awaiting-slot', 'held awaiting-slot'] }, { paused: ['held'] });
+      await pumpPlanQueue(host);
+      expect(starts).toEqual(['a-3', 'b-1']);
+    });
+
+    it('starts a held job\'s checks only when a folder is free, and counts it from then on', async () => {
+      const { host, starts, items, waits } = setUp(2, { a: ['working', 'held awaiting-slot', 'queued'] });
+      await pumpPlanQueue(host);
+      expect(starts).toEqual(['a-2']);
+      expect(waits.get('a-1')).toBe('no-free-folder');
+      items[0].state = 'landed';
+      await pumpPlanQueue(host);
+      expect(starts).toEqual(['a-2', 'check a-1']);
+      await pumpPlanQueue(host);
+      expect(starts).toEqual(['a-2', 'check a-1']);
+    });
+
+    it('counts a held job from the moment its checks start, so a later run in the same pass waits', async () => {
+      const { host, starts, runs } = setUp(2, { a: ['working', 'held awaiting-slot'], b: ['queued'] });
+      // Without a checklist its checks start in the run's own turn, before run b's workers (checklists go last).
+      runs[0].config = { ...runs[0].config, verifierGates: [] };
+      await pumpPlanQueue(host);
+      expect(starts).toEqual(['check a-1']);
+      await pumpPlanQueue(host); // still held while its checks run, and still counted
+      expect(starts).toEqual(['check a-1']);
+    });
+
+    it('counts a held job that starts work again while it keeps its hold mark', async () => {
+      const { host, starts } = setUp(2, { a: ['working', 'held queued'], b: ['queued'] });
+      await pumpPlanQueue(host);
+      expect(starts).toEqual(['a-1']);
+      await pumpPlanQueue(host);
+      expect(starts).toEqual(['a-1']);
+    });
+
+    it('does not count a landing waiting for edits in a paused run, but does in a running one', async () => {
+      const paused = setUp(2, { held: ['landing waiting', 'landing waiting'], a: ['queued', 'queued'] }, { paused: ['held'] });
+      await pumpPlanQueue(paused.host);
+      expect(paused.starts).toEqual(['a-0', 'a-1']);
+      const running = setUp(2, { busy: ['landing waiting', 'landing waiting'], a: ['queued'] });
+      await pumpPlanQueue(running.host);
+      expect(running.starts).toEqual([]);
+    });
+
+    it('times a wait after a pause from the release, not from before the pause', async () => {
+      let now = 1_000;
+      const slotWaits = new PlanQueueSlotWaits({ recordEvent: () => undefined } as never, () => now);
+      const { host, runs } = setUp(1, { a: ['working', 'held awaiting-slot'] }, { waits: slotWaits });
+      runs[0].config = { ...runs[0].config, verifierGates: [] };
+      await pumpPlanQueue(host);
+      expect([slotWaits.whyWaiting('a-1'), slotWaits.waitingSince('a-1')]).toEqual(['no-free-folder', 1_000]);
+      now = 2_000; runs[0].status = 'paused';
+      await pumpPlanQueue(host);
+      expect([slotWaits.whyWaiting('a-1'), slotWaits.waitingSince('a-1')]).toEqual(['run-on-hold', undefined]);
+      now = 90_000; runs[0].status = 'running';
+      await pumpPlanQueue(host);
+      expect([slotWaits.whyWaiting('a-1'), slotWaits.waitingSince('a-1')]).toEqual(['no-free-folder', 90_000]);
+    });
+
+    it('restarts the wait clock in a paused run even while a finished job\'s clean-up is still pending', async () => {
+      let now = 1_000;
+      const slotWaits = new PlanQueueSlotWaits({ recordEvent: () => undefined } as never, () => now);
+      const { host, items } = setUp(1, { held: ['landed', 'held awaiting-slot'] }, { paused: ['held'], waits: slotWaits });
+      items[0].workerInstanceId = 'worker'; // a landed job whose session is not yet cleaned away
+      slotWaits.blocked('held-1');
+      now = 2_000;
+      await pumpPlanQueue(host);
+      expect(slotWaits.waitingSince('held-1')).toBeUndefined();
+    });
+
+    it('counts landings Harness retries by itself in runs that have ended', async () => {
+      const { host, starts } = setUp(2, { a: ['working', 'queued'] }, { endedLandings: 1 });
+      await pumpPlanQueue(host);
+      expect(starts).toEqual([]);
+    });
+
+    it('sets no limit when the setting is 0', async () => {
+      const { host, starts } = setUp(0, { a: ['working', 'working', 'queued'], b: ['working', 'queued'] }, { endedLandings: 3 });
+      await pumpPlanQueue(host);
+      expect(starts).toEqual(['a-2', 'b-1']);
+    });
+  });
+
   it('shares checks between runs in one project folder but never across folders', async () => {
     const roots = [mkdtempSync(join(tmpdir(), 'queue-folder-a-')), mkdtempSync(join(tmpdir(), 'queue-folder-b-'))];
     try {
@@ -194,13 +327,13 @@ describe('Plan Queue admission wiring', () => {
       }));
       const checks: string[] = [];
       const host: Parameters<typeof pumpPlanQueue>[0] = {
-        store: { listActiveRuns: () => runs, listItems: (runId: string) => items.filter(item => item.runId === runId), listItemsWithKeptFolders: () => [], waits: { blocked: () => undefined, explain: () => false, started: () => undefined, prune: () => undefined, waitingSince: () => undefined } } as unknown as PlanQueueStore,
+        store: { listActiveRuns: () => runs, listAutomaticLandingsInEndedRuns: () => [], listItems: (runId: string) => items.filter(item => item.runId === runId), listItemsWithKeptFolders: () => [], waits: { blocked: () => undefined, explain: () => false, started: () => undefined, prune: () => undefined, paused: () => undefined, waitingSince: () => undefined } } as unknown as PlanQueueStore,
         flow: { startItem: async () => undefined, startVerification: async item => { checks.push(item.id); }, isWaitingForUsage: () => false, isClaimed: () => false, recheckLandingWait: async () => undefined, keptFolders: { retryDue: () => undefined }, breaker: { canStart: () => true, started: () => undefined } as never, discardedRefs: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined }, checklistTurns: new Set<string>(), finishLandingCleanup: async () => undefined },
         triage: null,
         getRun: id => runs.find(run => run.id === id)!, getItem: id => items.find(item => item.id === id)!,
         transition: (item, state, patch) => Object.assign(item, patch, { state }),
         notifyParent: () => undefined, resolveRunParent: () => 'chat',
-        loadAverage: () => [0, 0, 0], followParent: value => value,
+        loadAverage: () => [0, 0, 0], queueFolderLimit: () => 0, followParent: value => value,
         isShuttingDown: () => false, isControlling: () => false,
         finishRun: () => { throw new Error('An active run must not finish'); },
         logItemError: (_item, error) => { throw error; }, announceRun: () => undefined,
@@ -237,7 +370,7 @@ describe('Plan Queue admission wiring', () => {
         triage: null, getRun: () => run, getItem: id => store.getItem(id)!,
         transition: (item, state, patch) => store.getItem(item.id) ?? Object.assign(item, patch, { state }),
         notifyParent: () => undefined, resolveRunParent: () => 'chat',
-        loadAverage: () => [0, 0, 0], followParent: value => value,
+        loadAverage: () => [0, 0, 0], queueFolderLimit: () => 0, followParent: value => value,
         isShuttingDown: () => false, isControlling: () => false,
         finishRun: () => { throw new Error('The active run must not finish'); },
         logItemError: (_item, error) => { throw error; }, announceRun: () => undefined,

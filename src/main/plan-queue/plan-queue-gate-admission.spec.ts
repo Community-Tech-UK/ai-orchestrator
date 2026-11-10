@@ -37,7 +37,7 @@ function fixture(groups: { folder: string; slots: number; jobs: number }[]) {
     return { exitCode: 0, output: '' };
   }, () => 'admission-test-tree');
   const host: Parameters<typeof pumpPlanQueue>[0] = {
-    store: { listActiveRuns: () => runs, listItems: (id: string) => items.filter(item => item.runId === id), listItemsWithKeptFolders: () => [], waits: { blocked: () => undefined, explain: () => false, started: () => undefined, prune: () => undefined, waitingSince: () => undefined } } as unknown as PlanQueueStore,
+    store: { listActiveRuns: () => runs, listAutomaticLandingsInEndedRuns: () => [], listItems: (id: string) => items.filter(item => item.runId === id), listItemsWithKeptFolders: () => [], waits: { blocked: () => undefined, explain: () => false, started: () => undefined, prune: () => undefined, paused: () => undefined, waitingSince: () => undefined } } as unknown as PlanQueueStore,
     flow: {
       startItem: async () => { throw new Error('Only checks are expected'); },
       startVerification: (item: PlanQueueItem) => {
@@ -57,7 +57,7 @@ function fixture(groups: { folder: string; slots: number; jobs: number }[]) {
     triage: null, getRun: id => runs.find(run => run.id === id)!, getItem: id => items.find(item => item.id === id)!,
     transition: (item, state, patch) => Object.assign(item, patch, { state }),
     notifyParent: () => undefined, resolveRunParent: () => 'parent',
-    loadAverage: () => [0, 0, 0], followParent: run => run,
+    loadAverage: () => [0, 0, 0], queueFolderLimit: () => 0, followParent: run => run,
     isShuttingDown: () => false, isControlling: () => false,
     finishRun: () => { throw new Error('Checks are still active'); },
     logItemError: (_item, error) => { throw error; }, announceRun: () => undefined,

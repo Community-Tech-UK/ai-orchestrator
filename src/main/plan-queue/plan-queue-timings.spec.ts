@@ -35,6 +35,19 @@ describe('why a check waits', () => {
     waits.prune(new Set());
     expect(waits.whyWaiting('b')).toBeUndefined();
   });
+
+  it('starts a held item\'s wait again from its release, so the time paused is never shown or recorded as waiting', () => {
+    let now = 100;
+    const recordEvent = vi.fn();
+    const waits = new PlanQueueSlotWaits({ recordEvent } as never, () => now);
+    waits.blocked('a'); waits.explain('a', 'other-checks');
+    now = 200; waits.paused('a');
+    expect(waits.waitingSince('a')).toBeUndefined();
+    now = 10_000; waits.blocked('a'); waits.explain('a', 'no-free-folder'); // released, no folder free
+    expect(waits.waitingSince('a')).toBe(10_000);
+    waits.started({ id: 'a', runId: 'run', state: 'awaiting-slot', round: 0 }, 'check');
+    expect(recordEvent.mock.calls[0][0].detailHead).toContain('"waitedMs":0');
+  });
 });
 
 describe('landing timer', () => {

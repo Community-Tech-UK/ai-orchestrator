@@ -6267,7 +6267,7 @@
     },
     {
       "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
-      "lines": 4460
+      "lines": 4467
     },
     {
       "path": "docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md",
@@ -7063,7 +7063,7 @@
     },
     {
       "path": "src/main/workspace/git/worktree-manager.ts",
-      "lines": 1082
+      "lines": 1083
     },
     {
       "path": "docs/plans/2026-10-10-oct-phase4b-tooltips-migration_plan_completed.md",

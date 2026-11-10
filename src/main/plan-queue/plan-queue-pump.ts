@@ -21,6 +21,8 @@ interface QueuePumpHost extends Pick<PlanQueueFlowHost, 'getRun' | 'getItem' | '
     landingRetries: Pick<PlanQueueLandingRetries, 'retryDue'> };
   triage: Pick<PlanQueueTriage, 'isStopping' | 'maybeStart'> | null;
   loadAverage(): number[];
+  /** Most work folders the queue's active jobs may hold across every run; 0 means no limit. */
+  queueFolderLimit(): number;
   followParent(run: PlanQueueRun): PlanQueueRun;
   isShuttingDown(): boolean;
   isControlling(id: string): boolean;
@@ -44,11 +46,23 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
       folderChecks.set(folder, (folderChecks.get(folder) ?? 0) + store.listItems(run.id).filter(item => item.state === 'verifying').length);
     }
     let verifying = runs.flatMap((run) => store.listItems(run.id)).filter((item) => item.state === 'verifying').length;
-    let totalJobs = runs.flatMap(run => store.listItems(run.id)).filter(item => itemHoldsWorktree(item.state)).length;
+    // Folders kept by resting jobs are not counted: counting them is what starved runs in October. Set-aside and queued
+    // jobs never count (`itemHoldsWorktree`); `resting` adds a job held (`heldAt`: paused or waiting for usage) at
+    // awaiting-slot, and a landing waiting for edits in a paused run. A held job that starts again keeps `heldAt` until
+    // its session spawns, so from preparing or verifying on it counts.
+    // Harness's own landing retries in ended runs are counted too, as this loop never visits those runs.
+    const resting = (item: PlanQueueItem, run: PlanQueueRun): boolean =>
+      item.state === 'awaiting-slot' && item.heldAt != null || run.status === 'paused' && isLandingWait(item);
+    let totalJobs = runs.flatMap(run => store.listItems(run.id).filter(item => itemHoldsWorktree(item.state) && !resting(item, run))).length
+      + store.listAutomaticLandingsInEndedRuns().length;
+    const folderLimit = host.queueFolderLimit();
+    const folderFree = (): boolean => folderLimit <= 0 || totalJobs < folderLimit;
     store.waits.prune(new Set(runs.flatMap(run => store.listItems(run.id)).filter(item => item.state === 'queued' || item.state === 'awaiting-slot').map(item => item.id)));
     const runChecks = new Map<string, number>();
-    const whyNoCheck = (run: PlanQueueRun, checklist: boolean): PlanQueueCheckWait | null => {
+    const whyNoCheck = (run: PlanQueueRun, item: PlanQueueItem, checklist: boolean): PlanQueueCheckWait | null => {
       if (!flow.breaker.canStart(run)) return 'run-on-hold';
+      // A held job's kept folder starts counting again when its checks start.
+      if (item.heldAt && !folderFree()) return 'no-free-folder';
       const folder = pathCompareKey(run.workspaceCwd);
       if ((folderChecks.get(folder) ?? 0) >= folderCaps.get(folder)!) return 'other-checks';
       const policy = queueAdmission(run.config, totalJobs, verifying);
@@ -61,6 +75,7 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
       flow.breaker.started(run, item.id);
       store.waits.started(item, 'check');
       verifying += 1;
+      if (item.heldAt) totalJobs += 1;
       runChecks.set(run.id, (runChecks.get(run.id) ?? 0) + 1);
       const folder = pathCompareKey(run.workspaceCwd);
       folderChecks.set(folder, (folderChecks.get(folder) ?? 0) + 1);
@@ -82,6 +97,9 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
         }
       }
       const items = store.listItems(run.id);
+      // Nothing in a paused run is waiting for a slot, so a wait after the pause is timed from then (shown and recorded).
+      // Before the cleanup skip below, which would otherwise keep the old clock through the whole pause.
+      if (run.status === 'paused') for (const item of items) if (item.state === 'queued' || item.state === 'awaiting-slot') store.waits.paused(item.id);
       const awaitingChecks = items.filter(item => item.state === 'awaiting-slot');
       const cleanups = items.filter(hasPendingLandingCleanup);
       if (cleanups.length) {
@@ -105,7 +123,7 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
             const hold = stepHold(items, item);
             if (hold?.skipped) { host.transition(item, 'skipped', { detail: `Left out because Step ${hold.waitingFor} was skipped.` }); continue; }
             if (hold) continue;
-            if (!flow.breaker.canStart(run) || !queueAdmission(run.config, totalJobs, verifying).canStartWorker(inFlight)) { store.waits.blocked(item.id); continue; }
+            if (!folderFree() || !flow.breaker.canStart(run) || !queueAdmission(run.config, totalJobs, verifying).canStartWorker(inFlight)) { store.waits.blocked(item.id); continue; }
             flow.breaker.started(run, item.id);
             store.waits.started(item, 'worker');
             inFlight += 1;
@@ -118,7 +136,7 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
             if (flow.isClaimed(item.id)) { explain(item, 'checked-together'); continue; }
             // Checklists are chosen across every run below. Runs are visited oldest first, so a busy old run would otherwise always win.
             if (run.config.verifierGates.length) { checklists.push({ item, run }); continue; }
-            const why = whyNoCheck(run, false);
+            const why = whyNoCheck(run, item, false);
             if (why) noCheckYet(item, why); else startCheck(item, run);
           }
         } else for (const item of awaitingChecks) explain(item, 'computer-busy');
@@ -134,7 +152,7 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
       const item = host.getItem(listed.id);
       if (host.isShuttingDown() || item.state !== 'awaiting-slot' || host.getRun(run.id).status !== 'running' || flow.isClaimed(item.id)
         || host.isControlling(run.id) || host.triage?.isStopping(run.id)) continue;
-      const why = whyNoCheck(host.getRun(run.id), true);
+      const why = whyNoCheck(host.getRun(run.id), item, true);
       if (why) noCheckYet(item, why); else startCheck(item, host.getRun(run.id));
     }
     for (const runId of explainedRuns) host.announceRun(runId);

@@ -5,6 +5,7 @@
  */
 import type { PlanQueueCheckWait, PlanQueueItemStage } from '@contracts/schemas/plan-queue';
 import type { PlanQueueHistoryStore, PlanQueueStageMarks } from './plan-queue-history-store';
+import type { PlanQueueSlotWaits } from './plan-queue-timings';
 import { isLandingWait } from './plan-queue-state';
 import type { PlanQueueItem } from './plan-queue.types';
 
@@ -15,8 +16,13 @@ const latest = (a: number | null, b: number | null): number | null => a === null
  * turn recorded before it died with the previous session: until its new turn starts the item is waiting.
  */
 export function itemStage(item: PlanQueueItem, marks: PlanQueueStageMarks | undefined, sessionStartedAt: number,
-  checkWait?: PlanQueueCheckWait): PlanQueueItemStage | null {
-  if (item.heldAt != null) return null;
+  checkWait?: PlanQueueCheckWait, waitingSince?: number): PlanQueueItemStage | null {
+  if (item.heldAt != null) {
+    // A held job shows as paused, unless it is ready to resume its checks and only a free work folder is missing.
+    // Its time counts from when its checks were first held back after the pause, not from entering awaiting-slot.
+    return item.state === 'awaiting-slot' && checkWait === 'no-free-folder'
+      ? { name: 'waiting-for-checks', startedAt: waitingSince ?? null, checkWait } : null;
+  }
   const enteredAt = marks?.enteredAt ?? null;
   switch (item.state) {
     case 'awaiting-slot':
@@ -39,12 +45,12 @@ const STAGE_STATES: ReadonlySet<PlanQueueItem['state']> = new Set<PlanQueueItem[
 
 /** Stages for the items that have one, from one history read covering only items in those states. */
 export function itemStages(history: Pick<PlanQueueHistoryStore, 'stageMarks'>, items: readonly PlanQueueItem[],
-  sessionStartedAt: number, whyWaiting: (itemId: string) => PlanQueueCheckWait | undefined = () => undefined): Map<string, PlanQueueItemStage> {
+  sessionStartedAt: number, waits?: Pick<PlanQueueSlotWaits, 'whyWaiting' | 'waitingSince'>): Map<string, PlanQueueItemStage> {
   const candidates = items.filter(item => STAGE_STATES.has(item.state));
   const marks = history.stageMarks(candidates.map(item => item.id));
   const stages = new Map<string, PlanQueueItemStage>();
   for (const item of candidates) {
-    const stage = itemStage(item, marks.get(item.id), sessionStartedAt, whyWaiting(item.id));
+    const stage = itemStage(item, marks.get(item.id), sessionStartedAt, waits?.whyWaiting(item.id), waits?.waitingSince(item.id));
     if (stage) stages.set(item.id, stage);
   }
   return stages;

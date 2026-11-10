@@ -41,16 +41,29 @@ describe('itemStage', () => {
   it('carries the scheduler\'s reason on a wait for checks, and only there', () => {
     expect(itemStage(item({ state: 'awaiting-slot' }), marks(100), 0, 'computer-busy')).toEqual({ name: 'waiting-for-checks', startedAt: 100, checkWait: 'computer-busy' });
     expect(itemStage(item({ state: 'landing' }), marks(100), 0, 'computer-busy')).toEqual({ name: 'waiting-to-land', startedAt: 100 });
-    const stages = itemStages({ stageMarks: () => new Map() }, [item({ id: 'waiting', state: 'awaiting-slot' })], 0, () => 'tidying-up');
+    const stages = itemStages({ stageMarks: () => new Map() }, [item({ id: 'waiting', state: 'awaiting-slot' })], 0,
+      { whyWaiting: () => 'tidying-up', waitingSince: () => undefined });
     expect(stages.get('waiting')).toEqual({ name: 'waiting-for-checks', startedAt: null, checkWait: 'tidying-up' });
   });
 
   it('shows no stage while a checker session exists, the item is paused, or it is in any other state', () => {
     expect(itemStage(item({ state: 'verifying', verifierInstanceId: 'checker' }), marks(100), 0)).toBeNull();
     expect(itemStage(item({ state: 'awaiting-slot', heldAt: 5 }), marks(100), 0)).toBeNull();
+    expect(itemStage(item({ state: 'awaiting-slot', heldAt: 5 }), marks(100), 0, 'other-checks')).toBeNull();
     for (const state of ['queued', 'working', 'fixing', 'landed', 'parked'] as const) {
       expect(itemStage(item({ state }), marks(100), 0)).toBeNull();
     }
+  });
+
+  it('shows a held job waiting for a free work folder, the one wait that is no longer the pause', () => {
+    // Timed from the folder wait, never from entering awaiting-slot, which came before the pause.
+    expect(itemStage(item({ state: 'awaiting-slot', heldAt: 5 }), marks(100), 0, 'no-free-folder', 900))
+      .toEqual({ name: 'waiting-for-checks', startedAt: 900, checkWait: 'no-free-folder' });
+    expect(itemStage(item({ state: 'awaiting-slot', heldAt: 5 }), marks(100), 0, 'no-free-folder'))
+      .toEqual({ name: 'waiting-for-checks', startedAt: null, checkWait: 'no-free-folder' });
+    const stages = itemStages({ stageMarks: () => new Map([['held', { enteredAt: 100, checksAt: null, landingAt: null }]]) },
+      [item({ id: 'held', state: 'awaiting-slot', heldAt: 5 })], 0, { whyWaiting: () => 'no-free-folder', waitingSince: () => 900 });
+    expect(stages.get('held')).toEqual({ name: 'waiting-for-checks', startedAt: 900, checkWait: 'no-free-folder' });
   });
 
   it('keeps a landing item waiting until its own turn starts', () => {

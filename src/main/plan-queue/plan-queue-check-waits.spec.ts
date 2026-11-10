@@ -25,7 +25,7 @@ function fixture(overrides: { load?: number; usage?: boolean; claimed?: boolean;
   const finishLandingCleanup = vi.fn(async () => undefined);
   const announceRun = vi.fn();
   const host: Parameters<typeof pumpPlanQueue>[0] = {
-    store: { listActiveRuns: () => [run], listItems: () => items, listItemsWithKeptFolders: () => [], waits } as never,
+    store: { listActiveRuns: () => [run], listAutomaticLandingsInEndedRuns: () => [], listItems: () => items, listItemsWithKeptFolders: () => [], waits } as never,
     flow: {
       startItem: async () => undefined, startVerification: async (item: PlanQueueItem) => { started.push(item.id); },
       isWaitingForUsage: () => overrides.usage ?? false, isClaimed: () => overrides.claimed ?? false,
@@ -36,7 +36,7 @@ function fixture(overrides: { load?: number; usage?: boolean; claimed?: boolean;
     triage: null, getRun: () => run, getItem: id => items.find(item => item.id === id)!,
     transition: (item, state, patch) => Object.assign(item, patch, { state }),
     notifyParent: () => undefined, resolveRunParent: () => 'chat',
-    loadAverage: () => [overrides.load ?? 0, 0, 0], followParent: value => value,
+    loadAverage: () => [overrides.load ?? 0, 0, 0], queueFolderLimit: () => 0, followParent: value => value,
     isShuttingDown: () => false, isControlling: () => false, finishRun: () => undefined,
     logItemError: (_item, error) => { throw error; }, announceRun,
   };
