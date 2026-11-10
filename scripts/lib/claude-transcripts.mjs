@@ -521,8 +521,10 @@ export function readSubagentMeta(path) {
 /**
  * Task-tool outcomes in a parent transcript: `tool_use` blocks named `Task`
  * register their id; later `tool_result` blocks carry `tool_use_id` and
- * `is_error`. Only structural fields are read — no tool input or output text.
+ * `is_error` and the structural `toolUseResult.status`. Only structural fields are read — no tool input or output text.
  * Retains the user turn, spawn and actual tool-result return timestamps too.
+ * `resolved` is true only once a terminal result (not async_launched) arrived;
+ * until then `isError`/`partial` are placeholders, not evidence.
  */
 export function parseTaskToolOutcomes(path) {
   const outcomes = new Map();
@@ -549,12 +551,21 @@ export function parseTaskToolOutcomes(path) {
       if (!rec) continue;
       if (rec['type'] === 'tool_use' && (rec['name'] === 'Task' || rec['name'] === 'Agent') && typeof rec['id'] === 'string') {
         if (!outcomes.has(rec['id'])) outcomes.set(rec['id'], {
-          isError: false, parentTurnId, startedAt: Date.parse(entry.timestamp ?? '') || null, returnedAt: null,
+          isError: false, partial: false, resolved: false, parentTurnId, startedAt: Date.parse(entry.timestamp ?? '') || null, returnedAt: null,
         });
       } else if (rec['type'] === 'tool_result' && typeof rec['tool_use_id'] === 'string') {
         const prev = outcomes.get(rec['tool_use_id']);
+        // `toolUseResult.status` is a structural field. A helper that ended with
+        // any terminal status other than completed (killed, partial, max turns,
+        // ...) ended partial. async_launched only says the helper started, and
+        // a Task call with no result at all has no outcome yet: neither is
+        // `resolved`, so the report counts them as unknown, never as success.
+        const status = asRecord(entry['toolUseResult'])?.['status'];
+        const partialEnd = typeof status === 'string' && status !== 'completed' && status !== 'async_launched';
         outcomes.set(rec['tool_use_id'], { ...prev,
           isError: prev ? prev.isError || rec['is_error'] === true : rec['is_error'] === true,
+          partial: (prev?.partial ?? false) || partialEnd,
+          resolved: (prev?.resolved ?? false) || status !== 'async_launched',
           returnedAt: Date.parse(entry.timestamp ?? '') || null,
         });
       }

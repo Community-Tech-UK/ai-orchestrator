@@ -502,7 +502,10 @@ export async function collectSubagentSessions(projectsDir, prices = null, opts =
         toolUses: recorded?.toolUses ?? null,
         firstAt,
         lastAt,
-        isError: outcome ? outcome.isError : null,
+        // Only a terminal Task result is evidence. A launch with no result
+        // (still running, or the transcript ends first) stays unknown.
+        isError: outcome?.resolved === true ? outcome.isError : null,
+        isPartial: outcome?.resolved === true ? outcome.partial === true : null,
         longWaits: activityReturns(subParsed)
           .filter((ret) => ret.gapMs >= SUBAGENT_VERDICT_RULES.longWaitMinMs && ret.gapMs < SUBAGENT_VERDICT_RULES.longWaitMaxMs)
           .map((ret) => ({ at: ret.at, rewrittenTokens: ret.rewrittenTokens,
@@ -554,10 +557,17 @@ function armMetrics(sessions, arm, { sinceMs: from, untilMs: to }, exposures) {
   const respawnKnown = gp.filter(a => typeof a.parentTurnId === 'string'
     && Number.isFinite(a.returnedAt) && a.returnedAt >= Math.max(a.startedAt ?? a.firstAt, a.lastAt) && a.returnedAt < to);
   const gpRespawns = detectRespawns(respawnKnown.map(a => ({ ...a, firstAt: a.startedAt ?? a.firstAt })));
+  // Step 2's quality sign is the partial-or-error rate: a helper that ended
+  // with an error or a non-completed terminal status.
+  const badEnds = gp.filter((a) => a.isError === true || a.isPartial === true);
   const errors = gp.filter((a) => a.isError === true);
   const guardChecked = subagents.filter((a) => policyMovedAgentType(a.meta?.agentType)
     && reviewKeywordMatch(a.meta?.description));
-  const guardViolations = guardChecked.filter((a) => modelFamily(a.model) !== modelFamily(a.parentModel) && modelFamily(a.model) !== 'other');
+  // Only a known family on both sides can be compared. A helper or parent with
+  // no recorded or unrecognised model is unverified, never compliant.
+  const guardUnknown = guardChecked.filter((a) => modelFamily(a.model) === 'other' || modelFamily(a.parentModel) === 'other');
+  const guardViolations = guardChecked.filter((a) => modelFamily(a.model) !== 'other' && modelFamily(a.parentModel) !== 'other'
+    && modelFamily(a.model) !== modelFamily(a.parentModel));
   const runMs = subagents.map((a) => a.runMs).filter((n) => Number.isFinite(n));
   const toolUses = subagents.map((a) => a.toolUses).filter((n) => Number.isFinite(n));
   return {
@@ -574,11 +584,14 @@ function armMetrics(sessions, arm, { sinceMs: from, untilMs: to }, exposures) {
     spawnDepthMedian: median(gp.map((a) => a.meta?.spawnDepth).filter((n) => Number.isFinite(n))),
     respawnRate: gp.length > 0 ? gpRespawns / gp.length : 0,
     respawnUnknown: gp.length - respawnKnown.length,
-    errorRate: gp.length > 0 ? errors.length / gp.length : 0,
+    badEndRate: gp.length > 0 ? badEnds.length / gp.length : 0,
+    badEndCount: badEnds.length,
     errorCount: errors.length,
+    partialCount: gp.filter((a) => a.isPartial === true).length,
     outcomesUnknown: gp.filter((a) => a.isError === null).length,
     reviewerGuardChecked: guardChecked.length,
     reviewerGuardViolations: guardViolations.length,
+    reviewerGuardUnknown: guardUnknown.length,
     runMsMedian: median(runMs),
     runMsUnknown: subagents.length - runMs.length,
     toolUsesMedian: median(toolUses),
@@ -887,7 +900,7 @@ export function evaluateSubagentVerdict(metrics, rules = SUBAGENT_VERDICT_RULES)
   const spendKnown = s.spendPerSessionUsd !== null && c.spendPerSessionUsd !== null;
   const spendDrop = spendKnown && c.spendPerSessionUsd > 0 ? 1 - s.spendPerSessionUsd / c.spendPerSessionUsd : 0;
   const respawnRisePoints = round1((s.respawnRate - c.respawnRate) * 100);
-  const errorRisePoints = round1((s.errorRate - c.errorRate) * 100);
+  const badEndRisePoints = round1((s.badEndRate - c.badEndRate) * 100);
   const landed = metrics.planQueue;
   const cLandedShare = landed['same-as-session'].items > 0 ? landed['same-as-session'].landed / landed['same-as-session'].items : null;
   const sLandedShare = landed['sonnet'].items > 0 ? landed['sonnet'].landed / landed['sonnet'].items : null;
@@ -912,9 +925,9 @@ export function evaluateSubagentVerdict(metrics, rules = SUBAGENT_VERDICT_RULES)
     spendKnown ? `spend per session: ${fmtUsd(s.spendPerSessionUsd)} vs ${fmtUsd(c.spendPerSessionUsd)} (${(spendDrop * 100).toFixed(1)}% lower; need ≥${rules.spendDrop * 100}%)`
       : `spend per session unknown: ${s.unknownUsageRecords ?? 0}/${c.unknownUsageRecords ?? 0} damaged or unattributable usage records; no saving can be established`,
     `re-spawn rate: ${(s.respawnRate * 100).toFixed(1)}% vs ${(c.respawnRate * 100).toFixed(1)}% (rise ${respawnRisePoints.toFixed(1)} pts; allow ≤${rules.respawnRisePoints}); ${s.respawnUnknown ?? 0}/${c.respawnUnknown ?? 0} helper lifecycles unknown`,
-    `error rate: ${(s.errorRate * 100).toFixed(1)}% vs ${(c.errorRate * 100).toFixed(1)}% (rise ${errorRisePoints.toFixed(1)} pts; allow ≤${rules.errorRisePoints}); partial endings are not recorded in transcripts`,
+    `partial-or-error rate: ${(s.badEndRate * 100).toFixed(1)}% vs ${(c.badEndRate * 100).toFixed(1)}% (rise ${badEndRisePoints.toFixed(1)} pts; allow ≤${rules.errorRisePoints}); ${s.outcomesUnknown ?? 0}/${c.outcomesUnknown ?? 0} helper outcomes unknown`,
     `plan-queue landed share: ${sLandedShare === null ? 'n/a' : (sLandedShare * 100).toFixed(1) + '%'} vs ${cLandedShare === null ? 'n/a' : (cLandedShare * 100).toFixed(1) + '%'}${landedDropPoints === null ? '' : ` (drop ${landedDropPoints.toFixed(1)} pts; allow ≤${rules.landedDropPoints})`}`,
-    `reviewer guard: ${s.reviewerGuardViolations} of ${s.reviewerGuardChecked} review-named helpers ran on a different model family (allow ≤${rules.reviewerGuardShare * 100}%)`,
+    `reviewer guard: ${s.reviewerGuardViolations} of ${s.reviewerGuardChecked} review-named helpers ran on a different model family (allow ≤${rules.reviewerGuardShare * 100}%); ${s.reviewerGuardUnknown ?? 0} with no known model family`,
   );
   if (landed.landedUnplaced > 0) {
     notes.push(`plan-queue landings with unknown dates: ${landed.landedUnplacedByArm.sonnet} Sonnet, ${landed.landedUnplacedByArm['same-as-session']} same-as-session; possible landing-share drop: ${minLandedDrop === null ? 'n/a' : `${minLandedDrop.toFixed(1)} to ${maxLandedDrop.toFixed(1)} pts`}`);
@@ -930,11 +943,17 @@ export function evaluateSubagentVerdict(metrics, rules = SUBAGENT_VERDICT_RULES)
   } else if ((s.respawnUnknown ?? 0) + (c.respawnUnknown ?? 0) > 0) {
     verdict = 'pending (helper turn/return evidence)';
     notes.push('A helper without parent-turn or return evidence cannot establish the re-spawn quality guard.');
+  } else if ((s.reviewerGuardUnknown ?? 0) > 0) {
+    verdict = 'pending (helper model evidence)';
+    notes.push('A review-named helper with no known model family cannot pass the reviewer guard; adoption waits for its model.');
+  } else if ((s.outcomesUnknown ?? 0) + (c.outcomesUnknown ?? 0) > 0) {
+    verdict = 'pending (helper outcome evidence)';
+    notes.push('A helper with no recorded result cannot establish the partial-or-error quality guard.');
   } else {
     const spendHeld = spendDrop + 1e-9 >= rules.spendDrop;
     const measuredQualityFailed =
       respawnRisePoints > rules.respawnRisePoints ||
-      errorRisePoints > rules.errorRisePoints ||
+      badEndRisePoints > rules.errorRisePoints ||
       (minLandedDrop !== null && minLandedDrop > rules.landedDropPoints);
     if (!spendKnown) {
       verdict = measuredQualityFailed
@@ -1023,8 +1042,8 @@ function renderArmTable(label, m) {
   console.log(`| spawn depth median | ${m.spawnDepthMedian ?? 'n/a'} |`);
   console.log(`| tool uses / run time (7i records, joined on toolUseId) | ${m.toolUsesMedian ?? 'n/a'} / ${m.runMsMedian === null ? 'n/a' : (m.runMsMedian / 60000).toFixed(1) + ' min'} (${(m.subagents - (m.runMsUnknown ?? 0))}/${m.subagents} helpers carry a recorded run time) |`);
   console.log(`| re-spawn rate | ${(m.respawnRate * 100).toFixed(1)}% (${m.respawnUnknown ?? 0} helper lifecycles unknown) |`);
-  console.log(`| ended on an error | ${m.errorCount} (${(m.errorRate * 100).toFixed(1)}%; ${m.outcomesUnknown} outcomes unknown) |`);
-  console.log(`| reviewer guard | ${m.reviewerGuardViolations} of ${m.reviewerGuardChecked} review-named helpers on a different model family |`);
+  console.log(`| ended partial or on an error | ${m.badEndCount} (${(m.badEndRate * 100).toFixed(1)}%; ${m.partialCount} partial, ${m.errorCount} error; ${m.outcomesUnknown} outcomes unknown) |`);
+  console.log(`| reviewer guard | ${m.reviewerGuardViolations} of ${m.reviewerGuardChecked} review-named helpers on a different model family (${m.reviewerGuardUnknown} with no known family) |`);
   console.log('');
 }
 

@@ -326,11 +326,14 @@ function metrics(overrides: {
     finalContextP90: 20_000,
     spawnDepthMedian: 1,
     respawnRate: 0.1,
-    errorRate: 0.01,
+    badEndRate: 0.01,
+    badEndCount: 3,
     errorCount: 3,
+    partialCount: 0,
     outcomesUnknown: 0,
     reviewerGuardChecked: 100,
     reviewerGuardViolations: 0,
+    reviewerGuardUnknown: 0,
     runMsMedian: 60_000,
   };
   return {
@@ -380,11 +383,11 @@ describe('the verdict rules', () => {
       sonnet: {
         spendPerSessionUsd: 2,
         respawnRate: 0.15,
-        errorRate: 0.04,
+        badEndRate: 0.04,
         reviewerGuardChecked: 100,
         reviewerGuardViolations: 2,
       },
-      same: { spendPerSessionUsd: 4, respawnRate: 0.1, errorRate: 0.01 },
+      same: { spendPerSessionUsd: 4, respawnRate: 0.1, badEndRate: 0.01 },
       planQueue: {
         'sonnet': { items: 10, landed: 9 },
         'same-as-session': { items: 10, landed: 10 },
@@ -413,6 +416,24 @@ describe('the verdict rules', () => {
   it('the reviewer guard vetoes even when every other criterion holds', () => {
     const m = metrics({ sonnet: { reviewerGuardChecked: 100, reviewerGuardViolations: 3 } }); // 3% > 2%
     expect(evaluateSubagentVerdict(m).verdict).toBe('do-not-adopt (the reviewer rule must be firmer first)');
+  });
+
+  it('a rise in the partial-or-error rate above 3 points keeps the default even when spend falls', () => {
+    const m = metrics({ sonnet: { badEndRate: 0.045 } }); // +3.5 points
+    expect(evaluateSubagentVerdict(m).verdict)
+      .toBe('keep-same-as-session-for-chats (spend falls but a quality sign failed; report)');
+  });
+
+  it('a review-named helper with no known model family withholds adoption', () => {
+    const m = metrics({ sonnet: { reviewerGuardUnknown: 1 } });
+    expect(evaluateSubagentVerdict(m).verdict).toBe('pending (helper model evidence)');
+  });
+
+  it('helpers with no recorded result withhold adoption', () => {
+    expect(evaluateSubagentVerdict(metrics({ sonnet: { outcomesUnknown: 1 } })).verdict)
+      .toBe('pending (helper outcome evidence)');
+    expect(evaluateSubagentVerdict(metrics({ same: { outcomesUnknown: 1 } })).verdict)
+      .toBe('pending (helper outcome evidence)');
   });
 
   it('the sample gates (14 days, 300 general-purpose helpers per group) hold the verdict at pending', () => {
@@ -662,6 +683,56 @@ describe('7i records joined on toolUseId (Step 2 size and effort)', () => {
   });
 });
 
+describe('Task outcomes read from the parent transcript', () => {
+  // A parent transcript with one Task launch and, optionally, its result line.
+  const outcomeFixture = (resultLine: Record<string, unknown> | null) => {
+    const root = makeTempDir('cost-audit-outcome-');
+    const store = join(root, 'projects');
+    const munged = join(store, '-fixture');
+    mkdirSync(join(munged, 'session-c1', 'subagents'), { recursive: true });
+    const launch = {
+      type: 'assistant', uuid: 'a1', timestamp: '2026-10-01T10:04:00.000Z',
+      message: { id: 'p1', role: 'assistant', model: 'claude-opus-4-7',
+        usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        content: [{ type: 'tool_use', id: 'tool-1', name: 'Task', input: {} }] },
+    };
+    writeFileSync(join(munged, 'session-c1.jsonl'),
+      [launch, ...(resultLine ? [resultLine] : [])].map(line => JSON.stringify(line)).join('\n'));
+    writeFileSync(join(munged, 'session-c1', 'subagents', 'agent-x.jsonl'),
+      assistant('s1', 5, 0, 0, 2, '2026-10-01T10:05:00.000Z', 'claude-sonnet-4-5'));
+    writeFileSync(join(munged, 'session-c1', 'subagents', 'agent-x.meta.json'), JSON.stringify({
+      agentType: 'general-purpose', description: 'Implement the feature', toolUseId: 'tool-1', spawnDepth: 1,
+    }));
+    return store;
+  };
+  const result = (status: string | undefined, isError = false) => ({
+    type: 'user', uuid: 'u2', timestamp: '2026-10-01T10:08:00.000Z',
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool-1', is_error: isError, content: 'x' }] },
+    ...(status ? { toolUseResult: { status } } : {}),
+  });
+
+  it('leaves a helper with no Task result unknown, never a success', async () => {
+    const sessions = await collectSubagentSessions([outcomeFixture(null)], null, { subagentUsage: [] });
+    const helper = sessions[0].subagents[0];
+    expect(helper.isError).toBeNull();
+    expect(helper.isPartial).toBeNull();
+  });
+
+  it('leaves an async-launched helper unknown until a terminal result arrives', async () => {
+    const sessions = await collectSubagentSessions([outcomeFixture(result('async_launched'))], null, { subagentUsage: [] });
+    expect(sessions[0].subagents[0].isError).toBeNull();
+  });
+
+  it('reads a completed, a partial and an errored result as known outcomes', async () => {
+    const done = (await collectSubagentSessions([outcomeFixture(result('completed'))], null, { subagentUsage: [] }))[0].subagents[0];
+    expect([done.isError, done.isPartial]).toEqual([false, false]);
+    const partial = (await collectSubagentSessions([outcomeFixture(result('killed'))], null, { subagentUsage: [] }))[0].subagents[0];
+    expect([partial.isError, partial.isPartial]).toEqual([false, true]);
+    const failed = (await collectSubagentSessions([outcomeFixture(result(undefined, true))], null, { subagentUsage: [] }))[0].subagents[0];
+    expect([failed.isError, failed.isPartial]).toEqual([true, false]);
+  });
+});
+
 describe('logged trial exposure', () => {
   const from = Date.parse('2026-10-18T00:00:00Z');
   const to = Date.parse('2026-10-20T00:00:00Z');
@@ -731,6 +802,41 @@ describe('logged trial exposure', () => {
     expect(m.arms.sonnet.reviewerGuardChecked).toBe(1);
     expect(m.arms.sonnet.reviewerGuardViolations).toBe(1);
     expect(evaluateSubagentVerdict(m).verdict).toBe('do-not-adopt (the reviewer rule must be firmer first)');
+  });
+
+  it('counts a review-named helper with an unknown model as unverified, not compliant', () => {
+    const recent = Date.parse('2026-10-18T12:00:00Z');
+    const unknownModel = { ...subagent(recent), model: null,
+      meta: { agentType: 'general-purpose', description: 'Review the change' } };
+    const sonnetSession: ParentSessionRecord = {
+      sessionId: 'session-a1', arm: 'sonnet', parentModel: 'claude-opus-4-7',
+      firstAt: recent, activityAt: [recent], subagents: [unknownModel],
+    };
+    const m = aggregate([sonnetSession, session('session-aa', [recent])], [
+      policy('session-a1', '2026-10-18T11:00:00Z'),
+      policy('session-aa', '2026-10-18T11:00:00Z'),
+    ]);
+    expect(m.arms.sonnet.reviewerGuardChecked).toBe(1);
+    expect(m.arms.sonnet.reviewerGuardViolations).toBe(0);
+    expect(m.arms.sonnet.reviewerGuardUnknown).toBe(1);
+  });
+
+  it('counts a partial helper ending in the partial-or-error rate', () => {
+    const recent = Date.parse('2026-10-18T12:00:00Z');
+    const partial = { ...subagent(recent), isPartial: true, isError: false };
+    const failed = { ...subagent(recent + 1000), isPartial: false, isError: true };
+    const ok = { ...subagent(recent + 2000), isPartial: false, isError: false };
+    const sonnetSession: ParentSessionRecord = {
+      sessionId: 'session-a1', arm: 'sonnet', parentModel: 'claude-opus-4-7',
+      firstAt: recent, activityAt: [recent], subagents: [partial, failed, ok],
+    };
+    const m = aggregate([sonnetSession, session('session-aa', [recent])], [
+      policy('session-a1', '2026-10-18T11:00:00Z'),
+      policy('session-aa', '2026-10-18T11:00:00Z'),
+    ]);
+    expect(m.arms.sonnet.partialCount).toBe(1);
+    expect(m.arms.sonnet.errorCount).toBe(1);
+    expect(m.arms.sonnet.badEndCount).toBe(2);
   });
 
   it('leaves helpers that name their own model to the model James gave them', () => {
@@ -1023,7 +1129,7 @@ describe('claude-cost-audit-report --subagents (end to end)', () => {
     expect(output).not.toContain('**adopt-sonnet**');
     expect(output).toContain('Claude helper model: **pending (plan-queue landing evidence)**');
     expect(output).toContain('the ≤10-point drop check cannot pass without it');
-  });
+  }, 30_000);
 
   it('keeps a queue item in its first worker\'s group under a date filter (actual CLI)', () => {
     // The verifier's repro shape end to end: an item first worked by a Sonnet

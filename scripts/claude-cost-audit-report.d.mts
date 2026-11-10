@@ -76,6 +76,8 @@ export interface SubagentRecord {
   firstAt: number;
   lastAt: number;
   isError: boolean | null;
+  /** Ended with a terminal status other than completed; null when no result was recorded. */
+  isPartial?: boolean | null;
   longWaits: LongWait[];
   parentTurnId?: string | null;
   startedAt?: number | null;
@@ -182,11 +184,16 @@ export interface ArmMetrics {
   spawnDepthMedian: number | null;
   respawnRate: number;
   respawnUnknown?: number;
-  errorRate: number;
+  /** Share of general-purpose helpers that ended partial or on an error. */
+  badEndRate: number;
+  badEndCount: number;
   errorCount: number;
+  partialCount: number;
   outcomesUnknown: number;
   reviewerGuardChecked: number;
   reviewerGuardViolations: number;
+  /** Review-named helpers whose model or parent model family is unknown. */
+  reviewerGuardUnknown: number;
   runMsMedian: number | null;
   /** Helpers without a recorded final joined on toolUseId (unknown, never zero). */
   runMsUnknown?: number;

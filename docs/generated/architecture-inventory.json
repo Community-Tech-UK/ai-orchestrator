@@ -6674,6 +6674,10 @@
       "lines": 1414
     },
     {
+      "path": "scripts/__tests__/claude-cost-audit-report.subagents.spec.ts",
+      "lines": 1413
+    },
+    {
       "path": "src/tests/renderer-integration/history-preview-session.service.spec.ts",
       "lines": 1398
     },
@@ -6768,10 +6772,6 @@
     {
       "path": "src/main/browser-gateway/browser-gateway-service.approvals.spec.ts",
       "lines": 1318
-    },
-    {
-      "path": "scripts/__tests__/claude-cost-audit-report.subagents.spec.ts",
-      "lines": 1307
     },
     {
       "path": "src/renderer/app/features/instance-detail/user-action-request.component.spec.ts",

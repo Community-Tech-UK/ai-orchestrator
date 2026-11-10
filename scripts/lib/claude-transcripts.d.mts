@@ -92,6 +92,6 @@ export interface SubagentMeta {
 
 export declare function readSubagentMeta(path: string): SubagentMeta | null;
 export declare function parseTaskToolOutcomes(path: string): Map<string, {
-  isError: boolean; parentTurnId?: string | null; startedAt?: number | null; returnedAt?: number | null;
+  isError: boolean; partial?: boolean; resolved?: boolean; parentTurnId?: string | null; startedAt?: number | null; returnedAt?: number | null;
 }>;
 export declare function modelFamily(model: string | null | undefined): 'opus' | 'sonnet' | 'haiku' | 'other';
