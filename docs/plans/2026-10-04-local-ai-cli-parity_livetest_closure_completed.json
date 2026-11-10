@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-04-local-ai-cli-parity_livetest.md",
+      "sha256": "98f1b58b67cd405c472ea69e6468111e2c3d7b781bbf82313bf0a838c8718d00",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-04-local-ai-cli-parity_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-04-local-ai-cli-parity_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-04-local-ai-cli-parity_livetest_completed.md",
+      "sha256": "3c021ae66398e251cfc7e34e714a1476a2a006a397a34ae9e9bcc72878f0d47c"
+    }
+  ]
+}
