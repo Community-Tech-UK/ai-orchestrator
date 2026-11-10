@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-27-mimo-account-state-remediation_plan.md",
+      "sha256": "9e830d0d3a1a3ecfd8fb432a3d690f160c1ab589bf0f92f7b7fcdf77503eecc0",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-27-mimo-account-state-remediation_history.md",
+      "sha256": "ebeba76f5b955ca727c3d28f2c4387ea88b996e3c45a0aa58f69005ee42144cb",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-27-mimo-account-state-remediation_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-27-mimo-account-state-remediation_plan_completed.md",
+      "sha256": "0380354c5af6fcf615bdb13be9e76b1994515f1009cb59ca52f5ab3a7165f27e"
+    },
+    {
+      "relativePath": "2026-10-27-mimo-account-state-remediation_plan_history_15d2631a39f48b244bc8956321404b8c7bd39234670cf8dfe196d9a44015f160_completed.md",
+      "sha256": "e56c6839eec7c8a46cc63b7f23a190aa5be0fc920998cf5d263a7c493d1e4e9f"
+    }
+  ]
+}
