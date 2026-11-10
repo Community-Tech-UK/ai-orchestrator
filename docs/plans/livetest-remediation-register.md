@@ -63,6 +63,7 @@ remediation plan is not extended.
 | LT-716 | **OPEN, display only.** Saved queued text can retain a stale not-saved label. [Detail](#lt-716). |
 | LT-717 | **OPEN, display only.** Renderer reload during active compaction can lose its banner/hint; normal observed compaction renders correctly. [Detail](#lt-717). |
 | LT-718 | **EXTERNAL TOOLING FOLLOW-UP.** A literal tsx map-generator string can mask assertion reporting. Existing pinned Node resolves the actual SEA runtime prerequisite; no formatter fix is claimed. [Detail](#lt-718). |
+| LT-720 | **REPRODUCED 2026-10-27; FIX IN THIS TREE, LIVE FIRST-PAINT RECHECK OPEN.** Ordinary dev-server prebundling left the managed checkout blank with an Angular partial-compilation/JIT error (`_PlatformLocation`); `--prebundle=false` restored it. The Vite override has since been replaced (`~8.3.3`, 8.3.5 installed); a rendered first paint under the ordinary dev command is not yet observed. [Detail](#lt-720). |
 | LT-652, LT-656 | **LIVE RECHECKED + CANONICAL PASS.** Real queue delivery, retained controlled 15-second backoff evidence beyond five attempts, configured action proof/skip and direct ledger stages. |
 | LT-653, LT-657 | **LIVE RECHECKED + CANONICAL PASS.** Configured developer-role steer and subsequent handoff retain automated provenance; automatic inline occupancy selection is not claimed. |
 | LT-654 | **LIVE RECHECKED + CANONICAL PASS within recorded scope.** Current native queue/reload proof, retained configured same-thread recovery above 80%, and retained full controlled 35-minute watch. |
@@ -11248,6 +11249,27 @@ The final written fresh verdict is VERDICT: PASS after this status reconciliatio
 the queue coordinator retains completed-name authority. Display/tooling follow-ups 716–718
 are explicitly outside the repaired ownership scope and are not claimed fixed.
 <a id="lt-1009"></a>
+
+<a id="lt-720"></a>
+## LT-720 — ordinary dev renderer prebundling leaves the managed checkout blank
+
+Filed in this register on 2026-11-10 by the localhost-browser-approval live-test item. The defect was first recorded on 2026-10-27 by the campaign-defects live test and the MiMo cut-off live test, which name it LT-720 in their own documents; those entries were not carried into this tree's register, so it is recorded here under the same number. This item did not number it.
+
+### Observed behaviour
+
+Reproduced twice on 2026-10-27: an isolated app using `npm run start:renderer -- --port 4575` loaded an empty app-root. The console reported that `_PlatformLocation` needs the Angular JIT compiler because a partially compiled library was not processed by the linker. IPC stayed live but Angular never bootstrapped. Restarting the same dev server with `--prebundle=false` and reloading restored the real UI, and the production renderer build passed. The localhost-browser-approval item hit the same blank page on its first isolated start on 2026-10-27 and used the same workaround. Sources: [campaign defects live test](2026-10-05-livetest-campaign-defects_livetest.md), [MiMo cut-off live test](2026-10-14-mimo-reasoning-cap-cutoff_livetest.md), [localhost browser approval live test](2026-10-04-localhost-browser-approval_livetest.md).
+
+### Root cause
+
+Confirmed at the dev-server dependency-prebundling and linker boundary. The follow-up plan attributes it to the incompatible Vite 7 override. The precise contribution of linked node_modules versus the generated dependency cache was not proved.
+
+### Current state in this tree (read 2026-11-10)
+
+`package.json` pins `overrides.vite` and the dev dependency to `~8.3.3`, and `node_modules/vite` is 8.3.5. The follow-up plan [campaign defects runtime follow-up](2026-10-27-campaign-defects-runtime-followup_plan.md) marks its LT-720 diagnosis item done, and its live test section 6 holds the rendered first-paint check. That check has not been run, so the defect is not closed here.
+
+### Required behaviour and acceptance
+
+The documented normal dev command bootstraps the renderer in an AIO-managed checkout with prebundling on. Re-run it from a managed checkout with a fresh owned cache; app-root must render and a session reload must work, with no JIT-compiler error in the console. Keep the production renderer build passing. Implementation notes belong in the follow-up plan, not here.
 
 ## LT-1009 — hibernate/wake silently restores the previous MiMo account after a switch
 
