@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-27-mimo-stale-session-warning_plan.md",
+      "sha256": "fda445c4c885fca979b8397ba4a1ca5d54dfcc8047aa3a217992d62fbee3b92e",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-27-mimo-stale-session-warning_history.md",
+      "sha256": "2be95e0dd6c5fb98748b02dbf19b610e53222295c3ff03658d76e45ed34ed3f8",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-27-mimo-stale-session-warning_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-27-mimo-stale-session-warning_plan_completed.md",
+      "sha256": "44d29593ad2a27400eaf6ed50a2baa3dfe2f396f15466a46eb56b29a79a7faba"
+    },
+    {
+      "relativePath": "2026-10-27-mimo-stale-session-warning_plan_history_f02fd96c7953e9df06d6cd730e6b04ab04c5ae3e04661ead6e4c32cc6c9bcff1_completed.md",
+      "sha256": "89682558418cd782f828bb237022bede0e2031987a4c4aa19d922f28d2edc849"
+    }
+  ]
+}
