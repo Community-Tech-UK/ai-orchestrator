@@ -6398,12 +6398,12 @@
       "lines": 2460
     },
     {
-      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
-      "lines": 2402
+      "path": "scripts/__tests__/codex-helper-trial-report.spec.ts",
+      "lines": 2415
     },
     {
-      "path": "scripts/__tests__/codex-helper-trial-report.spec.ts",
-      "lines": 2400
+      "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
+      "lines": 2402
     },
     {
       "path": "src/main/history/history-manager.spec.ts",

@@ -46,7 +46,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
@@ -176,12 +176,48 @@ export function queryRows(path, sql, params = []) {
   }
 }
 
-function queryWithSqliteCli(path, sql, params) {
-  const output = execFileSync('sqlite3', ['-readonly', '-json', path, bindSqlParams(sql, params)], {
+function runSqliteCli(target, sql, params) {
+  const output = execFileSync('sqlite3', ['-readonly', '-json', target, bindSqlParams(sql, params)], {
     encoding: 'utf8',
     maxBuffer: 10 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
   return output ? JSON.parse(output) : [];
+}
+
+/**
+ * True when the database has uncommitted state beside it: a write-ahead log
+ * with content still to apply, or a rollback journal (a hot journal means a
+ * writer died mid-transaction, and the main file alone is then inconsistent).
+ */
+function hasPendingSidecar(path) {
+  for (const suffix of ['-wal', '-journal']) {
+    try {
+      if (statSync(`${path}${suffix}`).size > 0) return true;
+    } catch {
+      // no such sidecar file
+    }
+  }
+  return false;
+}
+
+/**
+ * Codex's state database is in WAL mode. When no process holds it open it has no
+ * `-wal` or `-shm` file, and a read-only connection cannot create the `-shm`, so
+ * the plain open fails with "unable to open database file". With no pending log
+ * or journal the main file is the whole database, so an immutable read is
+ * consistent and still writes nothing into Codex's folder. A pending log or
+ * rollback journal means a writer is live or died mid-write, and that case keeps
+ * the original error rather than reading a half-written main file.
+ */
+function queryWithSqliteCli(path, sql, params) {
+  try {
+    return runSqliteCli(path, sql, params);
+  } catch (error) {
+    if (hasPendingSidecar(path)) throw error;
+    const encoded = path.replace(/[%?#]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+    return runSqliteCli(`file:${encoded}?mode=ro&immutable=1`, sql, params);
+  }
 }
 
 // ── Harness records: cost attribution and helper counts ─────────────────────

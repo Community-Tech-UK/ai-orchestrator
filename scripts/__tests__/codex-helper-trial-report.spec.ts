@@ -1238,6 +1238,21 @@ describe('the spawn graph is bounded by the reporting cutoff', () => {
       .toEqual(['future', 'in-window', 'unplaceable']);
   });
 
+  it('reads a WAL-mode state database that no process holds open, with no -wal or -shm file', () => {
+    // Codex's real state_5.sqlite is in this state whenever Codex is idle; a plain
+    // read-only open cannot create the -shm and fails ("unable to open database file").
+    const stateDb = join(makeTempDir('codex-trial-graph-idle-wal-'), 'state.sqlite');
+    execFileSync('sqlite3', [stateDb, `
+      PRAGMA journal_mode=WAL;
+      CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT);
+      CREATE TABLE thread_spawn_edges (parent_thread_id TEXT, child_thread_id TEXT);
+      INSERT INTO threads VALUES ('root', '/root.jsonl'), ('helper', '/helper.jsonl');
+      INSERT INTO thread_spawn_edges VALUES ('root', 'helper');`]);
+    rmSync(`${stateDb}-wal`, { force: true });
+    rmSync(`${stateDb}-shm`, { force: true });
+    expect([...readThreadGraph(stateDb).childrenOf.get('root')!]).toEqual(['helper']);
+  });
+
   it('keeps every edge when the threads table carries no creation timestamps', () => {
     const stateDb = join(makeTempDir('codex-trial-graph-no-timestamps-'), 'state.sqlite');
     execFileSync('sqlite3', [stateDb, `
