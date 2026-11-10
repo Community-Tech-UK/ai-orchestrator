@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-27-mimo-hook-correction_plan.md",
+      "sha256": "679f1d53ddb395a960abd5caf02624263c5abf3690451c377de74f620a5f01d4",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-27-mimo-hook-correction_history.md",
+      "sha256": "90a4e4e98f1b1bbfdefe362c272205c8766ad99f5e1f40a32a6051ae7abd99f6",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-27-mimo-hook-correction_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-27-mimo-hook-correction_plan_completed.md",
+      "sha256": "9d98e101c48ba4970956b7d95b98f841558e08d49cfeda4f8b28c84664079501"
+    },
+    {
+      "relativePath": "2026-10-27-mimo-hook-correction_plan_history_8e17c2da04fdbf8a6cc314ac01dd7f5eee7f7b7463fe8b6799410b69951df8b1_completed.md",
+      "sha256": "77c0118d71c079f9f6270d2e5a145433056b599646da53b6aee7799291134972"
+    }
+  ]
+}
