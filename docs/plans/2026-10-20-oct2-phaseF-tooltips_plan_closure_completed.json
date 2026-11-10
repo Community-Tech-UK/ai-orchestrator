@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-20-oct2-phaseF-tooltips_plan.md",
+      "sha256": "5b1d3f82deb86c6551c93ecb620f588725c6577bab907d5970ddb1deb69b2b29",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-20-oct2-phaseF-tooltips_history.md",
+      "sha256": "28f9f4806ce8c4df013b761a14bff68b493e7bfb8e6b45ab1208da412e70ce3c",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-20-oct2-phaseF-tooltips_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-20-oct2-phaseF-tooltips_plan_completed.md",
+      "sha256": "a8ea88846dfb5947d24072b98aa1f6c8b539ffad5ee8f3f576d33ad0e51d01ea"
+    },
+    {
+      "relativePath": "2026-10-20-oct2-phaseF-tooltips_plan_history_c954462cd40ae32fb2e621fbf23fa54fd88e6dcc32124127dcc5cbb0a34a9fce_completed.md",
+      "sha256": "b48f15b78881a869bc3d2e7ac89901faf63a7afa46a74231f0acae905e988c92"
+    }
+  ]
+}

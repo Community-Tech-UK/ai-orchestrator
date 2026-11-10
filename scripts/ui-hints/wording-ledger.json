@@ -2879,5 +2879,11 @@
     "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
     "text": ". Choose whether to close its ",
     "why": "consequence"
+  },
+  {
+    "id": "1a03db25470bc392",
+    "owner": "src/renderer/app/features/plan-queue/components/plan-queue-item-list.component.ts",
+    "text": "This plan runs one job per step. A step starts once the step before it has been merged, so it builds on that work. A step that is set aside holds the later ones until you resume it and it is merged.",
+    "why": "long"
   }
 ]
