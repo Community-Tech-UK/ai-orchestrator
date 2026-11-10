@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-27-plan-queue-startup-remediation_plan.md",
+      "sha256": "ec05249d7f620b3e7cfb7d454f9acc7247fdc88fa92957075bc541fffb75888f",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-27-plan-queue-startup-remediation_history.md",
+      "sha256": "074de4867292c1724a78c9da9a7c4a19fc743669a5d77634125e8ab76fcf30fe",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-27-plan-queue-startup-remediation_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-27-plan-queue-startup-remediation_plan_completed.md",
+      "sha256": "f77ab2b65fa577e300dbff3246ba9e4df67479f74eb44ddd257f0e7fe77362e5"
+    },
+    {
+      "relativePath": "2026-10-27-plan-queue-startup-remediation_plan_history_46a2c30446646883996161592920adc6e0436c00f50079605f1722407fd96f8a_completed.md",
+      "sha256": "975a52a031be94948eaa80876f1ba6b55e1e98beaf022d12d72cbe2ab3c6ec37"
+    }
+  ]
+}
