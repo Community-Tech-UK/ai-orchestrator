@@ -7338,6 +7338,10 @@
       "lines": 915
     },
     {
+      "path": "docs/AIO_MCP_CLI.md",
+      "lines": 912
+    },
+    {
       "path": "src/main/browser-gateway/browser-mcp-tools.ts",
       "lines": 912
     },
@@ -7388,10 +7392,6 @@
     {
       "path": "src/main/workspace/lsp-manager.ts",
       "lines": 896
-    },
-    {
-      "path": "docs/AIO_MCP_CLI.md",
-      "lines": 894
     },
     {
       "path": "src/main/plan-queue/plan-queue-pause-control.spec.ts",

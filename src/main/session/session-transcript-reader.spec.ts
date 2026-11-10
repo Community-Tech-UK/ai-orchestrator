@@ -166,6 +166,17 @@ describe('session transcript reader', () => {
     instances[0].outputBuffer = [typed('[session: Quick · quick]')];
     expect(await reader.read('caller', { session: 'quick' })).toMatchObject({ outcome: 'ok' });
   });
+  it('names the switch for an exact title that only the switch would open, without leaking ids', async () => {
+    instances[1].displayName = 'Peer title';
+    const refused = await reader.read('caller', { session: 'Peer title' });
+    expect(refused).toMatchObject({ outcome: 'not-allowed', reason: expect.stringContaining('Cross-session messaging') });
+    expect(JSON.stringify(refused)).not.toContain('peer');
+    expect(audit).toHaveBeenLastCalledWith(expect.objectContaining({ outcome: 'not-allowed', targetId: null }));
+    instances[4].displayName = 'Foreign title';
+    expect(await reader.read('caller', { session: 'Foreign title' })).toEqual({ outcome: 'not-found' });
+    enabled = true;
+    expect(await reader.read('caller', { session: 'Peer title' })).toMatchObject({ outcome: 'ok' });
+  });
   it('resolves unique titles and returns only readable ambiguity candidates', async () => {
     enabled = true;
     expect(await reader.read('caller', { session: 'Past' })).toMatchObject({ outcome: 'ok' });

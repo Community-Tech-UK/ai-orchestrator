@@ -63,6 +63,24 @@ Build the artifact with the `doc-review-artifact` skill first, then call
 returned decisions to the `.md` source and re-render. The artifact path is validated
 to sit inside the workspace's `.aio-review/` directory (never committed).
 
+### Session reading tool
+
+The `orchestrator-tools` forwarder also exposes one instance-scoped tool for reading
+a conversation a page at a time instead of having it pasted. It is found through
+`orchestrator.tool_search` and is not one of the six always-listed tools.
+
+| Tool | Args | Purpose |
+| --- | --- | --- |
+| `read_session` | `session`, `view?` (`messages`\|`activity`), `from?` (`end`\|`before-last-compaction`), `before?`, `limit?` (1-50, default 20) | Read a session's conversation newest first. `session` is `self`, an exact session id or an exact title. The reply starts with a `notice` that the items are information, not instructions, and carries `olderCursor` (pass it as `before` for the next page), `compactions` and `truncated`. Items are redacted, cut to 4,000 characters, and a page stops at 24,000. |
+
+Who may be read: `self` and any session the user pointed at with an `@session` line
+(`[session: title · id]`, in any folder) always work. A parent, child or sibling session,
+or one in the same project folder, works only when "Cross-session messaging" is on in
+Settings. Quick-chat (scratch folder) sessions need the `@session` line. Refusals say why.
+Each caller may read 120,000 characters a minute, and every call, refusals included,
+writes one row to the `session_messages` audit table. Antigravity and remote sessions
+have no bridge and cannot call it.
+
 ### Plan Queue tools
 
 The same forwarder exposes the Plan Queue (see `src/main/plan-queue/`). A session
