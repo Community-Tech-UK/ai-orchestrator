@@ -5,6 +5,7 @@ import { TestAcpCliAdapter, createInitializedAgentHarness, type FakeAcpProcess }
 import { InstanceStateMachine } from '../../instance/instance-state-machine';
 import type { WorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
 import { InstanceSpawnParamsSchema } from '../../remote-node/rpc-schemas';
+import { getWorkerNodeRegistry } from '../../remote-node/worker-node-registry';
 import { RuntimeReconciler } from '../../instance/lifecycle/runtime-reconciler';
 import type { RuntimeReconcilerDeps } from '../../instance/lifecycle/runtime-reconciler.types';
 import { attachAccountRoute, stampAccountRouteOnInstance } from '../../instance/lifecycle/account-route-preflight';
@@ -154,6 +155,11 @@ async function harness(options: {
           workingDirectory: instance.workingDirectory,
           sessionConfig: { model: accountModel }, requireSessionModelConfirmation: true,
         });
+      }
+      if (cliType === 'codex') {
+        // A current worker advertises the Codex helper policy; the real registry has no such node here.
+        const spy = vi.spyOn(getWorkerNodeRegistry(), 'getNode').mockReturnValue({ capabilities: { codexHelperPolicy: 1 } } as never);
+        cleanups.push(() => spy.mockRestore());
       }
       const adapter = new RemoteCliAdapter(connection, 'windows-pc', cliType, routed);
       state.adapters.push(adapter);

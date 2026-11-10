@@ -7,7 +7,7 @@ import type { WorkerNodeConnectionServer } from '../../remote-node/worker-node-c
 import type { CliType } from '../cli-detection';
 import { RemoteCliAdapter } from './remote-cli-adapter';
 
-const registry = new EventEmitter();
+const registry = Object.assign(new EventEmitter(), { getNode: () => ({ capabilities: { codexHelperPolicy: 1 } }) });
 vi.mock('../../remote-node/worker-node-registry', () => ({ getWorkerNodeRegistry: () => registry }));
 vi.mock('../../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: vi.fn() }) }));
 

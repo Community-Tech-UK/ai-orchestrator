@@ -7,7 +7,7 @@ import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 const worker = vi.hoisted(() => ({ capability: 1 as number | undefined }));
 const workerFactory = vi.hoisted(() => vi.fn());
 vi.mock('../../cli/adapters/adapter-factory', () => ({ createCliAdapter: workerFactory }));
-const registry = Object.assign(new EventEmitter(), { getNode: () => ({ capabilities: { instanceModelChange: worker.capability, claudeSpawnPolicy: 2 } }) });
+const registry = Object.assign(new EventEmitter(), { getNode: () => ({ capabilities: { instanceModelChange: worker.capability, claudeSpawnPolicy: 2, codexHelperPolicy: 1 } }) });
 vi.mock('../../remote-node/worker-node-registry', () => ({ getWorkerNodeRegistry: () => registry }));
 vi.mock('../../pause/pause-coordinator', () => ({ getPauseCoordinator: () => ({ isPaused: () => false }) }));
 vi.mock('../../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }) }));

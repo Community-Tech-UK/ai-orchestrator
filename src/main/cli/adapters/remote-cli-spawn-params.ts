@@ -1,5 +1,6 @@
 /** Wire-safe spawn options shared by fresh spawns and guarded model replacements. */
 import { remoteSpawnMetadata } from '../../remote-node/remote-spawn-metadata';
+import { codexHelperLevelForSpawn } from './codex/codex-thread-policy';
 import type { CliType } from '../cli-detection';
 import type { UnifiedSpawnOptions } from './adapter-factory.types';
 import type { WorkerNodeCapabilities } from '../../../shared/types/worker-node.types';
@@ -12,9 +13,11 @@ export function remoteCliSpawnParams(
   claudeSpawnPolicy: RemoteClaudeSpawnPolicy | undefined,
   capabilities: WorkerNodeCapabilities | undefined,
 ) {
+  // The worker has no settings store, so the controller resolves the helper-agent level and sends it.
+  const codexHelperLevel = cliType === 'codex' ? codexHelperLevelForSpawn(options) : undefined;
   return {
     instanceId: options.sessionId,
-    ...remoteSpawnMetadata(options, cliType === 'codex'),
+    ...remoteSpawnMetadata({ ...options, codexHelperLevel }, cliType === 'codex'),
     interactionId,
     cliType,
     usageSettlementProtocol: 1,

@@ -295,7 +295,7 @@ export function createCodexAdapter(options: UnifiedSpawnOptions): CodexCliAdapte
     instanceId: options.instanceId, jobId: options.jobId,
     onEphemeralUsage: options.onCodexEphemeralUsage,
     sessionKind: options.sessionKind, trialKey: options.trialKey,
-    trialKeySource: options.trialKeySource, trialArm: options.trialArm, queueRole: options.queueRole, planQueueLargeDocument: options.planQueueLargeDocument,
+    trialKeySource: options.trialKeySource, trialArm: options.trialArm, helperLevel: options.codexHelperLevel, queueRole: options.queueRole, planQueueLargeDocument: options.planQueueLargeDocument,
     // Harness owns its own session/history surface. Codex threads
     // created here should not leak into the standalone Codex desktop app
     // unless a caller explicitly opts out.

@@ -152,6 +152,7 @@ const WorkerNodeCapabilitiesSchema = z.object({
   openCodeMajor: z.union([z.literal(1), z.literal(2)]).optional(),
   claudeSpawnPolicy: z.union([z.literal(1), z.literal(2)]).optional().catch(undefined), // Malformed reads as absent: policy-bearing Claude is refused.
   codexSpawnMetadata: z.literal(1).optional().catch(undefined),
+  codexHelperPolicy: z.literal(1).optional().catch(undefined),
   queuePushGuard: z.literal(1).optional().catch(undefined), // Malformed reads as absent: queue sessions are refused.
   hasBrowserRuntime: z.boolean(),
   hasBrowserMcp: z.boolean(),

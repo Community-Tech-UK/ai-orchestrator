@@ -21,6 +21,7 @@ import { CodexCliAdapter } from '../codex-cli-adapter';
 import type { CodexCliConfig } from '../codex-adapter-config';
 import {
   resolveCodexThreadPolicy, resolveTrialArm, codexCheckerArm, codexThreadPolicyForConfig, codexExecContextWindowArgs, _resetCodexThreadPolicyForTesting,
+  codexHelperLevelForSpawn,
 } from './codex-thread-policy';
 
 /** Pretend to be the Electron main process (versions.electron + type 'browser') for one test. */
@@ -160,6 +161,31 @@ describe('codexThreadPolicyForConfig settings resolution', () => {
     expect(logMock.info).toHaveBeenCalledTimes(1);
     expect(logMock.warn).not.toHaveBeenCalled();
     expect(config).not.toHaveProperty('trialArm');
+  });
+
+  it('gives a worker the helper overrides for the level the controller sent, and nothing else', () => {
+    settingsMock.failure = new Error('Please specify the `projectName` option.');
+    const hint = expect.stringContaining('fork_turns="none"');
+    expect(codexThreadPolicyForConfig({ sessionKind: 'chat', helperLevel: 'economy' })).toMatchObject({
+      level: 'economy', outputLimit: null, postTurnCompactPercent: null,
+      config: { 'agents.default_subagent_reasoning_effort': 'medium', 'agents.max_concurrent_threads_per_session': 2,
+        'features.multi_agent_v2.multi_agent_mode_hint_text': hint },
+    });
+    // No sent level, a full level and a non-chat economy-looking level add no hint.
+    expect(codexThreadPolicyForConfig({ sessionKind: 'chat' }).config).toEqual({});
+    expect(codexThreadPolicyForConfig({ sessionKind: 'chat', helperLevel: 'full' }).config).toEqual({});
+    expect(codexThreadPolicyForConfig({ sessionKind: 'plan-queue', helperLevel: 'economy' }).config).not.toHaveProperty('features.multi_agent_v2.multi_agent_mode_hint_text');
+    expect(codexThreadPolicyForConfig({ sessionKind: 'loop', helperLevel: 'off' }).config).toEqual({ 'agents.enabled': false });
+  });
+
+  it('resolves the level a controller sends to a worker from its own settings and arm', () => {
+    settingsMock.value = { codexHelperAgentsChats: 'trial' };
+    expect(codexHelperLevelForSpawn({ sessionKind: 'chat', trialArm: 'cheaper' })).toBe('economy');
+    expect(codexHelperLevelForSpawn({ sessionKind: 'chat', trialArm: 'full' })).toBe('full');
+    settingsMock.value = { codexHelperAgentsChats: 'economy' };
+    expect(codexHelperLevelForSpawn({ sessionKind: 'chat' })).toBe('economy');
+    settingsMock.value = { codexHelperAgentsHarnessWork: 'off' };
+    expect(codexHelperLevelForSpawn({ sessionKind: 'plan-queue' })).toBe('off');
   });
 
   it('treats ELECTRON_RUN_AS_NODE (electron version but no browser process type) as a worker, not main', () => {

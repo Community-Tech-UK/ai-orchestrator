@@ -59,6 +59,20 @@ export function resolveTrialArm(
   return firstByte % 2 === 0 ? (isHarnessWork ? 'off' : 'cheaper') : 'full';
 }
 
+/** Helper-agent overrides for a resolved level; the one source for both the controller and a remote worker. */
+function helperAgentConfig(level: CodexThreadPolicy['level'], chat: boolean): Record<string, unknown> {
+  const config: Record<string, unknown> = level === 'off'
+    ? { 'agents.enabled': false }
+    : level === 'economy'
+      ? { 'agents.default_subagent_reasoning_effort': 'medium', 'agents.max_concurrent_threads_per_session': 2 }
+      : {};
+  // Chats only: helpers start clean (fork_turns "none") instead of re-reading the parent conversation.
+  if (chat && level === 'economy') {
+    config['features.multi_agent_v2.multi_agent_mode_hint_text'] = 'Start helpers only when asked or when the work is independent and long. Pass fork_turns="none" and put everything the helper needs in the message.';
+  }
+  return config;
+}
+
 export function resolveCodexThreadPolicy(input: {
   kind: SessionKind;
   /** Set by the queue for a plan over about 100 KB, where a 272K window would compact over and over. */
@@ -78,12 +92,8 @@ export function resolveCodexThreadPolicy(input: {
     ? arm === 'off' && harnessWork ? 'off'
       : arm === 'cheaper' && !harnessWork ? 'economy' : 'full'
     : selected;
-  const config: Record<string, unknown> = level === 'off'
-    ? { 'agents.enabled': false }
-    : level === 'economy'
-      ? { 'agents.default_subagent_reasoning_effort': 'medium', 'agents.max_concurrent_threads_per_session': 2 }
-      : {};
   const chat = input.kind === 'chat';
+  const config = helperAgentConfig(level, chat);
   // Verified in the installed 0.163.0 config schema (20 October 2026, by the branch worker; not re-run here).
   // Ordinary helper children are included; personal chats retain Codex's budget.
   if (!chat) config['skills.max_context_tokens'] = 1500;
@@ -93,9 +103,6 @@ export function resolveCodexThreadPolicy(input: {
   const checkerSetting = input.checkerCatalogSetting ?? 'trial';
   const omitCatalog = checker && (checkerSetting === 'omit' || (checkerSetting === 'trial' && input.checkerArm === 'candidate'));
   if (omitCatalog) config['skills.include_instructions'] = false;
-  if (chat && level === 'economy') {
-    config['features.multi_agent_v2.multi_agent_mode_hint_text'] = 'Start helpers only when asked or when the work is independent and long. Pass fork_turns="none" and put everything the helper needs in the message.';
-  }
   const outputLimit = input.tuningSetting === 'codex' ? null : input.kind === 'chat' ? 6000 : 4000;
   const postTurnCompactPercent = input.tuningSetting === 'codex' ? null : input.kind === 'chat' ? 70 : 60;
   if (outputLimit !== null) config['tool_output_token_limit'] = outputLimit;
@@ -121,12 +128,25 @@ export function _resetCodexThreadPolicyForTesting(): void {
   settingsStoreUnavailableLogged = false;
 }
 
-/** What a worker without a settings store sends: no overrides, Codex's own defaults. */
+/**
+ * What a worker without a settings store sends. The worker cannot read the controller's settings, so the only
+ * overrides it applies are the helper-agent ones for the level the controller resolved and sent with the spawn
+ * (`helperLevel`); with none, Codex's own defaults.
+ */
 function noPerThreadConfigPolicy(config: CodexCliConfig): CodexThreadPolicy {
+  const level = config.helperLevel ?? 'full';
   return {
-    level: 'full', config: {}, outputLimit: null, postTurnCompactPercent: null,
+    level, config: helperAgentConfig(level, (config.sessionKind ?? 'chat') === 'chat'), outputLimit: null, postTurnCompactPercent: null,
     arm: 'unassigned', armKey: config.trialKey ?? null, armSource: config.trialKeySource ?? null,
   };
+}
+
+/**
+ * The helper-agent level the controller resolves for a remote Codex spawn from its own settings and trial arm,
+ * to send to the worker. Fails closed in Electron main like `codexThreadPolicyForConfig`.
+ */
+export function codexHelperLevelForSpawn(spawn: Pick<CodexCliConfig, 'sessionKind' | 'trialKey' | 'trialKeySource' | 'trialArm'>): CodexThreadPolicy['level'] {
+  return codexThreadPolicyForConfig({ ...spawn }).level;
 }
 
 /**

@@ -17,6 +17,22 @@ export const InstanceTelemetrySchema = z.discriminatedUnion('event', [
     }).strict(),
   }).strict(),
   z.object({
+    // One Codex round's root/helper token split. Session kind, owner and trial arm are not sent: the controller
+    // supplies those from its own spawn options, so a worker cannot label a row as someone else's.
+    event: z.literal('session_turn_share'),
+    payload: z.object({
+      threadId: z.string().min(1).max(512),
+      turnId: z.string().min(1).max(512),
+      revision: z.number().int().nonnegative().max(1000),
+      rootTokens: z.number().nonnegative().max(Number.MAX_SAFE_INTEGER),
+      helperTokens: z.number().nonnegative().max(Number.MAX_SAFE_INTEGER),
+      totalTokens: z.number().nonnegative().max(Number.MAX_SAFE_INTEGER),
+      helperShare: z.number().min(0).max(1),
+      wrapUpDelivered: z.boolean(),
+      stopRequested: z.boolean(),
+    }).strict(),
+  }).strict(),
+  z.object({
     event: z.literal('subagent_usage'),
     payload: z.object({
       toolUseId: z.string().min(1).max(512),

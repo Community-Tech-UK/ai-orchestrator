@@ -56,7 +56,7 @@ describe('remote Codex exec-mode turn over the worker wire', () => {
 
   beforeEach(async () => {
     mocks.kill.mockReset();
-    registry = new EventEmitter(); registryHolder.value = registry;
+    registry = Object.assign(new EventEmitter(), { getNode: () => ({ capabilities: { codexHelperPolicy: 1 } }) }); registryHolder.value = registry;
     // Exec mode, as on windows-pc: no app-server, one process per turn.
     native = new CodexCliAdapter({ workingDir: '/tmp/project' });
     Object.assign(native, { useAppServer: false });

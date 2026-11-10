@@ -209,6 +209,13 @@ describe('capability-reporter', () => {
     expect(NodeHeartbeatParamsSchema.parse({ nodeId: 'worker-placeholder', capabilities: { ...capabilities, codexSpawnMetadata: '1' }, activeInstances: 0 }).capabilities.codexSpawnMetadata).toBeUndefined();
   });
 
+  it('advertises the Codex helper policy through the actual heartbeat validator, and reads a malformed value as absent', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Synthetic unavailable endpoint')));
+    const capabilities = await reportCapabilities(['/workspace']);
+    expect(NodeHeartbeatParamsSchema.parse({ nodeId: 'worker-placeholder', capabilities, activeInstances: 0 }).capabilities.codexHelperPolicy).toBe(1);
+    expect(NodeHeartbeatParamsSchema.parse({ nodeId: 'worker-placeholder', capabilities: { ...capabilities, codexHelperPolicy: '1' }, activeInstances: 0 }).capabilities.codexHelperPolicy).toBeUndefined();
+  });
+
   it('advertises the Plan Queue push guard through the actual heartbeat validator, and reads a malformed value as absent', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Synthetic unavailable endpoint')));
     const capabilities = await reportCapabilities(['/workspace']);

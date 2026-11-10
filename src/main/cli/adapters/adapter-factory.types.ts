@@ -46,6 +46,8 @@ export interface UnifiedSpawnOptions {
   trialKey?: string;
   trialKeySource?: TrialKeySource;
   trialArm?: CodexTrialArm;
+  /** Remote Codex only: the helper-agent level the controller resolved, applied by a worker that has no settings store. */
+  codexHelperLevel?: 'off' | 'economy' | 'full';
   /** Plan-queue role of the session (`worker`, `verifier`, `triage`), when it has one. */
   queueRole?: string;
   machineSession?: MachineSessionReason;

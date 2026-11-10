@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
 const worker = vi.hoisted(() => ({ capability: 1 as number | undefined }));
 const registry = Object.assign(new EventEmitter(), {
-  getNode: () => ({ capabilities: { instanceModelChange: worker.capability } }),
+  getNode: () => ({ capabilities: { instanceModelChange: worker.capability, codexHelperPolicy: 1 } }),
 });
 vi.mock('../../remote-node/worker-node-registry', () => ({ getWorkerNodeRegistry: () => registry }));
 vi.mock('../../pause/pause-coordinator', () => ({ getPauseCoordinator: () => ({ isPaused: () => false }) }));

@@ -33,8 +33,10 @@ import { hasRemoteRpcErrorCode, isRemoteModelChangeRejected, sendRemoteSpawnRpc 
 import { sampleRemoteStallProcessFacts } from './remote-stall-process-facts';
 import type { StallProcessFacts } from '../../instance/stall-process-facts';
 import { assertRemoteQueuePushGuardSupported } from './remote-queue-push-guard';
+import { assertRemoteCodexWorkerSupported } from './remote-codex-helper-policy';
 import { remoteCliCapabilities } from './remote-cli-capabilities';
 import { observeRemoteCodexUsage } from './remote-codex-usage';
+import { publishRemoteTurnShare } from './codex/codex-session-telemetry';
 const logger = getLogger('RemoteCliAdapter');
 /**
  * Max time to wait for a terminal remote event after an interrupt before the
@@ -196,6 +198,7 @@ export class RemoteCliAdapter extends EventEmitter {
   private readonly onRemoteTelemetryEvent = (event: RemoteInstanceTelemetry): void => {
     if (!this.matchesRemoteInstance(event.nodeId, event.instanceId)) return;
     if (event.telemetry.event === 'codex_ephemeral_usage') return; // Consumed by the ownership-validated numeric store only.
+    if (event.telemetry.event === 'session_turn_share') return publishRemoteTurnShare(this, event.telemetry.payload, this.spawnOptions);
     this.emit(event.telemetry.event, event.telemetry.payload);
   };
   constructor(
@@ -252,13 +255,10 @@ export class RemoteCliAdapter extends EventEmitter {
     }
     const claudeSpawnPolicy = remoteClaudeSpawnPolicyFor(this.requestedCliType, this.spawnOptions, this.registry.getNode?.(this.targetNodeId)?.capabilities);
     assertRemoteQueuePushGuardSupported(this.spawnOptions, this.registry.getNode?.(this.targetNodeId)?.capabilities);
-    if (this.requestedCliType === 'codex' && this.spawnOptions.ephemeral === false
-      && this.registry.getNode?.(this.targetNodeId)?.capabilities.codexSpawnMetadata !== 1) {
-      throw new Error('Persistent Codex requires an updated worker that preserves its session policy. Update the worker or use local execution.');
-    }
     const interactionId = randomUUID();
     const spawnParams = remoteCliSpawnParams(this.requestedCliType, this.spawnOptions, interactionId, claudeSpawnPolicy,
       this.registry.getNode?.(this.targetNodeId)?.capabilities);
+    assertRemoteCodexWorkerSupported(this.requestedCliType, this.spawnOptions, this.registry.getNode?.(this.targetNodeId)?.capabilities);
     this.previousAdapterPendingStop = previous ?? null;
     // Set the expected remote instance ID and attach registry listeners BEFORE
     // sending the spawn RPC. This eliminates the window where early output from

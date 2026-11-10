@@ -7250,16 +7250,16 @@
       "lines": 970
     },
     {
+      "path": "src/worker-agent/capability-reporter.spec.ts",
+      "lines": 966
+    },
+    {
       "path": "src/renderer/app/features/debate/debate-visualization.component.ts",
       "lines": 964
     },
     {
       "path": "docs/superpowers/plans/2026-04-27-phase1-orchestration-protocol-tests_completed.md",
       "lines": 963
-    },
-    {
-      "path": "src/worker-agent/capability-reporter.spec.ts",
-      "lines": 959
     },
     {
       "path": "docs/superpowers/plans/2026-05-03-browser-gateway-first-milestone_completed.md",

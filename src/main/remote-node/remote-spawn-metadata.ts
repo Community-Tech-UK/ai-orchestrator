@@ -11,6 +11,8 @@ export const RemoteSpawnMetadataSchema = z.object({
   sessionKind: z.enum(['chat', 'child', 'loop', 'plan-queue', 'automation', 'review']).optional(),
   trialKey: z.string().max(4096).optional(),
   trialArm: z.enum(['cheaper', 'full', 'off', 'unassigned']).optional(),
+  /** Codex helper-agent level the controller resolved from its settings; a worker has no settings store. */
+  codexHelperLevel: z.enum(['off', 'economy', 'full']).optional(),
   ephemeral: z.boolean().optional(),
   codexUsageProtocol: z.literal(1).optional(),
   /** Plan Queue session: the node builds the push guard. Only sent to workers advertising `queuePushGuard: 1`. */
@@ -21,6 +23,7 @@ export type RemoteSpawnMetadata = z.infer<typeof RemoteSpawnMetadataSchema>;
 export function remoteSpawnMetadata(options: UnifiedSpawnOptions, codex: boolean): RemoteSpawnMetadata {
   const parsed = RemoteSpawnMetadataSchema.safeParse({ owningInstanceId: options.instanceId, jobId: options.jobId,
     sessionKind: options.sessionKind, trialKey: options.trialKey, trialArm: options.trialArm, ephemeral: options.ephemeral,
+    codexHelperLevel: options.codexHelperLevel,
     ...(options.queuePushGuard ? { queuePushGuard: true } : {}),
     ...(codex ? { codexUsageProtocol: 1 } : {}),
   });
@@ -32,10 +35,10 @@ export function remoteSpawnMetadata(options: UnifiedSpawnOptions, codex: boolean
 /** Rebuild trusted local options; no worker paths or callbacks come from the wire. */
 export function workerSpawnMetadata(params: RemoteSpawnMetadata & { cliType: string; interactionId?: string },
   isCurrent: () => boolean, emit: (telemetry: InstanceTelemetry) => void): Pick<UnifiedSpawnOptions,
-    'instanceId' | 'jobId' | 'sessionKind' | 'trialKey' | 'trialArm' | 'ephemeral' | 'onCodexEphemeralUsage'> {
+    'instanceId' | 'jobId' | 'sessionKind' | 'trialKey' | 'trialArm' | 'codexHelperLevel' | 'ephemeral' | 'onCodexEphemeralUsage'> {
   const interactionId = params.interactionId;
   return { instanceId: params.owningInstanceId, jobId: params.jobId, sessionKind: params.sessionKind,
-    trialKey: params.trialKey, trialArm: params.trialArm, ephemeral: params.ephemeral,
+    trialKey: params.trialKey, trialArm: params.trialArm, codexHelperLevel: params.codexHelperLevel, ephemeral: params.ephemeral,
     ...(params.cliType === 'codex' && params.codexUsageProtocol === 1 && interactionId ? {
       onCodexEphemeralUsage: receipt => {
         // Ownership lasts through terminate(), but ends on removal/replacement.

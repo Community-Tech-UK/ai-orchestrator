@@ -27,6 +27,8 @@ export interface CodexCliConfig {
    */
   effectiveContextWindow?: number;
   trialArm?: CodexTrialArm;
+  /** Helper-agent level the controller resolved for this remote spawn; a worker with no settings store applies it. */
+  helperLevel?: 'off' | 'economy' | 'full';
   /** Plan-queue role (`planQueueRole`), so the policy can tell a checker from a worker. */
   queueRole?: string;
   /** Set once a thread starts or resumes with the skills catalog switched off. */

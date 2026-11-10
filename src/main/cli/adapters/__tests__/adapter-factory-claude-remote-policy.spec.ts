@@ -251,7 +251,7 @@ describe('remote spawn policy v2', () => {
 
 
 it('carries Codex session classification on a new worker without a Claude policy', async () => {
-  mocks.capabilities = { claudeSpawnPolicy: 2 };
+  mocks.capabilities = { claudeSpawnPolicy: 2, codexHelperPolicy: 1 };
   mocks.sendRpc.mockResolvedValue({ instanceId: 'remote-codex' });
   mocks.getConnection.mockReturnValue({ sendRpc: mocks.sendRpc, isNodeConnected: () => true });
   const adapter = createCliAdapter('codex', { ...baseOptions, sessionKind: 'plan-queue',

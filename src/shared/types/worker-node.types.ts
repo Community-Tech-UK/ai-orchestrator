@@ -299,6 +299,8 @@ export interface WorkerNodeCapabilities {
   stallProcessSampling?: 1;
   /** 1 = preserves semantic Codex ownership and explicit ephemeral:false. Absent on older workers. */
   codexSpawnMetadata?: 1;
+  /** 1 = applies the controller-sent `codexHelperLevel` and forwards `session_turn_share` telemetry. Absent on older workers, which drop both. */
+  codexHelperPolicy?: 1;
   /** 1 = `instance.spawn` honours `queuePushGuard` (builds the Plan Queue push guard on this node). Absent on older workers, which would drop it, so queue sessions are refused there. */
   queuePushGuard?: 1;
   /**

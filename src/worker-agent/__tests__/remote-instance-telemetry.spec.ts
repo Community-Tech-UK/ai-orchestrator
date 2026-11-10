@@ -1,4 +1,7 @@
 import { EventEmitter } from 'events';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
 import type { CliAdapter } from '../../main/cli/adapters/adapter-factory';
@@ -22,7 +25,7 @@ import { WorkerInstanceNotifier } from '../worker-instance-notifier';
 import { WorkerStreamDurability } from '../worker-stream-durability';
 
 const auth = { allowed: true };
-const registry = Object.assign(new EventEmitter(), { getNode: (id: string) => id === 'windows-pc' ? {} : undefined });
+const registry = Object.assign(new EventEmitter(), { getNode: (id: string) => id === 'windows-pc' ? { capabilities: { codexHelperPolicy: 1 } } : undefined });
 type WorkerAdapter = EventEmitter & { spawn(): Promise<number | void>; sendInput(message: string): Promise<void>; terminate(): Promise<void> };
 let workerAdapter: WorkerAdapter;
 vi.mock('../../main/cli/adapters/adapter-factory', () => ({ createCliAdapter: () => workerAdapter }));
@@ -167,6 +170,28 @@ describe('actual remote instance telemetry transport', () => {
       instanceId: 'controller-instance', sessionId: 'controller-session', toolUseId: 'agent-tool', finalContextTokens: 100, toolUses: 2, durationMs: 300 });
     expect(JSON.stringify(records)).not.toContain('excluded model text');
     expect(JSON.stringify(frames.filter(frame => frame.method === 'instance.telemetry'))).not.toContain('description');
+  });
+
+  it('writes a remote Codex round share to the controller log under the controller\'s own labels', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aio-turn-share-'));
+    vi.stubEnv('AIO_SESSION_POLICY_DIR', dir);
+    try {
+      workerAdapter = Object.assign(new EventEmitter(), { spawn: async () => 123, sendInput: async () => undefined, terminate: async () => undefined });
+      remote = new RemoteCliAdapter(connection as unknown as WorkerNodeConnectionServer, 'windows-pc', 'codex',
+        { instanceId: 'controller-instance', sessionId: 'worker-instance', workingDirectory: '/tmp', sessionKind: 'plan-queue', trialArm: 'off', trialKey: 'run-7' });
+      await remote.spawn();
+      const share = { event: 'turn-share', provider: 'codex', threadId: 'thread-1', turnId: 'turn-1', revision: 0, sessionKind: 'chat',
+        rootTokens: 70, helperTokens: 30, totalTokens: 100, helperShare: 0.3, wrapUpDelivered: false, stopRequested: false };
+      workerAdapter.emit('session_turn_share', { ...share, instanceId: 'forged', arm: 'full' });
+      workerAdapter.emit('session_turn_share', { ...share, revision: 1, rootTokens: 70, helperTokens: 60, totalTokens: 130, helperShare: 60 / 130 });
+      notifier.replayDurableEvents([{ instanceId: 'worker-instance', afterSeq: 0 }]);
+      const rows = readdirSync(dir).flatMap(name => readFileSync(join(dir, name), 'utf8').trim().split('\n')).map(line => JSON.parse(line) as Record<string, unknown>)
+        .filter(row => row['event'] === 'turn-share');
+      expect(rows.map(row => row['revision'])).toEqual([0, 1]); // The replayed frames are deduplicated by sequence.
+      expect(rows[0]).toMatchObject({ threadId: 'thread-1', turnId: 'turn-1', sessionKind: 'plan-queue', instanceId: 'controller-instance', arm: 'off', armKey: 'run-7', rootTokens: 70, helperTokens: 30 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('validates numeric-only telemetry, authentication, registered node and instance before delivery', async () => {

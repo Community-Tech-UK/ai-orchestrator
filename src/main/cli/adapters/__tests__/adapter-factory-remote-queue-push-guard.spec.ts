@@ -62,7 +62,7 @@ describe('adapter factory — Plan Queue push guard on a worker node', () => {
   });
 
   describe('on a worker that builds the guard', () => {
-    beforeEach(() => { mocks.capabilities = { platform: 'win32', queuePushGuard: 1 }; });
+    beforeEach(() => { mocks.capabilities = { platform: 'win32', queuePushGuard: 1, codexHelperPolicy: 1 }; });
 
     it.each(['claude', 'codex', 'gemini', 'copilot', 'cursor', 'opencode', 'grok', 'antigravity'] as const)(
       'sends the flag in the spawn request for %s',

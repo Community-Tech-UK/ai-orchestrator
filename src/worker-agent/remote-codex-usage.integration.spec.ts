@@ -74,7 +74,7 @@ describe('remote Codex ownership and final numeric receipts over authenticated w
     fixture.directory = mkdtempSync(join(tmpdir(), 'aio-remote-codex-usage-'));
     fixture.authenticated = true; frames = []; spawns = []; legacyWorker = false; modernCapability = true; failSpawn = false;
     onTerminate = () => undefined; lateFinalize = undefined;
-    registry = Object.assign(new EventEmitter(), { getNode: () => ({ capabilities: modernCapability ? { codexSpawnMetadata: 1, instanceModelChange: 1 } : {} }) });
+    registry = Object.assign(new EventEmitter(), { getNode: () => ({ capabilities: modernCapability ? { codexSpawnMetadata: 1, codexHelperPolicy: 1, instanceModelChange: 1 } : {} }) });
     fixture.registry = registry;
     manager = new LocalInstanceManager(['/tmp']);
     const original = factory.createCliAdapter;
@@ -224,10 +224,10 @@ describe('remote Codex ownership and final numeric receipts over authenticated w
     modernCapability = false; remote.forceCleanup(); remote = makeRemote({ ...options, ephemeral: false });
     await expect(remote.spawn()).rejects.toThrow(/worker/i); expect(spawns).toEqual([]);
   });
-  it('lets older workers run ordinary ephemeral jobs without fabricating receipts', async () => {
+  it('refuses ordinary ephemeral Codex on an older worker that would drop the helper policy and turn share, before any RPC', async () => {
     modernCapability = false; legacyWorker = true;
-    await remote.spawn(); finish();
-    expect(manager.getInstance(wireId)).toBeDefined(); expect(usageFrames()).toEqual([]); expect(entries()).toEqual([]);
+    await expect(remote.spawn()).rejects.toThrow(/out of date/i);
+    expect(spawns).toEqual([]); expect(usageFrames()).toEqual([]); expect(entries()).toEqual([]);
   });
   it('accepts finalization during stop, then rejects late callbacks and removes listeners', async () => {
     await remote.spawn(); onTerminate = () => { finish(); lateFinalize!(); };
