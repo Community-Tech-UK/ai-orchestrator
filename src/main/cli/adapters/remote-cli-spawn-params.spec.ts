@@ -24,4 +24,17 @@ describe('remote spawn helper-agent level', () => {
     expect(remoteCliSpawnParams('codex', options, 'i', undefined, undefined).codexHelperLevel).toBe('full');
     expect(remoteCliSpawnParams('claude', options, 'i', undefined, undefined).codexHelperLevel).toBeUndefined();
   });
+
+  it('sends a checker its catalog choice and role, for Codex only, and the worker rebuilds them', () => {
+    settings.value = { codexCheckerSkillCatalog: 'omit' };
+    const checker = { sessionId: 'w', workingDirectory: '/tmp', sessionKind: 'plan-queue' as const, queueRole: 'verifier', trialKey: 'job-1' };
+    const params = remoteCliSpawnParams('codex', checker, '11111111-1111-4111-8111-111111111111', undefined, undefined);
+    expect(params).toMatchObject({ codexOmitSkillCatalog: true, queueRole: 'verifier' });
+    const wire = InstanceSpawnParamsSchema.parse({ ...params, cliType: 'codex' });
+    expect(workerSpawnMetadata({ ...wire, cliType: 'codex' }, () => true, () => undefined)).toMatchObject({ codexOmitSkillCatalog: true, queueRole: 'verifier' });
+    expect(remoteCliSpawnParams('codex', { ...checker, queueRole: 'worker' }, 'i', undefined, undefined).codexOmitSkillCatalog).toBeUndefined();
+    const other = remoteCliSpawnParams('claude', checker, 'i', undefined, undefined);
+    expect(other.codexOmitSkillCatalog).toBeUndefined();
+    expect(other.queueRole).toBeUndefined();
+  });
 });

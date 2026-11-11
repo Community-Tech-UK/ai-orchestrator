@@ -21,6 +21,8 @@ export const CHECKER_CATALOG_TRIAL = 'checker-catalog';
 
 /** Requests above this many input tokens are billed at a higher rate for the whole request. */
 const MACHINE_CONTEXT_WINDOW = 272_000;
+/** Codex sizes its skills list at 2% of the window when unset; machine work caps it here (Oct-2 T5). */
+const MACHINE_SKILLS_MAX_CONTEXT_TOKENS = 1500;
 
 export const CODEX_HARNESS_WORK_KINDS: readonly SessionKind[] = [
   'loop', 'plan-queue', 'child', 'automation', 'review',
@@ -96,7 +98,7 @@ export function resolveCodexThreadPolicy(input: {
   const config = helperAgentConfig(level, chat);
   // Verified in the installed 0.163.0 config schema (20 October 2026, by the branch worker; not re-run here).
   // Ordinary helper children are included; personal chats retain Codex's budget.
-  if (!chat) config['skills.max_context_tokens'] = 1500;
+  if (!chat) config['skills.max_context_tokens'] = MACHINE_SKILLS_MAX_CONTEXT_TOKENS;
   // Plan-queue checkers only. In 0.163.0 the flag removes just the automatic catalog block; skills named
   // in a turn are still injected (see codex-required-skills.ts).
   const checker = !chat && input.queueRole === 'verifier';
@@ -131,12 +133,20 @@ export function _resetCodexThreadPolicyForTesting(): void {
 /**
  * What a worker without a settings store sends. The worker cannot read the controller's settings, so the only
  * overrides it applies are the helper-agent ones for the level the controller resolved and sent with the spawn
- * (`helperLevel`); with none, Codex's own defaults.
+ * (`helperLevel`), the fixed skills cap for non-chat kinds, which no setting changes, and the checker's catalog
+ * omission when the controller resolved it (`omitSkillCatalog`); with none, Codex's own defaults.
  */
 function noPerThreadConfigPolicy(config: CodexCliConfig): CodexThreadPolicy {
   const level = config.helperLevel ?? 'full';
+  const chat = (config.sessionKind ?? 'chat') === 'chat';
+  const omitCatalog = !chat && config.queueRole === 'verifier' && config.omitSkillCatalog === true;
+  const skills = chat ? {} : {
+    'skills.max_context_tokens': MACHINE_SKILLS_MAX_CONTEXT_TOKENS,
+    ...(omitCatalog ? { 'skills.include_instructions': false } : {}),
+  };
   return {
-    level, config: helperAgentConfig(level, (config.sessionKind ?? 'chat') === 'chat'), outputLimit: null, postTurnCompactPercent: null,
+    level, config: { ...helperAgentConfig(level, chat), ...skills }, outputLimit: null, postTurnCompactPercent: null,
+    catalog: chat ? 'native' : omitCatalog ? 'omitted' : 'capped',
     arm: 'unassigned', armKey: config.trialKey ?? null, armSource: config.trialKeySource ?? null,
   };
 }
@@ -147,6 +157,14 @@ function noPerThreadConfigPolicy(config: CodexCliConfig): CodexThreadPolicy {
  */
 export function codexHelperLevelForSpawn(spawn: Pick<CodexCliConfig, 'sessionKind' | 'trialKey' | 'trialKeySource' | 'trialArm'>): CodexThreadPolicy['level'] {
   return codexThreadPolicyForConfig({ ...spawn }).level;
+}
+
+/**
+ * Whether the controller resolves that a remote Codex plan-queue checker runs without the skills catalog (its
+ * setting and trial half), to send to the worker. Fails closed in Electron main like `codexThreadPolicyForConfig`.
+ */
+export function codexOmitSkillCatalogForSpawn(spawn: Pick<CodexCliConfig, 'sessionKind' | 'trialKey' | 'trialKeySource' | 'trialArm' | 'queueRole'>): boolean {
+  return codexThreadPolicyForConfig({ ...spawn }).catalog === 'omitted';
 }
 
 /**

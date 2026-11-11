@@ -48,6 +48,8 @@ export interface UnifiedSpawnOptions {
   trialArm?: CodexTrialArm;
   /** Remote Codex only: the helper-agent level the controller resolved, applied by a worker that has no settings store. */
   codexHelperLevel?: 'off' | 'economy' | 'full';
+  /** Remote Codex only: the controller resolved that this plan-queue checker runs without the skills catalog; a worker has no settings or trial arm to decide it. */
+  codexOmitSkillCatalog?: true;
   /** Plan-queue role of the session (`worker`, `verifier`, `triage`), when it has one. */
   queueRole?: string;
   machineSession?: MachineSessionReason;

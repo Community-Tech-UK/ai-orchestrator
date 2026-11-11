@@ -22,6 +22,7 @@ import type { CodexCliConfig } from '../codex-adapter-config';
 import {
   resolveCodexThreadPolicy, resolveTrialArm, codexCheckerArm, codexThreadPolicyForConfig, codexExecContextWindowArgs, _resetCodexThreadPolicyForTesting,
   codexHelperLevelForSpawn,
+  codexOmitSkillCatalogForSpawn,
 } from './codex-thread-policy';
 
 /** Pretend to be the Electron main process (versions.electron + type 'browser') for one test. */
@@ -154,7 +155,7 @@ describe('codexThreadPolicyForConfig settings resolution', () => {
     const config = { sessionKind: 'plan-queue' as const, trialKey: 'run-1', trialKeySource: 'loop-run' as const };
     const first = codexThreadPolicyForConfig(config);
     expect(first).toMatchObject({
-      level: 'full', config: {}, outputLimit: null, postTurnCompactPercent: null,
+      level: 'full', config: { 'skills.max_context_tokens': 1500 }, outputLimit: null, postTurnCompactPercent: null,
       arm: 'unassigned', armKey: 'run-1', armSource: 'loop-run',
     });
     expect(codexThreadPolicyForConfig({}).config).toEqual({});
@@ -175,7 +176,34 @@ describe('codexThreadPolicyForConfig settings resolution', () => {
     expect(codexThreadPolicyForConfig({ sessionKind: 'chat' }).config).toEqual({});
     expect(codexThreadPolicyForConfig({ sessionKind: 'chat', helperLevel: 'full' }).config).toEqual({});
     expect(codexThreadPolicyForConfig({ sessionKind: 'plan-queue', helperLevel: 'economy' }).config).not.toHaveProperty('features.multi_agent_v2.multi_agent_mode_hint_text');
-    expect(codexThreadPolicyForConfig({ sessionKind: 'loop', helperLevel: 'off' }).config).toEqual({ 'agents.enabled': false });
+    // Non-chat kinds also get the fixed skills cap, which needs no setting; chats keep Codex's own list size.
+    expect(codexThreadPolicyForConfig({ sessionKind: 'loop', helperLevel: 'off' }).config).toEqual({ 'agents.enabled': false, 'skills.max_context_tokens': 1500 });
+    for (const sessionKind of ['loop', 'plan-queue', 'child', 'automation', 'review'] as const) {
+      expect(codexThreadPolicyForConfig({ sessionKind }).config).toEqual({ 'skills.max_context_tokens': 1500 });
+    }
+  });
+
+  it('gives a worker the checker catalog omission only when the controller sent it for a verifier', () => {
+    settingsMock.failure = new Error('Please specify the `projectName` option.');
+    const omit = { sessionKind: 'plan-queue' as const, queueRole: 'verifier', omitSkillCatalog: true };
+    expect(codexThreadPolicyForConfig(omit)).toMatchObject({
+      catalog: 'omitted', config: { 'skills.max_context_tokens': 1500, 'skills.include_instructions': false },
+    });
+    for (const other of [{ ...omit, omitSkillCatalog: false }, { ...omit, queueRole: 'worker' }, { ...omit, queueRole: undefined }, { ...omit, sessionKind: 'chat' as const }]) {
+      expect(codexThreadPolicyForConfig(other).config).not.toHaveProperty('skills.include_instructions');
+    }
+    expect(codexThreadPolicyForConfig({ ...omit, omitSkillCatalog: false }).catalog).toBe('capped');
+  });
+
+  it('resolves, from the controller settings and arm, whether a remote checker omits the catalog', () => {
+    const verifier = { sessionKind: 'plan-queue' as const, queueRole: 'verifier' };
+    settingsMock.value = { codexCheckerSkillCatalog: 'omit' };
+    expect(codexOmitSkillCatalogForSpawn({ ...verifier, trialKey: 'k' })).toBe(true);
+    expect(codexOmitSkillCatalogForSpawn({ ...verifier, queueRole: 'worker', trialKey: 'k' })).toBe(false);
+    settingsMock.value = { codexCheckerSkillCatalog: 'full' };
+    expect(codexOmitSkillCatalogForSpawn({ ...verifier, trialKey: 'k' })).toBe(false);
+    settingsMock.value = { codexCheckerSkillCatalog: 'trial' };
+    expect(codexOmitSkillCatalogForSpawn({ ...verifier, trialKey: 'k' })).toBe(codexCheckerArm('k') === 'candidate');
   });
 
   it('resolves the level a controller sends to a worker from its own settings and arm', () => {

@@ -13,6 +13,10 @@ export const RemoteSpawnMetadataSchema = z.object({
   trialArm: z.enum(['cheaper', 'full', 'off', 'unassigned']).optional(),
   /** Codex helper-agent level the controller resolved from its settings; a worker has no settings store. */
   codexHelperLevel: z.enum(['off', 'economy', 'full']).optional(),
+  /** Plan-queue role (`verifier` marks a checker); sent for Codex only, where the policy and required skills depend on it. */
+  queueRole: z.string().max(64).optional(),
+  /** Set when the controller resolved that this Codex checker runs without the skills catalog. */
+  codexOmitSkillCatalog: z.literal(true).optional(),
   ephemeral: z.boolean().optional(),
   codexUsageProtocol: z.literal(1).optional(),
   /** Plan Queue session: the node builds the push guard. Only sent to workers advertising `queuePushGuard: 1`. */
@@ -24,6 +28,7 @@ export function remoteSpawnMetadata(options: UnifiedSpawnOptions, codex: boolean
   const parsed = RemoteSpawnMetadataSchema.safeParse({ owningInstanceId: options.instanceId, jobId: options.jobId,
     sessionKind: options.sessionKind, trialKey: options.trialKey, trialArm: options.trialArm, ephemeral: options.ephemeral,
     codexHelperLevel: options.codexHelperLevel,
+    ...(codex ? { queueRole: options.queueRole, codexOmitSkillCatalog: options.codexOmitSkillCatalog } : {}),
     ...(options.queuePushGuard ? { queuePushGuard: true } : {}),
     ...(codex ? { codexUsageProtocol: 1 } : {}),
   });
@@ -35,10 +40,11 @@ export function remoteSpawnMetadata(options: UnifiedSpawnOptions, codex: boolean
 /** Rebuild trusted local options; no worker paths or callbacks come from the wire. */
 export function workerSpawnMetadata(params: RemoteSpawnMetadata & { cliType: string; interactionId?: string },
   isCurrent: () => boolean, emit: (telemetry: InstanceTelemetry) => void): Pick<UnifiedSpawnOptions,
-    'instanceId' | 'jobId' | 'sessionKind' | 'trialKey' | 'trialArm' | 'codexHelperLevel' | 'ephemeral' | 'onCodexEphemeralUsage'> {
+    'instanceId' | 'jobId' | 'sessionKind' | 'trialKey' | 'trialArm' | 'codexHelperLevel' | 'codexOmitSkillCatalog' | 'queueRole' | 'ephemeral' | 'onCodexEphemeralUsage'> {
   const interactionId = params.interactionId;
   return { instanceId: params.owningInstanceId, jobId: params.jobId, sessionKind: params.sessionKind,
-    trialKey: params.trialKey, trialArm: params.trialArm, codexHelperLevel: params.codexHelperLevel, ephemeral: params.ephemeral,
+    trialKey: params.trialKey, trialArm: params.trialArm, codexHelperLevel: params.codexHelperLevel,
+    codexOmitSkillCatalog: params.codexOmitSkillCatalog, queueRole: params.queueRole, ephemeral: params.ephemeral,
     ...(params.cliType === 'codex' && params.codexUsageProtocol === 1 && interactionId ? {
       onCodexEphemeralUsage: receipt => {
         // Ownership lasts through terminate(), but ends on removal/replacement.

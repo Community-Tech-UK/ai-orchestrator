@@ -1,6 +1,6 @@
 /** Wire-safe spawn options shared by fresh spawns and guarded model replacements. */
 import { remoteSpawnMetadata } from '../../remote-node/remote-spawn-metadata';
-import { codexHelperLevelForSpawn } from './codex/codex-thread-policy';
+import { codexHelperLevelForSpawn, codexOmitSkillCatalogForSpawn } from './codex/codex-thread-policy';
 import type { CliType } from '../cli-detection';
 import type { UnifiedSpawnOptions } from './adapter-factory.types';
 import type { WorkerNodeCapabilities } from '../../../shared/types/worker-node.types';
@@ -13,11 +13,13 @@ export function remoteCliSpawnParams(
   claudeSpawnPolicy: RemoteClaudeSpawnPolicy | undefined,
   capabilities: WorkerNodeCapabilities | undefined,
 ) {
-  // The worker has no settings store, so the controller resolves the helper-agent level and sends it.
+  // The worker has no settings store, so the controller resolves the helper-agent level and the checker's
+  // skills-catalog choice and sends them.
   const codexHelperLevel = cliType === 'codex' ? codexHelperLevelForSpawn(options) : undefined;
+  const codexOmitSkillCatalog = cliType === 'codex' && codexOmitSkillCatalogForSpawn(options) ? true as const : undefined;
   return {
     instanceId: options.sessionId,
-    ...remoteSpawnMetadata({ ...options, codexHelperLevel }, cliType === 'codex'),
+    ...remoteSpawnMetadata({ ...options, codexHelperLevel, codexOmitSkillCatalog }, cliType === 'codex'),
     interactionId,
     cliType,
     usageSettlementProtocol: 1,

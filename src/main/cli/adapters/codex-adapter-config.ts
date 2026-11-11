@@ -29,6 +29,8 @@ export interface CodexCliConfig {
   trialArm?: CodexTrialArm;
   /** Helper-agent level the controller resolved for this remote spawn; a worker with no settings store applies it. */
   helperLevel?: 'off' | 'economy' | 'full';
+  /** Remote worker only: the controller resolved that this checker omits the skills catalog. */
+  omitSkillCatalog?: boolean;
   /** Plan-queue role (`planQueueRole`), so the policy can tell a checker from a worker. */
   queueRole?: string;
   /** Set once a thread starts or resumes with the skills catalog switched off. */
