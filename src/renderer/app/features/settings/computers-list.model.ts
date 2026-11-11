@@ -257,3 +257,46 @@ export function workerSettingsFiles(platform: NodePlatform): { home: string; ser
     service: servicePaths(platform).configFile,
   };
 }
+
+/** One step of setting a computer up for tests and checks. `command` is what to run or write, shown as code. */
+export interface SetupStep { text: string; command?: string }
+
+/** Where this Mac keeps the test machine list and the key it connects with. */
+const REMOTE_CHECKS_DIR = '~/.ai-orchestrator/remote-checks';
+
+/** A list entry as JSON, so a name with a quote or backslash in it still gives a file that parses. */
+function configEntry(entry: Record<string, string>): string {
+  return `{ ${Object.entries(entry).map(([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`).join(', ')} }`;
+}
+
+/**
+ * What it takes to make a paired computer a test machine, in order. It needs a Linux space to run in (the machine's
+ * own Linux, or Ubuntu inside Windows), the setup script that ships in this project, and a line in the list that says
+ * which paired computer it belongs to. A paired Mac needs no script: its tools come from Homebrew. Only called for a
+ * paired computer that has no test machine yet.
+ */
+export function describeSetup(row: ComputerRow): SetupStep[] {
+  const platform = row.detail?.platform;
+  if (platform === 'darwin') {
+    return [
+      { text: 'On that Mac, switch on Remote Login (System Settings, General, Sharing) and add this Mac\'s key to its authorized keys. The key is the file ending .pub in:', command: REMOTE_CHECKS_DIR },
+      { text: 'On this Mac, give it a short name for connecting by adding a Host entry for it to:', command: '~/.ssh/config' },
+      { text: 'On that Mac, install the two tools the tests need:', command: 'brew install ripgrep flock' },
+      { text: `On this Mac, add it to the list in ${REMOTE_CHECKS_DIR}/config.json, under "moreMachines":`, command: configEntry({ host: '<its short name>', label: `the ${row.name} Mac`, platform: 'darwin', nodeName: row.name }) },
+    ];
+  }
+  const where = platform === 'win32'
+    ? 'On that computer, open Ubuntu 24.04 (Windows can add it with "wsl --install -d Ubuntu-24.04").'
+    : 'On that computer, open a terminal on Ubuntu 24.04.';
+  return [
+    { text: where },
+    { text: `Run the setup script from this project there as the administrator, giving it this Mac's key (the file ending .pub in ${REMOTE_CHECKS_DIR}):`, command: 'sudo bash scripts/remote-checks/setup-linux.sh "<this Mac\'s public key>"' },
+    { text: `On this Mac, give it a short name for connecting: add a Host entry (its address, Port 2222, User checks and the key) to ${REMOTE_CHECKS_DIR}/ssh_config.` },
+    { text: `Then add the computer to the list in ${REMOTE_CHECKS_DIR}/config.json, under "moreMachines" (or as the file itself when it's the first):`, command: configEntry({ host: '<its short name>', label: `the ${row.name}`, sshConfig: `${REMOTE_CHECKS_DIR}/ssh_config`, nodeName: row.name }) },
+  ];
+}
+
+/** Whether to offer the setup steps: a paired computer with no test machine yet. */
+export function offersSetup(row: ComputerRow): boolean {
+  return row.kind === 'paired' && row.testMachine === null;
+}

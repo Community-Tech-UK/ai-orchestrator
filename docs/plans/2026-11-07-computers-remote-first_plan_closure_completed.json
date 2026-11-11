@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-07-computers-remote-first_plan.md",
+      "sha256": "82691ac3a059dd41d312052f802f577378b22eafca1c08c17f749a9f39ab8565",
+      "retire": true
+    },
+    {
+      "relativePath": "../specs/2026-11-07-computers-remote-first_spec_planned.md",
+      "sha256": "4c42d3381d46f0857495d309c96716cacc6163ae87a254b5bffb9475e5c56548",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-07-computers-remote-first_history.md",
+      "sha256": "76d42265190d5c1f09e543db6032f80066e8b12fc701c9544d6c7c62e5686a81",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-07-computers-remote-first_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-07-computers-remote-first_plan_completed.md",
+      "sha256": "de6e29d994ed57aa205274844429731e25bf09f0e2e3ddacaa8556dd613e1e32"
+    },
+    {
+      "relativePath": "2026-11-07-computers-remote-first_plan_history_51dacc4ee5c942049cf8bc66ea632c4ee0962260c73aea75b1436a24b0db4328_completed.md",
+      "sha256": "945dae91d432e48b3abab4d7cc061f9ce42147e4f2c503b48a9b7b49782d63f3"
+    },
+    {
+      "relativePath": "../specs/2026-11-07-computers-remote-first_spec_completed.md",
+      "sha256": "26941757338c74d3a06e2325846f5607816e31d4f09121b190e5e543e4ed024b"
+    }
+  ]
+}

@@ -6,7 +6,9 @@ import {
   changedChoices,
   describeFolders,
   describeNow,
+  describeSetup,
   describeTools,
+  offersSetup,
   providersWithAccounts,
   workerSettingsFiles,
   type ComputerDetail,
@@ -216,5 +218,52 @@ describe('a computer\'s AI tools and folders, in words', () => {
     expect(workerSettingsFiles('darwin')).toEqual({
       home: '.orchestrator/worker-node.json', service: '/Library/Application Support/Orchestrator/worker-node.json',
     });
+  });
+});
+
+describe('setting a paired computer up for tests and checks', () => {
+  const rowFor = (id: string, platform: 'win32' | 'darwin' | 'linux' | null, machines: TestMachineView[] = []) => {
+    const base = node(id);
+    const paired = platform ? node(id, { capabilities: { ...base.capabilities, platform } }) : node(id, { connected: false });
+    return buildComputerRows([paired], [], machines, ON).find(row => row.id === id)!;
+  };
+
+  it('is offered for a paired computer with no test machine, and for nothing else', () => {
+    expect(offersSetup(rowFor('laptop', 'linux'))).toBe(true);
+    expect(offersSetup(rowFor('windows-pc', 'win32', [machine()]))).toBe(false);
+    const rows = buildComputerRows([node('laptop')], [], [machine({ nodeName: null })], ON);
+    expect(rows.filter(offersSetup).map(row => row.id)).toEqual(['laptop']);
+  });
+
+  it('gives a Windows computer the Ubuntu, setup script and list steps, naming the computer it belongs to', () => {
+    const steps = describeSetup(rowFor('dell', 'win32'));
+    expect(steps).toHaveLength(4);
+    expect(steps[0]!.text).toContain('Ubuntu 24.04');
+    expect(steps[1]!.command).toContain('setup-linux.sh');
+    expect(steps[3]!.command).toContain('"nodeName": "dell"');
+    expect(steps[3]!.text).toContain('moreMachines');
+    expect(steps.every(step => !step.command?.includes('darwin'))).toBe(true);
+  });
+
+  it('gives a Mac the Homebrew tools instead of the script, and marks the entry as a Mac', () => {
+    const steps = describeSetup(rowFor('studio', 'darwin'));
+    const commands = steps.map(step => step.command ?? '');
+    expect(commands).toContain('brew install ripgrep flock');
+    expect(commands.some(command => command.includes('setup-linux.sh'))).toBe(false);
+    expect(commands.at(-1)).toContain('"platform": "darwin"');
+    expect(commands.at(-1)).toContain('"nodeName": "studio"');
+  });
+
+  it('gives entries that parse as JSON even when the computer\'s name has quotes or backslashes in it', () => {
+    const name = 'James\'s "Laptop" \\ den';
+    for (const platform of ['win32', 'darwin'] as const) {
+      const entry = describeSetup(rowFor(name, platform)).at(-1)!.command!;
+      expect(JSON.parse(entry)).toMatchObject({ nodeName: name });
+      expect(JSON.parse(entry).label).toContain(name);
+    }
+  });
+
+  it('still gives steps for a computer that is away, treating it as Linux', () => {
+    expect(describeSetup(rowFor('laptop', null)).some(step => step.command?.includes('setup-linux.sh'))).toBe(true);
   });
 });

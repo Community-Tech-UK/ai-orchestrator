@@ -18,15 +18,18 @@ import {
   changedChoices,
   describeFolders,
   describeNow,
+  describeSetup,
   describeTakes,
   describeToday,
   describeTools,
   movedChoices,
+  offersSetup,
   providersWithAccounts,
   workerSettingsFiles,
   type ComputerDetail,
   type ComputerRow,
   type DetailLine,
+  type SetupStep,
 } from './computers-list.model';
 
 /** Field by field, so the order keys were stored in can't make a kept change look lost. */
@@ -102,6 +105,14 @@ export class ComputersListComponent {
 
   protected describeTakes(row: ComputerRow): string {
     return describeTakes(row);
+  }
+
+  protected offersSetup(row: ComputerRow): boolean {
+    return offersSetup(row);
+  }
+
+  protected describeSetup(row: ComputerRow): SetupStep[] {
+    return describeSetup(row);
   }
 
   protected describeTools(detail: ComputerDetail): DetailLine[] {

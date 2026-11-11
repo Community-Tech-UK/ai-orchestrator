@@ -115,6 +115,16 @@ describe('ComputersListComponent', () => {
     expect(element.textContent).toContain('8 ran here because the Windows PC could not be reached.');
   });
 
+  it('offers the setup steps on a paired computer with no test machine, in Settings only', async () => {
+    const element = await render([node('windows-pc'), node('laptop')]);
+    const offers = [...element.querySelectorAll('details.setup')];
+    expect(offers).toHaveLength(1);
+    expect(offers[0]!.closest('li')?.querySelector('.computer-name')?.textContent?.trim()).toBe('laptop');
+    expect(offers[0]!.querySelector('summary')?.textContent?.trim()).toBe('Set up for tests and checks');
+    expect(offers[0]!.textContent).toContain('setup-linux.sh');
+    expect((await render([node('laptop')], true)).querySelector('details.setup')).toBeNull();
+  });
+
   it('shows each connected computer\'s AI tools, sign-ins by this Mac\'s names, and folders, in both views', async () => {
     const pc = node('windows-pc', { capabilities: { ...node('x').capabilities, supportedClis: ['claude', 'codex'],
       workingDirectories: ['C:\\Users\\shutu\\Documents\\Work'],

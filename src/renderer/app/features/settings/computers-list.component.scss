@@ -159,3 +159,25 @@
     cursor: pointer;
   }
 }
+
+.setup {
+  p {
+    margin: 0.25rem 0;
+  }
+
+  ol {
+    margin: 0.25rem 0;
+    padding-left: 1.25rem;
+  }
+
+  code {
+    display: block;
+    font-family: var(--font-mono, monospace);
+    overflow-wrap: anywhere;
+    margin-top: 0.125rem;
+  }
+
+  summary {
+    cursor: pointer;
+  }
+}

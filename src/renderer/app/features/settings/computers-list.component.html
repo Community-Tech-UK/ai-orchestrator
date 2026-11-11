@@ -112,6 +112,23 @@
             @if (row.alsoTakes.length) {
               <p class="field-hint">Also takes {{ row.alsoTakes.join(' and ') }}, through the switches in Advanced.</p>
             }
+            @if (offersSetup(row)) {
+              <details class="field-hint setup">
+                <summary>Set up for tests and checks</summary>
+                <p>This computer can also run this project's tests and checks, which keeps them off this Mac. It takes these steps once:</p>
+                <ol>
+                  @for (step of describeSetup(row); track $index) {
+                    <li>
+                      {{ step.text }}
+                      @if (step.command) {
+                        <code>{{ step.command }}</code>
+                      }
+                    </li>
+                  }
+                </ol>
+                <p>When the list has it, it shows here with its own switches.</p>
+              </details>
+            }
             <label class="switch-row" [for]="'paused-' + row.id">
               <span>Pause</span>
               <span class="toggle-label">
