@@ -83,6 +83,11 @@ mise.local.toml
 # Doc-review HTML artifacts (disposable human-review render target; never committed)
 .aio-review/
 
+# Plan Queue recovery copies: the pre-edit version of a plan/spec, kept beside it
+# on purpose (src/main/plan-queue/plan-queue-document-mutation.ts). Never source.
+.*.aio-retained-*
+.*.aio-prepared-*
+
 # Temporary JSON dumps (vitest session reviews, etc.)
 .tmp-*.json
 *.tmp.json

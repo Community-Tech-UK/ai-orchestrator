@@ -17,9 +17,12 @@ afterEach(async () => {
   for (const dir of readyDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-/** A child that ignores TERM, says so in a file, then prints `ready` and stays alive. */
-const SIGNAL_IGNORING_CHILD = 'process.on("SIGTERM",()=>{});require("fs").writeFileSync(process.argv[1],"");'
-  + 'process.stdout.write("ready");' + IDLE_UNTIL_TEST_PROCESS_GONE;
+/**
+ * A child that ignores TERM, prints `ready`, then says so in a file once that output has left the process (pipe
+ * writes are asynchronous on macOS), and stays alive. A short timeout can then never fire before `ready` is sent.
+ */
+const SIGNAL_IGNORING_CHILD = 'process.on("SIGTERM",()=>{});'
+  + 'process.stdout.write("ready",()=>require("fs").writeFileSync(process.argv[1],""));' + IDLE_UNTIL_TEST_PROCESS_GONE;
 
 /**
  * Spawns as asked, then returns only once the child has written `readyFile`, so its TERM handler is in place. The
