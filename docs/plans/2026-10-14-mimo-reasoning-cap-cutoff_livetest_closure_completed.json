@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-14-mimo-reasoning-cap-cutoff_livetest.md",
+      "sha256": "b088fd9f17dd6a1587f0015c88996d0f6ee40379a37da7629200c2c3daa95757",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-14-mimo-reasoning-cap-cutoff_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-14-mimo-reasoning-cap-cutoff_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-14-mimo-reasoning-cap-cutoff_livetest_completed.md",
+      "sha256": "a2d304128fa439d41ffaa13aec235e9a0b58061b3b7a6933f1c83269078462d7"
+    },
+    {
+      "relativePath": "2026-10-14-mimo-reasoning-cap-cutoff_livetest_history_170d535f524ac445ac968315a7905178607ea6e98c2fdad40b804fb4243dc4a3_completed.md",
+      "sha256": "838257f2d484a793dbb6ee463b4c6bd28dde5ef2f262337c139e8ac06316ba26"
+    }
+  ]
+}
