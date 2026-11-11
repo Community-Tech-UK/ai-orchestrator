@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-27-rlm-first-start-migration_plan.md",
+      "sha256": "338b1868b952cde4db2627ae8f84941d74ff2d239a79bdde4d8c374e1d3e6513",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-27-rlm-first-start-migration_history.md",
+      "sha256": "034b3828a8b4572f41403a2aeb0caa2eb392183b4b75c7d910410d703803c502",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-27-rlm-first-start-migration_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-27-rlm-first-start-migration_plan_completed.md",
+      "sha256": "c833152ec6ecc9557cd4453112617e8e00cc5f8b3642942a34b9a8a6dcc7b538"
+    },
+    {
+      "relativePath": "2026-10-27-rlm-first-start-migration_plan_history_c3c017fb19a4950b26f6ed57a5d5ed4aa245c988efa37159ebbb9036b6804969_completed.md",
+      "sha256": "50c49272e3dd4f8ed8036cb73b54ba4393d6a9f88335bae2157f2133a423de8f"
+    }
+  ]
+}
