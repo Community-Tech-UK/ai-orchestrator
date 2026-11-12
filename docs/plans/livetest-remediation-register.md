@@ -81,6 +81,15 @@ The coordinator retains the active follow-up plan and per-check evidence until i
 | LT-733 | P1 | **FIXED ON MAIN; live check passed 2026-11-07 on the pre-merge branch build; re-verify after landing.** A CLI approval that arrives while the sidechat panel is closed is kept by the event bus and shown as one card on reopen. | [LT-733 detail](#lt-733) | LT-SC-4 |
 | LT-734 | P2 | **FIXED ON MAIN; live check passed 2026-11-07 on the pre-merge branch build; re-verify after landing.** Archived parent rows (History and project history) show the unread sidechat badge and open the exact chat. | [LT-734 detail](#lt-734) | LT-SC-3 |
 | LT-735 | P2 | **FIXED ON MAIN.** Sidechat policy and parent resolution read `executionLocation` (`src/main/chats/side-chat-parent-resolver.ts`), not the supervising `workerNodeId`. The Windows live check was not re-run on this branch. | [LT-735 detail](#lt-735) | LT-SC-7 |
+| LT-1043 | P2 | **OPEN on this base; fix exists on the parked branch `queue/2026-10-16-opencode-2-support-1c80fb` (not landed).** Stale OpenCode 2 retry notices ("Provider is trying the request again.") survive an ended turn. Reproduced live 2026-10-27 on OpenCode 2.0.30. | [LT-1043 detail](#lt-1043) | [OpenCode 2 checks 2.2](2026-10-16-opencode-2-support_livetest.md) |
+| LT-1044 | P2 | **FIXED IN THIS WORKTREE 2026-11-11; independent review pending.** The Doctor's provider list omitted OpenCode, hiding its install offer. Reproduced live 2026-10-27 and again 2026-11-11 on this base; the regression test failed before the one-line fix and the real Doctor panel shows the offer after it. | [LT-1044 detail](#lt-1044) | [OpenCode 2 check 4.3](2026-10-16-opencode-2-support_livetest.md) |
+| LT-1045 | P2 | **OPEN on this base (reproduced 2026-11-11); fix exists on the parked branch (not landed).** A complete OpenCode checkpoint has `resumeCursor: null`, so recovery cannot use native `session/resume`. | [LT-1045 detail](#lt-1045) | [OpenCode 2 check 3.1](2026-10-16-opencode-2-support_livetest.md) |
+| LT-1046 | P1 | **OPEN on this base; fix exists on the parked branch (not landed).** A typed answer to an OpenCode 2 question is parsed as a refusal of the question tool's permission gate. Reproduced live 2026-11-08 and 2026-11-09 on OpenCode 2.0.30. | [LT-1046 detail](#lt-1046) | [OpenCode 2 check 2.5](2026-10-16-opencode-2-support_livetest.md) |
+| LT-1047 | P2 | **OPEN; reproduced live 2026-11-08.** A successful native OpenCode 2 compaction shows "The model sent no reply". | [LT-1047 detail](#lt-1047) | [OpenCode 2 check 2.3](2026-10-16-opencode-2-support_livetest.md) |
+| LT-1048 | P2 | **OPEN; reproduced live 2026-11-08 and 2026-11-09 (also on main).** The renderer drops every `cost:usage-recorded` event that carries `origin`. | [LT-1048 detail](#lt-1048) | [OpenCode 2 check 2.1](2026-10-16-opencode-2-support_livetest.md) |
+| LT-1049 | P3 | **OPEN; reproduced at dev-app startup 2026-11-08 and 2026-11-09 (also on main).** The renderer drops `cli-update-pill:delta` events that carry `waitingSessionCount`. | [LT-1049 detail](#lt-1049) | [OpenCode 2 round 4](2026-10-16-opencode-2-support_livetest.md) |
+| LT-1050 | P2 | **OPEN, cause not isolated; observed 2026-11-08 and 2026-11-07.** An OpenCode launch probe classed all three candidates unusable ("No usable OpenCode install"). | [LT-1050 detail](#lt-1050) | [OpenCode 2 round 4](2026-10-16-opencode-2-support_livetest.md) |
+| LT-1051 | P2 | **OPEN; observed once 2026-11-09 on OpenCode 1.19.5.** Native compaction reported failure and the restart fallback summarised no messages. | [LT-1051 detail](#lt-1051) | [OpenCode 2 check 2.3](2026-10-16-opencode-2-support_livetest.md) |
 
 ### Current status corrections — 2026-10-14
 
@@ -12874,3 +12883,166 @@ reads "under a second" (the 0-second wording says nothing a reader can use). Sam
 finished run shows "(1 check)" and a sub-second wait reads "under a second".
 
 **Evidence.** [Queue health live checks](2026-11-04-pq-a5-measure_plan_livetest.md), evidence run 2026-11-12, checks 2 and 3.
+
+
+## LT-1043
+
+### LT-1043 — OpenCode 2 retry-attempt messages survive the ended turn
+
+**Status: open on this base. A fix exists on the parked branch `queue/2026-10-16-opencode-2-support-1c80fb` (`acp-retry-state.ts`) and is not landed here. Priority P2.** Found by OpenCode 2 live check 2.2 on 27 October 2026. Earlier numbers in the livetest document: LT-723 (round 1) and LT-732 (round 3); both clash with other defects in this register.
+
+### Observed behaviour
+
+A native OpenCode 2.0.30 session using an authenticated Amsterdam MiMo account received HTTP 429 on a harmless prompt. Live main IPC showed repeated safe retry notices. `interruptInstance` succeeded and the instance went idle. The per-turn retry message was finalised to `Provider request ended after retrying.` (`phase:ended`) but nine other messages still said `Provider is trying the request again.` (`phase:attempting`) under independent message ids. Native fork and History restore kept those stale entries. This is a main-side transcript reproduction, not a DOM claim. The 2026-11-11 round did not rerun it (MiMo is out of quota); this base still has the code described below.
+
+### Root cause
+
+`OpenCodeAcpUpdates.retry` maps native `_meta["opencode/retry"]:null` to null (`src/main/cli/adapters/opencode-acp-updates.ts`). In `AcpCliAdapter.handleSessionUpdate`, null while a retry notice is active emits a new `phase:attempting` message instead of updating the owned notice. `resolveRetryNotice` finalises only that owned id, so the extra messages have no terminal update.
+
+### Required behaviour and acceptance
+
+Retry metadata updates one owned per-turn notice; completion, error, Stop and process exit leave no notice saying another attempt is happening. Provider error bodies stay private. Acceptance: regression sequences (retrying, null attempt, retrying, then Stop, completion, terminal error) assert one owned notice; History restore and native fork do not preserve stale retry prose; the real retry check is rerun live.
+
+## LT-1044
+
+### LT-1044 — the Doctor's provider list omits OpenCode
+
+**Status: fixed in this worktree on 11 November 2026; independent review pending. Priority P2.** Found by OpenCode 2 check 4.3 on 27 October 2026; reproduced on this base on 11 November 2026. Earlier numbers in the livetest document: LT-724 and LT-733.
+
+### Observed behaviour
+
+`diagnosticsGetDoctorReport` returned provider diagnoses for five providers (Claude, Codex, Antigravity, Copilot, Cursor) and none for OpenCode, on this base's rebuilt dev app. The CLI health section did list OpenCode, but the provider checkup's install offer for a missing OpenCode never appeared.
+
+### Root cause
+
+`PROVIDERS` in `src/main/diagnostics/doctor-service.ts` had no OpenCode target, so the existing OpenCode repair builder (`provider-doctor-repair.ts`) was never called.
+
+### Fix and acceptance
+
+One target line added in `doctor-service.ts`, with a regression in `src/main/diagnostics/__tests__/doctor-service.spec.ts` that failed before the line and passes after. Live: with no `opencode` on PATH the real Settings > Doctor > Provider Health panel lists OpenCode "not installed" with the replace-OpenCode-1 explanation, `npm install -g @opencode/cli@2` and the `opencode-ai@1` fallback; nothing was installed. Receipts: `_scratch/lt-opencode2-round7/doctor-red.log`, `doctor-green.log`, `doctor-opencode-missing.json`, `doctor-ui-missing-install.json` in the worktree.
+
+## LT-1045
+
+### LT-1045 — OpenCode complete checkpoints lack a native recovery cursor
+
+**Status: open on this base; reproduced 11 November 2026. A fix exists on the parked branch (`acp-session-replay.ts`, `acp-runtime-snapshot.spec.ts`) and is not landed here. Priority P2.** Earlier numbers in the livetest document: LT-726 and LT-735.
+
+### Observed behaviour
+
+After a real OpenCode 2.0.30 turn on this base, the persisted continuity checkpoint held two messages, `conversationHistoryComplete:true` and `resumeCursor:null`. History restore of the same session sent `session/load`. The complete-checkpoint recovery path was not executed (startup archives complete autosaves to History, so the recovery list was empty); the evidence is the checkpoint plus the source below.
+
+### Root cause
+
+`continuity-revival.ts` (`isValidNativeCursor`, and the `resume: true` argument) only requests native resume with a valid cursor, and ACP's runtime snapshot publishes none, so a complete checkpoint never reaches `preferSessionResume`.
+
+### Required behaviour and acceptance
+
+After a successful native session open and startup configuration, the adapter snapshot publishes a canonical cursor; confirmed identity survives process exit; a complete retained checkpoint sends `session/resume` with each message restored once, and an incomplete one sends `session/load`.
+
+## LT-1046
+
+### LT-1046 — typed answers to an OpenCode 2 question are declined
+
+**Status: open on this base. A fix exists on the parked branch (`isQuestionToolPermission` in `acp-elicitation-questions.ts`, used in `acp-cli-adapter.ts`; live recheck passed 2026-11-09) and is not landed here. Priority P1.** Found by OpenCode 2 check 2.5 on 8 November 2026. Earlier numbers in the livetest document: LT-1007 and LT-1018.
+
+### Observed behaviour
+
+With Auto-approve off, the question tool first sends `session/request_permission` (options allow once, always, reject) and only then `elicitation/create`. Harness showed an approval card with a reply box; typing `red` and pressing Submit recorded "You answered: red", and the tool result was "The user declined this tool call", ending the turn with no reply. Cancel recorded "You answered: " with no text.
+
+### Root cause
+
+`selectAcpPermissionOutcome` in `src/main/cli/adapters/acp-permission-outcome.ts` returns a rejection for any reply that matches no option, and the permission gate has no answer channel.
+
+### Required behaviour and acceptance
+
+The permission gate for the question tool is granted so the question form is the only answer channel; typed and clicked answers resume the turn, Skip records a skip, and a regression test covers answering through the form.
+
+## LT-1047
+
+### LT-1047 — a successful OpenCode 2 compaction reports "The model sent no reply"
+
+**Status: open. Priority P2.** Found by check 2.3 on 8 November 2026 (earlier number in the livetest document: LT-1009).
+
+### Observed behaviour
+
+`compactInstance` on an idle OpenCode 2.0.30 instance returned success with `method: native`. The transcript showed "Compaction completed.", the marker "— Context compacted —", then "The model sent no reply. Your message and the work above are kept." The compaction turn had `stopReason: end_turn`, `outputTokens: 0` and classifier reason `empty_result`. A later prompt was answered normally. The main log labels the completion "Codex compaction completed" for this OpenCode instance.
+
+### Root cause
+
+`src/main/providers/adapter-turn-ending-observation.ts` sets `emptyResult` for any completed turn with no reply text; nothing exempts compaction turns. `turn-ending-classifier.ts` classifies it `empty_result` and `turn-ending-continuation-policy.ts` produces the notice. The "Codex" label comes from `InstanceEventForwarding`.
+
+### Required behaviour and acceptance
+
+A compaction turn with no reply text is not an empty reply; the log names the provider. A native compaction on OpenCode 2 ends with the marker and no notice, and a turn that really produces no reply still shows it.
+
+## LT-1048
+
+### LT-1048 — the renderer drops cost-usage events that carry an origin
+
+**Status: open. Priority P2.** Found by check 2.1 on 8 November 2026 (earlier number in the livetest document: LT-1010). Also present on main.
+
+### Observed behaviour
+
+After an OpenCode 2 turn on a free model the dev log showed "Blocked invalid renderer event payload" for `cost:usage-recorded` with `Unrecognized key: "origin"`. The instance's context meter showed `cumulativeTokens: 0`; on 11 November the instance's `totalTokensUsed` was also 0 while the restored message carried 21,226 tokens. The link between the dropped event and the zero counter is not proven, and the cost view was not checked.
+
+### Root cause
+
+`CostEntryEventSchema` in `packages/contracts/src/schemas/cost-events.schemas.ts` is `.strict()` and has no `origin`, but main sends entries with it (`src/main/core/system/cost-tracker.ts`, `src/main/ipc/handlers/cost-handlers.ts`), validated in `renderer-event-validation.ts`.
+
+### Required behaviour and acceptance
+
+The renderer accepts every cost entry main can send (schema carries `origin` or main strips it); a test passes a main-built entry through the validator; no blocked-event warning after an OpenCode turn.
+
+## LT-1049
+
+### LT-1049 — the renderer drops update-pill deltas with a waiting-session count
+
+**Status: open. Priority P3.** Seen at dev-app startup on 8 November 2026 (earlier number in the livetest document: LT-1011). Also present on main.
+
+### Observed behaviour
+
+"Blocked invalid renderer event payload" for `cli-update-pill:delta` with `Unrecognized key: "waitingSessionCount"`.
+
+### Root cause
+
+`CliUpdatePillStateEventSchema` in `packages/contracts/src/schemas/observability.schemas.ts` is `.strict()` and omits `waitingSessionCount`, which the shared type and `cli-update-poll-service.ts` carry.
+
+### Required behaviour and acceptance
+
+The schema accepts the field main sends; no blocked-event warning for the delta, and the pill reflects a waiting session.
+
+## LT-1050
+
+### LT-1050 — an OpenCode launch probe reported three candidates unusable
+
+**Status: open, cause not isolated. Priority P2.** Seen 8 November 2026 in another worktree's dev app and in the round-3 dev run on 7 November (earlier numbers in the livetest document: LT-734 note and LT-1012).
+
+### Observed behaviour
+
+The shared log recorded "No usable OpenCode install { candidates: 3, unknownVersion: 3 }" three times on 8 November, each probe failing in about 70 ms. Controlled runs of the same selector (plain Node, Electron-as-Node, private HOME, cwd `/`, minimal PATH, this worktree's isolated app) all succeeded, and the 2026-11-11 isolated app found 2.0.30 and 1.19.5 normally.
+
+### Root cause
+
+Not isolated. The warning (`selectOpenCodeLaunch` in `opencode-cli-launch.ts`, probe `runOpenCodeCapture` in `opencode-effective-budget-config.ts`) records only counts, not each candidate's failure reason.
+
+### Required behaviour and acceptance
+
+A candidate that answers `--version` is not classed unknown; a failing candidate's spawn error or exit status is logged. Reproduce the failing environment, read the reason and fix the named cause.
+
+## LT-1051
+
+### LT-1051 — native compaction reports failure and the restart fallback summarises no messages
+
+**Status: open; observed once, not reproduced. Priority P2.** Found by the 9 November 2026 OpenCode 1.19.5 run of check 2.3 (earlier number in the livetest document: LT-1024).
+
+### Observed behaviour
+
+On the free route (OpenCode 1.19.5) a 29,774-token session's `compact` returned `method: restart-with-summary`. The log showed an "ACP turn reported no token usage where usage was expected" warning, then "restart-with-summary compaction completed" with `summaryGenerated:false`, `summarySampledMessages:0`, and "Native compaction failed; recovered via restart-with-summary". The next turn answered normally.
+
+### Root cause
+
+Not isolated. The native strategy returned a false result (`src/main/context/compaction-coordinator.ts`) and the usage-regression warning fired in the same turn (`acp-cli-adapter.ts`). Whether one caused the other was not tested, nor why the summary sampled zero messages (`compaction-continuity.ts`).
+
+### Required behaviour and acceptance
+
+A completed native compaction is not reported failed; a fallback samples the transcript and reports the count, and a zero-message summary is not presented as complete. Repeat check 2.3 with a session of at least 20 real turns.

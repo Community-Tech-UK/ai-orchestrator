@@ -46,6 +46,7 @@ const PROVIDERS: ProviderDiagnosisTarget[] = [
   { id: 'antigravity', doctorKey: 'antigravity', label: providerName('antigravity', { long: true }) },
   { id: 'copilot', doctorKey: 'copilot', label: providerName('copilot', { long: true }) },
   { id: 'cursor', doctorKey: 'cursor', label: providerName('cursor', { long: true }) },
+  { id: 'opencode', doctorKey: 'opencode', label: providerName('opencode', { long: true }) },
 ];
 
 const SECTION_LABELS: Record<DoctorSectionId, string> = {

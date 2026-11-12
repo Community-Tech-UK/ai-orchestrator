@@ -311,4 +311,18 @@ describe('DoctorService', () => {
     expect(report.providerDiagnoses.map((diagnosis) => diagnosis.provider))
       .toContain('plugin:acme-cli');
   });
+
+  it('includes OpenCode install guidance in the provider report', async () => {
+    const repairActions = [{ kind: 'cli_not_found', command: 'npm install -g @opencode/cli@2', severity: 'info' }];
+    diagnoseProvider.mockImplementation(async (provider: string) => ({
+      provider, overall: 'unhealthy', probes: [], recommendations: [],
+      repairActions: provider === 'opencode' ? repairActions : [], timestamp: 1,
+    }));
+
+    const report = await DoctorService.getInstance().getReport({ force: true });
+
+    expect(report.providerDiagnoses).toContainEqual(expect.objectContaining({
+      provider: 'opencode', repairActions,
+    }));
+  });
 });
