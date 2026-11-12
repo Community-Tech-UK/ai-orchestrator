@@ -107,11 +107,43 @@ describe('loop auto-unstick', () => {
     writeFileSync(join(workspace, 'STAGE.md'), 'IMPLEMENT\n');
     let paused = false;
     let autoUnsticks = 0;
+    let pausedAtUnstick = true;
+    let steeredAtUnstick = false;
+    let unstickState: LoopState['autoUnstick'];
+    let freshCount = 0;
+    const freshProgress = (): LoopChildResult => {
+      freshCount += 1;
+      return {
+        childInstanceId: null,
+        output: `step ${freshCount}`,
+        tokens: 1,
+        filesChanged: [{
+          path: `src/thing-${freshCount}.ts`,
+          additions: 1,
+          deletions: 0,
+          contentHash: `hash-${freshCount}`,
+        }],
+        toolCalls: [{ toolName: 'Edit', argsHash: `step-${freshCount}`, success: true, durationMs: 10 }],
+        errors: [],
+        testPassCount: freshCount,
+        testFailCount: 0,
+        exitedCleanly: true,
+      };
+    };
     coordinator.on('loop:paused-no-progress', () => { paused = true; });
-    coordinator.on('loop:auto-unstick', () => { autoUnsticks++; });
+    coordinator.on('loop:auto-unstick', (payload: unknown) => {
+      autoUnsticks += 1;
+      const run = coordinator.getLoop((payload as { loopRunId: string }).loopRunId);
+      unstickState = run?.autoUnstick;
+      pausedAtUnstick = paused;
+      steeredAtUnstick = (run?.pendingInterventions ?? []).some((item) =>
+        item.source === 'auto-unstick' || item.message.includes('AUTOMATIC UNSTICK'),
+      );
+    });
     coordinator.on('loop:invoke-iteration', (payload: unknown) => {
       const p = payload as { callback: (r: LoopChildResult) => void };
-      queueMicrotask(() => p.callback(repeatedEdit()));
+      const result = autoUnsticks === 0 ? repeatedEdit() : freshProgress();
+      queueMicrotask(() => p.callback(result));
     });
 
     const base = defaultLoopConfig(workspace, 'do the thing');
@@ -119,10 +151,12 @@ describe('loop auto-unstick', () => {
       initialPrompt: 'do the thing',
       workspaceCwd: workspace,
       completion: { ...base.completion, verifyCommand: passingVerifyCommand() },
-      caps: { ...base.caps, maxCostCents: 100, maxWallTimeMs: 60_000 },
+      caps: { ...base.caps, maxCostCents: 100, maxWallTimeMs: 60_000, maxIterations: 10_000 },
       progressThresholds: {
         ...base.progressThresholds,
         toolRepeatCriticalPerIteration: 8,
+        stageWarnIterations: { PLAN: 10_000, REVIEW: 10_000, IMPLEMENT: 10_000 },
+        stageCriticalIterations: { PLAN: 10_001, REVIEW: 10_001, IMPLEMENT: 10_001 },
       },
     });
 
@@ -133,13 +167,11 @@ describe('loop auto-unstick', () => {
 
     expect(autoUnsticks).toBeGreaterThanOrEqual(1);
     expect(paused).toBe(false);
+    expect(pausedAtUnstick).toBe(false);
     const after = live();
     expect(after?.status).toBe('running');
-    expect(after?.autoUnstick?.signalId).toBe('G');
-    const steered = (after?.pendingInterventions ?? []).some((item) =>
-      item.source === 'auto-unstick' || item.message.includes('AUTOMATIC UNSTICK'),
-    );
-    expect(steered || after?.autoUnstick?.attempt === 1).toBe(true);
+    expect(unstickState?.signalId).toBe('G');
+    expect(steeredAtUnstick || unstickState?.attempt === 1).toBe(true);
     expect(log.info).toHaveBeenCalledWith(
       'Suppressed no-progress pause',
       expect.objectContaining({ loopRunId: state.id, reason: 'auto-unstick' }),
