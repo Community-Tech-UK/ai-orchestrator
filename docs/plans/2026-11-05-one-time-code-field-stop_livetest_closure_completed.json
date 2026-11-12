@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-05-one-time-code-field-stop_livetest.md",
+      "sha256": "6b4684c56e1ee77f8dd2859db10fd80c4e54c4990c16cb2b971465d0542afbf8",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-05-one-time-code-field-stop_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-05-one-time-code-field-stop_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-05-one-time-code-field-stop_livetest_completed.md",
+      "sha256": "f4e5b15b0fcc1272afa33306631016528cb9d0e7648e32f3affd47d912cc2887"
+    }
+  ]
+}
