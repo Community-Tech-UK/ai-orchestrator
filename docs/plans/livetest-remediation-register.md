@@ -423,6 +423,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-890 | P1 | **OBSERVED LIVE; NOT FIXED.** Fresh isolated startup throws `database is locked` at RLM WAL initialization during critical Work controls setup and leaves no renderer target. Restarting the same profile succeeds. | [LT-890 detail](#lt-890) | [Resumed residual campaign](2026-09-27-livetest-human-external-residuals_livetest.md#evidence-run--2026-10-27-resumed-worker) |
 | LT-991 | P1 | **REPRODUCED LIVE; REPAIR IMPLEMENTED, LIVE RETEST PENDING.** Persistence sentinel ignores the extension evaluate JSON envelope, so a stale/save-failed form reports successful writes and verified persistence. | [LT-991 detail](#lt-991) | [Review corrections](2026-10-27-human-external-review2_plan.md#lt-991-implementation-status) |
 | LT-992 | P2 | **REPRODUCED; NOT REPAIRED.** Packaging repeatability cannot collect under supported Node 26; the unchanged cases pass under supported Node 24. | [LT-992 detail](#lt-992) | [Review corrections](2026-10-27-human-external-review2_plan.md#lt-992-implementation-status) |
+| LT-1030 | P3 | **REPRODUCED LIVE 2026-11-12; NOT REPAIRED.** Queue health prints "1 starts", "1 checks", "1 landings" for a count of one, and "0 seconds" for a wait under half a second. | [LT-1030 detail](#lt-1030) | [Queue health live checks](2026-11-04-pq-a5-measure_plan_livetest.md) |
 
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
@@ -12850,3 +12851,26 @@ excludes. Regenerated code (`register-aliases.ts`, IPC channels) and any other d
 failure runs them too. Acceptance: `run-git-hook.spec.ts` case `regenerated: documentation` skips (it failed before
 the fix), `regenerated: code` runs the tests, and the mocked changed-tree case still runs them. On the rebuilt app, a
 plan landing whose code equals its tested code has a short commit check.
+
+<a id="lt-1030"></a>
+
+## LT-1030 — Queue health words a count of one in the plural and a sub-second wait as "0 seconds"
+
+**Status:** reproduced live 12 November 2026 on the rebuilt dev app (isolated profile, a scratch repository), not repaired.
+Found while running [the Queue health live checks](2026-11-04-pq-a5-measure_plan_livetest.md); cosmetic, no measure is wrong.
+
+**Observed behaviour.** After one finished check the Plan Queue page and `plan_queue_status` read "3 min typically (1 checks)";
+after one landing, "3 seconds typically (1 landings)"; after one slot wait, "0 seconds typically (1 starts)". The slot wait was
+498 ms, which `describeHealthDuration` rounds to "0 seconds". The same helper prints "adding it to the base branch 0 seconds"
+for a 177 ms step.
+
+**Root cause.** `typical()` in `src/shared/utils/plan-queue-health-lines.ts` always appends the plural noun it is given
+('checks', 'landings', 'starts'), and `describeHealthDuration` rounds to whole seconds with no case for under one second.
+
+**Required behaviour.** A count of one reads in the singular ("1 check", "1 landing", "1 start"); a duration under one second
+reads "under a second" (the 0-second wording says nothing a reader can use). Same words on the page and in the status tool.
+
+**Acceptance.** Unit tests for `describeHealthDuration(498)` and for a count of one on each timed line; on the rebuilt app one
+finished run shows "(1 check)" and a sub-second wait reads "under a second".
+
+**Evidence.** [Queue health live checks](2026-11-04-pq-a5-measure_plan_livetest.md), evidence run 2026-11-12, checks 2 and 3.
