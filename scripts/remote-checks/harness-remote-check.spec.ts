@@ -73,11 +73,13 @@ function setUp() {
 
 type Setup = ReturnType<typeof setUp>;
 
-function run(setup: Setup, { scenario = 'pass', cwd = setup.desk, env = {} }: { scenario?: string; cwd?: string; env?: NodeJS.ProcessEnv } = {}) {
+function run(setup: Setup, { scenario = 'pass', cwd = setup.desk, env = {}, args: given = [] }: {
+  scenario?: string; cwd?: string; env?: NodeJS.ProcessEnv; args?: string[];
+} = {}) {
   writeFileSync(join(setup.fake, 'scenario'), scenario);
   const clean: NodeJS.ProcessEnv = { ...process.env };
   for (const key of ['CI', 'GITHUB_ACTIONS', 'AIO_QUEUE_SESSION', 'ORCHESTRATOR_LOOP_CONTROL_FILE', 'AIO_REMOTE_CHECKS', 'AIO_REMOTE_CHECKS_DIR']) delete clean[key];
-  const result = spawnSync(process.execPath, [SCRIPT], {
+  const result = spawnSync(process.execPath, [SCRIPT, ...given], {
     cwd, encoding: 'utf8', timeout: LIMIT - 10_000, env: { ...clean, HOME: setup.base, FAKE_DIR: setup.fake, ...env },
   });
   const read = (file: string): string => (existsSync(file) ? readFileSync(file, 'utf8') : '');
@@ -88,6 +90,7 @@ function run(setup: Setup, { scenario = 'pass', cwd = setup.desk, env = {} }: { 
     stderr: result.stderr,
     sshCalls: read(join(setup.fake, 'ssh.log')).split('\n').filter(Boolean),
     macOnly: read(join(setup.fake, 'mac-only')).split('\n').filter(Boolean),
+    argvSent: read(join(setup.fake, 'argv-list')) ? JSON.parse(read(join(setup.fake, 'argv-list'))) as string[] : null,
     sent: (name: string) => git(join(setup.fake, 'home/remote-checks/projects/work-finding/repo.git'), 'cat-file', 'blob', `${args.at(-3)}:${name}`),
     sentFiles: () => git(join(setup.fake, 'home/remote-checks/projects/work-finding/repo.git'), 'ls-tree', '-r', '--name-only', args.at(-3)!).split('\n'),
     runLog: read(join(setup.dir, 'runs.jsonl')).split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>),
@@ -100,9 +103,9 @@ describe('findProject', () => {
     const root = join(base, 'work/communitytech/work-finding');
     repository(root);
     mkdirSync(join(root, 'apps/desk'), { recursive: true });
-    mkdirSync(join(root, 'apps/radar'), { recursive: true });
+    mkdirSync(join(root, 'apps/other'), { recursive: true });
     expect(findProject(join(root, 'apps/desk'), base)).toMatchObject({ id: 'work-finding', suite: 'desk', root });
-    expect(findProject(join(root, 'apps/radar'), base)).toBeNull();
+    expect(findProject(join(root, 'apps/other'), base)).toBeNull();
     expect(findProject(root, base)).toBeNull();
   });
 
@@ -275,6 +278,68 @@ describe('harness-remote-check', () => {
     expect(result.runLog[0]).toMatchObject({ project: 'work-finding', ranOn: 'mac', fellBackBecause: expect.stringContaining(reason) });
   }, LIMIT);
 
+  describe('with this Mac switched off', () => {
+    const switchOff = (setup: Setup, change: Record<string, unknown> = {}): Setup => {
+      const configFile = join(setup.dir, 'config.json');
+      writeFileSync(configFile, JSON.stringify({ ...JSON.parse(readFileSync(configFile, 'utf8')), useThisMac: false, ...change }));
+      return setup;
+    };
+    const WAITS = { AIO_REMOTE_WAIT_LIMIT_MS: '500', AIO_REMOTE_RETRY_SLEEP_MS: '100' };
+
+    it('sends the named files as data, relative to the suite folder, and never on the ssh line', () => {
+      const setup = switchOff(setUp());
+      const result = run(setup, { args: [join(setup.desk, 'a.test.ts'), '-t', 'odd $(name)'], env: WAITS });
+      expect(result.code).toBe(0);
+      expect(result.argvSent).toEqual(['a.test.ts', '-t', 'odd $(name)']);
+      expect(result.sshCalls.join('\n')).not.toContain('a.test.ts');
+      expect(result.sshCalls.join('\n')).not.toContain('odd');
+    }, LIMIT);
+
+    it('runs the Mac-only file here when the run reaches it: options only, or a folder holding it', () => {
+      const optionsOnly = run(switchOff(setUp()), { args: ['-t', 'a name'], env: WAITS });
+      expect(optionsOnly.code).toBe(0);
+      expect(optionsOnly.argvSent).toEqual(['-t', 'a name']);
+      expect(optionsOnly.macOnly).toEqual(['-t a name test/unit/panelLayoutCss.test.ts']);
+      expect(run(switchOff(setUp()), { args: ['test/unit/'], env: WAITS }).macOnly).toEqual(['test/unit/panelLayoutCss.test.ts']);
+      expect(run(switchOff(setUp()), { args: ['test/unit/*.test.ts'], env: WAITS }).macOnly).toEqual(['test/unit/panelLayoutCss.test.ts']);
+      expect(run(switchOff(setUp()), { args: ['work-finder/'], env: WAITS }).macOnly).toEqual([]);
+    }, LIMIT);
+
+    it.each([['test/unit/panelLayoutCss.test.ts'], ['./test/unit/panelLayoutCss.test.ts']])(
+      'runs only the Mac-only file named (%s), with its options, here and sends nothing', (file) => {
+        const result = run(switchOff(setUp()), { args: [file, '-t', 'x'], env: WAITS });
+        expect(result.code).toBe(STAY_HERE);
+        expect(result.sshCalls).toEqual([]);
+      }, LIMIT);
+
+    it('runs the Mac-only file here for a folder named with ./', () => {
+      const result = run(switchOff(setUp()), { args: ['./test/unit/'], env: WAITS });
+      expect(result.argvSent).toEqual(['test/unit/']);
+      expect(result.macOnly).toEqual(['test/unit/panelLayoutCss.test.ts']);
+    }, LIMIT);
+
+    it('is not run, runs nothing here, and logs it, when no machine takes it', () => {
+      const result = run(switchOff(setUp()), { scenario: 'unreachable', env: WAITS });
+      expect(result.code).toBe(69);
+      expect(result.stdout).toContain('Not run: ');
+      expect(result.stdout).toContain('this Mac is switched off');
+      expect(result.macOnly).toEqual([]);
+      expect(result.runLog[0]).toMatchObject({ project: 'work-finding', ranOn: 'none', notRunBecause: expect.stringContaining('this Mac is switched off') });
+    }, LIMIT);
+
+    it('is not run, sending nothing, when the machine is paused', () => {
+      const result = run(switchOff(setUp(), { paused: true }), { env: WAITS });
+      expect(result.code).toBe(69);
+      expect(result.sshCalls).toEqual([]);
+    }, LIMIT);
+  });
+
+  it('hands named files back to run here while this Mac is switched on', () => {
+    const result = run(setUp(), { args: ['a.test.ts'] });
+    expect(result.code).toBe(STAY_HERE);
+    expect(result.sshCalls).toEqual([]);
+  }, LIMIT);
+
   it.each([
     ['AIO_REMOTE_CHECKS=off', { AIO_REMOTE_CHECKS: 'off' }],
     ['GitHub', { GITHUB_ACTIONS: 'true' }],
@@ -362,7 +427,7 @@ describe('a suite that needs a Mac', () => {
 });
 
 describe('remote-run.sh and unlisted repositories', () => {
-  it.each([['undistilled', 'unit'], ['work-finding', 'radar'], ['../escape', 'desk']])('refuses %s/%s before storing anything', (project, suite) => {
+  it.each([['undistilled', 'unit'], ['work-finding', 'nope'], ['../escape', 'desk']])('refuses %s/%s before storing anything', (project, suite) => {
     const base = home();
     cpSync(join(__dirname, 'remote-run.sh'), join(base, 'remote-run.sh'));
     const result = spawnSync('bash', [join(base, 'remote-run.sh'), 'bases'], {

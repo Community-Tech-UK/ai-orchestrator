@@ -376,7 +376,7 @@ export class LoopCoordinator extends EventEmitter {
   private pingPongReviewAborts = new LoopPingPongReviewAbortRegistry();
 
   private progressDetector = new LoopProgressDetector();
-  private completionDetector = new LoopCompletionDetector();
+  private completionDetector = LoopCompletionDetector.withActivity(this);
   /**
    * Injectable cross-model fresh-eyes reviewer. Defaults to the production
    * implementation that calls `CrossModelReviewService.runHeadlessReview`,

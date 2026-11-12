@@ -34,6 +34,7 @@ import {
 import { parseTaskLedger } from './loop-task-ledger';
 import { loopExecutionCwd } from './loop-cwd';
 import { spawnVerifyCommand, type SpawnVerifyRegistration } from './loop-spawn-verify';
+import { notRunWaiting, runVerifyUntilItRuns, verifyWaitingActivity } from './loop-verify-not-run';
 import { resolveLoopArtifactPaths, loopStateFile } from './loop-artifact-paths';
 import { readUtf8FileHead } from './bounded-file-read';
 import { isInsideOrEqual } from '../util/path-helpers';
@@ -425,6 +426,9 @@ export class LoopCompletionDetector {
    * here instead and force-killed via `abortVerify()`.
    */
   private readonly activeVerifyChildren = new Map<string, Set<SpawnVerifyRegistration>>();
+  constructor(private readonly onVerifyWaiting?: (loopRunId: string, message: string) => void) {}
+  /** Waits for a test machine show in the coordinator's activity feed. */
+  static withActivity(host: Parameters<typeof verifyWaitingActivity>[0]) { return new LoopCompletionDetector(verifyWaitingActivity(host)); }
 
   /**
    * Force-kill any verify/quick-verify subprocess currently in flight for
@@ -759,14 +763,14 @@ export class LoopCompletionDetector {
     );
   }
 
-  private spawnVerify(
-    cmd: string,
-    executionCwd: string,
-    timeoutMs: number,
-    label: 'verify' | 'quick-verify',
-    isolated: boolean,
-    loopRunId?: string,
-  ): Promise<VerifyOutcome> {
+  private spawnVerify(cmd: string, executionCwd: string, timeoutMs: number, label: 'verify' | 'quick-verify', isolated: boolean,
+    loopRunId?: string): Promise<VerifyOutcome> {
+    return runVerifyUntilItRuns(() => this.spawnVerifyOnce(cmd, executionCwd, timeoutMs, label, isolated, loopRunId), label, loopRunId
+      && notRunWaiting((r) => this.addVerifyChild(loopRunId, r), (r) => this.removeVerifyChild(loopRunId, r), (m) => this.onVerifyWaiting?.(loopRunId, m)));
+  }
+
+  private spawnVerifyOnce(cmd: string, executionCwd: string, timeoutMs: number, label: 'verify' | 'quick-verify', isolated: boolean,
+    loopRunId?: string): Promise<VerifyOutcome> {
     if (loopRunId === undefined) {
       return spawnVerifyCommand(cmd, executionCwd, timeoutMs, label, isolated, {
         buildInvocation: buildVerifyInvocation,

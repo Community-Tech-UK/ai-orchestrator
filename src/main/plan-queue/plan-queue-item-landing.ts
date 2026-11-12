@@ -34,6 +34,7 @@ import { buildActiveDocumentsPrompt, buildConflictPrompt, buildGateFailurePrompt
 import { clearPlanningMoveRecord, planningMoveNote } from './plan-queue-planning-files';
 import { returnToItemCheckout } from './plan-queue-squash';
 import { mergeInProgress } from './plan-queue-git';
+import { WAITING_FOR_TEST_MACHINE } from './plan-queue-landing-retries';
 import { PlanQueueCheckoutOwnershipError, rescueNote } from './plan-queue-worktree';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import type { PlanQueueGateReceipt } from './plan-queue-gate-receipts';
@@ -412,6 +413,10 @@ export class PlanQueueItemLanding {
     recordMergeCheckOwed(host, item);
     if (gate.timedOut) {
       await this.ctx.park(item, 'land-blocked', `Not landed: \`${gate.command}\` ran out of time after merging ${baseBranch}, so nothing changed on ${baseBranch}. A worker cannot fix a timeout; press Try merging again once the machine is quieter.`);
+      return null;
+    }
+    if (gate.notRun) {
+      await this.ctx.park(item, 'land-blocked', `Not landed: \`${gate.command}\` was not run after merging ${baseBranch} ${WAITING_FOR_TEST_MACHINE} (${gate.notRun}), so nothing changed on ${baseBranch}. A worker cannot fix that; Harness tries again in a few minutes, or press Try merging again.`);
       return null;
     }
     if (item.landingAutomatic) {

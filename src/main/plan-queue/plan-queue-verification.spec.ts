@@ -7,7 +7,7 @@ import type { SqliteDriver } from '../db/sqlite-driver';
 import { createSqliteWasmDatabase, initSqliteWasm } from '../db/sqlite-wasm-driver';
 import { runLoopMigrations } from '../orchestration/loop-schema';
 import { gitExec } from '../workspace/git/git-exec';
-import { PlanQueueGateRunner } from './plan-queue-gate-receipts';
+import { NOT_RUN_RETRY_MS, PlanQueueGateRunner } from './plan-queue-gate-receipts';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { newPlanQueueItem } from './plan-queue-state';
 import { documentContentSha256 } from './plan-queue-progress';
@@ -160,6 +160,30 @@ describe('queue verification policy', () => {
         : command === 'slow' ? { exitCode: 1, timedOut: true, output: '' } : { exitCode: 1, output: 'src/a.ts(1,1): error TS2322: Failure' });
       expect(await createPolicy(gates).prepare(host.getItem('item'))).toMatchObject({ kind: 'fix' });
       expect(host.getItem('item').verdict?.findings.map(finding => finding.summary)).toEqual(["Harness's own gate run failed: bad"]);
+    });
+  });
+
+  describe('checks no test machine could take', () => {
+    it('holds the job to try again later: no round, no verdict, no worker sent to fix anything', async () => {
+      const execute = vi.fn(async (..._args: unknown[]) => ({ exitCode: 69, output: 'Not run: both test machines are paused.\n' }));
+      const policy = createPolicy(createGates(execute));
+      expect(await policy.prepare(host.getItem('item'))).toEqual({ kind: 'wait',
+        detail: 'Waiting for a test machine: both test machines are paused.', retryMs: NOT_RUN_RETRY_MS });
+      expect(host.getItem('item')).toMatchObject({ round: 0, verdict: null });
+      expect(store.history.listVerdicts('item')).toEqual([]);
+      expect(store.history.listEvents('item').filter(event => event.reason === 'check-timeout')).toEqual([]);
+      expect(execute.mock.calls.map(call => call[1])).toEqual([root]);
+      // Tried again, it runs for real rather than replaying the wait.
+      execute.mockResolvedValue({ exitCode: 0, output: '' });
+      expect(await policy.prepare(host.getItem('item'))).toEqual({ kind: 'ready' });
+      expect(execute).toHaveBeenCalledTimes(2);
+    });
+
+    it('still sends a real failure back to be fixed', async () => {
+      const gates = createGates(async (_command, cwd) => cwd === '/baseline'
+        ? { exitCode: 0, output: '' } : { exitCode: 1, output: 'Not run: a line a test printed\nsrc/work.ts(1,1): error TS2322: New failure' });
+      expect(await createPolicy(gates).prepare(host.getItem('item'))).toMatchObject({ kind: 'fix' });
+      expect(host.getItem('item')).toMatchObject({ round: 1 });
     });
   });
 

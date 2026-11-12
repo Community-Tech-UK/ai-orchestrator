@@ -47,6 +47,24 @@
 
         @if (readOnly() || row.kind === 'this-mac') {
           <p class="field-hint">{{ describeTakes(row) }}</p>
+          @if (!readOnly() && row.kind === 'this-mac' && hasTestMachines()) {
+            <div class="switches">
+              <label class="switch-row" for="use-this-mac">
+                <span>Use this Mac when the others are busy or away</span>
+                <span class="toggle-label">
+                  <input
+                    id="use-this-mac"
+                    type="checkbox"
+                    class="toggle-input"
+                    [checked]="useThisMac()"
+                    [disabled]="saving()"
+                    (change)="setUseThisMac($event)"
+                  />
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </span>
+              </label>
+            </div>
+          }
         } @else {
           <div class="switches">
             @if (row.choice; as choice) {

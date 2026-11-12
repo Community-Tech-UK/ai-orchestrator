@@ -7495,6 +7495,10 @@
       "lines": 864
     },
     {
+      "path": "scripts/run-tests-quiet.js",
+      "lines": 864
+    },
+    {
       "path": "docs/superpowers/plans/_archive/2026-07-13-codex-context-pressure-guard-superseded.md",
       "lines": 862
     },
@@ -7539,6 +7543,10 @@
       "lines": 853
     },
     {
+      "path": "src/main/orchestration/loop-completion-detector.ts",
+      "lines": 850
+    },
+    {
       "path": "src/main/services/voice/providers/local-whisper-transcription-provider.ts",
       "lines": 850
     },
@@ -7553,10 +7561,6 @@
     {
       "path": "src/main/automations/automation-store.spec.ts",
       "lines": 847
-    },
-    {
-      "path": "src/main/orchestration/loop-completion-detector.ts",
-      "lines": 846
     },
     {
       "path": "src/main/orchestration/embedding-service.ts",
@@ -7603,10 +7607,6 @@
       "lines": 833
     },
     {
-      "path": "scripts/run-tests-quiet.js",
-      "lines": 832
-    },
-    {
       "path": "src/renderer/app/features/settings/provider-accounts-tab.component.spec.ts",
       "lines": 831
     },
@@ -7624,7 +7624,7 @@
     },
     {
       "path": "src/main/plan-queue/plan-queue-item-flow.ts",
-      "lines": 823
+      "lines": 824
     },
     {
       "path": "docs/superpowers/plans/2026-07-13-codex-context-pressure-observability-discovery-plan_livetest_completed.md",

@@ -4,12 +4,13 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createServer, type AddressInfo, type Socket } from 'node:net';
 import { PlanQueueGateRunSchema } from '@contracts/schemas/plan-queue';
-import { blockingGateReceipts, classifyGateEvidence, GATE_TIMEOUT_MS, onlyTimedOut, PlanQueueGateRunner } from './plan-queue-gate-receipts';
+import { blockingGateReceipts, classifyGateEvidence, GATE_TIMEOUT_MS, notRunReasonOf, onlyTimedOut, PlanQueueGateRunner } from './plan-queue-gate-receipts';
 import { runInProcessGroup } from './plan-queue-process';
 import { gitExec } from '../workspace/git/git-exec';
 
 const fakeTree = () => 'unit-test-tree';
-const fakeRunner = (execute: ConstructorParameters<typeof PlanQueueGateRunner>[0]) => new PlanQueueGateRunner(execute, fakeTree);
+const fakeRunner = (execute: ConstructorParameters<typeof PlanQueueGateRunner>[0], useThisMac = true) =>
+  new PlanQueueGateRunner(execute, fakeTree, () => useThisMac);
 
 describe('Harness queue gate receipts', () => {
   it('gives one check long enough for a full test run on a shared machine, which timed out at 15 minutes', () => {
@@ -308,6 +309,31 @@ describe('Harness queue gate receipts', () => {
     expect(onlyTimedOut(receipts)).toBe(false);
   });
 
+  it('marks a check no test machine could take as not run, stops there, and neither compares nor keeps it', async () => {
+    const execute = vi.fn(async (command: string) => command === 'first'
+      ? { exitCode: 69, output: '\u001b[33mNot run: the test Mac and the Windows PC are both paused\u001b[39m\n' } : { exitCode: 0, output: '' });
+    const runner = fakeRunner(execute);
+    const input = { cwd: '/item', head: 'h', commands: ['first', 'second'], baseSha: 'base',
+      withBaseline: <T>(action: (cwd: string) => Promise<T>) => action('/base') };
+    const receipts = await runner.run(input);
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({ exitCode: 69, classification: 'failed', timedOut: false, baseline: 'new',
+      notRun: 'the test Mac and the Windows PC are both paused' });
+    expect(notRunReasonOf(receipts)).toBe('the test Mac and the Windows PC are both paused');
+    expect(blockingGateReceipts(receipts)).toHaveLength(1);
+    expect(execute.mock.calls.map(call => call[0])).toEqual(['first']);
+    expect(runner.cached(input)).toBeUndefined();
+    expect(PlanQueueGateRunSchema.parse(receipts[0])).not.toHaveProperty('notRun');
+  });
+
+  it('keeps an ordinary failure a failure, and a bare exit 69 without the runner\'s line too', async () => {
+    const [failed] = await fakeRunner(async () => ({ exitCode: 1, output: 'Not run: printed by a test\n' })).run({ cwd: '/i', head: 'h', commands: ['c'] });
+    expect(failed).not.toHaveProperty('notRun');
+    const [bare] = await fakeRunner(async () => ({ exitCode: 69, output: '' })).run({ cwd: '/i', head: 'h', commands: ['c'] });
+    expect(bare).not.toHaveProperty('notRun');
+    expect(bare.classification).toBe('failed');
+  });
+
   it('retains timeout separately from output and limits receipt tails', async () => {
     const runner = fakeRunner(async () => ({ exitCode: 0, timedOut: true, output: 'x'.repeat(6000) }));
     const [receipt] = await runner.run({ cwd: '/item', head: 'h', commands: ['check'] });
@@ -449,6 +475,14 @@ describe('Harness queue gate receipts', () => {
       expect(execute.mock.calls[1][1]).toBe('/base');
       expect(execute.mock.calls[1][3]).toEqual({ AIO_REMOTE_CHECKS: 'off' });
       expect(receipt).toMatchObject({ baseline: 'also-failing-on-base', timedOut: false });
+    });
+
+    it('sends the run on main to a test machine when "use this Mac" is off, even though the job\'s check ran here', async () => {
+      const execute = vi.fn(async (_command: string, _cwd: string, _signal?: AbortSignal, _env?: Record<string, string>) => failing('the Mac'));
+      await fakeRunner(execute, false).run({ cwd: '/item', head: 'h', commands: ['npm run test:quiet'], baseSha: 'base',
+        withBaseline: <T>(action: (cwd: string) => Promise<T>) => action('/base') });
+      expect(execute.mock.calls[1][1]).toBe('/base');
+      expect(execute.mock.calls[1][3]).toBeUndefined();
     });
 
     it('leaves the run on main free to go to the PC when the job\'s check ran there', async () => {
@@ -619,6 +653,21 @@ describe('Harness queue checks sent as one batch', () => {
     const [receipt] = await fakeRunner(execute).run({ cwd: worktree(), head: 'head', commands: ['npm run typecheck'] });
     expect(receipt).toMatchObject({ classification: 'passed' });
     expect(receipt).not.toHaveProperty('ranOn');
+  });
+
+  it('marks every check not run when the batch says no test machine could take it, and runs nothing else', async () => {
+    const execute = machine(() => ({ ranOn: null, checks: [], notRun: true, reason: 'both test machines are busy' }));
+    execute.mockImplementationOnce(async (command: string) => {
+      const jsonPath = /--json '([^']+)'/.exec(command)![1]!;
+      writeFileSync(jsonPath, JSON.stringify({ notRun: true, reason: 'both test machines are busy' }));
+      return { exitCode: 69, output: 'Not run: both test machines are busy' };
+    });
+    const runner = fakeRunner(execute);
+    const input = { cwd: worktree(), head: 'head', commands: ['npx tsc --noEmit', 'npm run test:quiet', 'npm run lint'] };
+    const receipts = await runner.run(input);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(receipts).toEqual([expect.objectContaining({ command: 'npx tsc --noEmit', exitCode: 69, notRun: 'both test machines are busy' })]);
+    expect(runner.cached(input)).toBeUndefined();
   });
 
   it('passes the stay-on-the-Mac request through to the batch', async () => {

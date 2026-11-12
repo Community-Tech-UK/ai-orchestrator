@@ -418,7 +418,7 @@ export function createInitializationSteps(
         ipcHandler.registerHandlers();
       },
     },
-    { name: 'Runtime diagnostics', fn: () => installRuntimeDiagnostics() },
+    { name: 'Runtime diagnostics', fn: () => installRuntimeDiagnostics(instanceManager) },
     {
       name: 'Main process watchdog',
       fn: () => {

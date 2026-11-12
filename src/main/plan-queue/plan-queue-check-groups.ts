@@ -4,7 +4,7 @@ import { gitExec } from '../workspace/git/git-exec';
 import { WorktreeCapacityError } from '../workspace/git/worktree-manager';
 import { getGitWriteQueue } from '../workspace/git/git-write-queue';
 import { pathCompareKey } from '../util/path-helpers';
-import { blockingGateReceipts, onlyTimedOut, type GateInput, type PlanQueueGateReceipt, type PlanQueueGateRunner } from './plan-queue-gate-receipts';
+import { blockingGateReceipts, notRunReasonOf, onlyTimedOut, type GateInput, type PlanQueueGateReceipt, type PlanQueueGateRunner } from './plan-queue-gate-receipts';
 import { recordCheckTimeout } from './plan-queue-check-timeouts';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { machineGroupCoversMovedBase, groupRoundStillIntact } from './plan-queue-group-landing';
@@ -192,6 +192,12 @@ export class PlanQueueCheckGroups {
         throw error;
       });
       group.controller.signal.throwIfAborted();
+      const notRun = notRunReasonOf(receipts);
+      if (notRun) {
+        // The leader holds when these receipts reach it; the others try alone and hold the same way.
+        detail = `Waiting for a test machine: ${notRun}`;
+        return receipts.map(receipt => ({ ...receipt, head: input.head }));
+      }
       if (onlyTimedOut(receipts)) {
         // Nothing was learned about any member, so each one alone would only repeat the wait. The leader
         // records its own timeout when these receipts reach it.

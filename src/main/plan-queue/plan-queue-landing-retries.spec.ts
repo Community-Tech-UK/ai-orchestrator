@@ -8,7 +8,7 @@ import type { SqliteDriver } from '../db/sqlite-driver';
 import { createSqliteWasmDatabase, initSqliteWasm } from '../db/sqlite-wasm-driver';
 import { runLoopMigrations } from '../orchestration/loop-schema';
 import { mergeCheckStillOwed, recordMergeCheckOwed } from './plan-queue-check-timeouts';
-import { LANDING_RETRY_GIVE_UP_MS, MAX_AUTOMATIC_LANDINGS, mergesWithBase, PlanQueueLandingRetries } from './plan-queue-landing-retries';
+import { LANDING_RETRY_GIVE_UP_MS, MAX_AUTOMATIC_LANDINGS, mergesWithBase, PlanQueueLandingRetries, WAITING_FOR_TEST_MACHINE } from './plan-queue-landing-retries';
 import { newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueStore } from './plan-queue-store';
 import type { PlanQueueRun } from './plan-queue.types';
@@ -78,6 +78,22 @@ describe('PlanQueueLandingRetries', () => {
     await due.retryDue();
     expect(retry).not.toHaveBeenCalled();
     clock += 2 * HOUR;
+    await due.retryDue();
+    expect(retry).toHaveBeenCalledWith('a');
+  });
+
+  it('tries a landing whose merge check no test machine could take again after a few minutes, not a day', async () => {
+    passedPark('a');
+    store.upsertItem({ ...store.getItem('a')!, detail: `Not landed: \`check\` was not run after merging main ${WAITING_FOR_TEST_MACHINE} (paused).` });
+    const { retry, retries: due } = retries();
+    clock += 4 * 60_000;
+    await due.retryDue();
+    expect(retry).not.toHaveBeenCalled();
+    // Looked at a minute early, so the next look is five minutes on.
+    clock += 2 * 60_000;
+    await due.retryDue();
+    expect(retry).not.toHaveBeenCalled();
+    clock += 3 * 60_000 + 1;
     await due.retryDue();
     expect(retry).toHaveBeenCalledWith('a');
   });

@@ -7,6 +7,10 @@
  * Exits with the tests' own code, or STAY_ON_THE_MAC when the tests belong here or the far
  * machine can't produce a valid result. scripts/test-staged.js then runs them on the Mac as
  * it always has, so a commit is never blocked by the machine being away.
+ *
+ * With this Mac switched off in the config, every change goes, however few tests it reaches. It waits a few minutes at
+ * most for a free slot (AIO_STAGED_WAIT_LIMIT_MS), never for the run itself, and otherwise exits NOT_RUN: test-staged.js
+ * lets the commit through without running anything here.
  */
 
 const { spawnSync } = require('child_process');
@@ -14,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { MAC_ONLY_SPECS } = require('./mac-only');
 const { estimateRelatedSpecs } = require('./related-estimate');
-const { appendRunLog, decideRoute, isLoopRun, machinesFor, readConfig } = require('./route');
+const { NOT_RUN, appendRunLog, decideRoute, isLoopRun, machinesFor, readConfig } = require('./route');
 const { runOnMachines } = require('./run-remote');
 const { takeStagedSnapshot } = require('./snapshot');
 
@@ -25,6 +29,8 @@ const LARGE_RELATED_SPECS = 50;
 const MAX_FAILURES_SHOWN = 20;
 const MAX_MESSAGE_CHARS = 1200;
 const PROGRESS_INTERVAL_MS = 60_000;
+/** How long a commit waits for a free slot with this Mac switched off. */
+const STAGED_WAIT_LIMIT_MS = 3 * 60_000;
 
 const log = line => process.stdout.write(`test-staged: ${line}\n`);
 
@@ -65,14 +71,28 @@ function fellBack(started, reason) {
   return STAY_ON_THE_MAC;
 }
 
+function notRun(started, reason) {
+  process.stdout.write(`Not run: ${reason}.\n`);
+  appendRunLog({
+    at: new Date(started).toISOString(), project: path.basename(ROOT), kind: 'commit', loop: isLoopRun(), fingerprint: null,
+    ranOn: 'none', waitedMs: 0, tookMs: Date.now() - started, exitCode: NOT_RUN, fellBackBecause: null, notRunBecause: reason,
+  });
+  return NOT_RUN;
+}
+
+/** Set once the config is read: whether a fault ends as not run rather than a run here. */
+let thisMacOff = false;
+
 async function main() {
   const config = readConfig();
+  thisMacOff = config?.useThisMac === false;
   const route = decideRoute({ args: [], root: ROOT, config });
+  if (route.kind === 'not-run') return notRun(Date.now(), route.reason);
   if (route.kind !== 'remote') return STAY_ON_THE_MAC;
 
   const files = JSON.parse(fs.readFileSync(0, 'utf8'));
   const specs = estimateRelatedSpecs(ROOT, files);
-  if (specs < LARGE_RELATED_SPECS) return STAY_ON_THE_MAC;
+  if (!thisMacOff && specs < LARGE_RELATED_SPECS) return STAY_ON_THE_MAC;
 
   const started = Date.now();
   const scratch = path.join(ROOT, '_scratch');
@@ -87,10 +107,15 @@ async function main() {
   try {
     remote = await runOnMachines(machines, {
       root: ROOT, logPath, jsonPath, noCache: false, ci: process.env.CI, take: takeStagedSnapshot, relatedTo: files,
+      ...(thisMacOff ? { patient: true, small: true, waitLimitMs: stagedWaitLimitMs() } : {}),
     });
   } finally {
     // With exitCode rather than exit(), a timer left running would hold the commit open.
     clearInterval(progress);
+  }
+  if (!remote.ok && thisMacOff) {
+    for (const file of [logPath, jsonPath]) fs.rmSync(file, { force: true });
+    return notRun(started, remote.notRun ? remote.reason : `${remote.reason}, and this Mac is switched off`);
   }
   if (!remote.ok) return fellBack(started, remote.reason);
 
@@ -99,7 +124,7 @@ async function main() {
   const macExit = remote.machine.platform === 'darwin' ? 0 : runMacOnlySpecs(report);
   const failedAnywhere = remote.exitCode || report.numFailedTests || macExit;
   // Tests that fail must never read as "the machine was away", which would run them all again here.
-  const exitCode = !failedAnywhere ? 0 : (remote.exitCode !== STAY_ON_THE_MAC && remote.exitCode) || 1;
+  const exitCode = !failedAnywhere ? 0 : (remote.exitCode !== STAY_ON_THE_MAC && remote.exitCode !== NOT_RUN && remote.exitCode) || 1;
   const took = Math.round((Date.now() - started) / 1000);
   appendRunLog({
     at: new Date(started).toISOString(), project: path.basename(ROOT), kind: 'commit', loop: isLoopRun(), fingerprint: remote.fingerprint,
@@ -113,10 +138,20 @@ async function main() {
   return exitCode;
 }
 
+function stagedWaitLimitMs() {
+  const value = Number(process.env.AIO_STAGED_WAIT_LIMIT_MS);
+  return Number.isFinite(value) && value >= 0 ? value : STAGED_WAIT_LIMIT_MS;
+}
+
 // exitCode, not exit(): a run's failures can be longer than a pipe holds, and exit() would cut them off.
 main().then(
   (code) => { process.exitCode = code; },
   (err) => {
+    if (thisMacOff) {
+      process.stdout.write(`Not run: the far machine's route failed (${err.message}), and this Mac is switched off.\n`);
+      process.exitCode = NOT_RUN;
+      return;
+    }
     // Nothing above has judged the code by now, so the tests still have to run.
     log(`running on the Mac because the far machine's route failed: ${err.message}`);
     process.exitCode = STAY_ON_THE_MAC;

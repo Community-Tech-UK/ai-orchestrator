@@ -4,7 +4,7 @@ import { readDocumentReview, type DocumentReview } from './plan-queue-document-r
 import * as path from 'node:path';
 import type { PlanQueueVerdict } from '@contracts/schemas/plan-queue';
 import { gitExec } from '../workspace/git/git-exec';
-import { blockingGateReceipts, onlyTimedOut, type PlanQueueGateRunner, type PlanQueueGateReceipt } from './plan-queue-gate-receipts';
+import { blockingGateReceipts, NOT_RUN_RETRY_MS, notRunReasonOf, onlyTimedOut, type PlanQueueGateRunner, type PlanQueueGateReceipt } from './plan-queue-gate-receipts';
 import { CHECK_HUNG_DETAIL, recordCheckTimeout } from './plan-queue-check-timeouts';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { readPlanPin, comparePinnedUnchecked, extractChecklistItems } from './plan-queue-plan-pins';
@@ -15,7 +15,8 @@ import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { PlanQueueCheckGroups, type CheckGroupFlow } from './plan-queue-check-groups';
 import { deferredPassProblems } from './plan-queue-deferred-checks';
 
-type Preparation = { kind: 'ready' } | { kind: 'wait'; detail: string }
+/** `retryMs` holds the job back that long before the pump tries again. */
+type Preparation = { kind: 'ready' } | { kind: 'wait'; detail: string; retryMs?: number }
   | { kind: 'fix'; prompt: string; detail: string } | { kind: 'park'; detail: string; reason: 'no-progress' | 'round-limit' | 'check-hung' };
 
 export class PlanQueueVerification {
@@ -107,6 +108,9 @@ export class PlanQueueVerification {
         controller.signal.throwIfAborted();
         this.checkedDocuments.set(item.id, documentReview);
       }
+      const notRun = notRunReasonOf(receipts);
+      // Nothing ran, so nothing is known about the work: hold the job, never send it back to fix anything.
+      if (notRun) return { kind: 'wait', detail: `Waiting for a test machine: ${notRun}`, retryMs: NOT_RUN_RETRY_MS };
       if (onlyTimedOut(receipts)) {
         if (recordCheckTimeout(this.host, item, receipts) >= 2) return { kind: 'park', reason: 'check-hung', detail: CHECK_HUNG_DETAIL };
         return { kind: 'wait', detail: 'The checks did not finish in time, which says nothing about the work. They will run again.' };

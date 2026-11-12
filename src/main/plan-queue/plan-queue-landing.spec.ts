@@ -292,6 +292,19 @@ describe('runPostMergeGate', () => {
     expect(result.ok === false && result.output).toContain('forks=8');
   });
 
+  it('says why a check was not run only when the runner printed it with exit 69', async () => {
+    const notRun = await runPostMergeGate(["echo 'Not run: the PC is paused, and this Mac is switched off.'; exit 69"], repo);
+    expect(notRun).toMatchObject({ ok: false, notRun: 'the PC is paused, and this Mac is switched off.' });
+    // Another command's 69, or the line with another code, is an ordinary failure.
+    expect(await runPostMergeGate(["echo 'service unavailable'; exit 69"], repo)).not.toHaveProperty('notRun');
+    expect(await runPostMergeGate(["echo 'Not run: printed by a test'; exit 1"], repo)).not.toHaveProperty('notRun');
+  });
+
+  it('lets a test run wait for a test machine for 5 minutes at most, inside its own 15', async () => {
+    const result = await runPostMergeGate(['echo "wait=$AIO_REMOTE_WAIT_LIMIT_MS"; exit 3'], repo);
+    expect(result.ok === false && result.output).toContain('wait=300000');
+  });
+
   it('passes when every command exits 0 and stops at the first failure', async () => {
     expect(await runPostMergeGate(['true', 'true'], repo)).toEqual({ ok: true });
 

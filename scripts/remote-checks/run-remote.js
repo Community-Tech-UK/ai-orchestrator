@@ -6,7 +6,9 @@
  *
  * `runOnRemote` never throws for a machine fault. It resolves `{ ok: false, reason }`,
  * and the caller then runs the suite on the Mac and says why. A result only counts if
- * the snapshot's fingerprint comes back and a report with tests in it arrives.
+ * the snapshot's fingerprint comes back and a report with tests in it arrives. With this Mac
+ * switched off a confirmed run's report counts even with no tests in it: a spec that fails to
+ * load reports no tests, and that is a real failure, not a reason to try another machine.
  */
 
 const { spawn, execFileSync } = require('child_process');
@@ -24,6 +26,11 @@ const SETUP_LIMIT_MS = 5 * 60_000;
 /** A little over the far machine's own limit, for a run that goes quiet without the connection dropping. */
 const RUN_LIMIT_MS = 62 * 60_000;
 const LOCK_FILE = 'package-lock.json';
+/** How long work waits for a test machine when this Mac is switched off, and how long it sleeps between tries. */
+const WAIT_LIMIT_MS = 20 * 60_000;
+const RETRY_SLEEP_MS = 15_000;
+/** Named-list runs a machine takes at once beside its full runs, unless its config says. */
+const SMALL_SLOTS = { linux: 4, darwin: 2 };
 const SSH_OPTIONS = [
   '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=4',
 ];
@@ -173,9 +180,10 @@ async function fetchResults(config, script, id, remoteRoot, root) {
   }
 }
 
-async function fetchReport(config, script, id, remoteRoot, root, jsonPath) {
+async function fetchReport(config, script, id, remoteRoot, root, jsonPath, acceptEmpty) {
   const results = await fetchResults(config, script, id, remoteRoot, root);
-  if (!(results?.value?.numTotalTests > 0)) return false;
+  const total = results?.value?.numTotalTests;
+  if (!Number.isInteger(total) || (total === 0 && !acceptEmpty)) return false;
   fs.writeFileSync(jsonPath, results.text);
   return true;
 }
@@ -205,14 +213,21 @@ async function fetchChecks(config, script, id, remoteRoot, root, checks) {
  * @param {{id: string, suite: string, nodeFile: string, lockFile: string}} [options.project] another repository's
  *   recipe, from projects.js. Its own runner reports on the far machine, so no report comes back: the result
  *   line's test count is the proof instead, and `jsonPath` is unused.
+ * @param {string[]} [options.argv] the runner's own arguments, such as a folder or `-t name`, sent as data
+ * @param {boolean} [options.small] take one of the far machine's small-run slots rather than a full-run one
+ * @param {boolean} [options.acceptEmpty] a confirmed run that ran no tests is still its result, rather than a fault
  */
-async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take = takeSnapshot, relatedTo, checks, project, waitForSlot = true }) {
+async function runOnRemote({
+  config, root, logPath, jsonPath, noCache, ci, take = takeSnapshot, relatedTo, checks, project, argv, small = false, acceptEmpty = false, waitForSlot = true,
+}) {
   let snapshot;
   try {
     snapshot = take(root);
   } catch (err) {
+    // Another machine would get the same snapshot, so trying again cannot help.
     return {
       ok: false,
+      final: true,
       reason: err instanceof SnapshotRefused ? `the snapshot was refused: ${err.message}` : 'the snapshot failed',
     };
   }
@@ -249,12 +264,19 @@ async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take 
     if (checks) {
       // Commands travel as data too, and the far machine runs only those on its own list.
       const listed = await sshCommand(config, `bash ${script} checks ${id}`, { input: `${checks.join('\n')}\n` });
-      if (listed.code === REFUSED) return { ok: false, reason: `${config.label} does not know one of these checks` };
+      if (listed.code === REFUSED) return { ok: false, final: true, reason: `${config.label} does not know one of these checks` };
+      if (listed.code !== 0 || listed.timedOut) return { ok: false, reason: `${config.label} could not be reached` };
+    }
+    if (argv) {
+      // Arguments travel as data, like file names.
+      const listed = await sshCommand(config, `bash ${script} argv ${id}`, { input: JSON.stringify(argv) });
       if (listed.code !== 0 || listed.timedOut) return { ok: false, reason: `${config.label} could not be reached` };
     }
     const flag = value => (value ? '1' : '0');
-    // A slot count from the config, which readConfig has already held to 1 to 8.
-    const slots = `${Number.isInteger(config.slots) ? `AIO_SLOT_COUNT=${config.slots} ` : ''}${waitForSlot ? '' : 'AIO_SLOT_WAIT=0 '}`;
+    // Slot counts from the config, which readConfig has already held to 1 to 8.
+    const smallSlots = Number.isInteger(config.smallSlots) ? config.smallSlots : SMALL_SLOTS[config.platform] ?? SMALL_SLOTS.linux;
+    const slots = `${small ? `AIO_SMALL_RUN=1 AIO_SMALL_SLOT_COUNT=${smallSlots} ` : ''}`
+      + `${Number.isInteger(config.slots) ? `AIO_SLOT_COUNT=${config.slots} ` : ''}${waitForSlot ? '' : 'AIO_SLOT_WAIT=0 '}`;
     const result = await streamRun(config, `${prefix}${slots}bash ${script} run ${id} ${snapshot.commit} ${flag(ci)} ${flag(noCache)}`, logPath);
 
     if (!result) return { ok: false, reason: `the connection to ${config.label} was lost during the run` };
@@ -264,7 +286,8 @@ async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take 
       return { ok: false, reason: `the result from ${config.label} did not match the code sent` };
     }
     const checkResults = checks ? await fetchChecks(config, script, id, result.root, root, checks) : undefined;
-    const reported = project ? result.tests > 0 : checks ? checkResults !== null : await fetchReport(config, script, id, result.root, root, jsonPath);
+    const reported = project ? result.tests > 0 || acceptEmpty
+      : checks ? checkResults !== null : await fetchReport(config, script, id, result.root, root, jsonPath, acceptEmpty);
     if (!reported) return { ok: false, reason: `${config.label} sent back no usable report` };
     return {
       ok: true, exitCode: result.exit, fingerprint: snapshot.tree, waitedMs: (result.waited ?? 0) * 1000, farRoot: result.root, tests: result.tests,
@@ -280,9 +303,11 @@ async function runOnRemote({ config, root, logPath, jsonPath, noCache, ci, take 
 /**
  * Tries each machine in order, and resolves the first that runs the work, with `machine` saying which. Every machine
  * but the last is asked not to wait for a slot, so a busy one passes the work on at once. When none can, resolves
- * `{ ok: false, reason }` with every machine's reason, so the caller can say why it ran here.
+ * `{ ok: false, reason }` with every machine's reason, so the caller can say why it ran here. With `patient`, for when
+ * this Mac is switched off, it keeps going round them instead: see runPatiently.
  */
 async function runOnMachines(machines, options) {
+  if (options.patient) return runPatiently(machines, options);
   const reasons = [];
   for (const [at, machine] of machines.entries()) {
     const result = await runOnRemote({ ...options, config: machine, waitForSlot: at === machines.length - 1 });
@@ -292,4 +317,50 @@ async function runOnMachines(machines, options) {
   return { ok: false, reason: reasons.join('; ') || 'no test machine takes this work' };
 }
 
-module.exports = { runOnMachines, runOnRemote, sendSnapshot, sshCommand };
+function msFromEnv(name, fallback, env = process.env) {
+  const value = Number(env[name]);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function minutesText(ms) {
+  if (ms < 60_000) return `${Math.max(1, Math.round(ms / 1000))} seconds`;
+  const minutes = Math.round(ms / 60_000);
+  return minutes === 1 ? '1 minute' : `${minutes} minutes`;
+}
+
+/**
+ * For when this Mac is switched off: goes round the machines without waiting on any one of them, retrying whatever
+ * went wrong, until one runs the work or `waitLimitMs` (AIO_REMOTE_WAIT_LIMIT_MS, 20 minutes by default) has gone.
+ * The limit is checked only between tries, so a run that has started is never cut off. A run that completed on the
+ * code sent is the answer even when it ran no tests: only faults on the way there are retried. Gives up with
+ * `{ ok: false, notRun: true, reason }`, naming each machine's last problem.
+ */
+async function runPatiently(machines, options) {
+  const env = options.env ?? process.env;
+  const limitMs = options.waitLimitMs ?? msFromEnv('AIO_REMOTE_WAIT_LIMIT_MS', WAIT_LIMIT_MS, env);
+  const sleepMs = msFromEnv('AIO_REMOTE_RETRY_SLEEP_MS', RETRY_SLEEP_MS, env);
+  const say = options.say ?? (text => process.stderr.write(`${text}\n`));
+  const { patient: _patient, waitLimitMs: _limit, say: _say, env: _env, ...runOptions } = options;
+  const started = Date.now();
+  const last = new Map();
+  const giveUp = (lead) => {
+    const problems = machines.map(machine => last.get(machine) ?? `${machine.label} was not tried`).join('; ');
+    return { ok: false, notRun: true, reason: `${lead}${problems ? ` (${problems})` : ''}, and this Mac is switched off` };
+  };
+  if (!machines.length) return { ok: false, notRun: true, reason: 'no test machine takes this work, and this Mac is switched off' };
+  for (let round = 0; ; round += 1) {
+    for (const machine of machines) {
+      if (round > 0 && Date.now() - started >= limitMs) return giveUp(`no test machine could take it in ${minutesText(limitMs)}`);
+      const result = await runOnRemote({ ...runOptions, config: machine, waitForSlot: false, acceptEmpty: true });
+      if (result.ok) return { ...result, machine };
+      last.set(machine, result.reason);
+      if (result.final) return { ok: false, notRun: true, reason: `${result.reason}, and this Mac is switched off` };
+    }
+    const left = limitMs - (Date.now() - started);
+    if (left <= 0) return giveUp(`no test machine could take it in ${minutesText(limitMs)}`);
+    say(`[remote checks] waiting for a test machine (${[...last.values()].join('; ')}); this Mac is switched off.`);
+    await new Promise(resolve => setTimeout(resolve, Math.min(sleepMs, left)));
+  }
+}
+
+module.exports = { WAIT_LIMIT_MS, runOnMachines, runOnRemote, sendSnapshot, sshCommand };

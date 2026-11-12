@@ -31,6 +31,9 @@ const CODEX_PROTOCOL_TESTS = [
 
 // scripts/remote-checks/run-staged.js exits with this when the tests belong on this machine.
 const STAY_ON_THE_MAC = 75;
+// ...and this when no test machine was free and this Mac is switched off, so nothing ran.
+const NOT_RUN = 69;
+const NOT_RUN_LINE = 'Tests not run: no test machine was free. The queue and loop checks will still run them.';
 
 function getStagedTestRelatedFiles(options = {}) {
   const exec = options.execFileSync ?? execFileSync;
@@ -82,6 +85,11 @@ function runStagedTests(options = {}) {
 
   const selection = [...new Set(relatedFiles)];
   const elsewhere = options.runElsewhere?.(selection, run);
+  // The commit goes ahead: running here is what the switch rules out, and later checks still test it.
+  if (elsewhere === NOT_RUN) {
+    log(NOT_RUN_LINE);
+    return 0;
+  }
   if (elsewhere !== undefined && elsewhere !== STAY_ON_THE_MAC) return elsewhere;
 
   // Related tests can launch compiled workers through indirect dependencies.
@@ -132,8 +140,20 @@ function runStagedTests(options = {}) {
   return result.status ?? 1;
 }
 
-/** A change that reaches a lot of tests can go to the test machine. It builds there too. */
-function runOnTestMachine(selection, run) {
+/** Whether the remote checks config switches this Mac off, so tests never run here. A broken config reads as on. */
+function isThisMacSwitchedOff() {
+  try {
+    return require('./remote-checks/route').readConfig()?.useThisMac === false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A change that reaches a lot of tests can go to the test machine, and with this Mac switched off every change does.
+ * It builds there too.
+ */
+function runOnTestMachine(selection, run, { thisMacOff = isThisMacSwitchedOff } = {}) {
   const result = run(process.execPath, [path.join(__dirname, 'remote-checks', 'run-staged.js')], {
     input: JSON.stringify(selection),
     stdio: ['pipe', 'inherit', 'inherit'],
@@ -141,7 +161,7 @@ function runOnTestMachine(selection, run) {
   });
   if (result.error) {
     console.error(`test-staged could not try the test machine: ${result.error.message}`);
-    return STAY_ON_THE_MAC;
+    return thisMacOff() ? NOT_RUN : STAY_ON_THE_MAC;
   }
   // A killed run says nothing about the machine or the tests, so it fails like any other killed run.
   return result.signal ? 1 : result.status ?? 1;
@@ -161,6 +181,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  NOT_RUN_LINE,
   SOURCE_FILE_PATTERN,
   getStagedTestRelatedFiles,
   runOnTestMachine,

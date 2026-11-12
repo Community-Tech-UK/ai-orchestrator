@@ -23,7 +23,7 @@ interface RunOptions extends StagedFilesOptions {
 
 const { getStagedTestRelatedFiles, runOnTestMachine, runStagedTests } = require('../test-staged.js') as {
   getStagedTestRelatedFiles: (options?: StagedFilesOptions) => string[];
-  runOnTestMachine: (selection: string[], run: NonNullable<RunOptions['spawnSync']>) => number;
+  runOnTestMachine: (selection: string[], run: NonNullable<RunOptions['spawnSync']>, options?: { thisMacOff?: () => boolean }) => number;
   runStagedTests: (options?: RunOptions) => number;
 };
 
@@ -318,6 +318,14 @@ describe('test-staged: runStagedTests', () => {
     expect(spawnSync).toHaveBeenCalledTimes(2);
   });
 
+  it('lets the commit through, building and testing nothing here, when the tests were not run anywhere', () => {
+    const spawnSync = vi.fn();
+    const log = vi.fn();
+    expect(runStagedTests({ files: ['src/main/foo.ts'], spawnSync, log, runElsewhere: () => 69 })).toBe(0);
+    expect(spawnSync).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith('Tests not run: no test machine was free. The queue and loop checks will still run them.');
+  });
+
   it('does not offer an empty selection to the test machine', () => {
     const runElsewhere = vi.fn(() => 0);
     expect(runStagedTests({ files: [], spawnSync: vi.fn(), log: () => {}, runElsewhere })).toBe(0);
@@ -336,7 +344,13 @@ describe('test-staged: runOnTestMachine', () => {
 
   it('hands the run back when the route cannot even start, so the commit is not blocked', () => {
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(runOnTestMachine([], () => ({ error: new Error('cannot start node') }))).toBe(75);
+    expect(runOnTestMachine([], () => ({ error: new Error('cannot start node') }), { thisMacOff: () => false })).toBe(75);
+    quiet.mockRestore();
+  });
+
+  it('runs nothing here when the route cannot start and this Mac is switched off', () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(runOnTestMachine([], () => ({ error: new Error('cannot start node') }), { thisMacOff: () => true })).toBe(69);
     quiet.mockRestore();
   });
 

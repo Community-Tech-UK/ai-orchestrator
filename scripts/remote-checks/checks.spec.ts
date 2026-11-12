@@ -180,6 +180,44 @@ describe('checks on the test machine', () => {
     }
   }, LIMIT);
 
+  describe('with this Mac switched off', () => {
+    const switchOff = (setup: Setup, change: Record<string, unknown> = {}): Setup => {
+      const configFile = join(setup.dir, 'config.json');
+      writeFileSync(configFile, JSON.stringify({ ...JSON.parse(readFileSync(configFile, 'utf8')), useThisMac: false, ...change }));
+      return setup;
+    };
+    const WAITS = { AIO_REMOTE_WAIT_LIMIT_MS: '500', AIO_REMOTE_RETRY_SLEEP_MS: '100' };
+
+    it('sends queue checks away too', () => {
+      const run = runChecks(switchOff(setUp('.worktrees/queue/one')), { env: WAITS });
+      expect(run.code).toBe(0);
+      expect(run.outcome).toMatchObject({ ranOn: 'the PC' });
+    }, LIMIT);
+
+    it('is not run, writing notRun and the reason, when no machine takes the checks', () => {
+      const run = runChecks(switchOff(setUp()), { scenario: 'unreachable', env: WAITS });
+      expect(run.code).toBe(69);
+      expect(run.stdout).not.toContain('lint here');
+      expect(run.stdout).toContain('Not run: no test machine could take it');
+      expect(run.outcome).toMatchObject({ notRun: true, exitCode: 69, checks: [], reason: expect.stringContaining('this Mac is switched off') });
+      expect(run.runLog).toEqual([expect.objectContaining({ kind: 'checks', ranOn: 'none', exitCode: 69 })]);
+      expect(run.logs).toEqual([]);
+    }, LIMIT);
+
+    it('is not run, without trying, when the machine is paused', () => {
+      const run = runChecks(switchOff(setUp(), { paused: true }), { env: WAITS });
+      expect(run.code).toBe(69);
+      expect(run.sshCalls).toEqual([]);
+      expect(run.outcome).toMatchObject({ notRun: true, reason: 'the PC is paused, and this Mac is switched off' });
+    }, LIMIT);
+
+    it('still fails with the failing check\'s code', () => {
+      const run = runChecks(switchOff(setUp()), { scenario: 'checks-fail', env: WAITS });
+      expect(run.code).toBe(2);
+      expect(run.outcome).not.toHaveProperty('notRun');
+    }, LIMIT);
+  });
+
   it('refuses a command that is not a known check, before sending anything', () => {
     const run = runChecks(setUp(), { args: ['npm run lint', 'rm -rf /'] });
     expect(run.code).toBe(2);

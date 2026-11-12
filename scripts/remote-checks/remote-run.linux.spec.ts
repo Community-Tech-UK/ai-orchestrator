@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, sy
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 /**
  * remote-run.sh for real: real systemd scopes and `flock` on Linux, a real process group and Perl
@@ -11,6 +11,22 @@ import { afterAll, describe, expect, it } from 'vitest';
  * script: Linux with a user systemd, or macOS. The repository under test carries stubs for npm,
  * tsc and Vitest. (The file name predates the Mac.)
  */
+/**
+ * A far run of this file sets these for itself (a named file takes a small slot); the scripts these tests start must
+ * pick their own slots, so they must not inherit them.
+ */
+const SLOT_ENV = ['AIO_SMALL_RUN', 'AIO_SMALL_SLOT_COUNT', 'AIO_SLOT_COUNT', 'AIO_SLOT_WAIT'];
+const inheritedSlotEnv = new Map<string, string | undefined>();
+beforeAll(() => {
+  for (const key of SLOT_ENV) {
+    inheritedSlotEnv.set(key, process.env[key]);
+    delete process.env[key];
+  }
+});
+afterAll(() => {
+  for (const [key, value] of inheritedSlotEnv) if (value !== undefined) process.env[key] = value;
+});
+
 function canRunHere(): boolean {
   if (process.platform === 'darwin') return true;
   if (process.platform !== 'linux') return false;
@@ -32,6 +48,7 @@ const output = process.argv.find(arg => arg.startsWith('--outputFile.json=')).sp
 const detached = spawn('sleep', ['300'], { detached: true, stdio: 'ignore' });
 detached.unref();
 writeFileSync(pidFile, process.pid + ' ' + detached.pid);
+writeFileSync(pidFile + '.args', JSON.stringify(process.argv.slice(2)));
 console.log('stub vitest running');
 if (behaviour === 'hang') setInterval(() => {}, 1000);
 else {
@@ -202,9 +219,10 @@ function setUpProject() {
   });
   execFileSync('bash', [machine.script, 'receive', commit, 'none'], { input: pack, env });
 
-  const runProject = async (name: string, behaviour = 'pass') => {
+  const runProject = async (name: string, behaviour = 'pass', argv?: string[]) => {
     writeFileSync(behaviourFile, behaviour);
     const id = `${name}-${process.pid}`;
+    if (argv) execFileSync('bash', [machine.script, 'argv', id], { input: JSON.stringify(argv), env });
     const child = spawn('bash', [machine.script, 'run', id, commit, '0', '0'], { stdio: 'pipe', env });
     children.push(child);
     let output = '';
@@ -242,6 +260,32 @@ describe.runIf(canRunHere()).concurrent('remote-run.sh running another project',
     expect(calls).toContain('test/unit/a.test.ts');
     expect(calls).toContain('work-finder/c.test.mjs');
     expect(calls).not.toContain('panelLayoutCss');
+  }, LIMIT);
+
+  it('passes the files the Mac named to the runner as data, in place of its own list', async () => {
+    const machine = setUpProject();
+    const run = await machine.runProject('named', 'pass', ['test/unit/a.test.ts', '-t', 'x $(touch pwned)']);
+    expect(run.result).toMatchObject({ status: 'ok', exit: 0 });
+    expect(machine.calls()).toContain('test:quiet -- --test-concurrency=8 test/unit/a.test.ts -t x $(touch pwned)');
+    expect(machine.calls()).not.toContain('b.test.mjs');
+  }, LIMIT);
+
+  it('gives a run of options only its own list, still without the file that stays on the Mac', async () => {
+    const machine = setUpProject();
+    const run = await machine.runProject('options-only', 'pass', ['--test-name-pattern', 'x']);
+    expect(run.result).toMatchObject({ status: 'ok', exit: 0 });
+    expect(machine.calls()).toContain('test:quiet -- --test-concurrency=8 --test-name-pattern x test/unit/a.test.ts');
+    expect(machine.calls()).toContain('work-finder/c.test.mjs');
+    expect(machine.calls()).not.toContain('panelLayoutCss');
+  }, LIMIT);
+
+  it('turns a folder or a pattern into the test files in it, without the file that stays on the Mac', async () => {
+    const machine = setUpProject();
+    await machine.runProject('folder', 'pass', ['test/unit']);
+    await machine.runProject('pattern', 'pass', ['test/unit/*.test.ts']);
+    expect(machine.calls()).toContain('test:quiet -- --test-concurrency=8 test/unit/a.test.ts test/unit/b.test.mjs');
+    expect(machine.calls()).toContain('test:quiet -- --test-concurrency=8 test/unit/a.test.ts');
+    expect(machine.calls()).not.toContain('panelLayoutCss');
   }, LIMIT);
 
   it('installs once, not on every run', async () => {
@@ -500,6 +544,38 @@ describe.runIf(canRunHere())('remote-run.sh on a real machine', () => {
     const report = execFileSync('bash', [machine.script, 'fetch', id], { maxBuffer: 16 * 1024 * 1024 });
     expect(JSON.parse(gunzipSync(report).toString()).testResults.map((suite: { name: string }) => suite.name)).toEqual(files);
     expect(existsSync(join(machine.base, 'slots/1/repo/pwned'))).toBe(false);
+  }, LIMIT);
+
+  it.concurrent('runs Vitest with the arguments it was given as a list, keeping awkward ones as data', async () => {
+    const machine = setUp();
+    const commit = machine.snapshot('pass');
+    const argv = ['src/a $(touch pwned);b.spec.ts', '-t', "it's here"];
+    const id = `argv-run-${process.pid}`;
+    execFileSync('bash', [machine.script, 'argv', id], { input: JSON.stringify(argv) });
+    const run = startRun(machine.script, `argv-run`, commit);
+    await run.finished;
+    expect(run.result()).toMatchObject({ status: 'ok', exit: 0 });
+    const given = JSON.parse(readFileSync(`${machine.pidFile}.args`, 'utf8')) as string[];
+    expect(given.slice(0, 4)).toEqual(['run', ...argv]);
+    expect(existsSync(join(machine.base, 'slots/1/repo/pwned'))).toBe(false);
+  }, LIMIT);
+
+  it.concurrent('puts a small run in its own slots, leaving the full-run slots alone', async () => {
+    const machine = setUp(2);
+    const commit = machine.snapshot('pass');
+    mkdirSync(join(machine.base, 'slots'), { recursive: true });
+    const lock = join(machine.base, 'slots/small-1.lock');
+    const holder = holdLock(lock);
+    expect(await waitFor(() => isHeld(lock))).toBe(true);
+    const small = startRun(machine.script, 'small-run', commit, { AIO_SMALL_RUN: '1' });
+    await small.finished;
+    expect(small.result()).toMatchObject({ status: 'ok' });
+    expect(existsSync(join(machine.base, 'slots/small-2/repo'))).toBe(true);
+    expect(existsSync(join(machine.base, 'slots/1/repo'))).toBe(false);
+    const full = startRun(machine.script, 'small-none', commit, { AIO_SMALL_RUN: '1', AIO_SMALL_SLOT_COUNT: '1' });
+    await full.finished;
+    holder.kill('SIGKILL');
+    expect(full.output()).toContain('"status":"no-slot"');
   }, LIMIT);
 
   it.concurrent('passes on the related run\'s own exit code', async () => {

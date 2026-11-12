@@ -178,8 +178,12 @@ export function describeToday(today: WorkToday, label: string): string[] {
 }
 
 /** What a computer takes, for the read-only list. */
-export function describeTakes(row: ComputerRow): string {
-  if (row.kind === 'this-mac') return 'Takes anything the others can\'t, and work that needs this Mac.';
+export function describeTakes(row: ComputerRow, useThisMac = true): string {
+  if (row.kind === 'this-mac') {
+    return useThisMac
+      ? 'Takes anything the others can\'t, and work that needs this Mac.'
+      : 'Takes only work that needs this Mac. Other work waits for the other computers.';
+  }
   const kinds = [
     ...(row.choice?.sessions ? ['agent sessions'] : []),
     ...(row.testMachine?.testRuns ? ['test runs'] : []),

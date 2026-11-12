@@ -21,7 +21,8 @@ const { cleanGitEnv } = require('./snapshot');
 
 /**
  * `folder` is where the runner lives, relative to the repository. `sends` limits uncommitted files to the folders the
- * tests read. `needsMac` keeps a suite off Linux test machines. `macOnly` is run here after a run on Linux.
+ * tests read. `needsMac` keeps a suite off Linux test machines. `macOnly` is run here after a run on Linux: the
+ * runner, then the files it runs, relative to `folder`.
  */
 const PROJECTS = [
   {
@@ -37,6 +38,11 @@ const PROJECTS = [
         // Run from `folder` after a run elsewhere, as remote-run.sh leaves these out.
         macOnly: ['scripts/run-tests-quiet.mjs', 'test/unit/panelLayoutCss.test.ts'],
       },
+      // Desk's web front end (Jest). It has no Node file of its own and uses Desk's, as its packages need Desk's.
+      { suite: 'desk-web', folder: 'apps/desk/web', nodeFile: 'apps/desk/.nvmrc', lockFile: 'apps/desk/web/package-lock.json', sends: ['apps'] },
+      { suite: 'radar', folder: 'apps/radar', nodeFile: 'apps/radar/.nvmrc', lockFile: 'apps/radar/package-lock.json', sends: ['apps'] },
+      // No Node file of its own either (its package asks for 24.x), so Desk's.
+      { suite: 'runner', folder: 'apps/runner', nodeFile: 'apps/desk/.nvmrc', lockFile: 'apps/runner/package-lock.json', sends: ['apps'] },
     ],
   },
   {

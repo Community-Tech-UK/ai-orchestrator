@@ -496,6 +496,7 @@ export class PlanQueueItemFlow {
       spawn: (item, base) => this.selectAndSpawnVerifier(item, base),
       checksFinished: ran => { this.releaseChecklistTurn(waiting.id); if (ran) this.breaker.succeeded(waiting.runId, waiting.id); },
       checksFailed: message => { this.breaker.note(waiting.runId, waiting.id, message); this.preparationErrors.holdOff(waiting.id, CHECK_RETRY_MS); },
+      holdOff: (itemId, ms) => this.preparationErrors.holdOff(itemId, ms),
     }, waiting.id)).finally(finished);
   }
 

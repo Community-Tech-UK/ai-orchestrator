@@ -63,7 +63,9 @@ const os = require('os');
 const path = require('path');
 const { MAC_ONLY_SPECS, mergeMacOnlyReport } = require('./remote-checks/mac-only');
 const { takeMacTurn } = require('./remote-checks/mac-turn');
-const { appendRunLog, countSpecFiles, decideRoute, isLoopRun, machinesFor, readConfig, remoteChecksDir } = require('./remote-checks/route');
+const {
+  NOT_RUN, appendRunLog, countSpecFiles, decideRoute, isLoopRun, machinesFor, readConfig, remoteChecksDir,
+} = require('./remote-checks/route');
 const { runOnMachines, runOnRemote } = require('./remote-checks/run-remote');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -326,14 +328,18 @@ async function runSuite() {
   }
 
   const started = Date.now();
+  // Switched off, this Mac never runs the suite: the run waits for a test machine or is not run.
+  const thisMacOff = config.useThisMac === false;
   let outcome;
   let reason = route.reason;
   /** A Mac-only run started beside a main run that then stayed here: waited for once this Mac's run is done. */
   let unmerged = null;
-  if (route.kind === 'remote') {
+  if (route.kind === 'not-run') {
+    outcome = notRunOutcome(route.reason);
+  } else if (route.kind === 'remote') {
     const stopProgress = watchProgress();
     const machines = machinesFor(config, 'testRuns');
-    const macOnly = route.specs ? MAC_ONLY_SPECS.filter(spec => route.specs.includes(spec)) : MAC_ONLY_SPECS;
+    const macOnly = macOnlySpecsFor(route);
     const macOnlyElsewhere = startMacOnlyElsewhere(machines, macOnly);
     const remote = await runOnMachines(machines, {
       root: ROOT,
@@ -343,6 +349,8 @@ async function runSuite() {
       ci: process.env.CI,
       // A spec file relates to itself, so this runs exactly the named list.
       relatedTo: route.specs,
+      ...(route.argv ? { argv: route.argv } : {}),
+      ...(thisMacOff ? { patient: true, small: Boolean(route.specs || route.argv) } : {}),
     });
     stopProgress();
     if (remote.ok) {
@@ -358,6 +366,7 @@ async function runSuite() {
       // This Mac's full run covers the Mac-only specs, so one started beside it has nothing to add.
       unmerged = macOnlyElsewhere;
       clearRunOutput();
+      if (thisMacOff) outcome = notRunOutcome(remote.notRun ? remote.reason : `${remote.reason}, and this Mac is switched off`);
     }
   }
   outcome ||= await runFullSuiteOnMac(route, reason);
@@ -369,7 +378,7 @@ async function runSuite() {
   appendRunLog({
     at: new Date(started).toISOString(),
     project: path.basename(ROOT),
-    ...(route.specs ? { kind: 'targeted' } : {}),
+    ...(route.specs || route.argv ? { kind: 'targeted' } : {}),
     loop: isLoopRun(),
     fingerprint: outcome.fingerprint ?? null,
     ranOn: outcome.ranOn,
@@ -377,8 +386,25 @@ async function runSuite() {
     tookMs: Date.now() - started,
     exitCode: outcome.exitCode,
     fellBackBecause: outcome.ranOn === 'mac' ? reason : null,
+    ...(outcome.notRun ? { notRunBecause: outcome.notRun } : {}),
   });
   return outcome;
+}
+
+/** Nothing ran anywhere: no test machine could take it, and this Mac is switched off. */
+function notRunOutcome(reason) {
+  return { exitCode: NOT_RUN, notRun: reason, where: null, ranOn: 'none', waitedMs: 0 };
+}
+
+/**
+ * The Mac-only specs a run reaches: all of them for the whole suite, and otherwise those any argument matches the way
+ * Vitest's filter does (a case-insensitive part of the path). An option's value may match too; that only costs a
+ * Mac-only run here.
+ */
+function macOnlySpecsFor(route) {
+  const named = (route.specs ?? route.argv)?.filter(arg => !arg.startsWith('-')).map(arg => arg.replace(/\/+$/, '').toLowerCase());
+  if (!named) return MAC_ONLY_SPECS;
+  return MAC_ONLY_SPECS.filter(spec => named.some(arg => arg && spec.toLowerCase().includes(arg)));
 }
 
 /** Parse vitest's jest-compatible JSON report into a tidy failure list + totals. */
@@ -745,7 +771,12 @@ async function main() {
   if (!isTargetedRun) runPreflight();
 
   const started = Date.now();
-  const { exitCode, where } = await runSuite();
+  const { exitCode, where, notRun } = await runSuite();
+  if (notRun) {
+    // Exit only once the line is out: without it, 69 reads as an ordinary failure to whoever is waiting on this run.
+    process.stdout.write(`Not run: ${notRun}.\n`, () => process.exit(NOT_RUN));
+    return;
+  }
   const elapsed = ((Date.now() - started) / 1000).toFixed(1);
   const report = readReport();
   let logText = '';
@@ -822,7 +853,8 @@ async function main() {
   // even when its JSON report contains failed tests (observed 2026-07-01 on
   // the full suite); without this floor the wrapper prints failures but
   // reports success to CI/agents.
-  process.exit(exitCode !== 0 ? exitCode : 1);
+  // NOT_RUN means nothing ran; a real failure never borrows it.
+  process.exit(exitCode !== 0 && exitCode !== NOT_RUN ? exitCode : 1);
 }
 
 main().catch((err) => {

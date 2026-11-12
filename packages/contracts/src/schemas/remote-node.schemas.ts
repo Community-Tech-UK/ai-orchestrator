@@ -252,6 +252,11 @@ export const ComputersChangeTestMachinePayloadSchema = z.object({
   change: ComputersTestMachineChangeSchema,
 }).strict();
 
+/** Whether this Mac takes work when the test machines are busy or away. */
+export const ComputersSetUseThisMacPayloadSchema = z.object({
+  useThisMac: z.boolean(),
+}).strict();
+
 export type ValidatedTestMachineChange = z.infer<typeof ComputersTestMachineChangeSchema>;
 export type ValidatedChangeTestMachinePayload = z.infer<typeof ComputersChangeTestMachinePayloadSchema>;
 export type ValidatedSetTokenPayload = z.infer<typeof RemoteNodeSetTokenPayloadSchema>;

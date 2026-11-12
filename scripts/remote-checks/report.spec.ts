@@ -46,6 +46,11 @@ describe('where work ran', () => {
     ].join('\n'));
   });
 
+  it('lists a run no machine took as not run, never as a computer', () => {
+    const runs = readRuns(logFolder([line({ at: '2026-11-06T10:00:00Z', ranOn: 'none', kind: 'targeted', tookMs: 0 })]));
+    expect(format(summarise(runs, '2026-11-06'))).toContain('long test lists: 1 on no computer (not run)');
+  });
+
   it('says so when there is nothing to report', () => {
     expect(format(summarise(readRuns(join(tmpdir(), 'no-such-folder'))))).toBe('No runs recorded.');
   });

@@ -1,7 +1,8 @@
 /**
- * Stands in for `ssh`. It passes `bases`, `receive`, `related` and `checks` straight to the real
+ * Stands in for `ssh`. It passes `bases`, `receive`, `related`, `argv` and `checks` straight to the real
  * remote-run.sh, so packs truly travel between repositories, and acts out `run` and `fetch`
- * per scenario. The real `run` is in remote-run.linux.spec.ts.
+ * per scenario. The real `run` is in remote-run.linux.spec.ts. `no-slot-once` has no free slot
+ * the first time it is asked and passes after that.
  */
 export const FAKE_SSH = String.raw`#!/bin/bash
 cmd="${'$'}{!#}"
@@ -23,6 +24,10 @@ case "$cmd" in
     commit="${'$'}{@: -3:1}"
     echo "$cmd" > "$FAKE_DIR/run-args"
     [ -f "remote-checks/runs/$id/related.json" ] && cp "remote-checks/runs/$id/related.json" "$FAKE_DIR/related-list"
+    [ -f "remote-checks/runs/$id/argv.json" ] && cp "remote-checks/runs/$id/argv.json" "$FAKE_DIR/argv-list"
+    if [ "$scenario" = no-slot-once ]; then
+      if [ -f "$FAKE_DIR/had-no-slot" ]; then scenario=pass; else touch "$FAKE_DIR/had-no-slot"; scenario=no-slot; fi
+    fi
     # A list run that ends only after this machine has been asked for another run's report, so a test can tell
     # whether anything waited for it. Gives up after 20 s, when the test has failed anyway.
     if [ -f "remote-checks/runs/$id/related.json" ] && [ -f "$FAKE_DIR/related-waits-for-fetch" ]; then
@@ -51,7 +56,7 @@ case "$cmd" in
       wrong-node) node=v0.0.0 ;;
       wrong-lock) lock=0000 ;;
       wrong-major) node=v22.0.0 ;;
-      tests-fail|crash-clean-report|failed-with-log) code=1 ;;
+      tests-fail|crash-clean-report|failed-with-log|no-tests-fail) code=1 ;;
       checks-fail) code=2 ;;
       exit-75) code=75 ;;
     esac
@@ -97,6 +102,8 @@ case "$cmd" in
       missing-report) exit 1 ;;
       mac-only-ran) printf '%s' '{"numTotalTests":1,"numPassedTests":1,"numFailedTests":0,"testResults":[{"name":"/far/slots/1/repo/src/main/sandbox/signal-fence.spec.ts","status":"passed","assertionResults":[{"status":"passed","title":"a","fullName":"a","failureMessages":[]}]}]}' | gzip -c ;;
       empty-report) printf '{"numTotalTests":0,"testResults":[]}' | gzip -c ;;
+      # A spec that fails to load: Vitest reports the file as failed and no tests at all.
+      no-tests-fail) printf '%s' '{"numTotalTests":0,"numPassedTests":0,"numFailedTests":0,"numFailedTestSuites":1,"testResults":[{"name":"/far/slots/1/repo/src/a.spec.ts","status":"failed","message":"Failed to load url ./missing","assertionResults":[]}]}' | gzip -c ;;
       tests-fail|failed-report-clean-exit) printf '%s' '{"numTotalTests":1,"numPassedTests":0,"numFailedTests":1,"testResults":[{"name":"/far/slots/1/repo/src/a.spec.ts","status":"failed","assertionResults":[{"status":"failed","title":"a","fullName":"a","failureMessages":["boom at /far/slots/1/repo/src/a.spec.ts:1"]}]}]}' | gzip -c ;;
       *) printf '%s' '{"numTotalTests":1,"numPassedTests":1,"numFailedTests":0,"testResults":[{"name":"/far/slots/1/repo/src/a.spec.ts","status":"passed","assertionResults":[{"status":"passed","title":"a","fullName":"a","failureMessages":[]}]}]}' | gzip -c ;;
     esac

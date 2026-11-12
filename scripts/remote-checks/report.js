@@ -50,7 +50,7 @@ function summarise(runs, since = '', names = {}) {
     if (day < since) continue;
     const entry = days[day] ??= { kinds: {}, fellBack: {} };
     const kind = KIND_NAMES[run.kind ?? 'full'] ?? run.kind;
-    const machine = run.ranOn === 'mac' ? 'this Mac' : names[run.ranOn] ?? run.ranOn;
+    const machine = run.ranOn === 'mac' ? 'this Mac' : run.ranOn === 'none' ? 'no computer (not run)' : names[run.ranOn] ?? run.ranOn;
     const cell = (entry.kinds[kind] ??= {})[machine] ??= { runs: 0, minutes: 0 };
     cell.runs += 1;
     cell.minutes += (run.tookMs ?? 0) / 60_000;

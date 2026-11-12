@@ -3,11 +3,11 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { changeTestMachine, readRunLog, readTestMachines, summariseWorkToday } from './test-machine-file';
+import { changeTestMachine, readRunLog, readTestMachines, readUseThisMac, setUseThisMac, summariseWorkToday } from './test-machine-file';
 
 const require = createRequire(import.meta.url);
 const { readConfig } = require('../../../scripts/remote-checks/route.js') as {
-  readConfig: (env: NodeJS.ProcessEnv) => { queueChecks: boolean; machines: Record<string, unknown>[] } | null;
+  readConfig: (env: NodeJS.ProcessEnv) => { queueChecks: boolean; useThisMac: boolean; machines: Record<string, unknown>[] } | null;
 };
 
 const dirs: string[] = [];
@@ -86,6 +86,21 @@ describe('the test machine file', () => {
     expect(read(dir)).toEqual(LISTED);
   });
 
+  it('uses this Mac as a backup unless the file says not to, and switches that alone, as the scripts read it', () => {
+    const dir = folder(LISTED);
+    expect(readUseThisMac(dir)).toBe(true);
+    expect(readConfig({ AIO_REMOTE_CHECKS_DIR: dir })!.useThisMac).toBe(true);
+    expect(setUseThisMac(false, dir)).toBe(false);
+    expect(read(dir)).toEqual({ ...LISTED, useThisMac: false });
+    expect(readUseThisMac(dir)).toBe(false);
+    expect(readConfig({ AIO_REMOTE_CHECKS_DIR: dir })!.useThisMac).toBe(false);
+    changeTestMachine('harness-checks', { paused: true }, dir);
+    expect(read(dir)).toMatchObject({ useThisMac: false, paused: true });
+    expect(readdirSync(dir)).toEqual(['config.json']);
+    expect(readUseThisMac(folder(null))).toBe(true);
+    expect(() => setUseThisMac(false, folder(null))).toThrow(/No test machine/);
+  });
+
   it('cannot set up a test machine that does not exist', () => {
     const dir = folder(null);
     expect(() => changeTestMachine('harness-checks', { paused: true }, dir)).toThrow(/No test machine/);
@@ -124,6 +139,15 @@ describe('where today\'s work went', () => {
         { reason: 'the test Mac could not be reached', count: 1 },
       ],
     });
+  });
+
+  it('leaves out work that ran nowhere because this Mac is switched off', () => {
+    const summary = summariseWorkToday([
+      { at: at(1), ranOn: 'pc' },
+      { at: at(1), ranOn: 'none', notRunBecause: 'no test machine could take it' },
+      { at: at(1), ranOn: 'none', kind: 'checks', notRunBecause: 'no test machine could take it' },
+    ], NOW);
+    expect(summary).toMatchObject({ testRuns: { there: 1, here: 0 }, checks: { there: 0, here: 0 }, hereBecause: [] });
   });
 
   it('reads the older log first, then the current one, skipping half-written lines', () => {

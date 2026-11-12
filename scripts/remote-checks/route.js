@@ -9,6 +9,10 @@ const os = require('os');
 const path = require('path');
 
 const LARGE_TARGETED_SPECS = 50;
+/** A run that gave up: no test machine could take it and this Mac is switched off. 75 still means "run it here". */
+const NOT_RUN = 69;
+/** These write files back into the project (snapshots, a coverage report), which a far run cannot do, so they still run here. */
+const WRITES_HERE = /^(?:-u|--update|--coverage(?:[.=].*)?)$/;
 const SPEC_FILE = /^[^-].*\.(?:spec|test)\.[cm]?[jt]sx?$/;
 
 function remoteChecksDir(env = process.env) {
@@ -19,9 +23,11 @@ const DEFAULT_SLOTS = 3;
 const MAX_SLOTS = 8;
 
 /**
- * One test machine: `{ host, label, sshConfig?, ssh?, nodeName?, platform, paused, testRuns, checks, slots }`. It takes
- * test runs and checks unless they're turned off, and runs `slots` at once. Harness's Computers page changes `paused`,
- * `testRuns`, `checks` and `slots`; `nodeName` names the paired computer it is part of; `platform` is `darwin` for a Mac.
+ * One test machine: `{ host, label, sshConfig?, ssh?, nodeName?, smallSlots?, platform, paused, testRuns, checks, slots }`.
+ * It takes test runs and checks unless they're turned off, and runs `slots` full runs at once. `smallSlots`, when set, is
+ * how many named-list runs it takes at once beside them (otherwise 4 on Linux, 2 on a Mac). Harness's Computers page
+ * changes `paused`, `testRuns`, `checks` and `slots`; `nodeName` names the paired computer it is part of; `platform` is
+ * `darwin` for a Mac.
  */
 function readMachine(entry) {
   if (!entry || typeof entry !== 'object' || typeof entry.host !== 'string' || !entry.host) {
@@ -34,6 +40,7 @@ function readMachine(entry) {
     ...(typeof entry.sshConfig === 'string' ? { sshConfig: entry.sshConfig } : {}),
     ...(typeof entry.ssh === 'string' ? { ssh: entry.ssh } : {}),
     ...(typeof entry.nodeName === 'string' && entry.nodeName ? { nodeName: entry.nodeName } : {}),
+    ...(Number.isInteger(entry.smallSlots) && entry.smallSlots >= 1 && entry.smallSlots <= MAX_SLOTS ? { smallSlots: entry.smallSlots } : {}),
     platform: entry.platform === 'darwin' ? 'darwin' : 'linux',
     paused: entry.paused === true,
     testRuns: entry.testRuns !== false,
@@ -43,9 +50,9 @@ function readMachine(entry) {
 }
 
 /**
- * `{ queueChecks, machines }`, the machines in the order to try them, or null when remote checks aren't set up. The first
- * machine is the file's top level, where copies of these scripts from before the list still find it; the rest follow in
- * `moreMachines`.
+ * `{ queueChecks, useThisMac, machines }`, the machines in the order to try them, or null when remote checks aren't set
+ * up. The first machine is the file's top level, where copies of these scripts from before the list still find it; the
+ * rest follow in `moreMachines`. `useThisMac` false means work waits for a test machine rather than running here.
  */
 function readConfig(env = process.env) {
   let raw;
@@ -56,7 +63,7 @@ function readConfig(env = process.env) {
   }
   const config = JSON.parse(raw);
   const listed = [config, ...(Array.isArray(config.moreMachines) ? config.moreMachines : [])];
-  return { queueChecks: config.queueChecks === true, machines: listed.map(readMachine) };
+  return { queueChecks: config.queueChecks === true, useThisMac: config.useThisMac !== false, machines: listed.map(readMachine) };
 }
 
 /** The machines that take this kind of work now, in order. `work` is `testRuns` or `checks`. */
@@ -100,12 +107,46 @@ function isLargeTargetedRun(args) {
 }
 
 /**
+ * Paths under the project root, made relative, since the far machine has the project somewhere else, and written the
+ * way the Mac-only lists write them (`./src/a` as `src/a`), so a Mac-only file is known however it was named.
+ */
+function relativeToRoot(args, root) {
+  return args.map((arg) => {
+    if (arg.startsWith('./')) return path.posix.normalize(arg);
+    if (!root || !path.isAbsolute(arg)) return arg;
+    const relative = path.relative(root, arg);
+    return relative && !relative.startsWith('..') && !path.isAbsolute(relative) ? relative.split(path.sep).join('/') : arg;
+  });
+}
+
+/** With this Mac switched off nothing runs here: everything goes to a test machine or is not run. */
+function decideRouteWithoutThisMac({ args, env, root, config }) {
+  const queueCheck = isQueueCheck(root, env);
+  if (env.AIO_REMOTE_CHECKS === 'off') {
+    return { kind: 'not-run', reason: 'AIO_REMOTE_CHECKS=off asked for this Mac, and this Mac is switched off' };
+  }
+  const chosenHere = stayReason(config, 'testRuns');
+  if (chosenHere) return { kind: 'not-run', reason: `${chosenHere}, and this Mac is switched off` };
+  if (args.some(arg => WRITES_HERE.test(arg))) return { kind: 'local' };
+  if (isPlainFullRun(args)) return { kind: 'remote', turn: !queueCheck };
+  const relative = relativeToRoot(args, root);
+  // A list of spec files that exist runs exactly those. Anything else (a bare file name, a typo, a deleted spec) goes as
+  // Vitest's own filter, which matches as it would here and fails, as here, when it matches nothing.
+  const existing = arg => Boolean(root) && fs.statSync(path.join(root, arg), { throwIfNoEntry: false })?.isFile() === true;
+  if (countSpecFiles(relative) === relative.length && relative.every(existing)) return { kind: 'remote', turn: false, specs: relative };
+  return { kind: 'remote', turn: false, argv: relative };
+}
+
+/**
  * - `local`: exactly what the runner did before remote checks existed.
- * - `remote`: try the far machine first. `specs` is set when it's a named list, not the whole suite.
+ * - `remote`: try the far machine first. `specs` is set when it's a named list, not the whole suite; `argv` when it is
+ *   any other set of arguments, which travel as data.
  * - `mac`: a full run that belongs on the Mac; `turn` says if it waits for the others.
+ * - `not-run`: this Mac is switched off and the run has nowhere to go; `reason` says why.
  */
 function decideRoute({ args, env = process.env, root, config }) {
   if (env.GITHUB_ACTIONS || !config) return { kind: 'local' };
+  if (config.useThisMac === false) return decideRouteWithoutThisMac({ args, env, root, config });
   const queueCheck = isQueueCheck(root, env);
   const chosenHere = stayReason(config, 'testRuns');
   if (isLargeTargetedRun(args)) {
@@ -153,5 +194,6 @@ function appendRunLog(entry, env = process.env) {
 }
 
 module.exports = {
-  appendRunLog, countSpecFiles, decideRoute, isLoopRun, isQueueCheck, machinesFor, readConfig, remoteChecksDir, stayReason,
+  NOT_RUN, appendRunLog, countSpecFiles, decideRoute, isLoopRun, isQueueCheck, machinesFor, readConfig, relativeToRoot,
+  remoteChecksDir, stayReason,
 };

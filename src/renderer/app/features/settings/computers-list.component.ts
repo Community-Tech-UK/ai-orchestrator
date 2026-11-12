@@ -61,6 +61,9 @@ export class ComputersListComponent {
   readonly readOnly = input(false);
 
   private readonly testMachines = signal<TestMachineView[]>([]);
+  /** Whether this Mac takes work when the test machines are busy or away. */
+  protected readonly useThisMac = signal(true);
+  protected readonly hasTestMachines = computed(() => this.testMachines().length > 0);
   private readonly today = signal<WorkToday | null>(null);
   /** Raw detail of the last failure, for Details. The visible sentence is fixed. */
   protected readonly loadFailure = signal<string | null>(null);
@@ -104,7 +107,7 @@ export class ComputersListComponent {
   }
 
   protected describeTakes(row: ComputerRow): string {
-    return describeTakes(row);
+    return describeTakes(row, this.useThisMac());
   }
 
   protected offersSetup(row: ComputerRow): boolean {
@@ -156,6 +159,7 @@ export class ComputersListComponent {
       return;
     }
     this.testMachines.set(result.testMachines);
+    this.useThisMac.set(result.useThisMac);
     this.today.set(result.today);
     this.loadFailure.set(null);
   }
@@ -193,6 +197,16 @@ export class ComputersListComponent {
   protected slotsChanged(host: string, event: Event): Promise<void> {
     const slots = Number((event.target as HTMLSelectElement).value);
     return this.whileSaving(() => this.saveTestMachine(host, { slots }), event, () => this.machine(host)?.slots);
+  }
+
+  protected setUseThisMac(event: Event): Promise<void> {
+    const on = (event.target as HTMLInputElement).checked;
+    return this.whileSaving(async () => {
+      const result = await this.ipc.setUseThisMac(on);
+      if (!result.ok) throw result.error;
+      this.testMachineChanges += 1;
+      this.useThisMac.set(result.useThisMac);
+    }, event, () => this.useThisMac());
   }
 
   private row(id: string): ComputerRow | undefined {

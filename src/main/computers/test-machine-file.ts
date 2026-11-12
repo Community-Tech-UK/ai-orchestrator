@@ -90,6 +90,28 @@ export function changeTestMachine(host: string, change: TestMachineChange, dir =
     ? changed
     : { ...raw, moreMachines: machines.slice(1).map((entry, index) => (index === at - 1 ? changed : entry)) };
   const result = describe(changed);
+  writeAtomically(next, dir);
+  return result;
+}
+
+/**
+ * Whether this Mac takes work when the test machines are busy or away. A file without the field means yes, as it did
+ * before there was a switch. `route.js` reads the same top-level field.
+ */
+export function readUseThisMac(dir = remoteChecksDir()): boolean {
+  return readRaw(dir)?.['useThisMac'] !== false;
+}
+
+/** Turns this Mac's backup role on or off, keeping everything else in the file. Throws when no test machine is set up. */
+export function setUseThisMac(useThisMac: boolean, dir = remoteChecksDir()): boolean {
+  const raw = readRaw(dir);
+  if (!raw) throw new Error('No test machine is set up on this Mac.');
+  entries(raw).forEach(describe);
+  writeAtomically({ ...raw, useThisMac }, dir);
+  return useThisMac;
+}
+
+function writeAtomically(next: Record<string, unknown>, dir: string): void {
   const temporary = `${configPath(dir)}.${process.pid}.${Date.now()}.tmp`;
   try {
     writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
@@ -97,7 +119,6 @@ export function changeTestMachine(host: string, change: TestMachineChange, dir =
   } finally {
     rmSync(temporary, { force: true });
   }
-  return result;
 }
 
 /** One line of the run log, as `scripts/remote-checks/` writes it. */
@@ -106,6 +127,7 @@ export interface RunLine {
   kind?: string;
   ranOn: string;
   fellBackBecause?: string | null;
+  notRunBecause?: string | null;
 }
 
 /** Both log files, the older first: the scripts start a new one past about a megabyte. Half-written lines are skipped. */
@@ -139,6 +161,8 @@ export function summariseWorkToday(runs: readonly RunLine[], now: number): WorkT
   const reasons = new Map<string, number>();
   for (const run of runs) {
     if (new Date(run.at).toDateString() !== today) continue;
+    // Not run at all: neither here nor there.
+    if (run.ranOn === 'none') continue;
     if (run.kind === 'local') {
       summary.shortRunsHere += 1;
       continue;

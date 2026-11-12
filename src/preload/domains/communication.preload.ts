@@ -137,6 +137,8 @@ export function createCommunicationDomain(
       ipcRenderer.invoke(ch.COMPUTERS_GET_TEST_MACHINE),
     computersChangeTestMachine: (change: unknown): Promise<unknown> =>
       ipcRenderer.invoke(ch.COMPUTERS_CHANGE_TEST_MACHINE, change),
+    computersSetUseThisMac: (useThisMac: boolean): Promise<unknown> =>
+      ipcRenderer.invoke(ch.COMPUTERS_SET_USE_THIS_MAC, { useThisMac }),
 
     remoteNodeRepairDiagnose: (nodeId: string): Promise<unknown> =>
       ipcRenderer.invoke(ch.REMOTE_NODE_REPAIR_DIAGNOSE, { nodeId }),

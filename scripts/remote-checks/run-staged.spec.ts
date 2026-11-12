@@ -364,4 +364,47 @@ describe('commit-time tests through the test machine', () => {
     expect(run.runLog).toHaveLength(1);
     expect(run.runLog[0]).toMatchObject({ project: 'project', kind: 'commit', ranOn: 'far', exitCode: 0, fellBackBecause: null });
   }, LIMIT);
+
+  describe('with this Mac switched off', () => {
+    const switchOff = (setup: Setup): void => {
+      const config = JSON.parse(readFileSync(join(setup.dir, 'config.json'), 'utf8')) as Record<string, unknown>;
+      writeFileSync(join(setup.dir, 'config.json'), JSON.stringify({ ...config, useThisMac: false }));
+    };
+    const WAITS = { AIO_STAGED_WAIT_LIMIT_MS: '300', AIO_REMOTE_RETRY_SLEEP_MS: '100' };
+
+    it('sends even a small change away, in a small slot, and runs nothing here', () => {
+      const setup = setUp({ specs: 1 });
+      switchOff(setup);
+      stageChange(setup);
+      const run = commit(setup, [], { env: WAITS });
+      expect(run.code).toBe(0);
+      expect(run.sshCalls.find(call => call.includes(' run '))).toContain('AIO_SMALL_RUN=1 ');
+      expect(run.localBuilds).toBe(0);
+      expect(run.localRelated).toEqual([]);
+    }, LIMIT);
+
+    it('lets the commit through, saying the tests did not run, when no machine has a free slot', () => {
+      const setup = setUp({ specs: 1 });
+      switchOff(setup);
+      stageChange(setup);
+      const before = git(setup.project, 'rev-parse', 'HEAD');
+      const run = commit(setup, [], { scenario: 'no-slot', env: WAITS });
+      expect(run.code).toBe(0);
+      expect(run.output).toContain('Tests not run: no test machine was free. The queue and loop checks will still run them.');
+      expect(git(setup.project, 'rev-parse', 'HEAD')).not.toBe(before);
+      expect(run.localBuilds).toBe(0);
+      expect(run.localRelated).toEqual([]);
+      expect(run.runLog).toEqual([expect.objectContaining({ kind: 'commit', ranOn: 'none', exitCode: 69 })]);
+    }, LIMIT);
+
+    it('still blocks the commit on tests that fail far away', () => {
+      const setup = setUp({ specs: 1 });
+      switchOff(setup);
+      stageChange(setup);
+      const run = commit(setup, [], { scenario: 'tests-fail', env: WAITS });
+      expect(run.code).not.toBe(0);
+      expect(run.output).not.toContain('Tests not run');
+      expect(run.localRelated).toEqual([]);
+    }, LIMIT);
+  });
 });

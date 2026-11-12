@@ -63,6 +63,10 @@ beforeAll(() => {
   writeFileSync(join(project, '.gitignore'), 'node_modules\n_scratch\n');
   writeFileSync(join(project, '.nvmrc'), 'v24.0.0\n');
   writeFileSync(join(project, 'package-lock.json'), '{}\n');
+  // The spec files the tests name, so a named list is a list of files that exist.
+  mkdirSync(join(project, 'src/main/sandbox'), { recursive: true });
+  writeFileSync(join(project, 'src/a.spec.ts'), '');
+  writeFileSync(join(project, 'src/main/sandbox/signal-fence.spec.ts'), '');
   git(project, 'init', '-q', '-b', 'main');
   git(project, 'add', '-A');
   git(project, 'commit', '-qm', 'base');
@@ -370,6 +374,146 @@ describe.concurrent('run-tests-quiet with remote checks', () => {
       expect(run.localRuns).toEqual([{ macOnly: true }]);
     }, LIMIT);
   });
+});
+
+describe.concurrent('run-tests-quiet with this Mac switched off', () => {
+  /** Short waits, so giving up takes seconds rather than 20 minutes. */
+  const WAITS = { AIO_REMOTE_WAIT_LIMIT_MS: '1500', AIO_REMOTE_RETRY_SLEEP_MS: '100' };
+  /** Long enough for a second round of tries after both machines have had a snapshot. */
+  const PATIENT = { AIO_REMOTE_WAIT_LIMIT_MS: '20000', AIO_REMOTE_RETRY_SLEEP_MS: '100' };
+  const NOT_RUN = 69;
+
+  function switchOff(setup: Setup, more: Record<string, unknown>[] = []): void {
+    const first = JSON.parse(readFileSync(join(setup.dir, 'config.json'), 'utf8')) as Record<string, unknown>;
+    writeFileSync(join(setup.dir, 'config.json'), JSON.stringify({ ...first, useThisMac: false, moreMachines: more }));
+  }
+
+  /** A second machine with its own fake far side. */
+  function secondMachine(setup: Setup, scenario: string, entry: Record<string, unknown> = {}) {
+    const fake = join(setup.base, 'fake-2');
+    mkdirSync(join(fake, 'home'), { recursive: true });
+    writeFileSync(join(fake, 'scenario'), scenario);
+    const ssh = join(fake, 'ssh');
+    writeFileSync(ssh, `#!/bin/bash\nFAKE_DIR=${JSON.stringify(fake)} exec ${JSON.stringify(join(setup.fake, 'ssh'))} "$@"\n`);
+    chmodSync(ssh, 0o755);
+    return { host: 'far-2', label: 'the test Mac', ssh, ...entry };
+  }
+
+  const ranHere = (run: { localRuns: { macOnly: boolean }[] }) => run.localRuns.filter(local => !local.macOnly);
+
+  it('sends a short list of specs away in a small slot, as data', async () => {
+    const setup = setUp();
+    switchOff(setup);
+    const run = await runQuiet(setup, { args: ['src/a.spec.ts'], env: WAITS });
+    expect(run.code).toBe(0);
+    expect(JSON.parse(readFileSync(join(setup.fake, 'related-list'), 'utf8'))).toEqual(['src/a.spec.ts']);
+    expect(run.runArgs).toContain('AIO_SMALL_RUN=1 AIO_SMALL_SLOT_COUNT=4 ');
+    expect(run.sshCalls.join('\n')).not.toContain('src/a.spec.ts');
+    expect(ranHere(run)).toEqual([]);
+  }, LIMIT);
+
+  it('sends other arguments away as data, with paths made relative', async () => {
+    const setup = setUp();
+    switchOff(setup);
+    const run = await runQuiet(setup, { args: [join(setup.project, 'src/main'), '-t', 'a $(name)'], env: WAITS });
+    expect(run.code).toBe(0);
+    expect(JSON.parse(readFileSync(join(setup.fake, 'argv-list'), 'utf8'))).toEqual(['src/main', '-t', 'a $(name)']);
+    expect(run.sshCalls.join('\n')).not.toContain('a $(name)');
+    expect(run.runLog[0]).toMatchObject({ kind: 'targeted', ranOn: 'far' });
+    expect(ranHere(run)).toEqual([]);
+  }, LIMIT);
+
+  it('keeps trying while both machines are busy, and runs on the first to free a slot', async () => {
+    const setup = setUp();
+    switchOff(setup, [secondMachine(setup, 'no-slot-once')]);
+    const run = await runQuiet(setup, { scenario: 'no-slot', env: PATIENT });
+    expect(run.code).toBe(0);
+    expect(run.stdout).toMatch(/Ran on the test Mac in \d+s\./);
+    expect(run.sshCalls.filter(call => call.includes(' run ')).every(call => call.includes('AIO_SLOT_WAIT=0 '))).toBe(true);
+    expect(ranHere(run)).toEqual([]);
+  }, LIMIT);
+
+  it('waits on the PC when the test Mac cannot be reached', async () => {
+    const setup = setUp();
+    switchOff(setup, [secondMachine(setup, 'unreachable')]);
+    const run = await runQuiet(setup, { scenario: 'no-slot-once', env: PATIENT });
+    expect(run.code).toBe(0);
+    expect(run.stdout).toMatch(/Ran on the PC in \d+s\./);
+  }, LIMIT);
+
+  it.each([
+    ['unreachable', 'could not be reached'],
+    ['missing-report', 'sent back no usable report'],
+  ])('is not run, and never runs here, when both machines stay %s', async (scenario, problem) => {
+    const setup = setUp();
+    switchOff(setup, [secondMachine(setup, scenario)]);
+    const run = await runQuiet(setup, { scenario, env: WAITS });
+    expect(run.code).toBe(NOT_RUN);
+    expect(run.stdout).toContain('Not run: no test machine could take it in 2 seconds (the PC ');
+    expect(run.stdout).toContain(problem);
+    expect(run.stdout).toContain('and this Mac is switched off.');
+    expect(run.stdout).not.toContain('Running on the Mac');
+    expect(ranHere(run)).toEqual([]);
+    expect(run.runLog).toEqual([expect.objectContaining({ ranOn: 'none', exitCode: NOT_RUN, notRunBecause: expect.stringContaining(problem) })]);
+  }, LIMIT);
+
+  it('is not run when the only machine is paused', async () => {
+    const setup = setUp();
+    switchOff(setup);
+    const config = JSON.parse(readFileSync(join(setup.dir, 'config.json'), 'utf8')) as Record<string, unknown>;
+    writeFileSync(join(setup.dir, 'config.json'), JSON.stringify({ ...config, paused: true }));
+    const run = await runQuiet(setup, { env: WAITS });
+    expect(run.code).toBe(NOT_RUN);
+    expect(run.stdout).toContain('Not run: the PC is paused, and this Mac is switched off.');
+    expect(run.sshCalls).toEqual([]);
+    expect(run.localRuns).toEqual([]);
+  }, LIMIT);
+
+  it('still fails on a real failure far away, and never as not run', async () => {
+    const setup = setUp();
+    switchOff(setup);
+    const run = await runQuiet(setup, { scenario: 'tests-fail', env: WAITS });
+    expect(run.code).toBe(1);
+    expect(run.stdout).toContain('✗ FAILED');
+  }, LIMIT);
+
+  it('fails on a spec that does not load, which reports no tests, rather than trying again until not run', async () => {
+    const setup = setUp();
+    switchOff(setup);
+    const run = await runQuiet(setup, { scenario: 'no-tests-fail', args: ['src/a.spec.ts'], env: WAITS });
+    expect(run.code).toBe(1);
+    expect(run.stdout).not.toContain('Not run');
+    expect(run.sshCalls.filter(call => call.includes(' run '))).toHaveLength(1);
+    expect(ranHere(run)).toEqual([]);
+  }, LIMIT);
+
+  it.runIf(process.platform === 'darwin')('runs a Mac-only spec here however it is named, ./ included', async () => {
+    const setup = setUp();
+    switchOff(setup);
+    const run = await runQuiet(setup, { args: ['./src/main/sandbox/signal-fence.spec.ts'], env: WAITS });
+    expect(run.code).toBe(0);
+    expect(run.localRuns).toEqual([{ macOnly: true }]);
+  }, LIMIT);
+
+  it.each([['a.spec.ts'], ['src/missing.spec.ts']])(
+    'sends a name that is not a file (%s) as Vitest\'s own filter, which fails as here when it matches nothing', async (name) => {
+      const setup = setUp();
+      switchOff(setup);
+      const run = await runQuiet(setup, { scenario: 'no-tests-fail', args: [name], env: WAITS });
+      expect(JSON.parse(readFileSync(join(setup.fake, 'argv-list'), 'utf8'))).toEqual([name]);
+      expect(existsSync(join(setup.fake, 'related-list'))).toBe(false);
+      expect(run.code).toBe(1);
+      expect(run.stdout).not.toContain('Not run');
+      expect(ranHere(run)).toEqual([]);
+    }, LIMIT);
+
+  it.runIf(process.platform === 'darwin')('runs a Mac-only spec here when only part of its name is given, as Vitest matches', async () => {
+    const setup = setUp();
+    switchOff(setup);
+    const run = await runQuiet(setup, { args: ['Signal-Fence'], env: WAITS });
+    expect(run.code).toBe(0);
+    expect(run.localRuns).toEqual([{ macOnly: true }]);
+  }, LIMIT);
 });
 
 describe.concurrent('sending a snapshot', () => {

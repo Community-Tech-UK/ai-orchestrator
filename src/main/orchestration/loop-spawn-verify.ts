@@ -45,6 +45,20 @@ export interface SpawnVerifyOptions {
   onSpawn?: (registration: SpawnVerifyRegistration) => void;
 }
 
+/** The longest a verify sent to the test machines waits for one before printing "Not run" (exit 69). */
+const REMOTE_WAIT_CAP_MS = 5 * 60_000;
+
+/**
+ * How long the test runner may wait for a free test machine (AIO_REMOTE_WAIT_LIMIT_MS) when this Mac is switched off.
+ * The wait has to end well inside the verify's own timeout: a verify killed for time is a failure the agent is told to
+ * fix, whereas "Not run" makes the loop wait and try again without using a round.
+ */
+export function remoteWaitLimitMs(timeoutMs: number, inherited = process.env['AIO_REMOTE_WAIT_LIMIT_MS']): number {
+  const ours = Math.min(REMOTE_WAIT_CAP_MS, Math.floor(timeoutMs / 4));
+  const theirs = Number(inherited);
+  return inherited !== undefined && inherited !== '' && Number.isFinite(theirs) && theirs >= 0 ? Math.min(ours, theirs) : ours;
+}
+
 export function spawnVerifyCommand(
   cmd: string,
   executionCwd: string,
@@ -69,6 +83,7 @@ export function spawnVerifyCommand(
           process.env['AIO_TEST_OUT_SUFFIX']
           || `loop-verify-${process.pid}-${Date.now().toString(36)}`,
         AIO_TEST_NO_CACHE: '1',
+        AIO_REMOTE_WAIT_LIMIT_MS: String(remoteWaitLimitMs(timeoutMs)),
       },
     });
     let outputTruncated = false;

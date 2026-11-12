@@ -55,8 +55,11 @@ describe('ComputersListComponent', () => {
   };
   const ipc = {
     getTestMachines: vi.fn(async (): Promise<
-      { ok: true; testMachines: TestMachineView[]; today: WorkToday | null } | { ok: false; error: unknown }
-    > => ({ ok: true, testMachines: [MACHINE], today: TODAY })),
+      { ok: true; testMachines: TestMachineView[]; useThisMac: boolean; today: WorkToday | null } | { ok: false; error: unknown }
+    > => ({ ok: true, testMachines: [MACHINE], useThisMac: true, today: TODAY })),
+    setUseThisMac: vi.fn(async (useThisMac: boolean): Promise<
+      { ok: true; useThisMac: boolean } | { ok: false; error: unknown }
+    > => ({ ok: true, useThisMac })),
     changeTestMachine: vi.fn(async (host: string, change: Partial<TestMachineView>): Promise<
       { ok: true; testMachine: TestMachineView } | { ok: false; error: unknown }
     > => ({ ok: true, testMachine: { ...ALL_MACHINES.find(machine => machine.host === host)!, ...change } })),
@@ -93,7 +96,7 @@ describe('ComputersListComponent', () => {
     ipc.changeTestMachine.mockImplementation(async (host: string, change: Partial<TestMachineView>) => ({
       ok: true, testMachine: { ...ALL_MACHINES.find(machine => machine.host === host)!, ...change },
     }));
-    ipc.getTestMachines.mockResolvedValue({ ok: true, testMachines: [MACHINE], today: TODAY });
+    ipc.getTestMachines.mockResolvedValue({ ok: true, testMachines: [MACHINE], useThisMac: true, today: TODAY });
     await TestBed.configureTestingModule({
       imports: [ComputersListComponent],
       providers: [
@@ -162,7 +165,7 @@ describe('ComputersListComponent', () => {
   });
 
   it('shows a second test machine on its own row, changes it by its own name, and names both in today\'s work', async () => {
-    ipc.getTestMachines.mockResolvedValue({ ok: true, testMachines: ALL_MACHINES, today: TODAY });
+    ipc.getTestMachines.mockResolvedValue({ ok: true, testMachines: ALL_MACHINES, useThisMac: true, today: TODAY });
     const element = await render([node('windows-pc')]);
     expect(names(element)).toEqual(['windows-pc', 'the test Mac', 'This Mac']);
     expect(element.textContent).toContain('Test runs: 59 on your test machines, 8 here.');
@@ -193,6 +196,23 @@ describe('ComputersListComponent', () => {
       { id: 'laptop', paused: false, sessions: false },
       { id: 'windows-pc', paused: false, sessions: true },
     ]);
+  });
+
+  it('turns this Mac\'s backup role off and says what it still takes, in Settings only', async () => {
+    const element = await render([node('windows-pc')]);
+    expect((element.querySelector('#use-this-mac') as HTMLInputElement).checked).toBe(true);
+    toggle(element, 'use-this-mac');
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(ipc.setUseThisMac).toHaveBeenCalledWith(false);
+    expect(element.textContent).toContain('Takes only work that needs this Mac. Other work waits for the other computers.');
+    fixture.destroy();
+    expect((await render([node('windows-pc')], true)).querySelector('#use-this-mac')).toBeNull();
+  });
+
+  it('shows no backup switch when there is no test machine', async () => {
+    ipc.getTestMachines.mockResolvedValue({ ok: true, testMachines: [], useThisMac: true, today: null });
+    expect((await render([node('windows-pc')])).querySelector('#use-this-mac')).toBeNull();
   });
 
   it('does nothing when the first computer is moved up', async () => {
@@ -301,12 +321,12 @@ describe('ComputersListComponent', () => {
 
   it('does not let a refresh that began before a change put the old values back', async () => {
     const element = await render([node('windows-pc')]);
-    let finishRefresh!: (value: { ok: true; testMachines: TestMachineView[]; today: WorkToday }) => void;
+    let finishRefresh!: (value: { ok: true; testMachines: TestMachineView[]; useThisMac: boolean; today: WorkToday }) => void;
     ipc.getTestMachines.mockImplementationOnce(() => new Promise(resolve => { finishRefresh = resolve; }));
     void (fixture.componentInstance as unknown as { load: () => Promise<void> }).load();
     toggle(element, 'checks-windows-pc');
     await fixture.whenStable();
-    finishRefresh({ ok: true, testMachines: [MACHINE], today: TODAY });
+    finishRefresh({ ok: true, testMachines: [MACHINE], useThisMac: true, today: TODAY });
     await fixture.whenStable();
     fixture.detectChanges();
     expect((element.querySelector('#checks-windows-pc') as HTMLInputElement).checked).toBe(false);

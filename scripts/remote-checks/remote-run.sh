@@ -6,11 +6,15 @@
 #   receive <commit> <base|none>             take a git pack on stdin and name the snapshot
 #   related <id>                             take a JSON list of source files on stdin; the run tests only what relates to them
 #   checks <id>                              take check commands on stdin, one a line; the run does those instead of tests
+#   argv <id>                                take a JSON list of the runner's own arguments on stdin; the run passes them on
 #   run <id> <commit> <ci> <no-cache>        run the suite, streaming output; last line is the result
 #   fetch <id>                               send the JSON report, gzipped, then tidy up
 #
 # With AIO_PROJECT and AIO_SUITE set, each of those works on that repository instead, in its own
 # store and checkouts, using a recipe at the bottom of this file. It shares the same slots.
+#
+# With AIO_SMALL_RUN=1 a run takes one of the small-run slots instead (small-1 to small-N, N from AIO_SMALL_SLOT_COUNT,
+# 4 by default), so named lists sent while the Mac is switched off don't queue behind full runs. Each has its own checkout.
 #
 # On Linux a run lives in its own systemd scope, so stopping it kills everything it started,
 # including detached children, which closing SSH alone would leave running. A Mac has no systemd,
@@ -29,6 +33,12 @@ RUNS="$BASE/runs"
 SLOT_COUNT=3
 # Harness's Computers page can choose another number, which run-remote.js passes on.
 case "${AIO_SLOT_COUNT:-}" in [1-8]) SLOT_COUNT="$AIO_SLOT_COUNT" ;; esac
+SLOT_NAMES="$(seq 1 "$SLOT_COUNT")"
+if [ "${AIO_SMALL_RUN:-}" = 1 ]; then
+  SMALL_SLOT_COUNT=4
+  case "${AIO_SMALL_SLOT_COUNT:-}" in [1-8]) SMALL_SLOT_COUNT="$AIO_SMALL_SLOT_COUNT" ;; esac
+  SLOT_NAMES="$(seq 1 "$SMALL_SLOT_COUNT" | sed 's/^/small-/')"
+fi
 SLOT_WAIT_SECONDS=180
 # A machine tried before another in the list doesn't wait for a slot: the next one might have one free. run-remote.js
 # sends AIO_SLOT_WAIT=0 for those; any other value waits as usual.
@@ -229,6 +239,18 @@ cmd_slot_job() {
   if [ -f "$dir/related.json" ]; then
     AIO_TEST_MAX_FORKS=8 LANG=C.UTF-8 node scripts/run-related-tests.mjs "$dir/results.json" < "$dir/related.json"
     code=$?
+  elif [ -f "$dir/argv.json" ]; then
+    # The arguments stay a list from end to end: no shell here ever reads them.
+    AIO_TEST_MAX_FORKS=8 LANG=C.UTF-8 node -e '
+      const { spawnSync } = require("child_process");
+      const [file, noCache, results] = process.argv.slice(1);
+      const list = readArgv(file);
+      const args = ["node_modules/vitest/vitest.mjs", "run", ...list, ...(noCache === "1" ? ["--no-cache"] : []),
+        "--reporter=default", "--reporter=json", `--outputFile.json=${results}`];
+      const run = spawnSync(process.execPath, args, { stdio: "inherit" });
+      process.exit(run.status ?? 1);
+      '"$READ_ARGV_JS" "$dir/argv.json" "$no_cache" "$dir/results.json"
+    code=$?
   else
     # Same arguments as runVitest() in scripts/run-tests-quiet.js.
     AIO_TEST_MAX_FORKS=8 LANG=C.UTF-8 node node_modules/vitest/vitest.mjs "${args[@]}" \
@@ -266,6 +288,66 @@ checks_job() {
   write_result "$dir" ok '' "$first_failure" "$tree" "$(node -v)" "$lock" "$work" "$waited" "$index"
 }
 
+# Shared by both ways of passing arguments on: reads the run's JSON list, refusing anything but strings.
+READ_ARGV_JS='
+function readArgv(file) {
+  let list;
+  try { list = JSON.parse(require("fs").readFileSync(file, "utf8")); } catch { list = null; }
+  if (!Array.isArray(list) || !list.every(arg => typeof arg === "string")) {
+    console.error("[remote checks] the run arguments are not a list of strings");
+    process.exit(2);
+  }
+  return list;
+}
+'
+
+# For a recipe: runs the command given, then the run's arguments from ARGV_FILE, as one list with no shell between.
+run_with_argv() {
+  node -e '
+    const { spawnSync } = require("child_process");
+    const [file, command, ...rest] = process.argv.slice(1);
+    const run = spawnSync(command, [...rest, ...readArgv(file)], { stdio: "inherit" });
+    process.exit(run.status ?? 1);
+    '"$READ_ARGV_JS" "$ARGV_FILE" "$@"
+}
+
+# For a recipe with files that stay on the Mac: like run_with_argv, but a folder or pattern the Mac named becomes the test
+# files in it, and a run naming no files gets the recipe's own list, all without the files matching the pattern given.
+# What names a file follows the runners' own rule: anything shaped like a path or a pattern, or a path that exists.
+# Usage: run_with_argv_leaving_out <pattern> <own list, one a line> <command...>
+run_with_argv_leaving_out() {
+  node -e '
+    const { spawnSync } = require("child_process");
+    const fs = require("fs");
+    const path = require("path");
+    const [file, leaveOut, ownList, command, ...rest] = process.argv.slice(1);
+    const left = new RegExp(leaveOut);
+    const kept = found => !left.test(found);
+    const testFile = /\.test\.[cm]?[jt]s$/;
+    const filesIn = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const at = path.join(dir, entry.name);
+      if (entry.isDirectory()) return entry.name === "node_modules" ? [] : filesIn(at);
+      return testFile.test(entry.name) ? [at] : [];
+    });
+    const namesFiles = arg => !arg.startsWith("-") && (/[*?[{/]|\.[cm]?[jt]s$/.test(arg) || fs.existsSync(arg));
+    const argv = readArgv(file);
+    const named = argv.some(namesFiles);
+    const expanded = argv.flatMap((arg) => {
+      if (!namesFiles(arg)) return [arg];
+      if (/[*?[{]/.test(arg)) return fs.globSync(arg).filter(kept).sort();
+      if (fs.existsSync(arg) && fs.statSync(arg).isDirectory()) return filesIn(arg).filter(kept).sort();
+      return kept(arg) ? [arg] : [];
+    });
+    const list = named ? expanded : [...expanded, ...ownList.split("\n").filter(Boolean).filter(kept)];
+    if (!list.some(namesFiles)) {
+      console.log("[remote checks] nothing to run here: the files named only run on the Mac");
+      process.exit(0);
+    }
+    const run = spawnSync(command, [...rest, ...list], { stdio: "inherit" });
+    process.exit(run.status ?? 1);
+    '"$READ_ARGV_JS" "$ARGV_FILE" "$@"
+}
+
 # Installs once per lockfile, then runs the project's own quiet runner, which prints what a person
 # would read. It's the run's exit code that counts, and a test count proves tests really ran.
 project_job() {
@@ -280,6 +362,8 @@ project_job() {
     printf '%s\n' "$stamp" > "$stamp_file"
   fi
   echo "[remote checks] running tests"
+  ARGV_FILE=
+  [ -f "$dir/argv.json" ] && ARGV_FILE="$dir/argv.json"
   recipe_test
   local code=$?
   # A failure's detail is in the project's own log, which is gone once the next run cleans up.
@@ -298,7 +382,7 @@ cmd_job() {
   deadline=$((started + SLOT_WAIT_SECONDS))
   mkdir -p "$BASE/slots"
   while :; do
-    for slot in $(seq 1 "$SLOT_COUNT"); do
+    for slot in $SLOT_NAMES; do
       with_lock "$BASE/slots/$slot.lock" \
         bash "$SELF" slot-job "$slot" "$dir" "$commit" "$ci" "$no_cache" "$(($(date +%s) - started))"
       code=$?
@@ -339,6 +423,11 @@ cmd_checks() {
 cmd_related() {
   mkdir -p "$RUNS/$1" || exit 1
   cat > "$RUNS/$1/related.json" || exit 1
+}
+
+cmd_argv() {
+  mkdir -p "$RUNS/$1" || exit 1
+  cat > "$RUNS/$1/argv.json" || exit 1
 }
 
 # A child that starts a session of its own leaves the run's group. Once the run ends, any of ours
@@ -432,6 +521,8 @@ cmd_run() {
 # Every repository that may run here, by the names in scripts/remote-checks/projects.js. Anything
 # else is refused. Each one sets NODE_FILE, LOCK_FILE, INSTALL_INPUTS and RECIPE_LOG, and defines
 # recipe_install, recipe_test and recipe_test_count. AIO_REMOTE_CHECKS=off stops a project's runner sending itself here.
+# When the Mac named files or other arguments, ARGV_FILE holds them and recipe_test passes them on in place of its own
+# list, through run_with_argv, never through a shell.
 load_recipe() {
   case "$PROJECT/$SUITE" in
     work-finding/desk)
@@ -444,10 +535,66 @@ load_recipe() {
       # on the Mac. Its runner holds to 4 files at a time for the Mac's sake. This machine has room.
       # The usual umask here lets a group write, which the installer tests rightly refuse.
       recipe_test() {
+        if [ -n "$ARGV_FILE" ]; then
+          (umask 022 && cd apps/desk && AIO_REMOTE_CHECKS=off run_with_argv_leaving_out '/panelLayoutCss\.test\.ts$' \
+            "$(ls test/unit/*.test.ts test/unit/*.test.mjs work-finder/*.test.mjs)" npm run test:quiet -- --test-concurrency=8)
+          return
+        fi
         (umask 022 && cd apps/desk && AIO_REMOTE_CHECKS=off npm run test:quiet -- --test-concurrency=8 \
           $(ls test/unit/*.test.ts test/unit/*.test.mjs work-finder/*.test.mjs | grep -v '/panelLayoutCss\.test\.ts$'))
       }
       RECIPE_LOG=apps/desk/_scratch/test-run.log
+      recipe_test_count() { sed -n 's/^# tests \([0-9][0-9]*\)$/\1/p' "$RECIPE_LOG" 2>/dev/null | tail -n 1 | grep . || echo 0; }
+      ;;
+    work-finding/desk-web)
+      # Desk's web front end, tested with Jest. It has no Node file of its own and runs on Desk's Node. Its shared
+      # contracts package resolves zod from Desk's packages, so Desk installs first.
+      NODE_FILE=apps/desk/.nvmrc
+      LOCK_FILE=apps/desk/web/package-lock.json
+      INSTALL_INPUTS='apps/desk/package-lock.json apps/desk/package.json apps/desk/web/package-lock.json apps/desk/web/package.json'
+      recipe_install() { npm --prefix apps/desk ci && npm --prefix apps/desk/web ci; }
+      recipe_test() {
+        rm -f apps/desk/web/_scratch/jest-results.json
+        if [ -n "$ARGV_FILE" ]; then
+          (umask 022 && cd apps/desk/web && AIO_REMOTE_CHECKS=off run_with_argv npm run test:quiet --)
+        else
+          (umask 022 && cd apps/desk/web && AIO_REMOTE_CHECKS=off npm run test:quiet)
+        fi
+      }
+      RECIPE_LOG=apps/desk/web/_scratch/jest-run.log
+      recipe_test_count() { node -p 'require(process.argv[1]).numTotalTests' "$PWD/apps/desk/web/_scratch/jest-results.json" 2>/dev/null | grep . || echo 0; }
+      ;;
+    work-finding/radar)
+      NODE_FILE=apps/radar/.nvmrc
+      LOCK_FILE=apps/radar/package-lock.json
+      INSTALL_INPUTS='apps/radar/package-lock.json apps/radar/package.json'
+      recipe_install() { npm --prefix apps/radar ci; }
+      recipe_test() {
+        rm -f apps/radar/_scratch/test-results.json
+        if [ -n "$ARGV_FILE" ]; then
+          (umask 022 && cd apps/radar && AIO_REMOTE_CHECKS=off run_with_argv npm run test:quiet --)
+        else
+          (umask 022 && cd apps/radar && AIO_REMOTE_CHECKS=off npm run test:quiet)
+        fi
+      }
+      RECIPE_LOG=apps/radar/_scratch/test-run.log
+      recipe_test_count() { node -p 'require(process.argv[1]).numTotalTests' "$PWD/apps/radar/_scratch/test-results.json" 2>/dev/null | grep . || echo 0; }
+      ;;
+    work-finding/runner)
+      # No Node file of its own (its package asks for 24.x), so it runs on Desk's.
+      NODE_FILE=apps/desk/.nvmrc
+      LOCK_FILE=apps/runner/package-lock.json
+      INSTALL_INPUTS='apps/runner/package-lock.json apps/runner/package.json'
+      recipe_install() { npm --prefix apps/runner ci; }
+      recipe_test() {
+        rm -f apps/runner/_scratch/test-run.log
+        if [ -n "$ARGV_FILE" ]; then
+          (umask 022 && cd apps/runner && AIO_REMOTE_CHECKS=off run_with_argv npm run test:quiet --)
+        else
+          (umask 022 && cd apps/runner && AIO_REMOTE_CHECKS=off npm run test:quiet)
+        fi
+      }
+      RECIPE_LOG=apps/runner/_scratch/test-run.log
       recipe_test_count() { sed -n 's/^# tests \([0-9][0-9]*\)$/\1/p' "$RECIPE_LOG" 2>/dev/null | tail -n 1 | grep . || echo 0; }
       ;;
     undistilled/all)
@@ -496,10 +643,11 @@ case "$command_name" in
   bases) cmd_bases ;;
   receive) cmd_receive "$@" ;;
   related) cmd_related "$@" ;;
+  argv) cmd_argv "$@" ;;
   checks) cmd_checks "$@" ;;
   run) cmd_run "$@" ;;
   job) cmd_job "$@" ;;
   slot-job) cmd_slot_job "$@" ;;
   fetch) cmd_fetch "$@" ;;
-  *) echo "usage: remote-run.sh bases|receive|related|checks|run|fetch" >&2; exit 2 ;;
+  *) echo "usage: remote-run.sh bases|receive|related|argv|checks|run|fetch" >&2; exit 2 ;;
 esac

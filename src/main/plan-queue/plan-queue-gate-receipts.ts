@@ -8,6 +8,7 @@ import { gitExec } from '../workspace/git/git-exec';
 import { buildCliEnv } from '../cli/cli-environment';
 import { extractVerifyFailureKeys, failedTestNames } from '../orchestration/verify-failure-keys';
 import { QUEUE_TEST_ENV, runInProcessGroup } from './plan-queue-process';
+import { readUseThisMac } from '../computers/test-machine-file';
 
 export type GateEvidence = 'passed' | 'failed' | 'no-tests-found' | 'not-recognised';
 export interface PlanQueueGateReceipt {
@@ -26,8 +27,10 @@ export interface PlanQueueGateReceipt {
   failureKeyCounts: Record<string, number>;
   /** Named tests that failed, kept with the verdict so Queue health can spot one failing across unrelated jobs. */
   failingTests?: string[];
+  /** Why no test machine could take the check. It did not run, so it says nothing about the code. */
+  notRun?: string;
 }
-interface GateExecution { exitCode: number; output: string; timedOut?: boolean; durationMs?: number; ranOn?: string }
+interface GateExecution { exitCode: number; output: string; timedOut?: boolean; durationMs?: number; ranOn?: string; notRun?: string }
 type ExecuteGate = (command: string, cwd: string, signal?: AbortSignal, extraEnv?: Record<string, string>) => Promise<GateExecution>;
 export interface GateInput {
   cwd: string; head: string; commands: readonly string[]; signal?: AbortSignal;
@@ -45,6 +48,11 @@ const MAX_MACHINE_CHARS = 200;
 const MAX_FAILING_TESTS = 20;
 const MAX_TEST_NAME_CHARS = 300;
 const STAY_ON_THE_MAC = { AIO_REMOTE_CHECKS: 'off' };
+/** The exit code test runners and `checks.js` use when no test machine could take a run. It never means a failure. */
+export const NOT_RUN_EXIT_CODE = 69;
+/** How long a job waits for a test machine before its checks are tried again. */
+export const NOT_RUN_RETRY_MS = 5 * 60_000;
+const NOT_RUN_FALLBACK_REASON = 'no test machine could take it';
 /**
  * Checks `scripts/remote-checks/checks.js` runs as one batch, on the test machine when it can: one snapshot
  * for all of them. It has the same list. A worktree without that script runs each one as before.
@@ -59,6 +67,13 @@ const MACHINE_MISMATCH_NOTE = '\nThe comparison with main ran on a different mac
 /** `scripts/run-tests-quiet.js` prints this line for every run it routes. */
 function ranOn(output: string): string | undefined {
   return [...stripVTControlCharacters(output).matchAll(/^\s*Ran on (.+?) in \d/gm)].at(-1)?.[1]?.slice(0, MAX_MACHINE_CHARS);
+}
+
+/** The reason from the runner's `Not run: <reason>` line. */
+function notRunReason(output: string): string | undefined {
+  const reason = [...stripVTControlCharacters(output).matchAll(/^\s*Not run: (.+?)\s*$/gm)].at(-1)?.[1];
+  // Only our runners print this line; another command that exits 69 has simply failed.
+  return reason?.slice(0, MAX_MACHINE_CHARS);
 }
 
 /** A checklist command that runs tests, so its output can say whether tests ran. */
@@ -100,6 +115,7 @@ export class PlanQueueGateRunner {
   constructor(
     private readonly execute: ExecuteGate = executeGate,
     private readonly readTree: (cwd: string) => string | Promise<string> = cwd => gitExec(['rev-parse', 'HEAD^{tree}'], cwd),
+    private readonly useThisMac: () => boolean = readUseThisMac,
   ) {}
 
   cached(input: GateInput): PlanQueueGateReceipt[] | undefined {
@@ -135,8 +151,8 @@ export class PlanQueueGateRunner {
     const cached = this.cached(input);
     if (cached) return cached;
     const receipts = await this.compareWithBase(input, await this.executeCommands(input));
-    // A timeout says nothing about the code, so it must never answer for a later check.
-    if (!receipts.some(receipt => receipt.timedOut)) this.seed(input, receipts);
+    // A timeout or a check that never ran says nothing about the code, so it must never answer for a later check.
+    if (!receipts.some(receipt => receipt.timedOut || receipt.notRun)) this.seed(input, receipts);
     return receipts;
   }
 
@@ -166,6 +182,7 @@ export class PlanQueueGateRunner {
       const result = batched?.get(command) ?? await this.execute(command, input.cwd, input.signal, input.extraEnv);
       input.signal?.throwIfAborted();
       const timedOut = result.timedOut === true;
+      const notRun = !timedOut && (result.notRun ?? (result.exitCode === NOT_RUN_EXIT_CODE ? notRunReason(result.output) : undefined));
       const machine = result.ranOn?.slice(0, MAX_MACHINE_CHARS) ?? ranOn(result.output);
       const output = result.output.replaceAll(input.cwd, '');
       const tests = failedTestNames(output).slice(0, MAX_FAILING_TESTS).map(name => name.slice(0, MAX_TEST_NAME_CHARS));
@@ -175,9 +192,9 @@ export class PlanQueueGateRunner {
         classification: timedOut ? 'failed' : classifyGateEvidence(command, result.exitCode, result.output), baseline: 'new',
         failureKeyCounts: Object.fromEntries(extractVerifyFailureKeys(output, {
           truncated: result.output.length >= 256_000, failureKind: 'command',
-        }).keys), ...(tests.length ? { failingTests: tests } : {}) });
+        }).keys), ...(tests.length ? { failingTests: tests } : {}), ...(notRun ? { notRun } : {}) });
       // The rest would wait behind the same computer, holding the one checklist turn for nothing.
-      if (timedOut) break;
+      if (timedOut || notRun) break;
     }
     return receipts;
   }
@@ -194,6 +211,10 @@ export class PlanQueueGateRunner {
       const result = await this.execute(command, input.cwd, input.signal, input.extraEnv);
       if (result.timedOut) return new Map(commands.map(check => [check, { exitCode: 1, output: result.output, timedOut: true }]));
       const outcome = readBatchOutcome(jsonPath, commands);
+      if (outcome && 'notRun' in outcome) return new Map(commands.map(check => [check,
+        { exitCode: NOT_RUN_EXIT_CODE, output: result.output, notRun: outcome.notRun }]));
+      const notRun = !outcome && result.exitCode === NOT_RUN_EXIT_CODE ? notRunReason(result.output) : undefined;
+      if (notRun) return new Map(commands.map(check => [check, { exitCode: NOT_RUN_EXIT_CODE, output: result.output, notRun }]));
       if (!outcome) return undefined;
       return new Map(outcome.checks.map(check => [check.command, {
         exitCode: check.exitCode, output: check.output, durationMs: check.durationMs, ...(outcome.ranOn ? { ranOn: outcome.ranOn } : {}),
@@ -206,11 +227,14 @@ export class PlanQueueGateRunner {
   async compareWithBase(input: GateInput, raw: readonly PlanQueueGateReceipt[]): Promise<PlanQueueGateReceipt[]> {
     input.signal?.throwIfAborted();
     const receipts = structuredClone([...raw]);
-    // A timeout can't be compared with the base, so only a real failure is worth a second run.
-    if (input.withBaseline && input.baseSha && receipts.some(receipt => receipt.classification === 'failed' && !receipt.timedOut)) {
+    // A timeout can't be compared with the base, so only a real failure is worth a second run. A check that
+    // never ran holds the job until a test machine is free, so a comparison would only wait for nothing.
+    if (input.withBaseline && input.baseSha && !receipts.some(receipt => receipt.notRun)
+      && receipts.some(receipt => receipt.classification === 'failed' && !receipt.timedOut)) {
       // Failures are matched by their message, which can differ between machines, so the run on main
       // has to happen where this one did. If this one fell back to the Mac, main must not go elsewhere.
-      const onlyOnMac = receipts.some(receipt => receipt.classification === 'failed' && receipt.ranOn === MAC);
+      // With "use this Mac" off nothing falls back here, so main goes to a test machine like everything else.
+      const onlyOnMac = receipts.some(receipt => receipt.classification === 'failed' && receipt.ranOn === MAC) && this.useThisMac();
       const base = await this.baseline(onlyOnMac ? { ...input, extraEnv: { ...input.extraEnv, ...STAY_ON_THE_MAC } } : input);
       for (const receipt of receipts) {
         const original = base.find(candidate => candidate.command === receipt.command);
@@ -259,7 +283,7 @@ export class PlanQueueGateRunner {
       // A run on main free to go anywhere that fell back to the Mac is that moment's outage, not a
       // lasting answer: kept, it would mismatch every later job that ran on the PC.
       const fellBack = !input.extraEnv && base.some(receipt => receipt.ranOn === MAC);
-      if (!fellBack && !base.some(receipt => receipt.timedOut)) this.baseCache.set(key, base);
+      if (!fellBack && !base.some(receipt => receipt.timedOut || receipt.notRun)) this.baseCache.set(key, base);
       return base;
     } finally { this.pendingBases.delete(key); }
   }
@@ -268,13 +292,17 @@ export class PlanQueueGateRunner {
 /** `ranOn` is null when no test machine is set up: like a check run directly, it names no machine. */
 interface BatchOutcome { ranOn: string | null; checks: { command: string; exitCode: number; durationMs: number; output: string }[] }
 
-/** The script's answer, only if it covers exactly the checks asked for, in order. */
-function readBatchOutcome(jsonPath: string, commands: readonly string[]): BatchOutcome | undefined {
-  let outcome: Partial<BatchOutcome>;
+/** The script's answer, only if it covers exactly the checks asked for, in order, or says none of them ran. */
+function readBatchOutcome(jsonPath: string, commands: readonly string[]): BatchOutcome | { notRun: string } | undefined {
+  let outcome: Partial<BatchOutcome> & { notRun?: unknown; reason?: unknown };
   try {
-    outcome = JSON.parse(readFileSync(jsonPath, 'utf8')) as Partial<BatchOutcome>;
+    outcome = JSON.parse(readFileSync(jsonPath, 'utf8')) as typeof outcome;
   } catch {
     return undefined;
+  }
+  if (outcome?.notRun === true) {
+    const reason = typeof outcome.reason === 'string' && outcome.reason.trim() ? outcome.reason.trim() : NOT_RUN_FALLBACK_REASON;
+    return { notRun: reason.slice(0, MAX_MACHINE_CHARS) };
   }
   const checks = outcome.checks;
   const ranOn = outcome.ranOn ?? null;
@@ -293,6 +321,11 @@ function waitForBaseline<T>(result: Promise<T>, signal?: AbortSignal): Promise<T
     signal.addEventListener('abort', aborted, { once: true });
     void result.then(resolve, reject).finally(() => signal.removeEventListener('abort', aborted));
   });
+}
+
+/** Why the checks could not run, when a check came back "not run". */
+export function notRunReasonOf(receipts: readonly PlanQueueGateReceipt[]): string | undefined {
+  return receipts.find(receipt => receipt.notRun)?.notRun;
 }
 
 /** True when every blocking check ran out of time, so the run says nothing about the code. */

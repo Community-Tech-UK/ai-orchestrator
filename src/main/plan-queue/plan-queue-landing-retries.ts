@@ -10,6 +10,7 @@ import { getLogger } from '../logging/logger';
 import { existsSync } from 'node:fs';
 import { gitExec } from '../workspace/git/git-exec';
 import { mergeInProgress } from './plan-queue-git';
+import { NOT_RUN_RETRY_MS } from './plan-queue-gate-receipts';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PlanQueueItem } from './plan-queue.types';
 
@@ -19,6 +20,9 @@ const DAY = 24 * HOUR;
 export const LANDING_RETRY_AFTER_MS = DAY;
 export const LANDING_RETRY_GIVE_UP_MS = 14 * DAY;
 export const MAX_AUTOMATIC_LANDINGS = 2;
+/** In the park note of a landing whose merge check no test machine could take. That wait is short, not a day. */
+export const WAITING_FOR_TEST_MACHINE = 'because no test machine could take it';
+const waitingForTestMachine = (item: PlanQueueItem) => item.parkReason === 'land-blocked' && !!item.detail?.includes(WAITING_FOR_TEST_MACHINE);
 const LIVETEST_REGISTER_PATH = 'docs/plans/livetest-remediation-register.md';
 
 /** True when the branch merges with the base, or clashes only in the register. Read-only. */
@@ -55,7 +59,7 @@ export class PlanQueueLandingRetries {
         if (started >= MAX_AUTOMATIC_LANDINGS) return;
         const now = this.now();
         if ((this.lookAt.get(item.id) ?? 0) > now) continue;
-        this.lookAt.set(item.id, now + HOUR);
+        this.lookAt.set(item.id, now + (waitingForTestMachine(item) ? NOT_RUN_RETRY_MS : HOUR));
         try {
           if (!await this.due(item, now)) continue;
           await this.retry(item.id);
@@ -71,7 +75,8 @@ export class PlanQueueLandingRetries {
 
   private async due(item: PlanQueueItem, now: number): Promise<boolean> {
     const { store, history } = this.host;
-    if (now - (store.lastParkedAt(item.id) ?? item.updatedAt) < LANDING_RETRY_AFTER_MS) return false;
+    const after = waitingForTestMachine(item) ? NOT_RUN_RETRY_MS : LANDING_RETRY_AFTER_MS;
+    if (now - (store.lastParkedAt(item.id) ?? item.updatedAt) < after) return false;
     const passedAt = history.listVerdicts(item.id).filter(verdict => verdict.verdict === 'PASS').at(-1)?.at;
     if (passedAt === undefined || now - passedAt > LANDING_RETRY_GIVE_UP_MS) return false;
     if (store.newerAttemptLanded(item) || store.documentInPlay(item)) return false;

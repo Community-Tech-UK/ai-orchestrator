@@ -151,12 +151,21 @@ export class RemoteNodeIpcService {
 
   /** The test machines, in order, and where today's work went; none when none is set up. A failure carries the error as sent. */
   async getTestMachines(): Promise<
-    { ok: true; testMachines: TestMachineView[]; today: WorkToday | null } | { ok: false; error: unknown }
+    { ok: true; testMachines: TestMachineView[]; useThisMac: boolean; today: WorkToday | null } | { ok: false; error: unknown }
   > {
-    if (!this.api) return { ok: true, testMachines: [], today: null };
+    if (!this.api) return { ok: true, testMachines: [], useThisMac: true, today: null };
     const result = await this.api.computersGetTestMachine() as IpcResult | null;
     if (!result?.success) return { ok: false, error: result?.error ?? result };
-    return { ok: true, ...(result.data as { testMachines: TestMachineView[]; today: WorkToday | null }) };
+    const data = result.data as { testMachines: TestMachineView[]; useThisMac?: boolean; today: WorkToday | null };
+    return { ok: true, ...data, useThisMac: data.useThisMac !== false };
+  }
+
+  /** Turns this Mac's backup role on or off, returning what is now saved. A failure carries the error as sent. */
+  async setUseThisMac(useThisMac: boolean): Promise<{ ok: true; useThisMac: boolean } | { ok: false; error: unknown }> {
+    if (!this.api) return { ok: false, error: 'Not in Electron' };
+    const result = await this.api.computersSetUseThisMac(useThisMac) as IpcResult | null;
+    if (!result?.success) return { ok: false, error: result?.error ?? result };
+    return { ok: true, useThisMac: (result.data as { useThisMac: boolean }).useThisMac };
   }
 
   /** Changes one test machine's switches, returning it as it now is. A failure carries the error as sent. */

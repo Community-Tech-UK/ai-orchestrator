@@ -19,6 +19,8 @@ interface StartVerificationContext {
   checksFinished(ran: boolean): void;
   /** Checks could not start. The breaker decides whether this is one job's trouble or everyone's. */
   checksFailed(message: string): void;
+  /** Keep the pump away from this job for `ms`, for a wait that would only repeat if tried sooner. */
+  holdOff(itemId: string, ms: number): void;
 }
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 
@@ -83,7 +85,11 @@ export async function startQueueVerification(ctx: StartVerificationContext, item
   ctx.checksFinished(checks.kind !== 'wait');
   item = host.getItem(item.id);
   if (host.getRun(item.runId).status === 'paused') { await ctx.hold(item); return; }
-  if (checks.kind === 'wait') { host.transition(item, 'awaiting-slot', { detail: checks.detail }); return; }
+  if (checks.kind === 'wait') {
+    if (checks.retryMs) ctx.holdOff(item.id, checks.retryMs);
+    host.transition(item, 'awaiting-slot', { detail: checks.detail });
+    return;
+  }
   if (checks.kind === 'park') { await ctx.park(item, checks.reason, checks.detail); return; }
   if (checks.kind === 'fix') { await ctx.fix(item, checks.prompt, checks.detail); return; }
   await ctx.spawn(item, baseBranch);

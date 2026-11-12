@@ -44,7 +44,8 @@ export function readTestMachineHealth(now: number, windowDays: number, dir = rem
   const since = now - windowDays * DAY_MS;
   // A run that was always going to stay here says nothing about the test machine, and as the latest
   // line it would clear an "unreachable" notice.
-  const recent = readRunLog(dir).filter(run => run.kind !== 'local' && Date.parse(run.at) >= since);
+  // A run no machine took (this Mac switched off) never ran anywhere.
+  const recent = readRunLog(dir).filter(run => run.kind !== 'local' && run.ranOn !== 'none' && Date.parse(run.at) >= since);
   // iPhone work has a figure of its own, and whether it reached the test Mac says nothing about where tests run.
   const iphone = recent.filter(run => run.kind === 'ios');
   const tried = recent.filter(run => run.kind !== 'ios' && !choseTheMac(run.fellBackBecause ?? ''));

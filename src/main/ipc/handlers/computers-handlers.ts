@@ -6,11 +6,13 @@
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../../../shared/types/ipc.types';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
-import { ComputersChangeTestMachinePayloadSchema } from '@contracts/schemas/remote-node';
+import { ComputersChangeTestMachinePayloadSchema, ComputersSetUseThisMacPayloadSchema } from '@contracts/schemas/remote-node';
 import {
   changeTestMachine,
   readRunLog,
   readTestMachines,
+  readUseThisMac,
+  setUseThisMac,
   summariseWorkToday,
 } from '../../computers/test-machine-file';
 
@@ -22,7 +24,7 @@ export function registerComputersHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.COMPUTERS_GET_TEST_MACHINE, async (): Promise<IpcResponse> => {
     try {
       const testMachines = readTestMachines();
-      return { success: true, data: { testMachines, today: testMachines.length ? summariseWorkToday(readRunLog(), Date.now()) : null } };
+      return { success: true, data: { testMachines, useThisMac: readUseThisMac(), today: testMachines.length ? summariseWorkToday(readRunLog(), Date.now()) : null } };
     } catch (error) {
       return failed('COMPUTERS_GET_TEST_MACHINE_FAILED', error);
     }
@@ -34,6 +36,15 @@ export function registerComputersHandlers(): void {
       return { success: true, data: { testMachine: changeTestMachine(host, change) } };
     } catch (error) {
       return failed('COMPUTERS_CHANGE_TEST_MACHINE_FAILED', error);
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.COMPUTERS_SET_USE_THIS_MAC, async (_event, payload: unknown): Promise<IpcResponse> => {
+    try {
+      const { useThisMac } = ComputersSetUseThisMacPayloadSchema.parse(payload);
+      return { success: true, data: { useThisMac: setUseThisMac(useThisMac) } };
+    } catch (error) {
+      return failed('COMPUTERS_SET_USE_THIS_MAC_FAILED', error);
     }
   });
 }

@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { spawnVerifyCommand } from './loop-spawn-verify';
+import { remoteWaitLimitMs, spawnVerifyCommand } from './loop-spawn-verify';
 
 const runNode = (script: string) => spawnVerifyCommand(script, process.cwd(), 5_000, 'verify', false, {
   buildInvocation: code => ({ file: process.execPath, args: ['-e', code], useShellOption: false }),
@@ -20,6 +20,21 @@ describe('spawnVerifyCommand output capture', () => {
   it('marks truncation for a passing command too', async () => {
     const result = await runNode("process.stdout.write('x'.repeat(200001))");
     expect(result.status).toBe('passed'); expect(result.outputTruncated).toBe(true);
+  });
+});
+
+describe('the wait for a test machine', () => {
+  it('ends well inside the verify\'s own timeout, so the runner says "Not run" before the verify is killed', () => {
+    expect(remoteWaitLimitMs(1_200_000, undefined)).toBe(300_000);
+    expect(remoteWaitLimitMs(120_000, undefined)).toBe(30_000);
+    expect(remoteWaitLimitMs(1_200_000, '60000')).toBe(60_000);
+    expect(remoteWaitLimitMs(120_000, '600000')).toBe(30_000);
+    expect(remoteWaitLimitMs(120_000, 'soon')).toBe(30_000);
+  });
+
+  it('reaches the verify command', async () => {
+    const result = await runNode('console.log(`limit=${process.env.AIO_REMOTE_WAIT_LIMIT_MS}`)');
+    expect(result.output).toContain(`limit=${remoteWaitLimitMs(5_000)}`);
   });
 });
 

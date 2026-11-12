@@ -1,10 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlanQueueFolderChecklist } from '@contracts/schemas/plan-queue';
 import { PlanQueueCoordinator } from './plan-queue-coordinator';
 import { landing, machineGates } from './plan-queue-coordinator.test-mocks';
+import { WAITING_FOR_TEST_MACHINE } from './plan-queue-landing-retries';
 import {
   repo,
   store,
@@ -280,6 +282,52 @@ describe('PlanQueueCoordinator — the landing commit runs the repository hooks'
     await waitForRun(run.id);
     expect(landing.mergeChecks).toBe(2);
     expect(coordinator.getRunDto(run.id)!.items[0].state).toBe('landed');
+  });
+
+  it.each([false, true])('holds the pass, starting no worker, when the check after merging was not run (automatic retry: %s)', async (automatic) => {
+    const allowed = join(mkdtempSync(join(tmpdir(), 'merge-check-')), 'machine-free');
+    const notRunCheck = `test -f '${allowed}' || { echo 'Not run: the PC is paused, and this Mac is switched off.'; exit 69; }`;
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    const review = fake.scripts.verifier!;
+    fake.scripts.verifier = (instance, message, f) => {
+      // Main moves during review, so landing has to merge it and run the check after merging.
+      writeFileSync(join(repo, 'other.txt'), 'other\n');
+      git(['add', 'other.txt']);
+      git(['commit', '-q', '--no-verify', '-m', 'other work']);
+      return review(instance, message, f);
+    };
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { postMergeGate: [notRunCheck] } });
+    await waitForRun(run.id);
+
+    const item = coordinator.getRunDto(run.id)!.items[0];
+    expect(item).toMatchObject({ state: 'parked', parkReason: 'land-blocked', verdict: { verdict: 'PASS' } });
+    // The landing retries find this park by its note and try again in minutes, not a day.
+    expect(item.detail).toContain(WAITING_FOR_TEST_MACHINE);
+    expect(item.detail).toContain('the PC is paused');
+    const workers = fake.created.filter((i) => i.role === 'worker');
+    expect(fake.inputs.filter((m) => m.instanceId === workers[0].id)).toHaveLength(0);
+
+    // Harness's own retry, which never starts a worker, holds it the same way rather than setting it aside.
+    const flow = (coordinator as unknown as { flow: { retryLanding: (id: string, options: { automatic: boolean }) => Promise<void> } }).flow;
+    const settled = () => vi.waitFor(() => {
+      if (coordinator.getRunDto(run.id)!.items[0].state === 'landing') throw new Error('still landing');
+    }, { timeout: 20_000, interval: 25 });
+    if (automatic) {
+      await flow.retryLanding(item.id, { automatic: true });
+      await settled();
+      expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'parked', parkReason: 'land-blocked' });
+      expect(coordinator.getRunDto(run.id)!.items[0].detail).toContain(WAITING_FOR_TEST_MACHINE);
+    }
+
+    // Once a machine takes the check, it runs and the job lands.
+    writeFileSync(allowed, '');
+    if (automatic) await flow.retryLanding(item.id, { automatic: true });
+    else await coordinator.control({ action: 'retry-landing', itemId: item.id });
+    await settled();
+    expect(coordinator.getRunDto(run.id)!.items[0].state).toBe('landed');
+    expect(fake.inputs.filter((m) => m.instanceId === workers[0].id)).toHaveLength(0);
   });
 
   it('never sends a timed-out check to a worker, and stops the job as hung after two', async () => {

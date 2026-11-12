@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,7 +16,7 @@ const { takeMacTurn } = require('./mac-turn.js') as {
   }): Promise<MacTurn>;
 };
 interface Machine { host: string; label: string; platform: string; paused: boolean; testRuns: boolean; checks: boolean; slots: number }
-interface Config { queueChecks: boolean; machines: Machine[] }
+interface Config { queueChecks: boolean; useThisMac?: boolean; machines: Machine[] }
 const { appendRunLog, decideRoute, isLoopRun, isQueueCheck, machinesFor, readConfig } = require('./route.js') as {
   appendRunLog(entry: object, env?: NodeJS.ProcessEnv): void;
   decideRoute(options: { args: string[]; env?: NodeJS.ProcessEnv; root: string; config: Config | null }): object;
@@ -119,6 +119,64 @@ describe('decideRoute', () => {
   it('treats a session working in a queue folder as a session', () => {
     expect(route([], { AIO_QUEUE_SESSION: '1' }, '/work/repo/.worktrees/queue/item-1')).toEqual({ kind: 'remote', turn: true });
   });
+
+  describe('with this Mac switched off', () => {
+    const off: Config = { ...config, useThisMac: false };
+    const offWith = (change: Partial<Machine>): Config => ({ ...withMachine(change), useThisMac: false });
+
+    /** A project folder holding the spec files these tests name. */
+    const project = (): string => {
+      const dir = temp();
+      mkdirSync(join(dir, 'src/main/sandbox'), { recursive: true });
+      for (const file of ['src/a.spec.ts', 'src/b.spec.ts', 'src/main/sandbox/signal-fence.spec.ts']) writeFileSync(join(dir, file), '');
+      return dir;
+    };
+
+    it('sends a full run, a short list of specs and any other arguments away, the arguments as data', () => {
+      const dir = project();
+      expect(route([], {}, root, off)).toEqual({ kind: 'remote', turn: true });
+      expect(route(['src/a.spec.ts', `${dir}/src/b.spec.ts`], {}, dir, off)).toEqual({
+        kind: 'remote', turn: false, specs: ['src/a.spec.ts', 'src/b.spec.ts'],
+      });
+      expect(route([`${dir}/src/main`, '-t', 'a name', '--shard=1/4'], {}, dir, off)).toEqual({
+        kind: 'remote', turn: false, argv: ['src/main', '-t', 'a name', '--shard=1/4'],
+      });
+    });
+
+    it('sends a spec name that is not a file here as Vitest\'s own filter, so it matches and fails as it would here', () => {
+      const dir = project();
+      expect(route(['a.spec.ts'], {}, dir, off)).toEqual({ kind: 'remote', turn: false, argv: ['a.spec.ts'] });
+      expect(route(['src/a.spec.ts', 'src/gone.spec.ts'], {}, dir, off)).toEqual({
+        kind: 'remote', turn: false, argv: ['src/a.spec.ts', 'src/gone.spec.ts'],
+      });
+    });
+
+    it('sends queue checks away too, whatever queueChecks says', () => {
+      expect(route([], {}, '/work/repo/.worktrees/queue/item-1', off)).toEqual({ kind: 'remote', turn: false });
+    });
+
+    it('is not run, saying why, when every machine is paused or asked to stay here', () => {
+      expect(route([], {}, root, offWith({ paused: true }))).toEqual({
+        kind: 'not-run', reason: 'the PC is paused, and this Mac is switched off',
+      });
+      expect(route(['src/a.spec.ts'], {}, root, offWith({ testRuns: false }))).toMatchObject({ kind: 'not-run' });
+      expect(route([], { AIO_REMOTE_CHECKS: 'off' }, root, off)).toMatchObject({ kind: 'not-run' });
+    });
+
+    it('still changes nothing on GitHub, and keeps snapshot updates and coverage reports here, where they write', () => {
+      expect(route([], { GITHUB_ACTIONS: 'true' }, root, off)).toEqual({ kind: 'local' });
+      for (const option of ['-u', '--update', '--coverage', '--coverage.enabled', '--coverage.reporter=html']) {
+        expect(route(['src/a.spec.ts', option], {}, root, off)).toEqual({ kind: 'local' });
+      }
+      expect(route(['--coverage-not-an-option'], {}, root, off)).toMatchObject({ kind: 'remote' });
+    });
+
+    it('writes a ./ path the way the Mac-only list does', () => {
+      expect(route(['./src/main/sandbox/signal-fence.spec.ts'], {}, project(), off)).toEqual({
+        kind: 'remote', turn: false, specs: ['src/main/sandbox/signal-fence.spec.ts'],
+      });
+    });
+  });
 });
 
 describe('isQueueCheck', () => {
@@ -168,6 +226,7 @@ describe('readConfig', () => {
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ host: 'pc', label: 'the PC', queueChecks: true, nodeName: 'windows-pc' }));
     expect(readConfig({ AIO_REMOTE_CHECKS_DIR: dir })).toEqual({
       queueChecks: true,
+      useThisMac: true,
       machines: [{ host: 'pc', label: 'the PC', nodeName: 'windows-pc', platform: 'linux', paused: false, testRuns: true, checks: true, slots: 3 }],
     });
     writeFileSync(join(dir, 'config.json'), JSON.stringify({
@@ -175,6 +234,8 @@ describe('readConfig', () => {
     }));
     expect(readConfig({ AIO_REMOTE_CHECKS_DIR: dir })!.machines.map(entry => [entry.host, entry.platform, entry.slots]))
       .toEqual([['pc', 'linux', 3], ['ct-test-mac', 'darwin', 2]]);
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ host: 'pc', useThisMac: false, smallSlots: 6 }));
+    expect(readConfig({ AIO_REMOTE_CHECKS_DIR: dir })).toMatchObject({ useThisMac: false, machines: [{ smallSlots: 6 }] });
     for (const moreMachines of [['x'], [{ label: 'no host' }]]) {
       writeFileSync(join(dir, 'config.json'), JSON.stringify({ host: 'pc', moreMachines }));
       expect(() => readConfig({ AIO_REMOTE_CHECKS_DIR: dir })).toThrow();

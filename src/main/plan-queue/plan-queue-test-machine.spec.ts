@@ -68,6 +68,11 @@ describe('readTestMachineHealth', () => {
     expect(health?.movedToMac).toEqual({ count: 1, of: 3, share: 1 / 3 });
   });
 
+  it('leaves out runs no machine took, which never ran anywhere', () => {
+    const health = read(folder([run(MIN, 'pc'), run(MIN, 'none'), run(MIN, 'none', null, 'targeted')]));
+    expect(health?.ranThere).toEqual({ count: 1, of: 1, share: 1 });
+  });
+
   it('leaves commit and targeted runs out of the full-run figures', () => {
     const health = read(folder([run(MIN, 'pc'), run(MIN, 'mac', UNREACHABLE, 'commit'), run(MIN, 'pc', null, 'targeted')]));
     expect(health?.ranThere).toEqual({ count: 1, of: 1, share: 1 });

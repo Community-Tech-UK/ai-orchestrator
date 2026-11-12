@@ -8,12 +8,16 @@
  *
  * One snapshot goes across for the lot. Every check runs, whatever fails, as it would here, and the
  * exit code is the first failing check's. `--json` writes each check's result for the Plan Queue.
+ *
+ * With this Mac switched off in the config (`useThisMac: false`), the checks wait for a test machine and never run
+ * here: when none takes them it prints `Not run: <reason>`, writes `{ notRun: true, reason, exitCode: 69, checks: [] }`
+ * to the --json file and exits NOT_RUN (69).
  */
 
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { appendRunLog, isLoopRun, isQueueCheck, machinesFor, readConfig, stayReason } = require('./route');
+const { NOT_RUN, appendRunLog, isLoopRun, isQueueCheck, machinesFor, readConfig, stayReason } = require('./route');
 const { runOnMachines } = require('./run-remote');
 
 /** The only commands this runs, exactly as written. remote-run.sh's `known_check` has the same list. */
@@ -53,9 +57,16 @@ const SHOWN_LINES = 40;
  * - `local`: no test machine is set up, or this is GitHub. Runs here and logs nothing.
  * - `mac`: belongs here this time, for `reason`.
  * - `remote`: try the test machine first.
+ * - `not-run`: this Mac is switched off and the checks can't go anywhere else, for `reason`.
  */
 function decideChecksRoute({ env = process.env, root, config }) {
   if (env.GITHUB_ACTIONS || !config) return { kind: 'local' };
+  if (config.useThisMac === false) {
+    if (env.AIO_REMOTE_CHECKS === 'off') return { kind: 'not-run', reason: 'AIO_REMOTE_CHECKS=off asked for this Mac, and this Mac is switched off' };
+    const stopped = stayReason(config, 'checks');
+    if (stopped) return { kind: 'not-run', reason: `${stopped}, and this Mac is switched off` };
+    return { kind: 'remote' };
+  }
   if (env.AIO_REMOTE_CHECKS === 'off') return { kind: 'mac', reason: 'AIO_REMOTE_CHECKS=off asked for it' };
   const chosenHere = stayReason(config, 'checks');
   if (chosenHere) return { kind: 'mac', reason: chosenHere };
@@ -128,18 +139,25 @@ async function runChecks({ checks, root, logPath, env = process.env, onResult = 
   let ranOn = MAC;
   let host = 'mac';
   let reason = route.reason ?? null;
+  const thisMacOff = config?.useThisMac === false;
 
+  if (route.kind === 'not-run') return notRunOutcome({ root, env, started, reason });
   if (route.kind === 'remote') {
     const machines = machinesFor(config, 'checks');
     // Which one takes them is known only afterwards, and the last line says.
     const to = machines.length === 1 ? machines[0].label : 'your test machines';
     process.stderr.write(`checks: sending ${checks.length} to ${to}\n`);
-    const remote = await runOnMachines(machines, { root, logPath, jsonPath: null, ci: env.CI, noCache: false, checks });
+    const remote = await runOnMachines(machines, {
+      root, logPath, jsonPath: null, ci: env.CI, noCache: false, checks, ...(thisMacOff ? { patient: true, env } : {}),
+    });
     if (remote.ok) {
       results = remote.checks;
       ranOn = remote.machine.label;
       host = remote.machine.host;
       results.forEach(onResult);
+    } else if (thisMacOff) {
+      reason = remote.notRun ? remote.reason : `${remote.reason}, and this Mac is switched off`;
+      return notRunOutcome({ root, env, started, reason });
     } else {
       reason = remote.reason;
       process.stderr.write(`checks: running on the Mac because ${reason}\n`);
@@ -148,7 +166,9 @@ async function runChecks({ checks, root, logPath, env = process.env, onResult = 
   results ||= await runAllHere(checks, root, logPath, onResult);
 
   const tookMs = Date.now() - started;
-  const exitCode = results.find(result => result.exitCode !== 0)?.exitCode ?? 0;
+  const firstFailure = results.find(result => result.exitCode !== 0)?.exitCode ?? 0;
+  // 69 means "not run" to every caller, so a check that really exits 69 reads as a plain failure.
+  const exitCode = firstFailure === NOT_RUN ? 1 : firstFailure;
   if (route.kind !== 'local') {
     appendRunLog({
       at: new Date(started).toISOString(),
@@ -170,6 +190,23 @@ async function runChecks({ checks, root, logPath, env = process.env, onResult = 
   return {
     exitCode, ranOn: route.kind === 'local' ? null : ranOn, where, fellBackBecause: ranOn === MAC ? reason : null, checks: results,
   };
+}
+
+/** Nothing ran: no test machine took the checks, and this Mac is switched off. */
+function notRunOutcome({ root, env, started, reason }) {
+  appendRunLog({
+    at: new Date(started).toISOString(),
+    project: path.basename(root),
+    kind: 'checks',
+    loop: isLoopRun(env),
+    ranOn: 'none',
+    checks: [],
+    tookMs: Date.now() - started,
+    exitCode: NOT_RUN,
+    fellBackBecause: null,
+    notRunBecause: reason,
+  }, env);
+  return { exitCode: NOT_RUN, notRun: true, reason, ranOn: null, where: `Not run: ${reason}.`, fellBackBecause: null, checks: [] };
 }
 
 /** Throws for a set it doesn't know. */
@@ -223,7 +260,7 @@ async function main() {
   const outcome = await runChecks({ checks, root, logPath, onResult: show });
   if (outcome.where) process.stdout.write(`${outcome.where}\n`);
   if (jsonPath) fs.writeFileSync(jsonPath, JSON.stringify(outcome));
-  if (outcome.exitCode === 0) {
+  if (outcome.exitCode === 0 || outcome.notRun) {
     fs.rmSync(logPath, { force: true });
   } else {
     process.stdout.write(`Full output: ${path.relative(root, logPath)}\n`);
@@ -239,4 +276,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { CHECK_SETS, DEFAULT_CHECKS, KNOWN_CHECKS, decideChecksRoute, parseArgs, runChecks };
+module.exports = { CHECK_SETS, DEFAULT_CHECKS, KNOWN_CHECKS, NOT_RUN, decideChecksRoute, parseArgs, runChecks };

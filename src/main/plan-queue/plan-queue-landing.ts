@@ -14,13 +14,14 @@
  */
 
 import * as path from 'path';
+import { stripVTControlCharacters } from 'node:util';
 import { buildCliEnv } from '../cli/cli-environment';
 import { getLogger } from '../logging/logger';
 import { gitExec, gitExecSafe } from '../workspace/git/git-exec';
 import { getGitWriteQueue } from '../workspace/git/git-write-queue';
 import { integrationOwnershipRef, promoteIntegrationBranch } from '../workspace/git/worktree-integration';
 import { CONFLICT_CODES } from './plan-queue-git';
-import { isTestCommand } from './plan-queue-gate-receipts';
+import { isTestCommand, NOT_RUN_EXIT_CODE } from './plan-queue-gate-receipts';
 import { assertQueueCheckout } from './plan-queue-orphan-checkout';
 import { QUEUE_TEST_ENV, runInProcessGroup } from './plan-queue-process';
 import { buildLandingCommit, type LandingDocument } from './plan-queue-squash';
@@ -31,6 +32,11 @@ import { workSourceFor } from './plan-queue-work-sources';
 const logger = getLogger('PlanQueueLanding');
 
 const GATE_TIMEOUT_MS = 15 * 60_000;
+/**
+ * With this Mac switched off a test run here waits for a test machine, 20 minutes by default. It must give up, saying
+ * "Not run", well inside this check's own limit, or the check is killed and counted as timed out instead of held.
+ */
+const REMOTE_WAIT_LIMIT_MS = 5 * 60_000;
 const GATE_OUTPUT_TAIL = 6_000;
 
 export type SyncResult =
@@ -38,7 +44,8 @@ export type SyncResult =
   | { status: 'merged'; head: string }
   | { status: 'conflict'; conflictFiles: string[] };
 
-export type GateResult = { ok: true } | { ok: false; command: string; output: string; timedOut?: boolean };
+/** `notRun` is the reason when no test machine could take the command: it never ran, so it is not a failure. */
+export type GateResult = { ok: true } | { ok: false; command: string; output: string; timedOut?: boolean; notRun?: string };
 
 export type LandResult =
   | { status: 'landed'; commit: string; mergedPaths?: string[] }
@@ -109,7 +116,9 @@ export async function runPostMergeGate(commands: readonly string[], cwd: string,
   for (const command of commands) {
     const { exitCode, output, timedOut } = await runShell(command, cwd, signal);
     if (exitCode !== 0) {
-      return { ok: false, command, output: output.slice(-GATE_OUTPUT_TAIL), ...(timedOut ? { timedOut } : {}) };
+      const notRun = !timedOut && exitCode === NOT_RUN_EXIT_CODE
+        ? stripVTControlCharacters(output).match(/^\s*Not run: (.+?)\s*$/m)?.[1] : undefined;
+      return { ok: false, command, output: output.slice(-GATE_OUTPUT_TAIL), ...(timedOut ? { timedOut } : {}), ...(notRun ? { notRun } : {}) };
     }
   }
   return { ok: true };
@@ -120,7 +129,7 @@ function runShell(command: string, cwd: string, signal?: AbortSignal): Promise<{
   // Own process group: a timed-out gate command's children must not outlive it in the worktree.
   return runInProcessGroup(command, [], {
     cwd,
-    env: { ...buildCliEnv(), ...QUEUE_TEST_ENV },
+    env: { ...buildCliEnv(), ...QUEUE_TEST_ENV, AIO_REMOTE_WAIT_LIMIT_MS: String(REMOTE_WAIT_LIMIT_MS) },
     shell: true,
     timeoutMs: GATE_TIMEOUT_MS,
     outputTail: GATE_OUTPUT_TAIL,
