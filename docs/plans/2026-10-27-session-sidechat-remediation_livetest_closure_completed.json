@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-27-session-sidechat-remediation_livetest.md",
+      "sha256": "e7b25000b8bb85f3340925b8f02efdece90d040db429fb150cfaa0f5f9abd2e0",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-27-session-sidechat-remediation_history.md",
+      "sha256": "6bf06036034166916b1bd518f7a70e91bec3fdda1780031b4f4df9d7d24f0143",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-27-session-sidechat-remediation_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-27-session-sidechat-remediation_livetest_completed.md",
+      "sha256": "fb7794684d639b54f8fd11c06ee3c1e21f79d34d0ee50fa6e1fcba1d4870c0c2"
+    },
+    {
+      "relativePath": "2026-10-27-session-sidechat-remediation_livetest_history_31f91d7e8c8a43db75522442d6d4889152d5d289e87a98195aa7620b39702d56_completed.md",
+      "sha256": "2db5440301179280fc36b5c9d43f68653a57790022c0c4c1e6c366cd7e1e57aa"
+    }
+  ]
+}
