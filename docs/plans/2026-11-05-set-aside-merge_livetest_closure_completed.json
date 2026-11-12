@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-05-set-aside-merge_livetest.md",
+      "sha256": "0de7e098e889bbda4cbb76d0eeb07e5cd54dfa439c4453f8ae8e3de11b1c937a",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-05-set-aside-merge_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-05-set-aside-merge_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-05-set-aside-merge_livetest_completed.md",
+      "sha256": "0de7e098e889bbda4cbb76d0eeb07e5cd54dfa439c4453f8ae8e3de11b1c937a"
+    }
+  ]
+}
