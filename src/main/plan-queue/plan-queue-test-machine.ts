@@ -45,7 +45,9 @@ export function readTestMachineHealth(now: number, windowDays: number, dir = rem
   // A run that was always going to stay here says nothing about the test machine, and as the latest
   // line it would clear an "unreachable" notice.
   const recent = readRunLog(dir).filter(run => run.kind !== 'local' && Date.parse(run.at) >= since);
-  const tried = recent.filter(run => !choseTheMac(run.fellBackBecause ?? ''));
+  // iPhone work has a figure of its own, and whether it reached the test Mac says nothing about where tests run.
+  const iphone = recent.filter(run => run.kind === 'ios');
+  const tried = recent.filter(run => run.kind !== 'ios' && !choseTheMac(run.fellBackBecause ?? ''));
   const fullRuns = recent.filter(run => !run.kind);
   const triedFullRuns = tried.filter(run => !run.kind);
   const ranThere = fullRuns.filter(run => run.ranOn !== MAC);
@@ -57,6 +59,7 @@ export function readTestMachineHealth(now: number, windowDays: number, dir = rem
     movedToMac: share(triedFullRuns.filter(run => run.ranOn === MAC).length, triedFullRuns.length),
     unreachable: Boolean(latest && latest.ranOn === MAC && COULD_NOT_REACH.test(latest.fellBackBecause ?? '')
       && now - Date.parse(latest.at) < NOTICE_LIFETIME_MS),
+    iphone: share(iphone.filter(run => run.ranOn !== MAC).length, iphone.length),
   };
 }
 

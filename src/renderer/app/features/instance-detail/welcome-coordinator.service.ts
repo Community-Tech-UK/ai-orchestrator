@@ -11,6 +11,7 @@ import { ProviderStateService } from '../../core/services/provider-state.service
 import { UndoService } from '../../core/services/undo.service';
 import { snapshotActiveComposer, restoreComposerSnapshot } from '../../core/services/new-session-draft-undo';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
+import { ComposerFocusService } from '../../core/services/composer-focus.service';
 import { FileAttachmentService } from './file-attachment.service';
 import { normalizeModelForProvider } from '../../../../shared/types/provider.types';
 import { hardenedProviderName, isHardenedModeSupported } from '../../../../shared/hardened-mode-support';
@@ -65,6 +66,7 @@ export class WelcomeCoordinatorService {
   private orchestrationIpc = inject(OrchestrationIpcService);
   private providerState = inject(ProviderStateService);
   private newSessionDraft = inject(NewSessionDraftService);
+  private composerFocus = inject(ComposerFocusService);
   private undo = inject(UndoService);
   private fileAttachment = inject(FileAttachmentService);
 
@@ -217,6 +219,7 @@ export class WelcomeCoordinatorService {
       return result;
     }
 
+    this.composerFocus.request(result.instanceId);
     await this.finalizeWelcomeLaunch(plan);
     return result;
   }
@@ -263,6 +266,7 @@ export class WelcomeCoordinatorService {
       return false;
     }
 
+    this.composerFocus.request(instanceId);
     const loopConfig = this.buildWelcomeLoopConfig(config, plan);
     const r = await startLoop(instanceId, loopConfig);
     if (!r.ok) {
@@ -297,6 +301,7 @@ export class WelcomeCoordinatorService {
       return false;
     }
 
+    this.composerFocus.request(instanceId);
     await this.finalizeWelcomeLaunch(plan);
 
     const transition = await this.orchestrationIpc.workflowCanTransition({

@@ -53,6 +53,7 @@ import { hasCheckout, InvalidQueueCheckoutError, retainedQueuePathExists } from 
 import { discardParkedItem, PlanQueueDiscardedRefs, restoreBeforeResume, restoreDiscardedWork } from './plan-queue-discard';
 import { PlanQueueLandingRetries } from './plan-queue-landing-retries';
 import { PlanQueueKeptFolders } from './plan-queue-kept-folders';
+import { PlanQueueRecoveryCopies } from './plan-queue-recovery-copies';
 import { PlanQueueRunBreaker } from './plan-queue-run-breaker';
 import { planQueueBranchName } from './plan-queue-worktree';
 import { describePlanningMoves } from './plan-queue-planning-files';
@@ -107,6 +108,7 @@ export class PlanQueueItemFlow {
   /** Folders an earlier park or landing had to keep; the scheduler retries them. */
   readonly keptFolders: PlanQueueKeptFolders;
   readonly discardedRefs: PlanQueueDiscardedRefs;
+  readonly recoveryCopies = new PlanQueueRecoveryCopies();
   readonly landingRetries: PlanQueueLandingRetries;
   /** Jobs running a Harness checklist now. Held in memory, so a restart starts with none. */
   readonly checklistTurns = new Set<string>();

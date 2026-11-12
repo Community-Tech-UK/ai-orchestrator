@@ -38,10 +38,12 @@ function landingValue(landing: PlanQueueHealth['landingTime']): string {
 
 function testMachineLines(testMachine: PlanQueueHealth['testMachine']): PlanQueueHealthLine[] {
   if (!testMachine) return [];
-  const { label, ranThere, movedToMac } = testMachine;
+  const { label, ranThere, movedToMac, iphone } = testMachine;
   return [
     { label: `Full test runs on ${label}`, value: shareValue(ranThere, 'full test runs') },
     { label: 'Full test runs that moved to the Mac', value: movedToMac.count === 0 ? 'None' : shareValue(movedToMac, 'full test runs') },
+    // Said only by those who build iPhone apps.
+    ...(iphone.of > 0 ? [{ label: 'iPhone builds and simulators on the test Mac', value: shareValue(iphone, 'iPhone jobs') }] : []),
   ];
 }
 

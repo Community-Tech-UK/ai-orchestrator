@@ -14,6 +14,8 @@ import { HistoryStore } from '../../core/state/history.store';
 import { LoopStore } from '../../core/state/loop.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
+import { ComposerFocusService } from '../../core/services/composer-focus.service';
+import { ChatStore } from '../../core/state/chat.store';
 import { VisibleInstanceResolver } from '../../core/services/visible-instance-resolver.service';
 import { RecentDirectoriesIpcService } from '../../core/services/ipc/recent-directories-ipc.service';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
@@ -26,6 +28,7 @@ import { ContextMenuComponent } from '../../shared/components/context-menu/conte
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { ProjectGroup } from './instance-list.types';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
+import type { Instance } from '../../core/state/instance/instance.types';
 
 const template = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), './instance-list.component.html'), 'utf8');
 await resolveComponentResources(() => Promise.resolve(''));
@@ -36,7 +39,7 @@ const group: ProjectGroup = { key: 'project', path: '/example', title: 'Example'
   draftUpdatedAt: null, projectStateLabel: 'History', projectStateTone: 'history', lastActivity: 1, liveItems: [],
   historyItems: [{ kind: 'history', entry, hasChildren: true, childrenCount: 1, isExpanded: false, children: [] }] };
 
-describe('Session list Undo actions', () => {
+describe('Session list actions', () => {
   const restoring = signal(false);
   const archiveEntry = vi.fn(async () => true);
   const unarchiveEntry = vi.fn(async () => true);
@@ -48,12 +51,14 @@ describe('Session list Undo actions', () => {
     TestBed.configureTestingModule({ providers: [
       { provide: CrossSessionMessagingStore, useValue: {} },
       { provide: TerminateConfirmStore, useValue: {} },
+      { provide: ChatStore, useValue: { deselect: vi.fn() } },
       { provide: InstanceStore, useValue: { selectedInstanceId: signal(null), selectedInstance: signal(null),
-        instances: signal([]), rootInstances: signal([]) } },
-      { provide: HistoryStore, useValue: { entries: signal([entry]), previewEntryId: signal(null), loadHistory: vi.fn(), archiveEntry, unarchiveEntry } },
+        instances: signal([]), rootInstances: signal([]), setSelectedInstance: vi.fn() } },
+      { provide: HistoryStore, useValue: { entries: signal([entry]), previewEntryId: signal(null), loadHistory: vi.fn(), archiveEntry, unarchiveEntry,
+        clearSelection: vi.fn(), loadConversation: vi.fn(async () => ({ entry, messages: [] })) } },
       { provide: LoopStore, useValue: { runningChatIds: signal(new Set()), ensureWired: vi.fn() } },
       { provide: RemoteNodeStore, useValue: { hasNodes: signal(false) } },
-      { provide: NewSessionDraftService, useValue: { revision: signal(0) } },
+      { provide: NewSessionDraftService, useValue: { revision: signal(0), open: vi.fn() } },
       { provide: VisibleInstanceResolver, useValue: { setProjectGroupsSource: vi.fn(), clearProjectGroupsSource: vi.fn() } },
       { provide: RecentDirectoriesIpcService, useValue: { getDirectories: async () => [{ path: '/example' }], addDirectory: vi.fn(async () => undefined) } },
       { provide: FileIpcService, useValue: { editorGetDefault: vi.fn(async () => ({ success: false })) } }, { provide: HistoryIpcService, useValue: {} },
@@ -63,6 +68,7 @@ describe('Session list Undo actions', () => {
         getProjectKey: (path: string) => path.toLowerCase(),
       } },
       { provide: HistoryRailService, useValue: { historyDisplayLimit: 5, getVisibleHistoryItems: () => group.historyItems,
+        restoringHistoryIds: signal(new Set<string>()), clearThreadUnread: vi.fn(),
         getHistoryThreadId: HistoryRailService.prototype.getHistoryThreadId, markHistoryEntriesSeen: vi.fn(),
         isPinnedHistory: () => false, isRestoringHistory: restoring, isThreadUnread: () => true,
         getHistoryProviderVisual: () => ({ label: 'Claude', icon: 'anthropic', color: '#fff' }),
@@ -106,5 +112,38 @@ describe('Session list Undo actions', () => {
       await toast.action!.run();
       expect(unarchiveEntry).toHaveBeenCalledExactlyOnceWith('history-1');
     } finally { fixture.destroy(); }
+  });
+
+  describe('opening a session puts the cursor in its message box', () => {
+    const pending = () => TestBed.inject(ComposerFocusService).pending();
+
+    it('asks for a clicked live session\'s message box', () => {
+      const fixture = TestBed.createComponent(InstanceListComponent); fixture.detectChanges();
+      fixture.componentInstance.onSelectInstance('live-1');
+      expect(pending()).toEqual({ target: 'live-1' });
+    });
+    it('closes an open chat and asks for the new-session message box from a project\'s new-session button', () => {
+      const fixture = TestBed.createComponent(InstanceListComponent); fixture.detectChanges();
+      fixture.componentInstance.startProjectConversation(group, new MouseEvent('click'));
+      expect(TestBed.inject(ChatStore).deselect).toHaveBeenCalledOnce();
+      expect(TestBed.inject(NewSessionDraftService).open).toHaveBeenCalledWith('/example', null);
+      expect(pending()).toEqual({ target: 'new' });
+    });
+    it('asks for the preview message box when a past session is opened', async () => {
+      const fixture = TestBed.createComponent(InstanceListComponent); fixture.detectChanges();
+      await fixture.componentInstance.onPreviewHistory('history-1');
+      expect(pending()).toEqual({ target: 'history-preview:history-1' });
+    });
+    it('leaves focus alone when a session is right-clicked', async () => {
+      const fixture = TestBed.createComponent(InstanceListComponent);
+      try {
+        fixture.detectChanges();
+        const instance = { id: 'live-1', provider: 'claude', status: 'idle', workingDirectory: '/example',
+          childrenIds: [], executionLocation: { type: 'local' } } as unknown as Instance;
+        await fixture.componentInstance.onInstanceContextMenu({ event: new MouseEvent('contextmenu'), instance, displayTitle: 'Live' });
+        expect(TestBed.inject(InstanceStore).setSelectedInstance).toHaveBeenCalledWith('live-1');
+        expect(pending()).toBeNull();
+      } finally { fixture.destroy(); }
+    });
   });
 });

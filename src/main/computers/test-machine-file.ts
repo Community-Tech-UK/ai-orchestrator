@@ -133,7 +133,9 @@ const MAC = 'mac';
 /** Today in this Mac's own time zone. */
 export function summariseWorkToday(runs: readonly RunLine[], now: number): WorkToday {
   const today = new Date(now).toDateString();
-  const summary: WorkToday = { testRuns: { there: 0, here: 0 }, checks: { there: 0, here: 0 }, shortRunsHere: 0, hereBecause: [] };
+  const summary: WorkToday = {
+    testRuns: { there: 0, here: 0 }, checks: { there: 0, here: 0 }, iphone: { there: 0, here: 0 }, shortRunsHere: 0, hereBecause: [],
+  };
   const reasons = new Map<string, number>();
   for (const run of runs) {
     if (new Date(run.at).toDateString() !== today) continue;
@@ -141,7 +143,7 @@ export function summariseWorkToday(runs: readonly RunLine[], now: number): WorkT
       summary.shortRunsHere += 1;
       continue;
     }
-    const counts = run.kind === 'checks' ? summary.checks : summary.testRuns;
+    const counts = run.kind === 'checks' ? summary.checks : run.kind === 'ios' ? summary.iphone : summary.testRuns;
     if (run.ranOn === MAC) {
       counts.here += 1;
       if (run.fellBackBecause) reasons.set(run.fellBackBecause, (reasons.get(run.fellBackBecause) ?? 0) + 1);

@@ -6478,6 +6478,10 @@
       "lines": 2009
     },
     {
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+      "lines": 2005
+    },
+    {
       "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
       "lines": 1994
     },
@@ -6488,10 +6492,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-11-knowledge-ui-completion_completed.md",
       "lines": 1991
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1983
     },
     {
       "path": "src/main/session/session-continuity.spec.ts",
@@ -6626,12 +6626,12 @@
       "lines": 1478
     },
     {
-      "path": "src/main/browser-gateway/browser-extension-origin-bound-secret.spec.ts",
-      "lines": 1465
+      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
+      "lines": 1475
     },
     {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
-      "lines": 1464
+      "path": "src/main/browser-gateway/browser-extension-origin-bound-secret.spec.ts",
+      "lines": 1465
     },
     {
       "path": "docs/plans/2026-09-27-codex-compaction-reliability_livetest_completed.md",
@@ -6762,6 +6762,10 @@
       "lines": 1319
     },
     {
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.spec.ts",
+      "lines": 1319
+    },
+    {
       "path": "src/renderer/app/features/knowledge/knowledge-page.component.ts",
       "lines": 1319
     },
@@ -6800,10 +6804,6 @@
     {
       "path": "packages/contracts/src/schemas/__tests__/loop.schemas.spec.ts",
       "lines": 1278
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.spec.ts",
-      "lines": 1275
     },
     {
       "path": "docs/plans/2026-03-02-architectural-remediation-plan_completed.md",
@@ -7618,12 +7618,12 @@
       "lines": 824
     },
     {
-      "path": "docs/superpowers/plans/2026-07-13-codex-context-pressure-observability-discovery-plan_livetest_completed.md",
-      "lines": 822
+      "path": "src/main/plan-queue/plan-queue-item-flow.ts",
+      "lines": 823
     },
     {
-      "path": "src/main/plan-queue/plan-queue-item-flow.ts",
-      "lines": 821
+      "path": "docs/superpowers/plans/2026-07-13-codex-context-pressure-observability-discovery-plan_livetest_completed.md",
+      "lines": 822
     },
     {
       "path": "docs/plans/2026-02-22-token-memory-optimization-design_completed.md",

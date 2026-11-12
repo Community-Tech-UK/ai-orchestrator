@@ -17,6 +17,7 @@ const KIND_NAMES = {
   project: "other projects' tests",
   local: 'small test runs',
   checks: 'checks',
+  ios: 'iPhone builds and simulators',
 };
 
 /** Every run in the log folder, the older file first. */

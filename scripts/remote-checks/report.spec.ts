@@ -33,13 +33,15 @@ describe('where work ran', () => {
       line({ at: '2026-11-06T10:00:00Z' }),
       line({ at: '2026-11-06T11:00:00Z', ranOn: 'mac', tookMs: 120_000, fellBackBecause: 'the PC could not be reached' }),
       line({ at: '2026-11-06T12:00:00Z', ranOn: 'mac', kind: 'local', tookMs: 30_000 }),
+      line({ at: '2026-11-06T13:00:00Z', ranOn: 'ct-test-mac', kind: 'ios', tookMs: 120_000 }),
       '{"at": "half a line',
     ], [line({ at: '2026-11-05T10:00:00Z' })]));
-    expect(runs).toHaveLength(4);
-    expect(format(summarise(runs, '2026-11-06', { pc: 'the Windows PC' }))).toBe([
+    expect(runs).toHaveLength(5);
+    expect(format(summarise(runs, '2026-11-06', { pc: 'the Windows PC', 'ct-test-mac': 'the test Mac' }))).toBe([
       '2026-11-06',
       '  full test runs: 1 on the Windows PC (1 min), 1 on this Mac (2 min)',
       '  small test runs: 1 on this Mac (1 min)',
+      '  iPhone builds and simulators: 1 on the test Mac (2 min)',
       '  ran here 1x because the PC could not be reached',
     ].join('\n'));
   });

@@ -6,6 +6,7 @@ import { composerSendDisabledReason, voiceTooltipParts } from './input-panel-too
 import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import {
+  afterNextRender,
   Component,
   ChangeDetectionStrategy,
   computed,
@@ -13,6 +14,7 @@ import {
   ElementRef,
   HostListener,
   inject,
+  Injector,
   input,
   OnDestroy,
   output,
@@ -30,6 +32,7 @@ import { CommandStore } from '../../core/state/command.store';
 import type { ExtendedCommand } from '../../core/state/command.store';
 import { ActionDispatchService } from '../../core/services/action-dispatch.service';
 import { DraftService } from '../../core/services/draft.service';
+import { ComposerFocusService } from '../../core/services/composer-focus.service';
 import { KeybindingService, type KeybindingEvent } from '../../core/services/keybinding.service';
 import { OrchestrationIpcService } from '../../core/services/ipc';
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
@@ -183,6 +186,8 @@ export class InputPanelComponent implements OnDestroy {
   protected readonly sendDisabledReason = computed(() => composerSendDisabledReason(this));
   protected readonly voiceTooltip = computed(() => voiceTooltipParts(this));
   private document = inject(DOCUMENT);
+  private injector = inject(Injector);
+  private composerFocus = inject(ComposerFocusService);
   protected commandStore = inject(CommandStore);
   private draftService = inject(DraftService);
   private suggestionService = inject(PromptSuggestionService);
@@ -835,6 +840,23 @@ export class InputPanelComponent implements OnDestroy {
           this.editMessageIndex.set(null);
         }
         this.resetPromptRecall({ restoreStash: false });
+      });
+    });
+    // Opening a session from the list, or starting a new one, asks for the
+    // caret to land here. The request can arrive before this composer is
+    // mounted or before its view has rendered the new session, so focus waits
+    // for the next render. Caret goes to the end so a saved draft continues.
+    effect(() => {
+      const request = this.composerFocus.pending();
+      if (!request || request.target !== this.instanceId()) return;
+      untracked(() => {
+        this.composerFocus.consume(request);
+        afterNextRender(() => {
+          const textarea = this.textareaRef()?.nativeElement;
+          if (!textarea || textarea.disabled) return;
+          textarea.focus();
+          textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+        }, { injector: this.injector });
       });
     });
     effect(() => {

@@ -31,7 +31,7 @@ function fixture(overrides: { load?: number; usage?: boolean; claimed?: boolean;
       isWaitingForUsage: () => overrides.usage ?? false, isClaimed: () => overrides.claimed ?? false,
       checklistTurns: new Set(overrides.turns ?? []), finishLandingCleanup,
       breaker: { canStart: () => overrides.breaker ?? true, started: () => undefined },
-      keptFolders: { retryDue: () => undefined }, discardedRefs: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined },
+      keptFolders: { retryDue: () => undefined }, discardedRefs: { sweepDue: () => undefined }, recoveryCopies: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined },
     } as never,
     triage: null, getRun: () => run, getItem: id => items.find(item => item.id === id)!,
     transition: (item, state, patch) => Object.assign(item, patch, { state }),

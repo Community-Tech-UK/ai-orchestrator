@@ -75,7 +75,7 @@ describe('Plan Queue tool operation adoption routing', () => {
     expect(createPlanQueueToolOperations(() => coordinator).status('caller', 'run')).not.toHaveProperty('queueHealth');
     expect(overview.queueHealth).not.toHaveProperty('notice');
     const quiet = coordinator.getQueueHealth();
-    vi.mocked(coordinator.getQueueHealth).mockReturnValue({ ...quiet, testMachine: { label: 'the PC', ranThere: NOTHING, movedToMac: NOTHING, unreachable: true } });
+    vi.mocked(coordinator.getQueueHealth).mockReturnValue({ ...quiet, testMachine: { label: 'the PC', ranThere: NOTHING, movedToMac: NOTHING, iphone: NOTHING, unreachable: true } });
     const moved = createPlanQueueToolOperations(() => coordinator).status('caller') as { queueHealth: Record<string, string> };
     expect(moved.queueHealth['notice']).toContain("the PC can't be reached");
   });

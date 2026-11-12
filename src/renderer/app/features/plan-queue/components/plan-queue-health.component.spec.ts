@@ -61,7 +61,7 @@ describe('PlanQueueHealthComponent', () => {
 
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
     fixture.componentRef.setInput('health', {
-      ...empty, testMachine: { label: 'the Windows PC', ranThere: NOTHING, movedToMac: NOTHING, unreachable: false },
+      ...empty, testMachine: { label: 'the Windows PC', ranThere: NOTHING, movedToMac: NOTHING, iphone: NOTHING, unreachable: false },
     });
     fixture.detectChanges();
     expect(labels()).toEqual(['Refresh', 'Choose where work runs']);
@@ -71,7 +71,7 @@ describe('PlanQueueHealthComponent', () => {
 
   it('shows no notice while tests run where they should', () => {
     fixture.componentRef.setInput('health', {
-      ...empty, testMachine: { label: 'the Windows PC', ranThere: NOTHING, movedToMac: NOTHING, unreachable: false },
+      ...empty, testMachine: { label: 'the Windows PC', ranThere: NOTHING, movedToMac: NOTHING, iphone: NOTHING, unreachable: false },
     });
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.pq-health-notice')).toBeNull();
@@ -79,7 +79,7 @@ describe('PlanQueueHealthComponent', () => {
 
   it('says so, as a status message, when tests have moved to the Mac', () => {
     fixture.componentRef.setInput('health', {
-      ...empty, testMachine: { label: 'the Windows PC', ranThere: NOTHING, movedToMac: NOTHING, unreachable: true },
+      ...empty, testMachine: { label: 'the Windows PC', ranThere: NOTHING, movedToMac: NOTHING, iphone: NOTHING, unreachable: true },
     });
     fixture.detectChanges();
     const notice = fixture.nativeElement.querySelector('.pq-health-notice') as HTMLElement;

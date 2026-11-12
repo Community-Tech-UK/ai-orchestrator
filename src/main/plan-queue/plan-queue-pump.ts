@@ -5,6 +5,7 @@ import type { PlanQueueCheckWait } from '@contracts/schemas/plan-queue';
 import type { PlanQueueDiscardedRefs } from './plan-queue-discard';
 import type { PlanQueueItemFlow } from './plan-queue-item-flow';
 import type { PlanQueueKeptFolders } from './plan-queue-kept-folders';
+import type { PlanQueueRecoveryCopies } from './plan-queue-recovery-copies';
 import type { PlanQueueStore } from './plan-queue-store';
 import type { PlanQueueTriage } from './plan-queue-triage';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
@@ -18,6 +19,7 @@ import { pathCompareKey } from '../util/path-helpers';
 interface QueuePumpHost extends Pick<PlanQueueFlowHost, 'getRun' | 'getItem' | 'transition' | 'notifyParent' | 'resolveRunParent'> {
   store: PlanQueueStore;
   flow: Pick<PlanQueueItemFlow, 'startItem' | 'startVerification' | 'isWaitingForUsage' | 'isClaimed' | 'recheckLandingWait' | 'checklistTurns' | 'breaker' | 'finishLandingCleanup'> & { keptFolders: Pick<PlanQueueKeptFolders, 'retryDue'>; discardedRefs: Pick<PlanQueueDiscardedRefs, 'sweepDue'>;
+    recoveryCopies: Pick<PlanQueueRecoveryCopies, 'sweepDue'>;
     landingRetries: Pick<PlanQueueLandingRetries, 'retryDue'> };
   triage: Pick<PlanQueueTriage, 'isStopping' | 'maybeStart'> | null;
   loadAverage(): number[];
@@ -160,6 +162,7 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
     if (!host.isShuttingDown()) {
       flow.keptFolders.retryDue(store.listItemsWithKeptFolders());
       flow.discardedRefs.sweepDue(() => store.listFoldersWithDiscardedItems());
+      flow.recoveryCopies.sweepDue(() => store.listDocumentFolders());
       void flow.landingRetries.retryDue();
     }
   }

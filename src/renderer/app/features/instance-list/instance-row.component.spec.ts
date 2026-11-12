@@ -123,6 +123,28 @@ describe('InstanceRowComponent — tooltip disclosure', () => {
     expect(query('.leading-indicator').getAttribute('aria-label')).toContain(label);
   });
 
+  it('opens the session on Enter or Space on the row or its name, but not from a button inside it', () => {
+    fixture.componentInstance.hasChildren.set(true);
+    fixture.detectChanges();
+    const rowSelect = vi.fn();
+    fixture.debugElement.query((node) => node.componentInstance instanceof InstanceRowComponent)
+      .componentInstance.instanceSelect.subscribe(rowSelect);
+    const press = (el: HTMLElement, key: string) =>
+      el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+
+    for (const selector of ['.action-btn.terminate', '.action-btn.restart', '.expand-btn']) {
+      press(query(selector), 'Enter');
+      press(query(selector), ' ');
+    }
+    expect(rowSelect).not.toHaveBeenCalled();
+
+    press(query('.instance-row'), 'Enter');
+    press(query('.instance-row'), ' ');
+    press(query('.instance-name'), 'Enter');
+    expect(rowSelect).toHaveBeenCalledTimes(3);
+    expect(rowSelect).toHaveBeenCalledWith('inst-1');
+  });
+
   it('keeps the live activity line alongside canonical status wording', () => {
     liveActivities.set(new Map([['inst-1', 'Reading the project files']]));
     fixture.componentInstance.instance.set(makeInstance({ status: 'processing' }));

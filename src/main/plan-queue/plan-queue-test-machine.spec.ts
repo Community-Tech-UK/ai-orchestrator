@@ -43,6 +43,7 @@ describe('readTestMachineHealth', () => {
       ranThere: { count: 0, of: 0, share: null },
       movedToMac: { count: 0, of: 0, share: null },
       unreachable: false,
+      iphone: { count: 0, of: 0, share: null },
     });
   });
 
@@ -71,6 +72,17 @@ describe('readTestMachineHealth', () => {
     const health = read(folder([run(MIN, 'pc'), run(MIN, 'mac', UNREACHABLE, 'commit'), run(MIN, 'pc', null, 'targeted')]));
     expect(health?.ranThere).toEqual({ count: 1, of: 1, share: 1 });
     expect(health?.movedToMac).toEqual({ count: 0, of: 1, share: 0 });
+  });
+
+  it('counts iPhone work on its own, without letting it touch the test-run figures or the notice', () => {
+    const health = read(folder([
+      run(5 * MIN, 'mac', UNREACHABLE), run(3 * MIN, 'mac', 'the test Mac could not be reached', 'ios'),
+      run(2 * MIN, 'ct-test-mac', null, 'ios'), run(MIN, 'ct-test-mac', null, 'ios'),
+    ]));
+    expect(health?.iphone).toEqual({ count: 2, of: 3, share: 2 / 3 });
+    expect(health?.ranThere).toEqual({ count: 0, of: 1, share: 0 });
+    expect(health?.unreachable).toBe(true);
+    expect(read(folder([run(2 * MIN, 'pc'), run(MIN, 'mac', 'the test Mac could not be reached', 'ios')]))?.unreachable).toBe(false);
   });
 
   it('leaves out runs older than the window', () => {

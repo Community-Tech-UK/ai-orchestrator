@@ -33,7 +33,7 @@ describe('Plan Queue admission wiring', () => {
       const starts: string[] = [];
       const host: Parameters<typeof pumpPlanQueue>[0] = {
         store: { listActiveRuns: () => [run], listAutomaticLandingsInEndedRuns: () => [], listItems: () => items, listItemsWithKeptFolders: () => [], waits: { blocked: () => undefined, explain: () => false, started: () => undefined, prune: () => undefined, paused: () => undefined, waitingSince: () => undefined } } as unknown as PlanQueueStore,
-        flow: { startItem: async item => { starts.push(item.id); }, startVerification: async item => { starts.push(item.id); }, isWaitingForUsage: () => false, isClaimed: () => false, recheckLandingWait: async () => undefined, keptFolders: { retryDue: () => undefined }, breaker: { canStart: () => true, started: () => undefined } as never, discardedRefs: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined }, checklistTurns: new Set<string>(), finishLandingCleanup: async () => undefined },
+        flow: { startItem: async item => { starts.push(item.id); }, startVerification: async item => { starts.push(item.id); }, isWaitingForUsage: () => false, isClaimed: () => false, recheckLandingWait: async () => undefined, keptFolders: { retryDue: () => undefined }, breaker: { canStart: () => true, started: () => undefined } as never, discardedRefs: { sweepDue: () => undefined }, recoveryCopies: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined }, checklistTurns: new Set<string>(), finishLandingCleanup: async () => undefined },
         triage: { isStopping: () => false, maybeStart: () => { starts.push('triage'); } },
         getRun: () => run, getItem: id => items.find(item => item.id === id)!,
         transition: (item, state, patch) => Object.assign(item, patch, { state }),
@@ -62,7 +62,7 @@ describe('Plan Queue admission wiring', () => {
         store: { listActiveRuns: () => runs, listAutomaticLandingsInEndedRuns: () => [], listItems: (id: string) => items.filter(item => item.runId === id), listItemsWithKeptFolders: () => [],
           listFoldersWithDiscardedItems: () => [], waits: { blocked: () => undefined, explain: () => false, started: () => undefined, prune: () => undefined, paused: () => undefined, waitingSince: () => undefined } },
         flow: { startItem: async () => undefined, isWaitingForUsage: () => false, isClaimed: () => false, keptFolders: { retryDue: () => undefined },
-          breaker: { canStart: () => true, started: () => undefined } as never, discardedRefs: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined }, checklistTurns: turns,
+          breaker: { canStart: () => true, started: () => undefined } as never, discardedRefs: { sweepDue: () => undefined }, recoveryCopies: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined }, checklistTurns: turns,
           startVerification: async (item: { id: string; runId: string }) => {
             starts.push(item.id);
             if (runs.find(run => run.id === item.runId)!.config.verifierGates.length) turns.add(item.id);
@@ -211,7 +211,7 @@ describe('Plan Queue admission wiring', () => {
           startVerification: async (item: { id: string }) => { starts.push(`check ${item.id}`); Object.assign(items.find(row => row.id === item.id)!, { state: 'verifying' }); },
           isWaitingForUsage: () => false, isClaimed: () => false,
           recheckLandingWait: async () => undefined, keptFolders: { retryDue: () => undefined }, breaker: { canStart: () => true, started: () => undefined },
-          discardedRefs: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined }, checklistTurns: new Set<string>(), finishLandingCleanup: async () => undefined },
+          discardedRefs: { sweepDue: () => undefined }, recoveryCopies: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined }, checklistTurns: new Set<string>(), finishLandingCleanup: async () => undefined },
         triage: null, getRun: (id: string) => runs.find(run => run.id === id)!, getItem: (id: string) => items.find(item => item.id === id)!,
         transition: (item: object, state: string, patch: object) => Object.assign(item, patch, { state }),
         notifyParent: () => undefined, resolveRunParent: () => 'chat', loadAverage: () => [0, 0, 0], queueFolderLimit: () => limit,
@@ -220,6 +220,18 @@ describe('Plan Queue admission wiring', () => {
       } as unknown as Parameters<typeof pumpPlanQueue>[0];
       return { host, starts, items, waits, runs };
     }
+
+    it('sweeps old recovery copies from the folders of queued documents, but not while shutting down', async () => {
+      const { host } = setUp(4, { a: ['queued'] });
+      const swept: string[][] = [];
+      Object.assign(host.store, { listDocumentFolders: () => ['/repo/docs/plans'] });
+      Object.assign(host.flow, { recoveryCopies: { sweepDue: (folders: () => readonly string[]) => { swept.push([...folders()]); } } });
+      await pumpPlanQueue(host);
+      expect(swept).toEqual([['/repo/docs/plans']]);
+      Object.assign(host, { isShuttingDown: () => true });
+      await pumpPlanQueue(host);
+      expect(swept).toHaveLength(1);
+    });
 
     it('keeps two runs together within the limit, and a job that cannot start waits for a free folder', async () => {
       const { host, starts } = setUp(4, { a: ['working', 'verifying', 'queued', 'queued'], b: ['landing', 'queued', 'queued'] });
@@ -328,7 +340,7 @@ describe('Plan Queue admission wiring', () => {
       const checks: string[] = [];
       const host: Parameters<typeof pumpPlanQueue>[0] = {
         store: { listActiveRuns: () => runs, listAutomaticLandingsInEndedRuns: () => [], listItems: (runId: string) => items.filter(item => item.runId === runId), listItemsWithKeptFolders: () => [], waits: { blocked: () => undefined, explain: () => false, started: () => undefined, prune: () => undefined, paused: () => undefined, waitingSince: () => undefined } } as unknown as PlanQueueStore,
-        flow: { startItem: async () => undefined, startVerification: async item => { checks.push(item.id); }, isWaitingForUsage: () => false, isClaimed: () => false, recheckLandingWait: async () => undefined, keptFolders: { retryDue: () => undefined }, breaker: { canStart: () => true, started: () => undefined } as never, discardedRefs: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined }, checklistTurns: new Set<string>(), finishLandingCleanup: async () => undefined },
+        flow: { startItem: async () => undefined, startVerification: async item => { checks.push(item.id); }, isWaitingForUsage: () => false, isClaimed: () => false, recheckLandingWait: async () => undefined, keptFolders: { retryDue: () => undefined }, breaker: { canStart: () => true, started: () => undefined } as never, discardedRefs: { sweepDue: () => undefined }, recoveryCopies: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined }, checklistTurns: new Set<string>(), finishLandingCleanup: async () => undefined },
         triage: null,
         getRun: id => runs.find(run => run.id === id)!, getItem: id => items.find(item => item.id === id)!,
         transition: (item, state, patch) => Object.assign(item, patch, { state }),
@@ -366,7 +378,7 @@ describe('Plan Queue admission wiring', () => {
       const host: Parameters<typeof pumpPlanQueue>[0] = {
         store,
         flow: { startItem: async item => { starts.push(item.id); store.upsertItem({ ...item, state: 'preparing' }); }, startVerification: async () => undefined,
-          isWaitingForUsage: () => false, isClaimed: () => false, recheckLandingWait: async () => undefined, keptFolders: { retryDue: () => undefined }, breaker: { canStart: () => true, started: () => undefined } as never, discardedRefs: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined }, checklistTurns: new Set<string>(), finishLandingCleanup: async () => undefined },
+          isWaitingForUsage: () => false, isClaimed: () => false, recheckLandingWait: async () => undefined, keptFolders: { retryDue: () => undefined }, breaker: { canStart: () => true, started: () => undefined } as never, discardedRefs: { sweepDue: () => undefined }, recoveryCopies: { sweepDue: () => undefined }, landingRetries: { retryDue: async () => undefined }, checklistTurns: new Set<string>(), finishLandingCleanup: async () => undefined },
         triage: null, getRun: () => run, getItem: id => store.getItem(id)!,
         transition: (item, state, patch) => store.getItem(item.id) ?? Object.assign(item, patch, { state }),
         notifyParent: () => undefined, resolveRunParent: () => 'chat',

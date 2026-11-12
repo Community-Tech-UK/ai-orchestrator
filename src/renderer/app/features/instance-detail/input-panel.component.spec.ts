@@ -22,6 +22,7 @@ import { ActionDispatchService } from '../../core/services/action-dispatch.servi
 import { AppIpcService } from '../../core/services/ipc/app-ipc.service';
 import { InstanceStore } from '../../core/state/instance.store';
 import { DraftService } from '../../core/services/draft.service';
+import { ComposerFocusService } from '../../core/services/composer-focus.service';
 import { KeybindingService } from '../../core/services/keybinding.service';
 import { OrchestrationIpcService } from '../../core/services/ipc';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
@@ -437,6 +438,49 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.input-hints')?.textContent).toContain('Compacting the conversation');
     expect(fixture.nativeElement.querySelector('.input-hints')?.textContent).not.toContain('Codex');
+  });
+
+  describe('focus requests from opening a session', () => {
+    it('puts the caret at the end of this session\'s message box', () => {
+      draftService.drafts.set('inst-1', 'Half-written note');
+      draftService.textVersion.update((v) => v + 1);
+      fixture.detectChanges();
+
+      TestBed.inject(ComposerFocusService).request('inst-1');
+      fixture.detectChanges();
+
+      const textarea = getTextarea();
+      expect(document.activeElement).toBe(textarea);
+      expect(textarea.selectionStart).toBe('Half-written note'.length);
+      expect(TestBed.inject(ComposerFocusService).pending()).toBeNull();
+    });
+
+    it('leaves a request for another session pending and does not take focus', () => {
+      const focus = TestBed.inject(ComposerFocusService);
+      focus.request('inst-2');
+      fixture.detectChanges();
+
+      expect(document.activeElement).not.toBe(getTextarea());
+      expect(focus.pending()).toEqual({ target: 'inst-2' });
+    });
+
+    it('focuses once the shared message box switches to the requested session', () => {
+      TestBed.inject(ComposerFocusService).request('inst-2');
+      fixture.detectChanges();
+      fixture.componentRef.setInput('instanceId', 'inst-2');
+      fixture.detectChanges();
+
+      expect(document.activeElement).toBe(getTextarea());
+    });
+
+    it('does not focus a disabled message box', () => {
+      fixture.componentRef.setInput('disabled', true);
+      fixture.detectChanges();
+      TestBed.inject(ComposerFocusService).request('inst-1');
+      fixture.detectChanges();
+
+      expect(document.activeElement).not.toBe(getTextarea());
+    });
   });
 
   it('resizes the latest textarea when the composer remounts with a restored draft', () => {

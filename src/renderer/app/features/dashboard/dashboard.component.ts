@@ -47,6 +47,7 @@ import { SideChatPanelComponent } from '../side-chat/side-chat-panel.component';
 import { isSourceControlEligible } from '../source-control/source-control-eligibility';
 import { SourceControlStore } from '../../core/state/source-control.store';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
+import { ComposerFocusService } from '../../core/services/composer-focus.service';
 import { SidebarHeaderComponent } from './sidebar-header.component';
 import { SidebarNavComponent } from './sidebar-nav.component';
 import { SidebarFooterComponent } from './sidebar-footer.component';
@@ -106,6 +107,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   keybindingService = inject(KeybindingService);
   private viewLayoutService = inject(ViewLayoutService);
   private newSessionDraft = inject(NewSessionDraftService);
+  private composerFocus = inject(ComposerFocusService);
   private scratchDirectory = inject(ScratchDirectoryService);
   private visibleInstanceResolver = inject(VisibleInstanceResolver);
   private modelPickerFocusService = inject(ModelPickerFocusService);
@@ -536,6 +538,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
       hintWorkspace: !workingDirectory || !this.scratchDirectory.isScratch(workingDirectory),
     });
     this.store.setSelectedInstance(null);
+    this.composerFocus.request('new');
   }
 
   private getCurrentProjectContext(): DashboardProjectContext | null {

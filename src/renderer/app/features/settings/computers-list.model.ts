@@ -168,6 +168,7 @@ export function describeToday(today: WorkToday, label: string): string[] {
   const lines = [
     ...(today.testRuns.there + today.testRuns.here > 0 ? [`Test runs: ${where(today.testRuns)}.`] : []),
     ...(today.checks.there + today.checks.here > 0 ? [`Checks: ${where(today.checks)}.`] : []),
+    ...(today.iphone.there + today.iphone.here > 0 ? [`iPhone builds and simulators: ${where(today.iphone)}.`] : []),
     ...(today.shortRunsHere > 0
       ? [`Short test runs here: ${today.shortRunsHere}. They finish sooner on this Mac than they would there.`]
       : []),

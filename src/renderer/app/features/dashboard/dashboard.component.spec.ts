@@ -20,6 +20,7 @@ import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service
 import { KeybindingService } from '../../core/services/keybinding.service';
 import { ModelPickerFocusService } from '../models/model-picker-focus.service';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
+import { ComposerFocusService } from '../../core/services/composer-focus.service';
 import { ScratchDirectoryService } from '../../core/services/scratch-directory.service';
 import { ViewLayoutService, type WorkspacePreset } from '../../core/services/view-layout.service';
 import { VisibleInstanceResolver } from '../../core/services/visible-instance-resolver.service';
@@ -288,6 +289,7 @@ describe('DashboardComponent', () => {
     const component = TestBed.runInInjectionContext(() => new DashboardComponent());
     await component.createGeneralChat(true);
     expect(TestBed.inject(NewSessionDraftService).open).toHaveBeenCalledWith('/scratch', null, { hintWorkspace: false });
+    expect(TestBed.inject(ComposerFocusService).pending()).toEqual({ target: 'new' });
     component.ngOnDestroy();
   });
 

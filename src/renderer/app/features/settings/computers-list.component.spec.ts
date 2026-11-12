@@ -38,7 +38,7 @@ const MACHINE: TestMachineView = {
 const TEST_MAC: TestMachineView = { ...MACHINE, host: 'ct-test-mac', platform: 'darwin', label: 'the test Mac', nodeName: null };
 const ALL_MACHINES = [MACHINE, TEST_MAC];
 const TODAY: WorkToday = {
-  testRuns: { there: 59, here: 8 }, checks: { there: 4, here: 0 }, shortRunsHere: 0,
+  testRuns: { there: 59, here: 8 }, checks: { there: 4, here: 0 }, iphone: { there: 0, here: 0 }, shortRunsHere: 0,
   hereBecause: [{ reason: 'the Windows PC could not be reached', count: 8 }],
 };
 

@@ -113,7 +113,7 @@ describe('the Computers list', () => {
 
   it('puts today\'s work into sentences, and says so when nothing has run', () => {
     const today: WorkToday = {
-      testRuns: { there: 59, here: 8 }, checks: { there: 0, here: 0 }, shortRunsHere: 140,
+      testRuns: { there: 59, here: 8 }, checks: { there: 0, here: 0 }, iphone: { there: 0, here: 0 }, shortRunsHere: 140,
       hereBecause: [{ reason: 'the Windows PC is paused', count: 8 }],
     };
     expect(describeToday(today, 'the Windows PC')).toEqual([
@@ -121,7 +121,12 @@ describe('the Computers list', () => {
       'Short test runs here: 140. They finish sooner on this Mac than they would there.',
       '8 ran here because the Windows PC is paused.',
     ]);
-    expect(describeToday({ testRuns: { there: 0, here: 0 }, checks: { there: 0, here: 0 }, shortRunsHere: 0, hereBecause: [] }, 'x'))
+    // iPhone work only goes to a test Mac, so it shows with several test machines, named together.
+    expect(describeToday({ ...today, testRuns: { there: 0, here: 0 }, shortRunsHere: 0, hereBecause: [], iphone: { there: 3, here: 1 } }, 'your test machines'))
+      .toEqual(['iPhone builds and simulators: 3 on your test machines, 1 here.']);
+    expect(describeToday({
+      testRuns: { there: 0, here: 0 }, checks: { there: 0, here: 0 }, iphone: { there: 0, here: 0 }, shortRunsHere: 0, hereBecause: [],
+    }, 'x'))
       .toEqual(['Nothing has run today.']);
   });
 });

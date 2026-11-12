@@ -475,6 +475,17 @@ describe('PlanQueueStore', () => {
     expect(store.listItems('run-1').map((i) => i.id).sort()).toEqual(['owner', 'plain']);
   });
 
+  it('lists each folder holding a queued document or its linked spec once, including ended runs and finished jobs', () => {
+    store.upsertRun(makeRun());
+    store.upsertRun(makeRun({ id: 'run-2', status: 'completed', endedAt: 2_000 }));
+    store.upsertItem(makeItem({ id: 'a', state: 'landed' }));
+    store.upsertItem(makeItem({ id: 'b', sourceRef: '/repo/docs/plans/b_plan.md' }));
+    store.upsertItem(makeItem({ id: 'c', runId: 'run-2', sourceRef: '/other/notes/c_livetest.md', state: 'skipped' }));
+
+    // Closing a plan retires a spec kept in the sibling specs folder, which leaves its copy there.
+    expect(store.listDocumentFolders().sort()).toEqual(['/other/notes', '/repo/docs/plans', '/repo/docs/specs']);
+  });
+
   it('refuses two items for the same document in one run', () => {
     store.upsertRun(makeRun());
     store.upsertItem(makeItem({ id: 'first' }));

@@ -417,6 +417,8 @@ export const PlanQueueHealthSchema = z.object({
     movedToMac: HealthShareSchema,
     /** The latest run couldn't reach the test machine, so tests are running on the Mac. */
     unreachable: z.boolean(),
+    /** Of iPhone builds and simulator jobs, those that ran on the test Mac rather than here. */
+    iphone: HealthShareSchema,
   }).optional(),
 });
 

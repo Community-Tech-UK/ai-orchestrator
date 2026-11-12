@@ -10,6 +10,12 @@ export interface DocumentFileIdentity {
 }
 const same = (a: disk.Stats, b: disk.Stats): boolean => a.dev === b.dev && a.ino === b.ino && a.mode === b.mode;
 
+/** `.<name>.aio-retained-<uuid>` holds the version an update replaced; `.aio-prepared-` is unpublished output left by a failure. */
+const recoveryCopyName = (file: string, kind: 'retained' | 'prepared'): string => `.${path.basename(file)}.aio-${kind}-${randomUUID()}`;
+const RECOVERY_COPY_NAME = /^\..+\.aio-(?:retained|prepared)-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+/** True only for a name `changeDocumentFile` writes beside a document. */
+export const isRecoveryCopyName = (name: string): boolean => RECOVERY_COPY_NAME.test(name);
+
 export function documentFileIdentity(file: string): DocumentFileIdentity {
   file = path.resolve(file);
   const ancestors: DocumentFileIdentity['ancestors'] = [];
@@ -44,19 +50,20 @@ export function assertDocumentFileUnchanged(identity: DocumentFileIdentity, expe
  * There is no portable compare-and-unlink/replace syscall. Move the original to
  * a unique retained name, verify what was actually moved, then create exclusively.
  * Retain that inode even on success: a writer that opened it before the claim may
- * append later. These recovery files are never completed documents or auto-deleted.
+ * append later. These recovery files are never completed documents; the queue deletes
+ * them a week after they were last changed (plan-queue-recovery-copies.ts).
  * No await separates the last validation and claim; post-claim validation also
  * catches external writers/replacements. A racing new active file is never replaced.
  */
 export function changeDocumentFile(identity: DocumentFileIdentity, before: Buffer, after: string | Buffer | null): void {
   if (!unchanged(identity, identity.file, before)) throw new Error('The document changed while preparing the update; check it again.');
-  const retained = path.join(path.dirname(identity.file), `.${path.basename(identity.file)}.aio-retained-${randomUUID()}`);
+  const retained = path.join(path.dirname(identity.file), recoveryCopyName(identity.file, 'retained'));
   disk.renameSync(identity.file, retained);
   try {
     if (!unchanged(identity, retained, before)) throw new Error('The document changed while applying the update; check it again.');
     if (after !== null) {
       // Publish complete bytes exclusively: never expose an empty active file to another writer.
-      const temporary = path.join(path.dirname(identity.file), `.${path.basename(identity.file)}.aio-prepared-${randomUUID()}`);
+      const temporary = path.join(path.dirname(identity.file), recoveryCopyName(identity.file, 'prepared'));
       const bytes = typeof after === 'string' ? Buffer.from(after, 'utf8') : after;
       const fd = disk.openSync(temporary, disk.constants.O_WRONLY | disk.constants.O_CREAT | disk.constants.O_EXCL | disk.constants.O_NOFOLLOW, identity.stat.mode & 0o777);
       const output = { ...identity, stat: disk.fstatSync(fd) };

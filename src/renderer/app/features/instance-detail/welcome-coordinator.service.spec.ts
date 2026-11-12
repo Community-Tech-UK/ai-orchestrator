@@ -6,6 +6,7 @@ import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { RecentDirectoriesIpcService, VcsIpcService } from '../../core/services/ipc';
 import { ProviderStateService } from '../../core/services/provider-state.service';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
+import { ComposerFocusService } from '../../core/services/composer-focus.service';
 import { OrchestrationIpcService } from '../../core/services/ipc';
 import { FileAttachmentService } from './file-attachment.service';
 import { WelcomeCoordinatorService } from './welcome-coordinator.service';
@@ -209,6 +210,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     expect(newSessionDraft.clearActiveComposer).toHaveBeenCalled();
     expect(recentDirs.addDirectory).toHaveBeenCalledWith('/repo', undefined);
     expect(creatingStates).toEqual([true]);
+    expect(TestBed.inject(ComposerFocusService).pending()).toEqual({ target: 'inst-new' });
   });
 
   it('creates a blank welcome session before starting loop mode', async () => {
@@ -249,6 +251,19 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     expect(newSessionDraft.clearActiveComposer).toHaveBeenCalled();
     expect(recentDirs.addDirectory).toHaveBeenCalledWith('/repo', undefined);
     expect(creatingStates).toEqual([true]);
+    expect(TestBed.inject(ComposerFocusService).pending()).toEqual({ target: 'inst-new' });
+  });
+
+  it('asks for the new session\'s message box as soon as it exists, before the slower follow-up work', async () => {
+    const focus = TestBed.inject(ComposerFocusService);
+    let pendingDuringFollowUp: unknown = 'not reached';
+    recentDirs.addDirectory.mockImplementationOnce(async () => { pendingDuringFollowUp = focus.pending(); });
+
+    const result = await service.submitWelcomeMessage('Start here', vi.fn());
+
+    expect(result).toEqual({ ok: true, instanceId: 'inst-new' });
+    expect(pendingDuringFollowUp).toEqual({ target: 'inst-new' });
+    expect(focus.pending()).toEqual({ target: 'inst-new' });
   });
 
   it('passes interactive launch mode through normal welcome session creation', async () => {
@@ -474,6 +489,7 @@ describe('WelcomeCoordinatorService workflow launch', () => {
     expect(launched).toBe(false);
     expect(store.createInstanceWithMessageAndReturnId).not.toHaveBeenCalled();
     expect(orchestration.workflowCanTransition).not.toHaveBeenCalled();
+    expect(TestBed.inject(ComposerFocusService).pending()).toBeNull();
     expect(store.setError).toHaveBeenCalledWith(
       'Interactive Claude sessions are human-driven and cannot start workflows. Switch to Orchestrated to use workflows.',
     );

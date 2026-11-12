@@ -9,7 +9,9 @@
  * exists"; a swallowed write error would let an unowned worktree be created.
  */
 
+import * as path from 'node:path';
 import { getLogger } from '../logging/logger';
+import { linkedSpecPaths } from './plan-queue-document-review';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { DEFAULT_PLAN_QUEUE_CONFIG, PlanQueueRoundActivitySchema } from '@contracts/schemas/plan-queue';
 import type {
@@ -506,6 +508,12 @@ export class PlanQueueStore {
       SELECT DISTINCT run.workspace_cwd AS folder FROM plan_queue_items item
       JOIN plan_queue_runs run ON run.id = item.run_id WHERE item.discarded_at IS NOT NULL
     `).all<{ folder: string }>().map(row => row.folder);
+  }
+
+  /** Folders where updates leave recovery copies: those of every document any job has worked on, and of its linked spec. */
+  listDocumentFolders(): string[] {
+    const documents = this.db.prepare('SELECT DISTINCT document_path FROM plan_queue_items').all<{ document_path: string }>();
+    return [...new Set(documents.flatMap(({ document_path: file }) => [file, ...linkedSpecPaths(file)].map(entry => path.dirname(entry))))];
   }
 
   /** Every item that has ever been given a branch or worktree, across all runs. */

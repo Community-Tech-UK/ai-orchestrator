@@ -35,6 +35,8 @@ import { PromptModalComponent } from '../../shared/components/prompt-modal/promp
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
 import type { RecentDirectoryEntry } from '../../../../shared/types/recent-directories.types';
 import { NewSessionDraftService } from '../../core/services/new-session-draft.service';
+import { ComposerFocusService } from '../../core/services/composer-focus.service';
+import { ChatStore } from '../../core/state/chat.store';
 import { HistoryRailService, type HistoryProviderVisual } from './history-rail.service';
 import {
   type HistoryTimeWindow,
@@ -81,6 +83,7 @@ import {
   saveStatusFilter,
 } from './instance-list-preferences';
 import { getSystemFileManagerLabel } from '../instance-detail/output-stream.utils';
+import { getHistoryPreviewInstanceId } from '../instance-detail/instance-detail-history-preview.utils';
 import { computeProjectMenuPosition, type ProjectMenuPosition } from './project-menu-position';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
@@ -105,6 +108,8 @@ export class InstanceListComponent implements OnDestroy {
   protected readonly remoteNodeStore = inject(RemoteNodeStore);
   protected readonly historyRail = inject(HistoryRailService);
   private newSessionDraft = inject(NewSessionDraftService);
+  private composerFocus = inject(ComposerFocusService);
+  private chatStore = inject(ChatStore);
   private projectRailBuilder = inject(ProjectRailBuilderService);
   private projectRailPaths = inject(ProjectRailPathService);
   private visibleInstanceResolver = inject(VisibleInstanceResolver);
@@ -409,6 +414,7 @@ export class InstanceListComponent implements OnDestroy {
     this.closeProjectMenu({ restoreFocus: false });
     this.historyStore.clearSelection();
     this.store.setSelectedInstance(instanceId);
+    this.composerFocus.request(instanceId);
   }
 
   /**
@@ -920,10 +926,14 @@ export class InstanceListComponent implements OnDestroy {
     event.preventDefault();
     event.stopPropagation();
     this.closeProjectMenu({ restoreFocus: false });
+    // An open chat covers the new-session screen, so close it as the
+    // sidebar's main new-session button does.
+    this.chatStore.deselect();
     this.historyStore.clearSelection();
     const nodeId = this.getProjectNodeId(group);
     this.newSessionDraft.open(group.path, nodeId);
     this.store.setSelectedInstance(null);
+    this.composerFocus.request('new');
   }
 
   private getProjectNodeId(group: ProjectGroup): string | null {
@@ -1108,6 +1118,7 @@ export class InstanceListComponent implements OnDestroy {
     }
 
     this.store.setSelectedInstance(null);
+    this.composerFocus.request(getHistoryPreviewInstanceId(entryId));
   }
 
   private shouldSelectRestoredHistory(

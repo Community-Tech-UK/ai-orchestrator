@@ -20,6 +20,8 @@ export interface TestMachineView {
 export interface WorkToday {
   testRuns: { there: number; here: number };
   checks: { there: number; here: number };
+  /** iPhone builds and simulator work. `here` ran on this Mac because the test Mac was away, or a person asked. */
+  iphone: { there: number; here: number };
   /** Short test runs, which are quicker here and never try another computer. */
   shortRunsHere: number;
   /** Why work ran here that could have gone elsewhere, most common first. */

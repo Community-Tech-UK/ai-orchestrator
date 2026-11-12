@@ -292,4 +292,4 @@ async function runOnMachines(machines, options) {
   return { ok: false, reason: reasons.join('; ') || 'no test machine takes this work' };
 }
 
-module.exports = { runOnMachines, runOnRemote };
+module.exports = { runOnMachines, runOnRemote, sendSnapshot, sshCommand };

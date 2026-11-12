@@ -15,6 +15,8 @@ const MAC_ONLY_SPECS = [
   // Undistilled's recipe exists only on a Mac.
   'scripts/remote-checks/harness-remote-check.spec.ts',
   'scripts/remote-checks/remote-run.linux.spec.ts',
+  // iPhone work only ever runs on a Mac, and its stand-in test Mac needs PlistBuddy.
+  'scripts/remote-ios/remote-ios.darwin.spec.ts',
   // Needs the plan lifecycle guard from James's home folder; a test Mac needs a copy at the same path.
   'src/main/plan-queue/plan-queue-history-landing.spec.ts',
 ];

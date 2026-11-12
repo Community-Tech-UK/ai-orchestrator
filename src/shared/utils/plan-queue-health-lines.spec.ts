@@ -38,6 +38,7 @@ describe('Queue health wording', () => {
   describe('the test machine', () => {
     const testMachine = {
       label: 'the Windows PC', ranThere: { count: 27, of: 34, share: 27 / 34 }, movedToMac: { count: 0, of: 27, share: 0 }, unreachable: false,
+      iphone: { count: 0, of: 0, share: null },
     };
     const lineFor = (machine: PlanQueueHealth['testMachine']) => Object.fromEntries(
       describeQueueHealth({ ...health, testMachine: machine }).lines.map(line => [line.label, line.value]));
@@ -47,6 +48,12 @@ describe('Queue health wording', () => {
         'Full test runs on the Windows PC': '79% (27 of 34 full test runs)', 'Full test runs that moved to the Mac': 'None',
       });
       expect(Object.keys(lineFor(undefined)).filter(label => label.startsWith('Full test runs'))).toEqual([]);
+    });
+
+    it('says where iPhone work went only once there has been some', () => {
+      expect(lineFor(testMachine)['iPhone builds and simulators on the test Mac']).toBeUndefined();
+      expect(lineFor({ ...testMachine, iphone: { count: 9, of: 10, share: 0.9 } })['iPhone builds and simulators on the test Mac'])
+        .toBe('90% (9 of 10 iPhone jobs)');
     });
 
     it('counts runs that moved to the Mac', () => {

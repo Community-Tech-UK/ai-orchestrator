@@ -384,6 +384,19 @@ export class InstanceRowComponent {
     return presentation.inProgress || presentation.needsYou ? describeInstanceStatus(presentation) : '';
   });
 
+  /**
+   * Enter or Space on the row (or its focusable name) opens the session. The
+   * row's buttons (close, restart, expand) sit inside it, so their key presses
+   * bubble here too; opening the session then would also move the cursor into
+   * its message box, behind the close confirmation.
+   */
+  onRowKey(event: Event): void {
+    if (event.target instanceof Element && event.target.closest('button')) {
+      return;
+    }
+    this.instanceSelect.emit(this.instance().id);
+  }
+
   onTerminate(event: Event): void {
     event.stopPropagation();
     this.terminate.emit(this.instance().id);

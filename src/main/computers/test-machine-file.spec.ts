@@ -108,16 +108,20 @@ describe('where today\'s work went', () => {
       { at: at(1), ranOn: 'mac', kind: 'checks', fellBackBecause: 'checks are turned off for the Windows PC' },
       { at: at(1), ranOn: 'mac', kind: 'local' },
       { at: at(1), ranOn: 'mac', kind: 'local' },
+      { at: at(1), ranOn: 'ct-test-mac', kind: 'ios' },
+      { at: at(1), ranOn: 'mac', kind: 'ios', fellBackBecause: 'the test Mac could not be reached' },
       { at: at(30), ranOn: 'mac', fellBackBecause: 'yesterday' },
     ], NOW);
     expect(summary).toEqual({
       testRuns: { there: 2, here: 3 },
       checks: { there: 1, here: 1 },
+      iphone: { there: 1, here: 1 },
       shortRunsHere: 2,
       hereBecause: [
         { reason: 'the Windows PC is paused', count: 2 },
         { reason: 'the Windows PC could not be reached', count: 1 },
         { reason: 'checks are turned off for the Windows PC', count: 1 },
+        { reason: 'the test Mac could not be reached', count: 1 },
       ],
     });
   });
