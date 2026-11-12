@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-02-worktree-cleanup-gaps_plan_livetest.md",
+      "sha256": "333b277ec38043285079d22a1fdf3255c33f5b3b04f1b12c9f93e931fa030836",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-02-worktree-cleanup-gaps_plan_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-02-worktree-cleanup-gaps_plan_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-02-worktree-cleanup-gaps_plan_livetest_completed.md",
+      "sha256": "791b22923d4b275e4fe0bd8fcbdfb4d324bfc713dee491d3b0fd440a7451b979"
+    }
+  ]
+}
