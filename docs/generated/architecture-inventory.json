@@ -6479,7 +6479,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 2005
+      "lines": 1995
     },
     {
       "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
@@ -6614,10 +6614,6 @@
       "lines": 1516
     },
     {
-      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
-      "lines": 1515
-    },
-    {
       "path": "src/main/mcp/orchestrator-tools-rpc-server.spec.ts",
       "lines": 1513
     },
@@ -6628,6 +6624,10 @@
     {
       "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
       "lines": 1475
+    },
+    {
+      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
+      "lines": 1466
     },
     {
       "path": "src/main/browser-gateway/browser-extension-origin-bound-secret.spec.ts",
@@ -6684,6 +6684,10 @@
     {
       "path": "src/main/browser-gateway/browser-extension-accessibility-frames.spec.ts",
       "lines": 1376
+    },
+    {
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.spec.ts",
+      "lines": 1374
     },
     {
       "path": "src/main/mcp/__tests__/orchestrator-tools.spec.ts",
@@ -6762,10 +6766,6 @@
       "lines": 1319
     },
     {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.spec.ts",
-      "lines": 1319
-    },
-    {
       "path": "src/renderer/app/features/knowledge/knowledge-page.component.ts",
       "lines": 1319
     },
@@ -6838,6 +6838,10 @@
       "lines": 1256
     },
     {
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
+      "lines": 1250
+    },
+    {
       "path": "src/worker-agent/worker-node-exec-policy.spec.ts",
       "lines": 1250
     },
@@ -6848,10 +6852,6 @@
     {
       "path": "docs/plans/2026-05-12-loop-terminal-control-spec_completed.md",
       "lines": 1246
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.scss",
-      "lines": 1244
     },
     {
       "path": "docs/superpowers/plans/2026-04-26-mode-picker-relocation_completed.md",
@@ -7010,15 +7010,15 @@
       "lines": 1136
     },
     {
+      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
+      "lines": 1134
+    },
+    {
       "path": "src/main/review/local-review-tool-runner.spec.ts",
       "lines": 1131
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.spec.ts",
-      "lines": 1128
-    },
-    {
-      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
       "lines": 1128
     },
     {

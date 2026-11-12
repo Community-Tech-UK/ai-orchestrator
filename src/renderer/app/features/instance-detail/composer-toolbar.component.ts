@@ -6,7 +6,9 @@
  *   (a) Context-usage ring — small circular SVG indicator of context window % used
  *   (b) Model picker — reuses CompactModelPickerComponent in pending-create mode
  *   (c) Account chip — which Claude/Codex pool account the session runs on, with
- *       an explicit switch (same control as the header and the draft composer)
+ *       an explicit switch (same control as the draft composer), plus the GitHub
+ *       account a Copilot session is stamped with
+ *   (d) Skills used this session
  *
  * Reasoning effort is owned entirely by the model picker (it exposes the full,
  * provider-aware tier set per model and applies the provider default). The toolbar
@@ -15,8 +17,9 @@
  * silently downgrade providers (e.g. Claude defaults to High).
  *
  * Model/effort changes call InstanceIpcService.changeModel() directly (per-instance
- * IPC), which is the same call the instance-header uses. Per-message model switching
- * is not a distinct backend concept; this wires to the per-instance changeModel,
+ * IPC). This toolbar is the only place the model, account and context show for a
+ * session. Per-message model switching is not a distinct backend concept; this wires
+ * to the per-instance changeModel,
  * which tears down and respawns the CLI with the new flags and resumes the session,
  * so conversation context is preserved.
  */
@@ -40,6 +43,9 @@ import { ContextDetailsPopoverComponent } from './context-details-popover.compon
 import { DecimalPipe } from '@angular/common';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import { ProviderAccountChipComponent } from '../../shared/components/provider-account-chip.component';
+import { SessionSkillsBadgeComponent } from './session-skills-badge.component';
+import { InstanceStore } from '../../core/state/instance.store';
+import { copilotAccountBadgeFor } from './instance-header-presentation';
 import { InstanceIpcService } from '../../core/services/ipc';
 import { ToastService } from '../../core/services/toast.service';
 import type { AccountRouteSource } from '../../../../shared/types/provider-account.types';
@@ -71,7 +77,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
   selector: 'app-composer-toolbar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CompactModelPickerComponent, ProviderAccountChipComponent, RuntimeChangeConfirmComponent, DecimalPipe, ContextDetailsPopoverComponent, AioTooltipDirective],
+  imports: [CompactModelPickerComponent, ProviderAccountChipComponent, SessionSkillsBadgeComponent, RuntimeChangeConfirmComponent, DecimalPipe, ContextDetailsPopoverComponent, AioTooltipDirective],
   providers: [RuntimeChangePreviewController],
   template: `
     <div class="composer-toolbar-row">
@@ -120,7 +126,7 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
       </button>
 
       @if (contextDetails()?.warningLabel(); as warning) { <button type="button" class="pending-model-chip" (click)="contextOpen.set(true)">{{ warning }}</button> }
-      <app-context-details-popover [instanceId]="instanceId()" [usage]="contextUsage()" [isOpen]="contextOpen()" (closed)="contextOpen.set(false); contextTrigger.focus()" />
+      <app-context-details-popover [instanceId]="instanceId()" [usage]="contextUsage()" [provider]="provider()" [isOpen]="contextOpen()" (closed)="contextOpen.set(false); contextTrigger.focus()" />
       <!-- (b) Model picker -->
       @if (pickerSelection()) {
         <app-compact-model-picker
@@ -148,6 +154,11 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
         [chosenProfileId]="continuationAccountId()"
         (accountChosen)="onContinuationAccount($event)"
       />
+      <!-- The GitHub account a Copilot session is stamped with; the pool chip above covers Claude and Codex. -->
+      @if (copilotAccount(); as account) {
+        <span class="copilot-account-badge" tabindex="0" [appTooltip]="account.title">{{ account.label }}</span>
+      }
+      <app-session-skills-badge [instanceId]="instanceId()" />
 
       @if (provider() === 'claude' && (instanceStatus() === 'idle' || instanceStatus() === 'busy' || instanceStatus() === 'waiting_for_input')) {
         <button type="button" class="quick-ask-trigger" [appTooltip]="copy('quickAsk.button')" (click)="quickAskRequested.emit()">Quick ask</button>
@@ -243,6 +254,19 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * 8;
       opacity: 0.8;
     }
 
+    .copilot-account-badge {
+      display: inline-flex;
+      align-items: center;
+      max-width: min(100%, 220px);
+      padding: 1px 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 999px;
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     app-provider-account-chip {
       display: inline-flex;
       align-items: center;
@@ -276,6 +300,7 @@ export class ComposerToolbarComponent {
   private readonly toast = inject(ToastService);
   protected readonly preview = inject(RuntimeChangePreviewController);
   private readonly historySessions = inject(HistoryPreviewSessionService);
+  private readonly instances = inject(InstanceStore);
   private readonly catalog = inject(UnifiedCatalogStore);
   private readonly liveStatus = signal<{ instanceId: string; text: string } | null>(null);
   private statusTimer: ReturnType<typeof setTimeout> | undefined;
@@ -350,6 +375,11 @@ export class ComposerToolbarComponent {
 
   /** Instance ID — used to call changeModel IPC. */
   instanceId = input.required<string>();
+  /** The Copilot account this live session was stamped with; `null` for a history preview or any other provider. */
+  protected readonly copilotAccount = computed(() => {
+    const instance = this.instances.getInstance(this.instanceId());
+    return instance ? copilotAccountBadgeFor(instance) : null;
+  });
   readonly runtimeIdentity = input<string | undefined>(); // undefined for an archived preview with no live runtime
 
   /** Context usage from the running instance. When absent, ring shows 0%. */

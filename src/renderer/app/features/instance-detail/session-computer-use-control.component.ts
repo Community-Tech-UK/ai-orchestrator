@@ -14,6 +14,11 @@ export interface ComputerUsePresentation {
   relation: 'global' | 'session' | 'elevated' | 'lowered';
 }
 
+/** The app-wide Computer Use level, falling back to `trusted` for a missing or unknown stored value. */
+export function globalComputerUseLevel(value: unknown): ComputerUseAutonomyLevel {
+  return COMPUTER_USE_AUTONOMY_LEVELS.includes(value as ComputerUseAutonomyLevel) ? value as ComputerUseAutonomyLevel : 'trusted';
+}
+
 export function resolveComputerUsePresentation(
   mode: ComputerUseAutonomyLevel | undefined,
   globalLevel: ComputerUseAutonomyLevel,
@@ -51,10 +56,7 @@ export class SessionComputerUseControlComponent {
   readonly compact = input(false);
   readonly pending = signal(false);
   readonly error = signal<string | null>(null);
-  readonly globalLevel = computed<ComputerUseAutonomyLevel>(() => {
-    const value = this.settingsStore.settings().computerUseAutonomyLevel;
-    return COMPUTER_USE_AUTONOMY_LEVELS.includes(value) ? value : 'trusted';
-  });
+  readonly globalLevel = computed(() => globalComputerUseLevel(this.settingsStore.settings().computerUseAutonomyLevel));
   readonly presentation = computed(() => resolveComputerUsePresentation(
     this.instance().computerUseMode,
     this.globalLevel(),

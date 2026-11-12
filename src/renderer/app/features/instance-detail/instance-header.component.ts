@@ -1,6 +1,5 @@
 /** Session header with status, badges, and actions. */
 
-import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import {
   Component,
   input,
@@ -12,37 +11,27 @@ import {
   signal,
   viewChild,
   ElementRef,
-  OnInit,
   ChangeDetectionStrategy
 } from '@angular/core';
 import { StatusIndicatorComponent } from '../instance-list/status-indicator.component';
 import { RecentDirectoriesDropdownComponent } from '../../shared/components/recent-directories-dropdown/recent-directories-dropdown.component';
-import { ContextBarComponent } from './context-bar.component';
-import { CopilotPremiumUsageComponent } from './copilot-premium-usage.component';
-import { FanoutCostComponent } from './fanout-cost.component';
 import { CrossModelReviewIndicatorComponent } from './cross-model-review-indicator.component';
-import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
-import { describeModelSwitchEffect } from '../models/model-switch-note';
-import { DEFAULT_INSTANCE_PROVIDERS } from '../models/provider-menu.constants';
-import { accountFamilyName, computerName, providerName } from '../../../../shared/display-names';
-import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
-import { SkillStore } from '../../core/state/skill.store';
-import { SessionSkillsBadgeComponent } from './session-skills-badge.component';
-import { HookStore } from '../../core/state/hook.store';
+import { computerName } from '../../../../shared/display-names';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
-import type { ContextUsage, Instance } from '../../core/state/instance.store';
-import { getModelShortName, type ModelDisplayInfo } from '../../../../shared/types/provider.types';
+import type { Instance } from '../../core/state/instance.store';
+import { SettingsStore } from '../../core/state/settings.store';
 import { resolveEffectiveInstanceTitle } from '../../../../shared/types/history.types';
-import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
-import { SessionComputerUseControlComponent } from './session-computer-use-control.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
-import { ProviderAccountChipComponent } from '../../shared/components/provider-account-chip.component';
 import { HelpLinkComponent } from '../../shared/help/help-link.component';
+import { globalComputerUseLevel, resolveComputerUsePresentation } from './session-computer-use-control.component';
+import { SessionCostLabelComponent } from './session-cost-label.component';
+import { SessionOptionsMenuComponent } from './session-options-menu.component';
+import type { ComputerUseAutonomyLevel } from '../../../../shared/types/desktop-gateway-settings.types';
+import { agentModeName, remoteNodeTooltip, waitReasonDetail, waitReasonLabel } from './instance-header-presentation';
 import { GlobalPauseStore } from '../../core/state/global-pause/global-pause.store';
-import { formatWaitReasonData } from './instance-header-wait-reason-data';
 
 interface EditorMenuItem {
   type: string;
@@ -52,15 +41,13 @@ interface EditorMenuItem {
 @Component({
   selector: 'app-instance-header',
   standalone: true,
-  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, ContextBarComponent, CopilotPremiumUsageComponent, FanoutCostComponent, CrossModelReviewIndicatorComponent, CompactModelPickerComponent, SessionSkillsBadgeComponent, SessionComputerUseControlComponent, AioTooltipDirective, ProviderAccountChipComponent, HelpLinkComponent],
+  imports: [StatusIndicatorComponent, RecentDirectoriesDropdownComponent, CrossModelReviewIndicatorComponent, SessionCostLabelComponent, SessionOptionsMenuComponent, AioTooltipDirective, HelpLinkComponent],
   templateUrl: './instance-header.component.html',
   styleUrl: './instance-header.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class InstanceHeaderComponent implements OnInit {
-  protected readonly copy = copyFor;
-  private skillStore = inject(SkillStore);
-  private hookStore = inject(HookStore);
+export class InstanceHeaderComponent {
+  private readonly settingsStore = inject(SettingsStore);
   private fileIpc = inject(FileIpcService);
   private electronIpc = inject(ElectronIpcService);
   private readonly remoteNodeStore = inject(RemoteNodeStore);
@@ -73,174 +60,52 @@ export class InstanceHeaderComponent implements OnInit {
   isChangingMode = input(false);
   isTogglingYolo = input(false);
   isTogglingFastMode = input(false);
-  currentModel = input<string | undefined>(undefined);
-  contextUsage = input<ContextUsage | null>(null);
   canShowFileExplorer = input(false);
   isFileExplorerOpen = input(false);
   canShowSourceControl = input(false);
   isSourceControlOpen = input(false);
   sourceControlChangeCount = input(0);
+  /** What flipping auto-approve would cost (the session restarts), when that is worth saying. Shown in Session options. */
+  yoloCostNote = input<string | null>(null);
 
   // Effective display title — delegates to the shared resolver so the header
   // stays in sync with the workspace rail list. See
   // `resolveEffectiveInstanceTitle` in shared/types/history.types.ts.
   readonly displayTitle = computed(() => resolveEffectiveInstanceTitle(this.instance()));
-  readonly modelSwitchNoteForProvider = (target: PickerProvider) => describeModelSwitchEffect({
-    provider: this.isLocalModelRuntime() ? 'local-model' : this.instance().provider, targetProvider: target, hasConversation: this.instance().outputBuffer.some(m => m.type === 'user' || m.type === 'assistant'),
-    usedTokens: this.contextUsage()?.occupancyReported && !this.contextUsage()?.occupancyIsAggregate ? this.contextUsage()!.used : null,
-    residentClaude: this.instance().residentClaude, executionLocationType: this.instance().executionLocation?.type });
 
-  /** The model that proves what a provider's name should read: OpenCode says "MiMo" only on a MiMo plan model. */
-  private readonly nameModel = computed(() => this.currentModel() || this.instance().currentModel);
-
-  readonly interruptTitle = computed(
-    () => `Interrupt ${this.getProviderDisplayName(this.instance().provider, this.nameModel())}`,
-  );
-
-  readonly supportsFastMode = computed(() => {
-    const provider = this.instance().provider;
-    return provider === 'claude' || provider === 'codex';
-  });
-  /**
-   * The GitHub Copilot account this session was STAMPED with at creation.
-   *
-   * Read from the instance record rather than re-resolved: the session is
-   * already pinned, and re-running the rules here would show what a NEW
-   * session would get, which is exactly the confusion this badge exists to
-   * prevent when rules change mid-conversation.
-   */
-  readonly copilotAccountBadge = computed<{ label: string; title: string } | null>(() => {
-    const instance = this.instance();
-    if (instance.provider !== 'copilot' || !instance.copilotAccountProfileId) {
-      return null;
-    }
-    const reason = (() => {
-      switch (instance.copilotRoutingSource) {
-        case 'repository':
-          return 'matched this repository';
-        case 'owner':
-          return 'matched this GitHub owner';
-        case 'path-prefix':
-          return 'matched this folder';
-        case 'explicit':
-          return 'you chose this account';
-        case 'persisted':
-          return 'carried over from when this conversation started';
-        case 'legacy':
-          return 'your existing Copilot sign-in';
-        default:
-          return 'the default account';
-      }
-    })();
-    return {
-      label: instance.copilotAccountProfileId,
-      title: `GitHub Copilot account: ${instance.copilotAccountProfileId} — ${reason}`,
-    };
-  });
-
-  activeSkillCount = computed(() => this.skillStore.activeSkillCount());
-  enabledHookCount = computed(() => this.hookStore.enabledHookCount());
   showOpenMenu = signal(false);
   editorTargets = signal<EditorMenuItem[]>([]);
   isLoadingEditors = signal(false);
   private hasLoadedEditorTargets = false;
 
-  readonly isStartingOrRecovering = computed(() => {
-    const status = this.instance().status;
-    return status === 'initializing'
-      || status === 'respawning'
-      || status === 'interrupting'
-      || status === 'cancelling'
-      || status === 'interrupt-escalating';
-  });
+  readonly waitReasonLabel = computed(() => waitReasonLabel(this.instance().waitReason));
+  readonly waitReasonDetail = computed(() => waitReasonDetail(this.instance().waitReason));
 
-  readonly waitReasonLabel = computed(() => {
-    const wr = this.instance().waitReason;
-    if (!wr) return null;
-    switch (wr.kind) {
-      case 'respawning':
-        return wr.strategy === 'native-resume' ? 'Resuming session…' : 'Restarting session…';
-      case 'interrupt-ack':
-        return 'Waiting for interrupt…';
-      case 'backoff': {
-        const secsLeft = Math.max(0, Math.round((wr.retryAt - Date.now()) / 1000));
-        return secsLeft > 0 ? `Backing off — retry in ${secsLeft}s` : 'Retrying…';
-      }
-      // 'quota-park' and 'auth-required' render as banners above the composer
-      // (input-panel), not here.
-      case 'quota-park':
-      case 'auth-required':
-        return null;
-      case 'provider-slot':
-        return `Waiting for another ${providerName(wr.provider)} session to finish…`;
-      case 'resume-proof':
-        return 'Verifying session resume…';
-      case 'remote-heartbeat':
-        return 'Waiting for its computer to reconnect…';
-      case 'mutex':
-        return 'Finishing the previous action…';
-      case 'terminating':
-        return wr.force ? 'Force terminating…' : 'Terminating…';
-      default:
-        return null;
-    }
-  });
-
-  readonly waitReasonDetail = computed(() => {
-    const wr = this.instance().waitReason;
-    if (!wr) return '';
-    switch (wr.kind) {
-      case 'respawning':
-        return `Strategy: ${wr.strategy}`;
-      case 'interrupt-ack':
-        return `Attempt ${wr.attempt}`;
-      case 'backoff':
-        return `Attempt ${wr.attempt}, retry at ${this.waitReasonData.time}`;
-      case 'quota-park':
-        return `${accountFamilyName(wr.provider)} allowance resets at ${this.waitReasonData.time}`;
-      case 'auth-required':
-        return `Signed out of ${accountFamilyName(wr.provider)} since ${this.waitReasonData.time}`;
-      case 'provider-slot':
-        return `Waiting on ${providerName(wr.provider)}`;
-      case 'resume-proof':
-        return wr.sessionId ? `Session: ${this.waitReasonData.sessionId}…` : `Checking ${providerName(wr.provider)}`;
-      case 'remote-heartbeat':
-        return `No reply for ${this.waitReasonData.staleSeconds}s`;
-      case 'mutex':
-        return wr.owner ? `Owner: ${wr.owner}` : wr.operation;
-      case 'terminating':
-        return wr.force ? 'Force kill' : 'Graceful shutdown';
-      default:
-        return '';
-    }
-  });
-  private get waitReasonData() { return formatWaitReasonData(this.instance().waitReason); } // runtime values only; wording stays in waitReasonDetail
-
-  readonly isRuntimeLocked = computed(() => {
-    const status = this.instance().status;
-    return status === 'busy' || this.isStartingOrRecovering();
-  });
-
-  /**
-   * A YOLO change is queued (requested while busy) and will apply on the next
-   * idle. Drives the ⚡ button's pending affordance.
-   */
+  // Chips: shown only when a setting is not its normal value, so a default session has none.
+  /** A change to Auto-approve is queued (requested while busy) and applies on the next idle. */
   readonly yoloPending = computed(() => {
     const inst = this.instance();
     return inst.pendingYoloMode !== undefined && inst.pendingYoloMode !== inst.yoloMode;
   });
-
-  // Tooltips for badges
-  activeSkillsTooltip = computed(() => {
-    const skills = this.skillStore.getActiveSkillBundles();
-    if (skills.length === 0) return '';
-    return 'Active skills:\n' + skills.map(s => `• ${s.metadata.name}`).join('\n');
+  /** The Auto-approve chip text, with the queued flip spelled out; `null` while it is off and nothing is queued. */
+  readonly yoloLabel = computed(() => {
+    const inst = this.instance();
+    if (this.yoloPending()) return `Auto-approve → ${inst.pendingYoloMode ? 'on' : 'off'} after this reply`;
+    return inst.yoloMode ? 'Auto-approve' : null;
   });
-
-  enabledHooksTooltip = computed(() => {
-    const hooks = this.hookStore.enabledHooks();
-    if (hooks.length === 0) return '';
-    return 'Enabled hooks:\n' + hooks.map(h => `• ${h.name}`).join('\n');
+  readonly yoloChipTooltip = computed(() => this.yoloPending()
+    ? 'Auto-approve changes after the current reply finishes. Change it in Session options'
+    : 'Auto-approve is on: runs tools and edits without asking you. Change it in Session options');
+  readonly modeChip = computed(() => {
+    const mode = agentModeName(this.instance().agentId);
+    return mode === 'Build' ? null : mode;
+  });
+  /** The session's Computer Use level, only when the feature is on and it differs from the global one. */
+  readonly desktopControlLevel = computed<ComputerUseAutonomyLevel | null>(() => {
+    const settings = this.settingsStore.settings();
+    const mode = this.instance().computerUseMode;
+    if (settings.computerUseEnabled !== true || !mode) return null;
+    return resolveComputerUsePresentation(mode, globalComputerUseLevel(settings.computerUseAutonomyLevel)).relation === 'session' ? null : mode;
   });
 
   readonly isRemote = computed(() =>
@@ -269,24 +134,7 @@ export class InstanceHeaderComponent implements OnInit {
     return this.isRemote() && (!node || !isRemoteNodeOnline(node));
   });
 
-  readonly remoteNodeTooltip = computed(() => {
-    const node = this.remoteNode();
-    if (!node) return `${this.remoteNodeName()} is no longer registered`;
-    const caps = node.capabilities;
-    const platform = caps.platform === 'win32' ? 'Windows' : caps.platform === 'darwin' ? 'macOS' : 'Linux';
-    const lines = [
-      node.name,
-      `Platform: ${platform} (${caps.arch})`,
-      `Latency: ${node.latencyMs !== null && node.latencyMs !== undefined ? node.latencyMs + 'ms' : 'unknown'}`,
-      `CPU: ${caps.cpuCores} cores`,
-      `Memory: ${caps.availableMemoryMB !== null && caps.availableMemoryMB !== undefined ? (caps.availableMemoryMB / 1024).toFixed(1) : '?'} / ${(caps.totalMemoryMB / 1024).toFixed(1)} GB`,
-    ];
-    if (caps.gpuName) lines.push(`GPU: ${caps.gpuName}${caps.gpuMemoryMB ? ' (' + (caps.gpuMemoryMB / 1024).toFixed(0) + ' GB)' : ''}`);
-    lines.push(`CLIs: ${caps.supportedClis.join(', ')}`);
-    lines.push(`Sessions: ${node.activeInstances} active`);
-    lines.push(`Status: ${node.status}`);
-    return lines.join('\n');
-  });
+  readonly remoteNodeTooltip = computed(() => remoteNodeTooltip(this.remoteNode(), this.remoteNodeName()));
 
   constructor() {
     // Seed + focus the name input whenever editing starts.
@@ -313,32 +161,16 @@ export class InstanceHeaderComponent implements OnInit {
     });
   }
 
-  ngOnInit(): void {
-    // Load skills and hooks on init
-    this.skillStore.discoverSkills();
-    this.hookStore.loadHooks();
-  }
-
   // Actions. Restart/terminate/create-child have moved to the session
-  // right-click menu in the instance list, so they're no longer surfaced
-  // here; the corresponding outputs were removed with their buttons.
+  // right-click menu in the instance list, and Interrupt is the composer's
+  // Stop button, so none of them are surfaced here.
   startEditName = output<void>();
   cancelEditName = output<void>();
   saveName = output<string>();
   cycleAgentMode = output<void>();
   toggleYolo = output<void>();
-  /** What flipping auto-approve would cost (the session restarts), when that is worth saying. */
-  yoloCostNote = input<string | null>(null);
   toggleFastMode = output<void>();
   selectFolder = output<string>();
-  interrupt = output<void>();
-  /** Provider/model/effort pick committed in the header's compact picker. */
-  modelSelectionChange = output<PendingSelection>();
-  /** The option under the pointer (null once left) goes up; the host answers through `optionNote` with what choosing it would cost (T17). */
-  optionPreview = output<PendingSelection | null>();
-  optionNote = input<string | null>(null);
-  /** Cancel a model change that was queued while the instance was busy. */
-  cancelDesiredRuntime = output<void>();
   toggleFileExplorer = output<void>();
   toggleSourceControl = output<void>();
   reviewPanelToggle = output<void>();
@@ -366,99 +198,6 @@ export class InstanceHeaderComponent implements OnInit {
     return `Show source control (${n} changes)`;
   });
 
-  readonly runtimeSummary = computed(() => this.instance().runtimeSummary);
-  readonly isLocalModelRuntime = computed(() => this.runtimeSummary()?.kind === 'local-model');
-
-  providerDisplayName = computed(() =>
-    resolveHeaderProviderDisplayName(this.instance().provider, this.runtimeSummary(), this.nameModel()),
-  );
-
-  providerColor = computed(() => {
-    return this.getProviderColor(this.instance().provider, this.runtimeSummary());
-  });
-
-  currentModelId = computed(() => {
-    const runtimeSummary = this.runtimeSummary();
-    if (runtimeSummary?.kind === 'local-model') {
-      return runtimeSummary.modelId || this.currentModel() || '';
-    }
-    return this.currentModel() || '';
-  });
-
-  currentModelDisplayName = computed(() => {
-    return resolveHeaderModelDisplayName({
-      runtimeSummary: this.runtimeSummary(),
-      currentModel: this.currentModel(),
-      availableModels: [],
-      provider: this.instance().provider,
-    });
-  });
-
-  /** Providers offered by the header picker (same list as the composer). */
-  readonly pickerProviders = DEFAULT_INSTANCE_PROVIDERS;
-
-  /**
-   * Current provider/model/effort mapped to the compact picker's selection.
-   * `ollama` collapses to `claude` because the picker has no Ollama tab.
-   */
-  readonly pickerSelection = computed<PendingSelection>(() => {
-    const inst = this.instance();
-    const provider = (inst.provider === 'ollama' ? 'claude' : inst.provider) as PickerProvider;
-    return {
-      provider,
-      model: this.currentModel() ?? null,
-      reasoning: inst.reasoningEffort ?? null,
-    };
-  });
-
-  /**
-   * The backend queues changes requested while busy, so the picker only
-   * disables in terminal states where no future idle will apply them.
-   */
-  readonly pickerDisabledReason = computed<string | null>(() => {
-    const status = this.instance().status;
-    if (status === 'terminated' || status === 'failed' || status === 'hibernated') {
-      return 'Model changes require a live session.';
-    }
-    return null;
-  });
-
-  /** Compact "Provider · model" label for the queued-change chip. */
-  readonly desiredRuntimeLabel = computed<string | null>(() => {
-    const pending = this.instance().desiredRuntime;
-    if (!pending) return null;
-    // A queued change that is ONLY a yolo flip or an account move must not
-    // render a misleading "Provider · default model" chip — the pending-yolo
-    // indicator and the account chip cover those.
-    const inst = this.instance();
-    const keepsModel =
-      pending.model === undefined
-      && pending.modelRuntimeTarget === undefined
-      && pending.reasoningEffort === undefined
-      && (!pending.provider || pending.provider === inst.provider);
-    if (keepsModel && (pending.yoloMode !== undefined || pending.accountProfileId !== undefined)) return null;
-    const providerLabel = pending.provider ? providerName(pending.provider, { model: pending.model }) : null;
-    if (pending.modelRuntimeTarget?.kind === 'local-model') {
-      return `Local · ${pending.modelRuntimeTarget.modelId}`;
-    }
-    const model = pending.model ?? 'default model';
-    return providerLabel ? `${providerLabel} · ${model}` : model;
-  });
-
-  modelBtnBorderColor = computed(() => {
-    const color = this.getProviderColor(this.instance().provider, this.runtimeSummary());
-    return color + '4D'; // 30% opacity hex
-  });
-
-  modelBtnBgColor = computed(() => {
-    const color = this.getProviderColor(this.instance().provider, this.runtimeSummary());
-    return color + '26'; // 15% opacity hex
-  });
-
-  agentModeName = computed(() => {
-    return this.getAgentModeName(this.instance().agentId);
-  });
-
   preferredEditorLabel = computed(() => {
     return this.editorTargets()[0]?.label || 'Editor';
   });
@@ -473,50 +212,6 @@ export class InstanceHeaderComponent implements OnInit {
         return 'File Manager';
     }
   });
-
-  getProviderDisplayName(provider: string, model?: string | null): string {
-    return providerName(provider, { model });
-  }
-
-  getProviderColor(provider: string, runtimeSummary?: InstanceRuntimeSummary): string {
-    if (runtimeSummary?.kind === 'local-model') {
-      return '#14B8A6';
-    }
-
-    switch (provider) {
-      case 'claude':
-        return '#D97706';
-      case 'codex':
-        return '#10A37F';
-      case 'gemini':
-        return '#4285F4';
-      case 'ollama':
-        return '#888888';
-      case 'copilot':
-        return '#B89A66';
-      case 'cursor':
-        // Cursor's mark is monochrome; use a light neutral so it stays visible
-        // on dark surfaces rather than rendering black-on-black.
-        return '#E5E7EB';
-      case 'grok':
-        return '#1DA1F2';
-      case 'opencode':
-        return '#D4D4D8';
-      default:
-        return '#888888';
-    }
-  }
-
-  getAgentModeName(agentId?: string): string {
-    switch (agentId) {
-      case 'plan':
-        return 'Plan';
-      case 'review':
-        return 'Review';
-      default:
-        return 'Build';
-    }
-  }
 
   onSaveName(event: Event): void {
     const input = event.target as HTMLInputElement;
@@ -552,12 +247,7 @@ export class InstanceHeaderComponent implements OnInit {
     this.showOpenMenu.set(false);
   }
 
-  /**
-   * Open the system terminal at this instance's working directory.
-   * Surfaced as both a dedicated icon button in the header (mirroring the
-   * "Open Terminal" button in the Codex desktop app) and as an item in the
-   * Open dropdown for keyboard/menu access.
-   */
+  /** Open the system terminal at this instance's working directory, from the Open menu. */
   async openInTerminal(): Promise<void> {
     const workingDirectory = this.instance().workingDirectory?.trim();
     if (!workingDirectory) {
@@ -643,28 +333,4 @@ export class InstanceHeaderComponent implements OnInit {
         return type.charAt(0).toUpperCase() + type.slice(1);
     }
   }
-}
-
-export function resolveHeaderProviderDisplayName(
-  provider: string,
-  runtimeSummary?: InstanceRuntimeSummary,
-  model?: string | null,
-): string {
-  return providerName(runtimeSummary?.kind === 'local-model' ? 'local-model' : provider, { model });
-}
-
-export function resolveHeaderModelDisplayName(options: {
-  runtimeSummary?: InstanceRuntimeSummary;
-  currentModel?: string;
-  availableModels: ModelDisplayInfo[];
-  provider: string;
-}): string {
-  if (options.runtimeSummary?.kind === 'local-model') {
-    return options.runtimeSummary.label;
-  }
-
-  const modelId = options.currentModel || options.availableModels[0]?.id || '';
-  const match = options.availableModels.find(m => m.id === modelId);
-  if (match) return match.name;
-  return getModelShortName(modelId, options.provider);
 }

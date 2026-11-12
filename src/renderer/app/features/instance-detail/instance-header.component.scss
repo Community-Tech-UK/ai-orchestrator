@@ -6,35 +6,28 @@
         border-bottom: 1px solid rgba(255, 255, 255, 0.04);
       }
 
+      // One row: the title shrinks first, then the folder, then the chips.
       .header-top {
         display: flex;
         justify-content: space-between;
-        align-items: flex-start;
-        gap: 16px;
-      }
-
-      .header-bottom {
-        display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 14px;
-        flex-wrap: wrap;
+        gap: 8px;
       }
 
       .instance-identity {
-        flex: 1;
+        flex: 1 1 160px;
         min-width: 0;
       }
 
       .name-row {
         display: flex;
-        align-items: flex-start;
+        align-items: center;
         gap: 10px;
       }
 
       .name-row app-status-indicator {
         position: relative;
-        top: 7px;
+        top: 0;
         flex-shrink: 0;
       }
 
@@ -78,13 +71,12 @@
       }
 
       .instance-name-text {
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 2;
+        display: block;
+        white-space: nowrap;
+        text-overflow: ellipsis;
         overflow: hidden;
         min-width: 0;
         line-height: 1.14;
-        overflow-wrap: anywhere;
       }
 
       .name-input {
@@ -102,139 +94,38 @@
         box-shadow: 0 0 0 4px rgba(var(--primary-rgb), 0.12);
       }
 
-      .instance-meta {
-        display: flex;
+      // A setting that is not its normal value. Never shown for a default session.
+      .chip {
+        display: inline-flex;
         align-items: center;
-        gap: 6px;
-        flex-wrap: wrap;
+        flex-shrink: 1;
         min-width: 0;
-      }
-
-      .header-context {
-        flex: 1 1 280px;
-        min-width: min(100%, 280px);
-        max-width: 440px;
-        margin-left: auto;
-      }
-
-      .provider-badge {
+        max-width: 200px;
         padding: 4px 8px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 999px;
-        font-family: var(--font-mono);
-        font-size: 9px;
-        font-weight: 600;
-        color: white;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-      }
-
-      .runtime-model-badge,
-      .mode-badge,
-      .yolo-badge,
-      .skills-badge,
-      .hooks-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        padding: 4px 8px;
-        border-radius: 999px;
-        font-family: var(--font-mono);
-        font-size: 9px;
-        font-weight: 600;
-      }
-
-      .runtime-model-badge {
-        max-width: min(360px, 100%);
-        border: 1px solid;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .pending-model-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        padding: 4px 8px;
-        border: 1px dashed var(--warning-color, #eab308);
-        border-radius: 999px;
-        background: transparent;
-        color: var(--warning-color, #eab308);
-        font-family: var(--font-mono);
-        font-size: 9px;
-        font-weight: 600;
-        cursor: pointer;
-        white-space: nowrap;
-      }
-
-      .mode-badge {
         border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 999px;
         background: rgba(255, 255, 255, 0.025);
         color: var(--text-secondary);
-        cursor: pointer;
-        transition: all var(--transition-fast);
-
-        &:hover:not([aria-disabled="true"]) {
-          color: var(--text-primary);
-          border-color: rgba(255, 255, 255, 0.1);
-          background: rgba(255, 255, 255, 0.045);
-        }
-
-        &.plan {
-          background: rgba(97, 120, 163, 0.12);
-          color: #d6ddf6;
-        }
-
-        &.review {
-          background: rgba(var(--primary-rgb), 0.1);
-          color: var(--primary-color);
-        }
-
-        &:disabled,
-        &[aria-disabled="true"] {
-          opacity: 0.5;
-          cursor: not-allowed;
-          transform: none;
-        }
+        font-family: var(--font-mono);
+        font-size: 9px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
-      .yolo-badge {
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        background: rgba(255, 255, 255, 0.025);
-        color: var(--text-muted);
-        cursor: pointer;
-        transition: all var(--transition-fast);
-
-        &:hover:not([aria-disabled="true"]) {
-          color: var(--text-primary);
-          border-color: rgba(255, 255, 255, 0.1);
-          background: rgba(255, 255, 255, 0.045);
-        }
-
-        &.active {
-          background: rgba(var(--primary-rgb), 0.1);
-          border-color: rgba(var(--primary-rgb), 0.22);
-          color: var(--primary-color);
-        }
-
-        // A toggle queued while busy: amber "in transit" look, distinct from the
-        // settled active/inactive states. Stays clickable (cancels the queue).
-        &.pending {
-          background: rgba(245, 179, 66, 0.12);
-          border-color: rgba(245, 179, 66, 0.4);
-          border-style: dashed;
-          color: #f5b342;
-          animation: yolo-pending-pulse 1.6s ease-in-out infinite;
-        }
-
-        &:disabled,
-        &[aria-disabled="true"] {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
+      .chip-warning {
+        color: var(--warning-color, #eab308);
+        border-color: currentColor;
       }
 
-      @keyframes yolo-pending-pulse {
+      // A flip queued while busy: dashed, distinct from the settled state.
+      .chip.pending {
+        border-style: dashed;
+        animation: chip-pending-pulse 1.6s ease-in-out infinite;
+      }
+
+      @keyframes chip-pending-pulse {
         0%,
         100% {
           opacity: 1;
@@ -244,37 +135,19 @@
         }
       }
 
-      // What flipping auto-approve would cost, in words beside the button (the tooltip repeats it).
-      .header-action-detail {
-        max-width: 320px;
-        font-size: 11px;
-        line-height: 1.35;
-        color: var(--text-secondary);
-        overflow-wrap: anywhere;
-      }
-
-      .skills-badge,
-      .hooks-badge {
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        background: rgba(255, 255, 255, 0.025);
-      }
-
-
-      .skills-badge {
-        color: #c8d4ff;
-      }
-
-      .hooks-badge {
-        color: var(--primary-color);
-      }
-
       .header-actions {
         display: flex;
         align-items: center;
-        gap: 6px;
-        flex-wrap: wrap;
+        gap: 8px;
+        flex-wrap: nowrap;
+        min-width: 0;
         justify-content: flex-end;
         position: relative;
+      }
+
+      .header-actions app-recent-directories-dropdown {
+        max-width: 150px;
+        min-width: 0;
       }
 
       .btn-action {
@@ -315,16 +188,6 @@
 
       .btn-action.btn-icon.active {
         color: var(--primary-color);
-      }
-
-      .btn-action.btn-terminal {
-        // Subtle nudge so the inline SVG sits on the same baseline as the
-        // adjacent "Open ▾" text button.
-        padding: 0 2px;
-
-        svg {
-          display: block;
-        }
       }
 
       // Source-control toggle (Phase 2a item 1) — adds a small change-count
@@ -426,43 +289,18 @@
         border: none;
       }
 
-      .btn-interrupt {
-        color: var(--primary-color);
-
-        &:hover:not(:disabled):not([aria-disabled="true"]) {
-          color: var(--primary-hover);
-        }
-      }
-
-      @media (max-width: 960px) {
-        .header-top,
-        .header-bottom {
-          flex-direction: column;
-          align-items: stretch;
-        }
-
-        .header-actions {
-          justify-content: flex-start;
-        }
-
-        .header-context {
-          margin-left: 0;
-          max-width: none;
-        }
-      }
-
       @media (max-width: 640px) {
         .detail-header {
           gap: 8px;
           padding-bottom: 6px;
         }
 
-        .name-row {
-          gap: 8px;
+        .header-actions {
+          flex-wrap: wrap;
         }
 
-        .name-row app-status-indicator {
-          top: 5px;
+        .name-row {
+          gap: 8px;
         }
 
         .instance-name {
@@ -506,26 +344,3 @@
         0%, 100% { opacity: 0.5; }
         50% { opacity: 1; }
       }
-
-/* The GitHub Copilot account this session is pinned to. Sits beside the
-   provider badge so "which seat is this running under?" is answerable at a
-   glance, which is the whole point of account routing. */
-.copilot-account-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border-color);
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.header-top { align-items: center; gap: 8px; flex-direction: row; }
-.header-actions { flex-wrap: nowrap; min-width: 0; gap: 8px; }
-.instance-identity { flex: 1 1 160px; }
-.instance-name-text { display: block; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
-.name-row { align-items: center; }
-.name-row app-status-indicator { top: 0; }
-.header-actions app-recent-directories-dropdown { max-width: 150px; min-width: 0; }
-.yolo-badge.active { color: var(--warning-color, #eab308); border-color: currentColor; white-space: nowrap; }
-@media (max-width: 960px) { .header-top { flex-direction: row; align-items: center; } }

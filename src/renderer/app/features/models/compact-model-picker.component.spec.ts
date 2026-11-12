@@ -530,7 +530,7 @@ describe('CompactModelPickerComponent', () => {
     expect(pill).toBeNull();
   });
 
-  it('updates catalog freshness as time passes and clears timers on destroy', () => {
+  it('shows catalog freshness inside the open picker, as plain text rather than a live status region, and keeps it current', () => {
     fixture.destroy();
     vi.useFakeTimers();
     const builtAt = 1_000_000;
@@ -540,15 +540,20 @@ describe('CompactModelPickerComponent', () => {
     fixture.componentRef.setInput('mode', 'live-instance');
     fixture.componentRef.setInput('chat', chatRecord({ provider: 'claude', model: 'sonnet' }));
     fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.compact-picker__catalog')).toBeNull();
+    (fixture.nativeElement.querySelector('.compact-picker__chip') as HTMLButtonElement).click();
+    fixture.detectChanges();
 
-    let freshness = fixture.nativeElement.querySelector('.compact-picker__catalog') as HTMLElement;
+    let freshness = document.querySelector('.model-picker-freshness') as HTMLElement;
     expect(freshness?.textContent).toContain('just now');
+    expect(freshness.getAttribute('role')).toBeNull();
+    expect(freshness.closest('[role="status"]')).toBeNull();
 
     vi.setSystemTime(builtAt + 60_000);
     vi.advanceTimersByTime(60_000);
     fixture.detectChanges();
 
-    freshness = fixture.nativeElement.querySelector('.compact-picker__catalog') as HTMLElement;
+    freshness = document.querySelector('.model-picker-freshness') as HTMLElement;
     expect(freshness?.textContent).toContain('2m ago');
 
     fixture.destroy();

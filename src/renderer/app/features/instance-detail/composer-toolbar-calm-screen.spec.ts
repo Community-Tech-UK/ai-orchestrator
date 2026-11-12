@@ -3,7 +3,9 @@ import { TestBed } from '@angular/core/testing';
 import { Subject } from 'rxjs';
 import { readFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
+import { By } from '@angular/platform-browser';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import type { Instance } from '../../core/state/instance.store';
 import { InstanceStore } from '../../core/state/instance.store';
@@ -19,7 +21,7 @@ describe('Calm composer controls', () => {
   beforeEach(async () => {
     TestBed.resetTestingModule(); live = undefined; events = new Subject<ProviderRuntimeEventEnvelope>();
     await TestBed.configureTestingModule({ imports: [ComposerToolbarComponent], providers: [
-      { provide: InstanceStore, useValue: { getInstance: () => live } },
+      { provide: InstanceStore, useValue: { getInstance: () => live, instances: () => [] } },
       { provide: SettingsStore, useValue: { showCost: () => true, settings: () => ({}) } },
       { provide: InstanceIpcService, useValue: { changeModel: vi.fn() } },
       { provide: InstanceEventsService, useValue: { events$: events.asObservable() } },
@@ -32,6 +34,13 @@ describe('Calm composer controls', () => {
   it('does not show a model chip for a permission-only queued flip', () => {
     const f = render(); f.componentRef.setInput('desiredRuntime', { provider: 'copilot', yoloMode: true }); f.detectChanges();
     expect(f.nativeElement.querySelector('.pending-model-chip')).toBeNull();
+  });
+  it('leaves a queued account move to the account chip instead of a "default model" chip', () => {
+    const f = render(); f.componentRef.setInput('desiredRuntime', { provider: 'copilot', accountProfileId: 'max-b', accountHandoffConfirmed: true }); f.detectChanges();
+    expect(f.componentInstance.desiredRuntimeLabel()).toBeNull();
+    expect(f.nativeElement.querySelector('.pending-model-chip')).toBeNull();
+    f.componentRef.setInput('desiredRuntime', { provider: 'copilot', accountProfileId: 'max-b', model: 'gpt-5' }); f.detectChanges();
+    expect(f.componentInstance.desiredRuntimeLabel()).toBe('Copilot · gpt-5');
   });
   it('opens Context details from the focusable ring and closes with Escape', () => {
     const f = render(); const ring = f.nativeElement.querySelector('.ctx-ring-btn') as HTMLButtonElement;
@@ -55,5 +64,26 @@ describe('Calm composer controls', () => {
     expect(f.componentInstance.contextOpen()).toBe(false);
     const warning = f.nativeElement.querySelector('.pending-model-chip') as HTMLButtonElement;
     expect(warning.textContent).toContain('Rate limit reached'); warning.click(); f.detectChanges(); expect(f.componentInstance.contextOpen()).toBe(true);
+  });
+  it('shows the Copilot account the session is stamped with, and why', () => {
+    live = { id: 'session', provider: 'copilot', copilotAccountProfileId: 'work-seat', copilotRoutingSource: 'repository' } as Instance;
+    const f = render(); f.detectChanges();
+    const badge = f.nativeElement.querySelector('.copilot-account-badge') as HTMLElement;
+    expect(badge.textContent?.trim()).toBe('work-seat');
+    expect(badge.tabIndex).toBe(0);
+    expect(f.debugElement.query(By.css('.copilot-account-badge')).injector.get(AioTooltipDirective).appTooltip())
+      .toBe('GitHub Copilot account: work-seat — matched this repository');
+  });
+  it('shows no Copilot account for a session without a stamp or a preview of archived history', () => {
+    const f = render(); f.detectChanges();
+    expect(f.nativeElement.querySelector('.copilot-account-badge')).toBeNull();
+    live = { id: 'session', provider: 'claude', copilotAccountProfileId: 'work-seat' } as Instance;
+    f.componentRef.setInput('instanceId', 'session-2'); f.detectChanges();
+    expect(f.nativeElement.querySelector('.copilot-account-badge')).toBeNull();
+  });
+  it('hosts the skills badge, which stays out of sight until the session has used a skill', () => {
+    const f = render(); f.detectChanges();
+    expect(f.nativeElement.querySelector('app-session-skills-badge')).not.toBeNull();
+    expect(f.nativeElement.querySelector('.session-skills-badge')).toBeNull();
   });
 });

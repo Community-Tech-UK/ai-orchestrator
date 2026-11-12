@@ -17,7 +17,6 @@
             [isChangingMode]="isChangingMode()"
             [isTogglingYolo]="isTogglingYolo()"
             [isTogglingFastMode]="isTogglingFastMode()"
-            [contextUsage]="inst.contextUsage"
             [canShowFileExplorer]="canShowFileExplorer()"
             [isFileExplorerOpen]="isFileExplorerOpen()"
             [canShowSourceControl]="canShowSourceControl()"
@@ -31,11 +30,6 @@
             (toggleYolo)="onToggleYolo()"
             (toggleFastMode)="onToggleFastMode()"
             (selectFolder)="onSelectFolder($event)"
-            (interrupt)="onInterrupt()"
-            [optionNote]="runtimeChange.optionNote()"
-            (optionPreview)="runtimeChange.pointAt(inst.id, $event)"
-            (modelSelectionChange)="onModelSelectionChange($event)"
-            (cancelDesiredRuntime)="onCancelDesiredRuntime()"
             (toggleFileExplorer)="toggleFileExplorer.emit()"
             (toggleSourceControl)="toggleSourceControl.emit()"
             (reviewPanelToggle)="toggleCrossModelReviewPanel()"
@@ -46,11 +40,6 @@
             <app-runtime-change-confirm [text]="held.text" [confirmLabel]="held.confirmLabel" [cancelLabel]="held.cancelLabel"
               (confirmed)="runtimeChange.confirm(inst.id)" (cancelled)="runtimeChange.cancel()" />
           }
-
-          <app-provider-diagnostics-panel
-            [instanceId]="inst.id"
-            [contextUsage]="inst.contextUsage"
-          />
 
           @if (isCompacting()) {
             <div class="recovery-banner" role="status" aria-live="polite">

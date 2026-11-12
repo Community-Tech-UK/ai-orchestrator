@@ -1,4 +1,4 @@
-import { Component, signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
+import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { KeybindingService } from '../../core/services/keybinding.service';
@@ -9,19 +9,11 @@ import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { InstanceHeaderComponent } from './instance-header.component';
-import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
-import type { PendingSelection } from '../models/compact-model-picker.types';
-import { SkillStore } from '../../core/state/skill.store';
-import { HookStore } from '../../core/state/hook.store';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import type { Instance } from '../../core/state/instance.store';
-import { InstanceListStore } from '../../core/state/instance/instance-list.store';
-import { InstanceStateService } from '../../core/state/instance/instance-state.service';
-import { IpcFacadeService } from '../../core/services/ipc';
-import { ProviderStateService } from '../../core/services/provider-state.service';
 import { HelpDrawerService } from '../../shared/help/help-drawer.service';
 import { InstanceStore } from '../../core/state/instance.store';
 import { SettingsStore } from '../../core/state/settings.store';
@@ -51,38 +43,28 @@ function instance(provider: Instance['provider']): Instance {
   } as Instance;
 }
 
-@Component({
-  standalone: true,
-  imports: [InstanceHeaderComponent],
-  template: '<app-instance-header [instance]="session()" [currentModel]="session().currentModel" [contextUsage]="session().contextUsage" />',
-})
-class BoundInstanceHeaderHostComponent {
-  readonly session = signal<Instance>(instance('claude'));
-}
-
-describe('InstanceHeaderComponent interrupt tooltip', () => {
+describe('InstanceHeaderComponent', () => {
   let fixture: ComponentFixture<InstanceHeaderComponent>;
   let showCost = true;
+  let settings: Record<string, unknown> = {};
 
   beforeEach(async () => {
     showCost = true;
+    settings = {};
     await TestBed.configureTestingModule({
-      imports: [InstanceHeaderComponent, BoundInstanceHeaderHostComponent],
+      imports: [InstanceHeaderComponent],
       providers: [
         { provide: KeybindingService, useValue: { formatBindingByAction: () => 'Escape', ariaShortcutsByAction: () => 'Escape' } },
-        { provide: SettingsStore, useValue: { showCost: () => showCost, settings: () => ({}), update: vi.fn() } },
+        { provide: SettingsStore, useValue: { showCost: () => showCost, settings: () => settings, update: vi.fn() } },
         { provide: InstanceStore, useValue: { getInstance: () => undefined, instances: () => [] } },
         {
-          provide: SkillStore,
+          provide: FileIpcService,
           useValue: {
-            activeSkillCount: () => 0,
-            activations: () => [],
-            controlModeFor: () => 'enabled',
-            discoverSkills: vi.fn(),
+            editorDetect: vi.fn().mockResolvedValue(undefined),
+            editorGetDefault: vi.fn().mockResolvedValue({ data: null }),
+            editorGetAvailable: vi.fn().mockResolvedValue({ data: [] }),
           },
         },
-        { provide: HookStore, useValue: { enabledHookCount: () => 0, loadHooks: vi.fn() } },
-        { provide: FileIpcService, useValue: {} },
         {
           provide: ElectronIpcService,
           useValue: {
@@ -91,10 +73,6 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
           },
         },
         { provide: RemoteNodeStore, useValue: { nodeById: () => null } },
-        InstanceListStore,
-        InstanceStateService,
-        { provide: IpcFacadeService, useValue: {} },
-        { provide: ProviderStateService, useValue: {} },
         {
           provide: CrossModelReviewIpcService,
           useValue: {
@@ -110,174 +88,125 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
     fixture = TestBed.createComponent(InstanceHeaderComponent);
   });
 
-  it('names the session provider instead of always saying Claude', () => {
-    fixture.componentRef.setInput('instance', instance('codex'));
+  const render = (value: Instance): HTMLElement => {
+    fixture.componentRef.setInput('instance', value);
     fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  };
+  const chips = (): string[] => Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('.chip'))
+    .map(chip => chip.textContent?.replace(/\s+/g, ' ').trim() ?? '');
 
-    const button = fixture.nativeElement.querySelector('.btn-interrupt') as HTMLButtonElement;
-    const hint = fixture.debugElement.query(By.css('.btn-interrupt')).injector.get(AioTooltipDirective);
-    expect(hint.appTooltip()).toBe('Interrupt Codex');
-    expect(hint.appTooltipShortcut()).toBe('cancel-operation');
-    expect(button.hasAttribute('title')).toBe(false);
+  it('renders one row with no model picker, account chip, hooks, skills, context bar or Computer Use control', () => {
+    const header = render({ ...instance('claude'), status: 'idle', contextUsage: { used: 10, total: 100, percentage: 10, occupancyReported: true } } as Instance);
+    for (const gone of [
+      'app-compact-model-picker', 'app-provider-account-chip', 'app-context-bar', 'app-session-skills-badge',
+      'app-session-computer-use-control', 'app-copilot-premium-usage', '.provider-badge', '.copilot-account-badge',
+      '.pending-model-badge', '.hooks-badge', '.skills-badge', '.header-bottom',
+    ]) {
+      expect(header.querySelector(gone), gone).toBeNull();
+    }
+    expect(header.querySelectorAll('.header-top')).toHaveLength(1);
+    expect(chips()).toEqual([]);
   });
 
-  it('calls the approval switch Auto-approve, never YOLO, on the button and in its tooltip', () => {
-    fixture.componentRef.setInput('instance', { ...instance('claude'), yoloMode: false });
-    fixture.detectChanges();
-    const badge = () => fixture.nativeElement.querySelector('.yolo-badge') as HTMLButtonElement;
-    const hint = () => fixture.debugElement.query(By.css('.yolo-badge')).injector.get(AioTooltipDirective).appTooltip();
-    expect(badge().textContent?.replace(/\s+/g, ' ').trim()).toBe('Auto-approve OFF');
-    expect(hint()).toBe('Auto-approve is off: asks before acting. Click to turn it on');
-    fixture.componentRef.setInput('instance', { ...instance('claude'), yoloMode: true });
-    fixture.detectChanges();
-    expect(badge().textContent?.replace(/\s+/g, ' ').trim()).toBe('Auto-approve ON');
-    expect(hint()).toBe('Auto-approve is on: runs tools and edits without asking you. Click to turn it off');
+  it('has no Interrupt button: Stop lives by the message box', () => {
+    const header = render(instance('claude'));
+    expect(header.querySelector('.btn-interrupt')).toBeNull();
+    expect(header.textContent).not.toContain('Interrupt');
+  });
+
+  it('shows Auto-approve, Plan and Fast chips only when they differ from default', () => {
+    render({ ...instance('claude'), status: 'idle', yoloMode: false, agentId: 'build', fastMode: false });
+    expect(chips()).toEqual([]);
+    render({ ...instance('claude'), status: 'idle', yoloMode: true, agentId: 'plan', fastMode: true });
+    expect(chips()).toEqual(['Auto-approve', 'Plan', 'Fast']);
+    render({ ...instance('claude'), status: 'idle', yoloMode: false, agentId: 'review' });
+    expect(chips()).toEqual(['Review']);
     expect(fixture.nativeElement.textContent).not.toContain('YOLO');
   });
 
-  it('leaves a queued account move to the account chip instead of a "default model" chip', () => {
-    fixture.componentRef.setInput('instance', { ...instance('claude'),
-      desiredRuntime: { provider: 'claude', accountProfileId: 'max-b', accountHandoffConfirmed: true } });
-    fixture.detectChanges();
-    expect(fixture.componentInstance.desiredRuntimeLabel()).toBeNull();
-    expect(fixture.nativeElement.querySelector('.pending-model-badge')).toBeNull();
-
-    fixture.componentRef.setInput('instance', { ...instance('claude'),
-      desiredRuntime: { provider: 'claude', accountProfileId: 'max-b', model: 'sonnet' } });
-    fixture.detectChanges();
-    expect(fixture.componentInstance.desiredRuntimeLabel()).toBe('Claude · sonnet');
+  it('keeps the queued Auto-approve flip in arrow wording on its chip', () => {
+    render({ ...instance('claude'), yoloMode: true, pendingYoloMode: false });
+    expect(chips()).toEqual(['Auto-approve → off after this reply']);
+    render({ ...instance('claude'), yoloMode: false, pendingYoloMode: true });
+    expect(chips()).toEqual(['Auto-approve → on after this reply']);
+    expect(fixture.nativeElement.querySelector('.chip').classList.contains('pending')).toBe(true);
   });
 
-  it('shows measured Copilot premium usage and explicitly marks missing data unavailable', () => {
-    fixture.componentRef.setInput('instance', instance('copilot'));
-    fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Premium requests used: unavailable');
-    fixture.componentRef.setInput('contextUsage', { used: 0, total: 0, percentage: 0, copilotUsage: { compactions: 0, premiumRequests: 15.5 } });
-    fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Premium requests used: 15.5');
-    fixture.componentRef.setInput('instance', instance('claude'));
-    fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).not.toContain('Premium requests used:');
+  it('shows the Computer Use chip only when computerUseEnabled is on and the session differs from global', () => {
+    const session = { ...instance('claude'), status: 'idle' } as Instance;
+    settings = { computerUseEnabled: false, computerUseAutonomyLevel: 'trusted' };
+    render({ ...session, computerUseMode: 'unrestricted' });
+    expect(chips()).toEqual([]);
+    settings = { computerUseEnabled: true, computerUseAutonomyLevel: 'trusted' };
+    render({ ...session, computerUseMode: 'unrestricted' });
+    expect(chips()).toEqual(['Desktop control: unrestricted']);
+    render({ ...session, computerUseMode: 'trusted' });
+    expect(chips()).toEqual([]);
+    render(session);
+    expect(chips()).toEqual([]);
+    expect(fixture.nativeElement.querySelector('app-session-computer-use-control')).toBeNull();
   });
 
-  it('explains the waiting state on a focusable hover and keeps locked controls focusable without emitting actions', () => {
-    fixture.componentRef.setInput('instance', { ...instance('codex'), waitReason: { kind: 'interrupt-ack', attempt: 2 } });
-    fixture.detectChanges();
-    const wait = fixture.debugElement.query(By.css('.wait-reason-label'));
-    expect(wait.nativeElement.tabIndex).toBe(0);
-    expect(wait.nativeElement.textContent).not.toContain('Attempt 2');
-    expect(wait.injector.get(AioTooltipDirective).appTooltip()).toBe('Attempt 2');
-    const header = fixture.nativeElement as HTMLElement;
-    expect(header.querySelector('.header-action-detail')).toBeNull();
-    const changed = vi.fn();
-    fixture.componentInstance.cycleAgentMode.subscribe(changed);
-    const mode = fixture.nativeElement.querySelector('.mode-badge') as HTMLButtonElement;
-    expect(mode.disabled).toBe(false);
-    expect(mode.getAttribute('aria-disabled')).toBe('true');
-    mode.click();
-    expect(changed).not.toHaveBeenCalled();
-    const original = mode.matches.bind(mode);
-    vi.spyOn(mode, 'matches').mockImplementation(selector => selector === ':focus-visible' || original(selector));
-    mode.dispatchEvent(new FocusEvent('focus'));
-    fixture.detectChanges();
-    expect(document.getElementById(mode.getAttribute('aria-describedby')!)?.textContent).toContain('Cannot change mode while the session is running or recovering');
-    expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+  it.each([true, false])('shows the session cost only while the cost setting is on (%s)', (enabled) => {
+    showCost = enabled;
+    render({ ...instance('claude'), contextUsage: { used: 10, total: 100, percentage: 10, occupancyReported: true, costEstimate: 12.34 } } as Instance);
+    const cost = fixture.nativeElement.querySelector('.cost') as HTMLElement | null;
+    expect(Boolean(cost)).toBe(enabled);
+    if (cost) {
+      expect(cost.textContent).toContain('≈$12.34');
+      expect(cost.tabIndex).toBe(0);
+    }
   });
 
-  it('uses serialized resident Claude state for the bound model-switch note', () => {
-    const list = TestBed.inject(InstanceListStore);
-    const base = { ...instance('claude'), outputBuffer: [
-      { id: 'reply', type: 'assistant', content: 'Ready', timestamp: 1 },
-    ] };
-    fixture.componentRef.setInput('instance', list.deserializeInstance({ ...base, residentClaude: true }));
+  it('offers a Session options button that carries the mode, Auto-approve and Fast controls', () => {
+    render(instance('claude'));
+    const trigger = fixture.nativeElement.querySelector('app-session-options-menu button[aria-label="Session options"]') as HTMLButtonElement;
+    expect(trigger).not.toBeNull();
+    trigger.click();
     fixture.detectChanges();
-    const picker = fixture.debugElement.query(By.directive(CompactModelPickerComponent))
-      .componentInstance as CompactModelPickerComponent;
-    expect(picker.switchNoteForProvider()?.('claude')).toContain('including tool results');
+    expect(fixture.nativeElement.querySelector('app-session-options-menu [role="dialog"]')).not.toBeNull();
+  });
 
-    fixture.componentRef.setInput('instance', list.deserializeInstance({ ...base, residentClaude: false }));
+  it('offers Terminal once, in the Open menu, not as its own icon', async () => {
+    render({ ...instance('codex'), status: 'idle' });
+    expect(fixture.nativeElement.querySelector('.btn-terminal')).toBeNull();
+    (fixture.nativeElement.querySelector('.btn-open') as HTMLButtonElement).click();
     fixture.detectChanges();
-    expect(picker.switchNoteForProvider()?.('claude')).toContain('tool results and file contents are not carried over');
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const items = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('.open-menu-item')).map(item => item.textContent?.trim());
+    expect(items).toContain('Open in Terminal');
+    expect(items.filter(item => item === 'Open in Terminal')).toHaveLength(1);
   });
 
-  it('offers no switch note for a system-only buffer, since there is nothing to replay', () => {
-    const list = TestBed.inject(InstanceListStore);
-    const noteFor = (outputBuffer: unknown[]) => {
-      fixture.componentRef.setInput('instance', list.deserializeInstance({ ...instance('claude'), outputBuffer }));
-      fixture.detectChanges();
-      const picker = fixture.debugElement.query(By.directive(CompactModelPickerComponent))
-        .componentInstance as CompactModelPickerComponent;
-      return picker.switchNoteForProvider()?.('claude') ?? null;
-    };
-    expect(noteFor([])).toBeNull();
-    expect(noteFor([{ id: 'sys', type: 'system', content: 'Session started', timestamp: 1 }])).toBeNull();
-    expect(noteFor([
-      { id: 'sys', type: 'system', content: 'Session started', timestamp: 1 },
-      { id: 'u1', type: 'user', content: 'Hello', timestamp: 2 },
-    ])).toContain('tool results and file contents are not carried over');
-  });
-
-  it('binds replay wording for Gemini and local models while keeping Codex continuation', () => {
-    const list = TestBed.inject(InstanceListStore);
-    const note = (provider: Instance['provider'], local = false) => {
-      fixture.componentRef.setInput('instance', list.deserializeInstance({ ...instance(provider),
-        outputBuffer: [{ id: 'reply', type: 'assistant', content: 'Ready', timestamp: 1 }],
-        ...(local ? { runtimeSummary: { kind: 'local-model', label: 'Fixture local model' } } : {}),
-      }));
-      fixture.detectChanges();
-      const pickerElement = fixture.debugElement.query(By.directive(CompactModelPickerComponent));
-      if (local) {
-        expect(pickerElement).toBeNull(); // The header shows a local-model badge instead of the CLI picker.
-        return fixture.componentInstance.modelSwitchNoteForProvider('codex');
-      }
-      const picker = pickerElement.componentInstance as CompactModelPickerComponent;
-      return picker.switchNoteForProvider()?.(provider === 'gemini' ? 'gemini' : 'codex');
-    };
-    expect(note('gemini')).toContain('recent messages in shortened form');
-    expect(note('codex')).toContain('conversation continues');
-    expect(note('codex', true)).toContain('starts a new session');
-  });
-
-  it('updates the real header picker through a bound host for resident, remote, and nonresident Claude', () => {
-    fixture.destroy();
-    const host = TestBed.createComponent(BoundInstanceHeaderHostComponent);
-    const base = { ...instance('claude'), status: 'idle', outputBuffer: [
-      { id: 'reply', type: 'assistant', content: 'Ready', timestamp: 1 },
-    ] };
-    host.componentInstance.session.set({ ...base, residentClaude: true } as Instance);
-    host.detectChanges();
-
-    const picker = host.debugElement.query(By.directive(CompactModelPickerComponent))
-      .componentInstance as CompactModelPickerComponent;
-    expect(host.nativeElement.querySelector('.compact-picker__chip')).not.toBeNull();
-    expect(picker.switchNoteForProvider()?.('claude')).toContain('including tool results');
-
-    host.componentInstance.session.set({
-      ...base, residentClaude: true, executionLocation: { type: 'remote', nodeId: 'remote-1' },
-    } as Instance);
-    host.detectChanges();
-    expect(picker.switchNoteForProvider()?.('claude')).toContain('tool results and file contents are not carried over');
-
-    host.componentInstance.session.set({ ...base, residentClaude: false } as Instance);
-    host.detectChanges();
-    expect(picker.switchNoteForProvider()?.('claude')).toContain('tool results and file contents are not carried over');
+  it('keeps the remote computer chip only for a remote session', () => {
+    expect(render(instance('claude')).querySelector('.node-badge')).toBeNull();
+    const remote = render({ ...instance('claude'), executionLocation: { type: 'remote', nodeId: 'remote-1' } } as Instance);
+    expect(remote.querySelector('.node-badge')).not.toBeNull();
   });
 
   it('opens session help from the header action cluster', () => {
-    fixture.componentRef.setInput('instance', instance('codex'));
-    fixture.detectChanges();
+    render(instance('codex'));
     const button = fixture.nativeElement.querySelector('.header-actions app-help-link button') as HTMLButtonElement;
     expect(button.getAttribute('aria-label')).toBe('Help: working in a session');
     button.click();
     expect(TestBed.inject(HelpDrawerService).target()).toEqual({ topic: 'session' });
   });
 
+  it('explains the waiting state on a focusable hover', () => {
+    render({ ...instance('codex'), waitReason: { kind: 'interrupt-ack', attempt: 2, startedAt: 0 } });
+    const wait = fixture.debugElement.query(By.css('.wait-reason-label'));
+    expect(wait.nativeElement.tabIndex).toBe(0);
+    expect(wait.nativeElement.textContent).not.toContain('Attempt 2');
+    expect(wait.injector.get(AioTooltipDirective).appTooltip()).toBe('Attempt 2');
+    expect(fixture.nativeElement.querySelector('.header-action-detail')).toBeNull();
+    expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+  });
+
   it('updates formatted waiting details while their hint is open and removes it when waiting ends', () => {
     const retryAt = Date.UTC(2026, 10, 3, 10, 15, 30);
-    fixture.componentRef.setInput('instance', {
-      ...instance('codex'), waitReason: { kind: 'backoff', attempt: 2, retryAt },
-    });
-    fixture.detectChanges();
+    render({ ...instance('codex'), waitReason: { kind: 'backoff', attempt: 2, retryAt } });
     const waiting = fixture.debugElement.query(By.css('.wait-reason-label'));
     const tooltip = waiting.injector.get(AioTooltipDirective);
     expect(waiting.nativeElement.tabIndex).toBe(0);
@@ -288,21 +217,16 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
     );
     expect(linkedHint()?.textContent).toBe(`Attempt 2, retry at ${new Date(retryAt).toLocaleTimeString()}`);
 
-    fixture.componentRef.setInput('instance', {
+    render({
       ...instance('codex'),
       waitReason: { kind: 'resume-proof', provider: 'codex', sessionId: 'session-12345', startedAt: retryAt },
     });
-    fixture.detectChanges();
     expect(linkedHint()?.textContent).toBe('Session: session-…');
 
-    fixture.componentRef.setInput('instance', {
-      ...instance('codex'), waitReason: { kind: 'remote-heartbeat', nodeId: 'worker', staleForMs: 2_600 },
-    });
-    fixture.detectChanges();
+    render({ ...instance('codex'), waitReason: { kind: 'remote-heartbeat', nodeId: 'worker', staleForMs: 2_600 } });
     expect(linkedHint()?.textContent).toBe('No reply for 3s');
 
-    fixture.componentRef.setInput('instance', instance('codex'));
-    fixture.detectChanges();
+    render(instance('codex'));
     expect(fixture.nativeElement.querySelector('.wait-reason-label')).toBeNull();
     expect(document.querySelector('[role="tooltip"]')).toBeNull();
   });
@@ -310,108 +234,27 @@ describe('InstanceHeaderComponent interrupt tooltip', () => {
   it('keeps quota and sign-in timing in their composer banners rather than showing a header hint', () => {
     const timestamp = Date.UTC(2026, 10, 3, 10, 15, 30);
     const time = new Date(timestamp).toLocaleTimeString();
-    fixture.componentRef.setInput('instance', {
-      ...instance('codex'), waitReason: { kind: 'quota-park', provider: 'codex', resumeAt: timestamp },
-    });
-    fixture.detectChanges();
+    render({ ...instance('codex'), waitReason: { kind: 'quota-park', provider: 'codex', resumeAt: timestamp } });
     expect(fixture.componentInstance.waitReasonDetail()).toBe(`Codex allowance resets at ${time}`);
     expect(fixture.nativeElement.querySelector('.wait-reason-label')).toBeNull();
 
-    fixture.componentRef.setInput('instance', {
-      ...instance('codex'), waitReason: { kind: 'auth-required', provider: 'codex', since: timestamp },
-    });
-    fixture.detectChanges();
+    render({ ...instance('codex'), waitReason: { kind: 'auth-required', provider: 'codex', since: timestamp } });
     expect(fixture.componentInstance.waitReasonDetail()).toBe(`Signed out of Codex since ${time}`);
     expect(fixture.nativeElement.querySelector('.wait-reason-label')).toBeNull();
   });
 
-  it('keeps a locked mode reachable, explains it, and permits a change after the turn finishes', () => {
-    fixture.componentRef.setInput('instance', instance('claude'));
-    fixture.detectChanges();
-    const changed = vi.fn();
-    fixture.componentInstance.cycleAgentMode.subscribe(changed);
-    const debug = fixture.debugElement.query(By.css('.mode-badge'));
+  it('explains a missing folder on the Open control without opening anything', () => {
+    render({ ...instance('codex'), workingDirectory: '' });
+    const debug = fixture.debugElement.query(By.css('.btn-open'));
     const button = debug.nativeElement as HTMLButtonElement;
     expect(button.disabled).toBe(false);
     expect(button.getAttribute('aria-disabled')).toBe('true');
     button.focus();
     expect(document.activeElement).toBe(button);
-    const tooltip = debug.injector.get(AioTooltipDirective);
-    tooltip.show();
-    fixture.detectChanges();
-    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('running or recovering');
-    tooltip.hide();
+    expect(debug.injector.get(AioTooltipDirective).appTooltipDisabledReason()).toBe('Choose a working folder first');
     button.click();
-    expect(changed).not.toHaveBeenCalled();
-
-    fixture.componentRef.setInput('instance', { ...instance('claude'), status: 'idle' });
-    fixture.detectChanges();
-    expect(button.getAttribute('aria-disabled')).toBeNull();
-    button.click();
-    expect(changed).toHaveBeenCalledOnce();
-  });
-
-  it('explains a missing folder on both workspace controls without opening anything', () => {
-    fixture.componentRef.setInput('instance', { ...instance('codex'), workingDirectory: '' });
-    fixture.detectChanges();
-    for (const selector of ['.btn-open', '.btn-terminal']) {
-      const debug = fixture.debugElement.query(By.css(selector));
-      const button = debug.nativeElement as HTMLButtonElement;
-      expect(button.disabled).toBe(false);
-      expect(button.getAttribute('aria-disabled')).toBe('true');
-      button.focus();
-      expect(document.activeElement).toBe(button);
-      expect(debug.injector.get(AioTooltipDirective).appTooltipDisabledReason()).toBe('Choose a working folder first');
-      button.click();
-    }
     expect(fixture.componentInstance.showOpenMenu()).toBe(false);
-    fixture.componentRef.setInput('instance', instance('codex'));
-    fixture.detectChanges();
+    render(instance('codex'));
     expect(fixture.nativeElement.querySelector('.btn-open').getAttribute('aria-disabled')).toBeNull();
-    expect(fixture.nativeElement.querySelector('.btn-terminal').getAttribute('aria-disabled')).toBeNull();
-  });
-  it.each([true, false])('allows the cost setting to control the header cost (%s)', (enabled) => {
-    showCost = enabled;
-    fixture.componentRef.setInput('instance', instance('claude'));
-    fixture.componentRef.setInput('contextUsage', { used: 10, total: 100, percentage: 10, occupancyReported: true, costEstimate: 12.34 });
-    fixture.detectChanges();
-    expect(Boolean(fixture.nativeElement.querySelector('.cost'))).toBe(enabled);
-  });
-
-  describe('what a model change would cost, before the click (T17)', () => {
-    const pointedAt = { provider: 'codex', model: 'gpt-6.1-sol', reasoning: null } as PendingSelection;
-    const picker = () => fixture.debugElement.query(By.directive(CompactModelPickerComponent));
-
-    it('shows the auto-approve cost beside the control only when a consequence exists', () => {
-      fixture.componentRef.setInput('instance', instance('codex'));
-      fixture.detectChanges();
-      expect(fixture.nativeElement.querySelector('.header-action-detail')).toBeNull();
-      fixture.componentRef.setInput('yoloCostNote', 'The next message will re-read about 230K tokens at full price.');
-      fixture.detectChanges();
-      expect(fixture.nativeElement.querySelector('.header-action-detail')?.textContent).toContain('230K tokens at full price');
-    });
-
-    it('hands the sentence for the option under the pointer to the header\'s own model picker', () => {
-      fixture.componentRef.setInput('instance', instance('claude'));
-      fixture.detectChanges();
-      expect(picker().componentInstance.optionNote()).toBeNull();
-
-      fixture.componentRef.setInput('optionNote', 'Switching model restarts this session.');
-      fixture.detectChanges();
-
-      expect(picker().componentInstance.optionNote()).toBe('Switching model restarts this session.');
-    });
-
-    it('passes the option under the pointer up, and the pointer leaving it', () => {
-      fixture.componentRef.setInput('instance', instance('claude'));
-      fixture.detectChanges();
-      const previews: (PendingSelection | null)[] = [];
-      fixture.componentInstance.optionPreview.subscribe((value) => previews.push(value));
-
-      picker().componentInstance.optionPreview.emit(pointedAt);
-      picker().componentInstance.optionPreview.emit(null);
-
-      expect(previews).toEqual([pointedAt, null]);
-    });
   });
 });

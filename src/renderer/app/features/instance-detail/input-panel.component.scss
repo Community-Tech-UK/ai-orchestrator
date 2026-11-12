@@ -833,6 +833,12 @@
   flex-shrink: 0;
 }
 
+/* Stop beside Send/Steer, while there is something to send: smaller so it does not compete with Send. */
+.btn-send.btn-stop-small {
+  width: 28px;
+  height: 28px;
+}
+
 .hint-loop {
   color: var(--primary-color, inherit);
   opacity: 0.85;

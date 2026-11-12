@@ -36,7 +36,7 @@ describe('ComposerToolbarComponent: a large re-read waits for a yes', () => {
     await TestBed.configureTestingModule({
       imports: [ComposerToolbarComponent],
       providers: [
-        { provide: InstanceStore, useValue: {} },
+        { provide: InstanceStore, useValue: { getInstance: () => undefined } },
         { provide: InstanceIpcService, useValue: { changeModel } },
         { provide: ToastService, useValue: { show: vi.fn() } },
         { provide: ProviderAccountIpcService, useValue: { list: vi.fn().mockResolvedValue({ profiles: [], pools: {} }), previewRoute: vi.fn(), switchSession: vi.fn() } },
@@ -140,7 +140,7 @@ describe('ComposerToolbarComponent: a held change belongs to the session it was 
     await TestBed.configureTestingModule({
       imports: [ComposerToolbarComponent],
       providers: [
-        { provide: InstanceStore, useValue: {} },
+        { provide: InstanceStore, useValue: { getInstance: () => undefined } },
         { provide: InstanceIpcService, useValue: { changeModel } },
         { provide: ToastService, useValue: { show: vi.fn() } },
         { provide: ProviderAccountIpcService, useValue: { list: vi.fn().mockResolvedValue({ profiles: [], pools: {} }), previewRoute: vi.fn(), switchSession: vi.fn() } },

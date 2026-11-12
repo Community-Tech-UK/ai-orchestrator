@@ -23,7 +23,6 @@ import {
 } from '@angular/core';
 import { SessionStatusDockComponent } from './session-status-dock.component';
 import { buildSecondOpinionFollowUp } from './second-opinion-followup';
-import type { PendingSelection } from '../models/compact-model-picker.types';
 import { Router } from '@angular/router';
 import { ContextWarningComponent } from './context-warning.component';
 import { IdleCacheHintComponent } from './idle-cache-hint.component';
@@ -32,7 +31,6 @@ import type { RuntimeChangeCostNote } from '../../../../shared/utils/runtime-cha
 import { RuntimeChangeConfirmComponent } from './runtime-change-confirm.component';
 import {
   RuntimeChangePreviewController,
-  changeRequestOf,
   yoloChangeRequestOf,
   yoloCostKeyOf,
   runtimePreviewIdentityOf,
@@ -62,7 +60,6 @@ import { InstanceHeaderComponent } from './instance-header.component';
 import { InstanceWelcomeComponent } from './instance-welcome.component';
 import type { NewSessionSubmitRequest } from './input-panel-new-session-submit';
 import { CrossModelReviewPanelComponent } from './cross-model-review-panel.component';
-import { ProviderDiagnosticsPanelComponent } from './provider-diagnostics-panel.component';
 import { resolveEscapeRouting } from './session-status-dock.rules';
 import { SessionStatusCardComponent } from './session-status-card.component';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
@@ -151,7 +148,6 @@ interface ResendEditedEvent {
     RuntimeChangeConfirmComponent,
     InstanceWelcomeComponent,
     CrossModelReviewPanelComponent,
-    ProviderDiagnosticsPanelComponent,
     RemoteBrowseModalComponent,
     OrchestrationHudComponent,
     ChildDiagnosticBundleModalComponent,
@@ -640,51 +636,6 @@ export class InstanceDetailComponent {
 
   getProviderDisplayName(provider: string, model?: string | null): string {
     return providerDisplayName(provider, model);
-  }
-
-  /**
-   * A provider/model/effort pick from the header's compact picker.
-   * Local-model targets route via `modelRuntimeTarget`; anything else may be
-   * a cross-provider swap, so the provider travels with the request. Requests
-   * made while the instance is busy are queued by the backend and applied on
-   * the next idle (`desiredRuntime`).
-   */
-  async onModelSelectionChange(sel: PendingSelection): Promise<void> {
-    const inst = this.instance();
-    if (!inst) return;
-    if (!sel.modelRuntimeTarget) {
-      if (sel.provider === 'local-model') {
-        // Incomplete local-model pick (no decoded runtime target) — ignore.
-        return;
-      }
-      if (!sel.model && !sel.provider) return;
-    }
-    // A change that would leave a large conversation behind, or re-read it at full price, waits for a yes (T17).
-    await this.runtimeChange.gateSelection(inst.id, sel, () => this.applyModelSelection(inst.id, sel));
-  }
-
-  private async applyModelSelection(instanceId: string, sel: PendingSelection): Promise<void> {
-    const change = changeRequestOf(sel);
-    if (change.modelRuntimeTarget) {
-      await this.store.changeModel(instanceId, change.model, change.reasoningEffort, change.modelRuntimeTarget);
-      return;
-    }
-    await this.store.changeModel(instanceId, change.model, change.reasoningEffort, undefined, change.provider);
-  }
-
-  /**
-   * Cancel a queued model change by re-requesting the live configuration —
-   * the backend treats a request matching the current config as a cancel.
-   */
-  async onCancelDesiredRuntime(): Promise<void> {
-    const inst = this.instance();
-    if (!inst?.desiredRuntime) return;
-    if (inst.provider === 'ollama') {
-      if (!inst.currentModel) return;
-      await this.store.changeModel(inst.id, inst.currentModel);
-      return;
-    }
-    await this.store.changeModel(inst.id, inst.currentModel, undefined, undefined, inst.provider);
   }
 
   /**

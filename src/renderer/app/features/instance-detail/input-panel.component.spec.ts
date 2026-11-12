@@ -1089,6 +1089,61 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     expect(hintFor('.btn-stop').appTooltipShortcut()).toBe('cancel-operation');
   });
 
+  describe('the one Stop control', () => {
+    const stopButton = () => fixture.nativeElement.querySelector('.btn-stop') as HTMLButtonElement | null;
+    const sendButtons = () => fixture.nativeElement.querySelectorAll('.btn-send:not(.btn-stop)');
+
+    it('shows Stop as the main button while busy with nothing typed, and says so in words', () => {
+      fixture.componentRef.setInput('isBusy', true);
+      fixture.detectChanges();
+      expect(stopButton()).not.toBeNull();
+      expect(stopButton()!.classList.contains('btn-stop-small')).toBe(false);
+      expect(sendButtons()).toHaveLength(0);
+      expect(Array.from(fixture.nativeElement.querySelectorAll('.hint')).map(hint => (hint as HTMLElement).textContent)).toContain('Stop current turn');
+    });
+
+    it('shows Stop while busy even with text typed, small, beside Send', async () => {
+      fixture.componentRef.setInput('isBusy', true);
+      fixture.detectChanges();
+      await typeInComposer('a follow-up');
+      expect(stopButton()).not.toBeNull();
+      expect(stopButton()!.classList.contains('btn-stop-small')).toBe(true);
+      expect(sendButtons()).toHaveLength(1);
+      const stops: unknown[] = [];
+      component.interruptRequested.subscribe(() => stops.push(1));
+      stopButton()!.click();
+      expect(stops).toHaveLength(1);
+    });
+
+    it('shows Stop while the composer is disabled for emergency context', () => {
+      fixture.componentRef.setInput('disabled', true);
+      fixture.componentRef.setInput('isBusy', true);
+      fixture.detectChanges();
+      expect(stopButton()).not.toBeNull();
+      expect(stopButton()!.disabled).toBe(false);
+    });
+
+    it('shows Stop while busy with the loop panel open', () => {
+      fixture.componentRef.setInput('isBusy', true);
+      fixture.detectChanges();
+      component.onLoopOpenConfig();
+      fixture.detectChanges();
+      expect(component.loopArmed()).toBe(true);
+      expect(stopButton()).not.toBeNull();
+      expect(stopButton()!.classList.contains('btn-stop-small')).toBe(true);
+      expect(fixture.nativeElement.querySelector('.btn-send.loop-mode')).not.toBeNull();
+    });
+
+    it('shows Stop while the session is recovering, and not while it is idle', () => {
+      fixture.componentRef.setInput('isRespawning', true);
+      fixture.detectChanges();
+      expect(stopButton()).not.toBeNull();
+      fixture.componentRef.setInput('isRespawning', false);
+      fixture.detectChanges();
+      expect(stopButton()).toBeNull();
+    });
+  });
+
   it('keeps attachment preview, full name and removal hints on separate hosts', () => {
     vi.stubGlobal('URL', { createObjectURL: () => 'blob:test-preview', revokeObjectURL: vi.fn() });
     fixture.componentRef.setInput('pendingFiles', [new File(['image'], 'long-image-name.png', { type: 'image/png' }), new File(['text'], 'note.txt')]);

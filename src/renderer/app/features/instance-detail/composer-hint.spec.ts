@@ -12,4 +12,7 @@ describe('single composer hint', () => {
     [{ condensed: true }, 'Condensed context will attach when you send.'],
     [{}, 'Enter sends. Shift+Enter adds a line. / opens commands.'],
   ])('chooses one line for %j', (state, expected) => { const text = composerHintFor(state); expect(text).toBe(expected); expect(text).not.toContain('\n'); });
+  it('never names a provider in the compacting line, so it is right for every session', () => {
+    expect(composerHintFor({ compacting: true, busy: true })).not.toMatch(/codex|claude|gemini|copilot/i);
+  });
 });

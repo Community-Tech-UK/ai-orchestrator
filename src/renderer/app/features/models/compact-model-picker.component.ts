@@ -95,14 +95,6 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
       @if (displayStatus(); as status) {
         <span class="compact-picker__status" role="status">{{ status }}</span>
       }
-      @if (catalogFreshness()) {
-        <span
-          class="compact-picker__catalog"
-          role="status"
-          tabindex="0"
-          [appTooltip]="'Model catalog last refreshed ' + catalogFreshness()"
-        >↻ {{ catalogFreshness() }}</span>
-      }
     </div>
 
     <ng-template
@@ -124,6 +116,7 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
         [modelsForProvider]="modelsForProviderFn"
         [reasoningOptionsForProvider]="reasoningOptionsForProviderFn"
         [disabledReasonForProvider]="providerDisabledReasonFor"
+        [freshness]="catalogFreshness()"
         [note]="switchNote()"
         [noteForProvider]="switchNoteForProvider()"
         [optionNote]="optionNote()"
@@ -196,11 +189,6 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
       border: 1px solid var(--success-border, rgba(34,197,94,0.4));
       border-radius: 10px;
       color: var(--success-text, rgb(74,222,128));
-    }
-    .compact-picker__catalog {
-      font-size: 10px;
-      color: var(--text-tertiary, rgba(255,255,255,0.45));
-      white-space: nowrap;
     }
   `],
 })

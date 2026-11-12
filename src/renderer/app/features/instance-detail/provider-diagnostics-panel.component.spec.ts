@@ -245,4 +245,40 @@ describe('ProviderDiagnosticsPanelComponent aggregate occupancy (LT-034)', () =>
 
     expect(fixture.nativeElement.textContent as string).toContain('80%');
   });
+
+  it('excludes the context row when asked, because the ring already says it', () => {
+    events.next(makeEnvelope({ kind: 'context', used: 160_000, total: 200_000, percentage: 80, occupancyReported: true }));
+    events.next(makeEnvelope({ kind: 'complete', rateLimit: { remaining: 3 } }));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent as string).toContain('80%');
+
+    fixture.componentRef.setInput('exclude', ['context']);
+    fixture.detectChanges();
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).not.toContain('80%');
+    expect(text).not.toContain('Context');
+    expect(text).toContain('3 remaining');
+  });
+
+  it('exposes a warning for exhausted quota and for a spent rate limit, and none otherwise', () => {
+    expect(fixture.componentInstance.warningItems()).toEqual([]);
+    events.next(makeEnvelope({ kind: 'complete', rateLimit: { remaining: 4 } }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.warningItems()).toEqual([]);
+
+    events.next(makeEnvelope({ kind: 'complete', rateLimit: { remaining: 0 } }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.warningItems().map(item => item.id)).toEqual(['rate-limit']);
+
+    events.next(makeEnvelope({ kind: 'complete', quota: { exhausted: true, message: 'quota exhausted' } }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.warningItems().map(item => item.id)).toEqual(['rate-limit', 'quota']);
+  });
+
+  it('keeps an excluded warning visible to the host that asked for the exclusion', () => {
+    fixture.componentRef.setInput('exclude', ['context']);
+    events.next(makeEnvelope({ kind: 'complete', quota: { exhausted: true, message: 'quota exhausted' } }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.warningItems().map(item => item.id)).toEqual(['quota']);
+  });
 });

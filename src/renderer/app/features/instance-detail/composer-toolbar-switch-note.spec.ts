@@ -25,7 +25,7 @@ describe('Composer toolbar switch note (rendered through picker and panel)', () 
       imports: [ComposerToolbarComponent],
       providers: [
         { provide: InstanceIpcService, useValue: { changeModel: vi.fn() } },
-        { provide: InstanceStore, useValue: {} },
+        { provide: InstanceStore, useValue: { getInstance: () => undefined } },
         { provide: ToastService, useValue: { show: vi.fn() } },
         { provide: ProviderAccountIpcService, useValue: { list: vi.fn().mockResolvedValue({ profiles: [], pools: {} }) } },
       ],

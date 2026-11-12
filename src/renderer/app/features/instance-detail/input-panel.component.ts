@@ -586,22 +586,12 @@ export class InputPanelComponent implements OnDestroy {
       || status === 'waiting_for_permission';
   });
   /**
-   * Show a stop button in place of the send/queue arrow when the instance is
-   * actively working AND the composer has no content to send. With content the
-   * arrow stays so the user can still click-to-queue while busy; Esc remains
-   * the keyboard path to interrupt in either case.
+   * Stop shows whenever a turn is running or recovering, whatever is typed, armed
+   * (loop) or disabled (emergency context) in the composer. With something to send
+   * it sits beside Send/Steer as a small button; otherwise it is the main button.
+   * Esc interrupts in every case.
    */
-  readonly showStopButton = computed(() => {
-    if (this.loopArmed()) return false;
-    if (this.disabled()) return false;
-    const busy = this.isBusy() || this.isRespawning();
-    if (!busy) return false;
-    const hasContent =
-      this.message().trim().length > 0
-      || this.pendingFilePreviews().length > 0
-      || this.pendingFolders().length > 0;
-    return !hasContent;
-  });
+  readonly showStopButton = computed(() => this.isBusy() || this.isRespawning());
   selectedProvider = computed(() =>
     this.isDraftComposer()
       ? (this.newSessionDraft.provider() ?? this.providerState.selectedProvider())

@@ -1,4 +1,3 @@
-    @let yoloNote = yoloCostNote();
     <div class="detail-header">
       @if (globalPause.holdsAutomaticInput(instance().id)) {
         <p role="status">Paused for restart. Typing here takes it out of the pause.</p>
@@ -44,15 +43,44 @@
         </div>
 
         <div class="header-actions">
-          @if (instance().status === 'busy') {
-            <button
-              class="btn-action btn-interrupt"
-              [appTooltip]="interruptTitle()" appTooltipShortcut="cancel-operation"
-              (click)="interrupt.emit()"
-            >
-              ⏸ Interrupt
-            </button>
+          @if (isRemote()) {
+            <span class="node-badge" tabindex="0" [class.node-badge-warning]="remoteNodeDisconnected()" [appTooltip]="remoteNodeTooltip()">
+              {{ remoteNodeName() }}
+              @if (remoteNodeDisconnected()) { <span>Disconnected</span> }
+            </span>
           }
+          <app-recent-directories-dropdown
+            [currentPath]="instance().workingDirectory || ''"
+            (folderSelected)="selectFolder.emit($event)"
+          />
+          @if (yoloLabel(); as label) {
+            <span class="chip chip-warning" [class.pending]="yoloPending()" tabindex="0" [appTooltip]="yoloChipTooltip()">{{ label }}</span>
+          }
+          @if (modeChip(); as mode) {
+            <span class="chip" tabindex="0" [appTooltip]="mode + ' mode. Change it in Session options'">{{ mode }}</span>
+          }
+          @if (instance().fastMode) {
+            <span class="chip" tabindex="0" appTooltip="Fast mode is on. Change it in Session options">Fast</span>
+          }
+          @if (desktopControlLevel(); as level) {
+            <span class="chip" tabindex="0" appTooltip="This session's desktop control differs from the Settings default. Change it in Session options">Desktop control: {{ level }}</span>
+          }
+          <app-session-cost-label [instance]="instance()" />
+          <app-cross-model-review-indicator
+            [instanceId]="instance().id"
+            (indicatorClicked)="reviewPanelToggle.emit()"
+          />
+          <app-session-options-menu
+            [instance]="instance()"
+            [isChangingMode]="isChangingMode()"
+            [isTogglingYolo]="isTogglingYolo()"
+            [isTogglingFastMode]="isTogglingFastMode()"
+            [yoloCostNote]="yoloCostNote()"
+            (cycleAgentMode)="cycleAgentMode.emit()"
+            (toggleYolo)="toggleYolo.emit()"
+            (toggleFastMode)="toggleFastMode.emit()"
+          />
+
           <div class="open-menu-shell">
             <button
               class="btn-action btn-open"
@@ -94,20 +122,6 @@
               ></button>
             }
           </div>
-          <button
-            class="btn-action btn-icon btn-terminal"
-            appTooltip="Open in Terminal"
-            aria-label="Open in Terminal"
-            [appTooltipDisabledReason]="instance().workingDirectory ? null : 'Choose a working folder first'"
-            (click)="openInTerminal()"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="4" width="18" height="16" rx="2" />
-              <path d="m7 9 3 3-3 3" />
-              <path d="M13 15h4" />
-            </svg>
-          </button>
           @if (canShowFileExplorer()) {
             <button
               class="btn-action btn-icon"
@@ -146,164 +160,5 @@
           }
           <app-help-link topic="session" label="Help: working in a session" />
         </div>
-      </div>
-
-      <div class="header-bottom">
-        <div class="instance-meta">
-          <span
-            class="provider-badge" tabindex="0"
-            [style.background-color]="providerColor()"
-            [appTooltip]="'Provider: ' + providerDisplayName()"
-          >
-            {{ providerDisplayName() }}
-          </span>
-          @if (copilotAccountBadge(); as copilotAccount) {
-            <span class="copilot-account-badge" tabindex="0" [appTooltip]="copilotAccount.title">
-              {{ copilotAccount.label }}
-            </span>
-          }
-          <!-- Claude/Codex account-pool badge with an explicit switch. Renders nothing without a pool. -->
-          <app-provider-account-chip
-            mode="session"
-            [provider]="instance().provider"
-            [instanceId]="instance().id"
-            [accountProfileId]="instance().accountProfileId"
-            [accountRoutingSource]="instance().accountRoutingSource"
-          />
-          @if (isRemote()) {
-            <span
-              class="node-badge" tabindex="0"
-              [class.node-badge-warning]="remoteNodeDisconnected()"
-              [appTooltip]="remoteNodeTooltip()"
-            >
-              {{ remoteNodeName() }}
-              @if (remoteNodeDisconnected()) { <span>Disconnected</span> }
-            </span>
-          }
-          @if (isLocalModelRuntime()) {
-            <span
-              class="runtime-model-badge" tabindex="0"
-              [style.border-color]="modelBtnBorderColor()"
-              [style.background]="modelBtnBgColor()"
-              [style.color]="providerColor()"
-              [appTooltip]="'Model: ' + currentModelId()"
-            >
-              {{ currentModelDisplayName() }}
-            </span>
-          } @else {
-            <app-compact-model-picker
-              mode="pending-create"
-              [providers]="pickerProviders"
-              [selection]="pickerSelection()"
-              [disabledReason]="pickerDisabledReason()"
-              [switchNoteForProvider]="modelSwitchNoteForProvider"
-              [optionNote]="optionNote()"
-              (optionPreview)="optionPreview.emit($event)"
-              (selectionChange)="modelSelectionChange.emit($event)"
-            />
-            @if (desiredRuntimeLabel(); as pendingLabel) {
-              <button
-                type="button"
-                class="pending-model-badge"
-                [appTooltip]="copy('composer.pendingModelPrefix') + ' ' + pendingLabel + ' ' + copy('composer.pendingModelSuffix')"
-                (click)="cancelDesiredRuntime.emit()"
-              >
-                {{ pendingLabel }} <span aria-hidden="true">✕</span>
-              </button>
-            }
-          }
-          <button
-            class="mode-badge"
-            [class.plan]="instance().agentId === 'plan'"
-            [class.review]="instance().agentId === 'review'"
-            [disabled]="isChangingMode()"
-            [appTooltipDisabledReason]="isRuntimeLocked() ? copy('header.modeLocked') : null"
-            [appTooltip]="
-              isRuntimeLocked()
-                ? copy('header.modeLocked')
-                : 'Click to change mode'
-            "
-            (click)="!isRuntimeLocked() && !isChangingMode() && cycleAgentMode.emit()"
-          >
-            {{ isChangingMode() ? 'Changing…' : agentModeName() }}
-          </button>
-          <app-recent-directories-dropdown
-            [currentPath]="instance().workingDirectory || ''"
-            (folderSelected)="selectFolder.emit($event)"
-          />
-          <button
-            class="yolo-badge"
-            [class.active]="instance().yoloMode"
-            [class.pending]="yoloPending()"
-            [disabled]="isTogglingYolo()"
-            [appTooltipDisabledReason]="isStartingOrRecovering() ? copy('header.yoloLocked') : null"
-            [appTooltip]="
-              isStartingOrRecovering()
-                ? copy('header.yoloLocked')
-                : yoloPending()
-                  ? (instance().pendingYoloMode
-                      ? copy('header.yoloPendingOn')
-                      : copy('header.yoloPendingOff'))
-                  : instance().yoloMode
-                    ? copy('header.yoloOn') + (yoloNote ? '. ' + yoloNote : '')
-                    : copy('header.yoloOff') + (yoloNote ? '. ' + yoloNote : '')
-            "
-            (click)="!isStartingOrRecovering() && !isTogglingYolo() && toggleYolo.emit()"
-          >
-            {{ isTogglingYolo() ? 'Changing…' : 'Auto-approve' }} {{ instance().yoloMode ? 'ON' : 'OFF'
-            }}{{ yoloPending() ? (instance().pendingYoloMode ? ' → ON' : ' → OFF') : '' }}
-          </button>
-          @if (yoloNote) {
-            <span class="header-action-detail">{{ yoloNote }}</span>
-          }
-          <app-session-computer-use-control [instance]="instance()" />
-          @if (supportsFastMode()) {
-            <button
-              class="fast-badge"
-              [class.active]="instance().fastMode"
-              [disabled]="isTogglingFastMode()"
-              [appTooltipDisabledReason]="isRuntimeLocked() ? copy('header.fastLocked') : null"
-              [appTooltip]="
-                isRuntimeLocked()
-                  ? copy('header.fastLocked')
-                  : instance().fastMode
-                    ? copy('header.fastOn')
-                    : copy('header.fastOff')
-              "
-              (click)="!isRuntimeLocked() && !isTogglingFastMode() && toggleFastMode.emit()"
-            >
-              {{ isTogglingFastMode() ? 'Changing…' : 'FAST' }} {{ instance().fastMode ? 'ON' : 'OFF' }}
-            </button>
-          }
-          @if (activeSkillCount() > 0) {
-            <span class="skills-badge" tabindex="0" [appTooltip]="activeSkillsTooltip()">
-              {{ activeSkillCount() }} skill{{ activeSkillCount() > 1 ? 's' : '' }}
-            </span>
-          }
-          <app-session-skills-badge [instanceId]="instance().id" />
-          @if (enabledHookCount() > 0) {
-            <span class="hooks-badge" tabindex="0" [appTooltip]="enabledHooksTooltip()">
-              {{ enabledHookCount() }} hook{{ enabledHookCount() > 1 ? 's' : '' }}
-            </span>
-          }
-          <app-cross-model-review-indicator
-            [instanceId]="instance().id"
-            (indicatorClicked)="reviewPanelToggle.emit()"
-          />
-        </div>
-
-        @if (instance().provider === 'copilot') {
-          <app-copilot-premium-usage [used]="(contextUsage() ?? instance().contextUsage)?.copilotUsage?.premiumRequests" />
-        }
-        @if (contextUsage(); as usage) {
-          <div class="header-context">
-            <app-context-bar
-              [usage]="usage"
-              [showDetails]="true"
-              [instanceId]="instance().id"
-            />
-            <app-fanout-cost [instanceId]="instance().id" />
-          </div>
-        }
       </div>
     </div>

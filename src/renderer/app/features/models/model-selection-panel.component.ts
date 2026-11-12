@@ -133,6 +133,9 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
           >
         </label>
 
+        @if (freshness(); as refreshed) {
+          <p class="model-picker-freshness" tabindex="0" [appTooltip]="'Model catalog last refreshed ' + refreshed">↻ {{ refreshed }}</p>
+        }
         @if (visibleNote(); as switchNote) { <p class="model-picker-note" role="note" id="model-picker-switch-note">{{ switchNote }}</p> }
 
         <div class="model-picker-list" role="list" aria-label="Models">
@@ -360,6 +363,7 @@ const FAVORITES_STORAGE_KEY = 'compact-model-picker:favorites:v1';
     }
 
     .model-picker-note { margin: 0; color: var(--text-muted, #8f8f96); font-size: 12px; line-height: 1.4; }
+    .model-picker-freshness { margin: 0; color: var(--text-tertiary, rgba(255,255,255,0.45)); font-size: 10px; white-space: nowrap; }
 
     .model-picker-search {
       position: relative;
@@ -756,6 +760,8 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
   );
   readonly selection = output<UnifiedSelection>();
   readonly dismiss = output<void>();
+  /** How long ago the model list was refreshed ("just now", "2m ago"), or null while it has never been built. */
+  readonly freshness = input<string | null>(null);
   readonly optionNote = input<string | null>(null); // what choosing the option under the pointer would cost (T17)
   readonly rowPreview = output<UnifiedSelection | null>(); // the option under the pointer; the host answers through `optionNote`
 

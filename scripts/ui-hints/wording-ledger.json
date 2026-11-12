@@ -312,7 +312,8 @@
     "id": "098e13c932f5e8aa",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": " when the current turn finishes. Click to cancel.",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "The queued-model chip moved to the composer toolbar, which keeps the same words (composer.pendingModelSuffix)"
   },
   {
     "id": "10c6f9654f32322a",
@@ -346,7 +347,8 @@
     "id": "7f1900b487b47c76",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "Fast Mode: faster output (Opus / Codex priority tier). Click to disable",
-    "why": "long"
+    "why": "long",
+    "retired": "Fast-on hover moved unchanged to the Fast button in Session options (session-options-menu.component.ts)"
   },
   {
     "id": "915dbc129d58747e",
@@ -359,7 +361,8 @@
     "id": "d9ef61505eed1019",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "Fast Mode: faster output at some capability cost. Click to enable",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Fast-off hover moved unchanged to the Fast button in Session options (session-options-menu.component.ts)"
   },
   {
     "id": "ec7bfbfa059f5282",
@@ -1768,13 +1771,15 @@
     "id": "4f1a358c3d11cc1b",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "Cannot toggle fast mode while the session is running or recovering",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Fast-locked reason moved unchanged to the Fast button in Session options (session-options-menu.component.ts)"
   },
   {
     "id": "cb7354da201b4666",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "Cannot change mode while the session is running or recovering",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Mode-locked reason moved unchanged to the Mode button in Session options (session-options-menu.component.ts)"
   },
   {
     "id": "e9aad0fade09f383",
@@ -2518,7 +2523,8 @@
     "id": "b50e450d62d4219b",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": " allowance resets at ",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "The waiting-line wording moved unchanged to instance-header-presentation.ts (waitReasonDetail); the header still shows it"
   },
   {
     "id": "0b53ab7caa3154e8",
@@ -2830,31 +2836,36 @@
     "id": "341b78f48675c472",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "Auto-approve will turn off when the current turn finishes. Click to cancel.",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Auto-approve queued-off hover moved unchanged to the Auto-approve button in Session options (session-options-menu.component.ts)"
   },
   {
     "id": "3ee0bb4750979fbc",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "Auto-approve is off: asks before acting. Click to turn it on",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Auto-approve-off hover moved unchanged to the Auto-approve button in Session options (session-options-menu.component.ts)"
   },
   {
     "id": "60354e2b0bf27a93",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "Auto-approve is on: runs tools and edits without asking you. Click to turn it off",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Auto-approve-on hover moved unchanged to the Auto-approve button in Session options (session-options-menu.component.ts)"
   },
   {
     "id": "e2e5d450d07c3c8a",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "Cannot change Auto-approve while the session is starting or recovering",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Auto-approve-locked reason moved unchanged to the Auto-approve button in Session options (session-options-menu.component.ts)"
   },
   {
     "id": "ecd0fff35b2cb06b",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "Auto-approve will turn on when the current turn finishes. Click to cancel.",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Auto-approve queued-on hover moved unchanged to the Auto-approve button in Session options (session-options-menu.component.ts)"
   },
   {
     "id": "df01747105824444",
@@ -2878,6 +2889,90 @@
     "id": "e9eb120db6189ec4",
     "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
     "text": ". Choose whether to close its ",
+    "why": "consequence"
+  },
+  {
+    "id": "198d00f3e2e1c6df",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "Fast mode is on. Change it in Session options",
+    "why": "long"
+  },
+  {
+    "id": "3c12f72318ffd698",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "Auto-approve changes after the current reply finishes. Change it in Session options",
+    "why": "consequence"
+  },
+  {
+    "id": "8edcfaf78b65cc13",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "Auto-approve is on: runs tools and edits without asking you. Change it in Session options",
+    "why": "consequence"
+  },
+  {
+    "id": "e0cf63ab3647980f",
+    "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
+    "text": "This session's desktop control differs from the Settings default. Change it in Session options",
+    "why": "long"
+  },
+  {
+    "id": "0bf27af63643729e",
+    "owner": "src/renderer/app/features/instance-detail/session-cost-label.component.ts",
+    "text": "Cost of this session so far at API prices, including subagents. Your Claude and Codex plans bill differently. Copilot is billed in AI credits and is not included.",
+    "why": "consequence"
+  },
+  {
+    "id": "4443df49243a6022",
+    "owner": "src/renderer/app/features/instance-detail/session-options-menu.component.ts",
+    "text": "Cannot change Auto-approve while the session is starting or recovering",
+    "why": "consequence"
+  },
+  {
+    "id": "44e27415456d22d1",
+    "owner": "src/renderer/app/features/instance-detail/session-options-menu.component.ts",
+    "text": "Fast Mode: faster output (Opus / Codex priority tier). Click to disable",
+    "why": "long"
+  },
+  {
+    "id": "5ae8b35516f4a823",
+    "owner": "src/renderer/app/features/instance-detail/session-options-menu.component.ts",
+    "text": "Cannot change mode while the session is running or recovering",
+    "why": "consequence"
+  },
+  {
+    "id": "a394812c89dc2751",
+    "owner": "src/renderer/app/features/instance-detail/session-options-menu.component.ts",
+    "text": "Auto-approve is on: runs tools and edits without asking you. Click to turn it off",
+    "why": "consequence"
+  },
+  {
+    "id": "a49dbbd3f3fb6abf",
+    "owner": "src/renderer/app/features/instance-detail/session-options-menu.component.ts",
+    "text": "Cannot toggle fast mode while the session is running or recovering",
+    "why": "consequence"
+  },
+  {
+    "id": "b3d1eedc6000155c",
+    "owner": "src/renderer/app/features/instance-detail/session-options-menu.component.ts",
+    "text": "Auto-approve will turn on when the current turn finishes. Click to cancel.",
+    "why": "consequence"
+  },
+  {
+    "id": "db7b91a0189c113b",
+    "owner": "src/renderer/app/features/instance-detail/session-options-menu.component.ts",
+    "text": "Auto-approve is off: asks before acting. Click to turn it on",
+    "why": "consequence"
+  },
+  {
+    "id": "e4f0c4120e558874",
+    "owner": "src/renderer/app/features/instance-detail/session-options-menu.component.ts",
+    "text": "Fast Mode: faster output at some capability cost. Click to enable",
+    "why": "consequence"
+  },
+  {
+    "id": "e79171b8c5357f1d",
+    "owner": "src/renderer/app/features/instance-detail/session-options-menu.component.ts",
+    "text": "Auto-approve will turn off when the current turn finishes. Click to cancel.",
     "why": "consequence"
   },
   {

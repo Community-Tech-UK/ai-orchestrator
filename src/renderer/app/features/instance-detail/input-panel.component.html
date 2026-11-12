@@ -514,10 +514,11 @@
           </button>
         }
         @if (showStopButton()) {
-          <span class="hint">Stop current turn</span>
+          @if (!canSend()) { <span class="hint">Stop current turn</span> }
           <button
             type="button"
             class="btn-send btn-stop"
+            [class.btn-stop-small]="canSend()"
             (click)="onInterruptClick()"
             appTooltip="Stop current turn" appTooltipShortcut="cancel-operation"
             aria-label="Stop current turn"
@@ -527,7 +528,7 @@
             </svg>
           </button>
         }
-        @if (!showStopButton() || canSend() || loopArmed()) {
+        @if (!showStopButton() || canSend()) {
           <button
             type="button"
             class="btn-send"
