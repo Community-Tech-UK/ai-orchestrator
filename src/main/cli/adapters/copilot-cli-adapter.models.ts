@@ -198,22 +198,23 @@ export function unionCopilotModelIds(
 }
 
 /**
- * Combine the two discovery sources: `help config` order first (the roster the
- * picker has always shown), then ids only the account's live roster has, e.g.
- * a model GitHub shipped after this CLI build. Either source alone is enough;
- * with neither, the `help config` failure is the one reported, because the
- * live roster is legitimately empty for unrouted probes.
+ * A successful account roster is authoritative. Help and static catalogs
+ * describe the CLI's vocabulary, not what this account may use, so they must
+ * never add unavailable models to that response. Use them only when the live
+ * request failed or this is an installation-only probe.
  */
-export function mergeCopilotDiscoverySources(
+export function resolveCopilotDiscoverySources(
   helpConfig: PromiseSettledResult<string[]>,
-  liveIds: readonly string[],
-): string[] {
+  liveIds: readonly string[] | null,
+): CopilotModelInfo[] {
+  if (liveIds !== null) {
+    return ensureCopilotAutoModel(unionCopilotModelIds(liveIds, []).map(toCopilotModelInfo));
+  }
   const helpIds = helpConfig.status === 'fulfilled' ? helpConfig.value : [];
-  const merged = unionCopilotModelIds(helpIds, liveIds);
-  if (merged.length === 0 && helpConfig.status === 'rejected') {
+  if (helpIds.length === 0 && helpConfig.status === 'rejected') {
     throw helpConfig.reason;
   }
-  return merged;
+  return completeCopilotDiscoveredModels(helpIds);
 }
 
 export function staticCopilotModelIds(): string[] {

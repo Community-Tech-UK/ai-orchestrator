@@ -6,7 +6,7 @@ import {
   classifyCopilotModelTier,
   completeCopilotDiscoveredModels,
   COPILOT_DEFAULT_MODELS,
-  mergeCopilotDiscoverySources,
+  resolveCopilotDiscoverySources,
   parseCopilotModelIdsFromHelpConfig,
   unionCopilotModelIds,
   withCopilotModelListFallback,
@@ -120,24 +120,34 @@ describe('Copilot picker classification', () => {
   });
 });
 
-describe('mergeCopilotDiscoverySources', () => {
+describe('resolveCopilotDiscoverySources', () => {
   const fulfilled = (value: string[]): PromiseSettledResult<string[]> => ({ status: 'fulfilled', value });
   const rejected = (reason: unknown): PromiseSettledResult<string[]> => ({ status: 'rejected', reason });
 
-  it('keeps help config order and appends ids only the live roster has', () => {
-    expect(mergeCopilotDiscoverySources(
+  it('uses only the account roster, excluding help and static models it does not serve', () => {
+    expect(resolveCopilotDiscoverySources(
       fulfilled(['claude-sonnet-5', 'claude-opus-5', 'gpt-5.5']),
       ['claude-opus-5', 'claude-opus-5.5', 'gpt-6-sol'],
-    )).toEqual(['claude-sonnet-5', 'claude-opus-5', 'gpt-5.5', 'claude-opus-5.5', 'gpt-6-sol']);
+    ).map(model => model.id)).toEqual(['auto', 'claude-opus-5', 'claude-opus-5.5', 'gpt-6-sol']);
   });
 
   it('uses the live roster alone when help config failed', () => {
-    expect(mergeCopilotDiscoverySources(rejected(new Error('parse failed')), ['gpt-6-sol']))
-      .toEqual(['gpt-6-sol']);
+    expect(resolveCopilotDiscoverySources(rejected(new Error('parse failed')), ['gpt-6-sol'])
+      .map(model => model.id)).toEqual(['auto', 'gpt-6-sol']);
+  });
+
+  it('does not mistake a successful empty account roster for failed discovery', () => {
+    expect(resolveCopilotDiscoverySources(fulfilled(['claude-opus-5']), [])
+      .map(model => model.id)).toEqual(['auto']);
+  });
+
+  it('retains the help and static fallback when the live request failed', () => {
+    expect(resolveCopilotDiscoverySources(fulfilled(['help-only']), null)
+      .map(model => model.id)).toEqual(expect.arrayContaining(['auto', 'help-only', COPILOT_MODELS.GPT6_ASTRA]));
   });
 
   it('reports the help config failure when neither source produced ids', () => {
     const failure = new Error('Timeout fetching Copilot model list');
-    expect(() => mergeCopilotDiscoverySources(rejected(failure), [])).toThrow(failure);
+    expect(() => resolveCopilotDiscoverySources(rejected(failure), null)).toThrow(failure);
   });
 });

@@ -7,14 +7,16 @@ import {
 import type { InstanceCreateConfig } from '../../../shared/types/instance.types';
 import { getLogger } from '../../logging/logger';
 import { listCopilotModelsAcrossProfiles } from '../../providers/copilot-profile-model-discovery';
+import { getCopilotAccountRoutingService } from '../../providers/copilot/copilot-account-routing-service';
 
 const logger = getLogger('InstanceLifecycle');
 
 /**
  * Return the set of valid model ids for a CLI, used to reject cross-provider
- * model leakage before spawn / on model change. The shared unified-catalog
- * snapshot is authoritative when populated; static provider lists are only the
- * offline/no-snapshot fallback.
+ * model leakage before spawn / on model change. For a resolved Copilot
+ * account, its roster wins over the shared catalog, which also contains other
+ * accounts' models. Other providers use the catalog when populated, with
+ * static lists as the offline/no-snapshot fallback.
  *
  * Copilot and Cursor expose their real model list only at runtime, and our
  * static `PROVIDER_MODEL_LIST` entry for them
@@ -36,9 +38,19 @@ export async function getKnownModelsForCli(
   const catalogIds = getKnownCatalogModelIdsForProvider(cliType);
   if (cliType === 'copilot') {
     try {
-      const models = copilotAccountProfileId
-        ? await new CopilotCliAdapter({ accountProfileId: copilotAccountProfileId }).listAvailableModels()
-        : await listCopilotModelsAcrossProfiles();
+      if (copilotAccountProfileId) {
+        const profile = getCopilotAccountRoutingService().listProfiles()
+          .find(candidate => candidate.id === copilotAccountProfileId);
+        const models = await new CopilotCliAdapter({
+          accountProfileId: copilotAccountProfileId,
+          accountIsLegacy: profile?.isLegacy,
+          accountHost: profile?.host,
+        }).listAvailableModels();
+        // The shared catalog contains models from other accounts. Adding it
+        // back would undo this account's authoritative availability check.
+        return models.map(model => model.id);
+      }
+      const models = await listCopilotModelsAcrossProfiles();
       return mergeModelIds(models.map(model => model.id), catalogIds);
     } catch (error) {
       logger.warn('Falling back to static Copilot model list during validation', {

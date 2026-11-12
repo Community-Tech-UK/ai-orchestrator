@@ -44,6 +44,7 @@ import {
 } from './tool-permission-config';
 import { getKnownModelsForCli } from './create-validation-helpers';
 import { resolveRuntimeChangeModel } from './model-selection-degradation';
+import { attachCopilotRoute } from './copilot-route-preflight';
 import { resolveSwapContextUsage } from './context-usage-restore';
 import { resolveExecutionLocation } from './execution-location-resolver';
 import { buildLocalModelRuntimeSummary } from './instance-create-builder';
@@ -132,6 +133,8 @@ export class RuntimeReconciler {
       const oldFastMode = instance.fastMode;
       const oldReasoningEffort = instance.reasoningEffort;
       const oldCopilotProfileId = instance.copilotAccountProfileId;
+      const oldCopilotRoutingSource = instance.copilotRoutingSource;
+      const oldCopilotRoutingRuleId = instance.copilotRoutingRuleId;
       const oldAccount = snapshotAccount(instance);
       const oldAccountPreferences = instance.accountPreferences;
       const oldContextEvidence = instance.contextEvidence;
@@ -327,6 +330,16 @@ export class RuntimeReconciler {
         const accountContinuation = diff.accountProfileChanged ? applyAccountHandoff(instance, desired) : undefined;
         const cliType = await this.deps.resolveCliTypeForInstance(instance);
         assertCurrent();
+        const copilotAccountRoute = cliType === 'copilot'
+          ? (await attachCopilotRoute(cliType, {
+              instanceId, workingDirectory: instance.workingDirectory,
+            }, instance.accountRouteOrigin ?? 'interactive', {
+              persistedProfileId: instance.copilotAccountProfileId,
+              executionNodeId: nextExecutionLocation.type === 'remote' ? nextExecutionLocation.nodeId : undefined,
+              avoidProfileIds: instance.accountPreferences?.avoid,
+            })).copilotAccountRoute
+          : undefined;
+        assertCurrent();
         const continuity = planRuntimeContinuity({
           diff,
           capabilities: oldAdapterCapabilities,
@@ -344,15 +357,17 @@ export class RuntimeReconciler {
           validatedModel = resolveModelForTier(newModel, cliType);
         }
 
-        // Mirrors spawn-time validation against CLI discovery + unified catalog snapshot.
+        // A remote Copilot worker owns its model roster; local validation uses
+        // the account already resolved for this exact replacement runtime.
         const modelToValidate = validatedModel;
-        if (!localModelTarget && modelToValidate !== undefined) {
+        if (!localModelTarget && modelToValidate !== undefined
+          && (cliType !== 'copilot' || nextExecutionLocation.type !== 'remote')) {
           // Keyed by the session's Copilot account: an account policy can deny an
           // individual model, so a denial under one seat must not decide what is
           // valid for the other.
           const knownModelIds = await getKnownModelsForCli(
             cliType,
-            instance.copilotAccountProfileId,
+            copilotAccountRoute?.profileId ?? instance.copilotAccountProfileId,
           );
           assertCurrent();
           const selection = resolveRuntimeChangeModel({
@@ -412,6 +427,7 @@ export class RuntimeReconciler {
         const spawnConfigBuilder = this.deps.spawnConfigBuilder;
         const spawnOptions: UnifiedSpawnOptions = {
           instanceId: instance.id,
+          ...(copilotAccountRoute ? { copilotAccountRoute } : {}),
           sessionId: shouldResume ? resumeSourceSessionId : newSessionId,
           workingDirectory: instance.workingDirectory,
           systemPrompt: agent.systemPrompt,
@@ -619,11 +635,13 @@ export class RuntimeReconciler {
           instance.reasoningEffort = oldReasoningEffort;
           instance.contextEvidence = oldContextEvidence;
         }
-        if (diff.copilotAccountChanged) {
+        if (isProviderSwap || diff.copilotAccountChanged) {
           // Same reasoning as the provider rollback above: a failed handoff
           // must leave the session pointed at the account it can actually
           // resume under, not the one it never reached.
           instance.copilotAccountProfileId = oldCopilotProfileId;
+          instance.copilotRoutingSource = oldCopilotRoutingSource;
+          instance.copilotRoutingRuleId = oldCopilotRoutingRuleId;
         }
         if (isProviderSwap || diff.accountProfileChanged) restoreAccount(instance, oldAccount);
         // Only a provider swap changes the lists. Rebuild the old provider's from the rules as they are now, so neither

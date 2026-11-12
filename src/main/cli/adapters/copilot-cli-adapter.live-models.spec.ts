@@ -1,7 +1,7 @@
 /**
  * `help config` is a roster compiled into the CLI build, so it lags GitHub
  * (2026-09-23: no `claude-opus-5.5` / `gpt-6-sol` while seats served both).
- * A routed adapter therefore adds the account's live roster; an unrouted one
+ * A routed adapter therefore uses the account's live roster; an unrouted one
  * must not, because that request is authenticated (spec §10.3).
  */
 import { EventEmitter } from 'events';
@@ -72,7 +72,7 @@ afterEach(() => {
 });
 
 describe('CopilotCliAdapter.listAvailableModels live roster', () => {
-  it('adds live-only ids for a routed profile, queried under that profile home and host', async () => {
+  it('uses the authoritative roster for a routed profile, queried under that profile home and host', async () => {
     liveListMock.mockResolvedValue(['claude-opus-5', 'claude-opus-5.5', 'gpt-6-sol']);
     const adapter = new CopilotCliAdapter({ accountProfileId: 'enterprise', accountHost: 'ebrd.ghe.com' });
     stubHelpConfig(adapter, HELP_CONFIG);
@@ -83,9 +83,9 @@ describe('CopilotCliAdapter.listAvailableModels live roster', () => {
       homeDir: '/state/copilot-cli-profiles/enterprise',
       host: 'ebrd.ghe.com',
     });
-    // help config order, then live-only ids, then the static catalog.
-    expect(models.slice(0, 4)).toEqual(['claude-sonnet-5', 'claude-opus-5', 'claude-opus-5.5', 'gpt-6-sol']);
-    expect(models).toContain('auto');
+    expect(models).toEqual(['auto', 'claude-opus-5', 'claude-opus-5.5', 'gpt-6-sol']);
+    expect(models).not.toContain('claude-sonnet-5');
+    expect(models).not.toContain('gpt-6-astra');
   });
 
   it('never makes the authenticated request for an unrouted probe', async () => {
@@ -120,13 +120,20 @@ describe('CopilotCliAdapter.listAvailableModels live roster', () => {
   });
 
   it('still rejects for catalog discovery when neither source produced a roster', async () => {
-    liveListMock.mockResolvedValue([]);
+    liveListMock.mockRejectedValue(new Error('Live roster unavailable'));
     const adapter = new CopilotCliAdapter({ accountProfileId: 'enterprise' });
     stubHelpConfig(adapter, '', 1);
 
     await expect(adapter.listAvailableModels({ fallbackToStatic: false })).rejects.toThrow(
       'Failed to parse Copilot model list (exit 1)',
     );
+  });
+
+  it('does not reintroduce static models after a successful empty live response', async () => {
+    liveListMock.mockResolvedValue([]);
+    const adapter = new CopilotCliAdapter({ accountProfileId: 'personal' });
+    stubHelpConfig(adapter, HELP_CONFIG);
+    expect(ids(await adapter.listAvailableModels())).toEqual(['auto']);
   });
 
   it('caches per profile, so one seat’s roster is never served to another', async () => {

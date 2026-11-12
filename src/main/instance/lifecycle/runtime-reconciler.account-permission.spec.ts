@@ -2,6 +2,8 @@ import { EventEmitter } from 'events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CliAdapter, UnifiedSpawnOptions } from '../../cli/adapters/adapter-factory';
 import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
+import type { CopilotRouteOutcome } from '../../../shared/types/copilot-account.types';
+import type { CopilotRouteRequest } from '../../providers/copilot/copilot-account-routing-service';
 import { DEFAULT_SETTINGS } from '../../../shared/types/settings-defaults';
 import { DesiredRuntimeQueue } from './desired-runtime-queue';
 import { RuntimeReconciler } from './runtime-reconciler';
@@ -17,6 +19,15 @@ vi.mock('../../session/session-continuity', () => ({
 vi.mock('../../providers/account-pool/provider-account-store', () => ({
   getProviderAccountStore: () => ({ getPoolPolicy: () => ({ continuation: pool.continuation }),
     getProfile: (_provider: string, id: string) => ({ id, label: id }) }),
+}));
+vi.mock('../../providers/copilot/copilot-account-routing-service', () => ({
+  getCopilotAccountRoutingService: () => ({
+    resolveRouteForSpawn: async (request: CopilotRouteRequest): Promise<CopilotRouteOutcome> => ({
+      ok: true,
+      route: { profileId: request.persistedProfileId ?? 'seat-a', source: 'persisted',
+        executionNodeId: request.executionNodeId ?? 'local' },
+    }),
+  }),
 }));
 
 function harness(provider: 'claude' | 'codex' | 'copilot', enable: boolean, deferred = false) {
@@ -70,6 +81,9 @@ describe('queued account handoff combined with a permission flip', () => {
         await h.queue.requestChange(h.instance.id, { ...h.instance.desiredRuntime, provider, yoloMode: enable });
         expect(h.createRuntimeAdapter).toHaveBeenCalledOnce();
         expect(h.createRuntimeAdapter.mock.calls[0][1]).toMatchObject({ resume: false, forkSession: false, yoloMode: enable });
+        if (provider === 'copilot') {
+          expect(h.createRuntimeAdapter.mock.calls[0][1].copilotAccountRoute).toMatchObject({ profileId: 'seat-b' });
+        }
         expect(h.adapter.sendInput).toHaveBeenCalledWith(expect.stringContaining('carried replay context'));
         expect(h.emitRuntimeChanged).toHaveBeenCalledOnce();
         expect(h.emitSystemNotice).toHaveBeenCalledWith(h.instance, expect.any(String),

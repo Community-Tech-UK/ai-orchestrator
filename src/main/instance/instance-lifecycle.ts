@@ -1542,9 +1542,26 @@ export class InstanceLifecycleManager extends EventEmitter {
           displayName: getCliDisplayName(resolvedCliType)
         });
 
+        // Validate against the same account that will execute the turn.
+        const routeOrigin = config.accountRouteOrigin ?? (config.metadata?.['automationId'] ? 'automation' : 'interactive');
+        const { copilotAccountRoute } = await attachCopilotRoute(
+          resolvedCliType,
+          { instanceId: instance.id, workingDirectory: instance.workingDirectory },
+          routeOrigin,
+          {
+            explicitProfileId: config.copilotAccountProfileId,
+            confirmProtectedOverride: config.copilotConfirmProtectedOverride,
+            persistedProfileId: config.resume ? config.copilotAccountProfileId : undefined,
+            executionNodeId: executionLocation.type === 'remote' ? executionLocation.nodeId : undefined,
+            avoidProfileIds: instance.accountPreferences?.avoid,
+          },
+        );
+        if (signal.aborted) return;
+
         const settingsModel = settingsAll.defaultModel;
         const modelSelection = await this.modelSelectionResolver.resolve({
           provider: resolvedCliType, executionTarget: executionLocation.type,
+          copilotAccountProfileId: copilotAccountRoute?.profileId,
           configModelOverride: config.modelOverride, agentModelOverride: resolvedAgent.modelOverride,
           defaultModelByProvider: settingsAll.defaultModelByProvider, defaultModel: settingsModel,
           localModelId: localModelTarget?.modelId,
@@ -1627,6 +1644,7 @@ export class InstanceLifecycleManager extends EventEmitter {
         const forkSessionId = resolvedCliType === 'opencode' && typeof config.metadata?.['openCodeForkSessionId'] === 'string' ? config.metadata['openCodeForkSessionId'] : undefined;
         let spawnOptions: UnifiedSpawnOptions = {
           instanceId: instance.id,
+          copilotAccountRoute,
           sessionId: forkSessionId ?? instance.sessionId,
           workingDirectory: instance.workingDirectory,
           systemPrompt, systemPromptAfterFirstTurn,

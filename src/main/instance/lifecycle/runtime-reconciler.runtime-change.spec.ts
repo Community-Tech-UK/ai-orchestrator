@@ -22,6 +22,7 @@ import type { RuntimeReconcilerDeps } from './runtime-reconciler.types';
 import { TestAcpCliAdapter, createInitializedAgentHarness } from '../../cli/adapters/acp-cli-adapter.test-helpers';
 import { ProviderAccountBindingService } from '../../providers/account-pool/provider-account-binding-service';
 import { ProviderAccountRoutingService, _resetProviderAccountRoutingServiceForTesting } from '../../providers/account-pool/provider-account-routing-service';
+import { getCopilotAccountRoutingService } from '../../providers/copilot/copilot-account-routing-service';
 import { DesiredRuntimeQueue } from './desired-runtime-queue';
 import { InstanceStateManager } from '../instance-state';
 import type { BatchUpdatePayload } from '../../../shared/types/ipc.types';
@@ -1218,18 +1219,24 @@ describe('RuntimeReconciler.applyRuntimeChange — account-pool handoff', () => 
   });
 
   it('retains Copilot account rollback when admission rejects before spawn', async () => {
-    const adapter = makeAdapter();
-    const h = makeHarness(makeInstance({ provider: 'copilot', copilotAccountProfileId: 'personal' }), [adapter]);
-    const runtimeDeps = (h.reconciler as unknown as { deps: RuntimeReconcilerDeps }).deps;
-    runtimeDeps.createRuntimeAdapter = async () => { throw new Error('Synthetic Copilot admission refusal'); };
-    await expect(h.reconciler.applyRuntimeChange('inst-1', {
-      provider: 'copilot', copilotAccountProfileId: 'enterprise', copilotAccountHandoffConfirmed: true,
-    })).rejects.toThrow('Synthetic Copilot admission refusal');
-    expect(h.instance).toMatchObject({ provider: 'copilot', copilotAccountProfileId: 'personal', status: 'error' });
-    expect(adapter.spawn).not.toHaveBeenCalled();
-    expect(adapter.sendInput).not.toHaveBeenCalled();
-    expect(h.deps.emitSystemNotice).not.toHaveBeenCalled();
-    expect(runtimeDeps.emitRuntimeChanged).not.toHaveBeenCalled();
+    const route = vi.spyOn(getCopilotAccountRoutingService(), 'resolveRouteForSpawn').mockResolvedValue({
+      ok: true, route: { profileId: 'enterprise', source: 'persisted', executionNodeId: 'local' },
+    });
+    try {
+      const adapter = makeAdapter();
+      const h = makeHarness(makeInstance({ provider: 'copilot', copilotAccountProfileId: 'personal' }), [adapter]);
+      const runtimeDeps = (h.reconciler as unknown as { deps: RuntimeReconcilerDeps }).deps;
+      runtimeDeps.createRuntimeAdapter = async () => { throw new Error('Synthetic Copilot admission refusal'); };
+      await expect(h.reconciler.applyRuntimeChange('inst-1', {
+        provider: 'copilot', copilotAccountProfileId: 'enterprise', copilotAccountHandoffConfirmed: true,
+      })).rejects.toThrow('Synthetic Copilot admission refusal');
+      expect(h.instance).toMatchObject({ provider: 'copilot', copilotAccountProfileId: 'personal', status: 'error' });
+      expect(adapter.spawn).not.toHaveBeenCalled();
+      expect(adapter.sendInput).not.toHaveBeenCalled();
+      expect(h.deps.emitSystemNotice).not.toHaveBeenCalled();
+      expect(runtimeDeps.emitRuntimeChanged).not.toHaveBeenCalled();
+      expect(route).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ persistedProfileId: 'enterprise' }));
+    } finally { route.mockRestore(); }
   });
 
   /** MiMo multi-account (plan 2026-10-10 phase 4, Decision 6). */

@@ -49,6 +49,7 @@ vi.mock('../../../logging/logger', () => ({
 
 import { getKnownModelsForCli, requiresFreshConfiguredModelSpawn } from '../create-validation-helpers';
 import { ModelSelectionResolver } from '../model-selection-resolver';
+import { resolveRuntimeChangeModel } from '../model-selection-degradation';
 
 function profile(id: string, isDefault = false): CopilotAccountProfile {
   return {
@@ -150,8 +151,34 @@ describe('getKnownModelsForCli', () => {
     ]);
 
     expect(await getKnownModelsForCli('copilot', 'personal')).toEqual(['claude-opus-5']);
-    expect(listCopilotProfiles).not.toHaveBeenCalled();
-    expect(copilotListModels).toHaveBeenCalledWith({ accountProfileId: 'personal' }, undefined);
+    expect(copilotListModels).toHaveBeenCalledWith({
+      accountProfileId: 'personal', accountHost: 'github.com', accountIsLegacy: undefined,
+    }, undefined);
+  });
+
+  it('does not add another account catalog models to initial or runtime validation', async () => {
+    listCopilotProfiles.mockReturnValue([profile('personal', true), {
+      ...profile('enterprise'), host: 'enterprise.example.ghe.com', accountKind: 'enterprise',
+    }]);
+    replaceKnownModelCatalogSnapshot([{ provider: 'copilot', id: 'claude-opus-5.5' }]);
+    copilotListModels.mockImplementation(async (config: CopilotCliConfig) =>
+      (config.accountProfileId === 'enterprise' ? ['auto', 'claude-opus-5.5'] : ['auto', 'claude-sonnet-5.5'])
+        .map(id => ({ id })),
+    );
+
+    const resolver = new ModelSelectionResolver();
+    const personal = await resolver.resolve({ provider: 'copilot', copilotAccountProfileId: 'personal',
+      configModelOverride: 'claude-opus-5.5' });
+    expect(personal.model).toBe('auto');
+    expect(personal.degradation?.requestedModel).toBe('claude-opus-5.5');
+    const knownModelIds = await getKnownModelsForCli('copilot', 'personal');
+    expect(resolveRuntimeChangeModel({ provider: 'copilot', requestedModel: 'claude-opus-5.5',
+      knownModelIds, fallbackModel: 'auto' })).toMatchObject({ model: 'auto', userVisible: true });
+
+    expect(await resolver.resolve({ provider: 'copilot', copilotAccountProfileId: 'enterprise',
+      configModelOverride: 'claude-opus-5.5' })).toEqual({ model: 'claude-opus-5.5' });
+    expect(copilotListModels).toHaveBeenCalledWith({ accountProfileId: 'enterprise',
+      accountHost: 'enterprise.example.ghe.com', accountIsLegacy: undefined }, undefined);
   });
 
   it('merges the profile union with models already learned by the unified catalog', async () => {

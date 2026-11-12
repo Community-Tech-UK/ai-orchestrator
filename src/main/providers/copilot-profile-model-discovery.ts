@@ -9,10 +9,9 @@
  * vocabulary is their union.
  *
  * The union only ever ADDS ids, so one seat's refusal or outage never hides a
- * model from another. The cost is that the picker can offer a model the
- * routed seat will refuse; the turn then fails with the seat's own "model not
- * available" error, which is the same outcome `help config`'s static roster
- * already produced for seats it over-reports (see copilot-model-entitlements).
+ * model from another. It is picker vocabulary, not account availability:
+ * creation resolves an account before validating the model, and runtime
+ * changes validate against the session's account rather than this union.
  */
 
 import { CopilotCliAdapter } from '../cli/adapters/copilot-cli-adapter';

@@ -37,7 +37,14 @@ export function resolveAvailableModelSelection(params: {
     return { model: undefined };
   }
 
-  const fallbackModel = params.fallbackModel?.trim() || undefined;
+  const configuredFallback = params.fallbackModel?.trim() || undefined;
+  // Copilot's house default can also be unavailable on the routed account.
+  // In that case let its supported Auto mode choose, rather than replacing
+  // one unavailable model with another.
+  const fallbackModel = params.provider === 'copilot'
+    && params.knownModelIds.includes('auto')
+    && !params.knownModelIds.includes(configuredFallback ?? '')
+    ? 'auto' : configuredFallback;
   if (requestedModel.length > MAX_MODEL_ID_LENGTH) {
     return {
       model: fallbackModel,

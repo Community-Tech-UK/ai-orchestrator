@@ -14,12 +14,13 @@ import {
 import { resolveInitialModelWithSource, type InitialModelSource } from './resolve-initial-model';
 
 export interface ModelSelectionResolverDeps {
-  getKnownModels?: (provider: string) => Promise<string[]>;
+  getKnownModels?: (provider: string, copilotAccountProfileId?: string) => Promise<string[]>;
   getDefaultModel?: (provider: string) => string | undefined;
 }
 
 export interface ModelSelectionInput {
   provider: CliType;
+  copilotAccountProfileId?: string;
   /** Remote workers own their provider defaults and live model catalogues. */
   executionTarget?: 'local' | 'remote';
   configModelOverride?: string | null;
@@ -58,7 +59,7 @@ export interface ResolvedModelSelection {
  * degradation.
  */
 export class ModelSelectionResolver {
-  private readonly getKnownModels: (provider: string) => Promise<string[]>;
+  private readonly getKnownModels: NonNullable<ModelSelectionResolverDeps['getKnownModels']>;
   private readonly getDefaultModel: (provider: string) => string | undefined;
 
   constructor(deps: ModelSelectionResolverDeps = {}) {
@@ -109,7 +110,9 @@ export class ModelSelectionResolver {
       return tierResolution ? { model, tierResolution } : { model };
     }
 
-    const knownModelIds = await this.getKnownModels(input.provider);
+    const knownModelIds = input.provider === 'copilot' && input.copilotAccountProfileId
+      ? await this.getKnownModels(input.provider, input.copilotAccountProfileId)
+      : await this.getKnownModels(input.provider);
     const selection = resolveAvailableModelSelection({
       provider: input.provider,
       requestedModel: model,

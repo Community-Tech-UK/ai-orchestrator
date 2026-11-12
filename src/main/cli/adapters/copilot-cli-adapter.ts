@@ -80,8 +80,7 @@ import { resolveCopilotProfileHome } from './copilot/copilot-account-home-resolv
 import {
   DEFAULT_CONTEXT_WINDOW,
   COPILOT_MODEL_DISCOVERY_CACHE_TTL_MS,
-  completeCopilotDiscoveredModels,
-  mergeCopilotDiscoverySources,
+  resolveCopilotDiscoverySources,
   parseCopilotModelIdsFromHelpConfig,
   withCopilotModelListFallback,
 } from './copilot-cli-adapter.models';
@@ -1095,10 +1094,8 @@ export class CopilotCliAdapter extends BaseCliAdapter {
   }
 
   /**
-   * Lists available Copilot models. `help config` is a floor, not a ceiling:
-   * a routed adapter adds the account's live roster (models GitHub shipped
-   * after this CLI build), and the result is unioned with the static catalog
-   * so ids the CLI serves but does not advertise (e.g. `auto`) still appear.
+   * Lists models for this account. Its live roster takes precedence over
+   * help config and static catalogs, which may advertise unavailable models.
    * Catalog discovery should pass `{ fallbackToStatic: false }` so a parse
    * failure does not publish the fallback list as live CLI provenance.
    */
@@ -1121,14 +1118,12 @@ export class CopilotCliAdapter extends BaseCliAdapter {
               profileId: this.cliConfig.accountProfileId,
               ...errorDiagnostic(error),
             });
-            return [];
+            return null;
           })
-        : Promise.resolve([]);
+        : Promise.resolve(null);
       cache.inFlight = Promise.allSettled([this.readHelpConfigModelIds()])
         .then(async ([helpConfig]) => {
-          const models = completeCopilotDiscoveredModels(
-            mergeCopilotDiscoverySources(helpConfig, await liveIds),
-          );
+          const models = resolveCopilotDiscoverySources(helpConfig, await liveIds);
           cache.models = models;
           cache.at = Date.now();
           return models;
