@@ -791,6 +791,17 @@ describe('renderer event validation', () => {
   });
 });
 
+describe('CLI update pill push validation', () => {
+  it('delivers the waiting-session count the poll service adds to its state (LT-1019)', () => {
+    const state = { generatedAt: Date.now(), count: 0, entries: [], waitingSessionCount: 2 };
+    const sender = { send: vi.fn() };
+    expect(sendValidatedRendererEvent(sender, IPC_CHANNELS.CLI_UPDATE_PILL_DELTA, state)).toBe(true);
+    expect(sender.send).toHaveBeenCalledWith(IPC_CHANNELS.CLI_UPDATE_PILL_DELTA, state);
+    expect(validateRendererEventPayload(IPC_CHANNELS.CLI_UPDATE_PILL_DELTA,
+      { ...state, waitingSessionCount: -1 })).toBe(false);
+  });
+});
+
 describe('keep-awake push validation', () => {
   it('passes a valid state and drops invalid states before renderer delivery', () => {
     const sender = { send: vi.fn() };

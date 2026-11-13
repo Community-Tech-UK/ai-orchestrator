@@ -438,6 +438,21 @@ sections below. The historical reproduction remains unchanged.
 | LT-1065 | P2 | **REPRODUCED ON THE LIVE DESK 2026-11-11 and 2026-11-12; NOT REPAIRED.** The charity lane of `get-work-day` fails because its interactive database transactions run past Prisma's default 5-second limit, so `charity_drafts` produces no drafts and the watchdog alarms. | [LT-1065 detail](#lt-1065) | [Watchdog three faults live checks](../../../../communitytech/work-finding/documents/plans/watchdog-three-faults-2026-10-20/watchdog-three-faults_livetest.md) |
 | LT-1066 | P2 | **REPRODUCED LIVE 2026-11-13 (read-only database observation); CAUSE NOT ISOLATED; NOT REPAIRED.** The Desk `conversation-reconciliation` schedule (every five minutes) ended 39 of 258 runs `failed` and 20 `partial` in the 24 hours to 02:29 UTC, always `source_unavailable` on the mailbox sources, and left 29 runs `running` with no end time (28 older than an hour, the oldest from 12 November 18:00 UTC). | [LT-1066 detail](#lt-1066) | [Watchdog faults live checks](../../../../communitytech/work-finding/documents/plans/watchdog-faults-2026-10-08/watchdog-faults_livetest.md) |
 
+### New findings — 2026-10-27 Phase 0 live-test campaign
+
+Source branch had no register entries left (its branch was removed); these rows were rebuilt from the active remediation plan. LT-825 was a provisional observation, withdrawn before registration.
+
+| ID | Priority | Status / observed defect | Evidence | Acceptance owner |
+| --- | --- | --- | --- | --- |
+| LT-820 | P2 | **SOURCE FIX ON MAIN (commit `817a30b80`); WORKER-VERIFIED; INDEPENDENT ACCEPTANCE AND FULL-APP LIVE CHECK PENDING.** Transcript cost comparison used different prices from the app (one million Opus 5.5 cache reads: app $0.20, comparator $0.50). Comparator now uses versioned rates matching the app; both retained-day audits still fail for corpus/history reasons, not an established overbilling percentage. | [LT-820 detail](#lt-820) | [Remediation plan](2026-10-27-phase0-livetest-remediation_plan.md), [live checks](2026-10-27-phase0-livetest-remediation_livetest.md) |
+| LT-821 | P2 | **SOURCE FIX ON MAIN (commit `817a30b80`); WORKER-VERIFIED; INDEPENDENT ACCEPTANCE AND FULL-APP LIVE CHECK PENDING.** A real native fork inherits its source's cumulative dollars; the ledger reset a fork to zero and rebooked that history (retained row of $306.046325 under a new session ID with zero tokens). Forks now seed from the source cost state. No retained history was changed. | [LT-821 detail](#lt-821) | [Remediation plan](2026-10-27-phase0-livetest-remediation_plan.md), [live checks](2026-10-27-phase0-livetest-remediation_livetest.md) |
+| LT-822 | P2 | **SOURCE FIX ON MAIN (commit `817a30b80`); WORKER-VERIFIED; INDEPENDENT ACCEPTANCE AND FULL-APP LIVE CHECK PENDING.** Priced Claude completions emitted `cost:usage-recorded` with `byModel`; the strict event schema rejected it (`Unrecognized key: "byModel"`) before the renderer saw it. The event now carries a bounded strict per-model array. | [LT-822 detail](#lt-822) | [Remediation plan](2026-10-27-phase0-livetest-remediation_plan.md), [live checks](2026-10-27-phase0-livetest-remediation_livetest.md) |
+| LT-823 | P1 | **SOURCE FIX ON MAIN (commit `817a30b80`); WORKER-VERIFIED; INDEPENDENT ACCEPTANCE AND FULL-APP LIVE CHECK PENDING.** A deferred tool permission ended a `/goal` loop (`error: Claude CLI cancelled`) while the operator had not decided. Borrowed requests now wait for the decision and resume on the same adapter; loop timeouts exclude the wait. | [LT-823 detail](#lt-823) | [Remediation plan](2026-10-27-phase0-livetest-remediation_plan.md), [live checks](2026-10-27-phase0-livetest-remediation_livetest.md) |
+| LT-824 | P3 | **SOURCE FIX ON MAIN (commit `817a30b80`); WORKER-VERIFIED; INDEPENDENT ACCEPTANCE AND FULL-APP LIVE CHECK PENDING.** Costs page rendered a literal backslash before dollar amounts, and narrow layouts clipped metric cards. Backslashes removed; page-local grid breakpoint added. | [LT-824 detail](#lt-824) | [Remediation plan](2026-10-27-phase0-livetest-remediation_plan.md), [live checks](2026-10-27-phase0-livetest-remediation_livetest.md) |
+| LT-826 | P1 | **SOURCE FIX ON MAIN (commit `817a30b80`); WORKER-VERIFIED; INDEPENDENT ACCEPTANCE AND FULL-APP LIVE CHECK PENDING.** Close all removed the session but left the original resident Claude process alive, because a borrowed request started a one-shot child over the resident process reference. Borrowed requests now use the resident pipe. | [LT-826 detail](#lt-826) | [Remediation plan](2026-10-27-phase0-livetest-remediation_plan.md), [live checks](2026-10-27-phase0-livetest-remediation_livetest.md) |
+| LT-1018 | P2 | **FIXED AND VERIFIED LIVE 2026-11-12.** Every priced completion's `cost:usage-recorded` event was blocked before the renderer: the completion recorder tags each entry with `origin` (`user` or `machine`) but the strict renderer event schema did not list it, so the main log said `Unrecognized key: "origin"` on each turn. The Costs page then updated only on its 10-second poll. The schema now accepts a bounded `origin` string. | [LT-1018 detail](#lt-1018) | [Phase 0 live checks, 12 November 2026](2026-10-27-phase0-livetest-remediation_livetest.md#evidence-run--2026-11-12) |
+| LT-1019 | P3 | **FIXED AND VERIFIED LIVE 2026-11-12.** The `cli-update-pill:delta` event was blocked at every start-up with `Unrecognized key: "waitingSessionCount"`: the update poll service adds that count to its state, but the strict event schema did not list it, so the title-bar pill never heard how many sessions were holding an update. The schema now accepts it. | [LT-1019 detail](#lt-1019) | [Phase 0 live checks, 12 November 2026](2026-10-27-phase0-livetest-remediation_livetest.md#evidence-run--2026-11-12) |
+
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
 ### Observed behavior
@@ -12865,6 +12880,102 @@ failure runs them too. Acceptance: `run-git-hook.spec.ts` case `regenerated: doc
 the fix), `regenerated: code` runs the tests, and the mocked changed-tree case still runs them. On the rebuilt app, a
 plan landing whose code equals its tested code has a short commit check.
 
+
+<a id="lt-820"></a>
+
+## LT-820 — transcript comparison uses different prices from the app
+
+### Observed behaviour
+
+With the then-current comparator and application pricing, a disposable one-million-cache-read-token Opus 5.5 diagnostic gave app $0.20, comparator $0.50, comparator with its supported base-price override $0.40. Not a live-provider pass.
+
+### Required behaviour
+
+Comparator rates (input, output, cache read, 5-minute and 1-hour cache write, optional explicit cache overrides) must match committed application pricing by model version. Historical model rates, missing/unpriced caveats and the five-percent threshold stay.
+
+### Acceptance
+
+1. `scripts/__tests__/claude-transcript-pricing.spec.ts` and `claude-transcript-cost-comparison.spec.ts` pass (parity with application pricing).
+2. Rerun both retained real-day comparisons read-only. A failure there is not an established overbilling percentage; record remaining corpus/history differences without repairing history.
+
+Source: [2026-10-10-oct-phase0-confirmed-fixes_livetest.md](2026-10-10-oct-phase0-confirmed-fixes_livetest.md#evidence-run--2026-10-27-plan-queue-current-worktree). Plan section: [2026-10-27-phase0-livetest-remediation_plan.md](2026-10-27-phase0-livetest-remediation_plan.md).
+
+<a id="lt-821"></a>
+
+## LT-821 — retained accounting contains an apparent cumulative duplicate
+
+### Observed behaviour
+
+Read-only production evidence: instance `cp6lr11gj` records $306.04632500000037 at 2026-10-26 22:39:43 UTC under a new native session ID with zero input/output/cache tokens, equal to the sum of its preceding five entries under native session `c6ea2c69-e20e-45e2-b065-b92b80852588`. The attribution log independently carries the amount.
+
+### Root cause
+
+A native fork inherits the source's cumulative dollars and model counters. The ledger reset a fork to zero and rebooked the inherited history. Reproduced with a real native fork: source $0.0026191300000000003, fork charge $0.0034881500000000006 against new spend of only $0.0008690200000000003. The exact callback sequence of the October row is not available and is not asserted.
+
+### Required behaviour and acceptance
+
+Forks read the source cost state and subtract inherited dollars and model usage (as `resume` already did). Unknown inherited history stays unknown, fresh conversations start at zero, genuine counter resets are supported. Acceptance: `claude-session-cost-ledger.spec.ts` and `claude-turn-spend.integration.spec.ts` pass; native fork after the fix books only new spend. No historical row, backup or migration marker is changed and no repair of retained history is authorized.
+
+<a id="lt-822"></a>
+
+## LT-822 — model-breakdown cost events fail renderer validation
+
+### Observed behaviour
+
+In the rebuilt dev app the main logger reported `cost:usage-recorded` rejected with `Unrecognized key: "byModel"` on actual priced Claude completions.
+
+### Root cause
+
+CostTracker attaches `byModel` and emits the entry; cost IPC forwards it unchanged; the main event bus validated against strict `CostEntryEventSchema`, which had no `byModel`. The event was suppressed before renderer delivery.
+
+### Required behaviour and acceptance
+
+The schema accepts a bounded, strict per-model delta array without loosening unrelated fields. Acceptance: `cost-handlers.spec.ts` (tracker to handler to validator) accepts measured/estimated breakdowns and rejects unrelated fields and invalid model dollars. Full-app header/Costs update is a deferred live check in the [live-check document](2026-10-27-phase0-livetest-remediation_livetest.md).
+
+<a id="lt-823"></a>
+
+## LT-823 — a deferred tool permission ends a loop before the operator decides
+
+### Observed behaviour
+
+On a real `/goal` reading a disposable fixture, deferred Bash permission events reached the main manager at 09:21:46 and 09:21:48 UTC; the invocation was retried and the loop ended `error: Claude CLI cancelled` with zero completed rounds while the parent session stayed `waiting_for_permission`. No operator refusal caused it.
+
+### Required behaviour and acceptance
+
+Borrowed resident requests survive the native defer/exit and resume on the same adapter after an explicit decision, without replaying the original input; loop timeouts exclude the wait. Approval executes once; refusal leaves no marker and shows a visible refusal. Owned hidden children keep their refusal behaviour. Acceptance: `claude-resident-request.spec.ts`, `claude-loop-continuation.spec.ts`, `loop-child-invoker.spec.ts`, `loop-invocation-activity.spec.ts` and `loop-coordinator-degraded-retry.spec.ts` pass. Full `/goal` plus permission-card composition is a deferred live check in the [live-check document](2026-10-27-phase0-livetest-remediation_livetest.md).
+
+<a id="lt-824"></a>
+
+## LT-824 — Costs page renders a literal backslash before dollar amounts
+
+### Observed behaviour
+
+From real isolated provider data in the built Angular renderer, per-model, per-session and recent-entry cells contained a literal `\$`.
+
+### Root cause
+
+The external HTML template (`cost-page.component.html`) wrote backslashes before dollar text; they are literal HTML characters, not template-literal escapes.
+
+### Required behaviour and acceptance
+
+Dollar amounts render without backslashes; at 420px the metric, chart and budget grids do not clip their cards; estimated/unknown-cost labels remain. Acceptance: `cost-page.component.spec.ts` passes and a production-template render at 1400px and 420px shows no literal backslash.
+
+<a id="lt-826"></a>
+
+## LT-826 — Close all leaves the original resident provider alive
+
+### Observed behaviour
+
+At 10:18 UTC Close all confirmed and cancelled the borrowed loop and removed session `clnvef0s0`, but its original Claude PID 94693 stayed alive (same executable, original start time, parent app PID 14279; not a new spawn or reused PID).
+
+### Root cause
+
+Inherited `requestResponse` used one-shot `sendMessage`, which replaced `this.process` while the original resident process stayed alive and unreferenced.
+
+### Required behaviour and acceptance
+
+Borrowed requests send on the resident pipe. One-shot/streaming overwrites and overlapping sends are refused; controlled restarts reap the old process first. Acceptance: `claude-resident-request.spec.ts` and `claude-cli-adapter.spec.ts` pass, and a native run through the real loan registry and termination coordinator leaves no instance, adapter or surviving PID after five seconds. Full Close all confirmation (original and invocation PIDs absent, no respawn over 30 seconds) is a deferred live check in the [live-check document](2026-10-27-phase0-livetest-remediation_livetest.md). A related later live observation of a surviving loop-iteration child is filed separately on another branch as LT-1020.
+
 ## LT-1028
 
 ### LT-1028 — the hub menu fills half a narrow window
@@ -13124,6 +13235,61 @@ Not isolated. The native strategy returned a false result (`src/main/context/com
 ### Required behaviour and acceptance
 
 A completed native compaction is not reported failed; a fallback samples the transcript and reports the count, and a zero-message summary is not presented as complete. Repeat check 2.3 with a session of at least 20 real turns.
+
+<a id="lt-1018"></a>
+
+## LT-1018
+
+### LT-1018 — priced cost events are blocked by the renderer event check
+
+**Status: fixed and verified live on 12 November 2026.**
+
+### Observed behaviour
+
+In an isolated dev app built from this branch, a Claude Haiku turn priced correctly (cost entry and header total), but the
+main log carried `Blocked invalid renderer event payload` for channel `cost:usage-recorded` with
+`Unrecognized key: "origin"` on every completed turn. The renderer never received the event, so the open Costs page only
+changed on its 10-second poll. The same defect class as LT-822 (`byModel`), which was fixed without noticing `origin`.
+
+### Root cause
+
+`communication-completion-cost.ts` passes `origin` (`machine` or `user`) to `CostTracker.recordUsage`, which stores it on the
+entry (`cost-tracker.ts`, `CostEntry.origin`). The cost handler forwards the whole entry, and `CostEntryEventSchema`
+(`packages/contracts/src/schemas/cost-events.schemas.ts`) is `.strict()` and had no `origin` field. The earlier regression
+test recorded usage without an origin, so it could not catch this.
+
+### Required behaviour and acceptance
+
+The event schema accepts a non-empty `origin` string (up to 100 characters; the tracker documents future open tags) and still
+rejects an empty one or any other unknown key. Acceptance: `cost-handlers.spec.ts` case "delivers the session origin the
+completion recorder attaches to every priced turn" (failed before the fix, passes after). Live: after the rebuild, two
+Haiku turns each reached the renderer 1.8 to 1.9 seconds after the send with `origin: "user"`, the Costs page changed 0.17
+seconds after the event (not on the poll), and the log held no `Unrecognized key` line.
+
+<a id="lt-1019"></a>
+
+## LT-1019
+
+### LT-1019 — the CLI update pill event is blocked at every start-up
+
+**Status: fixed and verified live on 12 November 2026.**
+
+### Observed behaviour
+
+Every launch of the isolated dev app logged `Blocked invalid renderer event payload` for `cli-update-pill:delta`,
+`Unrecognized key: "waitingSessionCount"`.
+
+### Root cause
+
+`CliUpdatePollService.setWaitingSessionCount` and `refreshInternal` put `waitingSessionCount` on the pill state
+(`CliUpdatePillState.waitingSessionCount`, `diagnostics.types.ts`), and the pill component reads it. The strict
+`CliUpdatePillStateEventSchema` (`observability.schemas.ts`) did not list it.
+
+### Required behaviour and acceptance
+
+The schema accepts a non-negative integer `waitingSessionCount`. Acceptance: `renderer-event-validation.spec.ts` case
+"delivers the waiting-session count the poll service adds to its state" (failed before, passes after). Live: after the
+rebuild, start-up logged no blocked event.
 
 <a id="lt-1065"></a>
 

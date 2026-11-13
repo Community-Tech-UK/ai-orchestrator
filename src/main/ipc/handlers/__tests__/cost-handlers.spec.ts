@@ -214,6 +214,22 @@ describe('cost-handlers event forwarding', () => {
       { ...valid, byModel: [{ ...byModel[0], costUsd: -1 }] })).toBe(false);
   });
 
+  it('delivers the session origin the completion recorder attaches to every priced turn (LT-1018)', () => {
+    const { tracker, sent } = setup();
+    for (const origin of ['user', 'machine', 'future-open-tag']) {
+      tracker.recordUsage('origin-event', 'origin-session', 'claude-haiku-5-5', 2, 49, 11335, 39652,
+        0.008, 0, false, { provider: 'claude', origin });
+    }
+    const delivered: unknown[] = [];
+    for (const event of sent.filter(event => event.channel === IPC_CHANNELS.COST_USAGE_RECORDED)) {
+      expect(sendValidatedRendererEvent({ send: (_channel, payload) => delivered.push(payload) },
+        event.channel, event.data)).toBe(true);
+    }
+    expect(delivered.map(entry => (entry as { origin?: string }).origin)).toEqual(['user', 'machine', 'future-open-tag']);
+    expect(sendValidatedRendererEvent({ send: vi.fn() }, IPC_CHANNELS.COST_USAGE_RECORDED,
+      { ...(delivered[0] as object), origin: '' })).toBe(false);
+  });
+
   it('forwards a budget warning (<100%) on cost:budget-warning with a message', () => {
     const { tracker, sent } = setup();
     tracker.setBudget({ enabled: true, perSessionLimit: 5, alertThresholds: [50] });
