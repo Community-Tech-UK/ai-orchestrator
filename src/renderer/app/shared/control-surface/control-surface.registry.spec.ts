@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CONTROL_SURFACES,
+  getControlSurface,
   listControlNavGroups,
   listDashboardNavGroups,
   listSettingsExternalLinks,
@@ -98,6 +99,21 @@ describe('control surface registry', () => {
       expect(listDashboardNavGroups().flatMap((group) => group.items).some((item) => item.id === id)).toBe(false);
     }
   });
+  it('marks Training Data, Session Messaging and Chat Search hidden, yet they still resolve by id and path', () => {
+    for (const id of ['training', 'communication', 'chat-search'] as const) {
+      const item = getControlSurface(id);
+      expect(item.path).toBe(`/${id}`);
+      expect(item.showInControlNav).toBe(false);
+      expect(item.showInDashboardNav).toBe(false);
+    }
+  });
+
+  it('lists every other surface in the Control Center nav', () => {
+    const listed = listControlNavGroups(true).flatMap((group) => group.items.map((item) => item.id));
+
+    expect(listed).toHaveLength(CONTROL_SURFACES.length - 3);
+  });
+
   it('has unique ids and paths', () => {
     const surfaces = CONTROL_SURFACES;
 
