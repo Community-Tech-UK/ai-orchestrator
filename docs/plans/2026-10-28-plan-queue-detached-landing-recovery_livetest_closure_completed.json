@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-28-plan-queue-detached-landing-recovery_livetest.md",
+      "sha256": "161f618df85c63fd9f48024770570d447730e922234aae899313241912dad3d6",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-28-plan-queue-detached-landing-recovery_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-28-plan-queue-detached-landing-recovery_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-28-plan-queue-detached-landing-recovery_livetest_completed.md",
+      "sha256": "161f618df85c63fd9f48024770570d447730e922234aae899313241912dad3d6"
+    }
+  ]
+}
