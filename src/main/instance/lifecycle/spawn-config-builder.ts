@@ -12,7 +12,7 @@
  */
 
 import { app } from 'electron';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import * as path from 'path';
 
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
@@ -82,6 +82,21 @@ export interface SpawnConfigBuilderDeps {
   settings: SettingsManager;
   /** Reads an instance's Plan Queue role; absent means every session gets every server. */
   getInstance?: (instanceId: string) => McpRoleSubject | undefined;
+}
+
+/** Server names in `--mcp-config` entries (file paths or inline JSON); names only, never server settings. */
+export function mcpServerNames(entries: readonly string[]): string[] {
+  const names: string[] = [];
+  for (const entry of entries) {
+    try {
+      const text = entry.trimStart().startsWith('{') ? entry : readFileSync(entry, 'utf8');
+      const servers = (JSON.parse(text) as { mcpServers?: unknown } | null)?.mcpServers;
+      if (servers && typeof servers === 'object' && !Array.isArray(servers)) names.push(...Object.keys(servers));
+    } catch {
+      names.push('(unreadable)');
+    }
+  }
+  return names;
 }
 
 /**
@@ -218,6 +233,14 @@ export class SpawnConfigBuilder {
         isPackaged: app.isPackaged,
       });
     }
+
+    const helperServers = mcpServerNames(configs);
+    logger.info('Chat helper servers resolved', {
+      instanceId,
+      provider,
+      serverCount: helperServers.length,
+      servers: helperServers,
+    });
 
     return configs;
   }

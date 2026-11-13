@@ -135,8 +135,9 @@ describe('decideRoute', () => {
     it('sends a full run, a short list of specs and any other arguments away, the arguments as data', () => {
       const dir = project();
       expect(route([], {}, root, off)).toEqual({ kind: 'remote', turn: true });
+      // Named specs run as `vitest run <files>` there, as here, not as the related-tests run the commit hook uses.
       expect(route(['src/a.spec.ts', `${dir}/src/b.spec.ts`], {}, dir, off)).toEqual({
-        kind: 'remote', turn: false, specs: ['src/a.spec.ts', 'src/b.spec.ts'],
+        kind: 'remote', turn: false, argv: ['src/a.spec.ts', 'src/b.spec.ts'],
       });
       expect(route([`${dir}/src/main`, '-t', 'a name', '--shard=1/4'], {}, dir, off)).toEqual({
         kind: 'remote', turn: false, argv: ['src/main', '-t', 'a name', '--shard=1/4'],
@@ -173,7 +174,7 @@ describe('decideRoute', () => {
 
     it('writes a ./ path the way the Mac-only list does', () => {
       expect(route(['./src/main/sandbox/signal-fence.spec.ts'], {}, project(), off)).toEqual({
-        kind: 'remote', turn: false, specs: ['src/main/sandbox/signal-fence.spec.ts'],
+        kind: 'remote', turn: false, argv: ['src/main/sandbox/signal-fence.spec.ts'],
       });
     });
   });

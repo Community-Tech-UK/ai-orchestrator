@@ -129,18 +129,16 @@ function decideRouteWithoutThisMac({ args, env, root, config }) {
   if (chosenHere) return { kind: 'not-run', reason: `${chosenHere}, and this Mac is switched off` };
   if (args.some(arg => WRITES_HERE.test(arg))) return { kind: 'local' };
   if (isPlainFullRun(args)) return { kind: 'remote', turn: !queueCheck };
-  const relative = relativeToRoot(args, root);
-  // A list of spec files that exist runs exactly those. Anything else (a bare file name, a typo, a deleted spec) goes as
-  // Vitest's own filter, which matches as it would here and fails, as here, when it matches nothing.
-  const existing = arg => Boolean(root) && fs.statSync(path.join(root, arg), { throwIfNoEntry: false })?.isFile() === true;
-  if (countSpecFiles(relative) === relative.length && relative.every(existing)) return { kind: 'remote', turn: false, specs: relative };
-  return { kind: 'remote', turn: false, argv: relative };
+  // The arguments run there exactly as `vitest run <args>` would here, named spec files included: a name that matches
+  // nothing, or a spec the config leaves out, fails there as it would here rather than passing with no tests.
+  return { kind: 'remote', turn: false, argv: relativeToRoot(args, root) };
 }
 
 /**
  * - `local`: exactly what the runner did before remote checks existed.
- * - `remote`: try the far machine first. `specs` is set when it's a named list, not the whole suite; `argv` when it is
- *   any other set of arguments, which travel as data.
+ * - `remote`: try the far machine first. `specs` is set for a long named list with this Mac switched on, run as related
+ *   tests; `argv` for any other arguments (with this Mac switched off, every named run), which travel as data and run as
+ *   `vitest run <args>` would here.
  * - `mac`: a full run that belongs on the Mac; `turn` says if it waits for the others.
  * - `not-run`: this Mac is switched off and the run has nowhere to go; `reason` says why.
  */

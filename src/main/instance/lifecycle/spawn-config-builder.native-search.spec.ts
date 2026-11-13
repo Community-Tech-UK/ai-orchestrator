@@ -62,7 +62,7 @@ vi.mock('../../codemem/codemem-rpc-server', () => ({ getCodememRpcSocketPath: ()
 vi.mock('../../util/aio-mcp-cli-path', () => ({ resolveAioMcpCliPath: () => '/tmp/harness/aio-mcp' }));
 
 import type { SettingsManager } from '../../core/config/settings-manager';
-import { SpawnConfigBuilder } from './spawn-config-builder';
+import { SpawnConfigBuilder, mcpServerNames } from './spawn-config-builder';
 
 function makeBuilder(): SpawnConfigBuilder {
   const settings = {
@@ -145,5 +145,22 @@ describe('SpawnConfigBuilder schema telemetry follows Claude native tool search'
       'Browser gateway tool schemas deferred',
       expect.objectContaining({ instanceId: 'inst-4', toolMode: 'stable' }),
     );
+  });
+});
+
+describe('mcpServerNames', () => {
+  it('lists server names from inline JSON and config files, marking unreadable entries', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aio-mcp-names-'));
+    try {
+      const file = join(dir, 'mcp.json');
+      writeFileSync(file, JSON.stringify({ mcpServers: { atlassian: { command: 'x' }, imap: { command: 'y' } } }));
+      expect(mcpServerNames([
+        file,
+        JSON.stringify({ mcpServers: { codemem: { command: 'z' } } }),
+        join(dir, 'missing.json'),
+      ])).toEqual(['atlassian', 'imap', 'codemem', '(unreadable)']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

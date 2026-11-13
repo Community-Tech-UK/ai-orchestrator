@@ -406,7 +406,9 @@ describe.concurrent('run-tests-quiet with this Mac switched off', () => {
     switchOff(setup);
     const run = await runQuiet(setup, { args: ['src/a.spec.ts'], env: WAITS });
     expect(run.code).toBe(0);
-    expect(JSON.parse(readFileSync(join(setup.fake, 'related-list'), 'utf8'))).toEqual(['src/a.spec.ts']);
+    // As `vitest run src/a.spec.ts` would here: a spec the config leaves out fails rather than passing with no tests.
+    expect(JSON.parse(readFileSync(join(setup.fake, 'argv-list'), 'utf8'))).toEqual(['src/a.spec.ts']);
+    expect(existsSync(join(setup.fake, 'related-list'))).toBe(false);
     expect(run.runArgs).toContain('AIO_SMALL_RUN=1 AIO_SMALL_SLOT_COUNT=4 ');
     expect(run.sshCalls.join('\n')).not.toContain('src/a.spec.ts');
     expect(ranHere(run)).toEqual([]);

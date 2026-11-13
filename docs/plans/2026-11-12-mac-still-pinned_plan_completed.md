@@ -2,18 +2,15 @@
 
 ## Status
 
-- **Done (12 Nov):** Parts A and C built and verified: full suite green (3702 files, 46945 tests). `checks` green except
-  `check:ts-max-loc`, tripped only by foreign `src/main/cli/adapters/claude-cli-adapter.ts` (2204 vs 2178 lines;
-  unrelated work, left alone). Two independent fresh-eyes gate passes: PASS, no actionable findings; their one note, a
-  dead notRun guard in `plan-queue-gate-receipts.ts`, removed by restructuring the branch. Auto-unstick spec flake fixed
-  (mock now obeys the nudge after the first unstick; assertions strengthened; 25/25 runs). Switch off: test runs,
-  commit-hook tests and `checks.js` go to the PC or test Mac, wait (20 min; commit hook 3 then commits; loop verify at
-  most a quarter of its timeout; after-merge check 5) and otherwise exit 69 "Not run"; queue and loops hold, retry every
-  5 min. A far run with no tests is a real result; a non-file name goes as Vitest's filter; `-u`/`--coverage` stay here;
-  Desk's Mac-only layout test runs here regardless.
-- **Next:** [livetest doc](2026-11-12-mac-still-pinned_livetest.md); James turns the switch off after a rebuild.
-- **Open:** one-spec far runs took 76–83 s on an idle PC, not under a minute: each rebuilds `dist` (~30 s). LT-A2b measures a
-  day; skipping that build for small runs is James's call. A loop's 2-min quick verify has little room with the switch off.
+- **Done (12–13 Nov):** Parts A and C built. Seven independent review rounds ran; rounds 1 to 6 each found something, all
+  fixed (the last fixes are in [the follow-up](2026-11-12-mac-still-pinned-followup_plan_completed.md)); round 7 passed.
+  Switch off: test runs, commit-hook tests and `checks.js` go to the PC or test Mac, wait (20 min; commit hook 3 then
+  commits; loop verify at most a quarter of its timeout; after-merge check 5) and otherwise exit 69 "Not run"; queue and
+  loops hold, retry every 5 min. A confirmed far run with no tests is its result; named runs go as plain `vitest run <args>`;
+  `-u`/`--coverage` stay here; Mac-only specs a run reaches run here.
+- **Next:** [livetest doc](2026-11-12-mac-still-pinned_livetest.md) after James restarts on the new build; then the switch goes off.
+- **Open:** one-spec far runs took 76–83 s on an idle PC, not under a minute: each rebuilds `dist` (~30 s). Kept as is until
+  LT-A2b has measured a real day. A loop's 2-min quick verify has little room with the switch off.
 - **Moved out:** Part B and Undistilled: [part B plan](2026-11-12-mac-still-pinned-part-b_plan.md). By design: no `smallSlots`
   on the Computers page (4 PC, 2 test Mac); the queue's after-merge type checks and other projects' checks still run here.
 
