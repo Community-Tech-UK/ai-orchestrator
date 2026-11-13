@@ -127,7 +127,7 @@ in [the campaign livetest](2026-10-05-livetest-campaign-defects_livetest.md).
 | --- | --- |
 | LT-603 | **Current runtime assertions confirmed 2026-10-27.** Fresh isolated AR-002 run retained exact PID gates, real suppressed completion, kept/dropped reconciliation, explicit degradation notice and successful completed-child summary queries. Fixtures/profile removed; canonical gates including the pinned full suite pass. |
 | LT-708 | Implementation and focused regressions present; dated cold/warm refusal, genuine denial UI and current rejection have live evidence. Canonical gates now pass; independent implementation closure remains with the coordinator. No global allow-rule write is authorized just to verify wording. |
-| LT-728 | Renumbered from LT-710 on 2026-11-07. Timeout diagnostic implemented and observed live. The 4,874-character timed-out sample included an accidental fixture deletion, so it does not isolate no-op latency. The earlier delay investigation remains open; no outage or fix is inferred. AR-006 cache reuse and both invalidations pass with the real reverse Claude-builder/Codex-reviewer pair. |
+| LT-1025 | Renumbered from LT-710 on 2026-11-07, then from LT-728 on 2026-11-09. Timeout diagnostic implemented and observed live. The 4,874-character timed-out sample included an accidental fixture deletion, so it does not isolate no-op latency. The earlier delay investigation remains open; no outage or fix is inferred. AR-006 cache reuse and both invalidations pass with the real reverse Claude-builder/Codex-reviewer pair. |
 | LT-711 | **OPEN — historical report awaiting independent reproduction.** Cursor was reported on 2026-10-04 to emit empty `completed` updates for real read/permission failures. Raw historical receipts are missing. Distinct from LT-612's exit-code handling and AR-007's retired `failed`-without-output clause. [Detail](#lt-711). |
 | LT-712 | **IMPLEMENTED on main (handoff-observability plan, merged 2026-11-07); live proof open.** The 2026-10-27 AR-003 run could not join its requeued command to its audit row or observe FIFO-head reinsertion. Audit rows now carry the queued command ID, and requeued commands are logged at the FIFO head with that ID and the queue depth. AR-003 stays open for the identified-build repeat. [Detail](#lt-712). |
 
@@ -322,7 +322,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-601 | P2 | **FIXED IN CODE; live check pending.** A user Stop was persisted as a completed turn. [Archived detail](livetest-remediation-register-archive-2026.md#lt-601-archived-detail) | [LT-601 detail](#lt-601) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-601) |
 | LT-602 | P2 | **FIXED IN CODE; live check pending.** The session header omitted reasoning effort chosen at spawn. [Archived detail](livetest-remediation-register-archive-2026.md#lt-602-archived-detail) | [LT-602 detail](#lt-602) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-602) |
 | LT-603 | P2 | **FIXED IN CODE; live check pending.** A restart lost its retained child record before fallback reconciliation could report it. | [LT-603 detail](#lt-603) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-603) |
-| LT-604 | P2 | **FIXED IN CODE; live check pending.** A worker paired after starting a disabled server stayed “disconnected” in the roster. | [LT-604 detail](#lt-604) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-604) |
+| LT-604 | P2 | **FIXED IN CODE; live check pending** (registration path live-verified 2026-11-11 on the packaged build: a worker enrolling after launch is registered via RPC, heartbeats and stays connected — see LT-1029, whose accepted-then-disconnected symptom is a different, harness-side mechanism). A worker paired after starting a disabled server stayed “disconnected” in the roster. | [LT-604 detail](#lt-604) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-604) |
 | LT-605 | P2 | **FIXED IN CODE; live check pending.** A recovery candidate existed but the startup notice never rendered. [Archived detail](livetest-remediation-register-archive-2026.md#lt-605-archived-detail) | [LT-605 detail](#lt-605) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-605) |
 | LT-606 | P2 | **FIXED IN CODE; live check pending.** Resume Picker row actions had no visible keyboard focus ring. [Archived detail](livetest-remediation-register-archive-2026.md#lt-606-archived-detail) | [LT-606 detail](#lt-606) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-606) |
 | LT-610 | P2 | **FIXED IN CODE; live check pending.** Deep-linking to approval B highlighted B but left keyboard focus on approval A. [Archived detail](livetest-remediation-register-archive-2026.md#lt-610-archived-detail) | [LT-610 detail](#lt-610) | [Remediation plan](2026-07-19-livetest-failure-remediation_plan_completed.md#lt-610) |
@@ -387,10 +387,12 @@ sections below. The historical reproduction remains unchanged.
 | LT-1011 | P2 | **OPEN — independently reproduced 2026-10-27.** Vitest's error-stack parser rejects map-like template text in the locked tsx bundles, leaving an unhandled reporting error. Owner: test-toolchain remediation; no parser suppression or test weakening. | [Detail](#lt-1011) | [Parser reproduction](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/source-map-scan.json) |
 | LT-1012 | P2 | **OPEN — reproduced again in isolation 2026-10-27.** The native-finality child-process test sometimes reaches settlement without its final-written marker. The full-suite failures and a fresh isolated failure remain red; the cause is unconfirmed. Owner: native-finality test/runtime investigation. | [Detail](#lt-1012) | [Current isolated failure](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r3/finality-isolation.txt) |
 | LT-1007 | P2 | **OPEN — observed 2026-11-08.** In a sandboxed host (queue worker), every OpenCode CLI probe exits 71 because the macOS signal-fence `sandbox-exec` wrapper cannot apply its policy. The app reports `No usable OpenCode install` and the startup panel names only hardened instances, so MiMo sessions cannot start and sign-in reads `Could not check`. Owner decision needed on the fallback policy. | [Detail](#lt-1007) | [Receipt](2026-10-10-mimo-multi-account_evidence/2026-11-08-queue-61bedf-r4/observations.md) |
-| LT-1013 | P2 | **OPEN — reproduced live 2026-10-27.** A 400,219-character context-fill message stalls the Electron main loop for 153,712 ms during the RLM keyword-search fallback before provider dispatch. The app recovers and honors a queued stop; exact cause remains unproven. | [LT-1013 detail](#lt-708--a-large-context-fill-send-blocks-the-main-loop-during-retrieval) | [Compaction reliability round 2](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-verifier-round-2) |
-| LT-1014 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1014 detail](#lt-715--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
+| LT-1026 | P2 | **OPEN — reproduced live 2026-10-27.** A 400,219-character context-fill message stalls the Electron main loop for 153,712 ms during the RLM keyword-search fallback before provider dispatch. The app recovers and honors a queued stop; exact cause remains unproven. | [LT-1026 detail](#lt-1026--a-large-context-fill-send-blocks-the-main-loop-during-retrieval) | [Compaction reliability round 2](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-verifier-round-2) |
+| LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1028 | P2 | **FIX LANDED 2026-11-10 (661f79daa); rebuilt-app check pending.** On a Control Center window 840px wide or narrower, the new hub menu (Oct2 later 3.2) stacked all twelve hubs in a column above the page: the Automations page kept 280 of 800px of height, Git 168px, and the last hub was clipped. The narrow-layout strip CSS was written for the old menu's side-by-side groups. Fixed by a one-row sideways strip that keeps its own height and scrolls the open hub into view. | [LT-1028 detail](#lt-1028--the-hub-menu-fills-half-a-narrow-window) | [Oct2 later live checks, section 4](2026-10-20-oct2-later_livetest.md) |
+| LT-1029 | P2 | **OBSERVED + ROOT-CAUSED 2026-11-11; NOT A PRODUCT DEFECT (test-harness spawn lifecycle).** A disposable worker spawned from a `run_on_node` agent turn registered successfully (`Node registered via RPC`, session issued) but its WebSocket closed 1006 seven-to-eight seconds later — exactly when the agent turn ended and its background task was reaped — so the roster showed the enrolled node `disconnected` and later gate calls failed node matching. Started via Task Scheduler (outside the agent process tree), the same worker stayed connected and the signed-out-Cursor gate call succeeded. The same evidence live-verifies LT-604's router fix on the packaged build. | [LT-1029 detail](#lt-1029) | [Browser Gateway wedged-tab livetest](/Users/suas/work/communitytech/browser-gateway-wedged-tab-and-node-recovery-2026-09-11_livetest.md) |
 | LT-708 | P1 | **OPEN — reproduced live 2026-10-27.** A non-YOLO Claude session consuming a warm adapter has no defer hook. The genuine CLI error `This command requires approval` is not recognised as a permission denial, so the session becomes idle without an approval card. A fresh adapter shows the deferred-permission card for the same harmless command. | [LT-708 detail](#lt-708) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-plan-queue-worker) |
 | LT-710 | P2 | **REPRODUCED 2026-10-27; not fixed in this checkout.** Main and context-worker startup can collide on fresh-profile migration discovery. Reusing the migrated isolated profile reaches the renderer. This reuses the existing saved-login/housekeeping defect identifier; the housekeeping worker owns its fix. | [LT-710 detail](#lt-710) | [Worker auto-update live checks](2026-10-14-worker-auto-update_livetest.md#evidence-run--2026-10-27-plan-queue-worker); [active remediation follow-up](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-710) |
 | LT-709 | P2 | **OPEN — reproduced in the compiled runtime 2026-10-26; unimplemented.** A provider-slot runtime package installs, but its worker fails on a compiled `require('file://...')` before provider registration; the normal session-create schema also rejects its plugin provider identifier. Phase 1 records the failure and omits the custom-provider claim. | [LT-709 detail](#lt-709) | [Plugins cleanup Phase 1](2026-10-26-plugins-cleanup-and-global-connectors_plan_completed.md#phase-1-plugins-page-cleanup); [implementation status](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-709) |
@@ -400,7 +402,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-725 | P2 | **CONFIRMED FIXED LIVE 2026-11-07 for conversational messages; the build-output case is LT-729.** On the rebuilt app, 2 of about 45 typed messages in 17 hours got code, and every short reply stayed quiet. One was relevant; the other added gitignored build output (LT-729). Original report: Automatic code context was mostly irrelevant on real messages: about 7% of top results were relevant and 75% of short messages got code. It now needs a source file named after two words of the message, and skips text too long to search whole. Blind review on unseen messages: 52% relevant, 12% of short messages get code. | [LT-725 detail](#lt-725) | [Fixing plan](2026-11-06-code-context-precision_plan_completed.md); [installed check 3](2026-11-06-search-and-memory-repair_plan_livetest.md#3-automatic-code-context-is-relevant-and-quiet-when-it-should-be) |
 | LT-726 | P2 | **CONFIRMED FIXED 2026-11-07 in a release-equivalent AppImage build.** At commit bdf416f21 the release job's `--linux AppImage --x64` packaging finished, logged `Fuses applied successfully`, and the extracted `harness` reads back with all four fuses as intended. Its startup smoke fails for a separate reason (LT-731). Original report: Linux packages could not finish building, because `scripts/set-electron-fuses.js` opened `Harness` when the binary is `harness`, so the security fuses were never set. | [LT-726 detail](#lt-726) | [Fixing plan](2026-11-06-code-context-precision_plan_completed.md); [installed check 9](2026-11-06-search-and-memory-repair_plan_livetest.md#9-windows-and-linux-packages-hold-only-their-own-runtime) |
 | LT-727 | P1 | **FIXED LIVE IN CLAUDE 2026-11-07; Codex check pending.** On the rebuilt, restarted app, a Claude session listed mail folders through both connectors and Community Tech's calendars. The Codex check was blocked by the Codex usage limit, which resets 8 November. Every Microsoft 365 connector tool call was refused before reaching Microsoft, because the connector rejected the standard `_meta` field that MCP clients add to a call. | [LT-727 detail](#lt-727) | [Check 3](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md#3-microsoft-365-account-routing-and-write-policy) |
-| LT-728 | P1 | **SOURCE FIX VERIFIED 2026-11-07; rebuilt-app check pending.** A session revived after a crash never saved James's typed messages, because recovery redaction strips the field the transcript used to recognise them. Under the `enforce` evidence mode every Harness tool call from such a session is refused with `SOURCE_MESSAGE_MISSING`. Separately, a provider switch kept the old provider's evidence mode. | [LT-728 detail](#lt-728) | [Fixing plan](2026-11-07-revived-session-input-provenance_plan_completed.md); [installed checks](2026-11-07-revived-session-input-provenance_livetest.md) |
+| LT-728 | P1 | **CLOSED 2026-11-09. Source fix verified 2026-11-07; provider-switch check passed live; crash-revival check waived by James (not run live).** A session revived after a crash never saved James's typed messages, because recovery redaction strips the field the transcript used to recognise them. Under the `enforce` evidence mode every Harness tool call from such a session is refused with `SOURCE_MESSAGE_MISSING`. Separately, a provider switch kept the old provider's evidence mode. | [LT-728 detail](#lt-728) | [Fixing plan](2026-11-07-revived-session-input-provenance_plan_completed.md); [installed checks](2026-11-07-revived-session-input-provenance_livetest_completed.md) |
 | LT-729 | P2 | **SOURCE FIX VERIFIED 2026-11-07; rebuilt-app check pending.** On a copy of the live index one reconcile removed every ignored file (0 left in this repo, communitytech and 12steps). A stale cancel flag that blocked the reconcile is also fixed. Original report: The code index ignores nested `.gitignore` files and `.git/info/exclude`, reading only the workspace root's `.gitignore`, so build output and other files git ignores are indexed and can be added as code context. Measured on the live index: 22% of this repo's chunks, 94% of `~/work/communitytech`, 10–11% of three other projects. | [LT-729 detail](#lt-729) | [Fixing plan](2026-11-07-search-repair-livetest-defects_plan_completed.md); [installed checks](2026-11-07-search-repair-livetest-defects_plan_livetest.md); [Installed check 3](2026-11-06-search-and-memory-repair_plan_livetest.md#3-automatic-code-context-is-relevant-and-quiet-when-it-should-be) |
 | LT-730 | P2 | **SOURCE FIX VERIFIED 2026-11-07; a day of live use pending.** `skill-match` raised to 0.68 after scoring 1,549 real messages: no wrong skill on any short message, 10 of 34 test prompts still matched, and the dashboard test prompt no longer adds a skill. Original report: Both built-in skills added by meaning on ordinary messages were wrong: `docs-sweep` (0.629) on `fix all those issues then please`, `android-test` (0.639) on a pasted pairing code with a request for a prompt. The `skill-match` floor for the real model is 0.62; the one correct live match scored 0.670. | [LT-730 detail](#lt-730) | [Fixing plan](2026-11-07-search-repair-livetest-defects_plan_completed.md); [installed checks](2026-11-07-search-repair-livetest-defects_plan_livetest.md); [Installed check 6](2026-11-06-search-and-memory-repair_plan_livetest.md#6-skill-matching-fires-on-meaning-and-not-too-often) |
 | LT-731 | P2 | **SOURCE FIX VERIFIED 2026-11-07 in a release-equivalent container; first GitHub release run pending.** The workflow now runs `xvfb-run -a node scripts/packaged-startup-smoke.js`, which passed as root and non-root. Original report: The Linux release job's startup smoke can never pass: with no `DISPLAY` it runs `xvfb-run -a harness`, the app relaunches itself with its heap flag and the first process exits 0, so `xvfb-run` closes the display and the real app dies before it is ready. With a display kept up for the whole run, the same script passes. | [LT-731 detail](#lt-731) | [Fixing plan](2026-11-07-search-repair-livetest-defects_plan_completed.md); [installed checks](2026-11-07-search-repair-livetest-defects_plan_livetest.md); [Installed check 9](2026-11-06-search-and-memory-repair_plan_livetest.md#9-windows-and-linux-packages-hold-only-their-own-runtime) |
@@ -419,7 +421,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-998 | P1 | **OPEN — local 0.2.45 repair implemented; Windows rerun pending.** Tab-scoped 768×1024 emulation disappears when the command ends; subsequent page reads remain desktop-sized. A repeated set reports tab_emulation despite mismatched actual dimensions. | [LT-998 detail](#lt-998) | [Input controls check 2](2026-10-14-browser-gateway-input-controls_livetest.md) |
 | LT-999 | P2 | **OPEN — local 0.2.45 repair implemented; Windows rerun pending.** Window read mode returns zero width/height for the live Chrome window, preventing a usable original-bounds capture. Optional shared-window resizing was not attempted. | [LT-999 detail](#lt-999) | [Input controls restoration protocol](2026-10-14-browser-gateway-input-controls_livetest.md) |
 | LT-1000 | P2 | **OPEN — observed on the Windows worker (extension 0.2.50).** With 200% browser zoom and a 768×1024 tab emulation active, viewport reads fail with `browser_tab_viewport_dimensions_mismatch` although the emulation is correct and the page is laid out at the expected width. Cause not proven. | [LT-1000 detail](#lt-1000) | [Input controls check 2](2026-10-14-browser-gateway-input-controls_livetest.md) |
-| LT-728 | P2 | **OPEN — reproduced live 2026-10-27 (recorded as LT-710 on the agent-runtime branch; renumbered 2026-11-07 because main uses LT-710 for the fresh-profile migration race).** The required Claude fresh-eyes checker stays active without a verdict until the headless deadline expires, then reports `Review cancelled`. The deadline is the headless request budget, not the ordinary cross-model timeout/floor. Clean-cache and invalidation live checks remain blocked by this reproduced failure, not an established provider outage. | [LT-728 detail](#lt-728) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-verifier-follow-up) |
+| LT-1025 | P2 | **OPEN — reproduced live 2026-10-27 (recorded as LT-710 on the agent-runtime branch; renumbered 2026-11-07 because main uses LT-710 for the fresh-profile migration race; renumbered again from LT-728 on 2026-11-09 because LT-728 is the typed-messages defect).** The required Claude fresh-eyes checker stays active without a verdict until the headless deadline expires, then reports `Review cancelled`. The deadline is the headless request budget, not the ordinary cross-model timeout/floor. Clean-cache and invalidation live checks remain blocked by this reproduced failure, not an established provider outage. | [LT-1025 detail](#lt-1025) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-verifier-follow-up) |
 | LT-711 | P3 | **OPEN — historical report, awaiting independent reproduction.** Cursor was reported on 2026-10-04 to emit empty `completed` updates for real failed reads and rejected shell permissions. The raw receipt is absent, so no current miner or provider behaviour is claimed. Distinct from LT-612 and from AR-007’s retired clause. The detail section sets no priority; P3 is assigned for an unreproduced historical report. | [LT-711 detail](#lt-711) | [Agent runtime residuals 2026-10-04 batch report](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-04-orchestrating-session-and-batch-agents) |
 | LT-712 | P3 | **IMPLEMENTED on main (handoff-observability plan, merged 2026-11-07); live proof open.** Audit rows now carry the queued command ID, and head reinsertion is logged with that ID and the queue depth; the LT-616 handoff log is unchanged. AR-003 stays open until an identified rebuilt coordinator repeats the handoff run and the audit join is observed live. | [LT-712 detail](#lt-712) | [Agent runtime residuals AR-003](2026-09-27-livetest-agent-runtime-residuals_livetest.md#ar-003--lt-371-live-browser-command-socket-handoff-correlation) |
 
@@ -433,6 +435,8 @@ sections below. The historical reproduction remains unchanged.
 | LT-991 | P1 | **REPRODUCED LIVE; REPAIR IMPLEMENTED, LIVE RETEST PENDING.** Persistence sentinel ignores the extension evaluate JSON envelope, so a stale/save-failed form reports successful writes and verified persistence. | [LT-991 detail](#lt-991) | [Review corrections](2026-10-27-human-external-review2_plan.md#lt-991-implementation-status) |
 | LT-992 | P2 | **REPRODUCED; NOT REPAIRED.** Packaging repeatability cannot collect under supported Node 26; the unchanged cases pass under supported Node 24. | [LT-992 detail](#lt-992) | [Review corrections](2026-10-27-human-external-review2_plan.md#lt-992-implementation-status) |
 | LT-1030 | P3 | **REPRODUCED LIVE 2026-11-12; NOT REPAIRED.** Queue health prints "1 starts", "1 checks", "1 landings" for a count of one, and "0 seconds" for a wait under half a second. | [LT-1030 detail](#lt-1030) | [Queue health live checks](2026-11-04-pq-a5-measure_plan_livetest.md) |
+| LT-1065 | P2 | **REPRODUCED ON THE LIVE DESK 2026-11-11 and 2026-11-12; NOT REPAIRED.** The charity lane of `get-work-day` fails because its interactive database transactions run past Prisma's default 5-second limit, so `charity_drafts` produces no drafts and the watchdog alarms. | [LT-1065 detail](#lt-1065) | [Watchdog three faults live checks](../../../../communitytech/work-finding/documents/plans/watchdog-three-faults-2026-10-20/watchdog-three-faults_livetest.md) |
+| LT-1066 | P2 | **REPRODUCED LIVE 2026-11-13 (read-only database observation); CAUSE NOT ISOLATED; NOT REPAIRED.** The Desk `conversation-reconciliation` schedule (every five minutes) ended 39 of 258 runs `failed` and 20 `partial` in the 24 hours to 02:29 UTC, always `source_unavailable` on the mailbox sources, and left 29 runs `running` with no end time (28 older than an hour, the oldest from 12 November 18:00 UTC). | [LT-1066 detail](#lt-1066) | [Watchdog faults live checks](../../../../communitytech/work-finding/documents/plans/watchdog-faults-2026-10-08/watchdog-faults_livetest.md) |
 
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
@@ -9732,7 +9736,7 @@ retains two complete 14-turn goals plus a seven-turn goal, all 32 continuations 
 50 tool-use and result rows visible in transcript groups. Both native compactions preserve the
 later goal output. The owner records compaction-procedure differences (the provider compacted
 around 74%, and non-executable convergence-review decisions still log) without weakening the
-original wording. This fix does not resolve the separate retrieval stall filed as LT-1013.
+original wording. This fix does not resolve the separate retrieval stall filed as LT-1026.
 
 Evidence and pending/full verification status: [owner round 2](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-verifier-round-2).
 The root owner document and queue-branch register are intentionally separate until the coordinator
@@ -9793,7 +9797,7 @@ DOM agree. Current source and receipts: root `.aio-review/lt-c8434b3e-fix/`.
 
 Inline convergence-review decisions no longer log or publish as actions; the live sessions show
 zero non-none policy decisions. The source fix is restricted to native turn handoff and inline
-advisory reporting. Retrieval (LT-1013) and database initialization (LT-1014) are unchanged.
+advisory reporting. Retrieval (LT-1026) and database initialization (LT-1027) are unchanged.
 
 Canonical static/build gates pass. The first full run failed three unchanged Claude timing
 fixtures and a Vitest source-map error; a later isolated run passes all eight fixture cases.
@@ -9883,11 +9887,11 @@ two executing paths explain why neither supported permission flow reaches the re
   focused tests passed during discovery; they do not prove this defect fixed. No fix was made.
 
 
-<a id="lt-728"></a>
+<a id="lt-1025"></a>
 
-## LT-728 — active Claude fresh-eyes review expires as an unexplained cancellation
+## LT-1025 — active Claude fresh-eyes review expires as an unexplained cancellation
 
-Renumbered from LT-710 on 2026-11-07. Main's register uses LT-710 for the fresh-profile migration race, so the agent-runtime reviewer-deadline defect keeps its own identifier here.
+Renumbered from LT-710 on 2026-11-07. Main's register uses LT-710 for the fresh-profile migration race, so the agent-runtime reviewer-deadline defect keeps its own identifier here. Renumbered again to LT-1025 on 2026-11-09, because LT-728 was also assigned to the typed-messages defect.
 
 ### Observed behavior
 
@@ -11623,9 +11627,9 @@ therefore durable, not a log-line join. Live observation on an identified rebuil
 - Until that live run passes, keep AR-003 and LT-712 open as a technical implementation
   prerequisite. Repeating resets on an unchanged unobservable build cannot supply the missing proof.
 
-## LT-1013 — a large context-fill send blocks the main loop during retrieval
+## LT-1026 — a large context-fill send blocks the main loop during retrieval
 
-_Renumbered from LT-732 on 2026-11-08 during the merge with main, because LT-732 was already assigned to a sidechat defect on the base._
+_Renumbered from LT-732 on 2026-11-08 during the merge with main, because LT-732 was already assigned to a sidechat defect on the base. Renumbered again to LT-1026 on 2026-11-09, because LT-1013 was also assigned to a compaction defect._
 
 ### Observed behaviour
 
@@ -11650,9 +11654,9 @@ A deterministic local regression must bound processing of large or repeated quer
 Open; no retrieval code changed in this task. Current follow-up: root untracked `2026-10-27-codex-goal-following-remediation_plan.md`, additional-defect note. The compaction campaign uses short prompts and fixture reads to complete its assigned check independently.
 
 
-## LT-1014 — first-profile startup fails at the RLM journal-mode pragma
+## LT-1027 — first-profile startup fails at the RLM journal-mode pragma
 
-_Renumbered from LT-733 on 2026-11-08 during the merge with main, because LT-733 was already assigned to a sidechat defect on the base._
+_Renumbered from LT-733 on 2026-11-08 during the merge with main, because LT-733 was already assigned to a sidechat defect on the base. Renumbered again to LT-1027 on 2026-11-09, because LT-1014 was also assigned to a compaction defect._
 
 ### Observed behaviour
 
@@ -11699,7 +11703,7 @@ context worker's first start failed during RLM schema migration: `Failed to appl
 restarted and recovered; the main window then opened with no further database error. This is the same
 first-open initialization of one RLM database by two processes, with a different error text (a duplicate
 migration row, not a lock). Log: root `.aio-review/lt-c8434b3e-rerun-2026-11-07/dev-app.log`, lines 14–36.
-Still OPEN under LT-1014.
+Still OPEN under LT-1027.
 
 ### Implementation status
 
@@ -11708,7 +11712,7 @@ root `docs/plans/2026-10-27-codex-goal-following-remediation_plan.md`. The compl
 remediation plan remains immutable. The successful restart is a workaround, not a fix.
 
 
-### LT-1014 recurrence — 2026-10-27 05:35 UTC
+### LT-1027 recurrence — 2026-10-27 05:35 UTC
 
 Fresh isolated profile for the same queue campaign failed critical Work controls initialization
 at **05:35:20.558 UTC** with `SqliteError: database is locked`. The production stack again reaches
@@ -11718,7 +11722,7 @@ The exact lock holder is still unproven. Evidence: root
 The failed owned PID 15717 was matched by profile lock, cwd and debug port, stopped with SIGTERM,
 and verified absent with the port closed. A single same-profile restart without source or DB edits
 reached the live renderer and completed the real-provider boundary checks. That owned PID 55543
-was also stopped and verified absent. Restart recovery is not a database fix; LT-1014 remains OPEN.
+was also stopped and verified absent. Restart recovery is not a database fix; LT-1027 remains OPEN.
 <a id="lt-710"></a>
 
 ## LT-710 — fresh-profile app startup can collide with the context worker's migrations
@@ -12861,6 +12865,80 @@ failure runs them too. Acceptance: `run-git-hook.spec.ts` case `regenerated: doc
 the fix), `regenerated: code` runs the tests, and the mocked changed-tree case still runs them. On the rebuilt app, a
 plan landing whose code equals its tested code has a short commit check.
 
+## LT-1028
+
+### LT-1028 — the hub menu fills half a narrow window
+
+Source: [Oct2 later live checks, section 4](2026-10-20-oct2-later_livetest.md), run in-loop on 9 Nov 2026 by the
+set-aside merge session as a compiled renderer preview (production build of main 50b2a4287) in a worker-managed
+browser on `windows-pc`. Screenshots are kept locally under `_scratch/hub-strip-fix/evidence/`.
+
+### Observed behaviour
+
+At an 820x800 viewport (the app window's minimum width is 800px; the narrow layout applies at 840px and below), on standard
+Control Center pages the hub menu became a 353px-tall block (465px on Git) holding all twelve hubs in one column, with
+empty space beside it. The page kept 280px of height on Automations and 168px on Git. "Connections" was cut in half and
+"Storage" hidden unless the menu was scrolled down. Collapsing the menu saved about 3px and left a column of icons at
+the far right. At 1200px the layout was correct.
+
+### Root cause
+
+`control-surface-shell.component.scss` turns the menu into a strip at 840px and below with `display: flex` and sideways
+scrolling, written for the old menu's several groups sitting side by side. Navigation hubs (c58792194) put every hub in
+one group, whose links are block-level, so they stacked. The stacked layout's implicit grid rows also share spare height
+with the strip, so on a short page the strip grew further. In the collapsed state, the collapsed toggle's
+`margin: 0 auto` (outside the media query, higher specificity) pushed the icons to the right.
+
+### Required behaviour and acceptance
+
+At 840px and below, on standard pages the hubs sit in one row about 66px tall that scrolls sideways, the page takes the
+remaining height on every page, the open hub and tab scroll into view, and the collapsed strip is a row of usable icons
+after the toggle. Wide and full-bleed pages keep their left column; 1200px is unchanged. Acceptance: the preview
+measurements on Automations, Git and Costs & Usage at 820px (one row, 66px strip, page 567px tall, open hub visible on
+load, collapsed icons 31px wide starting after the toggle); the shell spec case "scrolls the open hub and its tab into
+view" fails on the old code and passes; and the rebuilt-app narrow-window check in the Oct2 later live-test section 4.
+
+<a id="lt-1029"></a>
+
+### LT-1029 — a disposable worker spawned from a run_on_node agent turn dies at turn end (accepted-then-disconnected symptom)
+
+Source: [browser-gateway-wedged-tab-and-node-recovery-2026-09-11_livetest.md](/Users/suas/work/communitytech/browser-gateway-wedged-tab-and-node-recovery-2026-09-11_livetest.md),
+check 3 (signed-out-Cursor refusal), rounds 3–4, 11 November 2026.
+
+### Observed behaviour
+
+Three disposable signed-out-CLI worker profiles on `windows-pc` (nodes `f1310c7b-6562-4dee-9644-336f6f885acc`,
+`e5741e03-f967-4aab-a9ed-33eff917b87e`, `8639a145-f12c-4643-9b27-f221bcfcb2ea`) each completed a real registration:
+the worker logged `[WorkerAgent] Registration accepted … enrolled: true`, and the coordinator logged `Issued remote node
+session token`, `Node registered via WebSocket`, `Node registered via RPC` and started health monitoring. Yet 7–8.3 s
+later the coordinator logged `Worker WebSocket closed (closeCode: 1006, closeReason: '', sessionMs: 8018 / 7189 /
+8274, heartbeatAgeMs equal to sessionMs)` and 30 s later deregistered the node. The roster then showed the enrolled
+node `disconnected`, so every `run_on_node` gate call targeting it failed at node matching (`No connected worker node
+matching …`) before provider admission. The worker log shows no close or error line — the worker process itself was
+gone. (Coordinator forensics: `~/Library/Application Support/harness/logs/app.log`, 2026-11-11 02:17–02:50 UTC.)
+
+### Root cause
+
+Not a registration defect. Each worker was started as a background child of the `run_on_node` coding-agent turn
+(`lt3-startworker.mjs`, run by the agent's shell). When the agent turn completed (its "report SERVICE-STARTED" message),
+turn teardown reaped the process tree; the worker's TCP socket died without a close handshake (WebSocket close 1006 is
+the abnormal-closure code) at exactly the turn-end second in all three runs. The coordinator behaved correctly
+throughout: registration, session issuance, health monitoring, the disconnect grace window, then deregistration. The
+same surface symptom appears under LT-604 ("Registration accepted" on the worker while the roster says disconnected),
+but the mechanism differs: LT-604 was a missing `RpcEventRouter` after a late server start, fixed in code and pending
+live verification. This run is that verification — on the current packaged build a worker enrolling after app launch is
+registered via RPC (`RpcEventRouter | Node registered via RPC`), heartbeats and stays connected.
+
+### Required behaviour and acceptance
+
+No product change is required for the observed failure. The harness procedure for long-lived test workers: start the
+worker outside the agent-turn process tree (for example a Windows Task Scheduler task running a wrapper that launches
+`node dist/worker-agent/index.js --config <isolated config>` with an isolated home) and confirm `list_remote_nodes`
+shows the node `connected` before making any `run_on_node` gate call. Acceptance, observed 2026-11-11: the same worker
+started via Task Scheduler stayed registered well past 60 s with heartbeats flowing, and
+`run_on_node {node:"lt3cursor-r4", provider:"cursor"}` reached provider admission and returned the expected
+`[cli_not_signed_in] Provider "cursor" is not proven signed in on worker node "lt3cursor-r4"` refusal before any
+instance creation or CLI spawn. LT-604's registration-path live verification is recorded in its index row.
 <a id="lt-1030"></a>
 
 ## LT-1030 — Queue health words a count of one in the plural and a sub-second wait as "0 seconds"
@@ -13046,3 +13124,59 @@ Not isolated. The native strategy returned a false result (`src/main/context/com
 ### Required behaviour and acceptance
 
 A completed native compaction is not reported failed; a fallback samples the transcript and reports the count, and a zero-message summary is not presented as complete. Repeat check 2.3 with a session of at least 20 real turns.
+
+<a id="lt-1065"></a>
+
+## LT-1065 — Desk charity lane fails when its database transactions pass Prisma's 5-second limit
+
+**Status: reproduced on the live Desk on 11 and 12 November 2026, not repaired. Priority P2.** This is a Desk (work-finding repository) defect, filed here because this is the only live-test remediation register. Found by the watchdog-three-faults live check 3 on 13 November 2026 (snapshot 01:20 UTC); the evidence is the sealed read-only query output beside the report named below. Repair belongs in a new Desk plan, not in the watchdog-three-faults plan.
+
+### Observed behaviour
+
+The latest `get-work-day` runs succeeded daily from 28 October to 10 November, then ended `partial` (reason `internal_error`) on 11 and 12 November. Only the `charity_drafts` stage failed. On 12 November Prisma reported "Transaction already closed ... timeout for this transaction was 5000 ms, however 5006 ms passed" at `tx.outreachMessage.create()` (`apps/desk/src/db/repositories/outreachWave.ts:939`). On 11 November the same expiry class occurred at `db.organisationEvidence.create()` (`apps/desk/src/conversations/coordinationIssuance.ts:524`). Both runs left the charity lane with 0 drafts, so the 12 November watchdog raised `get_work_day_lane_no_sendable_output` for `lane:charity` and `outreach_desk_stale`. The first failure came about two hours after the 11 November 05:24 release; that is a timing correlation, not a demonstrated cause.
+
+### Root cause
+
+Not isolated. The charity-lane interactive transactions run with Prisma's default 5-second limit and no `timeout` option exists on the `$transaction` calls in `outreachWave.ts`. Whether the transactions became slower (data growth, lock waits, the 11 November release) or are doing more work inside the transaction than they should was not tested.
+
+### Required behaviour
+
+The charity lane either completes or fails with an actionable cause, and the watchdog does not alarm for a lane that ran correctly. Work that does not need to be atomic stays outside the interactive transaction; any remaining transaction has a deliberate time limit.
+
+### Acceptance
+
+`charity_drafts` succeeds on a weekday `get-work-day` occurrence (the 13 November 07:30 UTC run was the first one due after the observation), or records `no_eligible_work`. The read-back is the deferred "Read back the 13 November 07:30 work-day and 08:30 watchdog occurrences" check in the linked live-test document. A regression test reproduces a transaction that exceeds 5 seconds.
+
+### Evidence
+
+[Watchdog three faults live checks](../../../../communitytech/work-finding/documents/plans/watchdog-three-faults-2026-10-20/watchdog-three-faults_livetest.md), check 3 (13 November 2026 snapshot).
+
+<a id="lt-1066"></a>
+
+## LT-1066 — Desk conversation reconciliation: mailbox sources unavailable and runs left `running`
+
+**Status: reproduced on the live Desk on 13 November 2026 from read-only database queries, cause not isolated, not repaired. Priority P2.** This is a Desk (work-finding repository) defect, filed here because this is the only live-test remediation register. Found by the watchdog-faults livetest worker (queue item 6cb4db0c) between 01:00 and 02:40 UTC; nothing was written, restarted or run. Repair belongs in a new Desk plan, not in the watchdog-faults plan.
+
+### Observed behaviour
+
+From `automation_runs` where `run_type = 'conversation-reconciliation'` (schedule every five minutes), last 24 hours to 02:29 UTC on 13 November 2026: 258 runs, 199 `succeeded`, 39 `failed`, 20 `partial`, 29 still `running`.
+
+- Every `failed` and `partial` run has reason `source_unavailable`. In failed runs all three mailbox sources report `unavailable` with 0 inserted. In partial runs one mailbox is `complete` and two are `unavailable`.
+- `calendar` is `unavailable` in every sampled run and `m365Configured` is `false`: a standing configuration fact, not a per-run fault. Calendly is `complete`.
+- 28 of the 29 `running` rows are more than an hour old (oldest 12 November 18:00 UTC) and none has an `ended_at`.
+
+### Root cause
+
+Not isolated. Not tested: whether the mailbox outages come from credentials, provider throttling, network faults or a source circuit breaker; and whether the long-`running` rows are abandoned rows that never finalise or rows closed by another path. Whether the stale `running` rows cause any wrong user-visible state is also unknown. This does not explain or fix the three live watchdog warnings and must not be read as doing so.
+
+### Required behaviour
+
+A mailbox outage ends the run with an actionable cause that names which source and why. A run that cannot finish is closed or flagged by a rule rather than left `running` with no end time. The permanent unconfigured calendar source is reported as a configuration fact, not counted as an outage.
+
+### Acceptance
+
+A diagnosed cause for the mailbox `unavailable` states, with either a fix or documented expected behaviour; a regression test for the rule that closes or flags `running` rows with no end time; and a 24-hour readback in which no run is `running` past its expected duration and every `failed` run names its cause.
+
+### Evidence
+
+[Watchdog faults live checks](../../../../communitytech/work-finding/documents/plans/watchdog-faults-2026-10-08/watchdog-faults_livetest.md), "Defect record: conversation-reconciliation source outages and stuck runs" (13 November 2026).
