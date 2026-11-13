@@ -22,6 +22,14 @@ const gitEnv = {
   GIT_AUTHOR_EMAIL: 'test@example.invalid',
   GIT_COMMITTER_NAME: 'Test',
   GIT_COMMITTER_EMAIL: 'test@example.invalid',
+  // A commit starts `git maintenance run --auto` in the background, which briefly creates
+  // `.git/objects/maintenance.lock`. The tests move the whole objects folder, so a lock that
+  // vanishes between listing and renaming fails them at random. Keep maintenance off.
+  GIT_CONFIG_COUNT: '2',
+  GIT_CONFIG_KEY_0: 'maintenance.auto',
+  GIT_CONFIG_VALUE_0: 'false',
+  GIT_CONFIG_KEY_1: 'gc.auto',
+  GIT_CONFIG_VALUE_1: '0',
 };
 
 function git(cwd: string, ...args: string[]): string {
