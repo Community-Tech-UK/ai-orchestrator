@@ -29,6 +29,14 @@ const SECRET_NAME_GLOBS = [
 ];
 const SECRET_EXCLUSIONS = SECRET_NAME_GLOBS.map(glob => `:(exclude,glob,icase)**/${glob}`);
 
+/**
+ * The far machine installs its own packages and keeps its `node_modules` through every checkout.
+ * `node_modules/` in .gitignore matches only a directory, so a link of that name (a copy of the
+ * repository pointing at another's packages) would otherwise go, and replace the far machine's
+ * installed packages with a link to nothing.
+ */
+const LEFT_OUT = [...SECRET_EXCLUSIONS, ':(exclude,glob)**/node_modules'];
+
 /** Git exports these inside hooks. Left in place they would aim every command below at the real repository. */
 const SCOPED_GIT_ENV = [
   'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
@@ -59,7 +67,7 @@ function splitNul(text) {
 /** Refuses what shouldn't be sent before anything is hashed. */
 function checkUntracked(root, env, maxBytes, folders) {
   const untracked = splitNul(runGit(
-    ['ls-files', '--others', '--exclude-standard', '-z', '--', ...folders, ...SECRET_EXCLUSIONS],
+    ['ls-files', '--others', '--exclude-standard', '-z', '--', ...folders, ...LEFT_OUT],
     { cwd: root, env },
   ));
   let total = 0;
@@ -152,7 +160,7 @@ function takeSnapshot(root, { maxUntrackedBytes = MAX_UNTRACKED_BYTES, baseEnv =
   return snapshotFrom(root, baseEnv, null, (env) => {
     checkUntracked(root, env, maxUntrackedBytes, folders);
     const knownGitlinks = gitlinks(root, env);
-    runGit(['add', '-A', '--', ...folders, ...SECRET_EXCLUSIONS], { cwd: root, env });
+    runGit(['add', '-A', '--', ...folders, ...LEFT_OUT], { cwd: root, env });
     for (const gitlink of gitlinks(root, env)) {
       if (!knownGitlinks.has(gitlink)) {
         throw new SnapshotRefused(`${gitlink} is a separate git repository, so its files would be left out`);

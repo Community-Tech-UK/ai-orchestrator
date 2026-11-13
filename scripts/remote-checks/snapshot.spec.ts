@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
@@ -111,6 +111,22 @@ describe('takeSnapshot', () => {
     const snapshot = takeSnapshot(root);
 
     expect(filesIn(root, snapshot).sort()).toEqual(['.gitignore', 'deep/keep.txt', 'tracked.txt']);
+    snapshot.cleanup();
+  });
+
+  it('leaves out a link named node_modules, which a directory-only ignore rule does not catch', () => {
+    // A link here once replaced a test machine's installed packages with a dangling link.
+    const root = repo();
+    writeFileSync(join(root, '.gitignore'), 'ignored.txt\nnode_modules/\n');
+    const packages = temp();
+    symlinkSync(packages, join(root, 'node_modules'));
+    mkdirSync(join(root, 'apps/mobile'), { recursive: true });
+    symlinkSync(packages, join(root, 'apps/mobile/node_modules'));
+    writeFileSync(join(root, 'apps/mobile/keep.txt'), 'fine\n');
+
+    const snapshot = takeSnapshot(root);
+
+    expect(filesIn(root, snapshot).sort()).toEqual(['.gitignore', 'apps/mobile/keep.txt', 'tracked.txt']);
     snapshot.cleanup();
   });
 
