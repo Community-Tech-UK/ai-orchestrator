@@ -7,6 +7,7 @@ import {
   parseSnapshot,
   type SnapshotEntry,
 } from '../sync-model-catalog.parse';
+import { MODELS_DEV_SNAPSHOT_META } from '../../src/main/providers/models-dev-snapshot.generated';
 
 function model(id: string, input: number, output: number, context?: number): unknown {
   return {
@@ -26,6 +27,13 @@ describe('SUPPORTED_PROVIDERS', () => {
     for (const primary of ['anthropic', 'openai', 'google', 'xai'] as const) {
       expect(order.indexOf(primary)).toBeLessThan(order.indexOf('github-copilot'));
     }
+  });
+
+  it('matches the committed snapshot scope that filters the live fetch', () => {
+    // ModelsDevService reads providerScope from the generated snapshot. If this
+    // list changes without `npm run sync:model-catalog`, the live fetch would
+    // silently keep the old providers and precedence.
+    expect([...MODELS_DEV_SNAPSHOT_META.providerScope]).toEqual([...SUPPORTED_PROVIDERS]);
   });
 });
 

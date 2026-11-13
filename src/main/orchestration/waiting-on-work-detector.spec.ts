@@ -8,6 +8,11 @@ describe('detectWaitingOnWork', () => {
     'Two runs left. I will continue once the benchmark finishes.',
     'Now waiting on the build.',
     "I'm waiting for the build.\n\nNothing else is needed right now.",
+    'Both runs are resumed and still working through their queues.\n\nI\'ll report when they finish.',
+    "I'll check it when it finishes, then look at the two landing-blocked items.",
+    "I'll let you know when the full suite finishes.",
+    "I'll report back to James once the checks pass.",
+    "I'll get back to you after the PC run completes.",
   ])('finds %s', (reply) => {
     expect(detectWaitingOnWork(reply)).not.toBeNull();
   });
@@ -15,6 +20,12 @@ describe('detectWaitingOnWork', () => {
   it.each([
     "I'm waiting for your decision on the plan.",
     "I'll continue once you confirm which option you want.",
+    "I'll let you know once you've picked an option.",
+    "I'll update you when James approves the plan.",
+    'I\'ll continue after I let you test the build.',
+    "I'll carry on once I've let James review the diff.",
+    "I'll continue once the login page will let you sign in.",
+    "I'll update you when it is approved.",
     'Waiting for James to sign in.',
     'All checks passed and the work is complete.',
     'The server is running on port 3000.',

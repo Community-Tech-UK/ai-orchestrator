@@ -9,8 +9,9 @@
  * timeout, non-2xx, oversized body, or schema mismatch simply leaves the
  * snapshot in place — never a startup delay and never a thrown error.
  *
- * This is the runtime half of backlog item #9. The build-time catalog sync
- * (regenerating the committed snapshot from models.dev) is a separate follow-up.
+ * This is the runtime half of backlog item #9. The build-time half,
+ * `scripts/sync-model-catalog.ts`, regenerates the committed offline snapshot
+ * and defines the provider scope this service reads.
  */
 
 import * as https from 'https';
@@ -31,8 +32,15 @@ const MODELS_DEV_API_URL = 'https://models.dev/api.json';
 const DEFAULT_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 /** Fail-soft network timeout — never block startup on a slow registry. */
 const REQUEST_TIMEOUT_MS = 6000;
-/** Reject absurd payloads defensively (api.json is well under 1 MB today). */
+/** Reject absurd payloads defensively (api.json is about 6 MB today). */
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+/**
+ * models.dev namespaces the app consumes, in precedence order: primary vendors
+ * first, resellers last. Generated from `SUPPORTED_PROVIDERS` in
+ * `scripts/sync-model-catalog.parse.ts`, so the live fetch and the offline
+ * snapshot always cover the same providers.
+ */
+const SUPPORTED_PROVIDERS: readonly string[] = MODELS_DEV_SNAPSHOT_META.providerScope;
 
 /** Per-model metadata distilled from the registry. */
 export interface ModelsDevEntry {
@@ -49,7 +57,7 @@ export interface ModelsDevEntry {
 interface ParsedRegistry {
   rates: Record<string, ModelRate>;
   contextWindows: Map<string, number>;
-  /** Full entry list — includes models without cost data if they have context limits. */
+  /** Every priced model from the supported providers, one row per provider. */
   entries: ModelsDevEntry[];
 }
 
@@ -236,6 +244,16 @@ export class ModelsDevService {
    * `cost.input`/`cost.output` are USD per 1M tokens and `limit.context`/
    * `limit.output` are token counts. Tolerates a models *array* form and
    * missing fields; anything unparseable is skipped, never thrown.
+   *
+   * Only {@link SUPPORTED_PROVIDERS} are read. models.dev lists over 200
+   * providers (about 8,800 models), nearly all third-party resellers the app
+   * cannot drive; admitting them flooded the unified catalog and stalled the
+   * main process and renderer on every rebuild.
+   *
+   * Duplicate ids: resellers republish primary-vendor ids verbatim. `entries`
+   * keeps one row per provider, but the id-keyed `rates` and `contextWindows`
+   * can hold only one owner per id, so the first provider in
+   * SUPPORTED_PROVIDERS order wins, matching the offline snapshot.
    */
   parseRegistry(raw: string): ParsedRegistry | null {
     let root: unknown;
@@ -249,8 +267,10 @@ export class ModelsDevService {
     const rates: Record<string, ModelRate> = {};
     const contextWindows = new Map<string, number>();
     const entries: ModelsDevEntry[] = [];
+    const claimedIds = new Set<string>();
 
-    for (const [providerKey, provider] of Object.entries(root as Record<string, unknown>)) {
+    for (const providerKey of SUPPORTED_PROVIDERS) {
+      const provider = (root as Record<string, unknown>)[providerKey];
       if (!provider || typeof provider !== 'object') continue;
       const models = (provider as { models?: unknown }).models;
       if (!models || typeof models !== 'object') continue;
@@ -262,11 +282,13 @@ export class ModelsDevService {
       for (const model of modelValues) {
         const entry = this.parseModel(model, providerKey);
         if (!entry) continue;
+        entries.push(entry);
+        if (claimedIds.has(entry.id)) continue;
+        claimedIds.add(entry.id);
         rates[entry.id] = entry.rate;
         if (entry.contextWindow !== undefined) {
           contextWindows.set(entry.id, entry.contextWindow);
         }
-        entries.push(entry);
       }
     }
 

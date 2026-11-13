@@ -19,7 +19,8 @@
  * Gemini/Grok/Copilot → anthropic/openai/google/xai/github-copilot). Mirrors the
  * curated "just the useful models" philosophy of generate-cursor-models.ts and
  * keeps the generated file small enough to read in a diff. Extend
- * SUPPORTED_PROVIDERS (in sync-model-catalog.parse.ts) to widen offline coverage.
+ * SUPPORTED_PROVIDERS (in sync-model-catalog.parse.ts) and regenerate to widen
+ * coverage; the runtime live fetch is limited to the same list.
  *
  * Usage:
  *   npm run sync:model-catalog            # regenerate the snapshot in place

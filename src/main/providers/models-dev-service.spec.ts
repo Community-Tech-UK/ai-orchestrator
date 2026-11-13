@@ -44,7 +44,7 @@ describe('ModelsDevService.parseRegistry', () => {
 
   it('tolerates a models-array form', () => {
     const raw = JSON.stringify({
-      prov: { models: [{ id: 'm1', cost: { input: 1, output: 2 } }] },
+      openai: { models: [{ id: 'm1', cost: { input: 1, output: 2 } }] },
     });
     const parsed = service.parseRegistry(raw);
     expect(parsed!.rates['m1']).toEqual({ input: 1, output: 2 });
@@ -52,7 +52,7 @@ describe('ModelsDevService.parseRegistry', () => {
 
   it('skips models missing cost.input/output without throwing', () => {
     const raw = JSON.stringify({
-      prov: {
+      openai: {
         models: {
           ok: { id: 'ok', cost: { input: 1, output: 2 } },
           noCost: { id: 'noCost' },
@@ -69,7 +69,7 @@ describe('ModelsDevService.parseRegistry', () => {
     const tooLongCatalogModelId = `${'m'.repeat(MAX_MODEL_ID_LENGTH - 2)}-v1`;
     expect(tooLongCatalogModelId).toHaveLength(MAX_MODEL_ID_LENGTH + 1);
     const raw = JSON.stringify({
-      prov: {
+      openai: {
         models: {
           ok: { id: 'ok', cost: { input: 1, output: 2 } },
           tooLong: {
@@ -95,7 +95,7 @@ describe('ModelsDevService.parseRegistry', () => {
   });
 
   it('returns empty rates for an object with no usable models (offline-equivalent)', () => {
-    const parsed = service.parseRegistry(JSON.stringify({ prov: { models: {} } }));
+    const parsed = service.parseRegistry(JSON.stringify({ openai: { models: {} } }));
     expect(parsed).not.toBeNull();
     expect(Object.keys(parsed!.rates)).toHaveLength(0);
   });
@@ -126,6 +126,68 @@ describe('ModelsDevService.parseRegistry', () => {
     expect(opusEntry?.provider).toBe('anthropic');
     const gptEntry = parsed!.entries.find((e) => e.id === 'gpt-5.5');
     expect(gptEntry?.provider).toBe('openai');
+  });
+
+  it('ignores providers outside the supported scope', () => {
+    const raw = JSON.stringify({
+      openrouter: {
+        models: { 'or-only': { id: 'or-only', cost: { input: 1, output: 2 }, limit: { context: 1000 } } },
+      },
+      opencode: {
+        models: { 'big-pickle': { id: 'big-pickle', cost: { input: 0, output: 0 } } },
+      },
+      anthropic: {
+        models: { 'claude-opus-4-8': { id: 'claude-opus-4-8', cost: { input: 5, output: 25 } } },
+      },
+    });
+
+    const parsed = service.parseRegistry(raw);
+
+    expect(parsed!.entries.map((e) => `${e.provider}:${e.id}`)).toEqual(['anthropic:claude-opus-4-8']);
+    expect(Object.keys(parsed!.rates)).toEqual(['claude-opus-4-8']);
+    expect(parsed!.contextWindows.has('or-only')).toBe(false);
+  });
+
+  it('gives an overlapping id to the primary vendor, whatever the registry key order', () => {
+    // Resellers appear both before openai (github-copilot, jiekou) and after it
+    // (azure); none of them may take the id-keyed rate or context window.
+    const raw = JSON.stringify({
+      'github-copilot': {
+        models: { 'gpt-5.5': { id: 'gpt-5.5', cost: { input: 9, output: 99 }, limit: { context: 200000 } } },
+      },
+      jiekou: {
+        models: { 'gpt-5.5': { id: 'gpt-5.5', cost: { input: 0.1, output: 0.2 }, limit: { context: 1 } } },
+      },
+      openai: {
+        models: { 'gpt-5.5': { id: 'gpt-5.5', cost: { input: 5, output: 30 }, limit: { context: 1050000 } } },
+      },
+      azure: {
+        models: { 'gpt-5.5': { id: 'gpt-5.5', cost: { input: 7, output: 70 }, limit: { context: 2 } } },
+      },
+    });
+
+    const parsed = service.parseRegistry(raw);
+
+    expect(parsed!.rates['gpt-5.5']).toEqual({ input: 5, output: 30 });
+    expect(parsed!.contextWindows.get('gpt-5.5')).toBe(1050000);
+    // Each supported provider keeps its own row for provider-scoped pricing.
+    expect(parsed!.entries.map((e) => `${e.provider}:${e.rate.input}`)).toEqual([
+      'openai:5',
+      'github-copilot:9',
+    ]);
+  });
+
+  it('lets a reseller own an id no primary vendor publishes', () => {
+    const raw = JSON.stringify({
+      'github-copilot': {
+        models: { 'copilot-only': { id: 'copilot-only', cost: { input: 1, output: 4 }, limit: { context: 64000 } } },
+      },
+    });
+
+    const parsed = service.parseRegistry(raw);
+
+    expect(parsed!.rates['copilot-only']).toEqual({ input: 1, output: 4 });
+    expect(parsed!.contextWindows.get('copilot-only')).toBe(64000);
   });
 
   it('listEntries returns empty array before any refresh', () => {
@@ -201,7 +263,7 @@ describe('ModelsDevService.listEntries', () => {
     const svc = new ModelsDevService();
     // Simulate a parse by calling parseRegistry (which we can verify returns entries)
     const raw = JSON.stringify({
-      myprovider: {
+      xai: {
         models: {
           'my-model': { id: 'my-model', cost: { input: 1, output: 3 } },
         },
@@ -210,7 +272,7 @@ describe('ModelsDevService.listEntries', () => {
     const parsed = svc.parseRegistry(raw);
     expect(parsed!.entries).toHaveLength(1);
     expect(parsed!.entries[0].id).toBe('my-model');
-    expect(parsed!.entries[0].provider).toBe('myprovider');
+    expect(parsed!.entries[0].provider).toBe('xai');
     expect(parsed!.entries[0].rate).toEqual({ input: 1, output: 3 });
   });
 });

@@ -17,6 +17,10 @@
  *
  * ORDER IS SIGNIFICANT: primary vendors first, resellers (`github-copilot`)
  * last. See the duplicate-id note on {@link parseSnapshot}.
+ *
+ * The rendered snapshot records this list as `MODELS_DEV_SNAPSHOT_META.providerScope`,
+ * which `ModelsDevService.parseRegistry` uses to filter the live fetch. After
+ * changing it, run `npm run sync:model-catalog` so the app picks it up too.
  */
 export const SUPPORTED_PROVIDERS = [
   'anthropic',

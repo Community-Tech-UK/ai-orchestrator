@@ -404,9 +404,9 @@ export class UnifiedModelCatalogService extends EventEmitter {
 
     // Second, add models.dev-only entries (those absent from the static catalog).
     // models.dev uses external provider namespaces (e.g. `anthropic`, `google`);
-    // map supported namespaces to the app's provider ids so newly published
-    // upstream models can appear in the same picker/catalog bucket as the
-    // provider runtime. Unknown namespaces are kept verbatim for discovery.
+    // map them to the app's provider ids so newly published upstream models
+    // appear in the same picker/catalog bucket as the provider runtime.
+    // ModelsDevService only hands over the supported namespaces.
     const modelsDevEntries = this.modelsDevSvc.listEntries();
     for (const devEntry of modelsDevEntries) {
       const provider = normalizeModelsDevProviderNamespace(devEntry.provider);
@@ -430,7 +430,9 @@ export class UnifiedModelCatalogService extends EventEmitter {
       // keyed by bare ids (`big-pickle`). The OpenCode CLI only accepts
       // `provider/model` ids (`opencode/big-pickle`), so those rows would be
       // unusable choices in the OpenCode picker. OpenCode's models come from
-      // CLI discovery (`opencode models --verbose`) alone.
+      // CLI discovery (`opencode models --verbose`) alone. `opencode` is
+      // outside ModelsDevService's provider scope today; this keeps the
+      // picker correct if that scope is ever widened.
       if (provider === 'opencode') {
         continue;
       }
