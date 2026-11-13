@@ -13,7 +13,7 @@ import { _resetAdapterLoansForTesting } from './adapter-loan-registry';
 const pool = vi.hoisted(() => ({ continuation: 'replay' as 'replay' | 'shared-store' }));
 vi.mock('../../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }) }));
 vi.mock('../../session/session-continuity', () => ({
-  getSessionContinuityManager: () => ({ writeThroughIdentityLocked: vi.fn(), updateState: vi.fn() }),
+  getSessionContinuityManager: () => ({ writeThroughIdentityLocked: vi.fn(), updateState: vi.fn(), takeStoppedHelpers: vi.fn(async () => null) }),
   getSessionContinuityManagerIfInitialized: () => undefined,
 }));
 vi.mock('../../providers/account-pool/provider-account-store', () => ({
@@ -108,7 +108,9 @@ describe('queued account handoff combined with a permission flip', () => {
     pool.continuation = 'shared-store';
     const h = harness('claude', true);
     await h.queue.requestChange(h.instance.id, { ...h.instance.desiredRuntime, provider: 'claude', yoloMode: true } as DesiredRuntime);
-    expect(h.createRuntimeAdapter.mock.calls[0][1]).toMatchObject({ resume: true, forkSession: true, sessionId: 'original-native-session' });
+    // Account handoffs never fork, even with a permission flip in tow: a fork mints a
+    // session id the old transcript is not filed under (usage-burn item 3.3).
+    expect(h.createRuntimeAdapter.mock.calls[0][1]).toMatchObject({ resume: true, forkSession: false, sessionId: 'original-native-session' });
     expect(h.emitRuntimeChanged).toHaveBeenCalledOnce();
   });
 });

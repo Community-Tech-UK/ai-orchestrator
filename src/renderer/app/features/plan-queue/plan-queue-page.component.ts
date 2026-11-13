@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+import { ChangeDetectionStrategy, Component, ElementRef, OnInit, afterRenderEffect, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { DEFAULT_PLAN_QUEUE_ROUTING } from '@contracts/schemas/plan-queue';
@@ -59,6 +60,15 @@ export class PlanQueuePageComponent implements OnInit {
   private readonly instanceStore = inject(InstanceStore);
   private readonly settingsStore = inject(SettingsStore);
   private readonly router = inject(Router);
+  private readonly queryParams = toSignal(inject(ActivatedRoute).queryParamMap);
+  protected readonly selectedDocument = computed(() => this.queryParams()?.get('document') || null);
+  protected readonly questionGroups = computed(() => {
+    const document = this.selectedDocument();
+    const groups = this.store.questionGroups();
+    return document ? groups.map(group => ({ ...group, items: group.items.filter(item => item.sourceRef === document) }))
+      .filter(group => group.items.length > 0) : groups;
+  });
+  private readonly questionHeading = viewChild<ElementRef<HTMLHeadingElement>>('questionHeading');
   private readonly providerAccountIpc = inject(ProviderAccountIpcService);
   private readonly copilotAccountIpc = inject(CopilotAccountIpcService);
 
@@ -84,6 +94,22 @@ export class PlanQueuePageComponent implements OnInit {
   protected readonly pluralise = pluralise;
   protected readonly historyDate = (at: number) => new Date(at).toLocaleString();
   protected readonly openHistory = signal<ReadonlySet<string>>(new Set());
+
+  constructor() {
+    effect(() => {
+      if (this.selectedDocument()) this.activeTab.set('now');
+    });
+    let focusedDocument: string | null = null;
+    afterRenderEffect(() => {
+      const document = this.selectedDocument();
+      if (!document) { focusedDocument = null; return; }
+      if (focusedDocument === document) return;
+      const heading = this.questionHeading()?.nativeElement;
+      if (!heading) return;
+      heading.focus();
+      focusedDocument = document;
+    });
+  }
 
   onHistoryToggle(runId: string, event: Event): void {
     const open = (event.target as HTMLDetailsElement).open;

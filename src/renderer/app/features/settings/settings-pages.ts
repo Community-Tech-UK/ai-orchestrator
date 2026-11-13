@@ -14,7 +14,7 @@ export const SETTINGS_PAGES: readonly SettingsNavPage[] = [
   { id: 'review', label: 'Second opinion', summary: 'Check agent output.', tabs: ['review'] },
   { id: 'permissions', label: 'Permissions & safety', summary: 'Approvals and desktop access.', tabs: ['permissions', 'computer-use'] },
   { id: 'models', label: 'Models', summary: 'Provider models and overrides.', tabs: ['models'] },
-  { id: 'tools', label: 'Tools & plugins', summary: 'Tool servers and integrations.', tabs: ['mcp', 'hooks', 'ecosystem'] },
+  { id: 'tools', label: 'Connectors & tools', summary: 'Email, calendars, tool servers and integrations.', tabs: ['mcp', 'hooks', 'ecosystem'] },
   { id: 'workspace', label: 'Workspace & history', summary: 'Worktrees, snapshots and archives.', tabs: ['worktrees', 'snapshots', 'archive'] },
   { id: 'accounts', label: 'Accounts', summary: 'Subscriptions and account routing.', tabs: ['provider-accounts', 'copilot-accounts'] },
   { id: 'phone', label: 'Phone & remote', summary: 'Phone connections and remote computers.', tabs: ['connections', 'mobile', 'remote-nodes', 'remote-config', 'network'] },

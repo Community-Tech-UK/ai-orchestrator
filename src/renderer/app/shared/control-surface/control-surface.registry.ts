@@ -88,7 +88,7 @@ export const CONTROL_SURFACES: readonly ControlSurfaceItem[] = [
   surface({ id: 'verification', path: '/verification', label: 'Verification', subtitle: 'Run cross-model verification workflows.', group: 'monitoring', kind: 'workflow', layout: 'wide', dashboard: true }),
   surface({ id: 'verification-settings', path: '/verification/settings', label: 'Verification Settings', subtitle: 'Configure verification CLI behavior.', group: 'settings', kind: 'setting' }),
   surface({ id: 'lsp', path: '/lsp', label: 'Language Server', subtitle: 'Inspect language-server integration state.', group: 'code', kind: 'tool', dashboard: true }),
-  surface({ id: 'mcp', path: '/mcp', label: 'MCP Servers', subtitle: 'Manage tool servers shared across provider CLIs.', group: 'integrations', kind: 'integration', dashboard: true, settings: true }),
+  surface({ id: 'mcp', path: '/mcp', label: 'Connectors', subtitle: 'Connect email, calendars and tools across AI accounts and providers.', group: 'integrations', kind: 'integration', dashboard: true, settings: true }),
   surface({ id: 'browser', path: '/browser', label: 'Browser Gateway', subtitle: 'Control managed browser automation.', group: 'integrations', kind: 'tool', layout: 'wide', dashboard: true }),
   surface({ id: 'files', path: '/files', label: 'Files', subtitle: 'Move files between this computer and your other computers.', group: 'integrations', kind: 'tool', layout: 'wide', dashboard: true }),
   surface({ id: 'vcs', path: '/vcs', label: 'Git', subtitle: 'Review source-control state and changes.', group: 'code', kind: 'tool', dashboard: true }),

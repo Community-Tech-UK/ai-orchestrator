@@ -23,4 +23,10 @@ describe('settings pages', () => {
       doctor: { text: 'Broken', status: 'error' }, 'cli-health': { text: 'Update', status: 'warn' },
     })).toEqual({ text: 'Broken', status: 'error' });
   });
+  it.each(['connector', 'Microsoft 365', 'Outlook', 'email', 'calendar', 'mcp'])('finds the connector setup by %s', query => {
+    const page = buildSettingsNav(query).pages.find(entry => entry.page.id === 'tools');
+    expect(page?.page.label).toBe('Connectors & tools');
+    expect(page?.matchingTabs.map(tab => tab.id)).toContain('mcp');
+    expect(NAV_ITEMS.find(tab => tab.id === 'mcp')?.label).toBe('Connectors');
+  });
 });

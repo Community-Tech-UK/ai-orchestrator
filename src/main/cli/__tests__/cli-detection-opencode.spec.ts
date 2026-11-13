@@ -9,17 +9,26 @@ describe('OpenCode detection agrees with session selection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     CliDetectionService._resetForTesting();
-    mocks.resolve.mockResolvedValue({ command: '/opt/selected/opencode2', major: 2 });
+    mocks.resolve.mockResolvedValue({ command: '/opt/selected/opencode2', major: 2, version: '2.0.30' });
     mocks.spawn.mockImplementation(() => {
       const proc = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter(), kill: vi.fn() });
       queueMicrotask(() => { proc.stdout.emit('data', '2.0.30'); proc.emit('close', 0); });
       return proc;
     });
   });
-  it('reports the selected supported command and version', async () => {
+  it('reports the selection result without probing the command again', async () => {
     await expect(CliDetectionService.getInstance().detectOne('opencode')).resolves.toMatchObject({ installed: true, path: '/opt/selected/opencode2', version: '2.0.30' });
     expect(mocks.resolve).toHaveBeenCalled();
-    expect(mocks.spawn).toHaveBeenCalledWith('/opt/selected/opencode2', ['--version'], expect.any(Object));
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+  it('a failing version re-probe cannot veto a successful selection', async () => {
+    mocks.spawn.mockImplementation(() => {
+      const proc = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter(), kill: vi.fn() });
+      queueMicrotask(() => proc.emit('close', 1));
+      return proc;
+    });
+    await expect(CliDetectionService.getInstance().detectOne('opencode')).resolves.toMatchObject({ installed: true, path: '/opt/selected/opencode2', version: '2.0.30' });
+    expect(mocks.spawn).not.toHaveBeenCalled();
   });
   it('surfaces an unsupported install without claiming it can run', async () => {
     mocks.resolve.mockRejectedValue(new Error('Update OpenCode 2 to at least 2.0.30'));

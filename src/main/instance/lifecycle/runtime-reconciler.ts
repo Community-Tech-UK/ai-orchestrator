@@ -30,6 +30,7 @@ import {
   getSessionContinuityManager,
   getSessionContinuityManagerIfInitialized,
 } from '../../session/session-continuity';
+import { stoppedHelperNoticeText, stoppedHelperResumeNotices } from '../../session/stopped-helper-resume-notice';
 import {
   getDefaultModelForCli,
   getProviderModelContextWindow,
@@ -575,6 +576,15 @@ export class RuntimeReconciler {
         const preamble = fallbackPreamble ?? (!shouldResume && hasConversation
           ? this.deps.buildReplayContinuityMessage(instance, why) : undefined);
 
+        // Helpers that stopped with the old runtime get one carry-on notice in
+        // the same delivery (usage-burn item 3.2). The take is one-shot, so no
+        // later resume repeats it; the cause says what tore the runtime down.
+        const stoppedHelpers = await getSessionContinuityManagerIfInitialized()?.takeStoppedHelpers(instanceId) ?? [];
+        const stoppedHelperNotices = stoppedHelperResumeNotices(
+          stoppedHelpers,
+          diff.accountProfileChanged ? 'the account switch' : isProviderSwap ? 'the provider change' : 'the restart',
+        );
+
         // LT-015/LT-020: control messages for the model, and the user must see
         // the runtime changed too. LT-030: notice delivery remains best-effort;
         // loss of runtime ownership still rejects the change.
@@ -584,13 +594,15 @@ export class RuntimeReconciler {
           assertCurrent,
           // An account-only handoff before the provider stored anything (and before
           // any reply) leaves the model nothing to reconcile; a notice turn would
-          // only start a run on the notice alone.
+          // only start a run on the notice alone. Stopped helpers still need their
+          // carry-on notice, so their presence rules this delivery out.
           ...(isAccountOnlyChange(diff) && !providerHasConversation
+            && stoppedHelpers.length === 0
             && !instance.outputBuffer.some((msg) => msg.type === 'assistant') ? { delivery: 'transcript-only' as const }
             : diff.accountProfileChanged && instance.provider === 'opencode' ? { delivery: 'next-prompt' as const }
             : limitedRuntimeOf(instance) !== limitedRuntime && userTurnFollowsPark(instanceId) ? { delivery: 'with-next-input' as const } : {}),
           emitSystemNotice: this.deps.emitSystemNotice.bind(this.deps),
-          notices: runtimeChangeNoticesFor({
+          notices: [...runtimeChangeNoticesFor({
             isYoloOnlyChange,
             isProviderSwap,
             yoloModeChanged: diff.yoloModeChanged,
@@ -613,7 +625,7 @@ export class RuntimeReconciler {
                 }
               : {}),
             ...(diff.accountProfileChanged ? { accountChange: accountChangeNotice(instance, desired, oldAccount.accountProfileId) } : {}),
-          }),
+          }), ...stoppedHelperNotices],
           divergence: isProviderSwap
             ? this.deps.describeLoopProviderDivergence?.(instanceId, instance.provider)
             : null,
@@ -814,9 +826,14 @@ export class RuntimeReconciler {
       await hooks.waitReady(adapter);
 
       if (request.hasConversation) {
+        // Helpers that stopped with the crashed runtime get their carry-on
+        // notice prepended to the fallback history — one delivery on the one
+        // body the fresh session receives (usage-burn item 3.2).
+        const stopped = await getSessionContinuityManagerIfInitialized()?.takeStoppedHelpers(instanceId) ?? [];
+        const fallbackBody = await this.deps.buildFallbackHistory(instance, request.fallbackReason);
         recoveryInputSent = await hooks.deliverContinuity(
           adapter,
-          await this.deps.buildFallbackHistory(instance, request.fallbackReason),
+          stopped.length > 0 ? `${stoppedHelperNoticeText(stopped, 'the restart')}\n\n${fallbackBody}` : fallbackBody,
         );
       }
     }
@@ -840,10 +857,23 @@ export class RuntimeReconciler {
     if (!actuallyResumed && request.shouldResume) {
       // Continuity already delivered in the fallback path above.
     } else if (!request.shouldResume && request.hasConversation) {
+      // Same carry-on notice, prepended to the replay body (usage-burn item 3.2).
+      const stopped = await getSessionContinuityManagerIfInitialized()?.takeStoppedHelpers(instanceId) ?? [];
+      const replayBody = this.deps.buildReplayContinuityMessage(instance, request.replayReason);
       recoveryInputSent = await hooks.deliverContinuity(
         adapter,
-        this.deps.buildReplayContinuityMessage(instance, request.replayReason),
+        stopped.length > 0 ? `${stoppedHelperNoticeText(stopped, 'the restart')}\n\n${replayBody}` : replayBody,
       );
+    } else if (actuallyResumed) {
+      // Native resume kept the conversation; helpers that stopped with the old
+      // runtime still need their one carry-on notice (usage-burn item 3.2).
+      const stopped = await getSessionContinuityManagerIfInitialized()?.takeStoppedHelpers(instanceId) ?? [];
+      if (stopped.length > 0) {
+        recoveryInputSent = await hooks.deliverContinuity(
+          adapter,
+          stoppedHelperNoticeText(stopped, 'the restart'),
+        );
+      }
     }
 
     logger.info('Recovery respawn complete', { instanceId, pid, resumed: actuallyResumed });

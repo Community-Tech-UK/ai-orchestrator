@@ -65,6 +65,7 @@ import { createDefaultHostProcessRuntime, listHostProcesses, stopLeftoverProcess
 import { createInstanceManagerHostProcessHooks } from '../process/host-process-instance-hooks';
 import { getWorkAdmission } from '../work-admission/work-admission';
 import { runAutomaticStartup } from '../work-admission/automatic-startup';
+import { waitForRunOnNodeReadiness } from './run-on-node-readiness';
 import { configureAutomationInvocationMcp } from '../automations/automation-invocation-mcp';
 const logger = getLogger('AppInitialization');
 const nodeControl = () => ({ server: getWorkerNodeConnectionServer(), registry: getWorkerNodeRegistry() });
@@ -379,10 +380,11 @@ export function createOrchestratorToolsStep(
           startup.register(instance, () => instanceManager.terminateInstance(instance.id, false));
           // Remote provider startup includes worker-local checks that the
           // coordinator cannot perform (for example Copilot account binding).
-          // Do not return an optimistic instance id; a run_on_node success means
-          // the worker is actually ready. A failed start keeps its session in
-          // `error`, and this caller never learns the id, so remove it here.
-          await instance.readyPromise?.catch(async (error: unknown) => {
+          // Return after the worker starts the initial input, rather than after
+          // its entire first turn. Automatic startup retains ownership of the
+          // pending initialization, including Pause teardown and later errors.
+          // A failed start must still propagate before the caller learns an id.
+          await waitForRunOnNodeReadiness(instanceManager, instance, startup).catch(async (error: unknown) => {
             await instanceManager.terminateInstance(instance.id, false).catch(() => undefined);
             throw error;
           });

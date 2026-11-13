@@ -37,9 +37,16 @@ Use these rules for every LLM-facing prompt and parser contract in AI Orchestrat
 ## Provider Fit
 
 - Keep shared prompts provider-neutral; do not assume Claude-specific tool names.
+  - Exception: a notice delivered only to a Claude session may name Claude tooling. The stopped-helper carry-on notice names `SendMessage` and the Agent call id because resume was proven on Claude only (experiment record in `docs/plans/2026-11-12-usage-burn-followups_history.md`). Keep the wording in a shared module with unit tests and state the exception's scope where the wording is defined (`src/main/session/stopped-helper-resume-notice.ts`).
 - Append Claude custom instructions rather than replacing the default system prompt.
 - Codex persistence instructions should define stop criteria and avoid narration requirements.
 - Do not present user-message wrappers as if they carried system authority.
+
+## Carry-On Notices
+
+- A resume or recovery carry-on notice is one model-facing `[System: ...]` block: what happened, what to do instead of redoing work, and one fallback path.
+- The user-facing line stays short and concrete: what stopped and that the session was told to carry it on. Instructions live in the model text, never in the user line.
+- Deliver the notice as a single queued string, joined with any replay preamble before queueing, so a later queue call cannot replace it.
 
 ## Style and Compaction
 

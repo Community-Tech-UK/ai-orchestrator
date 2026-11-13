@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { MAX_BODY_CHARS, shouldTellUserAboutToolLoop, toolLoopNotice } from './tool-loop-notice';
+import { MAX_BODY_CHARS, shouldTellUserAboutToolLoop, toolLoopNotice, toolLoopTranscriptNotice } from './tool-loop-notice';
 
 const base = {
   detector: 'repeat-no-progress',
@@ -8,6 +8,29 @@ const base = {
   count: 9,
   harnessWillStop: false,
 } as const;
+
+describe('toolLoopTranscriptNotice', () => {
+  it.each(['repeat-no-progress', 'ping-pong'] as const)('explains an automatic %s stop and offers a way forward', (detector) => {
+    expect(toolLoopTranscriptNotice({ severity: 'critical', detector }, true)).toBe(
+      'Harness is stopping this turn because the agent kept repeating tool calls with the same results. Completed work is preserved. Choose Continue to retry. If it repeats, start a fresh session or change model.',
+    );
+  });
+
+  it('describes the call limit without claiming that different calls repeated', () => {
+    expect(toolLoopTranscriptNotice({ severity: 'critical', detector: 'runaway' }, true))
+      .toContain('made too many tool calls without finishing');
+  });
+
+  it('does not say the session stopped when the user can still choose to let it run', () => {
+    expect(toolLoopTranscriptNotice({ severity: 'critical', detector: 'repeat-no-progress' }, false)).toBeUndefined();
+    expect(toolLoopTranscriptNotice({ severity: 'warn', detector: 'repeat-no-progress' }, true)).toBeUndefined();
+  });
+
+  it('explains when the automatic stop failed rather than claiming it succeeded', () => {
+    expect(toolLoopTranscriptNotice({ severity: 'critical', detector: 'repeat-no-progress', autoStopFailed: true }, false))
+      .toBe('Harness could not stop this turn automatically. The agent may still be repeating actions. Use Stop to end the turn.');
+  });
+});
 
 describe('shouldTellUserAboutToolLoop', () => {
   /** A first guess with nothing to do; showing every one taught the user to ignore the whole class. */

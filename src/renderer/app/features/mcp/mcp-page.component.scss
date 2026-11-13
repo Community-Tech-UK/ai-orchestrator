@@ -36,6 +36,7 @@
 }
 
 .title {
+  margin: 0;
   font-size: 18px;
   font-weight: 700;
 }
@@ -72,7 +73,7 @@
 .btn.primary {
   background: var(--primary-color);
   border-color: var(--primary-color);
-  color: #fff;
+  color: var(--button-on-primary);
 }
 
 .btn.danger {
@@ -121,13 +122,14 @@
 }
 
 .management-tabs {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-primary);
 }
 
 .management-tab {
+  flex: 1 0 auto;
   min-width: 0;
   border: 0;
   border-right: 1px solid var(--border-color);
@@ -174,7 +176,6 @@
   flex-wrap: wrap;
 }
 
-.management-actions,
 .management-form-header {
   justify-content: space-between;
 }
@@ -215,8 +216,6 @@
 .management-grid {
   display: grid;
   gap: 8px;
-  max-height: 220px;
-  overflow: auto;
 }
 
 .management-row {
@@ -232,6 +231,17 @@
 
 .management-row-main {
   min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.connection-settings { flex: 1; min-width: 0; }
+.connection-settings > summary { cursor: pointer; padding: var(--spacing-sm); font-size: 12px; color: var(--text-secondary); }
+.connection-settings-actions { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); padding: var(--spacing-sm); }
+
+.advanced-tools > summary { cursor: pointer; padding: var(--spacing-sm) 0; color: var(--text-secondary); }
+.advanced-tools-body { display: flex; flex-direction: column; gap: var(--spacing-md); margin-top: var(--spacing-md); }
+.btn:focus-visible, .management-tab:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--primary-color); outline-offset: 3px;
 }
 
 .management-command {

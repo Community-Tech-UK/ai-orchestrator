@@ -2,9 +2,11 @@ import { asUnknownRecord } from './claude-cli-adapter.types';
 import {
   locateClaudeSubagent,
   readClaudeSubagentTranscriptModel,
+  sumClaudeSubagentTranscriptUsage,
   type ClaudeSubagentMeta,
   type ClaudeTranscriptLocation,
 } from './claude-subagent-meta';
+import { computeProviderTokenCost } from '../../../shared/data/model-pricing';
 export { claudeTranscriptLocation } from './claude-subagent-meta';
 export type ClaudeSubagentModelSource = 'stream' | 'transcript' | 'requested';
 export interface ClaudeSubagentUsage {
@@ -21,6 +23,17 @@ export interface ClaudeSubagentUsage {
   fork?:boolean;
   depth?:number;
   mode?:'foreground'|'background';
+  /** Final samples only: usage summed from the helper's own transcript. */
+  transcriptUsage?:{
+    inputTokens:number;
+    outputTokens:number;
+    cacheReadTokens:number;
+    cacheWriteTokens:number;
+    cacheWrite5mTokens:number;
+    cacheWrite1hTokens:number;
+  };
+  /** Final samples only: cost computed from transcript usage and the model's rate. */
+  transcriptCost?:number;
 }
 /** Last context size is telemetry, not cumulative spend. No model-written text is retained. */
 export function parseClaudeSubagentUsage(message:unknown):ClaudeSubagentUsage|null {
@@ -49,6 +62,8 @@ export function subagentAttributionDetails(sample:ClaudeSubagentUsage) {
     ...(sample.fork!==undefined ? {helperFork:sample.fork} : {}),
     ...(sample.depth!==undefined ? {helperDepth:sample.depth} : {}),
     ...(sample.mode ? {helperMode:sample.mode} : {}),
+    ...(sample.transcriptUsage ? {helperTranscriptUsage:sample.transcriptUsage} : {}),
+    ...(sample.transcriptCost!==undefined ? {helperTranscriptCost:sample.transcriptCost} : {}),
   };
 }
 const MAX_TRACKED=1000;
@@ -103,6 +118,15 @@ export class ClaudeSubagentUsageTracker {
     for (const sample of finals) this.finish(sample.toolUseId);
     return finals;
   }
+  /** Snapshot of helpers still in flight (not yet finalized). Only scalars; no model text. */
+  getStoppedHelpers():Array<{toolUseId:string;agentId?:string;toolUses:number}> {
+    const out:Array<{toolUseId:string;agentId?:string;toolUses:number}>=[];
+    for (const sample of this.samples.values()) {
+      if (sample.final) continue;
+      out.push({toolUseId:sample.toolUseId,agentId:this.agentIds.get(sample.toolUseId),toolUses:sample.toolUses});
+    }
+    return out;
+  }
   /** Add model and start details once, when the helper is done; every read is bounded and fail-soft. */
   private enrich(sample:ClaudeSubagentUsage):ClaudeSubagentUsage {
     const out:ClaudeSubagentUsage={...sample};
@@ -118,6 +142,29 @@ export class ClaudeSubagentUsageTracker {
         if (found) {
           agentId=found.agentId;meta=found.meta;
           if (!streamModel) transcriptModel=readClaudeSubagentTranscriptModel(location,{agentId});
+          const usage=sumClaudeSubagentTranscriptUsage(location,{agentId});
+          if (usage) {
+            out.transcriptUsage={
+              inputTokens:usage.inputTokens,
+              outputTokens:usage.outputTokens,
+              cacheReadTokens:usage.cacheReadTokens,
+              cacheWriteTokens:usage.cacheWriteTokens,
+              cacheWrite5mTokens:usage.cacheWrite5mTokens,
+              cacheWrite1hTokens:usage.cacheWrite1hTokens,
+            };
+            const model=streamModel ?? transcriptModel ?? meta?.requestedModel;
+            if (model && usage.models.length>0) {
+              const cost=computeProviderTokenCost('claude',model,{
+                inputTokens:usage.inputTokens,
+                outputTokens:usage.outputTokens,
+                cacheReadTokens:usage.cacheReadTokens,
+                cacheWriteTokens:usage.cacheWriteTokens,
+                cacheWrite5mTokens:usage.cacheWrite5mTokens,
+                cacheWrite1hTokens:usage.cacheWrite1hTokens,
+              });
+              if (cost!==undefined) out.transcriptCost=cost;
+            }
+          }
         }
       }
     } catch { /* telemetry must never break the turn */ }
@@ -144,6 +191,10 @@ interface Host {emit(event:string,...args:unknown[]):boolean}
 const trackers=new WeakMap<Host,ClaudeSubagentUsageTracker>();
 function tracker(host:Host):ClaudeSubagentUsageTracker {
   let value=trackers.get(host);if (!value) {value=new ClaudeSubagentUsageTracker();trackers.set(host,value);}return value;
+}
+/** Expose the per-host tracker so a stop reporter can snapshot in-flight helpers. */
+export function getClaudeSubagentTracker(host:Host):ClaudeSubagentUsageTracker {
+  return tracker(host);
 }
 /** `location` names where the CLI keeps this session's helper files; pass it with every system frame (the session id can change). */
 export function observeClaudeSubagentUsage(host:Host,message:unknown,location?:ClaudeTranscriptLocationSource):void {

@@ -36,6 +36,7 @@ const {
     createSnapshot: vi.fn().mockResolvedValue(null),
     getSessionState: vi.fn(() => null),
     writeThroughIdentityLocked: vi.fn().mockResolvedValue(undefined),
+    takeStoppedHelpers: vi.fn(async () => null),
   },
   mockCreateAdapter: vi.fn(),
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },

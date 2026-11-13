@@ -12,7 +12,7 @@ const PHASE_COPY: Record<Exclude<InterruptBoundaryPhase, 'completed'>, string> =
   respawning: 'Restarting the session…',
 };
 const OUTCOME_COPY: Record<InterruptBoundaryOutcome, string> = {
-  cancelled: 'You stopped the agent.',
+  cancelled: 'The agent stopped.',
   'cancelled-for-edit': 'Stopped so you can edit your message.',
   'respawn-success': 'Stopped. The session restarted and kept its history.',
   'respawn-fallback': 'Stopped. The session restarted with only your recent messages carried over, so earlier detail may be missing.',

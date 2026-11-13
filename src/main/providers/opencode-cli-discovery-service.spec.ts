@@ -228,7 +228,7 @@ describe('OpenCode 2 model metadata', () => {
 });
 
 it('uses the selected OpenCode 2 install for standalone names and metadata before updating the catalog', async () => {
-  vi.mocked(selectOpenCodeLaunch).mockResolvedValueOnce({ command: '/fixture/opencode2', major: 2 });
+  vi.mocked(selectOpenCodeLaunch).mockResolvedValueOnce({ command: '/fixture/opencode2', major: 2, version: '2.0.30' });
   lifecycle.spawn.mockImplementationOnce(() => fakeProcess('xiaomi-token-plan-ams/mimo-v2.6-pro\naio-mimo-account-b/mimo-v2.6-pro\n', 0));
   lifecycle.spawn.mockImplementationOnce(() => fakeProcess(JSON.stringify({ data: [
     { providerID: 'xiaomi-token-plan-ams', modelID: 'mimo-v2.6-pro', name: 'MiMo Pro', capabilities: { tools: true, input: ['text'], output: ['text'] }, limit: { context: 1000000, output: 98304 } },

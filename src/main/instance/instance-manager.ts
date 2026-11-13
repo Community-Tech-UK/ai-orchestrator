@@ -1207,6 +1207,8 @@ export class InstanceManager extends EventEmitter {
     return reviveContinuitySession({
       resumeSession: (instanceId, options) => getSessionContinuityManager().resumeSession(instanceId, options),
       createInstance: (config) => this.createInstance(config),
+      queueContinuityPreamble: (instanceId, preamble) => this.queueContinuityPreamble(instanceId, preamble),
+      takeStoppedHelpers: (instanceId) => getSessionContinuityManager().takeStoppedHelpers(instanceId),
     }, request);
   }
 

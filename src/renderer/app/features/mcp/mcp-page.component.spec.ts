@@ -143,11 +143,22 @@ describe('McpPageComponent connector forms', () => {
     expect(component.managementForm.bearerToken()).toBe('');
   });
 
-  it('signs in before adding a Microsoft 365 connector', async () => {
-    component.managementForm.name.set('m365-example');
-    component.managementForm.kind.set('microsoft365');
-    await component.submitManagementServer();
-    expect(ipc.connectorAddMicrosoft365).toHaveBeenCalledWith(expect.objectContaining({ name: 'm365-example', mailEnabled: false }));
-    expect(ipc.orchestratorUpsert).not.toHaveBeenCalled();
+  it('opens the dedicated Microsoft account form and does not interrupt a pending sign-in', () => {
+    component.beginAddMicrosoft365();
+    expect(component.microsoft365FormOpen()).toBe(true);
+    expect(component.managementFormOpen()).toBe(false);
+    component.working.set(true);
+    component.setManagementTab('codex');
+    component.beginCreateManagementServer();
+    expect(component.activeManagementTab()).toBe('orchestrator');
+    expect(component.microsoft365FormOpen()).toBe(true);
+    expect(ipc.connectorAddMicrosoft365).not.toHaveBeenCalled();
+  });
+
+  it('confirms the signed-in mailbox and explains when sessions can use it', async () => {
+    component.beginAddMicrosoft365();
+    await component.onMicrosoft365Added('reader@example.test');
+    expect(component.microsoft365FormOpen()).toBe(false);
+    expect(component.infoMessage()).toBe('reader@example.test connected. Start a new local session to use this account with your selected AI tools.');
   });
 });

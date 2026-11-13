@@ -170,6 +170,36 @@ describe('CostTracker.recordUsage', () => {
       expect(summary.bySession['sess-2']?.hasEstimated).toBe(true);
     });
   });
+
+  describe('origin field', () => {
+    it('carries origin through to the emitted entry and CostEntryEventSchema accepts it', () => {
+      const entry = tracker.recordUsage(
+        'inst-1', 'sess-1', 'claude-sonnet-4-6', 100, 50, 0, 0, 0.001,
+        0, false, { origin: 'user' },
+      );
+      expect(entry.origin).toBe('user');
+      const result = CostEntryEventSchema.safeParse(entry);
+      expect(result.success).toBe(true);
+    });
+
+    it('emitted cost-recorded event with origin passes CostEntryEventSchema', () => {
+      const events: CostEntry[] = [];
+      tracker.on('cost-recorded', value => events.push(value));
+      tracker.recordUsage(
+        'inst-1', 'sess-1', 'claude-sonnet-4-6', 100, 50, 0, 0, 0.001,
+        0, false, { origin: 'machine' },
+      );
+      expect(events).toHaveLength(1);
+      expect(CostEntryEventSchema.safeParse(events[0]).success).toBe(true);
+      expect(events[0].origin).toBe('machine');
+    });
+
+    it('omits origin from the schema payload when not supplied (matches existing measured entries)', () => {
+      const entry = tracker.recordUsage('inst-1', 'sess-1', 'claude-sonnet-4-6', 100, 50, 0, 0, 0.001);
+      expect(entry.origin).toBeUndefined();
+      expect(CostEntryEventSchema.safeParse(entry).success).toBe(true);
+    });
+  });
 });
 
 describe('CostTracker persistence (E15)', () => {

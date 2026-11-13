@@ -775,6 +775,20 @@ describe('renderer event validation', () => {
       cost: 0.002,
     })).toBe(true);
   });
+
+  it('accepts a cost-recorded payload that carries origin', () => {
+    expect(validateRendererEventPayload(IPC_CHANNELS.COST_USAGE_RECORDED, {
+      id: 'entry-3',
+      timestamp: Date.now(),
+      instanceId: 'inst-1',
+      sessionId: 'sess-1',
+      model: 'claude-sonnet-4-6',
+      inputTokens: 40,
+      outputTokens: 60,
+      cost: 0.002,
+      origin: 'user',
+    })).toBe(true);
+  });
 });
 
 describe('keep-awake push validation', () => {

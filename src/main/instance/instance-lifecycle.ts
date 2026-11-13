@@ -49,7 +49,13 @@ import { capResolvedInstructionStack } from '../core/config/instruction-cap';
 import { omitNativeOwnedInstructionStack } from '../core/config/native-instruction-ownership';
 import { resolveInstructionStack } from '../core/config/instruction-resolver';
 import { getHibernationManager } from '../process/hibernation-manager';
-import { getSessionContinuityManager } from '../session/session-continuity';
+import { getSessionContinuityManager, getSessionContinuityManagerIfInitialized } from '../session/session-continuity';
+import type { StoppedHelper } from '../session/session-continuity.types';
+import {
+  stoppedHelperNoticeText,
+  stoppedHelperUserText,
+  type StoppedHelperCause,
+} from '../session/stopped-helper-resume-notice';
 import { getSessionMutex } from '../session/session-mutex';
 import { RecoveryRecipeEngine } from '../session/recovery-recipe-engine';
 import { createBuiltinRecipes } from '../session/builtin-recovery-recipes';
@@ -948,6 +954,29 @@ export class InstanceLifecycleManager extends EventEmitter {
   private async sendHeldHistory(instanceId: string, adapter: CliAdapter, history: string): Promise<void> {
     this.deps.holdContinuityUntilAnswered?.(instanceId, history);
     await adapter.sendInput(history);
+  }
+
+  /**
+   * One-shot take of the stopped-helper list at a delivery route's own moment,
+   * plus the short line James reads (usage-burn item 3.2). Whichever route
+   * takes first clears the stored list, so no later resume repeats the notice.
+   */
+  private async takeStoppedHelpersForCarryOn(
+    instance: Instance,
+    cause: StoppedHelperCause,
+  ): Promise<StoppedHelper[]> {
+    const helpers = await getSessionContinuityManagerIfInitialized()?.takeStoppedHelpers(instance.id) ?? [];
+    if (helpers.length === 0) return helpers;
+    const notice: OutputMessage = {
+      id: generateId(),
+      timestamp: Date.now(),
+      type: 'system',
+      content: stoppedHelperUserText(helpers.length, cause),
+      metadata: { stoppedHelperResume: true },
+    };
+    this.deps.addToOutputBuffer(instance, notice);
+    this.emit('output', { instanceId: instance.id, message: notice });
+    return helpers;
   }
 
   private async buildFallbackHistory(instance: Instance, reason: string): Promise<string> {
@@ -2287,7 +2316,16 @@ export class InstanceLifecycleManager extends EventEmitter {
 
             if (hasConversation) {
               this.prepareStatusForAdapterInput(instance);
-              await this.sendHeldHistory(instanceId, adapter, this.buildReplayContinuityMessage(instance, fallbackReason));
+              // Carry-on notice for helpers that stopped before hibernation,
+              // prepended to the one body the fresh session receives
+              // (usage-burn item 3.2).
+              const stopped = await this.takeStoppedHelpersForCarryOn(instance, 'hibernation');
+              const replayBody = this.buildReplayContinuityMessage(instance, fallbackReason);
+              await this.sendHeldHistory(
+                instanceId,
+                adapter,
+                stopped.length > 0 ? `${stoppedHelperNoticeText(stopped, 'hibernation')}\n\n${replayBody}` : replayBody,
+              );
             }
 
             const fallbackNotice: OutputMessage = {
@@ -2305,7 +2343,23 @@ export class InstanceLifecycleManager extends EventEmitter {
           }
         } else if (hasConversation) {
           this.prepareStatusForAdapterInput(instance);
-          await this.sendHeldHistory(instanceId, adapter, this.buildReplayContinuityMessage(instance, fallbackReason));
+          // Same carry-on notice on the replay body (usage-burn item 3.2).
+          const stopped = await this.takeStoppedHelpersForCarryOn(instance, 'hibernation');
+          const replayBody = this.buildReplayContinuityMessage(instance, fallbackReason);
+          await this.sendHeldHistory(
+            instanceId,
+            adapter,
+            stopped.length > 0 ? `${stoppedHelperNoticeText(stopped, 'hibernation')}\n\n${replayBody}` : replayBody,
+          );
+        }
+
+        // A native resume that kept the conversation still owes helpers that
+        // stopped before hibernation their one carry-on notice (usage-burn item
+        // 3.2). The take is one-shot, so an earlier held-history delivery above
+        // makes this a no-op; queued, it rides with the next input.
+        const pendingStopped = await this.takeStoppedHelpersForCarryOn(instance, 'hibernation');
+        if (pendingStopped.length > 0) {
+          this.deps.queueContinuityPreamble?.(instanceId, stoppedHelperNoticeText(pendingStopped, 'hibernation'));
         }
 
         // Remove from HibernationManager tracking. Waking counts as activity:
@@ -2512,6 +2566,13 @@ export class InstanceLifecycleManager extends EventEmitter {
       instance.sessionId = providerSessionId;
       instance.sessionResumeBlacklisted = false;
       instance.recoveryMethod = 'native';
+      // The resume kept the conversation; helpers that stopped with the old
+      // runtime still get their one carry-on notice, queued to ride with the
+      // next input (usage-burn item 3.2).
+      const stopped = await this.takeStoppedHelpersForCarryOn(instance, 'the restart');
+      if (stopped.length > 0) {
+        this.deps.queueContinuityPreamble?.(instanceId, stoppedHelperNoticeText(stopped, 'the restart'));
+      }
       return { success: true, method: 'native-resume' };
     } catch (error) {
       instance.processId = null;
@@ -2587,7 +2648,15 @@ export class InstanceLifecycleManager extends EventEmitter {
       instance.recoveryMethod = fallbackHistory ? 'replay' : 'fresh';
       if (fallbackHistory) {
         this.prepareStatusForAdapterInput(instance);
-        await this.sendHeldHistory(instanceId, adapter, fallbackHistory);
+        // Carry-on notice prepended to the one body the fresh session receives;
+        // a native-resume failure above consumed nothing, so the take here
+        // still sees the stored list (usage-burn item 3.2).
+        const stopped = await this.takeStoppedHelpersForCarryOn(instance, 'the restart');
+        await this.sendHeldHistory(
+          instanceId,
+          adapter,
+          stopped.length > 0 ? `${stoppedHelperNoticeText(stopped, 'the restart')}\n\n${fallbackHistory}` : fallbackHistory,
+        );
       }
       return { success: true, method: 'replay-fallback' };
     } catch (error) {
@@ -2834,6 +2903,10 @@ export class InstanceLifecycleManager extends EventEmitter {
           });
         }
       }
+      // Fresh restart is a deliberate reset: consume the stored stopped-helper
+      // list without carrying it on, so a later resume never announces helpers
+      // this new session never had (usage-burn item 3.2).
+      await getSessionContinuityManagerIfInitialized()?.takeStoppedHelpers(instanceId);
       const restartArchiveId = await this.archiveRestartSnapshot(instance, previousMessages);
       if (lastPreFreshMessageId) {
         instance.archivedUpToMessageId = lastPreFreshMessageId;

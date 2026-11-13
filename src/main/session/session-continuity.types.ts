@@ -175,6 +175,33 @@ export interface SessionState {
   allowedAccountProfileIds?: string[];
   /** Failover preferences (Plan Queue account rules); see `Instance.accountPreferences`. */
   accountPreferences?: AccountPreferences;
+  /**
+   * Helper agents (Claude subagents) that were still running when the CLI
+   * process was torn down. Persisted so the next prompt after resume can tell
+   * the model which helpers stopped and where their transcripts are, instead
+   * of silently losing them. Absent on records written before this field.
+   */
+  stoppedHelpers?: StoppedHelper[];
+}
+
+/**
+ * A Claude helper agent captured at runtime teardown. The model-authored
+ * description is deliberately excluded; only scalar identifiers and counters
+ * are kept.
+ */
+export interface StoppedHelper {
+  /** The tool_use id that spawned the helper. */
+  toolUseId: string;
+  /** The helper's agent id (names its transcript and meta files). */
+  agentId?: string;
+  /** The parent CLI session id (the directory the helper files live under). */
+  sessionId: string;
+  /** Absolute path to the helper's transcript file, when it can be located. */
+  transcriptPath?: string;
+  /** Last reported tool-use count from the helper's task_progress frames. */
+  toolUseCount?: number;
+  /** Unix timestamp of the last observed activity (registry `startedAt` or now). */
+  lastActivityAt: number;
 }
 
 export interface ConversationEntry {

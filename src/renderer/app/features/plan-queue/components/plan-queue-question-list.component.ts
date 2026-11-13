@@ -26,6 +26,14 @@ export const PLAN_QUEUE_QUESTIONS_OPEN_LIMIT = 10;
 })
 export class PlanQueueQuestionListComponent {
   groups = input<PlanQueueQuestionGroup[]>([]);
+  /** A newly linked document must open its questions, including after a manual fold. */
+  expandedForDocument = input<string | null>(null);
+
+  /** Store the key on each entry so a new document replaces the old native fold state. */
+  protected readonly renderedGroups = computed(() => {
+    const document = this.expandedForDocument() ?? '';
+    return this.groups().map(group => ({ ...group, key: `${group.runId}:${document}` }));
+  });
 
   answer = output<{ itemId: string; optionId: string }>();
 

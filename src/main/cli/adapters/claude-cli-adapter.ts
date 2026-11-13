@@ -36,7 +36,9 @@ import { resolveClaudeBashOutputMaxChars } from './claude-output-caps';
 import { computeTokenCost } from '../../../shared/data/model-pricing';
 import { ClaudeCompactionObserver } from './claude-compaction-observer';
 import { ClaudeNativeCompaction } from './claude-native-compaction';
-import { flushClaudeSubagentUsage } from './claude-subagent-usage';
+import { flushClaudeSubagentUsage, getClaudeSubagentTracker } from './claude-subagent-usage';
+import { claudeSubagentTranscriptPath, claudeTranscriptLocation, locateClaudeSubagent } from './claude-subagent-meta';
+import { ClaudeBackgroundWorkTermination } from './claude-background-work-termination';
 import { nativeTranscriptExists, readLastClaudeCostState } from './claude-transcript-registry';
 import { parseClaudeOutput } from './claude-output-parser';
 import { createOutputMessage, isCliStderrFailureText } from './base-cli-adapter-utils';
@@ -50,8 +52,10 @@ import { buildClaudeCliArgs, DEFER_MIN_VERSION } from './claude-cli-argv-builder
 import type { CliStreamMessage, CliRateLimitInfo } from '../../../shared/types/cli.types';
 import type {
   InstanceStatus,
-  FileAttachment
+  FileAttachment,
+  OutputMessage
 } from '../../../shared/types/instance.types';
+import type { StoppedHelper } from '../../session/session-continuity.types';
 import { generateId } from '../../../shared/utils/id-generator';
 import { buildToolOutcomeMessage } from '../../../shared/types/tool-outcome';
 import {
@@ -141,6 +145,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   private toolUseContexts = new Map<string, ClaudeToolUseContext>();
   /** Background task lifecycle from Claude's `system` task messages (one CLI process). */
   private readonly backgroundTasks = new ClaudeBackgroundTaskTracker();
+  /** Surfaces helpers killed with this process so a stop can persist them before teardown. */
+  private readonly backgroundWorkTermination = new ClaudeBackgroundWorkTermination((message) => this.emit('output', message));
   /** Cached context window from last result message for accurate streaming percentage */
   private lastKnownContextWindow: number;
   /** Last accurate per-API-call context occupancy (input + cache + output of
@@ -1279,6 +1285,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     this.completeResponse(response);
   }
 
+  setBackgroundWorkTerminationReporter(reporter: ((message: OutputMessage) => void | Promise<void>) | null): void {
+    this.backgroundWorkTermination.setReporter(reporter);
+  }
+
   override terminate(graceful = true): Promise<void> {
     this.residentRequest.cancel();
     return this.terminateProcess(graceful);
@@ -1291,10 +1301,36 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     return this.oneShotLifecycle.terminate(async () => {
       const turn = this.oneShotLifecycle.current;
       await this.residentSettlement.drain(); await turn?.drain();
+      const processClose = this.process ? watchClaudeProcessClose(this.process) : undefined;
       const residentClose = !turn && this.residentSettlement.pending && this.process ? watchClaudeProcessClose(this.process) : undefined;
       try { await super.terminate(graceful); await turn?.waitForClose(); }
-      finally { await residentClose?.(); this.residentSettlement.settle(); }
+      finally {
+        await residentClose?.();
+        await processClose?.();
+        this.residentSettlement.settle();
+        await this.backgroundWorkTermination.settle();
+      }
     }, cancelCurrent);
+  }
+
+  /** Helpers still live when this process dies are stopped with it; surface them for persistence. */
+  private reportStoppedHelpers(): void {
+    const stopped = getClaudeSubagentTracker(this).getStoppedHelpers();
+    if (stopped.length === 0) return;
+    const location = claudeTranscriptLocation(this.spawnOptions.workingDirectory, this.sessionId, this.config.env?.['CLAUDE_CONFIG_DIR']);
+    const records: StoppedHelper[] = stopped.map((helper) => {
+      const agentId = helper.agentId ?? (location ? locateClaudeSubagent(location, { toolUseId: helper.toolUseId })?.agentId : undefined);
+      const transcriptPath = agentId && location ? claudeSubagentTranscriptPath(location, agentId) : undefined;
+      return {
+        toolUseId: helper.toolUseId,
+        ...(agentId ? { agentId } : {}),
+        sessionId: this.sessionId ?? '',
+        ...(transcriptPath ? { transcriptPath } : {}),
+        toolUseCount: helper.toolUses,
+        lastActivityAt: Date.now(),
+      };
+    });
+    this.backgroundWorkTermination.report(records);
   }
 
   private emitClassifiedError(error: Error): void {
@@ -1369,6 +1405,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       if (!(message.type === 'result' && this.residentSettlement.pending)) this.residentTurnRawOutput += JSON.stringify(message) + '\n';
       this.processCliMessage(message);
     }
+    this.reportStoppedHelpers();
     this.nativeCompaction.cancel();
     this.residentSettlement.settle();
     this.livePermissions.dropAll('exited');

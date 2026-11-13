@@ -126,7 +126,7 @@ const ALLOWLIST: Record<string, number> = {
   // Thin pressKey/viewport delegates; page-level impl in browser-input-control-driver.ts.
   'src/main/browser-gateway/puppeteer-browser-driver.ts': 717,
   // Self-allowlisted: the registry below grows one line per documented ceiling.
-  'scripts/check-ts-max-loc.ts': 706,
+  'scripts/check-ts-max-loc.ts': 757, // raised 706 -> 757 (2026-11-13): ceiling entries from the concurrent work streams in this tree
   // Raised 700 -> 704 for close_tab / close_matching RPC dispatch cases.
   'src/main/browser-gateway/browser-gateway-rpc-server.ts': 704,
   // Health aggregator: one section per surface. Crossed 700 with the per-node
@@ -198,7 +198,9 @@ const ALLOWLIST: Record<string, number> = {
   // to claude-assistant-message.ts.
   // Raised 2064 -> 2071 to wire ClaudeBackgroundTaskTracker (system task
   // messages); the parsing itself lives in claude-cli-async-work.ts.
-  'src/main/cli/adapters/claude-cli-adapter.ts': 2128, // raised 2071 -> 2128 (2026-11-06): Phase 1 token levers merged on top of main's own growth
+  // Raised 2071 -> 2128 (2026-11-06): Phase 1 token levers merged on top of
+  // main's own growth.
+  'src/main/cli/adapters/claude-cli-adapter.ts': 2204, // raised 2128 -> 2204 (2026-11-13): stopped-helper stop reporter glue (usage-burn item 3.1)
   // Re-tightened after extracting the exec helpers to codex/exec-helpers.ts.
   'src/main/cli/adapters/codex-cli-adapter.ts': 3344,
   // Was already at 699 (1 line under the old hard 700 cap) before LT-045's
@@ -277,7 +279,7 @@ const ALLOWLIST: Record<string, number> = {
   // cross-session messaging consent (2026-09-16).
   // Raised 3591 -> 3642 (2026-10-27): the file already sat at 3640 before the Plan Queue
   // account preferences; that change adds 2 lines (routes at runtime-adapter creation).
-  'src/main/instance/instance-lifecycle.ts': 3642,
+  'src/main/instance/instance-lifecycle.ts': 3704, // raised 3642 -> 3704 (2026-11-13): stopped-helper carry-on routes (usage-burn item 3.2)
   // Raised 2632 -> 2655 for the sendInput post-wait liveness re-check (fail
   // fast instead of delivering input into a terminated instance).
   // Raised 2772 -> 2773 (one-line drift; re-tighten at the next manager split).
@@ -481,7 +483,9 @@ const ALLOWLIST: Record<string, number> = {
   // session-continuity.types.ts. This remains a decomposition candidate.
   // Re-tightened 1849 -> 1713: migration + conversation-history normalization
   // extracted to session-continuity-state.ts.
-  'src/main/session/session-continuity.ts': 1713,
+  // Raised 1713 -> 1777 for the provider-turn barrier fix: prepareForProviderTurn
+  // retries fenced-out barrier writes. Re-tighten when this class is next decomposed.
+  'src/main/session/session-continuity.ts': 1856, // raised 1777 -> 1856 (2026-11-13): stopped-helper persistence and one-shot take (usage-burn items 3.1/3.2)
   // Scratch cleanup keeps Git history, configured checkouts and object-store
   // dependencies safe; restored hardening from the parked queue branch.
   'src/main/storage/scratch-sweep.ts': 1284,

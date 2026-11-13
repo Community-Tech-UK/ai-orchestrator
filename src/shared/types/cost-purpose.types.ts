@@ -15,6 +15,8 @@ export interface CostPurposeRow {
   /** Legacy resident Claude totals cannot safely be differenced. */
   historicalCostUnknownCalls?: number;
   freeCalls: number;
+  /** Helper-agent spend already inside the parent turn's cost (from `includedInParentTurn` rows). */
+  helperCost?: number;
 }
 /** One of the largest single turns this week, by tokens processed (Oct-2 Phase D Step 1). */
 export interface CostBiggestTurn {
@@ -50,6 +52,8 @@ export interface CostPurposeSummary {
   byPurpose: CostPurposeRow[];
   byProvider: CostPurposeRow[];
   totals: CostPurposeRow;
+  /** Total helper-agent spend already inside parent turns (from `includedInParentTurn` rows). */
+  totalHelperCost?: number;
 }
 
 export interface CostPurposeRange { startTime?: number; endTime?: number }

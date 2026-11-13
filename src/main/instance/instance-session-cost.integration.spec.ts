@@ -149,6 +149,9 @@ describe('Claude adapter → communication → real CostTracker', () => {
     expect(attributionRows[0]).toMatchObject({ costSource: 'provider', usage: { cost: 0.25 } });
   });
 
+  // The terminate variant runs against a fake child that never closes, so each
+  // terminate pays the adapter's bounded close deadline twice over (turn finish,
+  // then close); the default 5s test budget is not enough for that.
   it.each(['exit', 'terminate'] as const)('books observed fallback exactly once when %s ends a failed turn without a native result', async (ending) => {
     const { adapter, emit, children, instance } = harness();
     const completions: CliResponse[] = [];
@@ -171,7 +174,7 @@ describe('Claude adapter → communication → real CostTracker', () => {
       expect(getCostTracker().getEntries()[0].cost).toBeGreaterThan(0);
       expect(instance.contextUsage.costEstimate).toBe(getCostTracker().getEntries()[0].cost);
     } finally { unsubscribe(); }
-  });
+  }, 20_000);
 
   it('captures failed call identity and purpose before a later session/provider/model change', async () => {
     const { adapter, emit, instance } = harness();

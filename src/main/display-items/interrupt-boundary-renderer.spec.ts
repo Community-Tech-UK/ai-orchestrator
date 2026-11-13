@@ -13,7 +13,7 @@ describe('interrupt boundary output', () => {
     const addToOutputBuffer = vi.fn();
     const emitOutput = vi.fn();
     emitInterruptBoundaryDisplayMarker(instance, { phase: 'completed', outcome: 'cancelled', requestId: 'request' }, { addToOutputBuffer, emitOutput });
-    expect(addToOutputBuffer).toHaveBeenCalledWith(instance, expect.objectContaining({ content: 'You stopped the agent.' }));
+    expect(addToOutputBuffer).toHaveBeenCalledWith(instance, expect.objectContaining({ content: 'The agent stopped.' }));
     expect(emitOutput).toHaveBeenCalledWith('instance', addToOutputBuffer.mock.calls[0][1]);
   });
 });

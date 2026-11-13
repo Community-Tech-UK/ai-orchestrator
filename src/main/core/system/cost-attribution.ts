@@ -73,6 +73,8 @@ export interface CostAttributionRecord {
   /** Native Codex identity when reported by that response. Absent in legacy/command-mode rows; never inferred from session or time. */
   codexTurn?: { threadId: string; turnId: string };
   subagentUsage?: true;
+  /** `subagentUsage` rows: true when this helper's spend is already inside the parent turn's cost. */
+  includedInParentTurn?: true;
   finalContextTokens?: number;
   toolUses?: number;
   durationMs?: number;
@@ -83,6 +85,17 @@ export interface CostAttributionRecord {
   helperFork?: boolean;
   helperDepth?: number;
   helperMode?: 'foreground' | 'background';
+  /** `subagentUsage` rows: usage summed from the helper's own transcript when its cost was priced. */
+  helperTranscriptUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    cacheWrite5mTokens: number;
+    cacheWrite1hTokens: number;
+  };
+  /** `subagentUsage` rows: cost computed from `helperTranscriptUsage` at the model's rate. */
+  helperTranscriptCost?: number;
   reviewLifecycle?: boolean;
   reviewVerdict?: string;
   reviewAction?: string;

@@ -423,9 +423,11 @@ export class CompactModelPickerComponent {
   });
 
   protected readonly reasoningSuffix = computed<string | null>(() => {
+    const provider = this.selectedPickerProvider();
+    // Cursor receives effort through its model selector, not reasoningEffort.
+    if (provider === 'cursor') return cursorThinkingLabel(this.controller.selectedModelId());
     const r = this.controller.selectedReasoningEffort();
     if (r) return REASONING_LABELS[r] ?? r;
-    const provider = this.selectedPickerProvider();
     return provider === 'claude' || provider === 'codex' || provider === 'opencode' ? 'Provider default' : null;
   });
 
@@ -437,7 +439,7 @@ export class CompactModelPickerComponent {
    * hint of its own.
    */
   protected readonly effortNote = computed<string | null>(() => {
-    if (this._disabledReason()) return null;
+    if (this._disabledReason() || this.selectedPickerProvider() === 'cursor') return null;
     if (this.controller.selectedReasoningEffort() === 'max') return `Max: ${EFFORT_MAX_DESCRIPTION}`;
     if (this.controller.selectedReasoningEffort() === 'workflow') return `Workflow: ${EFFORT_WORKFLOW_DESCRIPTION}`;
     return null;
@@ -633,6 +635,18 @@ export class CompactModelPickerComponent {
 }
 
 let idCounter = 0;
+
+/** Cursor's advertised variants encode effort before optional speed/thinking flags. */
+function cursorThinkingLabel(model: string): string {
+  const parameters = model.match(/\[([^\]]*)\]$/)?.[1];
+  const override = parameters?.match(/(?:^|,)\s*(?:effort|reasoning)\s*=\s*([^,]+)/i)?.[1].trim().toLowerCase();
+  const encoded = model.split('[')[0].match(/-(none|minimal|low|medium|extra-high|xhigh|high|max)(?:-(?:fast|thinking))*$/i)?.[1].toLowerCase();
+  const effort = override ?? encoded;
+  if (effort === 'extra-high') return REASONING_LABELS.xhigh;
+  return effort && Object.hasOwn(REASONING_LABELS, effort)
+    ? REASONING_LABELS[effort as ReasoningEffort]
+    : 'Cursor default';
+}
 
 /** Short relative-time label for the catalog-freshness pill. */
 function formatAgo(at: number): string {

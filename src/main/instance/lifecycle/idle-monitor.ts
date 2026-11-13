@@ -41,6 +41,10 @@ import { shouldProbeAdapterProcess } from '../stale-runtime-reconciler';
 const logger = getLogger('IdleMonitor');
 
 const DEFAULT_INTERVAL_MS = 60_000;
+const RECOVERY_INACTIVE_STATUSES = new Set<InstanceStatus>([
+  'respawning', 'error', 'initializing', 'terminated', 'superseded', 'failed',
+  'hibernating', 'hibernated',
+]);
 
 /**
  * D4: how long a remote turn can go with NO sign of life (output / state / turn
@@ -208,6 +212,9 @@ export class IdleMonitor {
     for (const [instanceId, detector] of this.deps.getActivityDetectors()) {
       const instanceBeforeDetect = this.deps.getInstance(instanceId);
       if (!instanceBeforeDetect) continue;
+      if (instanceBeforeDetect.status === 'hibernating' || instanceBeforeDetect.status === 'hibernated') continue;
+      const requestCount = instanceBeforeDetect.requestCount;
+      const generation = instanceBeforeDetect.adapterGeneration;
       if (typeof instanceBeforeDetect.processId === 'number') {
         detector.setPid(instanceBeforeDetect.processId);
       }
@@ -217,6 +224,9 @@ export class IdleMonitor {
         .then((result) => {
           const instance = this.deps.getInstance(instanceId);
           if (!instance) return;
+          // Detection may finish after intentional shutdown or a subsequent wake.
+          if (instance.status === 'hibernating' || instance.status === 'hibernated'
+            || instance.requestCount !== requestCount || instance.adapterGeneration !== generation) return;
 
           const previousActivityState = instance.activityState;
           instance.activityState = result.state;
@@ -239,6 +249,7 @@ export class IdleMonitor {
           // - 'error': already failed, don't try to recover again
           // - 'initializing': still starting up
           // - 'terminated': intentionally stopped
+          // - 'hibernating'/'hibernated': intentionally stopped until explicitly woken
           // - 'superseded': replaced by an edit/fork retry; the fork owns the thread
           //   now. The state machine only allows superseded -> terminated, so any
           //   recovery RESTART (superseded -> initializing) is illegal and would loop
@@ -250,12 +261,7 @@ export class IdleMonitor {
 
           const skipRecovery =
             globalPauseHoldsAutomaticInput(instanceId) ||
-            instance.status === 'respawning' ||
-            instance.status === 'error' ||
-            instance.status === 'initializing' ||
-            instance.status === 'terminated' ||
-            instance.status === 'superseded' ||
-            instance.status === 'failed';
+            RECOVERY_INACTIVE_STATUSES.has(instance.status);
           if (skipRecovery) return;
 
           const isRemote = instance.executionLocation?.type === 'remote';
@@ -298,8 +304,6 @@ export class IdleMonitor {
 
           if (failure) {
             const detectedFailure = failure;
-            const requestCount = instance.requestCount;
-            const generation = instance.adapterGeneration;
             recoveryEngine
               .handleFailure(detectedFailure)
               .then((outcome) => {
@@ -311,6 +315,7 @@ export class IdleMonitor {
                 const dispatchCurrent = (): Promise<void> | void => {
                   const current = this.deps.getInstance(instanceId);
                   if (!current || current.id !== instance.id || current.requestCount !== requestCount || current.adapterGeneration !== generation) return;
+                  if (RECOVERY_INACTIVE_STATUSES.has(current.status)) return;
                   return this.deps.dispatchRecovery(instanceId, detectedFailure);
                 };
                 const pending = getWorkAdmission().check('timed-wakeup').allowed && !globalPauseHoldsAutomaticInput(instanceId)

@@ -121,6 +121,7 @@ const {
     markNativeResumeFailed: vi.fn().mockResolvedValue(undefined),
     writeThroughIdentityLocked: vi.fn().mockResolvedValue(undefined),
     createSnapshot: vi.fn().mockResolvedValue({ id: 'snapshot-1' }),
+    takeStoppedHelpers: vi.fn().mockResolvedValue(null),
   },
   mockResourceGovernorGetCreationBlockReason: vi.fn<() => string | null>(() => null),
   mockLoopCoordinator: {

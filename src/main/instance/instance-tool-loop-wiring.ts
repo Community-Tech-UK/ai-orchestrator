@@ -96,12 +96,12 @@ function toToolUseObservation(
 /** WS-B10 normalizer, fed with only the fields available on a `ProviderToolResultEvent`. */
 function toToolResultObservation(
   event: Extract<ProviderRuntimeEvent, { kind: 'tool_result' }>,
-): { callId?: string; resultHash?: string; isError?: boolean } {
+): { callId?: string; argsHash?: string; resultHash?: string; isError?: boolean } {
   const shape: Record<string, unknown> = { name: event.toolName };
   if (event.toolUseId !== undefined) shape['id'] = event.toolUseId;
   if (event.output !== undefined) shape['result'] = event.output;
   const observed = toProviderToolResultObservedEvent(shape as unknown as CliToolCall);
-  return { callId: observed.callId, resultHash: observed.resultHash, isError: event.success === false };
+  return { callId: observed.callId, argsHash: event.argsHash, resultHash: observed.resultHash, isError: event.success === false };
 }
 
 /**

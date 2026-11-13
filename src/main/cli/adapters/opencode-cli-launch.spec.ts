@@ -41,12 +41,12 @@ describe('OpenCode CLI selection', () => {
     return command;
   }
 
-  it.each(['2.0.30', '2.0.31', '2.1.0', '2.0.30+build.1'])('prefers supported OpenCode %s over an earlier PATH v1', async (version) => {
+  it.each([['2.0.30', '2.0.30'], ['2.0.31', '2.0.31'], ['2.1.0', '2.1.0'], ['2.0.30+build.1', '2.0.30']])('prefers supported OpenCode %s over an earlier PATH v1', async (version, expectedVersion) => {
     mocks.capture.mockImplementation(async (call: { command: string; args: string[] }) => ({
       code: 0, stdout: call.args[0] === '--version'
         ? (call.command === params.candidates[0] ? '1.19.1' : version) : '[{"type":"document","info":{}}]',
     }));
-    await expect(selectOpenCodeLaunch(params)).resolves.toEqual({ command: params.candidates[1], major: 2 });
+    await expect(selectOpenCodeLaunch(params)).resolves.toEqual({ command: params.candidates[1], major: 2, version: expectedVersion });
     expect(mocks.capture).toHaveBeenCalledWith(expect.objectContaining({
       command: params.candidates[1], args: ['api', '--standalone', 'GET', '/api/config'],
     }));
@@ -64,7 +64,7 @@ describe('OpenCode CLI selection', () => {
       code: call.args[0] !== '--version' && call.command === params.candidates[1] ? 1 : 0,
       stdout: call.args[0] === '--version' ? (call.command === params.candidates[0] ? '1.19.1' : '2.0.30') : '{}',
     }));
-    await expect(selectOpenCodeLaunch(params)).resolves.toEqual({ command: params.candidates[0], major: 1 });
+    await expect(selectOpenCodeLaunch(params)).resolves.toEqual({ command: params.candidates[0], major: 1, version: '1.19.1' });
   });
 
   it('discovers the user installation with an overrides-only factory environment', async () => {
@@ -75,7 +75,7 @@ describe('OpenCode CLI selection', () => {
       stdout: call.args[0] === '--version' ? (call.command === userCommand ? '1.19.0' : '2.0.18') : '{}',
     }));
     await expect(selectOpenCodeLaunch({ workingDirectory: fixtureRoot, env: { NODE_ENV: 'test' } }))
-      .resolves.toEqual({ command: userCommand, major: 1 });
+      .resolves.toEqual({ command: userCommand, major: 1, version: '1.19.0' });
     expect(mocks.lookup.mock.results[0]?.value.stdout.split('\n')).toEqual([userCommand, fallbackCommand]);
     expect(mocks.capture.mock.calls.filter(([call]) => call.args[0] !== '--version').every(([call]) => call.command === userCommand)).toBe(true);
   });
@@ -88,7 +88,7 @@ describe('OpenCode CLI selection', () => {
     mocks.capture.mockImplementation(async (call: { args: string[] }) => ({ code: 0, stdout: call.args[0] === '--version' ? '1.19.0' : '{}' }));
     await expect(selectOpenCodeLaunch({ workingDirectory: fixtureRoot,
       env: { HOME: join(fixtureRoot, 'caller-home'), PATH: join(fixtureRoot, 'caller-bin') },
-    })).resolves.toEqual({ command: callerCommand, major: 1 });
+    })).resolves.toEqual({ command: callerCommand, major: 1, version: '1.19.0' });
     expect(mocks.lookup.mock.results[0]?.value.stdout.split('\n')).toEqual([callerCommand, callerPathCommand]);
   });
 
@@ -96,7 +96,7 @@ describe('OpenCode CLI selection', () => {
     const command = installAt('inherited-bin');
     mocks.capture.mockImplementation(async (call: { args: string[] }) => ({ code: 0, stdout: call.args[0] === '--version' ? '1.19.0' : '{}' }));
     await expect(selectOpenCodeLaunch({ workingDirectory: fixtureRoot, env: {} }))
-      .resolves.toEqual({ command, major: 1 });
+      .resolves.toEqual({ command, major: 1, version: '1.19.0' });
   });
 
   it('skips an OpenCode 1 install that cannot print config and uses the next one', async () => {
@@ -105,14 +105,14 @@ describe('OpenCode CLI selection', () => {
       return call.command === '/opt/old/opencode' ? { code: 1, stdout: '' } : { code: 0, stdout: '{}' };
     });
     await expect(selectOpenCodeLaunch({ ...params, candidates: ['/opt/old/opencode', '/opt/next/opencode'] }))
-      .resolves.toEqual({ command: '/opt/next/opencode', major: 1 });
+      .resolves.toEqual({ command: '/opt/next/opencode', major: 1, version: '1.19.0' });
   });
 
   it('keeps the first CLI that prints a config document', async () => {
     mocks.capture.mockImplementation(async (call: { args: string[] }) => (
       call.args[0] === '--version' ? { code: 0, stdout: '1.18.35\n' } : { code: 0, stdout: '{}' }
     ));
-    await expect(selectOpenCodeLaunch(params)).resolves.toEqual({ command: '/opt/old/opencode', major: 1 });
+    await expect(selectOpenCodeLaunch(params)).resolves.toEqual({ command: '/opt/old/opencode', major: 1, version: '1.18.35' });
   });
 
   it('never opens unsupported OpenCode 2 database when OpenCode 1 fails', async () => {
@@ -136,7 +136,7 @@ describe('OpenCode CLI selection', () => {
       return { code: 0, stdout: '{}' };
     });
     await expect(selectOpenCodeLaunch({ ...params, candidates: ['/Applications/OpenCode.app/Contents/Resources/opencode-cli', '/opt/old/opencode'] }))
-      .resolves.toEqual({ command: '/opt/old/opencode', major: 1 });
+      .resolves.toEqual({ command: '/opt/old/opencode', major: 1, version: '1.19.0' });
     expect(mocks.capture.mock.calls.map(([call]) => [call.command, call.args[0]])).toEqual([
       ['/Applications/OpenCode.app/Contents/Resources/opencode-cli', '--version'],
       ['/opt/old/opencode', '--version'],
@@ -195,7 +195,7 @@ describe('OpenCode CLI selection', () => {
     mocks.capture.mockImplementation(async (call: { command: string; args: string[] }) => ({ code: 0,
       stdout: call.args[0] === '--version' ? (call.command === params.candidates[0] ? '1.19.1' : '2.0.30') : '{}',
     }));
-    await expect(selectOpenCodeLaunch({ ...params, requiredMajor: 1 })).resolves.toEqual({ command: params.candidates[0], major: 1 });
+    await expect(selectOpenCodeLaunch({ ...params, requiredMajor: 1 })).resolves.toEqual({ command: params.candidates[0], major: 1, version: '1.19.1' });
     expect(mocks.capture.mock.calls.map(([call]) => [call.command, call.args])).toEqual([
       [params.candidates[0], ['--version']], [params.candidates[1], ['--version']], [params.candidates[0], ['debug', 'config']],
     ]);

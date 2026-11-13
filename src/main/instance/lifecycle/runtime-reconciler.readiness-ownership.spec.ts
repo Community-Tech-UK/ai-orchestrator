@@ -19,12 +19,17 @@ vi.mock('../../observability/lifecycle-trace', () => ({ recordLifecycleTrace: vi
 vi.mock('../../session/session-mutex', () => ({
   getSessionMutex: () => ({ acquire: vi.fn().mockResolvedValue(() => undefined) }),
 }));
-vi.mock('../../session/session-continuity', () => ({
-  getSessionContinuityManager: () => ({
+vi.mock('../../session/session-continuity', () => {
+  const inertContinuityManager = () => ({
     writeThroughIdentityLocked: vi.fn().mockResolvedValue(undefined),
     updateState: vi.fn().mockResolvedValue(undefined),
-  }),
-}));
+    takeStoppedHelpers: vi.fn(async () => null),
+  });
+  return {
+    getSessionContinuityManager: inertContinuityManager,
+    getSessionContinuityManagerIfInitialized: inertContinuityManager,
+  };
+});
 vi.mock('./create-validation-helpers', () => ({
   getKnownModelsForCli: vi.fn().mockResolvedValue(['sonnet']),
 }));

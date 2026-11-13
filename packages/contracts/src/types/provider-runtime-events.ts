@@ -149,6 +149,8 @@ export interface ProviderToolResultEvent {
   toolName: string;
   /** Unique ID correlating with the original tool_use event. */
   toolUseId?: string;
+  /** Final argument hash when the provider completes initially partial tool input. */
+  argsHash?: string;
   /** Tool output/result content. */
   output?: string;
   /** Whether the tool invocation succeeded. */

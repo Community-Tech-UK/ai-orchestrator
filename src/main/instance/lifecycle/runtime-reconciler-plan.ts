@@ -98,11 +98,14 @@ export function planContinuity(params: {
     // Account pools (spec D3): with a shared session store the new account's
     // CLI can read the same session, so the conversation natively resumes
     // (Claude included — the model is not changing). Otherwise replay.
+    // Resume in place, never into a fork: forking mints a session id the old
+    // transcript is not filed under, so stopped helpers cannot be carried on
+    // (usage-burn item 3.3; the 3.0 experiment proved --resume keeps them).
     const shared = (params.accountContinuation ?? 'shared-store') === 'shared-store';
     if (!shared || !params.hasConversation || !params.capabilities.supportsResume || params.isLocalModelTarget) {
       return 'replay';
     }
-    return params.capabilities.supportsForkSession ? 'native-resume-fork' : 'native-resume';
+    return 'native-resume';
   }
   const canNativeResume =
     params.hasConversation

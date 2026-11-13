@@ -8,9 +8,13 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ConversationData } from '../../../shared/types/history.types';
 import type { Instance, InstanceCreateConfig, OutputMessage } from '../../../shared/types/instance.types';
 import type { ResolvedRecoveryCandidate } from '../../session/session-recovery-candidate-service';
-import type { SessionState } from '../../session/session-continuity.types';
+import type { SessionState, StoppedHelper } from '../../session/session-continuity.types';
 import { computeResumeConfigFingerprint } from './session-recovery';
 import { reviveContinuitySession } from './continuity-revival';
+import {
+  stoppedHelperNoticeText,
+  stoppedHelperUserText,
+} from '../../session/stopped-helper-resume-notice';
 
 const NOW = Date.UTC(2026, 7, 30, 12);
 
@@ -34,6 +38,9 @@ function makeDeps(entryCount: number) {
       conversationHistory: history(entryCount),
     }) as unknown as SessionState),
     createInstance,
+    queueContinuityPreamble: vi.fn(),
+    takeStoppedHelpers: vi.fn(async (): Promise<StoppedHelper[] | null> => null),
+    now: () => NOW,
   };
   return { deps, createInstance };
 }
@@ -527,5 +534,121 @@ describe('recovery transcript completeness proof', () => {
       await reviveContinuitySession(deps, { sourceInstanceId: 'source-1', reason, resolvedCandidate: resolved });
       expect(createRecoveryInstance.mock.calls[0][0].forceNodeId).toBe('worker-placeholder');
     }
+  });
+});
+
+function stoppedHelperRecord(): StoppedHelper {
+  return {
+    toolUseId: 'toolu-1',
+    agentId: 'agent-a1',
+    sessionId: 'session-old',
+    transcriptPath: '/tmp/subagents/agent-a1.jsonl',
+    toolUseCount: 3,
+    lastActivityAt: NOW - 3_000,
+  };
+}
+
+describe('reviveContinuitySession stopped-helper carry-on notice', () => {
+  it('joins the stopped-helper notice with the replay preamble in one queue call', async () => {
+    const stopped = [stoppedHelperRecord()];
+    const resolved = resolvedCandidate({
+      state: { nativeResumeFailedAt: NOW - 500, stoppedHelpers: stopped },
+    });
+    const { deps, createRecoveryInstance } = makeCrashDeps();
+
+    await reviveContinuitySession(deps, {
+      sourceInstanceId: 'source-1',
+      reason: 'crash-recovery',
+      resolvedCandidate: resolved,
+    });
+
+    const notice = stoppedHelperNoticeText(stopped, 'the restart');
+    expect(deps.queueContinuityPreamble).toHaveBeenCalledOnce();
+    const [instanceId, body] = deps.queueContinuityPreamble.mock.calls[0] as [string, string];
+    expect(instanceId).toBe('replacement-1');
+    expect(body.startsWith(`${notice}\n\n`)).toBe(true);
+    expect(body).toContain('replay fallback (crash-recovery)');
+    expect(createRecoveryInstance.mock.calls[0][0].initialOutputBuffer?.map((m) => m.id))
+      .not.toContain('continuity-stopped-helpers-source-1');
+  });
+
+  it('queues the stopped-helper notice alone on a native-cursor revival', async () => {
+    const stopped = [stoppedHelperRecord()];
+    const resolved = resolvedCandidate({ state: { stoppedHelpers: stopped } });
+    const { deps } = makeCrashDeps();
+
+    await reviveContinuitySession(deps, {
+      sourceInstanceId: 'source-1',
+      reason: 'crash-recovery',
+      resolvedCandidate: resolved,
+    });
+
+    expect(deps.queueContinuityPreamble).toHaveBeenCalledOnce();
+    expect(deps.queueContinuityPreamble).toHaveBeenCalledWith(
+      'replacement-1',
+      stoppedHelperNoticeText(stopped, 'the restart'),
+    );
+    expect(resolved.continuityState.stoppedHelpers).toEqual([]);
+  });
+
+  it('puts the user line in the restored buffer and queues the notice only after readiness', async () => {
+    let resolveReady!: () => void;
+    const readyPromise = new Promise<void>((done) => { resolveReady = done; });
+    const { deps, createInstance } = makeDeps(1);
+    deps.resumeSession.mockResolvedValueOnce({
+      sessionId: 'sess-1',
+      workingDirectory: '/repo',
+      displayName: 'Revived',
+      conversationHistory: history(1),
+      stoppedHelpers: [stoppedHelperRecord()],
+    } as unknown as SessionState);
+    createInstance.mockResolvedValueOnce({ id: 'revived-1', readyPromise } as unknown as Instance);
+
+    const pending = reviveContinuitySession(deps, {
+      sourceInstanceId: 'src-1',
+      initialPrompt: 'continue',
+      reason: 'doc-review-submission',
+    });
+    await vi.waitFor(() => expect(createInstance).toHaveBeenCalledOnce());
+    expect(deps.queueContinuityPreamble).not.toHaveBeenCalled();
+    resolveReady();
+    await pending;
+
+    const buffer = createInstance.mock.calls[0][0].initialOutputBuffer ?? [];
+    expect(buffer.at(-1)).toMatchObject({
+      id: 'continuity-stopped-helpers-src-1',
+      type: 'system',
+      content: stoppedHelperUserText(1, 'the restart'),
+      metadata: { stoppedHelperResume: true },
+    });
+    expect(deps.takeStoppedHelpers).toHaveBeenCalledWith('src-1');
+    expect(deps.queueContinuityPreamble).toHaveBeenCalledOnce();
+    expect(deps.queueContinuityPreamble).toHaveBeenCalledWith(
+      'revived-1',
+      stoppedHelperNoticeText([stoppedHelperRecord()], 'the restart'),
+    );
+    expect(deps.takeStoppedHelpers.mock.invocationCallOrder[0])
+      .toBeLessThan(deps.queueContinuityPreamble.mock.invocationCallOrder[0] as number);
+  });
+
+  it('keeps the stored list for a retry when the replacement never starts', async () => {
+    const { deps, createInstance } = makeDeps(1);
+    deps.resumeSession.mockResolvedValueOnce({
+      sessionId: 'sess-1',
+      workingDirectory: '/repo',
+      displayName: 'Revived',
+      conversationHistory: history(1),
+      stoppedHelpers: [stoppedHelperRecord()],
+    } as unknown as SessionState);
+    createInstance.mockRejectedValueOnce(new Error('spawn failed'));
+
+    await expect(reviveContinuitySession(deps, {
+      sourceInstanceId: 'src-1',
+      initialPrompt: 'continue',
+      reason: 'doc-review-submission',
+    })).rejects.toThrow('spawn failed');
+
+    expect(deps.takeStoppedHelpers).not.toHaveBeenCalled();
+    expect(deps.queueContinuityPreamble).not.toHaveBeenCalled();
   });
 });

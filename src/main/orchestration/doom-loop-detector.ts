@@ -67,6 +67,8 @@ export interface ToolUseObservation {
 export interface ToolResultObservation {
   /** Correlates with the matching `recordToolUse` call. */
   callId?: string;
+  /** Completed arguments supersede a partial tool_use snapshot. */
+  argsHash?: string;
   /** sha256-derived hash of the stable-serialized result (WS-B10 seam). */
   resultHash?: string;
   isError?: boolean;
@@ -106,7 +108,7 @@ interface CompletedPair {
 /** A tool_use observation awaiting its matching tool_result. */
 interface PendingToolUse {
   toolName: string;
-  argsHash: string;
+  argsHash?: string;
   /** Captured at tool_use time so canary strictness follows the call that started it. */
   canaryActive: boolean;
 }
@@ -196,8 +198,8 @@ export class DoomLoopDetector extends EventEmitter {
 
   /**
    * Records a tool_use observation. Always counts toward the `runaway` cap.
-   * Fail-open: without both `callId` and `argsHash`, nothing is recorded for
-   * `repeat-no-progress` / `ping-pong` (they need a matching tool_result).
+   * A call id retains the pairing even when its arguments arrive later. The
+   * pairing detectors require captured arguments by the time the result arrives.
    */
   recordToolUse(instanceId: string, observation: ToolUseObservation): ToolLoopDetectionEvent[] {
     const state = this.getOrCreateState(instanceId);
@@ -209,15 +211,14 @@ export class DoomLoopDetector extends EventEmitter {
     const canaryActive = state.canaryCallsRemaining > 0;
     if (canaryActive) state.canaryCallsRemaining--;
 
-    if (observation.callId !== undefined && observation.argsHash !== undefined) {
+    if (observation.callId !== undefined) {
       state.pendingByCallId.set(observation.callId, {
         toolName: observation.toolName,
         argsHash: observation.argsHash,
         canaryActive,
       });
     }
-    // else: fail-open — no callId/argsHash means the pair can never be
-    // completed reliably, so repeat-no-progress/ping-pong skip this call.
+    // Without a call id the result cannot be paired reliably.
 
     this.emitAll(events);
     return events;
@@ -238,10 +239,12 @@ export class DoomLoopDetector extends EventEmitter {
     const pending = state.pendingByCallId.get(observation.callId);
     state.pendingByCallId.delete(observation.callId);
     if (!pending) return [];
+    const argsHash = observation.argsHash ?? pending.argsHash;
+    if (argsHash === undefined) return [];
 
     const pair: CompletedPair = {
       toolName: pending.toolName,
-      argsHash: pending.argsHash,
+      argsHash,
       resultHash: observation.resultHash,
     };
 

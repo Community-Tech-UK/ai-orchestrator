@@ -50,7 +50,7 @@ export function searchControlNav(query: string, navGroups: readonly ControlSurfa
     }] : [];
   });
 
-  const pageLabels = new Set(pageCatalog.map(page => page.label.toLowerCase()));
+  const pageLabels = new Set(pages.map(page => page.label.toLowerCase()));
   const settingsIcon = getControlSurface('settings').icon;
   const sections = searchSettings(query, SECTION_CATALOG)
     .filter(match => !pageLabels.has(match.label.toLowerCase()))

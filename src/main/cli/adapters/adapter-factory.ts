@@ -147,7 +147,7 @@ export async function resolveCliType(
 ): Promise<CliType> {
   const detection = CliDetectionService.getInstance();
   logger.debug('resolveCliType called', { requestedType, defaultType });
-  const result = await detection.detectAll();
+  let result = await detection.detectAll();
   const isAvailable = (cliType: CliType): boolean =>
     result.available.some((cli) => cli.name === cliType);
 
@@ -162,6 +162,12 @@ export async function resolveCliType(
       const cliIsAvailable = isAvailable(cliType);
       logger.debug('Checking availability', { cliType, isAvailable: cliIsAvailable });
       if (cliIsAvailable) {
+        return cliType;
+      }
+      // A cached scan can be stale (it expires after 60s). Never veto an
+      // explicit request from cache alone: force one re-scan, then decide.
+      result = await detection.detectAll(true);
+      if (isAvailable(cliType)) {
         return cliType;
       }
       logger.warn('Requested CLI not available, falling back to auto', { requestedType, cliType });

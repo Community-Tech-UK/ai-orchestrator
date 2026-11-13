@@ -184,6 +184,7 @@ describe('actual native tool names through manager output bridge and loop detect
     const renderer = vi.fn();
     const manager = Object.assign(new EventEmitter(), {
       getInstance: () => ({ displayName: 'Fix login', provider: 'claude' }),
+      emitSystemMessage: vi.fn(),
       getOrchestrationHandler: () => new EventEmitter()
     });
     setupInstanceEventForwarding({
@@ -232,6 +233,13 @@ describe('actual native tool names through manager output bridge and loop detect
       expect(outputs.filter(m => m.type === 'tool_use').every(m => m.metadata?.['name'] === marker)).toBe(true);
       expect(detections.some(d => d.severity === 'critical' && d.toolName === marker)).toBe(true);
       expect(interrupt).toHaveBeenCalledTimes(autoInterrupt ? 1 : 0);
+      expect(manager.emitSystemMessage).toHaveBeenCalledTimes(autoInterrupt ? 1 : 0);
+      if (autoInterrupt) {
+        expect(manager.emitSystemMessage).toHaveBeenCalledWith('LOCAL_LOOP_INSTANCE',
+          expect.stringContaining('agent kept repeating tool calls with the same results'),
+          { source: 'tool-loop-stop', severity: 'warning', detector: 'repeat-no-progress' });
+        expect(JSON.stringify(manager.emitSystemMessage.mock.calls)).not.toContain(marker);
+      }
       expect(getDoomLoopDetector().hasAutoInterruptedThisTurn('LOCAL_LOOP_INSTANCE')).toBe(autoInterrupt);
       if (autoInterrupt)
         expect(getInstanceTurnEnding('LOCAL_LOOP_INSTANCE')).toBe('doom_loop');
@@ -260,6 +268,42 @@ describe('actual native tool names through manager output bridge and loop detect
       proc.stdin.destroy();
       proc.stdout.destroy();
       proc.stderr.destroy();
+    }
+  });
+
+  it.each([false, true])('keeps interruption and notifications working when writing the explanation fails=%s', (writeFails) => {
+    forwardingState.auto = true;
+    forwardingState.notification = new NotificationService({ desktop: { isSupported: () => true, show: () => undefined } });
+    const emitSystemMessage = vi.fn(() => { if (writeFails) throw new Error('LOCAL_NOTICE_WRITE_FAILURE'); });
+    const manager = Object.assign(new EventEmitter(), {
+      getInstance: () => ({ displayName: 'Fix login', provider: 'opencode' }),
+      emitSystemMessage,
+      getOrchestrationHandler: () => new EventEmitter(),
+    });
+    const renderer = vi.fn();
+    setupInstanceEventForwarding({
+      instanceManager: manager as unknown as import('../instance/instance-manager').InstanceManager,
+      windowManager: { sendToRenderer: renderer } as unknown as import('../window-manager').WindowManager,
+      isStatelessExecProvider: () => false, getNodeLatencyForInstance: () => undefined,
+    });
+    const interrupt = vi.fn(() => true);
+    try {
+      for (let i = 0; i < 6; i++) {
+        observeToolLoopEvent({ getProvider: () => 'opencode', getAutoInterruptSetting: () => true, interruptInstance: interrupt },
+          'LOCAL_LOOP_INSTANCE', { kind: 'tool_use', toolName: 'bash', toolUseId: `c${i}`, input: { command: 'true' } });
+        observeToolLoopEvent({ getProvider: () => 'opencode', getAutoInterruptSetting: () => true, interruptInstance: interrupt },
+          'LOCAL_LOOP_INSTANCE', { kind: 'tool_result', toolName: 'bash', toolUseId: `c${i}`, success: true, output: '(no output)' });
+      }
+      expect(interrupt).toHaveBeenCalledOnce();
+      expect(emitSystemMessage).toHaveBeenCalledOnce();
+      expect(renderer.mock.calls.filter(([channel]) => channel === 'instance:doom-loop')).toHaveLength(1);
+      getDoomLoopDetector().reportAutoStopFailed({
+        instanceId: 'LOCAL_LOOP_INSTANCE', severity: 'critical', detector: 'repeat-no-progress', toolName: 'bash', count: 6, windowDescription: 'test',
+      });
+      expect(emitSystemMessage).toHaveBeenLastCalledWith('LOCAL_LOOP_INSTANCE', expect.stringContaining('could not stop'),
+        { source: 'tool-loop-stop', severity: 'warning', detector: 'repeat-no-progress' });
+    } finally {
+      forwardingState.notification.dispose();
     }
   });
 });

@@ -1,4 +1,4 @@
-vi.mock('../cli/adapters/opencode-cli-launch', () => ({ selectOpenCodeLaunch: vi.fn(async () => ({ command: 'opencode', major: 1 })) }));
+vi.mock('../cli/adapters/opencode-cli-launch', () => ({ selectOpenCodeLaunch: vi.fn(async () => ({ command: 'opencode', major: 1, version: '1.19.0' })) }));
 import { selectOpenCodeLaunch } from '../cli/adapters/opencode-cli-launch';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
@@ -53,7 +53,7 @@ function fakeLister(output: string, code: number | null = 0, delayMs = 20) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(selectOpenCodeLaunch).mockReset().mockResolvedValue({ command: 'opencode', major: 1 });
+  vi.mocked(selectOpenCodeLaunch).mockReset().mockResolvedValue({ command: 'opencode', major: 1, version: '1.19.0' });
   mocks.killGroup.mockReset().mockReturnValue(false);
   _resetOpenCodeRegionModelMetadataForTesting();
 });
@@ -328,7 +328,7 @@ it('reads region metadata from the selected version 2 standalone model operation
     'xiaomi-token-plan-ams': { activation: 'disabled', body: { temperature: 0.3 }, models: { 'fixture-model': { limit: { output: 123 }, body: { top_p: 0.8 } } } },
     'unrelated-provider': { activation: 'disabled' },
   }, customInstruction: 'preserve-inline-config' }));
-  vi.mocked(selectOpenCodeLaunch).mockResolvedValueOnce({ command: '/fixture/opencode2', major: 2 });
+  vi.mocked(selectOpenCodeLaunch).mockResolvedValueOnce({ command: '/fixture/opencode2', major: 2, version: '2.0.30' });
   mocks.spawn.mockImplementationOnce(() => fakeLister(JSON.stringify({ data: [{ providerID: 'xiaomi-token-plan-ams', modelID: 'mimo-v2.6-pro',
     name: 'MiMo Pro', capabilities: { tools: true, input: ['text'], output: ['text'] }, limit: { context: 1000000, output: 98304 } }] })));
   await readOpenCodeRegionModelMetadata('ams');
@@ -350,7 +350,7 @@ it('forwards the required major through cold region ensure/read/selection', asyn
 });
 
 it('does not share an unrestricted pending region read with a major-constrained caller', async () => {
-  vi.mocked(selectOpenCodeLaunch).mockResolvedValueOnce({ command: 'opencode', major: 1 })
+  vi.mocked(selectOpenCodeLaunch).mockResolvedValueOnce({ command: 'opencode', major: 1, version: '1.19.0' })
     .mockRejectedValueOnce(new Error('This session requires OpenCode 2.'));
   mocks.spawn.mockImplementationOnce(() => fakeLister(VERBOSE, 0, 30));
   const unrestricted = readOpenCodeRegionModelMetadata('ams');

@@ -96,14 +96,14 @@ describe('planContinuity (model-switch note guard)', () => {
   describe('account-only handoff', () => {
     const accountOnly = diff({ accountProfileChanged: true });
 
-    it('natively resumes on a shared session store, Claude included', () => {
+    it('natively resumes in place on a shared session store, Claude included, never forking', () => {
       expect(planContinuity({
         diff: accountOnly, capabilities: resumable, hasConversation: true, cliType: 'claude', isLocalModelTarget: false,
       })).toBe('native-resume');
       expect(planContinuity({
         diff: accountOnly, capabilities: forkable, hasConversation: true, cliType: 'claude', isLocalModelTarget: false,
         accountContinuation: 'shared-store',
-      })).toBe('native-resume-fork');
+      })).toBe('native-resume');
     });
 
     it("replays when the pool says 'replay' or there is no conversation", () => {

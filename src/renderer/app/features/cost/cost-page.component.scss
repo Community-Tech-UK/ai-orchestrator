@@ -40,6 +40,12 @@
   color: var(--text-muted);
 }
 
+.helper-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
 .header-actions {
   display: flex;
   gap: var(--spacing-sm);

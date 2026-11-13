@@ -11,7 +11,7 @@ interface CachedDay { size:number; mtime:number; rows:DatedRecord[] }
 const number = (value:unknown):number => typeof value==='number' && Number.isFinite(value) && value>=0 ? value : 0;
 function empty(key:string):CostPurposeRow {
   return {key,calls:0,inputTokens:0,cacheReadTokens:0,cacheWriteTokens:0,outputTokens:0,reasoningTokens:0,
-    cost:0,estimatedCost:0,estimatedShare:0,unknownCostCalls:0,historicalCostUnknownCalls:0,freeCalls:0};
+    cost:0,estimatedCost:0,estimatedShare:0,unknownCostCalls:0,historicalCostUnknownCalls:0,freeCalls:0,helperCost:0};
 }
 function isCall(record:DatedRecord):boolean {
   const marker=record as unknown as Record<string,unknown>;
@@ -62,6 +62,9 @@ export class CostPurposeSummaryService {
     // "Biggest turns this week" is always the last seven days of the range.
     const weekStart=Math.max(start,end-BIGGEST_TURNS_WINDOW_MS);
     const turnRows:DatedRecord[]=[];
+    const helperCostByPurpose=new Map<string,number>();
+    const helperCostByProvider=new Map<string,number>();
+    let totalHelperCost=0;
     try {
       for (const name of readdirSync(directory).filter(name=>/^cost-attribution-\d{4}-\d{2}-\d{2}\.jsonl$/.test(name))) {
         const day=Date.parse(name.slice(17,27)+'T00:00:00Z');
@@ -78,7 +81,17 @@ export class CostPurposeSummaryService {
           cached={size:stats.size,mtime:stats.mtimeMs,rows}; this.cache.set(file,cached);
         }
         for (const record of cached.rows) {
-          if (record.ts<start || record.ts>end || !isCall(record)) continue;
+          if (record.ts<start || record.ts>end) continue;
+          // Helper rows excluded from isCall are tracked separately for the breakdown.
+          const helperCost=record.helperTranscriptCost ?? record.usage?.cost;
+          if (record.includedInParentTurn===true
+            && typeof helperCost==='number' && Number.isFinite(helperCost) && helperCost>=0) {
+            const purpose=purposeOf(record), provider=record.provider ?? 'unknown';
+            helperCostByPurpose.set(purpose,(helperCostByPurpose.get(purpose) ?? 0)+helperCost);
+            helperCostByProvider.set(provider,(helperCostByProvider.get(provider) ?? 0)+helperCost);
+            totalHelperCost+=helperCost;
+          }
+          if (!isCall(record)) continue;
           if (record.source==='instance-turn' && record.ts>=weekStart) turnRows.push(record);
           const purpose=purposeOf(record), provider=record.provider ?? 'unknown';
           if (!purposeRows.has(purpose)) purposeRows.set(purpose,empty(purpose));
@@ -87,6 +100,19 @@ export class CostPurposeSummaryService {
         }
       }
     } catch { /* A transient log I/O failure leaves the readable rows available. */ }
+    // Attach helper figures to purpose rows, provider rows, and totals.
+    for (const [purpose,cost] of helperCostByPurpose) {
+      const row=purposeRows.get(purpose);
+      if (row) row.helperCost=cost;
+      else purposeRows.set(purpose,{...empty(purpose),helperCost:cost});
+    }
+    for (const [provider,cost] of helperCostByProvider) {
+      const row=providerRows.get(provider);
+      if (row) row.helperCost=cost;
+      else providerRows.set(provider,{...empty(provider),helperCost:cost});
+    }
+    result.totals.helperCost=totalHelperCost;
+    result.totalHelperCost=totalHelperCost;
     const policyRows={shares:readSessionPolicyEvents<SessionTurnShareRecord>('turn-share',weekStart).filter(row=>row.at<=end),
       credits:readSessionPolicyEvents<SessionThreadCreditsRecord>('thread-credits',weekStart).filter(row=>row.at<=end)};
     result.biggestTurns=collectBiggestTurns({costRows:turnRows,shareRows:latestTurnShares(policyRows.shares)});

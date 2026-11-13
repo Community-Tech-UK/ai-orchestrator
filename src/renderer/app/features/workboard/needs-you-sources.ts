@@ -80,7 +80,7 @@ export function requestEntries(sources: NeedsYouSources, now: number): NeedsYouE
   for (const item of sources.plans) plans.set(item.sourceRef, [...(plans.get(item.sourceRef) ?? []), item]);
   for (const [path, items] of plans) {
     add('plan-queue-question', path, `Plan Queue has ${items.length} ${items.length === 1 ? 'question' : 'questions'} for you`,
-      Math.min(...items.map((i) => i.updatedAt)), { detail: planQueueDocumentLabel(path), route: '/plan-queue', version: items.map((i) => `${i.id}:${i.updatedAt}`).sort().join('|') });
+      Math.min(...items.map((i) => i.updatedAt)), { detail: planQueueDocumentLabel(path), route: `/plan-queue?document=${encodeURIComponent(path)}`, version: items.map((i) => `${i.id}:${i.updatedAt}`).sort().join('|') });
   }
   for (const item of sources.documents) {
     if (item.status === 'pending' && item.createdAt >= now - NEEDS_YOU_RECENCY_MS && item.createdAt <= now) {

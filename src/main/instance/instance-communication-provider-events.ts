@@ -68,7 +68,7 @@ export function bindRawAdapterProviderEvents(input: BindRawAdapterProviderEvents
     recordedSubagents.add(sample.toolUseId);
     recordCostAttribution({source:'instance-turn',purpose:'subagent',taskType:'claude-subagent-final',
       provider:'claude',instanceId:instance.id,sessionId:instance.sessionId,costSource:'unknown',costKnown:false,
-      subagentUsage:true,finalContextTokens:sample.finalContextTokens,toolUses:sample.toolUses,
+      subagentUsage:true,includedInParentTurn:true,finalContextTokens:sample.finalContextTokens,toolUses:sample.toolUses,
       durationMs:sample.durationMs,toolUseId:sample.toolUseId,...subagentAttributionDetails(sample)});
   });
   // Terminal provider turn failure is distinct from a broken adapter. The

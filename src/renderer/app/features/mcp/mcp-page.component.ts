@@ -1,4 +1,5 @@
 import { McpServerCostComponent } from './mcp-server-cost.component';
+import { Microsoft365ConnectorFormComponent } from './microsoft365-connector-form.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 /**
@@ -144,7 +145,7 @@ const PROVIDER_TAB_IDS: readonly SupportedProvider[] = ['claude', 'codex', 'gemi
 @Component({
   selector: 'app-mcp-page',
   standalone: true,
-  imports: [CommonModule, McpPresetCatalogComponent, WorkspaceMcpConnectorsPanelComponent, McpServerCostComponent, GlossaryTermComponent, AioTooltipDirective, AppIconButtonDirective],
+  imports: [CommonModule, McpPresetCatalogComponent, WorkspaceMcpConnectorsPanelComponent, McpServerCostComponent, Microsoft365ConnectorFormComponent, GlossaryTermComponent, AioTooltipDirective, AppIconButtonDirective],
   templateUrl: './mcp-page.component.html',
   styleUrl: './mcp-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -205,6 +206,8 @@ export class McpPageComponent implements OnInit, OnDestroy {
   readonly scopeLabel = mcpScopeLabel;
 
   readonly managementFormOpen = signal(false);
+  readonly microsoft365FormOpen = signal(false);
+  readonly connectorNames = computed(() => this.multiProviderStore.orchestrator().map(entry => entry.record.name));
   readonly managementFormMode = signal<ManagementMode>('create');
   readonly managementFormServerId = signal<string | null>(null);
   readonly managementFormOriginalName = signal<string | null>(null);
@@ -470,6 +473,8 @@ export class McpPageComponent implements OnInit, OnDestroy {
   }
 
   setManagementTab(tab: ManagementTab): void {
+    if (this.working()) return;
+    this.microsoft365FormOpen.set(false);
     this.activeManagementTab.set(tab);
     this.cancelManagementForm();
   }
@@ -494,6 +499,8 @@ export class McpPageComponent implements OnInit, OnDestroy {
   }
 
   beginCreateManagementServer(): void {
+    if (this.working()) return;
+    this.microsoft365FormOpen.set(false);
     if (this.activeManagementTab() === 'workspace') {
       return;
     }
@@ -505,7 +512,23 @@ export class McpPageComponent implements OnInit, OnDestroy {
     this.managementFormOpen.set(true);
   }
 
+  beginAddMicrosoft365(): void {
+    if (this.working()) return;
+    this.cancelManagementForm();
+    this.infoMessage.set(null);
+    this.errorMessage.set(null);
+    this.microsoft365FormOpen.set(true);
+  }
+
+  async onMicrosoft365Added(username: string): Promise<void> {
+    this.microsoft365FormOpen.set(false);
+    this.infoMessage.set(`${username} connected. Start a new local session to use this account with your selected AI tools.`);
+    await this.loadAll();
+  }
+
   beginEditManagementServer(server: RedactedMcpServerDto): void {
+    if (this.working()) return;
+    this.microsoft365FormOpen.set(false);
     this.managementFormMode.set('edit');
     this.managementFormServerId.set(server.id);
     this.managementFormOriginalName.set(server.name);
@@ -571,16 +594,6 @@ export class McpPageComponent implements OnInit, OnDestroy {
       const tab = this.activeManagementTab();
       if (tab === 'workspace') {
         this.managementFormError.set('Use the workspace connector form. This does not write a global MCP scope.');
-        return;
-      }
-      if (tab === 'orchestrator' && this.managementForm.kind() === 'microsoft365' && this.managementFormMode() === 'create') {
-        const name = this.managementForm.name().trim();
-        if (!name) throw new Error('Name is required.');
-        const signedIn = await this.mcpIpc.connectorAddMicrosoft365({ name, mailEnabled: this.managementForm.mailEnabled(), injectInto: this.managementForm.injectInto() });
-        if (!signedIn.success) { this.managementFormError.set('Microsoft 365 sign-in failed. Check the details and try again.'); this.managementFormErrorDetails.set(signedIn.error?.message ?? null); return; }
-        this.cancelManagementForm();
-        this.infoMessage.set('Microsoft 365 account added.');
-        await this.loadAll();
         return;
       }
       const payload = this.buildManagementPayload(tab);

@@ -122,6 +122,9 @@
                   <td class="num-col mono">
                     @if (row.unknownCostCalls === row.calls && row.cost === 0) { Unknown }
                     @else { {{ row.estimatedCost > 0 ? '~' : '' }}{{ money(row.cost) }} }
+                    @if (row.helperCost && row.helperCost > 0) {
+                      <div class="helper-note">of which helper agents: {{ money(row.helperCost) }}</div>
+                    }
                   </td>
                 </tr>
               } @empty {
@@ -135,6 +138,9 @@
         }
         @if (purposes.totals.historicalCostUnknownCalls) {
           <p class="subtitle" data-testid="historical-cost-footnote">{{ purposes.totals.historicalCostUnknownCalls }} historical Claude turns have uncorrected running totals in the cost log. Their dollar amounts are excluded here.</p>
+        }
+        @if (purposes.totalHelperCost && purposes.totalHelperCost > 0) {
+          <p class="subtitle" data-testid="helper-cost-footnote">Of which helper agents: {{ money(purposes.totalHelperCost) }}</p>
         }
       }
     } @else {

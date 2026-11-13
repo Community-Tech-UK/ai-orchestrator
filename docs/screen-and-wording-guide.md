@@ -17,6 +17,8 @@ Tokens and layout live in `docs/shell-component-standards.md`; this page owns wo
 - Settings names describe what the user wants done. A word that needs explaining gets an entry in GLOSSARY
   (`src/shared/glossary/glossary.ts`) and an `<app-term>` on its first use.
   Inside another control, use `termTooltip()` instead of nesting a button.
+- Account and connector setup must be findable by the service or task (Microsoft 365, Outlook, email, calendars),
+  without knowing “MCP”. Keep account sign-in separate from local-program and server configuration.
 
 ## 2. Status
 

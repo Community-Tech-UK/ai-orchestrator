@@ -51,6 +51,20 @@ export function shouldTellUserAboutToolLoop<T extends ToolLoopDetectionForUser>(
   return detection.detector !== 'runaway' || harnessWillStop || detection.autoStopFailed === true;
 }
 
+/** Keep the reason in history after the transient stopping banner disappears. */
+export function toolLoopTranscriptNotice(
+  detection: ToolLoopDetectionForUser,
+  harnessWillStop: boolean,
+): string | undefined {
+  if (detection.severity !== 'critical') return undefined;
+  if (detection.autoStopFailed) return 'Harness could not stop this turn automatically. The agent may still be repeating actions. Use Stop to end the turn.';
+  if (!harnessWillStop) return undefined;
+  const reason = detection.detector === 'runaway'
+    ? 'the agent made too many tool calls without finishing'
+    : 'the agent kept repeating tool calls with the same results';
+  return `Harness is stopping this turn because ${reason}. Completed work is preserved. Choose Continue to retry. If it repeats, start a fresh session or change model.`;
+}
+
 // Chosen so the worst case stays inside MAX_BODY_CHARS with the fixed wording:
 // a notification body that overflows is truncated by the OS mid-sentence.
 const MAX_TOOL_CHARS = 40;

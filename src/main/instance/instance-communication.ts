@@ -1287,10 +1287,10 @@ export class InstanceCommunicationManager extends EventEmitter {
         // naturally produce empty assistant text between calls and shouldn't trip it
         if (message.type === 'tool_use' || message.type === 'tool_result') {
           this.circuitBreakers.noteToolActivity(instanceId);
-          if (message.type === 'tool_use') {
-            this.deps.onToolStateChange?.(instanceId, 'tool_executing');
-          } else if (message.type === 'tool_result') {
-            this.deps.onToolStateChange?.(instanceId, 'generating');
+          // Cancellation can settle before the CLI flushes its last tool output.
+          // Keep that output without restarting the watchdog for a finished turn.
+          if (ACTIVE_CHILD_TURN_STATUSES.has(instance.status)) {
+            this.deps.onToolStateChange?.(instanceId, message.type === 'tool_use' ? 'tool_executing' : 'generating');
           }
         }
 

@@ -6295,12 +6295,12 @@
       "lines": 3817
     },
     {
-      "path": "src/main/instance/rlm-process-ownership.spec.ts",
-      "lines": 3680
+      "path": "src/main/instance/instance-lifecycle.ts",
+      "lines": 3705
     },
     {
-      "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3632
+      "path": "src/main/instance/rlm-process-ownership.spec.ts",
+      "lines": 3680
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",
@@ -6392,11 +6392,11 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2503
+      "lines": 2505
     },
     {
       "path": "src/main/app/orchestrator-tools-step.spec.ts",
-      "lines": 2477
+      "lines": 2478
     },
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
@@ -6412,7 +6412,7 @@
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.lifecycle.spec.ts",
-      "lines": 2376
+      "lines": 2377
     },
     {
       "path": "docs/superpowers/plans/2026-07-04-control-center-shell-plan_completed.md",
@@ -6431,16 +6431,16 @@
       "lines": 2285
     },
     {
+      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
+      "lines": 2205
+    },
+    {
       "path": "docs/plans/2026-10-10-oct-housekeeping_plan_completed.md",
       "lines": 2191
     },
     {
-      "path": "src/main/cli/adapters/claude-cli-adapter.ts",
-      "lines": 2168
-    },
-    {
       "path": "src/main/instance/__tests__/instance-lifecycle-spawn-rollback.spec.ts",
-      "lines": 2149
+      "lines": 2154
     },
     {
       "path": "src/main/channels/__tests__/channel-message-router.spec.ts",
@@ -6515,6 +6515,10 @@
       "lines": 1860
     },
     {
+      "path": "src/main/session/session-continuity.ts",
+      "lines": 1857
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-01-claude-code-hardening_completed.md",
       "lines": 1851
     },
@@ -6539,10 +6543,6 @@
       "lines": 1803
     },
     {
-      "path": "src/main/session/session-continuity.ts",
-      "lines": 1764
-    },
-    {
       "path": "src/main/history/history-manager.ts",
       "lines": 1735
     },
@@ -6564,7 +6564,7 @@
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
-      "lines": 1638
+      "lines": 1639
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -6584,7 +6584,7 @@
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.overflow-owner.spec.ts",
-      "lines": 1574
+      "lines": 1575
     },
     {
       "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
@@ -6596,7 +6596,7 @@
     },
     {
       "path": "src/main/instance/lifecycle/runtime-reconciler.runtime-change.spec.ts",
-      "lines": 1546
+      "lines": 1550
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-pause-on-vpn-design_completed.md",
@@ -6647,11 +6647,11 @@
       "lines": 1457
     },
     {
-      "path": "docs/superpowers/plans/2026-04-04-agentic-harness-hardening_completed.md",
-      "lines": 1456
+      "path": "src/main/instance/__tests__/instance-manager.yolo-mode.spec.ts",
+      "lines": 1457
     },
     {
-      "path": "src/main/instance/__tests__/instance-manager.yolo-mode.spec.ts",
+      "path": "docs/superpowers/plans/2026-04-04-agentic-harness-hardening_completed.md",
       "lines": 1456
     },
     {
@@ -6736,7 +6736,7 @@
     },
     {
       "path": "src/main/cli/adapters/__tests__/claude-cli-adapter.spec.ts",
-      "lines": 1335
+      "lines": 1338
     },
     {
       "path": "src/main/orchestration/orchestration-handler.ts",
@@ -6916,11 +6916,11 @@
     },
     {
       "path": "src/main/instance/lifecycle/interrupt-respawn-handler.spec.ts",
-      "lines": 1198
+      "lines": 1199
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.compaction-receipt.spec.ts",
-      "lines": 1197
+      "lines": 1198
     },
     {
       "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
@@ -6975,6 +6975,10 @@
       "lines": 1169
     },
     {
+      "path": "src/renderer/app/features/mcp/mcp-page.component.ts",
+      "lines": 1169
+    },
+    {
       "path": "docs/superpowers/plans/2026-04-08-phase3-monorepo-consolidation_completed.md",
       "lines": 1167
     },
@@ -6985,10 +6989,6 @@
     {
       "path": "src/main/local-ai-guard/local-ai-health-scheduler.spec.ts",
       "lines": 1161
-    },
-    {
-      "path": "src/renderer/app/features/mcp/mcp-page.component.ts",
-      "lines": 1156
     },
     {
       "path": "docs/plans/completed/claude2_completed.md",
@@ -7399,6 +7399,10 @@
       "lines": 892
     },
     {
+      "path": "src/main/instance/lifecycle/runtime-reconciler.ts",
+      "lines": 890
+    },
+    {
       "path": "src/main/ipc/handlers/mcp-handlers.ts",
       "lines": 889
     },
@@ -7507,10 +7511,6 @@
       "lines": 862
     },
     {
-      "path": "src/main/instance/lifecycle/runtime-reconciler.ts",
-      "lines": 860
-    },
-    {
       "path": "src/main/orchestration/loop-stage-machine.spec.ts",
       "lines": 860
     },
@@ -7559,6 +7559,10 @@
       "lines": 848
     },
     {
+      "path": "src/renderer/app/features/mcp/mcp-page.component.scss",
+      "lines": 848
+    },
+    {
       "path": "src/main/automations/automation-store.spec.ts",
       "lines": 847
     },
@@ -7592,10 +7596,6 @@
     },
     {
       "path": "src/main/orchestration/event-store/__tests__/event-store.spec.ts",
-      "lines": 838
-    },
-    {
-      "path": "src/renderer/app/features/mcp/mcp-page.component.scss",
       "lines": 838
     },
     {
@@ -7677,6 +7677,10 @@
     {
       "path": "src/main/browser-gateway/browser-input-control-operations.spec.ts",
       "lines": 807
+    },
+    {
+      "path": "src/main/event-bus/renderer-event-validation.spec.ts",
+      "lines": 806
     },
     {
       "path": "docs/superpowers/plans/2026-05-02-conversation-ledger-codex-native-adapter_completed.md",

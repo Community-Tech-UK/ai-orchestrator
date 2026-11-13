@@ -1,6 +1,6 @@
 <div class="pq-question-list">
-  @for (group of groups(); track group.runId) {
-    <details class="pq-question-group" [open]="isInitiallyOpen(group.runId)">
+  @for (group of renderedGroups(); track group.key) {
+    <details class="pq-question-group" [open]="!!expandedForDocument() || isInitiallyOpen(group.runId)">
       <summary class="pq-question-group-head">
         <span class="pq-question-group-kind">{{ kindLabel(group.kind) }}</span>
         <span class="pq-question-group-cwd" tabindex="0" [appTooltip]="group.workspaceCwd" appTooltipVariant="overflow">{{ group.workspaceCwd }}</span>

@@ -1,0 +1,44 @@
+<form (submit)="connect($event)" [attr.aria-busy]="pending()" aria-labelledby="microsoft365-form-heading">
+  <div class="form-heading">
+    <h2 id="microsoft365-form-heading">Add Microsoft 365</h2>
+    <p>Connect your work or organisation account. Your Microsoft sign-in opens in your browser.</p>
+  </div>
+  <fieldset [disabled]="pending()">
+    <legend class="visually-hidden">Account settings</legend>
+    <label class="field" for="microsoft365-nickname">
+      <span>Account nickname <span class="optional">(optional)</span></span>
+      <input id="microsoft365-nickname" type="text" maxlength="50" placeholder="For example, Dingley"
+        [value]="nickname()" (input)="nickname.set($any($event.target).value)" />
+    </label>
+    <label class="mail-choice">
+      <input type="checkbox" [checked]="mailEnabled()" (change)="mailEnabled.set($any($event.target).checked)" />
+      <span>Include email <small>Let agents search and read mail as well as calendars.</small></span>
+    </label>
+    <p class="permission-note">New accounts start read-only. You choose separately whether agents may change calendars, draft or send mail.</p>
+    <details>
+      <summary>Session settings</summary>
+      <fieldset class="providers">
+        <legend>Use in new local sessions from</legend>
+        @for (provider of availableProviders; track provider) {
+          <label><input type="checkbox" [checked]="providers().includes(provider)" (change)="toggleProvider(provider, $event)" />{{ providerLabel(provider) }}</label>
+        }
+      </fieldset>
+      <p>Works across accounts for these AI tools. Remote sessions, Antigravity and the direct Anthropic API are not supported.</p>
+    </details>
+  </fieldset>
+  @if (pending()) {
+    <div class="progress" role="status">
+      <strong>Complete Microsoft sign-in in your browser</strong>
+      <p>Choose your account and finish any approval prompts, then return here. This can take a few minutes.</p>
+    </div>
+  }
+  @if (error()) {
+    <div class="error" role="alert">{{ error() }}
+      @if (errorDetails()) { <details><summary>Details</summary><pre>{{ errorDetails() }}</pre></details> }
+    </div>
+  }
+  <div class="actions">
+    <button class="primary" type="submit" [disabled]="pending()">{{ pending() ? 'Waiting for Microsoft sign-in…' : 'Sign in with Microsoft' }}</button>
+    <button type="button" [disabled]="pending()" (click)="cancelled.emit()">Cancel</button>
+  </div>
+</form>

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
 
 const captured = vi.hoisted(() => ({
   initializeOptions: null as null | {
@@ -2462,7 +2463,7 @@ function makeNode(overrides: {
 }
 
 async function startStep(instanceManagerOverrides: Record<string, unknown> = {}): Promise<void> {
-  const instanceManager = {
+  const instanceManager = Object.assign(new EventEmitter(), {
     getAllInstances: vi.fn(() => []),
     getInstance: vi.fn(() => undefined),
     createInstance: vi.fn(async () => ({
@@ -2470,7 +2471,7 @@ async function startStep(instanceManagerOverrides: Record<string, unknown> = {})
       status: 'initializing',
     })),
     ...instanceManagerOverrides,
-  };
+  });
   const windowManager = { sendToRenderer: vi.fn() };
   await createOrchestratorToolsStep(instanceManager as never, windowManager as never).fn();
 }

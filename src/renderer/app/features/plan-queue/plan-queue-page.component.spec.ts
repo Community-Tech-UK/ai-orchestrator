@@ -168,7 +168,7 @@ describe('PlanQueuePageComponent', () => {
     await TestBed.configureTestingModule({
       imports: [PlanQueuePageComponent],
       providers: [
-        provideRouter([]),
+        provideRouter([{ path: 'plan-queue', children: [] }]),
         { provide: PlanQueueStore, useValue: store },
         { provide: PlanQueueIpcService, useValue: { control: ipcControl, preview: vi.fn().mockResolvedValue({ success: true, data: { found: 1, hiddenCopies: 0, hiddenCountComplete: true } }) } },
         {
@@ -252,6 +252,113 @@ describe('PlanQueuePageComponent', () => {
     await fixture.whenStable();
 
     expect(fixture.nativeElement.textContent).toContain('1 item needs your answer');
+  });
+
+  it('opens only the linked document across runs, expands its backlog and keeps the answer through refresh', async () => {
+    const sourceRef = '/repo/space & hash # question ? ü_plan.md';
+    const items = Array.from({ length: 37 }, (_, index) => ({ ...NEEDS_ANSWER_ITEM,
+      id: `item-${index}`, sourceRef: index < 12 ? sourceRef : `/repo/other-${index}_plan.md` }));
+    const groups = [
+      { runId: 'run-x', kind: 'plans', workspaceCwd: '/repo', items },
+      { runId: 'run-y', kind: 'livetests', workspaceCwd: '/repo', items: [{ ...NEEDS_ANSWER_ITEM, id: 'second-run', runId: 'run-y', sourceRef }] },
+    ];
+    store.questionGroups.set(groups);
+    store.needsAnswerItems.set(items);
+    await TestBed.inject(Router).navigateByUrl(`/plan-queue?document=${encodeURIComponent(sourceRef)}`);
+    fixture.detectChanges(); await fixture.whenStable();
+
+    const questions = fixture.nativeElement.querySelector('.pq-section-questions') as HTMLElement;
+    expect(questions.querySelectorAll('.pq-question-card')).toHaveLength(13);
+    expect(questions.querySelectorAll('details[open]')).toHaveLength(2);
+    expect(questions.textContent).not.toContain('other-');
+    expect(document.activeElement?.id).toBe('pq-questions-heading');
+
+    const cards = questions.querySelectorAll('.pq-question-card');
+    const radio = cards[12].querySelector('input[value="b"]') as HTMLInputElement;
+    radio.dispatchEvent(new Event('change')); fixture.detectChanges();
+    radio.focus();
+    store.questionGroups.set(structuredClone(groups));
+    fixture.detectChanges(); await fixture.whenStable();
+    expect(radio.checked).toBe(true);
+    expect(document.activeElement).toBe(radio);
+    (cards[12].querySelector('.pq-question-submit') as HTMLButtonElement).click();
+    expect(store.answer).toHaveBeenCalledWith('second-run', 'b');
+  });
+
+  it('follows a new document on the mounted page, returns to Now and can show all questions again', async () => {
+    const first = NEEDS_ANSWER_ITEM.sourceRef;
+    const second = '/repo/second_plan.md';
+    const items = [NEEDS_ANSWER_ITEM, { ...NEEDS_ANSWER_ITEM, id: 'second', sourceRef: second }];
+    store.needsAnswerItems.set(items);
+    store.questionGroups.set([{ runId: 'run-x', kind: 'plans', workspaceCwd: '/repo', items }]);
+    const router = TestBed.inject(Router);
+    await router.navigateByUrl(`/plan-queue?document=${encodeURIComponent(first)}`);
+    fixture.detectChanges(); await fixture.whenStable();
+    expect(fixture.nativeElement.querySelectorAll('.pq-question-card')).toHaveLength(1);
+    clickTab('Setup');
+    await router.navigateByUrl(`/plan-queue?document=${encodeURIComponent(second)}`);
+    fixture.detectChanges(); await fixture.whenStable();
+    expect(fixture.nativeElement.querySelector('#pq-tab-now').getAttribute('aria-selected')).toBe('true');
+    expect(fixture.nativeElement.querySelector('.pq-question-doc').textContent).toContain('second_plan.md');
+    expect(document.activeElement?.id).toBe('pq-questions-heading');
+    (fixture.nativeElement.querySelector('.pq-section-questions a') as HTMLAnchorElement).click();
+    await fixture.whenStable(); fixture.detectChanges();
+    expect(router.url).toBe('/plan-queue');
+    expect(fixture.nativeElement.querySelectorAll('.pq-question-card')).toHaveLength(2);
+  });
+
+  it('distinguishes loading, a failed load and an answered document link', async () => {
+    store.isLoading.set(true);
+    await TestBed.inject(Router).navigateByUrl('/plan-queue?document=old_plan.md');
+    fixture.detectChanges(); await fixture.whenStable();
+    const text = () => fixture.nativeElement.querySelector('.pq-section-questions').textContent as string;
+    expect(text()).toContain('Loading questions');
+    expect(text()).not.toContain('no questions waiting');
+    store.isLoading.set(false);
+    store.lastError.set('Could not load questions');
+    fixture.detectChanges();
+    expect(text()).not.toContain('no questions waiting');
+    store.lastError.set(null);
+    fixture.detectChanges(); await fixture.whenStable();
+    expect(text()).toContain('This document has no questions waiting for your answer.');
+    expect(fixture.nativeElement.querySelector('.pq-section-questions a').textContent).toBe('Show all questions');
+  });
+
+  it('reveals a newly linked document even when the previous document in the same run was folded', async () => {
+    const items = [NEEDS_ANSWER_ITEM, { ...NEEDS_ANSWER_ITEM, id: 'second', sourceRef: '/repo/second_plan.md' }];
+    store.needsAnswerItems.set(items);
+    store.questionGroups.set([{ runId: 'run-x', kind: 'plans', workspaceCwd: '/repo', items }]);
+    const router = TestBed.inject(Router);
+    await router.navigateByUrl(`/plan-queue?document=${encodeURIComponent(items[0].sourceRef)}`);
+    fixture.detectChanges(); await fixture.whenStable();
+    (fixture.nativeElement.querySelector('.pq-question-group') as HTMLDetailsElement).open = false;
+    await router.navigateByUrl(`/plan-queue?document=${encodeURIComponent(items[1].sourceRef)}`);
+    fixture.detectChanges(); await fixture.whenStable();
+    expect(fixture.nativeElement.querySelector('.pq-question-doc').textContent).toContain('second_plan.md');
+    expect((fixture.nativeElement.querySelector('.pq-question-group') as HTMLDetailsElement).open).toBe(true);
+  });
+
+  it('focuses the returned document after navigating away and back during a refresh, without taking focus on ordinary refreshes', async () => {
+    const items = [NEEDS_ANSWER_ITEM, { ...NEEDS_ANSWER_ITEM, id: 'second', sourceRef: '/repo/second_plan.md' }];
+    store.needsAnswerItems.set(items);
+    store.questionGroups.set([{ runId: 'run-x', kind: 'plans', workspaceCwd: '/repo', items }]);
+    const router = TestBed.inject(Router);
+    const open = async (sourceRef: string) => {
+      await router.navigateByUrl(`/plan-queue?document=${encodeURIComponent(sourceRef)}`);
+      fixture.detectChanges(); await fixture.whenStable();
+    };
+    await open(items[0].sourceRef);
+    const radio = fixture.nativeElement.querySelector('.pq-question-card input') as HTMLInputElement;
+    radio.focus();
+    store.isLoading.set(true); fixture.detectChanges();
+    store.isLoading.set(false); fixture.detectChanges(); await fixture.whenStable();
+    expect(document.activeElement).toBe(radio);
+
+    store.isLoading.set(true); fixture.detectChanges();
+    await open(items[1].sourceRef);
+    await open(items[0].sourceRef);
+    store.isLoading.set(false); fixture.detectChanges(); await fixture.whenStable();
+    expect(document.activeElement?.id).toBe('pq-questions-heading');
   });
 
   it('owns its scrolling, because the Control Center content cell clips overflow', () => {

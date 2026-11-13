@@ -4,7 +4,9 @@
  * Tracks API costs per model, session, and overall with budget alerts.
  */
 
+import type { z } from 'zod';
 import type { ModelUsageDelta } from '../../../shared/types/provider-model-usage.types';
+import { CostEntryEventSchema } from '@contracts/schemas/session';
 import { buildCostSummary } from './cost-summary-builder';
 import { type CostEntryRow, rowToEntry } from './cost-entry-row';
 import { EventEmitter } from 'events';
@@ -50,6 +52,21 @@ export interface CostEntry {
   /** User or machine session origin; future open tags pass through unchanged. */
   origin?: string;
 }
+
+/**
+ * Compile-time guard: every key of {@link CostEntry} must appear in the
+ * renderer event schema and vice versa. A field added to one but not the
+ * other turns this assignment into a type error, so `npm run typecheck`
+ * catches the drift that once dropped every `cost:usage-recorded` event
+ * when `origin` was added to `CostEntry` but not to `CostEntryEventSchema`.
+ */
+type CostEntryEventKeys = keyof z.infer<typeof CostEntryEventSchema>;
+type _CostEntryKeysMatch = keyof CostEntry extends CostEntryEventKeys
+  ? CostEntryEventKeys extends keyof CostEntry
+    ? true
+    : never
+  : never;
+const _costEntryKeysMatch: _CostEntryKeysMatch = true;
 
 /**
  * Cost summary for a time period or session

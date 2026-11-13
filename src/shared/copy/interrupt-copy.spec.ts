@@ -15,7 +15,7 @@ describe('interrupt sentences', () => {
     ['cancelling', 'cancelled-for-edit', 'Stopping so you can edit your message…'],
     ['escalated', 'cancelled', "The agent didn't stop, so Harness forced it to stop."],
     ['respawning', 'unresolved', 'Restarting the session…'],
-    ['completed', 'cancelled', 'You stopped the agent.'],
+    ['completed', 'cancelled', 'The agent stopped.'],
     ['completed', 'cancelled-for-edit', 'Stopped so you can edit your message.'],
     ['completed', 'respawn-success', 'Stopped. The session restarted and kept its history.'],
     ['completed', 'respawn-fallback', 'Stopped. The session restarted with only your recent messages carried over, so earlier detail may be missing.'],

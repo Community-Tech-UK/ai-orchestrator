@@ -9,7 +9,12 @@ import {
   continuityEntryToOutputMessage,
   outputMessagesToContinuityEntries,
 } from '../../session/continuity-message-projection';
-import type { ConversationEntry, ResumeCursor, SessionState } from '../../session/session-continuity.types';
+import type { ConversationEntry, ResumeCursor, SessionState, StoppedHelper } from '../../session/session-continuity.types';
+import {
+  stoppedHelperNoticeText,
+  stoppedHelperUserText,
+  takeStoppedHelpersFromState,
+} from '../../session/stopped-helper-resume-notice';
 import { promptsFromDiscardedEntries } from '../prompt-retention';
 import { isToolOutcomeMessage, isVisibleOutputMessage } from '../../../shared/types/tool-outcome';
 import { recordToolOutcome } from '../../learning/tool-outcome-store';
@@ -61,6 +66,12 @@ export interface ContinuityRevivalDeps {
   createInstance(config: InstanceCreateConfig): Promise<Instance>;
   createRecoveryInstance?(config: InstanceCreateConfig): Promise<ContinuityRecoveryCreation>;
   queueContinuityPreamble?(instanceId: string, preamble: string): void;
+  /**
+   * Consume the stored stopped-helper list once the revival has succeeded, so
+   * the carry-on notice is never repeated and a failed attempt keeps it
+   * (usage-burn item 3.2).
+   */
+  takeStoppedHelpers?(instanceId: string): Promise<StoppedHelper[] | null>;
   now?(): number;
 }
 
@@ -344,16 +355,26 @@ async function reviveCrashRecovery(
     if (FAILED_START_STATUSES.has(replacement.status)) {
       throw new Error('Replacement runtime did not become ready');
     }
+    // Helpers that stopped with the crashed runtime get their one carry-on
+    // notice (usage-burn item 3.2), joined into the single queued string so
+    // nothing replaces it. The state copy is detached from disk: the take is
+    // local, and the live recovery-key exclusion keeps the same session from
+    // being offered again after revival.
+    const stopped = takeStoppedHelpersFromState(state);
+    const stoppedNotice = stopped.length > 0 ? stoppedHelperNoticeText(stopped, 'the restart') : undefined;
     if (!nativeCursor) {
       const preamble = buildReplayContinuityMessage(initialOutputBuffer, {
         reason: request.reason,
       });
-      if (preamble) {
+      const body = [stoppedNotice, preamble].filter(Boolean).join('\n\n');
+      if (body) {
         if (!deps.queueContinuityPreamble) {
           throw new Error('Replay continuity queue is unavailable');
         }
-        deps.queueContinuityPreamble(replacement.id, preamble);
+        deps.queueContinuityPreamble(replacement.id, body);
       }
+    } else if (stoppedNotice) {
+      deps.queueContinuityPreamble?.(replacement.id, stoppedNotice);
     }
     await creation.publish();
   } catch (error) {
@@ -389,6 +410,22 @@ async function reviveDocReview(
   // Revival keeps only part of the history, so carry the prompts it drops or
   // the revived thread cannot state what it was originally asked to do.
   const initialRetainedPrompts = promptsFromDiscardedEntries(dropped, 'continuity-prompt-');
+  // Helpers that stopped with the old runtime get their one carry-on notice
+  // (usage-burn item 3.2): James reads the line in the restored buffer and the
+  // model notice is queued below to ride with the next input. The stored list
+  // itself is consumed only once the revival succeeds, so a failed attempt
+  // keeps it for the retry.
+  const stopped = takeStoppedHelpersFromState(state);
+  const stoppedNotice = stopped.length > 0 ? stoppedHelperNoticeText(stopped, 'the restart') : undefined;
+  if (stopped.length > 0) {
+    initialOutputBuffer.push({
+      id: `continuity-stopped-helpers-${request.sourceInstanceId}`,
+      timestamp: deps.now?.() ?? Date.now(),
+      type: 'system',
+      content: stoppedHelperUserText(stopped.length, 'the restart'),
+      metadata: { stoppedHelperResume: true },
+    });
+  }
   const nativeSessionId = !state.nativeResumeFailedAt ? state.sessionId?.trim() : undefined;
   const executionLocation = normalizeRecoveryExecutionLocation(state.executionLocation);
   const instance = await deps.createInstance({
@@ -414,6 +451,10 @@ async function reviveDocReview(
     },
   });
   if (instance.readyPromise) await instance.readyPromise;
+  if (stoppedNotice) {
+    await deps.takeStoppedHelpers?.(request.sourceInstanceId);
+    deps.queueContinuityPreamble?.(instance.id, stoppedNotice);
+  }
   return {
     instanceId: instance.id,
     restoreMode: nativeSessionId ? 'native' : 'replay',

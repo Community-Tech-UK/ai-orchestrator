@@ -37,6 +37,12 @@ describe('searchControlNav', () => {
     expect(results('models')[0].results.map(result => result.label)).toContain('Models');
   });
 
+  it.each(['Microsoft 365', 'Outlook', 'mcp'])('finds connector setup by %s even when its page label differs', query => {
+    expect(results(query).flatMap(group => group.results)).toContainEqual(expect.objectContaining({
+      label: 'Connectors', path: '/settings', fragment: 'mcp',
+    }));
+  });
+
   it('does not offer a page the column has hidden', () => {
     expect(results('telemetry').flatMap(group => group.results).map(result => result.label)).not.toContain('Telemetry');
   });

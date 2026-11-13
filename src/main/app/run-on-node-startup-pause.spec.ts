@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createOrchestratorToolsStep } from './orchestrator-tools-step';
 import { getWorkAdmission, WorkAdmission } from '../work-admission/work-admission';
 import { pauseConsults } from '../work-admission/consult-admission';
+import { EventEmitter } from 'node:events';
+import { markAutomaticStartupInputDispatched } from '../work-admission/automatic-startup';
 
 const state = vi.hoisted(() => ({ options: undefined as undefined | { spawnRemoteInstance(args: { node: string; prompt: string; provider: string }): Promise<unknown> } }));
 vi.mock('../mcp/orchestrator-tools-rpc-server', () => ({ initializeOrchestratorToolsRpcServer: async (options: typeof state.options) => { state.options = options; } }));
@@ -26,6 +28,34 @@ vi.mock('../instance/cross-session-messaging', () => ({ getCrossSessionMessaging
 
 afterEach(() => WorkAdmission._resetForTesting());
 describe('run_on_node startup pause', () => {
+  it('returns a working session after initial input dispatch without awaiting its entire first turn', async () => {
+    let finishTurn!: () => void;
+    const firstTurn = new Promise<void>(resolve => { finishTurn = resolve; });
+    const events = new EventEmitter();
+    const instance = { id: 'running-remote', status: 'initializing', readyPromise: firstTurn };
+    const manager = Object.assign(events, { getAllInstances: () => [], getInstance: () => instance,
+      terminateInstance: vi.fn(async () => undefined),
+      createInstance: async () => {
+        setImmediate(() => {
+          markAutomaticStartupInputDispatched(instance.id);
+          instance.status = 'busy';
+          events.emit('instance:state-changed', { instanceId: instance.id, status: 'busy', instance });
+        });
+        return instance;
+      } });
+    await createOrchestratorToolsStep(manager as never, {} as never).fn();
+    const originalListeners = events.listenerCount('instance:state-changed');
+    let returned = false;
+    const spawning = state.options!.spawnRemoteInstance({ node: 'windows', provider: 'codex', prompt: 'Implement the export guard' })
+      .then(result => { returned = true; return result; });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    await new Promise<void>(resolve => setImmediate(resolve));
+    const returnedBeforeTurnCompleted = returned;
+    finishTurn();
+    await expect(spawning).resolves.toMatchObject({ instanceId: instance.id, status: 'busy' });
+    expect(returnedBeforeTurnCompleted).toBe(true);
+    expect(events.listenerCount('instance:state-changed')).toBe(originalListeners);
+  });
   it('waits for late remote creation and teardown instead of returning a live helper after pause', async () => {
     let entered!: () => void;
     const started = new Promise<void>(resolve => { entered = resolve; });

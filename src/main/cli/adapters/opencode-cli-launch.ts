@@ -15,6 +15,7 @@ const logger = getLogger('OpenCodeCliLaunch');
 export interface OpenCodeLaunch {
   command: string;
   major: number;
+  version: string;
 }
 
 function pathCandidates(env: NodeJS.ProcessEnv): string[] {
@@ -84,17 +85,19 @@ export async function selectOpenCodeLaunch(params: {
   const supported: OpenCodeLaunch[] = [];
   for (const command of candidates) {
     const version = await capture(command, ['--version']).catch(() => undefined);
-    if (!version || version.code !== 0 || !/\d+\.\d+\.\d+/.test(version.stdout)) {
+    const versionOutput = version?.code === 0 ? version.stdout : '';
+    const matchedVersion = /(\d+\.\d+\.\d+)/.exec(versionOutput)?.[1];
+    if (!matchedVersion) {
       unknownVersion += 1;
       continue;
     }
-    const major = supportedOpenCodeMajor(version.stdout);
+    const major = supportedOpenCodeMajor(versionOutput);
     if (major === undefined) { unsupported += 1; continue; }
     if (params.requiredMajor !== undefined && major !== params.requiredMajor) continue;
-    supported.push({ command, major });
+    supported.push({ command, major, version: matchedVersion });
   }
   supported.sort((left, right) => right.major - left.major);
-  for (const { command, major } of supported) {
+  for (const { command, major, version } of supported) {
     let probeEnv = params.env;
     if (major === 2 && probeEnv['OPENCODE_CONFIG_CONTENT']) {
       try {
@@ -113,7 +116,7 @@ export async function selectOpenCodeLaunch(params: {
     if (unknownVersion + unsupported + unreadable > 0) {
       logger.warn('Skipped unusable OpenCode installs; using another', { major, unknownVersion, unsupported, unreadable });
     }
-    return { command, major };
+    return { command, major, version };
   }
   logger.warn('No usable OpenCode install', { candidates: candidates.length, unknownVersion, unsupported, unreadable });
   throw new Error(unusableOpenCodeMessage(unreadable > 0, unsupported > 0, params.requiredMajor));

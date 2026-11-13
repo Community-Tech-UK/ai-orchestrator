@@ -26,4 +26,5 @@ export const CostEntryEventSchema = z.object({
   creditCheckpointTotalNano: credits.optional(),
   creditCheckpointPremiumTotal: credits.optional(),
   byModel: z.array(CostModelUsageDeltaSchema).max(100).optional(),
+  origin: z.string().min(1).max(100).optional(),
 }).strict();

@@ -10,7 +10,7 @@ import { evaluateContextWindowGuard } from '../context/context-window-guard';
 import { getCrossModelReviewService } from '../orchestration/cross-model-review-service';
 import { getDebateCoordinator } from '../orchestration/debate-coordinator';
 import { getDoomLoopDetector } from '../orchestration/doom-loop-detector';
-import { shouldTellUserAboutToolLoop, toolLoopNotice } from '../orchestration/tool-loop-notice';
+import { shouldTellUserAboutToolLoop, toolLoopNotice, toolLoopTranscriptNotice } from '../orchestration/tool-loop-notice';
 import { willAutoInterruptToolLoop } from '../instance/instance-tool-loop-wiring';
 import { getNotificationService } from '../notifications/notification-service';
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -537,6 +537,17 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
       event, instance?.provider, getSettingsManager().get('toolLoopAutoInterrupt'));
     // The detector has already logged every detection; only the ones a person should act on go further.
     if (!shouldTellUserAboutToolLoop(event, harnessStopping)) return;
+    const transcriptNotice = toolLoopTranscriptNotice(event, harnessStopping);
+    if (instance && transcriptNotice) {
+      try {
+        instanceManager.emitSystemMessage(event.instanceId, transcriptNotice, {
+          source: 'tool-loop-stop', severity: 'warning', detector: event.detector,
+        });
+      } catch {
+        // A failed history/renderer observer must not prevent the interrupt.
+        logger.warn('Tool loop transcript notice failed', { instanceId: event.instanceId });
+      }
+    }
     logger.warn('Forwarding tool loop detection to renderer', {
       instanceId: event.instanceId,
       detector: event.detector,

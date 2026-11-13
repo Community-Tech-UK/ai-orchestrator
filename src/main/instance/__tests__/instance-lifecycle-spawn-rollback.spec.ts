@@ -265,16 +265,21 @@ vi.mock('../../session/session-mutex', () => ({
   }),
 }));
 
-vi.mock('../../session/session-continuity', () => ({
-  getSessionContinuityManager: () => ({
+vi.mock('../../session/session-continuity', () => {
+  const inertContinuityManager = () => ({
     startTracking: mocks.continuityStartTracking,
     stopTracking: mocks.continuityStopTracking,
     updateState: mocks.continuityUpdateState,
     resumeSession: mocks.continuityResumeSession,
     markNativeResumeFailed: mocks.continuityMarkNativeResumeFailed,
     writeThroughIdentityLocked: vi.fn(),
-  }),
-}));
+    takeStoppedHelpers: vi.fn(async () => null),
+  });
+  return {
+    getSessionContinuityManager: inertContinuityManager,
+    getSessionContinuityManagerIfInitialized: inertContinuityManager,
+  };
+});
 
 vi.mock('../../session/checkpoint-manager', () => ({
   getCheckpointManager: () => ({}),

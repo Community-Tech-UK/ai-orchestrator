@@ -9,9 +9,17 @@
   </div>
   <div role="tabpanel" id="pq-panel-now" [hidden]="activeTab() !== 'now'" aria-labelledby="pq-tab-now">
   @if (activeTab() === 'now') {
-  @if (store.needsAnswerItems().length > 0) {
+  @if (selectedDocument() || store.needsAnswerItems().length > 0) {
     <section class="pq-section pq-section-questions" aria-labelledby="pq-questions-heading">
-      <h2 id="pq-questions-heading">Needs your answer</h2>
+      <h2 #questionHeading id="pq-questions-heading" tabindex="-1">Needs your answer</h2>
+      @if (selectedDocument()) {
+        <a routerLink="/plan-queue">Show all questions</a>
+        @if (store.isLoading()) {
+          <p role="status">Loading questions…</p>
+        } @else if (!store.lastError() && questionGroups().length === 0) {
+          <p role="status">This document has no questions waiting for your answer.</p>
+        }
+      } @else {
       <div class="pq-attention-banner" role="status">
         {{ pluralise(store.needsAnswerItems().length, 'item') }} {{ store.needsAnswerItems().length === 1 ? 'needs' : 'need' }} your answer.
       </div>
@@ -19,7 +27,8 @@
         These documents are waiting for your decision. The queue does not start or continue any of them until you choose.
         When many are waiting, each run's questions start folded: open a run to answer them.
       </p>
-      <app-plan-queue-question-list [groups]="store.questionGroups()" (answer)="onAnswer($event)" />
+      }
+      <app-plan-queue-question-list [groups]="questionGroups()" [expandedForDocument]="selectedDocument()" (answer)="onAnswer($event)" />
     </section>
   }
 

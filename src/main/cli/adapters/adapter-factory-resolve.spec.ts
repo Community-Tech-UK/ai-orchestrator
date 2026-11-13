@@ -47,4 +47,19 @@ describe('resolveCliType', () => {
 
     expect(detectAllMock).toHaveBeenCalledTimes(1);
   });
+
+  it('re-checks with a forced scan before vetoing an explicit request', async () => {
+    detectAllMock.mockResolvedValueOnce(detectionResult(['claude']));
+    detectAllMock.mockResolvedValueOnce(detectionResult(['claude', 'opencode']));
+
+    await expect(resolveCliType('opencode', 'auto')).resolves.toBe('opencode');
+    expect(detectAllMock).toHaveBeenNthCalledWith(2, true);
+  });
+
+  it('falls back when a forced re-check also lacks the requested CLI', async () => {
+    detectAllMock.mockResolvedValue(detectionResult(['claude']));
+
+    await expect(resolveCliType('opencode', 'auto')).resolves.toBe('claude');
+    expect(detectAllMock).toHaveBeenCalledTimes(2);
+  });
 });

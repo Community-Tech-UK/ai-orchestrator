@@ -17,6 +17,7 @@ import { normalizeOpenCodeAdditionalDirectories } from '../../shared/utils/openc
 import type { Instance } from '../../shared/types/instance.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
+import { errorDiagnostic } from '../logging/source-diagnostics';
 import { SnapshotIndex } from './snapshot-index';
 import { TerminationGateManager, type SessionTerminationGate, type TerminationGateResult } from './termination-gate-manager';
 import { SnapshotManager } from './snapshot-manager';
@@ -45,6 +46,7 @@ import {
   updateContinuityCaptureIdentity,
 } from './session-continuity-state';
 import { instanceToContinuityState } from './session-continuity-instance-state';
+import { takeStoppedHelpersFromState } from './stopped-helper-resume-notice';
 import type {
   ContinuityConfig,
   ConversationEntry,
@@ -52,6 +54,7 @@ import type {
   ResumeOptions,
   SessionSnapshot,
   SessionState,
+  StoppedHelper,
 } from './session-continuity.types';
 import type { ContinuityRecoveryMetadata } from './session-recovery-candidate-service';
 import {
@@ -82,6 +85,10 @@ export type {
 const logger = getLogger('SessionContinuity');
 
 const DEFAULT_RESUME_AUTOSAVE_GRACE_MS = 60_000;
+
+/** Barrier writes retry only while a concurrent writer keeps fencing their epoch; real IO failures still throw. */
+const PROVIDER_TURN_BARRIER_MAX_ATTEMPTS = 3;
+const MAX_STOPPED_HELPERS = 50;
 
 /**
  * Pre-termination validation gate result.
@@ -140,6 +147,8 @@ export class SessionContinuityManager extends EventEmitter {
   private dehydratedStateIds = new Set<string>();
   private stateActivityTimestamps = new Map<string, number>();
   private stateRecoveryMetadata = new Map<string, { messageCount: number; hasAssistantOutput: boolean }>();
+  /** In-flight stopped-helper persistence per instance, so a take can wait out a late write. */
+  private stoppedHelperWrites = new Map<string, Promise<void>>();
   private readyPromise: Promise<void>;
   /** Actual initialization settlement; recovery discovery must not use the startup timeout race. */
   private initializationPromise: Promise<void>;
@@ -760,9 +769,20 @@ export class SessionContinuityManager extends EventEmitter {
     const state = await this.hydrateTrackedState(instanceId, tracked);
     if (updateContinuityCaptureIdentity(state, this.instanceManager?.getInstance?.(instanceId))) this.markConversationIncomplete(instanceId);
     this.persistenceEpochs.advance(instanceId);
-    state.conversationHistoryTurnStarted = true; state.conversationHistoryComplete = false;
-    this.dirty.add(instanceId);
-    if (!await this.persistState(instanceId)) throw new Error('Unable to save incomplete transcript barrier; provider input was not sent.');
+    for (let attempt = 0; ; attempt++) {
+      const latest = this.sessionStates.get(instanceId);
+      if (!latest) throw new Error('Unable to save incomplete transcript barrier; provider input was not sent.');
+      latest.conversationHistoryTurnStarted = true; latest.conversationHistoryComplete = false;
+      this.dirty.add(instanceId);
+      const epoch = this.persistenceEpochs.capture(instanceId);
+      if (await this.persistState(instanceId, epoch)) return;
+      // A stale epoch means a concurrent writer fenced this attempt out and the
+      // newer write supersedes it, so retry the barrier against the fresh epoch.
+      // A current epoch means the write itself failed; retrying cannot help.
+      if (this.persistenceEpochs.isCurrent(instanceId, epoch) || attempt + 1 >= PROVIDER_TURN_BARRIER_MAX_ATTEMPTS) {
+        throw new Error('Unable to save incomplete transcript barrier; provider input was not sent.');
+      }
+    }
   }
 
   /** Called by the ordered continuity queue after the turn's content tasks have drained. */
@@ -857,6 +877,79 @@ export class SessionContinuityManager extends EventEmitter {
 
     this.dirty.add(instanceId);
     return true;
+  }
+
+  /**
+   * Persist helper agents that stopped with the session so a resume can report
+   * and continue them. Scalar metadata only: unlike conversation content it is
+   * persisted regardless of `persistSessionContent`. Merges by `toolUseId`
+   * (newer entries win) and keeps the newest {@link MAX_STOPPED_HELPERS}. The
+   * save is queued before returning so it completes before any later shutdown
+   * write. Never throws — an unrecorded helper must not abort a stop.
+   */
+  async persistStoppedHelpers(instanceId: string, helpers: StoppedHelper[]): Promise<boolean> {
+    if (helpers.length === 0) return false;
+    const write = this.writeStoppedHelpers(instanceId, helpers);
+    const settled = write.then(() => undefined, () => undefined);
+    this.stoppedHelperWrites.set(instanceId, settled);
+    try {
+      return await write;
+    } finally {
+      if (this.stoppedHelperWrites.get(instanceId) === settled) this.stoppedHelperWrites.delete(instanceId);
+    }
+  }
+
+  private async writeStoppedHelpers(instanceId: string, helpers: StoppedHelper[]): Promise<boolean> {
+    try {
+      await this.readyPromise;
+      const trackedState = this.sessionStates.get(instanceId);
+      if (!trackedState) return false;
+      const state = await this.hydrateTrackedState(instanceId, trackedState);
+      const merged = new Map<string, StoppedHelper>();
+      for (const helper of state.stoppedHelpers ?? []) merged.set(helper.toolUseId, helper);
+      for (const helper of helpers) merged.set(helper.toolUseId, helper);
+      state.stoppedHelpers = [...merged.values()]
+        .sort((a, b) => a.lastActivityAt - b.lastActivityAt)
+        .slice(-MAX_STOPPED_HELPERS);
+      this.dirty.add(instanceId);
+      await this.queueStateSaveAsync(instanceId);
+      return true;
+    } catch (error) {
+      logger.warn('Could not persist stopped helper agents', { instanceId, ...errorDiagnostic(error) });
+      return false;
+    }
+  }
+
+  /**
+   * One-shot take of the stopped-helper list for the resume about to deliver
+   * the carry-on notice. Waits out any in-flight persistence first (an
+   * unexpected-exit stop can still be hydrating), clears the stored list as it
+   * takes it, and returns it. Null when nothing is stored, so no caller
+   * announces an empty list and no second take repeats the notice. Never
+   * throws; once taken the helpers are returned even if the clear cannot be
+   * saved, so the notice is never lost with its list.
+   */
+  async takeStoppedHelpers(instanceId: string): Promise<StoppedHelper[] | null> {
+    let helpers: StoppedHelper[];
+    try {
+      await this.stoppedHelperWrites.get(instanceId);
+      await this.readyPromise;
+      const trackedState = this.sessionStates.get(instanceId);
+      if (!trackedState) return null;
+      const state = await this.hydrateTrackedState(instanceId, trackedState);
+      helpers = takeStoppedHelpersFromState(state);
+    } catch (error) {
+      logger.warn('Could not read stopped helper agents', { instanceId, ...errorDiagnostic(error) });
+      return null;
+    }
+    if (helpers.length === 0) return null;
+    this.dirty.add(instanceId);
+    try {
+      await this.queueStateSaveAsync(instanceId);
+    } catch (error) {
+      logger.warn('Could not save the stopped-helper take', { instanceId, ...errorDiagnostic(error) });
+    }
+    return helpers;
   }
 
   /**

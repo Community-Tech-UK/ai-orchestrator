@@ -147,10 +147,29 @@ function fsyncParentDirectory(filePath: string): void {
   } catch { /* directory fsync is unavailable on some platforms */ }
 }
 
-export async function writeContinuityPayloadAsyncAtomic(
+const atomicAsyncWriteChains = new Map<string, Promise<unknown>>();
+
+// Same-process writes queue FIFO per file here; the fail-fast lock below still
+// rejects genuinely foreign writers instead of waiting on them.
+export function writeContinuityPayloadAsyncAtomic(
   filePath: string,
   serialized: string,
   canCommit: () => boolean = () => true,
+): Promise<boolean> {
+  const previous = atomicAsyncWriteChains.get(filePath) ?? Promise.resolve();
+  const run = previous.then(() => writeContinuityPayloadAsyncAtomicNow(filePath, serialized, canCommit));
+  const settled = run.then(() => undefined, () => undefined);
+  atomicAsyncWriteChains.set(filePath, settled);
+  void settled.then(() => {
+    if (atomicAsyncWriteChains.get(filePath) === settled) atomicAsyncWriteChains.delete(filePath);
+  });
+  return run;
+}
+
+async function writeContinuityPayloadAsyncAtomicNow(
+  filePath: string,
+  serialized: string,
+  canCommit: () => boolean,
 ): Promise<boolean> {
   const tmpFile = getContinuityStagingPath(filePath);
   let committed = false;

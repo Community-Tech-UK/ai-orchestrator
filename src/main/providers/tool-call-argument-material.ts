@@ -14,7 +14,8 @@
  * `DoomLoopDetector` raised `repeat-no-progress` — none of it real.
  *
  * "Uncaptured" is deliberately narrow: an object whose only keys are the ACP
- * `kind` string and/or an empty `rawInput` record. A plain `{}` from a
+ * `kind` string and/or an empty `rawInput` record, or an execute call whose
+ * raw input only names its working folder. A plain `{}` from a
  * non-ACP adapter keeps hashing as before, so a genuinely argument-less tool
  * called repeatedly is still visible to the detectors.
  */
@@ -37,6 +38,11 @@ export function readCapturedToolArguments(
   if (keys.length === 0) return args;
   const kind = args['kind'];
   if (typeof kind !== 'string') return args;
+  // OpenCode starts bash calls with only the working folder. It supplies the
+  // actual command in a later update; the folder alone cannot identify a call.
+  const rawInput = args['rawInput'];
+  if (kind === 'execute' && keys.every(key => key === 'kind' || key === 'rawInput') && isRecord(rawInput)
+    && Object.keys(rawInput).every(key => key === 'cwd' || key === 'workdir')) return undefined;
   for (const key of keys) {
     if (key === 'kind') continue;
     if (key === 'rawInput') {

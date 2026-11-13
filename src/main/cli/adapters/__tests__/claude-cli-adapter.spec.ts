@@ -863,6 +863,9 @@ describe('ClaudeCliAdapter — spawn/terminate lifecycle', () => {
         // Don't emit exit — simulate a hung process that ignores SIGTERM.
         // The base adapter's escalation timeout is 5000ms.
         await vi.advanceTimersByTimeAsync(5000);
+        // The terminate finally then waits out the bounded 3s close deadline
+        // (claude-one-shot-lifecycle.ts) before it resolves.
+        await vi.advanceTimersByTimeAsync(3000);
         await terminatePromise;
 
         expect(killSpy).toHaveBeenCalledWith(-proc.pid, 'SIGTERM');

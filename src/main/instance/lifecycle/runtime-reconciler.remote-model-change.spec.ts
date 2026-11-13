@@ -13,7 +13,7 @@ vi.mock('../../pause/pause-coordinator', () => ({ getPauseCoordinator: () => ({ 
 vi.mock('../../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }) }));
 vi.mock('../../session/session-mutex', () => ({ getSessionMutex: () => ({ acquire: async () => () => undefined }) }));
 vi.mock('../../session/session-continuity', () => ({
-  getSessionContinuityManager: () => ({ writeThroughIdentityLocked: async () => undefined }),
+  getSessionContinuityManager: () => ({ writeThroughIdentityLocked: async () => undefined, takeStoppedHelpers: async () => null }),
   getSessionContinuityManagerIfInitialized: () => undefined,
 }));
 vi.mock('./create-validation-helpers', () => ({ getKnownModelsForCli: async () => ['sonnet', 'opus', 'gpt-5.4', 'gpt-5.5'] }));

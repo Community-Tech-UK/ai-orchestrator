@@ -17,6 +17,7 @@ const { continuity, queuedInput } = vi.hoisted(() => ({
   continuity: {
     updateState: vi.fn().mockResolvedValue(undefined),
     writeThroughIdentityLocked: vi.fn().mockResolvedValue(undefined),
+    takeStoppedHelpers: vi.fn().mockResolvedValue(null),
   },
   queuedInput: { waiting: false },
 }));

@@ -1,5 +1,6 @@
 import { provideZonelessChangeDetection, signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -43,7 +44,7 @@ describe('Plan Queue cancellation across live page updates', () => {
     list = vi.fn().mockResolvedValue(snapshot());
     control = vi.fn().mockResolvedValue({ success: true, data: null });
     await TestBed.configureTestingModule({ imports: [PlanQueuePageComponent], providers: [
-      provideZonelessChangeDetection(), PlanQueueStore,
+      provideZonelessChangeDetection(), provideRouter([]), PlanQueueStore,
       { provide: PlanQueueIpcService, useValue: {
         list, control,
         onStateChanged: (callback: typeof push) => { push = callback; return () => undefined; },

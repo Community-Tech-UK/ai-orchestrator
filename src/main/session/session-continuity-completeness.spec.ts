@@ -253,4 +253,59 @@ describe('durable complete-conversation checkpoints', () => {
     await value.checkpointCompleteConversation(instance.id, oldToken);
     expect((await disk(value, instance.id)).conversationHistoryComplete).toBe(false);
   });
+
+  it('retries the incomplete barrier when a concurrent change fences its write instead of dropping the turn', async () => {
+    let block = false; let release!: () => void; let started!: () => void;
+    const pending = new Promise<void>((resolve) => { started = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const value = await manager({ writePayloadAtomic: async (...args) => {
+      const state = JSON.parse((JSON.parse(args[1]) as { data: string }).data) as SessionState;
+      if (block && state.conversationHistoryTurnStarted === true && state.conversationHistoryComplete === false) {
+        block = false; started(); await gate;
+      }
+      return writeContinuityPayloadAsyncAtomic(...args);
+    } });
+    const instance = await fresh(value);
+    block = true;
+    const barrier = value.prepareForProviderTurn(instance.id);
+    await pending;
+    await value.updateState(instance.id, { provider: 'claude' });
+    release();
+    await expect(barrier).resolves.toBeUndefined();
+    const saved = await disk(value, instance.id);
+    expect(saved.conversationHistoryComplete).toBe(false);
+    expect(saved.conversationHistoryTurnStarted).toBe(true);
+  });
+
+  it('lets two concurrent provider-turn barriers persist instead of fencing each other out', async () => {
+    const value = await manager(); const instance = await fresh(value);
+    const first = value.prepareForProviderTurn(instance.id);
+    const second = value.prepareForProviderTurn(instance.id);
+    await expect(first).resolves.toBeUndefined();
+    await expect(second).resolves.toBeUndefined();
+    const saved = await disk(value, instance.id);
+    expect(saved.conversationHistoryTurnStarted).toBe(true);
+    expect(saved.conversationHistoryComplete).toBe(false);
+  });
+
+  it('refuses to advance the provider when the tracked session vanishes during a fenced retry', async () => {
+    let block = false; let release!: () => void; let started!: () => void;
+    const pending = new Promise<void>((resolve) => { started = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const value = await manager({ writePayloadAtomic: async (...args) => {
+      const state = JSON.parse((JSON.parse(args[1]) as { data: string }).data) as SessionState;
+      if (block && state.conversationHistoryTurnStarted === true && state.conversationHistoryComplete === false) {
+        block = false; started(); await gate;
+      }
+      return writeContinuityPayloadAsyncAtomic(...args);
+    } });
+    const instance = await fresh(value);
+    block = true;
+    const barrier = value.prepareForProviderTurn(instance.id);
+    await pending;
+    value.markConversationIncomplete(instance.id);
+    await value.stopTracking(instance.id);
+    release();
+    await expect(barrier).rejects.toThrow('Unable to save incomplete transcript barrier; provider input was not sent.');
+  });
 });

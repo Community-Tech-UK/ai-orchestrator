@@ -83,4 +83,43 @@ describe('CostPurposeSummaryService', () => {
     vi.stubEnv('AIO_COST_ATTRIBUTION', '0');
     expect(summary.getSummary().enabled).toBe(false);
   });
+
+  it('shows helper spend in the breakdown without adding it to totals', () => {
+    write([
+      { source: 'instance-turn', taskType: 'chat:main', provider: 'claude', purpose: 'chat',
+        costSource: 'provider', usage: { cost: 1 } },
+      { source: 'instance-turn', taskType: 'claude-subagent-final', provider: 'claude', purpose: 'subagent',
+        costSource: 'unknown', costKnown: false, subagentUsage: true, includedInParentTurn: true,
+        toolUseId: 'toolu_1', helperTranscriptCost: 0.5,
+        helperTranscriptUsage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 1, cacheWriteTokens: 2, cacheWrite5mTokens: 1, cacheWrite1hTokens: 1 } },
+      { source: 'instance-turn', taskType: 'claude-subagent-final', provider: 'claude', purpose: 'subagent',
+        costSource: 'unknown', costKnown: false, subagentUsage: true, includedInParentTurn: true,
+        toolUseId: 'toolu_2', helperTranscriptCost: 0.25 },
+    ]);
+    const summary = getCostPurposeSummary().getSummary({ startTime: time - 1, endTime: time + 1 });
+    expect(summary.totalHelperCost).toBe(0.75);
+    expect(summary.totals.helperCost).toBe(0.75);
+    expect(summary.totals.cost).toBe(1);
+    expect(summary.totals.calls).toBe(1);
+    const helperRow = summary.byPurpose.find(row => row.key === 'subagent');
+    expect(helperRow?.helperCost).toBe(0.75);
+    expect(helperRow?.cost).toBe(0);
+    expect(helperRow?.calls).toBe(0);
+    const chatRow = summary.byPurpose.find(row => row.key === 'chat');
+    expect(chatRow?.cost).toBe(1);
+    expect(chatRow?.helperCost).toBe(0);
+    expect(summary.byProvider.find(row => row.key === 'claude')?.helperCost).toBe(0.75);
+    expect(summary.byProvider.find(row => row.key === 'claude')?.cost).toBe(1);
+  });
+
+  it('still counts a helper row that books its cost through usage', () => {
+    write([
+      { source: 'instance-turn', taskType: 'claude-subagent-final', provider: 'claude', purpose: 'subagent',
+        costSource: 'unknown', costKnown: false, subagentUsage: true, includedInParentTurn: true,
+        toolUseId: 'toolu_3', usage: { cost: 0.4 } },
+    ]);
+    const summary = getCostPurposeSummary().getSummary({ startTime: time - 1, endTime: time + 1 });
+    expect(summary.totalHelperCost).toBe(0.4);
+    expect(summary.totals.cost).toBe(0);
+  });
 });

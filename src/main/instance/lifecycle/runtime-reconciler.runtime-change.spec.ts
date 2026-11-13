@@ -32,6 +32,7 @@ const { mockContinuity, mockSessionMutex, mockProcessKill } = vi.hoisted(() => (
   mockContinuity: {
     writeThroughIdentityLocked: vi.fn().mockResolvedValue(undefined),
     updateState: vi.fn().mockResolvedValue(undefined),
+    takeStoppedHelpers: vi.fn(async () => null),
   },
   mockSessionMutex: {
     acquire: vi.fn().mockResolvedValue(() => {}),
@@ -1122,6 +1123,9 @@ describe('RuntimeReconciler.applyRuntimeChange — account-pool handoff', () => 
     await reconciler.applyRuntimeChange('inst-1', handoff('failover'));
     expect(createCalls[0].options['resume']).toBe(true);
     expect(createCalls[0].options['sessionId']).toBe(LIVE_SESSION_ID);
+    // Usage-burn 3.3: an account-only handoff resumes in place — forking would
+    // mint an id the stopped-helper transcripts are not filed under.
+    expect(createCalls[0].options['forkSession']).toBe(false);
   });
 
   it.each(['claude', 'codex'] as const)('starts a fresh %s session when the provider never stored the held first turn', async (provider) => {

@@ -735,8 +735,8 @@ export function registerMcpHandlers(deps: {
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(McpConnectorAddMicrosoft365Schema, payload, 'MCP_CONNECTOR_ADD_MICROSOFT365');
-        await addMicrosoft365Connector(validated);
-        return { success: true };
+        const data = await addMicrosoft365Connector(validated);
+        return { success: true, data };
       } catch (error) {
         return { success: false, error: { code: 'MCP_CONNECTOR_MICROSOFT365_FAILED', message: (error as Error).message, timestamp: Date.now() } };
       }

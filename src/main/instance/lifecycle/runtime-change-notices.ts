@@ -31,7 +31,8 @@ export type RuntimeChangeNoticeKind =
   | 'provider-changed'
   | 'model-changed'
   | 'copilot-account-changed'
-  | 'account-changed';
+  | 'account-changed'
+  | 'stopped-helpers';
 
 const PROVIDER_DEFAULT = 'provider default';
 

@@ -111,6 +111,7 @@ const ProviderToolResultEventSchema = z.object({
   kind: z.literal('tool_result'),
   toolName: z.string(),
   toolUseId: z.string().optional(),
+  argsHash: z.string().optional(),
   output: z.string().optional(),
   success: z.boolean(),
   error: z.string().optional(),

@@ -9,6 +9,23 @@ const entry = (source: NeedsYouEntry['source'], extra: Partial<NeedsYouEntry> = 
 const empty = (): NeedsYouSources => ({ permissions: [], browsers: [], fallbacks: [], plans: [], documents: [], memories: [], sidechats: [], outstanding: [], toolLoops: [] });
 
 describe('needs-you source mapping', () => {
+  it('links a grouped Plan Queue card to its exact document, encoding punctuation and Unicode', () => {
+    const sources = empty();
+    const sourceRef = '/repo/space & hash # question ? ü_plan.md';
+    sources.plans = [
+      { id: 'first', sourceRef, updatedAt: 4 },
+      { id: 'second', sourceRef, updatedAt: 5 },
+      { id: 'other', sourceRef: '/other/space & hash # question ? ü_plan.md', updatedAt: 6 },
+    ];
+    const entries = requestEntries(sources, now);
+    expect(entries).toHaveLength(2);
+    expect(entries[0].title).toBe('Plan Queue has 2 questions for you');
+    const target = new URL(entries[0].route!, 'http://localhost');
+    expect(target.pathname).toBe('/plan-queue');
+    expect(target.searchParams.get('document')).toBe(sourceRef);
+    expect(target.hash).toBe('');
+    expect(entries[1].route).not.toBe(entries[0].route);
+  });
   it('excludes old document reviews, answered questions and all 293 pre-B5 rows', () => {
     const sources = empty();
     sources.documents = [

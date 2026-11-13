@@ -3,8 +3,8 @@
   <!-- Page header -->
   <div class="page-header">
     <div class="header-title">
-      <span class="title">MCP Servers</span>
-      <span class="subtitle">Model Context Protocol server management</span>
+      <h1 class="title">Connectors</h1>
+      <span class="subtitle">Connect email, calendars and other tools to your agents.</span>
     </div>
     <div class="header-actions">
       <button class="btn" type="button" [disabled]="loading()" (click)="refresh()">
@@ -20,7 +20,7 @@
     </div>
   }
   @if (infoMessage()) {
-    <div class="info-banner">{{ infoMessage() }}</div>
+    <div class="info-banner" role="status">{{ infoMessage() }}</div>
   }
 
   <section class="management-panel">
@@ -28,7 +28,7 @@
       @for (tab of managementTabs; track tab.id) {
         <button data-test="mcp-tab" class="management-tab" type="button" role="tab"
           [attr.aria-selected]="activeManagementTab() === tab.id" [class.active]="activeManagementTab() === tab.id"
-          (click)="setManagementTab(tab.id)">{{ tab.label }}</button>
+          [disabled]="working()" (click)="setManagementTab(tab.id)">{{ tab.label }}</button>
       }
     </div>
     <div class="management-body">
@@ -36,8 +36,7 @@
         @if (activeManagementTab() === 'orchestrator') {
           <div>
             <span class="panel-heading"><app-term term="connectors" /></span>
-            <p class="panel-subtitle">Sign in once and use the connector in new local sessions from your selected AI tools.</p>
-            <p class="panel-subtitle">Antigravity, the direct Anthropic API, and sessions on remote computers cannot receive these connectors.</p>
+            <p class="panel-subtitle">Sign in once. Use the same connected account across Claude accounts, Codex and your other selected AI tools in new local sessions.</p>
           </div>
         } @else if (isProviderManagementTab()) {
           <div>
@@ -52,10 +51,18 @@
         @if (isProviderManagementTab()) {
           <button class="btn small" type="button" [disabled]="working()" (click)="openCurrentProviderUserFile()">Open settings file</button>
         }
-        @if (activeManagementTab() !== 'workspace') {
-          <button class="btn small primary" type="button" [disabled]="working()" (click)="beginCreateManagementServer()">Add</button>
+        @if (activeManagementTab() === 'orchestrator') {
+          <button class="btn primary" type="button" [disabled]="working()" (click)="beginAddMicrosoft365()">Add Microsoft 365</button>
+          <button class="btn" type="button" [disabled]="working()" (click)="beginCreateManagementServer()">Add another connector</button>
+        } @else if (isProviderManagementTab()) {
+          <button class="btn small primary" type="button" [disabled]="working()" (click)="beginCreateManagementServer()">Add tool server</button>
         }
       </div>
+      @if (microsoft365FormOpen()) {
+        <app-microsoft365-connector-form [existingNames]="connectorNames()"
+          (busyChange)="working.set($event)" (added)="onMicrosoft365Added($event)"
+          (cancelled)="microsoft365FormOpen.set(false)" />
+      }
       @if (activeManagementTab() === 'workspace') { <app-workspace-mcp-connectors-panel /> }
       @if (multiProviderStore.error()) { <div class="error-banner" role="alert">{{ multiProviderStore.error() }}</div> }
       @if (managementFormOpen() && activeManagementTab() !== 'workspace') {
@@ -74,7 +81,7 @@
                 @if (managementFormMode() === 'create') {
                   <label class="field-label" for="connector-kind">Kind</label>
                   <select id="connector-kind" class="select" [value]="managementForm.kind()" (change)="onConnectorKindChange($event)">
-                    <option value="local">Local program</option><option value="remote">Remote server</option><option value="microsoft365">Microsoft 365 account</option>
+                    <option value="local">Local program</option><option value="remote">Remote server</option>
                   </select>
                 } @else {
                   <span class="field-label">Kind</span>
@@ -92,12 +99,7 @@
             }
             @if (activeManagementTab() === 'orchestrator' && managementForm.kind() === 'microsoft365') {
               <div class="form-wide">
-                @if (managementFormMode() === 'create') {
-                  <p>Saving opens Microsoft sign-in. Choose your organisation account. Your organisation may require its IT administrator to approve Harness.</p>
-                  <label class="checkbox-row compact-check"><input type="checkbox" [checked]="managementForm.mailEnabled()" (change)="managementForm.mailEnabled.set($any($event.target).checked)" />Include mail</label>
-                } @else {
-                  <p>To change the account or add mail access, add a new connector and sign in again.</p>
-                }
+                <p>To change the account or add mail access, use Add Microsoft 365 and sign in again.</p>
                 <p>Agents may write only for accounts allowed in your Microsoft 365 settings. Other accounts start read-only.</p>
               </div>
             } @else if (managementForm.transport() === 'stdio') {
@@ -133,7 +135,7 @@
           @if (managementFormError()) { <div class="error-banner" role="alert">{{ managementFormError() }}
             @if (managementFormErrorDetails()) { <details><summary>Details</summary><pre>{{ managementFormErrorDetails() }}</pre></details> }
           </div> }
-          <div class="form-actions"><button class="btn primary" type="button" [disabled]="working()" (click)="submitManagementServer()">{{ working() ? 'Saving…' : managementForm.kind() === 'microsoft365' && managementFormMode() === 'create' ? 'Sign in and save' : 'Save' }}</button></div>
+          <div class="form-actions"><button class="btn primary" type="button" [disabled]="working()" (click)="submitManagementServer()">{{ working() ? 'Saving…' : 'Save' }}</button></div>
         </div>
       }
       @if (activeManagementTab() !== 'workspace' && managementRows().length === 0 && !multiProviderStore.error()) {
@@ -143,17 +145,21 @@
           @for (server of managementRows(); track server.id) {
             <div class="management-row">
               <div class="management-row-main">
-                <div class="server-name">{{ server.name }}</div>
-                @if (server.description) { <div class="server-meta">{{ server.description }}</div> }
+                <div class="server-name">{{ server.kind === 'microsoft365' ? server.description || server.name : server.name }}</div>
+                @if (server.kind === 'microsoft365') { <div class="server-meta">Microsoft 365 · {{ server.mailEnabled ? 'Email and calendars' : 'Calendars only' }}</div> }
+                @else if (server.description) { <div class="server-meta">{{ server.description }}</div> }
                 @if (activeManagementTab() === 'orchestrator') { <div class="server-meta">{{ connectorSummary(server.id) }}</div> }
                 @if (server.sourceFile) { <details><summary>Settings file</summary><code>{{ server.sourceFile }}</code></details> }
               </div>
               <div class="management-row-actions">
+                @if (activeManagementTab() === 'orchestrator' && (server.kind === 'remote' || server.kind === 'microsoft365')) {
+                  <button class="btn" type="button" [disabled]="working()" (click)="connectorAction(server, 'test')">Test connection</button>
+                }
+                <details class="connection-settings">
+                  <summary>Connection settings</summary>
+                  <div class="connection-settings-actions">
                 @if (activeManagementTab() === 'orchestrator' && ((server.kind === 'remote' && server.authType === 'oauth') || server.kind === 'microsoft365')) {
                   <button class="btn small" type="button" [disabled]="working()" (click)="connectorAction(server, 'sign-in')">Sign in</button>
-                }
-                @if (activeManagementTab() === 'orchestrator' && (server.kind === 'remote' || server.kind === 'microsoft365')) {
-                  <button class="btn small" type="button" [disabled]="working()" (click)="connectorAction(server, 'test')">Test</button>
                 }
                 @if (activeManagementTab() === 'orchestrator' && ((server.kind === 'remote' && server.authType !== 'none') || server.kind === 'microsoft365')) {
                   <button class="btn small" type="button" [disabled]="working()" (click)="connectorAction(server, 'sign-out')">Sign out</button>
@@ -171,6 +177,8 @@
                   <button class="btn small danger" type="button" [disabled]="working()" (click)="deleteManagementServer(server)">Remove {{ server.name }}</button>
                   <span class="panel-subtitle">Removing stops it being added to new sessions.</span>
                 }
+                  </div>
+                </details>
               </div>
             </div>
           }
@@ -179,6 +187,9 @@
     </div>
   </section>
 
+  <details class="advanced-tools">
+    <summary>Advanced tool servers and diagnostics</summary>
+    <div class="advanced-tools-body">
   <!-- Metric cards -->
   <div class="metrics-row">
     <div class="metric-card">
@@ -506,6 +517,8 @@
       }
     </div>
   </div>
+    </div>
+  </details>
 </div>
 
 <!-- Add Server dialog overlay -->

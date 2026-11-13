@@ -141,4 +141,16 @@ describe('PlanQueueQuestionListComponent', () => {
     fixture.detectChanges();
     expect(details().open).toBe(true);
   });
+
+  it('expands a linked document even when its own questions exceed the backlog limit', () => {
+    const items = Array.from({ length: PLAN_QUEUE_QUESTIONS_OPEN_LIMIT + 1 }, (_, index) => makeItem({ id: `linked-${index}` }));
+    fixture.componentRef.setInput('groups', [group({ items })]);
+    fixture.detectChanges();
+    const details = fixture.nativeElement.querySelector('details') as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    fixture.componentRef.setInput('expandedForDocument', items[0].sourceRef);
+    fixture.detectChanges();
+    expect((fixture.nativeElement.querySelector('details') as HTMLDetailsElement).open).toBe(true);
+    expect(fixture.nativeElement.querySelectorAll('.pq-question-card')).toHaveLength(items.length);
+  });
 });

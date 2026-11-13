@@ -49,7 +49,16 @@ export function stripAnnotationFieldsForHash(value: unknown): unknown {
   const entries = Object.entries(value as Record<string, unknown>).filter(
     ([key]) => !ARGS_HASH_IGNORED_ANNOTATION_FIELDS.has(key),
   );
-  return Object.fromEntries(entries);
+  const stripped = Object.fromEntries(entries);
+  // ACP wraps operative arguments in rawInput. Its captions have the same
+  // meaning as top-level captions from other adapters.
+  if (typeof stripped['kind'] === 'string' && stripped['rawInput']
+    && typeof stripped['rawInput'] === 'object' && !Array.isArray(stripped['rawInput'])) {
+    stripped['rawInput'] = Object.fromEntries(Object.entries(stripped['rawInput']).filter(
+      ([key]) => !ARGS_HASH_IGNORED_ANNOTATION_FIELDS.has(key),
+    ));
+  }
+  return stripped;
 }
 
 /** sha256 hex digest (first 16 chars) — matches the pattern in loop-invoker-capture.ts. */

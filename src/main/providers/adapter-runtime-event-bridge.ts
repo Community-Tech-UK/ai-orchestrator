@@ -208,11 +208,16 @@ export function mapAdapterRuntimeEvent(
       };
       const output = rawPayload.result ?? rawPayload.content;
       const isError = isToolResultFailed(rawPayload.name, rawPayload as unknown as Record<string, unknown>);
+      // ACP completes streamed input on its result payload. Other adapters may
+      // put a placeholder {} here; that must not replace their original input.
+      const argsHash = typeof rawPayload.arguments?.['kind'] === 'string'
+        ? toProviderToolUseObservedEvent(rawPayload).argsHash : undefined;
       return {
         event: {
           kind: 'tool_result',
           toolName: rawPayload.name,
           toolUseId: rawPayload.id ?? rawPayload.tool_use_id,
+          ...(argsHash !== undefined ? { argsHash } : {}),
           success: !isError,
           output,
           ...(isError && output ? { error: output } : {}),

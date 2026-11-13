@@ -111,22 +111,25 @@ describe('native failed Claude turn → durable worker transport → controller 
   }
   beforeEach(() => startTransport());
 
+  // Each terminate of the never-closing fake child pays the adapter's bounded
+  // close deadline in real time, so teardown needs more than the default hook budget.
   afterEach(async () => {
     remote.forceCleanup(); await native.terminate(false); await manager.terminateAll();
     notifier.flushOutputBuffer(); router.stop(); stop(); vi.restoreAllMocks(); vi.unstubAllEnvs(); getCostTracker().clearEntries();
-  });
+  }, 20_000);
 
   function emit(...values: unknown[]): void {
     child.stdout?.emit('data', Buffer.from(values.map(value => JSON.stringify(value)).join('\n') + '\n'));
   }
   function completeFrames(): (RpcNotification | RpcRequest)[] { return frames.filter(frame => frame.method === 'instance.complete'); }
-  // The fake child exits but never closes, so terminating it waits out the adapter's 3 s
-  // close deadline (claude-one-shot-lifecycle.ts). Run that deadline on fake timers.
+  // The fake child exits but never closes, so terminating it waits out up to two
+  // sequential 3 s deadlines (turn finish, then the close deadline in the
+  // terminate finally; claude-one-shot-lifecycle.ts). Run them on fake timers.
   async function pastCloseDeadline(terminate: () => Promise<unknown>): Promise<void> {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
       const done = terminate();
-      await vi.advanceTimersByTimeAsync(3_500);
+      await vi.advanceTimersByTimeAsync(6_500);
       await done;
     } finally { vi.useRealTimers(); }
   }

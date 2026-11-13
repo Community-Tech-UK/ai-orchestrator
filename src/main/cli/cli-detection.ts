@@ -10,7 +10,6 @@ import { CliCapabilities } from './adapters/base-cli-adapter';
 import { getLogger } from '../logging/logger';
 import { buildCliSpawnOptions, getCliAdditionalPaths } from './cli-environment';
 import { resolveOpenCodeLaunch } from './adapters/opencode-cli-launch';
-import { withOpenCodeProcessGate } from './adapters/opencode-process-gate';
 import { resolveCopilotCliLaunch } from './copilot-cli-launch';
 import { resolveCommandOnPath } from './cli-path-resolver';
 import {
@@ -258,9 +257,15 @@ export class CliDetectionService {
     if (type === 'opencode') {
       try {
         const launch = await resolveOpenCodeLaunch();
-        const result = await withOpenCodeProcessGate(() => this.checkCommand(launch.command, config));
-        result.path = launch.command;
-        return result;
+        return {
+          name: config.name,
+          command: config.command,
+          displayName: config.displayName,
+          installed: true,
+          version: launch.version,
+          path: launch.command,
+          capabilities: config.capabilities,
+        };
       } catch (error) {
         return { name: config.name, command: config.command, displayName: config.displayName,
           installed: false, capabilities: config.capabilities,

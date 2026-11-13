@@ -182,10 +182,10 @@ export const NAV_ITEMS: SettingsNavItem[] = [
   },
   {
     id: 'mcp',
-    label: 'MCP Servers',
-    summary: 'Manage tool servers shared across provider CLIs.',
+    label: 'Connectors',
+    summary: 'Connect email, calendars and tools across AI accounts and providers.',
     group: 'Workspace tools',
-    keywords: 'mcp servers tools context protocol',
+    keywords: 'connector connectors Microsoft 365 Outlook email mail calendar mcp servers tools context protocol',
     layout: 'embedded',
   },
   {

@@ -64,7 +64,10 @@ describe('Connector handlers', () => {
   it('creates an account connector after Microsoft sign-in', async () => {
     const handler = state.handlers.get('mcp:connector:add-microsoft365');
     expect(handler).toBeDefined();
-    expect(await handler!({}, { name: 'm365-example', mailEnabled: false, injectInto: ['claude'] })).toEqual({ success: true });
+    expect(await handler!({}, { name: 'm365-example', mailEnabled: false, injectInto: ['claude'] })).toEqual({
+      success: true,
+      data: { name: 'm365-example', username: 'person@example.test', mailEnabled: false, agentsMayWrite: false },
+    });
     expect(state.upsert).toHaveBeenCalledWith(expect.objectContaining({ name: 'm365-example', kind: 'microsoft365', accountId: 'PLACEHOLDER_ACCOUNT', mailEnabled: false }));
   });
 

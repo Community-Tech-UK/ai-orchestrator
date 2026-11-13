@@ -21,6 +21,7 @@ import type {
 const { mockContinuity, mockSessionMutex, mockHoldRespawningChildCompletions } = vi.hoisted(() => ({
   mockContinuity: {
     writeThroughIdentityLocked: vi.fn().mockResolvedValue(undefined),
+    takeStoppedHelpers: vi.fn().mockResolvedValue(null),
   },
   mockSessionMutex: {
     acquire: vi.fn(),

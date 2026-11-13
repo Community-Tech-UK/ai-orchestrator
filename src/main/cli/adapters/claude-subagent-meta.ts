@@ -160,3 +160,97 @@ export function readClaudeSubagentTranscriptModel(
   }
   return undefined;
 }
+
+/** Path of a helper's own transcript file when it exists, or undefined. Fail-soft. */
+export function claudeSubagentTranscriptPath(
+  location: ClaudeTranscriptLocation,
+  agentId: string,
+): string | undefined {
+  try {
+    if (!SAFE_ID.test(agentId)) return undefined;
+    for (const dir of subagentDirs(location)) {
+      const transcriptPath = join(dir, `agent-${agentId}.jsonl`);
+      try {
+        if (statSync(transcriptPath).isFile()) return transcriptPath;
+      } catch {
+        // Missing on this candidate; try the next directory.
+      }
+    }
+  } catch {
+    // Location cannot be listed; report no transcript rather than failing teardown.
+  }
+  return undefined;
+}
+
+/** Aggregated token usage from a helper's own transcript. Only scalar fields leave this module. */
+export interface ClaudeSubagentTranscriptUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  /** 5-minute cache writes (from `usage.cache_creation.ephemeral_5m_input_tokens`). */
+  cacheWrite5mTokens: number;
+  /** 1-hour cache writes (from `usage.cache_creation.ephemeral_1h_input_tokens`). */
+  cacheWrite1hTokens: number;
+  /** The model of each request, to price per-message. */
+  models: string[];
+}
+
+const MAX_TRANSCRIPT_BYTES = 10 * 1024 * 1024;
+const SAFE_MESSAGE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+/**
+ * Sum the usage in a helper's own transcript. Deduplicates by message id
+ * (one response is written as several lines). Reads no model-written text;
+ * only scalar fields leave this module. Fail-soft: a missing or oversized
+ * file returns undefined, never throws.
+ */
+export function sumClaudeSubagentTranscriptUsage(
+  location: ClaudeTranscriptLocation,
+  ref: { agentId: string },
+): ClaudeSubagentTranscriptUsage | undefined {
+  if (!SAFE_ID.test(ref.agentId)) return undefined;
+  for (const dir of subagentDirs(location)) {
+    const text = readBounded(join(dir, `agent-${ref.agentId}.jsonl`), MAX_TRANSCRIPT_BYTES, false);
+    if (text === undefined) continue;
+    const seen = new Set<string>();
+    const totals: ClaudeSubagentTranscriptUsage = {
+      inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+      cacheWrite5mTokens: 0, cacheWrite1hTokens: 0, models: [],
+    };
+    for (const line of text.split('\n')) {
+      if (line.length === 0) continue;
+      const record = parseRecord(line);
+      if (record?.['type'] !== 'assistant') continue;
+      const message = record['message'];
+      if (!message || typeof message !== 'object') continue;
+      const msg = message as Record<string, unknown>;
+      const usage = msg['usage'];
+      if (!usage || typeof usage !== 'object') continue;
+      const u = usage as Record<string, unknown>;
+      const messageId = typeof msg['id'] === 'string' ? msg['id'] : '';
+      if (messageId && !SAFE_MESSAGE_ID.test(messageId)) continue;
+      const key = messageId || `line-${line.length}-${line.slice(0, 32)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const num = (v: unknown): number => typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+      totals.inputTokens += num(u['input_tokens']);
+      totals.outputTokens += num(u['output_tokens']);
+      totals.cacheReadTokens += num(u['cache_read_input_tokens']);
+      const cacheWrite = num(u['cache_creation_input_tokens']);
+      totals.cacheWriteTokens += cacheWrite;
+      const split = u['cache_creation'];
+      if (split && typeof split === 'object') {
+        const s = split as Record<string, unknown>;
+        totals.cacheWrite5mTokens += num(s['ephemeral_5m_input_tokens']);
+        totals.cacheWrite1hTokens += num(s['ephemeral_1h_input_tokens']);
+      }
+      const model = msg['model'];
+      if (typeof model === 'string' && model !== '<synthetic>' && SAFE_LABEL.test(model)) {
+        totals.models.push(model);
+      }
+    }
+    return totals;
+  }
+  return undefined;
+}

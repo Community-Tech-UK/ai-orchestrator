@@ -47,7 +47,7 @@ describe('Settings navigation tooltip DOM', () => {
     const nav = fixture.debugElement.queryAll(By.css('.nav-item'));
     expect(nav.map(item => item.nativeElement.querySelector('.nav-item-label').textContent.trim())).toEqual([
       'General', 'Display & input', 'Agents', 'Second opinion', 'Permissions & safety', 'Models',
-      'Tools & plugins', 'Workspace & history', 'Accounts', 'Phone & remote', 'Health', 'Advanced',
+      'Connectors & tools', 'Workspace & history', 'Accounts', 'Phone & remote', 'Health', 'Advanced',
     ]);
     for (const item of nav) {
       const label = item.nativeElement.querySelector('.nav-item-label').textContent.trim();

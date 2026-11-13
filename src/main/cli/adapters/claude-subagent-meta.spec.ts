@@ -3,8 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  claudeSubagentTranscriptPath,
   readClaudeSubagentMeta,
   readClaudeSubagentTranscriptModel,
+  sumClaudeSubagentTranscriptUsage,
   type ClaudeTranscriptLocation,
 } from './claude-subagent-meta';
 
@@ -73,5 +75,77 @@ describe('Claude helper metadata', () => {
     expect(readClaudeSubagentTranscriptModel(location, { agentId: 'a3' })).toBe('claude-sonnet-5-5');
     expect(readClaudeSubagentTranscriptModel(location, { agentId: 'missing' })).toBeUndefined();
     expect(readClaudeSubagentTranscriptModel(location, { agentId: '../a3' })).toBeUndefined();
+  });
+});
+
+describe('claudeSubagentTranscriptPath', () => {
+  it('returns the helper transcript path when the file exists', () => {
+    write('agent-a1.jsonl', '{"type":"assistant"}\n');
+    expect(claudeSubagentTranscriptPath(location, 'a1')).toBe(join(helperDir, 'agent-a1.jsonl'));
+  });
+
+  it('returns undefined when the transcript is missing or the id is unsafe', () => {
+    expect(claudeSubagentTranscriptPath(location, 'missing')).toBeUndefined();
+    expect(claudeSubagentTranscriptPath(location, '../a1')).toBeUndefined();
+    expect(claudeSubagentTranscriptPath({ ...location, sessionId: 'bad/id' }, 'a1')).toBeUndefined();
+  });
+
+  it('treats a directory where the transcript should be as missing', () => {
+    mkdirSync(join(helperDir, 'agent-a1.jsonl'), { recursive: true });
+    expect(claudeSubagentTranscriptPath(location, 'a1')).toBeUndefined();
+  });
+});
+
+describe('sumClaudeSubagentTranscriptUsage', () => {
+  const assistant = (id: string, model: string, usage: Record<string, unknown>): string =>
+    JSON.stringify({ type: 'assistant', message: { id, model, usage } });
+
+  it('sums usage across messages and splits 5-minute and 1-hour cache writes', () => {
+    write('agent-a1.jsonl', [
+      assistant('msg_1', 'claude-sonnet-5-5', {
+        input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 100,
+        cache_creation_input_tokens: 50,
+        cache_creation: { ephemeral_5m_input_tokens: 30, ephemeral_1h_input_tokens: 20 },
+      }),
+      JSON.stringify({ type: 'user', message: { usage: { input_tokens: 9999 } } }),
+      assistant('msg_2', 'claude-sonnet-5-5', {
+        input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4,
+      }),
+    ].join('\n'));
+    expect(sumClaudeSubagentTranscriptUsage(location, { agentId: 'a1' })).toEqual({
+      inputTokens: 11, outputTokens: 7, cacheReadTokens: 103, cacheWriteTokens: 54,
+      cacheWrite5mTokens: 30, cacheWrite1hTokens: 20, models: ['claude-sonnet-5-5', 'claude-sonnet-5-5'],
+    });
+  });
+
+  it('counts one response written as several lines only once per message id', () => {
+    write('agent-a2.jsonl', [
+      assistant('msg_1', 'claude-sonnet-5-5', { input_tokens: 10, output_tokens: 5 }),
+      assistant('msg_1', 'claude-sonnet-5-5', { input_tokens: 10, output_tokens: 5 }),
+    ].join('\n'));
+    expect(sumClaudeSubagentTranscriptUsage(location, { agentId: 'a2' })).toMatchObject({
+      inputTokens: 10, outputTokens: 5, models: ['claude-sonnet-5-5'],
+    });
+  });
+
+  it('records each model a message ran on and ignores <synthetic>', () => {
+    write('agent-a3.jsonl', [
+      assistant('msg_1', 'claude-opus-5-5', { input_tokens: 1 }),
+      assistant('msg_2', '<synthetic>', { input_tokens: 1 }),
+      assistant('msg_3', 'claude-sonnet-5-5', { input_tokens: 1 }),
+    ].join('\n'));
+    expect(sumClaudeSubagentTranscriptUsage(location, { agentId: 'a3' })).toMatchObject({
+      inputTokens: 3, models: ['claude-opus-5-5', 'claude-sonnet-5-5'],
+    });
+  });
+
+  it('returns undefined for a missing transcript or an unsafe id', () => {
+    expect(sumClaudeSubagentTranscriptUsage(location, { agentId: 'missing' })).toBeUndefined();
+    expect(sumClaudeSubagentTranscriptUsage(location, { agentId: '../a1' })).toBeUndefined();
+  });
+
+  it('gives up on an oversized transcript instead of reading it', () => {
+    write('agent-big.jsonl', 'x'.repeat(10 * 1024 * 1024 + 1));
+    expect(sumClaudeSubagentTranscriptUsage(location, { agentId: 'big' })).toBeUndefined();
   });
 });
