@@ -56,7 +56,7 @@ describe('InstanceHeaderComponent', () => {
       providers: [
         { provide: KeybindingService, useValue: { formatBindingByAction: () => 'Escape', ariaShortcutsByAction: () => 'Escape' } },
         { provide: SettingsStore, useValue: { showCost: () => showCost, settings: () => settings, update: vi.fn() } },
-        { provide: InstanceStore, useValue: { getInstance: () => undefined, instances: () => [] } },
+        { provide: InstanceStore, useValue: { getInstance: () => undefined, instances: () => [], fastUnavailableProviders: () => new Set<string>() } },
         {
           provide: FileIpcService,
           useValue: {
@@ -123,6 +123,18 @@ describe('InstanceHeaderComponent', () => {
     render({ ...instance('claude'), status: 'idle', yoloMode: false, agentId: 'review' });
     expect(chips()).toEqual(['Review']);
     expect(fixture.nativeElement.textContent).not.toContain('YOLO');
+  });
+
+  it('opens the Auto-approve chip hover with the session posture sentence', () => {
+    render({ ...instance('claude'), status: 'idle', yoloMode: true, hardened: true, agentId: 'build' });
+    const chip = fixture.debugElement.query(By.css('.chip-warning'));
+    const template = chip.injector.get(AioTooltipDirective).appTooltipTpl();
+    expect(template).not.toBeNull();
+    const view = template!.createEmbeddedView(null);
+    view.detectChanges();
+    const hover = (view.rootNodes as Node[]).filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join('').replace(/\s+/g, ' ').trim();
+    expect(hover).toBe('Acts without asking · edits only inside this folder · web allowed. Auto-approve runs tools and edits without asking you. Change it in Session options');
+    view.destroy();
   });
 
   it('keeps the queued Auto-approve flip in arrow wording on its chip', () => {

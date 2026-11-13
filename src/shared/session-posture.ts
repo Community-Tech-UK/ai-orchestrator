@@ -4,6 +4,9 @@ import type { SideChatAuthorityPolicy } from './types/side-chat.types';
 export interface SessionPostureInput {
   yoloMode?: boolean;
   hardened?: boolean;
+  /** The CLI runs with a filtered environment, so inherited secrets never reach it. */
+  containedExecution?: boolean;
+  browserToolsMode?: string;
   permissions: AgentToolPermissions | null;
   modeName?: string;
   nodeName?: string;
@@ -18,19 +21,26 @@ export const CAPABILITY_WORDS = {
   'off-in-settings': 'Off in Settings',
 } as const;
 
+/**
+ * `nodeName` turns the worker's id into the name people know it by; without it
+ * the sentence falls back to the id.
+ */
 export function postureFromInstance(instance: {
   agentId?: string; yoloMode?: boolean; hardened?: boolean; computerUseMode?: string;
-  workerNodeId?: string; executionLocation?: { type: string; nodeId?: string };
-}, agents: readonly AgentProfile[] = BUILTIN_AGENTS): SessionPostureInput {
+  containedExecution?: boolean; browserToolsMode?: string;
+  executionLocation?: { type: string; nodeId?: string };
+}, agents: readonly AgentProfile[] = BUILTIN_AGENTS,
+nodeName: (nodeId: string) => string | undefined = () => undefined): SessionPostureInput {
   const id = instance.agentId ?? 'build';
   const agent = agents.find(candidate => candidate.id === id);
   return {
     yoloMode: instance.yoloMode, hardened: instance.hardened,
+    containedExecution: instance.containedExecution, browserToolsMode: instance.browserToolsMode,
     permissions: agent?.permissions ?? null,
     modeName: agent?.name ?? id.charAt(0).toUpperCase() + id.slice(1),
     computerUseMode: instance.computerUseMode,
-    nodeName: instance.executionLocation?.type === 'remote'
-      ? instance.executionLocation.nodeId : undefined,
+    nodeName: instance.executionLocation?.type === 'remote' && instance.executionLocation.nodeId
+      ? nodeName(instance.executionLocation.nodeId) ?? instance.executionLocation.nodeId : undefined,
   };
 }
 
@@ -45,6 +55,8 @@ export function describePostureSentence(input: SessionPostureInput): string {
     parts.push(permissions.web === 'allow' ? 'web allowed'
       : permissions.web === 'ask' ? 'asks before using the web' : 'no web');
   }
+  if (input.containedExecution) parts.push('secrets filtered');
+  if (input.browserToolsMode === 'off') parts.push('no browser tools');
   if (input.nodeName) parts.push(`runs on ${input.nodeName}`);
   if (input.computerUseEnabled && input.computerUseMode) parts.push(`desktop control: ${input.computerUseMode}`);
   return parts.join(' · ');

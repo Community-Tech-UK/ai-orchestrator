@@ -30,7 +30,7 @@ import { globalComputerUseLevel, resolveComputerUsePresentation } from './sessio
 import { SessionCostLabelComponent } from './session-cost-label.component';
 import { SessionOptionsMenuComponent } from './session-options-menu.component';
 import type { ComputerUseAutonomyLevel } from '../../../../shared/types/desktop-gateway-settings.types';
-import { agentModeName, remoteNodeTooltip, waitReasonDetail, waitReasonLabel } from './instance-header-presentation';
+import { agentModeName, remoteNodeTooltip, sessionPostureSentence, waitReasonDetail, waitReasonLabel } from './instance-header-presentation';
 import { GlobalPauseStore } from '../../core/state/global-pause/global-pause.store';
 
 interface EditorMenuItem {
@@ -93,9 +93,9 @@ export class InstanceHeaderComponent {
     if (this.yoloPending()) return `Auto-approve → ${inst.pendingYoloMode ? 'on' : 'off'} after this reply`;
     return inst.yoloMode ? 'Auto-approve' : null;
   });
-  readonly yoloChipTooltip = computed(() => this.yoloPending()
-    ? 'Auto-approve changes after the current reply finishes. Change it in Session options'
-    : 'Auto-approve is on: runs tools and edits without asking you. Change it in Session options');
+  /** What the session may do, worked out from its real mode, Auto-approve and Hardened state; shown in the chip's hover. */
+  readonly postureSentence = computed(() =>
+    sessionPostureSentence(this.instance(), this.settingsStore.settings(), id => this.remoteNodeStore.nodeById(id)?.name));
   readonly modeChip = computed(() => {
     const mode = agentModeName(this.instance().agentId);
     return mode === 'Build' ? null : mode;

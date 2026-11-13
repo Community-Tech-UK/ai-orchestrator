@@ -14,4 +14,11 @@ describe('session posture', () => {
     expect(describePostureSentence(posture)).toMatch(/runs on Windows PC$/);
     expect(describePostureSentence({ ...posture, computerUseEnabled: true })).toContain('desktop control: trusted');
   });
+  it('shows the worker by its name when one is known, and says what is filtered or switched off', () => {
+    const instance = { agentId: 'build', executionLocation: { type: 'remote', nodeId: 'node-1' }, containedExecution: true, browserToolsMode: 'off' };
+    expect(describePostureSentence(postureFromInstance(instance, undefined, () => 'Windows PC')))
+      .toBe('Asks before acting · can edit files · web allowed · secrets filtered · no browser tools · runs on Windows PC');
+    expect(describePostureSentence(postureFromInstance(instance))).toMatch(/runs on node-1$/);
+    expect(describePostureSentence(postureFromInstance({ agentId: 'build', browserToolsMode: 'deferred' }))).not.toContain('browser');
+  });
 });

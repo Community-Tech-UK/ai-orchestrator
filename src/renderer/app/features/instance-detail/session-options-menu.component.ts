@@ -5,11 +5,14 @@
  */
 
 import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
-import type { Instance } from '../../core/state/instance.store';
+import { Router } from '@angular/router';
+import { providerName } from '../../../../shared/display-names';
+import { InstanceStore, type Instance } from '../../core/state/instance.store';
+import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
-import { agentModeName } from './instance-header-presentation';
+import { agentModeName, sessionPostureSentence } from './instance-header-presentation';
 import { SessionComputerUseControlComponent } from './session-computer-use-control.component';
 
 /** The order the mode switch steps through; `instance-detail` cycles the same way. */
@@ -30,6 +33,7 @@ const MODE_AFTER = { Build: 'Plan', Plan: 'Review', Review: 'Build' } as const;
     @if (open()) {
       <button type="button" class="backdrop" data-ui-hints-exempt="backdrop" aria-label="Close Session options" (click)="open.set(false); trigger.focus()"></button>
       <section class="options" role="dialog" aria-label="Session options" (keydown.escape)="close($event, trigger)">
+        <p class="posture">{{ posture() }}</p>
         <div class="option">
           <button type="button" [disabled]="isChangingMode()" [appTooltipDisabledReason]="locked() ? copy('header.modeLocked') : null"
             (click)="!locked() && !isChangingMode() && cycleAgentMode.emit()">{{ isChangingMode() ? 'Changing…' : 'Mode: ' + modeName() }}</button>
@@ -42,7 +46,12 @@ const MODE_AFTER = { Build: 'Plan', Plan: 'Review', Review: 'Build' } as const;
           @if (yoloQueued(); as queued) { <small>{{ queued }}</small> }
           @if (yoloCostNote(); as note) { <small class="header-action-detail">{{ note }}</small> }
         </div>
-        @if (supportsFast()) {
+        @if (fastUnavailable()) {
+          <div class="option">
+            <span class="unavailable">Fast: not available for {{ providerLabel() }}</span>
+            <small>The provider refused it, so it stays off until you restart Harness</small>
+          </div>
+        } @else if (supportsFast()) {
           <div class="option">
             <button type="button" [disabled]="isTogglingFastMode()" [appTooltip]="instance().fastMode ? copy('header.fastOn') : copy('header.fastOff')" [appTooltipDisabledReason]="locked() ? copy('header.fastLocked') : null"
               (click)="!locked() && !isTogglingFastMode() && toggleFastMode.emit()">{{ isTogglingFastMode() ? 'Changing…' : 'Fast: ' + (instance().fastMode ? 'on' : 'off') }}</button>
@@ -53,6 +62,11 @@ const MODE_AFTER = { Build: 'Plan', Plan: 'Review', Review: 'Build' } as const;
           <div class="option">
             <app-session-computer-use-control [instance]="instance()" [compact]="true" />
             <small>Applies to the next call, no restart, this session only</small>
+          </div>
+        } @else {
+          <div class="option">
+            <span class="unavailable">Desktop control: off in Settings</span>
+            <button type="button" class="link" (click)="openComputerUseSettings()">Open Computer Use settings</button>
           </div>
         }
       </section>
@@ -67,6 +81,9 @@ const MODE_AFTER = { Build: 'Plan', Plan: 'Review', Review: 'Build' } as const;
     .options { position: absolute; right: 0; top: calc(100% + 8px); width: min(340px, 85vw); padding: 12px; background: var(--bg-elevated, #1d2126); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 10px; box-shadow: 0 8px 24px #0006; z-index: 1001; }
     .option { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-bottom: 12px; }
     .option:last-child { margin-bottom: 0; }
+    .posture { margin: 0 0 12px; font-size: 12px; line-height: 1.4; color: var(--text-primary); overflow-wrap: anywhere; }
+    .unavailable { font-size: 13px; }
+    .link { border: none; padding: 0; background: none; color: var(--primary-color); font-size: 11px; text-decoration: underline; }
     small { color: var(--text-secondary); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
     .backdrop { position: fixed; inset: 0; border: 0; border-radius: 0; padding: 0; z-index: 1000; }
   `],
@@ -74,6 +91,9 @@ const MODE_AFTER = { Build: 'Plan', Plan: 'Review', Review: 'Build' } as const;
 export class SessionOptionsMenuComponent {
   protected readonly copy = copyFor;
   private readonly settingsStore = inject(SettingsStore);
+  private readonly instances = inject(InstanceStore);
+  private readonly nodes = inject(RemoteNodeStore);
+  private readonly router = inject(Router);
 
   readonly instance = input.required<Instance>();
   readonly isChangingMode = input(false);
@@ -92,6 +112,12 @@ export class SessionOptionsMenuComponent {
   /** Also true mid-turn, when mode and Fast wait for the reply to finish. */
   protected readonly locked = computed(() => this.instance().status === 'busy' || this.recovering());
   protected readonly supportsFast = computed(() => ['claude', 'codex'].includes(this.instance().provider));
+  /** One sentence on what this session may do, worked out from its real mode, Auto-approve and Hardened state. */
+  protected readonly posture = computed(() =>
+    sessionPostureSentence(this.instance(), this.settings(), id => this.nodes.nodeById(id)?.name));
+  /** The provider refused Fast earlier in this run; the row keeps saying so after the toast is gone. */
+  protected readonly fastUnavailable = computed(() => this.instances.fastUnavailableProviders().has(this.instance().provider));
+  protected readonly providerLabel = computed(() => providerName(this.instance().provider));
   protected readonly modeName = computed(() => agentModeName(this.instance().agentId));
   protected readonly nextMode = computed(() => MODE_AFTER[this.modeName()]);
   /** A queued Auto-approve flip keeps its arrow wording. */
@@ -106,6 +132,11 @@ export class SessionOptionsMenuComponent {
     const note = this.yoloCostNote();
     return (yoloMode ? copyFor('header.yoloOn') : copyFor('header.yoloOff')) + (note ? '. ' + note : '');
   });
+
+  protected openComputerUseSettings(): void {
+    this.open.set(false);
+    void this.router.navigate(['/settings'], { queryParams: { tab: 'computer-use' } });
+  }
 
   protected close(event: Event, trigger: HTMLButtonElement): void {
     if (!this.open()) return;

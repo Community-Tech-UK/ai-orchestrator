@@ -4,6 +4,7 @@ import { accountFamilyName, providerName } from '../../../../shared/display-name
 import type { InstanceWaitReason } from '../../../../shared/types/instance-wait-reason.types';
 import type { InstanceRuntimeSummary } from '../../../../shared/types/local-model-runtime.types';
 import { getModelShortName, type ModelDisplayInfo } from '../../../../shared/types/provider.types';
+import { describePostureSentence, postureFromInstance } from '../../../../shared/session-posture';
 import type { Instance } from '../../core/state/instance.store';
 import { formatWaitReasonData } from './instance-header-wait-reason-data';
 
@@ -167,4 +168,17 @@ export function remoteNodeTooltip(node: RemoteNodeFacts | null, displayName: str
   lines.push(`Sessions: ${node.activeInstances} active`);
   lines.push(`Status: ${node.status}`);
   return lines.join('\n');
+}
+
+/** One sentence on what a live session may do, for Session options and the Auto-approve chip. */
+export function sessionPostureSentence(
+  instance: Instance,
+  settings: { computerUseEnabled?: boolean; computerUseAutonomyLevel?: string },
+  nodeName: (nodeId: string) => string | undefined,
+): string {
+  return describePostureSentence({
+    ...postureFromInstance(instance, undefined, nodeName),
+    computerUseEnabled: settings.computerUseEnabled === true,
+    computerUseMode: instance.computerUseMode ?? settings.computerUseAutonomyLevel,
+  });
 }

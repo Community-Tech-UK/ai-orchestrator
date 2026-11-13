@@ -1,11 +1,14 @@
 import { ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { Router } from '@angular/router';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
-import type { Instance } from '../../core/state/instance.store';
+import { InstanceStore, type Instance } from '../../core/state/instance.store';
+import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { SettingsStore } from '../../core/state/settings.store';
 import { SessionOptionsMenuComponent } from './session-options-menu.component';
 
@@ -14,13 +17,20 @@ await resolveComponentResources((url) => Promise.resolve(readFileSync(resolve(sp
 
 describe('SessionOptionsMenuComponent', () => {
   let settings: Record<string, unknown> = {};
+  const fastUnavailableProviders = signal<ReadonlySet<string>>(new Set());
+  const navigate = vi.fn(async () => true);
 
   beforeEach(() => {
     settings = {};
+    fastUnavailableProviders.set(new Set());
+    navigate.mockClear();
     TestBed.configureTestingModule({
       imports: [SessionOptionsMenuComponent],
       providers: [
         { provide: SettingsStore, useValue: { settings: () => settings, showCost: () => true } },
+        { provide: InstanceStore, useValue: { fastUnavailableProviders } },
+        { provide: RemoteNodeStore, useValue: { nodeById: (id: string) => id === 'node-1' ? { name: 'Windows PC' } : undefined } },
+        { provide: Router, useValue: { navigate } },
         { provide: ElectronIpcService, useValue: { getApi: () => undefined } },
       ],
     });
@@ -108,5 +118,39 @@ describe('SessionOptionsMenuComponent', () => {
     expect(on.nativeElement.querySelector('app-session-computer-use-control select')).not.toBeNull();
     expect(on.nativeElement.textContent).toContain('Applies to the next call, no restart, this session only');
     expect(on.nativeElement.querySelector('.computer-use-lifecycle[hidden]')).not.toBeNull();
+  });
+
+  it('says in one visible sentence what the session may do', () => {
+    const text = (fixture: { nativeElement: HTMLElement }) => fixture.nativeElement.querySelector('.posture')?.textContent?.trim();
+    expect(text(open(session({ agentId: 'build', yoloMode: true, hardened: true })))).toBe('Acts without asking · edits only inside this folder · web allowed');
+    expect(text(open(session({ agentId: 'plan' })))).toBe('Asks before acting · read-only · web allowed');
+    expect(text(open(session({ agentId: 'build', executionLocation: { type: 'remote', nodeId: 'node-1' } } as Partial<Instance>)))).toBe('Asks before acting · can edit files · web allowed · runs on Windows PC');
+    expect(text(open(session({ agentId: 'custom' })))).toBe('Asks before acting · permissions set by the Custom mode');
+  });
+
+  it('puts what Auto-approve and Fast do in visible text, without the old words', () => {
+    const fixture = open(session());
+    const content = fixture.nativeElement.textContent as string;
+    expect(content).toContain('Runs tools and edits without asking you');
+    expect(content).toContain('Faster replies at some capability cost');
+    expect(content).not.toMatch(/YOLO|ON\/OFF|N\/A/);
+  });
+
+  it('keeps saying Fast is not available once the provider has refused it', () => {
+    fastUnavailableProviders.set(new Set(['copilot']));
+    const fixture = open(session({ provider: 'copilot' }));
+    expect(fixture.nativeElement.textContent).toContain('Fast: not available for Copilot');
+    expect(option(fixture, 'Fast')).toBeUndefined();
+    fastUnavailableProviders.set(new Set());
+    fixture.detectChanges();
+    expect(option(open(session({ provider: 'claude' })), 'Fast: off')).toBeDefined();
+  });
+
+  it('says desktop control is off in Settings, with a link to that tab, instead of an enabled select', () => {
+    const fixture = open(session());
+    expect(fixture.nativeElement.textContent).toContain('Desktop control: off in Settings');
+    expect(fixture.nativeElement.querySelector('app-session-computer-use-control')).toBeNull();
+    (fixture.nativeElement.querySelector('.link') as HTMLButtonElement).click();
+    expect(navigate).toHaveBeenCalledWith(['/settings'], { queryParams: { tab: 'computer-use' } });
   });
 });

@@ -647,7 +647,7 @@ describe('UserActionRequestComponent', () => {
     expect(fixture.nativeElement.querySelector('.btn-approve')).toBeNull();
     expect(fixture.nativeElement.querySelector('.scope-select')).toBeNull();
     expect(fixture.nativeElement.textContent).toContain("Harness can't add an allow rule for WebFetch");
-    expect(fixture.nativeElement.textContent).toContain('switch on Auto-approve at the top of this session');
+    expect(fixture.nativeElement.textContent).toContain('switch Auto-approve on in Session options at the top of this session');
     buttonByText('OK').click();
     await settle(fixture);
     expect(fakeIpc.respondToInputRequired.mock.calls[0]?.slice(4, 6)).toEqual([undefined, undefined]);

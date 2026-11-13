@@ -210,6 +210,8 @@ describe('InstanceListStore', () => {
       yoloMode: true,
       failoverProviders: ['claude', 'codex'],
       hardened: true,
+      containedExecution: true,
+      browserToolsMode: 'off',
       desiredRuntime: { provider: 'codex' },
       fastMode: true,
       launchMode: 'orchestrated',
@@ -237,6 +239,15 @@ describe('InstanceListStore', () => {
       if (intentionallyExcluded.has(key)) continue;
       expect(instance[key], `field "${key}" should survive deserializeInstance()`).toEqual(value);
     }
+  });
+
+  it('ignores containment and browser-mode values that are not on the wire shape', () => {
+    const instance = store.deserializeInstance({
+      id: 'instance-odd', createdAt: 1, status: 'idle', provider: 'claude', workingDirectory: '/tmp/project',
+      outputBuffer: [], containedExecution: 'yes', browserToolsMode: 'sometimes',
+    });
+    expect(instance.containedExecution).toBeUndefined();
+    expect(instance.browserToolsMode).toBeUndefined();
   });
 
   it('forwards only boolean resident Claude state from snapshots and created events', async () => {

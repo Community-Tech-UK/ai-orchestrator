@@ -256,7 +256,8 @@
     "id": "286cdb74bdb502be",
     "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
     "text": "Hardened ON — CLI runs inside the macOS Seatbelt sandbox (writes confined to the workspace)",
-    "why": "long"
+    "why": "long",
+    "retired": "Hardened hover now reads 'Hardened is on' in plain lower case; the sandbox meaning is kept"
   },
   {
     "id": "340a3a4bec7720aa",
@@ -1081,19 +1082,22 @@
     "id": "3b243615710ccb89",
     "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
     "text": "Fence OFF — this session can stop any program you own, including other sessions. Click to turn the fence back on",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Fence hover for a fence that is off now reads 'Fence is off' in plain lower case; the meaning is kept"
   },
   {
     "id": "460b349c52c3d327",
     "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
     "text": "Fence OFF for every session (Settings > Advanced > Security)",
-    "why": "long"
+    "why": "long",
+    "retired": "Fence hover for the all-sessions setting now reads 'Fence is off for every session' in lower case"
   },
   {
     "id": "90f9edc66799e1e8",
     "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
     "text": "Fence ON — this session can only stop programs it started. Click to let it stop any program you own",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Fence hover for a fence that is on now reads 'Fence is on' in plain lower case; the meaning is kept"
   },
   {
     "id": "a44d62c242ef14a1",
@@ -2901,13 +2905,15 @@
     "id": "3c12f72318ffd698",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "Auto-approve changes after the current reply finishes. Change it in Session options",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "The chip text itself now reads Auto-approve → on/off after this reply, so the hover only repeated visible words; the hover is now a template hover the checker cannot read."
   },
   {
     "id": "8edcfaf78b65cc13",
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": "Auto-approve is on: runs tools and edits without asking you. Change it in Session options",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "The chip hover now opens with the session posture sentence and keeps these words, but as a template hover the checker cannot read; Session options shows them as visible text."
   },
   {
     "id": "e0cf63ab3647980f",
@@ -2985,6 +2991,36 @@
     "id": "e8dfedc8b890959f",
     "owner": "src/renderer/app/shared/components/provider-account-chip.component.ts",
     "text": "The account this conversation runs on. Pick another to move it there once the session is free.",
+    "why": "long"
+  },
+  {
+    "id": "04cabc3a541dda17",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Fence is on: this session can only stop programs it started. Click to let it stop any program you own",
+    "why": "consequence"
+  },
+  {
+    "id": "471019f9507dea76",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Hardened is on: the CLI runs inside the macOS Seatbelt sandbox (writes confined to the workspace)",
+    "why": "long"
+  },
+  {
+    "id": "8e3c718e980bb24c",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Fence is off: this session can stop any program you own, including other sessions. Click to turn the fence back on",
+    "why": "consequence"
+  },
+  {
+    "id": "bf12c15fbe582c0a",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Hardened is off: the CLI runs unsandboxed",
+    "why": "long"
+  },
+  {
+    "id": "d647555345eb182e",
+    "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+    "text": "Fence is off for every session (Settings > Advanced > Security)",
     "why": "long"
   }
 ]

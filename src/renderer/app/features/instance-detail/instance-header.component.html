@@ -54,7 +54,14 @@
             (folderSelected)="selectFolder.emit($event)"
           />
           @if (yoloLabel(); as label) {
-            <span class="chip chip-warning" [class.pending]="yoloPending()" tabindex="0" [appTooltip]="yoloChipTooltip()">{{ label }}</span>
+            <span class="chip chip-warning" [class.pending]="yoloPending()" tabindex="0" [appTooltipTpl]="yoloChipHover">{{ label }}</span>
+            <ng-template #yoloChipHover>
+              @if (yoloPending()) {
+                Auto-approve changes after the current reply finishes. Change it in Session options
+              } @else {
+                {{ postureSentence() }}. Auto-approve runs tools and edits without asking you. Change it in Session options
+              }
+            </ng-template>
           }
           @if (modeChip(); as mode) {
             <span class="chip" tabindex="0" [appTooltip]="mode + ' mode. Change it in Session options'">{{ mode }}</span>

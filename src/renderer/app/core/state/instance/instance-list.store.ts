@@ -782,6 +782,9 @@ export class InstanceListStore {
       // way it dropped `failoverProviders`. Each has a real, silently-broken
       // consumer — see the LT-161 register entry for the full list.
       hardened: typeof d['hardened'] === 'boolean' ? d['hardened'] : undefined,
+      containedExecution: typeof d['containedExecution'] === 'boolean' ? d['containedExecution'] : undefined,
+      browserToolsMode: d['browserToolsMode'] === 'eager' || d['browserToolsMode'] === 'deferred' || d['browserToolsMode'] === 'off'
+        ? d['browserToolsMode'] : undefined,
       contextEvidence: this.isRecord(d['contextEvidence'])
         ? (d['contextEvidence'] as unknown as Instance['contextEvidence'])
         : undefined,

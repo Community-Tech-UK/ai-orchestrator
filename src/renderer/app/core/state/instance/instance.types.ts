@@ -171,6 +171,10 @@ export interface Instance {
   failoverProviders?: string[];
   /** WS13 — this session's CLI runs inside the macOS Seatbelt jail (wire field). */
   hardened?: boolean;
+  /** Filtered spawn environment: no inherited secrets (wire field). */
+  containedExecution?: boolean;
+  /** Per-session browser tool surface; undefined means the global setting decides (wire field). */
+  browserToolsMode?: 'eager' | 'deferred' | 'off';
   /**
    * Provider/model change queued while the instance is busy; applied
    * automatically once it next waits for input. Undefined when no change is

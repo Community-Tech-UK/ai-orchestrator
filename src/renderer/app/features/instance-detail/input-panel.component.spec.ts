@@ -936,20 +936,20 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     newSessionDraft.provider.set('claude');
     fixture.detectChanges();
     const fenceButton = () => fixture.nativeElement.querySelector('.fence-toggle') as HTMLButtonElement;
-    expect(fenceButton().textContent).toContain('Fence ON');
+    expect(fenceButton().textContent).toContain('Fence: on');
     expect(fenceButton().disabled).toBe(false);
     fenceButton().click();
     expect(newSessionDraft.setSignalFenceOff).toHaveBeenCalledWith(true);
 
     newSessionDraft.signalFenceOff.set(true);
     fixture.detectChanges();
-    expect(fenceButton().textContent).toContain('Fence OFF');
+    expect(fenceButton().textContent).toContain('Fence: off');
     expect(hintFor('.fence-toggle').appTooltip()).toContain('can stop any program you own');
 
     // A hardened jail always blocks cross-session signals.
     newSessionDraft.hardened.set(true);
     fixture.detectChanges();
-    expect(fenceButton().textContent).toContain('Fence ON');
+    expect(fenceButton().textContent).toContain('Fence: on');
     expect(fenceButton().disabled).toBe(false);
     expect(fenceButton().getAttribute('aria-disabled')).toBe('true');
     newSessionDraft.hardened.set(null);
@@ -959,7 +959,7 @@ describe('InputPanelComponent composer autocomplete integration', () => {
     appSettings.set({ providerSignalFenceEnabled: false });
     fixture.detectChanges();
     try {
-      expect(fenceButton().textContent).toContain('Fence OFF');
+      expect(fenceButton().textContent).toContain('Fence: off');
       expect(fenceButton().disabled).toBe(false);
     expect(fenceButton().getAttribute('aria-disabled')).toBe('true');
       expect(hintFor('.fence-toggle').appTooltipDisabledReason()).toContain('Settings');
