@@ -7362,6 +7362,10 @@
       "lines": 926
     },
     {
+      "path": "docs/AIO_MCP_CLI.md",
+      "lines": 923
+    },
+    {
       "path": "src/preload/domains/orchestration.preload.ts",
       "lines": 922
     },
@@ -7372,10 +7376,6 @@
     {
       "path": "src/renderer/app/features/instance-detail/composer-toolbar.component.spec.ts",
       "lines": 915
-    },
-    {
-      "path": "docs/AIO_MCP_CLI.md",
-      "lines": 912
     },
     {
       "path": "src/main/browser-gateway/browser-mcp-tools.ts",
@@ -7391,7 +7391,7 @@
     },
     {
       "path": "src/main/core/config/settings-control-policy.ts",
-      "lines": 909
+      "lines": 908
     },
     {
       "path": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.spec.ts",

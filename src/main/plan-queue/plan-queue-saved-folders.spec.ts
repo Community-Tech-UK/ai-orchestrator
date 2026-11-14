@@ -12,7 +12,7 @@ describe('resolveListedWorkspace', () => {
   it('refuses a folder that is not on the saved list, in plain words, without touching the disk', async () => {
     const topFolderOf = vi.fn();
     await expect(resolveListedWorkspace('/work/other', ['/work/shop'], topFolderOf))
-      .rejects.toThrow(/\/work\/other is not on James's Plan Queue folder list.*Only James can add a folder, on the Plan Queue page/);
+      .rejects.toThrow(/\/work\/other is not on James's Plan Queue folder list.*James can add it on the Plan Queue page.*\$AIO_MCP settings set planQueueFolders/);
     expect(topFolderOf).not.toHaveBeenCalled();
   });
 

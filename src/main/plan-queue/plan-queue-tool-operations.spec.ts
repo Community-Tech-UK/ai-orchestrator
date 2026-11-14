@@ -235,7 +235,7 @@ describe('plan_queue_start workspace (step 6.4)', () => {
     const startRun = vi.spyOn(coordinator, 'startRun');
     saved.folders = ['/work/shop'];
     await expect(createPlanQueueToolOperations(() => coordinator).start('caller', { kind: 'plans', workspace: '/work/elsewhere' }))
-      .rejects.toThrow(/\/work\/elsewhere is not on James's Plan Queue folder list.*Only James can add a folder, on the Plan Queue page/);
+      .rejects.toThrow(/\/work\/elsewhere is not on James's Plan Queue folder list.*James can add it on the Plan Queue page.*\$AIO_MCP settings set planQueueFolders/);
     expect(startRun).not.toHaveBeenCalled();
   });
 

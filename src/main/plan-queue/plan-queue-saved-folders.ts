@@ -2,8 +2,9 @@
  * James's saved Plan Queue folder list (`planQueueFolders`): the project folders a session may start a run in from
  * another folder, with the `workspace` argument of `plan_queue_start`.
  *
- * The list is an authority setting, edited only on the Plan Queue page. It is operator-only (see
- * `settings-control-policy.ts`), so neither `$AIO_MCP settings` nor any agent-reachable settings tool can add a folder.
+ * The list is an authority setting. James edits it on the Plan Queue page, or a session he asks adds a folder with
+ * `$AIO_MCP settings set planQueueFolders` (since 2026-11-14); the safe `set_setting` tool cannot change it (see
+ * `settings-control-policy.ts`).
  * A session that passes no `workspace` starts in its own folder as before; this list is asked only when it names one.
  */
 
@@ -34,7 +35,9 @@ export async function resolveListedWorkspace(
   const wanted = normalizeChecklistFolder(asked);
   if (!saved.some((folder) => normalizeChecklistFolder(folder) === wanted)) {
     throw new Error(`${asked} is not on James's Plan Queue folder list, so a session cannot start a run there. `
-      + 'Only James can add a folder, on the Plan Queue page. Leave the workspace out to start in this session\'s own folder.');
+      + 'James can add it on the Plan Queue page, or, when he asks, a session can add it with '
+      + '`$AIO_MCP settings set planQueueFolders` (keep the folders already listed). '
+      + 'Leave the workspace out to start in this session\'s own folder.');
   }
   const top = await topFolderOf(asked);
   // Git reports the real path, so a folder reached through a link is compared by where it really is.

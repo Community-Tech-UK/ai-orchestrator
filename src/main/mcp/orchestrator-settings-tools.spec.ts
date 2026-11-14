@@ -536,7 +536,7 @@ describe('privileged settings CLI writability reporting', () => {
   });
 
   it('holds the operator-only anchor count the docs quote', () => {
-    // docs/AIO_MCP_CLI.md states 30 anchors, and it and
+    // docs/AIO_MCP_CLI.md states 29 anchors, and it and
     // docs/llm/AIO_MCP_CLI_REFERENCE.md enumerate them by group. History: the count reached 21 on
     // 2026-08-26 (`computerUseAutonomyLevel` took the Computer Use group from
     // five keys to six, after Copilot account routing added two on 2026-08-25,
@@ -565,12 +565,14 @@ describe('privileged settings CLI writability reporting', () => {
     // `codexBackupKeepThree` is the 29th: it authorizes deletion of backup copies
     // and remains controlled by the operator. On 2026-11-08 `planQueueFolders`
     // became the 30th: it decides which project folders a session may start a
-    // Plan Queue run in, from another folder.
-    // Fail here if a 31st is added, or one is removed, without updating the
+    // Plan Queue run in, from another folder. On 2026-11-14 the operator had it
+    // removed so a session he asks can add a folder from its shell, taking the
+    // count back to 29.
+    // Fail here if a 30th is added, or one is removed, without updating the
     // prose.
     const anchors = [...privilegedList().values()].filter((setting) => !setting.cliWritable);
 
-    expect(anchors).toHaveLength(30);
+    expect(anchors).toHaveLength(29);
   });
 
   it('keeps the saved Plan Queue folder checklists out of reach of every agent-reachable settings tool', async () => {
@@ -586,17 +588,24 @@ describe('privileged settings CLI writability reporting', () => {
     expect(settings.values.planQueueFolderChecklists).toEqual([]);
   });
 
-  it('keeps the saved Plan Queue folder list out of reach of every agent-reachable settings tool', async () => {
+  it('lets the privileged CLI, but not the safe set_setting tool, change the Plan Queue folder list', async () => {
     const settings = makeSettingsManager();
-    const value = ['/work/shop'];
+    const value = ['/work/shop', '/work/blog'];
 
-    // An agent that could add a folder could start runs, in a shell, in any project on the machine.
+    // Widened on 2026-11-14 at the operator's request: a session he asks may add a folder from its shell.
     await expect(toolByName('set_setting', settings).tool.handler({ key: 'planQueueFolders', value }))
       .rejects.toThrow(/read-only/);
-    expect(() => privilegedSetSetting({ settingsManager: settings }, { key: 'planQueueFolders', value }))
-      .toThrow(/operator-only/);
     expect(settings.set).not.toHaveBeenCalled();
-    expect(settings.values.planQueueFolders).toEqual([]);
+
+    privilegedSetSetting({ settingsManager: settings }, { key: 'planQueueFolders', value });
+    expect(settings.values.planQueueFolders).toEqual(value);
+
+    // The list's own rules still apply: full paths only, each folder once.
+    expect(() => privilegedSetSetting({ settingsManager: settings }, { key: 'planQueueFolders', value: ['shop'] }))
+      .toThrow();
+    expect(() => privilegedSetSetting({ settingsManager: settings }, { key: 'planQueueFolders', value: ['/work/shop', '/work/shop/'] }))
+      .toThrow();
+    expect(settings.values.planQueueFolders).toEqual(value);
   });
 
   it('refuses an operator-only key before parsing the supplied value', () => {

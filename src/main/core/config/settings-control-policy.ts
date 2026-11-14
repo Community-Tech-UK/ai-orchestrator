@@ -107,9 +107,8 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   // Plan Queue folder checklists (2026-11-04): the commands the queue runs in a
   // shell for a folder. An agent that could write them could run any command.
   'planQueueFolderChecklists',
-  // Plan Queue folder list (2026-11-08): the folders a session may start a run in from another folder.
-  // An agent that could add one could start runs, in a shell, in any project on the machine.
-  'planQueueFolders',
+  // `planQueueFolders` left this set on 2026-11-14 at the operator's request, so a session he asks can add a folder
+  // via this CLI; it stays closed to `set_setting`. Controls: the `privileged_set` log and the Plan Queue page list.
   // Authorizes automatic deletion of backup copies; the operator decides.
   'codexBackupKeepThree',
   'computerUseEnabled',

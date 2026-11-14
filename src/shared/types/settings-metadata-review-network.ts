@@ -144,7 +144,7 @@ export const REVIEW_NETWORK_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'planQueueFolders',
     label: 'Plan Queue folder list',
-    description: 'The project folders a session may start a Plan Queue run in from another folder. A session that names any other folder is refused. Managed from the Plan Queue page. Set only from there — not changeable by agents.',
+    description: 'The project folders a session may start a Plan Queue run in from another folder. A session that names any other folder is refused. Managed from the Plan Queue page, or by a session James asks, with `aio-mcp settings set`; the safe settings tool cannot change it.',
     type: 'json',
     category: 'review',
     hidden: true,

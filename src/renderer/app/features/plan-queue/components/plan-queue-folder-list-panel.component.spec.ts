@@ -80,7 +80,7 @@ describe('PlanQueueFolderListPanelComponent', () => {
     expect(qa<HTMLOptionElement>('#pq-folder-list-suggestions option').map((o) => o.value)).toEqual(['/work/blog']);
   });
 
-  it('adds a folder and saves it under the setting only James can change', async () => {
+  it('adds a folder and saves it under the Plan Queue folder list setting', async () => {
     await mount();
     await type(' /work/blog ');
     addButton().click();

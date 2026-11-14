@@ -21,7 +21,7 @@ function normalise(folders: readonly string[]): string[] {
 
 /**
  * The project folders a session may start a Plan Queue run in from another folder. Edits a draft of the saved
- * `planQueueFolders` setting. Only James can change it, here: no agent-reachable tool can add a folder.
+ * `planQueueFolders` setting. James changes it here; a session he asks can change it with `$AIO_MCP settings set`.
  */
 @Component({
   selector: 'app-plan-queue-folder-list-panel',
