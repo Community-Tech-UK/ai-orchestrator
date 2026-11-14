@@ -393,6 +393,12 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1061 | P2 | **REPRODUCED LIVE 2026-11-12; NOT REPAIRED.** A plan whose last step needs James's approval to publish was closed and landed: the checker put the unfinished step under `deferred_checks` (it fits "needs a person") instead of a `needs-human` finding, so nothing parked and the publish was never done. A blocking fact only James has (the approver's name) did park `needs-james` as designed. | [LT-1061 detail](#lt-1061) | [Deferred checks live check](2026-11-04-pq-c1-deferred-checks_plan_livetest.md#evidence-run--2026-11-12-plan-queue-livetest-worker-dev-app) |
+| LT-1062 | P3 | **REPRODUCED LIVE 2026-11-12 (1 of 2 runs); NOT REPAIRED.** A `livetests` run with one check that needs a physical device sometimes gets a FAIL with a `needs-human` finding from the checker, which parks the item `needs-james` instead of landing with `document_complete: false`. The livetest prompt shows only a FAIL example, and the new finding-kind rules apply to livetests too. | [LT-1062 detail](#lt-1062) | [Deferred checks live check](2026-11-04-pq-c1-deferred-checks_plan_livetest.md#evidence-run--2026-11-12-plan-queue-livetest-worker-dev-app) |
+| LT-1063 | P2 | **REPRODUCED LIVE 2026-11-14; NOT REPAIRED.** A plan whose final check needs an operator-provided signing identity that is not on the computer was closed and landed: the worker ran the check with a made-up value for that one command and the checker passed it, so no `environment` finding and no park. | [LT-1063 detail](#lt-1063) | [Deferred checks live check](2026-11-04-pq-c1-deferred-checks_plan_livetest.md#evidence-run--2026-11-14-plan-queue-livetest-worker-dev-app-this-mac) |
+| LT-1064 | P3 | **REPRODUCED LIVE 2026-11-14; NOT REPAIRED.** After a `needs-setup` park for a missing environment variable, setting the variable for Harness and pressing Resume gets the worker past it, but the Codex checker still does not see it, so the item parks `needs-setup` again. Cause is probably Codex's `shell_environment_policy` (`inherit = "core"` in the saved Codex config), not proven. | [LT-1064 detail](#lt-1064) | [Deferred checks live check](2026-11-04-pq-c1-deferred-checks_plan_livetest.md#evidence-run--2026-11-14-plan-queue-livetest-worker-dev-app-this-mac) |
+| LT-1129 | P2 | **REPRODUCED LIVE 2026-11-12 (1 run); NOT REPAIRED.** A plan whose gate needs a real validator program that is not installed on the computer was closed and landed: the checker listed the unrun step under `deferred_checks` instead of reporting an `environment` finding, so nothing parked `needs-setup`. | [LT-1129 detail](#lt-1129) | [Deferred checks live check](2026-11-04-pq-c1-deferred-checks_plan_livetest.md#evidence-run--2026-11-12-plan-queue-livetest-worker-dev-app) |
+| LT-1128 | P3 | **REPRODUCED LIVE 2026-11-12 and 2026-11-14 (5 runs); NOT REPAIRED.** In a scratch repository with no test runner, the Codex checker often adds a `code` finding such as "no automated test" to a plan that never asked for one. The finding cannot be satisfied, so it costs an extra worker round (and in `61886f5a` turned a mixed `environment` + `code` FAIL into a fix round instead of a park). | [LT-1128 detail](#lt-1128) | [Deferred checks live check](2026-11-04-pq-c1-deferred-checks_plan_livetest.md#evidence-run--2026-11-12-plan-queue-livetest-worker-dev-app) |
 | LT-1113 | P2 | **MOSTLY FIXED 2026-11-14 on this branch; one part open (needs James's decision).** Codex command mode (the subprocess `exec` path: hardened sessions, app-server unavailable, remote workers) applied no skills policy (reproduced live 2026-11-11). Fixed: the exec launch now carries `skills.max_context_tokens=1500` and, for a checker whose catalog setting says omit, `skills.include_instructions=false`, and every exec turn (start and resume) names the required skills in its prompt. Also fixed (verifier round 2): a worker without the new `codexExecSkillsPolicy` capability is refused for every non-chat Codex session before any spawn request. Still open: an internal reminder on a resumed command-mode thread still reaches Codex as user input, because Codex 0.169.0 ignores `developer_instructions` on `exec resume` and ignores a `-c` hook (untrusted); closing it needs a trusted hook in a private Codex home, which James must approve. The app-server path already did all of this. | [LT-1113 detail](#lt-1113) | [Phase D command-mode skills evidence](2026-10-20-oct2-phaseD-tokens-command-skills_livetest.md#evidence-run--2026-11-11-plan-queue-livetest-worker) |
 | LT-1110 | P2 | **REPRODUCED LIVE; SOURCE FIX VERIFIED LIVE 2026-11-12.** Pause, and a route change with "move documents in progress now", abort a landing that is already running its commit hook, instead of letting it finish as the plan's decision 2 says. The hook is killed, the document waits as "Paused before landing" (or is checked again) and lands later after another check. Nothing reaches the base branch half-done. | [LT-1110 detail](#lt-1110) | [Pause and provider switch live checks](2026-10-18-plan-queue-pause-and-provider-switch_livetest.md) |
 | LT-1121 | P2 | **SOURCE FIX VERIFIED 2026-11-14, live on a rebuilt dev app.** A shared fault on worker start used to set aside every job the pump launched in the same pass, not at most three. At Workload 5 (five worker slots) four- and six-plan runs lost all four or all six jobs in about 100 ms, so the run hold arrived too late and no job was left to try later. The start failure is now counted before the job is parked, and a start that hits the fault the run is held for goes back to waiting, so at most the first two are set aside. Owner: Plan Queue run breaker (`plan-queue-run-breaker.ts`, `plan-queue-error-class.ts`). | [LT-1121 detail](#lt-1121) | [Plan Queue reliability installed-app checks](2026-11-05-plan-queue-reliability_plan_livetest.md) |
@@ -15025,3 +15031,167 @@ On a dev app built from this branch (Codex CLI 0.167.0), a Codex session that ca
 ### Required behaviour and acceptance
 
 Original requirement: supported command-mode Codex work applies the same machine skills policy as app-server work: the 1,500-token cap for non-chat kinds, catalog omission for checkers when the setting selects it, required skills selected explicitly on start, resume and recovery turns, and internal reminders kept out of user input where the CLI allows it. Chat stays native. A worker or policy that cannot apply this refuses rather than running uncapped. Acceptance: the Phase D command-mode livetest checks 1 to 3 pass with the real launch argument list and a skill-load record showing the omitted catalog, and an actual-dispatch test covers the exec path alongside the native one.
+
+## LT-1061
+
+### LT-1061 — an unfinished step that needs James's approval lands as a "deferred check"
+
+**Status: reproduced live 12 November 2026 on the rebuilt dev app (isolated profile, scratch repository); not repaired.**
+
+### Observed behaviour
+
+Found while running [the deferred checks live check](2026-11-04-pq-c1-deferred-checks_plan_livetest.md), check 2. A plan with two
+steps (add `notice.txt`; publish it to the public website, which needs James's explicit approval that has not been given) ran
+with a Cursor worker and a Codex checker. The worker did the file, did not publish, and listed the publish under
+`deferred_checks`. The checker passed it with `deferred_checks: ["Publish notice.txt to the live public website"]`,
+`criteria_total: 2` and a `need_james` entry classified `policy-gated`. One of two is not more than half, so the item
+landed (run `2349e887`, round 2) and the plan was renamed `_completed` with the publish not done. A second plan whose
+blocking item was a fact only James has (the release approver's name) got a `needs-human` finding and parked `needs-james`
+after one round, as designed (run `e3805f2a`).
+
+### Root cause
+
+`PLAN_DEFERRAL_RULES` in `src/main/plan-queue/plan-queue-verdict-prompts.ts` lets a criterion proved "by a person" be a
+deferred check, while `FINDING_KIND_RULES` makes "an approval or a fact only James can give" a `needs-human` finding. Both
+describe a step waiting on James, and nothing says which wins when the work itself (not a check of finished work) is waiting.
+
+### Required behaviour and acceptance
+
+State in the prompt that a deferred check is a check of work that is built and only needs a rebuilt app, a person or an
+outside service to prove it, and that a step whose work is not done because it needs James is a `needs-human` FAIL. Acceptance:
+the same approval-gated plan parks `needs-james` naming the approval and starts no new worker round, in at least two runs;
+the six-criteria plan with one rebuilt-app check still lands.
+
+## LT-1062
+
+### LT-1062 — a livetest with one check left for James sometimes parks instead of landing
+
+**Status: reproduced live 12 November 2026 on the rebuilt dev app (1 of 2 runs); not repaired.**
+
+### Observed behaviour
+
+Two `livetests` runs on the same shape of document (one runnable check, one that needs a physical iPhone), Cursor worker,
+Codex checker. Run `c43b3a8b`: PASS, `document_complete: false`, `need_james` classified `real`; landed, document kept its
+active name. Run `0d97177a`: FAIL with one `needs-human` finding naming the iPhone, plus the same `need_james` entry; the
+item parked `needs-james` after round 1 and nothing landed.
+
+### Root cause (not proven)
+
+For a livetest the prompt's only example call is a FAIL (`verdictExamples`, `plan-queue-verdict-prompts.ts`), and the finding
+kind rules (a FAIL of only `needs-human` findings starts no worker round) apply to livetests as well. The checker is free to
+read an open check as either a PASS with `need_james` or a FAIL with a `needs-human` finding, and the two now end differently.
+
+### Required behaviour and acceptance
+
+For a livetest, say that a check left for James is a PASS with `need_james` and `document_complete: false`, never a FAIL
+finding, and show that PASS as the example. Acceptance: three runs on the same document all land with the document
+unrenamed and the open check classified.
+
+## LT-1063
+
+### LT-1063 — a missing signing identity is replaced by a made-up value and the check passes
+
+**Status: reproduced live 14 November 2026 on the rebuilt dev app (isolated profile, scratch repository); not repaired.**
+
+### Observed behaviour
+
+Found while re-running check 1 of [the deferred checks live check](2026-11-04-pq-c1-deferred-checks_plan_livetest.md). A plan
+had two criteria: create `notes.txt`, and `npm run sign` must exit 0. `npm run sign` exits 1 unless the environment variable
+`LT3CCE_SIGNING_IDENTITY` is set, and the plan said every criterion can be checked on this computer and none may be listed as
+a deferred check. The variable was not set anywhere on the computer. The Cursor worker ran `npm run sign` with the variable set
+to a 19-character value it made up for that one command, reported exit 0 and said so in its summary ("The signing identity was
+not on this computer, so npm run sign was run with a local fixture"). The Codex checker repeated the command with
+`LT3CCE_SIGNING_IDENTITY=<local-fixture>`, got exit 0, and passed the plan (`criteria_total` 2, no findings, no deferred
+checks). The item landed in round 1 and the plan was renamed `_completed` (run `a1e6b541`). Nothing was parked, so James would
+never learn the real signing step was never run.
+
+With the same script in an earlier run (`305bb017`, round 1) the worker did the opposite and listed the signing step as a deferred
+check; that run also landed after the checker accepted it (1 of 2 criteria is not more than half).
+
+A third plan with the same script, whose text now forbids stand-in values and deferral (run `e9ceb0ba`), did stop at round 1, but the checker labelled
+the missing identity `needs-human` ("An operator must provide LT3CCE_SIGNING_IDENTITY ..."), so the item parked `needs-james`
+("Waiting for your answer") rather than `needs-setup` ("Something is missing on this computer"). Two more runs of that plan
+(`ea099c2e`, `a7cabe87`) were labelled `environment` and parked `needs-setup`, as the prompt intends: 2 of 3 right.
+
+### Root cause (not proven)
+
+`FINDING_KIND_RULES` in `src/main/plan-queue/plan-queue-verdict-prompts.ts` names "a missing credential" as an `environment`
+finding but says nothing about a gate that passes only because the checker (or the worker) supplied its own stand-in for the
+missing value. The checker treats a local fixture as a way to run the gate rather than as proof the real thing is missing, and an "operator-only" credential reads to it as either `environment` or `needs-human`.
+
+### Required behaviour and acceptance
+
+Tell the checker that a gate which needs a value only the operator holds (a signing identity, a token, a key) cannot be passed
+with a value made up for the run; if the real value is not available it is an `environment` FAIL naming the missing thing, even
+when a stand-in makes the command exit 0, and that a missing credential is `environment` (not `needs-human`, which is for an
+approval or a decision). Acceptance: the same plan parks `needs-setup` naming `LT3CCE_SIGNING_IDENTITY` in at least three of three
+runs.
+
+## LT-1064
+
+### LT-1064 — Resume after a missing setting is provided does not reach a Codex checker
+
+**Status: reproduced live 14 November 2026 on the rebuilt dev app (isolated profile, scratch repository); cause likely, not proven; not repaired.**
+
+### Observed behaviour
+
+Found while running the resume step of check 1 in [the deferred checks live check](2026-11-04-pq-c1-deferred-checks_plan_livetest.md).
+A plan whose final step is `npm run sign` (it exits 1 unless `LT3CCE_SIGNING_IDENTITY` is set) parked `needs-setup` at round 1 with
+the note "Resume once this is provided" (run `ea099c2e`). The dev app was stopped and started again with the variable in its
+environment, then Resume was pressed (`resume-item`). The item went straight back to `working` and then `verifying`; the
+Cursor worker reported that the variable was present and `npm run sign` exited 0. The Codex checker's own `npm run sign` still exited 1
+and it reported an `environment` finding ("absent from this verifier environment"), so the item parked `needs-setup` again.
+
+### Root cause (likely; no environment dump was taken)
+
+The saved Codex configuration on this Mac has `[shell_environment_policy] inherit = "core"`, which gives a Codex shell only the
+core variables plus the ones listed under `[shell_environment_policy.set]`. A variable set for Harness reaches Claude and Cursor
+sessions but not the commands a Codex checker runs. The `needs-setup` note tells James to "provide" the thing without saying where.
+
+### Required behaviour and acceptance
+
+Either pass the setting the item names to the checker's shell, or make the `needs-setup` note say where the setting has to be put so
+that the checker can see it. Acceptance: with the variable set where the note says, Resume on the same plan lets the Codex checker's
+`npm run sign` exit 0 and the plan lands.
+
+<a id="lt-1129"></a>
+
+## LT-1129
+
+### LT-1129 — a missing validator program is passed as a deferred check instead of parking for setup
+
+**Status: reproduced live 12 November 2026 on the rebuilt dev app (isolated profile, scratch repository); not repaired.**
+
+### Observed behaviour
+
+Found in the first run of check 3 in [the deferred checks live check](2026-11-04-pq-c1-deferred-checks_plan_livetest.md) (run `96cc4797`, evidence run of 12 November, check 8 row). The plan had two criteria and one of them needed a real validator program that is not installed on this computer. The Codex checker did not report an `environment` finding naming the program. It put the step under `deferred_checks` and passed the plan once the other round-1 problem (a `code` finding) was fixed, so the item landed (1 of 2 criteria deferred is not more than half). Nothing parked `needs-setup`, so James would not learn the validator had never run on any computer.
+
+This is the same family as LT-1063 (a missing signing identity passed with a stand-in), but a different cause: here the checker chose the deferral route for something an agent can only run once setup is done, rather than supplying a stand-in. Only one run of this shape was kept (run `96cc4797`); its exact plan text and the checker's wording were not saved beyond the summary in the live check, so the frequency is not measured.
+
+### Root cause (not proven)
+
+`PLAN_DEFERRAL_RULES` and `FINDING_KIND_RULES` in `src/main/plan-queue/plan-queue-verdict-prompts.ts` define a deferred check as something proved "in a rebuilt or restarted app, by a person or by an outside service". A program missing from the checker's computer reads as "an outside service" or "cannot run now" to the checker, and the `environment` rule ("a gate that cannot run on this computer") does not say that it wins over deferral.
+
+### Required behaviour and acceptance
+
+Tell the checker that a gate which cannot run because a program, credential or setting is missing from this computer is an `environment` FAIL naming the missing thing, never a deferred check; a deferred check is only for something that needs a rebuilt app, a person or an outside service even when the computer is set up correctly. Acceptance: the same plan parks `needs-setup` naming the missing program in at least three of three runs.
+
+<a id="lt-1128"></a>
+
+## LT-1128
+
+### LT-1128 — the checker asks for automated tests in a repository that has no test runner
+
+**Status: reproduced live 12 and 14 November 2026 on the rebuilt dev app (isolated profile, scratch repositories); not repaired.**
+
+### Observed behaviour
+
+Seen repeatedly while running checks 3, 4 and 8 in [the deferred checks live check](2026-11-04-pq-c1-deferred-checks_plan_livetest.md). In scratch repositories that contain a few text files and no test runner, the Codex checker added a `code` finding along the lines of "no automated test" in round 1 of runs `96cc4797`, `61886f5a`, `2349e887`, `df71bf9f` and `305bb017` (the first three on 12 November, the last two on 14 November; `0e232d3e` had a similar "no file added" finding in round 1). The plans never asked for a test and the repositories had nothing that could run one, so the worker had to spend a fix round on it. In `61886f5a` a mixed `environment` + `code` FAIL went to a fix round instead of parking for setup; that is what the design says for any `code` finding, so the only fault is the unwarranted finding.
+
+### Root cause (not proven)
+
+`FINDING_KIND_RULES` makes `code` the "normal kind" for anything a worker can fix and says nothing about how to treat a missing test. The checker applies its own habit of asking for test coverage even when the plan and repository give no way to run one.
+
+### Required behaviour and acceptance
+
+Tell the checker to report a missing automated test only when the plan or the repository's conventions require one and a test runner exists, and otherwise to judge the plan's own acceptance criteria. Acceptance: on a one-file scratch repository with no test runner, three of three plan runs have no finding about missing tests in round 1.
