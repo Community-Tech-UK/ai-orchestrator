@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-27-mimo-campaign-settings-navigation_livetest.md",
+      "sha256": "a60036d738f7908db387b7800d4db2f43df883d8b8f56acd1e68de1b3a19fa6e",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-27-mimo-campaign-settings-navigation_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-27-mimo-campaign-settings-navigation_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-27-mimo-campaign-settings-navigation_livetest_completed.md",
+      "sha256": "a60036d738f7908db387b7800d4db2f43df883d8b8f56acd1e68de1b3a19fa6e"
+    }
+  ]
+}
