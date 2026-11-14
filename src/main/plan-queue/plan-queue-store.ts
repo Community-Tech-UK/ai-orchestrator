@@ -27,7 +27,7 @@ import type {
   PlanQueueWorkerReport,
 } from '@contracts/schemas/plan-queue';
 import { upgradePlanQueueRouting, type StoredPlanQueueRouting } from '../../shared/utils/plan-queue-routing-upgrade';
-import type { PlanQueueItem, PlanQueueRelaxationSnapshot, PlanQueueRun, PlanQueueSpendEntry } from './plan-queue.types';
+import type { PlanQueueItem, PlanQueueRelaxationSnapshot, PlanQueueRemoteJob, PlanQueueRun, PlanQueueSpendEntry } from './plan-queue.types';
 import { PlanQueueHistoryStore, PLAN_QUEUE_CHECK_SUMMARIES_SQL } from './plan-queue-history-store';
 import { readQueueHealth } from './plan-queue-health';
 import { PlanQueueSlotWaits } from './plan-queue-timings';
@@ -89,6 +89,7 @@ interface ItemRow {
   discarded_by: string | null;
   discard_ref_expires_at: number | null;
   worker_report_json: string | null;
+  remote_json: string | null;
   question_json: string | null;
   answer: string | null;
   park_reason: string | null;
@@ -292,8 +293,8 @@ export class PlanQueueStore {
         base_commit, checkpoint_commit, verified_main_commit, landed_commit,
         worker_instance_id, verifier_instance_id, question_json, answer, park_reason, detail,
         verdict_json, created_at, updated_at, held_at, pending_instruction, worker_provider, worker_model, stepped_up_at, worker_session_json, livetest_port, base_conflicts, discarded_at, discarded_by, discard_ref_expires_at,
-        landing_wait_since, landing_wait_paths, landing_automatic, worker_report_json, round_activity_json, section, planning_note
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        landing_wait_since, landing_wait_paths, landing_automatic, worker_report_json, round_activity_json, section, planning_note, remote_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         state                = excluded.state,
         round                = excluded.round,
@@ -329,6 +330,7 @@ export class PlanQueueStore {
         worker_report_json   = excluded.worker_report_json,
         round_activity_json  = excluded.round_activity_json,
         planning_note        = excluded.planning_note,
+        remote_json          = excluded.remote_json,
         updated_at           = excluded.updated_at
     `).run(
       item.id,
@@ -374,6 +376,7 @@ export class PlanQueueStore {
       item.roundActivity ? JSON.stringify(item.roundActivity) : null,
       item.section ?? null,
       item.planningNote ?? null,
+      item.remote ? JSON.stringify(item.remote) : null,
     );
   }
 
@@ -591,6 +594,24 @@ function rowToRun(row: RunRow): PlanQueueRun {
   };
 }
 
+const invalidRemoteJobs = new Set<string>();
+/** A damaged record reads as a job that runs here, which is where its last saved work is. */
+function readRemoteJob(row: ItemRow): { remote?: PlanQueueRemoteJob } {
+  if (!row.remote_json) return {};
+  try {
+    const parsed = JSON.parse(row.remote_json) as Partial<PlanQueueRemoteJob>;
+    if (typeof parsed.nodeId === 'string' && typeof parsed.label === 'string' && typeof parsed.branch === 'string') {
+      return { remote: { nodeId: parsed.nodeId, label: parsed.label, branch: parsed.branch, lastExchangedCommit: parsed.lastExchangedCommit ?? null,
+        turnStartCommit: parsed.turnStartCommit ?? null, turnId: parsed.turnId ?? null, ...(parsed.instanceId ? { instanceId: parsed.instanceId } : {}), ...(parsed.awaySince ? { awaySince: parsed.awaySince } : {}) } };
+    }
+  } catch { /* handled below */ }
+  if (!invalidRemoteJobs.has(row.id)) {
+    invalidRemoteJobs.add(row.id);
+    getLogger('PlanQueueStore').warn('Invalid remote job record', { itemId: row.id });
+  }
+  return {};
+}
+
 const invalidWorkerSessions = new Set<string>();
 const invalidRoundActivity = new Set<string>();
 /** A damaged measurement must not break every queue read; it simply counts as no activity. */
@@ -667,6 +688,7 @@ function rowToItem(row: ItemRow): PlanQueueItem {
     detail: row.detail,
     verdict: row.verdict_json ? (JSON.parse(row.verdict_json) as PlanQueueVerdict) : null,
     ...(row.worker_report_json ? { workerReport: JSON.parse(row.worker_report_json) as PlanQueueWorkerReport } : {}),
+    ...readRemoteJob(row),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

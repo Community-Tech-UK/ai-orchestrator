@@ -28,6 +28,8 @@ export const TIMING_REASONS = {
   landing: 'landing-timing',
   /** `{}`: the item's turn in the one-at-a-time landing line began; until then it was waiting behind another landing. */
   landingStart: 'landing-start',
+  /** `{ where: 'here' | 'computer', label?, note }`: where a job's work runs and, when it runs here by refusal, why. */
+  placement: 'job-placement',
 } as const;
 export type PlanQueueTimingReason = (typeof TIMING_REASONS)[keyof typeof TIMING_REASONS];
 

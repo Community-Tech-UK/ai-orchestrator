@@ -97,6 +97,8 @@ import { InstanceSendRawParamsSchema } from '../main/remote-node/instance-intera
 import { InstanceSampleStallProcessParamsSchema, StallProcessFactsSchema } from '../main/remote-node/stall-process-rpc';
 import { NodeKeepAwakeResultSchema } from '../main/remote-node/keep-awake-rpc';
 import { WorkerModelChangeError } from './worker-instance-model-change';
+import type { QueueJobHostApi } from '../main/remote-node/queue-job-rpc-schemas';
+import { runQueueJobCall } from './queue-jobs/queue-job-dispatch';
 
 interface WorkerRpcDispatcherDeps {
   config: WorkerConfig;
@@ -128,6 +130,8 @@ interface WorkerRpcDispatcherDeps {
   ackDurableEvents?: (cursors: { instanceId: string; seq: number }[]) => void;
   sendError: (id: string | number, code: number, message: string) => void;
   localAiHealth?: Pick<WorkerLocalAiHealth, 'check' | 'diagnose' | 'repair'>;
+  /** Answers the `queue.*` calls (capability `queueJobs`); absent only in stripped-down tests. */
+  queueJobHost?: QueueJobHostApi;
 }
 
 export class WorkerRpcDispatcher {
@@ -579,6 +583,21 @@ export class WorkerRpcDispatcher {
             LocalAiHealthRepairResultSchema,
             await this.localAiHealth.repair(validated),
           );
+          break;
+        }
+        case COORDINATOR_TO_NODE.QUEUE_HAVE:
+        case COORDINATOR_TO_NODE.QUEUE_RECEIVE:
+        case COORDINATOR_TO_NODE.QUEUE_PREPARE:
+        case COORDINATOR_TO_NODE.QUEUE_COLLECT:
+        case COORDINATOR_TO_NODE.QUEUE_FETCH_PACK:
+        case COORDINATOR_TO_NODE.QUEUE_READ_REPORT:
+        case COORDINATOR_TO_NODE.QUEUE_DELETE_LEFT_OUT:
+        case COORDINATOR_TO_NODE.QUEUE_REMOVE:
+        case COORDINATOR_TO_NODE.QUEUE_PROJECT_CHECK: {
+          // Each call reads or writes job folders and runs git and npm here, so service scope first.
+          if (!this.hasServiceScope(msg)) return;
+          if (!this.deps.queueJobHost) throw new Error('Plan Queue jobs are unavailable on this worker');
+          result = await runQueueJobCall(this.deps.queueJobHost, msg.method, params);
           break;
         }
         default:

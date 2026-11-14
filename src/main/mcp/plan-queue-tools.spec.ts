@@ -77,6 +77,17 @@ describe('plan queue MCP tools', () => {
     expect(ops.start).toHaveBeenCalledTimes(1);
   });
 
+  it('advertises keep_on_this_mac and forwards it from the authenticated caller', async () => {
+    const ops = fakeOps();
+    const start = createPlanQueueToolDefinitions({ instanceId: PARENT, planQueueTools: ops }).find(tool => tool.name === 'plan_queue_start')!;
+    expect((start.inputSchema['properties'] as Record<string, unknown>)['keep_on_this_mac']).toMatchObject({ type: 'boolean' });
+    const rpc = server(ops);
+    await call(rpc, PARENT, 'plan_queue_start', { kind: 'plans', keep_on_this_mac: true });
+    expect(ops.calls).toEqual([['start', PARENT, { kind: 'plans', keep_on_this_mac: true }]]);
+    await expect(call(rpc, PARENT, 'plan_queue_start', { kind: 'plans', keep_on_this_mac: 'yes' })).rejects.toThrow();
+    expect(ops.start).toHaveBeenCalledTimes(1);
+  });
+
   it('returns a small unchanged status only while the current scoped result matches', async () => {
     const ops = fakeOps();
     let state = 'working';

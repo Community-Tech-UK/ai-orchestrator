@@ -8,6 +8,9 @@ import type { TestMachineView, WorkToday } from '../../../../shared/types/comput
 import { LEGACY_ACCOUNT_PROFILE_ID } from '../../../../shared/types/provider-account.types';
 import { providerName } from '../../../../shared/display-names';
 import { servicePaths } from '../../../../shared/service/worker-service-paths';
+import { orderComputers, ownTestMachines } from '../../../../shared/utils/computers-order';
+import type { QueueJobComputer, QueueJobProjectCheck } from '../../../../shared/types/plan-queue-computers.types';
+import type { QueueJobProject } from '../../../../shared/types/plan-queue-computers-page.types';
 
 export const THIS_MAC = 'this-mac';
 /** A test machine's row when it belongs to no paired computer here: `test-machine:` and its host. */
@@ -65,14 +68,8 @@ export function buildComputerRows(
   testMachines: readonly TestMachineView[],
   offload: OffloadSwitches,
 ): ComputerRow[] {
-  const byId = new Map(nodes.map(node => [node.id, node]));
-  const listed = choices.filter(choice => byId.has(choice.id)).map(choice => byId.get(choice.id)!);
-  const ordered = [...listed, ...nodes.filter(node => !choices.some(choice => choice.id === node.id))];
-  const owned = new Map<RemoteNodeRosterEntry, TestMachineView>();
-  for (const machine of testMachines) {
-    const owner = machine.nodeName ? ordered.find(node => node.name === machine.nodeName && !owned.has(node)) : undefined;
-    if (owner) owned.set(owner, machine);
-  }
+  const ordered = orderComputers(nodes, choices);
+  const owned = ownTestMachines(ordered, testMachines);
 
   const rows: ComputerRow[] = ordered.map((node) => {
     const choice = choices.find(entry => entry.id === node.id) ?? defaultChoice(node.id);
@@ -142,15 +139,19 @@ export function changedChoices(rows: readonly ComputerRow[], id: string, change:
 
 const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
 
+/** "14:02", or "5 Nov" when it wasn't today. */
+function describeWhen(at: number, now: number): string {
+  const date = new Date(at);
+  return sameDay(date, new Date(now))
+    ? date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    : date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
 /** "Away since 14:02", or "Away since 5 Nov" when it wasn't today. */
 export function describeAway(row: ComputerRow, now: number): string | null {
   if (!row.away) return null;
   if (row.awaySince === null) return 'Away';
-  const since = new Date(row.awaySince);
-  const when = sameDay(since, new Date(now))
-    ? since.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-    : since.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-  return `Away since ${when}`;
+  return `Away since ${describeWhen(row.awaySince, now)}`;
 }
 
 /** What it's doing, in words. Nothing for a computer that is up and idle. */
@@ -261,6 +262,43 @@ export function workerSettingsFiles(platform: NodePlatform): { home: string; ser
     home: platform === 'win32' ? '.orchestrator\\worker-node.json' : '.orchestrator/worker-node.json',
     service: servicePaths(platform).configFile,
   };
+}
+
+/** Why the Plan Queue jobs switch can't be used: shown beside it, so it is never only in a tooltip. */
+export const NEEDS_NEWER_HARNESS = 'Needs the newer Harness on that computer.';
+
+/** Whether a computer can take Plan Queue jobs: true or false once it's connected, null while it's away and unknown. */
+export function queueJobsSupported(node: RemoteNodeRosterEntry | undefined): boolean | null {
+  if (!node?.connected) return null;
+  return node.capabilities.queueJobs === 1;
+}
+
+/** One project, as the Computers page lists it for a computer. */
+export interface QueueProjectLine {
+  project: QueueJobProject;
+  passed: boolean | null;
+  text: string;
+}
+
+/** What the project check found for each project, in words; a project not yet checked there says so. */
+export function describeQueueProjects(
+  projects: readonly QueueJobProject[],
+  results: Readonly<Record<string, QueueJobProjectCheck>>,
+  now: number,
+): QueueProjectLine[] {
+  return projects.map((project) => {
+    const result = results[project.key];
+    if (!result) return { project, passed: null, text: 'Not checked there yet.' };
+    const when = `${sameDay(new Date(result.checkedAt), new Date(now)) ? 'today at' : 'on'} ${describeWhen(result.checkedAt, now)}`;
+    return result.ok
+      ? { project, passed: true, text: `Passed the check ${when}.${result.summary ? ` ${result.summary}` : ''}` }
+      : { project, passed: false, text: `Failed the check ${when}: ${result.problem ?? 'its checks did not pass.'}` };
+  });
+}
+
+/** For the read-only list: "Plan Queue jobs, 2 at once", or null when the computer takes none. */
+export function describeQueueTakes(computer: QueueJobComputer | undefined): string | null {
+  return computer?.takesJobs ? `Plan Queue jobs, ${computer.jobsAtOnce} at once` : null;
 }
 
 /** One step of setting a computer up for tests and checks. `command` is what to run or write, shown as code. */

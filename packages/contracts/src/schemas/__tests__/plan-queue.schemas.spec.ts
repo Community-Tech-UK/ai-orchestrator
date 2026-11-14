@@ -5,7 +5,7 @@ import {
   PlanQueueReportVerdictArgsSchema, PlanQueueParkReasonSchema,
   PlanQueueFolderChecklistsSchema, normalizeChecklistFolder, isAbsoluteChecklistFolder,
   PlanQueueFoldersSchema, PlanQueueSourceKindSchema, triageRecordRef,
-  DEFAULT_PLAN_QUEUE_CONFIG, PlanQueueRunConfigSchema, PlanQueueGateRunSchema, PlanQueueRunDtoSchema,
+  DEFAULT_PLAN_QUEUE_CONFIG, PlanQueueRunConfigSchema, PlanQueueGateRunSchema, PlanQueueRunDtoSchema, PlanQueueStartPayloadSchema,
 } from '../plan-queue.schemas';
 
 const question = {
@@ -15,6 +15,21 @@ const question = {
 const technical = {
   kind: 'technical', recommendedOptionId: 'quiet', reason: 'The project requires this runner.', evidence: 'AGENTS.md documents npm run test:quiet.',
 };
+
+describe('Plan Queue keep on this Mac', () => {
+  it('is optional on the run and at the tool and start boundaries, and false-or-absent for older runs', () => {
+    expect(PlanQueueRunConfigSchema.parse(DEFAULT_PLAN_QUEUE_CONFIG.plans).keepOnThisMac).toBeUndefined();
+    expect(PlanQueueRunConfigSchema.parse({ ...DEFAULT_PLAN_QUEUE_CONFIG.plans, keepOnThisMac: true }).keepOnThisMac).toBe(true);
+    expect(PlanQueueStartPayloadSchema.parse({ parentInstanceId: 'p', kind: 'plans', workspaceCwd: '/repo', config: { keepOnThisMac: true } }).config)
+      .toEqual({ keepOnThisMac: true });
+    expect(PlanQueueStartArgsSchema.parse({ kind: 'plans', keep_on_this_mac: true })).toEqual({ kind: 'plans', keep_on_this_mac: true });
+  });
+
+  it('refuses anything but true or false', () => {
+    expect(PlanQueueRunConfigSchema.safeParse({ ...DEFAULT_PLAN_QUEUE_CONFIG.plans, keepOnThisMac: 'yes' }).success).toBe(false);
+    expect(PlanQueueStartArgsSchema.safeParse({ kind: 'plans', keep_on_this_mac: 'yes' }).success).toBe(false);
+  });
+});
 
 describe('Plan Queue check batch size', () => {
   it.each([1, 2, 3, 4, 5, 6, 7, 8])('preserves a batch size of %s at the run and tool boundaries', checkBatchSize => {

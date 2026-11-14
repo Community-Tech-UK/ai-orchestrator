@@ -13,6 +13,7 @@ import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import type { InternalInputSource } from '../../shared/types/input-provenance.types';
 import type { PlanQueueHistoryStore } from './plan-queue-history-store';
 import type { PlanQueueStore } from './plan-queue-store';
+import type { PlanQueueRemoteTurns } from './remote/plan-queue-remote-turns';
 
 export interface PlanQueueInstanceRecord {
   id: string;
@@ -72,6 +73,8 @@ export interface PlanQueueFlowHost {
   setRunHold(runId: string, holdReason: string | null): void;
   readonly instances: PlanQueueInstancePort;
   readonly worktrees: PlanQueueWorktreeService;
+  /** Present when jobs may run on other computers; absent means every job runs here. */
+  readonly remote?: PlanQueueRemoteTurns;
   readonly tracker: PlanQueueInstanceTracker;
   selectVerifier(input: VerifierSelectInput): Promise<VerifierSelection>;
   getRun(runId: string): PlanQueueRun;

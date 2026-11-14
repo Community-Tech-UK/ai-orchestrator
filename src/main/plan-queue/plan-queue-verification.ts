@@ -156,7 +156,7 @@ export class PlanQueueVerification {
       : checkedHash === undefined ? 'The checker did not record which source document it reviewed.' : null;
     // A deferred check (plans only) must be in the worker's report and written down beside the plan, or the PASS cannot stand.
     const deferredProblems = this.host.getRun(item.runId).kind === 'plans'
-      ? await deferredPassProblems(reported, item.workerReport, item.sourceRef) : [];
+      ? await deferredPassProblems(reported, item.workerReport, item.sourceRef, Boolean(item.remote)) : [];
     const problems = machineProblem ? [{ severity: 'high' as const, kind: 'code' as const, confidence: 100, summary: machineProblem }] : deferredProblems;
     const validated: PlanQueueVerdict = reported.verdict === 'PASS' && problems.length
       ? { ...reported, verdict: 'FAIL', documentComplete: false, findings: [...reported.findings, ...problems] }

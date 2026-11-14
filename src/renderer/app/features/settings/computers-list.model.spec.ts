@@ -6,9 +6,12 @@ import {
   changedChoices,
   describeFolders,
   describeNow,
+  describeQueueProjects,
+  describeQueueTakes,
   describeSetup,
   describeTools,
   offersSetup,
+  queueJobsSupported,
   providersWithAccounts,
   workerSettingsFiles,
   type ComputerDetail,
@@ -223,6 +226,48 @@ describe('a computer\'s AI tools and folders, in words', () => {
     expect(workerSettingsFiles('darwin')).toEqual({
       home: '.orchestrator/worker-node.json', service: '/Library/Application Support/Orchestrator/worker-node.json',
     });
+  });
+});
+
+describe('Plan Queue jobs, in words', () => {
+  const NOW = new Date(2026, 10, 11, 15, 30).getTime();
+  const REPO = { key: 'repo-aaaaaaaa', name: 'repo', repoRoot: '/work/repo' };
+  const OTHER = { key: 'other-bbbbbbbb', name: 'other', repoRoot: '/work/other' };
+
+  it('can take jobs only when a connected computer reports the ability, and is unknown while it is away', () => {
+    const caps = node('pc').capabilities;
+    expect(queueJobsSupported(node('pc', { capabilities: { ...caps, queueJobs: 1 } }))).toBe(true);
+    expect(queueJobsSupported(node('pc'))).toBe(false);
+    expect(queueJobsSupported(node('pc', { connected: false }))).toBeNull();
+    expect(queueJobsSupported(undefined)).toBeNull();
+  });
+
+  it('says which projects passed, which failed and why, and which were never checked, with today\'s time or an earlier date', () => {
+    const lines = describeQueueProjects([REPO, OTHER, { key: 'c-cccccccc', name: 'c', repoRoot: '/work/c' }], {
+      [REPO.key]: { ok: true, checkedAt: new Date(2026, 10, 11, 9, 5).getTime(), problem: null, summary: 'Checks took 43 s.' },
+      [OTHER.key]: { ok: false, checkedAt: new Date(2026, 10, 3, 9, 5).getTime(), problem: 'Install failed: out of disk space.', summary: '' },
+    }, NOW);
+    expect(lines.map(line => [line.project.name, line.passed, line.text])).toEqual([
+      ['repo', true, 'Passed the check today at 09:05. Checks took 43 s.'],
+      ['other', false, 'Failed the check on 3 Nov: Install failed: out of disk space.'],
+      ['c', null, 'Not checked there yet.'],
+    ]);
+  });
+
+  it('gives a failed check with no stated problem a plain sentence, and ignores results for projects it is not listing', () => {
+    const lines = describeQueueProjects([REPO], {
+      [REPO.key]: { ok: false, checkedAt: NOW, problem: null, summary: '' },
+      [OTHER.key]: { ok: true, checkedAt: NOW, problem: null, summary: '' },
+    }, NOW);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.text).toMatch(/^Failed the check today at \d\d:\d\d: its checks did not pass\.$/);
+  });
+
+  it('says what a computer takes for the read-only list only when it takes jobs', () => {
+    const base = { nodeId: 'pc', label: 'pc', paused: false, projects: {} };
+    expect(describeQueueTakes({ ...base, takesJobs: true, jobsAtOnce: 3 })).toBe('Plan Queue jobs, 3 at once');
+    expect(describeQueueTakes({ ...base, takesJobs: false, jobsAtOnce: 3 })).toBeNull();
+    expect(describeQueueTakes(undefined)).toBeNull();
   });
 });
 

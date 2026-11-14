@@ -31,4 +31,18 @@
   cursor: pointer;
 }
 
+.pq-start-keep {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  cursor: pointer;
+}
+
+.pq-start-hint {
+  flex-basis: 100%;
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+
 button[aria-disabled='true'] { opacity: 0.5; cursor: not-allowed; }

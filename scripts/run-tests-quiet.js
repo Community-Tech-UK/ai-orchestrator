@@ -308,6 +308,11 @@ async function runSuite() {
     config = null;
   }
   const route = decideRoute({ args: passthroughArgs, root: ROOT, config });
+  if (route.kind === 'stop') {
+    const message = `A full run was not started: ${route.reason}. A full run on Windows never finishes here, so it needs the PC's Linux space: turn test runs on for a machine in ${path.join(remoteChecksDir(), 'config.json')}.`;
+    appendRunLog({ at: new Date().toISOString(), project: path.basename(ROOT), loop: isLoopRun(), fingerprint: null, ranOn: 'none', waitedMs: 0, tookMs: 0, exitCode: 1, fellBackBecause: route.reason });
+    return { exitCode: 1, where: message };
+  }
   if (route.kind === 'local') {
     const started = Date.now();
     const exitCode = await runVitest();
@@ -363,6 +368,13 @@ async function runSuite() {
       };
     } else {
       reason = remote.reason;
+      if (process.platform === 'win32') {
+        // Nowhere else to run it, and a native full run never ends here: stop with the reason.
+        clearRunOutput();
+        const message = `A full run was not started: ${reason}. A full run on Windows never finishes here, so it is not tried.`;
+        appendRunLog({ at: new Date(started).toISOString(), project: path.basename(ROOT), ...(route.specs ? { kind: 'targeted' } : {}), loop: isLoopRun(), fingerprint: null, ranOn: 'none', waitedMs: 0, tookMs: Date.now() - started, exitCode: 1, fellBackBecause: reason });
+        return { exitCode: 1, where: message };
+      }
       // This Mac's full run covers the Mac-only specs, so one started beside it has nothing to add.
       unmerged = macOnlyElsewhere;
       clearRunOutput();

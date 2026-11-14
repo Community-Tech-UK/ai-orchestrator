@@ -56,6 +56,19 @@ describe('Plan Queue tool operation adoption routing', () => {
     }));
   });
 
+  it('maps keep_on_this_mac into the new run configuration, and leaves it out when not asked', async () => {
+    const coordinator = new PlanQueueCoordinator();
+    const startRun = vi.spyOn(coordinator, 'startRun').mockResolvedValue({ run: { id: 'mac-run', parentInstanceId: 'caller', kind: 'plans',
+      workspaceCwd: '/repo', status: 'running', config: DEFAULT_PLAN_QUEUE_CONFIG.plans,
+      workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null, items: [] },
+    excluded: [], routingSetAside: [], accountNotes: [], checklistSetAside: false });
+    const operations = createPlanQueueToolOperations(() => coordinator);
+    await operations.start('caller', { kind: 'plans', keep_on_this_mac: true });
+    await operations.start('caller', { kind: 'plans' });
+    expect(startRun.mock.calls[0]![0].config).toEqual({ keepOnThisMac: true });
+    expect(startRun.mock.calls[1]![0].config).toEqual({});
+  });
+
   it('adds a compact Queue health summary to the overview status, in the same words as the page, but not to one run\'s status', async () => {
     const coordinator = new PlanQueueCoordinator();
     const NOTHING = { count: 0, of: 0, share: null };

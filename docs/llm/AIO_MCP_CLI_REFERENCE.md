@@ -107,7 +107,7 @@ to the Markdown source. These are MCP tools, not `$AIO_MCP` CLI subcommands.
 
 It also exposes the Plan Queue tools: `plan_queue_start` (args: `kind` =
 `plans` or `livetests`, optional `glob`, `worker_slots`, `verification_slots`,
-`max_rounds`, `relax_settings`, `verifier_gates`, `post_merge_gate`, and
+`max_rounds`, `relax_settings`, `keep_on_this_mac` (keep every job on this Mac), `verifier_gates`, `post_merge_gate`, and
 `workers` / `verifiers` provider-and-account choices in preference order, and one
 `step_up` choice a document is handed to once when its worker fails every round — pass
 those only when James asks for specific providers or accounts; optional `workspace`, the full path

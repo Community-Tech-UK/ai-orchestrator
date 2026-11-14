@@ -51,6 +51,17 @@ export function isLandingWait(item: Pick<PlanQueueItem, 'state' | 'landingWaitPa
   return item.state === 'landing' && (item.landingWaitPaths?.length ?? 0) > 0;
 }
 
+/** The start of the note on a job held because its plan changed here while it ran on another computer; the computer's name follows. */
+export const PLAN_CHANGED_HOLD_PREFIX = 'the plan changed here while the job was on ';
+
+/**
+ * A job held for James to choose (its plan changed here while it was away), which Pause and Resume do not start again.
+ * Only his Resume, which clears the hold, lets it go on. A usage wait or a pause also sets `heldAt`, and those do start again.
+ */
+export function isHeldForJames(item: Pick<PlanQueueItem, 'heldAt' | 'detail'>): boolean {
+  return item.heldAt != null && !!item.detail?.startsWith(PLAN_CHANGED_HOLD_PREFIX);
+}
+
 /**
  * Counts toward a run's worker slots. A waiting landing still keeps its folder (it counts toward the app-wide
  * limit through `itemHoldsWorktree`) but frees its slot for the next document.

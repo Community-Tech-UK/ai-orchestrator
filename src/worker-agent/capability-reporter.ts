@@ -178,6 +178,7 @@ export async function reportCapabilities(
     codexSpawnMetadata: 1,
     codexHelperPolicy: 1,
     queuePushGuard: 1, // This worker builds the Plan Queue push guard itself (see SpawnParams).
+    queueJobs: 1, // This worker answers the `queue.*` calls (src/worker-agent/queue-jobs/).
     hasBrowserRuntime,
     // True only when browser automation is explicitly enabled in worker config
     // AND a Chrome/Chromium executable is resolvable — i.e. the worker can

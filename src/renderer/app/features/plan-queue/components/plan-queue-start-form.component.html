@@ -30,6 +30,12 @@
     />
   </label>
 
+  <label class="pq-start-keep">
+    <input type="checkbox" name="keepOnThisMac" [checked]="keepOnThisMac()" (change)="keepOnThisMac.set(!keepOnThisMac()); onSelectionChange()" />
+    <span>Keep this run on this Mac</span>
+    <span class="pq-start-hint">For plans that need this Mac's browser or Harness tools.</span>
+  </label>
+
   @if (preview(); as result) {
     <p role="status">{{ pluralise(result.found, 'document') }} found@if (result.hiddenCopies !== null) { ({{ result.hiddenCountComplete ? '' : 'at least ' }}{{ result.hiddenCopies }} {{ result.hiddenCopies === 1 ? 'looks like a copy' : 'look like copies' }}, hidden) }</p>
   }

@@ -23,6 +23,7 @@ export function createPlanQueueDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
       kind: PlanQueueKind;
       workspaceCwd: string;
       glob?: string;
+      config?: { keepOnThisMac?: boolean };
     }): Promise<IpcResponse> => ipcRenderer.invoke(ch.PLAN_QUEUE_START, payload),
 
     planQueueStartSetAsideAgent: (payload: { workspaceCwd: string }): Promise<IpcResponse> =>

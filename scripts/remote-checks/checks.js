@@ -48,7 +48,7 @@ const CHECK_SETS = {
   // The slow part of scripts/run-git-hook.js's pre-push list, in its order.
   push: ['npm run lint', 'npm run typecheck', 'npm run typecheck:spec', 'npm run build:main', 'npm run build:worker-agent', 'npm run build:renderer'],
 };
-const MAC = 'the Mac';
+const MAC = process.platform === 'darwin' ? 'the Mac' : 'this computer';
 /** What the Plan Queue keeps of a check's output, and so all a run needs to send back. */
 const OUTPUT_LIMIT = 256_000;
 const SHOWN_LINES = 40;
@@ -160,7 +160,7 @@ async function runChecks({ checks, root, logPath, env = process.env, onResult = 
       return notRunOutcome({ root, env, started, reason });
     } else {
       reason = remote.reason;
-      process.stderr.write(`checks: running on the Mac because ${reason}\n`);
+      process.stderr.write(`checks: running on ${MAC} because ${reason}\n`);
     }
   }
   results ||= await runAllHere(checks, root, logPath, onResult);
@@ -185,7 +185,7 @@ async function runChecks({ checks, root, logPath, env = process.env, onResult = 
   const where = route.kind === 'local'
     ? null
     : ranOn === MAC
-      ? `Ran on the Mac in ${formatDuration(tookMs)}, because ${reason}.`
+      ? `Ran on ${MAC} in ${formatDuration(tookMs)}, because ${reason}.`
       : `Ran on ${ranOn} in ${formatDuration(tookMs)}.`;
   return {
     exitCode, ranOn: route.kind === 'local' ? null : ranOn, where, fellBackBecause: ranOn === MAC ? reason : null, checks: results,

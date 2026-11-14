@@ -654,7 +654,7 @@ const ALLOWLIST: Record<string, number> = {
   // lock (+6 lines). The file was exactly 700 at HEAD; most of the growth to 706 is
   // other uncommitted Plan Queue work in the same working tree (retirements, active-work
   // checks, landing chain). Re-tighten once that work is committed and the file is split.
-  'src/main/plan-queue/plan-queue-item-flow.ts': 776, // 706 -> 768: landing-wait wiring (step 4.2); +8: park a Harness stop without retrying it (Oct-2 Phase D Step 1)
+  'src/main/plan-queue/plan-queue-item-flow.ts': 890, // 706 -> 768: landing-wait wiring (step 4.2); +8: park a Harness stop without retrying it (Oct-2 Phase D Step 1); 776 -> 890: jobs on other computers wire in at start, spawn, turn end, hold, park, landing and discard (Plan Queue jobs on other computers, stage 3)
 };
 
 function countLines(filePath: string): number {

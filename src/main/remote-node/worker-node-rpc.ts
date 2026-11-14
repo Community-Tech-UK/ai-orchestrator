@@ -99,6 +99,16 @@ export const COORDINATOR_TO_NODE = {
   LOCAL_AI_HEALTH_CHECK: 'localAi.health.check',
   LOCAL_AI_HEALTH_DIAGNOSE: 'localAi.health.diagnose',
   LOCAL_AI_HEALTH_REPAIR: 'localAi.health.repair',
+  // Plan Queue jobs on this node (capability `queueJobs: 1`); see src/shared/types/queue-job.types.ts.
+  QUEUE_HAVE: 'queue.have',
+  QUEUE_RECEIVE: 'queue.receive',
+  QUEUE_PREPARE: 'queue.prepare',
+  QUEUE_COLLECT: 'queue.collect',
+  QUEUE_FETCH_PACK: 'queue.fetchPack',
+  QUEUE_READ_REPORT: 'queue.readReport',
+  QUEUE_DELETE_LEFT_OUT: 'queue.deleteLeftOut',
+  QUEUE_REMOVE: 'queue.remove',
+  QUEUE_PROJECT_CHECK: 'queue.projectCheck',
 } as const;
 
 export type RpcScope = 'instance' | 'service';

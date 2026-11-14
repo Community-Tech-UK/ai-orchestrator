@@ -87,6 +87,27 @@
   width: 4.5rem;
 }
 
+.queue-projects {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.project-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.project-name {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+.project-text {
+  flex: 1;
+}
+
 .today {
   display: flex;
   flex-direction: column;

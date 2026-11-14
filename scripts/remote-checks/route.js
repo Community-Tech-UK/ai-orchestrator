@@ -141,25 +141,34 @@ function decideRouteWithoutThisMac({ args, env, root, config }) {
  *   `vitest run <args>` would here.
  * - `mac`: a full run that belongs on the Mac; `turn` says if it waits for the others.
  * - `not-run`: this Mac is switched off and the run has nowhere to go; `reason` says why.
+ * - `stop`: Windows only. A full run never finishes natively there (stage 0 of the Plan Queue jobs plan measured 50
+ *   minutes without an end, where the PC's Linux space takes 4 to 8), so with no far machine to go to the run
+ *   stops at once and says why, instead of hanging. There is no Mac turn to wait for and no Mac to fall back to.
  */
-function decideRoute({ args, env = process.env, root, config }) {
-  if (env.GITHUB_ACTIONS || !config) return { kind: 'local' };
-  if (config.useThisMac === false) return decideRouteWithoutThisMac({ args, env, root, config });
+function decideRoute({ args, env = process.env, root, config, platform = process.platform }) {
+  if (env.GITHUB_ACTIONS) return { kind: 'local' };
+  const windows = platform === 'win32';
+  if (!config) {
+    // No far machine is set up here. On Windows a plain full run would still start natively and never end.
+    if (windows && isPlainFullRun(args) && env.AIO_REMOTE_CHECKS !== 'off') return { kind: 'stop', reason: 'no test machine is set up on this computer' };
+    return { kind: 'local' };
+  }
+  if (!windows && config.useThisMac === false) return decideRouteWithoutThisMac({ args, env, root, config });
   const queueCheck = isQueueCheck(root, env);
   const chosenHere = stayReason(config, 'testRuns');
+  const stayed = reason => (windows
+    ? { kind: 'stop', reason }
+    : { kind: 'mac', turn: !queueCheck, reason });
   if (isLargeTargetedRun(args)) {
     if (env.AIO_REMOTE_CHECKS === 'off' || chosenHere || (queueCheck && !config.queueChecks)) return { kind: 'local' };
     return { kind: 'remote', turn: false, specs: args };
   }
   if (!isPlainFullRun(args)) return { kind: 'local' };
-  if (env.AIO_REMOTE_CHECKS === 'off') {
-    return { kind: 'mac', turn: !queueCheck, reason: 'AIO_REMOTE_CHECKS=off asked for it' };
-  }
-  if (chosenHere) return { kind: 'mac', turn: !queueCheck, reason: chosenHere };
-  if (queueCheck && !config.queueChecks) {
-    return { kind: 'mac', turn: false, reason: 'queue checks stay on the Mac for now' };
-  }
-  return { kind: 'remote', turn: !queueCheck };
+  // Asking for no remote checks on Windows is asking for the native run, so it goes ahead.
+  if (env.AIO_REMOTE_CHECKS === 'off') return windows ? { kind: 'local' } : stayed('AIO_REMOTE_CHECKS=off asked for it');
+  if (chosenHere) return stayed(chosenHere);
+  if (queueCheck && !config.queueChecks) return windows ? { kind: 'remote', turn: false } : { kind: 'mac', turn: false, reason: 'queue checks stay on the Mac for now' };
+  return { kind: 'remote', turn: windows ? false : !queueCheck };
 }
 
 /** Readers parse the whole log each time, so past this it starts again, keeping the one before as runs.old.jsonl. */

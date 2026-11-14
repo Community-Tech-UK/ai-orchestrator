@@ -112,6 +112,8 @@ const codeFinding = (summary: string, evidence?: string): Finding => ({ severity
  */
 export async function deferredPassProblems(
   verdict: PlanQueueVerdict, report: PlanQueueWorkerReport | null | undefined, documentPath: string,
+  /** The worker ran on another computer, with no Harness tools: its report is a file named in its prompt. */
+  reportIsFile = false,
 ): Promise<Finding[]> {
   const deferred = verdict.deferredChecks ?? [];
   if (verdict.verdict !== 'PASS' || !deferred.length) return [];
@@ -120,7 +122,9 @@ export async function deferredPassProblems(
   if (unreported.length) {
     return [codeFinding(
       `The checker found ${unreported.length === 1 ? 'a deferred check' : 'deferred checks'} that the worker's report does not list: ${unreported.map(check => `"${check.title}"`).join(', ')}.`,
-      'Report each one with plan_queue_report_ready under deferred_checks (title, steps, expected result, why it is deferred) and write it in the _livetest.md beside the plan.',
+      reportIsFile
+        ? 'Report each one in your report file under deferred_checks (title, steps, expected result, why it is deferred) and write it in the _livetest.md beside the plan.'
+        : 'Report each one with plan_queue_report_ready under deferred_checks (title, steps, expected result, why it is deferred) and write it in the _livetest.md beside the plan.',
     )];
   }
   const text = await readLivetest(documentPath);

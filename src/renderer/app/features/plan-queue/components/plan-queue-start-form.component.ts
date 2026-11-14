@@ -17,13 +17,16 @@ export interface PlanQueueStartRequest {
   readonly kind: PlanQueueKind;
   readonly workspaceCwd: string;
   readonly glob?: string;
+  /** Set only when "Keep this run on this Mac" is ticked. */
+  readonly config?: { readonly keepOnThisMac: true };
 }
 
 const KINDS: PlanQueueKind[] = ['plans', 'livetests'];
 
 /**
  * Starts a new run: pick a root session as the parent (its working directory
- * becomes the run's workspace), the document kind, and an optional glob.
+ * becomes the run's workspace), the document kind, an optional glob, and whether
+ * the run stays on this Mac.
  */
 @Component({
   selector: 'app-plan-queue-start-form',
@@ -47,6 +50,7 @@ export class PlanQueueStartFormComponent {
   protected readonly selectedParentId = signal('');
   protected readonly kind = signal<PlanQueueKind>('plans');
   protected readonly glob = signal('');
+  protected readonly keepOnThisMac = signal(false);
   protected readonly checking = signal(false);
   protected readonly preview = signal<PlanQueueDiscoveryPreview | null>(null);
   protected readonly error = signal<string | null>(null);
@@ -84,6 +88,7 @@ export class PlanQueueStartFormComponent {
       kind: this.kind(),
       workspaceCwd: parent.workingDirectory,
       ...(glob ? { glob } : {}),
+      ...(this.keepOnThisMac() ? { config: { keepOnThisMac: true as const } } : {}),
     };
     const version = ++this.requestVersion;
     this.checking.set(true);

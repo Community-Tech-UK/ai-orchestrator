@@ -103,6 +103,7 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
           ...(args.check_batch_size !== undefined ? { checkBatchSize: args.check_batch_size } : {}),
           ...(args.max_rounds ? { maxRounds: args.max_rounds } : {}),
           ...(args.relax_settings !== undefined ? { relaxSettings: args.relax_settings } : {}),
+          ...(args.keep_on_this_mac !== undefined ? { keepOnThisMac: args.keep_on_this_mac } : {}),
           ...(args.verifier_gates ? { verifierGates: args.verifier_gates } : {}),
           ...(args.post_merge_gate ? { postMergeGate: args.post_merge_gate } : {}),
         },

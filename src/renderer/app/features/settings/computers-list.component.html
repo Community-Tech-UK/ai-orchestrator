@@ -11,6 +11,11 @@
     <details class="field-hint"><summary>Details</summary>{{ detail }}</details>
   }
 
+  @if (queueLoadFailure(); as detail) {
+    <p class="notice" role="alert">The Plan Queue settings for your computers couldn't be read, so they aren't shown.</p>
+    <details class="field-hint"><summary>Details</summary>{{ detail }}</details>
+  }
+
   <ol class="computer-list">
     @for (row of rows(); track row.id; let index = $index) {
       <li class="computer-row" [class.paused]="row.paused">
@@ -47,6 +52,9 @@
 
         @if (readOnly() || row.kind === 'this-mac') {
           <p class="field-hint">{{ describeTakes(row) }}</p>
+          @if (readOnly() && describeQueueTakes(row); as queueTakes) {
+            <p class="field-hint">Also takes {{ queueTakes }}.</p>
+          }
           @if (!readOnly() && row.kind === 'this-mac' && hasTestMachines()) {
             <div class="switches">
               <label class="switch-row" for="use-this-mac">
@@ -126,6 +134,65 @@
                   }
                 </select>
               </label>
+            }
+            @if (queue(row); as queue) {
+              <label class="switch-row" [for]="'queue-jobs-' + row.id">
+                <span>Plan Queue jobs</span>
+                <span class="toggle-label">
+                  <input
+                    [id]="'queue-jobs-' + row.id"
+                    type="checkbox"
+                    class="toggle-input"
+                    [checked]="queue.computer.takesJobs"
+                    [disabled]="saving() || queue.supported === false"
+                    [attr.aria-describedby]="queue.supported === false ? 'queue-jobs-reason-' + row.id : null"
+                    (change)="setQueueJobs(row, $event)"
+                  />
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </span>
+              </label>
+              @if (queue.supported === false) {
+                <p class="field-hint" [id]="'queue-jobs-reason-' + row.id">{{ needsNewerHarness }}</p>
+              }
+              @if (queue.computer.takesJobs && queue.supported !== false) {
+                <label class="switch-row" [for]="'queue-jobs-at-once-' + row.id">
+                  <span>Plan Queue jobs at once</span>
+                  <select
+                    [id]="'queue-jobs-at-once-' + row.id"
+                    class="field-input slots"
+                    [value]="queue.computer.jobsAtOnce"
+                    [disabled]="saving()"
+                    (change)="jobsAtOnceChanged(row, $event)"
+                  >
+                    @for (count of jobsAtOnceChoices; track count) {
+                      <option [value]="count" [selected]="count === queue.computer.jobsAtOnce">{{ count }}</option>
+                    }
+                  </select>
+                </label>
+                <div class="queue-projects">
+                  <p class="field-hint">Checking sends a project's current branch to that computer and runs its checks there. A project's jobs only go there once it passes.</p>
+                  @if (row.away) {
+                    <p class="field-hint">It's away, so projects can't be checked until it's back.</p>
+                  }
+                  @for (line of queue.projects; track line.project.key) {
+                    <div class="project-line">
+                      <span class="project-name">{{ line.project.name }}</span>
+                      <span class="field-hint project-text">{{ line.text }}</span>
+                      @if (!row.away) {
+                        <button type="button" class="btn" [disabled]="isChecking(row, line.project)" (click)="checkProject(row, line.project)">
+                          {{ isChecking(row, line.project) ? 'Checking…' : line.passed === null ? 'Check' : 'Check again' }}
+                        </button>
+                      }
+                    </div>
+                    @if (checkFailure(row, line.project); as detail) {
+                      <p class="notice" role="alert">Couldn't check {{ line.project.name }} on {{ row.name }}.</p>
+                      <details class="field-hint"><summary>Details</summary>{{ detail }}</details>
+                    }
+                  } @empty {
+                    <p class="field-hint">No projects yet. They appear here once the Plan Queue has worked in them.</p>
+                  }
+                </div>
+              }
             }
             @if (row.alsoTakes.length) {
               <p class="field-hint">Also takes {{ row.alsoTakes.join(' and ') }}, through the switches in Advanced.</p>

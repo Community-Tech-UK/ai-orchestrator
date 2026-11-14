@@ -151,6 +151,44 @@ describe('PlanQueueStartFormComponent', () => {
     ]);
   });
 
+  it('offers "Keep this run on this Mac", off by default, and sends it with the run when ticked', async () => {
+    const emitted: PlanQueueStartRequest[] = [];
+    fixture.componentInstance.start.subscribe((r) => emitted.push(r));
+    const keep = fixture.nativeElement.querySelector('input[name="keepOnThisMac"]') as HTMLInputElement;
+    expect(fixture.nativeElement.textContent).toContain('Keep this run on this Mac');
+    expect(keep.checked).toBe(false);
+
+    select().value = 'inst-1';
+    select().dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    keep.click();
+    fixture.detectChanges();
+    expect(keep.checked).toBe(true);
+    submitButton().click();
+    await fixture.whenStable();
+    expect(emitted).toEqual([{ parentInstanceId: 'inst-1', kind: 'plans', workspaceCwd: '/repo-a', config: { keepOnThisMac: true } }]);
+    expect(preview).toHaveBeenCalledWith(expect.objectContaining({ config: { keepOnThisMac: true } }));
+  });
+
+  it('asks again before starting a large run when the keep choice changes after the preview', async () => {
+    preview.mockResolvedValue({ success: true, data: { found: 26, hiddenCopies: 0, hiddenCountComplete: true } });
+    const emitted: PlanQueueStartRequest[] = [];
+    fixture.componentInstance.start.subscribe((r) => emitted.push(r));
+    select().value = 'inst-1';
+    select().dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    submitButton().click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Start all 26 documents');
+    (fixture.nativeElement.querySelector('input[name="keepOnThisMac"]') as HTMLInputElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('Start all 26 documents');
+    expect(emitted).toEqual([]);
+  });
+
   it('does not emit when submitted with no parent session chosen', () => {
     const emitted: PlanQueueStartRequest[] = [];
     fixture.componentInstance.start.subscribe((r) => emitted.push(r));

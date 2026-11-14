@@ -11,6 +11,14 @@ import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directi
 import { presentError } from '../../../../shared/present-error';
 import type { RemoteNodeRosterEntry } from '../../../../shared/types/worker-node.types';
 import type { TestMachineView, WorkToday } from '../../../../shared/types/computers.types';
+import type { QueueJobComputer } from '../../../../shared/types/plan-queue-computers.types';
+import {
+  MAX_QUEUE_JOBS_AT_ONCE,
+  MIN_QUEUE_JOBS_AT_ONCE,
+  type QueueJobProject,
+  type QueueJobsChange,
+  type QueueJobsPageView,
+} from '../../../../shared/types/plan-queue-computers-page.types';
 import type { ComputerChoice } from '../../../../shared/types/settings.types';
 import type { PooledProvider } from '../../../../shared/types/provider-account.types';
 import {
@@ -18,19 +26,32 @@ import {
   changedChoices,
   describeFolders,
   describeNow,
+  describeQueueProjects,
+  describeQueueTakes,
   describeSetup,
   describeTakes,
   describeToday,
   describeTools,
   movedChoices,
+  NEEDS_NEWER_HARNESS,
   offersSetup,
   providersWithAccounts,
+  queueJobsSupported,
   workerSettingsFiles,
   type ComputerDetail,
   type ComputerRow,
   type DetailLine,
+  type QueueProjectLine,
   type SetupStep,
 } from './computers-list.model';
+
+/** A paired computer's Plan Queue settings, whether it can take jobs, and its projects in words. */
+interface QueueRowView {
+  computer: QueueJobComputer;
+  /** False when it reports no Plan Queue ability, null while it's away and can't be asked. */
+  supported: boolean | null;
+  projects: QueueProjectLine[];
+}
 
 /** Field by field, so the order keys were stored in can't make a kept change look lost. */
 function sameChoices(a: readonly ComputerChoice[], b: readonly ComputerChoice[]): boolean {
@@ -38,9 +59,18 @@ function sameChoices(a: readonly ComputerChoice[], b: readonly ComputerChoice[])
     && a.every((choice, at) => choice.id === b[at]!.id && choice.paused === b[at]!.paused && choice.sessions === b[at]!.sessions);
 }
 
+const checkKey = (row: ComputerRow, project: QueueJobProject) => `${row.id}|${project.repoRoot}`;
+
+function withoutKey<V>(map: ReadonlyMap<string, V>, key: string): Map<string, V> {
+  const next = new Map(map);
+  next.delete(key);
+  return next;
+}
+
 /** How often the list reads the test machine and today's work again while it's open. */
 const REFRESH_MS = 60_000;
 const SLOT_CHOICES = [1, 2, 3, 4, 5, 6, 7, 8];
+const JOBS_AT_ONCE_CHOICES = Array.from({ length: MAX_QUEUE_JOBS_AT_ONCE - MIN_QUEUE_JOBS_AT_ONCE + 1 }, (_, index) => MIN_QUEUE_JOBS_AT_ONCE + index);
 
 @Component({
   standalone: true,
@@ -76,8 +106,18 @@ export class ComputersListComponent {
   private readonly labelsRequested = new Set<string>();
   /** Counts saved test-machine changes, so a refresh that started before one can't put the old values back. */
   private testMachineChanges = 0;
+  /** The same for Plan Queue changes and project checks. */
+  private queueJobChanges = 0;
+  private readonly queueView = signal<QueueJobsPageView>({ computers: [], projects: [] });
+  protected readonly queueLoadFailure = signal<string | null>(null);
+  /** Projects being checked now, as `computer id|repository`. A check can take minutes. */
+  private readonly checking = signal<ReadonlySet<string>>(new Set());
+  /** Raw detail of each project's last failed check, by the same key. The visible sentence is fixed. */
+  private readonly checkFailures = signal<ReadonlyMap<string, string>>(new Map());
 
   protected readonly slotChoices = SLOT_CHOICES;
+  protected readonly jobsAtOnceChoices = JOBS_AT_ONCE_CHOICES;
+  protected readonly needsNewerHarness = NEEDS_NEWER_HARNESS;
   protected readonly rows = computed(() => buildComputerRows(this.nodes(), this.store.computers(), this.testMachines(), {
     browser: this.store.remoteNodesAutoOffloadBrowser(),
     android: this.store.remoteNodesAutoOffloadAndroid(),
@@ -108,6 +148,29 @@ export class ComputersListComponent {
 
   protected describeTakes(row: ComputerRow): string {
     return describeTakes(row, this.useThisMac());
+  }
+
+  /** "Plan Queue jobs, 2 at once" for a paired computer that takes them, for the read-only list. */
+  protected describeQueueTakes(row: ComputerRow): string | null {
+    return describeQueueTakes(this.queueView().computers.find(computer => computer.nodeId === row.id));
+  }
+
+  /** Null for this Mac and test machines on their own, and until the settings have been read. */
+  protected queue(row: ComputerRow): QueueRowView | null {
+    if (row.kind !== 'paired') return null;
+    const view = this.queueView();
+    const computer = view.computers.find(entry => entry.nodeId === row.id);
+    if (!computer) return null;
+    const supported = queueJobsSupported(this.nodes().find(node => node.id === row.id));
+    return { computer, supported, projects: describeQueueProjects(view.projects, computer.projects, this.now()) };
+  }
+
+  protected isChecking(row: ComputerRow, project: QueueJobProject): boolean {
+    return this.checking().has(checkKey(row, project));
+  }
+
+  protected checkFailure(row: ComputerRow, project: QueueJobProject): string | undefined {
+    return this.checkFailures().get(checkKey(row, project));
   }
 
   protected offersSetup(row: ComputerRow): boolean {
@@ -152,7 +215,16 @@ export class ComputersListComponent {
   private async load(): Promise<void> {
     if (this.saving()) return;
     const changesBefore = this.testMachineChanges;
-    const result = await this.ipc.getTestMachines();
+    const queueChangesBefore = this.queueJobChanges;
+    const [result, queue] = await Promise.all([this.ipc.getTestMachines(), this.ipc.getQueueJobs()]);
+    if (queueChangesBefore === this.queueJobChanges) {
+      if (queue.ok) {
+        this.queueView.set(queue.view);
+        this.queueLoadFailure.set(null);
+      } else {
+        this.queueLoadFailure.set(presentError(queue.error).rawDetail);
+      }
+    }
     if (changesBefore !== this.testMachineChanges) return;
     if (!result.ok) {
       this.loadFailure.set(presentError(result.error).rawDetail);
@@ -197,6 +269,46 @@ export class ComputersListComponent {
   protected slotsChanged(host: string, event: Event): Promise<void> {
     const slots = Number((event.target as HTMLSelectElement).value);
     return this.whileSaving(() => this.saveTestMachine(host, { slots }), event, () => this.machine(host)?.slots);
+  }
+
+  protected setQueueJobs(row: ComputerRow, event: Event): Promise<void> {
+    const takesJobs = (event.target as HTMLInputElement).checked;
+    return this.whileSaving(() => this.saveQueueJobs(row.id, { takesJobs }), event, () => this.queueComputer(row.id)?.takesJobs);
+  }
+
+  protected jobsAtOnceChanged(row: ComputerRow, event: Event): Promise<void> {
+    const jobsAtOnce = Number((event.target as HTMLSelectElement).value);
+    return this.whileSaving(() => this.saveQueueJobs(row.id, { jobsAtOnce }), event, () => this.queueComputer(row.id)?.jobsAtOnce);
+  }
+
+  /** Sends the project there and runs its checks. One check of a project on a computer at a time. */
+  protected async checkProject(row: ComputerRow, project: QueueJobProject): Promise<void> {
+    const key = checkKey(row, project);
+    if (this.checking().has(key)) return;
+    this.checking.update(keys => new Set(keys).add(key));
+    this.checkFailures.update(failures => withoutKey(failures, key));
+    try {
+      const result = await this.ipc.checkQueueProject(row.id, project.repoRoot);
+      if (result.ok) {
+        this.queueJobChanges += 1;
+        this.queueView.update(view => ({ ...view, computers: result.computers }));
+      } else {
+        this.checkFailures.update(failures => new Map(failures).set(key, presentError(result.error).rawDetail));
+      }
+    } finally {
+      this.checking.update(keys => new Set([...keys].filter(entry => entry !== key)));
+    }
+  }
+
+  private queueComputer(id: string): QueueJobComputer | undefined {
+    return this.queueView().computers.find(computer => computer.nodeId === id);
+  }
+
+  private async saveQueueJobs(nodeId: string, change: QueueJobsChange): Promise<void> {
+    const result = await this.ipc.changeQueueJobs(nodeId, change);
+    if (!result.ok) throw result.error;
+    this.queueJobChanges += 1;
+    this.queueView.update(view => ({ ...view, computers: result.computers }));
   }
 
   protected setUseThisMac(event: Event): Promise<void> {

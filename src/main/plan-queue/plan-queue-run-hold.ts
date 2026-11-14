@@ -48,6 +48,8 @@ export async function holdItem(
   stopInstance: (id: string) => Promise<void>,
   restoreVerifier: (item: PlanQueueItem) => Promise<void>,
   reason = 'Paused',
+  /** After the writers stop and before the checkpoint: a job on another computer takes its changes back here. */
+  beforeCheckpoint?: (item: PlanQueueItem) => Promise<PlanQueueItem>,
 ): Promise<void> {
   if (!['preparing', 'working', 'fixing', 'verifying', 'awaiting-slot', 'queued'].includes(item.state)) return;
   if (item.state === 'queued' && !item.branchName && !item.worktreePath
@@ -71,7 +73,7 @@ export async function holdItem(
   }
   // A half-removed folder has nothing to checkpoint; its work is on the branch.
   else if (item.worktreePath && await hasCheckout(item.worktreePath)) {
-    try { item = await host.worktrees.checkpoint(item, 'paused'); }
+    try { item = await host.worktrees.checkpoint(beforeCheckpoint ? await beforeCheckpoint(item) : item, 'paused'); }
     catch (error) {
       if (error instanceof PlanQueueCheckoutOwnershipError) {
         // Writers are stopped and the checkpoint made no Git writes. Keep the

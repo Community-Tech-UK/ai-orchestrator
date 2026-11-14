@@ -252,6 +252,23 @@ export const ComputersChangeTestMachinePayloadSchema = z.object({
   change: ComputersTestMachineChangeSchema,
 }).strict();
 
+/** What the Computers page may change about Plan Queue jobs on a paired computer. */
+export const ComputersQueueJobsChangeSchema = z.object({
+  takesJobs: z.boolean(),
+  jobsAtOnce: z.number().int().min(1).max(8),
+}).partial().strict();
+
+export const ComputersChangeQueueJobsPayloadSchema = z.object({
+  nodeId: z.string().min(1).max(200),
+  change: ComputersQueueJobsChangeSchema,
+}).strict();
+
+/** Check one of the Plan Queue's repositories on a paired computer. */
+export const ComputersCheckQueueProjectPayloadSchema = z.object({
+  nodeId: z.string().min(1).max(200),
+  repoRoot: z.string().min(1).max(4000),
+}).strict();
+
 /** Whether this Mac takes work when the test machines are busy or away. */
 export const ComputersSetUseThisMacPayloadSchema = z.object({
   useThisMac: z.boolean(),
@@ -259,6 +276,8 @@ export const ComputersSetUseThisMacPayloadSchema = z.object({
 
 export type ValidatedTestMachineChange = z.infer<typeof ComputersTestMachineChangeSchema>;
 export type ValidatedChangeTestMachinePayload = z.infer<typeof ComputersChangeTestMachinePayloadSchema>;
+export type ValidatedChangeQueueJobsPayload = z.infer<typeof ComputersChangeQueueJobsPayloadSchema>;
+export type ValidatedCheckQueueProjectPayload = z.infer<typeof ComputersCheckQueueProjectPayloadSchema>;
 export type ValidatedSetTokenPayload = z.infer<typeof RemoteNodeSetTokenPayloadSchema>;
 export type ValidatedIssuePairingPayload = z.infer<typeof RemoteNodeIssuePairingPayloadSchema>;
 export type ValidatedRevokePayload = z.infer<typeof RemoteNodeRevokePayloadSchema>;

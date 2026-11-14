@@ -21,6 +21,12 @@ import { findThisRepository } from './plan-queue-default-gates';
 import { findRestoredSessionId } from './plan-queue-parent';
 import { PlanQueueRelaxation } from './plan-queue-relaxation';
 import { PlanQueueStore } from './plan-queue-store';
+import * as path from 'node:path';
+import { getQueueJobComputers } from '../computers/queue-job-computers';
+import { getWorkerNodeConnectionServer } from '../remote-node/worker-node-connection';
+import { getWorkerNodeRegistry } from '../remote-node/worker-node-registry';
+import { getPlanQueueDataDir } from './plan-queue-data-dir';
+import { RemoteQueueJobs } from './remote/queue-job-remote';
 
 const logger = getLogger('PlanQueueBootstrap');
 let planQueueStore: PlanQueueStore | null = null;
@@ -76,6 +82,15 @@ export async function initializePlanQueue(instanceManager: InstanceManager): Pro
   coordinator.initialize({
     store: planQueueStore,
     instances: instanceManager,
+    remote: {
+      jobs: new RemoteQueueJobs(),
+      computers: () => getQueueJobComputers(),
+      nodes: {
+        isConnected: nodeId => getWorkerNodeConnectionServer().isNodeConnected(nodeId),
+        capabilities: nodeId => getWorkerNodeRegistry().getNode(nodeId)?.capabilities,
+      },
+      removalsFile: path.join(getPlanQueueDataDir(), 'queue-job-removals.json'),
+    },
     postNote: (parentId, text) => instanceManager.emitSystemMessage(parentId, text, { source: 'plan-queue' }),
     questionsToParent: () => settings.get('planQueueQuestionsDestination') === 'parent-chat',
     worktreeCreator: getWorktreeManager(),

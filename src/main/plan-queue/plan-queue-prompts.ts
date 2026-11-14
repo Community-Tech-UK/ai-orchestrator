@@ -15,7 +15,7 @@ import type { PlanQueueItem } from './plan-queue.types';
 import { BRIEF_TRUNCATED_MARK, type PlanBrief } from './plan-queue-plan-extract';
 import { documentHistoryPath } from './plan-queue-plan-diet';
 import type { PlanQueueGateReceipt } from './plan-queue-gate-receipts';
-import { REPORT_READY_TOOL, reportReadyTask, toolDiscoverySteps } from './plan-queue-report-prompts';
+import { REPORT_READY_TOOL, reportFileTask, reportReadyTask, toolDiscoverySteps, type RemoteJobPrompt } from './plan-queue-report-prompts';
 import { verdictExamples, verdictRules } from './plan-queue-verdict-prompts';
 
 export const VERDICT_TOOL = 'plan_queue_report_verdict';
@@ -28,6 +28,22 @@ const FOREGROUND_CHECK_RULE = '- Run checks in the foreground; do not end your t
 const RUNBOOK_RELATIVE = 'docs/plans/livetest-campaign-runbook.md';
 const MAX_DATA_CHARS = 12_000;
 export const WORKER_WAIT_RULE = 'Your work is handed over when you report, not when your turn ends. A command you start in the background (tests, a build, a gate) must be waited for, polling its output until it exits, before you report; never report or end your turn while one is still running.';
+/** The wait rule for a job on another computer: nothing is reported with a tool, so the turn ending hands the work over. */
+const REMOTE_WAIT_RULE = 'Your work is handed over when your turn ends, with your report file written. A command you start in the background (tests, a build, a gate) must be waited for, polling its output until it exits, before you write the report; never end your turn while one is still running.';
+const REMOTE_REPORT_AGAIN = 'write your report file again (the file named in your first instructions for this turn; the report from an earlier turn is not read),';
+
+/** The same prompt for a job whose worker has no Harness tools: the two sentences that name the tool say the file instead. */
+export function forRemoteJob(prompt: string): string {
+  return prompt.replaceAll(REPORT_AGAIN, REMOTE_REPORT_AGAIN).replaceAll(WORKER_WAIT_RULE, REMOTE_WAIT_RULE).replaceAll('the root checkout', 'your planning folder');
+}
+
+/** A path under this Mac's root checkout, shown at its place under the job's planning folder on the other computer. */
+export function farPlanningPath(file: string, remote: Pick<RemoteJobPrompt, 'repoRoot' | 'planningFolder'>): string {
+  const relative = path.relative(remote.repoRoot, file);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return file;
+  const separator = remote.planningFolder.includes('\\') ? '\\' : '/';
+  return `${remote.planningFolder.replace(/[\\/]+$/, '')}${separator}${relative.split(path.sep).join(separator)}`;
+}
 const VERIFIER_WAIT_RULE = 'Your review ends when your turn ends. A gate you start in the background must be waited for (poll its output until it exits) before you end your turn; never end your turn while a gate is still running.';
 const VERDICT_DISCOVERY_STEPS = toolDiscoverySteps(VERDICT_TOOL);
 // Dependency installs stay: the verifier runs its gates in this same worktree,
@@ -60,6 +76,8 @@ interface ItemPromptContext {
   answer?: string | null;
   /** The plan's Status block and open items, so a worker reads those rather than the whole document. */
   brief?: PlanBrief;
+  /** Set when the job runs on another computer: its folders and report file there. */
+  remote?: RemoteJobPrompt;
 }
 
 /** One replaceable Status block in the plan itself; round evidence in the history file, which agents rarely read. */
@@ -67,7 +85,9 @@ function statusRules(ctx: ItemPromptContext): string[] {
   if (ctx.kind === 'livetests') return [];
   return [
     '- Keep one top-level `## Status` block (at most about 1,500 characters), rewritten in place. Never append dated status or as-built sections.',
-    `- Write round evidence to \`${documentHistoryPath(ctx.item.sourceRef)}\` in the ROOT checkout, never in the worktree (an active history file on your branch is refused at landing). Read history only if Status points to it.`,
+    ctx.remote
+      ? `- Write round evidence to \`${farPlanningPath(documentHistoryPath(ctx.item.sourceRef), ctx.remote)}\` in the planning folder, never in the job folder. Read history only if Status points to it.`
+      : `- Write round evidence to \`${documentHistoryPath(ctx.item.sourceRef)}\` in the ROOT checkout, never in the worktree (an active history file on your branch is refused at landing). Read history only if Status points to it.`,
   ];
 }
 
@@ -94,11 +114,26 @@ function stepRules(ctx: ItemPromptContext): string[] {
   ];
 }
 
-function documentRules(ctx: ItemPromptContext): string[] {
+function localLocationRules(ctx: ItemPromptContext): string[] {
   return [
     `- Your document is \`${ctx.item.sourceRef}\`. It lives in the ROOT checkout \`${ctx.repoRoot}\` and is not in your worktree. Read and edit it at that absolute path; never copy it into the worktree.`,
     `- Make every code change in your worktree \`${ctx.worktreePath}\`. It is on branch \`${ctx.item.branchName ?? 'unknown'}\`, cut from the base branch.`,
     '- Other files that git tracks (for example a shared register) are edited in the worktree like code. Planning documents (names ending `_plan`, `_spec`, `_spec_planned`, `_livetest`, `_history` or `-decisions-for-james`, then `.md`) are always edited at their absolute path in the root checkout, even when git tracks them. Never create one inside your worktree: the coordinator moves any it finds there to the root checkout, and a file already at the root is never overwritten (the new one is saved beside it as `<name>.from-queue-<item>.md`).',
+  ];
+}
+
+/** On another computer the planning documents sit in a planning folder, at their paths in the repository. */
+function remoteLocationRules(ctx: ItemPromptContext, remote: RemoteJobPrompt): string[] {
+  return [
+    `- This job runs on ${remote.computerLabel}, a separate computer from the one the rest of your instructions may mention. Your document is \`${farPlanningPath(ctx.item.sourceRef, remote)}\`, in the planning folder \`${remote.planningFolder}\`. Edit every planning document inside that folder, at its path in the repository (a full path into the other computer's checkout, \`${ctx.repoRoot}/...\`, is at the same place under the planning folder). Never copy a planning document into your job folder.`,
+    `- Make every code change in your job folder \`${remote.jobFolder}\`. It is on branch \`${ctx.item.branchName ?? 'unknown'}\`, cut from the base branch.`,
+    '- Other files that git tracks (for example a shared register) are edited in the job folder like code. Planning documents (names ending `_plan`, `_spec`, `_spec_planned`, `_livetest`, `_history` or `-decisions-for-james`, then `.md`) are always edited in the planning folder, even when git tracks them. A planning document you create goes there too, never in the job folder.',
+  ];
+}
+
+function documentRules(ctx: ItemPromptContext): string[] {
+  return [
+    ...(ctx.remote ? remoteLocationRules(ctx, ctx.remote) : localLocationRules(ctx)),
     '- Do not commit, stash, create or switch branches, or create worktrees. The queue coordinator commits your work to the branch for you.',
     ctx.item.section == null
       ? '- Never rename your document to a `_completed` name. The coordinator does that after an independent verifier passes the work.'
@@ -138,7 +173,7 @@ export function buildWorkerPrompt(ctx: ItemPromptContext): string {
     ...answer,
     ...briefRules(ctx.brief),
     '',
-    `Task: ${ctx.item.section == null ? 'implement every unchecked item in the plan in your worktree' : `Implement ${stepScope(ctx)}; read the Status block and that step only. Do every unchecked item in that step in your worktree`}. When the work is complete, rewrite the plan's Status block in place (and the spec's status, if it has one) and write the round's evidence to the root history file. ${WORKER_WAIT_RULE} ${reportReadyTask(ctx.item.id)}`,
+    `Task: ${ctx.item.section == null ? 'implement every unchecked item in the plan in your worktree' : `Implement ${stepScope(ctx)}; read the Status block and that step only. Do every unchecked item in that step in your worktree`}. When the work is complete, rewrite the plan's Status block in place (and the spec's status, if it has one) and write the round's evidence to the ${ctx.remote ? 'history file in the planning folder' : 'root history file'}. ${ctx.remote ? `${REMOTE_WAIT_RULE} ${reportFileTask(ctx.item.id, ctx.remote)}` : `${WORKER_WAIT_RULE} ${reportReadyTask(ctx.item.id)}`}`,
   ].join('\n');
 }
 

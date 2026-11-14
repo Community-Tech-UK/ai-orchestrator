@@ -14,6 +14,8 @@ import type {
 import type { ServiceStatus } from '../../../../../shared/types/service.types';
 import type { TestMachineView, WorkToday } from '../../../../../shared/types/computers.types';
 import type { CanonicalCliType } from '../../../../../shared/types/settings.types';
+import type { QueueJobComputer } from '../../../../../shared/types/plan-queue-computers.types';
+import type { QueueJobsChange, QueueJobsPageView } from '../../../../../shared/types/plan-queue-computers-page.types';
 
 export type RemoteNodeDiagnosableProvider = Exclude<CanonicalCliType, 'auto'>;
 
@@ -177,6 +179,30 @@ export class RemoteNodeIpcService {
     const result = await this.api.computersChangeTestMachine({ host, change }) as IpcResult | null;
     if (!result?.success) return { ok: false, error: result?.error ?? result };
     return { ok: true, testMachine: (result.data as { testMachine: TestMachineView }).testMachine };
+  }
+
+  /** Each paired computer's Plan Queue switch, jobs at once and project results, and the projects the queue knows. A failure carries the error as sent. */
+  async getQueueJobs(): Promise<{ ok: true; view: QueueJobsPageView } | { ok: false; error: unknown }> {
+    if (!this.api) return { ok: true, view: { computers: [], projects: [] } };
+    const result = await this.api.computersGetQueueJobs() as IpcResult | null;
+    if (!result?.success) return { ok: false, error: result?.error ?? result };
+    return { ok: true, view: result.data as QueueJobsPageView };
+  }
+
+  /** Changes a computer's Plan Queue switch or jobs at once, returning every computer as it now is. */
+  async changeQueueJobs(nodeId: string, change: QueueJobsChange): Promise<{ ok: true; computers: QueueJobComputer[] } | { ok: false; error: unknown }> {
+    if (!this.api) return { ok: false, error: 'Not in Electron' };
+    const result = await this.api.computersChangeQueueJobs({ nodeId, change }) as IpcResult | null;
+    if (!result?.success) return { ok: false, error: result?.error ?? result };
+    return { ok: true, computers: (result.data as { computers: QueueJobComputer[] }).computers };
+  }
+
+  /** Checks one of the queue's projects on a computer, which can take minutes, and returns every computer as it now is. */
+  async checkQueueProject(nodeId: string, repoRoot: string): Promise<{ ok: true; computers: QueueJobComputer[] } | { ok: false; error: unknown }> {
+    if (!this.api) return { ok: false, error: 'Not in Electron' };
+    const result = await this.api.computersCheckQueueProject({ nodeId, repoRoot }) as IpcResult | null;
+    if (!result?.success) return { ok: false, error: result?.error ?? result };
+    return { ok: true, computers: (result.data as { computers: QueueJobComputer[] }).computers };
   }
 
   async getServerStatus(): Promise<RemoteNodeServerStatus> {

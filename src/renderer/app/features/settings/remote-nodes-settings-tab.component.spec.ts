@@ -87,6 +87,7 @@ describe('RemoteNodesSettingsTabComponent', () => {
   const ipc = {
     getServerStatus: vi.fn(async () => ({ running: false }) as RemoteNodeServerStatus),
     getTestMachines: vi.fn(async () => ({ ok: true, testMachines: [], today: null })),
+    getQueueJobs: vi.fn(async () => ({ ok: true, view: { computers: [], projects: [] } })),
     listNodes: vi.fn(async () => [] as RemoteNodeRosterEntry[]),
     listPairingCredentials: vi.fn(async () => []),
     updateAndroidAutomation: vi.fn(),

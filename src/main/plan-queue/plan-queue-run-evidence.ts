@@ -41,6 +41,7 @@ export function describeRunEvidence(run: PlanQueueRunDto, events: readonly PlanQ
       workerSlots: run.config.workerSlots,
       verificationSlots: run.config.verificationSlots,
       checkBatchSize: run.config.checkBatchSize,
+      keepOnThisMac: run.config.keepOnThisMac === true,
       maxRounds: run.config.maxRounds,
       verifierGates: run.config.verifierGates,
       postMergeGate: run.config.postMergeGate,

@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-08-plan-queue-jobs-on-other-computers_plan.md",
+      "sha256": "864245648d3f553b1d58014d0d73b2f6e3a6278382ee7d52b6d9de4b20d448c5",
+      "retire": true
+    },
+    {
+      "relativePath": "../specs/2026-11-08-plan-queue-jobs-on-other-computers_spec_planned.md",
+      "sha256": "ad6a463cb7f3cfe94cbe3134084cddf6da75ed4940d1797d7f01eb9fad6b7b11",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-08-plan-queue-jobs-on-other-computers_history.md",
+      "sha256": "b2606313cd0b4b6eb9aafd9047f8a11b86c8a18a69114eb7e9a9d1ce850af13c",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-08-plan-queue-jobs-on-other-computers_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-08-plan-queue-jobs-on-other-computers_plan_completed.md",
+      "sha256": "aff2e73c5abdc60d63b12b622a15763a23b3ed8362337a8423efcc0632f44a5f"
+    },
+    {
+      "relativePath": "2026-11-08-plan-queue-jobs-on-other-computers_plan_history_80ad979cbd21ae9235a91ab18390dc1a621ae45379981dfdf919be32ac503152_completed.md",
+      "sha256": "22e071dce12c39e084a3ef7a34d09855efc1506163f66733f18e4ffcb326ad88"
+    },
+    {
+      "relativePath": "../specs/2026-11-08-plan-queue-jobs-on-other-computers_spec_completed.md",
+      "sha256": "017e74edd31c2649ea399a8e95e3e65c539cf081295bac5450232183b107ac80"
+    }
+  ]
+}

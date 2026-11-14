@@ -33,7 +33,7 @@ async function build(): Promise<void> {
       outfile: workerOutfile,
       format: 'cjs',
       // Loaded from node_modules at runtime; the self-updater checks them before an npm install.
-      external: ['electron', ...WORKER_NATIVE_MODULES],
+      external: ['electron', 'original-fs', ...WORKER_NATIVE_MODULES],
       tsconfig: 'tsconfig.worker.json',
       define: {
         __AIO_WORKER_PRECOMPACT_HOOK_BASE64__: JSON.stringify(preCompactRoleHookBase64),

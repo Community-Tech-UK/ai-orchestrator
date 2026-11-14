@@ -67,6 +67,9 @@ import { canStepUp, stepUpItem } from './plan-queue-step-up';
 import { PlanQueueWorkerSessions, askJamesForWorker } from './plan-queue-worker-sessions';
 import { PlanQueueVerifierReminders } from './plan-queue-verifier-reminder';
 import { PlanQueueWorkerReports } from './plan-queue-worker-report';
+import { PlanQueueRemoteFlow } from './remote/plan-queue-remote-flow';
+import { forRemoteJob } from './plan-queue-prompts';
+import { terminateRemoteSession } from './remote/queue-job-session';
 import type { VerifierSelection } from './plan-queue-verifier-select';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
@@ -104,6 +107,8 @@ export class PlanQueueItemFlow {
   private readonly verification: PlanQueueVerification;
   private readonly preparationErrors: PlanQueuePreparationErrors;
   private readonly retries: PlanQueueTurnRetries;
+  /** Set when jobs may run on other computers; see remote/. */
+  readonly remoteFlow?: PlanQueueRemoteFlow;
 
   /** Folders an earlier park or landing had to keep; the scheduler retries them. */
   readonly keptFolders: PlanQueueKeptFolders;
@@ -122,6 +127,11 @@ export class PlanQueueItemFlow {
     this.breaker = new PlanQueueRunBreaker(host);
     this.preparationErrors = new PlanQueuePreparationErrors(host, this.breaker);
     this.retries = new PlanQueueTurnRetries(host);
+    if (host.remote) {
+      this.remoteFlow = new PlanQueueRemoteFlow({ host, turns: host.remote, lock: (id, action) => this.withItemLock(id, action),
+        hold: (item, reason) => this.holdUnlocked(item, reason), park: (item, detail) => this.parkUnlocked(item, 'worker-error', detail),
+        terminateRemoteSession: (nodeId, instanceId) => terminateRemoteSession(nodeId, instanceId) });
+    }
     this.keptFolders = new PlanQueueKeptFolders(host, (id, action) => this.withItemLock(id, action));
     this.discardedRefs = new PlanQueueDiscardedRefs(host, (id, action) => this.withItemLock(id, action));
     this.landingRetries = new PlanQueueLandingRetries(host, id => this.retryLanding(id, { automatic: true }));
@@ -206,6 +216,7 @@ export class PlanQueueItemFlow {
         await this.parkUnlocked(this.host.getItem(item.id), 'worktree-error', `Could not prepare the worktree: ${errorMessage(error)}`);
         return;
       }
+      if (this.remoteFlow) { const arranged = await this.remoteFlow.arrange(item, run); if (!arranged) return; item = arranged; }
       const ctx = await this.workerSessions.promptContext(run, item);
       try { await this.verification.pin(item); }
       catch (error) { await this.parkUnlocked(item, 'missing-document', errorMessage(error)); return; }
@@ -231,7 +242,11 @@ export class PlanQueueItemFlow {
           // A merge the worker was still resolving stays in progress; it is
           // re-sent below, never committed with its markers.
           if (!(await unresolvedMergeFiles(item.worktreePath))?.length) {
-            item = await this.host.worktrees.checkpoint(item, 'before resume');
+            if (item.remote && this.remoteFlow) {
+              const recovered = await this.remoteFlow.recoverAfterRestart(item, run);
+              if (!recovered) return;
+              item = recovered;
+            } else item = await this.host.worktrees.checkpoint(item, 'before resume');
           }
         } else if (item.branchName && (await branchExists(run.workspaceCwd, item.branchName))) {
           item = await this.host.worktrees.reattach(item, run.workspaceCwd);
@@ -247,6 +262,7 @@ export class PlanQueueItemFlow {
       if (await recordQueueRestart(this.host, item) >= 3) {
         await this.parkUnlocked(item, 'restart-loop', 'Restarted 3 times without progress. Check the saved work, then Resume.'); return;
       }
+      if (this.remoteFlow) { const arranged = await this.remoteFlow.arrange(item, run); if (!arranged) return; item = arranged; }
       const prompt = buildResumePrompt(await this.workerSessions.promptContext(run, item), 'the app restarted') + (await this.workerSessions.conflictAddendum(item, run));
       await this.spawnWorker(item, prompt, item.state === 'preparing' ? 'working' : null, buildContinuePrompt(this.workerSessions.continueContext(run, item), 'the app restarted') + (await this.workerSessions.conflictAddendum(item, run)));
     });
@@ -275,9 +291,11 @@ export class PlanQueueItemFlow {
 
   private async holdUnlocked(item: PlanQueueItem, reason = 'Paused'): Promise<void> {
     // A waiting landing has nothing to stop and keeps its wait through Pause.
-    if (item.state === 'landing' && !isLandingWait(item)) { await this.landing.land(item.id, {}); item = this.host.getItem(item.id); }
+    if (item.state === 'landing' && !isLandingWait(item)) { await this.landing.land(item.id, {}); await this.releaseRemote(item.id); item = this.host.getItem(item.id); }
     if (hasPendingLandingCleanup(item)) return this.landing.finishCleanup(item);
     if (item.workerInstanceId) { this.workerSessions.record(item.id, item.workerInstanceId); item = this.host.getItem(item.id); }
+    const copyBack = item.remote && this.remoteFlow
+      ? async (stopped: PlanQueueItem) => (await this.remoteFlow!.copyBackForStop(stopped, this.host.getRun(stopped.runId))).item : undefined;
     await holdItem(this.host, item, (id) => this.stopInstance(id), async (checking) => {
       try { await restoreVerifierTree(checking, this.host.getRun(checking.runId).workspaceCwd, this.snapshots.get(checking.id)); }
       catch (error) {
@@ -285,7 +303,7 @@ export class PlanQueueItemFlow {
         throw error;
       }
       this.snapshots.delete(checking.id); this.pendingVerdicts.delete(checking.id);
-    }, reason); this.verification.forgetCheck(item.id);
+    }, reason, copyBack); this.verification.forgetCheck(item.id);
   }
 
   private async spawnWorker(
@@ -298,11 +316,15 @@ export class PlanQueueItemFlow {
     if (run.status === 'paused') { await this.holdUnlocked(item); return; }
     try {
       const workingDirectory = await requireOwnWorkFolder(item, run.workspaceCwd);
+      // A job on another computer works in its folder there, and has no Harness tools, so its prompts name a report file.
+      const far = this.host.remote?.spawnConfig(item, run.workerProvider ?? undefined);
+      if (far) { prompt = forRemoteJob(prompt); continuePrompt = continuePrompt === undefined ? undefined : forRemoteJob(continuePrompt); }
       const instance = await this.host.instances.createInstance({
         displayName: `Queue · ${workSourceFor(item.sourceKind).displayName(item)}`,
         isRenamed: true,
         parentId: this.host.liveParentId(run),
         workingDirectory,
+        ...far,
         initialPrompt: prompt,
         ...(run.workerProvider ? { provider: run.workerProvider as InstanceProvider } : {}),
         ...(run.workerModel ? { modelOverride: run.workerModel } : {}),
@@ -311,6 +333,7 @@ export class PlanQueueItemFlow {
         metadata: { planQueueLargeDocument: isLargeQueueDocument(item.sourceRef), planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'worker', planQueueRound: item.round, ...(continuePrompt ? { planQueueContinuePrompt: continuePrompt } : {}), ...(item.steppedUpAt ? { planQueueSteppedUp: true } : {}) },
       });
       this.host.registerRole(instance.id, { role: 'worker', runId: run.id, itemId: item.id });
+      if (far) this.host.remote!.noteSession(item, instance.id);
       const started = this.host.instances.getInstance(instance.id);
       recordSessionStart(this.host, item.id, 'worker', instance.id, started?.provider ?? run.workerProvider, started?.currentModel ?? run.workerModel);
       holdFromReclaim(instance.id, RECLAIM_HOLD_OWNER);
@@ -343,6 +366,15 @@ export class PlanQueueItemFlow {
       if (error instanceof PlanQueueSpawnStoppedByUser && error.instanceId) {
         this.host.save({ ...this.host.getItem(item.id), workerInstanceId: error.instanceId });
         await this.stopInstance(error.instanceId);
+      }
+      const failedRemote = this.host.getItem(item.id).remote;
+      if (failedRemote && this.host.remote && !(error instanceof PlanQueueSpawnStoppedByUser)) {
+        // The other computer could not start the session: carry on here from the last checkpoint.
+        const here = await this.host.remote.fallBackHere(this.host.getItem(item.id), `${failedRemote.label} could not start the worker (${errorMessage(error)})`);
+        const reason = 'the other computer could not start the session';
+        await this.spawnWorker(here, buildResumePrompt(await this.workerSessions.promptContext(run, here), reason), nextState,
+          buildContinuePrompt(this.workerSessions.continueContext(run, here), reason));
+        return;
       }
       if (!(error instanceof PlanQueueSpawnStoppedByUser) && this.preparationErrors.defer(this.host.getItem(item.id), error)) return;
       await this.parkUnlocked(this.host.getItem(item.id), error instanceof PlanQueueSpawnStoppedByUser ? 'cancelled' : 'worker-error', error instanceof PlanQueueSpawnStoppedByUser ? 'Stopped: you closed its session. Resume carries on from the same branch.' : `Could not start the worker: ${errorMessage(error)}`);
@@ -380,6 +412,7 @@ export class PlanQueueItemFlow {
     }
     if (workerId) { this.workerSessions.record(item.id, workerId); await this.stopInstance(workerId); item = this.host.getItem(item.id); }
     const run = this.host.getRun(item.runId);
+    if (this.remoteFlow) { const arranged = await this.remoteFlow.arrange(item, run); if (!arranged) return; item = arranged; }
     const resume = buildResumePrompt(await this.workerSessions.promptContext(run, item), 'the previous worker session ended');
     await this.spawnWorker(item, resume, null, buildContinuePrompt(this.workerSessions.continueContext(run, item), 'the previous worker session ended'));
   }
@@ -408,6 +441,10 @@ export class PlanQueueItemFlow {
         ...activity, round: item.round + 1, workerInstanceId: instanceId, recordedAt: Date.now(),
       }].slice(-100) });
       if (this.host.getRun(item.runId).status === 'paused') { await this.holdUnlocked(item); return; }
+      if (outcome.kind === 'turn-complete' && item.remote && this.host.remote) item = await this.host.remote.storeReport(item, instanceId, this.host.getRun(item.runId));
+      if (outcome.kind === 'failed' && item.remote && this.remoteFlow && this.host.remote?.isAway(item)) {
+        await this.stopInstance(instanceId); await this.remoteFlow.goAway(this.host.getItem(item.id)); return;
+      }
       if (outcome.kind === 'turn-complete') {
         // A turn that ended without its report is reminded; once the reminders are spent it is a failed turn.
         const gate = this.workerReports.afterTurn(item, instanceId);
@@ -424,10 +461,21 @@ export class PlanQueueItemFlow {
             const live = this.host.instances.getInstance(instanceId);
             this.verification.rememberWorkerClaim(item, live?.outputBuffer.filter(message => message.type === 'assistant').at(-1)?.content ?? '');
             const ranOn = live?.provider && live.provider !== 'auto' ? { workerProvider: live.provider, workerModel: live.currentModel } : {};
-            const closed = await this.workerSessions.closeIfSaved(item, instanceId);
+            const closed = await this.workerSessions.closeIfSaved(item, instanceId, Boolean(item.remote));
             if (closed === null) return;
-            const checkpointed = await this.host.worktrees.checkpoint(item, `round ${item.round + 1} work`);
-            this.host.transition(checkpointed, 'awaiting-slot', { question: null, detail: null, pendingInstruction: null, ...ranOn, ...(closed ? { workerInstanceId: null } : {}) });
+            const label = `round ${item.round + 1} work`;
+            let checkpointed: PlanQueueItem; let hold: string | null = null;
+            if (item.remote && this.remoteFlow) {
+              // Collect the far folder first, then save it here exactly as for any job; a computer that is away or refuses holds or parks it.
+              const saved = await this.remoteFlow.saveTurn(item, this.host.getRun(item.runId), label);
+              if (saved.kind !== 'done') return;
+              ({ item: checkpointed, hold } = saved);
+            } else checkpointed = await this.host.worktrees.checkpoint(item, label);
+            // The plan changed here while the job was away: its copy is kept beside it, and the job waits for James. It is marked
+            // held in the same save that moves it on, so the scheduler never sees it waiting for a check before the hold lands.
+            const awaiting = this.host.transition(checkpointed, 'awaiting-slot', { question: null, pendingInstruction: null, ...ranOn, ...(closed ? { workerInstanceId: null } : {}),
+              ...(hold ? { heldAt: Date.now(), detail: hold } : { detail: null }) });
+            if (hold) await this.holdUnlocked(awaiting, hold);
             this.host.requestPump();
           } catch (error) {
             if (error instanceof UnresolvedMergeError) {
@@ -609,7 +657,12 @@ export class PlanQueueItemFlow {
     }
     const run = this.host.getRun(item.runId);
     if (round >= run.config.maxRounds) {
-      if (canStepUp(run, item, verdict)) { await this.stepUp(item, round, verdict); return; }
+      if (canStepUp(run, item, verdict)) {
+        // Arranged first, so the stale copy the step-up saves still carries the computer and this turn's report file.
+        if (this.remoteFlow) { const arranged = await this.remoteFlow.arrange(item, run); if (!arranged) return; item = arranged; }
+        await this.stepUp(item, round, verdict);
+        return;
+      }
       const summary = verdict.findings.slice(0, 5).map((f) => `[${f.severity}, confidence ${f.confidence}] ${f.summary}`).join('; ');
       await this.parkUnlocked({ ...item, round, verdict }, 'round-limit', `Still failing after ${item.steppedUpAt ? 'the step-up worker\'s ' : ''}${round} verification round(s): ${summary || 'no findings listed'}`);
       return;
@@ -653,11 +706,26 @@ export class PlanQueueItemFlow {
   /** Queue a landing. Never await this while holding the item's lock. */
   enqueueLanding(itemId: string, options: PlanQueueLandingOptions = {}): Promise<void> {
     const previous = this.landingChain;
-    this.landingChain = this.withItemLock(itemId, async () => { await previous; await this.landing.land(itemId, options); })
+    this.landingChain = this.withItemLock(itemId, async () => { await previous; await this.landing.land(itemId, options); await this.releaseRemote(itemId); })
       .catch((error: unknown) => {
         logger.error('Plan queue landing recovery failed', error instanceof Error ? error : undefined, { itemId });
       });
     return this.landingChain;
+  }
+
+  /** True when this job's next turn would go to another computer, which the scheduler counts apart from this Mac's own limits. */
+  willRunElsewhere(item: PlanQueueItem, run: PlanQueueRun): boolean { return this.host.remote?.runsElsewhere(item, run) ?? false; }
+
+  /** After a restart: check on a job held because its computer was away. */
+  watchAway(itemId: string): void {
+    const item = this.host.getItem(itemId);
+    if (this.remoteFlow && this.host.remote) this.host.remote.markAway(item, () => this.remoteFlow!.awayTick(itemId));
+  }
+
+  /** A job that landed (or was skipped) no longer needs its copy on another computer. */
+  private async releaseRemote(itemId: string): Promise<void> {
+    const item = this.host.getItem(itemId);
+    if (item.remote && this.remoteFlow && (item.state === 'landed' || item.state === 'skipped')) await this.remoteFlow.release(item).catch((error: unknown) => logger.warn('Plan queue: could not remove a landed job from its computer', { itemId, error: errorMessage(error) }));
   }
 
   // Parking and operator actions
@@ -711,6 +779,12 @@ export class PlanQueueItemFlow {
       item = this.host.save({ ...item, verifierInstanceId: null });
     }
 
+    // A job on another computer: take back what it did first (an away computer is skipped and the note says so).
+    let keepThere = false;
+    if (item.remote && this.remoteFlow && item.worktreePath) {
+      const back = await this.remoteFlow.copyBackForStop(item, run);
+      item = back.item; keepThere = back.keepThere; notes.push(...back.notes.filter(note => !detail.includes(note)));
+    }
     if (item.worktreePath && await hasCheckout(item.worktreePath)) {
       try {
         item = await this.host.worktrees.checkpoint(item, `parked: ${reason}`);
@@ -728,6 +802,7 @@ export class PlanQueueItemFlow {
       item = this.host.save({ ...item, worktreePath: null });
     }
 
+    if (item.remote && this.remoteFlow && !keepThere) item = await this.remoteFlow.release(item);
     const noteFailure = await workSourceFor(item.sourceKind).appendParkNote(item, run, reason, this.host.history);
     if (noteFailure) notes.push(noteFailure);
 
@@ -742,7 +817,9 @@ export class PlanQueueItemFlow {
       const item = this.host.getItem(itemId);
       if (item.state !== 'parked') throw new Error('Only a parked item can be discarded');
       await Promise.all([item.workerInstanceId, item.verifierInstanceId].filter((id): id is string => Boolean(id)).map((id) => this.stopInstance(id)));
-      await discardParkedItem(this.host, item, actor);
+      // Work still on a computer that was kept for James to look at is dropped; an away computer removes it when it is back.
+      if (item.remote && this.remoteFlow) await this.remoteFlow.release(item);
+      await discardParkedItem(this.host, this.host.getItem(itemId), actor);
     });
   }
 

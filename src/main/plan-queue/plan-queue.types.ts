@@ -53,6 +53,27 @@ export interface PlanQueueWorkerSession {
   recordedAt: number;
 }
 
+/**
+ * A job whose work runs on another computer: which one, the last commit both sides hold, and the commit the current
+ * turn started from (a collect is refused if this Mac's folder has moved since). Written at each exchange, so a
+ * restart finds them.
+ */
+export interface PlanQueueRemoteJob {
+  nodeId: string;
+  /** How people name it ("the Windows PC"), kept so a sentence about it still reads right when it is away. */
+  label: string;
+  /** The job's branch there. The job's own branch is deleted when it lands, but the computer's copy still has to be named to remove it. */
+  branch: string;
+  lastExchangedCommit: string | null;
+  turnStartCommit: string | null;
+  /** The worker turn now running there, whose report file the job reads when the turn ends; null between turns. */
+  turnId: string | null;
+  /** The session's id (the same one it has here), so it can be stopped there after a restart or a return from away. */
+  instanceId?: string | null;
+  /** When the computer was found away; the job carries on here after ten minutes. */
+  awaySince?: number | null;
+}
+
 export interface PlanQueueItem {
   /**
    * The `## Step N` number when the plan runs as one job per step; null for a whole-document job. The step jobs of one
@@ -132,6 +153,8 @@ export interface PlanQueueItem {
   verdict: PlanQueueVerdict | null;
   /** The worker's completion report for its latest turn. Cleared when a worker turn starts, so a fix round never reuses it. */
   workerReport?: PlanQueueWorkerReport | null;
+  /** Set while the job's work runs on another computer (docs/specs/2026-11-08-plan-queue-jobs-on-other-computers_spec_planned.md). */
+  remote?: PlanQueueRemoteJob | null;
   createdAt: number;
   updatedAt: number;
 }

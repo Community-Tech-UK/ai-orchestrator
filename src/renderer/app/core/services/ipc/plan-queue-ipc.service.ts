@@ -72,6 +72,7 @@ export class PlanQueueIpcService {
     kind: PlanQueueKind;
     workspaceCwd: string;
     glob?: string;
+    config?: { keepOnThisMac?: boolean };
   }): Promise<IpcResponse<{ run: PlanQueueRunDto; excluded: string[] }>> {
     if (!this.api) return notInElectron();
     return (await this.api.planQueueStart(payload)) as IpcResponse<{ run: PlanQueueRunDto; excluded: string[] }>;

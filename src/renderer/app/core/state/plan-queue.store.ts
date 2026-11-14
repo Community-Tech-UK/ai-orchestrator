@@ -186,6 +186,7 @@ export class PlanQueueStore {
     kind: PlanQueueKind;
     workspaceCwd: string;
     glob?: string;
+    config?: { keepOnThisMac?: boolean };
   }): Promise<IpcResponse<{ run: PlanQueueRunDto; excluded: string[] }>> {
     const res = await this.ipc.start(payload);
     if (res.success && res.data?.run) {

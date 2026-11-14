@@ -154,6 +154,7 @@ const WorkerNodeCapabilitiesSchema = z.object({
   codexSpawnMetadata: z.literal(1).optional().catch(undefined),
   codexHelperPolicy: z.literal(1).optional().catch(undefined),
   queuePushGuard: z.literal(1).optional().catch(undefined), // Malformed reads as absent: queue sessions are refused.
+  queueJobs: z.literal(1).optional().catch(undefined), // Malformed reads as absent: no job is sent there.
   hasBrowserRuntime: z.boolean(),
   hasBrowserMcp: z.boolean(),
   browserAutomation: z.object({

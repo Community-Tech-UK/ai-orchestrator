@@ -19,7 +19,7 @@ interface Machine { host: string; label: string; platform: string; paused: boole
 interface Config { queueChecks: boolean; useThisMac?: boolean; machines: Machine[] }
 const { appendRunLog, decideRoute, isLoopRun, isQueueCheck, machinesFor, readConfig } = require('./route.js') as {
   appendRunLog(entry: object, env?: NodeJS.ProcessEnv): void;
-  decideRoute(options: { args: string[]; env?: NodeJS.ProcessEnv; root: string; config: Config | null }): object;
+  decideRoute(options: { args: string[]; env?: NodeJS.ProcessEnv; root: string; config: Config | null; platform?: string }): object;
   isLoopRun(env?: NodeJS.ProcessEnv): boolean;
   isQueueCheck(root: string, env?: NodeJS.ProcessEnv): boolean;
   machinesFor(config: Config, work: 'testRuns' | 'checks'): Machine[];
@@ -45,6 +45,45 @@ const withMachine = (change: Partial<Machine>): Config => ({ ...config, machines
 const root = '/work/repo';
 const route = (args: string[], env: NodeJS.ProcessEnv = {}, at = root, withConfig: Config | null = config) =>
   decideRoute({ args, env, root: at, config: withConfig });
+
+describe('decideRoute on Windows (a job on the PC, whose far machine is its own Linux space)', () => {
+  const windows = (args: string[], env: NodeJS.ProcessEnv = {}, withConfig: Config | null = config, at = 'C:\\Users\\x\\.orchestrator\\queue-worktrees\\queue\\job') =>
+    decideRoute({ args, env, root: at, config: withConfig, platform: 'win32' });
+
+  it('sends a plain full run to the Linux space and never waits for a Mac turn', () => {
+    expect(windows([])).toEqual({ kind: 'remote', turn: false });
+    expect(windows(['--no-cache'])).toEqual({ kind: 'remote', turn: false });
+  });
+
+  it('stops a full run, with the reason, when no machine takes it, instead of starting a run that never ends', () => {
+    expect(windows([], {}, withMachine({ paused: true }))).toEqual({ kind: 'stop', reason: 'the PC is paused' });
+    expect(windows([], {}, withMachine({ testRuns: false }))).toEqual({ kind: 'stop', reason: 'test runs are turned off for the PC' });
+  });
+
+  it('stops a plain full run, with the reason, when no test machine is set up at all', () => {
+    expect(windows([])).toEqual({ kind: 'remote', turn: false });
+    expect(windows([], {}, null)).toEqual({ kind: 'stop', reason: 'no test machine is set up on this computer' });
+    expect(decideRoute({ args: [], env: {}, root, config: null, platform: 'darwin' })).toEqual({ kind: 'local' });
+  });
+
+  it('still runs natively when asked to with AIO_REMOTE_CHECKS=off, and leaves short and unconfigured runs alone', () => {
+    expect(windows([], { AIO_REMOTE_CHECKS: 'off' })).toEqual({ kind: 'local' });
+    expect(windows(['--no-cache'], { AIO_REMOTE_CHECKS: 'off' }, null)).toEqual({ kind: 'local' });
+    expect(windows(['src/a.spec.ts'], {}, null)).toEqual({ kind: 'local' });
+    expect(windows([], { GITHUB_ACTIONS: 'true' }, null)).toEqual({ kind: 'local' });
+    expect(windows(['src/a.spec.ts'])).toEqual({ kind: 'local' });
+  });
+
+  it('sends a long list of spec files out, and keeps it here when no machine takes work', () => {
+    const specs = Array.from({ length: 50 }, (_, index) => `src/s${index}.spec.ts`);
+    expect(windows(specs)).toEqual({ kind: 'remote', turn: false, specs });
+    expect(windows(specs, {}, withMachine({ paused: true }))).toEqual({ kind: 'local' });
+  });
+
+  it('does not make a queue folder an exception: an agent session\'s own run goes out like any other', () => {
+    expect(windows([], {}, config, 'C:\\Users\\x\\work\\repo\\.worktrees\\queue\\item')).toEqual({ kind: 'remote', turn: false });
+  });
+});
 
 describe('decideRoute', () => {
   it('sends a plain full run, including from a loop, which Harness marks with CI=1', () => {

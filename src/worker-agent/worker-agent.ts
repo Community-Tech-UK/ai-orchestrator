@@ -40,6 +40,7 @@ import { WorkerTerminalHandler } from './worker-terminal-handler';
 import { WorkerInstanceNotifier } from './worker-instance-notifier';
 import { WorkerStreamDurability } from './worker-stream-durability';
 import { WorkerRpcDispatcher } from './worker-rpc-dispatcher';
+import { QueueJobHost } from './queue-jobs/queue-job-host';
 import { WorkerBrowserManager } from './worker-browser-manager';
 import { WorkerCdpTunnel } from './worker-cdp-tunnel';
 import { wireCdpTunnelEvents, wireInstanceEvents } from './worker-event-wiring';
@@ -176,6 +177,8 @@ export class WorkerAgent extends EventEmitter {
     this.rpcDispatcher = new WorkerRpcDispatcher({
       config: this.config,
       instanceManager: this.instanceManager,
+      // Plan Queue job folders live beside this worker's config (`~/.orchestrator` by default).
+      queueJobHost: new QueueJobHost({ root: path.dirname(this.configPath), folders: this.instanceManager }),
       setKeepAwake: enabled => this.keepAwake.setEnabled(enabled && !this.isShuttingDown),
       localModelSessionManager: this.localModelSessionManager,
       getFilesystemHandler: () => this.fsHandler!,

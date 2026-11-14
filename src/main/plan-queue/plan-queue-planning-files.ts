@@ -84,7 +84,7 @@ async function lstatOrNull(target: string): Promise<import('fs').Stats | null> {
   }
 }
 
-async function harnessDir(repoRoot: string, ...parts: string[]): Promise<string> {
+export async function harnessDir(repoRoot: string, ...parts: string[]): Promise<string> {
   const common = await gitExec(['rev-parse', '--git-common-dir'], repoRoot);
   return path.join(path.resolve(repoRoot, common), 'aio-plan-queue', ...parts);
 }
@@ -233,7 +233,8 @@ async function writeNewInside(rootReal: string, target: string, bytes: Buffer, m
   }
 }
 
-async function saveBeside(rootReal: string, dest: string, itemId: string, bytes: Buffer, mode: number): Promise<string> {
+/** Save `bytes` beside `dest` as `<name>.from-queue-<item>[-n].md`, created exclusively so it can never replace anything. */
+export async function saveBeside(rootReal: string, dest: string, itemId: string, bytes: Buffer, mode: number): Promise<string> {
   const stem = path.basename(dest).replace(/\.md$/, '');
   // Same short suffix the item's branch name uses; the number below keeps copies unique.
   const slug = itemId.replace(/[^a-z0-9]/gi, '').slice(-6).toLowerCase() || 'item';

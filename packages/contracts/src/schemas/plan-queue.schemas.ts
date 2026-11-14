@@ -296,6 +296,8 @@ export const PlanQueueRunConfigSchema = z.object({
   }).optional(),
   /** Effective providers and accounts for future sessions. Absent on older runs. */
   routing: PlanQueueRoutingSchema.optional(),
+  /** Every job of this run stays on this Mac (its browser and Harness tools), even when another computer takes Plan Queue jobs. Absent on older runs means false. */
+  keepOnThisMac: z.boolean().optional(),
 });
 
 // -------------------------------------------------------------------------
@@ -559,6 +561,8 @@ export const PlanQueueStartArgsSchema = z.object({
   check_batch_size: z.number().int().min(1).max(8).optional(),
   max_rounds: z.number().int().min(1).max(10).optional(),
   relax_settings: z.boolean().optional(),
+  /** Keep every job of this run on this Mac, for plans that need its browser or Harness tools. */
+  keep_on_this_mac: z.boolean().optional(),
   verifier_gates: z.array(z.string().min(1).max(2000)).max(20).optional(),
   post_merge_gate: z.array(z.string().min(1).max(2000)).max(10).optional(),
   /** Worker choices for this run, in preference order; used only when James saved no worker list. */

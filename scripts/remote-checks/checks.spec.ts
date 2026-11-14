@@ -17,6 +17,8 @@ const { CHECK_SETS, DEFAULT_CHECKS, KNOWN_CHECKS, parseArgs } = require('./check
 };
 
 const LIMIT = 60_000;
+/** How checks.js names the computer that ran them here. */
+const HERE = process.platform === 'darwin' ? 'the Mac' : 'this computer';
 const CHECKS = ['npm run lint', 'npm run typecheck'];
 
 const temps: string[] = [];
@@ -132,9 +134,9 @@ describe('checks on the test machine', () => {
     it(`runs every check here when the far machine ${why}, and says so`, () => {
       const run = runChecks(setUp(), { scenario });
       expect(run.code).toBe(0);
-      expect(run.stderr).toContain(`running on the Mac because`);
+      expect(run.stderr).toContain(`running on ${HERE} because`);
       expect(run.stdout).toContain(why);
-      expect(run.outcome).toMatchObject({ ranOn: 'the Mac' });
+      expect(run.outcome).toMatchObject({ ranOn: HERE });
       // npm may print its own lines around a script's, and does on Linux.
       expect(run.outcome?.checks.map(check => check.output)).toEqual([expect.stringContaining('lint here'), expect.stringContaining('typecheck here')]);
       expect(run.runLog[0]).toMatchObject({ kind: 'checks', ranOn: 'mac' });

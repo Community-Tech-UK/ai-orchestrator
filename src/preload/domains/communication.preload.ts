@@ -7,10 +7,8 @@ export function createCommunicationDomain(
   ch: typeof IPC_CHANNELS
 ) {
   return {
-    // ============================================
-    // Reaction Engine
-    // ============================================
-
+    // =====================================    // Reaction Engine
+    // =====================================
     reactionGetConfig: (): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.REACTION_GET_CONFIG),
 
@@ -65,10 +63,8 @@ export function createCommunicationDomain(
       return () => ipcRenderer.removeListener(ch.REACTION_ESCALATED, handler);
     },
 
-    // ============================================
-    // Remote observer / read-only access
-    // ============================================
-
+    // =====================================    // Remote observer / read-only access
+    // =====================================
     remoteObserverGetStatus: (): Promise<IpcResponse> => {
       return ipcRenderer.invoke(ch.REMOTE_OBSERVER_GET_STATUS);
     },
@@ -88,10 +84,8 @@ export function createCommunicationDomain(
       return ipcRenderer.invoke(ch.REMOTE_OBSERVER_ROTATE_TOKEN);
     },
 
-    // ============================================
-    // Remote Nodes
-    // ============================================
-
+    // =====================================    // Remote Nodes
+    // =====================================
     remoteNodeList: (): Promise<unknown> =>
       ipcRenderer.invoke(ch.REMOTE_NODE_LIST),
 
@@ -137,6 +131,12 @@ export function createCommunicationDomain(
       ipcRenderer.invoke(ch.COMPUTERS_GET_TEST_MACHINE),
     computersChangeTestMachine: (change: unknown): Promise<unknown> =>
       ipcRenderer.invoke(ch.COMPUTERS_CHANGE_TEST_MACHINE, change),
+    computersGetQueueJobs: (): Promise<unknown> =>
+      ipcRenderer.invoke(ch.COMPUTERS_GET_QUEUE_JOBS),
+    computersChangeQueueJobs: (payload: unknown): Promise<unknown> =>
+      ipcRenderer.invoke(ch.COMPUTERS_CHANGE_QUEUE_JOBS, payload),
+    computersCheckQueueProject: (payload: unknown): Promise<unknown> =>
+      ipcRenderer.invoke(ch.COMPUTERS_CHECK_QUEUE_PROJECT, payload),
     computersSetUseThisMac: (useThisMac: boolean): Promise<unknown> =>
       ipcRenderer.invoke(ch.COMPUTERS_SET_USE_THIS_MAC, { useThisMac }),
 
@@ -271,10 +271,8 @@ export function createCommunicationDomain(
         ipcRenderer.removeListener(ch.REMOTE_NODE_NODES_CHANGED, handler);
     },
 
-    // ============================================
-    // File Transfer (coordinator <-> remote node)
-    // ============================================
-
+    // =====================================    // File Transfer (coordinator <-> remote node)
+    // =====================================
     remoteNodeCopyToRemote: (payload: {
       nodeId: string;
       localPath: string;
@@ -303,10 +301,8 @@ export function createCommunicationDomain(
     }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.REMOTE_FS_WRITE_FILE, payload),
 
-    // ============================================
-    // Directory Sync (rsync-style)
-    // ============================================
-
+    // =====================================    // Directory Sync (rsync-style)
+    // =====================================
     remoteNodeSyncStart: (payload: {
       sourceNodeId: string;
       sourcePath: string;
@@ -336,10 +332,8 @@ export function createCommunicationDomain(
     }): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.REMOTE_FS_SYNC_DIFF, payload),
 
-    // ============================================
-    // Cross-Instance Communication
-    // ============================================
-
+    // =====================================    // Cross-Instance Communication
+    // =====================================
     commCreateBridge: (payload: {
       name: string;
       sourceInstanceId: string;
@@ -375,10 +369,8 @@ export function createCommunicationDomain(
     commRequestToken: (): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.COMM_REQUEST_TOKEN),
 
-    // ============================================
-    // Channels (Discord/WhatsApp)
-    // ============================================
-
+    // =====================================    // Channels (Discord/WhatsApp)
+    // =====================================
     channelConnect: (payload: {
       platform: string;
       token?: string;
@@ -462,10 +454,8 @@ export function createCommunicationDomain(
       return () => ipcRenderer.removeListener(ch.CHANNEL_ERROR, handler);
     },
 
-    // ============================================
-    // Remote Filesystem
-    // ============================================
-
+    // =====================================    // Remote Filesystem
+    // =====================================
     remoteFsReadDirectory: (
       nodeId: string,
       path: string,

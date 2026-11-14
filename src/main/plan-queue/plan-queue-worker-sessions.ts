@@ -45,7 +45,9 @@ export class PlanQueueWorkerSessions {
 
   /** The short continue nudge goes into a session that already has its first prompt, so it carries no plan brief. */
   continueContext(run: PlanQueueRun, item: PlanQueueItem) {
+    const remote = this.deps.host.remote?.promptFor(item, run.workspaceCwd);
     return {
+      ...(remote ? { remote } : {}),
       item,
       kind: run.kind,
       repoRoot: run.workspaceCwd,
@@ -111,9 +113,10 @@ export class PlanQueueWorkerSessions {
    * not be reopened stays open. True when the worker was closed; null when closing
    * failed and the item was parked, since an untracked worker would leave it stuck.
    */
-  async closeIfSaved(item: PlanQueueItem, instanceId: string): Promise<boolean | null> {
+  async closeIfSaved(item: PlanQueueItem, instanceId: string, always = false): Promise<boolean | null> {
     const sessionId = this.deps.host.instances.getInstance(instanceId)?.providerSessionId?.trim();
-    if (!sessionId || item.workerSession?.providerSessionId !== sessionId) return false;
+    // `always`: a job on another computer is collected from its folder there, so its session must be closed first.
+    if (!always && (!sessionId || item.workerSession?.providerSessionId !== sessionId)) return false;
     try { await this.deps.stop(instanceId); }
     catch (error) {
       this.deps.host.transition(this.deps.host.getItem(item.id), 'parked', {

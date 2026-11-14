@@ -27,6 +27,8 @@ import { sampleStallProcessFacts, type StallProcessFacts } from '../main/instanc
 import { observeWorkerStderrActivity } from './worker-stderr-activity';
 import { workerSpawnMetadata, type RemoteSpawnMetadata } from '../main/remote-node/remote-spawn-metadata';
 import { buildQueuePushGuardEnv } from '../main/plan-queue/plan-queue-push-guard';
+import type { QueueJobFolderControl, QueueJobFolders } from './queue-jobs/queue-job-env';
+import { QueueJobFolderRegistry, anySessionInFolders } from './queue-jobs/queue-job-folder-registry';
 
 const logger = getLogger('LocalInstanceManager');
 const ACTIVITY_WATCHDOG_INTERVAL_MS = 5_000;
@@ -106,11 +108,11 @@ export interface ManagedInstance {
  * Manages CLI adapter instances on the worker machine.
  * Enforces working directory sandboxing and capacity limits.
  */
-export class LocalInstanceManager extends EventEmitter {
+export class LocalInstanceManager extends EventEmitter implements QueueJobFolderControl {
   private readonly modelChanges = new WorkerInstanceModelChange({
     getInstance: id => this.instances.get(id),
     validateReplacement: async params => {
-      validateWorkerSpawnDirectories(params, this.allowedDirs);
+      validateWorkerSpawnDirectories(params, this.queueJobFolders.allowedFor(this.allowedDirs, params.workingDirectory));
       this.assertSpawnNotShuttingDown(params.instanceId);
       if (params.cliType === 'copilot' && params.copilotAccountRoute) await assertWorkerCopilotBinding(params.copilotAccountRoute);
       if (params.accountRoute) await materializeWorkerAccountRoute(params.cliType, params.accountRoute);
@@ -120,6 +122,9 @@ export class LocalInstanceManager extends EventEmitter {
   });
   private readonly instances = new Map<string, ManagedInstance>();
   private readonly pendingSpawns = new Set<string>();
+  private readonly pendingSpawnParams = new Map<string, SpawnParams>();
+  /** Extra folders a Plan Queue job's session may use, for that session only. */
+  private readonly queueJobFolders = new QueueJobFolderRegistry();
   private readonly cancelledSpawns = new Set<string>();
   private readonly pendingSpawnAdapters = new Map<string, WorkerManagedAdapter>();
   private readonly pendingSpawnCompletions = new Map<string, Promise<PendingSpawnFailure>>();
@@ -222,6 +227,14 @@ export class LocalInstanceManager extends EventEmitter {
     return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
   }
 
+  registerQueueJobFolders(folders: QueueJobFolders): void { this.queueJobFolders.register(folders); }
+  unregisterQueueJobFolders(jobFolder: string): void { this.queueJobFolders.unregister(jobFolder); }
+
+  /** True while a session (running or still starting) works in, or was given, one of these folders. */
+  hasInstanceInFolders(folders: readonly string[]): boolean {
+    return anySessionInFolders([...this.instances.values()].map(i => i.spawnParams).concat([...this.pendingSpawnParams.values()]), folders);
+  }
+
   getInstanceCount(): number {
     return this.instances.size;
   }
@@ -281,7 +294,7 @@ export class LocalInstanceManager extends EventEmitter {
   }
 
   async spawn(params: SpawnParams): Promise<void> {
-    validateWorkerSpawnDirectories(params, this.allowedDirs);
+    validateWorkerSpawnDirectories(params, this.queueJobFolders.allowedFor(this.allowedDirs, params.workingDirectory));
 
     this.assertSpawnNotShuttingDown(params.instanceId);
 
@@ -296,6 +309,7 @@ export class LocalInstanceManager extends EventEmitter {
       throw new Error(`Worker at capacity (${this.maxInstances} instances)`);
     }
     this.pendingSpawns.add(params.instanceId);
+    this.pendingSpawnParams.set(params.instanceId, params);
     const pendingCompletion = createDeferredCompletion();
     this.pendingSpawnCompletions.set(params.instanceId, pendingCompletion.promise);
 
@@ -535,6 +549,7 @@ export class LocalInstanceManager extends EventEmitter {
       throw error;
     } finally {
       this.pendingSpawns.delete(params.instanceId);
+      this.pendingSpawnParams.delete(params.instanceId);
       this.cancelledSpawns.delete(params.instanceId);
       this.pendingSpawnAdapters.delete(params.instanceId);
       this.pendingSpawnCompletions.delete(params.instanceId);

@@ -11,6 +11,7 @@
  * slots shared by the runs in one project folder, and one landing at a time
  * (PlanQueueItemFlow).
  */
+import { PlanQueueRemoteTurns, type PlanQueueRemoteDeps } from './remote/plan-queue-remote-turns';
 import { getInstanceAsyncWorkRegistry } from '../instance/instance-async-work-registry';
 import { randomUUID } from 'crypto';
 import { preflightPlanQueueRun, preflightResumedRun, preflightRunRouting } from './plan-queue-run-preflight';
@@ -83,6 +84,8 @@ const DEFAULT_PUMP_INTERVAL_MS = 30_000;
 export type PlanQueueInstanceManagerPort = PlanQueueInstancePort & PlanQueueSessionTreePort & Pick<PlanQueueInstanceEventSource, 'on'>;
 export interface PlanQueueCoordinatorDeps extends Pick<PlanQueueSetAsideDeps, 'harnessSource'> {
   store: PlanQueueStore;
+  /** Lets jobs run on other computers (plan items 3.1 to 3.5). Absent: every job runs here. */
+  remote?: PlanQueueRemoteDeps;
   instances: PlanQueueInstanceManagerPort;
   worktreeCreator: PlanQueueWorktreeCreator;
   /** Tests only: skip dependency provisioning in new worktrees. */
@@ -153,6 +156,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   private parentMessenger: PlanQueueParentMessenger | null = null;
   private trackerInstance: PlanQueueInstanceTracker | null = null;
   private worktreeService: PlanQueueWorktreeService | null = null;
+  private remoteTurns: PlanQueueRemoteTurns | null = null;
   private parents: PlanQueueParentTracker | null = null;
   private setAside: PlanQueueSetAsideAgents | null = null;
   private quietDepth = 0;
@@ -227,6 +231,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       listItems: (id) => this.store.listItems(id),
       postNote: deps.postNote, questionsToParent: deps.questionsToParent,
     });
+    if (deps.remote) this.remoteTurns = new PlanQueueRemoteTurns(this, deps.remote);
     this.flow = new PlanQueueItemFlow(this);
     this.parents = new PlanQueueParentTracker({
       instances: deps.instances,
@@ -289,6 +294,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   consumeUserClose(id: string): boolean { return this.userClose.consume(id); }
   shutdown(): void {
     this.flow?.cancelChecks();
+    this.remoteTurns?.shutdown();
     this.accountRulesUnsubscribe?.();
     this.accountRulesUnsubscribe = null;
     this.admissionCleanup.splice(0).forEach(cleanup => cleanup());
@@ -328,6 +334,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     };
   }
   get worktrees(): PlanQueueWorktreeService { return this.require(this.worktreeService); }
+  get remote(): PlanQueueRemoteTurns | undefined { return this.remoteTurns ?? undefined; }
   get tracker(): PlanQueueInstanceTracker { return this.require(this.trackerInstance); }
   get store(): PlanQueueStore { return this.requireDeps().store; }
   get history() { return this.store.history; }
@@ -683,12 +690,14 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     for (const source of allWorkSources()) await source.recoverInterruptedMerges(this.store);
     for (const run of this.store.listActiveRuns()) await workSourceForRun(run).reconcileWaiting(this, run);
     await recoverPlanQueue(this, this.requireFlow());
+    for (const run of this.store.listActiveRuns()) for (const item of this.store.listItems(run.id)) if (item.remote?.awaySince && item.heldAt) this.requireFlow().watchAway(item.id);
     this.requestPump();
   }
   // ---------------------------------------------------------------------------
   // Scheduler
   // ---------------------------------------------------------------------------
   private async pump(): Promise<void> {
+    void this.remoteTurns?.retryRemovals();
     await pumpPlanQueue({
       store: this.store, flow: this.requireFlow(), triage: this.triage,
       getRun: id => this.getRun(id), getItem: id => this.getItem(id),

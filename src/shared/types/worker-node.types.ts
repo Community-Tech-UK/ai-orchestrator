@@ -303,6 +303,8 @@ export interface WorkerNodeCapabilities {
   codexHelperPolicy?: 1;
   /** 1 = `instance.spawn` honours `queuePushGuard` (builds the Plan Queue push guard on this node). Absent on older workers, which would drop it, so queue sessions are refused there. */
   queuePushGuard?: 1;
+  /** 1 = answers the `queue.*` calls (holds a Plan Queue job's code and returns its changes). Absent on older workers, which Harness never sends a job to. */
+  queueJobs?: 1;
   /**
    * GitHub Copilot account profiles this node is signed in to.
    *

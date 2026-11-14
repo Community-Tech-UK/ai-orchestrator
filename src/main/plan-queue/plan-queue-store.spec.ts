@@ -83,6 +83,18 @@ describe('PlanQueueStore', () => {
     expect(new PlanQueueStore(driver).listActiveRuns().find(run => run.id === 'legacy-batch')?.config.checkBatchSize).toBe(1);
   });
 
+  it('keeps a run on this Mac across a fresh store, and reads a run saved before the option as not kept', () => {
+    store.upsertRun(makeRun({ id: 'kept', config: { ...DEFAULT_PLAN_QUEUE_CONFIG.plans, keepOnThisMac: true } }));
+    store.upsertRun(makeRun({ id: 'default' }));
+    driver.prepare(`INSERT INTO plan_queue_runs
+      (id, parent_instance_id, kind, workspace_cwd, status, config_json, started_at, updated_at)
+      VALUES ('legacy-mac', 'parent', 'plans', '/repo', 'paused', '{}', 1, 1)`).run();
+    const fresh = new PlanQueueStore(driver);
+    expect(fresh.getRun('kept')?.config.keepOnThisMac).toBe(true);
+    expect(fresh.getRun('default')?.config.keepOnThisMac).toBeUndefined();
+    expect(fresh.getRun('legacy-mac')?.config.keepOnThisMac).toBeUndefined();
+  });
+
   it('keeps recovery locations across stale status writes and a fresh store', () => {
     store.upsertRun(makeRun());
     const stale = makeItem({ state: 'parked' });
@@ -311,7 +323,7 @@ describe('PlanQueueStore', () => {
 
       runLoopMigrations(old);
       expect(old.prepare('SELECT * FROM plan_queue_runs').get()).toEqual({ ...runBefore, unpriced_tokens: 0, hold_reason: null });
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, source_kind: 'markdown', sort_key: '', held_at: null, pending_instruction: null, worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null, planning_note: null });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, source_kind: 'markdown', sort_key: '', held_at: null, pending_instruction: null, worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null, planning_note: null, remote_json: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('legacy-item')).toMatchObject({ heldAt: null, pendingInstruction: null, state: 'fixing', round: 2 });
 
@@ -362,7 +374,7 @@ describe('PlanQueueStore', () => {
         VALUES ('item-23', 'run-23', '/repo/a_plan.md', 'awaiting-slot', 1, 0, 2, 2)`).run();
       const before = old.prepare('SELECT * FROM plan_queue_items').get<Record<string, unknown>>();
       runLoopMigrations(old);
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, source_kind: 'markdown', sort_key: '', worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null, planning_note: null });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, source_kind: 'markdown', sort_key: '', worker_provider: null, worker_model: null, stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null, planning_note: null, remote_json: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('item-23')).not.toHaveProperty('workerProvider');
       expect(() => runLoopMigrations(old)).not.toThrow();
@@ -391,7 +403,7 @@ describe('PlanQueueStore', () => {
       const before = old.prepare('SELECT * FROM plan_queue_items').get<Record<string, unknown>>();
       expect(Object.keys(before!)).not.toContain('stepped_up_at');
       runLoopMigrations(old);
-      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, source_kind: 'markdown', sort_key: '', stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null, planning_note: null });
+      expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, source_kind: 'markdown', sort_key: '', stepped_up_at: null, worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null, planning_note: null, remote_json: null });
       const upgraded = new PlanQueueStore(old);
       expect(upgraded.getItem('item-24')).toMatchObject({ state: 'parked', round: 3, workerProvider: 'claude', workerModel: 'haiku' });
       expect(upgraded.getItem('item-24')).not.toHaveProperty('steppedUpAt');
@@ -531,6 +543,21 @@ it('round-trips and clears the worker\'s completion report, and reads an item st
   expect(store.getItem('item-1')!.workerReport ?? null).toBeNull();
 });
 
+it('round-trips, clears and tolerates a corrupt record of the computer a job runs on', () => {
+  store.upsertRun(makeRun());
+  store.upsertItem(makeItem());
+  expect(store.getItem('item-1')!.remote).toBeUndefined();
+  const remote = { nodeId: 'pc', label: 'the Windows PC', branch: 'queue/a-abc123', lastExchangedCommit: 'a'.repeat(40), turnStartCommit: 'b'.repeat(40), turnId: 'turn-1', awaySince: 99 };
+  store.upsertItem({ ...store.getItem('item-1')!, remote });
+  expect(store.getItem('item-1')!.remote).toEqual(remote);
+  store.upsertItem({ ...store.getItem('item-1')!, remote: { ...remote, awaySince: null, lastExchangedCommit: null } });
+  expect(store.getItem('item-1')!.remote).toEqual({ ...remote, awaySince: undefined, lastExchangedCommit: null });
+  store.upsertItem({ ...store.getItem('item-1')!, remote: null });
+  expect(store.getItem('item-1')!.remote).toBeUndefined();
+  driver.prepare('UPDATE plan_queue_items SET remote_json = ? WHERE id = ?').run('{not json', 'item-1');
+  expect(store.getItem('item-1')!.remote).toBeUndefined();
+});
+
 it('round-trips, clears and tolerates corrupt worker conversation records', () => {
   store.upsertRun(makeRun());
   const workerSession = { provider: 'opencode', model: 'mimo-v2.6-pro', accountProfileId: 'account', providerSessionId: 'session', workingDirectory: '/repo/work', recordedAt: 123 };
@@ -559,7 +586,7 @@ it('upgrades v25 with existing queue work to worker-session storage and repeats 
     expect(itemBefore).not.toHaveProperty('worker_session_json');
     runLoopMigrations(old);
     expect(old.prepare('SELECT * FROM plan_queue_runs').get()).toEqual({ ...runBefore, unpriced_tokens: 0, hold_reason: null });
-    expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, source_kind: 'markdown', sort_key: '', worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null, planning_note: null });
+    expect(old.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...itemBefore, source_kind: 'markdown', sort_key: '', worker_session_json: null, unpriced_tokens: 0, livetest_port: null, base_conflicts: 0, discarded_at: null, discarded_by: null, discard_ref_expires_at: null, landing_wait_since: null, landing_wait_paths: null, landing_automatic: 0, worker_report_json: null, round_activity_json: null, section: null, planning_note: null, remote_json: null });
     const upgraded = new PlanQueueStore(old);
     const item = upgraded.getItem('item-25')!;
     expect(item).toMatchObject({ state: 'queued', round: 2, erroredRounds: 1, heldAt: 180,
@@ -575,7 +602,7 @@ it('upgrades v25 with existing queue work to worker-session storage and repeats 
     expect(old.prepare('SELECT COUNT(*) AS n FROM loop_migrations WHERE version = ?')
       .get<{ n: number }>(LOOP_SCHEMA_VERSION)?.n).toBe(1);
     expect(old.prepare('SELECT name FROM loop_migrations WHERE version = ?')
-      .get<{ name: string }>(LOOP_SCHEMA_VERSION)?.name).toBe('055_plan_queue_item_planning_note');
+      .get<{ name: string }>(LOOP_SCHEMA_VERSION)?.name).toBe('056_plan_queue_item_remote');
   } finally { old.close(); }
 });
 

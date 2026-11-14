@@ -12,13 +12,13 @@ import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { workSourceForRun } from './plan-queue-work-sources';
 import { stepHold } from './plan-queue-sections';
 import { hasPendingLandingCleanup } from './plan-queue-item-landing';
-import { isLandingWait, isTerminalItemState, itemHoldsWorkerSlot, itemHoldsWorktree } from './plan-queue-state';
+import { isHeldForJames, isLandingWait, isTerminalItemState, itemHoldsWorkerSlot, itemHoldsWorktree } from './plan-queue-state';
 import { queueAdmission } from '../work-admission/queue-admission';
 import { pathCompareKey } from '../util/path-helpers';
 
 interface QueuePumpHost extends Pick<PlanQueueFlowHost, 'getRun' | 'getItem' | 'transition' | 'notifyParent' | 'resolveRunParent'> {
   store: PlanQueueStore;
-  flow: Pick<PlanQueueItemFlow, 'startItem' | 'startVerification' | 'isWaitingForUsage' | 'isClaimed' | 'recheckLandingWait' | 'checklistTurns' | 'breaker' | 'finishLandingCleanup'> & { keptFolders: Pick<PlanQueueKeptFolders, 'retryDue'>; discardedRefs: Pick<PlanQueueDiscardedRefs, 'sweepDue'>;
+  flow: Pick<PlanQueueItemFlow, 'startItem' | 'startVerification' | 'isWaitingForUsage' | 'isClaimed' | 'recheckLandingWait' | 'checklistTurns' | 'breaker' | 'finishLandingCleanup'> & Partial<Pick<PlanQueueItemFlow, 'willRunElsewhere'>> & { keptFolders: Pick<PlanQueueKeptFolders, 'retryDue'>; discardedRefs: Pick<PlanQueueDiscardedRefs, 'sweepDue'>;
     recoveryCopies: Pick<PlanQueueRecoveryCopies, 'sweepDue'>;
     landingRetries: Pick<PlanQueueLandingRetries, 'retryDue'> };
   triage: Pick<PlanQueueTriage, 'isStopping' | 'maybeStart'> | null;
@@ -102,7 +102,8 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
       // Nothing in a paused run is waiting for a slot, so a wait after the pause is timed from then (shown and recorded).
       // Before the cleanup skip below, which would otherwise keep the old clock through the whole pause.
       if (run.status === 'paused') for (const item of items) if (item.state === 'queued' || item.state === 'awaiting-slot') store.waits.paused(item.id);
-      const awaitingChecks = items.filter(item => item.state === 'awaiting-slot');
+      // A job held for James to choose waits for his Resume; nothing here starts it.
+      const awaitingChecks = items.filter(item => item.state === 'awaiting-slot' && !isHeldForJames(item));
       const cleanups = items.filter(hasPendingLandingCleanup);
       if (cleanups.length) {
         // Nothing new starts until this is done, and only a pass can retry it: a run reopened with such a row would otherwise never move.
@@ -117,21 +118,25 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
           host.triage?.maybeStart(run, items);
         }
         const overloaded = oneMinute > policy.maxLoadAverage || fiveMinute > policy.maxLoadAverage;
+        // A job that runs on another computer is counted against that computer's own limit, not this run's worker slots,
+        // and does not wait for this Mac's spare load. It still holds a folder here (the folder limit above).
+        // A waiting landing keeps its folder (counted in totalJobs and the app-wide limit) but not its worker slot.
+        let inFlight = items.filter(item => itemHoldsWorkerSlot(item) && !item.remote).length;
+        for (const item of items.filter((candidate) => candidate.state === 'queued' && !isHeldForJames(candidate) && !flow.isWaitingForUsage(candidate.id))) {
+          const elsewhere = flow.willRunElsewhere?.(item, run) ?? false;
+          if (overloaded && !elsewhere) continue;
+          // A step job waits for the step before it to land. If that one was skipped, there is nothing to build on.
+          const hold = stepHold(items, item);
+          if (hold?.skipped) { host.transition(item, 'skipped', { detail: `Left out because Step ${hold.waitingFor} was skipped.` }); continue; }
+          if (hold) continue;
+          if (!folderFree() || !flow.breaker.canStart(run) || (!elsewhere && !queueAdmission(run.config, totalJobs, verifying).canStartWorker(inFlight))) { store.waits.blocked(item.id); continue; }
+          flow.breaker.started(run, item.id);
+          store.waits.started(item, 'worker');
+          if (!elsewhere) inFlight += 1;
+          totalJobs += 1;
+          void flow.startItem(item).catch((error: unknown) => host.logItemError(item, error));
+        }
         if (!overloaded) {
-          // A waiting landing keeps its folder (counted in totalJobs and the app-wide limit) but not its worker slot.
-          let inFlight = items.filter(itemHoldsWorkerSlot).length;
-          for (const item of items.filter((candidate) => candidate.state === 'queued' && !flow.isWaitingForUsage(candidate.id))) {
-            // A step job waits for the step before it to land. If that one was skipped, there is nothing to build on.
-            const hold = stepHold(items, item);
-            if (hold?.skipped) { host.transition(item, 'skipped', { detail: `Left out because Step ${hold.waitingFor} was skipped.` }); continue; }
-            if (hold) continue;
-            if (!folderFree() || !flow.breaker.canStart(run) || !queueAdmission(run.config, totalJobs, verifying).canStartWorker(inFlight)) { store.waits.blocked(item.id); continue; }
-            flow.breaker.started(run, item.id);
-            store.waits.started(item, 'worker');
-            inFlight += 1;
-            totalJobs += 1;
-            void flow.startItem(item).catch((error: unknown) => host.logItemError(item, error));
-          }
           runChecks.set(run.id, items.filter((item) => item.state === 'verifying').length);
           for (const item of awaitingChecks) {
             if (flow.isWaitingForUsage(item.id)) { explain(item, 'trying-later'); continue; }
