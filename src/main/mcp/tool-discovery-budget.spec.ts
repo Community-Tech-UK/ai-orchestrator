@@ -14,7 +14,7 @@ describe('orchestrator discovery budget', () => {
   it.each(['deferred', 'stable'])('%s search returns summaries and describe returns the schema', async (mode) => {
     const tools = mode === 'stable' ? createStableOrchestratorTools([tool]) : createDeferredOrchestratorTools([tool], { onReveal: vi.fn() });
     const result = await tools.find(tool => tool.name === 'orchestrator.tool_search')!.handler({ query: 'read example' }) as { matches: unknown[] };
-    expect(result.matches).toEqual([{ name: 'read_example', description: 'Read an example. More details.' }]);
+    expect(result.matches).toEqual([{ name: 'read_example', description: 'Read an example.' }]);
     expect(await tools.find(tool => tool.name === 'orchestrator.tool_describe')!.handler({ name: tool.name }))
       .toMatchObject({ inputSchema: tool.inputSchema });
   });

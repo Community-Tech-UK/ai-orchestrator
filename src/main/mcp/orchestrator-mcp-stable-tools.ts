@@ -5,6 +5,7 @@ import { rankToolDocuments } from './tool-search-ranker';
 import {
   ORCHESTRATOR_TOOL_DESCRIBE_NAME,
   ORCHESTRATOR_TOOL_SEARCH_NAME,
+  oneLineToolDescription,
   orchestratorCoreToolNames,
   remoteWorkerSearchHint,
   type RemoteWorkerListing,
@@ -62,7 +63,7 @@ export function createStableOrchestratorTools(
         throw new Error('Invalid orchestrator tool search limit');
       }
       const matches = rankToolDocuments(args['query'], documents, limit)
-        .map((match) => { const tool = byName.get(match.id)!; return { name: tool.name, description: tool.description.replace(/\s+/g, ' ').trim().slice(0, 500) }; });
+        .map((match) => { const tool = byName.get(match.id)!; return { name: tool.name, description: oneLineToolDescription(tool.description) }; });
       return {
         matches,
         ...(matches.length === 0 ? { availableTools: [...byName.keys()] } : {}),

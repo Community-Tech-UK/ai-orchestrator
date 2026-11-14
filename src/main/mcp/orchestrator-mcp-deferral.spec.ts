@@ -9,6 +9,7 @@ import {
   REMOTE_WORKER_CORE_TOOL_NAMES,
   createDeferredOrchestratorTools,
   measureOrchestratorToolSchemaBytes,
+  oneLineToolDescription,
 } from './orchestrator-mcp-deferral';
 
 function stubTools(): McpServerToolDefinition[] {
@@ -204,5 +205,27 @@ describe('orchestrator-mcp-deferral', () => {
       tools: Array<{ name: string }>;
     };
     expect(revealed.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(hostTools));
+  });
+});
+
+describe('oneLineToolDescription', () => {
+  it('keeps the first sentence on one line and caps it', () => {
+    expect(oneLineToolDescription('Upload a file.\n  Then more detail follows here. And more.')).toBe('Upload a file.');
+    expect(oneLineToolDescription('no full stop here')).toBe('no full stop here');
+    const long = oneLineToolDescription(`${'word '.repeat(100)}end.`);
+    expect(long.length).toBeLessThanOrEqual(160);
+    expect(long).not.toContain('\n');
+    expect(long.endsWith('…')).toBe(true);
+  });
+
+  it('search results carry no schema and only one-line descriptions', async () => {
+    const tools = createDeferredOrchestratorTools(
+      [{ name: 'create_automation', description: `Create an automation. ${'Long detail. '.repeat(80)}`,
+        inputSchema: { type: 'object', properties: { secretShape: { type: 'string' } } }, handler: async () => ({}) }],
+      { onReveal: () => undefined },
+    );
+    const search = tools.find((tool) => tool.name === ORCHESTRATOR_TOOL_SEARCH_NAME)!;
+    const result = await search.handler({ query: 'automation' }) as { matches: Array<Record<string, unknown>> };
+    expect(result.matches).toEqual([{ name: 'create_automation', description: 'Create an automation.' }]);
   });
 });

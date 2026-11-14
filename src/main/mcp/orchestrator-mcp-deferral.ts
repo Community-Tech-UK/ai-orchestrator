@@ -85,6 +85,18 @@ function toSearchDoc(tool: McpServerToolDefinition): { id: string; text: string 
   };
 }
 
+const SEARCH_DESCRIPTION_MAX_CHARS = 160;
+
+/** One line for a search hit: the first sentence, capped. Schemas come from `tool_describe`. */
+export function oneLineToolDescription(description: string): string {
+  const flat = description.replace(/\s+/g, ' ').trim();
+  const sentenceEnd = flat.search(/[.!?](?:\s|$)/);
+  const firstSentence = sentenceEnd >= 0 ? flat.slice(0, sentenceEnd + 1) : flat;
+  return firstSentence.length <= SEARCH_DESCRIPTION_MAX_CHARS
+    ? firstSentence
+    : `${firstSentence.slice(0, SEARCH_DESCRIPTION_MAX_CHARS - 1).trimEnd()}…`;
+}
+
 function describeMatch(tool: McpServerToolDefinition): Record<string, unknown> {
   return {
     name: tool.name,
@@ -144,7 +156,7 @@ export function createDeferredOrchestratorTools(
         options.onReveal(matches.map((tool) => tool.name));
       }
       return {
-        matches: matches.map(tool => ({ name: tool.name, description: tool.description.replace(/\s+/g, ' ').trim().slice(0, 500) })),
+        matches: matches.map(tool => ({ name: tool.name, description: oneLineToolDescription(tool.description) })),
         note: matches.length > 0
           ? 'These tools are registered and callable now.'
           : 'No tools matched. Available tool names are listed in availableTools.',
