@@ -411,6 +411,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-730 | P2 | **SOURCE FIX VERIFIED 2026-11-07; a day of live use pending.** `skill-match` raised to 0.68 after scoring 1,549 real messages: no wrong skill on any short message, 10 of 34 test prompts still matched, and the dashboard test prompt no longer adds a skill. Original report: Both built-in skills added by meaning on ordinary messages were wrong: `docs-sweep` (0.629) on `fix all those issues then please`, `android-test` (0.639) on a pasted pairing code with a request for a prompt. The `skill-match` floor for the real model is 0.62; the one correct live match scored 0.670. | [LT-730 detail](#lt-730) | [Fixing plan](2026-11-07-search-repair-livetest-defects_plan_completed.md); [installed checks](2026-11-07-search-repair-livetest-defects_plan_livetest.md); [Installed check 6](2026-11-06-search-and-memory-repair_plan_livetest.md#6-skill-matching-fires-on-meaning-and-not-too-often) |
 | LT-731 | P2 | **SOURCE FIX VERIFIED 2026-11-07 in a release-equivalent container; first GitHub release run pending.** The workflow now runs `xvfb-run -a node scripts/packaged-startup-smoke.js`, which passed as root and non-root. Original report: The Linux release job's startup smoke can never pass: with no `DISPLAY` it runs `xvfb-run -a harness`, the app relaunches itself with its heap flag and the first process exits 0, so `xvfb-run` closes the display and the real app dies before it is ready. With a display kept up for the whole run, the same script passes. | [LT-731 detail](#lt-731) | [Fixing plan](2026-11-07-search-repair-livetest-defects_plan_completed.md); [installed checks](2026-11-07-search-repair-livetest-defects_plan_livetest.md); [Installed check 9](2026-11-06-search-and-memory-repair_plan_livetest.md#9-windows-and-linux-packages-hold-only-their-own-runtime) |
 
+| LT-1091 | P2 | **OPEN; cleared on its own 2026-11-12 15:23, cause not established, no fix.** The ct-test-mac worker sat in `waiting_for_idle` for about 63 hours (9 Nov 00:21 to 12 Nov 15:23), up to three updates behind, with zero instances, no child processes, no browser connection and no coordinator-logged work for 10+ hours, while windows-pc applied the same commits on time. It has updated promptly four times since. The updater still logs nothing about what it waits for, so a repeat could not be diagnosed. | [LT-1091 detail](#lt-1091) | [Worker auto-update check 4](2026-10-14-worker-auto-update_livetest.md) |
 | LT-1006 | P2 | **REPAIRS WIRED 2026-10-27; clean scoring still OPEN.** Fresh queue dependencies expose Vitest 4 to archived tasks whose quiet runner requires the Vitest 3 export map. Both broken and fixed task commands crash before tests. Temporary historical dependencies remove that crash but reveal LT-1002. Renumbered from this campaign's conflicting LT-709 label. | [LT-1000 detail](#lt-1006) | [Local-model checks A5–A8](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
 | LT-1001 | P1 | **OPEN, reproduced 2026-10-27.** A fresh isolated dev profile fails startup with a duplicate migration-name constraint while main and the context worker initialize the same database. Restarting that owned profile succeeds; no application fix made. | [LT-1001 detail](#lt-1001) | [Local-model campaign startup evidence](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
 | LT-1002 | P1 | **V2 ADOPTED 2026-10-27; clean control/rescoring OPEN.** AIO-01's held-back test suite passes on both the known-broken parent and its fixed commit under the compatible historical test library. The task no longer establishes a valid negative control, so new pilot scoring and recommendations are withheld. | [LT-1002 detail](#lt-1002) | [Local-model checks A5–A8](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
@@ -13321,6 +13322,54 @@ Not isolated. The native strategy returned a false result (`src/main/context/com
 ### Required behaviour and acceptance
 
 A completed native compaction is not reported failed; a fallback samples the transcript and reports the count, and a zero-message summary is not presented as complete. Repeat check 2.3 with a session of at least 20 real turns.
+
+## LT-1091
+
+### LT-1091 — an apparently idle worker never applies a pending update
+
+**Status: open, observed 11 November 2026; the stall ended by itself on 12 November 15:23; cause not established, no code changed.**
+
+### Observed behaviour
+
+On 11 November 2026 the coordinator's `list_remote_nodes` showed node `ct-test-mac` (Mac, worker build `a9de0f2c`, up since
+9 November 00:21Z) with `autoUpdate.state: waiting_for_idle`, `targetCommit: 2924bfba` and `activeInstances: 0`, read at
+07:18Z, 07:20Z and 07:27Z (`lastCheckedAt` advancing every five minutes, so the updater was running). Its own worker log
+shows natural updates every few hours up to 9 November 00:21Z and none since, although windows-pc applied the three
+later commits (`50b2a428` on 10 November 00:12Z, `1e25ac28` 18:52Z, `2924bfba` 20:11Z). Checked directly on the Mac over
+SSH at 07:2xZ: the worker child (pid 63975) has no child processes (no terminal shell), and the managed Chrome's debug port
+has no established connection (no remote browser tunnel). The coordinator log (`app.log` to `app.log.4`) holds no browser
+command for the node between 10 November 01:32Z and 11 November 06:38Z (over 29 hours) and no dispatched work in the one
+hour sampled (03:00-04:00Z on 11 November). The next browser commands (06:38-07:00Z) came from another session, and
+nothing arrived after 07:00:30Z. The updater needs three quiet minutes, so the node should have updated at its 07:23Z check.
+
+### Root cause
+
+Not established. By reading `worker-activity.ts` and `worker-agent.ts:125-128`, the updater counts a node as busy while any
+of these is non-zero: retained instances, local model sessions, terminal sessions, CDP tunnel sessions, or a coordinator
+request still in flight (`WorkerActivity.inFlight`); and it restarts the quiet period on every request that is neither
+housekeeping nor in-flight-only, plus every browser command result. The checks above rule out terminals and tunnels. The
+remaining candidates are a request that started and never settled (`inFlight` stays above zero), a local model session left
+open, or a periodic request that counts as work. Nothing in the worker log says which, because the updater logs nothing
+while it waits.
+
+### Follow-up observation, 14 November 2026
+
+ct-test-mac applied `f6b4f0f3` on 12 November 15:23:03 (supervisor `Worker child exited to load an update`), about 63 hours after the first pending target (windows-pc took
+`50b2a428` at 10 Nov 00:12), then `66c566c2` 13 Nov 00:46, `fb8eb1e6` 10:26, `e0cb0ebb` 11:07 and `37829d0f` 17:28, each with a coordinator `Node re-registered within disconnect grace` line.
+Both nodes were `idle` on `37829d0f` at 03:40 on 14 November. No code changed between the stall and the recovery. What is known about the stuck period: the worker's coordinator socket closed 37 times on
+11 and 12 November (code 1006, often about a minute after reconnecting), and the worker log is empty from 12 Nov 10:59:49 to 15:00:10 although the process uptime ran on. The coordinator logs that old have
+rotated away, so the recovery cannot be matched to a coordinator event. The periodic `OpenCodeCliLaunch` warnings repeat all week, including after recovery, so they are not the cause. The holder remains unidentified
+and a repeat is possible. Evidence: `evidence/2026-11-14-worker-auto-update/receipts.md`.
+
+### Required behaviour and acceptance
+
+A node with no sessions, no tunnels and no recent work reaches `idle`/updates within about eight minutes (a five-minute check
+plus three quiet minutes). When it is waiting, the summary or log should name what it is waiting for (the count of
+instances, local sessions, terminals, tunnels and in-flight requests, and the age of the last stamped activity) so that this
+state can be diagnosed without attaching a debugger. Acceptance: first reproduce and name the holder on ct-test-mac (log the
+busy reason, or read it over a debugger on the Mac only with James's say-so, since it is a shared test node); then a focused
+`worker-activity.spec.ts` case for that holder, and on the rebuilt Mac worker `autoUpdate.state` moves from
+`waiting_for_idle` to `idle` with `buildCommit` equal to the checkout HEAD with no sessions open.
 
 ## LT-1085
 
