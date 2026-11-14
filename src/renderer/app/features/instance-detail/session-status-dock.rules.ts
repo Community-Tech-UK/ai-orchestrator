@@ -192,6 +192,43 @@ export function splitDockChips<T extends { id: string; blocker: boolean }>(
   };
 }
 
+/** A short-lived result line (a resume outcome, a failed quick action) shown at the top of the strip. */
+export interface DockToast {
+  id: string;
+  type: 'info' | 'error';
+  message: string;
+}
+
+/** What the strip's one-line rows need; every field is optional because most sessions have none. */
+export interface DockRowInput {
+  /** Text for the "compacting" row, or null when the session is not compacting. */
+  compactingText: string | null;
+  toasts: readonly DockToast[];
+}
+
+export interface DockRow {
+  id: string;
+  kind: 'error' | 'compacting' | 'info';
+  text: string;
+}
+
+/**
+ * One-line rows above the chips, blocker first: a failure leads, then the
+ * compaction note (it changes what Send does), then plain results. Order inside
+ * a kind is arrival order, so rows do not swap places as new ones arrive.
+ */
+export function buildDockRows(input: DockRowInput): readonly DockRow[] {
+  const errors = input.toasts.filter((toast) => toast.type === 'error');
+  const infos = input.toasts.filter((toast) => toast.type === 'info');
+  return [
+    ...errors.map((toast): DockRow => ({ id: toast.id, kind: 'error', text: toast.message })),
+    ...(input.compactingText
+      ? [{ id: 'compacting', kind: 'compacting', text: input.compactingText } satisfies DockRow]
+      : []),
+    ...infos.map((toast): DockRow => ({ id: toast.id, kind: 'info', text: toast.message })),
+  ];
+}
+
 /** Where Escape goes when the instance view holds both a dock and a live turn. */
 export type EscapeRouting = 'chip-panel' | 'interrupt' | null;
 

@@ -31,6 +31,30 @@
   min-width: 0;
 }
 
+// One-line rows above the chips (compaction note, resume results, failures).
+.dock-row {
+  padding: 6px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(74, 222, 128, 0.18);
+  background: rgba(74, 222, 128, 0.08);
+  color: #bbf7d0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+
+  &[data-row-kind='compacting'] {
+    border-color: rgba(245, 158, 11, 0.14);
+    background: rgba(245, 158, 11, 0.06);
+    color: rgba(245, 158, 11, 0.85);
+  }
+
+  &.dock-row-error {
+    border-color: rgba(var(--error-rgb), 0.18);
+    background: rgba(var(--error-rgb), 0.08);
+    color: #fecaca;
+  }
+}
+
 .inspector-toggles-shell {
   display: grid;
   grid-template-rows: 1fr;

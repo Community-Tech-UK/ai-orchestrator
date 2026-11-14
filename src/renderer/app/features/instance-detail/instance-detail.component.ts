@@ -59,8 +59,7 @@ import { BrowserApprovalRequestComponent } from './browser-approval-request.comp
 import { InstanceHeaderComponent } from './instance-header.component';
 import { InstanceWelcomeComponent } from './instance-welcome.component';
 import type { NewSessionSubmitRequest } from './input-panel-new-session-submit';
-import { CrossModelReviewPanelComponent } from './cross-model-review-panel.component';
-import { resolveEscapeRouting } from './session-status-dock.rules';
+import { resolveEscapeRouting, type DockToast } from './session-status-dock.rules';
 import { SessionStatusCardComponent } from './session-status-card.component';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
 import { OrchestrationHudComponent } from '../orchestration/orchestration-hud.component';
@@ -92,11 +91,6 @@ import {
   shouldShowWakeupReviveToggle,
 } from './instance-detail-history-preview.utils';
 
-interface RestartToast {
-  id: string;
-  type: 'info' | 'error';
-  message: string;
-}
 
 interface HistoryPreviewView {
   id: string;
@@ -147,7 +141,6 @@ interface ResendEditedEvent {
     InstanceHeaderComponent,
     RuntimeChangeConfirmComponent,
     InstanceWelcomeComponent,
-    CrossModelReviewPanelComponent,
     RemoteBrowseModalComponent,
     OrchestrationHudComponent,
     ChildDiagnosticBundleModalComponent,
@@ -316,7 +309,7 @@ export class InstanceDetailComponent {
   compactionPreviewOpen = signal(false);
   contextWarningDismissed = signal(false);
   recoveryDismissed = signal(false);
-  restartToasts = signal<RestartToast[]>([]);
+  restartToasts = signal<DockToast[]>([]);
   private lastDismissedPercentage = 0;
   private lastRecoveryBannerKey: string | null = null;
   private lastRestartToastKey: string | null = null;
@@ -1107,8 +1100,8 @@ export class InstanceDetailComponent {
     }
   }
 
-  private showRestartToast(message: string, type: RestartToast['type']): void {
-    const toast: RestartToast = {
+  private showRestartToast(message: string, type: DockToast['type']): void {
+    const toast: DockToast = {
       id: `restart-toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       type,
       message,

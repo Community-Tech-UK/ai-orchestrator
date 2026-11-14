@@ -41,15 +41,6 @@
               (confirmed)="runtimeChange.confirm(inst.id)" (cancelled)="runtimeChange.cancel()" />
           }
 
-          @if (isCompacting()) {
-            <div class="recovery-banner" role="status" aria-live="polite">
-              <div class="recovery-banner-body">
-                <span class="recovery-banner-title">{{ getProviderDisplayName(inst.provider, inst.currentModel) }} is compacting context</span>
-                <span class="recovery-banner-desc">Messages will remain queued and send when compaction finishes.</span>
-              </div>
-            </div>
-          }
-
           <!-- Context warning -->
           @if (contextWarningLevel()) {
             <app-context-warning
@@ -145,15 +136,6 @@
             }
           </div>
 
-          <!-- Cross-model review panel -->
-          @if (showCrossModelReviewPanel() && currentReview()) {
-            <app-cross-model-review-panel
-              [review]="currentReview()"
-              [agentName]="getProviderDisplayName(inst.provider, inst.currentModel)"
-              (actionPerformed)="onReviewAction($event)"
-            />
-          }
-
           <!-- Session status and usage: closed until the reader opens it -->
           <app-session-status-card [instance]="inst" />
 
@@ -170,8 +152,14 @@
             [instanceId]="inst.id"
             [workingDirectory]="inst.workingDirectory"
             [childrenIds]="inst.childrenIds"
+            [compactingText]="isCompacting() ? getProviderDisplayName(inst.provider, inst.currentModel) + ' is compacting context. Messages stay queued and send when it finishes.' : null"
+            [toasts]="restartToasts()"
+            [secondOpinion]="currentReview()"
+            [secondOpinionOpen]="showCrossModelReviewPanel()"
+            [secondOpinionAgentName]="getProviderDisplayName(inst.provider, inst.currentModel)"
             (selectChild)="onSelectChild($event)"
             (quickAction)="onQuickAction($event)"
+            (secondOpinionAction)="onReviewAction($event)"
           />
 
           <app-idle-cache-hint [instance]="inst" />

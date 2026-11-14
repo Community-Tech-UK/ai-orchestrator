@@ -11,6 +11,8 @@ import {
   signal,
 } from '@angular/core';
 import { InstanceReviewPanelComponent } from './instance-review-panel.component';
+import { CrossModelReviewPanelComponent } from './cross-model-review-panel.component';
+import type { AggregatedReview, ReviewActionType } from '../../../../shared/types/cross-model-review.types';
 import { ChildInstancesPanelComponent } from './child-instances-panel.component';
 import { CheckpointTimelineComponent } from '../checkpoints/checkpoint-timeline.component';
 import { HistoryIpcService } from '../../core/services/ipc/history-ipc.service';
@@ -19,11 +21,13 @@ import type { HudQuickAction } from '../../../../shared/types/orchestration-hud.
 import {
   DOCK_CHIPS,
   DOCK_FOCUS_ANCHOR_CLASS,
+  buildDockRows,
   splitDockChips,
   type DockChipContext,
   type DockChipDef,
   type DockChipId,
   type DockChipPresentation,
+  type DockToast,
 } from './session-status-dock.rules';
 
 interface DockChipView {
@@ -38,6 +42,7 @@ interface DockChipView {
   standalone: true,
   imports: [
     InstanceReviewPanelComponent,
+    CrossModelReviewPanelComponent,
     ChildInstancesPanelComponent,
     CheckpointTimelineComponent,
     AioTooltipDirective,
@@ -46,6 +51,16 @@ interface DockChipView {
     <span class="dock-focus-anchor" tabindex="-1"></span>
     @if (hasContent()) {
       <div class="session-status-dock">
+        @for (row of rows(); track row.id) {
+          <div
+            class="dock-row"
+            [class.dock-row-error]="row.kind === 'error'"
+            [attr.role]="row.kind === 'error' ? 'alert' : 'status'"
+            [attr.data-row-kind]="row.kind"
+          >
+            {{ row.text }}
+          </div>
+        }
         @if (chipViews().length > 0) {
           <div class="inspector-toggles-shell">
             <div class="dock-chips" role="toolbar" aria-label="Session inspectors">
@@ -146,6 +161,15 @@ interface DockChipView {
           </div>
         }
 
+        <!-- The second opinion is not a chip: the header pill is its one standing place, and this block only opens from it. -->
+        @if (secondOpinionOpen() && secondOpinion(); as opinion) {
+          <app-cross-model-review-panel
+            [review]="opinion"
+            [agentName]="secondOpinionAgentName()"
+            (actionPerformed)="secondOpinionAction.emit($event)"
+          />
+        }
+
         @if (hasOpenChipPanel()) {
           <div class="inspector-panels">
             @if (isChipOpen('review')) {
@@ -182,9 +206,17 @@ export class SessionStatusDockComponent {
   workingDirectory = input('');
   childrenIds = input<string[]>([]);
   chipDefs = input<readonly DockChipDef[]>(DOCK_CHIPS);
+  /** Text for the "compacting" row; null when the session is not compacting. */
+  compactingText = input<string | null>(null);
+  toasts = input<readonly DockToast[]>([]);
+  /** The second-opinion result, and whether the header pill has opened its panel. */
+  secondOpinion = input<AggregatedReview | null>(null);
+  secondOpinionOpen = input(false);
+  secondOpinionAgentName = input('the agent');
 
   selectChild = output<string>();
   quickAction = output<HudQuickAction>();
+  secondOpinionAction = output<{ reviewId: string; instanceId: string; action: ReviewActionType }>();
 
   openPanels = signal<Partial<Record<DockChipId, boolean>>>({});
   overflowOpen = signal(false);
@@ -238,8 +270,17 @@ export class SessionStatusDockComponent {
     this.chipViews().some((view) => this.openPanels()[view.def.id] === true),
   );
 
-  /** C13.12: the strip renders nothing when no chip has content. */
-  readonly hasContent = computed(() => this.chipViews().length > 0);
+  readonly rows = computed(() =>
+    buildDockRows({ compactingText: this.compactingText(), toasts: this.toasts() }),
+  );
+
+  /** C13.12: the strip renders nothing when no row, chip or open second opinion has content. */
+  readonly hasContent = computed(
+    () =>
+      this.rows().length > 0 ||
+      this.chipViews().length > 0 ||
+      (this.secondOpinionOpen() && this.secondOpinion() !== null),
+  );
 
   private chipEntranceEffect = effect(() => {
     const barVisible = this.chipViews().length > 0;
