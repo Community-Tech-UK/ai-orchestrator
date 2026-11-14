@@ -1450,6 +1450,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       this.cachedCliStatus = { ...this.cachedCliStatus, available: true, version: message.claude_code_version };
     }
     if (this.nativeCompaction.isCompactionEcho(raw)) return;
+    // The raw /compact turn ends with an empty result; it is maintenance, not a model reply.
+    const compactionResult = raw.type === 'result' && this.nativeCompaction.isCompacting();
     this.nativeCompaction.observeMessage(raw);
     if (raw.type === 'command_lifecycle') { this.turnStarts.commandLifecycle(raw['command_uuid'], raw['state']); return; }
     if (this.livePermissions.handle(message.type, raw)) return;
@@ -1824,7 +1826,7 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
         // cost/telemetry/hooks. Reuse parseOutput() as one-shot mode does; guarded below.
         // LT-105: skip when an `error` already completed this turn.
         if (!this.awaitingOneShotCompletion && !this.residentTurnCompletedByError) {
-          this.completeResidentTurn();
+          this.completeResidentTurn(compactionResult ? { compactionTurn: true } : undefined);
         }
         this.residentTurnCompletedByError = false;
 

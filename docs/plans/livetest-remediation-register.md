@@ -391,6 +391,9 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1085 | P2 | **SOURCE FIX VERIFIED 2026-11-10; rebuilt dev app rechecked live.** After Claude's own `/compact` (Compact now on a resident session) the chat showed "The model sent no reply. Your message and the work above are kept." with a Retry button, because the compaction turn's empty result was judged an empty model reply. | [LT-1085 detail](#lt-1085) | [Token levers live checks](2026-10-10-oct-phase1-token-levers_livetest.md) |
+| LT-1088 | P1 | **SOURCE FIX VERIFIED 2026-11-13; rebuilt-app rollout still gated.** With the rewrite-only RTK hook on, `FOO=1 git push`, `timeout 5 git push` and `git -C <dir> push` ran in a Claude session whose project denies `Bash(git push*)`: the hook rewrote them to `FOO=1 rtk git push` and the like, Claude matched its deny rule against the rewritten text and the push executed (it stopped only because the scratch repo had no remote). The hook no longer rewrites a command that starts with a `NAME=value` word, a wrapper such as `timeout`, or `git` plus a global option. | [LT-1088 detail](#lt-1088) | [Token levers live checks](2026-10-10-oct-phase1-token-levers_livetest.md) |
+| LT-1089 | P4 | **REPRODUCED LIVE 2026-11-13; NOT FIXED.** Renaming a new Claude chat within about 300 ms of its first message makes the title service log "AI title upgrade skipped: no live session and spawning a new CLI for a label is switched off" for that Claude chat. The rename is kept and no second process starts, so only the log reason is misleading; the livetest expects that line only for non-Claude chats. | [LT-1089 detail](#lt-1089) | [Token levers live checks](2026-10-10-oct-phase1-token-levers_livetest.md) |
 | LT-1028 | P2 | **FIX LANDED 2026-11-10 (661f79daa); rebuilt-app check pending.** On a Control Center window 840px wide or narrower, the new hub menu (Oct2 later 3.2) stacked all twelve hubs in a column above the page: the Automations page kept 280 of 800px of height, Git 168px, and the last hub was clipped. The narrow-layout strip CSS was written for the old menu's side-by-side groups. Fixed by a one-row sideways strip that keeps its own height and scrolls the open hub into view. | [LT-1028 detail](#lt-1028--the-hub-menu-fills-half-a-narrow-window) | [Oct2 later live checks, section 4](2026-10-20-oct2-later_livetest.md) |
 | LT-1029 | P2 | **OBSERVED + ROOT-CAUSED 2026-11-11; NOT A PRODUCT DEFECT (test-harness spawn lifecycle).** A disposable worker spawned from a `run_on_node` agent turn registered successfully (`Node registered via RPC`, session issued) but its WebSocket closed 1006 seven-to-eight seconds later — exactly when the agent turn ended and its background task was reaped — so the roster showed the enrolled node `disconnected` and later gate calls failed node matching. Started via Task Scheduler (outside the agent process tree), the same worker stayed connected and the signed-out-Cursor gate call succeeded. The same evidence live-verifies LT-604's router fix on the packaged build. | [LT-1029 detail](#lt-1029) | [Browser Gateway wedged-tab livetest](/Users/suas/work/communitytech/browser-gateway-wedged-tab-and-node-recovery-2026-09-11_livetest.md) |
 | LT-708 | P1 | **OPEN — reproduced live 2026-10-27.** A non-YOLO Claude session consuming a warm adapter has no defer hook. The genuine CLI error `This command requires approval` is not recognised as a permission denial, so the session becomes idle without an approval card. A fresh adapter shows the deferred-permission card for the same harmless command. | [LT-708 detail](#lt-708) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-plan-queue-worker) |
@@ -13297,6 +13300,60 @@ Not isolated. The native strategy returned a false result (`src/main/context/com
 ### Required behaviour and acceptance
 
 A completed native compaction is not reported failed; a fallback samples the transcript and reports the count, and a zero-message summary is not presented as complete. Repeat check 2.3 with a session of at least 20 real turns.
+
+## LT-1085
+
+### LT-1085 — Compact now on a resident Claude session reports "The model sent no reply"
+
+**Status: source fix verified 10 November 2026; rebuilt dev app rechecked live.**
+
+### Observed behaviour
+
+Dev app built from this branch (`30757ee7c`), Claude CLI 2.1.321, resident session `chb5s8qoh`. Pressing Compact now (the `compactInstance` call) compacted natively: same provider session and process, `compact_boundary` trigger manual, 50,202 to 16,867 tokens, one "Context compacted" divider. It then also added a system notice, "The model sent no reply. Your message and the work above are kept.", with source `empty-result` and a Retry action. The app log showed `Provider turn completed ... outputTokens: 0, classifierReason: 'empty_result'` right after `Compaction completed`. Repeated with no queued message: same notice, so it is not caused by a queued send.
+
+### Root cause
+
+The raw `/compact` turn ends with an empty `result`. `ClaudeCliAdapter` completed it like any resident turn, so `adapter-turn-ending-observation.ts` saw no text, tools or thinking and classified it `empty_result`. The unit tests fed the adapter only, never the turn-ending observer, so they passed.
+
+### Required behaviour and acceptance
+
+The compaction turn still completes (cost and usage recorded once) but is marked `compactionTurn: true` and is never judged an empty reply. Acceptance: `adapter-empty-result.spec.ts` case "does not call a provider compaction turn an empty reply (LT-1085)" and `claude-cli-adapter.native-compaction.spec.ts` (metadata assertions) pass; on the rebuilt dev app, Compact now on a resident Claude session shows only the divider (checked live 10 November on session `cqus467nh`: divider, no notice, queued messages delivered once each, recall correct).
+
+## LT-1088
+
+### LT-1088 — The rewrite-only RTK hook lets wrapped `git push` past a deny rule
+
+**Status: source fix verified 13 November 2026; `rtkAutoApproveScope` stays `off` (rollout is a separate decision).**
+
+### Observed behaviour
+
+Claude CLI 2.1.323, bundled RTK 0.52.0, rewrite-only mode (`ORCHESTRATOR_RTK_REWRITE_ONLY=1`), disposable repo with no remote and `.claude/settings.local.json` denying `Bash(git push*)`. Plain `git push` was refused (RTK exit 2, hook printed nothing, Claude's deny rule fired). The wrapper forms were rewritten (RTK exit 3) and the hook answered `allow` with `updatedInput`: `FOO=1 git push` became `FOO=1 rtk git push`, `timeout 5 git push` became `timeout 5 rtk git push`, `git -C <dir> push` became `rtk git -C <dir> push`. All three ran (`fatal: No configured push destination`, exit 128). Control with no hook: the env and `timeout` forms were denied by Claude itself and `git -C` needed approval, so the hook turned a refusal into an executed command. Receipts: `rtk-live-check1-BEFORE-fix.json` and `rtk-live-check1-control-no-hook.json` in [the queue 354fcc evidence folder](2026-10-10-oct-phase1-token-levers_evidence/queue-354fcc-20261113/).
+
+### Root cause
+
+Claude matches deny and approval rules against the command the hook returns. RTK rewrites wrapper forms by inserting `rtk` after the wrapper, so the rule's `git push*` pattern no longer matches, and the hook's `allow` removes the approval step. `rtk-defer-hook.mjs` rewrite-only mode rewrote every command RTK accepted.
+
+### Required behaviour and acceptance
+
+Rewrite-only mode never rewrites a command in which any segment starts with a `NAME=value` word, a wrapper program (`timeout`, `env`, `nice`, `nohup`, `time`, `command`, `sudo`, `xargs`, `exec` and similar) or `git` followed by a global option; it logs `wrapper-not-rewritten` and prints nothing. Plain commands, pipelines and `&&` chains still rewrite. Acceptance: `rtk-defer-hook.spec.ts` case "never rewrites a wrapper or prefix form" passes; live, the same probe now shows `FOO=1 git push` and `timeout 5 git push` denied by Claude and `git -C <dir> push` stopped at the approval step, with the three hook log lines reading `wrapper-not-rewritten` (checked 13 November 2026, `rtk-live-check1.json` in the same folder).
+
+## LT-1089
+
+### LT-1089 — A renamed Claude chat logs "no live session" for its skipped title upgrade
+
+**Status: reproduced 13 November 2026; not fixed (diagnostic wording only).**
+
+### Observed behaviour
+
+Dev app on the test Mac, Claude CLI 2.1.323. Five chats created with `createInstanceWithMessage`: two left alone got an instant title and then an AI title about 2 seconds later (log `Auto-titled instance (AI)`), with one extra Claude process per chat (5 to 6, the chat's own). Two renamed 300 ms after creation kept the new name and logged `AI title upgrade skipped: no live session and spawning a new CLI for a label is switched off` once each; one renamed after 6 seconds got its AI title first and kept the later rename. `isRenamed` was true in every renamed case.
+
+### Root cause
+
+Not confirmed. `AutoTitleService.generateTitle` (`src/main/instance/auto-title-service.ts`) logs that line whenever the live-title source returns nothing and CLI spawning is off; the live source evidently returns nothing for a chat that was renamed before its session was ready, so the line names the wrong reason for a Claude chat.
+
+### Required behaviour and acceptance
+
+For a Claude chat the skipped upgrade is either not logged or logged with the real reason (renamed). Acceptance: repeat the two-chat comparison above and the renamed chat's log line no longer says "no live session".
 
 <a id="lt-1083"></a>
 

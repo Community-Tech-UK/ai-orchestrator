@@ -25,7 +25,9 @@
  * RTK 0.49+ (RTK_MIN_REWRITE_VERSION) treats exit 3 as "no rule matched, text
  * rewritten", so exits 0 and 3 both allow with the rewrite; exits 1 and 2,
  * timeouts, a missing binary and any thrown error print nothing and exit 0
- * (Claude's own deny rules still apply). The decision directory is never read.
+ * (Claude's own deny rules still apply). A command that starts with a NAME=value
+ * word, a wrapper such as `timeout`, or `git -C dir` is never rewritten (LT-1088).
+ * The decision directory is never read.
  *
  * Both modes append one JSON line per Bash call to
  * $ORCHESTRATOR_RTK_LOG_DIR/<YYYY-MM-DD>.jsonl (Harness's own coverage log,
@@ -162,6 +164,35 @@ function runRtkRewrite(command) {
   }
 }
 
+// Programs that run another command for the caller. Claude strips some of
+// these (and leading `NAME=value` words) when it matches a deny rule such as
+// `Bash(git push*)`, but it matches against the text the hook rewrote, and
+// RTK rewrites `timeout 5 git push` to `timeout 5 rtk git push`: the rule no
+// longer matches and the push runs (LT-1088).
+const COMMAND_WRAPPERS = new Set([
+  'timeout', 'env', 'nice', 'nohup', 'time', 'command', 'builtin', 'sudo', 'doas',
+  'xargs', 'exec', 'stdbuf', 'ionice', 'setsid', 'watch', 'caffeinate', 'unbuffer',
+]);
+
+/**
+ * True when any command in the line starts with a `NAME=value` word, a
+ * wrapper program, or `git` followed by a global option (`git -C dir push`).
+ * Those forms are left to Claude's own rules unrewritten: a rewritten copy
+ * would be matched against deny and approval rules in a shape the rule author
+ * never wrote. Over-splitting on a separator inside a quoted string only
+ * means a missed rewrite, never a rewritten wrapper.
+ */
+function hasWrapperOrPrefixForm(command) {
+  for (const segment of command.split(/&&|\|\||[;|&\n(){}`]/)) {
+    const words = segment.trim().split(/\s+/);
+    const first = words[0] || '';
+    if (/^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(first)) return true;
+    if (COMMAND_WRAPPERS.has(first.split('/').pop())) return true;
+    if (first.split('/').pop() === 'git' && (words[1] || '').startsWith('-')) return true;
+  }
+  return false;
+}
+
 /**
  * Rewrite-only mode for auto-approve sessions (A13, Step 18b). May rewrite,
  * never asks, never denies; the decision directory is never read; every path
@@ -175,6 +206,10 @@ function runRewriteOnly(input) {
     }
     const command = input.tool_input?.command;
     if (typeof command !== 'string' || command.length === 0) {
+      process.exit(0);
+    }
+    if (hasWrapperOrPrefixForm(command)) {
+      logDecision(input, 'wrapper-not-rewritten', null, Date.now() - started, 'rewrite-only');
       process.exit(0);
     }
     const result = runRtkRewrite(command);

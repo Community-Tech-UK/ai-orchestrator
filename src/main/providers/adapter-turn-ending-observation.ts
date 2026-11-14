@@ -103,7 +103,8 @@ export class AdapterTurnEndingObservation {
       && !response.content?.trim() && this.assistantSnapshots.size === 0 && !this.hasToolActivity && !response.toolCalls?.length
       && this.thinking.size === 0 && readReasoningBlocks(response?.thinking).length === 0
       && !(response.usage?.reasoningTokens || event.reasoningTokens || response.metadata?.['reasoningTokens'])
-      && !this.cancelled && response.degradedReason !== 'cancelled' && !this.providerRetrying;
+      && !this.cancelled && response.degradedReason !== 'cancelled' && !this.providerRetrying
+      && response.metadata?.['compactionTurn'] !== true;
     const classified = classifyTurnEnding({
       kind: event.kind,
       ...(event.kind === 'complete' ? {

@@ -110,6 +110,20 @@ describe('Claude adapter native compaction wiring', () => {
     expect(probe).not.toHaveBeenCalled();
   });
 
+  it('marks only the compaction turn, so the next ordinary empty turn is still judged on its own (LT-1085)', async () => {
+    const { adapter, state, feed } = harness();
+    const completed = vi.fn();
+    adapter.on('complete', completed);
+    const pending = state.compactContext();
+    feed({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'manual', pre_tokens: 47076 } });
+    expect(await pending).toBe(true);
+    feed({ type: 'result', usage: { input_tokens: 0, output_tokens: 0 } });
+    expect(completed.mock.calls[0][0].metadata).toMatchObject({ compactionTurn: true });
+    state.residentTurnActive = true;
+    feed({ type: 'result', usage: { input_tokens: 1, output_tokens: 0 } });
+    expect(completed.mock.calls[1]?.[0].metadata?.compactionTurn).toBeUndefined();
+  });
+
   it('keeps the session and normal completion/cost accounting, hiding synthetic compact echoes', async () => {
     const { adapter, state, feed, writes } = harness();
     const completed = vi.fn();
@@ -127,6 +141,7 @@ describe('Claude adapter native compaction wiring', () => {
       modelUsage: { 'claude-sonnet-5-5': { inputTokens: 99000, outputTokens: 1000, contextWindow: 1000000 } } });
     expect(completed).toHaveBeenCalledOnce();
     expect(completed.mock.calls[0][0].usage.cost).toBe(0.01);
+    expect(completed.mock.calls[0][0].metadata).toMatchObject({ compactionTurn: true });
     expect(output.mock.calls.filter(([message]) => message.type === 'user')).toEqual([]);
     expect(adapter.getSessionId()).toBe('synthetic-session');
     expect(adapter.getTurnCompaction()).toEqual({ count: 1, trigger: 'manual', preTokens: 47076, postTokens: 10236 });

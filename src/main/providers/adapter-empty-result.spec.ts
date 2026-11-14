@@ -61,6 +61,13 @@ describe('empty reply producer at the real adapter observation boundary', () => 
     expect(ending()).toMatchObject({ turnEnding: { reason: 'empty_result' } });
   });
 
+  it('does not call a provider compaction turn an empty reply (LT-1085)', () => {
+    const { adapter, ending } = observe();
+    adapter.emit('status', 'busy');
+    adapter.emit('complete', { content: '', role: 'assistant', metadata: { compactionTurn: true } });
+    expect(ending()).toMatchObject({ turnEnding: { reason: 'completed' } });
+  });
+
   it('keeps a flagged failed completion an error rather than calling it an empty reply', () => {
     const { adapter, ending } = observe();
     adapter.emit('complete', { content: '', metadata: { turnErrored: true } });

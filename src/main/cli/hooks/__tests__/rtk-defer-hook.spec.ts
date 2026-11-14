@@ -363,6 +363,39 @@ describe('rtk-defer-hook — rewrite-only mode (A13, Step 18b)', () => {
     expect(result.stdout).not.toContain('deny');
   });
 
+  it('never rewrites a wrapper or prefix form, so Claude deny rules still see the original (LT-1088)', () => {
+    const stubPath = makeStubRtk(tempDir!, { exit: 3, stdout: 'rewritten-by-rtk' });
+    const logDir = path.join(tempDir!, 'hook-decisions-wrapper');
+    const wrapped = [
+      'FOO=1 git push',
+      'timeout 5 git push',
+      'git -C /tmp/repo push',
+      'git status && FOO=1 git push',
+      'git status | env X=1 git push',
+      'echo $(timeout 5 git push)',
+      '/usr/bin/timeout 5 git push',
+    ];
+    for (const command of wrapped) {
+      const result = runHook(
+        { tool_name: 'Bash', tool_use_id: 'w', tool_input: { command } },
+        rewriteOnlyEnv(stubPath, { ORCHESTRATOR_RTK_LOG_DIR: logDir }),
+      );
+      expect(result.status).toBe(0);
+      expect(result.stdout, command).toBe('');
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const lines = readFileSync(path.join(logDir, `${today}.jsonl`), 'utf-8').trim().split('\n');
+    expect(lines.map((l) => JSON.parse(l).decision)).toEqual(wrapped.map(() => 'wrapper-not-rewritten'));
+    // A plain command and a plain pipeline still rewrite.
+    for (const command of ['git status --short', 'git status | cat', 'git status && git log -5']) {
+      const result = runHook(
+        { tool_name: 'Bash', tool_use_id: 'p', tool_input: { command } },
+        rewriteOnlyEnv(stubPath),
+      );
+      expect(JSON.parse(result.stdout).hookSpecificOutput.updatedInput.command, command).toBe('rewritten-by-rtk');
+    }
+  });
+
   it('exit 1 and exit 2 print nothing and exit 0', () => {
     for (const exit of [1, 2]) {
       const stubPath = makeStubRtk(tempDir!, { exit });
