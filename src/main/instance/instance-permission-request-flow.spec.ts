@@ -121,6 +121,64 @@ describe('InstancePermissionRequestFlow', () => {
     expect(host.emit).not.toHaveBeenCalledWith('instance:input-required', expect.anything());
   });
 
+  describe('permission_denial is judged by the real target, not the card label', () => {
+    const bashDenial = {
+      type: 'permission_denial', action: 'bash', tool_name: 'Bash',
+      path: 'command (13 chars)', full_path: 'rtk proxy pwd',
+    };
+
+    it('asks the gate about the real Bash command in the scope the hooked path uses', async () => {
+      evaluate.mockReturnValue(gateDecision('ask'));
+      await new InstancePermissionRequestFlow(createHost()).handleInputRequired({
+        instanceId: 'inst-1', requestId: 'bash-ask', prompt: 'Allow?', timestamp: 1, metadata: bashDenial,
+      });
+
+      expect(evaluate).toHaveBeenCalledWith({
+        request: expect.objectContaining({ scope: 'bash_execute', resource: 'bash:rtk proxy pwd' }),
+        toolName: 'Bash',
+        toolInput: { command: 'rtk proxy pwd' },
+      });
+    });
+
+    it('auto-denies without a card when a rule denies the real Bash command', async () => {
+      evaluate.mockReturnValue(gateDecision('deny'));
+      const host = createHost();
+      const flow = new InstancePermissionRequestFlow(host);
+      await flow.handleInputRequired({
+        instanceId: 'inst-1', requestId: 'bash-deny', prompt: 'Allow?', timestamp: 1, metadata: bashDenial,
+      });
+
+      expect(host.emit).not.toHaveBeenCalledWith('instance:input-required', expect.anything());
+      expect(host.sendInputResponse).toHaveBeenCalledWith('inst-1', 'Permission denied. (deny-reason)', undefined);
+      expect(flow.isPending('inst-1', 'bash-deny')).toBe(false);
+    });
+
+    it('still shows the card, with the request pending, when no rule denies the command', async () => {
+      evaluate.mockReturnValue(gateDecision('ask'));
+      const host = createHost();
+      const flow = new InstancePermissionRequestFlow(host);
+      await flow.handleInputRequired({
+        instanceId: 'inst-1', requestId: 'bash-card', prompt: 'Allow?', timestamp: 1, metadata: bashDenial,
+      });
+
+      expect(host.emit).toHaveBeenCalledWith('instance:input-required', expect.objectContaining({ requestId: 'bash-card' }));
+      expect(flow.isPending('inst-1', 'bash-card')).toBe(true);
+    });
+
+    it('uses the full path of a file target when the label differs', async () => {
+      evaluate.mockReturnValue(gateDecision('ask'));
+      await new InstancePermissionRequestFlow(createHost()).handleInputRequired({
+        instanceId: 'inst-1', requestId: 'file-ask', prompt: 'Allow?', timestamp: 1,
+        metadata: { type: 'permission_denial', action: 'read', tool_name: 'Read', path: '.../protected/data.txt', full_path: '/tmp/protected/data.txt' },
+      });
+
+      expect(evaluate).toHaveBeenCalledWith(expect.objectContaining({
+        request: expect.objectContaining({ scope: 'file_read', resource: '/tmp/protected/data.txt' }),
+        toolInput: { path: '/tmp/protected/data.txt' },
+      }));
+    });
+  });
+
   it.each(['user', 'system'] as const)('adds removal guidance only for a saved user deny (%s)', async source => {
     const decision = gateDecision('deny');
     decision.permission!.matchedRule = { source } as NonNullable<typeof decision.permission>['matchedRule'];

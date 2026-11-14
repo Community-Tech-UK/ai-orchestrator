@@ -92,7 +92,8 @@ export function extractPermissionDetails(
     const match = normalizedContent.match(pattern);
     if (match) {
       action = match[1]?.trim().toLowerCase();
-      path = match[2]?.trim();
+      // "permission to read from /x": `from` belongs to the wording, not the target.
+      path = match[2]?.trim().replace(/^from\s+/i, '');
       if (action && path) {
         break;
       }

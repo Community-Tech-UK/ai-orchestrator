@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isPermissionDenialContent } from './claude-cli-permission-details';
+import { extractPermissionDetails, isPermissionDenialContent } from './claude-cli-permission-details';
 
 describe('isPermissionDenialContent', () => {
   describe('true CLI permission denials', () => {
@@ -73,5 +73,25 @@ describe('isPermissionDenialContent', () => {
 describe('human denial echo', () => {
   it('does not turn a Harness refusal or a deny note into another card', () => {
     expect(isPermissionDenialContent('Harness: the user declined this call. Permission denied. Use another way.')).toBe(false);
+  });
+});
+
+describe('extractPermissionDetails targets', () => {
+  it('drops the preposition from "read from <path>"', () => {
+    const details = extractPermissionDetails(
+      "Claude requested permissions to read from /tmp/protected/data.txt, but you haven't granted it yet.",
+      undefined,
+      new Map(),
+    );
+    expect(details).toMatchObject({ action: 'read', path: '/tmp/protected/data.txt' });
+  });
+
+  it('keeps the real Bash command as the path and a shortened label for display', () => {
+    const details = extractPermissionDetails(
+      'This command requires approval',
+      'toolu_1',
+      new Map([['toolu_1', { name: 'Bash', input: { command: 'rtk proxy pwd', description: 'Print directory' } }]]),
+    );
+    expect(details).toEqual({ action: 'bash', path: 'rtk proxy pwd', displayPath: 'command (13 chars)' });
   });
 });

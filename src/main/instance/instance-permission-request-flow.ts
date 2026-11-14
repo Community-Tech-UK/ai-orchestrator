@@ -128,17 +128,24 @@ export class InstancePermissionRequestFlow {
     // Only gate the known CLI permission denial prompts (Claude CLI emits these for tool_result denial).
     if (metaType === 'permission_denial') {
       const action = meta['action'] as string | undefined;
-      const rawPath = meta['path'] as string | undefined;
       const permissionKey = meta['permissionKey'] as string | undefined;
       const toolName = typeof meta['tool_name'] === 'string'
         ? String(meta['tool_name'])
         : (action || 'claude-cli');
+      // `path` is the card label, shortened for anything that is not a path (`command (13 chars)`).
+      // Rules must be judged by the real target, which the adapter sends as `full_path`.
+      const fullPath = meta['full_path'];
+      const rawPath = typeof fullPath === 'string' && fullPath ? fullPath : meta['path'] as string | undefined;
 
-      const scope = mapCliPermissionActionToScope(action);
-      const resource =
+      // A Bash denial is judged exactly as the hooked path judges it, so one saved rule answers both.
+      const bash = toolName === 'Bash' && rawPath
+        ? deferredPermissionResource(toolName, { command: rawPath })
+        : undefined;
+      const scope = bash?.scope ?? mapCliPermissionActionToScope(action);
+      const resource = bash?.resource ?? (
         scope.startsWith('file_') || scope.startsWith('directory_')
           ? normalizeRequestedPath(workingDirectory, rawPath)
-          : `${action || 'access'}:${rawPath || ''}`.trim();
+          : `${action || 'access'}:${rawPath || ''}`.trim());
 
       const request: PermissionRequest = {
         id: `perm-cli-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
@@ -161,7 +168,7 @@ export class InstancePermissionRequestFlow {
       permissionGateDecision = getToolExecutionGate().evaluate({
         request,
         toolName,
-        toolInput: rawPath ? { path: rawPath } : undefined,
+        toolInput: !rawPath ? undefined : bash ? { command: rawPath } : { path: rawPath },
       });
 
       // Rationale: this branch handles tool_result permission denials that Claude CLI
@@ -199,6 +206,8 @@ export class InstancePermissionRequestFlow {
           source: decision.source,
           metadataType: metaType,
         });
+        // No card is shown, so nothing will answer this request.
+        this.clearPending(payload.instanceId, payload.requestId);
         try {
           await this.host.sendInputResponse(
             payload.instanceId,

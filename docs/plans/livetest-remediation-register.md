@@ -405,6 +405,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-1028 | P2 | **FIX LANDED 2026-11-10 (661f79daa); rebuilt-app check pending.** On a Control Center window 840px wide or narrower, the new hub menu (Oct2 later 3.2) stacked all twelve hubs in a column above the page: the Automations page kept 280 of 800px of height, Git 168px, and the last hub was clipped. The narrow-layout strip CSS was written for the old menu's side-by-side groups. Fixed by a one-row sideways strip that keeps its own height and scrolls the open hub into view. | [LT-1028 detail](#lt-1028--the-hub-menu-fills-half-a-narrow-window) | [Oct2 later live checks, section 4](2026-10-20-oct2-later_livetest.md) |
 | LT-1029 | P2 | **OBSERVED + ROOT-CAUSED 2026-11-11; NOT A PRODUCT DEFECT (test-harness spawn lifecycle).** A disposable worker spawned from a `run_on_node` agent turn registered successfully (`Node registered via RPC`, session issued) but its WebSocket closed 1006 seven-to-eight seconds later — exactly when the agent turn ended and its background task was reaped — so the roster showed the enrolled node `disconnected` and later gate calls failed node matching. Started via Task Scheduler (outside the agent process tree), the same worker stayed connected and the signed-out-Cursor gate call succeeded. The same evidence live-verifies LT-604's router fix on the packaged build. | [LT-1029 detail](#lt-1029) | [Browser Gateway wedged-tab livetest](/Users/suas/work/communitytech/browser-gateway-wedged-tab-and-node-recovery-2026-09-11_livetest.md) |
 | LT-708 | P1 | **OPEN — reproduced live 2026-10-27.** A non-YOLO Claude session consuming a warm adapter has no defer hook. The genuine CLI error `This command requires approval` is not recognised as a permission denial, so the session becomes idle without an approval card. A fresh adapter shows the deferred-permission card for the same harmless command. | [LT-708 detail](#lt-708) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-plan-queue-worker) |
+| LT-1099 | P2 | **FIXED + LIVE RECHECKED 2026-11-12.** On the legacy `permission_denial` path (a Claude session without the permission hook), an explicit Harness deny rule was never matched: the request was judged by the card's shortened label (`bash:command (13 chars)`, or `<folder>/from <path>` for a read), so the card still offered "Always allow (adds a rule to ~/.claude/settings.json and restarts)". The flow now judges the real command (as `bash_execute`, like the hooked path) or the exact path, and a denied request no longer stays pending. | [LT-1099 detail](#lt-1099) | [Agent runtime permission remediation, 2026-11-12 run](2026-10-27-agent-runtime-permission-remediation_livetest.md#evidence-run--2026-11-12-queue-worker) |
 | LT-710 | P2 | **REPRODUCED 2026-10-27; not fixed in this checkout.** Main and context-worker startup can collide on fresh-profile migration discovery. Reusing the migrated isolated profile reaches the renderer. This reuses the existing saved-login/housekeeping defect identifier; the housekeeping worker owns its fix. | [LT-710 detail](#lt-710) | [Worker auto-update live checks](2026-10-14-worker-auto-update_livetest.md#evidence-run--2026-10-27-plan-queue-worker); [active remediation follow-up](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-710) |
 | LT-709 | P2 | **OPEN — reproduced in the compiled runtime 2026-10-26; unimplemented.** A provider-slot runtime package installs, but its worker fails on a compiled `require('file://...')` before provider registration; the normal session-create schema also rejects its plugin provider identifier. Phase 1 records the failure and omits the custom-provider claim. | [LT-709 detail](#lt-709) | [Plugins cleanup Phase 1](2026-10-26-plugins-cleanup-and-global-connectors_plan_completed.md#phase-1-plugins-page-cleanup); [implementation status](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-709) |
 | LT-722 | P2 | **OPEN — reproduced live 2026-10-27 (1 of 3 triage runs that day); unimplemented.** A Plan Queue triage agent looked for `plan_queue_report_triage` only in its provider's own tool list, never in Harness's `orchestrator_tool_search`, so it could not report; both the Claude attempt and the Codex retry ended without answering and the document parked `triage-failed`. The triage prompt has no tool-discovery steps (the verifier prompt gained them separately). | [LT-722 detail](#lt-722) | [Implementation status](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-722) |
@@ -13054,6 +13055,59 @@ excludes. Regenerated code (`register-aliases.ts`, IPC channels) and any other d
 failure runs them too. Acceptance: `run-git-hook.spec.ts` case `regenerated: documentation` skips (it failed before
 the fix), `regenerated: code` runs the tests, and the mocked changed-tree case still runs them. On the rebuilt app, a
 plan landing whose code equals its tested code has a short commit check.
+
+<a id="lt-1099"></a>
+
+## LT-1099
+
+### LT-1099 — explicit Harness deny rules never match on the legacy permission-denial path
+
+**Status: fixed and rechecked live on 12 November 2026 (verifier round 1 of the permission remediation item).**
+
+### Observed behaviour
+
+In an isolated dev app, a non-YOLO Claude session whose adapter had no permission hook (the legacy `permission_denial`
+class that LT-708 kept reachable) was asked to run `rtk proxy pwd`. A project rule in the disposable workspace
+(`.orchestrator/permissions.json`, rule `bash_execute` literal `bash:rtk proxy pwd`, action deny) was loaded. The CLI
+returned the genuine error `This command requires approval`, and the card still offered **Always allow (adds a rule to
+~/.claude/settings.json and restarts)**. A second workspace used a rule in the scope the legacy branch actually uses
+(`tool_use`, literal `bash:rtk proxy pwd`, deny) and showed the same card. On the normal hooked path the first rule
+was honoured: the session logged `Permission auto-denied for Bash: Matched rule: LT fixture deny pwd`, showed no card
+and the model was told Harness's rules refused the call. For a read of a file outside the folder, the legacy request's
+resource was `<working folder>/from /tmp/.../protected/data.txt`, which no real path rule can match (the call was
+refused anyway by the filesystem policy, not by the fixture rule).
+
+### Root cause
+
+`InstancePermissionRequestFlow.handleInputRequiredInternal` (`src/main/instance/instance-permission-request-flow.ts`,
+the `permission_denial` branch) builds its resource from `meta['path']`. The adapter puts the shortened display label
+there (`claude-cli-adapter.ts`, `path: displayPath`) and the real value in `full_path`. For Bash, and any input that is
+not path-like, `describePermissionTarget` (`claude-cli-permission-details.ts`) returns `command (13 chars)`, so the gate
+sees `bash:command (13 chars)`. Calling the live gate directly with the same fixture showed `bash:rtk proxy pwd` ->
+deny (`Matched rule: LT fixture deny tool_use pwd`) and `bash:command (13 chars)` -> ask (`No matching rule`). For reads,
+the CLI wording `permissions to read from <path>` makes `extractPermissionDetails` return `from <path>`, and
+`normalizeRequestedPath` joins it onto the working folder.
+
+### Required behaviour and acceptance
+
+The branch evaluates the gate with the real tool input (`full_path`, and the original Bash command carried in the
+tool-use context) and the scope the hooked path uses (`bash_execute` for Bash), and strips the leading `from ` from read
+targets. Display labels stay shortened. An explicit deny short-circuits as the branch's own comment says it should, with
+no override card. Acceptance: a new spec drives a `permission_denial` with a Bash command and a matching literal deny
+rule and expects no `instance:input-required` event; a read-target case expects the exact path; a command without a rule
+still reaches the card. On the rebuilt app the two fixtures above end with a system note and no card.
+
+### As built
+
+`instance-permission-request-flow.ts` (the `permission_denial` branch) now reads `meta.full_path` (falling back to `path`),
+judges a Bash denial with `deferredPermissionResource('Bash', { command })` (scope `bash_execute`, resource `bash:<command>`, gate
+tool input `{ command }`), and clears the pending entry when it auto-denies. `claude-cli-permission-details.ts` drops the `from `
+wording from `permissions to read from <path>` so `full_path` is the exact path. New specs: the flow spec group "permission_denial
+is judged by the real target" (three of four cases fail without the fix) and `extractPermissionDetails targets`. Rebuilt-app
+recheck: hookless session in the workspace with the `bash_execute` deny rule ends with `Permission auto-denied for Bash: Matched rule:
+LT fixture deny pwd`, no input event and no card; a read of the protected file is refused with the exact path in the reason
+(filesystem policy answers first, so the file rule itself is covered by the unit spec); a hookless session with no rule still shows
+the card and rejecting it leaves both settings files byte-identical.
 
 ## LT-1092
 

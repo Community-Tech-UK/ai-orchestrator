@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-27-agent-runtime-permission-remediation_livetest.md",
+      "sha256": "1fc687e0dbfa7087b7766d97867194165fdb2dc64fa52c19812ebd0e86645b35",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-27-agent-runtime-permission-remediation_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-27-agent-runtime-permission-remediation_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-27-agent-runtime-permission-remediation_livetest_completed.md",
+      "sha256": "1fc687e0dbfa7087b7766d97867194165fdb2dc64fa52c19812ebd0e86645b35"
+    }
+  ]
+}
