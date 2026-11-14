@@ -54,6 +54,7 @@ export interface UnifiedSpawnOptions {
   queueRole?: string;
   machineSession?: MachineSessionReason;
   contextCeilingTokens?: number;
+  /** Claude only: read-only built-in tools, dontAsk permissions, never auto-approve. */
   readOnlyReview?: boolean;
   /** A Plan Queue session on a worker node: the node builds the push guard for its own copy of the repository. */
   queuePushGuard?: boolean;

@@ -20,6 +20,16 @@ import { claudeSubagentArmForSession, resolveClaudeSubagentEnv, type ClaudeHelpe
  * after more than 55 minutes lost cache. Disabling git instructions offers
  * no measured gain and removes the git snapshot and built-in git safety rules,
  * so Harness does not set `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS`.
+ * Re-read on 10 Nov (`npm run audit:context-ceiling -- --resume-cache`): on CLI
+ * 2.1.318 and later, restarts after edits kept the cache in 10 of 44 cases
+ * (Sonnet and Haiku 2 of 32), while restarts without edits kept it in 75 of 97.
+ * Earlier CLIs showed no edit effect. Re-read on 13 Nov on CLI 2.1.323: 25 of
+ * 25 restarts since 11 Nov kept the cache, and four A/B runs (edit and commit
+ * between turns, with and without the switch) all read 100% from cache, so the
+ * 2.1.318-era loss did not reproduce. The switch stays unset: it is not needed
+ * on this CLI, and enabling it would also need a git-safety paragraph in the
+ * appended prompt. If the guard drops below 90% again, rerun the A/B check
+ * (livetest "Evidence run — 13 November 2026").
  *
  * Machine-started sessions disable security-guidance through the settings
  * plugin overlay and `SECURITY_GUIDANCE_DISABLE`: its Stop hook performs an

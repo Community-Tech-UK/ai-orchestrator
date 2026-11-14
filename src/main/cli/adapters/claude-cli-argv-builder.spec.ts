@@ -8,6 +8,7 @@ import {
 import type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
 import { HELD_ORCHESTRATOR_TOOL_MATCHER } from './harness-tool-allowlist';
 import { CLAUDE_SUBAGENT_WAITING_RULE } from './claude-subagent-policy';
+import { CLAUDE_READ_ONLY_REVIEW_TOOLS } from './claude-machine-session-policy';
 import { readFileSync, statSync } from 'node:fs';
 import { _setOutputCapSettingsReaderForTesting } from './claude-output-caps';
 
@@ -81,10 +82,26 @@ describe('buildClaudeSettingsOverlay', () => {
 });
 
 describe('buildClaudeCliArgs', () => {
-  it('makes the Claude reviewer read-only even when caller requests auto-approve', () => {
-    const args=buildClaudeCliArgs(baseInput({spawnOptions:{readOnlyReview:true,yoloMode:true,allowedTools:['Bash','Write'],permissionHookPath:'/hook'},shouldUsePermissionHook:true}));
-    expect(args).toContain('dontAsk');expect(args).toContain('--tools');expect(args).toContain('Read,Grep,Glob,ToolSearch,Skill');
-    expect(args).not.toContain('--dangerously-skip-permissions');expect(args).not.toContain('--allowedTools');expect(args).not.toContain('acceptEdits');expect(args).not.toContain('--settings');
+  it('readOnlyReview uses dontAsk and the read-only tool list', () => {
+    const args = buildClaudeCliArgs(baseInput({ spawnOptions: { readOnlyReview: true, allowedTools: ['Bash', 'Write'] } }));
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('dontAsk');
+    expect(args[args.indexOf('--tools') + 1]).toBe('Read,Grep,Glob,ToolSearch,Skill');
+    expect(args).not.toContain('acceptEdits');
+    expect(args).not.toContain('--allowedTools');
+  });
+
+  it('readOnlyReview never passes --dangerously-skip-permissions, even with yoloMode', () => {
+    const args = buildClaudeCliArgs(baseInput({ shouldUsePermissionHook: true,
+      spawnOptions: { readOnlyReview: true, yoloMode: true, permissionHookPath: '/hook' } }));
+    expect(args).not.toContain('--dangerously-skip-permissions');
+    expect(args).toContain('dontAsk');
+    expect(args).not.toContain('--settings');
+  });
+
+  it('the read-only tool list keeps ToolSearch', () => {
+    // Without ToolSearch, `--tools` denies it, tool search switches off and every connector tool is sent in full.
+    expect(CLAUDE_READ_ONLY_REVIEW_TOOLS).toContain('ToolSearch');
+    expect(CLAUDE_READ_ONLY_REVIEW_TOOLS).not.toEqual(expect.arrayContaining(['Bash', 'Edit', 'Write', 'Agent']));
   });
 
   it('denies ScheduleWakeup as a whole tool only for queue roles', () => {

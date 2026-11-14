@@ -244,6 +244,18 @@ describe('MultiVerifyCoordinator', () => {
     } finally { stop(); }
   });
 
+  it('spawn options carry readOnlyReview for the merge synthesis and never auto-approve', async () => {
+    synthesisHoisted.sendMessage.mockResolvedValueOnce({ content: 'synthesis', usage: { cost: 0.09 } });
+    registerAgentHandler(coordinator);
+    const completed = waitForEvent(coordinator, 'verification:completed');
+    await coordinator.startVerification('instance-1', 'Merge?', { agentCount: 2, timeout: 5000, synthesisStrategy: 'merge' });
+    await completed;
+    expect(synthesisHoisted.createAdapter).toHaveBeenCalledTimes(1);
+    const [input] = synthesisHoisted.createAdapter.mock.calls[0] as [{ cliType: string; options: Record<string, unknown> }];
+    expect(input.cliType).toBe('claude');
+    expect(input.options).toMatchObject({ readOnlyReview: true, yoloMode: false });
+  });
+
   it('records the actual provider model for a default merge synthesis once', async () => {
     const rows: CostAttributionRecord[] = [];
     const stop = subscribeCostAttribution(row => rows.push(row));

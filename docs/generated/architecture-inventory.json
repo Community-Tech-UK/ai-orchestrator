@@ -6943,6 +6943,10 @@
       "lines": 1198
     },
     {
+      "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
+      "lines": 1197
+    },
+    {
       "path": "src/main/cli/adapters/copilot-cli-adapter.ts",
       "lines": 1192
     },
@@ -6965,10 +6969,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-03-remote-nodes-phase5-integration.COMPLETED.md",
       "lines": 1186
-    },
-    {
-      "path": "src/main/orchestration/__tests__/multi-verify-coordinator.spec.ts",
-      "lines": 1185
     },
     {
       "path": "docs/superpowers/plans/2026-07-26-local-ai-guard_plan_completed.md",
