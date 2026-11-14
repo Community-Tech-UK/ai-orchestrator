@@ -60,4 +60,27 @@ describe('ProviderQuotaStore account snapshots', () => {
       window: expect.objectContaining({ used: 95 }),
     });
   });
+
+  it('finds the most constrained window among only the providers asked for', async () => {
+    const store = TestBed.inject(ProviderQuotaStore);
+    await store.initialize();
+    const window = (id: string, used: number) => ({
+      kind: 'rolling-window' as const,
+      id,
+      label: 'Weekly',
+      unit: 'percent' as const,
+      used,
+      limit: 100,
+      remaining: 100 - used,
+      resetsAt: null,
+    });
+    pushed?.(snapshot({ provider: 'codex', windows: [window('codex.weekly', 40)] }));
+    pushed?.(snapshot({ provider: 'antigravity', windows: [window('antigravity.weekly', 100)] }));
+    expect(store.mostConstrainedWindow()?.provider).toBe('antigravity');
+    expect(store.mostConstrainedWindowAmong(['claude', 'codex'])()).toMatchObject({
+      provider: 'codex',
+      window: expect.objectContaining({ used: 40 }),
+    });
+    expect(store.mostConstrainedWindowAmong(['claude'])()).toBeNull();
+  });
 });

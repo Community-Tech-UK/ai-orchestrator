@@ -26,6 +26,11 @@ const { appendRunLog, decideRoute, isLoopRun, isQueueCheck, machinesFor, readCon
   readConfig(env?: NodeJS.ProcessEnv): Config | null;
 };
 
+const { takeTwice } = require('./run-remote.js') as {
+  takeTwice<T>(take: (root: string) => T, root: string, pauseMs?: number): Promise<T>;
+};
+const { SnapshotRefused } = require('./snapshot.js') as { SnapshotRefused: new (message: string) => Error };
+
 const temps: string[] = [];
 const temp = (): string => {
   const dir = mkdtempSync(join(tmpdir(), 'remote-checks-spec-'));
@@ -317,6 +322,38 @@ describe('appendRunLog', () => {
     const file = join(temp(), 'a-file');
     writeFileSync(file, '');
     expect(() => appendRunLog({}, { AIO_REMOTE_CHECKS_DIR: join(file, 'nested') })).not.toThrow();
+  });
+});
+
+describe('takeTwice', () => {
+  it('takes a snapshot once more when the first try fails, as a file vanishing mid-add does', async () => {
+    let tries = 0;
+    const take = (): string => {
+      tries += 1;
+      if (tries === 1) throw new Error("fatal: unable to stat 'gone.tmp': No such file or directory");
+      return 'snapshot';
+    };
+    await expect(takeTwice(take, '/repo', 0)).resolves.toBe('snapshot');
+    expect(tries).toBe(2);
+  });
+
+  it('gives up with the second failure when it fails again', async () => {
+    let tries = 0;
+    const take = (): never => {
+      tries += 1;
+      throw new Error(`failure ${tries}`);
+    };
+    await expect(takeTwice(take, '/repo', 0)).rejects.toThrow('failure 2');
+  });
+
+  it('never retries a refusal, which is about the files themselves', async () => {
+    let tries = 0;
+    const take = (): never => {
+      tries += 1;
+      throw new SnapshotRefused('nested/ is a separate git repository');
+    };
+    await expect(takeTwice(take, '/repo', 0)).rejects.toThrow(SnapshotRefused);
+    expect(tries).toBe(1);
   });
 });
 

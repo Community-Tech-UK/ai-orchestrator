@@ -197,6 +197,23 @@ describe('harness-remote-check', () => {
     expect(result.sentFiles()).not.toContain('documents/untracked-notes.md');
   }, LIMIT);
 
+  it('sends the private cohort when this copy has it, and still sends a Plan Queue copy without it (LT-1125)', () => {
+    const setup = setUp();
+    mkdirSync(join(setup.root, '_scratch/cfp-expansion-2026-09-08'), { recursive: true });
+    writeFileSync(join(setup.root, '_scratch/cfp-expansion-2026-09-08/items.json'), '[]\n');
+    writeFileSync(join(setup.root, '_scratch/other.txt'), 'private\n');
+    const withCohort = run(setup);
+    expect(withCohort.code).toBe(0);
+    expect(withCohort.sent('_scratch/cfp-expansion-2026-09-08/items.json')).toBe('[]');
+    expect(withCohort.sentFiles()).not.toContain('_scratch/other.txt');
+
+    const copy = join(setup.base, 'queue-copy');
+    git(setup.root, 'worktree', 'add', '-q', '--detach', copy);
+    const inCopy = run(setup, { cwd: join(copy, 'apps/desk') });
+    expect(inCopy.code).toBe(0);
+    expect(inCopy.sentFiles().filter(file => file.startsWith('_scratch/'))).toEqual([]);
+  }, LIMIT);
+
   it('hands over all of a long output, even to a slow reader', () => {
     const setup = setUp();
     writeFileSync(join(setup.fake, 'scenario'), 'big-output');
@@ -325,6 +342,24 @@ describe('harness-remote-check', () => {
       expect(result.stdout).toContain('this Mac is switched off');
       expect(result.macOnly).toEqual([]);
       expect(result.runLog[0]).toMatchObject({ project: 'work-finding', ranOn: 'none', notRunBecause: expect.stringContaining('this Mac is switched off') });
+    }, LIMIT);
+
+    it.skipIf(process.getuid?.() === 0)('fails with git\'s reason, without waiting or running here, when the work cannot be sent', () => {
+      const setup = switchOff(setUp());
+      const unreadable = join(setup.desk, 'unreadable.test.ts');
+      writeFileSync(unreadable, 'x\n');
+      chmodSync(unreadable, 0o000);
+      // A wait would outlast the test's own limit.
+      const result = run(setup, { env: { AIO_REMOTE_WAIT_LIMIT_MS: '600000', AIO_REMOTE_RETRY_SLEEP_MS: '100' } });
+      chmodSync(unreadable, 0o644);
+      expect(result.code).toBe(1);
+      expect(result.stdout).toContain('Could not use a test machine: the snapshot failed: ');
+      // git's own words differ by language; the file it names does not.
+      expect(result.stdout).toContain('unreadable.test.ts');
+      expect(result.stdout).not.toContain('Not run');
+      expect(result.sshCalls).toEqual([]);
+      expect(result.macOnly).toEqual([]);
+      expect(result.runLog[0]).toMatchObject({ ranOn: 'none', exitCode: 1, notRunBecause: expect.stringContaining('unreadable.test.ts') });
     }, LIMIT);
 
     it('is not run, sending nothing, when the machine is paused', () => {

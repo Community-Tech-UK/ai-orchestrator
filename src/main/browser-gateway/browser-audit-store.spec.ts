@@ -164,4 +164,46 @@ describe('BrowserAuditStore', () => {
     const listed = store.list({ limit: 10 }).find((row) => row.id === entry.id);
     expect(listed?.reason).toBe('dispatch:credential_selector_outside_authorized_origin');
   });
+
+  it('counts successful agent actions per Chrome profile on one computer, and on one website', () => {
+    const add = (profileId: string, origin: string, outcome: 'succeeded' | 'failed' = 'succeeded') =>
+      store.record({
+        provider: 'codex',
+        profileId,
+        action: 'snapshot',
+        toolName: 'browser.snapshot',
+        actionClass: 'read',
+        origin,
+        decision: 'allowed',
+        outcome,
+        summary: 'snapshot',
+        redactionApplied: false,
+      });
+    const fb = 'https://www.facebook.com';
+    add('existing-tab:n.node-1:p.main-profile-1:7:1', fb);
+    add('existing-tab:n.node-1:p.main-profile-1:7:2', fb);
+    add('existing-tab:n.node-1:p.main-profile-1:7:3', 'https://example.com');
+    add('existing-tab:n.node-1:p.other-profile:9:1', 'https://example.com');
+    add('existing-tab:n.node-1:p.other-profile:9:2', fb, 'failed');
+    // Not counted: another computer, the local computer, a tab from before
+    // profile ids, and a managed profile.
+    add('existing-tab:n.node-2:p.main-profile-1:7:1', fb);
+    add('existing-tab:p.local-profile:3:1', fb);
+    add('existing-tab:n.node-1:7:4', fb);
+    add('profile-1', fb);
+
+    const counts = store.countChromeProfileUse({ nodeId: 'node-1', origin: fb, since: 0 });
+
+    expect(counts.sort((a, b) => a.extensionInstanceId.localeCompare(b.extensionInstanceId))).toEqual([
+      { extensionInstanceId: 'main-profile-1', siteActions: 2, totalActions: 3 },
+      { extensionInstanceId: 'other-profile', siteActions: 0, totalActions: 1 },
+    ]);
+    expect(store.countChromeProfileUse({ origin: fb, since: 0 })).toEqual([
+      { extensionInstanceId: 'local-profile', siteActions: 1, totalActions: 1 },
+    ]);
+    expect(store.countChromeProfileUse({ nodeId: 'node-1', since: 0 })).toEqual(expect.arrayContaining([
+      { extensionInstanceId: 'main-profile-1', siteActions: 0, totalActions: 3 },
+    ]));
+    expect(store.countChromeProfileUse({ nodeId: 'node-1', origin: fb, since: 2_000 })).toEqual([]);
+  });
 });

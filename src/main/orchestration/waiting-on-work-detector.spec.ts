@@ -13,6 +13,7 @@ describe('detectWaitingOnWork', () => {
     "I'll let you know when the full suite finishes.",
     "I'll report back to James once the checks pass.",
     "I'll get back to you after the PC run completes.",
+    "I'll then let you know when the suite finishes.",
   ])('finds %s', (reply) => {
     expect(detectWaitingOnWork(reply)).not.toBeNull();
   });
@@ -26,6 +27,7 @@ describe('detectWaitingOnWork', () => {
     "I'll carry on once I've let James review the diff.",
     "I'll continue once the login page will let you sign in.",
     "I'll update you when it is approved.",
+    "I'll get back to you when he confirms.",
     'Waiting for James to sign in.',
     'All checks passed and the work is complete.',
     'The server is running on port 3000.',

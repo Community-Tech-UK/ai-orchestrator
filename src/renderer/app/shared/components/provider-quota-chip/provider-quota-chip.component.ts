@@ -1,12 +1,13 @@
 /**
  * ProviderQuotaChipComponent
  *
- * Compact pill that surfaces the most-constrained provider quota in the app.
+ * Compact pill that surfaces the most-constrained provider quota in the app,
+ * across the providers it shows (see QUOTA_BAR_PROVIDERS).
  *
  * Display modes (chosen automatically):
- *   • 'window' — at least one provider has numerical windows. Shows the worst
+ *   • 'window' — at least one shown provider has numerical windows. Shows the worst
  *     window's used/limit and a "resets in Xd Yh Zm" hint, colour-banded by ratio.
- *   • 'plan'   — at least one provider returned an ok snapshot but no windows
+ *   • 'plan'   — at least one shown provider returned an ok snapshot but no windows
  *     (Claude/Copilot v1). Shows e.g. "Claude · max".
  *   • 'empty'  — no useful snapshots yet (loading, all probes failed, etc.).
  *
@@ -289,6 +290,8 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   /** Live tick used solely to re-render the "resets in" hint each minute. */
   private readonly nowMs = signal(Date.now());
   private readonly accountIpc = inject(ProviderAccountIpcService);
+  /** The pill's worst window, ignoring providers it doesn't show. */
+  private readonly worstWindow = this.store.mostConstrainedWindowAmong(QUOTA_BAR_PROVIDERS);
   /** Account profiles (labels, order, enabled state); null until loaded. */
   private readonly accountProfiles = signal<QuotaAccountProfile[] | null>(null);
   private nowTimer: ReturnType<typeof setInterval> | null = null;
@@ -308,13 +311,13 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   }
 
   readonly variant = computed<QuotaChipVariant>(() => {
-    if (this.store.mostConstrainedWindow()) return 'window';
+    if (this.worstWindow()) return 'window';
     if (this.firstOkSnapshot()) return 'plan';
     return 'empty';
   });
 
   readonly colourBand = computed<QuotaChipBand | null>(() => {
-    const w = this.store.mostConstrainedWindow();
+    const w = this.worstWindow();
     if (!w || w.window.limit <= 0) return null;
     const ratio = w.window.used / w.window.limit;
     if (ratio < 0.5) return 'green';
@@ -332,7 +335,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   /** Provider with the most recent early pacing warning, if it remains visible. */
   readonly pacingProvider = computed<ProviderId | null>(() => {
     const warning = this.store.lastPacingWarning();
-    if (!warning) return null;
+    if (!warning || !QUOTA_BAR_PROVIDERS.includes(warning.provider)) return null;
     const currentWindow = this.accountSections(warning.provider)
       .flatMap((section) => section.snapshot.windows)
       .find((window) => window.id === warning.window.id);
@@ -347,7 +350,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   });
 
   readonly primaryText = computed<string>(() => {
-    const w = this.store.mostConstrainedWindow();
+    const w = this.worstWindow();
     if (w) {
       return `${accountFamilyName(w.provider)} · ${formatQuotaAmount(w.window.used)}/${formatQuotaAmount(w.window.limit)}`;
     }
@@ -360,7 +363,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   });
 
   readonly secondaryText = computed<string | null>(() => {
-    const w = this.store.mostConstrainedWindow();
+    const w = this.worstWindow();
     if (!w?.window.resetsAt) return null;
     const ms = w.window.resetsAt - this.nowMs();
     if (ms <= 0) return null;
@@ -379,7 +382,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   private readonly quotaSummary = computed<string>(() => {
     const v = this.variant();
     if (v === 'empty') return 'No quota data yet';
-    const w = this.store.mostConstrainedWindow();
+    const w = this.worstWindow();
     if (w) {
       const amount = w.window.unit === 'percent'
         ? `${formatQuotaAmount(w.window.used)}% used`
@@ -402,7 +405,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   readonly stripEntries = computed<QuotaStripEntry[]>(() => {
     const snaps = this.store.snapshots();
     const entries: QuotaStripEntry[] = [];
-    for (const provider of PROVIDER_ORDER) {
+    for (const provider of QUOTA_BAR_PROVIDERS) {
       // A missing CLI, or a provider whose quota doesn't apply under the
       // current config (LT-650), means "nothing to show" — hide it rather
       // than rendering an error/plan row.
@@ -417,7 +420,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
     const snaps = this.store.snapshots();
     const now = this.nowMs();
     const entries: QuotaDetailEntry[] = [];
-    for (const provider of PROVIDER_ORDER) {
+    for (const provider of QUOTA_BAR_PROVIDERS) {
       // Providers whose CLI isn't installed, or whose quota doesn't apply
       // under the current config (LT-650), are hidden from the popover.
       if (snaps[provider]?.cliNotInstalled || snaps[provider]?.notApplicable) continue;
@@ -516,7 +519,7 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   /** First provider with `ok: true` snapshot, in stable order. */
   private firstOkSnapshot(): ProviderQuotaSnapshot | null {
     const snaps = this.store.snapshots();
-    for (const p of PROVIDER_ORDER) {
+    for (const p of QUOTA_BAR_PROVIDERS) {
       const s = snaps[p];
       if (s && s.ok) return s;
     }
@@ -564,7 +567,13 @@ function formatUpdatedAge(takenAt: number, now: number): string {
   return `updated ${Math.floor(totalHours / 24)}d ago`;
 }
 
-const PROVIDER_ORDER: ProviderId[] = ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'];
+/**
+ * Providers the title-bar pill shows, in order (James, 13 Nov 2026). Grok is
+ * left out because it isn't used; Gemini because its CLI is retired and its
+ * Google quota reports under Antigravity; Antigravity because its figure
+ * never moves. Antigravity's quota is still checked: review routing reads it.
+ */
+const QUOTA_BAR_PROVIDERS: readonly ProviderId[] = ['claude', 'codex', 'copilot', 'cursor', 'opencode'];
 /** Fallback sign-in instruction when a probe didn't supply its own. Shown only under "Details". */
 const PROVIDER_REAUTH_HINTS: Record<ProviderId, string> = {
   claude: 'Run `claude` to sign in again',

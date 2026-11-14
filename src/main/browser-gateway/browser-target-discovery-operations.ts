@@ -15,7 +15,7 @@ import {
   remoteExtensionUnreachableFindOrOpenInput,
   withRemoteExtensionStaleFlag,
 } from './browser-extension-node-contact';
-import { extractTabPayload, safeTargetFromExistingTab } from './browser-gateway-service-helpers';
+import { extractTabPayload, safeTargetFromExistingTab, tryParseWebUrl } from './browser-gateway-service-helpers';
 import {
   findExistingTabCandidate,
 } from './browser-gateway-target-utils';
@@ -52,6 +52,15 @@ import {
   type BrowserTargetPreflightResult,
 } from './browser-target-preflight';
 import { describeInferredWorkerAgentSkew } from './browser-worker-agent-skew';
+import type { BrowserAuditStore } from './browser-audit-store';
+import {
+  CHROME_PROFILE_HISTORY_WINDOW_MS,
+  chooseChromeProfile,
+  describeChromeProfileChoice,
+  tabMatchesChromeProfileChoice,
+  type ChromeProfileChoice,
+  type ChromeProfileChoiceResult,
+} from './browser-chrome-profile-choice';
 
 /**
  * How recently an extension must have re-reported a tab for `find_or_open` to
@@ -81,7 +90,10 @@ interface BrowserTargetDiscoveryDeps {
   targetRegistry: Pick<BrowserTargetRegistry, 'listTargets'>;
   driver: Pick<PuppeteerBrowserDriver, 'listTargets'>;
   extensionTabStore: Pick<BrowserExtensionTabStore, 'attachTab' | 'listTabs'>;
-  extensionCommandStore: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
+  extensionCommandStore: Pick<BrowserExtensionCommandStore, 'sendCommand'>
+    & Partial<Pick<BrowserExtensionCommandStore, 'listRecentExtensionInstances'>>;
+  /** Agent history per Chrome profile, for choosing where a tab opens. */
+  chromeProfileUsage: Pick<BrowserAuditStore, 'countChromeProfileUse'>;
   extensionContactState: BrowserExtensionContactStateReader;
   getWorkerNodes: () => WorkerNodeInfo[];
   getWorkerNode: (nodeId: string) => WorkerNodeInfo | undefined;
@@ -320,14 +332,32 @@ export class BrowserTargetDiscoveryOperations {
       });
     }
 
-    const tabs = initialTabs.filter((tab) => matchesBrowserComputerTarget(tab, computerTarget.target));
-    let existing = findExistingTabCandidate(tabs, url, titleHint);
+    const profileChoice = this.chooseChromeProfile(request, computerTarget.target, url);
+    if (!profileChoice.ok) {
+      return this.deps.result({
+        context: request,
+        action: 'find_or_open',
+        toolName: 'browser.find_or_open',
+        actionClass: url ? 'navigate' : 'read',
+        decision: 'denied',
+        outcome: 'not_run',
+        reason: profileChoice.reason,
+        summary: `Browser target lookup denied: ${profileChoice.reason}`,
+        ...(url ? { url } : {}),
+        data: null,
+      });
+    }
+    const inChosenProfile = (tab: BrowserExistingTabAttachment) =>
+      matchesBrowserComputerTarget(tab, computerTarget.target)
+      && tabMatchesChromeProfileChoice(profileChoice, tab);
+    let existing = findExistingTabCandidate(initialTabs.filter(inChosenProfile), url, titleHint);
     if (existing) {
       const staleResult = this.remoteStaleResult(request, existing);
       if (staleResult) {
         return staleResult;
       }
-      const confirmed = await this.confirmExistingCandidate(request, computerTarget.target, url, titleHint);
+      const confirmed = await this.confirmExistingCandidate(
+        request, computerTarget.target, url, titleHint, inChosenProfile);
       if (confirmed) {
         existing = confirmed;
       } else if (!url) {
@@ -337,7 +367,10 @@ export class BrowserTargetDiscoveryOperations {
       }
     }
     if (existing) {
-      const unreadableNote = unreadableExistingTabNote(existing);
+      const note = [
+        unreadableExistingTabNote(existing),
+        describeChromeProfileChoice(profileChoice, existing.extensionInstanceId, siteOf(url)),
+      ].filter(Boolean).join(' ');
       return this.deps.result({
         context: request,
         profileId: existing.profileId,
@@ -348,15 +381,39 @@ export class BrowserTargetDiscoveryOperations {
         decision: 'allowed',
         outcome: 'succeeded',
         summary: 'Selected an existing Chrome tab matching the browser task'
-          + `${unreadableNote ? ` (${unreadableNote})` : ''}`,
-        ...(unreadableNote ? { reason: unreadableNote } : {}),
+          + `${note ? ` (${note})` : ''}`,
+        ...(note ? { reason: note } : {}),
         origin: existing.origin,
         url: existing.url,
         data: safeTargetFromExistingTab(existing),
       });
     }
 
-    return this.openTab(request, computerTarget.target, url);
+    return this.openTab(request, computerTarget.target, url, profileChoice);
+  }
+
+  /**
+   * Which of the computer's Chrome profiles this request works in. Only a
+   * profile that can take a browser command now can open the tab: an outdated
+   * one still polls but refuses, and would fail a bound open_tab.
+   */
+  private chooseChromeProfile(
+    request: BrowserGatewayFindOrOpenRequest,
+    target: BrowserComputerTargetResolution,
+    url: string | undefined,
+  ): ChromeProfileChoiceResult {
+    const queueKey = target.nodeId ? browserExtensionQueueKeyForNode(target.nodeId) : 'local';
+    const origin = url ? tryParseWebUrl(url)?.origin : undefined;
+    const requested = request.chromeProfile?.trim();
+    return chooseChromeProfile({
+      connected: this.deps.extensionCommandStore.listRecentExtensionInstances?.(queueKey, true) ?? [],
+      usage: this.deps.chromeProfileUsage.countChromeProfileUse({
+        ...(target.nodeId ? { nodeId: target.nodeId } : {}),
+        ...(origin ? { origin } : {}),
+        since: Date.now() - CHROME_PROFILE_HISTORY_WINDOW_MS,
+      }),
+      ...(requested ? { requested } : {}),
+    });
   }
 
   private remoteStaleResult(
@@ -390,13 +447,10 @@ export class BrowserTargetDiscoveryOperations {
     target: BrowserComputerTargetResolution,
     url: string | undefined,
     titleHint: string | undefined,
+    inScope: (tab: BrowserExistingTabAttachment) => boolean,
   ): Promise<BrowserExistingTabAttachment | null> {
     if (!target.nodeId && !target.localOnly) {
-      return findExistingTabCandidate(
-        this.deps.extensionTabStore.listTabs().filter((tab) => matchesBrowserComputerTarget(tab, target)),
-        url,
-        titleHint,
-      );
+      return findExistingTabCandidate(this.deps.extensionTabStore.listTabs().filter(inScope), url, titleHint);
     }
     // A provably-down local channel cannot confirm anything; refreshing would
     // just burn the 90s undelivered-wait before reaching the same conclusion.
@@ -427,8 +481,7 @@ export class BrowserTargetDiscoveryOperations {
     if (target.localOnly && failures.localRefreshFailed) {
       return null;
     }
-    const tabs = this.deps.extensionTabStore.listTabs()
-      .filter((tab) => matchesBrowserComputerTarget(tab, target));
+    const tabs = this.deps.extensionTabStore.listTabs().filter(inScope);
     return findExistingTabCandidate(tabs, url, titleHint, {
       minUpdatedAt: refreshStartedAt - EXISTING_TAB_CONFIRMATION_HORIZON_MS,
     });
@@ -459,6 +512,7 @@ export class BrowserTargetDiscoveryOperations {
     request: BrowserGatewayFindOrOpenRequest,
     target: BrowserComputerTargetResolution,
     url: string | undefined,
+    profileChoice: ChromeProfileChoice,
   ): Promise<BrowserGatewayResult<AgentSafeTarget | null>> {
     if (!url) {
       return this.deps.result({
@@ -499,18 +553,20 @@ export class BrowserTargetDiscoveryOperations {
     }
 
     try {
-      // open_tab is not bound to a Chrome profile, so any connected profile on
-      // the machine may run it. Record the tab under whichever one did, the
-      // same id that profile's own tab reports will use.
-      let openedByInstanceId: string | undefined;
+      // With a chosen Chrome profile only that profile's extension may take
+      // open_tab; otherwise any connected profile may. Record the tab under
+      // whichever one ran it, the id that profile's own tab reports will use.
+      const chosenInstanceId = profileChoice.extensionInstanceId;
+      let openedByInstanceId = chosenInstanceId;
       const result = await this.deps.extensionCommandStore.sendCommand({
         ...(target.nodeId ? { queueKey: browserExtensionQueueKeyForNode(target.nodeId) } : {}),
+        ...(chosenInstanceId ? { target: { extensionInstanceId: chosenInstanceId } } : {}),
         command: 'open_tab',
         payload: { url },
         timeoutMs: 30_000,
         undeliveredWaitMs: BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS,
         onDelivered: (delivery) => {
-          openedByInstanceId = delivery.extensionInstanceId;
+          openedByInstanceId = delivery.extensionInstanceId ?? chosenInstanceId;
         },
       });
       const tab = extractTabPayload(result);
@@ -520,6 +576,7 @@ export class BrowserTargetDiscoveryOperations {
         ...(node?.name || target.nodeName ? { nodeName: node?.name ?? target.nodeName } : {}),
         ...(openedByInstanceId ? { extensionInstanceId: openedByInstanceId } : {}),
       });
+      const profileNote = describeChromeProfileChoice(profileChoice, attachment.extensionInstanceId, siteOf(url));
       return this.deps.result({
         context: request,
         profileId: attachment.profileId,
@@ -529,13 +586,15 @@ export class BrowserTargetDiscoveryOperations {
         actionClass: 'navigate',
         decision: 'allowed',
         outcome: 'succeeded',
-        summary: 'Opened a new Chrome tab through the Browser Gateway extension',
+        summary: 'Opened a new Chrome tab through the Browser Gateway extension'
+          + `${profileNote ? ` (${profileNote})` : ''}`,
+        ...(profileNote ? { reason: profileNote } : {}),
         origin: attachment.origin,
         url: attachment.url,
         data: safeTargetFromExistingTab(attachment),
       });
     } catch (error) {
-      return this.openTabFailed(request, target, url, error);
+      return this.openTabFailed(request, target, url, profileChoice, error);
     }
   }
 
@@ -575,6 +634,7 @@ export class BrowserTargetDiscoveryOperations {
     request: BrowserGatewayFindOrOpenRequest,
     target: BrowserComputerTargetResolution,
     url: string,
+    profileChoice: ChromeProfileChoice,
     error: unknown,
   ): Promise<BrowserGatewayResult<AgentSafeTarget | null>> {
     const rawMessage = error instanceof Error ? error.message : String(error);
@@ -584,12 +644,14 @@ export class BrowserTargetDiscoveryOperations {
     ) {
       const recovered = await recoverOpenedTabAfterTimeout({
         ...(target.nodeId ? { nodeId: target.nodeId } : {}),
+        ...(profileChoice.extensionInstanceId ? { extensionInstanceId: profileChoice.extensionInstanceId } : {}),
         url,
         commandStore: this.deps.extensionCommandStore,
         listTabs: () => this.deps.extensionTabStore.listTabs(),
       });
       if (recovered) {
-        return this.deps.result(recoveredFindOrOpenResultInput(request, recovered));
+        const note = describeChromeProfileChoice(profileChoice, recovered.extensionInstanceId, siteOf(url));
+        return this.deps.result(recoveredFindOrOpenResultInput(request, recovered, note));
       }
     }
     const message = rawMessage.startsWith('browser_extension_command_not_delivered')
@@ -608,6 +670,10 @@ export class BrowserTargetDiscoveryOperations {
       data: null,
     });
   }
+}
+
+function siteOf(url: string | undefined): string | undefined {
+  return url ? tryParseWebUrl(url)?.host : undefined;
 }
 
 /**

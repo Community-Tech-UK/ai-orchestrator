@@ -10,6 +10,10 @@ import { InstanceAnnounceThenHaltContinuation } from './instance-announce-then-h
 import type { InstanceReasoningCollapseContinuationHost } from './instance-reasoning-collapse-continuation';
 
 vi.mock('../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }) }));
+const settings = vi.hoisted(() => ({ autoAnswerContinueQuestions: true }));
+vi.mock('../core/config/settings-manager', () => ({
+  getSettingsManager: () => ({ get: (key: keyof typeof settings) => settings[key] }),
+}));
 
 describe('shared continuation runtime', () => {
   let events: EventEmitter;
@@ -34,6 +38,7 @@ describe('shared continuation runtime', () => {
     registry.observe('root', { phase: 'terminal', workId, kind: 'background-shell', status: 'completed' });
   }
   beforeEach(() => {
+    settings.autoAnswerContinueQuestions = true;
     events = new EventEmitter();
     registry = new InstanceAsyncWorkRegistry();
     instance = { id: 'root', parentId: null, launchMode: 'orchestrated', provider: 'opencode',
@@ -252,6 +257,21 @@ describe('shared continuation runtime', () => {
     await vi.advanceTimersByTimeAsync(10_000);
     expect(providerInputs).toHaveLength(1);
     expect(providerInputs[0]).toContain('A background task has finished.');
+  });
+
+  it('answers a "shall I continue?" ending only while the setting is on', async () => {
+    settings.autoAnswerContinueQuestions = false;
+    complete(undefined, 'Shall I continue?');
+    await flush();
+    expect(providerInputs).toHaveLength(0);
+
+    settings.autoAnswerContinueQuestions = true;
+    events.emit('instance:input-started', { instanceId: 'root', autoContinuation: false });
+    instance.requestCount += 1;
+    instance.outputBuffer = [{ id: 'question', type: 'assistant', content: 'Shall I continue?', timestamp: 1 }];
+    complete(undefined, 'Shall I continue?');
+    await vi.waitFor(() => expect(providerInputs).toHaveLength(1));
+    expect(providerInputs[0]).toContain('<last_question>Shall I continue?</last_question>');
   });
 
   it('cancels all pending source work and releases its inhibitor on runtime shutdown', async () => {

@@ -9,6 +9,10 @@
 #   argv <id>                                take a JSON list of the runner's own arguments on stdin; the run passes them on
 #   run <id> <commit> <ci> <no-cache>        run the suite, streaming output; last line is the result
 #   fetch <id>                               send the JSON report, gzipped, then tidy up
+#   devapp-start <port> <commit>             start a live test's Harness copy (data folder on stdin); see below
+#   devapp-hold|devapp-stop <port>           the tunnel's far end; stop a copy
+#   devapp-shell <port>                      run a script from stdin beside a copy
+#   devapp-status                            list the copies here
 #
 # With AIO_PROJECT and AIO_SUITE set, each of those works on that repository instead, in its own
 # store and checkouts, using a recipe at the bottom of this file. It shares the same slots.
@@ -631,6 +635,435 @@ cmd_fetch() {
   rm -rf "$dir"
 }
 
+# ---- Harness copies for live tests (scripts/remote-checks/dev-app.js) ------------------------------------------------
+# A live-test job's Harness copy runs here instead of on James's Mac. Each copy is named by its debugging port, which is
+# unique per job, and lives in devapps/apps/<port>: a checkout of its own that shares one install per lock file with
+# every other copy (devapps/installs/<stamp>), so Electron's native modules are built once. The copy's job leads its own
+# process group, so stopping it stops its screens' server too, and it stops itself after DEVAPP_LIFETIME_SECONDS. Every
+# start first removes copies whose job has ended, folder and all, so nothing is kept for long.
+DEVAPPS="$BASE/devapps"
+DEVAPP_LIMIT=3
+DEVAPP_LIFETIME_SECONDS=14400
+DEVAPP_INSTALL_WAIT_SECONDS=1200
+DEVAPP_READY_SECONDS=120
+DEVAPP_SHELL_SECONDS=600
+DEVAPP_DIR=
+
+devapp_port_ok() {
+  case "$1" in '' | *[!0-9]*) return 1 ;; esac
+  [ "$1" -ge 1024 ] && [ "$1" -le 65535 ]
+}
+
+devapp_dir() { printf '%s/apps/%s' "$DEVAPPS" "$1"; }
+
+devapp_state() { cat "$1/state" 2>/dev/null || echo none; }
+
+# The job lives as long as the copy. Its id is checked against its command line, since after a restart of this Mac the
+# same id may belong to something else. -ww: with no terminal, macOS's ps cuts the line at 79 columns.
+devapp_alive() {
+  local pid
+  pid="$(cat "$1/pid" 2>/dev/null)"
+  [ -n "$pid" ] && ps -ww -p "$pid" -o command= 2>/dev/null | grep -qE -- "devapp-job ${1##*/}\$"
+}
+
+# Every reason passed here is a fixed phrase from this file, so it never needs escaping.
+devapp_result() {
+  printf '%s{"status":"%s","reason":"%s"}\n' "$RESULT_PREFIX" "$1" "$2"
+}
+
+# Harness is opened through the app launcher (see devapp-job), so it isn't in the job's group, and it may start itself
+# again under another id (a permission repair does). Every Harness opened for a copy, and nothing else, has the copy's
+# checkout folder just before its debugging port on its command line.
+devapp_app_pids() {
+  pgrep -f -- "$1/repo --remote-debugging-port=" 2>/dev/null
+}
+
+devapp_stop_app() {
+  local pids waited=0
+  pids="$(devapp_app_pids "$1")"
+  [ -n "$pids" ] || return 0
+  kill -TERM $pids 2>/dev/null
+  while [ -n "$(devapp_app_pids "$1")" ] && [ "$waited" -lt 10 ]; do sleep 1; waited=$((waited + 1)); done
+  pids="$(devapp_app_pids "$1")"
+  [ -z "$pids" ] || kill -KILL $pids 2>/dev/null
+}
+
+devapp_stop_dir() {
+  local dir="$1" pid member waited=0
+  [ -d "$dir" ] || return 0
+  if devapp_alive "$dir"; then
+    pid="$(cat "$dir/pid")"
+    kill -TERM -- "-$pid" 2>/dev/null
+    while devapp_alive "$dir" && [ "$waited" -lt 15 ]; do sleep 1; waited=$((waited + 1)); done
+    devapp_alive "$dir" && kill -KILL -- "-$pid" 2>/dev/null
+  fi
+  # A job killed outright leaves the rest of its group (its time limit, say). While any of them lives the group's id
+  # can't be reused, and each is checked as this copy's before it goes.
+  pid="$(cat "$dir/pid" 2>/dev/null)"
+  if [ -n "$pid" ]; then
+    for member in $(pgrep -g "$pid" 2>/dev/null); do
+      ps -ww -p "$member" -o command= 2>/dev/null | grep -qE -- "devapp-job ${dir##*/}\$|$dir/|^sleep $DEVAPP_LIFETIME_SECONDS\$" && kill -KILL "$member" 2>/dev/null
+    done
+  fi
+  devapp_stop_app "$dir"
+  sweep_orphans "$dir/repo"
+  rm -rf "$dir"
+}
+
+# Starts take turns, so the count of copies, the joining and the clean-up below see a settled set of folders. The lock
+# names the start holding it; one whose holder has gone was left by a start that died, and only its holder unlocks it.
+devapp_lock() {
+  local tries=0 owner
+  mkdir -p "$DEVAPPS" || return 1
+  until mkdir "$DEVAPPS/start.lock" 2>/dev/null; do
+    owner="$(cat "$DEVAPPS/start.lock/owner" 2>/dev/null)"
+    # A lock with no owner yet is being taken: only one older than a minute was left half-made.
+    if { [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; } ||
+      { [ -z "$owner" ] && [ -n "$(find "$DEVAPPS/start.lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]; }; then
+      rm -rf "$DEVAPPS/start.lock"
+    fi
+    [ "$tries" -lt 600 ] || return 1
+    sleep 0.2
+    tries=$((tries + 1))
+  done
+  echo "$$" > "$DEVAPPS/start.lock/owner"
+}
+
+devapp_unlock() {
+  [ "$(cat "$DEVAPPS/start.lock/owner" 2>/dev/null)" = "$$" ] && rm -rf "$DEVAPPS/start.lock"
+  return 0
+}
+
+# Under the start lock: copies whose job has ended go, then any install that no live copy links to and that nothing
+# has used for two days, and any install that failed part-way a day ago and that nobody is retrying.
+devapp_tidy() {
+  local dir install used
+  for dir in "$DEVAPPS"/apps/*; do
+    [ -d "$dir" ] && ! devapp_alive "$dir" && devapp_stop_dir "$dir"
+  done
+  for install in "$DEVAPPS"/installs/*/; do
+    install="${install%/}"
+    if [ ! -f "$install/done" ]; then
+      [ -n "$(find "$install" -maxdepth 0 -mmin +1440 2>/dev/null)" ] && with_lock "$install.lock" true && rm -rf "$install" "$install.lock"
+      continue
+    fi
+    [ -z "$(find "$install/used" -mmin -2880 2>/dev/null)" ] || continue
+    used=0
+    for dir in "$DEVAPPS"/apps/*; do
+      [ "$(readlink "$dir/repo/node_modules" 2>/dev/null)" = "$install/repo/node_modules" ] && used=1
+    done
+    [ "$used" = 1 ] || rm -rf "$install" "$install.lock"
+  done
+}
+
+devapp_ends_at() {
+  local at
+  at=$(($(cat "$1/started" 2>/dev/null || date +%s) + DEVAPP_LIFETIME_SECONDS))
+  if [ "$MAC" = 1 ]; then date -r "$at" +%H:%M; else date -d "@$at" +%H:%M; fi
+}
+
+# devapp-start <port> <commit>, with the copy's data folder on stdin. Starts the copy, or joins one already starting or
+# running from the same files for the same data folder, and streams its progress until it is ready or has failed. A
+# live copy for another data folder belongs to another live test, so it is left alone. The last line is the result.
+cmd_devapp_start() {
+  local port="$1" commit="$2" data dir other running=0 tail_pid tree joining=0
+  devapp_port_ok "$port" || { echo 'remote-run.sh: the debugging port must be a number from 1024 to 65535' >&2; exit 4; }
+  case "$commit" in '' | *[!0-9a-f]*) echo 'remote-run.sh: not a commit' >&2; exit 4 ;; esac
+  data="$(cat)"
+  # A folder of its own under /tmp, as the runbook gives each job: nothing else here is ever a copy's data.
+  case "$data" in /tmp/aio-lt-?*) ;; *) echo 'remote-run.sh: the data folder must start /tmp/aio-lt-' >&2; exit 4 ;; esac
+  case "$data" in *..* | *[!A-Za-z0-9._/-]*) echo 'remote-run.sh: the data folder name has characters it cannot have' >&2; exit 4 ;; esac
+  # Every send makes a new commit, even of the same files, so the files' tree is what says it is the same copy.
+  tree="$(git -C "$REPO" rev-parse --verify --quiet "$commit^{tree}")" || { devapp_result failed 'the snapshot was not received'; return 0; }
+
+  dir="$(devapp_dir "$port")"
+  devapp_lock || { devapp_result busy 'another start on the test Mac is taking too long'; return 0; }
+  devapp_tidy
+  if devapp_alive "$dir"; then
+    if [ "$(cat "$dir/data" 2>/dev/null)" != "$data" ]; then
+      devapp_unlock
+      devapp_result taken 'another live test already has a Harness copy on that debugging port'
+      return 0
+    fi
+    if [ "$(cat "$dir/tree" 2>/dev/null)" = "$tree" ]; then
+      joining=1
+      echo "[dev app] joining the copy already on port $port; it stops by itself at $(devapp_ends_at "$dir")"
+    else
+      devapp_stop_dir "$dir"
+    fi
+  fi
+  if [ "$joining" = 0 ]; then
+    # A data folder belongs to one live test, and Harness runs once per data folder: a live copy of it on another port
+    # is that test's earlier copy (a resumed job gets a new port), so it goes rather than block this one.
+    for other in "$DEVAPPS"/apps/*; do
+      if [ "$other" != "$dir" ] && devapp_alive "$other" && [ "$(cat "$other/data" 2>/dev/null)" = "$data" ]; then
+        echo "[dev app] stopping this data folder's earlier copy on port ${other##*/}"
+        devapp_stop_dir "$other"
+      fi
+    done
+    for other in "$DEVAPPS"/apps/*; do
+      [ -d "$other" ] && devapp_alive "$other" && running=$((running + 1))
+    done
+    if [ "$running" -ge "$DEVAPP_LIMIT" ]; then
+      devapp_unlock
+      devapp_result busy 'the test Mac already runs as many Harness copies as it takes'
+      return 0
+    fi
+    if [ "$MAC" != 1 ]; then devapp_unlock; devapp_result failed 'this machine is not a Mac'; return 0; fi
+    mkdir -p "$dir" "$DEVAPPS/installs" || { devapp_unlock; exit 1; }
+    printf '%s\n' "$data" > "$dir/data"
+    printf '%s\n' "$commit" > "$dir/commit"
+    printf '%s\n' "$tree" > "$dir/tree"
+    date +%s > "$dir/started"
+    echo building > "$dir/state"
+    : > "$dir/log"
+    perl -e 'setpgrp(0, 0); exec @ARGV or exit 127' bash "$SELF" devapp-job "$port" >> "$dir/log" 2>&1 < /dev/null &
+    echo $! > "$dir/pid"
+    echo "[dev app] it stops by itself at $(devapp_ends_at "$dir") unless stopped sooner"
+  fi
+  devapp_unlock
+
+  tail -n +1 -f "$dir/log" &
+  tail_pid=$!
+  while [ "$(devapp_state "$dir")" = building ] && devapp_alive "$dir"; do sleep 1; done
+  sleep 1
+  kill "$tail_pid" 2>/dev/null
+  wait "$tail_pid" 2>/dev/null
+  if [ "$(devapp_state "$dir")" = ready ] && devapp_alive "$dir"; then
+    devapp_result ready ''
+  else
+    devapp_result failed "$(cat "$dir/reason" 2>/dev/null || echo 'the copy stopped while starting')"
+  fi
+}
+
+devapp_fail() {
+  printf '%s\n' "$1" > "$DEVAPP_DIR/reason"
+  echo "[dev app] $1"
+  echo failed > "$DEVAPP_DIR/state"
+  exit 1
+}
+
+# Leaving for any reason stops Harness, then the whole group: the screens' server and the time limit.
+devapp_job_end() {
+  trap - TERM
+  devapp_stop_app "$DEVAPP_DIR"
+  [ "$(devapp_state "$DEVAPP_DIR")" = failed ] || echo stopped > "$DEVAPP_DIR/state"
+  kill -TERM -- "-$$" 2>/dev/null
+}
+
+# devapp-install <install folder> <commit>: run under the install's lock. The install is a checkout of its own, so the
+# project's postinstall (Electron's native modules) runs exactly as on any checkout.
+cmd_devapp_install() {
+  local install="$1" commit="$2"
+  [ -f "$install/done" ] && return 0
+  rm -rf "$install"
+  mkdir -p "$install/repo" && cd "$install/repo" || return 1
+  git init -q && git fetch -q "$REPO" "refs/snapshots/$commit" && git checkout -q --force --detach FETCH_HEAD || return 1
+  echo '[dev app] installing packages (once for each lock file)'
+  bash scripts/ci-npm-ci.sh > "$install/install.log" 2>&1 || { tail -n 30 "$install/install.log"; return 1; }
+  touch "$install/done"
+}
+
+# devapp-job <port>: the copy itself, leading its own process group.
+cmd_devapp_job() {
+  local port="$1" data commit work stamp install started code renderer_port waited=0
+  DEVAPP_DIR="$(devapp_dir "$port")"
+  data="$(cat "$DEVAPP_DIR/data")"
+  commit="$(cat "$DEVAPP_DIR/commit")"
+  trap devapp_job_end EXIT
+  # A stop or the time limit signals the group; leaving through `exit` runs the clean-up above.
+  trap 'exit 0' TERM
+  # The time limit acts only while this job is still the copy's: if the job was killed outright, the group's id may by
+  # then be someone else's.
+  local began
+  began="$(cat "$DEVAPP_DIR/started" 2>/dev/null)"
+  ( sleep "$DEVAPP_LIFETIME_SECONDS"
+    # A job killed outright leaves Harness and the screens' server running; they still go, if the folder is still this
+    # copy's. The folder itself goes at the next start. (This shell carries the job's name, so it can't use
+    # devapp_stop_dir, which would stop it part-way.)
+    if ! devapp_alive "$DEVAPP_DIR"; then
+      if [ "$(cat "$DEVAPP_DIR/started" 2>/dev/null)" = "$began" ]; then
+        devapp_stop_app "$DEVAPP_DIR"
+        for member in $(pgrep -g "$$" 2>/dev/null); do
+          ps -ww -p "$member" -o command= 2>/dev/null | grep -qF -- "$DEVAPP_DIR/" && kill -KILL "$member" 2>/dev/null
+        done
+      fi
+      exit 0
+    fi
+    echo '[dev app] stopping: the time limit was reached'
+    kill -TERM -- "-$$" ) &
+
+  echo "[dev app] checking out on $(hostname)"
+  work="$DEVAPP_DIR/repo"
+  mkdir -p "$work" && cd "$work" || devapp_fail 'could not make the checkout folder'
+  git init -q || devapp_fail 'could not make the checkout'
+  git fetch -q "$REPO" "refs/snapshots/$commit" || devapp_fail 'could not read the snapshot'
+  git checkout -q --force --detach FETCH_HEAD || devapp_fail 'could not check out the snapshot'
+  ensure_node "$(cat .nvmrc 2>/dev/null)" || devapp_fail 'could not fetch the Node version'
+
+  stamp="$(install_stamp | sha256 | cut -c1-16)"
+  install="$DEVAPPS/installs/$stamp"
+  started="$(date +%s)"
+  while [ ! -f "$install/done" ]; do
+    with_lock "$install.lock" bash "$SELF" devapp-install "$install" "$commit"
+    code=$?
+    [ "$code" -eq 0 ] && break
+    [ "$code" -eq "$BUSY" ] || devapp_fail 'the package install failed'
+    [ $(($(date +%s) - started)) -lt "$DEVAPP_INSTALL_WAIT_SECONDS" ] || devapp_fail 'another copy took too long to install packages'
+    sleep 3
+  done
+  touch "$install/used"
+  ln -sfn "$install/repo/node_modules" node_modules || devapp_fail 'could not link the packages'
+
+  echo '[dev app] building the main process'
+  npm run build:main > "$DEVAPP_DIR/build.log" 2>&1 || { tail -n 40 "$DEVAPP_DIR/build.log"; devapp_fail 'npm run build:main failed'; }
+  # After build:main, which clears dist/. Without this binary the copy's sessions get no orchestrator tools (LT-1103).
+  echo '[dev app] building the orchestrator tools helper'
+  npm run build:aio-mcp-dist > "$DEVAPP_DIR/aio-mcp.log" 2>&1 ||
+    { tail -n 40 "$DEVAPP_DIR/aio-mcp.log"; devapp_fail 'npm run build:aio-mcp-dist failed'; }
+  echo '[dev app] building the screens'
+  NG_CLI_ANALYTICS=false node node_modules/@angular/cli/bin/ng.js build --configuration development \
+    --output-path "$DEVAPP_DIR/renderer" > "$DEVAPP_DIR/renderer.log" 2>&1 ||
+    { tail -n 40 "$DEVAPP_DIR/renderer.log"; devapp_fail 'the screens did not build'; }
+
+  bash "$SELF" devapp-serve "$DEVAPP_DIR/renderer/browser" "$DEVAPP_DIR/renderer-port" > "$DEVAPP_DIR/serve.log" 2>&1 &
+  while [ ! -s "$DEVAPP_DIR/renderer-port" ]; do
+    [ "$waited" -lt 30 ] || devapp_fail 'the screens server did not start'
+    sleep 1
+    waited=$((waited + 1))
+  done
+  renderer_port="$(cat "$DEVAPP_DIR/renderer-port")"
+
+  if curl -fsS "http://127.0.0.1:$port/json/version" > /dev/null 2>&1; then
+    devapp_fail 'something else already answers on that debugging port here'
+  fi
+  echo "[dev app] starting Harness with its data in $data"
+  # Opened through the app launcher, not started from this shell: a program started over SSH can't read the login
+  # keychain, where the AI tools keep their sign-ins. The app gets the logged-in session's environment plus these two.
+  # Without the heap flag Harness would start itself again under another process id (src/main/main-process-bootstrap.ts).
+  open -n -g -a "$work/node_modules/electron/dist/Electron.app" \
+    --stdout "$DEVAPP_DIR/app.out" --stderr "$DEVAPP_DIR/app.err" \
+    --env "AIO_DEV_USER_DATA_PATH=$data" --env "PORT=$renderer_port" \
+    --args --js-flags=--max-old-space-size=8192 "$work" "--remote-debugging-port=$port" ||
+    devapp_fail 'the Mac would not open Harness'
+  waited=0
+  # Ready once Harness's window exists, which its debugging port lists as a page; the port itself answers sooner.
+  until curl -fsS "http://127.0.0.1:$port/json/list" 2> /dev/null | grep -q '"type": *"page"'; do
+    if [ "$waited" -ge 60 ] && [ -z "$(devapp_app_pids "$DEVAPP_DIR")" ]; then
+      tail -n 40 "$DEVAPP_DIR/app.err"
+      devapp_fail 'Harness stopped while starting'
+    fi
+    [ "$waited" -lt "$DEVAPP_READY_SECONDS" ] || { tail -n 40 "$DEVAPP_DIR/app.err"; devapp_fail 'Harness did not open its debugging port'; }
+    sleep 1
+    waited=$((waited + 1))
+  done
+  [ -n "$(devapp_app_pids "$DEVAPP_DIR")" ] || devapp_fail 'Harness stopped while starting'
+  echo ready > "$DEVAPP_DIR/state"
+  echo "[dev app] ready on port $port"
+  while [ -n "$(devapp_app_pids "$DEVAPP_DIR")" ]; do sleep 5; done
+  echo '[dev app] Harness has exited'
+}
+
+# The screens' server for a copy, in place of `ng serve`: serves the built screens, sending index.html for any path that
+# names no file, as the screens' own routes expect. It listens on a free port on 127.0.0.1 and writes the port to the
+# file given. It lives here, not in the snapshot, so a worktree made before it existed still gets it.
+DEVAPP_SERVE_JS='
+const fs = require("fs");
+const http = require("http");
+const path = require("path");
+const [root, portFile] = process.argv.slice(1).map(given => path.resolve(given));
+const types = {
+  ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8", ".json": "application/json", ".map": "application/json", ".svg": "image/svg+xml",
+  ".png": "image/png", ".jpg": "image/jpeg", ".ico": "image/x-icon", ".woff": "font/woff", ".woff2": "font/woff2",
+  ".ttf": "font/ttf", ".wasm": "application/wasm",
+};
+function fileFor(url) {
+  let name;
+  try { name = decodeURIComponent(new URL(url, "http://localhost").pathname); } catch { return path.join(root, "index.html"); }
+  const file = path.resolve(root, "." + name);
+  const found = file.startsWith(root + path.sep) && fs.existsSync(file) && fs.statSync(file).isFile();
+  return found ? file : path.join(root, "index.html");
+}
+const server = http.createServer((request, response) => {
+  const file = fileFor(request.url || "/");
+  fs.readFile(file, (err, body) => {
+    if (err) { response.writeHead(404); response.end(); return; }
+    response.writeHead(200, { "content-type": types[path.extname(file).toLowerCase()] || "application/octet-stream", "cache-control": "no-store" });
+    response.end(body);
+  });
+});
+server.listen(0, "127.0.0.1", () => {
+  fs.writeFileSync(portFile + ".tmp", server.address().port + "\n");
+  fs.renameSync(portFile + ".tmp", portFile);
+});
+'
+
+# devapp-serve <folder> <port file>
+cmd_devapp_serve() {
+  exec node -e "$DEVAPP_SERVE_JS" "$1" "$2"
+}
+
+# devapp-hold <port>: the far end of the Mac's tunnel. Says so once, then lasts as long as the copy, so the tunnel
+# closes when the copy stops for any reason.
+cmd_devapp_hold() {
+  local dir
+  devapp_port_ok "$1" || exit 4
+  dir="$(devapp_dir "$1")"
+  echo held
+  while devapp_alive "$dir" && [ "$(devapp_state "$dir")" = ready ]; do sleep 5; done
+}
+
+# devapp-shell <port>, with a script on stdin: runs it in the copy's checkout with the copy's data folder named in
+# AIO_DEV_USER_DATA_PATH, for reading its logs and database.
+cmd_devapp_shell() {
+  local dir
+  devapp_port_ok "$1" || exit 4
+  dir="$(devapp_dir "$1")"
+  [ -d "$dir/repo" ] || { echo "remote-run.sh: there is no Harness copy on port $1 here" >&2; exit 3; }
+  cd "$dir/repo" || exit 1
+  ensure_node "$(cat .nvmrc 2>/dev/null)" || true
+  export AIO_DEV_USER_DATA_PATH
+  AIO_DEV_USER_DATA_PATH="$(cat "$dir/data")"
+  # Nothing over SSH stops a command whose connection has gone (a `tail -f`, say), so it runs in a group of its own
+  # for at most the time the Mac waits for it. Bash gives a background job /dev/null as stdin, hence the copy on 3.
+  local script_pid watchdog code
+  exec 3<&0
+  perl -e 'setpgrp(0, 0); exec @ARGV or exit 127' bash -s <&3 &
+  script_pid=$!
+  exec 3<&-
+  ( trap 'kill "$timer" 2>/dev/null; exit 0' TERM; sleep "$DEVAPP_SHELL_SECONDS" & timer=$!; wait "$timer"
+    kill -TERM -- "-$script_pid" 2>/dev/null; sleep 5; kill -KILL -- "-$script_pid" 2>/dev/null ) &
+  watchdog=$!
+  wait "$script_pid"
+  code=$?
+  kill "$watchdog" 2>/dev/null
+  # Anything the script left running in the background (a `tail -f &`) would hold the connection open.
+  kill -KILL -- "-$script_pid" 2>/dev/null
+  return "$code"
+}
+
+cmd_devapp_stop() {
+  devapp_port_ok "$1" || exit 4
+  devapp_stop_dir "$(devapp_dir "$1")"
+  echo "stopped the Harness copy on port $1"
+}
+
+cmd_devapp_status() {
+  local dir port found=0
+  for dir in "$DEVAPPS"/apps/*; do
+    [ -d "$dir" ] || continue
+    found=1
+    port="${dir##*/}"
+    if devapp_alive "$dir"; then
+      echo "port $port: $(devapp_state "$dir"), data in $(cat "$dir/data" 2>/dev/null), stops by itself at $(devapp_ends_at "$dir")"
+    else
+      echo "port $port: $(devapp_state "$dir") ($(cat "$dir/reason" 2>/dev/null || echo 'not running'))"
+    fi
+  done
+  [ "$found" = 1 ] || echo 'no Harness copies here'
+}
+
 # Refused before anything is stored: a name the recipes don't know never gets a folder here.
 if [ -n "$PROJECT" ] && ! load_recipe; then
   echo "remote-run.sh: $PROJECT/$SUITE is not a known repository" >&2
@@ -649,5 +1082,13 @@ case "$command_name" in
   job) cmd_job "$@" ;;
   slot-job) cmd_slot_job "$@" ;;
   fetch) cmd_fetch "$@" ;;
-  *) echo "usage: remote-run.sh bases|receive|related|argv|checks|run|fetch" >&2; exit 2 ;;
+  devapp-start) cmd_devapp_start "$@" ;;
+  devapp-job) cmd_devapp_job "$@" ;;
+  devapp-install) cmd_devapp_install "$@" ;;
+  devapp-serve) cmd_devapp_serve "$@" ;;
+  devapp-hold) cmd_devapp_hold "$@" ;;
+  devapp-shell) cmd_devapp_shell "$@" ;;
+  devapp-stop) cmd_devapp_stop "$@" ;;
+  devapp-status) cmd_devapp_status ;;
+  *) echo "usage: remote-run.sh bases|receive|related|argv|checks|run|fetch|devapp-start|devapp-shell|devapp-stop|devapp-status" >&2; exit 2 ;;
 esac

@@ -81,6 +81,12 @@ npm run dev
 npm run build
 ```
 
+To run the dev app for a live test or any other check, start it on the test Mac, not on this Mac:
+`node "$(git rev-parse --path-format=absolute --git-common-dir)/../scripts/remote-checks/dev-app.js" start --port <p> --data /tmp/aio-lt-<name>`,
+then drive it at `http://127.0.0.1:<p>` and `stop --port <p>` when done. This overrides any older instruction to build
+and launch the dev app from your worktree. Start it here only for a check that needs something only this Mac has, and
+say why. Details: `docs/plans/livetest-campaign-runbook.md` section 3.
+
 ## Documentation Formats
 
 Split docs by audience: **Markdown for machines, HTML for humans.**

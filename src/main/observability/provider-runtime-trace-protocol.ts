@@ -18,6 +18,12 @@ export interface TraceRecord {
   attributes?: Record<string, string | number | boolean>;
 }
 
+/** Passed as `workerData` when the trace worker starts. */
+export interface TraceWorkerData {
+  /** Absolute path of the NDJSON file the worker appends to. */
+  traceFilePath: string;
+}
+
 // ── Worker ← Main messages ────────────────────────────────────────────────────
 
 export interface WriteRecordsMessage {
@@ -38,7 +44,6 @@ export interface MetricsMessage {
   written: number;
   rotations: number;
   errors: number;
-  currentFileSizeBytes: number;
 }
 
 export interface WorkerErrorMessage {

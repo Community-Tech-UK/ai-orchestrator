@@ -76,7 +76,7 @@ describe('PlanQueueCoordinator — boot recovery', { timeout: 30_000 }, () => {
         expect(port).toBeGreaterThanOrEqual(9500);
         expect(port).toBeLessThan(9900);
       } else expect(port).toBe(recorded);
-      expect(next.created.find((i) => i.role === 'worker')!.config.initialPrompt).toContain(`--remote-debugging-port=${port}`);
+      expect(next.created.find((i) => i.role === 'worker')!.config.initialPrompt).toContain(`start --port ${port} --data `);
     }
   });
 

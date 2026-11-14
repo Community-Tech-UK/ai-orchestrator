@@ -956,13 +956,13 @@ describe('PlanQueueCoordinator — livetest mode', { timeout: 30_000 }, () => {
     expect(existsSync(doc)).toBe(true);
     expect(existsSync(doc.replace('_livetest.md', '_livetest_completed.md'))).toBe(false);
     const worker = fake.created.find((i) => i.role === 'worker')!;
-    expect(worker.config.initialPrompt).toContain('AIO_DEV_USER_DATA_PATH=/tmp/aio-lt-queue-');
+    expect(worker.config.initialPrompt).toContain('--data /tmp/aio-lt-queue-');
     expect(worker.config.initialPrompt).toContain('livetest-campaign-runbook.md');
     // The dev app's port is one the queue checked free and recorded on the item.
     const recorded = store.getItem(coordinator.getRunDto(run.id)!.items[0].id)!.livetestPort;
     expect(recorded).toBeGreaterThanOrEqual(9500);
     expect(recorded).toBeLessThan(9900);
-    expect(worker.config.initialPrompt).toContain(`--remote-debugging-port=${recorded}`);
+    expect(worker.config.initialPrompt).toContain(`start --port ${recorded} --data `);
 
     const summary = fake.inputs.filter((m) => m.instanceId === parent.id).at(-1)!.message;
     expect(summary).toContain('Checks that genuinely need James:');

@@ -1,5 +1,6 @@
-import { spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { realpath, stat } from 'node:fs/promises';
 import { buildCliSpawnOptions } from '../cli-environment';
 import { getLogger } from '../../logging/logger';
 import { getSafeEnvForTrustedProcess } from '../../security/env-filter';
@@ -18,28 +19,103 @@ export interface OpenCodeLaunch {
   version: string;
 }
 
-function pathCandidates(env: NodeJS.ProcessEnv): string[] {
-  // Factory env contains overrides, not a complete process environment. Use
-  // the same inherited HOME/PATH as the probes and the eventual ACP spawn.
-  const spawnOptions = buildCliSpawnOptions({ ...getSafeEnvForTrustedProcess(), ...env });
-  return ['opencode', 'opencode2'].flatMap((name) => {
-    const listed = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['-a', name].filter((arg) => process.platform !== 'win32' || arg !== '-a'), {
+/**
+ * A version read is reused while the install's file is unchanged, for at most
+ * this long. Discovery and helper commands select an install every few
+ * minutes; without this each one started a `--version` process per install.
+ */
+const VERSION_CACHE_MAX_AGE_MS = 10 * 60_000;
+
+interface CachedVersion {
+  identity: string;
+  output: string;
+  checkedAt: number;
+}
+
+/**
+ * Keyed by folder and command: version managers (mise, asdf, volta) can run a
+ * different OpenCode per folder behind the same unchanged shim file.
+ */
+const versionCache = new Map<string, CachedVersion>();
+/** Last "skipped installs" summary logged per required major and folder, so an unchanged one is not repeated. */
+const lastSkipSummaries = new Map<string, string | null>();
+
+export function _resetOpenCodeLaunchCacheForTesting(): void {
+  versionCache.clear();
+  lastSkipSummaries.clear();
+}
+
+function lookupOnPath(name: string, spawnOptions: ReturnType<typeof buildCliSpawnOptions>): Promise<string[]> {
+  const windows = process.platform === 'win32';
+  // Asynchronous on purpose: this runs on the main process every few minutes,
+  // and a synchronous lookup held the whole app until `which` returned.
+  return new Promise((resolve) => {
+    execFile(windows ? 'where' : 'which', windows ? [name] : ['-a', name], {
       encoding: 'utf8', timeout: 5000, maxBuffer: 1024 * 1024, ...spawnOptions,
+    }, (error, stdout) => {
+      if (error) {
+        resolve([]);
+        return;
+      }
+      resolve(String(stdout).split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0 && existsSync(line)));
     });
-    if (listed.status !== 0) return [];
-    return listed.stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0 && existsSync(line));
   });
 }
 
-export function listOpenCodeCommandCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
+async function pathCandidates(env: NodeJS.ProcessEnv): Promise<string[]> {
+  // Factory env contains overrides, not a complete process environment. Use
+  // the same inherited HOME/PATH as the probes and the eventual ACP spawn.
+  const spawnOptions = buildCliSpawnOptions({ ...getSafeEnvForTrustedProcess(), ...env });
+  const lists = await Promise.all(['opencode', 'opencode2'].map((name) => lookupOnPath(name, spawnOptions)));
+  return lists.flat();
+}
+
+export async function listOpenCodeCommandCandidates(env: NodeJS.ProcessEnv = process.env): Promise<string[]> {
   const seen = new Set<string>();
   const candidates: string[] = [];
-  for (const candidate of [...pathCandidates(env), ...getCliCandidatePaths(CLI_REGISTRY.opencode, { ...getSafeEnvForTrustedProcess(), ...env }).filter((path) => existsSync(path))]) {
+  for (const candidate of [...await pathCandidates(env), ...getCliCandidatePaths(CLI_REGISTRY.opencode, { ...getSafeEnvForTrustedProcess(), ...env }).filter((path) => existsSync(path))]) {
     if (seen.has(candidate)) continue;
     seen.add(candidate);
     candidates.push(candidate);
   }
   return candidates;
+}
+
+/** Identifies the installed file, so an update or reinstall invalidates its cached version. */
+async function installIdentity(command: string): Promise<string | undefined> {
+  try {
+    const target = await realpath(command);
+    const info = await stat(target);
+    return `${target}\0${info.ino}\0${info.size}\0${info.mtimeMs}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function versionCacheKey(command: string, workingDirectory: string): string {
+  return `${workingDirectory}\0${command}`;
+}
+
+/** `--version` output, reused while the install is unchanged. Failed reads are never cached. */
+async function readVersionOutput(
+  command: string,
+  workingDirectory: string,
+  capture: (command: string, args: string[]) => Promise<{ code: number; stdout: string }>,
+): Promise<string> {
+  const key = versionCacheKey(command, workingDirectory);
+  const identity = await installIdentity(command);
+  const cached = versionCache.get(key);
+  if (identity && cached?.identity === identity && Date.now() - cached.checkedAt < VERSION_CACHE_MAX_AGE_MS) {
+    return cached.output;
+  }
+  const version = await capture(command, ['--version']).catch(() => undefined);
+  const output = version?.code === 0 ? version.stdout : '';
+  if (identity && /(\d+\.\d+\.\d+)/.test(output)) {
+    versionCache.set(key, { identity, output, checkedAt: Date.now() });
+  } else {
+    versionCache.delete(key);
+  }
+  return output;
 }
 
 function jsonConfig(stdout: string, major: number): boolean {
@@ -71,7 +147,7 @@ export async function selectOpenCodeLaunch(params: {
   candidates?: readonly string[];
   requiredMajor?: 1 | 2;
 }): Promise<OpenCodeLaunch> {
-  const candidates = params.candidates ?? listOpenCodeCommandCandidates(params.env);
+  const candidates = params.candidates ?? await listOpenCodeCommandCandidates(params.env);
   const capture = (command: string, args: string[], env = params.env) => runOpenCodeCapture({
     command,
     args,
@@ -84,8 +160,7 @@ export async function selectOpenCodeLaunch(params: {
   let unreadable = 0;
   const supported: OpenCodeLaunch[] = [];
   for (const command of candidates) {
-    const version = await capture(command, ['--version']).catch(() => undefined);
-    const versionOutput = version?.code === 0 ? version.stdout : '';
+    const versionOutput = await readVersionOutput(command, params.workingDirectory, capture);
     const matchedVersion = /(\d+\.\d+\.\d+)/.exec(versionOutput)?.[1];
     if (!matchedVersion) {
       unknownVersion += 1;
@@ -110,12 +185,19 @@ export async function selectOpenCodeLaunch(params: {
     const printsConfig = await capture(command, openCodeProbeArgs(major), probeEnv)
       .then((config) => config.code === 0 && jsonConfig(config.stdout, major), () => false);
     if (!printsConfig) {
+      // The remembered version may be what made this probe wrong; read it afresh next time.
+      versionCache.delete(versionCacheKey(command, params.workingDirectory));
       unreadable += 1;
       continue;
     }
-    if (unknownVersion + unsupported + unreadable > 0) {
+    const skipSummary = unknownVersion + unsupported + unreadable > 0
+      ? `${command}|${major}|${unknownVersion}|${unsupported}|${unreadable}`
+      : null;
+    const summaryKey = `${params.requiredMajor ?? 'any'}\0${params.workingDirectory}`;
+    if (skipSummary !== null && skipSummary !== lastSkipSummaries.get(summaryKey)) {
       logger.warn('Skipped unusable OpenCode installs; using another', { major, unknownVersion, unsupported, unreadable });
     }
+    lastSkipSummaries.set(summaryKey, skipSummary);
     return { command, major, version };
   }
   logger.warn('No usable OpenCode install', { candidates: candidates.length, unknownVersion, unsupported, unreadable });

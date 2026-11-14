@@ -28,6 +28,8 @@ export interface CompactAgentTarget {
   active?: boolean;
   stale?: boolean;
   nodeName?: string;
+  /** The Chrome profile the tab is in; `browser.find_or_open` accepts it. */
+  chromeProfile?: string;
   textUnavailableReason?: string;
   /** Chrome's own sign-in prompt waiting on this tab; agent guidance names it. */
   httpAuthChallenge?: BrowserHttpAuthChallenge;
@@ -62,6 +64,7 @@ function compactTarget(target: object): CompactAgentTarget {
     ...(pickField(source, 'active') !== undefined ? { active: Boolean(pickField(source, 'active')) } : {}),
     ...(pickField(source, 'stale') !== undefined ? { stale: Boolean(pickField(source, 'stale')) } : {}),
     ...(pickField(source, 'nodeName') !== undefined ? { nodeName: String(pickField(source, 'nodeName')) } : {}),
+    ...(pickField(source, 'chromeProfile') !== undefined ? { chromeProfile: String(pickField(source, 'chromeProfile')) } : {}),
     ...(pickField(source, 'textUnavailableReason') !== undefined ? { textUnavailableReason: String(pickField(source, 'textUnavailableReason')) } : {}),
     ...(typeof httpAuthChallenge === 'object' && httpAuthChallenge !== null
       ? { httpAuthChallenge: httpAuthChallenge as BrowserHttpAuthChallenge }

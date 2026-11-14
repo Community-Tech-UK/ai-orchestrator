@@ -148,7 +148,8 @@ const ALLOWLIST: Record<string, number> = {
   // crossed 700 with the snapshot/assert_persisted/write_journal schemas.
   // Raised 731 -> 796 for close + inspection-state request schemas.
   // Raised 796 -> 797 for the `opencode` BrowserProvider enum member.
-  'packages/contracts/src/schemas/browser.schemas.ts': 797,
+  // Raised 797 -> 798 for find_or_open's `chromeProfile` field.
+  'packages/contracts/src/schemas/browser.schemas.ts': 798,
   // Main process — desktop gateway
   // Crossed 700 during the in-flight desktop computer-use gateway work
   // (2026-07-12). Allowlisted at its then-current size so the gate stays
@@ -229,7 +230,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/core/config/claude-md-loader.ts': 804,
   // Raised 776 -> 840 for the interSessionMessaging readOnly() MCP settings
   // policy entry (cross-session messaging, 2026-09-16).
-  'src/main/core/config/settings-control-policy.ts': 858, // +3: codexBackupKeepThree (policy entry, operator-only key and its comment); +5: one entry per Oct-2 Phase D setting (checker catalog, four Codex round limits); +1: computers (remote-first plan); +4: Microsoft 365 "Always allow" setting; +1: planQueueQuestionsDestination; +4: Plan Queue folder list (anchor, comment, policy entry, import)
+  'src/main/core/config/settings-control-policy.ts': 859, // +3: codexBackupKeepThree (policy entry, operator-only key and its comment); +5: one entry per Oct-2 Phase D setting (checker catalog, four Codex round limits); +1: computers (remote-first plan); +4: Microsoft 365 "Always allow" setting; +1: planQueueQuestionsDestination; +4: Plan Queue folder list (anchor, comment, policy entry, import); +1: autoAnswerContinueQuestions
   'src/main/core/error-recovery.ts': 990,
   // Main process — history
   // Raised from 1582 for the fix to the intermittent "written as 0 bytes" CI

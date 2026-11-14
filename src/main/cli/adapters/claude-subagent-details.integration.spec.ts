@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClaudeCliAdapter } from './claude-cli-adapter';
+import { flushClaudeSubagentUsage } from './claude-subagent-usage';
 
 let root = '';
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'aio-subagent-adapter-')); });
@@ -25,6 +26,10 @@ describe('Claude helper details through the real adapter stream path', () => {
     ingress.processCliMessage({ type: 'system', subtype: 'task_started', task_type: 'local_agent', task_id: 'helper1', tool_use_id: 'toolu_a', session_id: 'session-9' });
     ingress.processCliMessage({ type: 'assistant', parent_tool_use_id: 'toolu_a', message: { model: 'claude-sonnet-5-5', content: [], usage: { input_tokens: 12_000, output_tokens: 5 } } });
     ingress.processCliMessage({ type: 'system', subtype: 'task_notification', task_id: 'helper1', usage: { total_tokens: 12_005, tool_uses: 3, duration_ms: 800 }, session_id: 'session-9' });
+    // The final sum is deferred past the finish notification (the CLI appends the helper's
+    // final transcript line just after it); the turn's result flush settles it.
+    expect(samples.mock.calls.map((call) => call[0]).find((sample) => sample.final)).toBeUndefined();
+    flushClaudeSubagentUsage(adapter);
 
     const final = samples.mock.calls.map((call) => call[0]).find((sample) => sample.final);
     expect(final).toMatchObject({

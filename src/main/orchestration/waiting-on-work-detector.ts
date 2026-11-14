@@ -8,9 +8,9 @@ const WAITING_RES = [
   /^(?:(?:now|still|just)\s+)*waiting\s+(?:for|on|until)\b/i,
   /\bI(?:['’]ll|\s+will)\s+(?:then\s+)?(?:pick\s+(?:(?:this|it|that)\s+)?(?:back\s+)?up|continue|carry\s+on|resume|finish|report|come\s+back|check|let\s+you\s+know|update\s+you|tell\s+you|get\s+back\s+to\s+you)\b[^.!?]{0,90}\b(?:when|once|after|as\s+soon\s+as)\b/i,
 ];
-const WAITING_ON_A_PERSON_RE = /\b(?:you|your|yours|james|the\s+user|approv(?:al|e|ed|es)|sign-?off|go-?ahead|confirmation)\b/i;
+const WAITING_ON_A_PERSON_RE = /\b(?:you|your|yours|james|the\s+user|he|she|him|her|approv(?:al|e|ed|es)|sign-?off|go-?ahead|confirmation)\b/i;
 /** Saying who will hear the result ("I'll let you know when...") is not waiting on that person. */
-const REPORTING_TO_A_PERSON_RE = /\bI(?:['’]ll|\s+will)\s+(?:let\s+(?:you|james|the\s+user)\s+know|(?:tell|update|get\s+back\s+to|report\s+(?:back\s+)?to)\s+(?:you|james|the\s+user))\b/gi;
+const REPORTING_TO_A_PERSON_RE = /\bI(?:['’]ll|\s+will)\s+(?:then\s+)?(?:let\s+(?:you|james|the\s+user)\s+know|(?:tell|update|get\s+back\s+to|report\s+(?:back\s+)?to)\s+(?:you|james|the\s+user))\b/gi;
 
 /** The sentence where a reply ends by waiting on work, not on a person, or null. */
 export function detectWaitingOnWork(output: string): string | null {

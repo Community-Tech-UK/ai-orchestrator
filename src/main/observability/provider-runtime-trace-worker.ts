@@ -2,22 +2,25 @@
  * Provider Runtime Trace Worker
  *
  * Runs in a worker_thread. Receives batched TraceRecord objects, serializes
- * them to NDJSON, and appends to traces.ndjson with size-based rotation.
+ * them to NDJSON, and appends them to the file named in `workerData` with
+ * size-based rotation (see rotating-log-file.ts).
+ *
+ * The main thread passes the path because a worker cannot reach Electron's
+ * `app.getPath('userData')`; guessing it here sent every record to the temp
+ * folder, where rotated copies piled up without limit.
  *
  * Entrypoint resolution follows the LSP worker pattern:
  *   1. Built: worker-main.js from __dirname
  *   2. Dev:   tsx execArgv
  */
 
-import { parentPort, isMainThread } from 'node:worker_threads';
-import * as fs from 'node:fs';
-import * as fsP from 'node:fs/promises';
-import * as os from 'node:os';
-import * as path from 'node:path';
+import { parentPort, isMainThread, workerData } from 'node:worker_threads';
+import { appendToRotatingLog } from './rotating-log-file';
 import type {
   WorkerInboundMessage,
   MetricsMessage,
   TraceRecord,
+  TraceWorkerData,
 } from './provider-runtime-trace-protocol';
 
 if (isMainThread) {
@@ -26,29 +29,20 @@ if (isMainThread) {
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-function getElectronUserDataPath(): string | undefined {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { app } = require('electron');
-    return app?.getPath?.('userData');
-  } catch {
-    return undefined;
+function readTraceFilePath(): string {
+  const configured = (workerData as Partial<TraceWorkerData> | null)?.traceFilePath;
+  if (!configured) {
+    throw new Error('provider-runtime-trace-worker needs workerData.traceFilePath');
   }
+  return configured;
 }
 
-const DEFAULT_TRACE_PATH = path.join(
-  getElectronUserDataPath() ?? path.join(os.tmpdir(), 'ai-orchestrator'),
-  'logs',
-  'traces.ndjson',
-);
+const traceFilePath = readTraceFilePath();
 
-const MAX_FILE_SIZE_BYTES = 30 * 1024 * 1024; // 30 MB
 const BATCH_INTERVAL_MS = 250;
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-const traceFilePath = DEFAULT_TRACE_PATH;
-let currentFileSizeBytes = 0;
 let written = 0;
 let rotations = 0;
 let errors = 0;
@@ -56,22 +50,6 @@ let errors = 0;
 let pendingLines: string[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let writeQueue = Promise.resolve();
-
-// ── Rotation ──────────────────────────────────────────────────────────────────
-
-function rotateSyncIfNeeded(): void {
-  if (currentFileSizeBytes < MAX_FILE_SIZE_BYTES) return;
-  try {
-    const rotatedPath = `${traceFilePath}.${Date.now()}.old`;
-    if (fs.existsSync(traceFilePath)) {
-      fs.renameSync(traceFilePath, rotatedPath);
-    }
-    currentFileSizeBytes = 0;
-    rotations++;
-  } catch {
-    errors++;
-  }
-}
 
 // ── File append ───────────────────────────────────────────────────────────────
 
@@ -82,14 +60,10 @@ function flushBatch(): void {
   flushTimer = null;
 
   const chunk = batch.join('\n') + '\n';
-  const chunkBytes = Buffer.byteLength(chunk, 'utf8');
 
   writeQueue = writeQueue.then(async () => {
     try {
-      rotateSyncIfNeeded();
-      await fsP.mkdir(path.dirname(traceFilePath), { recursive: true });
-      await fsP.appendFile(traceFilePath, chunk, 'utf8');
-      currentFileSizeBytes += chunkBytes;
+      if (await appendToRotatingLog(traceFilePath, chunk)) rotations++;
       written += batch.length;
     } catch {
       errors++;
@@ -108,18 +82,6 @@ function serializeRecord(record: TraceRecord): string {
   return JSON.stringify(record);
 }
 
-// ── File size initialization ──────────────────────────────────────────────────
-
-try {
-  const stat = fs.statSync(traceFilePath);
-  currentFileSizeBytes = stat.size;
-  if (currentFileSizeBytes >= MAX_FILE_SIZE_BYTES) {
-    rotateSyncIfNeeded();
-  }
-} catch {
-  currentFileSizeBytes = 0;
-}
-
 // ── Message handling ──────────────────────────────────────────────────────────
 
 function sendMetrics(): void {
@@ -128,7 +90,6 @@ function sendMetrics(): void {
     written,
     rotations,
     errors,
-    currentFileSizeBytes,
   };
   parentPort!.postMessage(msg);
 }

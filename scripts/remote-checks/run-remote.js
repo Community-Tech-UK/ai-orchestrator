@@ -23,6 +23,8 @@ const SSH_UNREACHABLE = 255;
 /** remote-run.sh's answer to a check it doesn't know. */
 const REFUSED = 4;
 const SETUP_LIMIT_MS = 5 * 60_000;
+/** How long to wait before the one retry of a snapshot that failed. */
+const SNAPSHOT_RETRY_MS = 2000;
 /** A little over the far machine's own limit, for a run that goes quiet without the connection dropping. */
 const RUN_LIMIT_MS = 62 * 60_000;
 const LOCK_FILE = 'package-lock.json';
@@ -89,6 +91,20 @@ function sharedBases(root, env, listed) {
   });
 }
 
+/**
+ * Puts remote-run.sh on the far machine, named by its content, then runs `then` with it, if given. Resolves
+ * `{ script, sent }`: the script's path there and that command's result.
+ */
+async function sendScript(config, then, prefix = '') {
+  const text = fs.readFileSync(path.join(__dirname, 'remote-run.sh'));
+  const script = `remote-checks/remote-run-${crypto.createHash('sha256').update(text).digest('hex').slice(0, 12)}.sh`;
+  // Renamed into place: other runs may be starting from this same file.
+  const sent = await sshCommand(config, `mkdir -p remote-checks && cat > ${script}.$$ && mv ${script}.$$ ${script}${then ? ` && ${prefix}bash ${script} ${then}` : ''}`, {
+    input: text,
+  });
+  return { script, sent };
+}
+
 /** Streams the snapshot's missing objects into the far repository. Never a `git push`. */
 async function sendSnapshot(root, snapshot, config, script, listedBases, prefix) {
   const bases = sharedBases(root, snapshot.env, listedBases);
@@ -153,6 +169,35 @@ function streamRun(config, remoteCommand, logPath) {
 function sameNode(wanted, actual) {
   const version = wanted.replace(/^v/, '');
   return actual === `v${version}` || (/^\d+$/.test(version) && actual.startsWith(`v${version}.`));
+}
+
+/** A failed command's complaint in one short line: git's `fatal:` or `error:` line, past any warning before it. */
+function gitComplaint(err) {
+  const lines = String(err?.stderr || err?.message || err).split('\n').map(line => line.trim()).filter(Boolean);
+  return (lines.find(line => /^(?:fatal|error):/.test(line)) ?? lines[0] ?? 'no message').slice(0, 300);
+}
+
+/**
+ * The line a runner prints, and fails with, when a fault every machine would meet stops the work (its snapshot fails
+ * or is refused, or the machine refuses the checks). Waiting cannot fix that, so unlike `Not run:` it is a failure,
+ * never a reason to hold a job or loop.
+ */
+function cannotUseLine(reason) {
+  return `Could not use a test machine: ${reason}. Waiting would not fix this, so it counts as a failure.`;
+}
+
+/**
+ * A file that vanishes while git adds it fails one snapshot and not the next, so a failed snapshot is taken once more
+ * before it counts as the work's own fault. A refusal is about the files themselves and is not retried.
+ */
+async function takeTwice(take, root, pauseMs = SNAPSHOT_RETRY_MS) {
+  try {
+    return take(root);
+  } catch (err) {
+    if (err instanceof SnapshotRefused) throw err;
+    await new Promise(resolve => setTimeout(resolve, pauseMs));
+    return take(root);
+  }
 }
 
 function escapeForJson(text) {
@@ -222,13 +267,13 @@ async function runOnRemote({
 }) {
   let snapshot;
   try {
-    snapshot = take(root);
+    snapshot = await takeTwice(take, root);
   } catch (err) {
     // Another machine would get the same snapshot, so trying again cannot help.
     return {
       ok: false,
       final: true,
-      reason: err instanceof SnapshotRefused ? `the snapshot was refused: ${err.message}` : 'the snapshot failed',
+      reason: err instanceof SnapshotRefused ? `the snapshot was refused: ${err.message}` : `the snapshot failed: ${gitComplaint(err)}`,
     };
   }
 
@@ -241,15 +286,7 @@ async function runOnRemote({
     // The id and suite are fixed names from projects.js, never anything a run supplied.
     const prefix = project ? `AIO_PROJECT=${project.id} AIO_SUITE=${project.suite} ` : '';
 
-    const scriptText = fs.readFileSync(path.join(__dirname, 'remote-run.sh'));
-    const scriptName = `remote-run-${crypto.createHash('sha256').update(scriptText).digest('hex').slice(0, 12)}.sh`;
-    const script = `remote-checks/${scriptName}`;
-    const prepared = await sshCommand(
-      config,
-      // Renamed into place: other runs may be starting from this same file.
-      `mkdir -p remote-checks && cat > ${script}.$$ && mv ${script}.$$ ${script} && ${prefix}bash ${script} bases`,
-      { input: scriptText },
-    );
+    const { script, sent: prepared } = await sendScript(config, 'bases', prefix);
     if (prepared.code !== 0 || prepared.timedOut) return { ok: false, reason: `${config.label} could not be reached` };
 
     const sendFault = await sendSnapshot(root, snapshot, config, script, prepared.stdout.split('\n').filter(Boolean), prefix);
@@ -313,6 +350,8 @@ async function runOnMachines(machines, options) {
     const result = await runOnRemote({ ...options, config: machine, waitForSlot: at === machines.length - 1 });
     if (result.ok) return { ...result, machine };
     reasons.push(result.reason);
+    // Every other machine would meet the same fault.
+    if (result.final) break;
   }
   return { ok: false, reason: reasons.join('; ') || 'no test machine takes this work' };
 }
@@ -333,7 +372,8 @@ function minutesText(ms) {
  * went wrong, until one runs the work or `waitLimitMs` (AIO_REMOTE_WAIT_LIMIT_MS, 20 minutes by default) has gone.
  * The limit is checked only between tries, so a run that has started is never cut off. A run that completed on the
  * code sent is the answer even when it ran no tests: only faults on the way there are retried. Gives up with
- * `{ ok: false, notRun: true, reason }`, naming each machine's last problem.
+ * `{ ok: false, notRun: true, reason }`, naming each machine's last problem. A fault in the work itself, which every
+ * machine would meet, ends it at once with `{ ok: false, final: true, reason }`: see cannotUseLine.
  */
 async function runPatiently(machines, options) {
   const env = options.env ?? process.env;
@@ -354,7 +394,7 @@ async function runPatiently(machines, options) {
       const result = await runOnRemote({ ...runOptions, config: machine, waitForSlot: false, acceptEmpty: true });
       if (result.ok) return { ...result, machine };
       last.set(machine, result.reason);
-      if (result.final) return { ok: false, notRun: true, reason: `${result.reason}, and this Mac is switched off` };
+      if (result.final) return { ok: false, final: true, reason: result.reason };
     }
     const left = limitMs - (Date.now() - started);
     if (left <= 0) return giveUp(`no test machine could take it in ${minutesText(limitMs)}`);
@@ -363,4 +403,6 @@ async function runPatiently(machines, options) {
   }
 }
 
-module.exports = { WAIT_LIMIT_MS, runOnMachines, runOnRemote, sendSnapshot, sshCommand };
+module.exports = {
+  SSH_OPTIONS, WAIT_LIMIT_MS, cannotUseLine, runOnMachines, runOnRemote, sendScript, sendSnapshot, sshCommand, takeTwice,
+};

@@ -6,6 +6,7 @@ import { detectTrailingAnnounceThenHalt } from '../orchestration/announce-then-h
 import { InstanceAsyncWorkRegistry } from './instance-async-work-registry';
 import {
   ANNOUNCE_THEN_HALT_CONTINUATION_PROMPT_PREFIX,
+  buildContinueQuestionReply,
   InstanceAnnounceThenHaltContinuation,
   type InstanceAnnounceThenHaltContinuationHost,
 } from './instance-announce-then-halt-continuation';
@@ -938,6 +939,68 @@ describe('InstanceAnnounceThenHaltContinuation', () => {
 
     expect(sendInput).toHaveBeenCalledTimes(1);
   });
+  it('answers a trailing permission question with a carry-on reply', async () => {
+    const question = 'Step 1 is in place and the tests pass.\n\nShall I implement?';
+    instance.outputBuffer = [assistant(question)];
+    events.emit('provider:normalized-event', completionEnvelope('instance-1', undefined, question));
+
+    await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1));
+    const prompt = sendInput.mock.calls[0][1];
+    expect(prompt).toBe(buildContinueQuestionReply('Shall I implement?'));
+    expect(prompt).toContain('<last_question>Shall I implement?</last_question>');
+    expect(prompt).toContain('Stop and ask the user in one line instead');
+    expect(prompt).toContain('if the user told you to wait for their go-ahead or not to make changes');
+    expect(prompt).toContain('even if the user mentioned that step earlier');
+    expect(prompt).not.toMatch(/unless the user already asked/i);
+    expect(sendInput.mock.calls[0][3]).toMatchObject({
+      autoContinuation: true,
+      internalSource: 'continue-question-reply',
+    });
+  });
+
+  it('leaves permission questions alone when the setting is off', async () => {
+    continuation.stop();
+    continuation = new InstanceAnnounceThenHaltContinuation(
+      registry, host, isManagedLoopInstance, isPaused, undefined, () => false,
+    );
+    continuation.start();
+    const question = 'Shall I continue?';
+    instance.outputBuffer = [assistant(question)];
+    events.emit('provider:normalized-event', completionEnvelope('instance-1', undefined, question));
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(sendInput).not.toHaveBeenCalled();
+  });
+
+  it('shares the one automatic reply per user message with announced actions', async () => {
+    events.emit('provider:normalized-event', completionEnvelope());
+    await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1));
+
+    const question = 'Shall I continue?';
+    instance.outputBuffer = [assistant(question, 'assistant-2')];
+    events.emit('provider:normalized-event', completionEnvelope('instance-1', undefined, question, 4));
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(sendInput).toHaveBeenCalledTimes(1);
+
+    // The same question after a new user message is answered, so the cap above is what held it back.
+    events.emit('instance:input-started', { instanceId: 'instance-1', autoContinuation: false });
+    instance.requestCount += 1;
+    instance.outputBuffer = [assistant(question, 'assistant-3')];
+    events.emit('provider:normalized-event', completionEnvelope('instance-1', undefined, question, 5));
+    await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(2));
+    expect(sendInput.mock.calls[1][1]).toBe(buildContinueQuestionReply('Shall I continue?'));
+  });
+
+  it('does not answer a choice the user has to make', async () => {
+    // The question alone would be answered; the offered choice before it is what holds it back.
+    const question = 'I could patch the parser or rewrite it.\n\nShall I proceed?';
+    instance.outputBuffer = [assistant(question)];
+    events.emit('provider:normalized-event', completionEnvelope('instance-1', undefined, question));
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(sendInput).not.toHaveBeenCalled();
+  });
+
   it('does not turn an abnormal ending into an announce-then-halt continuation', async () => {
     const envelope = completionEnvelope();
     if (envelope.event.kind === 'complete') envelope.event.turnEnding = { reason: 'content_filter', evidence: 'native_content_filter' };

@@ -6,6 +6,7 @@ import type {
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import { generateId } from '../../shared/utils/id-generator';
+import type { ChromeProfileUse } from './browser-chrome-profile-choice';
 
 interface BrowserAuditEntryRow {
   id: string;
@@ -117,6 +118,46 @@ export class BrowserAuditStore {
       .all<BrowserAuditEntryRow>(...params);
 
     return rows.map((row) => this.map(row));
+  }
+
+  /**
+   * Successful agent actions per Chrome profile (extension install) on one
+   * computer since `since`, and how many were on `origin`. Shared-tab profile
+   * ids embed the install as `existing-tab:[n.<node>:]p.<install>:...`, so a
+   * range over that prefix uses the profile index.
+   */
+  countChromeProfileUse(query: { nodeId?: string; origin?: string; since: number }): ChromeProfileUse[] {
+    const prefix = query.nodeId ? `existing-tab:n.${query.nodeId}:p.` : 'existing-tab:p.';
+    const upperBound = `${prefix.slice(0, -1)}/`;
+    const rows = this.db
+      .prepare(
+        `
+        SELECT install, SUM(on_site) AS site_actions, COUNT(*) AS total_actions
+        FROM (
+          SELECT substr(rest, 1, instr(rest, ':') - 1) AS install,
+                 CASE WHEN origin = ? THEN 1 ELSE 0 END AS on_site
+          FROM (
+            SELECT substr(profile_id, ?) AS rest, origin
+            FROM browser_audit_entries
+            WHERE profile_id >= ? AND profile_id < ? AND outcome = 'succeeded' AND created_at >= ?
+          )
+        )
+        WHERE install <> ''
+        GROUP BY install
+      `,
+      )
+      .all<{ install: string; site_actions: number; total_actions: number }>(
+        query.origin ?? null,
+        prefix.length + 1,
+        prefix,
+        upperBound,
+        query.since,
+      );
+    return rows.map((row) => ({
+      extensionInstanceId: row.install,
+      siteActions: row.site_actions,
+      totalActions: row.total_actions,
+    }));
   }
 
   /**

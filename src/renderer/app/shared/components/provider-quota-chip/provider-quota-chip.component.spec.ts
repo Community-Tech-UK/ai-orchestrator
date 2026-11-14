@@ -47,7 +47,12 @@ class FakeProviderQuotaStore {
     this.accounts.set(value);
   }
 
-  readonly mostConstrainedWindow = computed(() => this.worst());
+  mostConstrainedWindowAmong(providers: readonly ProviderId[]) {
+    return computed(() => {
+      const worst = this.worst();
+      return worst && providers.includes(worst.provider) ? worst : null;
+    });
+  }
   readonly snapshots = computed(() => this.snaps());
   readonly lastPacingWarning = computed(() => this.pacing());
 
@@ -286,14 +291,14 @@ describe('ProviderQuotaChipComponent', () => {
       store.setSnapshot('codex', makeSnapshot('codex', 'plus', true, [
         { ...makeWindow(4, 100), id: 'codex.weekly', label: 'Codex weekly' },
       ]));
-      store.setSnapshot('gemini', makeSnapshot('gemini', 'personal', true, [
-        { ...makeWindow(3, 100), id: 'gemini.daily', label: 'Gemini daily' },
-      ]));
       store.setSnapshot('copilot', makeSnapshot('copilot', 'pro', true, [
         { ...makeWindow(2, 100), id: 'copilot.monthly', label: 'Copilot monthly' },
       ]));
       store.setSnapshot('cursor', makeSnapshot('cursor', 'pro', true, [
         { ...makeWindow(1, 100), id: 'cursor.included', label: 'Cursor included' },
+      ]));
+      store.setSnapshot('opencode', makeSnapshot('opencode', 'token plan', true, [
+        { ...makeWindow(3, 100), id: 'opencode.monthly', label: 'MiMo monthly' },
       ]));
       store.setWorst({ provider: 'claude', window: makeWindow(95, 100) });
       fixture.detectChanges();
@@ -303,7 +308,7 @@ describe('ProviderQuotaChipComponent', () => {
       expect(entries).toHaveLength(5);
       const strip = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
       expect(Array.from(entries).map((entry) => entry.textContent?.trim())).toEqual([
-        'CC 95%', 'CX 4%', 'GM 3%', 'CP 2%', 'CU 1%',
+        'CC 95%', 'CX 4%', 'CP 2%', 'CU 1%', 'OC 3%',
       ]);
       expect(strip).not.toContain('Claude');
 
@@ -323,8 +328,8 @@ describe('ProviderQuotaChipComponent', () => {
       store.setSnapshot('codex', makeSnapshot('codex', 'plus', true, [
         { ...makeWindow(7, 100), id: 'codex.weekly', label: 'Codex weekly' },
       ]));
-      store.setSnapshot('gemini', makeSnapshot('gemini', 'personal', true, [
-        { ...makeWindow(46, 100), id: 'gemini.daily', label: 'Gemini daily' },
+      store.setSnapshot('opencode', makeSnapshot('opencode', 'token plan', true, [
+        { ...makeWindow(46, 100), id: 'opencode.monthly', label: 'MiMo monthly' },
       ]));
       store.setSnapshot('copilot', makeSnapshot('copilot', 'pro', true, [
         { ...makeWindow(83, 100), id: 'copilot.monthly', label: 'Copilot monthly' },
@@ -341,17 +346,17 @@ describe('ProviderQuotaChipComponent', () => {
 
       const claude = findEntry('CC');
       const codex = findEntry('CX');
-      const gemini = findEntry('GM');
+      const opencode = findEntry('OC');
       const copilot = findEntry('CP');
       const cursor = findEntry('CU');
 
       expect(claude?.style.color).toBeTruthy();
       expect(codex?.style.color).toBeTruthy();
-      expect(gemini?.style.color).toBeTruthy();
+      expect(opencode?.style.color).toBeTruthy();
       expect(copilot?.style.color).toBeTruthy();
       expect(cursor?.style.color).toBeTruthy();
       expect(codex?.style.color).not.toBe(claude?.style.color);
-      expect(gemini?.style.color).not.toBe(claude?.style.color);
+      expect(opencode?.style.color).not.toBe(claude?.style.color);
       expect(cursor?.style.color).not.toBe(claude?.style.color);
     });
 
@@ -386,18 +391,39 @@ describe('ProviderQuotaChipComponent', () => {
       expect(stripText.trim()).toBe('CC 12%');
     });
 
-    it('summarizes Antigravity by the binding Gemini quota window', () => {
+    it('leaves Gemini, Grok and Antigravity out of the strip, the popover and the pacing warning', () => {
+      store.setSnapshot('codex', makeSnapshot('codex', 'plus', true, [
+        { ...makeWindow(51, 100), id: 'codex.weekly', label: 'Codex weekly' },
+      ]));
+      store.setSnapshot('gemini', makeSnapshot('gemini', 'personal', true, [
+        { ...makeWindow(3, 100), id: 'gemini.daily', label: 'Gemini daily' },
+      ]));
       store.setSnapshot('antigravity', makeSnapshot('antigravity', 'personal', true, [
-        { ...makeWindow(0, 100), id: 'antigravity.gemini-5h', label: 'Gemini · 5-hour' },
         { ...makeWindow(100, 100), id: 'antigravity.gemini-weekly', label: 'Gemini · weekly' },
+      ]));
+      store.setSnapshot('grok', makeSnapshot('grok', 'supergrok', true, [
+        { ...makeWindow(0, 100), id: 'grok.monthly', label: 'Monthly' },
       ]));
       store.setWorst({ provider: 'antigravity', window: makeWindow(100, 100) });
       fixture.detectChanges();
 
       const host = fixture.nativeElement as HTMLElement;
       const stripText = host.querySelector('[data-testid="quota-strip"]')?.textContent ?? '';
+      expect(stripText.trim()).toBe('CX 51%');
+      expect(component.tooltip()).not.toContain('Antigravity');
 
-      expect(stripText.trim()).toBe('AG 100%');
+      store.setPacingWarning({ provider: 'antigravity', window: { ...makeWindow(100, 100), id: 'antigravity.gemini-weekly' }, utilizationPercent: 100,
+        elapsedPercent: 50, utilizationThresholdPercent: 90, latestElapsedPercent: 52, timestamp: Date.now() });
+      fixture.detectChanges();
+      expect(component.pacingProvider()).toBeNull();
+      expect(component.tooltip()).not.toContain('Antigravity');
+
+      (host.querySelector('button[data-testid="quota-toggle"]') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      expect(host.querySelector('[data-testid="quota-provider-codex"]')).toBeTruthy();
+      expect(host.querySelector('[data-testid="quota-provider-gemini"]')).toBeNull();
+      expect(host.querySelector('[data-testid="quota-provider-antigravity"]')).toBeNull();
+      expect(host.querySelector('[data-testid="quota-provider-grok"]')).toBeNull();
     });
 
     it('shows per-provider freshness and refresh controls in the detail popover', () => {

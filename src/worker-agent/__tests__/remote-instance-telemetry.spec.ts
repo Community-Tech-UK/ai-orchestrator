@@ -144,8 +144,12 @@ describe('actual remote instance telemetry transport', () => {
         observeClaudeSubagentUsage(workerAdapter, { type: 'system', subtype: 'task_progress', tool_use_id: 'agent-tool',
           usage: { total_tokens: 100, tool_uses: 2, duration_ms: 300 }, description: 'excluded model text' });
         if (finalKind === 'foreground') flushClaudeSubagentUsage(workerAdapter);
-        else observeClaudeSubagentUsage(workerAdapter, { type: 'system', subtype: 'task_notification', tool_use_id: 'agent-tool',
-          usage: { totalTokens: 100, toolUses: 2, durationMs: 300 }, description: 'excluded model text' });
+        else {
+          observeClaudeSubagentUsage(workerAdapter, { type: 'system', subtype: 'task_notification', tool_use_id: 'agent-tool',
+            usage: { totalTokens: 100, toolUses: 2, durationMs: 300 }, description: 'excluded model text' });
+          // The notification defers its final sum; the turn's result flush settles it.
+          flushClaudeSubagentUsage(workerAdapter);
+        }
         workerAdapter.emit('complete', { content: 'OK' });
       },
       terminate: async () => undefined,

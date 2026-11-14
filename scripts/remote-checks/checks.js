@@ -11,14 +11,16 @@
  *
  * With this Mac switched off in the config (`useThisMac: false`), the checks wait for a test machine and never run
  * here: when none takes them it prints `Not run: <reason>`, writes `{ notRun: true, reason, exitCode: 69, checks: [] }`
- * to the --json file and exits NOT_RUN (69).
+ * to the --json file and exits NOT_RUN (69). A fault every machine would meet (the snapshot fails, or the machine
+ * refuses the checks), which waiting cannot fix, fails them instead: each one's result is the
+ * `Could not use a test machine: <reason>` line.
  */
 
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { NOT_RUN, appendRunLog, isLoopRun, isQueueCheck, machinesFor, readConfig, stayReason } = require('./route');
-const { runOnMachines } = require('./run-remote');
+const { cannotUseLine, runOnMachines } = require('./run-remote');
 
 /** The only commands this runs, exactly as written. remote-run.sh's `known_check` has the same list. */
 const KNOWN_CHECKS = [
@@ -155,6 +157,8 @@ async function runChecks({ checks, root, logPath, env = process.env, onResult = 
       ranOn = remote.machine.label;
       host = remote.machine.host;
       results.forEach(onResult);
+    } else if (thisMacOff && remote.final) {
+      return cannotUseOutcome({ root, env, started, reason: remote.reason, checks });
     } else if (thisMacOff) {
       reason = remote.notRun ? remote.reason : `${remote.reason}, and this Mac is switched off`;
       return notRunOutcome({ root, env, started, reason });
@@ -209,6 +213,27 @@ function notRunOutcome({ root, env, started, reason }) {
   return { exitCode: NOT_RUN, notRun: true, reason, ranOn: null, where: `Not run: ${reason}.`, fellBackBecause: null, checks: [] };
 }
 
+/** Nothing ran, and waiting would not help: see cannotUseLine. Every check fails, saying why. */
+function cannotUseOutcome({ root, env, started, reason, checks }) {
+  appendRunLog({
+    at: new Date(started).toISOString(),
+    project: path.basename(root),
+    kind: 'checks',
+    loop: isLoopRun(env),
+    ranOn: 'none',
+    checks: [],
+    tookMs: Date.now() - started,
+    exitCode: 1,
+    fellBackBecause: null,
+    notRunBecause: reason,
+  }, env);
+  const line = cannotUseLine(reason);
+  return {
+    exitCode: 1, cannotUse: true, reason, ranOn: null, where: line, fellBackBecause: null,
+    checks: checks.map(command => ({ command, exitCode: 1, durationMs: 0, output: line })),
+  };
+}
+
 /** Throws for a set it doesn't know. */
 function parseArgs(argv) {
   const args = [...argv];
@@ -260,7 +285,7 @@ async function main() {
   const outcome = await runChecks({ checks, root, logPath, onResult: show });
   if (outcome.where) process.stdout.write(`${outcome.where}\n`);
   if (jsonPath) fs.writeFileSync(jsonPath, JSON.stringify(outcome));
-  if (outcome.exitCode === 0 || outcome.notRun) {
+  if (outcome.exitCode === 0 || outcome.notRun || outcome.cannotUse) {
     fs.rmSync(logPath, { force: true });
   } else {
     process.stdout.write(`Full output: ${path.relative(root, logPath)}\n`);

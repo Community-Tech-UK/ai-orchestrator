@@ -26,6 +26,8 @@ const REPORT_AGAIN = `report again with \`${REPORT_READY_TOOL}\` (the same \`ite
 
 const FOREGROUND_CHECK_RULE = '- Run checks in the foreground; do not end your turn while one runs.';
 const RUNBOOK_RELATIVE = 'docs/plans/livetest-campaign-runbook.md';
+/** Run from the main checkout, so a worktree made before the script existed can still use it. */
+const DEV_APP_RELATIVE = 'scripts/remote-checks/dev-app.js';
 const MAX_DATA_CHARS = 12_000;
 export const WORKER_WAIT_RULE = 'Your work is handed over when you report, not when your turn ends. A command you start in the background (tests, a build, a gate) must be waited for, polling its output until it exits, before you report; never report or end your turn while one is still running.';
 /** The wait rule for a job on another computer: nothing is reported with a tool, so the turn ending hands the work over. */
@@ -187,8 +189,8 @@ function buildLivetestWorkerPrompt(ctx: ItemPromptContext, answer: string[]): st
     FOREGROUND_CHECK_RULE,
     ...autonomyRules(),
     WORKER_EVIDENCE_CLEANUP_RULE,
-    `- Read \`${path.join(ctx.repoRoot, RUNBOOK_RELATIVE)}\` in full first and follow it. Build and launch the dev app from your worktree.`,
-    `- Isolate your dev app: set \`AIO_DEV_USER_DATA_PATH=${env.userDataPath}\` and use \`--remote-debugging-port=${env.debugPort}\`. Enable focus emulation before any DOM assertion.`,
+    `- Read \`${path.join(ctx.repoRoot, RUNBOOK_RELATIVE)}\` in full first and follow it.`,
+    `- From your worktree, start the dev app on the test Mac: \`node ${path.join(ctx.repoRoot, DEV_APP_RELATIVE)} start --port ${env.debugPort} --data ${env.userDataPath}\`, then drive it at http://127.0.0.1:${env.debugPort}. Start it here only for a check that needs this Mac, and say why. Enable focus emulation before any DOM assertion.`,
     '- Record per-check evidence in the document as a new dated section. File every reproduced defect in the remediation register as the runbook describes.',
     '- Run `node scripts/next-lt-id.mjs` for the next defect identifier; it reads the maximum index number, not the last heading. Recheck before adding the row because the command does not reserve it. The index row owns status; implementation notes belong in the plan or live-check document fixing it, never in a closed plan. Read the register archive only when an index row points there.',
     '- Mark a check as needing James only for human authority not already granted, a physical device or identity step you cannot perform, or a necessary human fact unavailable from evidence. A routine technical choice, credential lookup or existing standing authorization is agent work. State the exact reason for each remaining human step.',

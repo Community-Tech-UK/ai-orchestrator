@@ -72,9 +72,19 @@ function remember<V>(map:Map<string,V>,key:string,value:V):void {
   map.delete(key);map.set(key,value);
   while (map.size>MAX_TRACKED) map.delete(map.keys().next().value!);
 }
+/** Final samples are summed this long after the finish notification: the CLI appends the helper's own final transcript line just after it, so a sum taken at the notification frame books only part of the run (LT-1091). `flush()` settles earlier. */
+export const FINAL_SETTLE_MS=2000;
+export interface ClaudeSubagentUsageTrackerOptions {
+  /** Called with each settled final sample; the per-host wiring emits it as `subagent_usage`. */
+  onFinal?:(sample:ClaudeSubagentUsage)=>void;
+  settleMs?:number;
+}
 export class ClaudeSubagentUsageTracker {
   private readonly samples=new Map<string,ClaudeSubagentUsage>();
   private readonly finished=new Set<string>();
+  private readonly timers=new Map<string,ReturnType<typeof setTimeout>>();
+  private readonly onFinal:((sample:ClaudeSubagentUsage)=>void)|undefined;
+  private readonly settleMs:number;
   private readonly ids=new Map<string,string>();
   private readonly ignoredTasks=new Set<string>();
   /** Helper tool-use id -> model on the helper's own forwarded frames. */
@@ -82,6 +92,10 @@ export class ClaudeSubagentUsageTracker {
   /** Helper tool-use id -> agent id (names the helper's files). */
   private readonly agentIds=new Map<string,string>();
   private location:ClaudeTranscriptLocationSource=null;
+  constructor(options?:ClaudeSubagentUsageTrackerOptions) {
+    this.onFinal=options?.onFinal;
+    this.settleMs=options?.settleMs ?? FINAL_SETTLE_MS;
+  }
   setLocation(location:ClaudeTranscriptLocationSource):void {this.location=location;}
   /** A frame the CLI tagged with the tool call that started its helper; main-thread frames are ignored. */
   observeAssistant(message:unknown):void {
@@ -106,16 +120,32 @@ export class ClaudeSubagentUsageTracker {
     const sample=parseClaudeSubagentUsage(message);
     if (!sample) return null;
     sample.toolUseId=this.ids.get(sample.toolUseId) ?? sample.toolUseId;
-    if (this.finished.has(sample.toolUseId)) return null;
+    if (this.finished.has(sample.toolUseId) || this.timers.has(sample.toolUseId)) return null;
     this.samples.set(sample.toolUseId,sample);
     if (!sample.final) return sample;
-    const enriched=this.enrich(sample);
-    this.finish(sample.toolUseId);
-    return enriched;
+    const timer=setTimeout(()=>{
+      this.timers.delete(sample.toolUseId);
+      try {this.settle(sample.toolUseId);} catch {/* telemetry must never break the turn */}
+    },this.settleMs);
+    timer.unref();
+    this.timers.set(sample.toolUseId,timer);
+    return null;
+  }
+  /** Settle a pending final now: sum its transcript, mark it done and hand the sample to `onFinal`. */
+  private settle(id:string):void {
+    const sample=this.samples.get(id);
+    if (!sample) return;
+    this.samples.delete(id);
+    const enriched=this.enrich({...sample,final:true});
+    this.finish(id);
+    try {this.onFinal?.(enriched);} catch {/* telemetry must never break the turn */}
   }
   flush():ClaudeSubagentUsage[] {
-    const finals=[...this.samples.values()].filter(sample=>!sample.final).map(sample=>this.enrich({...sample,final:true}));
-    for (const sample of finals) this.finish(sample.toolUseId);
+    const finals:ClaudeSubagentUsage[]=[];
+    for (const sample of [...this.samples.values()]) {
+      finals.push(this.enrich({...sample,final:true}));
+      this.finish(sample.toolUseId);
+    }
     return finals;
   }
   /** Snapshot of helpers still in flight (not yet finalized). Only scalars; no model text. */
@@ -182,6 +212,8 @@ export class ClaudeSubagentUsageTracker {
     return out;
   }
   private finish(id:string):void {
+    const timer=this.timers.get(id);
+    if (timer) {clearTimeout(timer);this.timers.delete(id);}
     this.samples.delete(id);this.finished.add(id);this.models.delete(id);this.agentIds.delete(id);
     for (const [task,tool] of this.ids) if (tool===id) {this.finished.add(task);this.ids.delete(task);}
     while (this.finished.size>10000) this.finished.delete(this.finished.values().next().value!);
@@ -190,7 +222,9 @@ export class ClaudeSubagentUsageTracker {
 interface Host {emit(event:string,...args:unknown[]):boolean}
 const trackers=new WeakMap<Host,ClaudeSubagentUsageTracker>();
 function tracker(host:Host):ClaudeSubagentUsageTracker {
-  let value=trackers.get(host);if (!value) {value=new ClaudeSubagentUsageTracker();trackers.set(host,value);}return value;
+  let value=trackers.get(host);
+  if (!value) {value=new ClaudeSubagentUsageTracker({onFinal:sample=>host.emit('subagent_usage',sample)});trackers.set(host,value);}
+  return value;
 }
 /** Expose the per-host tracker so a stop reporter can snapshot in-flight helpers. */
 export function getClaudeSubagentTracker(host:Host):ClaudeSubagentUsageTracker {

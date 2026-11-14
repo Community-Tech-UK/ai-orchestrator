@@ -17,6 +17,7 @@ import {
 import { deriveBrowserTargetInspectionState } from './browser-target-inspection';
 import type { BrowserExtensionCommandTarget } from './browser-extension-command-store';
 import { normalizeBrowserExtensionInstanceId } from './browser-extension-contact-state';
+import { chromeProfileLabel } from './browser-chrome-profile-choice';
 
 /**
  * How long a node's attachments survive a channel drop (reliability
@@ -419,6 +420,9 @@ export class BrowserExtensionTabStore {
       ...(attachment.tabIndex !== undefined ? { tabIndex: attachment.tabIndex } : {}),
       ...(attachment.pinned !== undefined ? { pinned: attachment.pinned } : {}),
       ...(attachment.active !== undefined ? { active: attachment.active } : {}),
+      ...(attachment.extensionInstanceId
+        ? { chromeProfile: chromeProfileLabel(attachment.extensionInstanceId) }
+        : {}),
       ...(attachment.reboundFromTargetId
         ? { reboundFromTargetId: attachment.reboundFromTargetId }
         : {}),

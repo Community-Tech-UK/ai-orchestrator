@@ -162,6 +162,7 @@ export function notDeliveredOpenTabMessage(
 export function recoveredFindOrOpenResultInput(
   request: BrowserGatewayFindOrOpenRequest,
   recovered: BrowserExistingTabAttachment,
+  profileNote?: string,
 ): BrowserGatewayResultInput<AgentSafeTarget> {
   return {
     context: request,
@@ -174,6 +175,7 @@ export function recoveredFindOrOpenResultInput(
     outcome: 'succeeded',
     summary: 'Opened a new Chrome tab through the Browser Gateway extension '
       + '(the ack timed out, but a post-timeout inventory probe confirmed the tab is open)',
+    ...(profileNote ? { reason: profileNote } : {}),
     origin: recovered.origin,
     url: recovered.url,
     data: safeTargetFromExistingTab(recovered),
@@ -187,6 +189,8 @@ export function recoveredFindOrOpenResultInput(
  */
 export async function recoverOpenedTabAfterTimeout(input: {
   nodeId?: string;
+  /** The Chrome profile the tab was opened in, when one was chosen. */
+  extensionInstanceId?: string;
   url: string;
   commandStore: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   listTabs: () => BrowserExistingTabAttachment[];
@@ -197,6 +201,7 @@ export async function recoverOpenedTabAfterTimeout(input: {
     localOnly: !input.nodeId,
   });
   const tabs = input.listTabs()
-    .filter((tab) => !input.nodeId || tab.nodeId === input.nodeId);
+    .filter((tab) => !input.nodeId || tab.nodeId === input.nodeId)
+    .filter((tab) => !input.extensionInstanceId || tab.extensionInstanceId === input.extensionInstanceId);
   return findExistingTabCandidate(tabs, input.url, undefined);
 }

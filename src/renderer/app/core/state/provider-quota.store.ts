@@ -7,7 +7,7 @@
  * (per-provider snapshot, most-constrained window across providers).
  */
 
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal, type Signal } from '@angular/core';
 import { QuotaIpcService } from '../services/ipc/quota-ipc.service';
 import type {
   ProviderId,
@@ -24,6 +24,48 @@ const EMPTY_STATE: ProviderQuotaState = {
 
 /** localStorage key for persisted per-provider poll intervals. */
 const POLL_PREFS_KEY = 'provider-quota.poll-intervals.v1';
+
+export interface MostConstrainedQuotaWindow {
+  provider: ProviderId;
+  window: ProviderQuotaWindow;
+  accountProfileId?: string;
+}
+
+/** The window nearest its limit, optionally among only some providers. */
+function findMostConstrainedWindow(
+  state: ProviderQuotaState,
+  providers?: readonly ProviderId[],
+): MostConstrainedQuotaWindow | null {
+  let worst: (MostConstrainedQuotaWindow & { ratio: number }) | null = null;
+  // A plain loop rather than a closure: TypeScript does not track assignments
+  // made inside a callback, so it would narrow `worst` to `never` below.
+  const candidates: (ProviderQuotaSnapshot | null | undefined)[] = [
+    ...Object.values(state.snapshots),
+    ...(state.accountSnapshots ?? []),
+  ];
+  for (const snap of candidates) {
+    if (!snap || !snap.ok) continue;
+    if (providers && !providers.includes(snap.provider)) continue;
+    for (const window of snap.windows) {
+      if (window.limit <= 0) continue;
+      const ratio = window.used / window.limit;
+      if (!worst || ratio > worst.ratio) {
+        worst = {
+          provider: snap.provider,
+          window,
+          ratio,
+          ...(snap.accountProfileId ? { accountProfileId: snap.accountProfileId } : {}),
+        };
+      }
+    }
+  }
+  if (!worst) return null;
+  return {
+    provider: worst.provider,
+    window: worst.window,
+    ...(worst.accountProfileId ? { accountProfileId: worst.accountProfileId } : {}),
+  };
+}
 
 @Injectable({ providedIn: 'root' })
 export class ProviderQuotaStore {
@@ -57,42 +99,13 @@ export class ProviderQuotaStore {
   readonly lastPacingWarning = this._lastPacingWarning.asReadonly();
   readonly lastExhausted = this._lastExhausted.asReadonly();
 
-  /** Most-constrained window across providers and pool accounts. Drives chip colour. */
-  readonly mostConstrainedWindow = computed<{
-    provider: ProviderId;
-    window: ProviderQuotaWindow;
-    accountProfileId?: string;
-  } | null>(() => {
-    const state = this._state();
-    let worst: { provider: ProviderId; window: ProviderQuotaWindow; ratio: number; accountProfileId?: string } | null = null;
-    // A plain loop rather than a closure: TypeScript does not track assignments
-    // made inside a callback, so it would narrow `worst` to `never` below.
-    const candidates: (ProviderQuotaSnapshot | null | undefined)[] = [
-      ...Object.values(state.snapshots),
-      ...(state.accountSnapshots ?? []),
-    ];
-    for (const snap of candidates) {
-      if (!snap || !snap.ok) continue;
-      for (const window of snap.windows) {
-        if (window.limit <= 0) continue;
-        const ratio = window.used / window.limit;
-        if (!worst || ratio > worst.ratio) {
-          worst = {
-            provider: snap.provider,
-            window,
-            ratio,
-            ...(snap.accountProfileId ? { accountProfileId: snap.accountProfileId } : {}),
-          };
-        }
-      }
-    }
-    if (!worst) return null;
-    return {
-      provider: worst.provider,
-      window: worst.window,
-      ...(worst.accountProfileId ? { accountProfileId: worst.accountProfileId } : {}),
-    };
-  });
+  /** Most-constrained window across providers and pool accounts. Drives the Settings badge. */
+  readonly mostConstrainedWindow = computed(() => findMostConstrainedWindow(this._state()));
+
+  /** Most-constrained window across only these providers and their pool accounts. Call once and keep the signal. */
+  mostConstrainedWindowAmong(providers: readonly ProviderId[]): Signal<MostConstrainedQuotaWindow | null> {
+    return computed(() => findMostConstrainedWindow(this._state(), providers));
+  }
 
   /** Returns the snapshot signal for a single provider (memoised by call site). */
   snapshotFor(provider: ProviderId) {

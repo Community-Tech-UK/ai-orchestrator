@@ -14,7 +14,8 @@
  * test machine only when this Mac is switched off in the config; otherwise a run with arguments
  * stays here, as it always has. With this Mac switched off nothing runs here but the suite's
  * Mac-only tests: when no test machine takes the run it prints `Not run: <reason>` and exits
- * NOT_RUN (69), and the caller must exit 69 too, without running anything.
+ * NOT_RUN (69), and the caller must exit 69 too, without running anything. A fault every machine would meet (the
+ * snapshot fails), which waiting cannot fix, prints `Could not use a test machine: <reason>` and fails instead.
  */
 
 const { spawnSync } = require('child_process');
@@ -22,7 +23,7 @@ const fs = require('fs');
 const path = require('path');
 const { findProject } = require('./projects');
 const { NOT_RUN, appendRunLog, decideRoute, isLoopRun, machinesFor, readConfig, relativeToRoot } = require('./route');
-const { runOnMachines } = require('./run-remote');
+const { cannotUseLine, runOnMachines } = require('./run-remote');
 const { takeSnapshot } = require('./snapshot');
 
 const STAY_HERE = 75;
@@ -48,6 +49,15 @@ function notRun(project, started, reason) {
     ranOn: 'none', waitedMs: 0, tookMs: Date.now() - started, exitCode: NOT_RUN, fellBackBecause: null, notRunBecause: reason,
   });
   return NOT_RUN;
+}
+
+function cannotUse(project, started, reason) {
+  process.stdout.write(`${cannotUseLine(reason)}\n`);
+  appendRunLog({
+    at: new Date(started).toISOString(), project: project.id, kind: 'project', loop: isLoopRun(), fingerprint: null,
+    ranOn: 'none', waitedMs: 0, tookMs: Date.now() - started, exitCode: 1, fellBackBecause: null, notRunBecause: reason,
+  });
+  return 1;
 }
 
 /** The suite runners' own rule: anything shaped like a path or a pattern, or a path that exists, names files. */
@@ -103,7 +113,7 @@ async function main() {
     say(`running on ${machines.length === 1 ? machines[0].label : 'your test machines'}`);
     remote = await runOnMachines(machines, {
       root: project.root, logPath, noCache: false, ci: process.env.CI, project,
-      take: root => takeSnapshot(root, { folders: project.sends }),
+      take: root => takeSnapshot(root, { folders: project.sends, ignored: project.sendsIgnored }),
       ...(thisMacOff ? { patient: true, small: farArgs.length > 0 } : {}),
       ...(farArgs.length ? { argv: farArgs } : {}),
     });
@@ -112,6 +122,7 @@ async function main() {
   }
   if (!remote.ok && thisMacOff) {
     fs.rmSync(logPath, { force: true });
+    if (remote.final) return cannotUse(project, started, remote.reason);
     return notRun(project, started, remote.notRun ? remote.reason : `${remote.reason}, and this Mac is switched off`);
   }
   if (!remote.ok) return fellBack(project, started, remote.reason, logPath);

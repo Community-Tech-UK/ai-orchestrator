@@ -300,7 +300,15 @@ describe('plan queue prompts', () => {
   it('gives the livetest worker the port recorded on its item, not one derived from the id', () => {
     expect(livetestEnvironmentFor({ id: 'item-aaaa1111', livetestPort: 9876 }).debugPort).toBe(9876);
     const prompt = buildWorkerPrompt({ item: { ...item, livetestPort: 9876 }, kind: 'livetests', repoRoot: '/repo', worktreePath: '/w' });
-    expect(prompt).toContain('--remote-debugging-port=9876');
+    expect(prompt).toContain('start --port 9876 --data ');
+  });
+
+  it('tells the livetest worker to start its dev app on the test Mac, from the main checkout\'s script', () => {
+    const prompt = buildWorkerPrompt({ item: { ...item, livetestPort: 9876 }, kind: 'livetests', repoRoot: '/repo', worktreePath: '/w' });
+    const { userDataPath } = livetestEnvironmentFor({ ...item, livetestPort: 9876 });
+    expect(prompt).toContain(`node /repo/scripts/remote-checks/dev-app.js start --port 9876 --data ${userDataPath}`);
+    expect(prompt).toContain('http://127.0.0.1:9876');
+    expect(prompt).not.toContain('Build and launch the dev app from your worktree');
   });
 });
 

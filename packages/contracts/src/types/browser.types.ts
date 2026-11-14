@@ -127,6 +127,12 @@ export interface BrowserTarget {
   pinned?: boolean;
   active?: boolean;
   /**
+   * Short name of the Chrome profile a shared tab is in, when its computer
+   * reports one. One computer can run the extension in several profiles, each
+   * with its own sign-ins.
+   */
+  chromeProfile?: string;
+  /**
    * Reliability hardening: set when this target is the same logical tab as a
    * previously attached target that died in a node drop — callers holding the
    * old ids should remap to these ids instead of hunting for the tab.
@@ -346,6 +352,8 @@ export interface BrowserFindOrOpenRequest {
   titleHint?: string;
   nodeId?: string;
   computer?: string;
+  /** A Chrome profile on the computer, as listed in a target's `chromeProfile`. */
+  chromeProfile?: string;
 }
 
 export interface BrowserRecoverExtensionRequest {

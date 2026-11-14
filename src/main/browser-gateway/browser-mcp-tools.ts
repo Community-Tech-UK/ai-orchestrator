@@ -227,6 +227,12 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     },
     nodeId: nodeIdProp,
     computer: computerProp,
+    chromeProfile: {
+      ...stringProp,
+      description: 'Optional Chrome profile to use when the computer has several, as shown in a tab\'s '
+        + 'chromeProfile. Leave it out and Harness picks the profile agents have used for this website before. '
+        + 'Set it when a page opened signed out or in the wrong account and the result names other profiles.',
+    },
   }),
   'browser.close_tab': objectSchema({
     profileId: profileIdProp,

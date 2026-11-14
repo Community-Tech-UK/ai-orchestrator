@@ -1325,6 +1325,36 @@ describe('BrowserExtensionCommandStore with several Chrome profiles on one queue
     expect(store.listRecentExtensionInstances(QUEUE)).toEqual([]);
   });
 
+  it('lists only profiles able to take a browser command when asked for command-ready ones', async () => {
+    const store = new BrowserExtensionCommandStore();
+    void store.pollCommand(QUEUE, { timeoutMs: 0, extensionInstanceId: PROFILE_A, allowBrowserCommands: false });
+    void store.pollCommand(QUEUE, { timeoutMs: 0, extensionInstanceId: PROFILE_B });
+
+    expect(store.listRecentExtensionInstances(QUEUE).sort()).toEqual([PROFILE_A, PROFILE_B]);
+    expect(store.listRecentExtensionInstances(QUEUE, true)).toEqual([PROFILE_B]);
+  });
+
+  it('counts a profile running a command as command-ready, though it does not poll meanwhile', async () => {
+    vi.useFakeTimers();
+    const store = new BrowserExtensionCommandStore();
+    const running = store.sendCommand({
+      queueKey: QUEUE,
+      command: 'wait_for',
+      target: tabTarget(11, PROFILE_A),
+      timeoutMs: 120_000,
+    });
+    const command = await store.pollCommand(QUEUE, { timeoutMs: 0, extensionInstanceId: PROFILE_A });
+    await vi.advanceTimersByTimeAsync(45_000);
+
+    expect(store.listRecentExtensionInstances(QUEUE, true)).toEqual([PROFILE_A]);
+    // Profile-wide fan-outs (inventory refresh) still go only to profiles polling now.
+    expect(store.listRecentExtensionInstances(QUEUE)).toEqual([]);
+
+    store.resolveCommand({ queueKey: QUEUE, commandId: command!.id, ok: true, result: {} });
+    await running;
+    expect(store.listRecentExtensionInstances(QUEUE, true)).toEqual([]);
+  });
+
   it('sends a profile-wide command once per recent profile', async () => {
     const store = new BrowserExtensionCommandStore();
     await store.pollCommand(QUEUE, { timeoutMs: 0, extensionInstanceId: PROFILE_A });

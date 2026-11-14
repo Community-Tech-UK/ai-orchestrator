@@ -10,7 +10,7 @@ interface Snapshot { commit: string; tree: string; env: NodeJS.ProcessEnv; clean
 const require = createRequire(import.meta.url);
 const { SnapshotRefused, takeSnapshot, takeStagedSnapshot } = require('./snapshot.js') as {
   SnapshotRefused: new (message: string) => Error;
-  takeSnapshot(root: string, options?: { maxUntrackedBytes?: number; baseEnv?: NodeJS.ProcessEnv }): Snapshot;
+  takeSnapshot(root: string, options?: { maxUntrackedBytes?: number; baseEnv?: NodeJS.ProcessEnv; folders?: string[]; ignored?: string[] }): Snapshot;
   takeStagedSnapshot(root: string, options?: { baseEnv?: NodeJS.ProcessEnv }): Snapshot;
 };
 
@@ -184,6 +184,77 @@ describe('takeSnapshot', () => {
     snapshot.cleanup();
 
     expect(fingerprint(join(root, '.git'))).toEqual(before);
+  });
+
+  it('sends the named folders this copy has and skips one it lacks, as a Plan Queue copy may (LT-1125)', () => {
+    const root = repo();
+    mkdirSync(join(root, 'apps'));
+    writeFileSync(join(root, 'apps/new.txt'), 'new\n');
+    writeFileSync(join(root, 'loose.txt'), 'outside the folders\n');
+
+    const snapshot = takeSnapshot(root, { folders: ['apps', '_scratch/missing'] });
+
+    expect(filesIn(root, snapshot).sort()).toEqual(['.gitignore', 'apps/new.txt', 'tracked.txt']);
+    snapshot.cleanup();
+  });
+
+  it('still records a named folder that was deleted from disk but is tracked', () => {
+    const root = repo();
+    mkdirSync(join(root, 'gone'));
+    writeFileSync(join(root, 'gone/file.txt'), 'x\n');
+    git(root, 'add', '-A');
+    git(root, 'commit', '-qm', 'gone');
+    rmSync(join(root, 'gone'), { recursive: true });
+
+    const snapshot = takeSnapshot(root, { folders: ['gone'] });
+
+    expect(filesIn(root, snapshot)).not.toContain('gone/file.txt');
+    snapshot.cleanup();
+  });
+
+  it('sends only what git has when none of the named folders is here, not every file', () => {
+    const root = repo();
+    writeFileSync(join(root, 'loose.txt'), 'outside the folders\n');
+
+    const snapshot = takeSnapshot(root, { folders: ['missing'] });
+
+    expect(filesIn(root, snapshot).sort()).toEqual(['.gitignore', 'tracked.txt']);
+    snapshot.cleanup();
+  });
+
+  it('sends an ignored folder named in `ignored` when it is here, still leaving out secrets and node_modules', () => {
+    const root = repo();
+    writeFileSync(join(root, '.gitignore'), 'ignored.txt\n_scratch/\n');
+    mkdirSync(join(root, '_scratch/cohort/node_modules'), { recursive: true });
+    writeFileSync(join(root, '_scratch/cohort/items.json'), '[]\n');
+    writeFileSync(join(root, '_scratch/cohort/.env'), 'SECRET=1\n');
+    writeFileSync(join(root, '_scratch/cohort/node_modules/x.js'), 'x\n');
+    writeFileSync(join(root, '_scratch/other.txt'), 'not named\n');
+
+    const snapshot = takeSnapshot(root, { folders: ['.'], ignored: ['_scratch/cohort', '_scratch/absent'] });
+
+    expect(filesIn(root, snapshot).sort()).toEqual(['.gitignore', '_scratch/cohort/items.json', 'tracked.txt']);
+    snapshot.cleanup();
+  });
+
+  it('counts an ignored folder towards the size limit', () => {
+    const root = repo();
+    mkdirSync(join(root, 'private'));
+    writeFileSync(join(root, '.gitignore'), 'ignored.txt\nprivate/\n');
+    writeFileSync(join(root, 'private/big.bin'), Buffer.alloc(4096));
+
+    expect(() => takeSnapshot(root, { maxUntrackedBytes: 1024, ignored: ['private'] })).toThrow(/over/);
+  });
+
+  it('keeps secrets out when the caller set git to read paths literally', () => {
+    const root = repo();
+    writeFileSync(join(root, '.env'), 'SECRET=1\n');
+    writeFileSync(join(root, 'new.txt'), 'new\n');
+
+    const snapshot = takeSnapshot(root, { baseEnv: { ...process.env, GIT_LITERAL_PATHSPECS: '1' } });
+
+    expect(filesIn(root, snapshot).sort()).toEqual(['.gitignore', 'new.txt', 'tracked.txt']);
+    snapshot.cleanup();
   });
 
   it('stays a complete, valid tree while a file is being replaced', async () => {

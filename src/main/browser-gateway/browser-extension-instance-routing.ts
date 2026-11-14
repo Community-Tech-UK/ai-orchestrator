@@ -59,9 +59,10 @@ export class ExtensionInstancePollTracker {
     return false;
   }
 
+  /** Installs that polled recently; with `capableOnly`, only those whose last poll could take commands. */
   listRecent(
     queueKey: BrowserExtensionCommandQueueKey,
-    withinMs = BROWSER_EXTENSION_INSTANCE_RECENT_MS,
+    capableOnly = false,
     now = Date.now(),
   ): string[] {
     const polls = this.pollsByQueue.get(queueKey);
@@ -69,11 +70,11 @@ export class ExtensionInstancePollTracker {
       return [];
     }
     const recent: string[] = [];
-    for (const [instanceId, { at: polledAt }] of polls.entries()) {
-      if (now - polledAt <= withinMs) {
-        recent.push(instanceId);
-      } else if (now - polledAt > BROWSER_EXTENSION_INSTANCE_RECENT_MS) {
+    for (const [instanceId, poll] of polls.entries()) {
+      if (now - poll.at > BROWSER_EXTENSION_INSTANCE_RECENT_MS) {
         polls.delete(instanceId);
+      } else if (!capableOnly || poll.capable) {
+        recent.push(instanceId);
       }
     }
     if (polls.size === 0) {

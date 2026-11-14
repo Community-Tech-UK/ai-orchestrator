@@ -36,11 +36,18 @@ const SECRET_EXCLUSIONS = SECRET_NAME_GLOBS.map(glob => `:(exclude,glob,icase)**
  * installed packages with a link to nothing.
  */
 const LEFT_OUT = [...SECRET_EXCLUSIONS, ':(exclude,glob)**/node_modules'];
+/** An ignored folder sent by name (`ignored` below) has no .gitignore rule to keep the files in its packages out. */
+const IGNORED_LEFT_OUT = [...LEFT_OUT, ':(exclude,glob)**/node_modules/**'];
 
-/** Git exports these inside hooks. Left in place they would aim every command below at the real repository. */
+/**
+ * Git exports these inside hooks. Left in place they would aim every command below at the real repository, or (the
+ * pathspec ones, which `git --literal-pathspecs` and some editors set) turn the exclusions that keep secrets out into
+ * plain paths.
+ */
 const SCOPED_GIT_ENV = [
   'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES',
   'GIT_COMMON_DIR', 'GIT_PREFIX',
+  'GIT_LITERAL_PATHSPECS', 'GIT_GLOB_PATHSPECS', 'GIT_NOGLOB_PATHSPECS', 'GIT_ICASE_PATHSPECS',
 ];
 
 class SnapshotRefused extends Error {}
@@ -64,12 +71,20 @@ function splitNul(text) {
   return text.split('\0').filter(Boolean);
 }
 
+/**
+ * The untracked files `git add` would take from these folders, and from `ignored` ones with their ignored files too.
+ * Empty for no folders: a pathspec of exclusions alone would mean every file.
+ */
+function untrackedIn(root, env, folders, ignored) {
+  const list = (options, paths, leftOut) => (paths.length
+    ? splitNul(runGit(['ls-files', '--others', ...options, '-z', '--', ...paths, ...leftOut], { cwd: root, env }))
+    : []);
+  return [...list(['--exclude-standard'], folders, LEFT_OUT), ...list([], ignored, IGNORED_LEFT_OUT)];
+}
+
 /** Refuses what shouldn't be sent before anything is hashed. */
-function checkUntracked(root, env, maxBytes, folders) {
-  const untracked = splitNul(runGit(
-    ['ls-files', '--others', '--exclude-standard', '-z', '--', ...folders, ...LEFT_OUT],
-    { cwd: root, env },
-  ));
+function checkUntracked(root, env, maxBytes, folders, ignored) {
+  const untracked = untrackedIn(root, env, folders, ignored);
   let total = 0;
   for (const rel of untracked) {
     if (rel.endsWith('/')) {
@@ -152,15 +167,36 @@ function snapshotFrom(root, baseEnv, sourceIndex, fill) {
   }
 }
 
+/** Whether git has anything at this path in the index, as it does for a tracked folder deleted from disk. */
+function inIndex(root, env, rel) {
+  return runGit(['ls-files', '-z', '--', rel], { cwd: root, env }).length > 0;
+}
+
 /**
  * The exact files on disk, including uncommitted ones. With `folders`, unstaged and untracked
- * files outside them are left out, and the rest goes as the index has it.
+ * files outside them are left out, and the rest goes as the index has it. `ignored` names folders
+ * git ignores whose untracked files go too: data the tests read that must never be committed.
+ * A folder this copy doesn't have is skipped, as a Plan Queue copy made from a commit has no
+ * ignored folders and may lack others.
  */
-function takeSnapshot(root, { maxUntrackedBytes = MAX_UNTRACKED_BYTES, baseEnv = process.env, folders = ['.'] } = {}) {
+function takeSnapshot(root, {
+  maxUntrackedBytes = MAX_UNTRACKED_BYTES, baseEnv = process.env, folders = ['.'], ignored = [],
+} = {}) {
   return snapshotFrom(root, baseEnv, null, (env) => {
-    checkUntracked(root, env, maxUntrackedBytes, folders);
+    const onDisk = rel => fs.existsSync(path.join(root, rel));
+    const present = folders.filter(rel => onDisk(rel) || inIndex(root, env, rel));
+    const presentIgnored = ignored.filter(onDisk);
+    checkUntracked(root, env, maxUntrackedBytes, present, presentIgnored);
     const knownGitlinks = gitlinks(root, env);
-    runGit(['add', '-A', '--', ...folders, ...LEFT_OUT], { cwd: root, env });
+    // With no folder named, git would read the exclusions alone as every file.
+    if (present.length) runGit(['add', '-A', '--', ...present, ...LEFT_OUT], { cwd: root, env });
+    // By name: once exclusions are given, git's own walk never enters an ignored folder, even with --force.
+    const ignoredFiles = untrackedIn(root, env, [], presentIgnored);
+    if (ignoredFiles.length) {
+      runGit(['--literal-pathspecs', 'add', '--force', '--pathspec-from-file=-', '--pathspec-file-nul'], {
+        cwd: root, env, input: ignoredFiles.join('\0'), stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    }
     for (const gitlink of gitlinks(root, env)) {
       if (!knownGitlinks.has(gitlink)) {
         throw new SnapshotRefused(`${gitlink} is a separate git repository, so its files would be left out`);

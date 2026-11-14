@@ -5,11 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createOpenCodeAdapter } from './opencode-adapter-factory';
 import type { UnifiedSpawnOptions } from './adapter-factory.types';
 import { _resetOpenCodeRegionModelMetadataForTesting } from '../../providers/opencode-region-model-metadata';
+import { _resetOpenCodeLaunchCacheForTesting } from './opencode-cli-launch';
 
 const state = vi.hoisted(() => ({ capture: vi.fn(), lookup: vi.fn(), acquire: vi.fn(), lister: vi.fn(), candidates: [] as string[], major2: false }));
 vi.mock('node:child_process', async (original) => {
   const actual = await original<typeof import('node:child_process')>();
-  return { ...actual, spawnSync: state.lookup, default: { ...actual, spawnSync: state.lookup } };
+  // `state.lookup` returns a `{ status, stdout }` result; adapt it to execFile's callback.
+  const execFile = (command: string, args: string[], options: unknown, callback: (error: Error | null, stdout: string) => void) => {
+    const result = state.lookup(command, args, options) as { status: number; stdout?: string };
+    callback(result.status === 0 ? null : new Error(`exit ${result.status}`), result.stdout ?? '');
+  };
+  return { ...actual, execFile, default: { ...actual, execFile } };
 });
 vi.mock('../cli-registry', async (original) => ({ ...await original<typeof import('../cli-registry')>(), getCliCandidatePaths: () => [] }));
 vi.mock('./opencode-effective-budget-config', async (original) => ({ ...await original<typeof import('./opencode-effective-budget-config')>(), runOpenCodeCapture: state.capture }));
@@ -19,6 +25,7 @@ let root: string;
 beforeEach(() => {
   vi.clearAllMocks(); state.major2 = false; root = mkdtempSync(join(tmpdir(), 'aio-required-major-'));
   _resetOpenCodeRegionModelMetadataForTesting();
+  _resetOpenCodeLaunchCacheForTesting();
   state.candidates = [join(root, 'opencode'), join(root, 'opencode2')];
   for (const candidate of state.candidates) writeFileSync(candidate, 'LOCAL_FAKE_CLI_PLACEHOLDER');
   state.lookup.mockImplementation((_command: string, args: string[]) => ({ status: 0, stdout: args.includes('opencode2') && state.major2 ? state.candidates[1] : args.includes('opencode') ? state.candidates[0] : '' }));
@@ -39,7 +46,8 @@ describe('actual selector at the OpenCode factory boundary', () => {
     const adapter = createOpenCodeAdapter({ workingDirectory: root, ...options });
     expect(await adapter.checkStatus()).toMatchObject({ available: false, error: expect.stringContaining('requires OpenCode 2') });
     await expect(adapter.spawn()).rejects.toThrow('requires OpenCode 2');
-    expect(state.capture.mock.calls.map(([params]) => params.args)).toEqual([['--version'], ['--version']]);
+    // Startup reuses the version readiness read from the unchanged install.
+    expect(state.capture.mock.calls.map(([params]) => params.args)).toEqual([['--version']]);
     expect(state.acquire).not.toHaveBeenCalled();
   });
 
@@ -66,14 +74,23 @@ describe('actual selector at the OpenCode factory boundary', () => {
   it('filters cold account metadata selection after an install changes during the concurrency wait', async () => {
     state.major2 = true;
     const release = vi.fn(); let afterWait = 0;
-    state.acquire.mockImplementation(async () => { afterWait = state.capture.mock.calls.length; state.major2 = false; return release; });
+    let lookupsBeforeWait = 0;
+    state.acquire.mockImplementation(async () => {
+      afterWait = state.capture.mock.calls.length; lookupsBeforeWait = state.lookup.mock.calls.length; state.major2 = false; return release;
+    });
     const adapter = createOpenCodeAdapter({ workingDirectory: root, nodePlacement: { requiresOpenCodeMajor: 2 },
       model: 'xiaomi-token-plan-ams/mimo-v2.6-flash', accountRoute: {
         provider: 'opencode', profileId: 'metadata-race-placeholder', source: 'default', executionNodeId: 'local', region: 'ams',
       } });
     await expect(adapter.spawn()).rejects.toThrow('requires OpenCode 2');
     expect(afterWait).toBe(3);
-    expect(state.capture.mock.calls.slice(afterWait).map(([params]) => params.args)).toEqual([['--version'], ['--version']]);
+    // After the wait the installs are listed afresh (the v2 one is gone). The one
+    // version read comes from the account-metadata selection, which runs in
+    // process.cwd() (a different folder, so nothing is remembered there); the
+    // startup selection in `root` reuses v1's remembered version and refuses it.
+    // The rejection below is what proves startup did not keep the old v2 choice.
+    expect(state.lookup.mock.calls.length).toBeGreaterThan(lookupsBeforeWait);
+    expect(state.capture.mock.calls.slice(afterWait).map(([params]) => params.args)).toEqual([['--version']]);
     expect(state.lister).not.toHaveBeenCalled(); expect(release).toHaveBeenCalledOnce();
   });
 });

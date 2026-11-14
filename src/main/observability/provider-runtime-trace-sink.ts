@@ -14,9 +14,11 @@ import { Worker } from 'node:worker_threads';
 import { BoundedAsyncQueue } from '../runtime/bounded-async-queue';
 import { getLogger } from '../logging/logger';
 import { redactForSink } from '../diagnostics/redaction';
+import { resolveDefaultTraceFilePath } from './local-trace-exporter';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import type {
   TraceRecord,
+  TraceWorkerData,
   WorkerOutboundMessage,
 } from './provider-runtime-trace-protocol';
 
@@ -87,15 +89,21 @@ export function toTraceRecord(envelope: ProviderRuntimeEventEnvelope): TraceReco
   return record;
 }
 
+/** Kept apart from the OpenTelemetry `traces.ndjson`: a different record shape and writer. */
+export function resolveProviderRuntimeTraceFilePath(): string {
+  return path.join(path.dirname(resolveDefaultTraceFilePath()), 'provider-runtime-trace.ndjson');
+}
+
 function createWorker(): Worker | null {
   try {
+    const workerData: TraceWorkerData = { traceFilePath: resolveProviderRuntimeTraceFilePath() };
     const jsEntry = path.join(__dirname, 'provider-runtime-trace-worker.js');
     if (existsSync(jsEntry)) {
-      return new Worker(jsEntry);
+      return new Worker(jsEntry, { workerData });
     }
     const tsEntry = path.join(__dirname, 'provider-runtime-trace-worker.ts');
     if (existsSync(tsEntry)) {
-      return new Worker(tsEntry, { execArgv: ['--import', 'tsx'] });
+      return new Worker(tsEntry, { workerData, execArgv: ['--import', 'tsx'] });
     }
     logger.warn('Provider runtime trace worker entrypoint not found; trace writes disabled');
     return null;

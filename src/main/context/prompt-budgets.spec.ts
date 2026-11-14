@@ -60,7 +60,9 @@ const BUDGET = {
   // Oct-30 merge: main's cleanup rule now preserves installed dependencies for the
   // verifier. Actual worker/livetest/fix renders are 3,368 / 3,333 / 919 characters.
   queueWorker: { chars: 5200, render: () => buildWorkerPrompt(queue) },
-  queueLivetestWorker: { chars: 5200, render: () => buildWorkerPrompt({ ...queue, kind: 'livetests' }) },
+  // 13 Nov: the livetest worker starts its dev app on the test Mac with a named command and port, instead of building
+  // here. Measured: livetest worker 5,289, livetest step-up 7,321; ceilings round up to 100.
+  queueLivetestWorker: { chars: 5300, render: () => buildWorkerPrompt({ ...queue, kind: 'livetests' }) },
   queueFix: { chars: 1400, render: () => buildFixPrompt(1, 3, [{ severity: 'high', confidence: 90, summary: 'The fixture retry is missing.', file: 'fixture.ts:1', evidence: 'Pinned evidence.' }]) },
   queueConflict: { chars: 600, render: () => buildConflictPrompt('main', ['fixture.ts']) },
   queueGateFailure: { chars: 500, render: () => buildGateFailurePrompt('npm run lint', 'Pinned failure output') },
@@ -79,7 +81,7 @@ const BUDGET = {
   queueContinueConflict: { chars: 800, render: () => buildContinuePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
   queueResumeConflict: { chars: 6300, render: () => buildResumePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
   queueStepUp: { chars: 7300, render: () => buildStepUpPrompt(queue, 3, findings) },
-  queueLivetestStepUp: { chars: 7300, render: () => buildStepUpPrompt({ ...queue, kind: 'livetests' }, 3, findings) },
+  queueLivetestStepUp: { chars: 7400, render: () => buildStepUpPrompt({ ...queue, kind: 'livetests' }, 3, findings) },
   queueVerifierReminder: { chars: 1300, render: () => buildVerifierReminderPrompt(item.id, 1, 2) },
   // Main's verifier handoff requires waiting for background gates, Harness tool
   // discovery, an accepted verdict receipt and (Oct-30) installing missing dependencies

@@ -103,6 +103,7 @@ export interface BrowserGatewayFindOrOpenRequest extends BrowserGatewayContext {
   titleHint?: string;
   nodeId?: string;
   computer?: string;
+  chromeProfile?: string;
 }
 
 export interface BrowserGatewayCloseTabRequest extends BrowserGatewayContext {
@@ -295,7 +296,7 @@ export interface BrowserGatewayServiceOptions {
     'recordIntent' | 'recordOutcome' | 'list'
   > | null;
   reliabilityEvents?: Pick<BrowserReliabilityEvents, 'record'>;
-  auditStore?: Pick<BrowserAuditStore, 'record' | 'list'>;
+  auditStore?: Pick<BrowserAuditStore, 'record' | 'list' | 'countChromeProfileUse'>;
   grantStore?: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   approvalStore?: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
   healthService?: Pick<BrowserHealthService, 'diagnose'>;

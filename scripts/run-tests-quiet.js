@@ -66,7 +66,7 @@ const { takeMacTurn } = require('./remote-checks/mac-turn');
 const {
   NOT_RUN, appendRunLog, countSpecFiles, decideRoute, isLoopRun, machinesFor, readConfig, remoteChecksDir,
 } = require('./remote-checks/route');
-const { runOnMachines, runOnRemote } = require('./remote-checks/run-remote');
+const { cannotUseLine, runOnMachines, runOnRemote } = require('./remote-checks/run-remote');
 
 const ROOT = path.resolve(__dirname, '..');
 const SCRATCH_DIR = path.join(ROOT, '_scratch');
@@ -378,7 +378,8 @@ async function runSuite() {
       // This Mac's full run covers the Mac-only specs, so one started beside it has nothing to add.
       unmerged = macOnlyElsewhere;
       clearRunOutput();
-      if (thisMacOff) outcome = notRunOutcome(remote.notRun ? remote.reason : `${remote.reason}, and this Mac is switched off`);
+      if (thisMacOff && remote.final) outcome = cannotUseOutcome(reason);
+      else if (thisMacOff) outcome = notRunOutcome(remote.notRun ? remote.reason : `${remote.reason}, and this Mac is switched off`);
     }
   }
   outcome ||= await runFullSuiteOnMac(route, reason);
@@ -398,7 +399,7 @@ async function runSuite() {
     tookMs: Date.now() - started,
     exitCode: outcome.exitCode,
     fellBackBecause: outcome.ranOn === 'mac' ? reason : null,
-    ...(outcome.notRun ? { notRunBecause: outcome.notRun } : {}),
+    ...(outcome.notRun || outcome.cannotUse ? { notRunBecause: outcome.notRun ?? outcome.cannotUse } : {}),
   });
   return outcome;
 }
@@ -406,6 +407,11 @@ async function runSuite() {
 /** Nothing ran anywhere: no test machine could take it, and this Mac is switched off. */
 function notRunOutcome(reason) {
   return { exitCode: NOT_RUN, notRun: reason, where: null, ranOn: 'none', waitedMs: 0 };
+}
+
+/** Nothing ran, and waiting would not help: see cannotUseLine. A failure, never "not run". */
+function cannotUseOutcome(reason) {
+  return { exitCode: 1, cannotUse: reason, where: null, ranOn: 'none', waitedMs: 0 };
 }
 
 /**
@@ -783,10 +789,14 @@ async function main() {
   if (!isTargetedRun) runPreflight();
 
   const started = Date.now();
-  const { exitCode, where, notRun } = await runSuite();
+  const { exitCode, where, notRun, cannotUse } = await runSuite();
   if (notRun) {
     // Exit only once the line is out: without it, 69 reads as an ordinary failure to whoever is waiting on this run.
     process.stdout.write(`Not run: ${notRun}.\n`, () => process.exit(NOT_RUN));
+    return;
+  }
+  if (cannotUse) {
+    process.stdout.write(`${cannotUseLine(cannotUse)}\n`, () => process.exit(1));
     return;
   }
   const elapsed = ((Date.now() - started) / 1000).toFixed(1);

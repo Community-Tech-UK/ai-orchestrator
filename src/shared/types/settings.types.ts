@@ -396,6 +396,14 @@ export interface AppSettings
    * (`loopAllowProviderOverage`) is likewise off by default.
    */
   sessionAllowProviderOverage: boolean;
+  /**
+   * When true (the default), a regular session that ends its turn asking
+   * permission to keep going with work it already planned ("Shall I
+   * implement?") gets an automatic, conditional "carry on", once per user
+   * message. The reply covers only local work the plan already includes;
+   * choices, drafts and clearly risky next steps are left for the user.
+   */
+  autoAnswerContinueQuestions: boolean;
   /** Enable early warnings when known quota windows are consumed ahead of time. */
   quotaPacingWarningEnabled: boolean;
   /** Utilization percentage that begins an ahead-of-window pacing warning. */

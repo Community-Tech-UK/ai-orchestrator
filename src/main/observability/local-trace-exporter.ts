@@ -1,9 +1,9 @@
-import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { ExportResultCode, hrTimeToMilliseconds, type ExportResult } from '@opentelemetry/core';
 import type { SpanExporter, ReadableSpan } from '@opentelemetry/sdk-trace-base';
 import { redactForSink } from '../diagnostics/redaction';
+import { appendToRotatingLog } from './rotating-log-file';
 
 function getElectronUserDataPath(): string | undefined {
   try {
@@ -33,8 +33,7 @@ export class LocalTraceFileExporter implements SpanExporter {
     this.writeQueue = this.writeQueue
       .catch(() => undefined)
       .then(async () => {
-        await fs.mkdir(path.dirname(this.traceFilePath), { recursive: true });
-        await fs.appendFile(this.traceFilePath, `${lines}\n`, 'utf8');
+        await appendToRotatingLog(this.traceFilePath, `${lines}\n`);
         resultCallback({ code: ExportResultCode.SUCCESS });
       })
       .catch((error) => {

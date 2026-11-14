@@ -206,6 +206,26 @@ describe('checks on the test machine', () => {
       expect(run.logs).toEqual([]);
     }, LIMIT);
 
+    it('fails every check, saying why, rather than waiting or running here, when the checks cannot be sent', () => {
+      const setup = switchOff(setUp());
+      const nested = join(setup.project, 'nested');
+      mkdirSync(nested);
+      git(nested, 'init', '-q');
+      writeFileSync(join(nested, 'work.txt'), 'x');
+      git(nested, 'add', '-A');
+      git(nested, 'commit', '-qm', 'nested');
+      const run = runChecks(setup, { env: { ...WAITS, AIO_REMOTE_WAIT_LIMIT_MS: '600000' } });
+      const line = 'Could not use a test machine: the snapshot was refused: nested/ is a separate git repository, so its files would be left out. Waiting would not fix this, so it counts as a failure.';
+      expect(run.code).toBe(1);
+      expect(run.stdout).toContain(line);
+      expect(run.stdout).not.toContain('lint here');
+      expect(run.sshCalls).toEqual([]);
+      expect(run.outcome).not.toHaveProperty('notRun');
+      expect(run.outcome?.checks).toEqual(CHECKS.map(command => ({ command, exitCode: 1, durationMs: 0, output: line })));
+      expect(run.runLog).toEqual([expect.objectContaining({ kind: 'checks', ranOn: 'none', exitCode: 1 })]);
+      expect(run.logs).toEqual([]);
+    }, LIMIT);
+
     it('is not run, without trying, when the machine is paused', () => {
       const run = runChecks(switchOff(setUp(), { paused: true }), { env: WAITS });
       expect(run.code).toBe(69);

@@ -1,7 +1,7 @@
-import * as fs from 'fs/promises';
 import * as path from 'path';
 import { redactForSink } from '../diagnostics/redaction';
 import { resolveDefaultTraceFilePath } from './local-trace-exporter';
+import { appendToRotatingLog } from './rotating-log-file';
 
 export interface LifecycleTraceEvent {
   correlationId?: string;
@@ -75,6 +75,5 @@ async function appendTraceLine(traceFilePath: string, line: string): Promise<voi
 }
 
 async function writeTraceLine(traceFilePath: string, line: string): Promise<void> {
-  await fs.mkdir(path.dirname(traceFilePath), { recursive: true });
-  await fs.appendFile(traceFilePath, `${line}\n`, 'utf8');
+  await appendToRotatingLog(traceFilePath, `${line}\n`);
 }

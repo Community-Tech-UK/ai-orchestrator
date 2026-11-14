@@ -21,6 +21,8 @@ import type { BrowserExtensionCommandStore } from './browser-extension-command-s
 import type { BrowserGatewayHealthReport } from './browser-health-service';
 import type { BrowserAutoApprovePredicate } from './browser-auto-approve';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
+import type { ChromeProfileUse } from './browser-chrome-profile-choice';
+import { makeExistingTabProfileId } from './browser-extension-tab-store';
 
 export function makeProfile(overrides: Partial<BrowserProfile> = {}): BrowserProfile {
   return {
@@ -233,6 +235,7 @@ export function makeService(overrides: {
       return audit;
     }),
     list: vi.fn(() => audits),
+    countChromeProfileUse: vi.fn((): ChromeProfileUse[] => []),
   };
   const grantStore = {
     listGrants: vi.fn(() => grants),
@@ -305,17 +308,22 @@ export function makeService(overrides: {
     setRuntimeState: vi.fn((_profileId: string, patch) => ({ ...(profile ?? makeProfile()), ...patch })),
   };
   const extensionTabStore = {
-    attachTab: vi.fn((input, options?: { nodeId?: string; nodeName?: string }) => ({
-      profileId: options?.nodeId
-        ? `existing-tab:n.${options.nodeId}:${input.windowId}:${input.tabId}`
-        : `existing-tab:${input.windowId}:${input.tabId}`,
-      targetId: options?.nodeId
-        ? `existing-tab:n.${options.nodeId}:${input.windowId}:${input.tabId}:target`
-        : `existing-tab:${input.windowId}:${input.tabId}:target`,
+    attachTab: vi.fn((
+      input,
+      options?: { nodeId?: string; nodeName?: string; extensionInstanceId?: string },
+    ) => ({
+      profileId: makeExistingTabProfileId(options?.nodeId, input.windowId, input.tabId, options?.extensionInstanceId),
+      targetId: `${makeExistingTabProfileId(
+        options?.nodeId,
+        input.windowId,
+        input.tabId,
+        options?.extensionInstanceId,
+      )}:target`,
       tabId: input.tabId,
       windowId: input.windowId,
       ...(options?.nodeId ? { nodeId: options.nodeId } : {}),
       ...(options?.nodeName ? { nodeName: options.nodeName } : {}),
+      ...(options?.extensionInstanceId ? { extensionInstanceId: options.extensionInstanceId } : {}),
       title: input.title,
       url: input.url,
       origin: new URL(input.url).origin,

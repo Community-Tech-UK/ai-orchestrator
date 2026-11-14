@@ -1,4 +1,5 @@
 import { getPauseCoordinator } from '../pause/pause-coordinator';
+import { getSettingsManager } from '../core/config/settings-manager';
 import { registerCleanup } from '../util/cleanup-registry';
 import { InstanceContinuationDispatch } from './instance-continuation-dispatch';
 import { InstanceReasoningCollapseContinuation, type InstanceReasoningCollapseContinuationHost } from './instance-reasoning-collapse-continuation';
@@ -23,7 +24,8 @@ export class InstanceContinuationRuntime {
   ) {
     this.dispatch = new InstanceContinuationDispatch(registry, host, isManagedLoopInstance, isPaused);
     this.cutoffs = new InstanceReasoningCollapseContinuation(registry, host, isManagedLoopInstance, isPaused, false, this.dispatch);
-    this.announcements = new InstanceAnnounceThenHaltContinuation(registry, host, isManagedLoopInstance, isPaused, this.dispatch);
+    this.announcements = new InstanceAnnounceThenHaltContinuation(registry, host, isManagedLoopInstance, isPaused, this.dispatch,
+      () => getSettingsManager().get('autoAnswerContinueQuestions'));
     this.background = new InstanceAsyncWorkContinuation(registry, host, { dispatch: this.dispatch, providerResumeGraceMs });
     this.waiting = new InstanceWaitingCheckIn(host, this.dispatch);
   }

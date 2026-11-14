@@ -467,6 +467,7 @@ export const BrowserFindOrOpenRequestSchema = z
     titleHint: z.string().min(1).max(500).optional(),
     nodeId: idSchema.optional(),
     computer: z.string().min(1).max(120).optional(),
+    chromeProfile: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
   })
   .strict();
 export type BrowserFindOrOpenRequest = z.infer<

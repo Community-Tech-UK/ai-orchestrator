@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { app, BrowserWindow, powerMonitor } from 'electron';
 import { getObservationIngestor } from '../observation';
 import { getSessionContinuityManagerIfInitialized } from '../session/session-continuity';
@@ -8,6 +9,7 @@ import { readPriorWatchdogReport } from '../runtime/main-process-watchdog';
 import { getSystemLoadMonitor } from '../runtime/system-load-monitor';
 import { getRendererHeartbeatMonitor } from '../logging/renderer-heartbeat-monitor';
 import { getEventLoopLagMonitor } from '../runtime/event-loop-lag-monitor';
+import { MainProcessStallProfiler } from '../runtime/main-process-stall-profiler';
 import { getContextWorkerClient } from '../instance/context-worker-client';
 import { getCodemem } from '../codemem';
 
@@ -293,6 +295,10 @@ export function installRuntimeDiagnostics(instances?: RuntimeDiagnosticsInstance
     installChatToolUsageLog(instances);
   }
 
+  const stallProfiler = new MainProcessStallProfiler({
+    outputDir: path.join(app.getPath('userData'), 'diagnostics', 'main-stall-profiles'),
+  });
+
   let lastTick = Date.now();
   // True between a suspend/lock-screen and the matching resume/unlock. While the
   // host is suspended the event loop is frozen, so the next (dark-)wake tick sees
@@ -369,6 +375,7 @@ export function installRuntimeDiagnostics(instances?: RuntimeDiagnosticsInstance
       externalMB: roundMegabytes(memory.external),
       arrayBuffersMB: roundMegabytes(memory.arrayBuffers),
     });
+    stallProfiler.noteStall();
   }, MAIN_PROCESS_MONITOR_INTERVAL_MS);
   timer.unref();
 }

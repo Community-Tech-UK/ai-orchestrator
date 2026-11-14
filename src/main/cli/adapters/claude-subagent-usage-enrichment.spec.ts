@@ -1,10 +1,11 @@
 import { EventEmitter } from 'node:events';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ClaudeSubagentUsageTracker,
+  FINAL_SETTLE_MS,
   flushClaudeSubagentUsage,
   observeClaudeSubagentModel,
   observeClaudeSubagentUsage,
@@ -46,10 +47,11 @@ describe('Claude helper model and start details on the final sample', () => {
     tracker.observeAssistant(helperFrame('claude-sonnet-5-5'));
     expect(tracker.observe(progress)).toMatchObject({ final: false });
     expect(tracker.observe(progress)).not.toHaveProperty('model');
-    expect(tracker.observe(notice)).toMatchObject({
+    expect(tracker.observe(notice)).toBeNull();
+    expect(tracker.flush()).toEqual([expect.objectContaining({
       toolUseId: 'toolu_1', final: true, model: 'claude-sonnet-5-5', modelSource: 'stream',
       agentType: 'general-purpose', fork: true, depth: 2, mode: 'background',
-    });
+    })]);
   });
 
   it('falls back to the helper transcript, then to the model the spawn asked for', () => {
@@ -127,5 +129,95 @@ describe('Claude helper model and start details on the final sample', () => {
       expect.objectContaining({ final: false }),
       expect.objectContaining({ final: true, model: 'claude-sonnet-5-5', modelSource: 'stream', mode: 'background', depth: 1 }),
     ]);
+  });
+});
+
+const transcriptLine = (body: Record<string, unknown>): string =>
+  `${JSON.stringify({ type: 'assistant', message: body })}\n`;
+const msgOne = {
+  id: 'msg_1', model: 'claude-sonnet-5-5',
+  usage: { input_tokens: 2, output_tokens: 199, cache_read_input_tokens: 0, cache_creation_input_tokens: 29208,
+    cache_creation: { ephemeral_5m_input_tokens: 29208, ephemeral_1h_input_tokens: 0 } },
+};
+const msgTwo = {
+  id: 'msg_2', model: 'claude-sonnet-5-5',
+  usage: { input_tokens: 2, output_tokens: 66, cache_read_input_tokens: 29208, cache_creation_input_tokens: 2051,
+    cache_creation: { ephemeral_5m_input_tokens: 2051, ephemeral_1h_input_tokens: 0 } },
+};
+const bothMessages = {
+  inputTokens: 4, outputTokens: 265, cacheReadTokens: 29208, cacheWriteTokens: 31259,
+  cacheWrite5mTokens: 31259, cacheWrite1hTokens: 0,
+};
+// $0.0837263 at the repo rates (claude-sonnet-5-5: $2/M input, $10/M output,
+// cache read 0.05x input, cache write 5m 1.25x input) — the check-2 figure.
+const bothMessagesCost = 0.0837263;
+
+describe('Claude helper transcript sum at the finish notification (LT-1091)', () => {
+  function drive(): { host: EventEmitter; seen: ReturnType<typeof vi.fn> } {
+    const host = new EventEmitter();
+    const seen = vi.fn();
+    host.on('subagent_usage', seen);
+    observeClaudeSubagentUsage(host, started, location);
+    observeClaudeSubagentUsage(host, progress, location);
+    return { host, seen };
+  }
+
+  it('counts a helper final message that lands after the finish notification', () => {
+    meta('a1', { requestShape: 'background', spawnDepth: 1, model: 'sonnet' });
+    writeFileSync(join(helperDir, 'agent-a1.jsonl'), transcriptLine(msgOne));
+    const { host, seen } = drive();
+    observeClaudeSubagentUsage(host, notice, location);
+    expect(seen.mock.calls.map((call) => call[0]).filter((sample) => sample.final)).toHaveLength(0);
+    appendFileSync(join(helperDir, 'agent-a1.jsonl'), transcriptLine(msgTwo));
+    flushClaudeSubagentUsage(host);
+    const finals = seen.mock.calls.map((call) => call[0]).filter((sample) => sample.final);
+    expect(finals).toHaveLength(1);
+    expect(finals[0].transcriptUsage).toEqual(bothMessages);
+    expect(finals[0].transcriptCost).toBeCloseTo(bothMessagesCost, 5);
+  });
+
+  it('does not book zeros when the whole transcript lands after the finish notification', () => {
+    meta('a1', { requestShape: 'background', spawnDepth: 1, model: 'sonnet' });
+    const { host, seen } = drive();
+    observeClaudeSubagentUsage(host, notice, location);
+    writeFileSync(join(helperDir, 'agent-a1.jsonl'), transcriptLine(msgOne) + transcriptLine(msgTwo));
+    flushClaudeSubagentUsage(host);
+    const finals = seen.mock.calls.map((call) => call[0]).filter((sample) => sample.final);
+    expect(finals).toHaveLength(1);
+    expect(finals[0].transcriptUsage).toEqual(bothMessages);
+    expect(finals[0].transcriptCost).toBeCloseTo(bothMessagesCost, 5);
+  });
+
+  it('ignores a duplicate finish notification while the final sum is pending', () => {
+    meta('a1', { requestShape: 'background', spawnDepth: 1, model: 'sonnet' });
+    writeFileSync(join(helperDir, 'agent-a1.jsonl'), transcriptLine(msgOne));
+    const { host, seen } = drive();
+    observeClaudeSubagentUsage(host, notice, location);
+    appendFileSync(join(helperDir, 'agent-a1.jsonl'), transcriptLine(msgTwo));
+    observeClaudeSubagentUsage(host, notice, location);
+    flushClaudeSubagentUsage(host);
+    const finals = seen.mock.calls.map((call) => call[0]).filter((sample) => sample.final);
+    expect(finals).toHaveLength(1);
+    expect(finals[0].transcriptUsage).toEqual(bothMessages);
+  });
+
+  it('settles a deferred final on its own timer', () => {
+    vi.useFakeTimers();
+    try {
+      meta('a1', { requestShape: 'background', spawnDepth: 1, model: 'sonnet' });
+      writeFileSync(join(helperDir, 'agent-a1.jsonl'), transcriptLine(msgOne) + transcriptLine(msgTwo));
+      const onFinal = vi.fn();
+      const tracker = new ClaudeSubagentUsageTracker({ onFinal });
+      tracker.setLocation(location);
+      tracker.observe(started);
+      tracker.observe(progress);
+      expect(tracker.observe(notice)).toBeNull();
+      expect(onFinal).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(FINAL_SETTLE_MS);
+      expect(onFinal).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ final: true, transcriptUsage: bothMessages }));
+      expect(tracker.flush()).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

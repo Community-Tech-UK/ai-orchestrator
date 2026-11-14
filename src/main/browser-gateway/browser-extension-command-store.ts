@@ -386,9 +386,12 @@ export class BrowserExtensionCommandStore {
     return this.preDelivery.describe(queueKey);
   }
 
-  /** Installs (Chrome profiles) that polled this queue recently; empty for pre-id builds. */
-  listRecentExtensionInstances(queueKey: BrowserExtensionCommandQueueKey, withinMs?: number): string[] {
-    return this.instancePolls.listRecent(queueKey, withinMs);
+  /** Installs (Chrome profiles) that polled this queue recently; empty for pre-id builds. With `commandReady`,
+   * only those that can take a browser command: a capable poll, or one running a command (it polls after). */
+  listRecentExtensionInstances(queueKey: BrowserExtensionCommandQueueKey, commandReady = false): string[] {
+    const busy = commandReady ? [...this.pending.values()].filter((p) => p.queueKey === queueKey) : [];
+    return [...new Set([...this.instancePolls.listRecent(queueKey, commandReady),
+      ...busy.map((p) => p.deliveredToInstanceId).filter((id): id is string => Boolean(id))])];
   }
 
   listActiveQueueKeys(): BrowserExtensionCommandQueueKey[] {

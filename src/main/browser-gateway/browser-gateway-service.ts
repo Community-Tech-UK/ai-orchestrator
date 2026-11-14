@@ -273,7 +273,7 @@ export class BrowserGatewayService {
   private readonly extensionCommandStore: Pick<BrowserExtensionCommandStore, 'sendCommand'>;
   private readonly extensionContactState: BrowserExtensionContactStateReader;
   private readonly describeLocalExtensionChannel: () => BrowserLocalExtensionHealth;
-  private readonly auditStore: Pick<BrowserAuditStore, 'record' | 'list'>;
+  private readonly auditStore: Pick<BrowserAuditStore, 'record' | 'list' | 'countChromeProfileUse'>;
   private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
   private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
   private readonly healthService: Pick<BrowserHealthService, 'diagnose'>;
@@ -355,6 +355,7 @@ export class BrowserGatewayService {
       driver: this.driver,
       extensionTabStore: this.extensionTabStore,
       extensionCommandStore: this.extensionCommandStore,
+      chromeProfileUsage: this.auditStore,
       extensionContactState: this.extensionContactState,
       getWorkerNodes: () => getWorkerNodeRegistry().getAllNodes(),
       getWorkerNode: (nodeId) => getWorkerNodeRegistry().getNode(nodeId),

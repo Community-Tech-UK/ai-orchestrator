@@ -214,6 +214,13 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'orchestration',
   },
   {
+    key: 'autoAnswerContinueQuestions',
+    label: 'Answer "shall I carry on?" for you',
+    description: 'When an agent in a chat session stops halfway through its plan to ask whether to continue, Harness tells it to carry on, at most once per message you send, and to ask you first before sending, publishing, pushing, deploying, deleting data, spending money or making a choice. Harness tries to leave questions about a choice, a drafted message or a risky next step for you.',
+    type: 'boolean',
+    category: 'orchestration',
+  },
+  {
     key: 'docReviewResumeOnSubmit',
     label: 'Resume sessions when document reviews are submitted',
     description: 'Wake a sleeping session or revive its archived continuity record so it receives your review decision. The decision is saved even when this is off.',

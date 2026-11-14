@@ -2,13 +2,19 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { selectOpenCodeLaunch } from './opencode-cli-launch';
+import { _resetOpenCodeLaunchCacheForTesting, selectOpenCodeLaunch } from './opencode-cli-launch';
 
-const mocks = vi.hoisted(() => ({ capture: vi.fn(), lookup: vi.fn(), safeEnv: vi.fn() }));
+const mocks = vi.hoisted(() => ({ capture: vi.fn(), lookup: vi.fn(), safeEnv: vi.fn(), warn: vi.fn() }));
+vi.mock('../../logging/logger', () => ({ getLogger: () => ({ warn: mocks.warn, info: vi.fn(), debug: vi.fn(), error: vi.fn() }) }));
 vi.mock('./opencode-effective-budget-config', () => ({ runOpenCodeCapture: mocks.capture, openCodeProbeArgs: (major: number) => major >= 2 ? ['api', '--standalone', 'GET', '/api/config'] : ['debug', 'config'] }));
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
-  return { ...actual, spawnSync: mocks.lookup, default: { ...actual, spawnSync: mocks.lookup } };
+  // `mocks.lookup` returns a `{ status, stdout }` result; adapt it to execFile's callback.
+  const execFile = (command: string, args: string[], options: unknown, callback: (error: Error | null, stdout: string) => void) => {
+    const result = mocks.lookup(command, args, options) as { status: number; stdout?: string };
+    callback(result.status === 0 ? null : new Error(`exit ${result.status}`), result.stdout ?? '');
+  };
+  return { ...actual, execFile, default: { ...actual, execFile } };
 });
 vi.mock('../../security/env-filter', () => ({ getSafeEnvForTrustedProcess: mocks.safeEnv }));
 
@@ -17,6 +23,7 @@ describe('OpenCode CLI selection', () => {
   let fixtureRoot: string;
   beforeEach(() => {
     vi.clearAllMocks();
+    _resetOpenCodeLaunchCacheForTesting();
     fixtureRoot = mkdtempSync(join(tmpdir(), 'opencode-launch-'));
     mocks.safeEnv.mockReturnValue({ HOME: join(fixtureRoot, 'inherited-home'), PATH: join(fixtureRoot, 'inherited-bin') });
     mocks.lookup.mockImplementation((_command: string, _args: string[], options: { env: NodeJS.ProcessEnv }) => ({
@@ -211,5 +218,70 @@ describe('OpenCode CLI selection', () => {
       [params.candidates[0], ['--version']], [params.candidates[1], ['--version']],
       [params.candidates[1], ['api', '--standalone', 'GET', '/api/config']],
     ]);
+  });
+
+  describe('repeat selections', () => {
+    const versionCalls = () => mocks.capture.mock.calls.filter(([call]) => call.args[0] === '--version').length;
+    beforeEach(() => {
+      mocks.capture.mockImplementation(async (call: { args: string[] }) => ({
+        code: 0, stdout: call.args[0] === '--version' ? 'opencode 2.0.30\n' : '[{"type":"document","info":{}}]',
+      }));
+    });
+
+    it('reuses the version of an unchanged install', async () => {
+      const command = installAt('cached');
+      await expect(selectOpenCodeLaunch({ ...params, candidates: [command] })).resolves.toMatchObject({ command, major: 2 });
+      await expect(selectOpenCodeLaunch({ ...params, candidates: [command] })).resolves.toMatchObject({ command, major: 2 });
+      expect(versionCalls()).toBe(1);
+      // The configuration probe still runs every time: it depends on the folder and settings.
+      expect(mocks.capture.mock.calls.filter(([call]) => call.args[0] === 'api')).toHaveLength(2);
+    });
+
+    it('checks the version again after the install changes', async () => {
+      const command = installAt('updated');
+      await selectOpenCodeLaunch({ ...params, candidates: [command] });
+      writeFileSync(command, 'fixture executable after an update');
+      await selectOpenCodeLaunch({ ...params, candidates: [command] });
+      expect(versionCalls()).toBe(2);
+    });
+
+    it('checks the version again in a different folder', async () => {
+      // Version managers can run a different OpenCode per folder behind one shim.
+      const command = installAt('per-folder');
+      await selectOpenCodeLaunch({ ...params, workingDirectory: '/projects/a', candidates: [command] });
+      await selectOpenCodeLaunch({ ...params, workingDirectory: '/projects/b', candidates: [command] });
+      await selectOpenCodeLaunch({ ...params, workingDirectory: '/projects/a', candidates: [command] });
+      expect(versionCalls()).toBe(2);
+    });
+
+    it('forgets the version when that install cannot read its settings', async () => {
+      const command = installAt('probe-fails');
+      mocks.capture.mockImplementation(async (call: { args: string[] }) => (
+        call.args[0] === '--version' ? { code: 0, stdout: '2.0.30' } : { code: 1, stdout: '' }
+      ));
+      await expect(selectOpenCodeLaunch({ ...params, candidates: [command] })).rejects.toThrow(/OpenCode/);
+      await expect(selectOpenCodeLaunch({ ...params, candidates: [command] })).rejects.toThrow(/OpenCode/);
+      expect(versionCalls()).toBe(2);
+    });
+
+    it('does not remember a failed version read', async () => {
+      const command = installAt('flaky');
+      mocks.capture.mockImplementationOnce(async () => ({ code: 1, stdout: '' }));
+      await expect(selectOpenCodeLaunch({ ...params, candidates: [command] })).rejects.toThrow(/OpenCode/);
+      await expect(selectOpenCodeLaunch({ ...params, candidates: [command] })).resolves.toMatchObject({ command, major: 2 });
+      expect(versionCalls()).toBe(2);
+    });
+
+    it('logs an unchanged set of skipped installs once', async () => {
+      const old = installAt('old');
+      const current = installAt('current');
+      mocks.capture.mockImplementation(async (call: { command: string; args: string[] }) => ({
+        code: 0,
+        stdout: call.args[0] === '--version' ? (call.command === old ? '2.0.18' : '2.0.30') : '[{"type":"document","info":{}}]',
+      }));
+      await selectOpenCodeLaunch({ ...params, candidates: [old, current] });
+      await selectOpenCodeLaunch({ ...params, candidates: [old, current] });
+      expect(mocks.warn.mock.calls.filter(([message]) => message === 'Skipped unusable OpenCode installs; using another')).toHaveLength(1);
+    });
   });
 });

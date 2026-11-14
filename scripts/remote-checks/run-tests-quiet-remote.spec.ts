@@ -471,6 +471,24 @@ describe.concurrent('run-tests-quiet with this Mac switched off', () => {
     expect(run.localRuns).toEqual([]);
   }, LIMIT);
 
+  it('fails, saying why, rather than waiting or running here, when the work cannot be sent', async () => {
+    const setup = setUp();
+    switchOff(setup);
+    const nested = join(setup.project, 'nested');
+    mkdirSync(nested);
+    git(nested, 'init', '-q');
+    writeFileSync(join(nested, 'work.txt'), 'x');
+    git(nested, 'add', '-A');
+    git(nested, 'commit', '-qm', 'nested');
+    const run = await runQuiet(setup, { env: { ...WAITS, AIO_REMOTE_WAIT_LIMIT_MS: '600000' } });
+    expect(run.code).toBe(1);
+    expect(run.stdout).toContain('Could not use a test machine: the snapshot was refused: nested/ is a separate git repository');
+    expect(run.stdout).not.toContain('Not run');
+    expect(run.sshCalls).toEqual([]);
+    expect(ranHere(run)).toEqual([]);
+    expect(run.runLog).toEqual([expect.objectContaining({ ranOn: 'none', exitCode: 1, notRunBecause: expect.stringContaining('snapshot was refused') })]);
+  }, LIMIT);
+
   it('still fails on a real failure far away, and never as not run', async () => {
     const setup = setUp();
     switchOff(setup);

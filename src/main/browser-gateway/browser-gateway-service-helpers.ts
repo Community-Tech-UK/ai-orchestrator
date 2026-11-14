@@ -12,6 +12,7 @@ import type {
 import type { BrowserExistingTabAttachment } from './browser-extension-tab-store';
 import { normalizeOrigin } from './browser-origin-policy';
 import { toAgentSafeTarget } from './browser-safe-dto';
+import { chromeProfileLabel } from './browser-chrome-profile-choice';
 
 export function manualStepActionClass(kind: BrowserManualStepRequest['kind']): BrowserActionClass {
   return kind === 'login' || kind === 'captcha' || kind === 'two_factor'
@@ -154,6 +155,9 @@ export function safeTargetFromExistingTab(
     ...(attachment.tabIndex !== undefined ? { tabIndex: attachment.tabIndex } : {}),
     ...(attachment.pinned !== undefined ? { pinned: attachment.pinned } : {}),
     ...(attachment.active !== undefined ? { active: attachment.active } : {}),
+    ...(attachment.extensionInstanceId
+      ? { chromeProfile: chromeProfileLabel(attachment.extensionInstanceId) }
+      : {}),
   } satisfies BrowserTarget);
 }
 
