@@ -438,6 +438,9 @@ sections below. The historical reproduction remains unchanged.
 | LT-1115 | P3 | **SOURCE FIX VERIFIED 2026-11-12 by unit test; live recheck needs the rebuilt app.** Refusing a mail draft on a read-only Microsoft account said "Calendar mutation is not permitted…" and quoted the internal account key. Message is now neutral and key-free. | [LT-1115 detail](#lt-1115) | [Plugins and connectors livetest](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md) |
 | LT-1116 | P3 | **OPEN, reproduced 2026-11-12 (not part of the connectors plan).** The app-shell Remote Terminal drawer keeps keyboard-focusable controls at the bottom edge of the window (input at 887-913 px in a 900 px window), so Tab lands on a control that is partly or wholly off screen. | [LT-1116 detail](#lt-1116) | [Plugins and connectors livetest](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md) |
 | LT-1117 | P2 | **SOURCE FIX VERIFIED 2026-11-12 in the dev app; shipped build pending.** At 200 percent zoom, Tab into a tall text box on the MCP page (the connector form's Headers box) scrolled only its first line into view: 38 of 80 px showed. Fixed with `scroll-padding-bottom` on the page; every stop in both Tab directions is now fully visible. | [LT-1117 detail](#lt-1117) | [Plugins and connectors livetest](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md) |
+| LT-1123 | P3 | **OPEN, reproduced 2026-11-14 (also in the 2026-11-13 run).** The MiMo livetest asks for the account to show in both the session header and the composer. The header has no account chip by design (a spec asserts the one-row header has none), so that clause cannot pass as written. The original campaign filed this as "LT-1088", an id the register already uses for the RTK hook defect. | [LT-1123 detail](#lt-1123) | [MiMo account-state live checks](2026-10-27-mimo-account-state-remediation_livetest.md) |
+| LT-1122 | P3 | **OPEN, reproduced 2026-11-14; user-visible effect not confirmed.** An explicit account switch on a hibernated MiMo session is queued, but the switch call does not return until the session is woken (it did so at 73 s in the receipt). Whether the composer's account control stays busy or looks stuck for that time was not checked. | [LT-1122 detail](#lt-1122) | [MiMo account-state live checks](2026-10-27-mimo-account-state-remediation_livetest.md) |
+| LT-1124 | P2 | **NOT REPRODUCED ON CURRENT SOURCE; source already guarded; rebuilt-app recheck pending.** In a dev app built before the branch picked up the main-branch guard, the idle monitor tried to respawn a hibernated MiMo session twice (`Illegal lifecycle transition blocked: hibernated to initializing`), raising `restartCount` from 1 to 3 and then logging `Recovery attempts exhausted`. The branch source now skips hibernating and hibernated sessions at three points, with a passing spec. | [LT-1124 detail](#lt-1124) | [MiMo account-state live checks](2026-10-27-mimo-account-state-remediation_livetest.md) |
 ### New input-controls findings — 2026-10-27
 
 | ID | Priority | Status | Detail | Origin |
@@ -13000,6 +13003,91 @@ A control reached by keyboard is entirely visible. Fix: `scroll-padding-bottom: 
 `mcp-page.component.scss`. Re-run at 200 percent after the fix, Tab forward and Shift+Tab backward through the Local
 program, Remote server and Microsoft 365 forms: no stop partly hidden (Local forward 16 stops, Local backward 18, Remote
 and Microsoft 365 forward and back 28 each). Also none hidden at 100 percent backward.
+
+<a id="lt-1123"></a>
+
+## LT-1123
+
+### LT-1123 — the account chip is in the composer only, but the livetest requires header and composer
+
+**Status: open, P3. A decision is needed: reword the check or restore a header chip.**
+
+### Observed behaviour
+
+Dev app from this branch, 14 November 2026, MiMo session after switch, hibernate and wake: the composer's account select
+shows `MiMo Test B` with options A and B, and the session header has no account chip (0 chips; receipt
+`check1-dom-after-wake.json` in the 2026-10-27 account-state evidence folder). The 13 November campaign run saw the same.
+
+### Root cause
+
+Deliberate: `instance-header.component.spec.ts:99-107` asserts the one-row header renders no account chip. The livetest
+wording predates that design.
+
+### Required behaviour and acceptance
+
+Either the check is reworded to the composer (then the account shows in the composer and survives hibernate and wake), or
+a header chip is restored and the header spec is changed with it. Acceptance: the livetest wording and the product agree,
+and the check passes against that wording.
+
+<a id="lt-1122"></a>
+
+## LT-1122
+
+### LT-1122 — an explicit account switch on a hibernated session waits for the wake
+
+**Status: open, P3; user-visible effect not confirmed.**
+
+### Observed behaviour
+
+With the MiMo session hibernated, an explicit switch to account B was queued ("Runtime change queued (instance not waiting
+for input)") and applied on wake (new process, transcript note, next turn on B). The switch call itself resolved only after
+the wake: in `check1-hibernated-switch-observation.json` the session was woken at 73 s and the call resolved at 76 s. My
+driver script hung on it twice. Not checked: whether the composer's account control shows a busy state, can be clicked
+again, or looks stuck while the session sleeps.
+
+### Root cause
+
+By design in the main process: `desired-runtime-queue.ts` ("Explicit account IPC must acknowledge the completed handoff, not
+parking it"; "Confirmed account handoffs wait for application even when queued"). Whether the renderer awaits that call
+in a way the user can see was not traced.
+
+### Required behaviour and acceptance
+
+Switching on a hibernated session either applies at once or shows a clear "will apply when you continue" state and never
+leaves a control busy for an unbounded time. Acceptance: in a rebuilt app, switch a hibernated MiMo session from the
+composer and record the control's state until wake; fix the renderer state if it stays busy.
+
+<a id="lt-1124"></a>
+
+## LT-1124
+
+### LT-1124 — the idle monitor retried respawn on a hibernated session
+
+**Status: not reproduced on current source; the source already guards it; rebuilt-app recheck pending.**
+
+### Observed behaviour
+
+14 November 2026, dev app built at 06:32 from this worktree: after a hibernate that followed an in-place account switch, the
+idle monitor logged `process_exited_unexpected: requesting respawn` for the hibernated session at 06:47:09 and 06:48:09
+and `Illegal lifecycle transition blocked { from: 'hibernated', to: 'initializing' }` each time, then `Recovery attempts
+exhausted` at 06:49:09. `restartCount` rose from 1 to 3. Wake and later turns still worked (log slice
+`check1-app-log-idle-monitor-after-hibernate.txt`). A clean hibernate with no queued switch did not do this over 25 s.
+
+### Root cause
+
+The compiled `dist/main/.../idle-monitor.js` the app ran had no hibernation guard (0 mentions of `hibernated`). The branch
+was fast-forwarded to main at 06:40:51 that day (reflog), after that build and before the failure. The previous commit
+(`f6b4f0f36`) has 0 mentions of `hibernated` in `idle-monitor.ts`; the current source (`de1dcd5e1`) has 4: the detector loop
+skips hibernating and hibernated sessions (`idle-monitor.ts:215`), discards a detection that finishes after hibernation
+(`:228`), and re-checks before dispatching a recovery (`RECOVERY_INACTIVE_STATUSES` includes both). The guard came in with
+`186958a63` on 13 November. The failure was therefore a stale build, not a current-source defect.
+`npm run test:quiet -- src/main/instance/lifecycle/idle-monitor-hibernation.spec.ts` passes (8 tests).
+
+### Required behaviour and acceptance
+
+A hibernated session is never offered to crash recovery. Acceptance: rebuild the app from current source, switch accounts in
+place, hibernate immediately, wait three minutes: no `process_exited_unexpected` for that session and `restartCount`
+unchanged. Not done in this run because the dev app was already stopped and rebuilt output was not refreshed.
 
 ## LT-1037
 
