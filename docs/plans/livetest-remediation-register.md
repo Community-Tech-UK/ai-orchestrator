@@ -445,6 +445,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-998 | P1 | **OPEN — local 0.2.45 repair implemented; Windows rerun pending.** Tab-scoped 768×1024 emulation disappears when the command ends; subsequent page reads remain desktop-sized. A repeated set reports tab_emulation despite mismatched actual dimensions. | [LT-998 detail](#lt-998) | [Input controls check 2](2026-10-14-browser-gateway-input-controls_livetest.md) |
 | LT-999 | P2 | **OPEN — local 0.2.45 repair implemented; Windows rerun pending.** Window read mode returns zero width/height for the live Chrome window, preventing a usable original-bounds capture. Optional shared-window resizing was not attempted. | [LT-999 detail](#lt-999) | [Input controls restoration protocol](2026-10-14-browser-gateway-input-controls_livetest.md) |
 | LT-1000 | P2 | **OPEN — observed on the Windows worker (extension 0.2.50).** With 200% browser zoom and a 768×1024 tab emulation active, viewport reads fail with `browser_tab_viewport_dimensions_mismatch` although the emulation is correct and the page is laid out at the expected width. Cause not proven. | [LT-1000 detail](#lt-1000) | [Input controls check 2](2026-10-14-browser-gateway-input-controls_livetest.md) |
+| LT-1067 | P2 | **OPEN — reproduced live 2026-11-10 (renumbered from LT-1029 on 2026-11-13 because main uses LT-1029 for the worker-spawn defect).** After a delegated OpenCode task expires (`acp-prompt-timeout`), the late `Task cancelled` tool result puts the stuck-process detector back into `generating` although the instance is already `idle`. Nothing clears it, so about eight minutes later the detector's hard timeout respawns the idle session and the crash-turn auto-continue re-sends the work, which starts the same delegation again, contradicting the notice that told the user to check the child before resuming. | [LT-1067 detail](#lt-1067) | [Provider hardening check 2](2026-10-02-provider-hardening_livetest.md) |
 | LT-1025 | P2 | **OPEN — reproduced live 2026-10-27 (recorded as LT-710 on the agent-runtime branch; renumbered 2026-11-07 because main uses LT-710 for the fresh-profile migration race; renumbered again from LT-728 on 2026-11-09 because LT-728 is the typed-messages defect).** The required Claude fresh-eyes checker stays active without a verdict until the headless deadline expires, then reports `Review cancelled`. The deadline is the headless request budget, not the ordinary cross-model timeout/floor. Clean-cache and invalidation live checks remain blocked by this reproduced failure, not an established provider outage. | [LT-1025 detail](#lt-1025) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-verifier-follow-up) |
 | LT-711 | P3 | **OPEN — historical report, awaiting independent reproduction.** Cursor was reported on 2026-10-04 to emit empty `completed` updates for real failed reads and rejected shell permissions. The raw receipt is absent, so no current miner or provider behaviour is claimed. Distinct from LT-612 and from AR-007’s retired clause. The detail section sets no priority; P3 is assigned for an unreproduced historical report. | [LT-711 detail](#lt-711) | [Agent runtime residuals 2026-10-04 batch report](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-04-orchestrating-session-and-batch-agents) |
 | LT-712 | P3 | **IMPLEMENTED on main (handoff-observability plan, merged 2026-11-07); live proof open.** Audit rows now carry the queued command ID, and head reinsertion is logged with that ID and the queue depth; the LT-616 handoff log is unchanged. AR-003 stays open until an identified rebuilt coordinator repeats the handoff run and the audit join is observed live. | [LT-712 detail](#lt-712) | [Agent runtime residuals AR-003](2026-09-27-livetest-agent-runtime-residuals_livetest.md#ar-003--lt-371-live-browser-command-socket-handoff-correlation) |
@@ -13087,6 +13088,52 @@ excludes. Regenerated code (`register-aliases.ts`, IPC channels) and any other d
 failure runs them too. Acceptance: `run-git-hook.spec.ts` case `regenerated: documentation` skips (it failed before
 the fix), `regenerated: code` runs the tests, and the mocked changed-tree case still runs them. On the rebuilt app, a
 plan landing whose code equals its tested code has a short commit check.
+
+<a id="lt-1067"></a>
+
+## LT-1067 — an expired delegated task leaves the stuck-process detector armed on an idle session
+
+**Status: open, reproduced 10 November 2026. No source change made.**
+
+Origin: [provider hardening check 2](2026-10-02-provider-hardening_livetest.md), second case (child stops showing activity).
+
+### Observed behaviour
+
+Dev app (isolated profile, OpenCode 1.19.5, free `opencode/big-pickle` model, YOLO, root orchestrated session
+`iengl8rxs`). A foreground Task child started three `bash` calls at 05:52:48Z that never returned (a bare
+`opencode export` of the child shows all three parts `running` for the whole hour). At 06:52:48Z, exactly 60 minutes
+after the child's last activity, Harness ended the turn correctly: the transcript got "The delegated task stopped
+showing any activity before its time ran out…" and `Instance error … recoverableKind: acp-prompt-timeout`, and the
+instance was `idle` (readback at 06:55:18Z). Then:
+
+- 06:54:55Z `StuckProcessDetector` "Process alive — deferring stuck warning", `state: "generating"`, `elapsedMs: 126269`
+  (so its clock started at about 06:52:48.9Z, right after the `Tool execution reported an error` line at 06:52:48.682Z).
+- 06:55:05Z soft warning "No output for 136s. If it stays silent, Harness will restart the session." in the transcript
+  of an idle session.
+- 07:00:55Z "Process stuck — hard timeout exceeded" → `InterruptRespawn` respawn (the old CLI, still running the
+  child's bash, was terminated) → 07:00:59Z `sendInput … autoContinuation: true` ("Continuing the interrupted turn
+  automatically (attempt 1 of 2)") → 07:01:04Z a new `task` tool call. The work the notice told the user to check
+  first was started again with no user action.
+
+Receipts (metadata only): `_scratch/ph-lt-20261110/receipts/stuck-child-rows.json` and `stuck-child-applog.txt` in the
+queue worktree of this item.
+
+### Root cause
+
+`instance-communication.ts` (adapter output handler, about line 1290) calls `onToolStateChange(id, 'generating')` for
+every `tool_result` message. The timeout path emits the error, the idle transition and the cancelled `tool_result`
+within the same 30 ms, and the `tool_result` arrives after the `'idle'` call, so the detector ends in `generating`
+on an idle instance. `StuckProcessDetector.checkAll` (`stuck-process-detector.ts` about line 372) only skips trackers
+whose own state is `idle`; it does not consult the instance status, and the `process:stuck` handler in
+`instance-manager.ts` (about line 682) calls `respawnAfterInterrupt` without checking it either. The ordering is
+inferred from the timestamps above; the handler order was not instrumented.
+
+### Required behaviour and acceptance
+
+A `tool_result` that arrives after the instance has gone idle must not re-arm the detector, or the detector's hard
+timeout must not respawn an instance whose status is `idle`. Acceptance: a unit test where an idle instance receives a
+late `tool_result` and the detector never emits `process:stuck`; and live, the same stuck-child run ends at the
+"delegated task stopped" notice and stays idle with no soft warning, no respawn and no automatic continuation.
 
 <a id="lt-1119"></a>
 
