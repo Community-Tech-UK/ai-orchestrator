@@ -204,7 +204,6 @@ export class PlanQueueItemFlow {
       } catch (error) {
         if (this.preparationErrors.defer(this.host.getItem(item.id), error)) return;
         await this.parkUnlocked(this.host.getItem(item.id), 'worktree-error', `Could not prepare the worktree: ${errorMessage(error)}`);
-        this.preparationErrors.failed(item, error);
         return;
       }
       const ctx = await this.workerSessions.promptContext(run, item);
@@ -243,7 +242,6 @@ export class PlanQueueItemFlow {
       } catch (error) {
         if (this.preparationErrors.defer(this.host.getItem(item.id), error)) return;
         await this.parkUnlocked(this.host.getItem(item.id), 'worktree-error', `Could not recover the worktree: ${errorMessage(error)}`);
-        this.preparationErrors.failed(item, error);
         return;
       }
       if (await recordQueueRestart(this.host, item) >= 3) {
@@ -345,7 +343,6 @@ export class PlanQueueItemFlow {
       }
       if (!(error instanceof PlanQueueSpawnStoppedByUser) && this.preparationErrors.defer(this.host.getItem(item.id), error)) return;
       await this.parkUnlocked(this.host.getItem(item.id), error instanceof PlanQueueSpawnStoppedByUser ? 'cancelled' : 'worker-error', error instanceof PlanQueueSpawnStoppedByUser ? 'Stopped: you closed its session. Resume carries on from the same branch.' : `Could not start the worker: ${errorMessage(error)}`);
-      if (!(error instanceof PlanQueueSpawnStoppedByUser)) this.preparationErrors.failed(item, error);
     }
   }
 

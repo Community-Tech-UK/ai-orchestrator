@@ -803,8 +803,9 @@ it('holds a run when jobs keep failing the same way, without stopping or setting
   await coordinator._whenSettledForTesting();
   const dto = coordinator.getRunDto(run.id)!;
   expect(dto.status).toBe('running');
-  expect(dto.items.filter(item => item.state === 'parked')).toHaveLength(3);
-  expect(dto.items.filter(item => item.state === 'queued')).toHaveLength(1);
+  // The third failure sets the hold and goes back in line, so only the first two are set aside.
+  expect(dto.items.filter(item => item.state === 'parked')).toHaveLength(2);
+  expect(dto.items.filter(item => item.state === 'queued')).toHaveLength(2);
   prepare.mockRestore();
   await coordinator.control({ action: 'resume', runId: run.id });
   expect(coordinator.getRunDto(run.id)!.holdReason).toBeNull();

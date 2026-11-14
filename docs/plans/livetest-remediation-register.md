@@ -392,6 +392,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1121 | P2 | **SOURCE FIX VERIFIED 2026-11-14, live on a rebuilt dev app.** A shared fault on worker start used to set aside every job the pump launched in the same pass, not at most three. At Workload 5 (five worker slots) four- and six-plan runs lost all four or all six jobs in about 100 ms, so the run hold arrived too late and no job was left to try later. The start failure is now counted before the job is parked, and a start that hits the fault the run is held for goes back to waiting, so at most the first two are set aside. Owner: Plan Queue run breaker (`plan-queue-run-breaker.ts`, `plan-queue-error-class.ts`). | [LT-1121 detail](#lt-1121) | [Plan Queue reliability installed-app checks](2026-11-05-plan-queue-reliability_plan_livetest.md) |
 | LT-1037 | P2 | **REPRODUCED LIVE 2026-11-12; NOT REPAIRED.** A `gemini` Plan Queue worker is started as the Antigravity CLI, which is given no Harness tools, so it cannot call `plan_queue_report_ready` (or `plan_queue_report_verdict` as a checker). The worker searched the machine for 6 minutes and never reported. | [LT-1037 detail](#lt-1037) | [Worker report live check](2026-11-04-pq-b3-report-ready_livetest.md#gemini-check-a-failed-lt-1037) |
 | LT-1120 | P2 | **SOURCE FIX VERIFIED 2026-11-12 (queue worktree); live re-run passed on the worktree build, installed-app check pending.** When Harness moved a worker's planning file to the main project folder (or saved it beside a different root copy) at a normal round checkpoint, the item's note saying so was cleared in the same millisecond. James never saw it; the file handling itself was correct. The note now lives in its own item field and shows on the item row until the work is gone. | [LT-1120 detail](#lt-1120) | [Planning-files live checks](2026-11-04-pq-a2-planning-files_plan_livetest.md#evidence-run--12-november-2026-queue-worker) |
 | LT-1119 | P3 | **SOURCE FIX VERIFIED 2026-11-12; REBUILT COPY CHECKED 2026-11-14 (no failed or slow read occurred, so the back-off itself is covered by specs only).** Observed in the real Harness log 2026-11-11: the leftover-program sweeper's process-table read took a median 1.2 s (up to 8.3 s) on the busy Mac, against the livetest's "well under 500 ms"; 16 reads failed and 4,012 identical `spawn EPERM` warnings were logged. The sweeper had no back-off; it now waits up to 6 ticks after a slow or failed read and logs a repeating failure once. Cause of the slow reads and failures unconfirmed (host load was 50 to 350 on 18 cores). | [Detail](#lt-1119) | [Evidence run](2026-10-24-agent-leftover-processes_livetest.md) |
@@ -13822,6 +13823,33 @@ Not isolated. The native strategy returned a false result (`src/main/context/com
 ### Required behaviour and acceptance
 
 A completed native compaction is not reported failed; a fallback samples the transcript and reports the count, and a zero-message summary is not presented as complete. Repeat check 2.3 with a session of at least 20 real turns.
+
+
+<a id="lt-1121"></a>
+
+## LT-1121
+
+### LT-1121 — a shared start fault sets aside every job launched in the same pass
+
+**Status: fixed in source and verified live 14 November 2026.** Reproduced 12 November 2026. The fix: `PlanQueuePreparationErrors.defer` counts a start failure with the breaker before the job is parked (the old `failed` call after parking is gone), and `PlanQueueRunBreaker.isHeldFault` sends any start that hits the fault the run is held for back to `queued`, whether it is the trial or another start already in flight. The third matching failure sets the hold and goes back in line itself, so at most the first two are set aside. Live result on a rebuilt dev app at Workload 5: 4-plan run, 2 set aside and 2 waiting; 6-plan runs, 2 set aside and 4 waiting; 8-plan run with the fault starting after five workers were up, 2 set aside and 1 waiting while all five live jobs landed. Evidence: [Evidence run: 14 November 2026](2026-11-05-plan-queue-reliability_plan_livetest.md#evidence-run-14-november-2026).
+
+### Observed behaviour
+
+Run on a dev app built from the Plan Queue reliability branch, Workload 5, in disposable repositories whose `.worktrees` folder was read-only, so every worker start failed with `EACCES ... mkdir .../.worktrees/queue`.
+
+- Default run (three worker slots, four plans), run `f`: all four jobs went `queued > preparing` within 4 ms (09:54:07.234 to .238) and were parked `worktree-error` between 09:54:07.754 and .831. Run `g` did the same.
+
+- Six-plan runs: `h` parked five jobs in the same 120 ms (09:56:00.951 to 09:56:01.063) and left one waiting; `i` and `j` parked all six.
+
+- The run showed "On hold" with the error text, as designed, but in `f`, `g`, `i` and `j` there was no job left waiting, so the ten-minute trial had nothing to try and the run ended `completed`.
+
+### Root cause
+
+Workload 5 sets `queueWorkerMinimum` to 5 (`workload-policy.ts:30`), and `queue-admission.ts:16` takes the larger of that and the run's `workerSlots`, so the pump launches five jobs in one pass (`plan-queue-pump.ts:126-131`). The breaker counts a failure only after `parkUnlocked` returns (`plan-queue-item-flow.ts:203-206`), by which point the other launches are already in flight. `PlanQueuePreparationErrors.defer` requeues a failing start only when it is the hold's own trial (`plan-queue-error-class.ts:29`), so a start that fails after the hold is in force is still parked. Jobs that fail in the same few milliseconds all park.
+
+### Required behaviour and acceptance
+
+A start that fails with the fault the run is already held for, or that would be the third such failure, goes back to `queued` and not to Set aside, so at most the first two matching failures park a job (or none), and every other job stays waiting for the trial. Acceptance: a spec that launches five starts failing the same way in one tick leaves no more than three parked and the rest `queued`; on the rebuilt app the check 7 steps in [the reliability live checks](2026-11-05-plan-queue-reliability_plan_livetest.md) leave jobs waiting, show the ten-minute trial, and lift the hold when it succeeds.
 
 <a id="lt-1120"></a>
 

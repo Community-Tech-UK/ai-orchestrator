@@ -24,12 +24,12 @@ export class PlanQueuePreparationErrors {
     return Date.now() < this.waitingUntil.get(item.id)!;
   }
 
-  /** True means the error was transient and the item is queued again. */
+  /** True means the item is queued again: the error was transient, or the run is held for the same fault. */
   defer(item: PlanQueueItem, error: unknown): boolean {
     if (classifyQueuePreparationError(error) !== 'transient-capacity') {
-      const reason = error instanceof Error ? error.message : String(error);
-      if (!this.breaker.isTrialOfSameFault(item.runId, item.id, reason)) return false;
-      // A trial start during a hold: the fault is still there, and that isn't this job's fault.
+      // Counted before the job is parked, so the jobs launched in the same pass see the hold the third failure sets.
+      if (!this.heldForSameFault(item, error instanceof Error ? error.message : String(error))) return false;
+      // The fault the run is held for is still there, and that isn't this job's fault.
       this.host.transition(item, 'queued', { detail: 'Waiting for the run to come off hold' });
       return true;
     }
@@ -47,7 +47,9 @@ export class PlanQueuePreparationErrors {
     return true;
   }
 
-  failed(item: PlanQueueItem, error: unknown): void {
-    this.breaker.note(item.runId, item.id, error instanceof Error ? error.message : String(error));
+  /** The failure counts toward the run's hold. True when the run is now held for this very fault. */
+  private heldForSameFault(item: PlanQueueItem, reason: string): boolean {
+    if (!this.breaker.isHeldFault(item.runId, reason)) this.breaker.note(item.runId, item.id, reason);
+    return this.breaker.isHeldFault(item.runId, reason);
   }
 }

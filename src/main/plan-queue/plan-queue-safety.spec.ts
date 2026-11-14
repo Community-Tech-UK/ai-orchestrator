@@ -58,13 +58,25 @@ describe('queue failure safeguards', () => {
     expect(errors.waiting(host.getItem('one'))).toBe(false);
   });
 
-  it('puts a trial job back in line when the fault is still there, instead of setting it aside', () => {
-    const breaker = new PlanQueueRunBreaker(host);
-    const errors = new PlanQueuePreparationErrors(host, breaker);
-    expect(errors.defer(host.getItem('one'), new Error('disk unavailable'))).toBe(false);
-    vi.spyOn(breaker, 'isTrialOfSameFault').mockReturnValueOnce(true);
+  it('puts a job back in line when the run is held for the fault it hit, instead of setting it aside', () => {
+    const run = store.getRun('run')!;
+    host.setRunHold = (_id: string, holdReason: string | null) => { store.upsertRun({ ...store.getRun('run')!, holdReason }); };
+    const errors = new PlanQueuePreparationErrors(host, new PlanQueueRunBreaker(host));
+    store.upsertRun({ ...run, holdReason: 'No new work is starting. Last error: disk unavailable' });
     expect(errors.defer(host.getItem('one'), new Error('disk unavailable'))).toBe(true);
     expect(host.getItem('one')).toMatchObject({ state: 'queued', parkReason: null });
+    expect(errors.defer(host.getItem('two'), new Error('this document is broken'))).toBe(false);
+  });
+
+  it('sets aside at most the first two of five starts that fail the same way in one pass', () => {
+    host.setRunHold = (_id: string, holdReason: string | null) => { store.upsertRun({ ...store.getRun('run')!, holdReason }); };
+    for (const id of ['three', 'four', 'five']) store.upsertItem(newPlanQueueItem(id, 'run', join(root, `${id}_plan.md`), 3, { state: 'preparing' }));
+    const errors = new PlanQueuePreparationErrors(host, new PlanQueueRunBreaker(host));
+    const deferred = ['one', 'two', 'three', 'four', 'five']
+      .map(id => errors.defer(host.getItem(id), new Error(`EACCES: permission denied, mkdir '${root}/${id}/.worktrees/queue'`)));
+    expect(deferred).toEqual([false, false, true, true, true]);
+    expect(store.getRun('run')!.holdReason).toContain('EACCES');
+    expect(['three', 'four', 'five'].map(id => host.getItem(id).state)).toEqual(['queued', 'queued', 'queued']);
   });
 
   it('counts consecutive restarts but resets on changed work or a completed round', async () => {

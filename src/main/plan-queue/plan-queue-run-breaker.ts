@@ -85,9 +85,13 @@ export class PlanQueueRunBreaker {
     trials.tries += 1;
   }
 
-  /** The trial hit the fault the run is held for, so it goes back in line. Any other failure is the job's own. */
-  isTrialOfSameFault(runId: string, itemId: string, message: string): boolean {
-    return this.isTrial(runId, itemId) && normaliseFailure(message.slice(0, MAX_STORED_ERROR)) === normaliseFailure(holdError(this.host.getRun(runId)));
+  /**
+   * The run is held for this fault, so a start that hits it goes back in line instead of being set aside. That covers
+   * the trial and every other start already in flight when the hold began. Any other failure is the job's own.
+   */
+  isHeldFault(runId: string, message: string): boolean {
+    const held = holdError(this.host.getRun(runId));
+    return held !== '' && normaliseFailure(message.slice(0, MAX_STORED_ERROR)) === normaliseFailure(held);
   }
 
   private isTrial(runId: string, itemId: string | null): boolean {

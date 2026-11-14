@@ -67,13 +67,11 @@ describe('PlanQueueRunBreaker', () => {
     }
   });
 
-  it('sends a trial back in line only for the fault the run is held for', () => {
+  it('sends a start back in line only for the fault the run is held for', () => {
+    expect(breaker.isHeldFault('run', 'disk unavailable')).toBe(false);
     failThreeJobs();
-    now += 10 * MINUTE;
-    breaker.started(run, 'trial');
-    expect(breaker.isTrialOfSameFault('run', 'trial', 'disk unavailable')).toBe(true);
-    expect(breaker.isTrialOfSameFault('run', 'trial', 'this document is broken')).toBe(false);
-    expect(breaker.isTrialOfSameFault('run', 'other', 'disk unavailable')).toBe(false);
+    expect(breaker.isHeldFault('run', 'disk unavailable')).toBe(true);
+    expect(breaker.isHeldFault('run', 'this document is broken')).toBe(false);
   });
 
   it('lets only the trial lift a hold, because other work can still get through during an outage', () => {
@@ -113,7 +111,7 @@ describe('PlanQueueRunBreaker', () => {
     now += 10 * MINUTE;
     breaker.started(run, 'trial');
     run = { ...run, holdReason: null };
-    expect(breaker.isTrialOfSameFault('run', 'trial', 'disk unavailable')).toBe(false);
+    expect(breaker.isHeldFault('run', 'disk unavailable')).toBe(false);
   });
 
   it('stops trying after six hours, says so on the run, and remembers after a restart', () => {
