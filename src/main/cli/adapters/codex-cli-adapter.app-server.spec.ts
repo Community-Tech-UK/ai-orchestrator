@@ -317,6 +317,53 @@ describe('CodexCliAdapter', () => {
     expect(finalOutput?.id).not.toBe(streamedQuestionId);
   });
 
+  it('keeps a plain turn open until Codex sends turn/completed, however long after the final answer', async () => {
+    // LT-1084: Codex once took 1.8 s to send turn/completed after the final answer; the 250 ms
+    // inferred completion showed the chat idle while the native turn was still open.
+    const client = createSyntheticTurnClient([]);
+    let nativeCompletedAt = 0;
+    client.request.mockImplementation(async (method: string) => {
+      if (method !== 'turn/start') throw new Error(`Unexpected synthetic RPC: ${method}`);
+      client.notificationHandler?.({
+        method: 'turn/started',
+        params: { threadId: 'thread-1', turn: { id: 'turn-1' } },
+      });
+      client.notificationHandler?.({
+        method: 'item/completed',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          item: { id: 'message-1', type: 'agentMessage', phase: 'final_answer', text: 'TURN-1 done' },
+        },
+      });
+      setTimeout(() => {
+        nativeCompletedAt = Date.now();
+        client.notificationHandler?.({
+          method: 'turn/completed',
+          params: {
+            threadId: 'thread-1',
+            turn: { id: 'turn-1', status: 'completed', usage: { input_tokens: 1, output_tokens: 1 } },
+          },
+        });
+      }, 700);
+      return { turn: { id: 'turn-1', status: 'inProgress' } };
+    });
+    const adapter = new CodexCliAdapter();
+    const completions: Array<{ content: string; at: number }> = [];
+    adapter.on('complete', (response: { content: string }) => completions.push({ content: response.content, at: Date.now() }));
+    (adapter as unknown as { appServerClient: typeof client }).appServerClient = client;
+    (adapter as unknown as { appServerThreadId: string }).appServerThreadId = 'thread-1';
+
+    await (adapter as unknown as {
+      appServerSendMessageInner(message: string): Promise<void>;
+    }).appServerSendMessageInner('Say TURN-1');
+
+    expect(completions).toHaveLength(1);
+    expect(completions[0]?.content).toBe('TURN-1 done');
+    expect(nativeCompletedAt).toBeGreaterThan(0);
+    expect(completions[0]!.at).toBeGreaterThanOrEqual(nativeCompletedAt);
+  });
+
   it('surfaces a subagent async question without ending the root turn', async () => {
     const client = createSyntheticTurnClient([]);
     client.request.mockImplementation(async (method: string) => {

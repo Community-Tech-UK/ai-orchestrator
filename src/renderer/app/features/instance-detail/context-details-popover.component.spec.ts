@@ -107,6 +107,21 @@ describe('ContextDetailsPopoverComponent', () => {
     expect(panel.textContent).not.toContain('Context');
   });
 
+  it('sits in a fixed position just above its toolbar, inside the window, so the composer panel cannot clip it (LT-1083)', () => {
+    const fixture = TestBed.createComponent(ContextDetailsPopoverComponent);
+    const toolbar = fixture.nativeElement.parentElement as HTMLElement;
+    vi.spyOn(toolbar, 'getBoundingClientRect').mockReturnValue({ left: 40, top: 700, right: 940, bottom: 740, width: 900, height: 40, x: 40, y: 700, toJSON: () => ({}) });
+    fixture.componentRef.setInput('instanceId', 'session');
+    fixture.componentRef.setInput('usage', reported());
+    fixture.componentRef.setInput('isOpen', true);
+    fixture.detectChanges();
+    const dialog = fixture.nativeElement.querySelector('.context-details') as HTMLElement;
+    expect(getComputedStyle(dialog).position).toBe('fixed');
+    expect(dialog.style.left).toBe('40px');
+    expect(dialog.style.bottom).toBe(`${window.innerHeight - 700 + 6}px`);
+    expect(Number.parseFloat(dialog.style.maxHeight)).toBeLessThanOrEqual(700 - 12);
+  });
+
   it('opens the compaction preview from "Compact now…"', () => {
     const fixture = render(reported());
     expect(fixture.nativeElement.querySelector('.cpd-overlay')).toBeNull();

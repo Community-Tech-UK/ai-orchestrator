@@ -296,7 +296,10 @@ export function handleItemCompleted(
         );
         if (itemPhase === 'final_answer') {
           state.finalAnswerSeen = true;
-          host.scheduleInferredCompletion(state);
+          // A turn with no helper threads always ends with Codex's own turn/completed, which can
+          // trail the final answer by seconds. Inferring completion 250 ms after the answer would
+          // show the chat idle while that native turn is still open (LT-1084).
+          if (state.threadIds.size > 1) host.scheduleInferredCompletion(state);
         }
       }
     }

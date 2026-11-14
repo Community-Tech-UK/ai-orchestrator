@@ -435,6 +435,8 @@ sections below. The historical reproduction remains unchanged.
 | LT-991 | P1 | **REPRODUCED LIVE; REPAIR IMPLEMENTED, LIVE RETEST PENDING.** Persistence sentinel ignores the extension evaluate JSON envelope, so a stale/save-failed form reports successful writes and verified persistence. | [LT-991 detail](#lt-991) | [Review corrections](2026-10-27-human-external-review2_plan.md#lt-991-implementation-status) |
 | LT-992 | P2 | **REPRODUCED; NOT REPAIRED.** Packaging repeatability cannot collect under supported Node 26; the unchanged cases pass under supported Node 24. | [LT-992 detail](#lt-992) | [Review corrections](2026-10-27-human-external-review2_plan.md#lt-992-implementation-status) |
 | LT-1030 | P3 | **REPRODUCED LIVE 2026-11-12; NOT REPAIRED.** Queue health prints "1 starts", "1 checks", "1 landings" for a count of one, and "0 seconds" for a wait under half a second. | [LT-1030 detail](#lt-1030) | [Queue health live checks](2026-11-04-pq-a5-measure_plan_livetest.md) |
+| LT-1083 | P2 | **FIXED AND VERIFIED LIVE 2026-11-13.** The Context details popover, which holds the only manual "Compact now…" control for a Codex chat (the "Compact Now" banner is hidden for providers that compact themselves), was cut off by the composer panel: its "Compact now…" button sat above the panel's top edge, so a click on it hit the popover's backdrop and just closed the popover. Repaired by positioning the popover fixed in the window. | [LT-1083 detail](#lt-1083) | [Codex goal-following livetest](2026-10-27-codex-goal-following-remediation_livetest.md#evidence-run--2026-11-13-queue-worker-rebuilt-dev-app) |
+| LT-1084 | P2 | **FIXED AND VERIFIED 2026-11-13.** After a Codex goal turn's final answer, Harness inferred that the turn had ended 250 ms later even when Codex had not yet sent its own end-of-turn notice. On 13 Nov one such notice trailed the answer by 1.8 s, so the chat showed idle (Stop button gone) for 1.6 s while the native turn was still open. Repaired: a turn with no helper agents now waits for Codex's own end-of-turn notice. | [LT-1084 detail](#lt-1084) | [Codex goal-following livetest](2026-10-27-codex-goal-following-remediation_livetest.md#check-1-idle-while-the-native-turn-was-open--lt-1084--2026-11-13-queue-worker-third-pass) |
 | LT-1065 | P2 | **REPRODUCED ON THE LIVE DESK 2026-11-11 and 2026-11-12; NOT REPAIRED.** The charity lane of `get-work-day` fails because its interactive database transactions run past Prisma's default 5-second limit, so `charity_drafts` produces no drafts and the watchdog alarms. | [LT-1065 detail](#lt-1065) | [Watchdog three faults live checks](../../../../communitytech/work-finding/documents/plans/watchdog-three-faults-2026-10-20/watchdog-three-faults_livetest.md) |
 | LT-1066 | P2 | **REPRODUCED LIVE 2026-11-13 (read-only database observation); CAUSE NOT ISOLATED; NOT REPAIRED.** The Desk `conversation-reconciliation` schedule (every five minutes) ended 39 of 258 runs `failed` and 20 `partial` in the 24 hours to 02:29 UTC, always `source_unavailable` on the mailbox sources, and left 29 runs `running` with no end time (28 older than an hour, the oldest from 12 November 18:00 UTC). | [LT-1066 detail](#lt-1066) | [Watchdog faults live checks](../../../../communitytech/work-finding/documents/plans/watchdog-faults-2026-10-08/watchdog-faults_livetest.md) |
 
@@ -13235,6 +13237,56 @@ Not isolated. The native strategy returned a false result (`src/main/context/com
 ### Required behaviour and acceptance
 
 A completed native compaction is not reported failed; a fallback samples the transcript and reports the count, and a zero-message summary is not presented as complete. Repeat check 2.3 with a session of at least 20 real turns.
+
+<a id="lt-1083"></a>
+
+## LT-1083 — the Context details popover, home of "Compact now…", is clipped out of view by the composer panel
+
+**Status: fixed and verified live on 13 November 2026. Priority P2.** Reproduced the same day in a rebuilt dev app (1400×900 window). The popover came in with the calm-screen phase 3 work (`ab5a879db`).
+
+**Repair.** `context-details-popover.component.ts` now positions the popover `fixed` in the window, just above the toolbar that holds it (`place()` reads the toolbar's rectangle when the popover opens and on window resize, keeps it inside the window and caps its height to the room above). The composer panel's `overflow: hidden` no longer clips it. Unit test: `context-details-popover.component.spec.ts`, case "sits in a fixed position just above its toolbar…". Live: a rebuilt dev app, the real ring then "Compact now…" then Confirm with no style override; see the livetest's 13 Nov re-check section.
+
+### Observed behaviour
+
+With a Codex chat selected, clicking the context ring (`button.ctx-ring-btn`, label "Context window: N% used") opens `section.context-details` (not hidden), but nothing readable appears: the screenshot shows only a ~9 px dark strip above the composer. Measured with `getBoundingClientRect` in an idle chat: popover top 538, bottom 700; `div.input-panel` top 691, bottom 872 and `overflow: hidden`; the "Compact now…" button spans 655–685, wholly above the panel. `document.elementFromPoint` at that button's centre returns `button.backdrop`, not the button. A real mouse click there (Input.dispatchMouseEvent at x 490, y 669.75) only closes the popover; the compaction preview dialog never opens (waited 18 s, no `button.cpd-btn`). Repeated on two separate chats (one idle, one busy on a goal) with the same result. For Codex the "Compact Now" banner never shows (`resolveContextWarningLevel` returns null when `selfManagesAutoCompaction`; context reached 89.7% with no banner), so the popover is the only place a person can start a manual compaction.
+
+### Root cause
+
+Source-supported, not yet fixed. `ContextDetailsPopoverComponent` (`context-details-popover.component.ts`) is `position: absolute; bottom: calc(100% + 6px)` inside `app-composer-toolbar` (`position: relative`), which sits inside `.input-panel` (`input-panel.component.scss:14`, `overflow: hidden`) and `app-input-panel` (`:host { overflow: hidden }`, line 6). Everything the popover draws above the panel's top edge, which is nearly all of its 162+ px, is clipped.
+
+### Required behaviour
+
+The popover and its "Compact now…" button are fully visible and clickable from the context ring in the normal composer, at normal window sizes, including while a turn is running.
+
+### Acceptance
+
+A renderer test or rendered-DOM check that opens the popover in the real composer layout and asserts that the "Compact now…" button's centre point hit-tests to the button itself (not the backdrop) and lies inside the visible window. Live: with a Codex chat busy on a goal, open the ring, click "Compact now…", click Confirm, and see the busy refusal ("Busy: compaction is available once the current turn finishes.") from the real control with no style override.
+
+### Evidence
+
+[Codex goal-following livetest](2026-10-27-codex-goal-following-remediation_livetest.md#evidence-run--2026-11-13-queue-worker-rebuilt-dev-app), Check 3. With only a test-injected `div.input-panel, app-input-panel { overflow: visible !important }` the same button is reachable, opens the dialog, and Confirm returns the busy refusal, so the action works once it can be clicked. Screenshots and probe output were kept under `.aio-review/lt-e419d0c0-2026-11-13/`.
+
+<a id="lt-1084"></a>
+
+## LT-1084 — status goes idle 250 ms after a goal turn's final answer, before Codex ends the turn
+
+**Status: fixed and verified on 13 November 2026. Priority P2.** Found by the independent verifier's round-2 review of the goal-following livetest, which pointed at a 1.6 s idle span recorded in Check 1's Run B. A recurrence of the LT-683 acceptance ("no idle span longer than the turn gap").
+
+### Observed behaviour
+
+Run B (instance in a rebuilt dev app, 13 Nov 2026): the final reply of native turn `b420ee` was written to the rollout at 19:13:52.769 and Codex's own `task_complete` at 19:13:54.608 (1.84 s later; the normal gap is 65 to 130 ms, measured over 32 other turns). The chat status went `idle` at 19:13:53.051, 0.28 s after the reply, and back to `busy` at 19:13:54.824 when the next goal turn started. The Stop button was gone for those 1.6 s while the native turn was open.
+
+### Root cause
+
+Source-supported and matching the timing. `handleItemCompleted` (`codex-notification-item-events.ts`) called `scheduleInferredCompletion` on every root-thread `final_answer`. That timer (`INFERRED_COMPLETION_MS = 250` in `codex-app-server-notification-adapter.ts`) calls `completeTurn(state, null)`, which resolves the capture, and the provider-turn follow code then emits `idle` (`codex-app-server-turn-adapter.ts`, the `.finally` after `finishProviderTurn`). The inference exists for multi-agent turns whose root `turn/completed` may not arrive after the helper agents drain; a plain turn always gets `turn/completed`.
+
+### Required behaviour and acceptance
+
+A turn that used no helper threads is completed only by Codex's own `turn/completed`, however long after the final answer it arrives; a turn that used helper threads still gets the inferred completion. Acceptance: `codex-notification-item-events.spec.ts` ("records a completed agent message on the root thread" now expects no inference; "still infers completion after a final answer when helper threads took part") and `codex-cli-adapter.app-server.spec.ts` ("keeps a plain turn open until Codex sends turn/completed, however long after the final answer"); both new expectations fail on the old code. Live, rebuilt app: four 8-turn goals (28 turn boundaries) had idle spans of 3 to 17 ms, each matching the native gap, none starting while a native turn was open, every `TURN-n` reply once, 7 of 7 provider-started turns followed per run, no error lines. The 1.8 s tail itself did not recur live, so the slow-tail case is proved by the unit test, not by a live repeat.
+
+### Evidence
+
+[Codex goal-following livetest](2026-10-27-codex-goal-following-remediation_livetest.md#check-1-idle-while-the-native-turn-was-open--lt-1084--2026-11-13-queue-worker-third-pass).
 
 <a id="lt-1018"></a>
 

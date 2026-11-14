@@ -78,7 +78,19 @@ describe('codex-notification-item-events', () => {
     });
     expect(capture.lastAgentMessage).toBe('hello');
     expect(capture.finalAnswerSeen).toBe(true);
-    expect(ops.scheduleInferredCompletion).toHaveBeenCalled();
+    // No helper threads: Codex's own turn/completed ends the turn, however late it arrives (LT-1084).
+    expect(ops.scheduleInferredCompletion).not.toHaveBeenCalled();
+  });
+
+  it('still infers completion after a final answer when helper threads took part', () => {
+    const capture = state({ threadIds: new Set(['thread-1', 'helper-1']) });
+    const ops = host();
+    handleItemCompleted(ops, capture, {
+      threadId: 'thread-1',
+      item: { type: 'agentMessage', text: 'done', phase: 'final_answer', id: 'm1' },
+    });
+    expect(capture.finalAnswerSeen).toBe(true);
+    expect(ops.scheduleInferredCompletion).toHaveBeenCalledWith(capture);
   });
 
   it('shows an async user-input question without treating it as the final answer', () => {

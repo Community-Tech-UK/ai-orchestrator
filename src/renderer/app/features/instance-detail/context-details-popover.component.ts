@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, input, output, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import type { ContextUsage } from '../../core/state/instance.store';
 import { ContextBarComponent } from './context-bar.component';
 import { ProviderDiagnosticsPanelComponent } from './provider-diagnostics-panel.component';
@@ -8,9 +8,10 @@ import { FanoutCostComponent } from './fanout-cost.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 @Component({
   selector: 'app-context-details-popover', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(window:resize)': 'place()' },
   imports: [ContextBarComponent, ProviderDiagnosticsPanelComponent, CompactionPreviewDialogComponent, CopilotPremiumUsageComponent, FanoutCostComponent, AioTooltipDirective],
   template: `@if (isOpen()) { <button type="button" class="backdrop" data-ui-hints-exempt="backdrop" aria-label="Close Context details" (click)="closed.emit()"></button> }
-<section class="context-details" [hidden]="!isOpen()" role="dialog" aria-label="Context details" (keydown.escape)="onEscape($event)">
+<section class="context-details" [hidden]="!isOpen()" [style.left.px]="anchor().left" [style.bottom.px]="anchor().bottom" [style.max-height.px]="anchor().maxHeight" role="dialog" aria-label="Context details" (keydown.escape)="onEscape($event)">
   <div class="heading"><h3>Context details</h3><button type="button" aria-label="Close Context details" appTooltip="Close Context details" (click)="closed.emit()">×</button></div>
   @if (isOpen()) {
     @if (usage(); as current) { <app-context-bar [usage]="current" [showDetails]="true" [showCost]="false" [instanceId]="instanceId()" (statusOpened)="closed.emit()" /> }
@@ -24,7 +25,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
 `,
   styles: [`
     :host { display: contents; }
-    .context-details { position: absolute; bottom: calc(100% + 6px); left: 0; width: min(560px, 90vw); max-height: 60vh; overflow: auto; padding: 14px; background: var(--bg-elevated, #1d2126); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 10px; box-shadow: 0 8px 24px #0006; z-index: 51; }
+    .context-details { position: fixed; width: min(560px, 90vw); overflow: auto; padding: 14px; background: var(--bg-elevated, #1d2126); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 10px; box-shadow: 0 8px 24px #0006; z-index: 51; }
     .context-details[hidden] { display: none; }
     .heading { display: flex; justify-content: space-between; gap: 12px; }
     h3 { margin: 0 0 12px; font-size: 14px; }
@@ -40,10 +41,32 @@ export class ContextDetailsPopoverComponent {
   readonly isOpen = input(false);
   readonly closed = output<void>();
   readonly previewOpen = signal(false);
+  /**
+   * Viewport position above the toolbar (LT-1083). The composer panel clips its children
+   * (`overflow: hidden`), so an absolutely positioned popover drawn above the toolbar was cut off
+   * and "Compact now…" could not be clicked; a fixed popover is not clipped by it.
+   */
+  readonly anchor = signal({ left: 0, bottom: 0, maxHeight: 0 });
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly diagnostics = viewChild(ProviderDiagnosticsPanelComponent);
   readonly warningItems = computed(() => this.diagnostics()?.warningItems() ?? []);
   readonly hasWarning = computed(() => this.warningItems().length > 0);
   readonly warningLabel = computed(() => this.warningItems().some(item => item.id === 'quota') ? 'Quota used up' : this.hasWarning() ? 'Rate limit reached' : null);
-  constructor() { effect(() => { this.instanceId(); this.previewOpen.set(false); }); }
+  constructor() {
+    effect(() => { this.instanceId(); this.previewOpen.set(false); });
+    effect(() => { if (this.isOpen()) untracked(() => this.place()); });
+  }
+  /** Sit just above the toolbar that holds this popover, kept inside the window. */
+  place(): void {
+    const toolbar = this.host.nativeElement.parentElement;
+    if (!toolbar) return;
+    const rect = toolbar.getBoundingClientRect();
+    const width = Math.min(560, window.innerWidth * 0.9);
+    this.anchor.set({
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+      bottom: window.innerHeight - rect.top + 6,
+      maxHeight: Math.max(120, Math.min(window.innerHeight * 0.6, rect.top - 12)),
+    });
+  }
   onEscape(event: Event): void { event.preventDefault(); event.stopPropagation(); this.closed.emit(); }
 }
