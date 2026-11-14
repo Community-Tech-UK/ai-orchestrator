@@ -25,6 +25,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { randomBytes } from 'node:crypto';
+import { PLANNING_NOTE_LIMIT } from '@contracts/schemas/plan-queue';
 import { getLogger } from '../logging/logger';
 import { isActivePlanDocumentPath } from '../workspace/git/active-plan-pattern';
 import { gitExec } from '../workspace/git/git-exec';
@@ -369,4 +370,18 @@ export function planningMoveNote(report: PlanningMoveReport): string | null {
     parts.push(`${file.path} could not be moved to the main project folder (${file.reason}). It was left out of the saved work${file.rescue ? ` and a copy is kept at ${file.rescue}` : ', and no copy could be made'}.`);
   }
   return parts.length ? parts.join(' ') : null;
+}
+
+/**
+ * The item's planning note after another checkpoint or the landing preflight reported `note`: one line per report, oldest
+ * dropped first once the whole note would pass `PLANNING_NOTE_LIMIT`. Nothing to report, or the same report again (a retried
+ * landing), leaves it as it was.
+ */
+export function appendPlanningNote(existing: string | undefined, note: string | null): string | undefined {
+  if (!note) return existing;
+  const earlier = existing ? existing.split('\n') : [];
+  if (earlier.at(-1) === note) return existing;
+  const lines = [...earlier, note.slice(-PLANNING_NOTE_LIMIT)];
+  while (lines.length > 1 && lines.join('\n').length > PLANNING_NOTE_LIMIT) lines.shift();
+  return lines.join('\n');
 }

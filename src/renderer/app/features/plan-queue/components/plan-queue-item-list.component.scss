@@ -64,8 +64,13 @@
 .pq-item-report,
 .pq-item-check-group,
 .pq-item-park-reason,
+.pq-item-planning-note,
 .pq-item-detail {
   margin-top: 6px;
   font-size: 0.92em;
   opacity: 0.9;
+}
+
+.pq-item-planning-note {
+  white-space: pre-line;
 }

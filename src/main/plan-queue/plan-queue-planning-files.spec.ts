@@ -11,7 +11,7 @@ import { landItemBranch } from './plan-queue-landing';
 import { _setPlanQueueDataDirForTesting } from './plan-queue-data-dir';
 import { restoreItemCheckout } from './plan-queue-squash';
 import {
-  clearPlanningMoveRecord, describePlanningMoves, planningMoveNote, relocatePlanningFiles,
+  appendPlanningNote, clearPlanningMoveRecord, describePlanningMoves, planningMoveNote, relocatePlanningFiles,
 } from './plan-queue-planning-files';
 import { PlanQueueWorktreeService } from './plan-queue-worktree';
 import type { PlanQueueItem } from './plan-queue.types';
@@ -136,6 +136,26 @@ function workFolder(files: Record<string, string> = {}): string {
 function dropWorkFolder(wt: string): void {
   rmSync(dirname(wt), { recursive: true, force: true });
 }
+
+describe('appendPlanningNote', () => {
+  it('adds one line per report and leaves the note alone when there is nothing to add', () => {
+    expect(appendPlanningNote(undefined, null)).toBeUndefined();
+    expect(appendPlanningNote('first', null)).toBe('first');
+    expect(appendPlanningNote(undefined, 'first')).toBe('first');
+    expect(appendPlanningNote('first', 'second')).toBe('first\nsecond');
+  });
+
+  it('does not repeat the line a retried landing reports again', () => {
+    expect(appendPlanningNote('first\nsecond', 'second')).toBe('first\nsecond');
+  });
+
+  it('drops the oldest lines first once the note would pass its limit', () => {
+    const line = (letter: string) => letter.repeat(1500);
+    const note = appendPlanningNote(appendPlanningNote(line('a'), line('b')), line('c'))!;
+    expect(note).toBe(`${line('b')}\n${line('c')}`);
+    expect(appendPlanningNote(undefined, 'z'.repeat(9000))!.length).toBe(4000);
+  });
+});
 
 describe('relocatePlanningFiles', () => {
   it('moves a new file to the same path in the root and removes it from the work folder', async () => {
@@ -482,7 +502,8 @@ describe('checkpoints', () => {
     expect(readFileSync(join(root, 'docs/plans/new_plan.md'), 'utf8')).toBe('# plan\n');
     expect(readFileSync(join(root, 'docs/plans/new-decisions-for-james.md'), 'utf8')).toBe('# decisions\n');
     expect(existsSync(join(wt, 'docs/plans/new_history.md'))).toBe(false);
-    expect(after.detail).toContain('moved to the main project folder');
+    expect(after.planningNote).toContain('moved to the main project folder');
+    expect(after.detail).toBeNull();
     expect(git(['status', '--porcelain', '--', 'src-work.txt'], wt)).toBe('');
   });
 
@@ -495,6 +516,7 @@ describe('checkpoints', () => {
     expect(git(['show', `${after.branchName}:docs/plans/tracked_plan.md`])).toBe('# edited in the worktree');
     expect(readFileSync(join(root, 'docs/plans/tracked_plan.md'), 'utf8')).toBe('# tracked on base\n');
     expect(after.detail).toBeNull();
+    expect(after.planningNote).toBeUndefined();
   });
 
   it('keep a file that cannot be moved out of the commit, save a rescue copy, and move it once the clash is gone', async () => {
@@ -509,8 +531,8 @@ describe('checkpoints', () => {
     expect(branchFiles(after)).toContain('work.txt');
     expect(branchFiles(after).some((file) => file.includes('stuck_history'))).toBe(false);
     expect(existsSync(join(wt, 'blocked/plans/stuck_history.md'))).toBe(true);
-    expect(after.detail).toMatch(/stuck_history\.md could not be moved.*a copy is kept at /);
-    const rescue = /a copy is kept at ([^ ]+stuck_history\.md)/.exec(after.detail!)?.[1];
+    expect(after.planningNote).toMatch(/stuck_history\.md could not be moved.*a copy is kept at /);
+    const rescue = /a copy is kept at ([^ ]+stuck_history\.md)/.exec(after.planningNote!)?.[1];
     expect(readFileSync(rescue!, 'utf8')).toBe('journal\n');
 
     rmSync(join(root, 'blocked'));

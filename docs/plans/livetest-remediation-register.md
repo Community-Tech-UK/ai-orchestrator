@@ -391,6 +391,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1120 | P2 | **SOURCE FIX VERIFIED 2026-11-12 (queue worktree); live re-run passed on the worktree build, installed-app check pending.** When Harness moved a worker's planning file to the main project folder (or saved it beside a different root copy) at a normal round checkpoint, the item's note saying so was cleared in the same millisecond. James never saw it; the file handling itself was correct. The note now lives in its own item field and shows on the item row until the work is gone. | [LT-1120 detail](#lt-1120) | [Planning-files live checks](2026-11-04-pq-a2-planning-files_plan_livetest.md#evidence-run--12-november-2026-queue-worker) |
 | LT-1119 | P3 | **SOURCE FIX VERIFIED 2026-11-12; REBUILT COPY CHECKED 2026-11-14 (no failed or slow read occurred, so the back-off itself is covered by specs only).** Observed in the real Harness log 2026-11-11: the leftover-program sweeper's process-table read took a median 1.2 s (up to 8.3 s) on the busy Mac, against the livetest's "well under 500 ms"; 16 reads failed and 4,012 identical `spawn EPERM` warnings were logged. The sweeper had no back-off; it now waits up to 6 ticks after a slow or failed read and logs a repeating failure once. Cause of the slow reads and failures unconfirmed (host load was 50 to 350 on 18 cores). | [Detail](#lt-1119) | [Evidence run](2026-10-24-agent-leftover-processes_livetest.md) |
 | LT-1118 | P3 | **REPRODUCED LIVE 2026-11-14; NOT REPAIRED.** A Harness copy started by `dev-app.js` on the test Mac runs with its working folder set to `/`, so `resolveAioMcpCliPath` (which looks under `process.cwd()` in a development run) never finds `dist/aio-mcp-cli-sea/aio-mcp`. Sessions in that copy get no `AI_ORCHESTRATOR_INSTANCE_ID` marker, no `AIO_MCP`, no orchestrator tools (`list_host_processes` is not available) and no codemem tools, so a live check that relies on the marker or on those tools cannot run there. | [LT-1118 detail](#lt-1118) | [Evidence run](2026-10-24-agent-leftover-processes_livetest.md) |
 
@@ -13581,6 +13582,57 @@ finished run shows "(1 check)" and a sub-second wait reads "under a second".
 
 **Evidence.** [Queue health live checks](2026-11-04-pq-a5-measure_plan_livetest.md), evidence run 2026-11-12, checks 2 and 3.
 
+<a id="lt-1120"></a>
+
+## LT-1120
+
+### LT-1120 — the "planning files were moved" note is wiped by the next state change
+
+**Status: source fix verified 12 November 2026 in the queue worktree; live re-run passed on that build; installed-app check pending.**
+
+### Observed behaviour
+
+Live Plan Queue runs in an isolated dev app (scratch repository, real Claude worker) with a worker-created planning
+file in the work folder. The file handling was correct every time (moved to the same path in the main folder at the
+first checkpoint, never on the item branch, never on `main`; saved beside a differing root copy as
+`<name>.from-queue-<item>.md`, then `-2`). But the item's note never showed it. The `PLAN_QUEUE_STATE_CHANGED`
+event stream for the item shows the note set and cleared in the same millisecond:
+
+```
+07:25:04.937Z working        detail="docs/plans/scratch-note_history.md could not be moved ..."
+07:25:04.937Z awaiting-slot  detail=null
+```
+
+The same happens for a successful move or a beside copy: the 'moved' and 'saved beside' notes were never present in any
+later poll (`detail: null` while `verifying`, `landed`). The note was only visible when the move failed and the item
+parked, or briefly during landing.
+
+### Root cause
+
+`PlanQueueWorktreeManager.checkpoint` returns the item with `detail` set to the planning note
+(`plan-queue-worktree.ts:281`, `checkpointDetail`). The round-work caller then transitions it with an explicit
+`detail: null` (`plan-queue-item-flow.ts:428`), so the note is dropped before anything reads it. Later transitions also
+reset `detail` (`plan-queue-checker-spawn.ts:59`, `plan-queue-item-flow.ts:602`). `detail` is a single field for the
+item's current one-line status, so a note that must outlive several state changes has no home.
+
+### Required behaviour and acceptance
+
+After a checkpoint moves a planning file or saves it beside an existing one, James can still see which file went where
+until the item lands or parks, from the Plan Queue page, without the note being overwritten by the next status line
+(for example a run event or parent notification, or a separate field, rather than reusing `detail`). Acceptance: a
+real-flow test (coordinator or item-flow level, not only the worktree manager) where a worker's checkpoint moves a file
+and the note is still readable once the item reaches `verifying`; plus a live re-run of check 1 and check 2 of the
+planning-files live test showing the note on the page after the first checkpoint.
+
+### Fix (12 November 2026)
+
+The note moved out of `detail` into its own item field, `planningNote` (new column `planning_note`, migration 55,
+`PLANNING_NOTE_LIMIT` 4000 characters). `checkpoint` and the landing preflight append one line per report
+(`appendPlanningNote`: oldest lines dropped first, a repeated line skipped); no status change touches it. It reaches the
+page in the item data and shows on the item row (`.pq-item-planning-note`). Tests: `plan-queue-coordinator-landing.spec.ts`
+(whole run: moved note and beside-copy note still on the landed item; fail with the fix removed), `plan-queue-planning-files.spec.ts`
+(checkpoint note and the `appendPlanningNote` cases), `plan-queue-store.spec.ts` (survives a status change that clears `detail`).
+Live evidence: [planning-files live test, 12 November re-run](2026-11-04-pq-a2-planning-files_plan_livetest.md#evidence-run--12-november-2026-fix-re-run-lt-1120).
 
 ## LT-1043
 

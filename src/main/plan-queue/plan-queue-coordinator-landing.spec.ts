@@ -446,6 +446,29 @@ describe('PlanQueueCoordinator — the landing commit runs the repository hooks'
     expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed' });
     expect(readFileSync(join(repo, 'scratch_history.md'), 'utf8')).toBe('# scratch journal\n');
     expect(git(['ls-tree', '-r', '--name-only', 'main']).split('\n').some((name) => name.includes('scratch_history'))).toBe(false);
+    // The note outlives the status changes after the checkpoint (LT-1120): the item still says what was moved once it has landed.
+    expect(coordinator.getRunDto(run.id)!.items[0].planningNote).toContain('scratch_history.md');
+    expect(coordinator.getRunDto(run.id)!.items[0].planningNote).toContain('moved to the main project folder');
+  });
+
+  it('keeps saying where a planning file went when the root already had a different one', async () => {
+    planDoc('2026-01-01-alpha');
+    writeFileSync(join(repo, 'scratch_history.md'), '# the root copy\n');
+    const parent = fake.addParent();
+    fake.scripts.worker = (instance, message, f) => {
+      writeFileSync(join(instance.workingDirectory!, 'scratch_history.md'), '# scratch journal\n');
+      return implement(instance, message, f);
+    };
+    fake.scripts.verifier = pass;
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans' });
+    await waitForRun(run.id);
+
+    const item = coordinator.getRunDto(run.id)!.items[0];
+    expect(item).toMatchObject({ state: 'landed' });
+    expect(readFileSync(join(repo, 'scratch_history.md'), 'utf8')).toBe('# the root copy\n');
+    expect(item.planningNote).toContain('already exists in the main project folder with different content, so it was not overwritten');
+    expect(item.planningNote).toContain('scratch_history.from-queue-');
   });
 
   it('promotes a recorded landing commit after a restart without closing the documents again', async () => {

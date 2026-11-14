@@ -31,7 +31,7 @@ import { landingBlockers, overlapReason, type PlanQueueLandingWaits } from './pl
 import { updatePlanIntegrationStatus } from './plan-queue-document-status';
 import { finishesPlan, stepPlanProblem } from './plan-queue-sections';
 import { buildActiveDocumentsPrompt, buildConflictPrompt, buildGateFailurePrompt } from './plan-queue-prompts';
-import { clearPlanningMoveRecord, planningMoveNote } from './plan-queue-planning-files';
+import { appendPlanningNote, clearPlanningMoveRecord, planningMoveNote } from './plan-queue-planning-files';
 import { returnToItemCheckout } from './plan-queue-squash';
 import { mergeInProgress } from './plan-queue-git';
 import { WAITING_FOR_TEST_MACHINE } from './plan-queue-landing-retries';
@@ -316,11 +316,11 @@ export class PlanQueueItemLanding {
       // Planning files are moved now, before the squash, so landing cleanup never runs with one in the folder.
       const planning = await host.worktrees.preflightPlanningFiles(item);
       const note = planningMoveNote(planning);
+      if (note) item = host.save({ ...item, planningNote: appendPlanningNote(item.planningNote, note) });
       if (planning.failed.length) {
         await this.ctx.park(item, 'land-blocked', `Nothing was landed. ${note} Fix that, or move the file by hand, then press Try merging again.`);
         return null;
       }
-      if (note) item = host.save({ ...item, detail: note });
     }
 
     // A recorded commit already carries its closed documents; only a new build needs them.

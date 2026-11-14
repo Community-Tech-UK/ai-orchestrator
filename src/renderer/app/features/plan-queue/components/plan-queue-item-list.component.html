@@ -98,6 +98,9 @@
         @if (foldedDetail(item.detail); as detail) {
           <details class="pq-item-detail"><summary>Details</summary>{{ detail.text }}</details>
         }
+        @if (item.planningNote) {
+          <div class="pq-item-planning-note">{{ plain(item.planningNote) }}</div>
+        }
 
         @if (item.question && hasOpenQuestion(item.state)) {
           <div class="pq-item-awaiting-answer">Waiting for your answer under "Needs your answer" at the top of the page.</div>

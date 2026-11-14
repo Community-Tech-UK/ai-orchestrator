@@ -10,7 +10,7 @@ import type { SqliteDriver } from '../db/sqlite-driver';
 import { PLAN_QUEUE_MIGRATIONS } from '../plan-queue/plan-queue-migrations';
 import { addPlanQueueSections } from '../plan-queue/plan-queue-section-migration';
 
-export const LOOP_SCHEMA_VERSION = 54;
+export const LOOP_SCHEMA_VERSION = 55;
 
 export interface LoopMigration {
   version: number;
@@ -633,6 +633,12 @@ export const LOOP_MIGRATIONS: readonly LoopMigration[] = [
     version: 54,
     name: '054_plan_queue_item_section',
     up: addPlanQueueSections,
+  },
+  {
+    // Plan Queue: what Harness did with planning files a worker left in its work folder, kept past the next status change.
+    version: 55,
+    name: '055_plan_queue_item_planning_note',
+    up: `ALTER TABLE plan_queue_items ADD COLUMN planning_note TEXT;`,
   },
 ];
 

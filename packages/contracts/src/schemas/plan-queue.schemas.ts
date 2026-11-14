@@ -329,6 +329,9 @@ export const PlanQueueRoundActivitySchema = z.object({
   statusOnlyTurns: z.number().int().min(0).max(1),
 });
 
+/** Most characters of an item's planning note; older lines are dropped first (`appendPlanningNote`). */
+export const PLANNING_NOTE_LIMIT = 4000;
+
 export const PlanQueueItemDtoSchema = z.object({
   /** Last 100 observed worker turns; absent on older app versions. */
   roundActivity: z.array(PlanQueueRoundActivitySchema).max(100).optional(),
@@ -362,6 +365,8 @@ export const PlanQueueItemDtoSchema = z.object({
   answer: z.string().max(2000).nullable(),
   parkReason: PlanQueueParkReasonSchema.nullable(),
   detail: z.string().max(8000).nullable(),
+  /** What Harness did with planning files the worker left in its work folder; outlasts `detail`. Absent when none. */
+  planningNote: z.string().max(PLANNING_NOTE_LIMIT).optional(),
   /** Set by Discard; the job leaves the Set aside list. */
   discardedAt: z.number().int().nullable().optional(),
   discardedBy: z.string().max(500).nullable().optional(),

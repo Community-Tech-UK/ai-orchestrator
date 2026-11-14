@@ -33,7 +33,7 @@ import type { PlanQueueItem } from './plan-queue.types';
 import { workSourceFor } from './plan-queue-work-sources';
 import type { PlanQueueHistoryStore } from './plan-queue-history-store';
 import { dietAtCheckpoint } from './plan-queue-plan-diet';
-import { planningExclusions, planningMoveNote, relocatePlanningFiles, type PlanningMoveReport } from './plan-queue-planning-files';
+import { appendPlanningNote, planningExclusions, planningMoveNote, relocatePlanningFiles, type PlanningMoveReport } from './plan-queue-planning-files';
 import { getCodemem } from '../codemem';
 import { stopAttributedLeftoversIn } from '../process/leftover-process-sweeper';
 import { cleanupPlanQueueCheckCopies, provisionPlanQueueCheckCopy, withPlanQueueCheckCopy,
@@ -278,7 +278,8 @@ export class PlanQueueWorktreeService {
       ...item,
       checkpointCommit: hash,
       landedCommit: hash === item.checkpointCommit ? item.landedCommit : null,
-      ...checkpointDetail(rescueRef, planningNote),
+      ...checkpointDetail(rescueRef),
+      ...planningNoteFor(item, planningNote),
     };
     this.deps.saveItem(updated);
     return updated;
@@ -509,9 +510,14 @@ export function rescueNote(rescueRef: string): string {
 }
 
 /** The item note after a checkpoint: a landing-leftover rescue and/or planning files that moved. */
-function checkpointDetail(rescueRef: string | null, planningNote: string | null): { detail?: string } {
-  const parts = [rescueRef ? rescueNote(rescueRef) : null, planningNote].filter((part): part is string => part !== null);
-  return parts.length ? { detail: parts.join(' ') } : {};
+function checkpointDetail(rescueRef: string | null): { detail?: string } {
+  return rescueRef ? { detail: rescueNote(rescueRef) } : {};
+}
+
+/** The item's lasting planning note with this checkpoint's report added; nothing is written when there is no note at all. */
+function planningNoteFor(item: PlanQueueItem, note: string | null): { planningNote?: string } {
+  const planningNote = appendPlanningNote(item.planningNote, note);
+  return planningNote === undefined ? {} : { planningNote };
 }
 
 function refuse(reason: RemovalRefusal, detail: string): RemovalResult {

@@ -59,6 +59,12 @@ export interface PlanQueueItem {
    * document share it within a run and go in order: each waits until the one before has landed.
    */
   section?: number | null;
+  /**
+   * What Harness did with planning files the worker left in its work folder (moved to the main project folder, saved beside a
+   * different copy, or could not be moved). Kept apart from `detail`, which the next status change clears, so it stays on the
+   * page until the work is gone. Appended to at each checkpoint (`appendPlanningNote`).
+   */
+  planningNote?: string;
   roundActivity?: PlanQueueRoundActivity[];
   workerSession?: PlanQueueWorkerSession;
   /** Paused work retains its branch and pending next-turn instructions. */

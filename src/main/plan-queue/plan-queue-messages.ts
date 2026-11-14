@@ -52,6 +52,7 @@ export function itemToDto(item: PlanQueueItem, stage: PlanQueueItemStage | undef
     answer: item.answer,
     parkReason: item.parkReason,
     detail: item.detail,
+    ...(item.planningNote ? { planningNote: item.planningNote } : {}),
     discardedAt: item.discardedAt ?? null,
     discardedBy: item.discardedBy ?? null,
     discardRefExpiresAt: item.discardRefExpiresAt ?? null,

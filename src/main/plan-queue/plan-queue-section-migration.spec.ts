@@ -29,11 +29,11 @@ describe('migration 054, the step number on a queue job', () => {
     profileBeforeSections();
     const before = db.prepare('SELECT * FROM plan_queue_items').get<Record<string, unknown>>();
     runLoopMigrations(db);
-    expect(db.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, section: null });
+    expect(db.prepare('SELECT * FROM plan_queue_items').get()).toEqual({ ...before, section: null, planning_note: null });
     expect(db.prepare('SELECT COUNT(*) AS n FROM plan_queue_item_events').get<{ n: number }>()?.n).toBe(1);
     expect(db.prepare('SELECT COUNT(*) AS n FROM plan_queue_item_pins').get<{ n: number }>()?.n).toBe(1);
     expect(db.prepare('SELECT name FROM loop_migrations WHERE version = 54').get<{ name: string }>()?.name).toBe('054_plan_queue_item_section');
-    expect(LOOP_SCHEMA_VERSION).toBe(54);
+    expect(LOOP_SCHEMA_VERSION).toBe(55);
   });
 
   it('keeps the worker report on an existing job through the rebuild', () => {
