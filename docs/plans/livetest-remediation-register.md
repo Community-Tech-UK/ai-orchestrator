@@ -391,6 +391,9 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1119 | P3 | **SOURCE FIX VERIFIED 2026-11-12; REBUILT COPY CHECKED 2026-11-14 (no failed or slow read occurred, so the back-off itself is covered by specs only).** Observed in the real Harness log 2026-11-11: the leftover-program sweeper's process-table read took a median 1.2 s (up to 8.3 s) on the busy Mac, against the livetest's "well under 500 ms"; 16 reads failed and 4,012 identical `spawn EPERM` warnings were logged. The sweeper had no back-off; it now waits up to 6 ticks after a slow or failed read and logs a repeating failure once. Cause of the slow reads and failures unconfirmed (host load was 50 to 350 on 18 cores). | [Detail](#lt-1119) | [Evidence run](2026-10-24-agent-leftover-processes_livetest.md) |
+| LT-1118 | P3 | **REPRODUCED LIVE 2026-11-14; NOT REPAIRED.** A Harness copy started by `dev-app.js` on the test Mac runs with its working folder set to `/`, so `resolveAioMcpCliPath` (which looks under `process.cwd()` in a development run) never finds `dist/aio-mcp-cli-sea/aio-mcp`. Sessions in that copy get no `AI_ORCHESTRATOR_INSTANCE_ID` marker, no `AIO_MCP`, no orchestrator tools (`list_host_processes` is not available) and no codemem tools, so a live check that relies on the marker or on those tools cannot run there. | [LT-1118 detail](#lt-1118) | [Evidence run](2026-10-24-agent-leftover-processes_livetest.md) |
+
 | LT-1092 | P2 | **FIXED + REGRESSION-TESTED + LIVE RE-CHECKED 2026-11-11 (working tree); landing pending.** Pressing Escape inside the Storage clean-up dialog or the work-folder removal dialog also closed Settings (a real key press sent the page back to the dashboard). Both dialogs now keep Escape for themselves. | [LT-1092 detail](#lt-1092) | [Oct-2 housekeeping check 1](2026-10-20-oct2-housekeeping_livetest.md#evidence-run--2026-11-11-plan-queue-worker) |
 | LT-1093 | P2 | **FIXED + REGRESSION-TESTED + LIVE RE-CHECKED 2026-11-11 (working tree); landing pending.** Inside Electron, `lstat` reports a `.asar` file as a folder, so the work-folder size scan failed with ENOTDIR and the archive fingerprint disagreed with the plain-Node one. A Harness-made retired folder holding `node_modules/electron` could never be inspected, archived or removed. | [LT-1093 detail](#lt-1093) | [Oct-2 housekeeping check 2](2026-10-20-oct2-housekeeping_livetest.md#evidence-run--2026-11-11-plan-queue-worker) |
 | LT-1094 | P2 | **FIXED + REGRESSION-TESTED + LIVE RE-CHECKED 2026-11-11 (working tree); landing pending.** Every CLI update pill refresh was dropped before the renderer because the strict event schema did not list `waitingSessionCount`, so the "sessions waiting" number could never arrive by push. | [LT-1094 detail](#lt-1094) | [Oct-2 housekeeping check 3](2026-10-20-oct2-housekeeping_livetest.md#evidence-run--2026-11-11-plan-queue-worker) |
@@ -13055,6 +13058,96 @@ excludes. Regenerated code (`register-aliases.ts`, IPC channels) and any other d
 failure runs them too. Acceptance: `run-git-hook.spec.ts` case `regenerated: documentation` skips (it failed before
 the fix), `regenerated: code` runs the tests, and the mocked changed-tree case still runs them. On the rebuilt app, a
 plan landing whose code equals its tested code has a short commit check.
+
+<a id="lt-1119"></a>
+
+## LT-1119
+
+### LT-1119 — the leftover-program sweeper has no back-off when the process table is slow or unreadable
+
+**Status: source fix verified 12 November 2026; rebuilt-app check pending. Observed 11 November 2026 in the production `app.log` series.**
+
+### Observed behaviour
+
+From the Harness logs (`app.log` and its four rotated files, 10 to 11 November 2026), subsystem `LeftoverProcessSweeper`:
+
+- `Leftover process table read` lines (written only for a run's first read, or any read over 500 ms): 720 lines, 1,093 to
+  2,487 rows each. `costMs` minimum 255, median 1,229, 90th percentile 3,043, maximum 8,318. Only 3 of the 720 are under
+  500 ms. The livetest asks for "well under 500". The Mac was at a load average of 50 to 350 on 18 cores, so this
+  measures an overloaded host, not an idle one; no read on a quiet machine has been logged yet.
+- 16 warnings `Leftover process check failed: Command failed: ps -A -ww ...` between 10 November 21:19Z and 11 November
+  05:47Z. `host-process-inspector.ts:26` sets `PS_TIMEOUT_MS = 10_000` and the slowest logged read was 8.3 s, which fits a
+  timed-out `ps`, but no log line states the reason, so this is untested.
+- 4,012 identical `Leftover process check failed: spawn EPERM` warnings. This run's own dev app, started from an agent
+  sandbox that blocks `ps`, logged the same warning every 10 s from its first tick; the other writers are presumed to be
+  the same kind of app but were not individually checked. The sweeper warns every tick for as long as the app runs.
+
+No parse failure from the BSD `time` column appears in any log (see the evidence run for LS-1).
+
+### Root cause
+
+Not established. The tick (`LINEAGE_INTERVAL_MS = 10_000`) reads the whole table whenever a session is live, and every sixth
+tick also reads the environment table, whatever the previous read cost or whether the last read failed. Nothing
+lengthens the interval after a slow or failed read.
+
+### Required behaviour and acceptance
+
+After a read that is slow (over the 500 ms threshold already logged) or fails, the sweeper waits longer before the next
+read, and returns to 10 s once reads are quick again; a repeated identical failure is logged once, then summarised, not
+every tick. Acceptance: a spec with a fake `runPs` that is slow or throws shows the interval growing and resetting, and the
+repeated-failure case logs once; on the rebuilt app, `app.log` shows no run of identical failures at 10 s spacing. Measure
+`costMs` on a quiet Mac as well, before deciding the threshold.
+
+### As built (12 November 2026)
+
+`leftover-process-sweeper.ts`: a table read slower than `SLOW_TABLE_MS` (500 ms) or a failed tick sets a skip of 1 tick,
+doubling on each repeat up to `MAX_BACKOFF_TICKS` (6, a minute); the next fast read resets the length to 0. A failure is
+logged as a warning when it first appears or its message changes, then once per `REPEAT_FAILURE_LOG_EVERY` (30) repeats,
+with the repeat count; a later successful tick logs one "works again" line. Specs in `leftover-process-sweeper.spec.ts`:
+slow reads (31 table reads in 5 minutes without the fix, under 10 with it, back to every tick afterwards) and a repeating
+failure (3 warnings without the fix, 1, then 2 after the message changes). Both specs fail with the skip disabled.
+Still open: a table-read cost figure on a quiet Mac, and a rebuilt-app check that `app.log` shows no run of identical
+failures at 10 s spacing.
+
+### Rebuilt-copy check for LT-1119 (14 November 2026)
+
+On the test Mac (copy built from this worktree, load 24 to 36 on 10 cores) the first table read of each run logged `rows` 1,807 to 1,862 and `costMs` 85 to 93, a direct `ps -A -ww` took 74 to 76 ms eight times in a row, no `Leftover process check failed` warning appeared in the whole test Mac log, and no read was slow. So the back-off never had to act on a live machine; its behaviour is covered by the two specs. The machine was loaded, not quiet.
+
+## LT-1118
+
+### LT-1118 — a dev app started on the test Mac cannot find the `aio-mcp` helper, so its sessions get no marker and no orchestrator tools
+
+**Status: reproduced live 14 November 2026; not repaired. Test tooling and path lookup, found while running the leftover-programs live checks.**
+
+### Observed behaviour
+
+Dev app started with `node scripts/remote-checks/dev-app.js start --port 9648 --data /tmp/aio-lt-queue-a4ff3794` (copy built from
+this worktree; `dist/aio-mcp-cli-sea/aio-mcp` exists in its checkout, 124 MB, built 05:18Z):
+
+- Its main process has working folder `/` (`lsof -a -p <pid> -d cwd` shows `/`), while `dev-app shell` runs in
+  `~/remote-checks/devapps/apps/9648/repo`.
+- `app.log` on the test Mac, for the copy's first session (`c1u0mib0i`, 05:19:48Z): `Codemem MCP not configured — aio-mcp SEA binary
+  or codemem RPC socket missing` and `Orchestrator-tools MCP not configured — aio-mcp SEA binary, RPC socket or instance capability
+  missing`; at start-up `aio-mcp SEA binary not found — Chrome native-messaging host wrapper not installed`. The orchestrator-tools
+  RPC server itself was listening (`/tmp/aio-lt-queue-a4ff3794/ot-c364603f4a43.sock`), so the socket and capability were present.
+- A Claude session in the copy asked for `list_host_processes`: "The tool isn't available in this session" (ToolSearch found nothing).
+  A background `node` started from that session had no `AI_ORCHESTRATOR_INSTANCE_ID` in its environment (`ps eww -p <pid>`), so the
+  sweeper's marker route could not attribute it; only the recorded process groups attributed anything.
+
+### Root cause
+
+`scripts/remote-checks/remote-run.sh` opens the copy with `open -n -g -a Electron.app --args ... "$work"` so it can read the login
+keychain; Launch Services starts it with working folder `/`. `src/main/util/aio-mcp-cli-path.ts:40` looks for
+`dist/aio-mcp-cli-sea/aio-mcp` relative to `options.cwd ?? process.cwd()` and, in an unpackaged run, there is no
+`process.resourcesPath` candidate, so it returns null. `spawn-config-builder.ts` then skips the orchestrator-tools config
+(including the marker and `AIO_MCP`) and the codemem config.
+
+### Required behaviour and acceptance
+
+A development copy finds the helper wherever it was started from: either resolve the dev candidate from the application folder
+(the folder Electron was given) instead of the working folder, or have the launcher set the working folder to the checkout. Acceptance:
+in a copy started by `dev-app.js`, a Claude session's shell commands carry `AI_ORCHESTRATOR_INSTANCE_ID`, `AIO_MCP` is set, the session
+lists the orchestrator tools (`list_host_processes`), and `app.log` shows no `Orchestrator-tools MCP not configured` line.
 
 <a id="lt-1099"></a>
 

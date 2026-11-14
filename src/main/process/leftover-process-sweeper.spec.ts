@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _resetForTesting as resetCleanups } from '../util/cleanup-registry';
+
+const log = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
+vi.mock('../logging/logger', () => ({ getLogger: () => log }));
 import { parseCpuSeconds } from './host-process-inspector';
 import {
   LeftoverProcessSweeper,
@@ -105,6 +108,7 @@ beforeEach(() => {
   resetCleanups();
   machine = new FakeMachine();
   sweeper = null;
+  for (const fn of Object.values(log)) fn.mockClear();
 });
 
 afterEach(() => {
@@ -490,6 +494,51 @@ describe('LeftoverProcessSweeper', () => {
     machine.mode = 'stop-cpu-hogs';
     expect(await sweeper.stopAttributedAmong(new Set([800, 801]))).toBe(1);
     expect(machine.signals).toEqual([[800, 'SIGTERM']]);
+  });
+
+  it('waits longer between table reads while they are slow, and returns to every tick once they are quick', async () => {
+    incident();
+    let slow = true;
+    let extraMs = 0;
+    let tableReads = 0;
+    const base = machine.runtime();
+    sweeper = new LeftoverProcessSweeper({
+      ...base,
+      nowMs: () => Date.now() + extraMs,
+      runPs: async (args, maxBuffer) => {
+        if (args[0] !== 'axeww') {
+          tableReads += 1;
+          if (slow) extraMs += 1_000;
+        }
+        return base.runPs(args, maxBuffer);
+      },
+    });
+    sweeper.start();
+    await advanceMinutes(5); // 30 ticks
+    expect(tableReads).toBeLessThan(10);
+    slow = false;
+    await advanceMinutes(1); // lets any skip already queued run out
+    const before = tableReads;
+    await advanceMinutes(3); // 18 ticks
+    expect(tableReads - before).toBeGreaterThanOrEqual(17);
+  });
+
+  it('logs a failure that keeps repeating once, backs off, and logs again when the message changes', async () => {
+    incident();
+    let message = 'Command failed: ps -A';
+    let reads = 0;
+    sweeper = new LeftoverProcessSweeper(machine.runtime({
+      runPs: async () => { reads += 1; throw new Error(message); },
+    }));
+    sweeper.start();
+    await advanceMinutes(10); // 60 ticks
+    const failures = () => log.warn.mock.calls.filter(([text]) => text === 'Leftover process check failed');
+    expect(failures()).toHaveLength(1);
+    expect(reads).toBeLessThan(15);
+    message = 'spawn EPERM';
+    await advanceMinutes(2);
+    expect(failures()).toHaveLength(2);
+    expect(failures()[1]![1]).toMatchObject({ error: 'spawn EPERM' });
   });
 
   it('does not run on Windows', async () => {

@@ -62,6 +62,10 @@ const NOTICE_MAX_LABELS = 5;
 const START_JITTER_SEC = 3;
 export const MAX_REMEMBERED_SESSIONS = 5_000;
 const SLOW_TABLE_MS = 500;
+/** After a slow or failed table read the next ticks are skipped, doubling up to this many (a minute at 10 s a tick). */
+export const MAX_BACKOFF_TICKS = 6;
+/** A failure that keeps repeating is logged on its first occurrence and then once per this many repeats. */
+export const REPEAT_FAILURE_LOG_EVERY = 30;
 
 export interface SweeperProcessRow extends LineageProcessRow {
   cpuSeconds: number;
@@ -154,6 +158,11 @@ export class LeftoverProcessSweeper {
   private timer: ReturnType<typeof setInterval> | null = null;
   private tick = 0;
   private running = false;
+  /** Ticks still to skip, and the length of the next skip, after a slow or failed table read (LT-1119). */
+  private skipTicks = 0;
+  private backoffTicks = 0;
+  private failureStreak = 0;
+  private lastFailure = '';
   private lastPersistMs = 0;
   private unregisterCleanup: (() => void) | null = null;
 
@@ -191,6 +200,10 @@ export class LeftoverProcessSweeper {
 
   private async onTick(forceSweep = false): Promise<void> {
     if (this.running) return;
+    if (this.skipTicks > 0) {
+      this.skipTicks -= 1;
+      return;
+    }
     this.running = true;
     try {
       if (this.runtime.getMode() === 'off') return;
@@ -202,11 +215,34 @@ export class LeftoverProcessSweeper {
       const { rows, nowSec } = await this.readTable();
       this.recordLineage(rows, roots, nowSec);
       if (sweep) await this.sweep(rows, nowSec);
+      this.noteTickSucceeded();
     } catch (error) {
-      logger.warn('Leftover process check failed', { error: errorText(error) });
+      this.noteTickFailed(errorText(error));
     } finally {
       this.running = false;
     }
+  }
+
+  /** Wait longer before the next read: doubles each time, up to MAX_BACKOFF_TICKS ticks. */
+  private backOff(): void {
+    this.backoffTicks = Math.min(Math.max(this.backoffTicks * 2, 1), MAX_BACKOFF_TICKS);
+    this.skipTicks = this.backoffTicks;
+  }
+
+  /** A failure is logged when it first appears or changes, then only every REPEAT_FAILURE_LOG_EVERY repeats. */
+  private noteTickFailed(message: string): void {
+    this.backOff();
+    this.failureStreak = message === this.lastFailure ? this.failureStreak + 1 : 1;
+    this.lastFailure = message;
+    if (this.failureStreak === 1 || this.failureStreak % REPEAT_FAILURE_LOG_EVERY === 0) {
+      logger.warn('Leftover process check failed', { error: message, failures: this.failureStreak });
+    }
+  }
+
+  private noteTickSucceeded(): void {
+    if (this.failureStreak > 1) logger.info('Leftover process check works again', { failures: this.failureStreak });
+    this.failureStreak = 0;
+    this.lastFailure = '';
   }
 
   /** One full pass; exported for tests and the on-demand path. */
@@ -431,6 +467,8 @@ export class LeftoverProcessSweeper {
     const nowSec = Math.floor(finishedMs / 1000);
     const rows = parseProcessTable(stdout, nowSec);
     const costMs = finishedMs - startedMs;
+    if (costMs > SLOW_TABLE_MS) this.backOff();
+    else this.backoffTicks = 0;
     // The spec asks for the table's cost to be measured on the real machine: log it once, and again if slow.
     if (!this.tableCostLogged || costMs > SLOW_TABLE_MS) {
       this.tableCostLogged = true;
