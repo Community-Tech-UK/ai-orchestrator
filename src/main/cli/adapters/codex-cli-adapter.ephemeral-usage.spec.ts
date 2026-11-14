@@ -8,7 +8,7 @@ import { createMockProcess } from './codex-cli-adapter.test-helpers';
 
 vi.mock('./codex/codex-thread-policy', () => ({
   codexThreadPolicyForConfig: () => ({ level: 'off', config: {}, outputLimit: null, postTurnCompactPercent: null }),
-  codexExecContextWindowArgs: () => [],
+  codexExecPolicyArgs: () => [],
 }));
 vi.mock('./codex/child-rollout-usage', () => ({ readChildRolloutUsage: async () => [] }));
 const directories: string[] = [];

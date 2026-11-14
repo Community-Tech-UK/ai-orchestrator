@@ -120,14 +120,24 @@ export function requiredSkillNames(
   return [...names];
 }
 
+/** The one line naming the required skills; empty when none apply. */
+export function requiredSkillMentionLine(
+  config: RequiredSkillConfig,
+  text: string,
+  installed?: ReadonlySet<string>,
+): string {
+  const names = requiredSkillNames(config, text, installed);
+  return names.length === 0 ? '' : `Skills for this turn: ${names.map((name) => `$${name}`).join(' ')}`;
+}
+
 /** The turn text with one trailing line naming the required skills; unchanged when none apply. */
 export function withRequiredSkillMentions(
   config: RequiredSkillConfig,
   text: string,
   installed?: ReadonlySet<string>,
 ): string {
-  const names = requiredSkillNames(config, text, installed);
-  return names.length === 0 ? text : `${text}\n\nSkills for this turn: ${names.map((name) => `$${name}`).join(' ')}`;
+  const line = requiredSkillMentionLine(config, text, installed);
+  return line ? `${text}\n\n${line}` : text;
 }
 
 /**

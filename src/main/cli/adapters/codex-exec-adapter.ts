@@ -2,7 +2,8 @@ import type { AdapterInputDispatch, CliAttachment, CliMessage, CliResponse, Inte
 import { assertAdapterInputCurrent, createAdapterInputDispatch } from './adapter-input-dispatch';
 import { codexExecUsage } from './codex/exec-ephemeral-usage';
 import { CodexBaseAdapter } from './codex-base-adapter';
-import { codexExecContextWindowArgs } from './codex/codex-thread-policy';
+import { codexExecPolicyArgs } from './codex/codex-thread-policy';
+import { requiredSkillMentionLine } from './codex/codex-required-skills';
 import type { CodexCliConfig } from './codex-adapter-config';
 import type { CodexConversationEntry } from './codex/exec-helpers';
 import { getLogger } from '../../logging/logger';
@@ -78,7 +79,7 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
 
   protected override buildArgs(message: CliMessage): string[] {
     const useResume = this.shouldUseResumeCommand();
-    const args: string[] = [...this.configOverrideArgs(), ...codexExecContextWindowArgs(this.cliConfig), ...(useResume ? ['exec', 'resume'] : ['exec'])];
+    const args: string[] = [...this.configOverrideArgs(), ...codexExecPolicyArgs(this.cliConfig), ...(useResume ? ['exec', 'resume'] : ['exec'])];
 
     if (this.cliConfig.model && !this.execModelArgSuppressed) {
       args.push('--model', this.cliConfig.model);
@@ -178,6 +179,10 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
 
   protected prepareMessageForExecution(message: CliMessage): CliMessage {
     let content = message.content;
+    // Exec has no skill input items, so a required skill is named in the prompt on every turn, resumes included.
+    // The policy call first records whether the catalog is off, which decides if a checker's required skills apply.
+    codexExecPolicyArgs(this.cliConfig);
+    const skillsLine = requiredSkillMentionLine(this.cliConfig, content);
     if (!this.shouldUseResumeCommand() && this.conversationHistory.length > 0) {
       content = buildReplayPrompt(
         this.conversationHistory,
@@ -196,6 +201,7 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
       content = [wrapRtkAwareness(), '', content].join('\n');
       this.rtkAwarenessSent = true;
     }
+    if (skillsLine) content = `${content}\n\n${skillsLine}`;
     return { ...message, content };
   }
 

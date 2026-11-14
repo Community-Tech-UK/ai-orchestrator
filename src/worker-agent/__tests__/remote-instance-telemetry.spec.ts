@@ -25,7 +25,7 @@ import { WorkerInstanceNotifier } from '../worker-instance-notifier';
 import { WorkerStreamDurability } from '../worker-stream-durability';
 
 const auth = { allowed: true };
-const registry = Object.assign(new EventEmitter(), { getNode: (id: string) => id === 'windows-pc' ? { capabilities: { codexHelperPolicy: 1 } } : undefined });
+const registry = Object.assign(new EventEmitter(), { getNode: (id: string) => id === 'windows-pc' ? { capabilities: { codexHelperPolicy: 1, codexExecSkillsPolicy: 1 } } : undefined });
 type WorkerAdapter = EventEmitter & { spawn(): Promise<number | void>; sendInput(message: string): Promise<void>; terminate(): Promise<void> };
 let workerAdapter: WorkerAdapter;
 vi.mock('../../main/cli/adapters/adapter-factory', () => ({ createCliAdapter: () => workerAdapter }));

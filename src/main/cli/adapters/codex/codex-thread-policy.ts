@@ -205,17 +205,24 @@ export function codexThreadPolicyForConfig(config: CodexCliConfig): CodexThreadP
   };
 }
 
-/** Exec fallback has no thread/start RPC; pass the same machine cap as a CLI override and record it as effective. */
-export function codexExecContextWindowArgs(config: CodexCliConfig): string[] {
-  const window = codexExecMachineContextWindow(config);
-  // Exec has no thread/start request to confirm the applied window, so the emitted override is what the
-  // process runs with. Record it like `logPolicy` records an accepted app-server config, or context
-  // diagnostics fall back to the stale catalogue.
-  config.effectiveContextWindow = window;
-  return window === undefined ? [] : ['-c', `model_context_window=${window}`];
-}
-function codexExecMachineContextWindow(config: CodexCliConfig): number | undefined {
-  if (!config.sessionKind || config.sessionKind === 'chat' || config.planQueueLargeDocument) return undefined;
-  const window = codexThreadPolicyForConfig(config).config['model_context_window'];
-  return typeof window === 'number' ? window : undefined;
+/** The skills overrides the exec fallback carries; the rest of the policy needs a thread/start request. */
+const EXEC_SKILLS_KEYS = ['skills.max_context_tokens', 'skills.include_instructions'] as const;
+
+/**
+ * Exec fallback has no thread/start RPC, so it passes the machine overrides it can carry as `-c` flags: the context
+ * window cap and the skills catalog cap or omission. Exec has no reply that confirms them, so the emitted overrides
+ * are what the process runs with. Record them like `logPolicy` records an accepted app-server config: without the
+ * window, context diagnostics fall back to the stale catalogue, and without `skillCatalogOmitted` a checker whose
+ * catalog is off would not name the skills its rules require.
+ */
+export function codexExecPolicyArgs(config: CodexCliConfig): string[] {
+  const machine = Boolean(config.sessionKind) && config.sessionKind !== 'chat';
+  const policy = machine ? codexThreadPolicyForConfig(config).config : {};
+  const window = policy['model_context_window'];
+  config.effectiveContextWindow = typeof window === 'number' ? window : undefined;
+  config.skillCatalogOmitted = policy['skills.include_instructions'] === false;
+  return [
+    ...(config.effectiveContextWindow === undefined ? [] : ['-c', `model_context_window=${config.effectiveContextWindow}`]),
+    ...EXEC_SKILLS_KEYS.flatMap(key => policy[key] === undefined ? [] : ['-c', `${key}=${String(policy[key])}`]),
+  ];
 }

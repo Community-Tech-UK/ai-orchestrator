@@ -20,7 +20,7 @@ vi.mock('../../../logging/logger', () => ({ getLogger: () => logMock }));
 import { CodexCliAdapter } from '../codex-cli-adapter';
 import type { CodexCliConfig } from '../codex-adapter-config';
 import {
-  resolveCodexThreadPolicy, resolveTrialArm, codexCheckerArm, codexThreadPolicyForConfig, codexExecContextWindowArgs, _resetCodexThreadPolicyForTesting,
+  resolveCodexThreadPolicy, resolveTrialArm, codexCheckerArm, codexThreadPolicyForConfig, codexExecPolicyArgs, _resetCodexThreadPolicyForTesting,
   codexHelperLevelForSpawn,
   codexOmitSkillCatalogForSpawn,
 } from './codex-thread-policy';
@@ -240,31 +240,66 @@ describe('machine context window boundary', () => {
 });
 
 
+const SKILLS_CAP = ['-c', 'skills.max_context_tokens=1500'];
+const WINDOW_CAP = ['-c', 'model_context_window=272000'];
+
 it('caps exec fallback machine sessions and honors the same exceptions', () => {
   settingsMock.failure = null; settingsMock.value = { codexContextTuning: 'harness' };
-  expect(codexExecContextWindowArgs({ sessionKind: 'loop' })).toEqual(['-c', 'model_context_window=272000']);
-  expect(codexExecContextWindowArgs({ sessionKind: 'chat' })).toEqual([]);
-  expect(codexExecContextWindowArgs({ sessionKind: 'plan-queue', planQueueLargeDocument: true })).toEqual([]);
+  expect(codexExecPolicyArgs({ sessionKind: 'loop' })).toEqual([...WINDOW_CAP, ...SKILLS_CAP]);
+  expect(codexExecPolicyArgs({ sessionKind: 'chat' })).toEqual([]);
+  expect(codexExecPolicyArgs({ sessionKind: undefined })).toEqual([]);
+  expect(codexExecPolicyArgs({ sessionKind: 'plan-queue', planQueueLargeDocument: true })).toEqual(SKILLS_CAP);
   settingsMock.value = { codexContextTuning: 'codex' };
-  expect(codexExecContextWindowArgs({ sessionKind: 'loop' })).toEqual([]);
+  expect(codexExecPolicyArgs({ sessionKind: 'loop' })).toEqual(SKILLS_CAP);
 });
 
 
 it('records the emitted exec window as effective and leaves uncapped sessions unconfirmed', () => {
   settingsMock.failure = null; settingsMock.value = { codexContextTuning: 'harness' };
   const machine: CodexCliConfig = { sessionKind: 'loop' };
-  expect(codexExecContextWindowArgs(machine)).toEqual(['-c', 'model_context_window=272000']);
+  expect(codexExecPolicyArgs(machine)).toEqual([...WINDOW_CAP, ...SKILLS_CAP]);
   expect(machine.effectiveContextWindow).toBe(272000);
   const chat: CodexCliConfig = { sessionKind: 'chat' };
-  expect(codexExecContextWindowArgs(chat)).toEqual([]);
+  expect(codexExecPolicyArgs(chat)).toEqual([]);
   expect(chat.effectiveContextWindow).toBeUndefined();
   const exempt: CodexCliConfig = { sessionKind: 'plan-queue', planQueueLargeDocument: true };
-  expect(codexExecContextWindowArgs(exempt)).toEqual([]);
+  expect(codexExecPolicyArgs(exempt)).toEqual(SKILLS_CAP);
   expect(exempt.effectiveContextWindow).toBeUndefined();
   settingsMock.value = { codexContextTuning: 'codex' };
   const tuned: CodexCliConfig = { sessionKind: 'loop' };
-  expect(codexExecContextWindowArgs(tuned)).toEqual([]);
+  expect(codexExecPolicyArgs(tuned)).toEqual(SKILLS_CAP);
   expect(tuned.effectiveContextWindow).toBeUndefined();
+});
+
+describe('exec fallback skills catalog', () => {
+  const checker: CodexCliConfig = { sessionKind: 'plan-queue', queueRole: 'verifier' };
+  it('omits the checker catalog when the setting says omit, and records that for required-skill selection', () => {
+    settingsMock.failure = null; settingsMock.value = { codexContextTuning: 'harness', codexCheckerSkillCatalog: 'omit' };
+    const config = { ...checker };
+    expect(codexExecPolicyArgs(config)).toEqual([...WINDOW_CAP, ...SKILLS_CAP, '-c', 'skills.include_instructions=false']);
+    expect(config.skillCatalogOmitted).toBe(true);
+  });
+  it('keeps the full checker catalog (capped) when the setting says full', () => {
+    settingsMock.failure = null; settingsMock.value = { codexContextTuning: 'harness', codexCheckerSkillCatalog: 'full' };
+    const config = { ...checker };
+    expect(codexExecPolicyArgs(config)).toEqual([...WINDOW_CAP, ...SKILLS_CAP]);
+    expect(config.skillCatalogOmitted).toBe(false);
+  });
+  it('never touches the catalog of a chat', () => {
+    settingsMock.failure = null; settingsMock.value = { codexCheckerSkillCatalog: 'omit' };
+    const config: CodexCliConfig = { sessionKind: 'chat', queueRole: 'verifier', skillCatalogOmitted: true };
+    expect(codexExecPolicyArgs(config)).toEqual([]);
+    expect(config.skillCatalogOmitted).toBe(false);
+  });
+  it('applies the omission the controller resolved when there is no settings store (a worker)', () => {
+    settingsMock.failure = new Error('no settings store'); settingsMock.value = {};
+    const config: CodexCliConfig = { sessionKind: 'plan-queue', queueRole: 'verifier', omitSkillCatalog: true };
+    expect(codexExecPolicyArgs(config)).toEqual([...SKILLS_CAP, '-c', 'skills.include_instructions=false']);
+    expect(config.skillCatalogOmitted).toBe(true);
+    const full: CodexCliConfig = { sessionKind: 'plan-queue', queueRole: 'verifier' };
+    expect(codexExecPolicyArgs(full)).toEqual(SKILLS_CAP);
+    expect(full.skillCatalogOmitted).toBe(false);
+  });
 });
 
 
@@ -272,5 +307,5 @@ it('puts the machine cap on the actual exec argv', () => {
   settingsMock.failure = null; settingsMock.value = { codexContextTuning: 'harness' };
   const adapter = new CodexCliAdapter({ sessionKind: 'loop' });
   const args = (adapter as unknown as { buildArgs(message: { role: string; content: string }): string[] }).buildArgs({ role: 'user', content: 'task' });
-  expect(args.slice(0, 3)).toEqual(['-c', 'model_context_window=272000', 'exec']);
+  expect(args.slice(0, 5)).toEqual([...WINDOW_CAP, ...SKILLS_CAP, 'exec']);
 });

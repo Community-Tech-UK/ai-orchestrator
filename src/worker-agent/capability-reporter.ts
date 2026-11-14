@@ -177,6 +177,7 @@ export async function reportCapabilities(
     ...(process.platform === 'win32' ? { keepAwake: 1 as const } : {}),
     codexSpawnMetadata: 1,
     codexHelperPolicy: 1,
+    codexExecSkillsPolicy: 1, // This worker's command-mode Codex applies the skills policy (see codexExecPolicyArgs).
     queuePushGuard: 1, // This worker builds the Plan Queue push guard itself (see SpawnParams).
     queueJobs: 1, // This worker answers the `queue.*` calls (src/worker-agent/queue-jobs/).
     hasBrowserRuntime,

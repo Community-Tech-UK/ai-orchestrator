@@ -301,6 +301,8 @@ export interface WorkerNodeCapabilities {
   codexSpawnMetadata?: 1;
   /** 1 = applies the controller-sent `codexHelperLevel` and forwards `session_turn_share` telemetry. Absent on older workers, which drop both. */
   codexHelperPolicy?: 1;
+  /** 1 = command-mode (`exec`) Codex applies the skills cap, the checker's catalog omission and the required-skills line. Absent on older workers, which run it uncapped, so non-chat Codex sessions are refused there. */
+  codexExecSkillsPolicy?: 1;
   /** 1 = `instance.spawn` honours `queuePushGuard` (builds the Plan Queue push guard on this node). Absent on older workers, which would drop it, so queue sessions are refused there. */
   queuePushGuard?: 1;
   /** 1 = answers the `queue.*` calls (holds a Plan Queue job's code and returns its changes). Absent on older workers, which Harness never sends a job to. */
