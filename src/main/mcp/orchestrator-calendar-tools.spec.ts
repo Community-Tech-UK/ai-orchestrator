@@ -221,7 +221,7 @@ describe('orchestrator calendar MCP tools', () => {
     const { tool, graphClient } = toolByName('graph_calendar_create_event');
 
     await expect(tool.handler({ ...eventInput, account: FAMILY_ACCOUNT })).rejects.toThrow(
-      /not permitted for agent calendar mutations/,
+      /not permitted for agents on this Microsoft account/,
     );
     expect(graphClient.createEvent).not.toHaveBeenCalled();
 
@@ -232,6 +232,6 @@ describe('orchestrator calendar MCP tools', () => {
       account: BUSINESS_ACCOUNT,
       calendarId: 'calendar-1',
       eventId: 'event-1',
-    })).rejects.toThrow(/not permitted for agent calendar mutations/);
+    })).rejects.toThrow(/not permitted for agents on this Microsoft account/);
   });
 });

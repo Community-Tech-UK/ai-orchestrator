@@ -425,6 +425,10 @@ sections below. The historical reproduction remains unchanged.
 | LT-1003 | P2 | **SECOND-TURN CACHE BEHAVIOR DEMONSTRATED 2026-10-27.** Preserved structured system blocks yield request-two cache17106/input43 and much shorter client first-response latency; no pure server prompt-time claim. Final independent verification remains separate. | [LT-1003 detail](#lt-1003) | [Local-model check A4](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
 | LT-1004 | P1 | **OPEN evidence loss, confirmed 2026-10-27.** Thirty A/D/G candidates reconstructed with provenance; eight later settled C1 and ten C2 full records remain absent from the portable session mirror. CLI transcripts and printed score summaries survive, but cannot support rescoring or a complete-matrix decision. | [LT-1004 detail](#lt-1004) | [Local-model checks A6–A8](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
 | LT-1005 | P3 | **OPEN, reproduced 2026-11-07.** The benchmark's local translator cannot reach a native server bound to an IPv6 address: it passes the bracketed host to Node's HTTP client, so every request returns 502 (`getaddrinfo ENOTFOUND`). A plain byte forwarder was used instead; the translator is unchanged. | [LT-1005 detail](#lt-1005) | [Local-model check A2](2026-10-14-local-model-plan-execute-ab_plan_livetest.md) |
+| LT-1114 | P1 | **SOURCE FIX VERIFIED 2026-11-12; shipped build pending.** The Connectors panel on the MCP page shrank to 178 px and clipped its own contents, so the Add form's lower fields and the Save button could not be reached with the mouse. Fixed with `flex-shrink: 0` on the panel; re-measured in the dev app. | [LT-1114 detail](#lt-1114) | [Plugins and connectors livetest](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md) |
+| LT-1115 | P3 | **SOURCE FIX VERIFIED 2026-11-12 by unit test; live recheck needs the rebuilt app.** Refusing a mail draft on a read-only Microsoft account said "Calendar mutation is not permitted…" and quoted the internal account key. Message is now neutral and key-free. | [LT-1115 detail](#lt-1115) | [Plugins and connectors livetest](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md) |
+| LT-1116 | P3 | **OPEN, reproduced 2026-11-12 (not part of the connectors plan).** The app-shell Remote Terminal drawer keeps keyboard-focusable controls at the bottom edge of the window (input at 887-913 px in a 900 px window), so Tab lands on a control that is partly or wholly off screen. | [LT-1116 detail](#lt-1116) | [Plugins and connectors livetest](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md) |
+| LT-1117 | P2 | **SOURCE FIX VERIFIED 2026-11-12 in the dev app; shipped build pending.** At 200 percent zoom, Tab into a tall text box on the MCP page (the connector form's Headers box) scrolled only its first line into view: 38 of 80 px showed. Fixed with `scroll-padding-bottom` on the page; every stop in both Tab directions is now fully visible. | [LT-1117 detail](#lt-1117) | [Plugins and connectors livetest](2026-10-26-plugins-cleanup-and-global-connectors_livetest.md) |
 ### New input-controls findings — 2026-10-27
 
 | ID | Priority | Status | Detail | Origin |
@@ -12889,6 +12893,103 @@ smoke as the 7 November run passing through the translator with no separate forw
 change alters the frozen translator's behaviour, so the owning plan must decide whether it
 counts as a new translator identity before any scored cell uses it. Until then, IPv4 upstreams
 and the byte forwarder in that evidence folder are the only tested routes.
+
+## LT-1114
+
+### LT-1114 — the Connectors panel clips its own form and connector list
+
+**Status: source fix verified 12 November 2026 in the dev app; shipped build pending.**
+
+### Observed behaviour
+
+Dev app from this branch, 1400 x 900 window, MCP Servers, Connectors tab. The `.management-panel` section measured 178 px
+tall (`clientHeight` 178, `scrollHeight` 223). Clicking **Add** with the mouse grew its content to 736 px but the panel
+stayed 178 px, so Name was cut at the top and the Environment box, the AI-tool checkboxes and **Save** were outside the
+panel (Save at y 952-978, panel 296-476). Mouse-wheel scrolling over the form scrolled the page, not the panel, so a
+mouse user could not reach Save. A keyboard user could, because focus scrolls clipped boxes into view. A saved
+connector list sits below the Add button and was clipped the same way.
+
+### Root cause
+
+`mcp-page.component.scss`: `.page` is a fixed-height flex column with `overflow: auto`. `.management-panel` had
+`min-height: 180px; overflow: hidden` and the default `flex-shrink: 1`, so the column shrank it to its minimum instead of
+letting the page scroll. The pages' other panels already use `flex-shrink: 0`.
+
+### Required behaviour and acceptance
+
+The panel grows with its content and the page scrolls. After the fix (`flex-shrink: 0`, `min-height` removed): panel
+`clientHeight` 223 with no form and 736 with the form open (equal to `scrollHeight`), Save inside the panel, and the
+wheel scrolls the page. Same check at 200 percent zoom: every field and Save reachable by Tab.
+
+## LT-1115
+
+### LT-1115 — a refused mail draft is reported as a calendar refusal and shows the account key
+
+**Status: source fix verified 12 November 2026 by unit test; live recheck needs the rebuilt app.**
+
+### Observed behaviour
+
+In the real app, `mcp__m365-fortitude__graph_mail_create_draft` (a read-only account) was refused before any Graph write,
+as intended, but the text was `Calendar mutation is not permitted for agent calendar mutations: <tenant-id>.<object-id>`.
+It is a mail action, and the text exposes the internal account key.
+
+### Root cause
+
+`connector-graph-tools.ts` checks mail writes with `requireWritableAccountKey` from `orchestrator-calendar-tools.ts`,
+which hard-codes calendar wording and interpolates the requested key.
+
+### Required behaviour and acceptance
+
+One neutral message for every write: "Writes are not permitted for agents on this Microsoft account. Turn on agent
+writes for its connector first." No key. `connector-graph-tools.spec.ts` asserts the mail refusal does not contain
+"calendar" or the key (it fails on the old wording); `orchestrator-calendar-tools.spec.ts` expects the new text. Live
+recheck: a draft attempt through a read-only connector shows the new text on the rebuilt app.
+
+## LT-1116
+
+### LT-1116 — Tab reaches Remote Terminal drawer controls that sit off the bottom of the window
+
+**Status: open.**
+
+### Observed behaviour
+
+Dev app, 1400 x 900 window, Plugins page. After the page's own controls, Tab stops on the Remote Terminal drawer's
+"Working directory on the other computer" input (rect 887-913 px in a 900 px window), then **Open** and **Close terminal
+drawer**. The input is partly off screen. Reproduced on the MCP page too (same shell component).
+
+### Root cause
+
+Not investigated. The drawer is in the app shell, outside the plugins and connectors work.
+
+### Required behaviour and acceptance
+
+Either the drawer is fully visible when focused or its controls are not focusable while it is closed. Acceptance: Tab
+from the last page control never lands on a control outside the window.
+
+## LT-1117
+
+### LT-1117 — a focused tall text box is only partly in view at high zoom
+
+**Status: source fix verified 12 November 2026 in the dev app; shipped build pending.**
+
+### Observed behaviour
+
+Dev app from this branch, 200 percent zoom emulated (700 x 450 CSS pixels; the page area is about 158 px tall because
+the app header uses the rest). Add form open, Tab to the "Headers (JSON object)" box: its box was at 412-492 px inside a
+page area ending at 450 px, so 37.6 of 80 px were visible. Steady after 1.5 s, so not a scroll that had not finished.
+All other stops were fully visible. (The first run of this check labelled this stop "Environment"; it was Headers.)
+
+### Root cause
+
+Chrome reveals only the caret line of a focused text box, not the whole box, and the page had no space reserved below
+that line. The caret line was visible; the rest of the box and its lower border were not. A mouse user was unaffected.
+
+### Required behaviour and acceptance
+
+A control reached by keyboard is entirely visible. Fix: `scroll-padding-bottom: 96px` on `.page` in
+`mcp-page.component.scss`. Re-run at 200 percent after the fix, Tab forward and Shift+Tab backward through the Local
+program, Remote server and Microsoft 365 forms: no stop partly hidden (Local forward 16 stops, Local backward 18, Remote
+and Microsoft 365 forward and back 28 each). Also none hidden at 100 percent backward.
 
 ## LT-1016
 

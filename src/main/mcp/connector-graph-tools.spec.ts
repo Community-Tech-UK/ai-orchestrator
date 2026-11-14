@@ -96,7 +96,10 @@ describe('Microsoft 365 connector tools', () => {
   it('reads mail from the bound account and denies drafts and sends on read-only accounts', async () => {
     const deps = dependencies();
     await expect(callGraphConnectorTool('other-key', 'graph_mail_read', { messageId: 'message-1' }, deps, true)).resolves.toEqual({ account: 'other-key' });
-    await expect(callGraphConnectorTool('other-key', 'graph_mail_create_draft', draft, deps, true)).rejects.toThrow(/not permitted/);
+    await expect(callGraphConnectorTool('other-key', 'graph_mail_create_draft', draft, deps, true)).rejects.toThrow(/not permitted for agents on this Microsoft account/);
+    // The refusal must not talk about calendars for a mail write, or show the internal account key.
+    const refusal = await callGraphConnectorTool('other-key', 'graph_mail_create_draft', draft, deps, true).catch((error: unknown) => error as Error);
+    expect((refusal as Error).message).not.toMatch(/calendar|other-key/i);
     await expect(callGraphConnectorTool('other-key', 'graph_mail_send', { messageId: 'draft-1' }, deps, true)).rejects.toThrow(/not permitted/);
     expect(deps.graphClient?.createMailDraft).not.toHaveBeenCalled();
     expect(deps.graphClient?.sendMailDraft).not.toHaveBeenCalled();

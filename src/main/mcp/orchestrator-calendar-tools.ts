@@ -420,7 +420,7 @@ export async function requireWritableAccountKey(dependencies: CalendarToolDepend
     candidate.accountKey === requested || candidate.username.toLowerCase() === requested.toLowerCase(),
   );
   if (!account || !permitted.has(account.username.toLowerCase())) {
-    throw new Error(`Calendar mutation is not permitted for agent calendar mutations: ${requested}`);
+    throw new Error('Writes are not permitted for agents on this Microsoft account. Turn on agent writes for its connector first.');
   }
   return account.accountKey;
 }

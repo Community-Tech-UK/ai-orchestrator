@@ -17,6 +17,10 @@
   background: var(--bg-primary);
   color: var(--text-primary);
   overflow: auto;
+  /* Chrome only scrolls a focused text box far enough to show its first line.
+     Keep the space below that line clear so tall boxes (the connector form's
+     JSON fields) come fully into view when reached by keyboard, also at high zoom. */
+  scroll-padding-bottom: 96px;
 }
 
 /* ── Header ───────────────────────────────── */
@@ -117,7 +121,10 @@
   background: var(--bg-secondary);
   display: flex;
   flex-direction: column;
-  min-height: 180px;
+  /* Grow with the content and let the page scroll. Without this the panel
+     shrinks to its minimum inside the page's fixed-height column and its
+     overflow clip hides the connector list and the add form. */
+  flex-shrink: 0;
   overflow: hidden;
 }
 
