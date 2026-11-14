@@ -82,6 +82,7 @@ The coordinator retains the active follow-up plan and per-check evidence until i
 | LT-733 | P1 | **FIXED ON MAIN; live check passed 2026-11-07 on the pre-merge branch build; re-verify after landing.** A CLI approval that arrives while the sidechat panel is closed is kept by the event bus and shown as one card on reopen. | [LT-733 detail](#lt-733) | LT-SC-4 |
 | LT-734 | P2 | **FIXED ON MAIN; live check passed 2026-11-07 on the pre-merge branch build; re-verify after landing.** Archived parent rows (History and project history) show the unread sidechat badge and open the exact chat. | [LT-734 detail](#lt-734) | LT-SC-3 |
 | LT-735 | P2 | **FIXED ON MAIN.** Sidechat policy and parent resolution read `executionLocation` (`src/main/chats/side-chat-parent-resolver.ts`), not the supervising `workerNodeId`. The Windows live check was not re-run on this branch. | [LT-735 detail](#lt-735) | LT-SC-7 |
+| LT-791 | P2 | **FIXED ON MAIN; installed discovery and two-session behaviour verified live 2026-11-07 and 2026-11-11; independent verification pending.** Searching orchestrator tools for `process` omitted both host-process tools because the ranker matches whole words and the descriptions lacked singular `process`. Both descriptions now contain it; full-catalogue regressions cover the deferred and stable surfaces. | [LT-791 detail](#lt-791--process-search-does-not-discover-the-host-process-tools) |
 | LT-1043 | P2 | **OPEN on this base; fix exists on the parked branch `queue/2026-10-16-opencode-2-support-1c80fb` (not landed).** Stale OpenCode 2 retry notices ("Provider is trying the request again.") survive an ended turn. Reproduced live 2026-10-27 on OpenCode 2.0.30. | [LT-1043 detail](#lt-1043) | [OpenCode 2 checks 2.2](2026-10-16-opencode-2-support_livetest.md) |
 | LT-1044 | P2 | **FIXED IN THIS WORKTREE 2026-11-11; independent review pending.** The Doctor's provider list omitted OpenCode, hiding its install offer. Reproduced live 2026-10-27 and again 2026-11-11 on this base; the regression test failed before the one-line fix and the real Doctor panel shows the offer after it. | [LT-1044 detail](#lt-1044) | [OpenCode 2 check 4.3](2026-10-16-opencode-2-support_livetest.md) |
 | LT-1045 | P2 | **OPEN on this base (reproduced 2026-11-11); fix exists on the parked branch (not landed).** A complete OpenCode checkpoint has `resumeCursor: null`, so recovery cannot use native `session/resume`. | [LT-1045 detail](#lt-1045) | [OpenCode 2 check 3.1](2026-10-16-opencode-2-support_livetest.md) |
@@ -14949,3 +14950,48 @@ tool calls arrive.
 
 A unit test that feeds tool calls the way the Claude and Codex adapters really deliver them and expects a summary on removal; then, in the
 rebuilt app, a Claude chat and a Codex chat that each make a few tool calls and are closed each log one summary with the right count.
+
+## LT-791 — process search does not discover the host-process tools
+
+### Observed behaviour
+
+2026-10-27: the real stdio forwarder's `orchestrator.tool_search` with `query: "process"` returned
+only `set_setting` and `git_batch_pull`, omitting both `list_host_processes` and
+`stop_leftover_processes`. A fresh build from the queue worktree reproduced the same omission.
+Receipts (root checkout, gitignored): `docs/plans/evidence/2026-10-27-host-process-tools-retry/`
+`diagnostic-discovery.json` and `compiled-diagnostic-discovery.json`. The full tool catalogue does
+contain the host-process tools; this was a discovery failure, not missing registration.
+
+### Root cause
+
+`src/main/mcp/tool-search-ranker.ts` tokenizes whole words without stemming. The host-process tool
+names contain plural `processes`, while their descriptions used `programs` and did not contain
+singular `process`. Other tools mention the parent process or concurrency, so they alone matched the
+prescribed query. There is no evidence that an outdated binary caused it.
+
+### Required behaviour
+
+The default `process` search discovers both host-process tools on deferred and stable tool surfaces,
+without changing ranking semantics, ownership checks, caller authentication or fences.
+
+### Acceptance and implementation status
+
+- Both shared descriptions in `src/main/mcp/orchestrator-host-process-tools.ts` contain singular
+  `process` (list tool: "for each process"; stop tool: "re-checks every process"). On main since the
+  host-process discovery plan's code commit `4e0bd43c8`.
+- Regression tests drive the complete catalogue with query `process` and the default limit for the
+  deferred surface (`orchestrator-mcp-deferral.spec.ts`) and the stable surface
+  (`orchestrator-mcp-stable-tools.spec.ts`). Re-run 2026-11-11: those two files plus
+  `orchestrator-host-process-tools.spec.ts` and `tool-search-ranker.spec.ts` pass (4 files, 37 tests).
+- Installed discovery verified live 2026-11-07 (LT-A1): a fenced Claude session found both tools with
+  query `process` and no limit. Receipt `docs/plans/evidence/2026-11-07-host-process-tools-resume/lt-a1-native-claude.json`
+  (SHA-256 `c3e29d1c7d75c5a0bad6515c9125e99919c0a8ffa6f09e26183ff9c84ba0478c`; contents quoted in the
+  follow-up live-test document).
+- Installed two-session repetition (LT-A3) passed 2026-11-11; receipts under
+  `docs/plans/evidence/2026-11-11-host-process-discovery-worker/`.
+- Not closed: the coordinator's independent verifier has not yet accepted the work.
+
+Owning documents: [live check](2026-10-27-host-process-discovery-remediation_livetest.md) and
+[plan](2026-10-27-host-process-discovery-remediation_plan.md). This entry was recreated on 2026-11-11
+after the original, written on the parked branch `queue/2026-10-16-host-process-tools-6e4f78`
+(commit `b7fed11ba`), was never merged into this register.

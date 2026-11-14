@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-27-host-process-discovery-remediation_livetest.md",
+      "sha256": "dac80ba4372101050ac821ebf8c4e861a445d5951a4f4a5be557aa98cc7830d5",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-27-host-process-discovery-remediation_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-27-host-process-discovery-remediation_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-27-host-process-discovery-remediation_livetest_completed.md",
+      "sha256": "dac80ba4372101050ac821ebf8c4e861a445d5951a4f4a5be557aa98cc7830d5"
+    }
+  ]
+}
