@@ -46,7 +46,10 @@ export class PlanQueueCapabilityService {
     let run = this.host.getRun(item.runId);
     const repository = await fs.realpath(run.workspaceCwd);
     const gap = { ...args.gap };
-    if (gap.repairRepository) gap.repairRepository = await repositoryRoot(gap.repairRepository).then(root => fs.realpath(root), () => gap.repairRepository!);
+    // The named repository reaches the repair plan and the owner's message, so only a real repository root is kept.
+    if (gap.repairRepository) gap.repairRepository = await repositoryRoot(gap.repairRepository).then(root => fs.realpath(root), () => {
+      throw new Error('repairRepository must be the path of an existing Git repository on the coordinating computer.');
+    });
     // Recheck caller assignment after filesystem I/O: a cancelled/replaced session cannot report late.
     item = this.authenticate(caller, args); run = this.host.getRun(item.runId);
     if (run.status !== 'running') throw new Error('A paused or cancelled run cannot report new capability work.');
