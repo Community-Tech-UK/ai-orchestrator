@@ -1,4 +1,5 @@
 import type { WorkerModeSettings } from '../../shared/types/pair-both.types';
+import { isHarnessLiveTest } from '../app/live-test-context';
 import { DEFAULT_CONFIG_PATH } from '../../worker-agent/worker-config';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
@@ -13,6 +14,7 @@ import { getWorkerSignInTask, type WorkerSignInTask } from './worker-sign-in-tas
 const logger = getLogger('WorkerModeAutostart');
 
 export type WorkerModeAutostartReason =
+  | 'live-test'
   | 'not-worker-role'
   | 'background-service'
   | 'sign-in-task'
@@ -38,6 +40,7 @@ interface WorkerModeAutostartOptions {
 export function maybeStartWorkerModeOnLaunch(
   options: WorkerModeAutostartOptions = {},
 ): WorkerModeAutostartResult {
+  if (isHarnessLiveTest()) return { started: false, reason: 'live-test' };
   const workerMode = options.getWorkerMode?.() ?? getSettingsManager().get('workerMode');
   if (workerMode.role !== 'worker') {
     return { started: false, reason: 'not-worker-role' };
@@ -114,6 +117,7 @@ interface BindWorkerModeRoleLifecycleOptions {
 export function bindWorkerModeRoleLifecycle(
   options: BindWorkerModeRoleLifecycleOptions = {},
 ): void {
+  if (isHarnessLiveTest()) return;
   const settings: WorkerModeRoleSource = options.settings ?? getSettingsManager();
   const startIfPaired = options.startIfPaired ?? (() => maybeStartWorkerModeOnLaunch());
   const stopRuntime = options.stopRuntime ?? (() => { getWorkerModeRuntimeService().stop(); });
@@ -169,6 +173,7 @@ interface EnsureSignInWorkerOptions {
  * copy forever) and restore the task if it was deleted. Never throws.
  */
 export async function ensureSignInWorkerOnLaunch(options: EnsureSignInWorkerOptions = {}): Promise<boolean> {
+  if (isHarnessLiveTest()) return false;
   const workerMode = (options.settings ?? getSettingsManager()).get('workerMode');
   const signInTask = options.signInTask ?? getWorkerSignInTask();
   const configPath = options.configPath ?? DEFAULT_CONFIG_PATH;

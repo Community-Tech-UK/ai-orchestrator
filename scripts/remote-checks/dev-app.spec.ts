@@ -4,15 +4,17 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
-const { main, parse } = require('./dev-app.js') as {
+const { main, parse, readSigningPassword } = require('./dev-app.js') as {
+  readSigningPassword(input: Readable & { isTTY?: boolean }, timeoutMs?: number): Promise<Buffer>;
   main(argv: string[], options: {
     cwd?: string; env?: NodeJS.ProcessEnv; write?: (text: string) => void; commonDir?: string;
     answers?: (port: number, waitMs?: number) => Promise<boolean>;
   }): Promise<number>;
-  parse(argv: string[]): { action: string; options: { port: number | null; data: string | null; command: string[] } };
+  parse(argv: string[]): { action: string; options: { port: number | null; data: string | null; command: string[]; mode: string; checkedTree: string | null } };
 };
 
 const LIMIT = 60_000;
@@ -128,6 +130,22 @@ function runLog(setup: Setup): Array<Record<string, unknown>> {
 }
 
 describe('dev-app arguments', () => {
+  it('only accepts bounded noninteractive signing input for explicit packaged launches', async () => {
+    expect(() => parse(['start', '--port', '9877', '--data', '/tmp/aio-lt-owned', '--signing-password-stdin'])).toThrow(/packaged/);
+    await expect(readSigningPassword(Object.assign(Readable.from([]), { isTTY: true }))).rejects.toThrow(/secure pipe/);
+    for (const input of ['', 'x'.repeat(4097), 'placeholder']) {
+      const read = readSigningPassword(Readable.from([Buffer.from(input)]));
+      if (input === 'placeholder') expect((await read).toString()).toBe('placeholder');
+      else await expect(read).rejects.toThrow(/1 to 4096/);
+    }
+    await expect(readSigningPassword(new Readable({ read() { /* no bytes */ } }), 10)).rejects.toThrow(/timed out/);
+  });
+  it('accepts an explicit package and a checked snapshot, refusing malformed tree identities', () => {
+    expect(parse(['start', '--port', '9877', '--data', '/tmp/aio-lt-owned', '--packaged', '--checked-tree', 'a'.repeat(40)]).options)
+      .toMatchObject({ mode: 'packaged', checkedTree: 'a'.repeat(40) });
+    expect(() => parse(['start', '--port', '9877', '--data', '/tmp/aio-lt-owned', '--checked-tree', 'bad;tree'])).toThrow(/tree/);
+    expect(() => parse(['stop', '--port', '9877', '--packaged'])).toThrow();
+  });
   it('takes a port and a data folder of its own under /tmp/aio-lt-', () => {
     expect(parse(['start', '--port', '9444', '--data', '/tmp/aio-lt-batch1']).options).toMatchObject({ port: 9444, data: '/tmp/aio-lt-batch1' });
     expect(() => parse(['start', '--port', '9444', '--data', '/Users/someone'])).toThrow(/\/tmp\/aio-lt-/);
@@ -144,6 +162,25 @@ describe('dev-app arguments', () => {
 });
 
 describe('dev-app start', () => {
+  it('runs the exact checked index tree and reports actual packaged provenance', async () => {
+    const setup = setUp();
+    const tree = git(setup.root, 'rev-parse', 'HEAD^{tree}');
+    const result = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-checked', '--packaged', '--checked-tree', tree]);
+    expect(result.code).toBe(0);
+    expect(result.sshLog).toMatch(/devapp-start \d+ [a-f0-9]+ packaged/);
+    const line = result.output.split('\n').find(row => row.startsWith('AIO_DEV_APP_RECEIPT '));
+    expect(JSON.parse(line!.slice('AIO_DEV_APP_RECEIPT '.length))).toMatchObject({ tree, root: setup.root, mode: 'packaged', computer: 'ct-test-mac' });
+    const store = join(setup.fake, 'home/remote-checks/repo.git');
+    expect(git(store, 'show', `${tree}:a.ts`)).toBe('committed');
+  }, LIMIT);
+
+  it('sends nothing when the actual checked tree does not match', async () => {
+    const setup = setUp();
+    const result = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-checked', '--checked-tree', 'a'.repeat(40)]);
+    expect(result.code).toBe(1);
+    expect(result.output).toContain('checked tree');
+    expect(result.sshLog).toBe('');
+  });
   it('sends the files on disk, starts the copy there with the data folder as data, and connects the port here', async () => {
     const setup = setUp();
     const port = await freePort();
@@ -155,7 +192,7 @@ describe('dev-app start', () => {
     expect(readFileSync(join(setup.fake, 'start-data'), 'utf8')).toBe('/tmp/aio-lt-spec');
     expect(sshLog).not.toContain('aio-lt-spec');
     const started = sshLog.split('\n').find(line => line.includes(' devapp-start '))!;
-    const commit = started.split(' ').pop()!;
+    const commit = started.split(' ').at(-3)!;
     // The snapshot holds the uncommitted edit, and it reached the far store.
     const store = join(setup.fake, 'home/remote-checks/repo.git');
     expect(git(store, 'show', `${commit}:a.ts`)).toBe('changed, not committed');
@@ -297,6 +334,7 @@ describe('remote-run.sh dev-app commands', () => {
     expect(far(['devapp-start', '9444', 'abc123'], '/tmp/aio-lt-a b').status).toBe(4);
     expect(far(['devapp-start', '80', 'abc123'], '/tmp/aio-lt-a').status).toBe(4);
     expect(far(['devapp-start', '9444', 'not;hex'], '/tmp/aio-lt-a').status).toBe(4);
+    expect(far(['devapp-start', '9444', 'abc123', 'dev', '1'], '/tmp/aio-lt-a\nplaceholder').status).toBe(4);
   });
 
   it('reports no copies, and stops one that is not there without complaint', () => {
@@ -321,11 +359,12 @@ describe('remote-run.sh dev-app commands', () => {
     const emptyTree = git(repo, 'hash-object', '-t', 'tree', '-w', '/dev/null');
     const commit = git(repo, 'commit-tree', emptyTree, '-m', 'snapshot');
     const standIns: ChildProcess[] = [];
-    const copy = (port: number, data: string, alive = true) => {
+    const copy = (port: number, data: string, alive = true, mode = 'dev') => {
       const dir = join(base, 'devapps/apps', String(port));
       mkdirSync(join(dir, 'repo'), { recursive: true });
       writeFileSync(join(dir, 'data'), `${data}\n`);
       writeFileSync(join(dir, 'tree'), `${emptyTree}\n`);
+      writeFileSync(join(dir, 'mode'), `${mode}\n`);
       writeFileSync(join(dir, 'state'), 'ready\n');
       writeFileSync(join(dir, 'started'), `${Math.floor(Date.now() / 1000)}\n`);
       if (alive) {
@@ -338,7 +377,7 @@ describe('remote-run.sh dev-app commands', () => {
       }
       return dir;
     };
-    const start = (port: number, data: string) => spawnSync('bash', [join(base, 'remote-run.sh'), 'devapp-start', String(port), commit], {
+    const start = (port: number, data: string, mode = 'dev') => spawnSync('bash', [join(base, 'remote-run.sh'), 'devapp-start', String(port), commit, mode], {
       input: data, encoding: 'utf8',
     });
     // A stopped stand-in stays a zombie until this process collects it, so its exit event is the proof.
@@ -364,6 +403,18 @@ describe('remote-run.sh dev-app commands', () => {
     } finally {
       far.endAll();
     }
+  }, LIMIT);
+
+  it('never joins or replaces a profile running in a different package mode', () => {
+    const far = farWithCopies();
+    try {
+      far.copy(9444, '/tmp/aio-lt-mine');
+      expect(far.start(9444, '/tmp/aio-lt-mine', 'packaged').stdout).toContain('different package mode');
+      expect(far.start(9445, '/tmp/aio-lt-mine', 'packaged').stdout).toContain('different package mode');
+      expect(far.standIns[0].exitCode).toBeNull();
+      expect(far.standIns[0].signalCode).toBeNull();
+      expect(existsSync(join(far.base, 'devapps/apps/9444'))).toBe(true);
+    } finally { far.endAll(); }
   }, LIMIT);
 
   it('is full at three live copies, after removing the folders of copies whose job has ended', () => {

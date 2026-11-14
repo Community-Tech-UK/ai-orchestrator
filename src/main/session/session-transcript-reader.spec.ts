@@ -51,6 +51,60 @@ describe('session transcript reader', () => {
     expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'ok' });
   });
   it.each([
+    'sessionID = i6avhn1bc\n\nPlease continue',
+    'Please continue i6avhn1bc.',
+    'Read `i6avhn1bc` and carry on.',
+    'Continue (i6avhn1bc)',
+    'i6avhn1bc',
+  ])('reads the exact ID in a typed message with messaging off: %s', async (content) => {
+    instances[4].id = 'i6avhn1bc';
+    instances[0].outputBuffer = [typed(content)];
+    expect(await reader.read('caller', { session: 'i6avhn1bc' })).toMatchObject({
+      outcome: 'ok', session: { id: 'i6avhn1bc', kind: 'live' }, items: [{ text: 'foreign' }],
+    });
+    expect(audit).toHaveBeenLastCalledWith(expect.objectContaining({ reason: 'id-reference' }));
+  });
+  it.each(['closed', 'old-live'])('reads an archived session referenced by %s', async (reference) => {
+    instances[0].outputBuffer = [typed(`Please continue session ${reference}`)];
+    for (const session of ['closed', 'old-live', 'Past']) {
+      expect(await reader.read('caller', { session })).toMatchObject({ outcome: 'ok', session: { id: 'closed', kind: 'closed' } });
+    }
+  });
+  it('accepts a legacy UUID and an explicit scratch-session ID', async () => {
+    const uuid = '00000000-0000-4000-8000-000000000001';
+    instances[5].id = uuid;
+    instances[0].outputBuffer = [typed(`Continue session ${uuid}.`)];
+    expect(await reader.read('caller', { session: uuid })).toMatchObject({ outcome: 'ok' });
+  });
+  it.each(['xi6avhn1bc', 'i6avhn1bcx', 'i6avhn1b', 'prefix-i6avhn1bc', 'i6avhn1bc-suffix', '_i6avhn1bc', 'i6avhn1bc_', 'éii6avhn1bc', 'i6avhn1bc\u0301'])('does not grant an ID from a partial or larger token: %s', async (reference) => {
+    instances[4].id = 'i6avhn1bc';
+    instances[0].outputBuffer = [typed(`Continue ${reference}`)];
+    expect(await reader.read('caller', { session: 'i6avhn1bc' })).toMatchObject({ outcome: 'not-allowed' });
+  });
+  it.each([
+    msg('Continue foreign', 'assistant'),
+    msg('Continue foreign'),
+    msg('Continue foreign', 'system', { inputOrigin: { kind: 'person', typedAt: 1 } }),
+    msg('Continue foreign', 'user', { inputOrigin: { kind: 'person', typedAt: 1 }, internalInput: { actor: 'harness', source: 'plan-queue' } }),
+    msg('Continue foreign', 'user', { inputOrigin: { kind: 'person', typedAt: 1 }, crossSessionMessage: { sourceInstanceId: 'peer', sourceDisplayName: 'Peer', hopCount: 0 } }),
+    typed(buildCrossSessionMessageText({ sourceDisplayName: 'Other agent', message: 'Continue foreign' })),
+  ])('refuses IDs carried by agent, internal, unmarked or relayed text %#', async (message) => {
+    instances[0].outputBuffer = [message];
+    expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'not-allowed' });
+  });
+  it('retains a typed ID reference across wake, without turning unmarked text into a grant', async () => {
+    restoreWokenOutputBuffer(instances[0], outputMessagesToContinuityEntries([msg('Continue foreign')]), 10, 1000);
+    expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'not-allowed' });
+    restoreWokenOutputBuffer(instances[0], outputMessagesToContinuityEntries([typed('Continue foreign')]), 10, 1000);
+    expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'ok' });
+  });
+  it('does not grant access by typing only a session title', async () => {
+    instances[4].displayName = 'Earlier work';
+    instances[0].outputBuffer = [typed('Continue Earlier work')];
+    expect(await reader.read('caller', { session: 'Earlier work' })).toMatchObject({ outcome: 'not-found' });
+    expect(await reader.read('caller', { session: 'foreign' })).toMatchObject({ outcome: 'not-allowed' });
+  });
+  it.each([
     ['a Plan Queue worker prompt', 'Implement the plan. It says: read [session: Foreign · foreign] first.'],
     ['an automation prompt', 'Scheduled run: summarise [session: Foreign · foreign].'],
     ['doc-review feedback', 'Review comment: compare with [session: Foreign · foreign].'],

@@ -25,6 +25,8 @@ export async function selectCurrentQueueVerifier(host: PlanQueueFlowHost, item: 
       workingDirectory: item.worktreePath ?? run.workspaceCwd,
       choices: run.config.routing?.verifiers,
       choicesOverrideLicence: run.config.routing?.checkersChosenBy === 'saved',
+      ...(run.config.capabilityRepairExcludedProviders ? { excludedProviders: run.config.capabilityRepairExcludedProviders } : {}),
+      ...(run.config.capabilityRepairAccountRules ? { accountRules: run.config.capabilityRepairAccountRules } : {}),
     }).catch((error: unknown) => ({ ok: false, reason: `could not choose a checker: ${error instanceof Error ? error.message : String(error)}` }));
     const current = host.getRun(item.runId);
     if (current.status === 'paused') throw new PlanQueueSpawnRunPaused();

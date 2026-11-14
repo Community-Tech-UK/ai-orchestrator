@@ -4,10 +4,34 @@ import { createOrchestratorToolsForwarderTools } from './orchestrator-tools-mcp-
 import { createDeferredOrchestratorTools, ORCHESTRATOR_CORE_TOOL_NAMES } from './orchestrator-mcp-deferral';
 import { createStableOrchestratorTools } from './orchestrator-mcp-stable-tools';
 import { OrchestratorToolsRpcServer } from './orchestrator-tools-rpc-server';
-import type { SessionTranscriptReader } from '../session/session-transcript-reader';
+import { SessionTranscriptReader } from '../session/session-transcript-reader';
+import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp' } }));
 
 describe('read session tools', () => {
+  it('reads a user-supplied session ID through RPC without a special mention', async () => {
+    const message: OutputMessage = { id: 'typed', type: 'user', timestamp: 1,
+      content: 'sessionID = i6avhn1bc\n\nPlease continue', metadata: { inputOrigin: { kind: 'person', typedAt: 1 } } };
+    const instances = [
+      { id: 'caller', displayName: 'Caller', workingDirectory: '/project', parentId: null, lastActivity: 1, outputBuffer: [message] },
+      { id: 'i6avhn1bc', displayName: 'Earlier work', workingDirectory: '/elsewhere', parentId: null, lastActivity: 1,
+        outputBuffer: [{ id: 'reply', type: 'assistant', timestamp: 1, content: 'The next task is ready.' }] },
+    ] as Instance[];
+    const reader = new SessionTranscriptReader({
+      getInstance: (id) => instances.find((instance) => instance.id === id), getAllInstances: () => instances,
+      getSettings: () => ({ interSessionMessaging: { enabled: false } }),
+      history: { getEntries: () => [], loadConversation: async () => null },
+      getCompleteInstanceMessages: async (instance) => instance.outputBuffer,
+      scratchDirectory: '/scratch', writeAudit: vi.fn(),
+    });
+    const server = new OrchestratorToolsRpcServer({ userDataPath: '/tmp', isKnownLocalInstance: () => true,
+      registerCleanup: () => undefined,
+      toolFactory: (ctx) => createSessionReadToolDefinitions({ instanceId: ctx.instanceId, getReader: () => reader }) });
+    expect(await server.handleRequest({ jsonrpc: '2.0', id: 1, method: 'orchestrator_tools.read_session',
+      params: { instanceId: 'caller', payload: { session: 'i6avhn1bc' } } })).toMatchObject({
+      outcome: 'ok', items: [{ text: 'The next task is ready.' }],
+    });
+  });
   it('validates strict arguments before forwarding and defaults the page size', async () => {
     expect(ReadSessionArgsSchema.safeParse({ session: 'self', spoofed: true }).success).toBe(false);
     expect(ReadSessionArgsSchema.parse({ session: 'self' }).limit).toBe(20);

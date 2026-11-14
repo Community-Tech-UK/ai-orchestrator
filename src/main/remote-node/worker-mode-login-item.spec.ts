@@ -1,6 +1,10 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WorkerModeSettings } from '../../shared/types/pair-both.types';
+
+const context = vi.hoisted(() => ({ liveTest: false }));
+vi.mock('../app/live-test-context', () => ({ isHarnessLiveTest: () => context.liveTest }));
+afterEach(() => { context.liveTest = false; });
 
 vi.mock('electron', () => ({
   app: { isPackaged: true, setLoginItemSettings: vi.fn() },
@@ -39,6 +43,15 @@ function fakeSettings(initial: WorkerModeSettings) {
 }
 
 describe('bindWorkerModeLoginItem', () => {
+  it('leaves shared login settings alone throughout an owned packaged test', () => {
+    context.liveTest = true;
+    const settings = fakeSettings({ ...base, openAtLogin: true });
+    const apply = vi.fn();
+    bindWorkerModeLoginItem({ settings, applyLoginItem: apply, platform: 'darwin', isPackaged: true });
+    settings.change({ ...base, openAtLogin: false });
+    settings.change({ ...base, openAtLogin: true });
+    expect(apply).not.toHaveBeenCalled();
+  });
   it('only wants a login item for a worker that opted in', () => {
     expect(wantsOpenAtLogin({ ...base, openAtLogin: true })).toBe(true);
     expect(wantsOpenAtLogin({ ...base })).toBe(false);

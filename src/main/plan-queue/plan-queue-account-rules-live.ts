@@ -27,6 +27,8 @@ export interface LiveQueueSession {
 /** The coordinator's side of a rule change: what it can see and do. */
 export interface LiveAccountRulesHost {
   liveSessions(): LiveQueueSession[];
+  /** Include the immutable account restrictions of a derived repair, when this session belongs to one. */
+  accountRulesFor(instanceId: string, current: PlanQueueAccountRules): PlanQueueAccountRules;
   /** Set the session's preferences on the live instance, and persist them. */
   setPreferences(instanceId: string, preferences: AccountPreferences | undefined): void;
   /** Hold the work the session is doing (its item, or its run's triage). Resolves once held. */
@@ -65,6 +67,7 @@ export interface QueueSessionsPort {
   getInstance(instanceId: string): PlanQueueInstanceRecord | undefined;
   isQueueInstance(instanceId: string): boolean;
   roleOf(instanceId: string): PlanQueueRoleRecord | undefined;
+  accountRulesFor(instanceId: string, current: PlanQueueAccountRules): PlanQueueAccountRules;
   /** The worker or checker item running on this session, if any. */
   itemFor(instanceId: string): PlanQueueItem | undefined;
   pauseTriage(runId: string): Promise<void> | undefined;
@@ -76,6 +79,7 @@ export interface QueueSessionsPort {
 export function liveQueueSessionsHost(port: QueueSessionsPort): LiveAccountRulesHost {
   return {
     liveSessions: () => port.getAllInstances().filter((instance) => port.isQueueInstance(instance.id)),
+    accountRulesFor: (instanceId, current) => port.accountRulesFor(instanceId, current),
     setPreferences: (instanceId, preferences) => {
       const instance = port.getInstance(instanceId);
       if (!instance) return;
@@ -99,11 +103,12 @@ export async function applyLiveAccountRules(rules: PlanQueueAccountRules, host: 
   const banned: LiveQueueSession[] = [];
   for (const session of host.liveSessions()) {
     if (!session.provider) continue;
-    const preferences = accountPreferencesFor(rules, session.provider) ?? undefined;
+    const effective = host.accountRulesFor(session.id, rules);
+    const preferences = accountPreferencesFor(effective, session.provider) ?? undefined;
     if (JSON.stringify(session.accountPreferences ?? null) !== JSON.stringify(preferences ?? null)) {
       host.setPreferences(session.id, preferences);
     }
-    if (sessionOnNeverUse(session, rules)) banned.push(session);
+    if (sessionOnNeverUse(session, effective)) banned.push(session);
   }
   // Each hold waits for its own item lock (and any landing in progress); the holds do not wait on each other.
   // Wait for every hold, so a failed one neither hides the others nor starts the restart early.

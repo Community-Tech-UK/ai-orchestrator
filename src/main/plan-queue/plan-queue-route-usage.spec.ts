@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PlanQueueAccountRules } from '@contracts/schemas/plan-queue';
 import type { AccountBindingStatus, ProviderAccountProfile } from '../../shared/types/provider-account.types';
 import { defaultProviderAccountPools } from '../../shared/types/provider-account.types';
 import type { ProviderQuotaSnapshot, ProviderQuotaWindow } from '../../shared/types/provider-quota.types';
@@ -83,6 +84,21 @@ beforeEach(() => {
 });
 
 describe('planQueueRouteUsage — account pools', () => {
+  it('keeps inherited never and use-last rules alongside current restrictions during ranking', async () => {
+    profiles = [profile('inherited-never', 'claude', 0), profile('current-never', 'claude', 1), profile('last', 'claude', 2)];
+    const inherited: PlanQueueAccountRules = {
+      never: [{ provider: 'claude', accountId: 'inherited-never' }],
+      last: [{ provider: 'claude', accountId: 'last' }],
+    };
+    const current: PlanQueueRouteUsageDeps = { ...deps(), accountRules: () => ({ never: [{ provider: 'claude', accountId: 'current-never' }], last: [] }) };
+    expect(await planQueueRouteUsage({ provider: 'claude' }, 'automation', { allowLast: false, accountRules: inherited }, current))
+      .toEqual({ usable: false, resumeAt: null });
+    expect(await planQueueRouteUsage({ provider: 'claude' }, 'automation', { allowLast: true, accountRules: inherited }, current))
+      .toEqual({ usable: true, resumeAt: null });
+    expect(await planQueueRouteUsage({ provider: 'claude', accountProfileIds: ['inherited-never', 'current-never'] },
+      'automation', { allowLast: true, accountRules: inherited }, current)).toEqual({ usable: false, resumeAt: null });
+  });
+
   it('has usage when the pool can pick one of the choice\'s accounts', async () => {
     profiles = [profile('max-a', 'claude', 0), profile('max-b', 'claude', 1)];
     parked = ['max-a'];

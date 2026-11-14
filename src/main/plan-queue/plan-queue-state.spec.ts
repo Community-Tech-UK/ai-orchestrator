@@ -63,9 +63,9 @@ describe('plan queue item state machine', () => {
     }
   });
 
-  it('only leaves parked through an operator action', () => {
+  it('only leaves parked through an operator action or a verified capability repair', () => {
     const allowed = ALL_STATES.filter((to) => canTransitionItem('parked', to));
-    expect(allowed.sort()).toEqual(['landing', 'queued']);
+    expect(allowed.sort()).toEqual(['discovered', 'landing', 'queued']);
   });
 
   it('cannot skip an item once a worktree exists', () => {

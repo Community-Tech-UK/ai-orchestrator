@@ -24,6 +24,10 @@ function fakeOps(): PlanQueueToolOperations & { calls: unknown[][] } {
   };
   return {
     calls,
+    reportCapabilityGap: vi.fn(async (...args: unknown[]) => record('reportCapabilityGap')(...args)),
+    reportCapabilityProbe: vi.fn(async (...args: unknown[]) => record('reportCapabilityProbe')(...args)),
+    reportCapabilityCheck: record('reportCapabilityCheck'),
+    authorizeCapabilityRepairs: vi.fn(async (...args: unknown[]) => record('authorizeCapabilityRepairs')(...args)),
     start: vi.fn(async (...args: unknown[]) => record('start')(...args)),
     status: record('status'),
     answer: vi.fn(async (...args: unknown[]) => record('answer')(...args)),

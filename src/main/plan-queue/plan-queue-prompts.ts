@@ -17,6 +17,7 @@ import { documentHistoryPath } from './plan-queue-plan-diet';
 import type { PlanQueueGateReceipt } from './plan-queue-gate-receipts';
 import { REPORT_READY_TOOL, reportFileTask, reportReadyTask, toolDiscoverySteps, type RemoteJobPrompt } from './plan-queue-report-prompts';
 import { verdictExamples, verdictRules } from './plan-queue-verdict-prompts';
+import { capabilityRules, capabilityCheckerRules } from './plan-queue-capability-prompts';
 
 export const VERDICT_TOOL = 'plan_queue_report_verdict';
 export const TRIAGE_TOOL = 'plan_queue_report_triage';
@@ -135,6 +136,7 @@ function remoteLocationRules(ctx: ItemPromptContext, remote: RemoteJobPrompt): s
 
 function documentRules(ctx: ItemPromptContext): string[] {
   return [
+    ...capabilityRules(ctx.repoRoot, !!ctx.remote),
     ...(ctx.remote ? remoteLocationRules(ctx, ctx.remote) : localLocationRules(ctx)),
     '- Do not commit, stash, create or switch branches, or create worktrees. The queue coordinator commits your work to the branch for you.',
     ctx.item.section == null
@@ -357,6 +359,7 @@ export function buildVerifierPrompt(ctx: VerifierPromptContext): string {
     '- If the worktree is missing installed dependencies, install them with the repository\'s documented setup command before running the gates, using the form that installs exactly from the lockfile (for example npm ci) so no tracked file changes. A gate that fails only because dependencies were not installed is a setup step, not a finding.',
     '',
     'Judge against these criteria:',
+    ...capabilityCheckerRules(ctx.item, ctx.repoRoot),
     ...criteria,
     ...briefRules(ctx.brief),
     ...(ctx.diffStat !== undefined ? ['Change summary (data):', dataBlock('diff_stat', ctx.diffStat)] : []),
@@ -409,6 +412,8 @@ export function buildTriagePrompt(runId: string, documents: readonly string[], h
     ...headers.map(doc => dataBlock('document_header', `${doc.path}\n${doc.header}`)),
     '',
     'For each document choose one disposition:',
+    ...capabilityRules(),
+    'For an investigated technical capability gap, report it through plan_queue_report_capability_gap using this run_id and document_path before other triage results. An accepted technical gap removes that document from this batch; omit it from plan_queue_report_triage. Report dispositions for the remaining documents only.',
     '- `ready` — a worker can implement or test it without a decision from James.',
     '- `needs-answer` — record a readiness choice with one plain-language question and 2 to 4 uniquely identified options, including id `skip` for leaving it alone. Include `question.decision` using one of the classifications below.',
     '- `skip` — the document should not be worked at all (for example it is superseded). Give the reason.',

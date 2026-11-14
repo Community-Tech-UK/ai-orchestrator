@@ -9,7 +9,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { InstanceCreateConfig } from '../../../shared/types/instance.types';
-import { PlanQueueReportReadyArgsSchema } from '@contracts/schemas/plan-queue';
+import { PlanQueueReportReadyArgsSchema, type PlanQueueReportReadyArgs } from '@contracts/schemas/plan-queue';
 import { getLogger } from '../../logging/logger';
 import { gitText } from './queue-job-git';
 import { unresolvedMergeFiles } from '../plan-queue-git';
@@ -60,7 +60,8 @@ export class PlanQueueRemoteTurns {
   /** Placement decisions go one at a time, so two jobs started together cannot both take a computer's last place. */
   private placing: Promise<unknown> = Promise.resolve();
   private readonly watch: AwayWatch;
-  constructor(private readonly host: Pick<PlanQueueFlowHost, 'getItem' | 'save' | 'getRun' | 'store' | 'history'>, private readonly deps: PlanQueueRemoteDeps) {
+  constructor(private readonly host: Pick<PlanQueueFlowHost, 'getItem' | 'save' | 'getRun' | 'store' | 'history'>, private readonly deps: PlanQueueRemoteDeps,
+    private readonly captureCapabilities: (caller: string, report: PlanQueueReportReadyArgs) => Promise<void>) {
     this.removals = new PendingRemovals(deps.removalsFile);
     this.watch = new AwayWatch(deps.awayCheckMs ?? AWAY_CHECK_MS);
   }
@@ -203,6 +204,7 @@ export class PlanQueueRemoteTurns {
       return this.host.save({ ...item, detail: `The report file from ${remote.label} could not be used (${named}), so this turn counts as having no report.` });
     }
     recordWorkerReport(this.host, instanceId, parsed.data);
+    await this.captureCapabilities(instanceId, parsed.data);
     void run;
     return this.host.getItem(item.id);
   }

@@ -300,6 +300,13 @@ describe('browser extension native runtime', () => {
       })).toBe(false);
     });
 
+    it('never claims the shared manifest from an owned live test, even with force', () => {
+      const dir = tempDirWithPrefix('claim-livetest-');
+      expect(mayClaimBrowserExtensionNativeHostManifest({
+        ...foreignManifest(dir), isPackaged: true, isLiveTest: true, forceClaim: true,
+      })).toBe(false);
+    });
+
     it('honours an explicit force-claim opt-in from an unpackaged install', () => {
       const dir = tempDirWithPrefix('claim-forced-');
       expect(mayClaimBrowserExtensionNativeHostManifest({

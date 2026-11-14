@@ -22,6 +22,15 @@ const run = (): PlanQueueRun => ({ id: 'run', parentInstanceId: 'parent', parent
 const anyChecker = vi.fn(async () => ({ ok: true }) as never);
 
 describe('preflightResumedRun', () => {
+  it('checks the inherited account restrictions before a repair can resume', async () => {
+    const repair = run();
+    repair.config.capabilityRepairAccountRules = { never: [{ provider: 'claude', accountId: 'restricted' }], last: [] };
+    repair.config.capabilityRepairExcludedProviders = ['copilot'];
+    const select = vi.fn(async () => ({ ok: true, choice: { provider: 'codex' } }) as const);
+    await preflightResumedRun(repair, select);
+    expect(select).toHaveBeenCalledWith(expect.objectContaining({ accountRules: repair.config.capabilityRepairAccountRules, excludedProviders: ['copilot'] }));
+  });
+
   it('lets a run carry on when nothing has changed', async () => {
     await expect(preflightResumedRun(run(), anyChecker)).resolves.toBeUndefined();
   });

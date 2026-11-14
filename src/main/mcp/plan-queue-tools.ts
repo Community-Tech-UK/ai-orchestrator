@@ -18,6 +18,9 @@
  */
 
 import {
+  PlanQueueReportCapabilityGapArgsSchema, PlanQueueReportCapabilityProbeArgsSchema, PlanQueueCapabilityControlArgsSchema, PlanQueueReportCapabilityCheckArgsSchema,
+  PlanQueueCapabilityGapSchema,
+  type PlanQueueReportCapabilityGapArgs, type PlanQueueReportCapabilityProbeArgs, type PlanQueueCapabilityControlArgs, type PlanQueueReportCapabilityCheckArgs,
   PlanQueueAnswerArgsSchema,
   PlanQueueControlArgsSchema,
   PlanQueueReportReadyArgsSchema,
@@ -34,8 +37,14 @@ import {
 } from '@contracts/schemas/plan-queue';
 import type { McpServerToolDefinition } from './mcp-server-tools';
 import { versionedToolStatus } from './status-version';
+import { CAPABILITY_TOOL_SPECS } from './plan-queue-capability-tools';
+import { z } from 'zod';
 
 export interface PlanQueueToolOperations {
+  reportCapabilityGap(caller: string, args: PlanQueueReportCapabilityGapArgs): Promise<unknown>;
+  reportCapabilityProbe(caller: string, args: PlanQueueReportCapabilityProbeArgs): Promise<unknown>;
+  reportCapabilityCheck(caller: string, args: PlanQueueReportCapabilityCheckArgs): unknown;
+  authorizeCapabilityRepairs(caller: string, args: PlanQueueCapabilityControlArgs): Promise<unknown>;
   start(callerInstanceId: string, args: PlanQueueStartArgs): Promise<unknown>;
   status(callerInstanceId: string, runId?: string, evidence?: boolean): unknown;
   answer(callerInstanceId: string, itemId: string, optionId: string): Promise<unknown>;
@@ -116,6 +125,7 @@ const STEP_UP_DESCRIPTION = 'Provider, model and accounts a document is handed t
 
 /** Name, description and input schema per tool; shared with the stdio forwarder. */
 export const PLAN_QUEUE_TOOL_SPECS = {
+  ...CAPABILITY_TOOL_SPECS,
   plan_queue_start: {
     description:
       'Work through plan or livetest documents in this workspace, one visibly nested worker session per document, each in its own git worktree, judged by an independent verifier on a different provider, and landed on the current branch as one local squash commit per verified document (never pushed). Use it when James asks to "work through the plans" or "run the livetests". This session becomes the parent: evidence-backed technical readiness decisions are selected automatically; questions requiring human authority or facts wait for James on the Plan Queue page (plan_queue_status lists them) unless his settings send them to this session, and you receive a summary when the run ends. Returns the discovered documents before any worker starts.',
@@ -123,6 +133,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
       type: 'object',
       properties: {
         kind: { type: 'string', enum: ['plans', 'livetests'], description: '"plans" for *_plan.md documents, "livetests" for *_livetest.md documents.' },
+        capability_repair_repository: { type: 'string', description: 'When the user’s task includes fixing missing test controls, explicitly authorise repairs in this run’s own repository. Cross-project scope is refused. Existing runs use plan_queue_authorize_capability_repairs.' },
         glob: { type: 'string', description: 'Optional repo-relative filter, for example "docs/plans/2026-09-*". Defaults to every matching document under docs/.' },
         worker_slots: { type: 'integer', minimum: 1, maximum: 8, description: 'Documents worked at once. Default 3 for plans, 1 for livetests.' },
         verification_slots: { type: 'integer', minimum: 1, maximum: 8, description: 'Jobs being checked at once for this run; runs in this project folder share the largest effective limit. Harness runs one checklist at a time across the computer, so this mainly limits checker reviews. Workload minimums, machine-wide limits and load checks also apply. Default 2 for plans.' },
@@ -166,11 +177,11 @@ export const PLAN_QUEUE_TOOL_SPECS = {
     },
   },
   plan_queue_control: {
-    description: 'Control a Plan Queue run or item: pause stops its workers, triage and checkers now and saves work on document branches; resume continues with fresh sessions. Cancel ends a run (run_id); set-routing changes its worker, checker and step-up providers and accounts for future sessions (run_id and routing, optional move_in_progress); skip an item that has not started, resume a parked item, retry a blocked merge of a verified item, land a parked item without a verifier PASS, or discard a parked item\'s branch (item_id). Land anyway and discard change git state, so do them only when James asked, or as the Set aside agent following its instructions. Land anyway from any other session works only in your reply to a message James typed or spoke after the item parked, when nothing else (a queue notice, an automation, another agent, a steered message, a turn that started by itself) has reached the session since; otherwise it is refused and James can use Land anyway on the Plan Queue page. A queue worker or checker can never do it. Discard deletes a branch, so do it only when James asked or you have checked its work is on the base branch. Any session the queue did not spawn may discard a parked item or undo that with restore-discarded (item_id), whoever owns the run; discarded work is kept for 30 days. To discard several, run `$AIO_MCP plan-queue discard <item_id>...` in your shell. If the session that started a run no longer exists, any session the queue did not spawn may adopt the run (it then answers its questions and receives its summary) or cancel it. Adopt when the work should continue; cancel only when James asked. Use request-handover (run_id) to ask an existing owner to transfer this run. Only that owner or the panel may handover (run_id, target_instance_id); this requires all Queue workers, triage and checkers to have stopped. A sleeping owner retains ownership. If the owner does not hand over a run that work James asked you to do needs, run `$AIO_MCP plan-queue move <run_id>` in your shell: it moves the run to you with James\'s authority, as the Plan Queue page does. Say which run you moved and why.',
+    description: 'Control a Plan Queue run or item: pause stops its workers, triage and checkers now and saves work on document branches; resume continues with fresh sessions. Cancel ends a run (run_id); set-routing changes its worker, checker and step-up providers and accounts for future sessions (run_id and routing, optional move_in_progress); recheck-readiness sends an untouched unanswered question back for fresh investigation without supplying an answer or permission (item_id, owner only; paused runs stay paused). You may also skip an item that has not started, resume a parked item, retry a blocked merge of a verified item, land a parked item without a verifier PASS, or discard a parked item\'s branch (item_id). Land anyway and discard change git state, so do them only when James asked, or as the Set aside agent following its instructions. Land anyway from any other session works only in your reply to a message James typed or spoke after the item parked, when nothing else (a queue notice, an automation, another agent, a steered message, a turn that started by itself) has reached the session since; otherwise it is refused and James can use Land anyway on the Plan Queue page. A queue worker or checker can never do it. Discard deletes a branch, so do it only when James asked or you have checked its work is on the base branch. Any session the queue did not spawn may discard a parked item or undo that with restore-discarded (item_id), whoever owns the run; discarded work is kept for 30 days. To discard several, run `$AIO_MCP plan-queue discard <item_id>...` in your shell. If the session that started a run no longer exists, any session the queue did not spawn may adopt the run (it then answers its questions and receives its summary) or cancel it. Adopt when the work should continue; cancel only when James asked. Use request-handover (run_id) to ask an existing owner to transfer this run. Only that owner or the panel may handover (run_id, target_instance_id); this requires all Queue workers, triage and checkers to have stopped. A sleeping owner retains ownership. If the owner does not hand over a run that work James asked you to do needs, run `$AIO_MCP plan-queue move <run_id>` in your shell: it moves the run to you with James\'s authority, as the Plan Queue page does. Say which run you moved and why.',
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['pause', 'resume', 'cancel', 'adopt', 'request-handover', 'handover', 'set-routing', 'skip-item', 'resume-item', 'land-anyway', 'retry-landing', 'discard-item', 'restore-discarded'] },
+        action: { type: 'string', enum: ['pause', 'resume', 'cancel', 'adopt', 'request-handover', 'handover', 'set-routing', 'skip-item', 'recheck-readiness', 'resume-item', 'land-anyway', 'retry-landing', 'discard-item', 'restore-discarded'] },
         run_id: { type: 'string', description: 'Required for pause, resume, cancel, adopt, request-handover, handover and set-routing.' },
         item_id: { type: 'string', description: 'Required for the item actions.' },
         target_instance_id: { type: 'string', description: 'handover only: the existing non-Queue session receiving ownership. Only the current owner or panel may transfer it.' },
@@ -253,6 +264,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
     inputSchema: {
       type: 'object',
       properties: {
+        capability_gaps: { type: 'array', maxItems: 8, items: z.toJSONSchema(PlanQueueCapabilityGapSchema), description: 'Missing test abilities, investigated and redacted. Captured durably before this worker report is cleared. Omit when none.' },
         item_id: { type: 'string' },
         summary: { type: 'string', description: 'Two or three plain sentences for a human: what was done and what it means.' },
         as_built: { type: 'string', description: 'Notes on what was built.' },
@@ -350,6 +362,10 @@ export function isPlanQueueRpcMethod(method: string): boolean {
 type Handler = (callerInstanceId: string, ops: PlanQueueToolOperations, args: unknown) => Promise<unknown> | unknown;
 
 const HANDLERS: Record<PlanQueueToolName, Handler> = {
+  plan_queue_report_capability_gap: (caller, ops, args) => ops.reportCapabilityGap(caller, PlanQueueReportCapabilityGapArgsSchema.parse(args)),
+  plan_queue_report_capability_probe: (caller, ops, args) => ops.reportCapabilityProbe(caller, PlanQueueReportCapabilityProbeArgsSchema.parse(args)),
+  plan_queue_report_capability_check: (caller, ops, args) => ops.reportCapabilityCheck(caller, PlanQueueReportCapabilityCheckArgsSchema.parse(args)),
+  plan_queue_authorize_capability_repairs: (caller, ops, args) => ops.authorizeCapabilityRepairs(caller, PlanQueueCapabilityControlArgsSchema.parse(args)),
   plan_queue_start: (caller, ops, args) => ops.start(caller, PlanQueueStartArgsSchema.parse(args)),
   plan_queue_status: async (caller, ops, args) => {
     const parsed = PlanQueueStatusArgsSchema.parse(args ?? {});
@@ -368,7 +384,7 @@ const HANDLERS: Record<PlanQueueToolName, Handler> = {
 };
 
 /** Tools a queue-spawned instance must not see: no queue inside a queue. */
-const PARENT_ONLY: ReadonlySet<PlanQueueToolName> = new Set<PlanQueueToolName>(['plan_queue_start', 'plan_queue_set_aside', 'plan_queue_set_aside_clear']);
+const PARENT_ONLY: ReadonlySet<PlanQueueToolName> = new Set<PlanQueueToolName>(['plan_queue_start', 'plan_queue_set_aside', 'plan_queue_set_aside_clear', 'plan_queue_authorize_capability_repairs']);
 
 export function createPlanQueueToolDefinitions(context: PlanQueueToolContext): McpServerToolDefinition[] {
   const ops = context.planQueueTools;

@@ -16,7 +16,7 @@ const TERMINAL_STATES: ReadonlySet<PlanQueueItemState> = new Set<PlanQueueItemSt
 
 const TRANSITIONS: Readonly<Record<PlanQueueItemState, readonly PlanQueueItemState[]>> = {
   discovered: ['queued', 'needs-answer', 'skipped'],
-  'needs-answer': ['queued', 'skipped'],
+  'needs-answer': ['discovered', 'queued', 'skipped'],
   queued: ['preparing', 'skipped'],
   preparing: ['working', 'queued'],
   working: ['awaiting-slot', 'queued'],
@@ -25,8 +25,9 @@ const TRANSITIONS: Readonly<Record<PlanQueueItemState, readonly PlanQueueItemSta
   verifying: ['landing', 'fixing', 'awaiting-slot'],
   landing: ['landed', 'fixing', 'awaiting-slot'],
   landed: [],
-  // Resume and "Land anyway" are operator actions on a parked branch.
-  parked: ['queued', 'landing'],
+  // Resume and "Land anyway" are operator actions on a parked branch. A verified
+  // capability repair sends an untouched parked item back to readiness checks.
+  parked: ['discovered', 'queued', 'landing'],
   skipped: [],
 };
 

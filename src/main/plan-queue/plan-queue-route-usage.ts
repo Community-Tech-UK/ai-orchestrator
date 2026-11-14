@@ -37,7 +37,7 @@ import {
   type AccountRouteRequest,
 } from '../providers/account-pool/provider-account-routing-service';
 import { evidenceLiftsPark, type AccountQuotaEvidence } from '../providers/account-pool/provider-account-selector';
-import { accountPreferencesFor, accountRuleTier } from './plan-queue-account-rules';
+import { accountPreferencesFor, accountRuleTier, mergePlanQueueAccountRules } from './plan-queue-account-rules';
 
 export interface PlanQueueRouteUsage {
   usable: boolean;
@@ -50,6 +50,8 @@ export interface PlanQueueRouteUsageOptions {
   allowLast: boolean;
   /** The run's folder, to find the Copilot seat a Copilot choice without an account would use. */
   workingDirectory?: string;
+  /** Restrictions inherited by a derived repair, applied in addition to current global rules. */
+  accountRules?: PlanQueueAccountRules;
 }
 
 export type PlanQueueRouteUsageCheck = (
@@ -81,7 +83,7 @@ export async function planQueueRouteUsage(
   deps: PlanQueueRouteUsageDeps,
 ): Promise<PlanQueueRouteUsage> {
   const provider = choice.provider;
-  const rules = deps.accountRules();
+  const rules = mergePlanQueueAccountRules(deps.accountRules(), options.accountRules);
   if (provider === 'copilot') {
     const seat = choice.copilotProfileId ?? (options.workingDirectory ? deps.copilotProfileFor(options.workingDirectory, origin) : null);
     const tier = seat ? accountRuleTier(rules, 'copilot', seat) : null;

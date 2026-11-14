@@ -8,7 +8,7 @@
  * to the worker's own provider silently.
  */
 
-import type { PlanQueueRouteChoice } from '@contracts/schemas/plan-queue';
+import type { PlanQueueAccountRules, PlanQueueRouteChoice } from '@contracts/schemas/plan-queue';
 import { sameFamily } from '../../shared/models/model-family';
 import { sameProviderCheckerCanDiffer } from '../../shared/models/multi-maker-providers';
 import type { ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
@@ -21,7 +21,7 @@ import { normalizeAgenticReviewerCliList, normalizeReviewerCli } from '../orches
 import { classifyCheckerScope, modelOverrideOptionFor, resolveCheckerPlan, type CheckerPlanDeps } from '../review/checker-plan';
 import { defaultPlanQueueRouteUsage, pickRouteChoice, type PlanQueueRouteUsageCheck } from './plan-queue-route-usage';
 import { defaultPlanQueueRoutingDeps, type PlanQueueRoutingDeps } from './plan-queue-routing';
-import { accountRuleTier, choiceBlockedByNeverUse, choiceWithoutNeverUse } from './plan-queue-account-rules';
+import { accountRuleTier, choiceBlockedByNeverUse, choiceWithoutNeverUse, mergePlanQueueAccountRules } from './plan-queue-account-rules';
 
 const logger = getLogger('PlanQueueVerifierSelect');
 
@@ -52,6 +52,10 @@ export interface VerifierSelectInput {
    * (an agent's tool call) may not: there the seat still checks the work.
    */
   choicesOverrideLicence?: boolean;
+  /** Original restrictions inherited by a derived repair; current global rules still apply. */
+  accountRules?: PlanQueueAccountRules;
+  /** Provider exclusions frozen by the source run; current exclusions still apply. */
+  excludedProviders?: readonly string[];
 }
 
 export interface VerifierSelectDeps extends CheckerPlanDeps {
@@ -118,7 +122,9 @@ export async function selectPlanQueueVerifier(
     // A protected (or unresolvable) work scope keeps its own rule below.
     logger.info('Plan queue checker choices set aside: this run\'s list cannot override the work Copilot scope', { scope: scope.kind });
   }
-  const eligible = filterProvidersForAutomation(installed, 'planQueueVerifier').filter((p) => p !== worker);
+  const isExcluded = (provider: string) => input.excludedProviders?.includes(provider)
+    || (deps.isProviderExcluded ?? isProviderExcludedFromAutomation)(provider);
+  const eligible = filterProvidersForAutomation(installed, 'planQueueVerifier').filter((p) => p !== worker && !isExcluded(p));
   const ordered = [
     ...VERIFIER_PREFERENCE.filter((p) => eligible.includes(p)),
     ...eligible.filter((p) => !VERIFIER_PREFERENCE.includes(p)),
@@ -136,7 +142,7 @@ export async function selectPlanQueueVerifier(
 
   if (plan.blockedReason) return { ok: false, reason: plan.blockedReason };
   const accounts = deps.accountRules ?? defaultPlanQueueRoutingDeps();
-  const ruled = await applyAccountRules(plan.candidates, input, accounts, deps.routeUsage ?? defaultPlanQueueRouteUsage());
+  const ruled = await applyAccountRules(plan.candidates.filter(candidate => !isExcluded(candidate.provider)), input, accounts, verifierUsage(input, deps));
   const candidate = ruled.candidates.find(
     (c) => c.rationale === 'licence-pinned' || normalizeReviewerCli(c.provider) !== worker,
   );
@@ -179,7 +185,7 @@ async function applyAccountRules(
   accounts: NonNullable<VerifierSelectDeps['accountRules']>,
   usage: PlanQueueRouteUsageCheck,
 ): Promise<{ candidates: CheckerCandidate[]; seatOnNeverList: boolean }> {
-  const rules = accounts.readAccountRules();
+  const rules = mergePlanQueueAccountRules(accounts.readAccountRules(), input.accountRules);
   const kept: CheckerCandidate[] = [];
   const lastOnly: CheckerCandidate[] = [];
   let seatOnNeverList = false;
@@ -230,13 +236,13 @@ async function selectFromChoices(
 ): Promise<VerifierSelection> {
   const isExcluded = deps.isProviderExcluded ?? isProviderExcludedFromAutomation;
   const accounts = deps.accountRules ?? defaultPlanQueueRoutingDeps();
-  const rules = accounts.readAccountRules();
+  const rules = mergePlanQueueAccountRules(accounts.readAccountRules(), input.accountRules);
   const skipped: string[] = [];
   const eligible: PlanQueueRouteChoice[] = [];
   for (const choice of input.choices ?? []) {
     const provider = normalizeReviewerCli(choice.provider);
     if (!installed.includes(provider)) { skipped.push(`${provider} is not installed`); continue; }
-    if (isExcluded(provider)) { skipped.push(`${provider} is on the "never auto-pick" list`); continue; }
+    if (isExcluded(provider) || input.excludedProviders?.includes(provider)) { skipped.push(`${provider} is on the "never auto-pick" list`); continue; }
     // The same rule the run's start check applied (multi-maker-providers.ts), so a list accepted there is not skipped here.
     if (provider === worker && !sameProviderCheckerCanDiffer(provider, choice.model, input.workerModel, (a, b) => !sameFamily(a, b))) {
       skipped.push(`${provider} is the worker's provider and no different-family model was chosen`);
@@ -251,7 +257,7 @@ async function selectFromChoices(
     eligible.push({ ...usable.choice, provider });
   }
   const picked = eligible.length > 1
-    ? await pickRouteChoice(eligible, 'verification', deps.routeUsage ?? defaultPlanQueueRouteUsage(), input.workingDirectory)
+    ? await pickRouteChoice(eligible, 'verification', verifierUsage(input, deps), input.workingDirectory)
     : null;
   const choice = picked?.choice ?? eligible[0];
   if (!choice) return { ok: false, reason: `none of the checkers chosen for this run can check it: ${skipped.join('; ')}` };
@@ -270,6 +276,13 @@ async function selectFromChoices(
       ...(choice.accountProfileIds?.length ? { accountProfileIds: [...choice.accountProfileIds] } : {}),
     },
   };
+}
+
+function verifierUsage(input: VerifierSelectInput, deps: VerifierSelectDeps): PlanQueueRouteUsageCheck {
+  const usage = deps.routeUsage ?? defaultPlanQueueRouteUsage();
+  return (choice, origin, options) => usage(choice, origin, {
+    ...options, ...(input.accountRules ? { accountRules: input.accountRules } : {}),
+  });
 }
 
 /** The configured checker model, re-modelled away from the worker's family where the provider can. */

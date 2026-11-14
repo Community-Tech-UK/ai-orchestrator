@@ -43,6 +43,7 @@ $AIO_MCP plan-queue move <run-id> [--to <session-id>] [--json]
 $AIO_MCP plan-queue jobs [--all] [--json]
 $AIO_MCP plan-queue discard <item-id> [<item-id>...] [--json]
 $AIO_MCP plan-queue health [--json]
+$AIO_MCP plan-queue recheck-readiness <item-id> [--json]
 $AIO_MCP remote-nodes [--json]
 $AIO_MCP remote-nodes pair [--label <name>] [--ttl-minutes <n>] [--json]
 $AIO_MCP local-ai --help
@@ -62,6 +63,8 @@ prompts James to approve it. That instruction is on you, not on a dialog: before
 you resume a loop James did not just ask you to resume, say which loop and why.
 The one hard gate is `maxSpawnDepth` — a session at the ceiling is refused,
 because resuming starts new agent work. `loop list` still works there.
+
+`plan-queue recheck-readiness <item-id>` sends an untouched unanswered readiness question back for fresh investigation. Use it when a supposed human blocker may be covered by current tools or repaired capabilities. Only the run's owner may call it. It supplies no answer or permission, starts no worker directly, and keeps a paused run paused. Started work, cancelled runs and choices about earlier retained branches are refused. The same action is available as `plan_queue_control` with `action: "recheck-readiness"` and `item_id`. Find the item with `plan_queue_status`. New live-test runs also investigate cached unanswered questions again; recorded human answers and skips are preserved.
 
 `plan-queue health` shows Queue health in the Plan Queue page's words, including where full test runs happened and,
 only while tests have moved to this Mac because a test machine can't be reached, the page's notice. Use it rather than

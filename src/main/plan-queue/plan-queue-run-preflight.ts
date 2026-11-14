@@ -1,4 +1,4 @@
-import type { PlanQueueRouting } from '@contracts/schemas/plan-queue';
+import type { PlanQueueAccountRules, PlanQueueRouting } from '@contracts/schemas/plan-queue';
 import { currentBranch } from './plan-queue-git';
 import { assertRunReady } from './plan-queue-run-readiness';
 import type { VerifierSelectInput, VerifierSelection } from './plan-queue-verifier-select';
@@ -7,12 +7,16 @@ import type { PlanQueueRun } from './plan-queue.types';
 /** Reject impossible routes before a worker spends a round. Queue slots limit its folders. */
 export async function preflightPlanQueueRun(input: {
   routing: PlanQueueRouting; workspaceCwd: string; workerProvider: string; workerModel: string | null;
+  accountRules?: PlanQueueAccountRules;
+  excludedProviders?: readonly string[];
   selectVerifier: (input: VerifierSelectInput) => Promise<VerifierSelection>;
 }): Promise<void> {
   for (const worker of input.routing.workers.length ? input.routing.workers : [{ provider: input.workerProvider, model: input.workerModel ?? undefined }]) {
     const checker = await input.selectVerifier({ workerProvider: worker.provider, workerModel: worker.model ?? null,
       workingDirectory: input.workspaceCwd, choices: input.routing.verifiers,
-      choicesOverrideLicence: input.routing.checkersChosenBy === 'saved' });
+      choicesOverrideLicence: input.routing.checkersChosenBy === 'saved',
+      ...(input.excludedProviders ? { excludedProviders: input.excludedProviders } : {}),
+      ...(input.accountRules ? { accountRules: input.accountRules } : {}) });
     if (!checker.ok) throw new Error(`This run cannot start: ${checker.reason}. Choose an allowed checker in Settings → Plan Queue, then try again.`);
   }
 }
@@ -20,7 +24,9 @@ export async function preflightPlanQueueRun(input: {
 /** Routing only: what a change of workers or checkers needs. */
 export function preflightRunRouting(run: PlanQueueRun, selectVerifier: (input: VerifierSelectInput) => Promise<VerifierSelection>): Promise<void> {
   return preflightPlanQueueRun({ routing: run.config.routing ?? { workers: [], verifiers: [] }, workspaceCwd: run.workspaceCwd,
-    workerProvider: run.workerProvider ?? 'claude', workerModel: run.workerModel, selectVerifier });
+    workerProvider: run.workerProvider ?? 'claude', workerModel: run.workerModel, selectVerifier,
+    ...(run.config.capabilityRepairExcludedProviders ? { excludedProviders: run.config.capabilityRepairExcludedProviders } : {}),
+    ...(run.config.capabilityRepairAccountRules ? { accountRules: run.config.capabilityRepairAccountRules } : {}) });
 }
 
 /**

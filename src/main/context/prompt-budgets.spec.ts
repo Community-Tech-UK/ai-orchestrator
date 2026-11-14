@@ -59,16 +59,21 @@ const BUDGET = {
   reviewLoopReanchor: { chars: 5000, render: () => loop(10, true, true) },
   // Oct-30 merge: main's cleanup rule now preserves installed dependencies for the
   // verifier. Actual worker/livetest/fix renders are 3,368 / 3,333 / 919 characters.
-  queueWorker: { chars: 5200, render: () => buildWorkerPrompt(queue) },
+  // 14 Nov: live-test capability repair puts the capability-gap rules (investigate before asking a human, the
+  // report tool and its field list with one example payload, authority and cross-project limits) on every worker,
+  // triage and checker prompt, plus the checker's repair-probe rules. Measured: worker 7,718, livetest worker 7,818,
+  // resume 8,160, resume + conflicts 8,736, step-up 9,750, livetest step-up 9,850, verifier 10,134,
+  // livetest verifier 8,604, triage 7,457; ceilings round up to 100.
+  queueWorker: { chars: 7800, render: () => buildWorkerPrompt(queue) },
   // 13 Nov: the livetest worker starts its dev app on the test Mac with a named command and port, instead of building
   // here. Measured: livetest worker 5,289, livetest step-up 7,321; ceilings round up to 100.
-  queueLivetestWorker: { chars: 5300, render: () => buildWorkerPrompt({ ...queue, kind: 'livetests' }) },
+  queueLivetestWorker: { chars: 7900, render: () => buildWorkerPrompt({ ...queue, kind: 'livetests' }) },
   queueFix: { chars: 1400, render: () => buildFixPrompt(1, 3, [{ severity: 'high', confidence: 90, summary: 'The fixture retry is missing.', file: 'fixture.ts:1', evidence: 'Pinned evidence.' }]) },
   queueConflict: { chars: 600, render: () => buildConflictPrompt('main', ['fixture.ts']) },
   queueGateFailure: { chars: 500, render: () => buildGateFailurePrompt('npm run lint', 'Pinned failure output') },
   queueActiveDocuments: { chars: 1000, render: () => buildActiveDocumentsPrompt(['/workspace/docs/fixture_plan.md']) },
   // The resumed worker carries that same dependency-preserving rule (3,759 chars).
-  queueResume: { chars: 5700, render: () => buildResumePrompt(queue, 'Continue verified earlier work') },
+  queueResume: { chars: 8200, render: () => buildResumePrompt(queue, 'Continue verified earlier work') },
   // Nov-07: every worker turn now ends with the plan_queue_report_ready instruction (about 650 characters; later turns
   // add a shorter "report again" clause). Renders: worker 4,510, livetest worker 5,010, fix 1,352, conflict 574,
   // gate failure 452, active documents 983, resume 4,901, continue + conflicts 743, resume + conflicts 5,477,
@@ -79,9 +84,9 @@ const BUDGET = {
   // 8 Nov (replay onto main with the Oct-2 stack): the stack's Status-block, root-history, foreground-checks and step-scope rules sit on top of main's deferred-checks wording. Measured: worker 5,189, resume 5,631, resume + conflicts 6,207, step-up 7,221, livetest step-up 7,224, triage 4,763; ceilings round up to 100.
   queueContinue: { chars: 200, render: () => buildContinuePrompt(queue, 'Continue verified earlier work') },
   queueContinueConflict: { chars: 800, render: () => buildContinuePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
-  queueResumeConflict: { chars: 6300, render: () => buildResumePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
-  queueStepUp: { chars: 7300, render: () => buildStepUpPrompt(queue, 3, findings) },
-  queueLivetestStepUp: { chars: 7400, render: () => buildStepUpPrompt({ ...queue, kind: 'livetests' }, 3, findings) },
+  queueResumeConflict: { chars: 8800, render: () => buildResumePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
+  queueStepUp: { chars: 9800, render: () => buildStepUpPrompt(queue, 3, findings) },
+  queueLivetestStepUp: { chars: 9900, render: () => buildStepUpPrompt({ ...queue, kind: 'livetests' }, 3, findings) },
   queueVerifierReminder: { chars: 1300, render: () => buildVerifierReminderPrompt(item.id, 1, 2) },
   // Main's verifier handoff requires waiting for background gates, Harness tool
   // discovery, an accepted verdict receipt and (Oct-30) installing missing dependencies
@@ -89,9 +94,9 @@ const BUDGET = {
   // 8 Nov (deferred checks): the report instruction now says each deferred check must also be written in the
   // _livetest.md (~110 chars on every worker prompt; measured: 4,623 / 5,123 / 5,014 / 5,590 / 6,576 / 7,076). The verifier gained
   // the finding-kind rules, the plan deferral rules and the PASS/FAIL example calls: 7,080 / 5,550.
-  queueVerifier: { chars: 7100, render: () => buildVerifierPrompt(verifier) },
-  queueLivetestVerifier: { chars: 5600, render: () => buildVerifierPrompt({ ...verifier, kind: 'livetests' }) },
-  queueTriage: { chars: 4800, render: () => buildTriagePrompt('run-budget', ['/workspace/docs/fixture_plan.md']) },
+  queueVerifier: { chars: 10200, render: () => buildVerifierPrompt(verifier) },
+  queueLivetestVerifier: { chars: 8700, render: () => buildVerifierPrompt({ ...verifier, kind: 'livetests' }) },
+  queueTriage: { chars: 7500, render: () => buildTriagePrompt('run-budget', ['/workspace/docs/fixture_plan.md']) },
   structuredReview: { chars: 3700, render: () => buildStructuredReviewPrompt('Review the fixture', 'Pinned implementation', REVIEW_ANGLES[0], ['fixture.ts']) },
   tieredReview: { chars: 4600, render: () => buildTieredReviewPrompt('Review the fixture', 'Pinned implementation', REVIEW_ANGLES[0], ['fixture.ts']) },
   structuredRepair: { chars: 1300, render: () => buildReviewFormatRepairPrompt('structured', 'Pinned invalid response') },

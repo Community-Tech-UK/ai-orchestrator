@@ -442,6 +442,9 @@ export class PlanQueueItemFlow {
       }].slice(-100) });
       if (this.host.getRun(item.runId).status === 'paused') { await this.holdUnlocked(item); return; }
       if (outcome.kind === 'turn-complete' && item.remote && this.host.remote) item = await this.host.remote.storeReport(item, instanceId, this.host.getRun(item.runId));
+      if (item.workerReport?.capabilityGaps?.some(gap => gap.classification === 'capability' || gap.classification === 'setup')) {
+        await this.parkUnlocked(item, 'needs-setup', 'Waiting for the linked capability repair; the original check remains open.'); return;
+      }
       if (outcome.kind === 'failed' && item.remote && this.remoteFlow && this.host.remote?.isAway(item)) {
         await this.stopInstance(instanceId); await this.remoteFlow.goAway(this.host.getItem(item.id)); return;
       }

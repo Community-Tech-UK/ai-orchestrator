@@ -7350,6 +7350,10 @@
       "lines": 931
     },
     {
+      "path": "docs/AIO_MCP_CLI.md",
+      "lines": 930
+    },
+    {
       "path": "src/main/orchestration/loop-provider-limit-handler.spec.ts",
       "lines": 930
     },
@@ -7360,10 +7364,6 @@
     {
       "path": "src/shared/types/instance.types.ts",
       "lines": 926
-    },
-    {
-      "path": "docs/AIO_MCP_CLI.md",
-      "lines": 923
     },
     {
       "path": "src/preload/domains/orchestration.preload.ts",
@@ -7402,15 +7402,15 @@
       "lines": 906
     },
     {
+      "path": "src/main/plan-queue/plan-queue-item-flow.ts",
+      "lines": 906
+    },
+    {
       "path": "src/renderer/app/shared/components/provider-quota-chip/provider-quota-chip.component.spec.ts",
       "lines": 904
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-action-guard.spec.ts",
-      "lines": 903
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-item-flow.ts",
       "lines": 903
     },
     {
@@ -7443,7 +7443,7 @@
     },
     {
       "path": "src/main/plan-queue/plan-queue-pause-control.spec.ts",
-      "lines": 892
+      "lines": 893
     },
     {
       "path": "src/main/instance/lifecycle/runtime-reconciler.ts",
@@ -7514,10 +7514,6 @@
       "lines": 874
     },
     {
-      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
-      "lines": 874
-    },
-    {
       "path": "src/renderer/app/features/rlm/context-browser/context-query-panel.component.ts",
       "lines": 874
     },
@@ -7543,6 +7539,10 @@
     },
     {
       "path": "docs/superpowers/specs/2026-08-25-copilot-account-routing_spec_completed.md",
+      "lines": 864
+    },
+    {
+      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
       "lines": 864
     },
     {

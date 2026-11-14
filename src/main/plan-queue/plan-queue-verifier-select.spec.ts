@@ -19,6 +19,7 @@ const usable = async () => ({ usable: true, resumeAt: null });
 import type { ProviderQuotaSnapshot } from '../../shared/types/provider-quota.types';
 import { ANTIGRAVITY_REVIEW_FALLBACK_MODELS } from '../orchestration/antigravity-review-model-routing';
 import { selectPlanQueueVerifier } from './plan-queue-verifier-select';
+import { planQueueRouteUsage, type PlanQueueRouteUsageCheck, type PlanQueueRouteUsageDeps } from './plan-queue-route-usage';
 
 beforeEach(() => {
   excluded = new Set();
@@ -101,6 +102,21 @@ describe('selectPlanQueueVerifier', () => {
       { ...base, workerProvider: 'claude' },
       { listInstalledProviders: async () => ['claude', 'copilot'], classifyScope: openScope, routeUsage: usable },
     );
+    expect(result.ok).toBe(false);
+  });
+
+  it.each([false, true])('preserves inherited provider exclusions for named=%s checkers after global rules loosen', async named => {
+    const result = await selectPlanQueueVerifier({ ...base, workerProvider: 'claude', excludedProviders: ['codex'],
+      ...(named ? { choices: [{ provider: 'codex' }, { provider: 'cursor' }] } : {}),
+    }, { listInstalledProviders: async () => ['claude', 'codex', 'cursor'], classifyScope: () => ({ kind: 'none' }) as never, routeUsage: usable, resolveProviderModel: () => undefined });
+    expect(result).toEqual({ ok: true, choice: { provider: 'cursor' } });
+  });
+
+  it('refuses a licence-pinned checker that the original run excluded instead of sending work elsewhere', async () => {
+    const result = await selectPlanQueueVerifier({ ...base, workerProvider: 'codex', excludedProviders: ['copilot'] }, {
+      listInstalledProviders: async () => ['claude', 'codex', 'copilot'], routeUsage: usable, resolveProviderModel: () => undefined,
+      classifyScope: () => ({ kind: 'protected', profileId: 'work', profileLabel: 'WORK', accountKind: 'enterprise', automationPolicy: 'allow-routed' }) as never,
+    });
     expect(result.ok).toBe(false);
   });
 
@@ -259,6 +275,28 @@ describe('selectPlanQueueVerifier: account rules', () => {
   });
   // An unprotected folder ('none') lets a saved or per-run checker list decide, as in the choice tests above.
   const common = { classifyScope: () => ({ kind: 'none' }) as never, resolveProviderModel: () => undefined, routeUsage: usable };
+
+  it('keeps inherited never-use restrictions when choosing from named checkers', async () => {
+    const result = await selectPlanQueueVerifier({ ...base, workerProvider: 'claude',
+      choices: [{ provider: 'codex', accountProfileIds: ['pro-2'] }, { provider: 'copilot' }],
+      accountRules: { never: [{ provider: 'codex', accountId: 'pro-2' }], last: [] },
+    }, { ...common, listInstalledProviders: async () => ['claude', 'codex', 'copilot'], accountRules: accounts([]) });
+    expect(result.ok && result.choice.provider).toBe('copilot');
+  });
+
+  it.each([false, true])('keeps inherited use-last ranking for named=%s checkers', async named => {
+    const usageDeps: PlanQueueRouteUsageDeps = {
+      previewAccountRoute: vi.fn(), accountRules: () => ({ never: [], last: [] }), copilotProfileFor: () => 'work',
+      ledger: { getActive: () => null, getParkedSince: () => new Map() }, spawnModel: async () => null,
+      quotaEvidence: () => null, providerQuota: () => null, now: () => 1,
+    };
+    const routeUsage: PlanQueueRouteUsageCheck = (choice, origin, options) => planQueueRouteUsage(choice, origin, options, usageDeps);
+    const result = await selectPlanQueueVerifier({ ...base, workerProvider: 'claude',
+      ...(named ? { choices: [{ provider: 'copilot', copilotProfileId: 'work' }, { provider: 'cursor' }] } : {}),
+      accountRules: { never: [], last: [{ provider: 'copilot', accountId: 'work' }] },
+    }, { ...common, routeUsage, listInstalledProviders: async () => ['claude', 'copilot', 'cursor'], accountRules: accounts([], [], 'work') });
+    expect(result.ok && result.choice.provider).toBe('cursor');
+  });
 
   it('skips a saved checker whose only account is on the never-use list', async () => {
     const result = await selectPlanQueueVerifier(

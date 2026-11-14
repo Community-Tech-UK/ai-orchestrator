@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { PlanQueueAccountRules } from '@contracts/schemas/plan-queue';
 import type { ProviderAccountProfile } from '../../shared/types/provider-account.types';
 import {
-  accountPreferencesFor, accountRuleTier, choiceBlockedByNeverUse, describeAccountRules,
+  accountPreferencesFor, accountRuleTier, choiceBlockedByNeverUse, describeAccountRules, mergePlanQueueAccountRules,
 } from './plan-queue-account-rules';
 
 const pool = (id: string, provider: 'claude' | 'codex' | 'opencode', extra: Partial<ProviderAccountProfile> = {}): ProviderAccountProfile => ({
@@ -11,6 +11,20 @@ const pool = (id: string, provider: 'claude' | 'codex' | 'opencode', extra: Part
 } as ProviderAccountProfile);
 
 const rules = (never: PlanQueueAccountRules['never'] = [], last: PlanQueueAccountRules['last'] = []): PlanQueueAccountRules => ({ never, last });
+
+describe('mergePlanQueueAccountRules', () => {
+  it('unions original and current restrictions by provider and account, with never taking precedence', () => {
+    const frozen = rules([{ provider: 'claude', accountId: 'same' }], [{ provider: 'codex', accountId: 'same' }, { provider: 'claude', accountId: 'last' }]);
+    const current = rules([{ provider: 'codex', accountId: 'same' }], [{ provider: 'claude', accountId: 'same' }, { provider: 'claude', accountId: 'last' }]);
+    const before = JSON.stringify({ frozen, current });
+    expect(mergePlanQueueAccountRules(current, frozen)).toEqual(rules(
+      [{ provider: 'claude', accountId: 'same' }, { provider: 'codex', accountId: 'same' }],
+      [{ provider: 'claude', accountId: 'last' }],
+    ));
+    expect(JSON.stringify({ frozen, current })).toBe(before);
+    expect(mergePlanQueueAccountRules(current)).toBe(current);
+  });
+});
 
 describe('accountRuleTier', () => {
   it('reads each list by provider and id', () => {

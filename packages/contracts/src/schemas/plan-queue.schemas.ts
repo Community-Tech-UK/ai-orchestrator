@@ -6,6 +6,8 @@
  * docs/plans/2026-09-18-plan-queue_spec_completed.md.
  */
 import { z } from 'zod';
+import { PlanQueueCapabilityGapSchema } from './plan-queue-capability.schemas';
+export * from './plan-queue-capability.schemas';
 
 // The saved per-folder checklist and the folder list, in their own file to keep this one under the size limit.
 export * from './plan-queue-folders.schemas';
@@ -131,6 +133,7 @@ export const PlanQueueVerdictSchema = z.object({
 
 /** What a worker says it did when it reports its work ready (`plan_queue_report_ready`). */
 export const PlanQueueWorkerReportSchema = z.object({
+  capabilityGaps: z.array(PlanQueueCapabilityGapSchema).max(8).optional(),
   /** Two or three plain sentences for a human. */
   summary: z.string().trim().min(1).max(4000),
   /** Notes on what was built. */
@@ -276,6 +279,16 @@ export const DEFAULT_PLAN_QUEUE_ACCOUNT_RULES: PlanQueueAccountRules = { never: 
 
 
 export const PlanQueueRunConfigSchema = z.object({
+  /** Explicit repair authority, limited to this run's canonical repository. Absent means handoff only. */
+  capabilityRepairRepository: z.string().min(1).max(4000).optional(),
+  /** Coordinator-owned derived-run identity. Never accepted from an agent's start arguments. */
+  capabilityRepairId: z.string().min(1).max(200).optional(),
+  /** Original account restrictions remain in force if global rules are later relaxed. */
+  capabilityRepairAccountRules: PlanQueueAccountRulesSchema.optional(),
+  /** Provider exclusions when the source run began; absent on older persisted runs. */
+  startingProviderExclusions: z.array(z.string().trim().min(1).max(50)).max(50).optional(),
+  /** Coordinator-owned exclusions inherited by a derived repair, alongside current settings. */
+  capabilityRepairExcludedProviders: z.array(z.string().trim().min(1).max(50)).max(50).optional(),
   glob: z.string().max(1000).optional(),
   workerSlots: z.number().int().min(1).max(8),
   verificationSlots: z.number().int().min(1).max(8),
@@ -507,6 +520,7 @@ export const PlanQueueControlPayloadSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('request-handover'), runId: IdSchema }),
   z.object({ action: z.literal('handover'), runId: IdSchema, targetInstanceId: IdSchema }),
   z.object({ action: z.literal('skip-item'), itemId: IdSchema }),
+  z.object({ action: z.literal('recheck-readiness'), itemId: IdSchema }),
   z.object({ action: z.literal('resume-item'), itemId: IdSchema }),
   z.object({ action: z.literal('land-anyway'), itemId: IdSchema }),
   z.object({ action: z.literal('retry-landing'), itemId: IdSchema }),
@@ -531,6 +545,7 @@ export const PlanQueueReportVerdictArgsSchema = z.object({
 
 /** `plan_queue_report_ready` arguments (snake_case at the top level, like the other MCP tools). */
 export const PlanQueueReportReadyArgsSchema = z.object({
+  capability_gaps: PlanQueueWorkerReportSchema.shape.capabilityGaps,
   item_id: IdSchema,
   summary: PlanQueueWorkerReportSchema.shape.summary,
   as_built: PlanQueueWorkerReportSchema.shape.asBuilt,
@@ -554,6 +569,7 @@ export const PlanQueueRouteChoiceArgsSchema = z.object({
 
 /** Strict like the tool's advertised schema: a stale `worker` argument is refused, never silently dropped. */
 export const PlanQueueStartArgsSchema = z.object({
+  capability_repair_repository: z.string().trim().min(1).max(4000).optional(),
   kind: PlanQueueKindSchema,
   glob: z.string().max(1000).optional(),
   worker_slots: z.number().int().min(1).max(8).optional(),
@@ -589,7 +605,7 @@ export const PlanQueueAnswerArgsSchema = z.object({
 });
 
 export const PlanQueueControlArgsSchema = z.discriminatedUnion('action', [z.object({
-  action: z.enum(['pause', 'resume', 'cancel', 'adopt', 'request-handover', 'skip-item', 'resume-item', 'land-anyway', 'retry-landing', 'discard-item', 'restore-discarded']),
+  action: z.enum(['pause', 'resume', 'cancel', 'adopt', 'request-handover', 'skip-item', 'recheck-readiness', 'resume-item', 'land-anyway', 'retry-landing', 'discard-item', 'restore-discarded']),
   run_id: IdSchema.optional(),
   item_id: IdSchema.optional(),
 }), z.object({

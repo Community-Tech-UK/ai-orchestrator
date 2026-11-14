@@ -131,7 +131,9 @@ export class PlanQueueTriage {
           const selected = await this.host.selectVerifier({ workerProvider: attempt.provider,
             workerModel: attempt.model, workingDirectory: run.workspaceCwd,
             choices: run.config.routing?.verifiers,
-            choicesOverrideLicence: run.config.routing?.checkersChosenBy === 'saved' });
+            choicesOverrideLicence: run.config.routing?.checkersChosenBy === 'saved',
+            ...(run.config.capabilityRepairExcludedProviders ? { excludedProviders: run.config.capabilityRepairExcludedProviders } : {}),
+            ...(run.config.capabilityRepairAccountRules ? { accountRules: run.config.capabilityRepairAccountRules } : {}) });
           choice = selected.ok ? selected.choice : undefined;
         } catch (error) {
           logger.warn('Plan queue: retry provider unavailable', { runId: run.id, error: errorMessage(error) });
@@ -176,6 +178,20 @@ export class PlanQueueTriage {
 
   includesDocument(runId: string, sourceRef: string): boolean {
     return this.triageByRun.get(runId)?.itemIds.some((id) => this.host.getItem(id).sourceRef === sourceRef) ?? false;
+  }
+
+  /** Rechecking is a fresh investigation; an old batch may no longer report this item. */
+  recheckItem(runId: string, itemId: string): void {
+    this.attempts.delete(itemId);
+    const session = this.triageByRun.get(runId);
+    if (!session) return;
+    session.itemIds = session.itemIds.filter(id => id !== itemId);
+    if (session.itemIds.length === 0) {
+      this.triageByRun.delete(runId);
+      // Keep the existing retirement ownership until termination is confirmed.
+      // Pending stops (or an in-flight spawn) prevent a replacement from overlapping it.
+      if (session.instanceId) this.retire(runId, session.instanceId);
+    }
   }
 
   onOutcome(instanceId: string, runId: string, outcome: PlanQueueTurnOutcome): void {

@@ -1,0 +1,230 @@
+import { describe, expect, it, vi } from 'vitest';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueCapabilityGap } from '@contracts/schemas/plan-queue';
+import { coordinator, fake, git, itemIdOf, repo, store, waitForRun, writeDoc } from './plan-queue-coordinator.test-helpers';
+import { newPlanQueueItem } from './plan-queue-state';
+import { PlanQueueCapabilityService, type CapabilityHooks } from './plan-queue-capability-service';
+import type { CapabilityRepair } from './plan-queue-capability-store';
+import { enableCapabilityRepairs } from './plan-queue-capability-control';
+
+function fixture(role: 'worker' | 'triage' | 'verifier' = 'worker') {
+  const parent = fake.addParent();
+  vi.spyOn(coordinator, 'requestPump').mockImplementation(() => undefined);
+  store.upsertRun({ id: 'source', parentInstanceId: parent.id, parentHistoryThreadId: null, kind: 'livetests', workspaceCwd: repo,
+    status: 'running', config: { ...DEFAULT_PLAN_QUEUE_CONFIG.livetests, capabilityRepairRepository: repo }, relaxation: null,
+    workerProvider: 'claude', workerModel: null, startedAt: Date.now() - 1000, endedAt: null });
+  const document = writeDoc('docs/plans/origin_livetest.md', '# Runtime checks\n- [ ] Disposable session\n- [ ] Real account signout\n');
+  store.upsertItem(newPlanQueueItem('origin', 'source', document, Date.now() - 1000, {
+    state: role === 'triage' ? 'discovered' : role === 'verifier' ? 'verifying' : 'working',
+    workerInstanceId: role === 'worker' ? 'caller' : null, verifierInstanceId: role === 'verifier' ? 'caller' : null,
+  }));
+  coordinator.registerRole('caller', role === 'triage' ? { role, runId: 'source' } : { role, runId: 'source', itemId: 'origin' });
+  const hooks: CapabilityHooks = { currentTriage: () => true, forgetTriage: vi.fn(), accountRules: () => ({ never: [], last: [] }),
+    sourceSettled: () => true,
+    excludedProviders: () => [],
+    controlRun: vi.fn(async () => undefined), retryOrigin: vi.fn(async () => undefined) };
+  const launch = vi.fn(async () => undefined);
+  const service = new PlanQueueCapabilityService(coordinator, hooks, Date.now, launch);
+  const gap: PlanQueueCapabilityGap = { capabilityKey: 'owned-session', check: 'Disposable session', requiredAction: 'Create a disposable restricted session',
+    platform: 'macos', provider: 'codex', classification: 'capability', attempts: [{ operation: 'Discover owned session tools', observedAt: Date.now(), result: 'No owned-session creation operation.' }],
+    alternative: 'The production app is outside the test boundary.', expectedResult: 'The owned session answers and is removed.', implementation: 'Extend the existing owned test session controls and enforce scope with tests.' };
+  return { service, hooks, launch, gap, parent };
+}
+
+describe('capability reporting and authority', () => {
+  it('runs the real coordinator turn-boundary path: authenticated report, saved original branch, durable waiting plan', async () => {
+    const parent = fake.addParent();
+    const document = writeDoc('docs/plans/runtime_livetest.md', '# Runtime\n- [ ] Owned fixture\n');
+    fake.scripts.worker = async instance => {
+      await coordinator.capabilities.reportGap(instance.id, { item_id: itemIdOf(instance), gap: {
+        capabilityKey: 'test-fixture', check: 'Owned fixture', requiredAction: 'Create owned fixture', platform: 'macos', provider: 'codex', classification: 'capability',
+        attempts: [{ operation: 'Discover existing fixture controls', observedAt: Date.now(), result: 'No suitable owned fixture API.' }], alternative: 'Production state is outside the task.',
+        expectedResult: 'Fixture is created and removed.', implementation: 'Extend the test-owned fixture API and test resource ownership.',
+      } });
+    };
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'livetests', glob: 'docs/plans/runtime_livetest.md' });
+    await waitForRun(run.id);
+    const item = store.listItems(run.id)[0]!;
+    expect(item).toMatchObject({ sourceRef: document, state: 'parked', parkReason: 'needs-setup' });
+    expect(fake.getInstance(item.workerInstanceId!)).toBeUndefined();
+    expect(item.checkpointCommit).toBeTruthy();
+    await coordinator.capabilities.reconcile();
+    expect(store.capabilities.forOrigin(item.id)[0]).toMatchObject({ state: 'waiting', repairRunId: null });
+  });
+  it.each(['worker', 'triage', 'verifier'] as const)('accepts only the current %s assignment and retains the generated plan', async role => {
+    const { service, gap } = fixture(role);
+    await expect(service.reportGap('someone-else', { item_id: 'origin', gap })).rejects.toThrow(/currently assigned/);
+    const result = await service.reportGap('caller', role === 'triage' ? { run_id: 'source', document_path: coordinator.getItem('origin').sourceRef, gap } : { item_id: 'origin', gap });
+    const repair = store.capabilities.get(result.repairId)!;
+    expect(readFileSync(repair.planPath, 'utf8')).toContain('Implementation and acceptance');
+    coordinator.save({ ...coordinator.getItem('origin'), workerReport: null });
+    expect(store.capabilities.origins(repair.id)[0]!.gap).toEqual(gap);
+    expect(coordinator.getItem('origin').state).toBe(role === 'triage' ? 'parked' : role === 'worker' ? 'working' : 'verifying');
+  });
+
+  it('does not start a repair before the original turn has stopped and saved its work', async () => {
+    const { service, gap, launch } = fixture();
+    await service.reportGap('caller', { item_id: 'origin', gap });
+    await service.reconcile(); expect(launch).not.toHaveBeenCalled();
+    coordinator.save({ ...coordinator.getItem('origin'), state: 'parked', workerInstanceId: null });
+    await service.reconcile(); expect(launch).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for triage retirement even after its document is parked', async () => {
+    const { service, gap, hooks, launch } = fixture('triage');
+    hooks.sourceSettled = () => false;
+    await service.reportGap('caller', { item_id: 'origin', gap });
+    await service.reconcile(); expect(launch).not.toHaveBeenCalled();
+    hooks.sourceSettled = () => true;
+    await service.reconcile(); expect(launch).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels a recorded launch intent without inventing a run after the source is cancelled', async () => {
+    const { service, gap, hooks } = fixture('triage');
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    store.capabilities.save({ ...store.capabilities.get(repairId)!, state: 'waiting', repairRunId: 'not-created', repairItemId: 'not-created-item' });
+    store.upsertRun({ ...coordinator.getRun('source'), status: 'cancelled' });
+    await service.reconcile();
+    expect(store.capabilities.get(repairId)?.state).toBe('cancelled');
+    expect(hooks.controlRun).not.toHaveBeenCalled();
+  });
+
+  it('captures and plans without implementation authority, then the owner can enable the existing plan', async () => {
+    const { service, gap, launch } = fixture('triage');
+    store.upsertRun({ ...coordinator.getRun('source'), config: DEFAULT_PLAN_QUEUE_CONFIG.livetests });
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    await service.reconcile(); expect(launch).not.toHaveBeenCalled();
+    expect(store.capabilities.get(repairId)?.state).toBe('waiting');
+    const authorize = vi.fn();
+    await enableCapabilityRepairs(coordinator, 'source', repo, authorize);
+    await service.reconcile(); expect(launch).toHaveBeenCalledTimes(1); expect(authorize).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses stale assignment after plan generation and does not overwrite cancellation', async () => {
+    const { service, gap } = fixture('triage');
+    const report = service.reportGap('caller', { item_id: 'origin', gap });
+    store.upsertRun({ ...coordinator.getRun('source'), status: 'cancelled' });
+    await expect(report).rejects.toThrow(/paused or cancelled|stopped|currently assigned/);
+    expect(coordinator.getItem('origin').state).toBe('discovered');
+  });
+
+  it('does not derive a repair from a repair', async () => {
+    const { service, gap, launch } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    store.upsertRun({ ...coordinator.getRun('source'), config: { ...coordinator.getRun('source').config, capabilityRepairId: repairId } });
+    store.capabilities.save({ ...store.capabilities.get(repairId)!, repairItemId: 'origin', state: 'running' });
+    await service.reportGap('caller', { item_id: 'origin', gap: { ...gap, capabilityKey: 'another-control' } });
+    expect(store.capabilities.list()).toHaveLength(1);
+    expect(service.waitingForRepair('origin')).toBe(true);
+    expect(launch).not.toHaveBeenCalled();
+  });
+
+  it('keeps genuine human authority separate from technical implementation', async () => {
+    const { service, gap, launch } = fixture('triage');
+    await service.reportGap('caller', { item_id: 'origin', gap: { ...gap, classification: 'human-authority' } });
+    await service.reconcile(); expect(launch).not.toHaveBeenCalled(); expect(coordinator.getItem('origin').state).toBe('discovered');
+    expect(service.waitingForRepair('origin')).toBe(false);
+  });
+});
+
+function landedRepair(repair: CapabilityRepair, suffix = '') {
+  const run = coordinator.getRun('source'), checkpoint = git(['rev-parse', 'HEAD']);
+  store.upsertRun({ ...run, id: `repair-run${suffix}`, kind: 'plans', config: { ...run.config, capabilityRepairId: repair.id } });
+  store.upsertItem(newPlanQueueItem(`repair-item${suffix}`, `repair-run${suffix}`, repair.planPath, Date.now() - 1000, {
+    state: 'landed', checkpointCommit: checkpoint, landedCommit: checkpoint,
+    verdict: { verdict: 'PASS', findings: [], gatesRun: [], documentComplete: true, needJames: [] },
+  }));
+  store.capabilities.save({ ...repair, repairRunId: `repair-run${suffix}`, repairItemId: `repair-item${suffix}`, state: 'running', probeCheckedTree: git(['rev-parse', 'HEAD^{tree}']),
+    probeReceipt: '{}', probe: { computer: 'ct-test-mac', runtimeBuild: git(['rev-parse', 'HEAD^{tree}']), testedTree: git(['rev-parse', 'HEAD^{tree}']),
+      observedAt: Date.now(), operation: 'Create owned session', result: 'Responded and removed', receiptPath: '_scratch/probe.json', receiptSha256: 'a'.repeat(64) } });
+}
+
+describe('repair completion and original check revalidation', () => {
+  it('parks a failed original retry without repeatedly recycling a landed repair', async () => {
+    const { service, gap, hooks } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    landedRepair(store.capabilities.get(repairId)!);
+    store.capabilities.setOriginState(store.capabilities.origins(repairId)[0]!, 'retrying');
+    await service.reportGap('caller', { item_id: 'origin', gap });
+    expect(service.waitingForRepair('origin')).toBe(true);
+    coordinator.save({ ...coordinator.getItem('origin'), state: 'parked' });
+    await service.reconcile();
+    expect(store.capabilities.get(repairId)?.state).toBe('waiting');
+    expect(hooks.retryOrigin).not.toHaveBeenCalled();
+  });
+  it('retries once only after both capabilities for the same original item are verified', async () => {
+    const { service, gap, hooks } = fixture();
+    const first = await service.reportGap('caller', { item_id: 'origin', gap });
+    const second = await service.reportGap('caller', { item_id: 'origin', gap: { ...gap, capabilityKey: 'owned-restart', check: 'Restart owned session' } });
+    coordinator.save({ ...coordinator.getItem('origin'), state: 'parked', workerInstanceId: null });
+    landedRepair(store.capabilities.get(first.repairId)!);
+    landedRepair(store.capabilities.get(second.repairId)!, '-second');
+    await service.reconcile(); await service.reconcile();
+    expect(hooks.retryOrigin).toHaveBeenCalledTimes(1);
+    expect(store.capabilities.origins(first.repairId)[0]!.state).toBe('retrying');
+    expect(store.capabilities.origins(second.repairId)[0]!.state).toBe('retrying');
+  });
+  it('retries an item once for two attached checks, never marks either check passed', async () => {
+    const { service, gap, hooks } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    await service.reportGap('caller', { item_id: 'origin', gap: { ...gap, check: 'Remove owned session' } });
+    coordinator.save({ ...coordinator.getItem('origin'), state: 'parked', workerInstanceId: null });
+    landedRepair(store.capabilities.get(repairId)!);
+    await service.reconcile();
+    expect(hooks.retryOrigin).toHaveBeenCalledTimes(1);
+    expect(store.capabilities.origins(repairId).map(origin => origin.state)).toEqual(['retrying', 'retrying']);
+    expect(store.capabilities.get(repairId)?.state).toBe('verifying-origin');
+  });
+
+  it('resolves one independently passed check while the document still has a human check open', async () => {
+    const { service, gap } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    const origin = store.capabilities.origins(repairId)[0]!;
+    store.capabilities.setOriginState(origin, 'retrying');
+    const checkpoint = git(['rev-parse', 'HEAD']);
+    coordinator.save({ ...coordinator.getItem('origin'), state: 'verifying', verifierInstanceId: 'checker', checkpointCommit: checkpoint });
+    coordinator.registerRole('checker', { role: 'verifier', runId: 'source', itemId: 'origin' });
+    service.reportCheck('checker', { item_id: 'origin', repair_id: repairId, check: gap.check, evidence: 'Owned session responded and was removed on the test Mac.' });
+    coordinator.save({ ...coordinator.getItem('origin'), state: 'landed', verdict: { verdict: 'PASS', findings: [], gatesRun: [], documentComplete: false, needJames: [{ check: 'Real account signout', classification: 'real', reason: 'Owner authority remains absent.' }] } });
+    await service.reconcile();
+    expect(store.capabilities.get(repairId)?.state).toBe('resolved');
+    expect(coordinator.getItem('origin').verdict?.documentComplete).toBe(false);
+  });
+
+  it('does not resume a paused source or retry code that changed while landing', async () => {
+    const { service, gap, hooks } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    coordinator.save({ ...coordinator.getItem('origin'), state: 'parked', workerInstanceId: null });
+    landedRepair(store.capabilities.get(repairId)!);
+    store.upsertRun({ ...coordinator.getRun('source'), status: 'paused' });
+    await service.reconcile(); expect(hooks.retryOrigin).not.toHaveBeenCalled();
+    store.upsertRun({ ...coordinator.getRun('source'), status: 'running' });
+    writeFileSync(join(repo, 'changed.ts'), 'export const changed = true;'); git(['add', 'changed.ts']); git(['commit', '-qm', 'changed during landing']);
+    coordinator.save({ ...coordinator.getItem('repair-item'), landedCommit: git(['rev-parse', 'HEAD']) });
+    await service.reconcile(); expect(hooks.retryOrigin).not.toHaveBeenCalled();
+    expect(store.capabilities.get(repairId)?.state).toBe('waiting');
+  });
+
+  it('validates and retains checker receipt bytes before cleanup; rejects a worker probe', async () => {
+    const { service, gap } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    const item = coordinator.getItem('origin'), tree = git(['rev-parse', 'HEAD^{tree}']);
+    store.capabilities.save({ ...store.capabilities.get(repairId)!, repairItemId: item.id });
+    coordinator.save({ ...item, state: 'verifying', verifierInstanceId: 'checker', worktreePath: repo, checkpointCommit: git(['rev-parse', 'HEAD']) });
+    coordinator.registerRole('checker', { role: 'verifier', runId: 'source', itemId: 'origin' });
+    const now = Date.now(), operation = 'Create owned session', result = 'Responded and removed';
+    const receipt = JSON.stringify({ launch: { tree, root: repo, startedAt: new Date(now).toISOString(), computer: 'ct-test-mac', mode: 'dev' },
+      runtime: { application: 'Harness', version: 'test-build', isPackaged: false }, operation, result, observedAt: now });
+    mkdirSync(join(repo, '_scratch'), { recursive: true }); writeFileSync(join(repo, '_scratch/probe.json'), receipt);
+    const probe = { computer: 'ct-test-mac' as const, runtimeBuild: tree, testedTree: tree, observedAt: now, operation, result,
+      receiptPath: '_scratch/probe.json', receiptSha256: createHash('sha256').update(receipt).digest('hex') };
+    await expect(service.reportProbe('caller', { item_id: item.id, probe })).rejects.toThrow(/currently assigned/);
+    await service.reportProbe('checker', { item_id: item.id, probe });
+    expect(store.capabilities.get(repairId)?.probeReceipt).toBe(receipt);
+    await expect(service.reportProbe('checker', { item_id: item.id, probe: { ...probe, runtimeBuild: '0'.repeat(40) } })).rejects.toThrow(/does not match/);
+    await expect(service.reportProbe('checker', { item_id: item.id, probe: { ...probe, receiptSha256: '0'.repeat(64) } })).rejects.toThrow(/digest/);
+    await expect(service.reportProbe('checker', { item_id: item.id, probe: { ...probe, receiptPath: '../probe.json' } })).rejects.toThrow(/relative path/);
+  });
+});

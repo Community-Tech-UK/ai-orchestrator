@@ -14,10 +14,12 @@
 import { PlanQueueRemoteTurns, type PlanQueueRemoteDeps } from './remote/plan-queue-remote-turns';
 import { getInstanceAsyncWorkRegistry } from '../instance/instance-async-work-registry';
 import { randomUUID } from 'crypto';
-import { preflightPlanQueueRun, preflightResumedRun, preflightRunRouting } from './plan-queue-run-preflight';
-import { assertRunReady } from './plan-queue-run-readiness';
-import { claimDocumentsAndCreateItems } from './plan-queue-run-start';
+import { preflightResumedRun, preflightRunRouting } from './plan-queue-run-preflight';
+import { createPlanQueueRun } from './plan-queue-run-create';
 import { rememberJamesAnswer } from './plan-queue-triage-memory';
+import { recheckReadiness } from './plan-queue-recheck-readiness';
+import { PlanQueueCapabilityService } from './plan-queue-capability-service';
+import { capabilityAccountRulesFor, capabilityProviderExclusions, enableCapabilityRepairs, noteCapabilityControl, retryCapabilityOrigin } from './plan-queue-capability-control';
 import { EventEmitter } from 'events';
 import * as os from 'os';
 import {
@@ -48,10 +50,9 @@ import { requestRunHandover, handoverRunParent } from './plan-queue-handover';
 import { planQueueRunCanMove } from '../../shared/utils/plan-queue-run-movable';
 import { PlanQueueParentMessenger } from './plan-queue-parent-messenger';
 import { allWorkSources, workSourceForRun } from './plan-queue-work-sources';
-import { defaultRunConfigFor, THIS_REPOSITORY_ROOT_COMMIT } from './plan-queue-default-gates';
-import { readSavedFolderChecklists, resolveRunGates, savedChecklistFor } from './plan-queue-folder-checklists';
-import { isExactPlanQueueSelection } from './plan-queue-discovery-paths';
-import { currentBranch, diffStat, repositoryRoot } from './plan-queue-git';
+import { THIS_REPOSITORY_ROOT_COMMIT } from './plan-queue-default-gates';
+import { readSavedFolderChecklists } from './plan-queue-folder-checklists';
+import { diffStat } from './plan-queue-git';
 import {
   PlanQueueInstanceTracker,
   type PlanQueueInstanceEventSource,
@@ -73,7 +74,7 @@ import { reconcilePlanQueueWorktrees } from './plan-queue-reconciler';
 import { recoverPlanQueue } from './plan-queue-recovery';
 import { applyTriageRecords, PRE_START_STATES } from './plan-queue-readiness';
 import type { PlanQueueRelaxation } from './plan-queue-relaxation';
-import { assertRoutingInstalled, defaultPlanQueueRoutingDeps, resolveRunRouting, type PlanQueueRoutingDeps, type PlanQueueRoutingOverride, type ResolvedRunRouting } from './plan-queue-routing';
+import { defaultPlanQueueRoutingDeps, type PlanQueueRoutingDeps, type PlanQueueRoutingOverride, type ResolvedRunRouting } from './plan-queue-routing';
 import { assertItemTransition, isTerminalItemState, itemHoldsWorktree } from './plan-queue-state';
 import type { PlanQueueStore } from './plan-queue-store';
 import { PlanQueueWorktreeService, type PlanQueueWorktreeCreator } from './plan-queue-worktree';
@@ -164,6 +165,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   private readonly roles = new Map<string, PlanQueueRoleRecord>();
   private readonly answering = new Set<string>();
   private triage: PlanQueueTriage | null = null;
+  private capabilityService: PlanQueueCapabilityService | null = null;
   private alerts: PlanQueueAlert[] = [];
   private pumping = false;
   private pumpAgain = false;
@@ -231,7 +233,9 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       listItems: (id) => this.store.listItems(id),
       postNote: deps.postNote, questionsToParent: deps.questionsToParent,
     });
-    if (deps.remote) this.remoteTurns = new PlanQueueRemoteTurns(this, deps.remote);
+    if (deps.remote) this.remoteTurns = new PlanQueueRemoteTurns(this, deps.remote, async (caller, report) => {
+      for (const gap of report.capability_gaps ?? []) await this.capabilities.reportGap(caller, { item_id: report.item_id, gap });
+    });
     this.flow = new PlanQueueItemFlow(this);
     this.parents = new PlanQueueParentTracker({
       instances: deps.instances,
@@ -263,6 +267,15 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       retireInstance: (id) => this.requireFlow().stopInstance(id), breaker: () => this.requireFlow().breaker,
     });
     const interval = deps.pumpIntervalMs === undefined ? DEFAULT_PUMP_INTERVAL_MS : deps.pumpIntervalMs;
+    this.capabilityService = new PlanQueueCapabilityService(this, {
+      currentTriage: (runId: string, instanceId: string, ref: string) => this.triage?.isTriageFor(runId, instanceId) === true && this.triage.includesDocument(runId, ref),
+      forgetTriage: (runId: string, itemId: string) => this.triage?.recheckItem(runId, itemId),
+      accountRules: () => (this.requireDeps().routing ?? defaultPlanQueueRoutingDeps()).readAccountRules(),
+      excludedProviders: () => capabilityProviderExclusions(this.requireDeps().routing),
+      sourceSettled: (itemId: string) => !this.triage?.hasActiveWork(this.getItem(itemId).runId) && !this.requireFlow().hasActiveWork(itemId),
+      controlRun: (runId: string, action: 'pause' | 'resume' | 'cancel') => this.control({ action, runId }, undefined, 'capability'),
+      retryOrigin: (itemId: string) => retryCapabilityOrigin(this, itemId, id => this.requireFlow().resume(id), run => this.reopen(run)),
+    }, () => this.requireDeps().now());
     if (interval !== null) {
       this.timer = setInterval(() => this.requestPump(), interval);
       this.timer.unref?.();
@@ -337,6 +350,12 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   get remote(): PlanQueueRemoteTurns | undefined { return this.remoteTurns ?? undefined; }
   get tracker(): PlanQueueInstanceTracker { return this.require(this.trackerInstance); }
   get store(): PlanQueueStore { return this.requireDeps().store; }
+  get capabilities(): PlanQueueCapabilityService { return this.require(this.capabilityService); }
+  async authorizeCapabilityRepairs(caller: string, runId: string, repository: string): Promise<void> {
+    this.authorizeControl(this.getRun(runId), 'resume', caller);
+    await enableCapabilityRepairs(this, runId, repository, () => this.authorizeControl(this.getRun(runId), 'resume', caller));
+    this.requestPump();
+  }
   get history() { return this.store.history; }
   setRunHold(runId: string, holdReason: string | null): void {
     const run = this.saveRun({ ...this.getRun(runId), holdReason });
@@ -379,6 +398,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     await applyLiveAccountRules(rules, liveQueueSessionsHost({
       getAllInstances: () => this.instances.getAllInstances(), getInstance: (id) => this.instances.getInstance(id),
       isQueueInstance: (id) => this.isQueueInstance(id), roleOf: (id) => this.roleOf(id),
+      accountRulesFor: (id, current) => capabilityAccountRulesFor(this, id, current),
       itemFor: (id) => this.store.listActiveRuns().flatMap((run) => this.store.listItems(run.id))
         .find((item) => item.workerInstanceId === id || item.verifierInstanceId === id),
       pauseTriage: (runId) => this.triage?.pause(runId), hold: (itemId, reason, stillHeld) => this.requireFlow().hold(itemId, reason, stillHeld),
@@ -415,55 +435,14 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   // Public API (MCP tools and IPC)
   // ---------------------------------------------------------------------------
   async startRun(input: StartRunInput): Promise<StartRunResult> {
-    const deps = this.requireDeps();
-    const parent = deps.instances.getInstance(input.parentInstanceId);
-    if (!parent) throw new Error(`Parent session not found: ${input.parentInstanceId}`);
-    if (this.isQueueInstance(input.parentInstanceId) || this.setAside?.folderOf(input.parentInstanceId) !== undefined) {
-      throw new Error('A Plan Queue worker, verifier, triage or Set aside session cannot start another queue run');
-    }
-    const startFolder = input.workspaceCwd ?? parent.workingDirectory ?? process.cwd();
-    const repoRoot = await repositoryRoot(startFolder);
-    const baseBranch = await currentBranch(repoRoot);
-    if (!baseBranch) throw new Error(`${repoRoot} is not on a branch; the queue lands work on the checked-out branch`);
-
-    // Fixed now, validated now: a choice the queue cannot honour refuses the run.
-    const { routing, setAside, accountNotes } = resolveRunRouting(parent, { ...input.routing, relaxExclusions: input.config?.relaxSettings === true, workspaceCwd: repoRoot }, deps.routing);
-    await assertRoutingInstalled(routing, deps.routing ?? {});
-    await preflightPlanQueueRun({ routing, workspaceCwd: repoRoot, workerProvider: parent.provider ?? 'claude', workerModel: parent.currentModel ?? null,
-      selectVerifier: input => this.selectVerifier(input) });
-    const glob = input.glob ?? input.config?.glob;
-    const defaults = await defaultRunConfigFor(repoRoot, input.kind, deps.thisRepositoryRootCommit);
-    const { callerGatesSetAside, ...gates } = resolveRunGates(defaults, input.config, savedChecklistFor(deps.folderChecklists(), repoRoot, startFolder));
-    const config: PlanQueueRunConfig = { ...defaults, ...input.config, ...gates, glob, baseBranch, routing, startingSessionRoute: { provider: parent.provider, currentModel: parent.currentModel, accountProfileId: parent.accountProfileId, copilotAccountProfileId: parent.copilotAccountProfileId } };
-    await assertRunReady(repoRoot, [...config.verifierGates, ...config.postMergeGate]);
-    const documents = await workSourceForRun({ kind: input.kind }).discover(repoRoot, { kind: input.kind, glob });
-    // No await from here until the items are written: reading the owned set and
-    // claiming documents is atomic on the main thread, so two concurrent starts
-    // cannot both claim one document.
-    const now = deps.now();
-    const run: PlanQueueRun = {
-      id: deps.newId(),
-      parentInstanceId: input.parentInstanceId,
-      parentHistoryThreadId: parent.historyThreadId?.trim() || null,
-      kind: input.kind,
-      workspaceCwd: repoRoot,
-      status: 'running',
-      config,
-      relaxation: null,
-      workerProvider: routing.workers[0]?.provider ?? null,
-      workerModel: routing.workers[0]?.model ?? null,
-      startedAt: now,
-      endedAt: null,
-    };
-    deps.store.upsertRun(run);
-    if (config.relaxSettings) this.applyRelaxation(run);
-    const excluded = claimDocumentsAndCreateItems({ store: deps.store, memory: deps.store.history, now: deps.now, newId: deps.newId },
-      run, documents, { queueDirectly: isExactPlanQueueSelection(glob) });
-    const items = deps.store.listItems(run.id);
-    logger.info('Plan queue run started', { runId: run.id, kind: run.kind, items: items.length, excluded: excluded.length });
+    const { run, ...details } = await createPlanQueueRun(input, {
+      ...this.requireDeps(), isQueueInstance: id => this.isQueueInstance(id),
+      isSetAsideInstance: id => this.setAside?.folderOf(id) !== undefined,
+      selectVerifier: input => this.selectVerifier(input), applyRelaxation: run => this.applyRelaxation(run),
+    });
     this.announce({ runId: run.id });
     this.requestPump();
-    return { run: runToDto(this.getRun(run.id), items, deps.store.history.checksSummary(run.id), this.stagesOf(items), this.history.totalRoundsByDocument()), excluded, routingSetAside: setAside, accountNotes, checklistSetAside: callerGatesSetAside };
+    return { run: this.getRunDto(run.id)!, ...details };
   }
   getRunDto(runId: string): PlanQueueRunDto | null {
     const run = this.requireDeps().store.getRun(runId);
@@ -552,7 +531,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     for (const runId of ids) await this.control({ action: 'pause', runId });
     return ids;
   }
-  async control(payload: PlanQueueControlPayload, callerInstanceId?: string): Promise<void> {
+  async control(payload: PlanQueueControlPayload, callerInstanceId?: string, source: 'operator' | 'capability' = 'operator'): Promise<void> {
     const flow = this.requireFlow();
     if (payload.action === 'pause-all' || payload.action === 'resume-all') {
       if (callerInstanceId) throw new Error('Only James in the Plan Queue page can control all runs');
@@ -562,10 +541,11 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       return;
     }
     if ('runId' in payload) {
+      if (payload.action === 'set-routing' && this.getRun(payload.runId).config.capabilityRepairId) throw new Error('Capability repairs retain their original routing and account restrictions.');
       await this.runControl.control(payload, callerInstanceId, {
         getRun: (id) => this.require(this.parents).follow(this.getRun(id)),
         hasParkedWork: (run) => this.store.listItems(run.id).some(item => item.state === 'parked'),
-        authorize: (run, action, caller) => this.authorizeControl(run, action, caller),
+        authorize: (run, action, caller) => { const actor = this.authorizeControl(run, action, caller); if (source === 'operator' && action !== 'resume') noteCapabilityControl(this, run.id, action); return actor; },
         upsertRun: (run) => { this.saveRun(run); },
         preflightRun: run => preflightRunRouting(run, input => this.selectVerifier(input)),
         preflightResume: run => preflightResumedRun(run, input => this.selectVerifier(input)),
@@ -604,6 +584,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         onParentChanged: (adopted) => this.require(this.parentMessenger).onParentChanged(adopted),
         }); },
       });
+      if (source === 'operator' && payload.action === 'resume') noteCapabilityControl(this, payload.runId, payload.action);
       return;
     }
     const item = this.getItem(payload.itemId);
@@ -623,6 +604,9 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (payload.action === 'resume-item' && (run.status === 'completed' || run.status === 'cancelled')) await preflightResumedRun(run, input => this.selectVerifier(input));
     this.setAside?.checkRestart(callerInstanceId, payload.action, item);
     switch (payload.action) {
+      case 'recheck-readiness':
+        recheckReadiness(this, item.id, actor, { answering: this.answering.has(item.id), controllingRun: this.runControl.isControlling(run.id), triage: this.triage });
+        break;
       case 'skip-item':
         if (this.answering.has(item.id)) throw new Error('This document is applying an answer. Wait for it to finish before skipping.');
         if (!PRE_START_STATES.has(item.state) || item.branchName || item.worktreePath) throw new Error(`Item is ${item.state}; only an item that has not started can be skipped`);
@@ -630,6 +614,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         break;
       case 'resume-item':
         await flow.resume(item.id);
+        noteCapabilityControl(this, run.id, payload.action);
         this.reopen(this.getRun(run.id));
         break;
       case 'land-anyway':
@@ -660,6 +645,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     if (item.state !== 'verifying' || item.verifierInstanceId !== callerInstanceId) {
       throw new Error('Only the verifier currently assigned to this item may report its verdict');
     }
+    if (args.verdict === 'PASS') this.capabilities.assertCanPass(item);
     this.requireFlow().recordVerdict(item, callerInstanceId, {
       verdict: args.verdict,
       findings: args.findings,
@@ -698,6 +684,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   // ---------------------------------------------------------------------------
   private async pump(): Promise<void> {
     void this.remoteTurns?.retryRemovals();
+    await this.capabilities.reconcile();
     await pumpPlanQueue({
       store: this.store, flow: this.requireFlow(), triage: this.triage,
       getRun: id => this.getRun(id), getItem: id => this.getItem(id),
@@ -714,6 +701,9 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     const role = this.roles.get(instanceId);
     if (!role) return;
     try {
+      if (role.role !== 'triage' && outcome.kind === 'turn-complete' && this.capabilities.waitingForRepair(role.itemId)) {
+        await this.requireFlow().park(role.itemId, 'needs-setup', 'Waiting for its linked capability repair. The original acceptance check remains open.'); this.requestPump(); return;
+      }
       if (role.role === 'worker') await this.requireFlow().onWorkerOutcome(instanceId, outcome);
       else if (role.role === 'verifier') await this.requireFlow().onVerifierOutcome(instanceId, outcome);
       else this.triage?.onOutcome(instanceId, role.runId, outcome);

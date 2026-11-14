@@ -2,6 +2,7 @@ import { app } from 'electron';
 import { installFatalTrapSignalGuard } from './app/fatal-trap-signal-guard';
 import { writeStartupSmokePidMarker } from './app/startup-smoke-markers';
 import { startHarnessMainProcess } from './main-process-bootstrap';
+import { initializeHarnessUserDataPath } from './app/user-data-path';
 
 // Must run before ./index loads electron-store (→ when-exit), whose SIGTRAP
 // listener turns a Chromium fatal error into an unkillable 100% CPU hang.
@@ -11,6 +12,7 @@ void startHarnessMainProcess({
   app,
   argv: process.argv,
   loadMain: () => {
+    initializeHarnessUserDataPath(app);
     // Only the process that actually runs main reaches this point (the
     // bootstrap relaunches first), so this is the pid the smoke must track.
     writeStartupSmokePidMarker({ isPackaged: app.isPackaged, env: process.env, pid: process.pid });

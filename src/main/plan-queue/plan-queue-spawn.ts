@@ -10,6 +10,7 @@ import { getLogger } from '../logging/logger';
 import type { PlanQueueItem, PlanQueueWorkerSession, PlanQueueRun } from './plan-queue.types';
 import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
 import { isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
+import { mergePlanQueueAccountRules } from './plan-queue-account-rules';
 
 /** How long work that found no usage left waits before the queue looks again. */
 export const USAGE_RECHECK_MS = 5 * 60_000;
@@ -40,6 +41,7 @@ export async function spawnQueueInstance(
   const epoch = host.userCloseEpoch();
   const runId = config.metadata?.['planQueueRunId'];
   const runOf = () => (typeof runId === 'string' ? host.getRun(runId) : null);
+  const accountRules = () => mergePlanQueueAccountRules(host.readAccountRules(), runOf()?.config.capabilityRepairAccountRules);
   // Capture the run snapshot only when ready to dispatch; routeQueueSpawn reads it once.
   const assertAllowed = (checkRouting = true) => {
     if (host.isShuttingDown()) throw new Error('Plan Queue is shutting down');
@@ -54,24 +56,36 @@ export async function spawnQueueInstance(
   };
   await host.ready;
   assertAllowed();
-  const usage = host.routeUsage ?? defaultPlanQueueRouteUsage();
-  const isExcluded = host.isProviderExcluded ?? isProviderExcludedFromAutomation;
+  const checkUsage = host.routeUsage ?? defaultPlanQueueRouteUsage();
+  const usage: PlanQueueRouteUsageCheck = (choice, origin, options) => checkUsage(choice, origin, {
+    ...options, ...(runOf()?.config.capabilityRepairAccountRules ? { accountRules: accountRules() } : {}),
+  });
+  const isExcluded = (provider: string) => Boolean(runOf()?.config.capabilityRepairExcludedProviders?.includes(provider))
+    || (host.isProviderExcluded ?? isProviderExcludedFromAutomation)(provider);
   let worker: PlanQueueRouteChoice | null;
+  const resolveRoute = () => {
+    const chosenRoute = routeQueueSpawn(config, host.getRun, worker, isExcluded, accountRules());
+    if (runOf()?.config.capabilityRepairExcludedProviders !== undefined) {
+      if (!chosenRoute.provider || chosenRoute.provider === 'auto') throw new Error('A capability repair needs a fixed provider so its original exclusions can be enforced.');
+      if (isExcluded(chosenRoute.provider)) throw new Error(`${chosenRoute.provider} is on this repair's never auto-pick list.`);
+    }
+    return { ...chosenRoute, metadata: { ...chosenRoute.metadata, unattended: true } };
+  };
   // Choosing and checking usage yield; repeat them if James changes the run's
   // routing meanwhile, so the spawn never uses a stale list.
   for (;;) {
     const routing = JSON.stringify(runOf()?.config.routing);
-    worker = await chooseQueueWorker(queueWorkerChoices(config, runOf(), host.isProviderExcluded), usage, String(runId), runOf()?.workspaceCwd);
+    const rules = JSON.stringify(accountRules());
+    worker = await chooseQueueWorker(queueWorkerChoices(config, runOf(), isExcluded), usage, String(runId), runOf()?.workspaceCwd);
     assertAllowed();
-    const route = routeQueueSpawn(config, host.getRun, worker, isExcluded, host.readAccountRules());
+    const route = resolveRoute();
     const left = await usageLeft(route, usage);
     assertAllowed();
-    if (JSON.stringify(runOf()?.config.routing) !== routing) continue;
+    if (JSON.stringify(runOf()?.config.routing) !== routing || JSON.stringify(accountRules()) !== rules) continue;
     if (!left.usable) throw new PlanQueueSpawnOutOfUsage(left.resumeAt, route.modelOverride ? `${route.provider} (${route.modelOverride})` : String(route.provider));
     break;
   }
-  const chosenRoute = routeQueueSpawn(config, host.getRun, worker, isExcluded, host.readAccountRules());
-  const route = { ...chosenRoute, metadata: { ...chosenRoute.metadata, unattended: true } };
+  const route = resolveRoute();
   const itemId = config.metadata?.['planQueueItemId'];
   const item = typeof itemId === 'string' ? host.getItem(itemId) : null;
   const session = config.metadata?.['planQueueRole'] === 'worker' ? continuableWorkerSession(item, route) : null;
@@ -89,7 +103,7 @@ export async function spawnQueueInstance(
     getLogger('PlanQueueSpawn').info('Plan queue: could not reopen the worker conversation; starting fresh', { itemId, provider: route.provider });
     host.clearWorkerSession(String(itemId));
     assertAllowed();
-    instance = await host.instances.createInstance(route);
+    instance = await host.instances.createInstance(resolveRoute());
   }
   try { assertAllowed(false); }
   catch (error) {

@@ -20,6 +20,15 @@ export type AccountRuleTier = 'never' | 'last';
 /** The note a session on a never-use account is held with. It is not an instruction, and it is cleared when the work restarts. */
 export const NEVER_USE_HOLD_REASON = 'Restarting on another account: this account is on your Plan Queue never-use list.';
 
+/** A derived repair keeps its original restrictions as well as any tighter rules saved later. */
+export function mergePlanQueueAccountRules(current: PlanQueueAccountRules, frozen?: PlanQueueAccountRules): PlanQueueAccountRules {
+  if (!frozen) return current;
+  const key = (ref: PlanQueueAccountRules['never'][number]) => `${ref.provider}:${ref.accountId}`;
+  const never = new Map([...frozen.never, ...current.never].map(ref => [key(ref), ref]));
+  const last = new Map([...frozen.last, ...current.last].filter(ref => !never.has(key(ref))).map(ref => [key(ref), ref]));
+  return { never: [...never.values()], last: [...last.values()] };
+}
+
 export function accountRuleTier(rules: PlanQueueAccountRules, provider: string, accountId: string): AccountRuleTier | null {
   if (rules.never.some((ref) => ref.provider === provider && ref.accountId === accountId)) return 'never';
   if (rules.last.some((ref) => ref.provider === provider && ref.accountId === accountId)) return 'last';

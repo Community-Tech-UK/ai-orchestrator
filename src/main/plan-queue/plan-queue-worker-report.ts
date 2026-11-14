@@ -17,6 +17,7 @@ import type { PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
 import { WORKER_WAIT_RULE } from './plan-queue-prompts';
 import { buildWorkerReminderPrompt } from './plan-queue-report-prompts';
 import type { PlanQueueItem } from './plan-queue.types';
+import { redactValue } from '../diagnostics/redaction';
 
 const logger = getLogger('PlanQueueWorkerReport');
 
@@ -47,9 +48,11 @@ export function recordWorkerReport(host: Pick<PlanQueueFlowHost, 'getItem' | 'sa
   if ((item.state !== 'working' && item.state !== 'fixing') || item.workerInstanceId !== callerInstanceId) {
     throw new Error('Only the worker currently assigned to this item may report it ready');
   }
+  if (args.capability_gaps && JSON.stringify(redactValue(args.capability_gaps, { homeDir: '' })) !== JSON.stringify(args.capability_gaps)) throw new Error('Capability evidence must be redacted before it is recorded.');
   host.save({ ...item, workerReport: {
     summary: args.summary, asBuilt: args.as_built, checksRun: args.checks_run,
     deferredChecks: args.deferred_checks, followUps: args.follow_ups,
+    ...(args.capability_gaps ? { capabilityGaps: args.capability_gaps } : {}),
   } });
   return { accepted: true, message: 'Report recorded. End your turn now; the coordinator hands the work over when you stop.' };
 }

@@ -83,6 +83,15 @@ export async function runPlanQueueCli(argv: readonly string[], deps: {
       : `Moved Plan Queue run ${result.runId} to ${sessionName(result.ownerInstanceId)}.\n`);
     return;
   }
+  if (command === 'recheck-readiness') {
+    if (args.length !== 1 || args[0].startsWith('-')) throw new Error('plan-queue recheck-readiness requires one <item-id>.');
+    const itemId = z.string().trim().min(1).max(200).parse(args[0]);
+    const result = z.object({ done: z.literal(true) }).parse(await client().call('orchestrator_tools.plan_queue_control', {
+      action: 'recheck-readiness', item_id: itemId,
+    }));
+    stdout(json ? `${JSON.stringify(result)}\n` : 'Readiness will be investigated again; no answer or permission was supplied. A paused run stays paused.\n');
+    return;
+  }
   if (command === 'jobs') {
     if (args.some(arg => arg !== '--all')) throw new Error('The jobs options are --all and --json.');
     const cwd = deps.cwd ?? process.cwd();
@@ -128,7 +137,7 @@ export async function runPlanQueueCli(argv: readonly string[], deps: {
     if (failed.length > 0) throw new Error(`${failed.length} of ${itemIds.length} job(s) failed or timed out. It is safe to run the same command again.`);
     return;
   }
-  throw new Error(`Unknown plan-queue command: ${command}. Use list, move, jobs, discard or health.`);
+  throw new Error(`Unknown plan-queue command: ${command}. Use list, move, jobs, discard, health or recheck-readiness.`);
 }
 
 function parseDiscardArgs(args: readonly string[]): string[] {
@@ -184,6 +193,7 @@ const HELP = [
   '  aio-mcp plan-queue jobs [--all] [--json]',
   '  aio-mcp plan-queue discard <item-id> [<item-id>...] [--json]',
   '  aio-mcp plan-queue health [--json]',
+  '  aio-mcp plan-queue recheck-readiness <item-id> [--json]',
   '',
   'list  Plan Queue runs that can be moved, and the session that owns each: every',
   '      running and paused run, and finished runs in this folder that still hold',
@@ -208,5 +218,8 @@ const HELP = [
   'health  Queue health, in the same words as the Plan Queue page: how much work lands,',
   '      how long checks take, where full test runs happened, and the notice the page',
   '      shows when tests have moved to this Mac because the test machine can\'t be reached.',
+  'recheck-readiness  Investigate an unanswered readiness question again. Owner only;',
+  '      the item must not have started. No answer or permission is supplied, and',
+  '      a paused run stays paused. Find item ids with plan_queue_status.',
   '',
 ].join('\n');

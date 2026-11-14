@@ -684,6 +684,7 @@ it.each(['worker', 'verifier'] as const)('keeps normal Close all semantics for a
   coordinator.noteUserClosing([], 'all');
   release();
   await pausing;
+  await coordinator._whenSettledForTesting();
   expect(instances.live.has(lateId!)).toBe(false);
   // A parked worker is terminal, so this otherwise empty run can finish.
   expect(store.getRun(run.id)?.status).toBe(role === 'worker' ? 'completed' : 'paused');

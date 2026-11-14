@@ -5,10 +5,12 @@ import type { UpdateStatus } from '../../../shared/types/update.types';
 type Handler = () => Promise<unknown>;
 
 const mocks = vi.hoisted(() => ({
+  liveTest: false,
   cleanup: null as (() => void) | null,
   handlers: new Map<string, Handler>(),
   removeHandler: vi.fn(),
 }));
+vi.mock('../../app/live-test-context', () => ({ isHarnessLiveTest: () => mocks.liveTest }));
 
 vi.mock('electron', () => ({
   app: { isPackaged: true, getVersion: () => '0.1.0' },
@@ -55,6 +57,7 @@ describe('registerUpdateHandlers', () => {
     mocks.cleanup = null;
     mocks.handlers.clear();
     vi.clearAllMocks();
+    mocks.liveTest = false;
   });
 
   afterEach(() => {
@@ -69,6 +72,12 @@ describe('registerUpdateHandlers', () => {
       autoDownload: true,
       currentVersion: '0.1.0',
     });
+  });
+
+  it('disables the updater for a validated packaged test copy', () => {
+    mocks.liveTest = true;
+    registerUpdateHandlers({ windowManager: windowManager as never });
+    expect(service.initialize).toHaveBeenCalledWith({ enabled: false, autoDownload: false, currentVersion: '0.1.0' });
   });
 
   it('broadcasts status changes and removes the listener during cleanup', () => {

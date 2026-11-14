@@ -24,6 +24,14 @@ function host(live: { provider?: string; currentModel?: string } | undefined) {
 describe('selectCurrentQueueVerifier', () => {
   const item: PlanQueueItem = { ...newPlanQueueItem('item', 'run', '/repo/a_plan.md', 1, { workerInstanceId: 'gone' }), workerProvider: 'codex', workerModel: 'gpt-6.1-sol' };
 
+  it('passes the repair run\'s inherited account policy into checker selection', async () => {
+    const { flowHost, selectVerifier } = host(undefined);
+    const accountRules = { never: [{ provider: 'claude' as const, accountId: 'restricted' }], last: [] };
+    flowHost.getRun = () => ({ ...run, config: { ...run.config, capabilityRepairAccountRules: accountRules, capabilityRepairExcludedProviders: ['copilot'] } });
+    await selectCurrentQueueVerifier(flowHost, item);
+    expect(selectVerifier).toHaveBeenCalledWith(expect.objectContaining({ accountRules, excludedProviders: ['copilot'] }));
+  });
+
   it('judges the live worker session when it is still there', async () => {
     const { flowHost, selectVerifier } = host({ provider: 'opencode', currentModel: 'openai/gpt-5.5' });
     await selectCurrentQueueVerifier(flowHost, item);

@@ -14,6 +14,7 @@ import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
 import { getAutoUpdateService } from '../../updates/auto-update-service';
 import type { WindowManager } from '../../window-manager';
 import { registerCleanup } from '../../util/cleanup-registry';
+import { isHarnessLiveTest } from '../../app/live-test-context';
 
 let activeCleanup: (() => void) | null = null;
 
@@ -31,8 +32,8 @@ export function registerUpdateHandlers(deps: { windowManager: WindowManager }): 
 
   // Active only in a packaged app; a missing feed in dev would otherwise throw.
   service.initialize({
-    enabled: app.isPackaged,
-    autoDownload: true,
+    enabled: app.isPackaged && !isHarnessLiveTest(),
+    autoDownload: !isHarnessLiveTest(),
     currentVersion: app.getVersion(),
   });
 

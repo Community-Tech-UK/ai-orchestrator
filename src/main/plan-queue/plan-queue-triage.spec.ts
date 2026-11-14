@@ -79,6 +79,80 @@ describe('usage waits', () => {
 });
 
 describe('readiness batches and retries', () => {
+  it('waits for confirmed retirement of an emptied batch before fresh triage', async () => {
+    items = [items[0]];
+    await start();
+    let finishStop!: () => void;
+    retire.mockImplementationOnce(() => new Promise<void>(resolve => { finishStop = resolve; }));
+    triage.recheckItem(run.id, items[0].id);
+    expect(retire).toHaveBeenCalledExactlyOnceWith('triage-1');
+    create.mockClear();
+    triage.maybeStart(run, items);
+    expect(create).not.toHaveBeenCalled();
+    triage.onOutcome('triage-1', run.id, { kind: 'failed', reason: 'late stop' });
+    expect(breaker.note).not.toHaveBeenCalled();
+    finishStop();
+    await start();
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains failed retirement ownership and retries it before allowing a replacement batch', async () => {
+    items = [items[0]];
+    await start();
+    retire.mockRejectedValueOnce(new Error('stop unavailable'));
+    triage.recheckItem(run.id, items[0].id);
+    await new Promise(resolve => setImmediate(resolve));
+    create.mockClear();
+    triage.maybeStart(run, items);
+    expect(create).not.toHaveBeenCalled();
+    expect(triage.isStopping(run.id)).toBe(true);
+    await triage.pause(run.id);
+    expect(retire.mock.calls).toEqual([['triage-1'], ['triage-1']]);
+    await start();
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the other documents in a batch when only one is rechecked', async () => {
+    await start();
+    triage.recheckItem(run.id, items[0].id);
+    expect(triage.includesDocument(run.id, items[0].sourceRef)).toBe(false);
+    expect(triage.includesDocument(run.id, items[1].sourceRef)).toBe(true);
+    expect(triage.isTriageFor(run.id, 'triage-1')).toBe(true);
+    expect(retire).not.toHaveBeenCalled();
+    triage.maybeStart(run, items);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the repair account restrictions when selecting a retry checker', async () => {
+    run.config.capabilityRepairAccountRules = { never: [{ provider: 'claude', accountId: 'restricted' }], last: [] };
+    run.config.capabilityRepairExcludedProviders = ['copilot'];
+    await start();
+    triage.onOutcome('triage-1', run.id, { kind: 'failed', reason: 'retry needed' });
+    create.mockResolvedValueOnce({ id: 'triage-2' });
+    await start();
+    expect(select).toHaveBeenCalledWith(expect.objectContaining({ accountRules: run.config.capabilityRepairAccountRules, excludedProviders: ['copilot'] }));
+  });
+
+  it('gives a rechecked question fresh attempts and ignores the old batch outcome', async () => {
+    items = [items[0]];
+    await start();
+    triage.onOutcome('triage-1', run.id, { kind: 'turn-complete' } as never);
+    create.mockResolvedValueOnce({ id: 'triage-2' });
+    await start();
+    expect(select).toHaveBeenCalledTimes(1);
+    items[0] = { ...items[0], state: 'needs-answer' };
+    triage.recheckItem(run.id, items[0].id);
+    items[0] = { ...items[0], state: 'discovered' };
+    expect(triage.includesDocument(run.id, items[0].sourceRef)).toBe(false);
+    triage.onOutcome('triage-2', run.id, { kind: 'turn-complete' } as never);
+    expect(breaker.note).toHaveBeenCalledTimes(1);
+    create.mockResolvedValueOnce({ id: 'triage-3' });
+    await start();
+    expect(select).toHaveBeenCalledTimes(1);
+    triage.onOutcome('triage-3', run.id, { kind: 'turn-complete' } as never);
+    expect(items[0]).toMatchObject({ state: 'discovered', parkReason: null });
+  });
+
   it('does not spend a readiness attempt when James closes its session', async () => {
     await start(); userClosed = true;
     triage.onOutcome('triage-1', run.id, { kind: 'failed', reason: 'removed' });

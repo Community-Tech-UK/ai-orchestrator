@@ -675,7 +675,18 @@ devapp_result() {
 # again under another id (a permission repair does). Every Harness opened for a copy, and nothing else, has the copy's
 # checkout folder just before its debugging port on its command line.
 devapp_app_pids() {
-  pgrep -f -- "$1/repo --remote-debugging-port=" 2>/dev/null
+  local mode executable
+  mode="$(cat "$1/mode" 2>/dev/null || echo dev)"
+  executable="$(cat "$1/executable" 2>/dev/null)"
+  if [ "$mode" = packaged ]; then
+    case "$executable" in "$1/repo/"*) ;; *) return 0 ;; esac
+  fi
+  ps -axo pid=,command= | awk -v mode="$mode" -v exe="$executable" -v work="$1/repo" -v port="--remote-debugging-port=${1##*/}" '
+    { pid=$1; $1=""; sub(/^[[:space:]]+/, ""); command=$0;
+      if (index(" " command " ", " " port " ") == 0) next;
+      if (mode == "packaged" && index(command, exe " ") == 1) print pid;
+      else if (mode == "dev" && index(command, " " work " ") > 0) print pid;
+    }'
 }
 
 devapp_stop_app() {
@@ -766,10 +777,12 @@ devapp_ends_at() {
 # running from the same files for the same data folder, and streams its progress until it is ready or has failed. A
 # live copy for another data folder belongs to another live test, so it is left alone. The last line is the result.
 cmd_devapp_start() {
-  local port="$1" commit="$2" data dir other running=0 tail_pid tree joining=0
+  local port="$1" commit="$2" mode="${3:-dev}" unlock_signing="${4:-0}" data dir other running=0 tail_pid tree joining=0
   devapp_port_ok "$port" || { echo 'remote-run.sh: the debugging port must be a number from 1024 to 65535' >&2; exit 4; }
   case "$commit" in '' | *[!0-9a-f]*) echo 'remote-run.sh: not a commit' >&2; exit 4 ;; esac
-  data="$(cat)"
+  case "$mode" in dev | packaged) ;; *) echo 'remote-run.sh: invalid copy mode' >&2; exit 4 ;; esac
+  case "$unlock_signing:$mode" in 0:* | 1:packaged) ;; *) echo 'remote-run.sh: signing unlock requires an owned packaged build' >&2; exit 4 ;; esac
+  if [ "$unlock_signing" = 1 ]; then IFS= read -r data; else data="$(cat)"; fi
   # A folder of its own under /tmp, as the runbook gives each job: nothing else here is ever a copy's data.
   case "$data" in /tmp/aio-lt-?*) ;; *) echo 'remote-run.sh: the data folder must start /tmp/aio-lt-' >&2; exit 4 ;; esac
   case "$data" in *..* | *[!A-Za-z0-9._/-]*) echo 'remote-run.sh: the data folder name has characters it cannot have' >&2; exit 4 ;; esac
@@ -785,6 +798,11 @@ cmd_devapp_start() {
       devapp_result taken 'another live test already has a Harness copy on that debugging port'
       return 0
     fi
+    if [ "$(cat "$dir/mode" 2>/dev/null || echo dev)" != "$mode" ]; then
+      devapp_unlock
+      devapp_result taken 'the existing copy uses a different package mode'
+      return 0
+    fi
     if [ "$(cat "$dir/tree" 2>/dev/null)" = "$tree" ]; then
       joining=1
       echo "[dev app] joining the copy already on port $port; it stops by itself at $(devapp_ends_at "$dir")"
@@ -797,6 +815,11 @@ cmd_devapp_start() {
     # is that test's earlier copy (a resumed job gets a new port), so it goes rather than block this one.
     for other in "$DEVAPPS"/apps/*; do
       if [ "$other" != "$dir" ] && devapp_alive "$other" && [ "$(cat "$other/data" 2>/dev/null)" = "$data" ]; then
+        if [ "$(cat "$other/mode" 2>/dev/null || echo dev)" != "$mode" ]; then
+          devapp_unlock
+          devapp_result taken 'the profile is already running in a different package mode'
+          return 0
+        fi
         echo "[dev app] stopping this data folder's earlier copy on port ${other##*/}"
         devapp_stop_dir "$other"
       fi
@@ -811,13 +834,19 @@ cmd_devapp_start() {
     fi
     if [ "$MAC" != 1 ]; then devapp_unlock; devapp_result failed 'this machine is not a Mac'; return 0; fi
     mkdir -p "$dir" "$DEVAPPS/installs" || { devapp_unlock; exit 1; }
+    chmod 700 "$dir"
     printf '%s\n' "$data" > "$dir/data"
     printf '%s\n' "$commit" > "$dir/commit"
     printf '%s\n' "$tree" > "$dir/tree"
+    printf '%s\n' "$mode" > "$dir/mode"
+    printf '%s\n' "$unlock_signing" > "$dir/unlock-signing"
     date +%s > "$dir/started"
     echo building > "$dir/state"
     : > "$dir/log"
-    perl -e 'setpgrp(0, 0); exec @ARGV or exit 127' bash "$SELF" devapp-job "$port" >> "$dir/log" 2>&1 < /dev/null &
+    # An explicitly supplied signing password remains only in this pipe. The owned job consumes it before building.
+    if [ "$unlock_signing" = 1 ]; then exec 3<&0; else exec 3</dev/null; fi
+    perl -e 'setpgrp(0, 0); exec @ARGV or exit 127' bash "$SELF" devapp-job "$port" >> "$dir/log" 2>&1 <&3 &
+    exec 3<&-
     echo $! > "$dir/pid"
     echo "[dev app] it stops by itself at $(devapp_ends_at "$dir") unless stopped sooner"
   fi
@@ -866,10 +895,11 @@ cmd_devapp_install() {
 
 # devapp-job <port>: the copy itself, leading its own process group.
 cmd_devapp_job() {
-  local port="$1" data commit work stamp install started code renderer_port waited=0
+  local port="$1" data commit work stamp install started code renderer_port mode bundle executable waited=0
   DEVAPP_DIR="$(devapp_dir "$port")"
   data="$(cat "$DEVAPP_DIR/data")"
   commit="$(cat "$DEVAPP_DIR/commit")"
+  mode="$(cat "$DEVAPP_DIR/mode")"
   trap devapp_job_end EXIT
   # A stop or the time limit signals the group; leaving through `exit` runs the clean-up above.
   trap 'exit 0' TERM
@@ -901,6 +931,14 @@ cmd_devapp_job() {
   git checkout -q --force --detach FETCH_HEAD || devapp_fail 'could not check out the snapshot'
   ensure_node "$(cat .nvmrc 2>/dev/null)" || devapp_fail 'could not fetch the Node version'
 
+  if [ "$(cat "$DEVAPP_DIR/unlock-signing")" = 1 ]; then
+    [ "$mode" = packaged ] || devapp_fail 'signing unlock is only available for an owned packaged build'
+    /usr/bin/xcrun swiftc scripts/remote-checks/unlock-signing-keychain.swift -o "$DEVAPP_DIR/unlock-signing-keychain" \
+      < /dev/null > "$DEVAPP_DIR/unlock-build.log" 2>&1 || devapp_fail 'could not build the noninteractive signing helper'
+    # The parent and this job share one SSH security session. No ACL/partition/trust change or key export occurs.
+    perl -e 'alarm 15; exec @ARGV or exit 127' "$DEVAPP_DIR/unlock-signing-keychain" || devapp_fail 'noninteractive signing keychain unlock failed'
+  fi
+
   stamp="$(install_stamp | sha256 | cut -c1-16)"
   install="$DEVAPPS/installs/$stamp"
   started="$(date +%s)"
@@ -915,6 +953,13 @@ cmd_devapp_job() {
   touch "$install/used"
   ln -sfn "$install/repo/node_modules" node_modules || devapp_fail 'could not link the packages'
 
+  if [ "$mode" = packaged ]; then
+    echo '[dev app] building a signed directory package; no install or publication'
+    node scripts/remote-checks/live-test-copy.js package "$DEVAPP_DIR" > "$DEVAPP_DIR/package.log" 2>&1 ||
+      { tail -n 40 "$DEVAPP_DIR/package.log"; devapp_fail 'the signed live-test package did not build'; }
+    bundle="$(cat "$DEVAPP_DIR/bundle")"
+    executable="$bundle/Contents/MacOS/Harness"
+  else
   echo '[dev app] building the main process'
   npm run build:main > "$DEVAPP_DIR/build.log" 2>&1 || { tail -n 40 "$DEVAPP_DIR/build.log"; devapp_fail 'npm run build:main failed'; }
   # After build:main, which clears dist/. Without this binary the copy's sessions get no orchestrator tools (LT-1103).
@@ -933,6 +978,11 @@ cmd_devapp_job() {
     waited=$((waited + 1))
   done
   renderer_port="$(cat "$DEVAPP_DIR/renderer-port")"
+  executable="$work/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+  fi
+
+  node scripts/remote-checks/live-test-copy.js prepare "$DEVAPP_DIR" "$data" "$executable" "$mode" "$(cat "$DEVAPP_DIR/tree")" "$port" ||
+    devapp_fail 'the live-test profile or executable could not be owned safely'
 
   if curl -fsS "http://127.0.0.1:$port/json/version" > /dev/null 2>&1; then
     devapp_fail 'something else already answers on that debugging port here'
@@ -941,14 +991,24 @@ cmd_devapp_job() {
   # Opened through the app launcher, not started from this shell: a program started over SSH can't read the login
   # keychain, where the AI tools keep their sign-ins. The app gets the logged-in session's environment plus these two.
   # Without the heap flag Harness would start itself again under another process id (src/main/main-process-bootstrap.ts).
+  if [ "$mode" = packaged ]; then
+  open -n -g -a "$bundle" \
+    --stdout "$DEVAPP_DIR/app.out" --stderr "$DEVAPP_DIR/app.err" \
+    --env AIO_LIVETEST=1 --env "AIO_LIVETEST_USER_DATA_PATH=$data" --env "AIO_LIVETEST_OWNER_FILE=$DEVAPP_DIR/livetest-owner.json" \
+    --args --js-flags=--max-old-space-size=8192 "--remote-debugging-port=$port" ||
+    devapp_fail 'the Mac would not open the packaged test copy'
+  else
   open -n -g -a "$work/node_modules/electron/dist/Electron.app" \
     --stdout "$DEVAPP_DIR/app.out" --stderr "$DEVAPP_DIR/app.err" \
     --env "AIO_DEV_USER_DATA_PATH=$data" --env "PORT=$renderer_port" \
+    --env AIO_LIVETEST=1 --env "AIO_LIVETEST_USER_DATA_PATH=$data" --env "AIO_LIVETEST_OWNER_FILE=$DEVAPP_DIR/livetest-owner.json" \
     --args --js-flags=--max-old-space-size=8192 "$work" "--remote-debugging-port=$port" ||
     devapp_fail 'the Mac would not open Harness'
+  fi
   waited=0
   # Ready once Harness's window exists, which its debugging port lists as a page; the port itself answers sooner.
-  until curl -fsS "http://127.0.0.1:$port/json/list" 2> /dev/null | grep -q '"type": *"page"'; do
+  until { curl -fsS "http://127.0.0.1:$port/json/list" 2> /dev/null | grep -q '"type": *"page"'; } &&
+    node scripts/remote-checks/live-test-copy.js ready "$DEVAPP_DIR" > /dev/null; do
     if [ "$waited" -ge 60 ] && [ -z "$(devapp_app_pids "$DEVAPP_DIR")" ]; then
       tail -n 40 "$DEVAPP_DIR/app.err"
       devapp_fail 'Harness stopped while starting'
@@ -958,6 +1018,9 @@ cmd_devapp_job() {
     waited=$((waited + 1))
   done
   [ -n "$(devapp_app_pids "$DEVAPP_DIR")" ] || devapp_fail 'Harness stopped while starting'
+  local runtime_pid
+  runtime_pid="$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).pid))' "$DEVAPP_DIR/runtime.json")"
+  devapp_app_pids "$DEVAPP_DIR" | grep -qx "$runtime_pid" || devapp_fail 'the runtime receipt does not name this owned process'
   echo ready > "$DEVAPP_DIR/state"
   echo "[dev app] ready on port $port"
   while [ -n "$(devapp_app_pids "$DEVAPP_DIR")" ]; do sleep 5; done

@@ -32,6 +32,7 @@ import { PlanQueueHistoryStore, PLAN_QUEUE_CHECK_SUMMARIES_SQL } from './plan-qu
 import { readQueueHealth } from './plan-queue-health';
 import { PlanQueueSlotWaits } from './plan-queue-timings';
 import { itemHoldsWorkerSlot } from './plan-queue-state';
+import { PlanQueueCapabilityStore } from './plan-queue-capability-store';
 
 interface RunRow {
   unpriced_tokens: number;
@@ -102,13 +103,14 @@ interface ItemRow {
 const ACTIVE_RUN_STATUSES = "('running', 'paused')";
 
 export class PlanQueueStore {
+  readonly capabilities: PlanQueueCapabilityStore;
   readonly history: PlanQueueHistoryStore;
   /** Slot waits the scheduler measures (in memory); they are written to the history when the item starts. */
   readonly waits: PlanQueueSlotWaits;
   constructor(
     private readonly db: SqliteDriver,
     private readonly now: () => number = Date.now,
-  ) { this.history = new PlanQueueHistoryStore(db, now); this.waits = new PlanQueueSlotWaits(this.history, now); }
+  ) { this.history = new PlanQueueHistoryStore(db, now); this.waits = new PlanQueueSlotWaits(this.history, now); this.capabilities = new PlanQueueCapabilityStore(db, now); }
 
   /** The "Queue health" measures for the recent window, computed from the stored events and verdicts. */
   queueHealth() { return readQueueHealth(this.db, this.now()); }

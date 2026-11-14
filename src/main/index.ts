@@ -29,7 +29,7 @@ import { startBuildSkewWatcher } from './app/build-skew-watcher';
 import { installShutdownSignalProbes } from './app/shutdown-forensics';
 import { createInitializationSteps } from './app/initialization-steps';
 import { createStatelessExecProviderPredicate } from './app/stateless-exec-provider';
-import { resolveHarnessUserDataPath } from './app/user-data-path';
+import { isHarnessLiveTest, writeHarnessLiveTestReceipt } from './app/live-test-context';
 import { getStartupSmokeDirectory, STARTUP_SMOKE_READY_MARKER } from './app/startup-smoke-markers';
 import { shutdownTracer } from './observability/otel-setup';
 import { shutdownMetrics } from './observability/otel-metrics';
@@ -63,11 +63,8 @@ registerBuiltInProviders(providerAdapterRegistry);
 // The rebranded product's durable on-disk identity is lowercase "harness".
 // Existing AI Orchestrator data is migrated into that directory out-of-band;
 // startup should then read the new canonical location directly.
-app.setPath('userData', resolveHarnessUserDataPath({
-  appDataPath: app.getPath('appData'),
-  isPackaged: app.isPackaged,
-  env: process.env,
-}));
+// main-process-entry sets userData before these imports initialize any services.
+if (isHarnessLiveTest()) app.setName('Harness (Live Test)');
 if (!app.isPackaged) {
   app.setName('Harness (Dev)');
   // Dev helpers (aio-mcp, loop-control) are found under `dist/` relative to the working folder. `npm run dev` starts in
@@ -213,6 +210,7 @@ class HarnessApp {
       () => {
         this.contextWorkerClient.signalAppReady();
         logger.info('Harness initialized');
+        writeHarnessLiveTestReceipt({ pid: process.pid, isPackaged: app.isPackaged, version: app.getVersion(), ready: true });
       },
       Boolean(startupSmokeDirectory),
     );

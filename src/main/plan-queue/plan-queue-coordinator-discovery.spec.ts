@@ -16,6 +16,7 @@ let db: SqliteDriver;
 let store: PlanQueueStore;
 let coordinator: PlanQueueCoordinator;
 let instances: ReturnType<typeof makeInstances>;
+let excludedProviders: string[];
 
 function makeInstances() {
   const parent: PlanQueueInstanceRecord = { id: 'parent', status: 'idle', provider: 'claude', outputBuffer: [], workingDirectory: root };
@@ -45,6 +46,7 @@ beforeEach(() => {
   runLoopMigrations(db);
   store = new PlanQueueStore(db);
   instances = makeInstances();
+  excludedProviders = [];
   vi.spyOn(queueGit, 'repositoryRoot').mockResolvedValue(root);
   vi.spyOn(queueGit, 'currentBranch').mockResolvedValue('main');
   coordinator = PlanQueueCoordinator.getInstance();
@@ -58,7 +60,7 @@ beforeEach(() => {
     routing: {
       readSaved: () => ({ workers: [], verifiers: [] }), readAccountRules: () => ({ never: [], last: [] }),
       poolProfiles: () => [], copilotProfiles: () => [], copilotProfileFor: () => null,
-      defaultProvider: () => null, checkerScopeKind: () => 'none', isProviderExcluded: () => false,
+      defaultProvider: () => null, checkerScopeKind: () => 'none', isProviderExcluded: provider => excludedProviders.includes(provider),
       listInstalledProviders: async () => ['claude', 'codex'],
     },
   });
@@ -73,6 +75,35 @@ afterEach(async () => {
 });
 
 describe('coordinator document selection', () => {
+  it('persists source exclusions for later repairs without freezing ordinary source routing', async () => {
+    vi.spyOn(coordinator, 'requestPump').mockImplementation(() => undefined);
+    excludedProviders = ['copilot'];
+    const { run } = await coordinator.startRun({ parentInstanceId: 'parent', kind: 'livetests' });
+    excludedProviders = [];
+    expect(new PlanQueueStore(db).getRun(run.id)?.config.startingProviderExclusions).toEqual(['copilot']);
+    expect(run.config.capabilityRepairExcludedProviders).toBeUndefined();
+  });
+  it.each([{ capabilityRepairId: 'forged' }, { capabilityRepairAccountRules: { never: [], last: [] } },
+    { startingProviderExclusions: [] }, { capabilityRepairExcludedProviders: [] }])('refuses caller-supplied repair identity or frozen policy: %j', async config => {
+    await expect(coordinator.startRun({ parentInstanceId: 'parent', kind: 'livetests', config })).rejects.toThrow(/coordinator/);
+    expect(store.listRunSnapshots(20)).toEqual([]);
+  });
+
+  it('records repair permission only for the canonical repository of the run', async () => {
+    vi.spyOn(coordinator, 'requestPump').mockImplementation(() => undefined);
+    const nested = join(root, 'nested');
+    mkdirSync(nested);
+    const { run } = await coordinator.startRun({ parentInstanceId: 'parent', kind: 'livetests', config: { capabilityRepairRepository: nested } });
+    expect(run.config.capabilityRepairRepository).toBe(realpathSync(root));
+  });
+
+  it('refuses repair permission for another repository before claiming any document', async () => {
+    vi.mocked(queueGit.repositoryRoot).mockResolvedValueOnce(root).mockResolvedValueOnce(dirname(root));
+    await expect(coordinator.startRun({ parentInstanceId: 'parent', kind: 'livetests', config: { capabilityRepairRepository: dirname(root) } }))
+      .rejects.toThrow(/restricted to this run.*repository/);
+    expect(store.listRunSnapshots(20)).toEqual([]);
+  });
+
   it.each(['z-target_plan.md', 'z-[target]{literal}_plan.md', 'z-target_livetest.md'])('queues a ready exact selection without model triage: %s', async (name) => {
     const file = write(`docs/plans/${name}`);
     const { run } = await coordinator.startRun({ parentInstanceId: 'parent', kind: name.endsWith('_livetest.md') ? 'livetests' : 'plans', glob: `docs/plans/${name}` });

@@ -233,6 +233,14 @@ async function writeNewInside(rootReal: string, target: string, bytes: Buffer, m
   }
 }
 
+/** Coordinator-created active plans use the same exclusive, contained write as rescued planning files. */
+export async function writeNewPlanningDocument(repoRoot: string, relative: string, text: string): Promise<void> {
+  const segments = validateRelative(relative);
+  const root = await fs.realpath(repoRoot);
+  const folder = await ensureFolderInsideRoot(root, segments.slice(0, -1));
+  await writeNewInside(root, path.join(folder, segments.at(-1)!), Buffer.from(text), 0o600);
+}
+
 /** Save `bytes` beside `dest` as `<name>.from-queue-<item>[-n].md`, created exclusively so it can never replace anything. */
 export async function saveBeside(rootReal: string, dest: string, itemId: string, bytes: Buffer, mode: number): Promise<string> {
   const stem = path.basename(dest).replace(/\.md$/, '');

@@ -73,7 +73,7 @@ beforeEach(() => {
     jobs, computers: () => ({ list: () => computers }),
     nodes: { isConnected: () => connected, capabilities: () => ({ queueJobs: 1, signIns: [{ provider: 'claude', profileId: 'legacy', state: 'signed-in' }] }) as WorkerNodeCapabilities },
     newTurnId: () => `turn-${++ids}`, awayLimitMs: 1000, now: () => 5000,
-  });
+  }, async () => undefined);
 });
 afterEach(() => { _setPlanQueueDataDirForTesting(null); turns.shutdown(); fx.dispose(); });
 
@@ -120,7 +120,7 @@ describe('starting a turn on another computer', () => {
     const broken = new PlanQueueRemoteTurns(
       { getItem: id => rows.get(id)!, save: item => item, getRun: () => run, store: { listActiveRuns: () => [], listItems: () => [] } as never,
         history: { recordEvent: (event: { reason: string | null; detailHead: string | null }) => { events.push(event); } } as never },
-      { jobs: {} as never, computers: () => { throw new Error('unreadable'); }, nodes: { isConnected: () => true, capabilities: () => undefined } });
+      { jobs: {} as never, computers: () => { throw new Error('unreadable'); }, nodes: { isConnected: () => true, capabilities: () => undefined } }, async () => undefined);
     expect((await broken.arrange(current(), run)).remote).toBeUndefined();
     expect(events.at(-1)!.detailHead).toContain('could not be read (unreadable)');
   });

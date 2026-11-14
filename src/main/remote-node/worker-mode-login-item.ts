@@ -1,4 +1,5 @@
 import { app } from 'electron';
+import { isHarnessLiveTest } from '../app/live-test-context';
 import type { WorkerModeSettings } from '../../shared/types/pair-both.types';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getLogger } from '../logging/logger';
@@ -34,6 +35,7 @@ export function wantsOpenAtLogin(workerMode: WorkerModeSettings): boolean {
  * is turned off when the user turns the option or worker mode off.
  */
 export function bindWorkerModeLoginItem(options: BindWorkerModeLoginItemOptions = {}): void {
+  if (isHarnessLiveTest()) return;
   const platform = options.platform ?? process.platform;
   const isPackaged = options.isPackaged ?? app.isPackaged;
   if ((platform !== 'win32' && platform !== 'darwin') || !isPackaged) {

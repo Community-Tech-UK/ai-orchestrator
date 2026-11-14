@@ -1,4 +1,5 @@
 import { app } from 'electron';
+import { isHarnessLiveTest } from '../app/live-test-context';
 import type { BrowserGatewayRpcServerOptions } from './browser-gateway-rpc-server';
 import {
   initializeBrowserGatewayService,
@@ -267,13 +268,14 @@ export async function initializeBrowserGatewayRuntime(
         nativeDir: nativeHostPaths.nativeDir,
         isPackaged: app.isPackaged,
         isStartupSmoke: process.env['AIO_STARTUP_SMOKE'] === '1',
+        isLiveTest: isHarnessLiveTest(),
         forceClaim: process.env['AIO_CLAIM_LOCAL_BROWSER_MANIFEST'] === '1',
       });
       if (!claimChromeManifest) {
         logger.warn(
           'Another Harness install owns the Chrome native-messaging manifest — leaving it alone. '
           + 'This dev app has no local browser extension channel. '
-          + 'Set AIO_CLAIM_LOCAL_BROWSER_MANIFEST=1 to take it over.',
+          + (isHarnessLiveTest() ? 'Live-test copies never claim this shared registration.' : 'Set AIO_CLAIM_LOCAL_BROWSER_MANIFEST=1 to take it over.'),
           { manifestPath: nativeHostPaths.manifestPath },
         );
       }

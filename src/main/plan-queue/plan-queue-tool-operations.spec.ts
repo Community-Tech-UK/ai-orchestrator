@@ -2,7 +2,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PlanQueueCapabilityService } from './plan-queue-capability-service';
 import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
 import { createPlanQueueToolDefinitions } from '../mcp/plan-queue-tools';
 import { PlanQueueCoordinator } from './plan-queue-coordinator';
@@ -23,6 +24,7 @@ const emptyRun = (workspaceCwd: string) => ({ run: { id: 'run', parentInstanceId
   workspaceCwd, status: 'running' as const, config: DEFAULT_PLAN_QUEUE_CONFIG.plans,
   workerProvider: 'claude', relaxedSettings: [], startedAt: 1, endedAt: null, items: [] },
 excluded: [], routingSetAside: [], accountNotes: [], checklistSetAside: false });
+beforeEach(() => { vi.spyOn(PlanQueueCoordinator.prototype, 'capabilities', 'get').mockReturnValue({ summaries: () => [] } as unknown as PlanQueueCapabilityService); });
 
 describe('Plan Queue tool operation adoption routing', () => {
   it.each([

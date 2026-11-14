@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
+import { DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueAccountRules } from '@contracts/schemas/plan-queue';
 import type { InstanceCreateConfig } from '../../shared/types/instance.types';
 import { PlanQueueSpawnRoutingChanged } from './plan-queue-checker-routing';
 import type { PlanQueueInstancePort } from './plan-queue-host';
@@ -8,6 +8,7 @@ import { continuableWorkerSession, PlanQueueSpawnOutOfUsage, spawnQueueInstance 
 import { newPlanQueueItem } from './plan-queue-state';
 import type { PlanQueueRun } from './plan-queue.types';
 import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
+import { planQueueRouteUsage, type PlanQueueRouteUsageCheck, type PlanQueueRouteUsageDeps } from './plan-queue-route-usage';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -39,6 +40,81 @@ function host(ready: Promise<void>) {
   return { ready, instances, getRun: () => run, getItem: () => null, clearWorkerSession: vi.fn(), isShuttingDown: () => false, userCloseEpoch: () => epoch, readAccountRules: () => ({ never: [], last: [] }), isProviderExcluded: () => false,
     routeUsage: async () => ({ usable: true, resumeAt: null }) };
 }
+
+it.each(['worker', 'triage', 'verifier'] as const)('refuses frozen excluded providers for a repair %s after global exclusions are cleared', async role => {
+  run.config.capabilityRepairExcludedProviders = ['claude'];
+  await expect(spawnQueueInstance({ ...config, metadata: { ...config.metadata, planQueueRole: role } }, host(Promise.resolve())))
+    .rejects.toThrow(/never auto-pick/);
+  expect(instances.createInstance).not.toHaveBeenCalled();
+});
+
+it('chooses an allowed worker without probing a frozen excluded provider', async () => {
+  run.config.capabilityRepairExcludedProviders = ['claude'];
+  run.config.routing = { workers: [{ provider: 'claude' }, { provider: 'codex' }], verifiers: [] };
+  const routeUsage = vi.fn(async () => ({ usable: true, resumeAt: null }));
+  await spawnQueueInstance(config, { ...host(Promise.resolve()), routeUsage });
+  expect(routeUsage).not.toHaveBeenCalledWith(expect.objectContaining({ provider: 'claude' }), expect.anything(), expect.anything());
+  expect(instances.createInstance).toHaveBeenCalledWith(expect.objectContaining({ provider: 'codex' }));
+});
+
+it('refuses an unresolved automatic worker route rather than losing the repair provider fence', async () => {
+  run.config.capabilityRepairExcludedProviders = ['copilot'];
+  run.config.routing = { workers: [], verifiers: [] };
+  await expect(spawnQueueInstance(config, host(Promise.resolve()))).rejects.toThrow(/fixed provider/);
+  expect(instances.createInstance).not.toHaveBeenCalled();
+});
+
+it('rechecks the current provider exclusions when checker usage returns', async () => {
+  run.config.capabilityRepairExcludedProviders = [];
+  let excluded = false;
+  await expect(spawnQueueInstance({ ...config, provider: 'codex', metadata: { ...config.metadata, planQueueRole: 'verifier' } }, {
+    ...host(Promise.resolve()), isProviderExcluded: () => excluded,
+    routeUsage: async () => { excluded = true; return { usable: true, resumeAt: null }; },
+  })).rejects.toThrow(/never auto-pick/);
+  expect(instances.createInstance).not.toHaveBeenCalled();
+});
+
+it.each(['worker', 'triage', 'verifier'] as const)('keeps frozen account restrictions on a repair %s when current rules are loosened', async role => {
+  run.config.capabilityRepairAccountRules = {
+    never: [{ provider: 'claude', accountId: 'frozen-never' }],
+    last: [{ provider: 'claude', accountId: 'frozen-last' }],
+  };
+  const current: PlanQueueAccountRules = { never: [{ provider: 'claude', accountId: 'new-never' }], last: [] };
+  await spawnQueueInstance({ ...config, metadata: { ...config.metadata, planQueueRole: role } },
+    { ...host(Promise.resolve()), readAccountRules: () => current });
+  expect(instances.createInstance).toHaveBeenCalledWith(expect.objectContaining({
+    accountPreferences: { avoid: ['frozen-never', 'new-never'], last: ['frozen-last'] },
+  }));
+});
+
+it('keeps an inherited use-last account behind a later usable provider at actual usage selection', async () => {
+  run.config.capabilityRepairAccountRules = { never: [], last: [{ provider: 'copilot', accountId: 'last-seat' }] };
+  run.config.routing = { workers: [{ provider: 'copilot', copilotProfileId: 'last-seat' }, { provider: 'cursor' }], verifiers: [] };
+  const deps: PlanQueueRouteUsageDeps = {
+    previewAccountRoute: vi.fn(), accountRules: () => ({ never: [], last: [] }), copilotProfileFor: () => null,
+    ledger: { getActive: () => null, getParkedSince: () => new Map() }, spawnModel: async () => null,
+    quotaEvidence: () => null, providerQuota: () => null, now: () => 1,
+  };
+  const routeUsage: PlanQueueRouteUsageCheck = (choice, origin, options) => planQueueRouteUsage(choice, origin, options, deps);
+  await spawnQueueInstance(config, { ...host(Promise.resolve()), routeUsage });
+  expect(instances.createInstance).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ provider: 'cursor' }));
+});
+
+it('rechecks changed account rules after an asynchronous usage check', async () => {
+  run.config.capabilityRepairAccountRules = { never: [{ provider: 'claude', accountId: 'frozen' }], last: [] };
+  let current: PlanQueueAccountRules = { never: [], last: [] };
+  const first = deferred<{ usable: boolean; resumeAt: null }>();
+  const routeUsage = vi.fn().mockReturnValueOnce(first.promise).mockResolvedValue({ usable: true, resumeAt: null });
+  const pending = spawnQueueInstance(config, { ...host(Promise.resolve()), readAccountRules: () => current, routeUsage });
+  await vi.waitFor(() => expect(routeUsage).toHaveBeenCalledTimes(1));
+  current = { never: [{ provider: 'claude', accountId: 'new' }], last: [] };
+  first.resolve({ usable: true, resumeAt: null });
+  await pending;
+  expect(routeUsage).toHaveBeenCalledTimes(2);
+  expect(instances.createInstance).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    accountPreferences: { avoid: ['frozen', 'new'], last: [] },
+  }));
+});
 
 describe('Plan Queue asynchronous spawn fences', () => {
   it('marks every queue role as unattended without changing its prompt or authority', async () => {
@@ -247,5 +323,18 @@ describe('worker conversation continuity', () => {
     expect(instances.createInstance).toHaveBeenCalledTimes(2);
     expect(vi.mocked(instances.createInstance).mock.calls[1][0]).toMatchObject({ initialPrompt: 'full resume' });
     expect(vi.mocked(instances.createInstance).mock.calls[1][0].sessionId).toBeUndefined();
+  });
+
+  it('refreshes account restrictions before retrying a conversation that failed to reopen', async () => {
+    run.config.routing = { workers: [{ provider: 'claude', model: 'model', accountProfileIds: ['account'] }], verifiers: [] };
+    run.config.capabilityRepairAccountRules = { never: [{ provider: 'claude', accountId: 'frozen' }], last: [] };
+    let current: PlanQueueAccountRules = { never: [], last: [] };
+    vi.mocked(instances.createInstance).mockImplementationOnce(async () => {
+      current = { never: [{ provider: 'claude', accountId: 'account' }], last: [] };
+      throw new Error('conversation missing');
+    });
+    await spawnQueueInstance({ ...config, metadata: { ...config.metadata, planQueueItemId: 'item' } },
+      { ...host(Promise.resolve()), getItem: item, readAccountRules: () => current });
+    expect(vi.mocked(instances.createInstance).mock.calls[1][0].accountPreferences).toEqual({ avoid: ['frozen', 'account'], last: [] });
   });
 });

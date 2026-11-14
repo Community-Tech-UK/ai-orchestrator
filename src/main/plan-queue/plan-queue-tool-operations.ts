@@ -89,6 +89,13 @@ function toControlPayload(args: PlanQueueControlArgs): PlanQueueControlPayload {
 
 export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordinator): PlanQueueToolOperations {
   return {
+    reportCapabilityGap: (caller, args) => coordinator().capabilities.reportGap(caller, args),
+    reportCapabilityProbe: (caller, args) => coordinator().capabilities.reportProbe(caller, args),
+    reportCapabilityCheck: (caller, args) => coordinator().capabilities.reportCheck(caller, args),
+    async authorizeCapabilityRepairs(caller, args) {
+      await coordinator().authorizeCapabilityRepairs(caller, args.run_id, args.repository);
+      return { authorised: true, message: 'Repairs may run in this repository under the existing restrictions. Original checks remain open until independently verified.' };
+    },
     async start(callerInstanceId, args) {
       // Checked before anything starts: a folder James has not listed is refused, in words the session can pass on.
       const workspaceCwd = args.workspace === undefined ? undefined : await resolveListedWorkspace(args.workspace, readSavedPlanQueueFolders());
@@ -98,6 +105,7 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
         kind: args.kind,
         glob: args.glob,
         config: {
+          ...(args.capability_repair_repository ? { capabilityRepairRepository: args.capability_repair_repository } : {}),
           ...(args.worker_slots ? { workerSlots: args.worker_slots } : {}),
           ...(args.verification_slots ? { verificationSlots: args.verification_slots } : {}),
           ...(args.check_batch_size !== undefined ? { checkBatchSize: args.check_batch_size } : {}),
@@ -133,9 +141,10 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
       if (runId) {
         const run = coordinator().getRunDto(runId);
         if (!run) throw new Error(`Plan queue run not found: ${runId}`);
-        if (!evidence) return runSummary(run);
+        const capabilities = coordinator().capabilities.summaries(runId);
+        if (!evidence) return { ...runSummary(run), capabilityRepairs: capabilities };
         const events = coordinator().listRunEvents(runId, PLAN_QUEUE_EVIDENCE_EVENT_LIMIT + 1);
-        return { ...runSummary(run), evidence: describeRunEvidence(run, events, Date.now()) };
+        return { ...runSummary(run), capabilityRepairs: capabilities, evidence: describeRunEvidence(run, events, Date.now()) };
       }
       // Nine short lines for the whole queue, in the same words as the Plan Queue page; not repeated per run.
       const health = describeQueueHealth(coordinator().getQueueHealth());
@@ -173,7 +182,11 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
     clearSetAside: (callerInstanceId) => coordinator().setAsideAgents.clear(callerInstanceId),
     reportVerdict: (callerInstanceId, args) => coordinator().reportVerdict(callerInstanceId, args),
     reportTriage: (callerInstanceId, args) => coordinator().reportTriage(callerInstanceId, args),
-    reportReady: (callerInstanceId, args) => recordWorkerReport(coordinator(), callerInstanceId, args),
+    async reportReady(callerInstanceId, args) {
+      const result = recordWorkerReport(coordinator(), callerInstanceId, args);
+      for (const gap of args.capability_gaps ?? []) await coordinator().capabilities.reportGap(callerInstanceId, { item_id: args.item_id, gap });
+      return result;
+    },
     async moveRun(callerInstanceId, runId, targetInstanceId) {
       const queue = coordinator();
       // Neither may own a run (see startRun and requireSession), so neither may take or give one.

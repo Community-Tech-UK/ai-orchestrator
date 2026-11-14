@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WorkerModeSettings } from '../../shared/types/pair-both.types';
 import { EventEmitter } from 'node:events';
 import {
@@ -9,6 +9,9 @@ import {
 } from './worker-mode-autostart';
 
 const paired = () => ({ paired: true });
+const context = vi.hoisted(() => ({ liveTest: false }));
+vi.mock('../app/live-test-context', () => ({ isHarnessLiveTest: () => context.liveTest }));
+afterEach(() => { context.liveTest = false; });
 const unpaired = () => ({ paired: false });
 
 const workerMode: WorkerModeSettings = {
@@ -18,6 +21,17 @@ const workerMode: WorkerModeSettings = {
 };
 
 describe('maybeStartWorkerModeOnLaunch', () => {
+  it('does not adopt the machine-wide worker from an owned test copy', async () => {
+    context.liveTest = true;
+    const startRuntime = vi.fn();
+    expect(maybeStartWorkerModeOnLaunch({ readPairing: paired, getWorkerMode: () => workerMode, startRuntime }))
+      .toEqual({ started: false, reason: 'live-test' });
+    const ensureCurrent = vi.fn();
+    expect(await ensureSignInWorkerOnLaunch({ settings: { get: () => ({ ...workerMode, runAtSignIn: true }) },
+      signInTask: { isSupported: () => true, ensureCurrent }, readPairing: paired })).toBe(false);
+    expect(startRuntime).not.toHaveBeenCalled();
+    expect(ensureCurrent).not.toHaveBeenCalled();
+  });
   it('starts the worker runtime for run-while-open worker mode when config exists', () => {
     const startRuntime = vi.fn(() => ({ state: 'running' as const, pid: 1234 }));
 

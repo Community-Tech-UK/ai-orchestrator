@@ -39,10 +39,14 @@ const DATA_FOLDER = /^\/tmp\/aio-lt-[A-Za-z0-9._-][A-Za-z0-9._/-]*$/;
 
 const USAGE = `dev-app: a live test's Harness copy, run on the test Mac and driven from here.
 
-  start --port <debugging port> --data /tmp/aio-lt-<name>
+  start --port <debugging port> --data /tmp/aio-lt-<name> [--packaged] [--checked-tree <tree>]
       Sends this checkout's files, builds and starts Harness on the test Mac, and connects
       http://127.0.0.1:<port> here to it. Takes a few minutes, longer after a package change. Running it again with
       the same files joins the copy already starting or running.
+      --packaged builds a signed directory package in the owned copy; it never installs or publishes it.
+      --checked-tree sends the index only and refuses a tree mismatch before sending any files.
+      --signing-password-stdin (packaged only) unlocks the signing keychain in that build's SSH session.
+      Supply the password through a secure pipe; never a command argument, environment variable or file.
   shell --port <debugging port> '<command>'
       Runs a shell command in the copy's checkout on the test Mac, with its data folder in AIO_DEV_USER_DATA_PATH.
   stop --port <debugging port>
@@ -56,10 +60,18 @@ function parse(argv) {
   const [action, ...rest] = argv;
   if (!action || ['help', '--help', '-h'].includes(action)) return { action: 'help' };
   if (!['start', 'stop', 'shell', 'status'].includes(action)) throw new UsageError(`there is no dev-app ${action}`);
-  const options = { port: null, data: null, command: [] };
+  const options = { port: null, data: null, command: [], mode: 'dev', checkedTree: null, unlockSigning: false };
   for (let at = 0; at < rest.length; at += 1) {
     const arg = rest[at];
-    if (arg === '--port' || arg === '--data') {
+    if (arg === '--packaged' && action === 'start') {
+      options.mode = 'packaged';
+    } else if (arg === '--signing-password-stdin' && action === 'start') {
+      options.unlockSigning = true;
+    } else if (arg === '--checked-tree' && action === 'start') {
+      const value = rest[++at];
+      if (!value || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value)) throw new UsageError('--checked-tree takes a full hexadecimal tree identity');
+      options.checkedTree = value;
+    } else if (arg === '--port' || arg === '--data') {
       const value = rest[at + 1];
       if (value === undefined) throw new UsageError(`${arg} needs a value`);
       options[arg.slice(2)] = value;
@@ -80,7 +92,35 @@ function parse(argv) {
     throw new UsageError('--data takes the copy\'s own data folder, starting /tmp/aio-lt-');
   }
   if (action === 'shell' && !options.command.join(' ').trim()) throw new UsageError('dev-app shell needs a command');
+  if (options.unlockSigning && options.mode !== 'packaged') throw new UsageError('--signing-password-stdin requires --packaged');
   return { action, options };
+}
+
+/** Bounded pipe input only; a signing prerequisite must never turn into an interactive password prompt. */
+function readSigningPassword(input = process.stdin, timeoutMs = 15_000) {
+  if (input.isTTY) return Promise.reject(new UsageError('The signing password must arrive through a secure pipe'));
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let used = 0;
+    const finish = (error) => {
+      clearTimeout(timer);
+      input.off('data', onData).off('end', onEnd).off('error', onError);
+      input.pause();
+      const value = error ? null : Buffer.concat(chunks);
+      chunks.forEach(chunk => chunk.fill(0));
+      if (error) { input.destroy(); reject(error); } else resolve(value);
+    };
+    const onData = (chunk) => {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      chunks.push(bytes);
+      used += bytes.length;
+      if (used > 4096) finish(new UsageError('The signing password pipe must contain 1 to 4096 bytes'));
+    };
+    const onEnd = () => finish(used ? null : new UsageError('The signing password pipe must contain 1 to 4096 bytes'));
+    const onError = () => finish(new UsageError('Could not read the signing password pipe'));
+    const timer = setTimeout(() => finish(new UsageError('The signing password pipe timed out')), timeoutMs);
+    input.on('data', onData).once('end', onEnd).once('error', onError);
+  });
 }
 
 function gitPath(cwd, ...args) {
@@ -202,7 +242,7 @@ function streamStart(machine, remoteCommand, data, write) {
     child.on('error', finish);
     child.on('close', finish);
     // The folder name travels as data. Built into the command, a shell on the test Mac would read it.
-    child.stdin.end(data);
+    child.stdin.end(data, () => { if (Buffer.isBuffer(data)) data.fill(0); });
   });
 }
 
@@ -264,7 +304,7 @@ function logRun(env, started, machine, exitCode, reason) {
 }
 
 async function start({ options, root, env, write, answers }) {
-  const { port, data } = options;
+  const { port, data, mode, checkedTree, unlockSigning } = options;
   const started = Date.now();
   const place = findTestMac(env);
   if (!place.machine) {
@@ -291,20 +331,30 @@ async function start({ options, root, env, write, answers }) {
 
   let snapshot;
   try {
-    snapshot = takeSnapshot(root);
+    snapshot = takeSnapshot(root, checkedTree ? { folders: [] } : {});
   } catch (err) {
     if (!(err instanceof SnapshotRefused)) throw err;
     write(`dev-app: this checkout's files can't be sent: ${err.message}\n`);
     return 1;
   }
+  let signingPassword;
   try {
+    if (checkedTree && snapshot.tree !== checkedTree) {
+      write('dev-app: the actual index snapshot does not match the checked tree; nothing was sent.\n');
+      return 1;
+    }
+    if (unlockSigning) signingPassword = await readSigningPassword();
     const { script, sent } = await sendScript(machine, 'bases');
     if (sent.code !== 0 || sent.timedOut) return leave(`${machine.label} could not be reached`);
     write(`dev-app: sending this checkout to ${machine.label}\n`);
     const fault = await sendSnapshot(root, snapshot, machine, script, sent.stdout.split('\n').filter(Boolean), '');
     if (fault) return leave(fault);
 
-    const result = await streamStart(machine, `bash ${script} devapp-start ${port} ${snapshot.commit}`, data, write);
+    write(`AIO_DEV_APP_START ${JSON.stringify({ tree: snapshot.tree, root, startedAt: new Date(started).toISOString(), computer: 'ct-test-mac', mode })}\n`);
+
+    const payload = signingPassword ? Buffer.concat([Buffer.from(`${data}\n`), signingPassword]) : data;
+    signingPassword?.fill(0);
+    const result = await streamStart(machine, `bash ${script} devapp-start ${port} ${snapshot.commit} ${mode} ${unlockSigning ? 1 : 0}`, payload, write);
     if (!result) {
       write(`dev-app: the connection to ${machine.label} was lost while Harness started. Run the same command again: `
         + 'it joins the copy if it is still starting.\n');
@@ -319,15 +369,16 @@ async function start({ options, root, env, write, answers }) {
     }
     if (result.status !== 'ready') {
       write(`dev-app: Harness did not start on ${machine.label}: ${result.reason}. What it printed is above.\n`);
+      await sshCommand(machine, `bash ${script} devapp-stop ${port}`);
       logRun(env, started, machine, 1, result.reason);
       return 1;
     }
 
     // A copy joined from this checkout's earlier start may still have its tunnel here.
-    const joined = ours && previous.tree === snapshot.tree && await answers(port, 2_000);
+    const joined = ours && previous.tree === snapshot.tree && previous.data === data && previous.mode === mode && await answers(port, 2_000);
     // Written as soon as the tunnel exists, so a start cut off after this point can be run again and reuse it.
     const remember = tunnelPid => fs.writeFileSync(stateFile(env, port), `${JSON.stringify({
-      host: machine.host, label: machine.label, port, data, root, tree: snapshot.tree, tunnelPid,
+      host: machine.host, label: machine.label, port, data, root, tree: snapshot.tree, mode, tunnelPid,
       startedAt: new Date(started).toISOString(),
     })}\n`);
     if (!joined) {
@@ -352,8 +403,10 @@ async function start({ options, root, env, write, answers }) {
     logRun(env, started, machine, 0, null);
     write(`dev-app: Harness is running on ${machine.label}, reached here at http://127.0.0.1:${port} (CDP). Its data `
       + `folder there is ${data}; read it with dev-app shell. Stop it with: node ${__filename} stop --port ${port}\n`);
+    write(`AIO_DEV_APP_RECEIPT ${JSON.stringify({ tree: snapshot.tree, root, startedAt: new Date(started).toISOString(), computer: 'ct-test-mac', mode })}\n`);
     return 0;
   } finally {
+    signingPassword?.fill(0);
     snapshot.cleanup();
   }
 }
@@ -460,4 +513,4 @@ if (require.main === module) {
   );
 }
 
-module.exports = { main, parse };
+module.exports = { main, parse, readSigningPassword };

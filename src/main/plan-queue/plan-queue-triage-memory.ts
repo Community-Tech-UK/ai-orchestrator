@@ -151,7 +151,11 @@ export function rememberedOutcomeForPath(
 ): RememberedOutcome {
   if (!memory) return { kind: 'none', detail: '' };
   const key = triageMemoryKey(documentPath, repoRoot);
-  return rememberedOutcome(key ? memory.getTriageDecision(key) : null);
+  const outcome = rememberedOutcome(key ? memory.getTriageDecision(key) : null);
+  // A live test's tools and computers can change without its document changing.
+  // Keep actual answers and skips, but investigate unanswered prerequisites again.
+  return outcome.kind === 'ask' && documentPath.endsWith('_livetest.md')
+    ? { kind: 'none', detail: '' } : outcome;
 }
 
 /** Remember a triage disposition (never a cancelled run's leftovers). */

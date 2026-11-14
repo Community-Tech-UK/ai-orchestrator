@@ -7,6 +7,7 @@ const rules = (never: PlanQueueAccountRules['never'] = [], last: PlanQueueAccoun
 function fakeHost(sessions: LiveQueueSession[]) {
   return {
     liveSessions: vi.fn(() => sessions),
+    accountRulesFor: vi.fn((_instanceId: string, current: PlanQueueAccountRules) => current),
     setPreferences: vi.fn(),
     holdSession: vi.fn(async (_instanceId: string, _reason: string) => undefined),
     requestPump: vi.fn(),
@@ -34,6 +35,16 @@ describe('sessionOnNeverUse', () => {
 });
 
 describe('applyLiveAccountRules', () => {
+  it('keeps a repair session\'s frozen restrictions when global rules are cleared', async () => {
+    const frozen = rules([{ provider: 'claude', accountId: 'restricted' }], [{ provider: 'claude', accountId: 'last' }]);
+    const host = fakeHost([{ id: 'repair', provider: 'claude', accountProfileId: 'restricted' }]);
+    host.accountRulesFor.mockReturnValue(frozen);
+    await applyLiveAccountRules(rules(), host);
+    expect(host.accountRulesFor).toHaveBeenCalledWith('repair', rules());
+    expect(host.setPreferences).toHaveBeenCalledWith('repair', { avoid: ['restricted'], last: ['last'] });
+    expect(host.holdSession).toHaveBeenCalledWith('repair', expect.stringContaining('never-use'));
+  });
+
   it('gives every live session the lists for its provider, and holds only the ones on a never-use account', async () => {
     const r = rules([{ provider: 'claude', accountId: 'suas' }], [{ provider: 'codex', accountId: 'pro-2' }]);
     const host = fakeHost([

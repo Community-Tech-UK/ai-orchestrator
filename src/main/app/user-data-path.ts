@@ -1,4 +1,5 @@
 import { isAbsolute, join } from 'node:path';
+import { initializeHarnessLiveTest, writeHarnessLiveTestReceipt } from './live-test-context';
 
 interface HarnessUserDataPathOptions {
   appDataPath: string;
@@ -7,6 +8,8 @@ interface HarnessUserDataPathOptions {
 }
 
 export function resolveHarnessUserDataPath(options: HarnessUserDataPathOptions): string {
+  const liveTest = initializeHarnessLiveTest({ ...options, execPath: process.execPath });
+  if (liveTest) return liveTest.dataPath;
   const smokePath = options.env['AIO_STARTUP_SMOKE_USER_DATA_PATH'];
   if (options.isPackaged && options.env['AIO_STARTUP_SMOKE'] === '1' && smokePath) {
     if (!isAbsolute(smokePath)) {
@@ -30,4 +33,17 @@ export function resolveHarnessUserDataPath(options: HarnessUserDataPathOptions):
   }
 
   return join(options.appDataPath, options.isPackaged ? 'harness' : 'harness-dev');
+}
+
+/** Set this before importing the app: imported services can create loggers immediately. */
+export function initializeHarnessUserDataPath(app: {
+  isPackaged: boolean;
+  getPath(name: 'appData'): string;
+  setPath(name: 'userData', value: string): void;
+  getVersion(): string;
+}): void {
+  app.setPath('userData', resolveHarnessUserDataPath({
+    appDataPath: app.getPath('appData'), isPackaged: app.isPackaged, env: process.env,
+  }));
+  writeHarnessLiveTestReceipt({ pid: process.pid, isPackaged: app.isPackaged, version: app.getVersion(), ready: false });
 }
