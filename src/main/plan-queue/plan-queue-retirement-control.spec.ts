@@ -15,6 +15,7 @@ import * as queueLanding from './plan-queue-landing';
 import type { PlanQueueInstanceRecord } from './plan-queue-host';
 import { newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueStore } from './plan-queue-store';
+import { _setReportRequiredProvidersForTesting } from './plan-queue-worker-report';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
@@ -68,7 +69,7 @@ const baseRepository = useGitRepoTemplate((dir) => {
 });
 
 beforeEach(() => {
-  PlanQueueCoordinator._resetForTesting(); GitWriteQueue._resetForTesting();
+  PlanQueueCoordinator._resetForTesting(); GitWriteQueue._resetForTesting(); _setReportRequiredProvidersForTesting(new Set());
   repo = mkdtempSync(join(tmpdir(), 'queue-pause-control-'));
   baseRepository.copyTo(repo);
   const worktreePath = join(repo, '.worktrees', 'queue', 'example');

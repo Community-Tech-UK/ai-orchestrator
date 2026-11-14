@@ -247,6 +247,14 @@ corrections — 2026-09-24" table. The headline counts at the top of this file w
   exit-code-only, no-output failure clause remains unverified. Their owning `_livetest.md`
   files carry the current status and acceptance wording.
 
+### Addendum — 2026-11-12 (Plan Queue worker-report live check)
+
+[`2026-11-04-pq-b3-report-ready_livetest.md`](2026-11-04-pq-b3-report-ready_livetest.md) ran in a dev app on real
+providers. `claude`, `codex`, `cursor` and `opencode` passed checks A, B and C and went on `REPORT_REQUIRED_PROVIDERS`.
+`gemini` failed check A (its worker is the Antigravity CLI, which gets no Harness tools: LT-1037). `copilot` was not run:
+the seat is licensed for EBRD work only and the throwaway profile has no sign-in; that is James's call. The document
+stays open for those two. Campaign gotchas learned (inherited tool socket, missing `aio-mcp` build) are in the runbook table.
+
 ---
 
 ## Environment preflight — verified 2026-09-06

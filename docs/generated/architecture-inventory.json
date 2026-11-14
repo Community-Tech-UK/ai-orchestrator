@@ -6264,7 +6264,7 @@
   "largeFiles": [
     {
       "path": "docs/plans/livetest-remediation-register.md",
-      "lines": 14088
+      "lines": 14114
     },
     {
       "path": "resources/browser-extension/background.js",
@@ -7107,12 +7107,12 @@
       "lines": 1080
     },
     {
-      "path": "claude_oct-todo.md",
-      "lines": 1070
+      "path": "docs/plans/livetest-backlog.md",
+      "lines": 1077
     },
     {
-      "path": "docs/plans/livetest-backlog.md",
-      "lines": 1069
+      "path": "claude_oct-todo.md",
+      "lines": 1070
     },
     {
       "path": "src/main/cli/adapters/cursor-cli-adapter.ts",

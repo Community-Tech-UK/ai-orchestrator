@@ -392,6 +392,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1037 | P2 | **REPRODUCED LIVE 2026-11-12; NOT REPAIRED.** A `gemini` Plan Queue worker is started as the Antigravity CLI, which is given no Harness tools, so it cannot call `plan_queue_report_ready` (or `plan_queue_report_verdict` as a checker). The worker searched the machine for 6 minutes and never reported. | [LT-1037 detail](#lt-1037) | [Worker report live check](2026-11-04-pq-b3-report-ready_livetest.md#gemini-check-a-failed-lt-1037) |
 | LT-1120 | P2 | **SOURCE FIX VERIFIED 2026-11-12 (queue worktree); live re-run passed on the worktree build, installed-app check pending.** When Harness moved a worker's planning file to the main project folder (or saved it beside a different root copy) at a normal round checkpoint, the item's note saying so was cleared in the same millisecond. James never saw it; the file handling itself was correct. The note now lives in its own item field and shows on the item row until the work is gone. | [LT-1120 detail](#lt-1120) | [Planning-files live checks](2026-11-04-pq-a2-planning-files_plan_livetest.md#evidence-run--12-november-2026-queue-worker) |
 | LT-1119 | P3 | **SOURCE FIX VERIFIED 2026-11-12; REBUILT COPY CHECKED 2026-11-14 (no failed or slow read occurred, so the back-off itself is covered by specs only).** Observed in the real Harness log 2026-11-11: the leftover-program sweeper's process-table read took a median 1.2 s (up to 8.3 s) on the busy Mac, against the livetest's "well under 500 ms"; 16 reads failed and 4,012 identical `spawn EPERM` warnings were logged. The sweeper had no back-off; it now waits up to 6 ticks after a slow or failed read and logs a repeating failure once. Cause of the slow reads and failures unconfirmed (host load was 50 to 350 on 18 cores). | [Detail](#lt-1119) | [Evidence run](2026-10-24-agent-leftover-processes_livetest.md) |
 | LT-1118 | P3 | **REPRODUCED LIVE 2026-11-14; NOT REPAIRED.** A Harness copy started by `dev-app.js` on the test Mac runs with its working folder set to `/`, so `resolveAioMcpCliPath` (which looks under `process.cwd()` in a development run) never finds `dist/aio-mcp-cli-sea/aio-mcp`. Sessions in that copy get no `AI_ORCHESTRATOR_INSTANCE_ID` marker, no `AIO_MCP`, no orchestrator tools (`list_host_processes` is not available) and no codemem tools, so a live check that relies on the marker or on those tools cannot run there. | [LT-1118 detail](#lt-1118) | [Evidence run](2026-10-24-agent-leftover-processes_livetest.md) |
@@ -12996,6 +12997,31 @@ A control reached by keyboard is entirely visible. Fix: `scroll-padding-bottom: 
 `mcp-page.component.scss`. Re-run at 200 percent after the fix, Tab forward and Shift+Tab backward through the Local
 program, Remote server and Microsoft 365 forms: no stop partly hidden (Local forward 16 stops, Local backward 18, Remote
 and Microsoft 365 forward and back 28 each). Also none hidden at 100 percent backward.
+
+## LT-1037
+
+### LT-1037 — a gemini worker gets no Harness tools, so it cannot report its work ready
+
+**Status: reproduced live 12 November 2026; not repaired.**
+
+### Observed behaviour
+
+In the worker-report live check ([evidence](2026-11-04-pq-b3-report-ready_livetest.md#gemini-check-a-failed-lt-1037)) a Plan Queue run whose saved worker list
+named only `gemini` started the worker as `antigravity` (spawn log `requested: 'antigravity'`, model "Gemini 3.8 Flash (Medium)"). The spawn log
+had no "Orchestrator tool schemas deferred" line for it. Over about six minutes the worker made 61 tool calls, searching the machine and the source tree for
+`plan_queue_report_ready`, and never reported. Claude, codex, cursor and opencode workers found and called the tool in the same app within 20 to 100 seconds.
+
+### Root cause
+
+`ORCHESTRATOR_RUNTIME_INJECTION_PROVIDERS` in `src/shared/types/mcp-scopes.types.ts` lists `gemini` but not `antigravity`. A `gemini` choice resolves to the
+`antigravity` CLI type, so `isOrchestratorRuntimeInjectionProvider` is false and `SpawnConfigBuilder.getOrchestratorMcpConfigs` returns no orchestrator-tools
+configuration. Not yet confirmed: whether the Antigravity CLI can load an injected MCP server at all (an `AntigravityMcpAdapter` exists for its settings file).
+
+### Required behaviour and acceptance
+
+A worker or checker on the Antigravity CLI can discover and call the Harness orchestrator tools, or Harness refuses `gemini` / `antigravity` as a Plan Queue
+worker and checker with a plain reason. Acceptance: the `gemini` Check A in the live-check document ends with a `plan_queue_report_ready` call answered
+`accepted: true`; then `gemini` goes on `REPORT_REQUIRED_PROVIDERS`. Until then `gemini` stays off that list, so a `gemini` worker keeps the turn-end signal.
 
 ## LT-1016
 

@@ -23,9 +23,11 @@ const logger = getLogger('PlanQueueWorkerReport');
 /**
  * Providers whose live check has passed: a worker on one of these must report. Every other provider keeps
  * the turn ending as its signal until its check passes (docs/plans/2026-11-04-pq-b3-report-ready_livetest.md
- * lists the steps). Add a provider here only with that check's evidence.
+ * lists the steps). Add a provider here only with that check's evidence. claude, codex, cursor and opencode
+ * passed on 12 November 2026. copilot has not been run (its seat is licensed for EBRD work only) and gemini
+ * (the Antigravity CLI) gets no Harness tools to call (LT-1037), so both keep the turn-end signal.
  */
-export const REPORT_REQUIRED_PROVIDERS: ReadonlySet<string> = new Set<string>();
+export const REPORT_REQUIRED_PROVIDERS: ReadonlySet<string> = new Set<string>(['claude', 'codex', 'cursor', 'opencode']);
 
 let requiredProviders: ReadonlySet<string> = REPORT_REQUIRED_PROVIDERS;
 

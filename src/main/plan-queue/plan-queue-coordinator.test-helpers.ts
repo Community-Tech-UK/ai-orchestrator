@@ -307,7 +307,7 @@ beforeEach(() => {
   installedProviders = ['claude', 'codex', 'cursor', 'copilot', 'opencode', 'gemini'];
   poolProfiles = [];
   verifierInputs = [];
-  _setReportRequiredProvidersForTesting();
+  _setReportRequiredProvidersForTesting(new Set());
   excludedProviders = [];
   archivedEntries = [];
   personTurns = new InputTurnRegistry();
