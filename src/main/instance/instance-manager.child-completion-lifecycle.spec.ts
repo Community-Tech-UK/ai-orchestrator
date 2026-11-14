@@ -107,12 +107,12 @@ describe('InstanceManager child-completion lifetime wiring', () => {
     f.owner.terminateAll.mockImplementation(() => { sizesAtTermination.push(f.parents.size); });
     const noop = (): undefined => undefined;
     const app = Object.assign(new EventEmitter(), {
-      isPackaged: false, setPath: noop, getPath: () => '/inert', setName: noop,
+      isPackaged: false, setPath: noop, getPath: () => '/inert', getAppPath: () => '/inert', setName: noop,
       setAppUserModelId: noop, commandLine: { appendSwitch: noop },
       requestSingleInstanceLock: () => true, whenReady: () => Promise.resolve(), quit: noop, exit: noop,
     });
     const inertProcess = Object.assign(new EventEmitter(), {
-      platform: 'linux', env: {}, argv: [], pid: 1, ppid: 1,
+      platform: 'linux', env: {}, argv: [], pid: 1, ppid: 1, chdir: noop,
     });
     // Execute the real entry point and real shutdown composition. Only external
     // app/process/filesystem and unrelated services are inert; no window opens.

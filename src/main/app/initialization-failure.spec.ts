@@ -14,11 +14,12 @@ async function start(failure: unknown, critical = true) {
   const quit = vi.fn();
   const createMainWindow = vi.fn().mockResolvedValue(undefined);
   const step = vi.fn(() => { if (failure) throw failure; });
+  const chdir = vi.fn();
   let startup: Promise<void> | undefined;
   const app = {
     isPackaged: false,
     getPath: () => '/unused-startup-fixture',
-    setPath: vi.fn(), setName: vi.fn(),
+    setPath: vi.fn(), setName: vi.fn(), getAppPath: () => '/unused-startup-fixture',
     commandLine: { appendSwitch: vi.fn() },
     requestSingleInstanceLock: () => true,
     on: (event: string, fn: (...args: unknown[]) => unknown) => events.set(event, fn),
@@ -64,14 +65,14 @@ async function start(failure: unknown, critical = true) {
       return modules[name];
     },
     exports: {}, __dirname: '/unused-startup-fixture',
-    process: { platform: 'linux', env: {}, argv: [], on: vi.fn() },
+    process: { platform: 'linux', env: {}, argv: [], on: vi.fn(), chdir },
     setImmediate, Error,
   });
   // Attaching immediately also captures the old unhandled startup rejection.
   let rejected: unknown;
   await startup!.catch((error: unknown) => { rejected = error; });
   await Promise.resolve();
-  return { events, logger, showErrorBox, quit, createMainWindow, step, rejected };
+  return { events, logger, showErrorBox, quit, createMainWindow, step, rejected, chdir };
 }
 
 describe('application initialization failure', () => {
@@ -94,6 +95,11 @@ describe('application initialization failure', () => {
     expect(result.showErrorBox).not.toHaveBeenCalled();
     expect(result.quit).not.toHaveBeenCalled();
     expect(result.rejected).toBeUndefined();
+  });
+
+  it('starts an unpackaged app in its app folder, so dist/ helpers resolve when it is opened from /', async () => {
+    const result = await start(undefined);
+    expect(result.chdir).toHaveBeenCalledExactlyOnceWith('/unused-startup-fixture');
   });
 
   it('handles window recreation failure through the same visible failure path', async () => {

@@ -62,6 +62,56 @@ describe('killProcessGroup', () => {
       expect(killSpy).toHaveBeenNthCalledWith(2, 1234, 'SIGTERM');
     });
 
+    describe('descendants outside the process group (LT-1093)', () => {
+      /** pgrep -P output keyed by parent pid; anything else has no children. */
+      function childrenOf(table: Record<number, number[]>): void {
+        spawnSyncMock.mockImplementation((_cmd: string, args: string[]) => {
+          const kids = table[Number(args[1])] ?? [];
+          return { status: kids.length ? 0 : 1, stdout: kids.map(String).join('\n') };
+        });
+      }
+
+      it('signals every descendant, however deep, as well as the group', () => {
+        childrenOf({ 1234: [2000], 2000: [3000] });
+        const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true);
+        expect(killProcessGroup(1234, 'SIGTERM')).toBe(true);
+        expect(killSpy).toHaveBeenCalledWith(2000, 'SIGTERM');
+        expect(killSpy).toHaveBeenCalledWith(3000, 'SIGTERM');
+        expect(killSpy).toHaveBeenCalledWith(-1234, 'SIGTERM');
+        // The descendants are listed before the group is signalled, while they still have the CLI as parent.
+        const order = killSpy.mock.calls.map(call => call[0]);
+        expect(order.indexOf(-1234)).toBeGreaterThan(order.indexOf(2000));
+      });
+
+      it('remembers the tree so SIGKILL still reaches a descendant after the CLI has gone', () => {
+        childrenOf({ 4321: [5000] });
+        const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true);
+        killProcessGroup(4321, 'SIGTERM');
+        childrenOf({});
+        killSpy.mockClear();
+        killProcessGroup(4321, 'SIGKILL');
+        expect(killSpy).toHaveBeenCalledWith(5000, 'SIGKILL');
+        killSpy.mockClear();
+        killProcessGroup(4321, 'SIGKILL');
+        expect(killSpy).not.toHaveBeenCalledWith(5000, 'SIGKILL');
+      });
+
+      it('leaves descendants alone for an interrupt', () => {
+        childrenOf({ 1234: [2000] });
+        const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true);
+        killProcessGroup(1234, 'SIGINT');
+        expect(killSpy).toHaveBeenCalledTimes(1);
+        expect(killSpy).toHaveBeenCalledWith(-1234, 'SIGINT');
+      });
+
+      it('still signals the group when the process listing fails or a descendant is already gone', () => {
+        spawnSyncMock.mockImplementation(() => { throw new Error('spawn pgrep EPERM'); });
+        const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true);
+        expect(() => killProcessGroup(1234, 'SIGTERM')).not.toThrow();
+        expect(killSpy).toHaveBeenCalledWith(-1234, 'SIGTERM');
+      });
+    });
+
     it('returns false when the process group no longer exists (ESRCH)', () => {
       vi.spyOn(process, 'kill').mockImplementation((() => {
         const err = new Error('no such process') as NodeJS.ErrnoException;

@@ -70,6 +70,10 @@ app.setPath('userData', resolveHarnessUserDataPath({
 }));
 if (!app.isPackaged) {
   app.setName('Harness (Dev)');
+  // Dev helpers (aio-mcp, loop-control) are found under `dist/` relative to the working folder. `npm run dev` starts in
+  // the checkout, but an app opened through macOS Launch Services (the test-Mac dev app) starts in `/`, which hid
+  // `dist/aio-mcp-cli-sea` and left every scheduled job without its `automation_result` tool (LT-1092).
+  process.chdir(app.getAppPath());
 }
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.ai.orchestrator');
