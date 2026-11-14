@@ -3,6 +3,6 @@ export type ModelCallPurpose =
   | 'chat' | 'child' | 'loop' | 'verify' | 'review' | 'debate' | 'workflow' | 'branch-select'
   | 'cross-model-review' | 'fresh-eyes-review' | 'review-cli' | 'consensus'
   | 'multi-verify-synthesis' | 'council' | 'compare' | 'magic-prompt' | 'cli-verification'
-  | 'helper' | 'automation' | 'channel' | 'subagent';
+  | 'helper' | 'automation' | 'channel' | 'subagent' | 'plan-queue' | 'repo-job' | 'remote-node';
 export type ModelCallCostSource = 'provider' | 'priced' | 'unknown' | 'free';
 export type ModelCallOutcome = 'success' | 'error' | 'cancelled' | 'budget-exceeded';
