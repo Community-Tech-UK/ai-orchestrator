@@ -393,6 +393,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1127 | P2 | **REPRODUCED LIVE 2026-11-12; SOURCE FIX + UNIT TEST 2026-11-14; rebuilt-app check with a spent Claude week pending.** A Plan Queue ranked worker list does not move past a Claude choice whose weekly usage is spent but whose paid extra-usage credits are on, when the profile has only the pre-pools Claude sign-in. The usage check for that sign-in reads only the provider-limit record, and the Claude CLI keeps running on credits, so no limit is ever recorded: triage and worker both started on Claude (about $0.84 for one trivial document) while Codex had usage. A recorded limit does move the list to Codex. | [LT-1127 detail](#lt-1127) | [Ranked provider lists live checks](2026-10-25-plan-queue-ranked-routing_livetest.md#check-3--new-sessions-move-down-the-list-when-the-first-choice-is-out-recorded-limit-passes-usage-figures-alone-fails) |
 | LT-1061 | P2 | **REPRODUCED LIVE 2026-11-12; NOT REPAIRED.** A plan whose last step needs James's approval to publish was closed and landed: the checker put the unfinished step under `deferred_checks` (it fits "needs a person") instead of a `needs-human` finding, so nothing parked and the publish was never done. A blocking fact only James has (the approver's name) did park `needs-james` as designed. | [LT-1061 detail](#lt-1061) | [Deferred checks live check](2026-11-04-pq-c1-deferred-checks_plan_livetest.md#evidence-run--2026-11-12-plan-queue-livetest-worker-dev-app) |
 | LT-1062 | P3 | **REPRODUCED LIVE 2026-11-12 (1 of 2 runs); NOT REPAIRED.** A `livetests` run with one check that needs a physical device sometimes gets a FAIL with a `needs-human` finding from the checker, which parks the item `needs-james` instead of landing with `document_complete: false`. The livetest prompt shows only a FAIL example, and the new finding-kind rules apply to livetests too. | [LT-1062 detail](#lt-1062) | [Deferred checks live check](2026-11-04-pq-c1-deferred-checks_plan_livetest.md#evidence-run--2026-11-12-plan-queue-livetest-worker-dev-app) |
 | LT-1063 | P2 | **REPRODUCED LIVE 2026-11-14; NOT REPAIRED.** A plan whose final check needs an operator-provided signing identity that is not on the computer was closed and landed: the worker ran the check with a made-up value for that one command and the checker passed it, so no `environment` finding and no park. | [LT-1063 detail](#lt-1063) | [Deferred checks live check](2026-11-04-pq-c1-deferred-checks_plan_livetest.md#evidence-run--2026-11-14-plan-queue-livetest-worker-dev-app-this-mac) |
@@ -14345,6 +14346,45 @@ A diagnosed cause for the mailbox `unavailable` states, with either a fix or doc
 ### Evidence
 
 [Watchdog faults live checks](../../../../communitytech/work-finding/documents/plans/watchdog-faults-2026-10-08/watchdog-faults_livetest.md), "Defect record: conversation-reconciliation source outages and stuck runs" (13 November 2026).
+
+## LT-1127
+
+### LT-1127 — a spent Claude week on credits does not move a ranked worker list down
+
+**Status: reproduced live 12 November 2026; source fix and unit test 14 November 2026; live recheck with a spent Claude week pending.** Filed on 12 November as LT-1018; that number, and then LT-1099, were taken by other defects on the base branch, so this one is LT-1127.
+
+### Observed behaviour
+
+Dev app on an empty profile (only the pre-pools "Existing Claude account"), build `dba478375`. Saved worker list
+Claude then Codex. The Usage pill and `quotaGetAll` showed Claude's `claude.weekly` at 100/100 with
+`usageAccess.ordinaryUsageAllowed: false` and extra-usage credits available; Codex was at 31%. A chat session started
+a queue run: the triage session and the worker session were both created on Claude (dev log 01:55:38Z and 01:55:49Z,
+run `297f4f2c`), the Claude CLI logged "Provider rate limit active" with an overage status and the turn still
+completed, and the run card later showed "$0.84 across 1 document". No "worker choice picked by usage left" line was
+written because the first choice counted as usable. A third run (`9cdbe431`) behaved the same after a recorded limit
+was cleared, which is correct there.
+
+### Root cause
+
+`planQueueRouteUsage` (`src/main/plan-queue/plan-queue-route-usage.ts`) previews the pool route for Claude. With only
+the pre-pools sign-in the route's source is `legacy`, and the function returns `limitFor(null)`: the provider-limit
+ledger alone. A spent plan is read from usage figures only for non-pooled providers (`planSpent`, Cursor and Grok
+windows). Claude with credits on never produces a ledger record, so the ledger is empty and the choice is usable. The
+pool path would veto an account whose evidence is `creditsOnly` (`account-quota-evidence.ts`), and the file's own
+rule is that unattended queue work never counts purchased credits; the pre-pools path does not apply it.
+
+### Required behaviour and acceptance
+
+For a pooled provider on its pre-pools sign-in, a snapshot saying ordinary usage is not allowed (plan spent, credits
+only) counts as no usage for queue work, as it does for an account in a pool. Acceptance: a unit case in
+`plan-queue-route-usage.spec.ts` with a legacy route, an empty ledger and a Claude snapshot with
+`ordinaryUsageAllowed: false` returns `usable: false`; on a rebuilt app with Claude's week spent and no recorded limit,
+a Claude-then-Codex list starts triage and worker on Codex and logs "worker choice picked by usage left". Note the
+live check recorded a limit by writing a row to the profile's own limit table, which is what a CLI that stops would do.
+
+### Fix (14 November 2026)
+
+`planQueueRouteUsage` (`plan-queue-route-usage.ts`) now applies the pool's usage veto to the pre-pools sign-in too: a pooled provider on its `legacy` route whose usage figures show the plan spent, or running only on purchased credits, has no usage for queue work (`signInSpent`, using the shared `usageVetoFor` in `provider-account-selector.ts`, with windows already past their reset cleared first). Unit case: "has no usage for the pre-pools sign-in whose plan is spent and runs only on credits" in `plan-queue-route-usage.spec.ts`. Live recheck still needs Claude's real week spent with no recorded limit, plus Codex installed; Claude's week was 3% on 14 November.
 
 <a id="lt-1067"></a>
 

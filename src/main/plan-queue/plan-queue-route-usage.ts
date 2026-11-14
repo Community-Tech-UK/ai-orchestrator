@@ -9,9 +9,11 @@
  * provider and the model a new session would start on means no usage, unless
  * the provider has said since that the account can run again (as the send
  * path accepts). A provider outside the pools whose usage figures show its
- * whole plan spent has no usage either, so the queue never starts a session
- * just to learn that. A provider Harness cannot see usage for counts as having
- * usage until a session hits its limit and the ledger records it.
+ * whole plan spent has no usage either, and neither does a pooled provider's
+ * pre-pools sign-in whose figures show its plan spent or running on credits,
+ * so the queue never starts a session just to learn that. A provider Harness
+ * cannot see usage for counts as having usage until a session hits its limit
+ * and the ledger records it.
  */
 
 import { DEFAULT_PLAN_QUEUE_ACCOUNT_RULES, type PlanQueueAccountRules, type PlanQueueRouteChoice } from '@contracts/schemas/plan-queue';
@@ -36,7 +38,7 @@ import {
   type AccountRoutePreview,
   type AccountRouteRequest,
 } from '../providers/account-pool/provider-account-routing-service';
-import { evidenceLiftsPark, type AccountQuotaEvidence } from '../providers/account-pool/provider-account-selector';
+import { evidenceLiftsPark, usageVetoFor, type AccountQuotaEvidence } from '../providers/account-pool/provider-account-selector';
 import { accountPreferencesFor, accountRuleTier, mergePlanQueueAccountRules } from './plan-queue-account-rules';
 
 export interface PlanQueueRouteUsage {
@@ -126,7 +128,8 @@ export async function planQueueRouteUsage(
   // A pool of only the pre-pools sign-in: the ledger alone knows its limits. A use-last rule on it still holds it back on the first pass.
   if (route.source === 'legacy') {
     if (!options.allowLast && accountRuleTier(rules, provider, route.profileId) === 'last') return { usable: false, resumeAt: null };
-    return limitFor(null);
+    const limit = limitFor(null);
+    return limit.usable ? signInSpent(deps.providerQuota(provider), now) ?? limit : limit;
   }
   // The pool's first pass picks an unvetoed account; with none it falls back to a vetoed one to wait on.
   if (!preview.considered.some((entry) => entry.profileId === route.profileId)) {
@@ -154,6 +157,20 @@ function planSpent(snapshot: ProviderQuotaSnapshot | null, now: number): PlanQue
     .find((window) => PLAN_WIDE_WINDOW_IDS.has(window.id) && window.limit > 0 && window.used >= window.limit);
   if (!spent) return null;
   return { usable: false, resumeAt: spent.resetsAt !== null && spent.resetsAt > now ? spent.resetsAt : null };
+}
+
+/**
+ * No usage for the pre-pools sign-in when its usage figures show the plan spent
+ * (or running only on purchased credits). The spawn never vetoes that sign-in, and
+ * its CLI keeps going on credits without recording a limit, so only the figures
+ * can tell. This is the veto an account in a pool gets with credits disallowed.
+ */
+function signInSpent(snapshot: ProviderQuotaSnapshot | null, now: number): PlanQueueRouteUsage | null {
+  if (!snapshot?.ok) return null;
+  const evidence = quotaEvidenceFromSnapshot(clearElapsedQuotaWindows(snapshot, now));
+  if (!evidence || !usageVetoFor(evidence, false)) return null;
+  const weekly = evidence.weeklyResetsAt;
+  return { usable: false, resumeAt: (evidence.weeklyPct ?? 0) >= 100 && typeof weekly === 'number' && weekly > now ? weekly : null };
 }
 
 const spawnModelResolver = new ModelSelectionResolver();

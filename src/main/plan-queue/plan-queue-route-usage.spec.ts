@@ -6,7 +6,10 @@ import type { ProviderQuotaSnapshot, ProviderQuotaWindow } from '../../shared/ty
 import type { ProviderLimitEvent } from '../core/system/provider-limit-ledger';
 
 vi.mock('../providers/account-pool/provider-account-events', () => ({ emitProviderAccountEvent: vi.fn() }));
-vi.mock('../providers/account-pool/account-quota-evidence', () => ({ readAccountQuotaEvidence: vi.fn(() => null) }));
+vi.mock('../providers/account-pool/account-quota-evidence', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../providers/account-pool/account-quota-evidence')>(),
+  readAccountQuotaEvidence: vi.fn(() => null),
+}));
 
 import { ProviderAccountBindingService } from '../providers/account-pool/provider-account-binding-service';
 import { ProviderAccountRoutingService } from '../providers/account-pool/provider-account-routing-service';
@@ -135,6 +138,24 @@ describe('planQueueRouteUsage — account pools', () => {
     expect(await planQueueRouteUsage({ provider: 'codex', model: 'gpt-6.1-sol' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: true, resumeAt: null });
     limits = [{ provider: 'codex', model: 'gpt-6.1-sol', accountProfileId: null, resumeAt: 700 }];
     expect(await planQueueRouteUsage({ provider: 'codex', model: 'gpt-6.1-sol' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: false, resumeAt: 700 });
+  });
+
+  it('has no usage for the pre-pools sign-in whose plan is spent and runs only on credits, though no limit is recorded', async () => {
+    profiles = [profile('legacy', 'claude', 0)];
+    const spent = (used: number, resetsAt: number | null): ProviderQuotaSnapshot => ({
+      ...snapshot('claude', [window('claude.weekly', used, resetsAt)]),
+      usageAccess: { ordinaryUsageAllowed: used < 100, creditsAvailable: true },
+    });
+    providerQuota = { claude: spent(100, 5000) };
+    expect(await planQueueRouteUsage({ provider: 'claude' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: false, resumeAt: 5000 });
+    providerQuota = { claude: spent(40, 5000) };
+    expect(await planQueueRouteUsage({ provider: 'claude' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: true, resumeAt: null });
+    // A reading from before a reset that has since passed says nothing about the plan now.
+    providerQuota = { claude: spent(100, 50) };
+    expect(await planQueueRouteUsage({ provider: 'claude' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: true, resumeAt: null });
+    // A failed reading says nothing either.
+    providerQuota = { claude: { ...spent(100, 5000), ok: false } };
+    expect(await planQueueRouteUsage({ provider: 'claude' }, 'automation', { allowLast: true }, deps())).toEqual({ usable: true, resumeAt: null });
   });
 
   it('checks an OpenCode choice against its MiMo accounts only for a MiMo model', async () => {

@@ -95,6 +95,17 @@ export function evidenceLiftsPark(
   return options.allowCredits || evidence.creditsOnly !== true;
 }
 
+/** Whether the provider's usage evidence leaves an account nothing to run on (spent, or credits-only when credits are disallowed). */
+export function usageVetoFor(
+  quota: AccountQuotaEvidence | null | undefined,
+  allowCredits: boolean,
+): 'exhausted' | 'credits-only' | null {
+  if (quota?.usable === false) return 'exhausted';
+  if (quota?.usable !== true && ((quota?.fiveHourPct ?? 0) >= 100 || (quota?.weeklyPct ?? 0) >= 100 || (quota?.allowancePct ?? 0) >= 100)) return 'exhausted';
+  if (quota?.creditsOnly === true && !allowCredits) return 'credits-only';
+  return null;
+}
+
 export function accountVetoFor(
   profile: ProviderAccountProfile,
   input: SelectAccountInput,
@@ -117,9 +128,8 @@ export function accountVetoFor(
     return 'parked';
   }
   const fiveHour = quota?.fiveHourPct;
-  if (quota?.usable === false) return 'exhausted';
-  if (quota?.usable !== true && ((fiveHour ?? 0) >= 100 || (quota?.weeklyPct ?? 0) >= 100 || (quota?.allowancePct ?? 0) >= 100)) return 'exhausted';
-  if (quota?.creditsOnly === true && !allowCredits) return 'credits-only';
+  const noUsage = usageVetoFor(quota, allowCredits);
+  if (noUsage) return noUsage;
   if (typeof input.thresholdPct === 'number') {
     // Moving ahead of a limit onto an account that would bill credits defeats the point.
     if (quota?.creditsOnly === true) return 'over-threshold';
