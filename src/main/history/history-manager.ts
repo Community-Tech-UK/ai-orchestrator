@@ -34,6 +34,7 @@ import {
 import { createNativeClaudeArchiveRepairPlan } from './native-claude-archive-repair';
 import { recoverFalseMissingOpeningPromptRepair } from './native-claude-false-repair-recovery';
 import { projectMemoryKeysEqual } from '../memory/project-memory-key';
+import { memberProfileIdOf } from '../../shared/utils/mobile-profile-stamp';
 import { archiveHistoryEntry, unarchiveHistoryEntry } from './history-archive-state';
 import { getCompleteInstanceMessages } from './complete-instance-messages';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
@@ -291,6 +292,7 @@ export class HistoryManager {
           instance.accountRoutingSource
           ?? previousEntries.find((e) => e.accountRoutingSource)?.accountRoutingSource,
         executionLocation,
+        mobileProfileId: memberProfileIdOf(instance.metadata) ?? previousEntries.find((e) => e.mobileProfileId)?.mobileProfileId,
         snippets,
         // Net line-change summary for the completed session, shown as the
         // +add/-del badge on the history rail. Falls back to a previous entry's

@@ -173,6 +173,8 @@ export interface SessionState {
   /** Routing origin and account fence (Plan Queue sessions); see the matching `Instance` fields. */
   accountRouteOrigin?: AccountInvocationOrigin;
   allowedAccountProfileIds?: string[];
+  /** The phone-app member this session belongs to; absent for the owner's. A revived session stays theirs. */
+  mobileProfileId?: string;
   /** Failover preferences (Plan Queue account rules); see `Instance.accountPreferences`. */
   accountPreferences?: AccountPreferences;
   /**

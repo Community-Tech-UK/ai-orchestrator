@@ -17,6 +17,7 @@ import {
   type IndexedCodebaseContextInfo,
 } from '../indexing/indexed-codebase-context';
 import type { Instance } from '../../shared/types/instance.types';
+import { memberProfileIdOf } from '../../shared/utils/mobile-profile-stamp';
 import type { InstanceContextPort } from './instance-context-port';
 import type { RlmContextInfo, UnifiedMemoryContextInfo } from './instance-types';
 
@@ -115,6 +116,10 @@ export async function buildInputContexts(
   origin: 'user' | 'internal' | 'automated' = 'user',
 ): Promise<InputContextBundle> {
   const memoryNotesEveryMessage = getSettingsManager().getAll().memoryNotesEveryMessage === true;
+  // A phone-app member never receives notes retrieved from the owner's memory, codebase index or conversations.
+  if (memberProfileIdOf(instance.metadata)) {
+    return { rlmContext: null, unifiedMemoryContext: null, indexedCodebaseContext: null };
+  }
   if (origin !== 'user' && !memoryNotesEveryMessage) {
     logger.debug('Skipped retrieved notes for machine-written message', { instanceId: instance.id, origin });
     return { rlmContext: null, unifiedMemoryContext: null, indexedCodebaseContext: null };

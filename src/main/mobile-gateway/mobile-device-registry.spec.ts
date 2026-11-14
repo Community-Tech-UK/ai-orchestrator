@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   MobileDeviceRegistry,
+  normalizeMemberSession,
+  reservedWorkerNodeIds,
   type MobileDevicePersistence,
 } from './mobile-device-registry';
 import { MOBILE_OWNER_PROFILE_ID } from '../../shared/types/mobile-gateway.types';
@@ -449,5 +451,63 @@ describe('MobileDeviceRegistry people', () => {
 
     expect(reloaded.validateToken(phone.token)).toBeNull();
     expect(reloaded.hasProfile(member.profileId)).toBe(false);
+  });
+});
+
+describe('MobileDeviceRegistry member session settings', () => {
+  const settings = {
+    workerNodeId: 'her-worker',
+    workingDirectory: '/home/member/work',
+    allowedAccountProfileIds: ['acct-claude', 'acct-codex'],
+  };
+
+  it('saves where a person works and keeps it across a restart', () => {
+    const persistence = memPersistence();
+    const registry = new MobileDeviceRegistry(persistence);
+    const member = registry.addMember('Second person');
+
+    const updated = registry.setMemberSession(member.profileId, settings);
+
+    expect(updated.session).toEqual(settings);
+    expect(new MobileDeviceRegistry(persistence).getMember(member.profileId)?.session).toEqual(settings);
+  });
+
+  it('refuses incomplete choices and people who are not on the list', () => {
+    const registry = new MobileDeviceRegistry(memPersistence());
+    const member = registry.addMember('Second person');
+
+    expect(() => registry.setMemberSession(member.profileId, { ...settings, workerNodeId: ' ' })).toThrow();
+    expect(() => registry.setMemberSession(member.profileId, { ...settings, workingDirectory: 'relative/path' })).toThrow();
+    expect(() => registry.setMemberSession(member.profileId, { ...settings, allowedAccountProfileIds: [] })).toThrow();
+    expect(() => registry.setMemberSession('nobody', settings)).toThrow();
+    expect(registry.getMember(member.profileId)?.session).toBeUndefined();
+  });
+
+  it('accepts Windows and Linux folders and drops repeated accounts', () => {
+    expect(normalizeMemberSession({ ...settings, workingDirectory: 'C:\\Users\\member\\work' })?.workingDirectory)
+      .toBe('C:\\Users\\member\\work');
+    expect(normalizeMemberSession({ ...settings, allowedAccountProfileIds: ['a', 'a', ' b '] })?.allowedAccountProfileIds)
+      .toEqual(['a', 'b']);
+  });
+
+  it('treats damaged saved settings as not set up, so the person cannot start a session', () => {
+    const persistence = memPersistence();
+    persistence.saveProfiles(JSON.stringify([
+      { profileId: 'p1', name: 'Second person', createdAt: 1, session: { workerNodeId: 'her-worker' } },
+    ]));
+
+    expect(new MobileDeviceRegistry(persistence).getMember('p1')?.session).toBeUndefined();
+  });
+
+  it('lists the computers kept for people from the saved settings text', () => {
+    const json = JSON.stringify([
+      { profileId: 'p1', name: 'A', createdAt: 1, session: settings },
+      { profileId: 'p2', name: 'B', createdAt: 2 },
+    ]);
+
+    expect(reservedWorkerNodeIds(json)).toEqual(['her-worker']);
+    expect(reservedWorkerNodeIds('[]')).toEqual([]);
+    expect(reservedWorkerNodeIds('not json')).toEqual([]);
+    expect(reservedWorkerNodeIds(undefined)).toEqual([]);
   });
 });

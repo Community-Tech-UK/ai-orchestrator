@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Instance } from '../../shared/types/instance.types';
 import { MobileSessionOwners } from './mobile-gateway-member-routes';
-import { MOBILE_PROFILE_METADATA_KEY } from './mobile-gateway-session-visibility';
+import { MOBILE_PROFILE_METADATA_KEY } from '../../shared/utils/mobile-profile-stamp';
 
 describe('MobileSessionOwners', () => {
   function setup() {

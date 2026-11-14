@@ -81,7 +81,8 @@ function defaultConnectedWorkerNodes(): WorkerNodeInfo[] {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getWorkerNodeRegistry } = require('../../../remote-node/worker-node-registry') as typeof import('../../../remote-node/worker-node-registry');
-    return getWorkerNodeRegistry().getAllNodes().filter((node) => node.status === 'connected');
+    // Not the computers kept for a phone-app member: the owner's voice recordings must not go there.
+    return getWorkerNodeRegistry().getSharedNodes();
   } catch {
     return [];
   }

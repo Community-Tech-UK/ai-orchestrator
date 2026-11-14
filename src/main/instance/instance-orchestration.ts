@@ -55,6 +55,7 @@ import { errorFromIdentity, errorMessageText } from '../util/error-utils';
 import { getWorkAdmission } from '../work-admission/work-admission';
 import { runHelperStartup } from '../work-admission/helper-startup';
 import { ownedByEngine } from '../work-admission/engine-ownership';
+import { memberProfileIdOf } from '../../shared/utils/mobile-profile-stamp';
 import {
   routeRole,
   decideDelegation,
@@ -196,6 +197,9 @@ export class InstanceOrchestrationManager {
    * Process orchestration output
    */
   processOrchestrationOutput(instanceId: string, content: string): void {
+    // A phone-app member's agent gets no helper agents, connectors, automations or consensus queries: a command it
+    // writes into its reply would run as the owner, outside her computer, account limits and instructions.
+    if (memberProfileIdOf(this.deps.getInstance(instanceId)?.metadata)) return;
     this.orchestration.processOutput(instanceId, content);
   }
 

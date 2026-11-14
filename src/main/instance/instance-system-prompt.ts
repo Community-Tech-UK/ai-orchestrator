@@ -22,6 +22,7 @@
  */
 
 import type { AgentProfile } from '../../shared/types/agent.types';
+import { memberProfileIdOf } from '../../shared/utils/mobile-profile-stamp';
 import type { Instance, InstanceCreateConfig } from '../../shared/types/instance.types';
 import { estimateTokens as sharedEstimateTokens } from '../../shared/utils/token-estimate';
 import type { McpRuntimeToolContextSelection } from '../mcp/mcp-runtime-tool-context';
@@ -171,6 +172,8 @@ export async function assembleInstanceSystemPrompt(
 ): Promise<AssembleInstanceSystemPromptResult> {
   const { instance, config, resolvedProvider, resolvedAgent, instructionPrompts, initialUserMessageContent, deps } = params;
   const settings = getSettingsManager();
+  // A phone-app member's session never carries the owner's instructions, memory or connectors.
+  const memberSession = memberProfileIdOf(config.metadata) !== undefined;
 
   const systemPromptComposer = createBudgetedSystemPromptComposer(resolvedProvider ?? config.provider, instance.id);
   // WS-C6: kinds where a real fetch/build failure or deadline timeout was
@@ -179,7 +182,7 @@ export async function assembleInstanceSystemPrompt(
   const unavailableBlockKinds = new Set<SystemPromptBlockKind>();
 
   let instructionsBlockContent = resolvedAgent.systemPrompt || '';
-  if (instructionPrompts.length > 0) {
+  if (instructionPrompts.length > 0 && !memberSession) {
     // Only remove byte-identical copies supplied to this assembly. A file's
     // presence on disk is not evidence that the native provider loaded it.
     const instructionSection = [...new Set(instructionPrompts)].join('\n\n---\n\n');
@@ -233,7 +236,7 @@ export async function assembleInstanceSystemPrompt(
   const observationQuery = config.initialPrompt
     ? prepareRetrievalQuery(config.initialPrompt).query
     : '';
-  if (observationQuery) {
+  if (observationQuery && !memberSession) {
     try {
       const observationContext = await callWithDeadline(
         deps.buildObservationContext(observationQuery, instance.id),
@@ -268,7 +271,7 @@ export async function assembleInstanceSystemPrompt(
   }
 
   // Inject a compact, project-scoped memory brief for fresh root sessions.
-  if (instance.depth === 0 && !isRestoreOrReplayContinuity(config)) {
+  if (instance.depth === 0 && !memberSession && !isRestoreOrReplayContinuity(config)) {
     try {
       const projectBriefRequest = {
         projectPath: instance.workingDirectory,
@@ -312,7 +315,7 @@ export async function assembleInstanceSystemPrompt(
   // root sessions. The file is git-trackable and written by humans/agents;
   // injecting it carries hard-won knowledge into the next session. Skipped
   // when the file holds only its skeleton placeholder (no real entries).
-  if (instance.depth === 0 && !isRestoreOrReplayContinuity(config)) {
+  if (instance.depth === 0 && !memberSession && !isRestoreOrReplayContinuity(config)) {
     try {
       const lessons = extractAuthoredLessons({ projectRoot: instance.workingDirectory });
       if (lessons) {
@@ -333,7 +336,7 @@ export async function assembleInstanceSystemPrompt(
 
   // E14: inject a compact ranked repo map for fresh root sessions so the
   // agent has structural project context without reading every file.
-  if (instance.depth === 0 && !isRestoreOrReplayContinuity(config)
+  if (instance.depth === 0 && !memberSession && !isRestoreOrReplayContinuity(config)
       && instance.workingDirectory && settings.getAll().injectRepoMap) {
     try {
       const { getRepoMapService } = await import('../memory/repo-map-service');
@@ -362,7 +365,7 @@ export async function assembleInstanceSystemPrompt(
   }
 
   // Inject wake-up context (mempalace L0 identity + L1 essential story)
-  if (instance.depth === 0) {
+  if (instance.depth === 0 && !memberSession) {
     try {
       const wakeText = await callWithDeadline(
         () => deps.buildWakeContextText(instance.workingDirectory),
@@ -399,7 +402,7 @@ export async function assembleInstanceSystemPrompt(
   }
 
   // Register and refresh project knowledge for the working directory (async, fire-and-forget).
-  if (instance.depth === 0 && instance.workingDirectory) {
+  if (instance.depth === 0 && !memberSession && instance.workingDirectory) {
     getProjectKnowledgeCoordinator().ensureProjectKnown(
       instance.workingDirectory,
       'instance-working-directory',
@@ -415,7 +418,7 @@ export async function assembleInstanceSystemPrompt(
   const initialRuntimeContext = await buildInitialRuntimeContextBlock(
     instance,
     config,
-    initialUserMessageContent,
+    memberSession ? undefined : initialUserMessageContent,
   );
 
   // MCP runtime tool selection. Deadline-bounded: a slow tool-load (or a
@@ -426,8 +429,9 @@ export async function assembleInstanceSystemPrompt(
     const runtimeToolSelection = await callWithDeadline<
       McpRuntimeToolContextSelection | null
     >(
-      () =>
-        deps.buildMcpRuntimeToolContextSelection(
+      () => memberSession
+        ? Promise.resolve(null)
+        : deps.buildMcpRuntimeToolContextSelection(
           mcpManager.exportRuntimeToolContextSnapshot(),
           config.initialPrompt,
           6,
@@ -495,7 +499,7 @@ export async function assembleInstanceSystemPrompt(
     'claude-helper-rules',
     helperRulesProvider === 'claude' ? CLAUDE_HELPER_REVIEWER_RULE : '',
   );
-  systemPromptComposer.add('harness-guide', shouldReceiveHarnessGuide(instance, config) ? HARNESS_GUIDE : '');
+  systemPromptComposer.add('harness-guide', !memberSession && shouldReceiveHarnessGuide(instance, config) ? HARNESS_GUIDE : '');
 
   const { text: systemPrompt, manifest: systemPromptManifest, textAfterFirstTurn: systemPromptAfterFirstTurn } = systemPromptComposer.compose();
   logger.debug('Composed system prompt manifest', {

@@ -21,6 +21,7 @@ const fakes = vi.hoisted(() => {
       listeners.clear();
     },
     setComputerChoices: vi.fn(),
+    setReservedNodeIds: vi.fn(),
   };
   return {
     settings: {} as Record<string, unknown>,
@@ -125,6 +126,15 @@ describe('createWorkerNodeSubsystemStep', () => {
     const changed = [{ id: 'pc', paused: true, sessions: true }];
     fakes.settingListeners.get('setting:computers')!(changed);
     expect(fakes.registry.setComputerChoices).toHaveBeenLastCalledWith(changed);
+  });
+
+  it('keeps the computers reserved for phone-app members out of automatic placement, and follows changes', async () => {
+    const people = JSON.stringify([{ profileId: 'p1', name: 'A', createdAt: 1, session: { workerNodeId: 'her-worker' } }]);
+    fakes.settings = { mobileGatewayProfiles: people };
+    await createWorkerNodeSubsystemStep(buildContext()).fn();
+    expect(fakes.registry.setReservedNodeIds).toHaveBeenCalledWith(['her-worker']);
+    fakes.settingListeners.get('setting:mobileGatewayProfiles')!('[]');
+    expect(fakes.registry.setReservedNodeIds).toHaveBeenLastCalledWith([]);
   });
 
   it('advertises over mDNS once the connection server has started', async () => {

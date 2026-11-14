@@ -10,6 +10,8 @@ import type {
 export interface StartSessionState {
   online: boolean;
   directory: string;
+  /** The host picks the folder, as for another person's phone. */
+  hostChoosesDirectory?: boolean;
   busy: boolean;
 }
 
@@ -89,7 +91,7 @@ export function shouldPresentDirectorySheet(
 }
 
 export function canStartSession(state: StartSessionState): boolean {
-  return state.online && state.directory.trim().length > 0 && !state.busy;
+  return state.online && (state.hostChoosesDirectory === true || state.directory.trim().length > 0) && !state.busy;
 }
 
 export function buildCreateInstanceRequest(

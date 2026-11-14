@@ -181,6 +181,12 @@ export interface ConversationHistoryEntry {
   /** Where the instance ran (local or remote node) */
   executionLocation?: ExecutionLocation;
 
+  /**
+   * The phone-app member this conversation belongs to. Restoring it keeps it theirs, on their own worker, and fails
+   * when that worker is offline instead of running on this Mac. Absent on the owner's conversations.
+   */
+  mobileProfileId?: string;
+
   /** Precomputed transcript snippets for advanced search. Capped at 5 per entry. */
   snippets?: HistorySnippet[];
 

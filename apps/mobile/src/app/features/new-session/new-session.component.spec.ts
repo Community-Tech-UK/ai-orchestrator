@@ -178,9 +178,9 @@ describe('NewSessionComponent provider settings', () => {
 });
 
 
-async function setupSession(options: { quota?: () => MobileQuotaStateDto; recentDirs?: ReturnType<typeof vi.fn>; createInstance?: ReturnType<typeof vi.fn>; draft?: string; draftLoad?: ReturnType<typeof vi.fn>; beforeReady?: (root: HTMLElement) => void; realDrafts?: DraftStore; hostId?: string; navigationState?: unknown; legacyText?: string; historyReentry?: boolean; sessionPlan?: ReturnType<typeof vi.fn> } = {}) {
+async function setupSession(options: { quota?: () => MobileQuotaStateDto; recentDirs?: ReturnType<typeof vi.fn>; createInstance?: ReturnType<typeof vi.fn>; draft?: string; draftLoad?: ReturnType<typeof vi.fn>; beforeReady?: (root: HTMLElement) => void; realDrafts?: DraftStore; hostId?: string; navigationState?: unknown; legacyText?: string; historyReentry?: boolean; member?: boolean; sessionPlan?: ReturnType<typeof vi.fn> } = {}) {
   const gateway = {
-    online: signal(true), state: signal('connected'), snapshot: signal(null),
+    online: signal(true), state: signal('connected'), snapshot: signal(options.member ? { isOwner: false, hostName: 'Host A' } : null),
     dataHostId: signal(options.hostId ?? 'host-a'), quotaEvent: signal<{ hostId: string; data: MobileQuotaStateDto } | null>(null),
     quota: vi.fn().mockImplementation(async () => options.quota?.()),
     recentDirs: options.recentDirs ?? vi.fn().mockResolvedValue([{ path: '/work/b', displayName: 'Project B', lastAccessed: 0, isPinned: false }]),
@@ -600,6 +600,43 @@ describe('New Session folder and submission behavior', () => {
     expect(root.textContent).toContain('Photo permission denied');
     root.querySelector<HTMLButtonElement>('button[aria-label="Dictate message"]')!.click(); await settle();
     expect(root.textContent).toContain('Dictation');
+  });
+});
+
+describe('New Session on another person\'s phone', () => {
+  it('has no folder to choose, no resolved plan and only Claude and Codex, and the host picks the folder', async () => {
+    const { root, gateway, settle, type } = await setupSession({ member: true, navigationState: {} });
+
+    expect(root.textContent).not.toContain('Choose where this session should run');
+    expect(root.querySelector('app-mobile-sheet[label="Working directory"]')).toBeNull();
+    expect(gateway.recentDirs).not.toHaveBeenCalled();
+    expect(gateway.sessionPlan).not.toHaveBeenCalled();
+
+    root.querySelector<HTMLButtonElement>('[aria-label="Session settings"]')!.click(); await settle();
+    const rows = [...root.querySelectorAll('app-mobile-sheet[label="Session settings"] .sheet-row strong')].map((el) => el.textContent?.trim());
+    // Claude and Codex, then the model row that shows once a provider is chosen; no Auto, Gemini or the rest.
+    expect(rows).toEqual(['Claude', 'Codex', 'Model']);
+    expect(root.textContent).toContain('Choose Claude or Codex');
+    expect(root.textContent).not.toContain('Resolved session');
+    root.querySelector<HTMLButtonElement>('button[aria-label="Continue with selected provider"]')!.click(); await settle();
+
+    type('Plan my week');
+    root.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true })); await settle();
+    expect(gateway.createInstance).toHaveBeenCalledWith(expect.objectContaining({
+      workingDirectory: '',
+      provider: 'claude',
+      initialPrompt: 'Plan my week',
+    }));
+  });
+
+  it("keeps the owner's folder row, plan and every provider", async () => {
+    const { root, gateway, settle } = await setupSession();
+
+    expect(root.textContent).toContain('/work/a');
+    expect(gateway.sessionPlan).toHaveBeenCalled();
+    root.querySelector<HTMLButtonElement>('[aria-label="Session settings"]')!.click(); await settle();
+    expect(root.textContent).toContain('Resolved session');
+    expect(root.querySelectorAll('app-mobile-sheet[label="Session settings"] .sheet-row strong').length).toBeGreaterThan(2);
   });
 });
 

@@ -19,6 +19,7 @@ import { getSettingsManager } from '../core/config/settings-manager';
 import { getOrchestrationActivityBridge } from '../orchestration/orchestration-activity-bridge';
 import { getLogger } from '../logging/logger';
 import { errorDiagnostic, textDiagnostic } from '../logging/source-diagnostics';
+import { memberProfileIdOf } from '../../shared/utils/mobile-profile-stamp';
 import { getOutputStorageManager } from '../memory/output-storage';
 import { InstanceCompletionTasks, captureCompletionCostIdentity, toProviderCompleteEvent, waitForCompletionUsage, type CompletionCostIdentity, recordCompletionCost as recordCompletionCostImpl, recordEstimationTelemetry as recordEstimationTelemetryImpl } from './communication-completion-cost';
 import { getHandoffStateService } from '../session/handoff-state-service';
@@ -2437,7 +2438,9 @@ export class InstanceCommunicationManager extends EventEmitter {
       instance.outputBuffer = instance.outputBuffer.slice(-bufferSize);
     }
 
-    // Ingest to context systems through the B3 ContextEngine boundary.
+    // Ingest to context systems through the B3 ContextEngine boundary. A phone-app member's conversation stays out of
+    // the owner's shared memory and learning.
+    if (memberProfileIdOf(instance.metadata)) return;
     if (this.deps.ingestContext) {
       this.deps.ingestContext(instance, message);
     } else {

@@ -25,20 +25,22 @@
       <app-mobile-icon class="context-row__chevron" name="chevron-down" />
     </button>
 
-    <button
-      class="context-row mobile-pressable"
-      type="button"
-      (click)="openDirectorySheet($event)"
-      [disabled]="busy()"
-      aria-haspopup="dialog"
-    >
-      <app-mobile-icon name="folder" />
-      <span class="context-row__copy">
-        <span>{{ selectedDirLabel() }}</span>
-        <small>{{ selectedDir() || 'Choose where this session should run' }}</small>
-      </span>
-      <app-mobile-icon class="context-row__chevron" name="chevron-down" />
-    </button>
+    @if (isOwner()) {
+      <button
+        class="context-row mobile-pressable"
+        type="button"
+        (click)="openDirectorySheet($event)"
+        [disabled]="busy()"
+        aria-haspopup="dialog"
+      >
+        <app-mobile-icon name="folder" />
+        <span class="context-row__copy">
+          <span>{{ selectedDirLabel() }}</span>
+          <small>{{ selectedDir() || 'Choose where this session should run' }}</small>
+        </span>
+        <app-mobile-icon class="context-row__chevron" name="chevron-down" />
+      </button>
+    }
 
   </div>
 
@@ -185,8 +187,13 @@
     <app-mobile-sheet label="Session settings" [returnFocusTo]="settingsReturnFocus()" (dismiss)="settingsSheetOpen.set(false)">
       <header class="sheet-heading sheet-heading--with-action">
         <div class="sheet-heading__copy">
-          <span class="sheet-eyebrow">Harness resolves the final setup</span>
-          <p>Auto uses the host's preferred provider, model, and reasoning level.</p>
+          @if (isOwner()) {
+            <span class="sheet-eyebrow">Harness resolves the final setup</span>
+            <p>Auto uses the host's preferred provider, model, and reasoning level.</p>
+          } @else {
+            <span class="sheet-eyebrow">Choose Claude or Codex</span>
+            <p>It runs on the computer set up for you.</p>
+          }
         </div>
         <button
           class="sheet-confirm mobile-icon-button"
@@ -200,7 +207,7 @@
 
       <span class="sheet-section-label">Provider</span>
       <div class="sheet-list">
-        @for (item of providers; track item) {
+        @for (item of providers(); track item) {
           <button class="sheet-row" type="button" (click)="selectProvider(item)" [attr.aria-pressed]="provider() === item">
             <app-mobile-icon name="provider" />
             <span><strong>{{ displayProvider(item) }}</strong><small>{{ item === 'auto' ? 'Use host settings' : 'Run with ' + displayProvider(item) }}</small></span>
@@ -209,18 +216,20 @@
         }
       </div>
 
-      <span class="sheet-section-label">Resolved session</span>
-      <div class="sheet-summary">
-        @if (planLoading()) {
-          <p>Resolving session settings…</p>
-        } @else if (planError()) {
-          <p>{{ planError() }}</p>
-          <button class="sheet-secondary" type="button" (click)="retryPlan()">Retry</button>
-        } @else if (plan(); as resolvedPlan) {
-          <strong>{{ resolvedPlan.providerLabel }}</strong>
-          <span>{{ planSummary() }}</span>
-        }
-      </div>
+      @if (isOwner()) {
+        <span class="sheet-section-label">Resolved session</span>
+        <div class="sheet-summary">
+          @if (planLoading()) {
+            <p>Resolving session settings…</p>
+          } @else if (planError()) {
+            <p>{{ planError() }}</p>
+            <button class="sheet-secondary" type="button" (click)="retryPlan()">Retry</button>
+          } @else if (plan(); as resolvedPlan) {
+            <strong>{{ resolvedPlan.providerLabel }}</strong>
+            <span>{{ planSummary() }}</span>
+          }
+        </div>
+      }
 
       @if (provider() !== 'auto') {
         <button class="sheet-row sheet-row--model" type="button" (click)="openModelSheet()">

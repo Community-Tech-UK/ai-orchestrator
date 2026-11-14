@@ -6,6 +6,10 @@ import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getMobileGatewayServer } from '../../mobile-gateway/mobile-gateway-server';
 import { getMobileDeviceRegistry } from '../../mobile-gateway/mobile-device-registry';
 import { getSettingsManager } from '../../core/config/settings-manager';
+import { getProviderAccountStore } from '../../providers/account-pool/provider-account-store';
+import { getRemoteAuthService } from '../../auth/remote-auth';
+import { getWorkerNodeRegistry } from '../../remote-node';
+import type { MobilePeopleOverview } from '../../../shared/types/mobile-gateway.types';
 import { getLogger } from '../../logging/logger';
 import { validatedHandler } from '../validated-handler';
 
@@ -18,6 +22,44 @@ const MobileGatewayRevokeDevicePayloadSchema = z.object({
 const MobileGatewayMarkViewedPayloadSchema = z.object({
   instanceId: z.string().min(1).max(200),
 });
+
+const MobileGatewayIssuePairingPayloadSchema = z.object({
+  profileId: z.string().min(1).max(200).optional(),
+}).optional();
+
+const MobileGatewayAddPersonPayloadSchema = z.object({
+  name: z.string().min(1).max(200),
+});
+
+const MobileGatewayRemovePersonPayloadSchema = z.object({
+  profileId: z.string().min(1).max(200),
+});
+
+const MobileGatewaySetPersonSessionPayloadSchema = z.object({
+  profileId: z.string().min(1).max(200),
+  workerNodeId: z.string().min(1).max(200),
+  workingDirectory: z.string().min(1).max(1000),
+  allowedAccountProfileIds: z.array(z.string().min(1).max(200)).min(1).max(50),
+});
+
+/** Worker computers, connected now or paired before, by name. */
+function listComputers(): MobilePeopleOverview['computers'] {
+  const computers = new Map<string, { id: string; name: string; online: boolean }>();
+  for (const session of getRemoteAuthService().listSessions()) {
+    computers.set(session.nodeId, { id: session.nodeId, name: session.nodeName, online: false });
+  }
+  for (const node of getWorkerNodeRegistry().getAllNodes()) {
+    computers.set(node.id, { id: node.id, name: node.name, online: node.status === 'connected' });
+  }
+  return [...computers.values()];
+}
+
+/** The Claude and Codex accounts a person's sessions can be limited to. */
+function listAccounts(): MobilePeopleOverview['accounts'] {
+  return getProviderAccountStore().listProfiles()
+    .filter((profile) => profile.enabled && (profile.provider === 'claude' || profile.provider === 'codex'))
+    .map((profile) => ({ id: profile.id, provider: profile.provider as 'claude' | 'codex', label: profile.label }));
+}
 
 function fail(code: string, error: unknown): IpcResponse {
   return {
@@ -66,7 +108,10 @@ export function registerMobileGatewayHandlers(): void {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.MOBILE_GATEWAY_ISSUE_PAIRING, async (): Promise<IpcResponse> => {
+  ipcMain.handle(IPC_CHANNELS.MOBILE_GATEWAY_ISSUE_PAIRING, validatedHandler(
+    IPC_CHANNELS.MOBILE_GATEWAY_ISSUE_PAIRING,
+    MobileGatewayIssuePairingPayloadSchema,
+    async (payload): Promise<IpcResponse> => {
     try {
       const status = getMobileGatewayServer().getStatus();
       if (!status.running) {
@@ -80,7 +125,9 @@ export function registerMobileGatewayHandlers(): void {
       if (!host || host === '0.0.0.0') {
         return fail('MOBILE_GATEWAY_NO_HOST', new Error('No reachable address found — is Tailscale running on this machine?'));
       }
-      const credential = getMobileDeviceRegistry().issuePairing();
+      const credential = getMobileDeviceRegistry().issuePairing(
+        payload?.profileId ? { profileId: payload.profileId } : {},
+      );
       const connectPayload = {
         v: 1,
         host,
@@ -106,7 +153,8 @@ export function registerMobileGatewayHandlers(): void {
     } catch (error) {
       return fail('MOBILE_GATEWAY_ISSUE_PAIRING_FAILED', error);
     }
-  });
+    },
+  ));
 
   ipcMain.handle(IPC_CHANNELS.MOBILE_GATEWAY_LIST_DEVICES, async (): Promise<IpcResponse> => {
     try {
@@ -126,6 +174,67 @@ export function registerMobileGatewayHandlers(): void {
         data: { revoked: getMobileDeviceRegistry().revokeDevice(deviceId) },
       }),
       { errorCode: 'MOBILE_GATEWAY_REVOKE_DEVICE_FAILED' },
+    ),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.MOBILE_GATEWAY_LIST_PEOPLE, async (): Promise<IpcResponse> => {
+    try {
+      const overview: MobilePeopleOverview = {
+        members: getMobileDeviceRegistry().listMembers(),
+        computers: listComputers(),
+        accounts: listAccounts(),
+      };
+      return { success: true, data: overview };
+    } catch (error) {
+      return fail('MOBILE_GATEWAY_LIST_PEOPLE_FAILED', error);
+    }
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.MOBILE_GATEWAY_ADD_PERSON,
+    validatedHandler(
+      IPC_CHANNELS.MOBILE_GATEWAY_ADD_PERSON,
+      MobileGatewayAddPersonPayloadSchema,
+      async ({ name }): Promise<IpcResponse> => ({
+        success: true,
+        data: getMobileDeviceRegistry().addMember(name),
+      }),
+      { errorCode: 'MOBILE_GATEWAY_ADD_PERSON_FAILED' },
+    ),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MOBILE_GATEWAY_REMOVE_PERSON,
+    validatedHandler(
+      IPC_CHANNELS.MOBILE_GATEWAY_REMOVE_PERSON,
+      MobileGatewayRemovePersonPayloadSchema,
+      async ({ profileId }): Promise<IpcResponse> => ({
+        success: true,
+        data: { removed: getMobileDeviceRegistry().removeMember(profileId) },
+      }),
+      { errorCode: 'MOBILE_GATEWAY_REMOVE_PERSON_FAILED' },
+    ),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.MOBILE_GATEWAY_SET_PERSON_SESSION,
+    validatedHandler(
+      IPC_CHANNELS.MOBILE_GATEWAY_SET_PERSON_SESSION,
+      MobileGatewaySetPersonSessionPayloadSchema,
+      async ({ profileId, workerNodeId, workingDirectory, allowedAccountProfileIds }): Promise<IpcResponse> => {
+        if (!listComputers().some((computer) => computer.id === workerNodeId)) {
+          throw new Error('That computer is not paired with Harness.');
+        }
+        const known = new Set(listAccounts().map((account) => account.id));
+        if (!allowedAccountProfileIds.every((id) => known.has(id))) {
+          throw new Error('Choose only Claude or Codex accounts that are set up and switched on.');
+        }
+        return {
+          success: true,
+          data: getMobileDeviceRegistry().setMemberSession(profileId, { workerNodeId, workingDirectory, allowedAccountProfileIds }),
+        };
+      },
+      { errorCode: 'MOBILE_GATEWAY_SET_PERSON_SESSION_FAILED' },
     ),
   );
 

@@ -200,3 +200,35 @@ describe('Projects delayed scroll restoration', () => {
     expect(window.scrollTo).not.toHaveBeenCalled();
   });
 });
+
+describe('Projects menu on another person\'s phone', () => {
+  const menuLabels = (root: HTMLElement) =>
+    [...root.querySelectorAll('.projects-menu button span:last-child')].map((el) => el.textContent?.trim());
+
+  async function openMenu(isOwner: boolean | undefined) {
+    const { fixture, gateway } = setup();
+    gateway.snapshot.set({ ...snapshot, ...(isOwner === undefined ? {} : { isOwner }) });
+    fixture.detectChanges(); await fixture.whenStable();
+    fixture.nativeElement.querySelector('[aria-label="More options"]').click();
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  it('keeps Needs you and Hosts and drops everything that is the owner\'s alone', async () => {
+    const root = await openMenu(false);
+    const labels = menuLabels(root);
+
+    expect(labels.some((label) => label?.startsWith('Needs you'))).toBe(true);
+    expect(labels).toContain('Hosts');
+    for (const owned of ['History', 'Automations', 'Loops', 'Plan queue', 'Reviews']) expect(labels).not.toContain(owned);
+    expect(labels.some((label) => label === 'Pause agents' || label === 'Resume agents')).toBe(false);
+    expect(root.querySelector('app-usage')).toBeNull();
+  });
+
+  it.each([true, undefined])('shows the owner all of it (isOwner %s)', async (isOwner) => {
+    const root = await openMenu(isOwner);
+    const labels = menuLabels(root);
+
+    for (const owned of ['History', 'Automations', 'Loops', 'Plan queue', 'Reviews', 'Pause agents']) expect(labels).toContain(owned);
+  });
+});

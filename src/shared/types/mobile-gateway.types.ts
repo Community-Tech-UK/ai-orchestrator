@@ -92,11 +92,35 @@ export {
  */
 export const MOBILE_OWNER_PROFILE_ID = 'owner';
 
+/**
+ * Where a member's sessions run and which accounts they may use. The gateway
+ * sets all of it; the phone cannot change any of it. A member with no settings
+ * cannot start a session.
+ */
+export interface MobileMemberSessionSettings {
+  /** The worker reserved for this person. Their sessions never run anywhere else. */
+  workerNodeId: string;
+  /** The folder, on that worker, their sessions start in. */
+  workingDirectory: string;
+  /** The only Claude and Codex accounts their sessions may run on. */
+  allowedAccountProfileIds: string[];
+}
+
 /** Another person who uses the phone app with only their own sessions. */
 export interface MobileMemberProfile {
   profileId: string;
   name: string;
   createdAt: number;
+  session?: MobileMemberSessionSettings;
+}
+
+/** What Settings > Mobile needs to manage the people who use the phone app. */
+export interface MobilePeopleOverview {
+  members: MobileMemberProfile[];
+  /** Worker computers a person's sessions can be placed on. */
+  computers: { id: string; name: string; online: boolean }[];
+  /** Claude and Codex accounts a person's sessions can be limited to. */
+  accounts: { id: string; provider: 'claude' | 'codex'; label: string }[];
 }
 
 /** A paired phone, as persisted by the gateway. The bearer `token` is secret. */

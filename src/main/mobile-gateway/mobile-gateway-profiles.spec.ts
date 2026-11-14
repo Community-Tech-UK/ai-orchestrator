@@ -5,7 +5,7 @@ import { WebSocket } from 'ws';
 import { MobileGatewayServer, type GatewayInstanceSource, type GatewayPauseSource } from './mobile-gateway-server';
 import { MobileDeviceRegistry, type MobileDevicePersistence } from './mobile-device-registry';
 import { MobileApnsSender } from './mobile-apns-sender';
-import { MOBILE_PROFILE_METADATA_KEY } from './mobile-gateway-session-visibility';
+import { MOBILE_PROFILE_METADATA_KEY } from '../../shared/utils/mobile-profile-stamp';
 import { _resetIdempotencyStoreForTesting } from '../transport/idempotency-store';
 import type { Instance } from '../../shared/types/instance.types';
 import type { MobilePauseDto } from '../../shared/types/mobile-gateway.types';
@@ -155,6 +155,11 @@ describe('MobileGatewayServer with a second person', () => {
       registry,
       pauseCoordinator: new FakePause(),
       recentDirs: { getDirectories: async () => [] },
+      accountProfiles: () => [
+        { id: 'acct-claude', provider: 'claude', label: 'Claude A', enabled: true, isLegacy: false, priority: 0 },
+        { id: 'acct-codex', provider: 'codex', label: 'Codex A', enabled: true, isLegacy: false, priority: 0 },
+        { id: 'acct-owner-only', provider: 'claude', label: 'Claude B', enabled: true, isLegacy: false, priority: 1 },
+      ],
       apnsSender: sender,
       loopCoordinator: Object.assign(new EventEmitter(), { getActiveLoops: () => [] }),
       onCompletionViewed: completionViewed,
@@ -255,11 +260,8 @@ describe('MobileGatewayServer with a second person', () => {
     const member = await pair(memberProfileId);
 
     for (const [path, method, body] of [
-      ['/api/instances', 'POST', { workingDirectory: '/tmp' }],
       ['/api/pause', 'POST', { paused: true }],
       ['/api/automations', 'GET', undefined],
-      ['/api/history', 'GET', undefined],
-      ['/api/recent-dirs', 'GET', undefined],
       ['/api/session-plan', 'GET', undefined],
       ['/api/quota', 'GET', undefined],
       ['/api/loops', 'GET', undefined],
@@ -267,7 +269,7 @@ describe('MobileGatewayServer with a second person', () => {
       ['/api/doc-reviews', 'GET', undefined],
       ['/api/browser-approvals/req-1/respond', 'POST', { approved: true }],
       ['/api/history/entry-1/continue', 'POST', {}],
-      // Waking can fall back to this Mac today, so even their own session may not be woken yet.
+      // Their own sessions wake when they send a message; the separate wake route has no member check yet.
       ['/api/instances/member-session/wake', 'POST', {}],
       ['/api/something-added-later', 'GET', undefined],
     ] as const) {
@@ -279,6 +281,139 @@ describe('MobileGatewayServer with a second person', () => {
     expect(source.wakeInstance).not.toHaveBeenCalled();
     // Pausing stops their work too, so they can see it.
     expect((await call(member.token, '/api/pause')).status).toBe(200);
+  });
+
+  it("gives a member empty lists instead of the owner's folders and history", async () => {
+    const member = await pair(memberProfileId);
+
+    for (const path of ['/api/recent-dirs', '/api/history']) {
+      const res = await call(member.token, path);
+      expect(res.status, path).toBe(200);
+      expect(await res.json()).toEqual([]);
+    }
+  });
+
+  it("marks a member's snapshot so the phone can hide the owner's areas", async () => {
+    const owner = await pair();
+    const member = await pair(memberProfileId);
+
+    expect(((await (await call(owner.token, '/api/snapshot')).json()) as { isOwner: boolean }).isOwner).toBe(true);
+    expect(((await (await call(member.token, '/api/snapshot')).json()) as { isOwner: boolean }).isOwner).toBe(false);
+  });
+
+  describe('starting a session as a member', () => {
+    const memberSession = {
+      workerNodeId: 'her-worker',
+      workingDirectory: '/home/member/work',
+      allowedAccountProfileIds: ['acct-claude', 'acct-codex'],
+    };
+
+    beforeEach(() => {
+      source.createInstance.mockImplementation(async (config: { workingDirectory: string }) =>
+        inst({ id: 'new-session', workingDirectory: config.workingDirectory }));
+    });
+
+    it('refuses until the owner has set up a computer, a folder and an account', async () => {
+      const member = await pair(memberProfileId);
+
+      const res = await call(member.token, '/api/instances', 'POST', { workingDirectory: '/tmp' });
+
+      expect(res.status).toBe(409);
+      expect(source.createInstance).not.toHaveBeenCalled();
+    });
+
+    it('sets the folder, computer, accounts and approvals itself and ignores what the phone sends', async () => {
+      registry.setMemberSession(memberProfileId, memberSession);
+      const member = await pair(memberProfileId);
+
+      const res = await call(member.token, '/api/instances', 'POST', {
+        workingDirectory: '/Users/owner/work',
+        forceNodeId: 'owner-worker',
+        nodeName: 'owner-mac',
+        yoloMode: false,
+        allowedAccountProfileIds: ['acct-owner-only'],
+        metadata: { mobileProfileId: 'owner' },
+        provider: 'codex',
+        model: 'a-model',
+        initialPrompt: 'hello',
+      });
+
+      expect(res.status).toBe(200);
+      expect(source.createInstance).toHaveBeenCalledTimes(1);
+      const config = source.createInstance.mock.calls[0][0] as Record<string, unknown>;
+      expect(config).toMatchObject({
+        workingDirectory: '/home/member/work',
+        forceNodeId: 'her-worker',
+        allowedAccountProfileIds: ['acct-claude', 'acct-codex'],
+        yoloMode: true,
+        provider: 'codex',
+        modelOverride: 'a-model',
+        initialPrompt: 'hello',
+        metadata: { [MOBILE_PROFILE_METADATA_KEY]: memberProfileId },
+      });
+      expect(config['nodeName']).toBeUndefined();
+    });
+
+    it('starts on Claude when the phone leaves the provider on Auto', async () => {
+      registry.setMemberSession(memberProfileId, memberSession);
+      const member = await pair(memberProfileId);
+
+      await call(member.token, '/api/instances', 'POST', { provider: 'auto' });
+
+      expect(source.createInstance.mock.calls[0][0]).toMatchObject({ provider: 'claude' });
+    });
+
+    it('refuses a provider the owner cannot limit to one person, or one with no account for them', async () => {
+      registry.setMemberSession(memberProfileId, { ...memberSession, allowedAccountProfileIds: ['acct-claude'] });
+      const member = await pair(memberProfileId);
+
+      expect((await call(member.token, '/api/instances', 'POST', { provider: 'gemini' })).status).toBe(400);
+      expect((await call(member.token, '/api/instances', 'POST', { provider: 'codex' })).status).toBe(409);
+      expect(source.createInstance).not.toHaveBeenCalled();
+    });
+
+    it('refuses a session start with malformed or oversized attachments, for a member and for the owner', async () => {
+      registry.setMemberSession(memberProfileId, memberSession);
+      const member = await pair(memberProfileId);
+      const owner = await pair();
+      const tooMany = Array.from({ length: 11 }, () => ({ name: 'a.png', type: 'image/png', size: 1, data: 'x' }));
+
+      for (const token of [member.token, owner.token]) {
+        expect((await call(token, '/api/instances', 'POST', { workingDirectory: '/tmp', attachments: tooMany })).status).toBe(400);
+        expect((await call(token, '/api/instances', 'POST', { workingDirectory: '/tmp', attachments: [{ name: 'a', type: 'b', size: -1, data: 'x' }] })).status).toBe(400);
+        expect((await call(token, '/api/instances', 'POST', { workingDirectory: '/tmp', attachments: 'nope' })).status).toBe(400);
+      }
+      expect(source.createInstance).not.toHaveBeenCalled();
+    });
+
+    it("starts the owner's sessions in the folder the phone names, as before", async () => {
+      const owner = await pair();
+
+      await call(owner.token, '/api/instances', 'POST', { workingDirectory: '/Users/owner/work', forceNodeId: 'owner-worker' });
+
+      expect(source.createInstance.mock.calls[0][0]).toMatchObject({
+        workingDirectory: '/Users/owner/work',
+        forceNodeId: 'owner-worker',
+      });
+      expect(source.createInstance.mock.calls[0][0]).not.toHaveProperty('metadata');
+    });
+
+    it('leaves a browser approval to the owner even when the member names its session', async () => {
+      const member = await pair(memberProfileId);
+      (server as unknown as { promptStore: { syncBrowser(prompts: unknown[]): void } }).promptStore.syncBrowser([
+        {
+          id: 'browser-1', instanceId: 'member-session', requestId: 'browser-1', kind: 'browser',
+          title: 'Allow', message: 'Allow', createdAt: 1,
+        },
+      ]);
+
+      const res = await call(member.token, '/api/instances/member-session/respond', 'POST', {
+        requestId: 'browser-1', decisionAction: 'allow',
+      });
+
+      expect(res.status).toBe(403);
+      expect(source.resumeAfterDeferredPermission).not.toHaveBeenCalled();
+    });
   });
 
   it('streams prompts only to the person whose session asked', async () => {

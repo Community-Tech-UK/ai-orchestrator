@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-11-05-cyntia-mobile-profile_plan.md",
+      "sha256": "66c6f1d31c62a6ee118e4734908ce5727351f89d27033006b7fb5ce8bb056ab4",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-11-05-cyntia-mobile-profile_history.md",
+      "sha256": "477ce3fd2c9ac4d6fa21947ae8135888c5dd0c70a593f3aefa1c34d0990f50db",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-11-05-cyntia-mobile-profile_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-11-05-cyntia-mobile-profile_plan_completed.md",
+      "sha256": "ba6a3092fbee17c5c1e17161afef7f62b03529a36123255d4db225058e6642b7"
+    },
+    {
+      "relativePath": "2026-11-05-cyntia-mobile-profile_plan_history_7cb7e5008f96fc1e3bc169a5bf287df066c1885ce100332e070c28729d512656_completed.md",
+      "sha256": "6c44194e8267b7a83467ac21dc676d0996f0e545c699766f534490e1fd5235fb"
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import * as crypto from 'crypto';
+import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { getLogger } from '../logging/logger';
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -7,6 +8,7 @@ import {
   type MobileDevice,
   type MobileDeviceSummary,
   type MobileMemberProfile,
+  type MobileMemberSessionSettings,
   type MobilePairingCredential,
 } from '../../shared/types/mobile-gateway.types';
 
@@ -59,6 +61,37 @@ const settingsPersistence: MobileDevicePersistence = {
 /** The person a phone belongs to. Phones paired before profiles existed are the owner's. */
 export function deviceProfileId(device: Pick<MobileDevice, 'profileId'>): string {
   return device.profileId ?? MOBILE_OWNER_PROFILE_ID;
+}
+
+/** Valid session settings, or undefined when any part is missing or malformed. */
+export function normalizeMemberSession(
+  settings: Partial<MobileMemberSessionSettings> | undefined,
+): MobileMemberSessionSettings | undefined {
+  if (!settings) return undefined;
+  const workerNodeId = typeof settings.workerNodeId === 'string' ? settings.workerNodeId.trim() : '';
+  const workingDirectory = typeof settings.workingDirectory === 'string' ? settings.workingDirectory.trim() : '';
+  const accounts = Array.isArray(settings.allowedAccountProfileIds)
+    ? [...new Set(settings.allowedAccountProfileIds.filter((id): id is string => typeof id === 'string' && id.trim() !== '').map((id) => id.trim()))]
+    : [];
+  // The folder lives on the worker, which may be Windows or Linux, so either style counts as absolute.
+  const absolute = path.posix.isAbsolute(workingDirectory) || path.win32.isAbsolute(workingDirectory);
+  if (!workerNodeId || !workingDirectory || !absolute || accounts.length === 0) return undefined;
+  return { workerNodeId, workingDirectory, allowedAccountProfileIds: accounts };
+}
+
+/** The workers reserved for people other than the owner, from the saved settings text. */
+export function reservedWorkerNodeIds(profilesJson: unknown): string[] {
+  if (typeof profilesJson !== 'string') return [];
+  try {
+    const parsed: unknown = JSON.parse(profilesJson);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((profile: { session?: Partial<MobileMemberSessionSettings> } | null) => {
+      const nodeId = profile?.session?.workerNodeId;
+      return typeof nodeId === 'string' && nodeId.trim() ? [nodeId.trim()] : [];
+    });
+  } catch {
+    return [];
+  }
 }
 
 export type MobilePairResult =
@@ -233,6 +266,27 @@ export class MobileDeviceRegistry {
     this.persistProfiles();
     logger.info('Added mobile profile', { profileId: profile.profileId });
     return profile;
+  }
+
+  getMember(profileId: string): MobileMemberProfile | undefined {
+    this.ensureLoaded();
+    return this.members.get(profileId);
+  }
+
+  /** Where this person's sessions run and which accounts they may use. */
+  setMemberSession(profileId: string, settings: MobileMemberSessionSettings): MobileMemberProfile {
+    this.ensureLoaded();
+    const member = this.members.get(profileId);
+    if (!member) throw new Error('That person no longer has access to the phone app.');
+    const session = normalizeMemberSession(settings);
+    if (!session) {
+      throw new Error('Choose a computer, a folder on it, and at least one account for this person.');
+    }
+    const updated: MobileMemberProfile = { ...member, session };
+    this.members.set(profileId, updated);
+    this.persistProfiles();
+    logger.info('Updated mobile profile session settings', { profileId });
+    return updated;
   }
 
   /**
@@ -498,7 +552,9 @@ export class MobileDeviceRegistry {
           profile.profileId !== MOBILE_OWNER_PROFILE_ID &&
           typeof profile.name === 'string'
         ) {
-          this.members.set(profile.profileId, profile);
+          // A damaged settings block leaves the person with no session settings, which refuses their sessions.
+          const session = normalizeMemberSession(profile.session);
+          this.members.set(profile.profileId, { ...profile, session });
         }
       }
     } catch (err) {

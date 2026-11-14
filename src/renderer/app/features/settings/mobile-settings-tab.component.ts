@@ -18,10 +18,22 @@ import {
   type MobilePairingResult,
 } from '../../core/services/ipc/mobile-gateway-ipc.service';
 import { SettingsIpcService } from '../../core/services/ipc/settings-ipc.service';
-import type {
-  MobileGatewayStatus,
-  MobileDeviceSummary,
+import { presentError } from '../../../../shared/present-error';
+import { MobilePeopleStore } from '../../core/state/mobile-people.store';
+import {
+  MOBILE_OWNER_PROFILE_ID,
+  type MobileGatewayStatus,
+  type MobileDeviceSummary,
+  type MobileMemberProfile,
+  type MobilePeopleOverview,
 } from '../../../../shared/types/mobile-gateway.types';
+
+/** What is typed in for one person's sessions before it is saved. */
+interface PersonDraft {
+  workerNodeId: string;
+  workingDirectory: string;
+  accountIds: string[];
+}
 
 @Component({
   standalone: true,
@@ -143,12 +155,96 @@ import type {
         </button>
       </div>
 
+      <div class="card">
+        <h3>People</h3>
+        <p class="hint">
+          Each person sees only their own sessions in the phone app. Their sessions run on a computer
+          kept for them, in a folder you choose, and only on the accounts you tick. Those sessions use
+          your accounts, count against your limits and run without asking for approval first, because
+          the computer is theirs alone.
+        </p>
+        @for (person of members(); track person.profileId) {
+          <div class="person">
+            <div class="person-head">
+              <strong>{{ person.name }}</strong>
+              <button class="danger" (click)="removePerson(person)">Remove {{ person.name }}</button>
+            </div>
+            @if (!person.session) {
+              <p class="hint warn">Not set up yet. They cannot start sessions until you choose a computer, a folder and an account.</p>
+            }
+            <label class="field">
+              <span>Computer</span>
+              <select
+                [ngModel]="draftFor(person).workerNodeId"
+                (ngModelChange)="updateDraft(person, { workerNodeId: $event })"
+              >
+                <option value="">Choose a computer</option>
+                @for (computer of computers(); track computer.id) {
+                  <option [value]="computer.id">{{ computer.name }}{{ computer.online ? '' : ' (offline)' }}</option>
+                }
+              </select>
+            </label>
+            <label class="field">
+              <span>Folder on that computer</span>
+              <input
+                [ngModel]="draftFor(person).workingDirectory"
+                (ngModelChange)="updateDraft(person, { workingDirectory: $event })"
+                placeholder="/home/cyntia/work"
+              />
+            </label>
+            <div class="field">
+              <span>Accounts they may use</span>
+              @for (account of accounts(); track account.id) {
+                <label class="checkbox">
+                  <input
+                    type="checkbox"
+                    [ngModel]="draftFor(person).accountIds.includes(account.id)"
+                    (ngModelChange)="toggleAccount(person, account.id, $event)"
+                  />
+                  <span>{{ account.label }} ({{ account.provider === 'claude' ? 'Claude' : 'Codex' }})</span>
+                </label>
+              } @empty {
+                <span class="hint">No Claude or Codex accounts are set up.</span>
+              }
+            </div>
+            <button (click)="savePerson(person)" [disabled]="!canSave(person) || savingPerson() === person.profileId">
+              {{ savingPerson() === person.profileId ? 'Saving…' : savedPerson() === person.profileId ? 'Saved' : 'Save choices' }}
+            </button>
+            @if (!canSave(person)) {
+              <span class="hint">Choose a computer, a folder and at least one account to save.</span>
+            }
+          </div>
+        } @empty {
+          <p class="hint">Only you use the phone app so far.</p>
+        }
+        <div class="add-person">
+          <input
+            [ngModel]="newPersonName()"
+            (ngModelChange)="newPersonName.set($event)"
+            placeholder="Name"
+            aria-label="Name of the person to add"
+          />
+          <button (click)="addPerson()" [disabled]="!newPersonName().trim()">Add person</button>
+        </div>
+      </div>
+
       @if (status()?.running) {
         <div class="card">
           <h3>Pair a phone</h3>
           <p class="hint">
             Generate a one-time code, then scan it in the Harness phone app.
           </p>
+          @if (members().length > 0) {
+            <label class="field">
+              <span>Whose phone</span>
+              <select [ngModel]="pairingProfileId()" (ngModelChange)="pairingProfileId.set($event); pairing.set(null)">
+                <option [value]="ownerProfileId">Mine</option>
+                @for (person of members(); track person.profileId) {
+                  <option [value]="person.profileId">{{ person.name }}</option>
+                }
+              </select>
+            </label>
+          }
           <button (click)="generatePairing()" [disabled]="pairingBusy()">
             {{ pairingBusy() ? 'Generating…' : 'Generate pairing code' }}
           </button>
@@ -175,7 +271,7 @@ import type {
             @for (device of devices(); track device.deviceId) {
               <div class="device-row">
                 <div class="device-info">
-                  <strong>{{ device.label }}</strong>
+                  <strong>{{ device.label }}{{ deviceOwnerSuffix(device) }}</strong>
                   <span class="meta">
                     last seen {{ formatRelativeTime(device.lastSeenAt) }} ·
                     expires {{ formatExpiry(device.expiresAt) }}
@@ -246,6 +342,17 @@ import type {
       }
       .device-info { display: flex; flex-direction: column; gap: 2px; }
       .device-info .meta { color: var(--text-secondary, #8e8e93); font-size: 12px; }
+      .person {
+        display: flex; flex-direction: column; gap: 10px;
+        padding-top: 12px; border-top: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+      }
+      .person-head { display: flex; justify-content: space-between; align-items: center; }
+      .add-person { display: flex; gap: 8px; align-items: center; }
+      select {
+        background: var(--bg, #000); color: var(--text, #fff);
+        border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+        border-radius: 8px; padding: 8px 10px; font-size: 13px; width: 100%;
+      }
       .field { display: flex; flex-direction: column; gap: 4px; }
       .field > span { font-size: 12px; color: var(--text-secondary, #8e8e93); }
       .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -265,6 +372,18 @@ export class MobileSettingsTabComponent implements OnInit {
   private readonly confirmService = inject(ConfirmService);
   private readonly ipc = inject(MobileGatewayIpcService);
   private readonly settings = inject(SettingsIpcService);
+  private readonly peopleStore = inject(MobilePeopleStore);
+
+  protected readonly ownerProfileId = MOBILE_OWNER_PROFILE_ID;
+  protected readonly people = signal<MobilePeopleOverview | null>(null);
+  protected readonly members = computed(() => this.people()?.members ?? []);
+  protected readonly computers = computed(() => this.people()?.computers ?? []);
+  protected readonly accounts = computed(() => this.people()?.accounts ?? []);
+  protected readonly drafts = signal<Record<string, PersonDraft>>({});
+  protected readonly newPersonName = signal('');
+  protected readonly savingPerson = signal<string | null>(null);
+  protected readonly savedPerson = signal<string | null>(null);
+  protected readonly pairingProfileId = signal(MOBILE_OWNER_PROFILE_ID);
 
   protected readonly status = signal<MobileGatewayStatus | null>(null);
   protected readonly devices = signal<MobileDeviceSummary[]>([]);
@@ -319,7 +438,103 @@ export class MobileSettingsTabComponent implements OnInit {
   private async refresh(): Promise<void> {
     this.status.set(await this.ipc.getStatus());
     this.devices.set(await this.ipc.listDevices());
+    await this.loadPeople();
     await this.loadApnsConfig();
+  }
+
+  private async loadPeople(): Promise<void> {
+    const overview = await this.ipc.listPeople();
+    this.people.set(overview);
+    // Keep what is being typed for a person who is still there; start the others from what is saved.
+    const previous = this.drafts();
+    const next: Record<string, PersonDraft> = {};
+    for (const person of overview?.members ?? []) {
+      next[person.profileId] = previous[person.profileId] ?? {
+        workerNodeId: person.session?.workerNodeId ?? '',
+        workingDirectory: person.session?.workingDirectory ?? '',
+        accountIds: [...(person.session?.allowedAccountProfileIds ?? [])],
+      };
+    }
+    this.drafts.set(next);
+    if (!next[this.pairingProfileId()] && this.pairingProfileId() !== MOBILE_OWNER_PROFILE_ID) {
+      this.pairingProfileId.set(MOBILE_OWNER_PROFILE_ID);
+    }
+    await this.peopleStore.refresh();
+  }
+
+  protected draftFor(person: MobileMemberProfile): PersonDraft {
+    return this.drafts()[person.profileId] ?? { workerNodeId: '', workingDirectory: '', accountIds: [] };
+  }
+
+  protected updateDraft(person: MobileMemberProfile, change: Partial<PersonDraft>): void {
+    this.drafts.update((all) => ({ ...all, [person.profileId]: { ...this.draftFor(person), ...change } }));
+  }
+
+  protected toggleAccount(person: MobileMemberProfile, accountId: string, checked: boolean): void {
+    const current = this.draftFor(person).accountIds.filter((id) => id !== accountId);
+    this.updateDraft(person, { accountIds: checked ? [...current, accountId] : current });
+  }
+
+  protected canSave(person: MobileMemberProfile): boolean {
+    const draft = this.draftFor(person);
+    return Boolean(draft.workerNodeId && draft.workingDirectory.trim() && draft.accountIds.length > 0);
+  }
+
+  protected async addPerson(): Promise<void> {
+    this.error.set(null);
+    try {
+      await this.ipc.addPerson(this.newPersonName());
+      this.newPersonName.set('');
+      await this.loadPeople();
+    } catch (err) {
+      this.error.set(presentError(err).rawDetail);
+    }
+  }
+
+  protected async savePerson(person: MobileMemberProfile): Promise<void> {
+    const draft = this.draftFor(person);
+    this.savingPerson.set(person.profileId);
+    this.error.set(null);
+    try {
+      await this.ipc.setPersonSession({
+        profileId: person.profileId,
+        workerNodeId: draft.workerNodeId,
+        workingDirectory: draft.workingDirectory.trim(),
+        allowedAccountProfileIds: draft.accountIds,
+      });
+      this.savedPerson.set(person.profileId);
+      setTimeout(() => this.savedPerson.set(null), 2000);
+      await this.loadPeople();
+    } catch (err) {
+      this.error.set(presentError(err).rawDetail);
+    } finally {
+      this.savingPerson.set(null);
+    }
+  }
+
+  protected async removePerson(person: MobileMemberProfile): Promise<void> {
+    if (!await this.confirmService.confirm({
+      message: `Remove ${person.name}? Their phones disconnect now and must pair again. Sessions they started stay on your list.`,
+      confirmLabel: `Remove ${person.name}`,
+      danger: true,
+    })) {
+      return;
+    }
+    this.error.set(null);
+    try {
+      await this.ipc.removePerson(person.profileId);
+      this.devices.set(await this.ipc.listDevices());
+      await this.loadPeople();
+    } catch (err) {
+      this.error.set(presentError(err).rawDetail);
+    }
+  }
+
+  /** The person's name after a phone's label, when the phone is not the owner's. */
+  protected deviceOwnerSuffix(device: MobileDeviceSummary): string {
+    if (device.profileId === MOBILE_OWNER_PROFILE_ID) return '';
+    const name = this.members().find((person) => person.profileId === device.profileId)?.name;
+    return name ? ` (${name})` : '';
   }
 
   private async loadApnsConfig(): Promise<void> {
@@ -400,7 +615,8 @@ export class MobileSettingsTabComponent implements OnInit {
     this.pairingBusy.set(true);
     this.error.set(null);
     try {
-      const result = await this.ipc.issuePairing();
+      const profileId = this.pairingProfileId();
+      const result = await this.ipc.issuePairing(profileId === MOBILE_OWNER_PROFILE_ID ? undefined : profileId);
       if (!result) {
         this.error.set('Could not generate a pairing code — is Tailscale running on this Mac?');
       }

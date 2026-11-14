@@ -19,6 +19,8 @@ import { promptsFromDiscardedEntries } from '../prompt-retention';
 import { isToolOutcomeMessage, isVisibleOutputMessage } from '../../../shared/types/tool-outcome';
 import { recordToolOutcome } from '../../learning/tool-outcome-store';
 import { computeResumeConfigFingerprint } from './session-recovery';
+import { getMobileDeviceRegistry } from '../../mobile-gateway/mobile-device-registry';
+import { memberSessionPolicy } from '../../mobile-gateway/mobile-gateway-member-session';
 import { restoreHistoryMessages, selectRestoredEntries } from './wake-buffer-restore';
 
 /** Messages a document-review revival restores into its visible buffer. */
@@ -322,6 +324,13 @@ async function reviveCrashRecovery(
     || undefined;
   let replacement: Instance | undefined;
   let creation: ContinuityRecoveryCreation | undefined;
+  // A revived member session stays the member's, on their account fence, and only on the computer set up for them: one
+  // that ran anywhere else, or has no recorded computer, is not revived (it could land on this Mac or a shared computer).
+  const member = state.mobileProfileId ? getMobileDeviceRegistry().getMember(state.mobileProfileId) : undefined;
+  if (member && (executionLocation?.type !== 'remote' || executionLocation.nodeId !== member.session?.workerNodeId)) {
+    throw recoveryValidationError();
+  }
+  const memberPolicy = member ? memberSessionPolicy(member) : undefined;
 
   try {
     creation = await deps.createRecoveryInstance({
@@ -339,7 +348,9 @@ async function reviveCrashRecovery(
       provider: state.provider ?? resolved.candidate.provider,
       modelOverride: state.modelId?.trim() || undefined,
       copilotAccountProfileId: state.copilotAccountProfileId,
+      ...memberPolicy,
       metadata: {
+        ...memberPolicy?.metadata,
         continuityRevival: true,
         reason: request.reason,
         transcriptKnown: hasCompleteCheckpoint(state, initialOutputBuffer, resolved.candidate.recoveredMessageCount),

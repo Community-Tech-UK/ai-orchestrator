@@ -2,6 +2,7 @@ import type { Instance } from '../../shared/types/instance.types';
 import { CLAUDE_MODELS } from '../../shared/types/provider.types';
 import { normalizeOpenCodeAdditionalDirectories } from '../../shared/utils/opencode-additional-directories';
 import { isProjectRailHiddenSession } from '../../shared/utils/project-rail-hidden-session';
+import { memberProfileIdOf } from '../../shared/utils/mobile-profile-stamp';
 import { hasFreshInitialSubmission } from '../instance/lifecycle/initial-submission-capture';
 import { retainedPromptsMissingFrom } from '../instance/prompt-retention';
 import { automationProvenanceFromMetadata } from './continuity-automation-provenance';
@@ -82,6 +83,8 @@ export function instanceToContinuityState(instance: Instance, config: Pick<Conti
     accountRouteOrigin: instance.accountRouteOrigin,
     allowedAccountProfileIds: instance.allowedAccountProfileIds,
     accountPreferences: instance.accountPreferences,
+    // `instance.metadata` is not copied, so the member's stamp is carried explicitly or a revived session turns into the owner's.
+    ...(memberProfileIdOf(instance.metadata) ? { mobileProfileId: memberProfileIdOf(instance.metadata) } : {}),
   };
 
   return normalizeStateForContinuity(state, config.redactToolOutputs);

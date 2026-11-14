@@ -11,8 +11,24 @@ export function createMobileGatewayDomain(ipcRenderer: IpcRenderer, ch: typeof I
 
     mobileGatewayStop: (): Promise<IpcResponse> => ipcRenderer.invoke(ch.MOBILE_GATEWAY_STOP),
 
-    mobileGatewayIssuePairing: (): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.MOBILE_GATEWAY_ISSUE_PAIRING),
+    mobileGatewayIssuePairing: (payload?: { profileId?: string }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.MOBILE_GATEWAY_ISSUE_PAIRING, payload),
+
+    mobileGatewayListPeople: (): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.MOBILE_GATEWAY_LIST_PEOPLE),
+
+    mobileGatewayAddPerson: (payload: { name: string }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.MOBILE_GATEWAY_ADD_PERSON, payload),
+
+    mobileGatewayRemovePerson: (payload: { profileId: string }): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.MOBILE_GATEWAY_REMOVE_PERSON, payload),
+
+    mobileGatewaySetPersonSession: (payload: {
+      profileId: string;
+      workerNodeId: string;
+      workingDirectory: string;
+      allowedAccountProfileIds: string[];
+    }): Promise<IpcResponse> => ipcRenderer.invoke(ch.MOBILE_GATEWAY_SET_PERSON_SESSION, payload),
 
     mobileGatewayListDevices: (): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.MOBILE_GATEWAY_LIST_DEVICES),

@@ -36,6 +36,14 @@ describe('instanceToContinuityState', () => {
     )).toBe(false);
   });
 
+  it("records a member's stamp, because instance metadata is not copied, and nothing for the owner", () => {
+    const hers = createInstance({ workingDirectory: '/workspace', metadata: { mobileProfileId: 'member-1' } });
+    const owner = createInstance({ workingDirectory: '/workspace' });
+
+    expect(instanceToContinuityState(hers, CONFIG).mobileProfileId).toBe('member-1');
+    expect('mobileProfileId' in instanceToContinuityState(owner, CONFIG)).toBe(false);
+  });
+
   it('leaves the flag off ordinary and automation sessions', () => {
     const own = createInstance({ workingDirectory: '/workspace' });
     const automation = createInstance({

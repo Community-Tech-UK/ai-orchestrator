@@ -46,8 +46,11 @@ import {
 
 import { trustedNewSessionDirectory } from './new-session.navigation';
 import { UsageStore } from '../usage/usage.store';
+import { isOwnerPhone } from '../../core/owner';
 
 const PROVIDERS = ['auto', 'claude', 'codex', 'gemini', 'copilot', 'cursor', 'grok', 'opencode'] as const;
+/** The providers whose accounts the host can limit to one person. */
+const MEMBER_PROVIDERS: readonly (typeof PROVIDERS)[number][] = ['claude', 'codex'];
 
 @Component({
   standalone: true,
@@ -80,7 +83,9 @@ export class NewSessionComponent implements OnInit {
 
   readonly dir = input('');
 
-  protected readonly providers = PROVIDERS;
+  /** Another person's phone: the host sets the folder, computer and accounts, and no plan is resolved. */
+  protected readonly isOwner = computed(() => isOwnerPhone(this.gateway.snapshot()));
+  protected readonly providers = computed(() => this.isOwner() ? PROVIDERS : MEMBER_PROVIDERS);
   protected readonly online = this.gateway.online;
   /** Both distinguish an expired pairing from an ordinary network drop. */
   protected readonly hostAvailability = computed(() => hostAvailabilityText(this.gateway.state()));
@@ -188,6 +193,7 @@ export class NewSessionComponent implements OnInit {
     canStartSession({
       online: this.online(),
       directory: this.selectedDir(),
+      hostChoosesDirectory: !this.isOwner(),
       busy: this.busy() || this.attachBusy() || this.voiceBusy() || this.listening() || !this.draftReady() || this.submitted || !this.isCurrentHost(),
     }),
   );
@@ -196,6 +202,11 @@ export class NewSessionComponent implements OnInit {
     effect(() => {
       const preset = this.presetDir();
       if (preset && !this.selectedDir()) this.selectedDir.set(preset);
+    });
+
+    // Another person's phone has no Auto: the host cannot resolve it for them, so start on Claude.
+    effect(() => {
+      if (!this.isOwner() && this.provider() === 'auto') this.selectProvider('claude');
     });
 
     effect(() => {
@@ -220,7 +231,7 @@ export class NewSessionComponent implements OnInit {
 
     effect(() => {
       const composer = this.composer();
-      const ready = Boolean(this.selectedDir())
+      const ready = (Boolean(this.selectedDir()) || !this.isOwner())
         && !this.directorySheetOpen()
         && !this.directoryReturnFocus()
         && !this.settingsSheetOpen()
@@ -260,7 +271,7 @@ export class NewSessionComponent implements OnInit {
       });
     }
     await ready;
-    if (this.isCurrentHost() && !this.selectedDir()) await this.openDirectorySheet();
+    if (this.isCurrentHost() && !this.selectedDir() && this.isOwner()) await this.openDirectorySheet();
   }
 
   private async restoreDraft(initial: NewSessionDraft, preset: string, initialAttachments: MobileAttachmentDto[]): Promise<void> {
@@ -474,7 +485,7 @@ export class NewSessionComponent implements OnInit {
     try {
       const instance = await this.gateway.createInstance(
         buildCreateInstanceRequest({
-          directory: this.selectedDir(),
+          directory: this.isOwner() ? this.selectedDir() : '',
           provider: this.provider(),
           model: this.model(),
           reasoningEffort: this.reasoningEffort(),
@@ -510,6 +521,12 @@ export class NewSessionComponent implements OnInit {
     accountProfileId: string | undefined,
   ): Promise<void> {
     const request = ++this.planReq;
+    if (!this.isOwner()) {
+      this.planLoading.set(false);
+      this.planError.set(null);
+      this.plan.set(null);
+      return;
+    }
     this.planLoading.set(true);
     this.planError.set(null);
     this.plan.set(null);

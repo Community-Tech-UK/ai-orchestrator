@@ -4,6 +4,7 @@ import { getThinClientWsServer } from '../event-bus/thin-client-ws-server';
 import { getLogger } from '../logging/logger';
 import { getNotificationService } from '../notifications/notification-service';
 import { getMobileGatewayServer } from '../mobile-gateway/mobile-gateway-server';
+import { reservedWorkerNodeIds } from '../mobile-gateway/mobile-device-registry';
 import { setBrowserEscalationNotifyHook } from '../browser-gateway/browser-unattended-services';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import {
@@ -48,6 +49,9 @@ export function createWorkerNodeSubsystemStep(
       // The Computers page's order, pauses and agent-session switches, kept current.
       registry.setComputerChoices(getSettingsManager().get('computers'));
       getSettingsManager().on('setting:computers', (choices: ComputerChoice[]) => registry.setComputerChoices(choices));
+      // A computer kept for a phone-app member is never chosen for anyone else's work.
+      registry.setReservedNodeIds(reservedWorkerNodeIds(getSettingsManager().get('mobileGatewayProfiles')));
+      getSettingsManager().on('setting:mobileGatewayProfiles', (profilesJson: unknown) => registry.setReservedNodeIds(reservedWorkerNodeIds(profilesJson)));
       const connection = getWorkerNodeConnectionServer();
       const rpcRouter = new RpcEventRouter(connection, registry);
       rpcRouter.start();

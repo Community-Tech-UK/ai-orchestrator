@@ -22,6 +22,7 @@ const IDLE_WEIGHT = 20;
 export class WorkerNodeRegistry extends EventEmitter {
   private nodes = new Map<string, WorkerNodeInfo>();
   private choices: ComputerChoice[] = [];
+  private reservedNodeIds = new Set<string>();
 
   private static instance: WorkerNodeRegistry | null = null;
 
@@ -136,8 +137,22 @@ export class WorkerNodeRegistry extends EventEmitter {
     return this.choices;
   }
 
+  /**
+   * Computers kept for one person's sessions (a phone-app member). Harness never chooses them for anyone else's work:
+   * not `selectNode`, not the Browser Gateway's choice of browser computer. A session that names the computer, such as
+   * the member's own, still goes.
+   */
+  setReservedNodeIds(nodeIds: readonly string[]): void {
+    this.reservedNodeIds = new Set(nodeIds);
+  }
+
+  /** Connected computers Harness may choose for work of its own: every healthy one except those kept for a member. */
+  getSharedNodes(): WorkerNodeInfo[] {
+    return this.getHealthyNodes().filter(node => !this.reservedNodeIds.has(node.id));
+  }
+
   selectNode(prefs: NodePlacementPrefs): WorkerNodeInfo | null {
-    const candidates = this.getHealthyNodes();
+    const candidates = this.getSharedNodes();
     if (candidates.length === 0) return null;
 
     let bestNode: WorkerNodeInfo | null = null;

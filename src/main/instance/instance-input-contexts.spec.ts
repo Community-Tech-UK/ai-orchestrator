@@ -13,6 +13,12 @@ it('skips internal plan-queue prompts and automated messages before retrieval st
   for (const origin of ['internal', 'automated'] as const) expect(await buildInputContexts(deps, instance, 'Plan queue prompt', origin)).toEqual({ rlmContext: null, unifiedMemoryContext: null, indexedCodebaseContext: null });
   expect(state.assemble).not.toHaveBeenCalled();
 });
+it("never retrieves the owner's notes for a phone-app member's message, even when every-message notes are on", async () => {
+  state.every = true;
+  const hers = { ...instance, metadata: { mobileProfileId: 'member-1' } } as Instance;
+  expect(await buildInputContexts(deps, hers, 'Plan my week', 'user')).toEqual({ rlmContext: null, unifiedMemoryContext: null, indexedCodebaseContext: null });
+  expect(state.assemble).not.toHaveBeenCalled();
+});
 it('still assembles a user message and passes its policy setting', async () => {
   await buildInputContexts(deps, instance, 'Investigate migration transaction ordering please', 'user');
   expect(state.assemble).toHaveBeenCalledWith(expect.objectContaining({ memoryNotesEveryMessage: false, message: 'Investigate migration transaction ordering please' }));

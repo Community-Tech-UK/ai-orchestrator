@@ -8,12 +8,15 @@ import {
   output,
   computed,
   inject,
+  effect,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { Instance, InstanceStore } from '../../core/state/instance.store';
 import { isTerminalStatus } from '../../core/state/instance/instance-messaging-queue-utils';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
+import { MobilePeopleStore } from '../../core/state/mobile-people.store';
+import { memberProfileIdOf } from '../../../../shared/utils/mobile-profile-stamp';
 import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
 import { isRemoteNodeOnline } from '../../core/state/remote-node-connectivity';
 import { SideChatStore } from '../../core/state/side-chat.store';
@@ -43,6 +46,7 @@ export class InstanceRowComponent {
   private readonly remoteNodeStore = inject(RemoteNodeStore);
   private readonly toolLoopAlerts = inject(ToolLoopAlertStore);
   private readonly sideChatStore = inject(SideChatStore);
+  private readonly mobilePeople = inject(MobilePeopleStore);
 
   // Required inputs
   instance = input.required<Instance>();
@@ -134,6 +138,21 @@ export class InstanceRowComponent {
    * AI auto-titling can overwrite. Drives the small clock indicator in the rail.
    */
   readonly isAutomation = computed(() => Boolean(this.instance().metadata?.['automationId']));
+
+  /** Set when the session was started from another person's phone. */
+  private readonly mobileProfileId = computed(() => memberProfileIdOf(this.instance().metadata) ?? null);
+
+  /** Whose session this is, when it belongs to someone other than the owner. */
+  readonly memberName = computed(() => {
+    const profileId = this.mobileProfileId();
+    return profileId ? this.mobilePeople.nameOf(profileId) ?? 'Another person' : null;
+  });
+
+  constructor() {
+    effect(() => {
+      if (this.mobileProfileId()) void this.mobilePeople.ensureLoaded();
+    });
+  }
 
   /**
    * True when this session was spawned by the Plan Queue coordinator as a

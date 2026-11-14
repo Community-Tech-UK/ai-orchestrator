@@ -5,6 +5,11 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
+
+const revivalMembers = vi.hoisted(() => new Map<string, unknown>());
+vi.mock('../../mobile-gateway/mobile-device-registry', () => ({
+  getMobileDeviceRegistry: () => ({ getMember: (profileId: string) => revivalMembers.get(profileId) }),
+}));
 import type { ConversationData } from '../../../shared/types/history.types';
 import type { Instance, InstanceCreateConfig, OutputMessage } from '../../../shared/types/instance.types';
 import type { ResolvedRecoveryCandidate } from '../../session/session-recovery-candidate-service';
@@ -351,6 +356,62 @@ describe('reviveContinuitySession crash recovery', () => {
     );
     expect(result.restoreMode).toBe('replay');
     expect(publish).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a member's revived session theirs, on their worker, accounts and approvals", async () => {
+    revivalMembers.set('member-1', {
+      profileId: 'member-1',
+      name: 'Second person',
+      createdAt: 1,
+      session: { workerNodeId: 'her-worker', workingDirectory: '/home/member/work', allowedAccountProfileIds: ['acct-claude'] },
+    });
+    const resolved = resolvedCandidate({ state: {
+      mobileProfileId: 'member-1',
+      executionLocation: { type: 'remote', nodeId: 'her-worker' },
+    } });
+    const { deps, createRecoveryInstance } = makeCrashDeps();
+
+    await reviveContinuitySession(deps, { sourceInstanceId: 'source-1', reason: 'crash-recovery', resolvedCandidate: resolved });
+
+    expect(createRecoveryInstance.mock.calls[0][0]).toMatchObject({
+      forceNodeId: 'her-worker',
+      // The folder saved for her now, not the one the crashed session archived ('/repo').
+      workingDirectory: '/home/member/work',
+      yoloMode: true,
+      allowedAccountProfileIds: ['acct-claude'],
+      metadata: { mobileProfileId: 'member-1', continuityRevival: true, reason: 'crash-recovery' },
+    });
+    revivalMembers.clear();
+  });
+
+  it.each([
+    ['moved to another computer since', { executionLocation: { type: 'remote' as const, nodeId: 'old-worker' } }],
+    ['with no computer recorded', {}],
+    ['recorded as running here', { executionLocation: { type: 'local' as const } }],
+  ])("does not revive a member's session that ran %s", async (_label, location) => {
+    revivalMembers.set('member-1', {
+      profileId: 'member-1', name: 'Second person', createdAt: 1,
+      session: { workerNodeId: 'her-worker', workingDirectory: '/home/member/work', allowedAccountProfileIds: ['acct-claude'] },
+    });
+    const resolved = resolvedCandidate({ state: { mobileProfileId: 'member-1', ...location } });
+    const { deps, createRecoveryInstance } = makeCrashDeps();
+
+    await expect(reviveContinuitySession(deps, { sourceInstanceId: 'source-1', reason: 'crash-recovery', resolvedCandidate: resolved }))
+      .rejects.toThrow('Recovery candidate validation failed');
+    expect(createRecoveryInstance).not.toHaveBeenCalled();
+    revivalMembers.clear();
+  });
+
+  it("revives a removed person's session as the owner's, as before", async () => {
+    revivalMembers.clear();
+    const resolved = resolvedCandidate({ state: { mobileProfileId: 'gone' } });
+    const { deps, createRecoveryInstance } = makeCrashDeps();
+
+    await reviveContinuitySession(deps, { sourceInstanceId: 'source-1', reason: 'crash-recovery', resolvedCandidate: resolved });
+
+    const config = createRecoveryInstance.mock.calls[0][0];
+    expect(config.metadata).not.toHaveProperty('mobileProfileId');
+    expect(config.yoloMode).toBeUndefined();
   });
 
   it('rejects identity corruption before creating a replacement', async () => {

@@ -252,6 +252,7 @@ export class MobileGatewayServer {
     resolveNodeId: (nameOrId) => this.resolveNodeId(nameOrId),
     getModelCatalog: () => this.deps?.modelCatalog,
     getListDynamicModels: () => this.deps?.listDynamicModels,
+    getAccountProfiles: () => this.deps?.accountProfiles?.() ?? getProviderAccountStore().listProfiles(),
     logger,
   });
 
@@ -694,10 +695,12 @@ export class MobileGatewayServer {
     method: string,
     viewer: MobileViewer,
   ): Promise<void> {
+    const member = this.registry.getMember(viewer.profileId);
+    if (!member) return this.sendJson(res, 401, { error: "Unauthorized" });
     await handleMobileMemberRequest({
       ...this.personView(viewer.profileId),
       ownsInstance: (instanceId) => this.owners.owns(viewer.profileId, instanceId),
-      handleInstanceRoute: () => this.instanceRoutes.handle(req, res, url, segments, method),
+      handleInstanceRoute: () => this.instanceRoutes.handle(req, res, url, segments, method, member),
       handleDeviceRoute: () => handleMobileDeviceRoutes(
         this.deviceTokenDeps(viewer.profileId), req, res, segments, method, viewer.deviceId,
       ),

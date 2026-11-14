@@ -74,6 +74,7 @@ export class MobileGatewaySnapshotService {
       .map((dto) => this.withTransientState(dto, promptCounts));
 
     return {
+      isOwner: profileId === MOBILE_OWNER_PROFILE_ID,
       hostName: os.hostname(),
       serverTime: Date.now(),
       instances,

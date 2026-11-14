@@ -15,7 +15,7 @@ import {
   type MobileSnapshot,
 } from '../../shared/types/mobile-gateway.types';
 import { sendJsonResponse } from './mobile-gateway-http-utils';
-import { sessionProfileId } from './mobile-gateway-session-visibility';
+import { sessionProfileId } from '../../shared/utils/mobile-profile-stamp';
 
 /** Which person each session belongs to, remembered after the session is removed. */
 export class MobileSessionOwners {
@@ -92,7 +92,7 @@ export function handleMobilePersonView(
 
 export interface MobileMemberRouteDeps extends MobilePersonViewDeps {
   ownsInstance(instanceId: string): boolean;
-  /** The shared `/api/models` and `/api/instances/:id/...` routes. */
+  /** The shared `/api/models`, `/api/instances` and `/api/instances/:id/...` routes. */
   handleInstanceRoute(): Promise<boolean>;
   /** The phone's own pairing, push and Live Activity registrations. */
   handleDeviceRoute(): Promise<boolean>;
@@ -108,6 +108,15 @@ export async function handleMobileMemberRequest(
   const resource = segments[0] === 'api' ? segments[1] : undefined;
 
   if (resource === 'models' && segments.length === 2 && method === 'GET') {
+    if (await deps.handleInstanceRoute()) return;
+  }
+  // The owner's recent folders and past conversations stay closed. These lists are simply empty for a member.
+  if ((resource === 'recent-dirs' || resource === 'history') && segments.length === 2 && method === 'GET') {
+    sendJsonResponse(res, 200, []);
+    return;
+  }
+  // A new session: the gateway sets its folder, worker and accounts from the member's settings.
+  if (resource === 'instances' && segments.length === 2 && method === 'POST') {
     if (await deps.handleInstanceRoute()) return;
   }
   if (resource === 'instances' && segments.length >= 4) {

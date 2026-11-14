@@ -6,6 +6,7 @@ import type {
   InterruptOrigin,
 } from "../../shared/types/instance.types";
 import type {
+  MobileMemberProfile,
   MobileInputResponse,
   MobileSteerResponse,
   MobileInstanceDto,
@@ -39,24 +40,16 @@ import {
   MobileInputQueue,
   shouldQueueInput,
 } from "./mobile-input-queue";
-import { validateMobileInput } from './mobile-input-validation';
+import { isValidMobileAttachments, validateMobileInput } from './mobile-input-validation';
 import { ProviderAccountProfileIdSchema } from '@contracts/schemas/provider-account';
 import type { ResumeDeferredOptions } from '../instance/lifecycle/deferred-permission-options';
 import { stopLoopsForSessions } from '../orchestration/loop-stop-for-sessions';
 import type { PersonInputOrigin } from '../../shared/types/input-provenance.types';
+import type { QuotaAccountProfile } from '../../shared/utils/provider-quota-account-sections';
+import { buildMobileCreateConfig } from './mobile-gateway-create-config';
+import { MobileSessionRequestError } from './mobile-gateway-member-session';
 
 const MESSAGE_REPLAY_LIMIT = 300;
-const VALID_PROVIDERS = new Set([
-  "auto",
-  "claude",
-  "codex",
-  "gemini",
-  "antigravity",
-  "copilot",
-  "cursor",
-  "grok",
-  "opencode",
-]);
 const VALID_REASONING_EFFORTS = new Set<string>(REASONING_EFFORTS);
 
 export interface GatewayOrchestrationSource extends EmitterLike {
@@ -122,10 +115,14 @@ export interface MobileGatewayInstanceRouteDeps {
   resolveNodeId(nameOrId: string): string | null;
   getModelCatalog(): MobileModelCatalogSource | undefined;
   getListDynamicModels(): MobileModelLister | undefined;
+  getAccountProfiles(): readonly QuotaAccountProfile[];
   logger: SubsystemLogger;
 }
 
-/** Routes and queue state for every `/api/instances` command. */
+/**
+ * Routes and queue state for every `/api/instances` command. `member` is set
+ * when the request comes from a person other than the owner.
+ */
 export class MobileGatewayInstanceRoutes {
   private readonly sendInFlight = new Set<string>();
   private readonly inputQueue: MobileInputQueue;
@@ -148,6 +145,7 @@ export class MobileGatewayInstanceRoutes {
     url: URL,
     segments: string[],
     method: string,
+    member?: MobileMemberProfile,
   ): Promise<boolean> {
     if (
       await handleMobileModelRoutes(
@@ -171,7 +169,7 @@ export class MobileGatewayInstanceRoutes {
 
     // Listing sessions is per person, so the gateway answers GET itself.
     if (segments.length === 2 && method === "POST") {
-      await this.handleCreate(req, res);
+      await this.handleCreate(req, res, member);
       return true;
     }
 
@@ -191,7 +189,7 @@ export class MobileGatewayInstanceRoutes {
         return true;
       }
       if (action === "respond" && method === "POST") {
-        await this.handleRespond(req, res, instanceId);
+        await this.handleRespond(req, res, instanceId, member !== undefined);
         return true;
       }
       if (action === "interrupt" && method === "POST") {
@@ -398,6 +396,7 @@ export class MobileGatewayInstanceRoutes {
     req: IncomingMessage,
     res: ServerResponse,
     instanceId: string,
+    fromMember: boolean,
   ): Promise<void> {
     const body = (await readJsonBody(req)) as {
       requestId?: unknown;
@@ -478,6 +477,11 @@ export class MobileGatewayInstanceRoutes {
     const prompt = this.deps.promptStore.get(requestId);
     if (!prompt || prompt.instanceId !== instanceId) {
       sendJsonResponse(res, 404, { error: "Prompt not found" });
+      return;
+    }
+    // Browser approvals are the owner's call and have their own route.
+    if (fromMember && prompt.kind === "browser") {
+      sendJsonResponse(res, 403, { error: "This is not available on your profile." });
       return;
     }
 
@@ -598,6 +602,7 @@ export class MobileGatewayInstanceRoutes {
   private async handleCreate(
     req: IncomingMessage,
     res: ServerResponse,
+    member?: MobileMemberProfile,
   ): Promise<void> {
     const body = (await readJsonBody(req)) as {
       workingDirectory?: unknown;
@@ -614,17 +619,17 @@ export class MobileGatewayInstanceRoutes {
       typeof body.workingDirectory === "string"
         ? body.workingDirectory.trim()
         : "";
-    if (!workingDirectory) {
+    if (!member && !workingDirectory) {
       sendJsonResponse(res, 400, { error: "workingDirectory required" });
+      return;
+    }
+    if (!isValidMobileAttachments(body.attachments)) {
+      sendJsonResponse(res, 400, { error: "Invalid attachments" });
       return;
     }
     const attachments =
       Array.isArray(body.attachments) && body.attachments.length > 0
         ? (body.attachments as FileAttachment[])
-        : undefined;
-    const provider =
-      typeof body.provider === "string" && VALID_PROVIDERS.has(body.provider)
-        ? (body.provider as InstanceCreateConfig["provider"])
         : undefined;
     const reasoningEffort =
       typeof body.reasoningEffort === "string" &&
@@ -641,39 +646,34 @@ export class MobileGatewayInstanceRoutes {
       accountProfileId = parsed.data;
     }
 
-    let forceNodeId =
-      typeof body.forceNodeId === "string" && body.forceNodeId.trim()
-        ? body.forceNodeId.trim()
-        : undefined;
-    const nodeName =
-      typeof body.nodeName === "string" ? body.nodeName.trim() : "";
-    if (!forceNodeId && nodeName) {
-      const resolved = this.deps.resolveNodeId(nodeName);
-      if (!resolved) {
-        sendJsonResponse(res, 404, {
-          error: `Worker node not found: ${nodeName}`,
-        });
-        return;
-      }
-      forceNodeId = resolved;
+    let config: InstanceCreateConfig;
+    try {
+      config = buildMobileCreateConfig(
+        {
+          workingDirectory,
+          provider: typeof body.provider === "string" ? body.provider : undefined,
+          model: typeof body.model === "string" ? body.model : undefined,
+          reasoningEffort,
+          accountProfileId,
+          initialPrompt: typeof body.initialPrompt === "string" ? body.initialPrompt : undefined,
+          attachments,
+          forceNodeId:
+            typeof body.forceNodeId === "string" && body.forceNodeId.trim()
+              ? body.forceNodeId.trim()
+              : undefined,
+          nodeName: typeof body.nodeName === "string" ? body.nodeName.trim() : "",
+        },
+        member,
+        {
+          accounts: () => this.deps.getAccountProfiles(),
+          resolveNodeId: (nameOrId) => this.deps.resolveNodeId(nameOrId),
+        },
+      );
+    } catch (error) {
+      if (!(error instanceof MobileSessionRequestError)) throw error;
+      sendJsonResponse(res, error.statusCode, { error: error.message });
+      return;
     }
-
-    const initialPrompt =
-      typeof body.initialPrompt === "string" ? body.initialPrompt : undefined;
-    const config: InstanceCreateConfig = {
-      workingDirectory,
-      initialPrompt,
-      // The phone's new-session box is a person typing, like its send box.
-      ...(initialPrompt?.trim()
-        ? { initialPromptOrigin: { kind: "person" as const, typedAt: Date.now() } }
-        : {}),
-      attachments,
-      provider,
-      modelOverride: typeof body.model === "string" ? body.model : undefined,
-      reasoningEffort,
-      ...(accountProfileId ? { accountProfileId } : {}),
-      forceNodeId,
-    };
     const instance = await this.source().createInstance(config);
     sendJsonResponse(res, 200, this.deps.serializeInstance(instance));
   }

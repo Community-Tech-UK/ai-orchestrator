@@ -93,7 +93,7 @@ export function listKnownBrowserComputers(): KnownBrowserComputer[] {
 
 const defaultDeps: BrowserRemoteOffloadPolicyDeps = {
   getConfig: getRemoteNodeConfig,
-  getConnectedNodes: () => getWorkerNodeRegistry().getHealthyNodes(),
+  getConnectedNodes: () => getWorkerNodeRegistry().getSharedNodes(),
   getKnownBrowserComputers: listKnownBrowserComputers,
   listTargets: () => getBrowserTargetRegistry().listTargets(),
   getProfile: (profileId) => getBrowserProfileStore().getProfile(profileId),

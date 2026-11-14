@@ -41,9 +41,14 @@ Source: October 10 and October 20 research lists (`claude_oct-todo.md`, “Previ
 
 ## Multi-user and hosted features
 
-- Stance: Rejected for current product scope.
+- Stance: Rejected for current product scope, with one narrow exception reopened on 5 November 2026.
 - Reason: Team mode, avatars and cloud environments do not serve the current single-user desktop scope.
-- Reopen when: James explicitly expands product scope.
+- Exception: James asked for a second person (Cyntia) to use his Harness from her own phone. The phone app has an
+  owner and members. A member sees only their own sessions, runs them on a worker computer kept for them, in a folder
+  James chooses, on the Claude and Codex accounts he ticks, and cannot reach automations, loops, Plan Queue, reviews,
+  browser approvals, folders or history, and cannot change pause. It is not team mode: no shared workspace, no roles beyond owner and
+  member, nothing hosted. Settings > Mobile > People manages it.
+- Reopen when: James explicitly expands product scope beyond that.
 
 ## openclaw goals engine
 

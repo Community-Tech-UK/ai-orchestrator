@@ -25,6 +25,7 @@ import type { MobileRecentDirDto } from '../../core/models';
 import { NeedsYouStore } from '../inbox/needs-you.store';
 import { PullRefreshDirective } from '../../shared/pull-refresh.directive';
 import { UsageComponent } from '../usage/usage.component';
+import { isOwnerPhone } from '../../core/owner';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
 import {
@@ -141,36 +142,38 @@ export function projectsEmptyStateTitle(
             <app-mobile-icon name="warning" />
             <span>Needs you@if (needsYouCount() > 0) { · {{ needsYouCount() }} }</span>
           </button>
-          <button type="button" (click)="togglePause()" [disabled]="!online() || pausePending()">
-            <span class="projects-menu__icon"></span>
-            <app-mobile-icon [name]="paused() ? 'play' : 'pause'" />
-            <span>{{ pausePending() ? 'Updating…' : paused() ? 'Resume agents' : 'Pause agents' }}</span>
-          </button>
-          <button type="button" (click)="openHistory()">
-            <span class="projects-menu__icon"></span>
-            <app-mobile-icon name="history" />
-            <span>History</span>
-          </button>
-          <button type="button" (click)="openAutomations()">
-            <span class="projects-menu__icon"></span>
-            <app-mobile-icon name="play" />
-            <span>Automations</span>
-          </button>
-          <button type="button" (click)="openAway('/loops')">
-            <span class="projects-menu__icon"></span>
-            <app-mobile-icon name="play" />
-            <span>Loops</span>
-          </button>
-          <button type="button" (click)="openAway('/plan-queue')">
-            <span class="projects-menu__icon"></span>
-            <app-mobile-icon name="history" />
-            <span>Plan queue</span>
-          </button>
-          <button type="button" (click)="openAway('/reviews')">
-            <span class="projects-menu__icon"></span>
-            <app-mobile-icon name="warning" />
-            <span>Reviews</span>
-          </button>
+          @if (isOwner()) {
+            <button type="button" (click)="togglePause()" [disabled]="!online() || pausePending()">
+              <span class="projects-menu__icon"></span>
+              <app-mobile-icon [name]="paused() ? 'play' : 'pause'" />
+              <span>{{ pausePending() ? 'Updating…' : paused() ? 'Resume agents' : 'Pause agents' }}</span>
+            </button>
+            <button type="button" (click)="openHistory()">
+              <span class="projects-menu__icon"></span>
+              <app-mobile-icon name="history" />
+              <span>History</span>
+            </button>
+            <button type="button" (click)="openAutomations()">
+              <span class="projects-menu__icon"></span>
+              <app-mobile-icon name="play" />
+              <span>Automations</span>
+            </button>
+            <button type="button" (click)="openAway('/loops')">
+              <span class="projects-menu__icon"></span>
+              <app-mobile-icon name="play" />
+              <span>Loops</span>
+            </button>
+            <button type="button" (click)="openAway('/plan-queue')">
+              <span class="projects-menu__icon"></span>
+              <app-mobile-icon name="history" />
+              <span>Plan queue</span>
+            </button>
+            <button type="button" (click)="openAway('/reviews')">
+              <span class="projects-menu__icon"></span>
+              <app-mobile-icon name="warning" />
+              <span>Reviews</span>
+            </button>
+          }
           <button type="button" (click)="toHosts()">
             <span class="projects-menu__icon"></span>
             <app-mobile-icon name="host" />
@@ -179,7 +182,7 @@ export function projectsEmptyStateTitle(
         </aside>
       }
 
-      <app-usage class="projects-usage" />
+      @if (isOwner()) { <app-usage class="projects-usage" /> }
 
       <div class="projects-heading">
         <h1 class="projects-title">{{ mode() === 'project' ? 'Projects' : 'Sessions' }}</h1>
@@ -378,6 +381,7 @@ export class ProjectsComponent implements OnInit {
   private readonly restoreScrollPending = signal(true);
 
   protected readonly state = this.gateway.state;
+  protected readonly isOwner = computed(() => isOwnerPhone(this.gateway.snapshot()));
   protected readonly historyState = this.gateway.historyState;
   protected readonly online = this.gateway.online;
   protected readonly mode = signal<OrganizeMode>(this.saved.mode);

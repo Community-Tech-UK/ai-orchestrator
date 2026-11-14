@@ -23,6 +23,7 @@ import { InstanceStore } from '../../core/state/instance.store';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
 import { SideChatStore } from '../../core/state/side-chat.store';
+import { MobilePeopleStore } from '../../core/state/mobile-people.store';
 import { PendingRequestStore } from '../../core/state/pending-request.store';
 import { SessionTodoPeekService } from './session-todo-peek.service';
 import type { SideChatAttention } from '../../../../shared/types/side-chat.types';
@@ -696,5 +697,54 @@ describe('InstanceRowComponent — sidechat badge', () => {
       'side-5',
     );
     expect(rowSelect).not.toHaveBeenCalled();
+  });
+});
+
+describe('InstanceRowComponent — phone-app member label', () => {
+  const ensureLoaded = vi.fn(() => Promise.resolve());
+  let fixture: ComponentFixture<HostComponent>;
+
+  beforeEach(async () => {
+    ensureLoaded.mockClear();
+    await TestBed.configureTestingModule({
+      imports: [HostComponent],
+      providers: [
+        instanceProvider,
+        { provide: RemoteNodeStore, useValue: { nodeById: () => null } },
+        { provide: MobilePeopleStore, useValue: { ensureLoaded, nameOf: (id: string) => (id === 'member-1' ? 'Second person' : undefined) } },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(HostComponent);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => fixture.destroy());
+
+  const chip = () => fixture.nativeElement.querySelector('.member-chip') as HTMLElement | null;
+
+  it("names the person on a session started from their phone and loads the people once", () => {
+    fixture.componentInstance.instance.set(makeInstance({ metadata: { mobileProfileId: 'member-1' } }));
+    fixture.detectChanges();
+
+    expect(chip()?.textContent?.trim()).toBe('Second person');
+    expect(ensureLoaded).toHaveBeenCalled();
+  });
+
+  it('says another person when they have since been removed', () => {
+    fixture.componentInstance.instance.set(makeInstance({ metadata: { mobileProfileId: 'gone' } }));
+    fixture.detectChanges();
+
+    expect(chip()?.textContent?.trim()).toBe('Another person');
+  });
+
+  it("shows nothing on the owner's sessions", () => {
+    fixture.componentInstance.instance.set(makeInstance({ metadata: { mobileProfileId: 'owner' } }));
+    fixture.detectChanges();
+    expect(chip()).toBeNull();
+
+    fixture.componentInstance.instance.set(makeInstance());
+    fixture.detectChanges();
+    expect(chip()).toBeNull();
+    expect(ensureLoaded).not.toHaveBeenCalled();
   });
 });

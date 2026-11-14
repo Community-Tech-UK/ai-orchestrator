@@ -284,6 +284,52 @@ describe('assembleInstanceSystemPrompt context manifest capture (WS-C6)', () => 
 });
 
 
+describe('assembleInstanceSystemPrompt for a phone-app member', () => {
+  beforeEach(() => {
+    _resetAllContextManifestsForTesting();
+    promptMocks.indexedBuildContext.mockClear();
+  });
+
+  async function assemble(metadata: Record<string, unknown> | undefined) {
+    const deps = makeDeps();
+    deps.buildObservationContext.mockResolvedValue('Owner observation memory.');
+    deps.buildWakeContextText.mockResolvedValue("Owner wake-up memory: the owner's credentials file lives somewhere private.");
+    deps.buildMcpRuntimeToolContextSelection.mockResolvedValue({ selectedTools: [] });
+    const result = await assembleInstanceSystemPrompt({
+      resolvedProvider: 'claude',
+      instance: makeInstance(),
+      config: { workingDirectory: '/home/member/work', provider: 'claude', initialPrompt: 'Plan my week', metadata },
+      resolvedAgent: baseAgent,
+      instructionPrompts: ["Owner's global instructions."],
+      initialUserMessageContent: 'Plan my week',
+      deps,
+    });
+    return { result, deps };
+  }
+
+  it("leaves out the owner's instructions, memory and connectors", async () => {
+    const { result, deps } = await assemble({ mobileProfileId: 'member-1' });
+
+    expect(result.systemPrompt).toContain(baseAgent.systemPrompt);
+    expect(result.systemPrompt).not.toContain("Owner's global instructions.");
+    expect(result.systemPrompt).not.toContain('Owner observation memory.');
+    expect(result.systemPrompt).not.toContain('Owner wake-up memory');
+    expect(deps.buildObservationContext).not.toHaveBeenCalled();
+    expect(deps.buildWakeContextText).not.toHaveBeenCalled();
+    expect(deps.buildMcpRuntimeToolContextSelection).not.toHaveBeenCalled();
+    expect(promptMocks.indexedBuildContext).not.toHaveBeenCalled();
+  });
+
+  it("still gives the owner's sessions all of it", async () => {
+    const { result, deps } = await assemble(undefined);
+
+    expect(result.systemPrompt).toContain("Owner's global instructions.");
+    expect(result.systemPrompt).toContain('Owner observation memory.');
+    expect(result.systemPrompt).toContain('Owner wake-up memory');
+    expect(deps.buildMcpRuntimeToolContextSelection).toHaveBeenCalled();
+  });
+});
+
 describe('assembleInstanceSystemPrompt observation retrieval (MEM-4)', () => {
   beforeEach(() => {
     _resetAllContextManifestsForTesting();
@@ -488,6 +534,7 @@ describe('harness-guide block (A12, plan Step 10 item 3)', () => {
     ['a plan-queue root', {}, { metadata: { planQueueRunId: 'run-1' } }],
     ['a repo job', {}, { metadata: { spendPurpose: 'repo-job' } }],
     ['a reviewer', {}, { metadata: { spendPurpose: 'review', pingPongReviewer: true } }],
+    ["a phone-app member's session", {}, { metadata: { mobileProfileId: 'member-1' } }],
   ] as const)('omits it for %s', async (_name, instanceOverrides, configOverrides) => {
     const result = await assemble(instanceOverrides, configOverrides);
     expect(result.systemPrompt).not.toContain(HARNESS_GUIDE);

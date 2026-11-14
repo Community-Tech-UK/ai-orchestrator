@@ -96,6 +96,25 @@ describe('HistoryManager durable node placement', () => {
     expect(restored?.entry.workingDirectory).toBe(original.workingDirectory);
   });
 
+  it("keeps a member's stamp through archive and a later rearchive of the same thread", async () => {
+    const history = await manager();
+    const hers = record(true);
+    hers.metadata = { mobileProfileId: 'member-1' };
+    await history.archiveInstance(hers);
+    expect(history.getEntries()[0].mobileProfileId).toBe('member-1');
+
+    // A restored copy that lost its metadata still counts as hers: the earlier entry says so.
+    const restored = record(true);
+    restored.historyThreadId = hers.historyThreadId;
+    restored.outputBuffer.push({ id: 'placeholder-new-reply', type: 'assistant', timestamp: 200, content: 'Placeholder reply' });
+    await history.archiveInstance(restored);
+    expect(history.getEntries()[0].mobileProfileId).toBe('member-1');
+
+    const owner = record(false);
+    await history.archiveInstance(owner);
+    expect(history.getEntries().find((entry) => entry.originalInstanceId === owner.id)?.mobileProfileId).toBeUndefined();
+  });
+
   it('refuses malformed placement before writing an archive that would silently lose its constraint', async () => {
     const history = await manager();
     const instance = record(false);

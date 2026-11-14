@@ -237,7 +237,9 @@ const ALLOWLIST: Record<string, number> = {
   // queue that stops the startup backfill overwriting a fresh archive, and the
   // stale-temp sweep.
   'src/main/history/history-manager.ts': 1735,
-  'src/main/history/history-restore-coordinator.ts': 708,
+  // Raised 708 -> 716 for the phone-app member restore policy (+11 lines of wiring: the decision itself lives in
+  // history-restore-member.ts). The file was already at 755.
+  'src/main/history/history-restore-coordinator.ts': 716,
   // Main process — indexing
   'src/main/indexing/benchmarks/benchmark-utils.ts': 820,
   'src/main/indexing/tree-sitter-chunker.ts': 716,

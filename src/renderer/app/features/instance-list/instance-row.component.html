@@ -116,6 +116,9 @@
               </svg>
             </span>
           }
+          @if (memberName(); as person) {
+            <span class="member-chip">{{ person }}</span>
+          }
           @if (planQueueRole()) {
             <span class="plan-queue-marker" [appTooltip]="planQueueRoleLabel()" [attr.aria-label]="planQueueRoleLabel()" [attr.data-role]="planQueueRole()">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

@@ -290,6 +290,12 @@ export type MobileAutomationRunResponse =
   | { status: 'skipped'; runId?: string; reason: string };
 
 export interface MobileSnapshot {
+  /**
+   * False when this phone belongs to a person other than the owner of the Mac,
+   * who sees only their own sessions. Absent from older gateways, which have
+   * only an owner.
+   */
+  isOwner?: boolean;
   hostName: string;
   serverTime: number;
   instances: MobileInstanceDto[];

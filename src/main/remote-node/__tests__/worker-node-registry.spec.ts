@@ -314,6 +314,38 @@ describe('WorkerNodeRegistry', () => {
       });
     });
 
+    describe('with a computer kept for a phone-app member', () => {
+      it('never chooses it for anyone else, whatever the placement asks', () => {
+        registry.registerNode(makeNode('hers', { capabilities: makeCapabilities({ supportedClis: ['claude', 'codex'] }) }));
+        registry.setReservedNodeIds(['hers']);
+        expect(registry.selectNode({})).toBeNull();
+        expect(registry.selectNode({ requiresCli: 'codex' })).toBeNull();
+        registry.registerNode(makeNode('shared'));
+        expect(registry.selectNode({})?.id).toBe('shared');
+      });
+
+      it('leaves it out of the computers Harness may choose for its own work, such as browser work', () => {
+        registry.registerNode(makeNode('hers'));
+        registry.registerNode(makeNode('shared'));
+        registry.setReservedNodeIds(['hers']);
+        expect(registry.getSharedNodes().map(node => node.id)).toEqual(['shared']);
+        expect(registry.getHealthyNodes().map(node => node.id)).toEqual(['hers', 'shared']);
+      });
+
+      it('chooses it again once the person no longer has it', () => {
+        registry.registerNode(makeNode('hers'));
+        registry.setReservedNodeIds(['hers']);
+        registry.setReservedNodeIds([]);
+        expect(registry.selectNode({})?.id).toBe('hers');
+      });
+
+      it('still answers for it by name, as the member\'s own sessions are placed', () => {
+        registry.registerNode(makeNode('hers'));
+        registry.setReservedNodeIds(['hers']);
+        expect(registry.getNode('hers')?.status).toBe('connected');
+      });
+    });
+
     it('prefers the less busy computer when workers say how busy they are', () => {
       registry.registerNode(makeNode('busy', { capabilities: makeCapabilities({ cpuCores: 16, busyCores: 15 }) }));
       registry.registerNode(makeNode('idle', { capabilities: makeCapabilities({ cpuCores: 16, busyCores: 1 }) }));
