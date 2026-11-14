@@ -1,0 +1,27 @@
+{
+ "snap": {
+  "ok": true,
+  "takenAt": 1794642825229,
+  "source": "admin-api",
+  "windows": [
+   [
+    "opencode.plan",
+    82001972872,
+    82000000000,
+    1795391999000
+   ],
+   [
+    "opencode.monthly",
+    82001972872,
+    82000000000,
+    1795391999000
+   ]
+  ]
+ },
+ "nowMs": 1794642825232,
+ "opencodeNotes": [
+  {
+   "delivery": "desktop"
+  }
+ ]
+}

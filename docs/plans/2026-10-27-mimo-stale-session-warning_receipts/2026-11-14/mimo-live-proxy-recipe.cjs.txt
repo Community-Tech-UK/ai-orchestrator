@@ -1,0 +1,103 @@
+// Test-only forwarding proxy for the MiMo stale-session live check.
+// Passes every real response through unchanged. Only OUTGOING Cookie headers are
+// changed, per the livetest scenarios. Logs redacted metadata only (no cookie
+// values, no query strings, no user ids).
+const http = require('node:http');
+const https = require('node:https');
+const tls = require('node:tls');
+const net = require('node:net');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const T = __dirname;
+const PORT = Number(process.argv[2] || 9508);
+const LOG = process.argv[3] || path.join(T, 'proxy-log.jsonl');
+const TARGETS = new Set(['platform.xiaomimimo.com', 'account.xiaomi.com']);
+const ctx = new Map();
+for (const h of TARGETS) {
+  ctx.set(h, tls.createSecureContext({ key: fs.readFileSync(path.join(T, `${h}.key`)), cert: fs.readFileSync(path.join(T, `${h}.pem`)) }));
+}
+const AUTH_NAMES = ['api-platform_serviceToken', 'api-platform_slh', 'api-platform_ph'];
+const MINT_NAMES = [...AUTH_NAMES, 'userId'];
+
+let seq = null;
+let quotaRequests = 0;
+let origToken = null;
+const minted = new Map();
+function control() {
+  const c = JSON.parse(fs.readFileSync(path.join(T, 'mode.json'), 'utf8'));
+  if (c.seq !== seq) { seq = c.seq; quotaRequests = 0; minted.clear(); origToken = null; }
+  return c;
+}
+function log(entry) { fs.appendFileSync(LOG, JSON.stringify({ at: new Date().toISOString(), ...entry }) + '\n'); }
+
+function handle(host) {
+  return (req, res) => {
+    const { mode } = control();
+    const url = new URL(req.url, `https://${host}`);
+    const isQuota = host === 'platform.xiaomimimo.com' && url.pathname.startsWith('/api/v1/tokenPlan/');
+    const headers = { ...req.headers };
+    delete headers['proxy-connection'];
+    let cookiesOmitted = false;
+    let note;
+    if (mode === 'reject') {
+      delete headers.cookie; cookiesOmitted = true;
+    } else if (mode === 'renew-app' && isQuota) {
+      // Real app header is forwarded on the retry; the ORIGINAL console service token must not be in it.
+      const m = /(?:^|;\s*)api-platform_serviceToken=([^;]*)/.exec(headers.cookie || '');
+      if (quotaRequests < 2) { if (m && !origToken) origToken = m[1]; delete headers.cookie; cookiesOmitted = true; }
+      else { const cur = m ? m[1] : null; note = `retry_serviceToken_${cur === null ? 'absent' : (cur === origToken ? 'ORIGINAL' : 'renewed')}`; }
+    } else if (mode === 'renew' && isQuota) {
+      if (quotaRequests < 2) { delete headers.cookie; cookiesOmitted = true; }
+      else if (AUTH_NAMES.every((n) => minted.has(n))) {
+        headers.cookie = MINT_NAMES.filter((n) => minted.has(n)).map((n) => `${n}=${minted.get(n)}`).join('; ');
+      } else { delete headers.cookie; cookiesOmitted = true; note = 'minted_incomplete'; }
+    }
+    if (isQuota) quotaRequests++;
+    const upstream = https.request({ host, port: 443, method: req.method, path: req.url, headers, agent: false }, (ur) => {
+      if ((mode === 'renew' || mode === 'renew-app') && !isQuota && host === 'platform.xiaomimimo.com') {
+        for (const sc of ur.headers['set-cookie'] || []) {
+          const pair = sc.split(';', 1)[0]; const i = pair.indexOf('=');
+          const name = pair.slice(0, i);
+          if (MINT_NAMES.includes(name)) minted.set(name, pair.slice(i + 1).replace(/^"|"$/g, ''));
+        }
+      }
+      log({ mode, host, method: req.method, path: url.pathname, status: ur.statusCode, cookiesOmitted,
+        cookieCount: headers.cookie ? headers.cookie.split(';').length : 0,
+        setCookieNames: (ur.headers['set-cookie'] || []).map((s) => s.split('=', 1)[0]),
+        location: ur.headers.location ? new URL(ur.headers.location, `https://${host}`).host + new URL(ur.headers.location, `https://${host}`).pathname : undefined,
+        mintedCount: minted.size, note });
+      res.writeHead(ur.statusCode, ur.headers);
+      ur.pipe(res);
+    });
+    upstream.on('error', (e) => { log({ mode, host, path: url.pathname, error: e.code || 'upstream_error' }); res.writeHead(502); res.end(); });
+    req.pipe(upstream);
+  };
+}
+
+const servers = new Map();
+for (const h of TARGETS) servers.set(h, http.createServer(handle(h)));
+
+const proxy = http.createServer((req, res) => { res.writeHead(405); res.end(); });
+proxy.on('connect', (req, clientSocket, head) => {
+  const [host, port] = req.url.split(':');
+  clientSocket.on('error', (e) => log({ host, dbg: 'client-error', code: e.code })); clientSocket.on('end', () => log({ host, dbg: 'client-end' })); let nb = 0; clientSocket.on('data', (b) => { nb += b.length; log({ host, dbg: 'data', bytes: b.length, first: b[0], v: b[9] }); }); log({ host, dbg: 'connect-req', headKb: head?.length, headers: Object.keys(req.headers) }); if (TARGETS.has(host)) log({ connect: host });
+  if (TARGETS.has(host)) {
+    clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+    const tlsSock = new tls.TLSSocket(clientSocket, { isServer: true, secureContext: ctx.get(host) });
+    tlsSock.on('error', (e) => log({ host, tlsError: e.code || 'tls_error' }));
+    tlsSock.on('secureConnect',()=>{}); tlsSock.on('secure', () => log({ host, dbg: 'secure', proto: tlsSock.getProtocol(), alpn: tlsSock.alpnProtocol })); tlsSock.on('close', () => log({ host, dbg: 'close' })); clientSocket.on('close', () => log({ host, dbg: 'client-close' }));
+    { const oe = tlsSock.emit.bind(tlsSock); tlsSock.emit = (ev, ...a) => { if (!['data','drain','readable'].includes(ev)) log({ host, dbg: 'tls-ev', ev, msg: a[0] && a[0].message ? String(a[0].message).slice(0,120) : undefined, code: a[0] && a[0].code }); return oe(ev, ...a); }; }
+    servers.get(host).emit('connection', tlsSock);
+    if (head?.length) tlsSock.unshift(head);
+  } else {
+    const upstream = net.connect(Number(port) || 443, host, () => {
+      clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      if (head?.length) upstream.write(head);
+      upstream.pipe(clientSocket); clientSocket.pipe(upstream);
+    });
+    upstream.on('error', () => clientSocket.destroy());
+    log({ tunnel: host });
+  }
+});
+proxy.listen(PORT, '127.0.0.1', () => console.log('proxy listening', PORT));

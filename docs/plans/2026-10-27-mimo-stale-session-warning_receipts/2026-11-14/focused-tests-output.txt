@@ -1,0 +1,7 @@
+
+> harness@0.1.0 test:quiet
+> node scripts/run-tests-quiet.js src/main/core/system/provider-quota-service src/main/core/system/provider-quota/ src/main/ipc/handlers/__tests__/quota-handlers.spec.ts
+
+✓ 30 files · 432 tests passed in 2.7s
+  full log: _scratch/test-run.pid-37134.log
+exit 0

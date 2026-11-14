@@ -1,0 +1,76 @@
+{
+ "notesBefore": [
+  {
+   "id": "notification-1794639127911-1",
+   "title": "grok usage numbers are stale",
+   "delivery": "desktop",
+   "createdAt": 1794639127911
+  }
+ ],
+ "refresh1": {
+  "ok": true,
+  "needsReauth": true,
+  "error": "MiMo usage login expired (401/403). Choose Connect usage in Accounts to sign in again.",
+  "takenAt": 1794639159572,
+  "source": "admin-api",
+  "windows": [
+   [
+    "opencode.plan",
+    82001972872,
+    82000000000
+   ],
+   [
+    "opencode.monthly",
+    82001972872,
+    82000000000
+   ]
+  ]
+ },
+ "notesAfter1": [
+  {
+   "id": "notification-1794639127911-1",
+   "title": "grok usage numbers are stale",
+   "delivery": "desktop",
+   "createdAt": 1794639127911
+  },
+  {
+   "id": "notification-1794639188196-2",
+   "title": "opencode usage numbers are stale",
+   "delivery": "desktop",
+   "createdAt": 1794639188196
+  }
+ ],
+ "refresh2": {
+  "ok": true,
+  "needsReauth": true,
+  "error": "MiMo usage login expired (401/403). Choose Connect usage in Accounts to sign in again.",
+  "takenAt": 1794639159572,
+  "source": "admin-api",
+  "windows": [
+   [
+    "opencode.plan",
+    82001972872,
+    82000000000
+   ],
+   [
+    "opencode.monthly",
+    82001972872,
+    82000000000
+   ]
+  ]
+ },
+ "notesAfter2": [
+  {
+   "id": "notification-1794639127911-1",
+   "title": "grok usage numbers are stale",
+   "delivery": "desktop",
+   "createdAt": 1794639127911
+  },
+  {
+   "id": "notification-1794639188196-2",
+   "title": "opencode usage numbers are stale",
+   "delivery": "desktop",
+   "createdAt": 1794639188196
+  }
+ ]
+}

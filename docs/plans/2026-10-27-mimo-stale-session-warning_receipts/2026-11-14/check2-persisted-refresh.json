@@ -1,0 +1,20 @@
+{
+ "snap": {
+  "ok": true,
+  "takenAt": 1794642834376,
+  "windows": [
+   [
+    "opencode.plan",
+    82001972872,
+    82000000000
+   ],
+   [
+    "opencode.monthly",
+    82001972872,
+    82000000000
+   ]
+  ]
+ },
+ "chipLabel": "CC 3%AG 0%CU 34%GX Signed outOC 100%",
+ "mimoPanel": null
+}

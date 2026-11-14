@@ -1,0 +1,29 @@
+{
+ "snap": {
+  "ok": true,
+  "needsReauth": true,
+  "error": "MiMo usage login expired (401/403). Choose Connect usage in Accounts to sign in again.",
+  "takenAt": 1794639159572,
+  "source": "admin-api",
+  "windows": [
+   [
+    "opencode.plan",
+    82001972872,
+    82000000000,
+    1795391999000
+   ],
+   [
+    "opencode.monthly",
+    82001972872,
+    82000000000,
+    1795391999000
+   ]
+  ]
+ },
+ "nowMs": 1794641006305,
+ "opencodeNotes": [
+  {
+   "delivery": "desktop"
+  }
+ ]
+}
