@@ -9,7 +9,8 @@ describe('tool activity labels', () => {
 
   it('uses the shared plain first-sentence fallback for thinking', () => {
     expect(generateActivityStatus(undefined, 'Checking the **migration** order. Then run checks.'))
-      .toBe('Thinking · migration');
+      .toBe('Thinking · Checking the migration order');
+    expect(generateActivityStatus(undefined, '**Migration order**\nThen run checks.')).toBe('Thinking · Migration order');
     expect(generateActivityStatus(undefined, 'Checking the migration order. Then run checks.'))
       .toBe('Thinking · Checking the migration order');
   });

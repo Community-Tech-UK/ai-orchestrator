@@ -2,7 +2,8 @@
 export function liveThoughtLine(text: string): string | null {
   // Activity is a preview: scan only its opening text, before any cleanup.
   const opening = text.slice(0, 4_096);
-  const heading = opening.match(/\*\*([^*\n]{1,50})\*\*/)?.[1];
+  // Only a bold heading that opens the text counts; bold inside a sentence is just emphasis.
+  const heading = opening.match(/^[\s#>+-]*\*\*([^*\n]{1,50})\*\*/)?.[1];
   const plain = (heading ?? opening)
     .replace(/!?(\[([^\]]+)\])\([^)]*\)/g, '$2')
     .replace(/<[^>]*>/g, '')

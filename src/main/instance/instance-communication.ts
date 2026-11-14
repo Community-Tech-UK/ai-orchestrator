@@ -1985,14 +1985,14 @@ export class InstanceCommunicationManager extends EventEmitter {
       return scope ? scope.capture(recover) : recover();
     });
 
-    // Heartbeat events from adapters that block inside sendInput() (e.g.
-    // Codex app-server). These prove the adapter is alive and processing
-    // without adding messages to the output buffer.
     adapter.on('reasoning-headline', (text: string) => {
       if (isStaleAdapterEvent('reasoning-headline') || typeof text !== 'string') return;
       getOrchestrationActivityBridge().reportReasoning(instanceId, text);
     });
 
+    // Heartbeat events from adapters that block inside sendInput() (e.g.
+    // Codex app-server). These prove the adapter is alive and processing
+    // without adding messages to the output buffer.
     adapter.on('heartbeat', () => {
       if (isStaleAdapterEvent('heartbeat')) {
         return;
