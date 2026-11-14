@@ -77,6 +77,7 @@ The coordinator retains the active follow-up plan and per-check evidence until i
 
 | ID | Priority | Current status | Detail | Origin |
 | --- | --- | --- | --- | --- |
+| LT-1120 | P2 | **SOURCE FIX WRITTEN AND VERIFIED LIVE 2026-11-14 (dev copy built from the step-up queue item); not yet in a shipped build.** When Harness's own command check (a Plan Queue gate) was still red at the last allowed round, the document parked as `round-limit` and was never handed to the run's step-up worker, although the verdict held a `code` finding. Only a failing independent checker handed over. | [LT-1120 detail](#lt-1120) | [Step-up live checks](2026-10-27-plan-queue-stuck-worker-step-up_plan_livetest.md) |
 | LT-732 | P1 | **FIXED ON MAIN; re-verify after landing.** Warm Claude processes could keep a sidechat's inherited tool denials and approval hook missing. Main refuses warm reuse when either is set (`src/main/instance/lifecycle/instance-spawn-preflight-chain.ts:83-96`). A 2026-11-07 live run on the pre-merge branch showed a restricted sidechat spawn fresh and unable to write; the warm-adoption step was not reproduced there. | [LT-732 detail](#lt-732) | LT-SC-5 |
 | LT-733 | P1 | **FIXED ON MAIN; live check passed 2026-11-07 on the pre-merge branch build; re-verify after landing.** A CLI approval that arrives while the sidechat panel is closed is kept by the event bus and shown as one card on reopen. | [LT-733 detail](#lt-733) | LT-SC-4 |
 | LT-734 | P2 | **FIXED ON MAIN; live check passed 2026-11-07 on the pre-merge branch build; re-verify after landing.** Archived parent rows (History and project history) show the unread sidechat badge and open the exact chat. | [LT-734 detail](#lt-734) | LT-SC-3 |
@@ -13795,6 +13796,32 @@ Not isolated. The native strategy returned a false result (`src/main/context/com
 ### Required behaviour and acceptance
 
 A completed native compaction is not reported failed; a fallback samples the transcript and reports the count, and a zero-message summary is not presented as complete. Repeat check 2.3 with a session of at least 20 real turns.
+
+<a id="lt-1120"></a>
+
+## LT-1120
+
+### LT-1120 — a document whose Harness command checks stay red at the round limit parks instead of going to the step-up worker
+
+**Status: reproduced live and repaired 14 November 2026 in the "stuck worker step-up" queue item; the repair is verified live in a dev copy, shipped build pending.**
+
+### Observed behaviour
+
+Dev copy on this Mac (data `/tmp/aio-lt-queue-1f911387`, build of the step-up branch before the repair), scratch repository with one plan, run `221f616e-c02d-4ceb-b20b-2c03d162b1d9`: workers `claude / haiku`, step-up `claude / opus`, `max_rounds: 1`, `verifier_gates: ["/tmp/stepup-gate-restart.sh"]` (a script that exits 1). `plan_queue_status` showed `routing.stepUp` as `claude / opus`. The Haiku worker finished at about 07:35Z; the item went `verifying` then `parked` in under a minute with `parkReason: round-limit`, detail "Checks still fail after 1 rounds: /tmp/stepup-gate-restart.sh", `steppedUpAt: null`, no checker session, no Opus session, and no handover message to the starting session. Run status `completed`.
+
+### Root cause
+
+`PlanQueueVerification.prepareChecks` (`src/main/plan-queue/plan-queue-verification.ts`) records a failing round when Harness's own commands are red and, at the round limit, returned `{ kind: 'park', reason: 'round-limit' }` straight away. `canStepUp` was only asked on the other path, after an independent checker's verdict (`plan-queue-item-flow.ts`, `onVerifierOutcome`). The verdict the gate path builds already carries a `code` finding ("Harness's own gate run failed"), so it is exactly the case a stronger worker can fix.
+
+### Required behaviour and acceptance
+
+Out of rounds with Harness's own checks red, a run that has a step-up choice and a document not yet handed over goes to the step-up worker, once, through the same hand-over as the checker path (same notice to the starting session, same `steppedUpAt` mark, a fresh round count). Without a step-up choice, or after the hand-over, it parks as before.
+
+Repair: `prepareChecks` returns a new `step-up` result when `canStepUp` is true; `startQueueVerification` hands it to the new `stepUp` callback, which `PlanQueueItemFlow.stepUp` shares with the checker path. Regression test: `plan-queue-coordinator-routing.spec.ts`, "hands a document to the step-up worker when Harness's own checks are still red at the round limit, without starting a checker" (fails with the repair removed, passes with it).
+
+### Evidence
+
+[Step-up live checks, evidence run 2026-11-14](2026-10-27-plan-queue-stuck-worker-step-up_plan_livetest.md#evidence-run--2026-11-14): after the repair the same run shape (run `ff3c3495-5f7f-4d2f-9c64-ef781dc809dd`) handed the document to an Opus worker at 07:50:40Z.
 
 ## LT-1091
 

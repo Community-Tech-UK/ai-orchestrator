@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-27-plan-queue-stuck-worker-step-up_plan_livetest.md",
+      "sha256": "cff0c69d75f79a7f885597895133c16cf261de0260720f79c1480fd582624f91",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-27-plan-queue-stuck-worker-step-up_plan_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-27-plan-queue-stuck-worker-step-up_plan_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-27-plan-queue-stuck-worker-step-up_plan_livetest_completed.md",
+      "sha256": "cff0c69d75f79a7f885597895133c16cf261de0260720f79c1480fd582624f91"
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
@@ -492,6 +492,34 @@ describe('PlanQueueCoordinator — handing a stuck document to the step-up worke
 
     expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'parked', parkReason: reason, steppedUpAt: null });
     expect(workers().some(steppedUp)).toBe(false);
+  });
+
+  it('hands a document to the step-up worker when Harness\'s own checks are still red at the round limit, without starting a checker', async () => {
+    defineDefaultScripts();
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    machineGates.failItem = true;
+    // Only the step-up worker's change (a new commit, so the red results are not reused) turns the commands green.
+    const cheapWorker = fake.scripts.worker!;
+    fake.scripts.worker = (instance, message, f) => {
+      if (steppedUp(instance)) {
+        machineGates.failItem = false;
+        writeFileSync(join(instance.workingDirectory!, 'step-up-fix.txt'), 'fixed\n');
+      }
+      return cheapWorker(instance, message, f);
+    };
+
+    const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans',
+      config: { maxRounds: 1, verifierGates: DEFAULT_PLAN_QUEUE_CONFIG.plans.verifierGates } });
+    await waitForRun(run.id);
+
+    expect(workers().map(steppedUp)).toEqual([false, true]);
+    expect(workers()[1].config).toMatchObject({ provider: 'claude', modelOverride: 'opus' });
+    // The red commands stopped the first round before any checker ran, so the only checker is the one after the handover.
+    expect(fake.created.filter((i) => i.role === 'verifier')).toHaveLength(1);
+    expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'landed', round: 1 });
+    expect(coordinator.getRunDto(run.id)!.items[0].steppedUpAt).toEqual(expect.any(Number));
+    expect(parentNotes(parent).filter((m) => m.includes('handed to the stronger worker'))).toHaveLength(1);
   });
 
   it('starts the step-up worker after a restart that came between recording the handover and starting it', async () => {

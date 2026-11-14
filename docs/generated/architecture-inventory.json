@@ -6264,7 +6264,7 @@
   "largeFiles": [
     {
       "path": "docs/plans/livetest-remediation-register.md",
-      "lines": 14061
+      "lines": 14088
     },
     {
       "path": "resources/browser-extension/background.js",
@@ -7407,6 +7407,10 @@
       "lines": 899
     },
     {
+      "path": "src/main/plan-queue/plan-queue-coordinator-routing.spec.ts",
+      "lines": 898
+    },
+    {
       "path": "src/worker-agent/worker-rpc-dispatcher.node-ops.spec.ts",
       "lines": 898
     },
@@ -7493,10 +7497,6 @@
     {
       "path": "src/main/plan-queue/plan-queue-coordinator-recovery.spec.ts",
       "lines": 871
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-coordinator-routing.spec.ts",
-      "lines": 870
     },
     {
       "path": "src/main/instance/__tests__/instance-lifecycle-system-prompt-contract.spec.ts",
@@ -7647,11 +7647,11 @@
       "lines": 826
     },
     {
-      "path": "src/main/learning/ab-testing.ts",
-      "lines": 824
+      "path": "src/main/plan-queue/plan-queue-item-flow.ts",
+      "lines": 826
     },
     {
-      "path": "src/main/plan-queue/plan-queue-item-flow.ts",
+      "path": "src/main/learning/ab-testing.ts",
       "lines": 824
     },
     {

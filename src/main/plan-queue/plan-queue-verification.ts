@@ -14,10 +14,13 @@ import { decideNoProgress, documentContentSha256, progressFingerprint, recordRep
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { PlanQueueCheckGroups, type CheckGroupFlow } from './plan-queue-check-groups';
 import { deferredPassProblems } from './plan-queue-deferred-checks';
+import { canStepUp } from './plan-queue-step-up';
 
 /** `retryMs` holds the job back that long before the pump tries again. */
 type Preparation = { kind: 'ready' } | { kind: 'wait'; detail: string; retryMs?: number }
-  | { kind: 'fix'; prompt: string; detail: string } | { kind: 'park'; detail: string; reason: 'no-progress' | 'round-limit' | 'check-hung' };
+  | { kind: 'fix'; prompt: string; detail: string } | { kind: 'park'; detail: string; reason: 'no-progress' | 'round-limit' | 'check-hung' }
+  /** Out of rounds with Harness's own checks red, and the run has a stronger worker to hand the document to. */
+  | { kind: 'step-up'; round: number; verdict: PlanQueueVerdict };
 
 export class PlanQueueVerification {
   /** In-flight evidence lives until the round is recorded or its review stops. */
@@ -126,7 +129,10 @@ export class PlanQueueVerification {
         needJames: [], notChecked: ['Independent review was not started because Harness checks did not pass.'] };
       await this.record(item, verdict);
       this.host.save({ ...this.host.getItem(item.id), round, verdict });
-      if (round >= run.config.maxRounds) return { kind: 'park', reason: 'round-limit', detail: `Checks still fail after ${round} rounds: ${red[0].command}` };
+      if (round >= run.config.maxRounds) {
+        return canStepUp(run, item, verdict) ? { kind: 'step-up', round, verdict }
+          : { kind: 'park', reason: 'round-limit', detail: `Checks still fail after ${round} rounds: ${red[0].command}` };
+      }
       return { kind: 'fix', prompt: red.map(receipt => buildGateFailurePrompt(receipt.command, receipt.tail)).join('\n\n'),
         detail: 'Harness checks did not pass; the worker is fixing them.' };
     } catch (error) {

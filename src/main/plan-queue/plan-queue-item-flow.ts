@@ -493,6 +493,7 @@ export class PlanQueueItemFlow {
       host: this.host, verification: this.verification, hold: item => this.holdUnlocked(item),
       park: (item, reason, detail) => this.parkUnlocked(item, reason, detail),
       fix: (item, prompt, detail) => this.toFixing(item, prompt, detail),
+      stepUp: (item, round, verdict) => this.stepUp(item, round, verdict),
       spawn: (item, base) => this.selectAndSpawnVerifier(item, base),
       checksFinished: ran => { this.releaseChecklistTurn(waiting.id); if (ran) this.breaker.succeeded(waiting.runId, waiting.id); },
       checksFailed: message => { this.breaker.note(waiting.runId, waiting.id, message); this.preparationErrors.holdOff(waiting.id, CHECK_RETRY_MS); },
@@ -608,15 +609,7 @@ export class PlanQueueItemFlow {
     }
     const run = this.host.getRun(item.runId);
     if (round >= run.config.maxRounds) {
-      if (canStepUp(run, item, verdict)) {
-        await stepUpItem({
-          host: this.host,
-          stopInstance: (id) => this.stopInstance(id),
-          spawnWorker: (next, prompt) => this.spawnWorker(next, prompt, null),
-          promptContext: (r, i) => this.workerSessions.promptContext(r, i),
-        }, item, round, verdict);
-        return;
-      }
+      if (canStepUp(run, item, verdict)) { await this.stepUp(item, round, verdict); return; }
       const summary = verdict.findings.slice(0, 5).map((f) => `[${f.severity}, confidence ${f.confidence}] ${f.summary}`).join('; ');
       await this.parkUnlocked({ ...item, round, verdict }, 'round-limit', `Still failing after ${item.steppedUpAt ? 'the step-up worker\'s ' : ''}${round} verification round(s): ${summary || 'no findings listed'}`);
       return;
@@ -625,6 +618,15 @@ export class PlanQueueItemFlow {
       this.host.save({ ...item, round, verdict }),
       buildFixPrompt(round, run.config.maxRounds, verdict.findings, await describePlanningMoves(run.workspaceCwd, item.id)) + this.verification.stepBack(item),
     );
+  }
+
+  private stepUp(item: PlanQueueItem, failedRounds: number, verdict: PlanQueueVerdict): Promise<void> {
+    return stepUpItem({
+      host: this.host,
+      stopInstance: (id) => this.stopInstance(id),
+      spawnWorker: (next, prompt) => this.spawnWorker(next, prompt, null),
+      promptContext: (r, i) => this.workerSessions.promptContext(r, i),
+    }, item, failedRounds, verdict);
   }
 
   private async erroredRound(item: PlanQueueItem, reason: string): Promise<void> {

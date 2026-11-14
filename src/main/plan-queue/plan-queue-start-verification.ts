@@ -6,7 +6,7 @@ import { buildConflictPrompt } from './plan-queue-prompts';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PlanQueueVerification } from './plan-queue-verification';
 import type { PlanQueueItem } from './plan-queue.types';
-import type { PlanQueueParkReason } from '@contracts/schemas/plan-queue';
+import type { PlanQueueParkReason, PlanQueueVerdict } from '@contracts/schemas/plan-queue';
 
 interface StartVerificationContext {
   host: PlanQueueFlowHost;
@@ -14,6 +14,8 @@ interface StartVerificationContext {
   hold(item: PlanQueueItem): Promise<void>;
   park(item: PlanQueueItem, reason: PlanQueueParkReason, detail: string): Promise<void>;
   fix(item: PlanQueueItem, prompt: string, detail: string): Promise<void>;
+  /** Hand the item to the run's step-up worker: its Harness checks are red after `round` rounds. */
+  stepUp(item: PlanQueueItem, round: number, verdict: PlanQueueVerdict): Promise<void>;
   spawn(item: PlanQueueItem, baseBranch: string): Promise<void>;
   /** The commands are done, so the checker's review doesn't hold the computer's one checklist turn. `ran` is false for a wait. */
   checksFinished(ran: boolean): void;
@@ -91,6 +93,7 @@ export async function startQueueVerification(ctx: StartVerificationContext, item
     return;
   }
   if (checks.kind === 'park') { await ctx.park(item, checks.reason, checks.detail); return; }
+  if (checks.kind === 'step-up') { await ctx.stepUp(item, checks.round, checks.verdict); return; }
   if (checks.kind === 'fix') { await ctx.fix(item, checks.prompt, checks.detail); return; }
   await ctx.spawn(item, baseBranch);
 }
