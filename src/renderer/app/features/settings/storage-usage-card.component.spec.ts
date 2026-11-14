@@ -58,6 +58,17 @@ describe('disk usage card', () => {
     expect(store.cancel).toHaveBeenCalledTimes(2);
     expect(element.querySelector('[title]')).toBeNull();
   });
+  // Settings closes itself on Escape; a dialog open inside it must take that key for itself.
+  it('keeps Escape inside the dialog so Settings stays open', () => {
+    store.preview.set(preview);
+    const fixture = render();
+    const element = fixture.nativeElement as HTMLElement;
+    const reachedSettings = vi.fn();
+    element.addEventListener('keydown', reachedSettings);
+    element.querySelector('[role="dialog"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(store.cancel).toHaveBeenCalledTimes(1);
+    expect(reachedSettings).not.toHaveBeenCalled();
+  });
   it('shows a plain top line only above ten GiB, with the second step and no actions for kept stores', () => {
     store.usage.set({ measuredAt: 1, rows: [{ id: 'history', label: 'Conversation history (kept)', bytes: 100, reclaimableBytes: 0, note: 'Harness keeps this.' }], reclaimableBytes: 11 * 1024 ** 3, progress: null });
     const fixture = render();

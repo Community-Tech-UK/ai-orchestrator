@@ -1,7 +1,7 @@
-import { lstat, opendir, realpath } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import type { LeftoverWorktreeOwner, LeftoverWorktreeReport, LeftoverWorktreeRow } from '@contracts/schemas/workspace-tools';
 import { isInsideOrEqual, pathCompareKey } from '../../util/path-helpers';
+import { unpatchedFs } from '../../util/unpatched-fs';
 import { gitExec } from './git-exec';
 import { checkWorktreeProcesses } from './leftover-worktree-processes';
 
@@ -19,6 +19,8 @@ export interface LeftoverReportDependencies {
   archiveRoot?: string;
   processCheck?: typeof checkWorktreeProcesses;
 }
+// `.asar` files read as folders through Electron's patched `fs`; see unpatched-fs.ts.
+const { lstat, opendir, realpath } = unpatchedFs().promises;
 const sizes = new Map<string, { at: number; value: Promise<number> }>();
 
 /** Do not follow symlinks, including the root, when accounting for disk bytes. */

@@ -814,3 +814,16 @@ describe('keep-awake push validation', () => {
     expect(sender.send).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('CLI update pill delta validation', () => {
+  const state = { generatedAt: 1, count: 0, entries: [] };
+
+  // The poll service puts `waitingSessionCount` on every state it emits, set or not;
+  // a strict schema without it dropped every update, so the pill never saw them.
+  it('passes the waiting-session count, set or unset, and still drops unknown keys', () => {
+    expect(validateRendererEventPayload(IPC_CHANNELS.CLI_UPDATE_PILL_DELTA, { ...state, waitingSessionCount: 2 })).toBe(true);
+    expect(validateRendererEventPayload(IPC_CHANNELS.CLI_UPDATE_PILL_DELTA, { ...state, waitingSessionCount: undefined })).toBe(true);
+    expect(validateRendererEventPayload(IPC_CHANNELS.CLI_UPDATE_PILL_DELTA, { ...state, waitingSessionCount: -1 })).toBe(false);
+    expect(validateRendererEventPayload(IPC_CHANNELS.CLI_UPDATE_PILL_DELTA, { ...state, unexpected: true })).toBe(false);
+  });
+});

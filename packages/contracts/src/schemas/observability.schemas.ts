@@ -135,6 +135,7 @@ export const CliUpdatePillStateEventSchema = z.object({
     updateAvailable: z.boolean().optional(),
     updatePlan: CliUpdatePlanSummarySchema,
   }).strict()).max(1_000),
+  /** Sessions holding a safe, opted-in automatic update until their turn settles. */
   waitingSessionCount: z.number().int().nonnegative().optional(),
   error: z.string().max(10_000).optional(),
 }).strict();

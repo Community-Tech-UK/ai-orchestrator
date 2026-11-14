@@ -53,6 +53,18 @@ describe('leftover folder card', () => {
     expect(preview()).toBeNull(); expect(run).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(button);
   });
+  // Settings closes itself on Escape; a dialog open inside it must take that key for itself.
+  it('keeps Escape inside the dialog so Settings stays open', async () => {
+    preview.set({ previewId: 'preview', row: row(), action: 'discard-saved-work', consequence: 'The saved work is deleted.' });
+    const fixture = TestBed.createComponent(LeftoverWorktreesCardComponent); fixture.detectChanges();
+    const element: HTMLElement = fixture.nativeElement;
+    const reachedSettings = vi.fn();
+    element.addEventListener('keydown', reachedSettings);
+    element.querySelector('[role="dialog"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+    expect(preview()).toBeNull();
+    expect(reachedSettings).not.toHaveBeenCalled();
+  });
   it('names the file count and requires an unticked discard box', async () => {
     preview.set({ previewId: 'preview', row: row(), action: 'discard-saved-work',
       consequence: 'The saved work is deleted and cannot be brought back.' });

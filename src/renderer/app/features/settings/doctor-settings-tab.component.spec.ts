@@ -75,7 +75,8 @@ describe('DoctorSettingsTabComponent sign-in', () => {
     const fixture = TestBed.createComponent(DoctorSettingsTabComponent);
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('app-storage-usage-card')).not.toBeNull();
-    expect(fixture.nativeElement.querySelector('app-leftover-worktrees-card')).not.toBeNull();
+    // One card only: a second copy ran its own load with no working folder and opened a second dialog.
+    expect(fixture.nativeElement.querySelectorAll('app-leftover-worktrees-card')).toHaveLength(1);
   });
 
   it('only offers one-click sign-in for auth repair actions', () => {

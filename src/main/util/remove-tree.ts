@@ -1,5 +1,5 @@
 import type { RmOptions } from 'node:fs';
-import * as fs from 'node:fs/promises';
+import { unpatchedFs } from './unpatched-fs';
 
 /**
  * Delete a file or folder tree, like `rm -rf`.
@@ -10,14 +10,8 @@ import * as fs from 'node:fs/promises';
  * a tree holding one (every `node_modules/electron` does) fails half-done or,
  * with retries, never settles. On
  * 2026-10-26 one such delete held the shared Git write queue, and every Plan
- * Queue item behind it stopped. `original-fs` is Electron's unpatched `fs`.
+ * Queue item behind it stopped. See `unpatched-fs.ts`.
  */
 export async function removeTree(target: string, options: Omit<RmOptions, 'recursive'> = {}): Promise<void> {
-  await unpatchedRm()(target, { force: true, ...options, recursive: true });
-}
-
-function unpatchedRm(): typeof fs.rm {
-  if (!process.versions.electron) return fs.rm;
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  return (require('original-fs') as typeof import('node:fs')).promises.rm;
+  await unpatchedFs().promises.rm(target, { force: true, ...options, recursive: true });
 }

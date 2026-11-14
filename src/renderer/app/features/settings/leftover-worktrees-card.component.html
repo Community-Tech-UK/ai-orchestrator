@@ -35,7 +35,7 @@
 @if (store.preview(); as preview) {
   <div class="dialog-overlay">
     <div #dialog class="removal-dialog" role="dialog" aria-modal="true" aria-labelledby="folder-removal-heading"
-      aria-describedby="folder-removal-consequence" (keydown.escape)="store.cancel()">
+      aria-describedby="folder-removal-consequence" (keydown.escape)="$event.stopPropagation(); store.cancel()">
       <h3 id="folder-removal-heading">{{ preview.action === 'restore-folder' ? 'Restore' : 'Remove' }} {{ folderName(preview.row) }}?</h3>
       @if (preview.action !== 'restore-folder') {
       <label>What should go?

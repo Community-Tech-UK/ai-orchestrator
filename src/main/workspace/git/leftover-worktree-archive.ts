@@ -2,8 +2,6 @@
  * Git refs retain the baseline commit and a manifest binding it to the private archive.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { chmod, cp, lstat, mkdir, mkdtemp, open, readdir, readlink, rm, statfs, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -12,9 +10,13 @@ import { z } from 'zod';
 import type { LeftoverWorktreeArchive, LeftoverWorktreeRow } from '@contracts/schemas/workspace-tools';
 import { isInsideOrEqual, pathCompareKey } from '../../util/path-helpers';
 import { removeTree } from '../../util/remove-tree';
+import { unpatchedFs } from '../../util/unpatched-fs';
 import { gitExec } from './git-exec';
 
 const exec = promisify(execFile);
+// Checkouts hold `.asar` files, which Electron's patched `fs` reads as folders; see unpatched-fs.ts.
+const { createReadStream } = unpatchedFs();
+const { chmod, cp, lstat, mkdir, mkdtemp, open, readdir, readlink, rm, statfs, writeFile } = unpatchedFs().promises;
 const ManifestSchema = z.object({
   version: z.literal(1), id: z.string().uuid(), repoRoot: z.string(), path: z.string(),
   branch: z.string().nullable(), tip: z.string().regex(/^[a-f0-9]{40,64}$/),

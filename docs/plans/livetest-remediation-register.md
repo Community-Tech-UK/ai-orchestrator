@@ -391,6 +391,13 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1092 | P2 | **FIXED + REGRESSION-TESTED + LIVE RE-CHECKED 2026-11-11 (working tree); landing pending.** Pressing Escape inside the Storage clean-up dialog or the work-folder removal dialog also closed Settings (a real key press sent the page back to the dashboard). Both dialogs now keep Escape for themselves. | [LT-1092 detail](#lt-1092) | [Oct-2 housekeeping check 1](2026-10-20-oct2-housekeeping_livetest.md#evidence-run--2026-11-11-plan-queue-worker) |
+| LT-1093 | P2 | **FIXED + REGRESSION-TESTED + LIVE RE-CHECKED 2026-11-11 (working tree); landing pending.** Inside Electron, `lstat` reports a `.asar` file as a folder, so the work-folder size scan failed with ENOTDIR and the archive fingerprint disagreed with the plain-Node one. A Harness-made retired folder holding `node_modules/electron` could never be inspected, archived or removed. | [LT-1093 detail](#lt-1093) | [Oct-2 housekeeping check 2](2026-10-20-oct2-housekeeping_livetest.md#evidence-run--2026-11-11-plan-queue-worker) |
+| LT-1094 | P2 | **FIXED + REGRESSION-TESTED + LIVE RE-CHECKED 2026-11-11 (working tree); landing pending.** Every CLI update pill refresh was dropped before the renderer because the strict event schema did not list `waitingSessionCount`, so the "sessions waiting" number could never arrive by push. | [LT-1094 detail](#lt-1094) | [Oct-2 housekeeping check 3](2026-10-20-oct2-housekeeping_livetest.md#evidence-run--2026-11-11-plan-queue-worker) |
+| LT-1095 | P3 | **FIXED + REGRESSION-TESTED + LIVE RE-CHECKED 2026-11-11 (working tree); landing pending.** The Doctor tab showed the leftover-work-folders card twice (one copy inside the storage card with no working folder), with two competing loads and two dialogs. | [LT-1095 detail](#lt-1095) | [Oct-2 housekeeping check 2](2026-10-20-oct2-housekeeping_livetest.md#evidence-run--2026-11-11-plan-queue-worker) |
+| LT-1096 | P3 | **OPEN — reproduced live 2026-11-11.** When the profile folder sits behind a symlink (macOS `/tmp`), the storage card reports "Total: 0 B" and 0 B for every store with no explanation, while the conversation history row still shows its real size. | [LT-1096 detail](#lt-1096) | [Oct-2 housekeeping check 1](2026-10-20-oct2-housekeeping_livetest.md#evidence-run--2026-11-11-plan-queue-worker) |
+| LT-1097 | P3 | **OPEN — reproduced live 2026-11-11.** Opening the Wake screen records every displayed note as "shown", so one visit inflates "shown this week" and un-hides legacy notes. | [LT-1097 detail](#lt-1097) | [Oct-2 housekeeping check 5](2026-10-20-oct2-housekeeping_livetest.md#evidence-run--2026-11-11-plan-queue-worker) |
+| LT-1098 | P3 | **OPEN — reproduced live 2026-11-11.** Removing a Wake note deletes only that one row; a duplicate copy of the same text stays and becomes the visible note, although the prompt says the note is removed. | [LT-1098 detail](#lt-1098) | [Oct-2 housekeeping check 5](2026-10-20-oct2-housekeeping_livetest.md#evidence-run--2026-11-11-plan-queue-worker) |
 | LT-1090 | P3 | **SOURCE FIX PRESENT; live re-check passed 2026-11-11 on this branch; independent verification pending.** Opening Settings from the dashboard threw `Cannot read properties of undefined (reading 'data')` in the shared page shell (`findActiveSurfaceId`) while the page still rendered. Reported during the 2026-10-27 MiMo live test as LT-711 (a number the register gives to the unrelated Cursor report) and by other campaigns as LT-723 and LT-790 (neither has a section here); LT-1090 is the register entry for this defect. | [LT-1090 detail](#lt-1090) | [MiMo saved usage live test](2026-10-11-mimo-saved-usage-session_livetest.md#evidence-run--2026-11-11) |
 | LT-1085 | P2 | **SOURCE FIX VERIFIED 2026-11-10; rebuilt dev app rechecked live.** After Claude's own `/compact` (Compact now on a resident session) the chat showed "The model sent no reply. Your message and the work above are kept." with a Retry button, because the compaction turn's empty result was judged an empty model reply. | [LT-1085 detail](#lt-1085) | [Token levers live checks](2026-10-10-oct-phase1-token-levers_livetest.md) |
 | LT-1088 | P1 | **SOURCE FIX VERIFIED 2026-11-13; rebuilt-app rollout still gated.** With the rewrite-only RTK hook on, `FOO=1 git push`, `timeout 5 git push` and `git -C <dir> push` ran in a Claude session whose project denies `Bash(git push*)`: the hook rewrote them to `FOO=1 rtk git push` and the like, Claude matched its deny rule against the rewritten text and the push executed (it stopped only because the scratch repo had no remote). The hook no longer rewrites a command that starts with a `NAME=value` word, a wrapper such as `timeout`, or `git` plus a global option. | [LT-1088 detail](#lt-1088) | [Token levers live checks](2026-10-10-oct-phase1-token-levers_livetest.md) |
@@ -12947,6 +12954,172 @@ failure runs them too. Acceptance: `run-git-hook.spec.ts` case `regenerated: doc
 the fix), `regenerated: code` runs the tests, and the mocked changed-tree case still runs them. On the rebuilt app, a
 plan landing whose code equals its tested code has a short commit check.
 
+## LT-1092
+
+### LT-1092 — Escape in a clean-up dialog also closes Settings
+
+**Status: fixed in the working tree 11 November 2026; landing pending.**
+
+### Observed behaviour
+
+On a rebuilt dev app (isolated profile), Settings → Health → Doctor → Storage → "Review and clear" opened the dialog.
+A real Escape key press (`Input.dispatchKeyEvent`) closed the dialog and also navigated from `/settings#doctor` to `/`.
+The Cancel button closed only the dialog. The leftover work-folder removal dialog has the same Escape binding.
+
+### Root cause
+
+`settings.component.html:5` binds `(keydown)="onKeydown($event)"` on the Settings host, and `onKeydown` calls `goBack()` for
+Escape unless the Help drawer or compact navigation took it first (`settings.component.ts`). Both dialogs handled
+`(keydown.escape)="store.cancel()"` without stopping propagation, so the same key also reached the Settings host.
+
+### Required behaviour and acceptance
+
+Escape closes the deepest open overlay only. Both dialogs now use `(keydown.escape)="$event.stopPropagation(); store.cancel()"`.
+Acceptance: `storage-usage-card.component.spec.ts` and `leftover-worktrees-card.component.spec.ts` case "keeps Escape inside
+the dialog so Settings stays open"; on the rebuilt app a real Escape in the backups dialog closed the dialog, left the URL at
+`/settings#doctor`, and kept the fixture file. The work-folder removal dialog's identical change is covered by its unit test only, not by a live key press.
+
+## LT-1093
+
+### LT-1093 — an `.asar` file reads as a folder, so retired work folders cannot be inspected or archived
+
+**Status: fixed in the working tree 11 November 2026; landing pending.**
+
+### Observed behaviour
+
+With a Harness-made, 56-day-old fixture folder holding `node_modules/electron/dist/Electron.app/Contents/Resources/default_app.asar`,
+the Doctor card showed "Folder details could not be verified. Harness will not remove it." and the report error
+`ENOTDIR: not a directory, opendir '…/default_app.asar'`. Against the real repository, 12 of the roughly 100 listed folders (those with a real `node_modules/electron`)
+failed the same way before the change; after it, 99 rows were read with 0 errors.
+
+### Root cause
+
+Electron patches `fs` so an `.asar` file is a folder: `lstat` reports `isDirectory() === true`, size 0, while `opendir` still fails
+with ENOTDIR (measured with `ELECTRON_RUN_AS_NODE=1` against plain Node). `folderBytes` in `leftover-worktree-report.ts` and
+`worktreeFingerprint`/`cp` in `leftover-worktree-archive.ts` trusted `lstat`. The fingerprint of such a folder also differed between
+Electron and plain Node, so an archive would fail its own verification. `remove-tree.ts` already solved the delete side (2026-10-26).
+
+### Required behaviour and acceptance
+
+Scans, hashes and copies of checkouts use Electron's unpatched `fs`. New `src/main/util/unpatched-fs.ts` returns `original-fs` inside
+Electron and plain `fs` elsewhere; `removeTree`, the report and the archive module use it. Acceptance:
+`leftover-worktree-asar.spec.ts` (runs the real code under Electron-as-Node; both cases failed before the change and pass after),
+`remove-tree.spec.ts` unchanged and passing; live: the fixture reported 111,043 bytes, archived, was removed with its branch kept,
+and Restore reproduced every file and permission.
+
+## LT-1094
+
+### LT-1094 — every CLI update pill refresh was blocked by the renderer event schema
+
+**Status: fixed in the working tree 11 November 2026; landing pending.**
+
+### Observed behaviour
+
+At every dev-app start the log carried `Blocked invalid renderer event payload` for channel `cli-update-pill:delta` with
+`Unrecognized key: "waitingSessionCount"` (5 times in the first run, 2 in each restart).
+
+### Root cause
+
+`CliUpdatePillStateEventSchema` (`packages/contracts/src/schemas/observability.schemas.ts`) is `.strict()` and omitted
+`waitingSessionCount`. `CliUpdatePollService.refreshInternal` puts that key on every state it emits (set or `undefined`), and
+`setWaitingSessionCount` emits states carrying a number, so every push was dropped before reaching the pill.
+
+### Required behaviour and acceptance
+
+The schema lists `waitingSessionCount` as an optional non-negative integer. Acceptance: `renderer-event-validation.spec.ts` case
+"CLI update pill delta validation" (failed without the field); live: a refresh delivered one delta with the key present and zero
+blocked-payload lines were logged in that run.
+
+## LT-1095
+
+### LT-1095 — the Doctor tab mounted the leftover-work-folders card twice
+
+**Status: fixed in the working tree 11 November 2026; landing pending.**
+
+### Observed behaviour
+
+`document.querySelectorAll('app-leftover-worktrees-card')` returned 2 on Settings → Health → Doctor. One copy lived inside
+`app-storage-usage-card` and had no working folder; the other was mounted by the tab with `[workingDirectory]`. Both share one store,
+so the first load (no folder) made the second load return early, and a fixture repository's folders did not appear until a later load.
+Opening a removal dialog would render two overlays.
+
+### Root cause
+
+The housekeeping plan embedded the card in the storage card (commit 6afb32a52) although the tab already mounted it.
+
+### Required behaviour and acceptance
+
+One card, bound to the working folder. The embed and its import were removed from the storage card. Acceptance:
+`doctor-settings-tab.component.spec.ts` now asserts exactly one card; live count after the change was 1.
+
+## LT-1096
+
+### LT-1096 — storage card shows 0 B silently when the profile path contains a symlink
+
+**Status: open.**
+
+### Observed behaviour
+
+With `AIO_DEV_USER_DATA_PATH=/tmp/aio-lt-queue-abb47706` (macOS `/tmp` is a link to `/private/tmp`) the card showed "Total: 0 B", 0 B for
+the learning database (a 2.8 MB folder), and 208 KiB for conversation history (read from the database, not the walk). Relaunching on the
+real path `/private/tmp/aio-lt-queue-abb47706` showed 11.0 MiB, equal to an independent byte count (11,571,607).
+
+### Root cause
+
+`listStorageFiles` returns `[]` when `safeStorageDirectory` finds a link anywhere in the root's path (`storage-files.ts`). That is a deliberate
+safety rule, but the card presents the empty walk as a measurement.
+
+### Required behaviour and acceptance
+
+When the profile folder cannot be walked safely the card says so instead of showing zeros, or the root is resolved once at startup.
+Acceptance: a fixture profile behind a symlink shows a plain sentence and no "0 B" totals. Real profiles (`~/Library/Application Support/harness`)
+are not behind a link, so impact is low.
+
+## LT-1097
+
+### LT-1097 — opening the Wake screen counts every displayed note as shown
+
+**Status: open.**
+
+### Observed behaviour
+
+A fixture legacy note (created and last shown 1 March, shown 3 times) read "Shown 4 times, last shown 11 Nov" after one visit to
+Knowledge → Wake, and moved out of Hidden. The mined fixture notes read "Shown 1 time" with no session started. The summary line counted them
+in "shown this week".
+
+### Root cause
+
+The screen loads `wakeGenerate`; `WakeContextBuilder.generateWakeContext` → `generateL1` calls `recordHintUsage` for the notes it renders
+(`wake-context-builder.ts:254`, `:270`), which increments `usage_count` and sets `last_used`. A page view and a real prompt build are not
+distinguished.
+
+### Required behaviour and acceptance
+
+Only notes put into a session's prompt count as shown. Viewing the screen records no usage. Acceptance: after a visit to the Wake screen a
+fixture note's `usage_count` and `last_used` are unchanged and legacy notes stay under Hidden. Needs a product decision on what "shown" means
+for cached contexts.
+
+## LT-1098
+
+### LT-1098 — removing a Wake note leaves its duplicate visible
+
+**Status: open.**
+
+### Observed behaviour
+
+Fixture state: the miner note "Never edit generated files by hand." and a duplicate "never  edit generated files by hand." in the same room
+(shown under Hidden). After the confirmed removal the list read "5 notes, 5 different"; the duplicate became the visible note. The tombstone
+was written and the miner did not re-add the note after the project changed.
+
+### Root cause
+
+`WakeContextBuilder.removeHint(id)` deletes one row and writes the tombstone for its normalised text, but other rows with the same
+normalised text in the same room are left (`wake-context-builder.ts:137`).
+
+### Required behaviour and acceptance
+
+Removing a note removes every copy with the same normalised text in that room (the prompt says "Removes 1 note"; it should state the true count).
+Acceptance: with a duplicate fixture, one confirmed removal leaves no row with that text and the summary falls by the number of copies.
 ## LT-1090
 
 ### LT-1090 — opening Settings threw a route-snapshot exception in the page shell

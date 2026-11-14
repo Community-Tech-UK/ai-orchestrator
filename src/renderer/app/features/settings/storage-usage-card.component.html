@@ -34,11 +34,10 @@
     }
   }
 </section>
-<app-leftover-worktrees-card />
 @if (store.preview(); as preview) {
   <div class="dialog-overlay" (click)="store.cancel()" role="presentation">
     <section #dialog class="cleanup-dialog" role="dialog" aria-modal="true" aria-labelledby="disk-cleanup-heading" aria-describedby="disk-cleanup-consequence"
-      (click)="$event.stopPropagation()" (keydown.escape)="store.cancel()">
+      (click)="$event.stopPropagation()" (keydown.escape)="$event.stopPropagation(); store.cancel()">
       <h3 id="disk-cleanup-heading">{{ heading(preview.target) }}</h3>
       <p>About {{ preview.estimatedCount.toLocaleString() }} {{ preview.target === 'event-record' ? 'entries' : 'items' }} · {{ bytes(preview.bytes) }}.</p>
       @if (preview.oldestAt !== null) { <p>From {{ date(preview.oldestAt) }} to {{ date(preview.newestAt) }}.</p> }

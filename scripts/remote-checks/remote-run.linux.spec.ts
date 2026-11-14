@@ -149,7 +149,9 @@ function setUp(slotWaitSeconds = 180) {
 function startRun(script: string, name: string, commit: string, env: NodeJS.ProcessEnv = {}) {
   // Unique, like a real run's: suites overlapping on one machine share a systemd user manager.
   const id = `${name}-${process.pid}`;
-  const child = spawn('bash', [script, 'run', id, commit, '0', '0'], { stdio: 'pipe', env: { ...process.env, ...env } });
+  // The slot tests lock three slots, so pin the script's own default rather than inherit the test machine's count
+  // (the Windows PC sends AIO_SLOT_COUNT=8, which left slots 4 to 8 free and a run that should wait got one).
+  const child = spawn('bash', [script, 'run', id, commit, '0', '0'], { stdio: 'pipe', env: { ...process.env, AIO_SLOT_COUNT: '3', ...env } });
   children.push(child);
   let output = '';
   child.stdout.on('data', (chunk) => { output += String(chunk); });

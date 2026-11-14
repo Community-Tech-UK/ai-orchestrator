@@ -6264,7 +6264,7 @@
   "largeFiles": [
     {
       "path": "docs/plans/livetest-remediation-register.md",
-      "lines": 13588
+      "lines": 13761
     },
     {
       "path": "resources/browser-extension/background.js",
@@ -7635,6 +7635,10 @@
       "lines": 831
     },
     {
+      "path": "src/main/event-bus/renderer-event-validation.spec.ts",
+      "lines": 830
+    },
+    {
       "path": "docs/plans/2026-10-22-aio-tidies-up-after-itself_plan_completed.md",
       "lines": 829
     },
@@ -7657,10 +7661,6 @@
     {
       "path": "docs/plans/2026-02-22-token-memory-optimization-design_completed.md",
       "lines": 819
-    },
-    {
-      "path": "src/main/event-bus/renderer-event-validation.spec.ts",
-      "lines": 817
     },
     {
       "path": "src/main/memory/critique-agent.ts",
