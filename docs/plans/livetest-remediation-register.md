@@ -410,6 +410,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-1085 | P2 | **SOURCE FIX VERIFIED 2026-11-10; rebuilt dev app rechecked live.** After Claude's own `/compact` (Compact now on a resident session) the chat showed "The model sent no reply. Your message and the work above are kept." with a Retry button, because the compaction turn's empty result was judged an empty model reply. | [LT-1085 detail](#lt-1085) | [Token levers live checks](2026-10-10-oct-phase1-token-levers_livetest.md) |
 | LT-1088 | P1 | **SOURCE FIX VERIFIED 2026-11-13; rebuilt-app rollout still gated.** With the rewrite-only RTK hook on, `FOO=1 git push`, `timeout 5 git push` and `git -C <dir> push` ran in a Claude session whose project denies `Bash(git push*)`: the hook rewrote them to `FOO=1 rtk git push` and the like, Claude matched its deny rule against the rewritten text and the push executed (it stopped only because the scratch repo had no remote). The hook no longer rewrites a command that starts with a `NAME=value` word, a wrapper such as `timeout`, or `git` plus a global option. | [LT-1088 detail](#lt-1088) | [Token levers live checks](2026-10-10-oct-phase1-token-levers_livetest.md) |
 | LT-1089 | P4 | **REPRODUCED LIVE 2026-11-13; NOT FIXED.** Renaming a new Claude chat within about 300 ms of its first message makes the title service log "AI title upgrade skipped: no live session and spawning a new CLI for a label is switched off" for that Claude chat. The rename is kept and no second process starts, so only the log reason is misleading; the livetest expects that line only for non-Claude chats. | [LT-1089 detail](#lt-1089) | [Token levers live checks](2026-10-10-oct-phase1-token-levers_livetest.md) |
+| LT-1091 | P2 | **REPRODUCED LIVE 2026-11-14; NOT FIXED.** The "of which helper agents" figure undercounts the helper's own transcript: it is summed from `agent-<id>.jsonl` at the helper's finish notification, which arrives before the Claude CLI appends the helper's final assistant message line, and the later re-sum never refreshes final samples. The check-2 run booked $0.075014 against $0.0837263 for the same helper at repo rates (10.4% short, the final message); an earlier stub run booked all zeros. The sum itself is correct when re-read after the fact. | [LT-1091 detail](#lt-1091) | [Usage burn followups live checks](2026-11-12-usage-burn-followups_livetest.md#evidence-run--2026-11-13) |
 | LT-1028 | P2 | **FIX LANDED 2026-11-10 (661f79daa); rebuilt-app check pending.** On a Control Center window 840px wide or narrower, the new hub menu (Oct2 later 3.2) stacked all twelve hubs in a column above the page: the Automations page kept 280 of 800px of height, Git 168px, and the last hub was clipped. The narrow-layout strip CSS was written for the old menu's side-by-side groups. Fixed by a one-row sideways strip that keeps its own height and scrolls the open hub into view. | [LT-1028 detail](#lt-1028--the-hub-menu-fills-half-a-narrow-window) | [Oct2 later live checks, section 4](2026-10-20-oct2-later_livetest.md) |
 | LT-1029 | P2 | **OBSERVED + ROOT-CAUSED 2026-11-11; NOT A PRODUCT DEFECT (test-harness spawn lifecycle).** A disposable worker spawned from a `run_on_node` agent turn registered successfully (`Node registered via RPC`, session issued) but its WebSocket closed 1006 seven-to-eight seconds later — exactly when the agent turn ended and its background task was reaped — so the roster showed the enrolled node `disconnected` and later gate calls failed node matching. Started via Task Scheduler (outside the agent process tree), the same worker stayed connected and the signed-out-Cursor gate call succeeded. The same evidence live-verifies LT-604's router fix on the packaged build. | [LT-1029 detail](#lt-1029) | [Browser Gateway wedged-tab livetest](/Users/suas/work/communitytech/browser-gateway-wedged-tab-and-node-recovery-2026-09-11_livetest.md) |
 | LT-708 | P1 | **OPEN — reproduced live 2026-10-27.** A non-YOLO Claude session consuming a warm adapter has no defer hook. The genuine CLI error `This command requires approval` is not recognised as a permission denial, so the session becomes idle without an approval card. A fresh adapter shows the deferred-permission card for the same harmless command. | [LT-708 detail](#lt-708) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-plan-queue-worker) |
@@ -475,6 +476,24 @@ sections below. The historical reproduction remains unchanged.
 | LT-1084 | P2 | **FIXED AND VERIFIED 2026-11-13.** After a Codex goal turn's final answer, Harness inferred that the turn had ended 250 ms later even when Codex had not yet sent its own end-of-turn notice. On 13 Nov one such notice trailed the answer by 1.8 s, so the chat showed idle (Stop button gone) for 1.6 s while the native turn was still open. Repaired: a turn with no helper agents now waits for Codex's own end-of-turn notice. | [LT-1084 detail](#lt-1084) | [Codex goal-following livetest](2026-10-27-codex-goal-following-remediation_livetest.md#check-1-idle-while-the-native-turn-was-open--lt-1084--2026-11-13-queue-worker-third-pass) |
 | LT-1065 | P2 | **REPRODUCED ON THE LIVE DESK 2026-11-11 and 2026-11-12; NOT REPAIRED.** The charity lane of `get-work-day` fails because its interactive database transactions run past Prisma's default 5-second limit, so `charity_drafts` produces no drafts and the watchdog alarms. | [LT-1065 detail](#lt-1065) | [Watchdog three faults live checks](../../../../communitytech/work-finding/documents/plans/watchdog-three-faults-2026-10-20/watchdog-three-faults_livetest.md) |
 | LT-1066 | P2 | **REPRODUCED LIVE 2026-11-13 (read-only database observation); CAUSE NOT ISOLATED; NOT REPAIRED.** The Desk `conversation-reconciliation` schedule (every five minutes) ended 39 of 258 runs `failed` and 20 `partial` in the 24 hours to 02:29 UTC, always `source_unavailable` on the mailbox sources, and left 29 runs `running` with no end time (28 older than an hour, the oldest from 12 November 18:00 UTC). | [LT-1066 detail](#lt-1066) | [Watchdog faults live checks](../../../../communitytech/work-finding/documents/plans/watchdog-faults-2026-10-08/watchdog-faults_livetest.md) |
+| LT-1067 | P3 | **REPRODUCED 2026-11-13 on the fictional Desk fixture page in a real Chrome (ct-test-mac); NOT REPAIRED.** In the CRM "Write an email" panel, pressing Enter or Space on a starter button (Introduction, Proposal cover note, Thank-you after a meeting) fills the form but disables all three starters, so the focused button is disabled and keyboard focus drops to the page body. Focus falls to the page body and the next Tab usually continues from where the removed button was (at 390px it landed on the subject field); typing without a Tab goes nowhere. | [LT-1067 detail](#lt-1067) | [CRM outcomes release live checks](../../../../communitytech/work-finding/documents/plans/crm-outcomes-release-2026-10-30/crm-outcomes-release_livetest.md) |
+| LT-1068 | P2 | **REPRODUCED LIVE 2026-11-13; FIXED in work-finding `b56488ead` and `9ad95098e`; RETESTED AND FIXED 2026-11-14** (a queue job on a post-fix checkout sent all four suites to the PC three times; no Vitest or Jest on this Mac). Separate new fault found in the same retest: LT-1125. With "Use this Mac" switched off, Plan Queue jobs in work-finding still ran their radar, runner and desk-web tests on James's Mac: the runner changes that hand runs to Harness's test machines were in James's work-finding checkout but never committed, and queue jobs work from committed code. | [LT-1068 detail](#lt-1068) | [Keep this Mac as a backup live checks](2026-11-12-mac-still-pinned_livetest.md) |
+| LT-1069 | P3 | **REPRODUCED 2026-11-13; NOT REPAIRED.** `scripts/next-lt-id.mjs` prints `LT-1030`, which is already taken (the highest row is LT-1068), because it reads only the first index table. Separately, a Plan Queue livetest task for a work-finding item points at `docs/plans/livetest-campaign-runbook.md` and `scripts/next-lt-id.mjs` inside work-finding, where neither file exists (both live only in this repository), so a worker there cannot follow the runbook as written. | [LT-1069 detail](#lt-1069) | [CFP retention live checks](../../../../communitytech/work-finding/documents/plans/cfp-publication-confirmation-retention-2026-10-16/cfp-publication-confirmation-retention_livetest.md) |
+| LT-1070 | P2 | **REPRODUCED ON REAL CI RUNS 20 OCTOBER TO 13 NOVEMBER 2026; CAUSE ISOLATED FOR 14 OF 16, NOT REPAIRED.** 16 of the last 48 `deploy / deploy` jobs in work-finding CI failed, 7 at "Release worker source" and 9 at "Deploy and verify", including three "Public availability probe observed a failed read" and two "operation was aborted due to timeout" during candidate verification. | [LT-1070 detail](#lt-1070) | [Desk fast deploy verification repair live checks](../../../../communitytech/work-finding/documents/plans/desk-fast-deploy-verification-repair-2026-10-16/desk-fast-deploy-verification-repair_livetest.md) |
+| LT-1071 | P2 | **REPRODUCED ON REAL CI RUNS 12 AND 13 NOVEMBER 2026; NOT REPAIRED.** The Desk deploy job is over its "under 5 minutes" target on the most recent full deploy (run 43353022084: 347 s), so the spec's "three consecutive typical production deploys inside the target" is not met (latest three: 347 s, 285 s, 183 s). | [LT-1071 detail](#lt-1071) | [Desk fast deploy verification repair live checks](../../../../communitytech/work-finding/documents/plans/desk-fast-deploy-verification-repair-2026-10-16/desk-fast-deploy-verification-repair_livetest.md) |
+| LT-1072 | P2 | **REPRODUCED ON REAL CI RUNS 20 OCTOBER TO 13 NOVEMBER 2026; NOT REPAIRED.** Push to live in work-finding CI misses the spec's "under 20 minutes" target on every run: 0 of 31 successful deploy runs finished inside 20 minutes (minimum 40 minutes, median 61, maximum 183), because the integration suite takes about an hour before the deploy job can start. | [LT-1072 detail](#lt-1072) | [Desk fast deploy verification repair live checks](../../../../communitytech/work-finding/documents/plans/desk-fast-deploy-verification-repair-2026-10-16/desk-fast-deploy-verification-repair_livetest.md) |
+| LT-1073 | P4 | **REPRODUCED 2026-11-13 on the fictional Desk fixture page in a real Chrome (ct-test-mac); NOT REPAIRED.** In the CRM "Write an email" panel, `toggle()` only reads the context when the panel is closed or in error. After a refused read (403) or a missing organisation (404), closing and reopening the panel shows the old refusal without asking the server again, so a person who has since signed in with Microsoft must reload the page. | [LT-1073 detail](#lt-1073) | [CRM outcomes release live checks](../../../../communitytech/work-finding/documents/plans/crm-outcomes-release-2026-10-30/crm-outcomes-release_livetest.md) |
+| LT-1074 | P3 | **REPRODUCED 2026-10-18 (recorded 2026-11-13); NOT REPAIRED; load-sensitive residual.** The Desk call-list page misses its 2,000 ms p95 target on one five-reader cold series run in the heaviest foreign-load window: p95 2,027.2 ms (27 ms over; median 1,604.7 ms, 250 samples). The same code passes on a normal-load confirmation series (cold p95 1,183.7 ms, warm p95 1,224.8 ms). | [LT-1074 detail](#lt-1074) | [O6 call-performance live check](/Users/suas/work/communitytech/work-finding/documents/plans/o6-call-performance-2026-10-10/o6-call-performance_livetest.md) |
+| LT-1075 | P3 | **REPRODUCED LIVE 2026-11-13 (ct-test-mac); FIXED AND RE-VERIFIED LIVE 2026-11-13 in the work-finding queue worktree (uncommitted until the coordinator lands it).** The Desk Research page Pipeline `run()` handler enqueued a job even when the stage was already running, because it relied only on the button's native `disabled` attribute; a script-delivered click on the disabled Score button submitted two extra jobs. | [LT-1075 detail](#lt-1075) | [running-job-help-code live checks](../../../../communitytech/work-finding/documents/plans/running-job-help-code-2026-10-09/running-job-help-code_livetest.md) |
+| LT-1076 | P3 | **REPRODUCED LIVE 2026-11-13 (ct-test-mac); NOT REPAIRED.** On the Desk Research page, a keyboard user who starts a stage with Enter loses focus: the focused stage button becomes disabled and `document.activeElement` falls back to `BODY`. Same cause as LT-1067. | [LT-1076 detail](#lt-1076) | [running-job-help-code live checks](../../../../communitytech/work-finding/documents/plans/running-job-help-code-2026-10-09/running-job-help-code_livetest.md) |
+| LT-1077 | P3 | **REPRODUCED LIVE 2026-11-13 (windows-pc, Chrome); FIXED AND RE-VERIFIED LIVE 2026-11-13 in the work-finding queue worktree (uncommitted until the coordinator lands it).** The Desk Conversations "Conversation and meeting brief" dialog let Tab from its last control (`Close`) leave the page for the browser's own controls (`document.activeElement` became `BODY`), so keyboard focus was not contained in the modal. | [LT-1077 detail](#lt-1077) | [proposal-brief-help-code live checks](/Users/suas/work/communitytech/work-finding/documents/plans/proposal-brief-help-code-2026-10-09/proposal-brief-help-code_livetest.md) |
+| LT-1078 | P2 | **REPRODUCED FROM RECEIPTS 2026-11-13; NOT REPAIRED.** The Harness "Leads panel uptime check" automation no longer reads the Desk's `health-watchdog.last` heartbeat (it did only from 24 to 30 September), so a missed Desk health-watchdog run is visible nowhere independent. | [LT-1078 detail](#lt-1078) | [work-finding-operating-model live checks](/Users/suas/work/communitytech/work-finding/documents/plans/work-finding-operating-model-2026-09-20/work-finding-operating-model_livetest.md) |
+| LT-1079 | P4 | **REPRODUCED 2026-11-13 (document against code); NOT REPAIRED.** The work-finding operating-model live check 2 says every non-proven `left` contact gets a role recheck card, but the code writes a card only for `same_person_other_role` rows. | [LT-1079 detail](#lt-1079) | [work-finding-operating-model live checks](/Users/suas/work/communitytech/work-finding/documents/plans/work-finding-operating-model-2026-09-20/work-finding-operating-model_livetest.md) |
+| LT-1080 | P2 | **REPRODUCED LIVE 2026-11-13 (read-only database observation); CAUSE NOT ISOLATED; NOT REPAIRED.** The Desk `get-work-day` 07:30 UTC run on 13 November ended `partial`: the `followups` stage `failed` (`internal_error`) and `reply_ingest` was `partial` (`source_unavailable`). This is a different stage from the charity-lane failure in LT-1065, and it is the third `partial` weekday in a row, so no clean five-weekday window can start. | [LT-1080 detail](#lt-1080) | [Work Finder recovery live checks](/Users/suas/work/communitytech/work-finding/documents/plans/work-finder-recovery-2026-09-22/work-finder-recovery_livetest.md) |
+| LT-1081 | P1 | **REPRODUCED LIVE 2026-11-13 (read-only host log readback); CAUSE NOT ISOLATED; NOT REPAIRED.** The Desk `health-watchdog` incident email is not being delivered: the 13 November 08:30 UTC run records `email_send_failed` ("Exchange SMTP submission failed: EAUTH 451") and `delivery_readiness_unconfigured` (outbound email unconfigured), and the cron log reads `health-watchdog: incident email send failed Exchange SMTP submission failed: EAUTH 451`. So the watchdog's own alert channel is down while it reports faults. | [LT-1081 detail](#lt-1081) | [watchdog-email-faults live checks](/Users/suas/work/communitytech/work-finding/documents/plans/watchdog-email-faults-2026-10-25/watchdog-email-faults_livetest.md) |
+| LT-1082 | P2 | **REPRODUCED LIVE 2026-11-13 (read-only database, cron-log and public-register readback); LIKELY CAUSE FOUND, NOT CONFIRMED; NOT REPAIRED.** The Desk watchdog raises `financial_capacity_fetch_failing` every night: Companies House fetches fail for the lead NEW HALL SCHOOL TRUST (8 consecutive nights on 13 November). The stored company number `00547420` returns 404 on the public Companies House register, while the register lists NEW HALL SCHOOL TRUST as `05472420`, so the stored number looks wrong and the lead's financial-capacity check stays at `review`. | [LT-1082 detail](#lt-1082) | [watchdog-email-faults live checks](/Users/suas/work/communitytech/work-finding/documents/plans/watchdog-email-faults-2026-10-25/watchdog-email-faults_livetest.md) |
+| LT-1125 | P2 | **REPRODUCED 2026-11-14; FIXED IN SOURCE AND VERIFIED 2026-11-14 (in `11720ef18`); first real queue run on the new code still to watch.** With "Use this Mac" off, work-finding's Desk and Radar test runs cannot leave a Plan Queue copy: the test-machine recipe sends `_scratch/cfp-expansion-2026-09-08`, a folder that exists only in James's main checkout (it is un-ignored but never committed), so `git add` in the snapshot fails with "pathspec did not match any files". The run prints `Not run: the snapshot failed, and this Mac is switched off`, and the queue job holds as "Waiting for a test machine" and retries every 5 minutes. One job did this 112 times in 14 hours; a checker also reported it as "the test machine is off". | [LT-1125 detail](#lt-1125) | [Keep this Mac as a backup live checks](2026-11-12-mac-still-pinned_livetest.md) |
+| LT-1126 | P3 | **REPRODUCED 2026-11-14; CAUSE NOT ISOLATED; NOT REPAIRED.** "Chat tool use summary" is missing for most chats that used tools: of 15 chats removed on 14 November whose saved history has tool calls made that day (up to 377 each), only one logged a summary. Example: `ifqlojrk0` (Claude Opus) made 46 tool calls between 16:38 and 16:56 UTC and was removed at 17:01:51 with no summary. | [LT-1126 detail](#lt-1126) | [Keep this Mac as a backup live checks](2026-11-12-mac-still-pinned_livetest.md) |
 
 ### New findings — 2026-10-27 Phase 0 live-test campaign
 
@@ -14318,3 +14337,615 @@ A diagnosed cause for the mailbox `unavailable` states, with either a fix or doc
 ### Evidence
 
 [Watchdog faults live checks](../../../../communitytech/work-finding/documents/plans/watchdog-faults-2026-10-08/watchdog-faults_livetest.md), "Defect record: conversation-reconciliation source outages and stuck runs" (13 November 2026).
+
+<a id="lt-1067"></a>
+
+## LT-1067 — Desk email starters drop keyboard focus when they disable themselves
+
+**Status: reproduced on 13 November 2026 in a real Chrome on the test Mac, not repaired. Priority P3.** This is a Desk (work-finding repository) defect, filed here because this is the only live-test remediation register. Found by the crm-outcomes-release live-test worker (queue item c72fc4b4) on a disposable fixture page with fictional data only. Repair belongs in a new Desk plan, not in the closed outcomes-release plan.
+
+### Observed behaviour
+
+Open the Write an email panel with the keyboard, Tab to a starter button (for example "Thank-you after a meeting") and press Enter. The subject and message fill in correctly, but `document.activeElement` is then `BODY`. A following Tab moves to the first control on the page (`lt-open-confirm` on the fixture) instead of the subject field next to the starters. The same happens with the pointer; it matters for keyboard and screen-reader users, who lose their place.
+
+### Root cause
+
+`useSnippet` in `apps/desk/web/src/app/colleague-outreach/write-email-panel.component.ts` (around line 220) sets the subject and message, and the template binds every starter button to `[disabled]="!canStartSnippet()"` (`write-email-panel.component.html`, around line 134). Once text exists `canStartSnippet()` is false, so Chrome disables the button that had focus and moves focus to the body. Nothing moves focus to the message field. Source-read only; the fix was not tried.
+
+### Required behaviour
+
+After a starter is used, keyboard focus lands on a sensible field (the message field, or the first bracketed placeholder) so the next Tab or typed key continues the writing. The other starter rules stay: existing words are never overwritten and the starters stay disabled while text exists or a save is in flight.
+
+### Acceptance
+
+A component test that activates a starter and asserts the focused element is the message field (and not `BODY`), plus a keyboard re-check in a real browser: Tab to a starter, Enter, type immediately, and the typed text lands in the message field.
+
+### Evidence
+
+[CRM outcomes release live checks](../../../../communitytech/work-finding/documents/plans/crm-outcomes-release-2026-10-30/crm-outcomes-release_livetest.md), "Evidence run, 13 November 2026". Read-back after the starter press: `{"active":"BODY","subject":"Thank you for the meeting","starterDisabled":true}`.
+
+Recheck 13 November 2026 at measured `innerWidth` 390 (same fixture, real Gateway keys on the test Mac): focus again dropped to `BODY` with the starter disabled, so the defect reproduces at both widths. One correction to the observation above: at 390 the next real Tab landed on the subject field (`write-email-subject`), not the top of the page, because Chrome continues from where the removed button sat. So keyboard users keep roughly their place on that path; focus still falls to `BODY`, which screen-reader users still notice, and typing immediately (without a Tab) still goes nowhere. Priority stays P3.
+
+## LT-1068 — Work-finding queue jobs ran radar, runner and desk-web tests on this Mac with the switch off
+
+**Status: reproduced on 13 November 2026, fixed the same day in work-finding commits `b56488ead` (runners) and `9ad95098e` (radar's runner test given its own home folder), both independently reviewed; retested and fixed on 14 November 2026. Priority P2.**
+Found while running [the keep-this-Mac-as-a-backup live checks](2026-11-12-mac-still-pinned_livetest.md), LT-A5.
+
+### Observed behaviour
+
+With "Use this Mac when the others are busy or away" off (since 10:46 UTC), `list_host_processes` showed Vitest runs on this Mac at
+about 11:00 UTC, with a load average of 109 to 137 on 18 cores. `lsof` put their working folders in two work-finding queue
+worktrees (`.worktrees/queue/cfp-publisher-node-runtime-a27d30/apps/radar` and `.worktrees/queue/cfp-publication-confirmation-r-921615/apps/radar`).
+They wrote no line to `~/.ai-orchestrator/remote-checks/runs.jsonl`, so they never reached `harness-remote-check.js`.
+
+### Root cause
+
+Step A5 of [the plan](2026-11-12-mac-still-pinned_plan_completed.md) changed work-finding's radar, runner and desk-web runners to call
+`harness-remote-check.js` (and desk's to pass its arguments on), but those edits sat uncommitted in James's work-finding checkout. A
+queue worktree is made from a commit, so its runners had no hand-off and ran Vitest here. The desk-web edit also broke its own test
+(`run-jest-quiet.test.mjs` gave the runner no home folder, so it found the real script), and four desk runner tests still expected
+runs with arguments never to reach the script.
+
+### Required behaviour
+
+Every work-finding queue job offers its radar, runner, desk-web and desk test runs to `harness-remote-check.js`, which keeps them here
+only while the switch is on.
+
+### Acceptance
+
+A work-finding queue job created after `b56488ead`: its suites appear in `runs.jsonl` as `project` runs on a test machine, and
+`list_host_processes` shows no Vitest or Jest for it here. The four runners' own tests pass (they did on 13 November: desk 23 on the PC,
+radar 38 on the PC, desk-web locally).
+
+### Retest, 14 November 2026
+
+Plan Queue run `3d587e67`, item `reviewed-reply-integration` (work-finding), whose queue copy `.worktrees/queue/reviewed-reply-integration-a808a4` was
+made on 14 November at 15:54 from a commit that contains `b56488ead`. Its checks ran in full three times (checklist runs at 14:22, 16:27 and
+17:34 UTC). Each time `runs.jsonl` gained at least four `kind: "project"` lines on `harness-checks` that line up with the checklist: for example
+16:29:40 (282 s, Desk), 16:34:45 (34 s), 16:35:26 (32 s) and 16:36:04 (42 s), then the checker started at 16:37:15. Since 13 November 10:46
+no `project` line has `ranOn: "mac"`. `list_host_processes` with `vitest` and with `jest` found no process at three readings on
+14 November (about 18:00 to 18:10 UTC), so no `lsof` check was needed. Every suite now reaches `harness-remote-check.js`, which is the
+required behaviour. The other attempts by the same job did not run at all because of a separate fault, [LT-1125](#lt-1125).
+
+<a id="lt-1069"></a>
+
+## LT-1069 — The next-ID helper prints a taken number, and work-finding livetest tasks cite runbook files that are not in work-finding
+
+**Status: reproduced on 13 November 2026, not repaired. Priority P3.**
+Found while running [the CFP retention live checks](../../../../communitytech/work-finding/documents/plans/cfp-publication-confirmation-retention-2026-10-16/cfp-publication-confirmation-retention_livetest.md) as a Plan Queue worker in work-finding.
+
+### Observed behaviour
+
+1. `node scripts/next-lt-id.mjs` run in this repository, with and without the register path as its argument, printed `LT-1030`. LT-1030 is already an index row, and the highest index row is LT-1068 (other documents already cite LT-1060 to LT-1068).
+2. The worker task for a work-finding item says to read `docs/plans/livetest-campaign-runbook.md` and run `node scripts/next-lt-id.mjs`. In the work-finding root checkout and in its queue worktree, `docs/` does not exist and `scripts/next-lt-id.mjs` does not exist (checked 13 November 2026). Both files exist only in this repository. The same worker could not follow the runbook until it found them here.
+
+### Root cause
+
+1. The helper starts at the table headed `ID | Priority | Required fix | Evidence source | Retest source` and stops at the first header and delimiter pair it meets. The register's later tables (headed `ID | Priority | Status | Detail | Origin`, and `ID | Priority | Status / observed defect | Evidence | Acceptance owner`) are never read. In the first table the highest ID is LT-1029, so it prints LT-1030. Its tests, if any, use a register with one table. Not confirmed beyond reading the script and the register.
+2. The queue's livetest brief uses repository-relative paths that are only valid inside this repository.
+
+### Required behaviour
+
+1. The helper reads every index table in the register and prints the number above the highest row.
+2. A work-finding livetest brief gives the runbook and helper as absolute paths in this repository (or the helper takes the register path and the runbook is reachable from work-finding), so the worker can follow them.
+
+### Acceptance
+
+1. With the register as it stands, the helper prints LT-1069 or higher, and a regression test with two index tables of different headers passes.
+2. A Plan Queue livetest worker started for a work-finding item reaches the runbook and runs the helper without searching.
+
+### Evidence
+
+CFP retention live checks, "Evidence run, 13 November 2026 (second round)". This worker added only the LT-1069 row and section. The register file also carries other sessions' uncommitted edits, which were left alone.
+
+<a id="lt-1070"></a>
+
+## LT-1070 — Desk deploy jobs fail on real CI runs (16 of the last 48)
+
+**Status: reproduced on real runs, 20 October to 13 November 2026; 14 of 16 causes isolated; not repaired. Priority P2.**
+Found while running the [Desk fast deploy verification repair live checks](../../../../communitytech/work-finding/documents/plans/desk-fast-deploy-verification-repair-2026-10-16/desk-fast-deploy-verification-repair_livetest.md) (check 5) as a Plan Queue worker. Repository `Community-Tech-UK/work-finding`, workflow `ci.yml`, job `deploy / deploy`. Failure text taken from `gh run view <id> --log-failed` on 13 November 2026.
+
+### Observed behaviour
+
+Of the last 48 `deploy / deploy` jobs, 16 failed:
+
+| Run | Pushed commit | Failed step | Text in the log |
+| --- | --- | --- | --- |
+| 39860849093 (22 Oct) | `12296cb7a` | Release worker source | "Worker release refused: schema or package source changed: package.json, prisma/migrations/20261020163000_conversation_erasure_digest/migration.sql, prisma/schema.prisma" |
+| 39950384443 (23 Oct) | `3d5880473` | Deploy and verify | "Public authenticated baseline failed before cutover" |
+| 40016265502 (23 Oct) | `92efcd7c1` | Release worker source | "Worker release refused: financial refresh required (behaviour_changed)" |
+| 41312235845 (1 Nov) | `5f4030b1a` | Release worker source | "Worker release refused: schema or package source changed: package.json, prisma/migrations/20261029120000_outcome_close_link/…, prisma/schema.prisma" |
+| 42216144694 (6 Nov) | `9faa7f221` | Release worker source | "Worker release refused: every crontab job must run through …/cron-guard.sh; nothing was paused or changed" |
+| 42265266939 (6 Nov) | `0f0a4ccc8` | Deploy and verify | "Public availability probe did not establish a healthy baseline" |
+| 42372282108 (7 Nov) | `bf638cc2b` | Release worker source | "Worker release refused: schema or package source changed: package.json" |
+| 42427861374 (8 Nov) | `f7cd38e14` | Release worker source | "Worker release refused: schema or package source changed: package.json, prisma/migrations/20261107100000_…, prisma/schema.prisma" |
+| 42467364114 (8 Nov) | `36a52a6b3` | Release worker source | same refusal as 42427861374 |
+| 42476729267 (8 Nov) | `646f32fa7` | Deploy and verify | "Public availability probe observed a failed read; ending cutover" then "ACTION NEEDED: online cutover failed across a mailbox reader safety or database schema boundary; candidate remains selected. Fix forward" |
+| 42702477473 (9 Nov) | `4d78e4943` | Deploy and verify | "Public availability probe observed a failed read; ending cutover" |
+| 42728373259 (10 Nov) | `240990359` | Deploy and verify | "Public availability probe observed a failed read; ending cutover; previous healthy API selected again" |
+| 42940786572 (11 Nov) | `8aa47e55e` | Deploy and verify | Log shows the worker release finished (51 s paused), the box ran `npm ci` and `prisma generate`, then "Process completed with exit code 1" about a minute later with no reason line |
+| 42950490478 (11 Nov) | `41d4f6b39` | Deploy and verify | Same shape as 42940786572 (57 s paused, then exit 1 with no reason line) |
+| 42967603175 (11 Nov) | `f7f50d238` | Deploy and verify | Candidate slot 4176 started, then "The operation was aborted due to timeout" |
+| 43125181349 (12 Nov) | `af27bc634` | Deploy and verify | `npm ci` on the box took 3 minutes, candidate slot 4176 started, then "The operation was aborted due to timeout" |
+
+### Root cause
+
+Not confirmed beyond reading the logs; recorded per group:
+
+1. Five "Release worker source" failures (39860849093, 41312235845, 42372282108, 42427861374, 42467364114) are the designed refusal when a push changes the schema or `package.json`. The release is then done by hand as a schema release, but CI still ends red for that push. Whether a designed refusal should show as a failed deploy is a product choice, not decided.
+2. One "Release worker source" failure (42216144694) is the cron-guard refusal (a crontab job not running through the guard); one (40016265502) is the financial-refresh refusal. Both are documented refusals; nothing was changed on the box.
+3. Five "Deploy and verify" failures (39950384443, 42265266939, 42476729267, 42702477473, 42728373259) are the public availability probe (or its baseline) seeing a failed read. Several fall in the 8 to 10 November window of box moves and memory trouble already in the memory notes; the box now answers 200 from the Mac and Krystal. Not separated from a real defect.
+4. Two failures (42967603175, 43125181349) end in "The operation was aborted due to timeout" during candidate verification. The 13 November commit `a8bafeeee` gave that check a bigger time budget, and the two later deploys passed. Plausible but not proven as the cause.
+5. Two failures (42940786572, 42950490478) show no reason line at all after the box's `prisma generate`; the online-step output for them is not kept on the box (only worker-release logs and probe files are). Cause not isolated. This is the thing to find first.
+
+### Required behaviour
+
+1. Every failed deploy job prints one plain reason line, and the box keeps the online-step log for each release, so a failure like 42940786572 can be read afterwards.
+2. A push that only needs a manual schema release does not leave main red in a way that hides a real deploy failure (decide: separate "needs manual release" outcome, or leave as is and document it).
+3. No unexplained "Deploy and verify" failure across the next 20 deploys that did not need a schema release.
+
+### Acceptance
+
+1. Re-run the count over the then-latest 48 deploy jobs: every failure has a reason line and a matching box log, and none is unexplained.
+2. The next three consecutive typical deploys all succeed.
+
+### Evidence
+
+Desk fast deploy verification repair live checks, "Evidence run, 13 November 2026 (second round, after verifier round 1)". Raw logs were read from `gh run view --log-failed` into a scratch folder that was deleted afterwards; the table above is the record. Box read-only look on `dev-vps2`: worker-release logs and probe files exist for these commits, online-step logs do not.
+
+<a id="lt-1071"></a>
+
+## LT-1071 — The Desk deploy job is over its five-minute target on the latest full deploy
+
+**Status: reproduced on real runs 12 and 13 November 2026; not repaired. Priority P2.**
+Found while running the [Desk fast deploy verification repair live checks](../../../../communitytech/work-finding/documents/plans/desk-fast-deploy-verification-repair-2026-10-16/desk-fast-deploy-verification-repair_livetest.md) (check 5).
+
+### Observed behaviour
+
+The spec ([desk-fast-deploys_spec_completed.md](../../../../communitytech/work-finding/documents/plans/desk-fast-deploys-2026-09-17/desk-fast-deploys_spec_completed.md), section 3 table and the line "Targets are met when three consecutive typical production deploys land inside them") sets the deploy job at under 5 minutes. The three most recent successful full deploys, by GitHub job start to finish: run 43353022084 (`0e72f4604`, 13 Nov) 347 s; run 43344288239 (`a8bafeeee`, 13 Nov) 285 s; run 42551962659 (`164958aee`, 9 Nov) 183 s. The newest is over target, so three consecutive in-target deploys do not exist. Across all 22 full deploys since 20 October, 20 were under 300 s (median 199 s); the other over-target run was 330 s (run 39986421575, 23 Oct).
+
+### Root cause
+
+Not confirmed. The online step's own metrics for 43353022084 show `drainSeconds` 127 and `candidateStartToCutoverSeconds` 57 plus a 25-sample public probe, and the "Deploy and verify" step grew from about 150 s (late October) to 240 to 262 s on 11 to 13 November, which lines up with `a8bafeeee` giving the candidate deploy check a bigger time budget (check passed in 23989 ms in the latest run). Fixed drain and probe time now leaves little room.
+
+### Required behaviour
+
+Three consecutive typical production deploys finish the deploy job inside 5 minutes, or the spec's target is deliberately changed by a recorded decision.
+
+### Acceptance
+
+Read the job durations of the next three successful full deploys with `gh api`: all three under 300 s, or a dated decision in the spec that replaces the target.
+
+### Evidence
+
+Desk fast deploy verification repair live checks, "Evidence run, 13 November 2026 (second round, after verifier round 1)". No push or dispatch was made by this worker; the figures are from runs that already existed.
+
+## LT-1072 — Push to live misses the spec's 20-minute target on every run
+
+**Status: reproduced on real runs 20 October to 13 November 2026; not repaired. Priority P2.**
+Found while re-reading the [Desk fast deploy verification repair live checks](../../../../communitytech/work-finding/documents/plans/desk-fast-deploy-verification-repair-2026-10-16/desk-fast-deploy-verification-repair_livetest.md) (check 5, verifier round 2).
+
+### Observed behaviour
+
+The spec ([desk-fast-deploys_spec_completed.md](../../../../communitytech/work-finding/documents/plans/desk-fast-deploys-2026-09-17/desk-fast-deploys_spec_completed.md), section 3 table, line 157) sets "Push to live, including CI" at under 20 minutes, measured as push time to deploy job completion. Measured with `gh api` over the last 60 `ci.yml` push runs (read 13 November 2026): 31 runs had a successful `deploy / deploy` job; run creation to deploy-job completion was minimum 40 minutes, median 61 minutes, maximum 183 minutes. None of the 31 was under 20 minutes. The latest three: run 43353022084 (`0e72f4604`) 79 minutes, run 43344288239 (`a8bafeeee`) 65 minutes, run 42551962659 (`164958aee`) 94 minutes. The deploy job itself is the small part (171 to 347 s); the rest is the CI work before it.
+
+### Root cause
+
+Not isolated by this worker. The earlier read showed the integration suite taking 3386 s to 4317 s on the two latest runs and 5434 s to 6389 s on 8 to 9 November, which alone is over the whole target. The spec guessed about 25 minutes for it.
+
+### Required behaviour
+
+Push to live (push time to deploy job completion) is under 20 minutes on three consecutive typical runs, or the spec's target is deliberately changed by a recorded decision.
+
+### Acceptance
+
+Read run creation and deploy-job completion times for the next three successful full deploys with `gh api`: all under 20 minutes, or a dated decision in the spec that replaces the target.
+
+### Evidence
+
+Desk fast deploy verification repair live checks, "Evidence run, 13 November 2026 (third round, after verifier round 2)". No push or dispatch was made by this worker.
+
+<a id="lt-1073"></a>
+
+## LT-1073 — Desk email panel keeps a refused (403) or missing (404) read after it is closed and reopened
+
+**Status: reproduced on 13 November 2026 in a real Chrome on the test Mac, not repaired. Priority P4.** This is a Desk (work-finding repository) behaviour, filed here because this is the only live-test remediation register. Found by the crm-outcomes-release live-test worker (queue item c72fc4b4) on a disposable fixture page with fictional data only. Repair, or a recorded decision that this is intended, belongs in a new Desk plan, not in the closed outcomes-release plan.
+
+### Observed behaviour
+
+The fixture's context read answered 403 `colleague_sending_needs_microsoft_sign_in`. The panel showed the plain Microsoft sign-in message and no form. After closing the panel and opening it again, the same message showed and the fixture's request log recorded no new context read.
+
+### Root cause
+
+`toggle()` in `apps/desk/web/src/app/colleague-outreach/write-email-panel.component.ts` (around line 191) calls `load()` on opening only when `phase()` is `"closed"` or `"error"`. The `"forbidden"` and `"missing"` phases are therefore sticky until the organisation id changes (`reset()`) or the page reloads. The class comment says the context "is read when the panel is opened, not with the page", which reads as every open; the code does it once per organisation. Keeping a `"ready"` form and its typed words across close and reopen looks deliberate (a half-written email survives closing the panel). No test or spec records a decision about 403 or 404 reopening (`write-email-panel.component.spec.ts` has one 403 test, which never reopens).
+
+### Required behaviour
+
+Either reopening the panel after a 403 or 404 reads the context again (keeping a ready form's typed words as today), or a dated decision in the component comment and a test states that a refused read is kept until the page is reloaded.
+
+### Acceptance
+
+A component test that returns 403, closes and reopens the panel, and asserts either a second context request (and the form once access is granted) or, if the decision is to keep it, that no second request is made and the comment says why. A browser re-check of the same close and reopen.
+
+### Evidence
+
+[CRM outcomes release live checks](../../../../communitytech/work-finding/documents/plans/crm-outcomes-release-2026-10-30/crm-outcomes-release_livetest.md), "Evidence run, 13 November 2026" (observation) and "Fixes after verifier round 2" (filing). Proof of the reopen behaviour: a component probe on the real `WriteEmailPanelComponent` (`evidence/lt-20261113/lt1073-reopen-probe.log`): after a 403 or 404, close and reopen made 0 new context reads; a 500 control made 1. The browser receipts `1512-context403.json` and `390-context403.json` show only the first read.
+
+## LT-1074 — Desk call-list page misses its 2-second p95 on a five-reader cold series under heavy machine load
+
+**Status: reproduced on 18 October 2026 (recorded in the register on 13 November 2026), not repaired. Priority P3. Load-sensitive residual; it does not block the O6 finite call-performance child.**
+Found by the representative-load run for [the O6 call-performance plan](/Users/suas/work/communitytech/work-finding/documents/plans/o6-call-performance-2026-10-10/o6-call-performance_plan_completed.md) (matrix row "Battery 2 fixed, cold (heaviest-load window)"). The livetest worker pass of 13 November 2026 recorded the residual but did not file it here; the independent verifier required it.
+
+### Observed behaviour
+
+1. Five concurrent readers, no background imports, 50 cold samples each (250 pooled), one million-organisation synthetic fixture on a private PostgreSQL instance, fixed code (statement cache disabled on the datasource): cold p95 **2,027.191 ms**, median 1,604.7 ms, maximum 3,645.3 ms. That is 27 ms over the 2,000 ms target.
+2. The run took place while other agents were loading the same machine (the plan records it as the heaviest foreign-load window).
+3. Confirmation series on the same code at normal recorded load: cold p95 1,183.732 ms (met), warm p95 1,224.8 ms (met). Semantic audits were clean in every series.
+
+### Root cause
+
+Not isolated beyond the load correlation. The plan's evidence ties the larger warm miss (2,063.5 ms before the fix) to Prisma prepared statements switching to a generic plan, which the fix removes. The remaining cold miss tracks machine load: the same code passes when the host is quieter. No per-request defect has been shown. Not confirmed on a dedicated, otherwise idle host.
+
+### Required behaviour
+
+The five-reader cold 50-row call page meets p95 <= 2,000 ms on the representative fixture, repeatably, including when the host carries ordinary background load.
+
+### Acceptance
+
+1. Repeat the five-reader cold 50-sample series at least three times on a newly leased private PostgreSQL generation with the million-organisation fixture, once while the host carries ordinary background load, and record every p95. All meet <= 2,000 ms, or the target is formally restated against the measured load profile.
+2. The call-list files have changed since 18 October (`cc43becdf`, `5f4030b1a`), so the repeat must run on current code, with the Task 2 semantic audits unchanged.
+
+### Evidence
+
+[O6 call-performance live check](/Users/suas/work/communitytech/work-finding/documents/plans/o6-call-performance-2026-10-10/o6-call-performance_livetest.md), "Livetest worker pass, 13 November 2026" and its follow-up section; plan "Representative-load acceptance result and as-built matrix, 18 October 2026" (Battery 2 and 2b). Raw series are under `/Users/suas/work/communitytech/work-finding-evidence/o6-call-performance-20261010/`.
+
+<a id="lt-1075"></a>
+
+## LT-1075 — Desk Pipeline stage handler submits again while the stage is running
+
+**Status: reproduced and fixed on 13 November 2026; fix is in the work-finding queue worktree `queue/running-job-help-code-928099`, not yet committed. Priority P3.** Desk (work-finding) defect, filed here because this is the only live-test remediation register. Found by the running-job-help-code live-test worker (queue item 7863590d); the verifier required it to be filed or fixed.
+
+### Observed behaviour
+
+With Score running (button disabled, running hint shown), a click delivered by the Browser Gateway (`isTrusted: false`) reached the Angular handler of the disabled button. Two such clicks produced two more `POST /api/jobs` (accepted jobs 2 and 3). A real pointer or keyboard cannot click a disabled button, so ordinary users were not affected; the handler simply had no guard of its own.
+
+### Root cause
+
+`JobRunnerComponent.run()` in `apps/desk/web/src/app/research/job-runner.component.ts` called `ResearchJobs.enqueue` unconditionally. Only the template's `[disabled]` binding stopped a second submission.
+
+### Fix
+
+`run()` now returns when `jobs.disabled(stage.name)` is true (not enabled by the server, or already running). A focused component test (`does not submit a second job when the handler runs for a stage that is already running`) failed before the fix (four `POST /api/jobs` instead of one) and passes after it.
+
+### Acceptance
+
+Met on 13 November 2026: the focused test above passes (30 of 30 in the four related spec files), and a live repeat on a rebuilt app (ct-test-mac, same fixture) with the Gateway click plus a further script-delivered click on the disabled running Score button left accepted jobs and write attempts at 1.
+
+### Evidence
+
+[running-job-help-code live checks](../../../../communitytech/work-finding/documents/plans/running-job-help-code-2026-10-09/running-job-help-code_livetest.md), section "Remediation of the disabled-button finding, 13 November 2026".
+
+<a id="lt-1076"></a>
+
+## LT-1076 — Desk Pipeline stage button drops keyboard focus when its own job starts
+
+**Status: reproduced on 13 November 2026 in a real Chrome on the test Mac, not repaired. Priority P3.** Desk (work-finding) defect, same cause as LT-1067. Found by the running-job-help-code live-test worker (queue item 7863590d).
+
+### Observed behaviour
+
+Tab to a stage button (for example Score) and press Enter. The job starts, the button becomes disabled and `document.activeElement` becomes `BODY`. The next Tab continues from the old position, so nothing is trapped, but the user loses their place and a screen reader gets no focus move.
+
+### Root cause
+
+The stage buttons in `job-runner.component.html` use `[disabled]="jobs.disabled(stage.name)"`; Chrome moves focus off a button that becomes disabled. Not caused by the running hint added in the recovered change.
+
+### Required behaviour
+
+Focus stays somewhere sensible after a stage starts (for example the button uses `aria-disabled` and stays focusable, or focus moves to the progress line).
+
+### Acceptance
+
+A component test that starts a stage from a focused button and asserts focus is not `BODY`, plus a real-keyboard re-check in a browser.
+
+### Evidence
+
+[running-job-help-code live checks](../../../../communitytech/work-finding/documents/plans/running-job-help-code-2026-10-09/running-job-help-code_livetest.md), "Row 2" and the observation after the table, "Evidence run, 13 November 2026".
+
+## LT-1077 — Desk conversation brief dialog does not keep Tab focus inside the modal
+
+**Status: reproduced on 13 November 2026 in Chrome on windows-pc; fixed and re-verified live the same day in the work-finding queue worktree (uncommitted until the coordinator lands it). Priority P3.** Desk (work-finding) defect. Found by the proposal-brief-help-code live-test worker (queue item b38aa173) after verifier round 1 and 2.
+
+### Observed behaviour
+
+Open the brief from a conversation row with Enter, load it, then press Tab from `Close`. Focus left the page (`document.activeElement` became `BODY`, browser controls) and the next Tab re-entered on `Prepare proposal for review`. The page behind the dialog was never reachable, but focus was not contained among the dialog's controls.
+
+### Root cause
+
+`conversation-brief.component.ts` opened the dialog with `showModal()` only and had no Tab handling; a native modal lets Tab escape to browser chrome after the last control.
+
+### Required behaviour
+
+Tab from the last enabled control wraps to the first; Shift+Tab from the first wraps to the last; with only `Close` enabled (loading, failure) focus stays on `Close`.
+
+### Fix and acceptance
+
+`keepFocusInside` on the two buttons in `conversation-brief.component.{ts,html}`; new spec `keeps Tab and Shift+Tab inside the dialog by wrapping between its enabled buttons` (9 specs in the file pass, 43 across the conversations folder). Re-verified with real keystrokes on windows-pc against the exact production build: Tab Close to Prepare, Tab to Close, Shift+Tab to Prepare, Shift+Tab (first) wraps to Close; focus log contained only dialog buttons; Tab while loading stays on Close.
+
+### Evidence
+
+[proposal-brief-help-code live checks](/Users/suas/work/communitytech/work-finding/documents/plans/proposal-brief-help-code-2026-10-09/proposal-brief-help-code_livetest.md), section "Windows browser run 3" and its receipts folder.
+
+## LT-1078 — the Harness uptime check no longer reads the Desk health-watchdog heartbeat
+
+**Status: reproduced on 13 November 2026 from Harness run receipts, not repaired. Priority P2.** Desk (work-finding) monitoring gap. Found by the work-finding-operating-model live-test worker (queue item 0d690b0a).
+
+### Observed behaviour
+
+On the Desk box (`ssh newdev`, `~/redesign-leads`) `health-watchdog.last` reads `2026-11-13T08:30:13.256Z`, so today's watchdog ran. Harness's `automation-run-output` holds 311 runs of the "Leads panel uptime check" from 1 August. Only 18 (24 to 30 September) had a prompt that mentions `health-watchdog.last`. The 134 runs since 30 September 19:17 UTC do not, and the current prompt (the run of 13 November 13:32 UTC) has no heartbeat step at all: it probes the public URL and `/health` only. So if the watchdog stops running, nothing independent notices.
+
+### Root cause
+
+The heartbeat step was dropped from the automation prompt after 30 September. The runbook `apps/desk/docs/runbooks/work-finding/health-watchdog.md` already says nothing in the repository reads the file and that the Harness prompt edit needs James's go through `update_automation`.
+
+### Required behaviour
+
+The uptime check reads the age of `health-watchdog.last` on the box (read-only) and raises an alert when it is older than the schedule allows (about 26 hours for a daily run).
+
+### Acceptance
+
+The automation prompt contains the heartbeat step; one run against a deliberately aged copy of the heartbeat value (never by stopping the real watchdog) reports it stale; the operating-model live check 1 then shows the stale heartbeat and the incident card. Needs James's go to edit the Harness automation.
+
+### Evidence
+
+[work-finding-operating-model live checks](/Users/suas/work/communitytech/work-finding/documents/plans/work-finding-operating-model-2026-09-20/work-finding-operating-model_livetest.md), "13 November 2026: Plan Queue live-test pass", check 1 (finding F1). Private receipts: `apps/desk/_scratch/plan-queue-livetest-20261113/` in work-finding.
+
+## LT-1079 — live check 2 says every non-proven left contact gets a recheck card; the code writes one only for same_person_other_role
+
+**Status: reproduced on 13 November 2026 against the source, not repaired. Priority P4 (wording only; the code is the authority).** Found by the work-finding-operating-model live-test worker (queue item 0d690b0a).
+
+### Observed behaviour
+
+Check 2 of the operating-model live checks (and the plan text it copies) expects "every other row gets one system-owned role recheck card worded for its class". `writeRoleRecheckTasks` in `apps/desk/src/db/repositories/leftContactReconciliation.ts` skips every row whose classification is not `same_person_other_role` (line 283; its doc comment at line 267 says the same). On production the plan-mode report on 13 November found 20 `left` rows: 0 `proven_alias`, 0 `same_person_other_role`, 8 `same_name_unproven`, 4 `other_current_people`, 8 `no_current_people`. `--apply` would therefore change nothing.
+
+### Root cause
+
+The check wording was written before the writer was narrowed to the one class that has evidence for a recheck.
+
+### Required behaviour
+
+The live check and the plan say that only `proven_alias` rows become `merged` and only `same_person_other_role` rows get a recheck card, and that other classes are reported and left unchanged. No code change.
+
+### Acceptance
+
+Check 2's expected result matches the code; `--apply` is run only when the report shows at least one `proven_alias` or `same_person_other_role` row.
+
+### Evidence
+
+[work-finding-operating-model live checks](/Users/suas/work/communitytech/work-finding/documents/plans/work-finding-operating-model-2026-09-20/work-finding-operating-model_livetest.md), "13 November 2026: Plan Queue live-test pass", check 2 (finding F2).
+
+<a id="lt-1080"></a>
+
+## LT-1080 — Desk get-work-day: `followups` stage fails `internal_error` and `reply_ingest` is `source_unavailable` on 13 November
+
+**Status: reproduced on the live Desk on 13 November 2026 from read-only database queries, cause not isolated, not repaired. Priority P2.** This is a Desk (work-finding repository) defect, filed here because this is the only live-test remediation register. Found by the work-finder-recovery livetest worker (queue item 1cfc8167) between 14:50 and 14:55 UTC; nothing was written, restarted or run. Repair belongs in a new Desk plan, not in the work-finder-recovery plan. It sits beside two earlier entries that the same live check also observed: LT-1065 (`charity_drafts` stage, `get-work-day` `partial` on 11 and 12 November) and LT-1066 (`conversation-reconciliation` mailbox outages and stuck runs).
+
+### Observed behaviour
+
+`automation_runs` for `get-work-day` at 07:30 UTC: `succeeded` daily 9 and 10 November, then `partial` on 11, 12 and 13 November. On 11 and 12 November the failing stage was `charity_drafts` (LT-1065). On 13 November the `followups` stage was `failed` with reason `internal_error` (it had `succeeded` on 9 to 12 November) and `reply_ingest` was `partial` with reason `source_unavailable`; the run's recorded error text is `source_unavailable`. The receipts name the stage but carry no underlying error text, and a timestamp search of the worker out and error logs on the dev server for the 07:30 to 07:31 UTC window found nothing (a weak negative: the log line format may not match the search). On the same run `charity_drafts` `succeeded` (`completed`), which is the first clean charity lane since 10 November and is relevant to the LT-1065 read-back. The same day `conversation-reconciliation` ended 120 runs `failed` and 18 `partial` (all `source_unavailable`) by 14:53 UTC, with the first failure at 12 November 17:45 UTC (LT-1066 recorded the 24 hours to 02:29 UTC; this run extends it to 14:53 UTC on 13 November). The mailbox sources are the shared candidate, but that was not tested.
+
+### Root cause
+
+Not isolated. Not tested: whether `followups` failed because the mailbox read behind `reply_ingest` was unavailable, because of a database transaction limit like LT-1065, or for an unrelated reason; and whether the 13 November 14:51 UTC release (`27b02fa8`) changed the behaviour.
+
+### Required behaviour
+
+A `get-work-day` stage that fails records its underlying cause (stage, source and error) in the run receipt, so `internal_error` is never the only text. A mailbox outage ends `reply_ingest` and `followups` with an actionable cause rather than a generic one.
+
+### Acceptance
+
+A diagnosed cause for the 13 November `followups` and `reply_ingest` results, with a fix or documented expected behaviour; a regression test that a failed stage records its error text in the run receipt; and a weekday `get-work-day` occurrence on which every stage is `succeeded` or `no_eligible_work` (the next due is Monday 16 November 07:30 UTC), read back from `automation_runs`.
+
+### Evidence
+
+[Work Finder recovery live checks](/Users/suas/work/communitytech/work-finding/documents/plans/work-finder-recovery-2026-09-22/work-finder-recovery_livetest.md), "Evidence run, 13 November 2026", check 5 table and "Defect filing" note. Raw read-only output: `evidence/live-recheck-20261113/query-receipts.out.txt` (`get-work-day` stage rows) and `failure-detail-queries.out.txt` (error text and the 12 November 17:45 first failure), beside that document.
+
+<a id="lt-1081"></a>
+
+## LT-1081 — Desk health-watchdog incident email fails with Exchange SMTP `EAUTH 451` on 13 November
+
+**Status: reproduced on the live Desk on 13 November 2026 from a read-only readback of the host cron log, cause not isolated, not repaired. Priority P1** (the alert channel for every other Desk fault is not delivering). This is a Desk (work-finding repository) defect, filed here because this is the only live-test remediation register. Found by the watchdog-email-faults livetest worker (queue item 93562419) during verifier round 1; nothing was sent, repaired, restarted or changed. Repair belongs in a new Desk plan, not in the closed `watchdog-email-faults` plan, whose scope (formatter, 08:30 schedule, waiting-for-room wording) was verified on the 27 October run.
+
+### Observed behaviour
+
+The host cron log line for the 13 November 08:30 UTC watchdog (`checkedAt 2026-11-13T08:30:13.256Z`, cron-log line 261) lists `email_send_failed` ("Exchange SMTP submission failed: EAUTH 451") and `delivery_readiness_unconfigured` (outbound email unconfigured; mailbox coverage incomplete; exchange inbox and sent stale; conversation monitor never succeeded). The preceding cron-log line reads `health-watchdog: incident email send failed Exchange SMTP submission failed: EAUTH 451`. The same run also lists `outreach_desk_stale`, `inbox_coverage_stale`, revenue sync degraded and a Companies House fetch failure for one lead (New Hall School Trust, 8 consecutive nights), which are not part of this item. By contrast the 27 October 08:30 run emailed successfully (two copies received 08:30:07 and 08:30:08 UTC).
+
+### Root cause
+
+Not isolated; the read was log-only. Not tested: whether the Exchange mailbox credential or app password expired or was revoked, whether Microsoft is rejecting SMTP AUTH for the tenant or account (451 is a transient-style response), whether the 11 November release (`41d4f6b396c3`) changed mail configuration, or whether the failure is intermittent.
+
+### Required behaviour
+
+The watchdog's incident email reaches its recipient on every run that has incidents, or, when Exchange is unavailable, a second independent channel (for example the Harness heartbeat check in LT-1078) makes the missed email visible. `EAUTH` is surfaced with an actionable cause rather than only the SMTP text.
+
+### Acceptance
+
+A diagnosed cause for the `EAUTH 451` result, with a fix or documented expected behaviour, and a weekday 08:30 UTC watchdog occurrence that has incidents and whose incident email is read back from the mailbox (subject, arrival time) with no `email_send_failed` entry in the run record.
+
+### Evidence
+
+[watchdog-email-faults live checks](/Users/suas/work/communitytech/work-finding/documents/plans/watchdog-email-faults-2026-10-25/watchdog-email-faults_livetest.md), "Verifier round 1 (second set) fixes, 13 November 2026". Raw read-only output: [watchdog-run-and-companies-house-readback-20261113.md](/Users/suas/work/communitytech/work-finding/documents/plans/watchdog-email-faults-2026-10-25/evidence/watchdog-run-and-companies-house-readback-20261113.md) section 4, and [mailbox-readback-20261113.md](/Users/suas/work/communitytech/work-finding/documents/plans/watchdog-email-faults-2026-10-25/evidence/mailbox-readback-20261113.md) for the successful 27 October email.
+
+## LT-1082 — Desk financial-capacity sweep: Companies House fetch fails every night for New Hall School Trust (stored company number `00547420` not on the register)
+
+**Status: reproduced on the live Desk on 13 November 2026 from read-only readbacks, likely cause found but not confirmed, not repaired. Priority P2** (one lead's capacity verdict is stuck at `review`, and the watchdog carries a standing Companies House incident that adds noise to the daily email). This is a Desk (work-finding repository) data defect, filed here because this is the only live-test remediation register. Found by the watchdog-email-faults livetest worker (queue item 93562419); nothing was edited, repaired or sent. Separate from LT-1081, which covers the email-delivery failure on the same run.
+
+### Observed behaviour
+
+The 13 November 08:30 UTC watchdog result (cron-log line 261, `checkedAt 2026-11-13T08:30:13.256Z`) carries `financial_capacity_fetch_failing` naming NEW HALL SCHOOL TRUST (company number `00547420`). The `financial_capacity_refresh_state` row reads `fetch_failures = {"cmw36l4gx000gkwyngs5obrf0": 8}` (eight consecutive failing nights). The same code appears on earlier cron-log lines (85, 90, 95, 165, 235 to 261). The lead row reads `company_number 00547420`, `company_status active`, `financial_capacity_status review`, checked 2026-11-13 03:48:30.
+
+### Root cause
+
+Likely: the stored company number is wrong. `https://find-and-update.company-information.service.gov.uk/company/00547420` returns HTTP 404, while the register's search for "new hall school trust" lists `05472420` (page heading NEW HALL SCHOOL TRUST); a known-good control (`04277906`, Deeplish) returns 200. The watchdog's own text says a lead failing night after night usually has a wrong stored number. Not confirmed: that `05472420` is the same legal entity as the lead (name match only), how the wrong number was stored (lookup, import or manual), and whether other leads share the fault.
+
+### Required behaviour
+
+A lead whose stored company number does not exist on the register is corrected (or its number cleared) through the existing company-number correction path, and the nightly sweep stops raising `financial_capacity_fetch_failing` for it. A repeat of the fault is caught when the number is stored, not after three failed nights.
+
+### Acceptance
+
+New Hall School Trust reads a company number that exists on the register and a fresh financial-capacity verdict, the next sweep records an empty fetch-failure map for it, and the next 08:30 UTC watchdog run has no `financial_capacity_fetch_failing` entry.
+
+### Evidence
+
+[watchdog-email-faults live checks](/Users/suas/work/communitytech/work-finding/documents/plans/watchdog-email-faults-2026-10-25/watchdog-email-faults_livetest.md), "Verifier round 4 fix, 13 November 2026". Raw read-only output: [watchdog-run-and-companies-house-readback-20261113.md](/Users/suas/work/communitytech/work-finding/documents/plans/watchdog-email-faults-2026-10-25/evidence/watchdog-run-and-companies-house-readback-20261113.md) sections 4 and 5.
+
+<a id="lt-1091"></a>
+
+## LT-1091 — The "of which helper agents" figure undercounts the helper's own transcript: the finish-time sum races the CLI's transcript write
+
+**Status: reproduced live 2026-11-14 in the dev app built from this branch; not fixed. Priority P2** (the helper line appears, totals are right and nothing is double-counted, but the figure is short of the helper's own spend; a bigger helper can lose more than one message). Found by the usage-burn followups livetest, check 2 ("Helper spend shows in the cost breakdown").
+
+### Observed behaviour
+
+Check-2 run 2 (instance `cbcep562s`, session `98c1d728-6bbb-4131-858c-1470147a614d`, helper `agent-aca59efb88f83ce3e`, 2026-11-14 03:13–03:14 UTC): the Costs page showed `of which helper agents: ≈$0.0750` on the Subagents purpose row and as the totals footnote. The attribution record (`cost-attribution-2026-11-14.jsonl`, ts 1794626026043) booked `helperTranscriptUsage {input 2, output 199, cacheRead 0, cacheWrite5m 29,208}` and `helperTranscriptCost 0.075014`. The helper's own transcript holds two assistant messages — `msg_011Ch26Dm8…` (2 / 199 / 0 / 29,208 cw5) at 03:13:25 and `msg_011Ch26FHrp…` (2 / 66 / 29,208 cr / 2,051 cw5) at 03:13:46.015, the final summary — and the booked usage is the first message only. The full sum priced at the repo rates (`src/shared/data/model-pricing.ts`: claude-sonnet-5-5 input $2 / output $10 per MTok, cache read 0.05×input, cache write 5m 1.25×input) is $0.0837263, exactly what `node scripts/claude-cost-audit-report.mjs --compare-transcripts --day 2026-11-14 --projects …` reports for the same helper. The figure is $0.0087123 short (10.4%). Check-2 run 1 (helper `agent-acdf51df8c3bbe3a9`) shows the same race harder: its transcript line carries usage (2 / 279 / 0 / 29,335 → $0.0761315) yet the record booked all-zero usage and no `helperTranscriptCost` at all.
+
+### Root cause
+
+`ClaudeSubagentUsageTracker.enrich()` (`src/main/cli/adapters/claude-subagent-usage.ts:133-175`) sums `agent-<id>.jsonl` with `sumClaudeSubagentTranscriptUsage` (`src/main/cli/adapters/claude-subagent-meta.ts:199-265`) when the `task_notification` finish frame arrives. The Claude CLI appends the helper's final assistant message line *after* that notification — in run 2 the record was booked 28 ms after the final message's own timestamp and already lacked it — and `flush()` re-sums only non-final samples (`claude-subagent-usage.ts:115-119`), so the undercount is permanent for the session. Re-running the same sum on the same file later returns the full totals (run 2: 4 / 265 / 29,208 / 31,259 across two models; run 1: 2 / 279 / 0 / 29,335): the sum logic is correct, the read happens too early.
+
+### Required behaviour
+
+`of which helper agents: $X` equals the helper's own transcript usage priced at the repo rates: every assistant message in `agent-<id>.jsonl`, including the final summary message written around the finish notification, is included in the figure shown on the Costs page and stored in the attribution record.
+
+### Acceptance
+
+A live helper run where the Costs page's helper figure and the record's `helperTranscriptCost` equal the helper transcript's full sum priced at the repo rates (cross-check `node scripts/claude-cost-audit-report.mjs --compare-transcripts`), plus automated coverage for the late-appended final message — a sum deferred past the finish frame, or a later re-sum that refreshes final samples and updates the stored record.
+
+### Evidence
+
+[Usage burn followups live checks](2026-11-12-usage-burn-followups_livetest.md#evidence-run--2026-11-13), section 2 ("Helper spend shows in the cost breakdown").
+
+<a id="lt-1125"></a>
+
+## LT-1125 — Work-finding Desk and Radar test runs cannot leave a Plan Queue copy: the snapshot names a folder only the main checkout has
+
+**Status: reproduced on 14 November 2026; fixed in source and verified the same day (the change is in commit `11720ef18`, "October updates"); acceptance 1 still needs a real Plan Queue run on the new code. Priority P2.**
+Found while running [the keep-this-Mac-as-a-backup live checks](2026-11-12-mac-still-pinned_livetest.md), LT-A5 and LT-A3b.
+
+### Observed behaviour
+
+With "Use this Mac when the others are busy or away" off, `~/.ai-orchestrator/remote-checks/runs.jsonl` has 117 work-finding `project`
+lines between 14 November 01:10 and 17:55 UTC with `ranOn: "none"` and `notRunBecause: "the snapshot failed, and this Mac is switched off"`,
+about ten an hour from 04:00 to 14:00. The running Plan Queue job `reviewed-reply-integration` (run `3d587e67`) held 112 times between
+03:46 and 18:00 with "Waiting for a test machine: the snapshot failed, and this Mac is switched off." and retried every 5 minutes
+(median gap 302 s). A checker in another run (`b07b564a`, `contextual-help_livetest.md`) read the same `Not run` line from
+`npm --prefix apps/desk run test:quiet` and reported it as "the configured test machine is off". The test machines were not off.
+
+Reproduced directly with `takeSnapshot` from `scripts/remote-checks/snapshot.js` (it writes only to a temporary folder):
+
+| Folder | `folders: ['apps', '_scratch/cfp-expansion-2026-09-08']` (Desk, Radar) | `folders: ['apps']` (Desk web, Runner) |
+| --- | --- | --- |
+| `work-finding` main checkout | snapshot taken | snapshot taken |
+| `.worktrees/queue/watchdog-faults-b86c5f` | `fatal: pathspec '_scratch/cfp-expansion-2026-09-08' did not match any files` | snapshot taken |
+
+The same job's checks did complete three times (14:22, 16:27, 17:34 UTC), each with all four suites on the PC, so the folder was present
+in that copy at those times (a worker or checker must have left it there); at 18:05 the copy's `_scratch` was empty.
+
+### Root cause
+
+`scripts/remote-checks/projects.js` gives the work-finding Desk and Radar suites `sends: ['apps', '_scratch/cfp-expansion-2026-09-08']`.
+`takeSnapshot` passes `sends` to `git add -A -- <folders>`, which fails when a named folder does not exist. In work-finding,
+`.gitignore` ignores `_scratch/*` but un-ignores `_scratch/cfp-expansion-2026-09-08/`, and nothing in that folder is committed
+(`git ls-files` lists nothing), so it exists only in James's main checkout (6.4 MB) and never in a queue copy made from a commit. The
+snapshot error is caught in `run-remote.js` (`reason: 'the snapshot failed'`, marked final), and with this Mac switched off
+`harness-remote-check.js` turns it into `Not run` (exit 69). The queue treats exit 69 as "no test machine" and holds. With the switch
+on, the same fault made these runs fall back to this Mac, which hid it.
+
+### Required behaviour
+
+A Desk or Radar test run from any work-finding folder, including a queue copy without that scratch folder, reaches a test machine. A
+snapshot fault that a retry cannot fix is not reported as "waiting for a test machine": its message names the real cause, and a queue
+job does not hold on it indefinitely.
+
+### Acceptance
+
+1. From a work-finding queue copy with no `_scratch/cfp-expansion-2026-09-08`, `npm --prefix apps/desk run test:quiet` and
+   `npm --prefix apps/radar run test:quiet` with the switch off each print "Ran on the Windows PC" (or the test Mac) and add a
+   `project` line with a far `ranOn`.
+2. A Desk or Radar test that needs the CFP fixture either gets it from committed files or is skipped on purpose with a stated reason.
+3. A snapshot that cannot be taken (for example an unreadable file, or a nested repository) shows its real cause in the run's output
+   and in the queue's wording, and the queue does not loop on it every 5 minutes. (A named folder that does not exist is now skipped
+   on purpose, so it is no longer an example of a broken snapshot.)
+
+### Fix, 14 November 2026
+
+- `scripts/remote-checks/snapshot.js`: `takeSnapshot` skips a named folder the copy does not have (keeping a tracked folder deleted from
+  disk) and never runs `git add` with only exclusions. A new `ignored` option sends the untracked files of named git-ignored folders,
+  listed by `git ls-files --others` and added by exact name with `--force` (git's own walk does not enter an ignored folder once
+  exclusions are given), still leaving out secret-looking names and everything in `node_modules`, and counted in the size limit.
+  `SCOPED_GIT_ENV` also clears the four `GIT_*_PATHSPECS` settings, which could otherwise turn the secret exclusions into plain paths
+  (this closed the same gap in the commit hook's staged snapshot).
+- `scripts/remote-checks/projects.js`: the cohort moved from `sends` to a new `sendsIgnored` field for Desk and Radar, so work-finding's
+  `.gitignore` can keep ignoring `_scratch/` and nothing private needs committing or un-ignoring.
+- `scripts/remote-checks/run-remote.js`: a failed snapshot is taken once more after 2 s (`takeTwice`), so a file vanishing mid-add does
+  not count; the reason now carries git's own `fatal:`/`error:` line. With this Mac switched off, a fault every machine would meet
+  (snapshot failed twice or refused, or the machine refuses the checks) returns `final` instead of "not run"; with it on, the other
+  machines are not tried for such a fault.
+- `harness-remote-check.js`, `scripts/run-tests-quiet.js` and `checks.js` report that case as a failure (exit 1) with
+  `Could not use a test machine: <reason>. Waiting would not fix this, so it counts as a failure.` (`checks.js` gives every check that
+  result, so the queue's batch answer stays complete). The commit hook still lets the commit through.
+
+Verification: new specs in `snapshot.spec.ts`, `remote-checks.spec.ts` (`takeTwice`), `harness-remote-check.spec.ts` (cohort sent from a
+copy that has it, a worktree without it still sent; unsendable work fails without waiting), `checks.spec.ts` and
+`run-tests-quiet-remote.spec.ts`; targeted specs 250 passed, full suite 48,076 passed, `npm run checks` all green, all on the Windows
+PC. Real folders: the snapshot with the real recipe succeeded for all four suites in the main checkout (5 cohort files sent to Desk and
+Radar) and in queue copies `watchdog-faults-b86c5f` and `crm-up-to-scratch-a55823` (none sent). End to end from the main checkout,
+`npm run test:quiet -- test/cfpOfflineRelease.test.ts` in `apps/radar` ran the cohort test on the PC: 1 passed, 0 skipped, 8 s. Three
+independent reviews; the last two returned PASS.
+
+Private data cleanup, 14 November 2026 (James approved): queue checkpoints had committed the cohort twice to work-finding's local
+`main` (`98e32daf1`, removed in `b01ea41e8`; `769550c37`, removed in `8e5e9f643`). None of it was on GitHub (all 16 remote branches
+checked). The 34 unpushed commits were rebuilt with only `_scratch/cfp-expansion-2026-09-08` taken out of the two trees that held it
+(messages, authors and dates byte-identical; 8 commits got new IDs; final files identical), and `main` and
+`queue/reviewed-reply-integration-a808a4` moved from `d74b4af03` to `f8ede8448`. The old commits remain in the local reflog only. The
+work-finding `.gitignore` edit that un-ignored the folder was reverted, so `_scratch/` is ignored again.
+
+Still open: acceptance 1 in a real Plan Queue run (the next work-finding queue job's Desk and Radar `project` lines in `runs.jsonl`
+should show `ranOn` on a test machine, with no "the snapshot failed" lines).
+
+<a id="lt-1126"></a>
+
+## LT-1126 — "Chat tool use summary" is missing for most chats that used tools
+
+**Status: reproduced on 14 November 2026, cause not isolated, not repaired. Priority P3.**
+Found while running [the keep-this-Mac-as-a-backup live checks](2026-11-12-mac-still-pinned_livetest.md), LT-C.
+
+### Observed behaviour
+
+`installChatToolUsageLog` (`src/main/app/runtime-diagnostics.ts`) should log "Chat tool use summary" when a chat that made tool calls is
+removed. Across `app.log.3` to `app.log` (13 November 19:07 to 14 November 18:04 UTC) there are 2 summary lines (`ir22w1fze`, 3 calls, and
+`iwkvho2pd`, 319 calls) against 93 "Archived instance" lines. For each chat archived on 14 November whose history file is in this
+profile's `conversation-history/`, counting `tool_use` messages made that day before its removal: 15 chats had tool calls, and only
+`iwkvho2pd` (377) logged a summary. Missing, for example: `ifqlojrk0` (Claude Opus, "Harness Plan Queue set aside list"), 46 tool calls
+between 16:38 and 16:56 UTC, removed at 17:01:51 (log shows "Archived instance" and "Unregistered instance" for it, no summary);
+`cmes0tht3` (308 calls); `crk2eswl6` (306); `c6gymczsk` (57); `c7hl31g5j` (56); `cez3ftlhf` (52); and two Codex chats (`xbh1zw3xg`, 7;
+`xyut7gpi1`, 2). Harness's own process has run for over a day, so these calls were made in the process that removed the chats.
+Hibernation is not the difference: `iwkvho2pd`, which did log a summary, had been hibernated twice too.
+
+### Root cause
+
+Not isolated. The summary counts only `provider:normalized-event` envelopes with `event.kind === 'tool_use'` and a `toolName`. Output
+messages of type `tool_use` become `kind: 'output'` events (`toProviderOutputEvent`, `src/main/providers/provider-output-event.ts`), so a
+chat whose tool calls reach the bus only as output messages is never counted, and no summary is logged for it. A Plan Queue worker
+(`cfhj3oq02`) also logged "Queue round activity" with `toolCalls: 0`, which fits the same gap. Not confirmed: why `iwkvho2pd`'s calls were
+counted needs checking first.
+
+### Required behaviour
+
+Every chat that made at least one tool call logs one "Chat tool use summary" when it is removed, whatever the provider and however its
+tool calls arrive.
+
+### Acceptance
+
+A unit test that feeds tool calls the way the Claude and Codex adapters really deliver them and expects a summary on removal; then, in the
+rebuilt app, a Claude chat and a Codex chat that each make a few tool calls and are closed each log one summary with the right count.

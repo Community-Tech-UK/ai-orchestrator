@@ -357,6 +357,13 @@ describe('takeStagedSnapshot', () => {
     expect(() => takeStagedSnapshot(root)).toThrow(/config\/\.ENV/);
   });
 
+  it('still refuses it when the hook inherited a literal-paths setting, as `git --literal-pathspecs commit` passes on', () => {
+    const root = repo();
+    writeFileSync(join(root, '.env'), 'SETTING=placeholder\n');
+    git(root, 'add', '.env');
+    expect(() => takeStagedSnapshot(root, { baseEnv: { ...process.env, GIT_LITERAL_PATHSPECS: '1' } })).toThrow(SnapshotRefused);
+  });
+
   it('ignores a secret-looking file that is only on disk, or is being deleted', () => {
     const root = repo();
     writeFileSync(join(root, 'old.key'), 'placeholder\n');
