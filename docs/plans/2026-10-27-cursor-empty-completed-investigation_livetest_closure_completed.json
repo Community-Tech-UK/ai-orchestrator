@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-27-cursor-empty-completed-investigation_livetest.md",
+      "sha256": "57b60abb205fe3dfb3b16ec5cbee925cd959f9dbdc30e22b9bdffcb70dbf4256",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-27-cursor-empty-completed-investigation_history.md",
+      "sha256": "79aed5f2de5752a12fab44cf2a880c3f93961ef89c6fdfb118db51699eb1d9d7",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-27-cursor-empty-completed-investigation_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-27-cursor-empty-completed-investigation_livetest_completed.md",
+      "sha256": "0fd022c2b030b68b30cf22f101e5c5d7953f368698714984f901142e08d952d6"
+    },
+    {
+      "relativePath": "2026-10-27-cursor-empty-completed-investigation_livetest_history_9a50f33b3db283222d089a852e63a5ea487d0b92c7e1489f975b8c76ee545109_completed.md",
+      "sha256": "5edcdbe54a7aee0af1f2507fc262ce60aae98f2ba2e94c0edba5cb71c51dee4a"
+    }
+  ]
+}
