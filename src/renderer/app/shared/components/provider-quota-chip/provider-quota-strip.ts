@@ -1,9 +1,8 @@
 /**
- * The collapsed quota strip: a two-letter code per provider and one figure per
- * account ("CC 45%·11%·4%"), so every account can be checked at a glance before
- * choosing where to send work. Full names would not leave room for every
- * account's figure in the title bar; the popover names each provider and
- * account, in the same order as the figures here.
+ * The collapsed quota strip: the provider's name and one figure per account
+ * ("Claude 45%·11%·4%"), so every account can be checked at a glance before
+ * choosing where to send work. The strip scrolls when it is narrow; the
+ * popover names each account, in the same order as the figures here.
  *
  * Pure functions, so the rules are testable without a component.
  */
@@ -12,6 +11,7 @@ import type {
   ProviderId,
   ProviderQuotaWindow,
 } from '../../../../../shared/types/provider-quota.types';
+import { accountFamilyName } from '../../../../../shared/display-names';
 import { quotaSummaryWindow, type QuotaAccountSection } from '../../../../../shared/utils/provider-quota-account-sections';
 
 export type QuotaChipBand = 'green' | 'yellow' | 'orange' | 'red';
@@ -25,18 +25,6 @@ export const BAND_COLORS: Record<QuotaChipBand, { fg: string; bg: string }> = {
 
 const STRIP_NEUTRAL_FG = '#d4d4d8';
 
-/** Two-letter strip codes. OpenCode's quota is always the MiMo plan's, shown under "OC". */
-const QUOTA_STRIP_CODES: Record<ProviderId, string> = {
-  claude: 'CC',
-  codex: 'CX',
-  gemini: 'GM',
-  antigravity: 'AG',
-  copilot: 'CP',
-  cursor: 'CU',
-  grok: 'GX',
-  opencode: 'OC',
-};
-
 /** One account's figure in the strip. */
 export interface QuotaStripPart {
   /** "43%", "43% ⚠" when that account is signed out, "Signed out", "–" with no figure, or the plan name. */
@@ -46,11 +34,11 @@ export interface QuotaStripPart {
 
 export interface QuotaStripEntry {
   provider: ProviderId;
-  /** Two-letter provider code ("CC", "OC"). */
-  code: string;
+  /** The provider's name ("Claude"; the OpenCode quota is the MiMo plan's, so "MiMo"). */
+  name: string;
   /** One part per account, in the popover's account order. */
   parts: QuotaStripPart[];
-  /** The colour of the worst account, used for the code. */
+  /** The colour of the worst account, used for the name. */
   fg: string;
 }
 
@@ -80,7 +68,7 @@ export function quotaStripEntry(
   provider: ProviderId,
   sections: readonly QuotaAccountSection[],
 ): QuotaStripEntry | null {
-  const code = QUOTA_STRIP_CODES[provider];
+  const name = accountFamilyName(provider);
   const parts: (QuotaStripPart & { severity: number })[] = [];
   let hasFigure = false;
   for (const { snapshot } of sections) {
@@ -106,12 +94,12 @@ export function quotaStripEntry(
   }
   if (hasFigure) {
     const worst = parts.reduce((a, b) => (b.severity > a.severity ? b : a));
-    return { provider, code, parts: parts.map(({ text, fg }) => ({ text, fg })), fg: worst.fg };
+    return { provider, name, parts: parts.map(({ text, fg }) => ({ text, fg })), fg: worst.fg };
   }
   const withPlan = sections.find(({ snapshot }) => snapshot.ok && snapshot.plan);
   if (withPlan || sections.some(({ snapshot }) => snapshot.ok)) {
     const text = withPlan?.snapshot.plan ?? 'ok';
-    return { provider, code, parts: [{ text, fg: STRIP_NEUTRAL_FG }], fg: STRIP_NEUTRAL_FG };
+    return { provider, name, parts: [{ text, fg: STRIP_NEUTRAL_FG }], fg: STRIP_NEUTRAL_FG };
   }
   return null;
 }

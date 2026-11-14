@@ -47,10 +47,10 @@ describe('quotaSummaryWindow', () => {
 describe('quotaStripEntry', () => {
   const texts = (entry: ReturnType<typeof quotaStripEntry>) => entry?.parts.map((part) => part.text);
 
-  it('uses the two-letter provider code, OC for the MiMo plan', () => {
-    expect(quotaStripEntry('claude', [section('claude', { windows: [win('claude.weekly', 4)] })])?.code).toBe('CC');
+  it('names the provider in full, MiMo for the OpenCode plan', () => {
+    expect(quotaStripEntry('claude', [section('claude', { windows: [win('claude.weekly', 4)] })])?.name).toBe('Claude');
     const mimo = quotaStripEntry('opencode', [section('opencode', { windows: [win('opencode.plan', 43)] })]);
-    expect(mimo?.code).toBe('OC');
+    expect(mimo?.name).toBe('MiMo');
     expect(texts(mimo)).toEqual(['43%']);
   });
 

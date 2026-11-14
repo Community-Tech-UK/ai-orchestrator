@@ -93,7 +93,7 @@ describe('LocalAiStatusChipComponent', () => {
     return { fixture, button, tooltip };
   }
 
-  it.each(['not-configured', 'healthy'] as const)('shows nothing while the local models are %s', (state) => {
+  it.each(['not-configured', 'checking', 'healthy'] as const)('shows nothing while the local models are %s', (state) => {
     currentAggregate.set(aggregate(state, state === 'not-configured' ? 0 : 2));
 
     const { fixture, button } = render();
@@ -138,7 +138,6 @@ describe('LocalAiStatusChipComponent', () => {
   });
 
   it.each([
-    ['checking', 'Local models: checking…', 'checking'],
     ['degraded', 'Local models: not working well', 'degraded'],
     ['unavailable', 'Local models: not reachable', 'unavailable'],
     ['paused', 'Local models: paused', 'paused'],
@@ -153,7 +152,7 @@ describe('LocalAiStatusChipComponent', () => {
   });
 
   it('uses one name for the feature and none of the old three', () => {
-    for (const state of ['checking', 'degraded', 'unavailable', 'paused'] as const) {
+    for (const state of ['degraded', 'unavailable', 'paused'] as const) {
       currentAggregate.set(aggregate(state, 1));
       TestBed.resetTestingModule();
       TestBed.configureTestingModule({

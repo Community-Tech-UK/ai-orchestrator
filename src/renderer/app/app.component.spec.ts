@@ -300,8 +300,8 @@ describe('AppComponent startup banner', () => {
 
   it('preserves the startup explanation and the dismiss name with real tooltip directives', () => {
     expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
-    const chip = fixture.debugElement.query(By.css('.startup-status-chip'));
-    expect(chip.injector.get(AioTooltipDirective).appTooltip()).toBe('Codex is installed more than once, with different versions.');
+    // The banner is on screen, so the title bar does not repeat it.
+    expect(fixture.debugElement.query(By.css('.startup-status-chip'))).toBeNull();
     const dismiss = fixture.debugElement.query(By.css('.startup-banner-dismiss'));
     expect(dismiss.nativeElement.getAttribute('aria-label')).toBe('Dismiss startup checks banner');
     expect(dismiss.injector.get(AioTooltipDirective).appTooltip()).toBe('Dismiss startup checks banner');
@@ -312,6 +312,10 @@ describe('AppComponent startup banner', () => {
     expect(document.querySelector('[role="tooltip"]')?.textContent).toContain('Dismiss');
     element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); fixture.detectChanges();
     expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    // Once the banner is dismissed the chip takes over, with the same explanation.
+    element.click(); fixture.detectChanges();
+    const chip = fixture.debugElement.query(By.css('.startup-status-chip'));
+    expect(chip.injector.get(AioTooltipDirective).appTooltip()).toBe('Codex is installed more than once, with different versions.');
   });
 
   it('keeps the resuming-traffic chip short and explains it on hover', () => {
@@ -517,8 +521,14 @@ describe('AppComponent startup banner', () => {
     expect(fixture.nativeElement.querySelector('.startup-banner')).not.toBeNull();
   });
 
-  it('shows nothing, banner or chip, once startup is ready again', () => {
-    expect(fixture.nativeElement.querySelector('[data-testid="startup-status-chip"]')?.textContent).toContain('Startup needs attention');
+  it('shows the banner or the chip, never both, and nothing once startup is ready again', () => {
+    const chip = () => fixture.nativeElement.querySelector('[data-testid="startup-status-chip"]') as HTMLElement | null;
+    expect(fixture.nativeElement.querySelector('.startup-banner')).not.toBeNull();
+    expect(chip()).toBeNull();
+    (fixture.nativeElement.querySelector('.startup-banner-dismiss') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.startup-banner')).toBeNull();
+    expect(chip()?.textContent).toContain('Startup needs attention');
     component.startupCapabilities.set(makeReport('ready', [
       makeCheck('provider.cursor', "Cursor isn't installed. You only need it to use Cursor.", 'setup', {
         status: 'disabled',
@@ -735,8 +745,15 @@ describe('AppComponent title bar layout', () => {
     expect(chipIndex).toBeLessThan(overlayEnd);
   });
 
+  /** Dismissing the banner is what lets the title-bar chip show. */
+  function dismissStartupBanner(fixture: { nativeElement: HTMLElement; detectChanges(): void }): void {
+    (fixture.nativeElement.querySelector('.startup-banner-dismiss') as HTMLButtonElement).click();
+    fixture.detectChanges();
+  }
+
   it('hides the startup chip when everything is ready, so a normal launch adds nothing to the title bar', async () => {
     const { fixture, component } = await setupAppComponent();
+    dismissStartupBanner(fixture);
     expect(fixture.nativeElement.querySelector('[data-testid="startup-status-chip"]')).not.toBeNull();
 
     component.startupCapabilities.set(makeReport('ready', []));
@@ -749,6 +766,7 @@ describe('AppComponent title bar layout', () => {
   it('shows a plain-words chip that opens Setup when startup needs attention', async () => {
     const router = createRouterMock();
     const { fixture } = await setupAppComponent('darwin', { router });
+    dismissStartupBanner(fixture);
     const chip = fixture.nativeElement.querySelector('[data-testid="startup-status-chip"]') as HTMLButtonElement;
 
     expect(chip.textContent?.trim()).toBe('Startup needs attention');
@@ -765,6 +783,7 @@ describe('AppComponent title bar layout', () => {
       makeCheck('provider.any', 'No AI tool is ready to use yet.', 'setup', { status: 'unavailable', critical: true }),
     ]));
     fixture.detectChanges();
+    dismissStartupBanner(fixture);
 
     const chip = fixture.nativeElement.querySelector('[data-testid="startup-status-chip"]') as HTMLButtonElement;
     expect(chip.textContent?.trim()).toBe('Startup failed');

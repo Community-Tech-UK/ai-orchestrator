@@ -509,23 +509,6 @@ describe('LocalAiGuardStore', () => {
     expect(ipc.resolveFallback).not.toHaveBeenCalled();
   });
 
-  it('LT-189: exposes notify-and-allow fallback notifications and locally dismisses them', async () => {
-    const current = snapshot({
-      fallbackNotifications: [notification('event-1'), notification('event-2', { createdAt: 2_000 })],
-    });
-    ipc.getSnapshot.mockResolvedValue({ success: true, data: current });
-    const store = TestBed.inject(LocalAiGuardStore);
-    await store.initialize();
-
-    expect(store.fallbackNotifications().map(({ id }) => id)).toEqual(['event-1', 'event-2']);
-
-    store.dismissFallbackNotification('event-1');
-    expect(store.fallbackNotifications().map(({ id }) => id)).toEqual(['event-2']);
-
-    // A dismissal is a local UI affordance only — it never calls the IPC layer.
-    expect(ipc.resolveFallback).not.toHaveBeenCalled();
-  });
-
   it('uses the authoritative retry response to clear a helper pause', async () => {
     ipc.getSnapshot.mockResolvedValue({
       success: true,
@@ -543,24 +526,6 @@ describe('LocalAiGuardStore', () => {
     });
     expect(store.helperPauses()).toEqual([]);
     expect(ipc.retryHelperNow).toHaveBeenCalledExactlyOnceWith('compression');
-  });
-
-  it('LT-189: keeps a dismissal in effect across a fresh snapshot that still contains that event', async () => {
-    ipc.getSnapshot.mockResolvedValue({
-      success: true,
-      data: snapshot({ fallbackNotifications: [notification('event-1')] }),
-    });
-    const store = TestBed.inject(LocalAiGuardStore);
-    await store.initialize();
-    store.dismissFallbackNotification('event-1');
-    expect(store.fallbackNotifications()).toEqual([]);
-
-    delta?.(snapshot({
-      revision: '1',
-      fallbackNotifications: [notification('event-1'), notification('event-2', { createdAt: 2_000 })],
-    }));
-
-    expect(store.fallbackNotifications().map(({ id }) => id)).toEqual(['event-2']);
   });
 
   it('loads effectiveness windows without replacing current targets or incidents', async () => {

@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   Injector,
   afterNextRender,
@@ -19,10 +20,7 @@ import {
   LOCAL_AI_STATUS_ERROR,
   LocalAiGuardStore,
 } from '../../core/state/local-ai-guard.store';
-import {
-  fallbackNotificationGroupCostLabel,
-  groupLocalAiFallbackNotifications,
-} from './local-ai-fallback-notification-groups';
+import { NoticeSlotService } from '../../core/notices/notice-slot.service';
 import { CLIPBOARD_SERVICE } from '../../core/services/clipboard.service';
 import { formatMoneyExact, formatMoneyPlain } from '../../shared/utils/format-money';
 
@@ -53,7 +51,7 @@ const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
       data-testid="local-ai-fallback-live"
     >{{ announcement() }}</span>
 
-    @if (oldestPending(); as request) {
+    @if (slot() && oldestPending(); as request) {
       <section
         class="local-ai-fallback-banner"
         [attr.data-request-id]="request.id"
@@ -116,61 +114,6 @@ const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
             <span class="saving-label">Saving decision…</span>
           }
         </div>
-      </section>
-    }
-
-    <!-- ============================================================
-         LT-189: notify-and-allow fallbacks. These already resolved —
-         there is no decision left to make — so this is a passive,
-         dismissible discovery aid, not a blocking prompt. Renders
-         independently of, and alongside, the require-confirmation
-         banner above.
-         ============================================================ -->
-    @if (notificationGroups().length > 0) {
-      <section
-        class="local-ai-fallback-notifications"
-        aria-live="polite"
-        aria-labelledby="local-ai-fallback-notifications-title"
-      >
-        <h2 id="local-ai-fallback-notifications-title" class="visually-hidden">
-          Paid fallback notifications
-        </h2>
-        @for (group of notificationGroups(); track group.key) {
-          <div
-            class="fallback-notification"
-            [attr.data-event-id]="group.events.length === 1 ? group.eventIds[0] : null"
-            [attr.data-event-ids]="group.eventIds.join(',')"
-          >
-            <span class="notification-mark" aria-hidden="true">↑</span>
-            <div class="notification-copy">
-              <strong>
-                @if (group.events.length === 1) {
-                  Paid fallback happened automatically
-                } @else {
-                  {{ group.events.length }} paid fallbacks happened automatically
-                }
-              </strong>
-              <span class="notification-detail">
-                {{ slotLabel(group.slot) }}
-                <span aria-hidden="true">·</span>
-                {{ notificationGroupCostLabel(group.events) }}
-              </span>
-              <details>
-                <summary>Details</summary>
-                <span>{{ notificationGroupCostLabel(group.events, exactMoney) }}</span>
-                <button type="button" class="fallback-action" aria-label="Copy fallback cost" (click)="clipboard.copyText(notificationGroupCostLabel(group.events, exactMoney), { label: 'fallback cost' })">Copy</button>
-              </details>
-            </div>
-            <button
-              type="button"
-              class="notification-dismiss"
-              [attr.aria-label]="group.events.length === 1
-                ? 'Dismiss paid fallback notification'
-                : 'Dismiss ' + group.events.length + ' paid fallback notifications'"
-              (click)="dismissNotifications(group.eventIds)"
-            >Dismiss</button>
-          </div>
-        }
       </section>
     }
   `,
@@ -284,79 +227,6 @@ const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
       font-size: var(--text-xs);
     }
 
-    .local-ai-fallback-notifications {
-      display: flex;
-      flex-direction: column;
-      gap: 0.4rem;
-      padding: 0.5rem 1rem;
-    }
-
-    .fallback-notification {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.7rem;
-      padding: 0.5rem 0.8rem;
-      border: 1px solid var(--info-border);
-      border-radius: var(--radius-sm);
-      background: color-mix(in srgb, var(--info-bg) 82%, var(--bg-elevated));
-      color: var(--text-primary);
-    }
-
-    .notification-mark {
-      display: grid;
-      place-items: center;
-      width: 22px;
-      height: 22px;
-      flex: 0 0 auto;
-      border: 1px solid var(--pill-info-border);
-      border-radius: var(--radius-full);
-      background: var(--pill-info-bg);
-      color: var(--pill-info-fg);
-      font-size: 0.85rem;
-      font-weight: 800;
-    }
-
-    .notification-copy {
-      display: flex;
-      flex: 1 1 auto;
-      flex-wrap: wrap;
-      align-items: baseline;
-      gap: 0.15rem 0.65rem;
-      min-width: 0;
-      font-size: 0.8rem;
-    }
-
-    .notification-detail {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-      color: var(--text-secondary);
-    }
-
-    .notification-dismiss {
-      flex: 0 0 auto;
-      height: 27px;
-      padding: 0 0.6rem;
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-sm);
-      background: var(--glass-medium);
-      color: var(--text-secondary);
-      cursor: pointer;
-      font: inherit;
-      font-size: 0.74rem;
-    }
-
-    .notification-dismiss:hover {
-      background: var(--glass-strong);
-      color: var(--text-primary);
-    }
-
-    .notification-dismiss:focus-visible {
-      outline: 2px solid var(--primary-color);
-      outline-offset: 2px;
-    }
-
     .visually-hidden {
       position: absolute;
       width: 1px;
@@ -398,10 +268,9 @@ export class LocalAiFallbackBannerComponent {
         left.createdAt - right.createdAt || left.id.localeCompare(right.id))[0];
   });
   protected readonly isResolving = computed(() => this.store.resolvingFallbackId() !== null);
-  /** Passive, dismissible `notify-and-allow` fallbacks, one row per auxiliary slot. */
-  protected readonly notificationGroups = computed(() =>
-    groupLocalAiFallbackNotifications(this.store.fallbackNotifications()));
-  protected readonly notificationGroupCostLabel = fallbackNotificationGroupCostLabel;
+  /** A paid-fallback decision times out, so the notice budget never folds it away. */
+  protected readonly slot = inject(NoticeSlotService).register('paid-fallback-decision',
+    computed(() => this.oldestPending() !== null), inject(DestroyRef));
 
   constructor() {
     effect(() => {
@@ -457,10 +326,6 @@ export class LocalAiFallbackBannerComponent {
     return this.store.error() === LOCAL_AI_STATUS_ERROR
       ? LOCAL_AI_STATUS_ERROR
       : LOCAL_AI_RESOLUTION_ERROR;
-  }
-
-  protected dismissNotifications(eventIds: readonly string[]): void {
-    for (const eventId of eventIds) this.store.dismissFallbackNotification(eventId);
   }
 
   protected async resolve(

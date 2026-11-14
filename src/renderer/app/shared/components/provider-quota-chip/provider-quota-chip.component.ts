@@ -107,7 +107,7 @@ const NEUTRAL = { fg: '#9a9aa0', bg: 'rgba(154,154,160,0.10)' };
           @if (stripEntries().length > 0) {
             @for (entry of stripEntries(); track entry.provider) {
               <span class="provider-entry" [style.color]="entry.fg">
-                <span class="provider-code">{{ entry.code }}</span>{{ ' ' }}<span class="provider-value">
+                <span class="provider-name">{{ entry.name }}</span>{{ ' ' }}<span class="provider-value">
                   @for (part of entry.parts; track $index) {
                     @if (!$first) {<span class="account-separator">·</span>}<span class="account-value" [style.color]="part.fg">{{ part.text }}</span>
                   }
@@ -224,7 +224,7 @@ const NEUTRAL = { fg: '#9a9aa0', bg: 'rgba(154,154,160,0.10)' };
       width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
     }
     .provider-entry { display: inline-flex; align-items: baseline; gap: 3px; }
-    .provider-code { font-weight: 700; }
+    .provider-name { font-weight: 700; }
     .provider-value { opacity: 0.82; font-variant-numeric: tabular-nums; }
     .account-separator { margin: 0 2px; opacity: 0.55; }
     .pacing-badge { width: 11px; height: 11px; color: #f6c453; flex-shrink: 0; }
@@ -399,8 +399,8 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   });
 
   /**
-   * One entry per provider: its code and a part per account, in the popover's
-   * account order ("CC 100%·11%·–"). The popover names each account.
+   * One entry per provider: its name and a part per account, in the popover's
+   * account order ("Claude 100%·11%·–"). The popover names each account.
    */
   readonly stripEntries = computed<QuotaStripEntry[]>(() => {
     const snaps = this.store.snapshots();

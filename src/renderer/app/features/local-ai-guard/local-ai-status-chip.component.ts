@@ -4,7 +4,7 @@ import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { localAiTargetFailureReason } from './local-ai-failure-copy';
 
-type ChipTone = 'checking' | 'degraded' | 'unavailable' | 'paused';
+type ChipTone = 'degraded' | 'unavailable' | 'paused';
 
 interface ChipView {
   tone: ChipTone;
@@ -22,7 +22,7 @@ let nextDescriptionId = 0;
 
 /**
  * Title-bar chip for the local models. Healthy means hidden: it appears only
- * when something needs a look (paused, not working, being checked, the helper
+ * when something needs a look (paused, not working, the helper
  * models' daily limit reached, or the status itself could not be read), and says
  * so in plain words. With nothing set up, or everything working, it renders
  * nothing and takes no room.
@@ -87,12 +87,6 @@ let nextDescriptionId = 0;
       height: 6px;
       border-radius: var(--radius-full);
       background: currentColor;
-    }
-
-    .local-ai-status-chip[data-state='checking'] {
-      border-color: var(--pill-info-border);
-      background: var(--pill-info-bg);
-      color: var(--pill-info-fg);
     }
 
     .local-ai-status-chip[data-state='degraded'] {
@@ -168,8 +162,6 @@ export class LocalAiStatusChipComponent {
     // When every unwell target fails for the same reason, say it, so "not reachable" is not read as a connection fault.
     const reason = this.failureReason();
     switch (this.store.aggregate().state) {
-      case 'checking':
-        return { tone: 'checking', text: 'Local models: checking…', detail: 'Harness is checking your local models.' };
       case 'degraded':
         return reason
           ? { tone: 'degraded', text: `Local models: ${lowerFirst(reason)}`, detail: `Some of your local models aren't working well. ${reason}.` }
@@ -181,7 +173,7 @@ export class LocalAiStatusChipComponent {
       case 'paused':
         return { tone: 'paused', text: 'Local models: paused', detail: "Your local models are paused, so Harness isn't using them." };
       default:
-        // Healthy, or nothing set up: healthy means hidden.
+        // Healthy, nothing set up, or still checking (over in a moment): hidden.
         return null;
     }
   });

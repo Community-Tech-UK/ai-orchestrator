@@ -115,6 +115,45 @@ widgets. New title-bar widgets join the cluster and match its ~28px height.
 - **Inline help** — `InlineHelpComponent` for contextual guidance inside a
   complex area. `info` to explain, `tip` to hint, `warning` to caution.
 
+### Where notices go
+
+A banner only if it changes what Send does or something will time out without
+you. Otherwise one quiet line in the transcript, or a notification, with one
+action. Time-limited approvals are never collapsed.
+
+Banners in the window shell share one budget (`NoticeSlotService`, in
+`core/notices/`). Every banner registers under an id; blocking notices always
+render, otherwise only the first visible one renders and the rest wait behind
+"N more notices · Show". A new banner needs a place in that order, not a new
+row. Healthy means hidden: a chip or banner that reports "fine" is removed, not
+shrunk to a dot (tooltips and colour never carry state alone).
+
+- **Blocking (never collapsed):** permission approvals, browser approvals and
+  paid-fallback decisions.
+- **Changes Send:** pause.
+- **Work is waiting:** the Needs-you strip.
+- **Warnings:** startup, Windows PC (browser computer) offline, Computer Use
+  permission.
+- **Lowest:** app update, session recovery, away recap, getting started.
+- **Session screen** (owned by the session-screen work, so advice only): quota
+  park, compaction in progress, run readiness and "couldn't resume" change Send,
+  so they are banners. The user-action card, the browser-approval card, the
+  context warning and "Couldn't resume" stay outside the status strip. Where
+  this list disagrees with that decision (the context warning stays a banner
+  because it offers "Compact now"), the session-screen decision wins.
+- **Quiet, not a banner:** "Second opinion: limit reached" is a neutral pill. It
+  raises no toast and no desktop notice, and it does not change Send.
+- **Local AI chip:** shown only for a state that needs a look (degraded, offline,
+  paused, helpers paused until a time, status unavailable). Paused helpers also
+  raise one notice that resolves when they resume.
+- **Loop stopped: a step failed:** critical. It names its session and opens it
+  from the alert, counts on the Notifications button until seen, and appears in
+  the Needs-you list.
+
+Toasts: errors stay until dismissed and may offer one fix as a button; the same
+text (or `key`) folds into one toast with "×N". Warnings fade after 8 s and
+successes after 4 s.
+
 ---
 
 ## 6. Empty, loading & error states

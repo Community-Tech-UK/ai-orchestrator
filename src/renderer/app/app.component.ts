@@ -215,13 +215,13 @@ export class AppComponent implements OnInit, OnDestroy {
   protected readonly startupSlot = inject(NoticeSlotService).register('startup',
     computed(() => this.startupBannerReport() !== null), inject(DestroyRef));
   /**
-   * Title-bar chip: only while startup needs the user. A ready startup shows nothing at all
-   * (healthy means hidden), so a normal launch leaves the title bar to the quota strip and notifications.
-   * Setup stays reachable from the banner's Setup button and from Settings → Doctor.
+   * Title-bar chip: only while startup needs the user and the banner is not on screen (dismissed,
+   * or folded behind "N more notices"). A ready startup shows nothing at all (healthy means hidden),
+   * and a banner already on screen is not repeated in the title bar.
    */
   protected readonly startupStatusChipReport = computed(() => {
     const report = this.startupCapabilities();
-    return report && report.status !== 'ready' ? report : null;
+    return report && report.status !== 'ready' && !this.startupSlot() ? report : null;
   });
 
   protected readonly startupChipLabel = startupChipLabel;
