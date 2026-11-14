@@ -96,7 +96,9 @@ function scanForToolNames(): Map<string, string[]> {
   return found;
 }
 
-describe('display-names guard: nothing writes provider names by hand', () => {
+// These tests read and parse the whole source tree (about 2 s alone). Inside a full run on a
+// busy machine the same work took longer than Vitest's 5 s default, so the budget is explicit.
+describe('display-names guard: nothing writes provider names by hand', { timeout: 60_000 }, () => {
   it('reads the whole source tree, so a silent scan of nothing cannot pass', () => {
     expect(sourcesUnder(['src']).length).toBeGreaterThan(1500);
     expect(sourcesUnder(['apps/mobile/src']).length).toBeGreaterThan(50);

@@ -425,6 +425,13 @@ sections below. The historical reproduction remains unchanged.
 | LT-711 | P3 | **OPEN — historical report, awaiting independent reproduction.** Cursor was reported on 2026-10-04 to emit empty `completed` updates for real failed reads and rejected shell permissions. The raw receipt is absent, so no current miner or provider behaviour is claimed. Distinct from LT-612 and from AR-007’s retired clause. The detail section sets no priority; P3 is assigned for an unreproduced historical report. | [LT-711 detail](#lt-711) | [Agent runtime residuals 2026-10-04 batch report](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-04-orchestrating-session-and-batch-agents) |
 | LT-712 | P3 | **IMPLEMENTED on main (handoff-observability plan, merged 2026-11-07); live proof open.** Audit rows now carry the queued command ID, and head reinsertion is logged with that ID and the queue depth; the LT-616 handoff log is unchanged. AR-003 stays open until an identified rebuilt coordinator repeats the handoff run and the audit join is observed live. | [LT-712 detail](#lt-712) | [Agent runtime residuals AR-003](2026-09-27-livetest-agent-runtime-residuals_livetest.md#ar-003--lt-371-live-browser-command-socket-handoff-correlation) |
 
+### New findings — 2026-11-10 Phase 2 loops live checks
+
+| ID | Priority | Status / observed defect | Evidence | Acceptance owner |
+| --- | --- | --- | --- | --- |
+| LT-1086 | P3 | **OPEN — reproduced live 2026-11-10; not fixed.** The starting-checks baseline (record mode) is refused with `Starting-copy dependencies link outside the copy` whenever the Harness data folder is reached through a symlink, such as `/tmp/...` on macOS (really `/private/tmp/...`) and the project has a `node_modules`. The identical project and code record the failure when the data folder is given by its real path. Dev profiles under `/tmp` therefore can never record a baseline. The 27 Oct report of the same symptom blamed Harness-only package links; that cause is not supported by this run. | [LT-1086 detail](#lt-1086) | [Phase 2 live checks](2026-10-10-oct-phase2-loops-converge_livetest.md#evidence-run--2026-11-10) check 14 |
+| LT-1087 | P2 | **OPEN — reproduced live 2026-11-10 (two runs); needs a product decision.** A loop you started yourself with an iteration timeout never shows the promised `PAUSED · A STEP FAILED` pause. A timed-out step that left the files untouched is retried twice and then ends the run as `error`; a timed-out step that wrote a file is booked as a spent step and the loop carries on silently, then ends `error` on the next timeout. Only a step whose files Harness cannot inspect pauses. | [LT-1087 detail](#lt-1087) | [Phase 2 live checks](2026-10-10-oct-phase2-loops-converge_livetest.md#evidence-run--2026-11-10) check 19 |
+
 ### New findings — 2026-10-27 human/external residual campaign
 
 | ID | Priority | Status / observed defect | Evidence | Acceptance owner |
@@ -543,6 +550,59 @@ must choose one design after reproducing the current CSP failure.
 Complete both standalone and embedded scenarios in the linked choice-controls live test, then
 run the delivery-reconciliation live test because all of its decision paths depend on a working
 embedded review runtime.
+
+## LT-1086
+
+### LT-1086 — baseline starting copy refused under a symlinked data folder
+
+**Status: OPEN; reproduced 10 November 2026; not fixed.**
+Origin: [Phase 2 live checks](2026-10-10-oct-phase2-loops-converge_livetest.md#evidence-run--2026-11-10), check 14.
+
+### Observed behaviour
+
+A record-mode review-driven loop in a scratch git project with a failing check and a `node_modules` folder started, but its
+starting-checks baseline came back `unknown` with `Starting-copy dependencies link outside the copy`. The dev profile was
+`/tmp/aio-lt-queue-b38c8bdc` (macOS resolves `/tmp` to `/private/tmp`). Calling the real `startVerifyBaseline` directly on the same project
+with two data folders (probe in `docs/plans/evidence/2026-11-10-phase2-loops-converge/baseline-probe.ts`, output in `lt14-probe-results.txt`):
+
+- `/tmp/aio-lt-b38c8bdc-probe-g` → `status: unknown`, reason `Starting-copy dependencies link outside the copy.`
+- `/private/tmp/aio-lt-b38c8bdc-probe-h` → `status: recorded`, one key `|tsc|src/add.ts|TS2322|…`.
+
+After relaunching the same profile by its real path (`/private/tmp/aio-lt-queue-b38c8bdc`) the live app recorded the baseline every time.
+
+### Root cause
+
+`assertBaselineDependenciesIsolated` (`src/main/orchestration/loop-verify-baseline.ts`) compares `fs.realpath(dir)` with a link target. For a dangling
+link (provisioning always recreates `node_modules/@ai-orchestrator/{contracts,sdk}` pointing at `<copy>/packages/*`, which a non-Harness project lacks)
+`realpath` fails, so the fallback uses the unresolved path. Under a symlinked data folder that path lies outside the resolved root, so it is refused.
+Related smell: `provisionWorktreeDependencies` creates those Harness-only links in any project's copy.
+
+### Required behaviour and acceptance
+
+Resolve the copy's real path once and compare links with the same resolution (or resolve the parent of a dangling target); the baseline records the same
+result for a project whatever the data folder's spelling. Acceptance: a spec with the data folder under a symlink records the failing key; live check 14 repeated on a `/tmp` profile records the baseline.
+
+## LT-1087
+
+### LT-1087 — a self-started loop's timed-out step never pauses as "a step failed"
+
+**Status: OPEN; reproduced 10 November 2026 (Claude was provider-limited; reproduced twice on Codex); needs a product decision.**
+Origin: [Phase 2 live checks](2026-10-10-oct-phase2-loops-converge_livetest.md#evidence-run--2026-11-10), check 19; Step 17 of the Phase 2 plan.
+
+### Observed behaviour
+
+Loops started through the real `loopStart` IPC (so `onFailedStep: pause`) with a 60 s iteration timeout and a task that sleeps 600 s:
+
+1. Files untouched: `Degraded iteration … no workspace writes observed — retrying (attempt 2/3)`, `(3/3)`, then status `error`, reason `Loop iteration timed out after 60000ms`. No pause, no notice (`lt19-final-state.json`).
+2. A file (`partial.txt`) written before the sleep: the attempt was booked as a spent step, iteration 1 started with no pause, then the same retry/`error` ending (`lt19b-final-state.json`).
+
+### Root cause
+
+`decideDegradedRetry` (`src/main/orchestration/loop-invocation-attempt.ts`) only returns `pause-review` for an `unknown` workspace; `writes-observed` is `continue-without-replay` (a later change, documented in its comment) and an exhausted clean retry falls to `this.terminate(state, 'error', …)` in `loop-coordinator.ts`. Step 17's pause therefore never covers an ordinary timeout.
+
+### Required behaviour and acceptance
+
+Decide whether a timed-out step of a loop James started should pause (Step 17's stated intent) once retries are used up, or whether `error` is intended and the check wording should change. If pause is intended: after exhausted retries or a spent writes-observed step, the loop shows `PAUSED · A STEP FAILED`, sends the desktop notice, keeps the working copy, and Resume sends the git status/git diff direction; automations and campaigns still stop as `attempt-failed`.
 
 ## LT-003: Document-Review Draft State Does Not Meet Reload/Reselection Contract
 
