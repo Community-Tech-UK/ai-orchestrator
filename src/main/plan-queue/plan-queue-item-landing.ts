@@ -88,10 +88,13 @@ export function hasPendingLandingCleanup(item: PlanQueueItem): boolean {
 
 export class PlanQueueItemLanding {
   private readonly active = new Map<string, AbortController>();
+  /** Landings whose commit hook has started: Pause and route changes wait for these instead of aborting them. */
+  private readonly committing = new Set<string>();
   private readonly cleanupFailures = new Map<string, string>();
   constructor(private readonly ctx: PlanQueueLandingContext) {}
 
-  cancel(itemId: string): void { this.active.get(itemId)?.abort(); }
+  /** Stops a landing before its commit hook starts. One already committing finishes: stopping a commit or hook part way is unsafe. */
+  cancel(itemId: string): void { if (!this.committing.has(itemId)) this.active.get(itemId)?.abort(); }
 
   async land(itemId: string, options: PlanQueueLandingOptions): Promise<void> {
     const controller = new AbortController();
@@ -121,7 +124,7 @@ export class PlanQueueItemLanding {
           });
         }
       }
-    } finally { this.active.delete(itemId); }
+    } finally { this.active.delete(itemId); this.committing.delete(itemId); }
   }
 
   /** A newer attempt's code can reach the base and still end up set aside, when closing its documents failed. */
@@ -346,6 +349,7 @@ export class PlanQueueItemLanding {
       (commit) => { item = host.save({ ...host.getItem(item.id), landedCommit: commit }); },
       signal,
       timer,
+      () => { this.committing.add(start.id); },
     );
     switch (result.status) {
       case 'landed':

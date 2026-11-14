@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-18-plan-queue-pause-and-provider-switch_livetest.md",
+      "sha256": "dbc82353054ffe6c159ad536164a61efc01bd63e20b729f0a0b21df0dd49c1ab",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-18-plan-queue-pause-and-provider-switch_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-18-plan-queue-pause-and-provider-switch_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-18-plan-queue-pause-and-provider-switch_livetest_completed.md",
+      "sha256": "dbc82353054ffe6c159ad536164a61efc01bd63e20b729f0a0b21df0dd49c1ab"
+    }
+  ]
+}

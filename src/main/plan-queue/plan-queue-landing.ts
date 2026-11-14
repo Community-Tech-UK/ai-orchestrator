@@ -254,6 +254,8 @@ export async function landItemBranch(
   onCommitBuilt?: (commit: string) => void,
   signal?: AbortSignal,
   timer = new LandingTimer(),
+  /** Called right before the commit hook starts; the caller no longer aborts the landing from then on. */
+  beginCommit?: () => void,
 ): Promise<LandResult> {
   const { branchName } = requireGit(item);
   if (!item.worktreePath) throw new Error(`Plan queue item ${item.id} has no worktree`);
@@ -290,6 +292,7 @@ export async function landItemBranch(
     ...(item.section != null ? { stepPlan: path.relative(repoRoot, item.sourceRef) } : {}),
     signal,
     timer,
+    ...(beginCommit ? { beginCommit } : {}),
   });
   switch (built.status) {
     case 'nothing-to-land':

@@ -180,14 +180,13 @@ async function preserveActiveHistories(worktreePath: string, baseTip: string, do
  * `git commit` with the repository's hooks, a PATH that can find node/npm, and
  * the output kept. Run in its own process group (see plan-queue-process.ts) so
  * no generator or test the hook started outlives it in the worktree the next
- * worker is handed.
+ * worker is handed. It takes no abort signal: Pause waits for a commit that has begun.
  */
 export function commitWithHooks(
   worktreePath: string,
   message: string,
   testedIndexTree: string | null,
   timeoutMs = HOOK_TIMEOUT_MS,
-  signal?: AbortSignal,
 ): Promise<GroupRunResult> {
   const env = hermeticGitEnv({ ...buildCliEnv(), ...QUEUE_TEST_ENV }, worktreePath);
   delete env['AIO_PLAN_QUEUE_TESTS_COVERED'];
@@ -202,7 +201,6 @@ export function commitWithHooks(
     timeoutMs,
     outputTail: OUTPUT_TAIL,
     label: 'the pre-commit hook',
-    signal,
   });
 }
 
@@ -240,6 +238,8 @@ export async function buildLandingCommit(params: {
   stepPlan?: string;
   signal?: AbortSignal;
   timer?: LandingTimer;
+  /** Called once, right before the commit hook starts. */
+  beginCommit?: () => void;
 }): Promise<LandingCommitResult> {
   const { repoRoot, worktreePath, branchName, itemId, baseTip, message, documents } = params;
   const timer = params.timer ?? new LandingTimer();
@@ -271,9 +271,14 @@ export async function buildLandingCommit(params: {
 
     if (await run(['diff', '--cached', '--quiet'], worktreePath, TREE_REWRITE_TIMEOUT_MS)) return { status: 'nothing-to-land' };
 
-    params.signal?.throwIfAborted();
+    // Git work that precedes the commit stays before the abort check, so a Pause during it still stops the landing.
     const testedIndexTree = await testedLandingIndex(worktreePath, params.greenTestedTree, documents);
-    const { exitCode, output, timedOut } = await timer.measure('commitCheck', () => commitWithHooks(worktreePath, message, testedIndexTree, HOOK_TIMEOUT_MS, params.signal));
+    // The last point Pause or a route change can stop this landing. Stopping a commit or its hook part way is unsafe, so
+    // from here the caller stops aborting it (no await between the check, the call and the hook start, so no abort can slip
+    // in) and the hook gets no abort signal: a hold waits on the item lock for the commit and the promotion that follows.
+    params.signal?.throwIfAborted();
+    params.beginCommit?.();
+    const { exitCode, output, timedOut } = await timer.measure('commitCheck', () => commitWithHooks(worktreePath, message, testedIndexTree, HOOK_TIMEOUT_MS));
     if (exitCode !== 0) return { status: 'hook-failed', output, ...(timedOut ? { timedOut } : {}) };
     return { status: 'committed', commit: await gitExec(['rev-parse', 'HEAD'], worktreePath) };
   } finally {

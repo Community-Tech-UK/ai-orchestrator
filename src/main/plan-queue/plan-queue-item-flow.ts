@@ -256,6 +256,9 @@ export class PlanQueueItemFlow {
    * `stillHeld`, when given, is a targeted hold (a rule change, not Pause): it does
    * not abort a landing in flight, and it is checked again under the item lock, so
    * a hold that waited behind another change does nothing if the item has moved on.
+   * Pause and a move-in-progress route change stop a landing that has not reached its
+   * commit; one already running its commit hook is left to finish (the hold waits for
+   * the item lock), because stopping a commit or hook part way is unsafe.
    */
   hold(itemId: string, reason = 'Paused', stillHeld?: (item: PlanQueueItem) => boolean): Promise<void> {
     this.retries.cancel(itemId);

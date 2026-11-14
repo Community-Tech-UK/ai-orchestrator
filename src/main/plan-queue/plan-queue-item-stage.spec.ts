@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -205,15 +205,17 @@ describe.skipIf(process.platform === 'win32')('landing turns', () => {
     git(['worktree', 'add', '-qb', 'queue/item', worktree, 'main']);
     writeFileSync(join(worktree, 'a.txt'), 'worker\n');
     git(['add', 'a.txt'], worktree); git(['commit', '--no-verify', '-qm', 'work'], worktree);
-    // The repository's commit check holds the first landing open, as a long pre-commit run does.
+    // `main` has moved, so the first landing runs the post-merge check, and that check holds it open. Pause can still stop it
+    // there; a landing already running its commit hook is left to finish instead (plan-queue-pause-landing.spec.ts).
+    writeFileSync(join(repo, 'other.txt'), 'another item landed\n');
+    git(['add', 'other.txt']); git(['commit', '-qm', 'main moved']);
     const pidFile = join(repo, '.git', 'waiting.pid');
     fixtures.trackPidFile(pidFile);
-    const hook = join(repo, '.git', 'test-hooks', 'pre-commit');
-    writeFileSync(hook, `#!/bin/sh\nsleep 60 &\necho $! > "${pidFile}"\nwait\n`); chmodSync(hook, 0o755);
+    const waitingCheck = `sleep 60 &\necho $! > "${pidFile}"\nwait\n`;
 
     db = createSqliteWasmDatabase(':memory:'); runLoopMigrations(db);
     const store = new PlanQueueStore(db);
-    const run: PlanQueueRun = { ...RUN, workspaceCwd: repo, config: { ...RUN.config, baseBranch: 'main', postMergeGate: [] } };
+    const run: PlanQueueRun = { ...RUN, workspaceCwd: repo, config: { ...RUN.config, baseBranch: 'main', postMergeGate: [waitingCheck] } };
     store.upsertRun(run);
     const landingItem = (id: string) => newPlanQueueItem(id, 'run', join(repo!, `${id}_plan.md`), 1, {
       state: 'landing', worktreePath: worktree, branchName: 'queue/item', baseCommit: base,

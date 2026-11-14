@@ -156,6 +156,22 @@ describe('landing duplicate-test evidence', () => {
     expect(readFileSync(join(repo, '.git', 'captured-forks'), 'utf8')).toBe('8');
   });
 
+  it('still stops a landing that is aborted while it prepares the tested index, before the commit step is announced', async () => {
+    const controller = new AbortController();
+    const beginCommit = vi.fn();
+    const execute = gitCommands.gitExec;
+    vi.spyOn(gitCommands, 'gitExec').mockImplementation(async (args, cwd, timeout) => {
+      const result = await execute(args, cwd, timeout);
+      if (args[0] === 'write-tree') controller.abort(new Error('Paused'));
+      return result;
+    });
+    await expect(buildLandingCommit({ repoRoot: repo, worktreePath: wt, branchName, itemId: 'item', baseTip,
+      message: 'Plan: checked', greenTestedTree, documents: [], signal: controller.signal, beginCommit })).rejects.toThrow('Paused');
+    expect(beginCommit).not.toHaveBeenCalled();
+    expect(existsSync(join(repo, '.git', 'captured-proof'))).toBe(false);
+    expect(git(['symbolic-ref', '--short', 'HEAD'], wt)).toBe(branchName);
+  });
+
   it('lands with the one-hour hook deadline, not the old fifteen minutes', async () => {
     const delays = vi.spyOn(globalThis, 'setTimeout');
     const result = await buildLandingCommit({ repoRoot: repo, worktreePath: wt, branchName, itemId: 'item', baseTip,
@@ -235,27 +251,6 @@ describe('commitWithHooks', () => {
     expect(delays.mock.calls.map(([, ms]) => ms)).toContain(60 * 60_000);
     expect(delays.mock.calls.map(([, ms]) => ms)).not.toContain(15 * 60_000);
   });
-
-  it.skipIf(process.platform === 'win32')('cancels a running hook and its descendants when the pause signal aborts', async () => {
-    const pidFile = join(repo, '.git', 'grandchild.pid');
-    const hooks = join(repo, '.git', 'test-hooks');
-    mkdirSync(hooks, { recursive: true });
-    writeFileSync(join(hooks, 'pre-commit'), `#!/bin/sh\nsleep 60 &\necho $! > "${pidFile}"\nwait\n`);
-    chmodSync(join(hooks, 'pre-commit'), 0o755);
-    git(['config', 'core.hooksPath', hooks]);
-
-    const controller = new AbortController();
-    const started = Date.now();
-    const running = commitWithHooks(repo, 'paused', null, undefined, controller.signal);
-    await vi.waitFor(() => { if (!existsSync(pidFile) || !readFileSync(pidFile, 'utf-8').trim()) throw new Error('hook not started'); }, { timeout: 10_000 });
-    controller.abort();
-
-    await expect(running).rejects.toMatchObject({ name: 'AbortError' });
-    expect(Date.now() - started).toBeLessThan(20_000);
-    const grandchild = Number(readFileSync(pidFile, 'utf-8').trim());
-    await vi.waitFor(() => { if (isAlive(grandchild)) throw new Error('hook descendant still running'); }, { timeout: 5_000 });
-    expect(() => git(['rev-parse', '-q', '--verify', 'HEAD'])).toThrow();
-  }, 30_000);
 
   it('commits when the hook passes', async () => {
     const result = await commitWithHooks(repo, 'ok', null);

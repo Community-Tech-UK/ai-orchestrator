@@ -392,6 +392,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1110 | P2 | **REPRODUCED LIVE; SOURCE FIX VERIFIED LIVE 2026-11-12.** Pause, and a route change with "move documents in progress now", abort a landing that is already running its commit hook, instead of letting it finish as the plan's decision 2 says. The hook is killed, the document waits as "Paused before landing" (or is checked again) and lands later after another check. Nothing reaches the base branch half-done. | [LT-1110 detail](#lt-1110) | [Pause and provider switch live checks](2026-10-18-plan-queue-pause-and-provider-switch_livetest.md) |
 | LT-1121 | P2 | **SOURCE FIX VERIFIED 2026-11-14, live on a rebuilt dev app.** A shared fault on worker start used to set aside every job the pump launched in the same pass, not at most three. At Workload 5 (five worker slots) four- and six-plan runs lost all four or all six jobs in about 100 ms, so the run hold arrived too late and no job was left to try later. The start failure is now counted before the job is parked, and a start that hits the fault the run is held for goes back to waiting, so at most the first two are set aside. Owner: Plan Queue run breaker (`plan-queue-run-breaker.ts`, `plan-queue-error-class.ts`). | [LT-1121 detail](#lt-1121) | [Plan Queue reliability installed-app checks](2026-11-05-plan-queue-reliability_plan_livetest.md) |
 | LT-1037 | P2 | **REPRODUCED LIVE 2026-11-12; NOT REPAIRED.** A `gemini` Plan Queue worker is started as the Antigravity CLI, which is given no Harness tools, so it cannot call `plan_queue_report_ready` (or `plan_queue_report_verdict` as a checker). The worker searched the machine for 6 minutes and never reported. | [LT-1037 detail](#lt-1037) | [Worker report live check](2026-11-04-pq-b3-report-ready_livetest.md#gemini-check-a-failed-lt-1037) |
 | LT-1120 | P2 | **SOURCE FIX VERIFIED 2026-11-12 (queue worktree); live re-run passed on the worktree build, installed-app check pending.** When Harness moved a worker's planning file to the main project folder (or saved it beside a different root copy) at a normal round checkpoint, the item's note saying so was cleared in the same millisecond. James never saw it; the file handling itself was correct. The note now lives in its own item field and shows on the item row until the work is gone. | [LT-1120 detail](#lt-1120) | [Planning-files live checks](2026-11-04-pq-a2-planning-files_plan_livetest.md#evidence-run--12-november-2026-queue-worker) |
@@ -13088,6 +13089,49 @@ excludes. Regenerated code (`register-aliases.ts`, IPC channels) and any other d
 failure runs them too. Acceptance: `run-git-hook.spec.ts` case `regenerated: documentation` skips (it failed before
 the fix), `regenerated: code` runs the tests, and the mocked changed-tree case still runs them. On the rebuilt app, a
 plan landing whose code equals its tested code has a short commit check.
+
+<a id="lt-1110"></a>
+
+## LT-1110
+
+### LT-1110 — Pause and "move in progress" abort a landing that is already committing
+
+**Status: reproduced live 11 November 2026; fixed and re-run live 12 November 2026 (Pause and a move-in-progress route change now wait for a running commit hook; the document lands in the same round).**
+
+### Observed behaviour
+
+Dev app from the queue worktree, scratch repository whose pre-commit hook sleeps 50 s while a marker file exists (a
+global `core.hooksPath` had to be overridden locally for the hook to run at all). Plans of two lines, Codex worker,
+Claude checker.
+
+1. Route change with "move in progress" (`planQueueControl set-routing`, `moveInProgress: true`) sent 7 s into the
+   hook (log `slow hook start 21:23:49`, change at 21:23:56): the hook never wrote its end line, the item went back
+   to `verifying` with a new Claude checker (round 1 to 2), and it landed on a second hook run (21:24:10 to
+   21:25:00). A first attempt, sent 3 s after the check passed and before the hook began, behaved the same way.
+2. Plain Pause on the page 9 s into the hook (start 21:28:32, Pause 21:28:41): the item became `awaiting-slot`, detail
+   "Paused before landing.", the hook never finished, `main` and the item's folder were untouched. Resume re-checked
+   it (round 1 to 2) and it landed.
+
+### Root cause (from the code, not yet changed)
+
+`PlanQueueCoordinator` `holdRun` (`plan-queue-coordinator.ts:568`) calls `flow.hold(item.id)` with no `stillHeld`
+test. `PlanQueueItemFlow.hold` (`plan-queue-item-flow.ts:263`) then calls `landing.cancel(itemId)`, which aborts the
+landing's `AbortController`. The signal reaches `commitWithHooks` (`plan-queue-squash.ts:276`) and
+`runInProcessGroup` (`plan-queue-process.ts:102`), which kills the hook. `PlanQueueItemLanding.land` also aborts a
+landing at once when the run is `paused` (`plan-queue-item-landing.ts:98`), and its abort handler moves the item to
+`awaiting-slot` "Paused before landing" (`plan-queue-item-landing.ts:107-112`). The hold comment at
+`plan-queue-item-flow.ts:257-260` promises a targeted hold does not abort a landing, but `holdRun` is not one.
+
+### Required behaviour and acceptance
+
+A landing whose commit has begun finishes, as decision 2 of the plan states: Pause and a move-in-progress route
+change wait for it, then hold the item. A landing that has not reached its commit may still be held. Acceptance: with
+a slow commit hook, Pause (and a move route change) pressed during the hook leaves the hook to finish, the document
+lands once without another check round, and the run is then paused or on the new route.
+
+### Repair (12 November 2026)
+
+`buildLandingCommit` (`plan-queue-squash.ts`) calls `beginCommit` right before the hook and runs the hook without an abort signal; `PlanQueueItemLanding.cancel` (`plan-queue-item-landing.ts`) skips a landing in its `committing` set; `landItemBranch` passes the callback. Pause and a move-in-progress route change still stop a landing before its commit. Tests: `plan-queue-pause-landing.spec.ts` (new case, mutation-checked), `plan-queue-item-stage.spec.ts`. Live re-run on a rebuilt dev app with the 50 s hook: Pause at 8 s and a move-in-progress route change at 6 s into the hook both left the hook to finish, and the document landed in round 1 (`461dea1`, `5274a92`). Details are in the livetest document's 2026-11-12 section.
 
 <a id="lt-1067"></a>
 

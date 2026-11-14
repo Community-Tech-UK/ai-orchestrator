@@ -94,18 +94,19 @@ function waitingCommand(pidFile: string): string {
   return `sleep 60 &\necho $! > "${pidFile}"\nwait\n`;
 }
 
+
+/** Makes the item's landing wait in the post-merge gate: `main` has moved, so the gate runs. Pause may still stop it there. */
+function stallInPostMergeGate(test: ReturnType<typeof fixture>, pidFile: string): void {
+  writeFileSync(join(repo, 'other.txt'), 'another item landed\n');
+  git(['add', 'other.txt']); git(['commit', '-qm', 'main moved']);
+  test.run.config.postMergeGate = [waitingCommand(pidFile), 'touch must-not-run.txt'];
+}
+
 describe.skipIf(process.platform === 'win32')('pause during landing', () => {
-  it.each(['post-merge gate', 'commit hook'] as const)('stops an active %s and retains the work for verification', async (stage) => {
+  it('stops an active post-merge gate and retains the work for verification', async () => {
     const test = fixture();
     const pidFile = join(repo, '.git', 'waiting.pid');
-    if (stage === 'commit hook') {
-      const hook = join(repo, '.git', 'test-hooks', 'pre-commit');
-      writeFileSync(hook, `#!/bin/sh\n${waitingCommand(pidFile)}`); chmodSync(hook, 0o755);
-    } else {
-      writeFileSync(join(repo, 'other.txt'), 'another item landed\n');
-      git(['add', 'other.txt']); git(['commit', '-qm', 'main moved']);
-      test.run.config.postMergeGate = [waitingCommand(pidFile), 'touch must-not-run.txt'];
-    }
+    stallInPostMergeGate(test, pidFile);
     const mainBefore = git(['rev-parse', 'main']);
     const landing = flow.enqueueLanding('item');
     await vi.waitFor(() => expect(existsSync(pidFile)).toBe(true), { timeout: 10_000 });
@@ -125,11 +126,36 @@ describe.skipIf(process.platform === 'win32')('pause during landing', () => {
     expect(existsSync(join(test.worktree, 'must-not-run.txt'))).toBe(false);
   });
 
+  it('lets a landing that is already running its commit hook finish, and Pause waits for it', async () => {
+    const test = fixture();
+    const started = join(repo, '.git', 'hook-started');
+    const finished = join(repo, '.git', 'hook-finished');
+    const hook = join(repo, '.git', 'test-hooks', 'pre-commit');
+    writeFileSync(hook, `#!/bin/sh\ntouch "${started}"\nsleep 2\ntouch "${finished}"\n`); chmodSync(hook, 0o755);
+    const landing = flow.enqueueLanding('item');
+    await vi.waitFor(() => expect(existsSync(started)).toBe(true), { timeout: 10_000 });
+
+    test.run.status = 'paused';
+    let held = false;
+    const holding = flow.hold('item').then(() => { held = true; });
+    await new Promise(resolve => setTimeout(resolve, 500));
+    // The hook is still running: Pause has neither killed it nor finished.
+    expect(existsSync(finished)).toBe(false);
+    expect(held).toBe(false);
+
+    await Promise.all([holding, landing]);
+    expect(existsSync(finished)).toBe(true);
+    expect(test.get()).toMatchObject({ state: 'landed', parkReason: null, round: 1 });
+    expect(git(['rev-parse', 'main'])).not.toBe(test.base);
+    expect(git(['show', 'main:a.txt'])).toBe('worker');
+    expect(git(['status', '--porcelain'], test.worktree)).toBe('');
+  });
+
   it('waits for a queued landing to stop when an earlier landing still owns the shared slot', async () => {
     const test = fixture();
     const pidFile = join(repo, '.git', 'waiting.pid');
-    const hook = join(repo, '.git', 'test-hooks', 'pre-commit');
-    writeFileSync(hook, `#!/bin/sh\n${waitingCommand(pidFile)}`); chmodSync(hook, 0o755);
+    stallInPostMergeGate(test, pidFile);
+    const mainBefore = git(['rev-parse', 'main']);
     const first = flow.enqueueLanding('item');
     await vi.waitFor(() => expect(existsSync(pidFile)).toBe(true), { timeout: 10_000 });
     // This second item never touches the shared fixture checkout: Pause cancels it before promotion.
@@ -142,7 +168,7 @@ describe.skipIf(process.platform === 'win32')('pause during landing', () => {
     expect(held).toBe(false);
     await Promise.all([flow.hold('item'), holdingSecond, first, second]);
     expect(test.get('second')).toMatchObject({ state: 'awaiting-slot', parkReason: null });
-    expect(git(['rev-parse', 'main'])).toBe(test.base);
+    expect(git(['rev-parse', 'main'])).toBe(mainBefore);
   });
 
   it('lets a landing finish when a rule change arrives before the merge, instead of aborting it', async () => {
@@ -196,11 +222,13 @@ describe.skipIf(process.platform === 'win32')('pause during landing', () => {
 
   it('keeps Pause waiting or failed until a cancelled checkout can be recovered', async () => {
     const test = fixture();
-    const pidFile = join(repo, '.git', 'waiting.pid');
-    const hook = join(repo, '.git', 'test-hooks', 'pre-commit');
-    writeFileSync(hook, `#!/bin/sh\n${waitingCommand(pidFile)}`); chmodSync(hook, 0o755);
+    // The landing detaches the folder onto `main`; this hook holds it there, before the commit, where Pause may still stop it.
+    const started = join(repo, '.git', 'checkout-started');
+    const hookRelease = join(repo, '.git', 'checkout-release');
+    const hook = join(repo, '.git', 'test-hooks', 'post-checkout');
+    writeFileSync(hook, `#!/bin/sh\ntouch "${started}"\nwhile [ ! -f "${hookRelease}" ]; do sleep 0.1; done\n`); chmodSync(hook, 0o755);
     const landing = flow.enqueueLanding('item');
-    await vi.waitFor(() => expect(existsSync(pidFile)).toBe(true), { timeout: 10_000 });
+    await vi.waitFor(() => expect(existsSync(started)).toBe(true), { timeout: 10_000 });
     const indexLock = git(['rev-parse', '--git-path', 'index.lock'], test.worktree);
     writeFileSync(indexLock, 'Simulated checkout lock\n');
     let release!: () => void;
@@ -217,6 +245,8 @@ describe.skipIf(process.platform === 'win32')('pause during landing', () => {
     let held = false;
     let rejected = false;
     const holding = flow.hold('item').then(() => { held = true; }, () => { rejected = true; });
+    // Let the held landing go on; Pause had already stopped it, so it ends at its next stop check with the lock still in place.
+    writeFileSync(hookRelease, '');
     try {
       await recovering;
       await new Promise(resolve => setImmediate(resolve));
