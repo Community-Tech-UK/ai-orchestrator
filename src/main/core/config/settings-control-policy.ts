@@ -20,7 +20,10 @@ import {
   ProviderAccountPoolsSchema,
   ProviderAccountProfilesSchema,
 } from '@contracts/schemas/provider-account';
-import { PlanQueueAccountRulesSchema, PlanQueueFolderChecklistsSchema, PlanQueueFoldersSchema, PlanQueueRoutingSchema } from '@contracts/schemas/plan-queue';
+import {
+  PlanQueueAccountRulesSchema, PlanQueueFolderChecklistsSchema, PlanQueueFoldersSchema, PlanQueueLinearConnectionSchema,
+  PlanQueueLinearFolderLinksSchema, PlanQueueLinearTeamsSchema, PlanQueueRoutingSchema,
+} from '@contracts/schemas/plan-queue';
 
 export type SettingsToolPolicyTier = 'open' | 'read-only' | 'secret';
 
@@ -109,6 +112,12 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   // Plan Queue folder checklists (2026-11-04): the commands the queue runs in a
   // shell for a folder. An agent that could write them could run any command.
   'planQueueFolderChecklists',
+  // Plan Queue Linear settings (2026-11-15): who Harness acts as in Linear and through which connector, which
+  // projects a folder may take tickets from, and which providers may read client ticket text. An agent that could
+  // write them could redirect the queue to another account or send a client's text to a provider he excluded.
+  'planQueueLinearConnection',
+  'planQueueLinearFolderLinks',
+  'planQueueLinearTeams',
   // `planQueueFolders` left this set on 2026-11-14 at the operator's request, so a session he asks can add a folder
   // via this CLI; it stays closed to `set_setting`. Controls: the `privileged_set` log and the Plan Queue page list.
   // Authorizes automatic deletion of backup copies; the operator decides.
@@ -534,6 +543,9 @@ export const SETTINGS_TOOL_POLICY = {
   planQueueAccountRules: readOnly(false, PlanQueueAccountRulesSchema),
   planQueueFolderChecklists: readOnly(false, PlanQueueFolderChecklistsSchema),
   planQueueFolders: readOnly(false, PlanQueueFoldersSchema),
+  planQueueLinearConnection: readOnly(false, PlanQueueLinearConnectionSchema),
+  planQueueLinearFolderLinks: readOnly(false, PlanQueueLinearFolderLinksSchema),
+  planQueueLinearTeams: readOnly(false, PlanQueueLinearTeamsSchema),
   pingPongReviewerProvider: open(
     z.enum(['auto', ...REMOTE_REVIEWER_PROVIDER_IDS]),
   ),

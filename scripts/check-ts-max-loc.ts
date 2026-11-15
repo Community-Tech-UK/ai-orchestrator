@@ -230,7 +230,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/core/config/claude-md-loader.ts': 804,
   // Raised 776 -> 840 for the interSessionMessaging readOnly() MCP settings
   // policy entry (cross-session messaging, 2026-09-16).
-  'src/main/core/config/settings-control-policy.ts': 863, // +3: codexBackupKeepThree (policy entry, operator-only key and its comment); +5: one entry per Oct-2 Phase D setting (checker catalog, four Codex round limits); +1: computers (remote-first plan); +4: Microsoft 365 "Always allow" setting; +1: planQueueQuestionsDestination; +4: Plan Queue folder list (anchor, comment, policy entry, import); +1: autoAnswerContinueQuestions; +4: keepSessionsGoing replaces it (two comment lines, policy entry, operator-only key and its comment)
+  'src/main/core/config/settings-control-policy.ts': 925, // +3: codexBackupKeepThree (policy entry, operator-only key and its comment); +5: one entry per Oct-2 Phase D setting (checker catalog, four Codex round limits); +1: computers (remote-first plan); +4: Microsoft 365 "Always allow" setting; +1: planQueueQuestionsDestination; +4: Plan Queue folder list (anchor, comment, policy entry, import); +1: autoAnswerContinueQuestions; +4: keepSessionsGoing replaces it (two comment lines, policy entry, operator-only key and its comment); 863 -> 925: the file already sat at 913 (the ceiling plus slack), and the three Plan Queue Linear settings add 12 (three operator-only keys with their comment, three policy entries, a wider import)
   'src/main/core/error-recovery.ts': 990,
   // Main process — history
   // Raised from 1582 for the fix to the intermittent "written as 0 bytes" CI

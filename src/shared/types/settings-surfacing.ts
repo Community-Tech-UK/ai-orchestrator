@@ -189,6 +189,9 @@ export const SETTING_SURFACING = {
   planQueueAccountRules: 'bespoke', // Plan Queue page panel
   planQueueFolderChecklists: 'bespoke', // Plan Queue page panel
   planQueueFolders: 'bespoke', // Plan Queue page panel
+  planQueueLinearConnection: 'bespoke', // Plan Queue page Linear section (a later step)
+  planQueueLinearFolderLinks: 'bespoke', // Plan Queue page Linear section (a later step)
+  planQueueLinearTeams: 'bespoke', // Plan Queue page Linear section (a later step)
   pingPongReviewerProvider: 'tab',
   pingPongMaxRounds: 'tab',
   voiceSttRoutingMode: 'bespoke', // voice tab

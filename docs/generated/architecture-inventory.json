@@ -7356,6 +7356,10 @@
       "lines": 942
     },
     {
+      "path": "docs/AIO_MCP_CLI.md",
+      "lines": 939
+    },
+    {
       "path": "src/renderer/app/features/editor/editor-page.component.ts",
       "lines": 938
     },
@@ -7376,10 +7380,6 @@
       "lines": 935
     },
     {
-      "path": "docs/AIO_MCP_CLI.md",
-      "lines": 932
-    },
-    {
       "path": "src/renderer/app/core/services/new-session-draft.service.ts",
       "lines": 931
     },
@@ -7390,6 +7390,10 @@
     {
       "path": "src/renderer/app/features/memory/memory-browser.component.ts",
       "lines": 928
+    },
+    {
+      "path": "src/main/core/config/settings-control-policy.ts",
+      "lines": 926
     },
     {
       "path": "src/main/plan-queue/plan-queue-item-flow.ts",
@@ -7410,10 +7414,6 @@
     {
       "path": "src/renderer/app/features/instance-detail/composer-toolbar.component.spec.ts",
       "lines": 915
-    },
-    {
-      "path": "src/main/core/config/settings-control-policy.ts",
-      "lines": 914
     },
     {
       "path": "src/worker-agent/worker-rpc-dispatcher.node-ops.spec.ts",
@@ -7456,6 +7456,10 @@
       "lines": 900
     },
     {
+      "path": "src/shared/types/settings.types.ts",
+      "lines": 900
+    },
+    {
       "path": "src/main/plan-queue/plan-queue-coordinator-routing.spec.ts",
       "lines": 899
     },
@@ -7474,10 +7478,6 @@
     {
       "path": "src/main/plan-queue/plan-queue-pause-control.spec.ts",
       "lines": 894
-    },
-    {
-      "path": "src/shared/types/settings.types.ts",
-      "lines": 892
     },
     {
       "path": "src/main/instance/lifecycle/runtime-reconciler.ts",

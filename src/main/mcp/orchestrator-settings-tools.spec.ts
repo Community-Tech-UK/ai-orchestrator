@@ -537,7 +537,7 @@ describe('privileged settings CLI writability reporting', () => {
   });
 
   it('holds the operator-only anchor count the docs quote', () => {
-    // docs/AIO_MCP_CLI.md states 31 anchors, and it and
+    // docs/AIO_MCP_CLI.md states 34 anchors, and it and
     // docs/llm/AIO_MCP_CLI_REFERENCE.md enumerate them by group. History: the count reached 21 on
     // 2026-08-26 (`computerUseAutonomyLevel` took the Computer Use group from
     // five keys to six, after Copilot account routing added two on 2026-08-25,
@@ -568,16 +568,20 @@ describe('privileged settings CLI writability reporting', () => {
     // became the 30th: it decides which project folders a session may start a
     // Plan Queue run in, from another folder. On 2026-11-14 the operator had it
     // removed so a session he asks can add a folder from its shell, taking the
-    // count back to 29. On 2026-11-15 `keepSessionsGoing` became the 30th: it
-    // decides what the session watcher approves on the user's behalf, so an
-    // agent that could raise it would be approving its own work. Also on
-    // 2026-11-15 `browserLocalComputerEnabled` became the 31st: only the
-    // operator may let agents use this computer's Chrome.
-    // Fail here if a 32nd is added, or one is removed, without updating the
+    // count back to 29. On 2026-11-15 the three Plan Queue Linear settings
+    // (`planQueueLinearConnection`, `planQueueLinearFolderLinks`,
+    // `planQueueLinearTeams`) became the 30th to 32nd: they decide who the queue
+    // acts as in Linear, which projects a folder takes tickets from, and which
+    // providers may read client ticket text. Also on 2026-11-15 `keepSessionsGoing`
+    // became the 33rd: it decides what the session watcher approves on the user's
+    // behalf, so an agent that could raise it would be approving its own work, and
+    // `browserLocalComputerEnabled` became the 34th: only the operator may let
+    // agents use this computer's Chrome.
+    // Fail here if a 35th is added, or one is removed, without updating the
     // prose.
     const anchors = [...privilegedList().values()].filter((setting) => !setting.cliWritable);
 
-    expect(anchors).toHaveLength(31);
+    expect(anchors).toHaveLength(34);
   });
 
   it('keeps the saved Plan Queue folder checklists out of reach of every agent-reachable settings tool', async () => {
@@ -591,6 +595,25 @@ describe('privileged settings CLI writability reporting', () => {
       .toThrow(/operator-only/);
     expect(settings.set).not.toHaveBeenCalled();
     expect(settings.values.planQueueFolderChecklists).toEqual([]);
+  });
+
+  it.each([
+    ['planQueueLinearConnection', { connectorId: 'c', userId: 'u', userName: 'n', workspaceName: 'w', confirmedAt: 1794703053785 }, null],
+    ['planQueueLinearFolderLinks', [{ folder: '/work/shop', privateProject: { id: 'p', name: 'P', teamId: 't', teamKey: 'T' }, clientProjects: [] }], []],
+    ['planQueueLinearTeams', [], []],
+  ] as const)('keeps %s out of reach of every agent-reachable settings tool', async (key, value, expectedDefault) => {
+    const settings = makeSettingsManager();
+
+    // The safe set_setting tool, and the privileged repair CLI that agent sessions use.
+    await expect(toolByName('set_setting', settings).tool.handler({ key, value }))
+      .rejects.toThrow(/read-only/);
+    expect(() => privilegedSetSetting({ settingsManager: settings }, { key, value }))
+      .toThrow(/operator-only/);
+    // Refused before the value is read: a badly typed value reports the same refusal.
+    expect(() => privilegedSetSetting({ settingsManager: settings }, { key, value: 'not-valid' }))
+      .toThrow(/operator-only/);
+    expect(settings.set).not.toHaveBeenCalled();
+    expect(settings.values[key]).toEqual(expectedDefault);
   });
 
   it('lets the privileged CLI, but not the safe set_setting tool, change the Plan Queue folder list', async () => {

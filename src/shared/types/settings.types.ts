@@ -1,6 +1,8 @@
 /** Application settings shared by the main and renderer processes. */
 
-import type { PlanQueueAccountRules, PlanQueueFolderChecklist, PlanQueueRouting } from '@contracts/schemas/plan-queue';
+import type {
+  PlanQueueAccountRules, PlanQueueFolderChecklist, PlanQueueLinearConnection, PlanQueueLinearFolderLink, PlanQueueLinearTeam, PlanQueueRouting,
+} from '@contracts/schemas/plan-queue';
 import type { PlanQueueMessageSettings } from './plan-queue-settings.types';
 import type { AuxiliaryLlmRoutingMode } from './auxiliary-llm.types';
 import type { CopilotAccountProfile, CopilotAccountRoutingRule } from './copilot-account.types';
@@ -564,6 +566,12 @@ export interface AppSettings
   planQueueFolderChecklists: PlanQueueFolderChecklist[];
   /** The project folders a session may start a Plan Queue run in from another folder (`plan_queue_start`'s `workspace`). Edited on the Plan Queue page, or by a session James asks through `$AIO_MCP settings set`; closed to `set_setting`. */
   planQueueFolders: string[];
+  /** The Harness connector Linear is reached through and the Linear user James confirmed. `null` until he confirms. Operator-only. */
+  planQueueLinearConnection: PlanQueueLinearConnection;
+  /** Which Linear projects belong to which project folder. Operator-only, edited on the Plan Queue page. */
+  planQueueLinearFolderLinks: PlanQueueLinearFolderLink[];
+  /** Per Linear team: status mapping and the providers allowed to see its ticket text. Operator-only, edited on the Plan Queue page. */
+  planQueueLinearTeams: PlanQueueLinearTeam[];
 
   // Conversational ping-pong review (bigchange_pingpong_review)
   /**

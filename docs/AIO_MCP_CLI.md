@@ -281,7 +281,7 @@ Because of that, the two surfaces have different write boundaries:
 The `CLI-Write` column (`cliWritable` under `--json`) answers "can this CLI
 change it". The `Policy` column reports the safe MCP tool tier instead, so a
 `read-only` policy does not imply the CLI is blocked. `CLI-Write: no` marks the
-31 operator-only authorization anchors: the six Computer Use policy keys, the
+34 operator-only authorization anchors: the six Computer Use policy keys, the
 five Microsoft Graph keys (OAuth, the calendar allowlist and the "Always allow" change list), the context-evidence
 rollout mode, the three Local AI Guard fallback-policy and budget keys, the
 WS-B1 per-project PR-creation opt-in map (`allowPrCreation`), the licence-scoping
@@ -289,7 +289,7 @@ automation-provider block-list (`providersExcludedFromAutomation`), the two GitH
 Copilot account-routing keys (`copilotAccountProfiles`, `copilotAccountRoutingRules`),
 the two account-pool keys (`providerAccountProfiles`,
 `providerAccountPools`, covering Claude, Codex and MiMo), the Plan Queue
-provider-and-account choice (`planQueueRouting`), the Plan Queue never-use and use-last account lists (`planQueueAccountRules`), the Plan Queue checklist for each project folder (`planQueueFolderChecklists`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
+provider-and-account choice (`planQueueRouting`), the Plan Queue never-use and use-last account lists (`planQueueAccountRules`), the Plan Queue checklist for each project folder (`planQueueFolderChecklists`), the three Plan Queue Linear settings (`planQueueLinearConnection`, `planQueueLinearFolderLinks`, `planQueueLinearTeams`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
 `workspaceSecretsAllowAgentRequests`), the post-fill observation lock
 (`browserSecretObservationProtectionEnabled`), permission to use this computer's
 Chrome (`browserLocalComputerEnabled`), the macOS session signal
@@ -311,6 +311,13 @@ a saved checklist always uses it, whatever `verifier_gates` and `post_merge_gate
 passes to `plan_queue_start`; a caller may name gates only for a folder with no saved list.
 It is edited on the Plan Queue page and cannot be changed by agents, because the commands
 run in a shell.
+`planQueueLinearConnection`, `planQueueLinearFolderLinks` and `planQueueLinearTeams` (30th to 32nd anchors)
+are the Plan Queue's saved Linear settings: the Harness connector Linear is reached through together with the
+Linear user James confirmed, which Linear projects belong to which project folder, and each Linear team's status
+mapping and the providers allowed to see its ticket text. They are operator-only on both surfaces: neither the safe
+`set_setting` tool nor this CLI can change them, because they decide whose account the queue acts as, which
+projects a folder takes tickets from, and which providers can read client ticket text. They are set from the Plan
+Queue page.
 `planQueueFolders` is the saved Plan Queue folder list: the project folders a session may
 start a run in from another folder, with the `workspace` argument of `plan_queue_start`. Any
 folder not on the list is refused with a plain reason, and a folder inside a project (not its

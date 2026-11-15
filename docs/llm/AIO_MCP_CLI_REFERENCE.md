@@ -210,7 +210,7 @@ them are writable, including `browserVaultMasterPasswordFile`: it is
 secret-tier, so its value is redacted, but since 2026-08-29 it is no longer
 operator-only. See "Redaction And Secrets" below.
 
-The 31 operator-only anchors are the six Computer Use policy keys, the five Microsoft
+The 34 operator-only anchors are the six Computer Use policy keys, the five Microsoft
 Graph keys (OAuth, the calendar allowlist and the "Always allow" change list), the context-evidence rollout mode,
 the three Local AI Guard fallback-policy and budget keys, the WS-B1
 per-project PR-creation opt-in map (`allowPrCreation`), the licence-scoping
@@ -218,7 +218,7 @@ automation-provider block-list (`providersExcludedFromAutomation`), the two GitH
 Copilot account-routing keys (`copilotAccountProfiles`, `copilotAccountRoutingRules`),
 the two account-pool keys (`providerAccountProfiles`,
 `providerAccountPools`, covering Claude, Codex and MiMo), the Plan Queue
-provider-and-account choice (`planQueueRouting`), the Plan Queue never-use and use-last account lists (`planQueueAccountRules`), the Plan Queue checklist for each project folder (`planQueueFolderChecklists`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
+provider-and-account choice (`planQueueRouting`), the Plan Queue never-use and use-last account lists (`planQueueAccountRules`), the Plan Queue checklist for each project folder (`planQueueFolderChecklists`), the three Plan Queue Linear settings (`planQueueLinearConnection`, `planQueueLinearFolderLinks`, `planQueueLinearTeams`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
 `workspaceSecretsAllowAgentRequests`), the post-fill observation lock
 (`browserSecretObservationProtectionEnabled`), permission to use this computer's
 Chrome (`browserLocalComputerEnabled`), the macOS session signal
@@ -239,6 +239,13 @@ list is saved).
 that James chose "Always allow" for on the approval card: those connector calls no longer ask.
 It is written by that button and cleared with "Ask every time" on the connector in Settings → MCP Servers → Connectors;
 agents cannot add to it.
+`planQueueLinearConnection`, `planQueueLinearFolderLinks` and `planQueueLinearTeams` (30th to 32nd anchors)
+are the Plan Queue's saved Linear settings: the Harness connector Linear is reached through together with the
+Linear user James confirmed, which Linear projects belong to which project folder, and each Linear team's status
+mapping and the providers allowed to see its ticket text. They are operator-only on both surfaces: neither the safe
+`set_setting` tool nor this CLI can change them, because they decide whose account the queue acts as, which
+projects a folder takes tickets from, and which providers can read client ticket text. They are set from the Plan
+Queue page.
 `planQueueFolders` is the saved Plan Queue folder list: the only folders a session may
 name with the `workspace` argument of `plan_queue_start`; any other folder is refused with a plain
 reason. It was the 30th anchor until 2026-11-14, when the operator had it opened to this CLI. Add a

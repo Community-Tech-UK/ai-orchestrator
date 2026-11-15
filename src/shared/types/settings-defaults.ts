@@ -320,6 +320,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   planQueueAccountRules: { never: [], last: [] },
   planQueueFolderChecklists: [],
   planQueueFolders: [],
+  planQueueLinearConnection: null,
+  planQueueLinearFolderLinks: [],
+  planQueueLinearTeams: [],
 
   // Conversational ping-pong review
   pingPongReviewerProvider: 'auto',
