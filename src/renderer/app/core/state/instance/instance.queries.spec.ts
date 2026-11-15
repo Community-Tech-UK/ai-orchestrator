@@ -69,6 +69,13 @@ describe('InstanceQueries', () => {
     expect(queries.instanceActivities().get('inst-1')).toBe('Needs your answer');
   });
 
+  it('leaves the busy row to say "Working quietly" instead of "Agent active"', () => {
+    stateService.addInstance(createInstance({ activityState: 'active' }));
+    stateService.setSelectedInstance('inst-1');
+    expect(queries.selectedInstanceActivity()).toBe('');
+    expect(queries.instanceActivities().get('inst-1')).toBe('Agent active');
+  });
+
   it('resolves a selected superseded edit source to its replacement instance', () => {
     stateService.addInstance(createInstance({
       id: 'source-1',

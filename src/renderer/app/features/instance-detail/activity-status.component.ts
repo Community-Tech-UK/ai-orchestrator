@@ -43,6 +43,20 @@ function formatElapsed(ms: number): string {
   return `${days}d ${remainingHours}h ${remainingMinutes}m`;
 }
 
+/**
+ * When the newest event reached the chat: the latest output message, but never
+ * earlier than the turn start, so a previous turn's output cannot make a new
+ * turn look quiet. Status and usage updates are deliberately not events here;
+ * they arrive during a silent turn and would hide the quiet state (LT-1019).
+ */
+export function latestEventTime(
+  outputBuffer: readonly { timestamp: number }[] | undefined,
+  busySince: number | undefined,
+): number | undefined {
+  const newestOutput = outputBuffer?.at(-1)?.timestamp ?? 0;
+  return Math.max(newestOutput, busySince ?? 0) || undefined;
+}
+
 @Component({
   selector: 'app-activity-status',
   standalone: true,

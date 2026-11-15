@@ -187,7 +187,10 @@ export class InstanceQueries {
     if (activity) {
       return activity;
     }
-    return activityStateToLabel(this.stateService.state().instances.get(id)?.activityState);
+    // "Agent active" only says the process is alive, so it must not stand in for
+    // activity text: the busy row shows "Working quietly" when nothing arrives.
+    const activityState = this.stateService.state().instances.get(id)?.activityState;
+    return activityState === 'active' ? '' : activityStateToLabel(activityState);
   });
 
   /** Activities map from debouncer (for child panels) */

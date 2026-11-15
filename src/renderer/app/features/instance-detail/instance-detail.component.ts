@@ -51,7 +51,7 @@ import { appendTextToComposer } from './append-text-to-composer';
 import { mergeComposerRestoreText } from './composer-restore-text';
 import { ColdCacheResumeService } from './cold-cache-resume.service';
 import { DropZoneComponent } from '../file-drop/drop-zone.component';
-import { ActivityStatusComponent } from './activity-status.component';
+import { ActivityStatusComponent, latestEventTime } from './activity-status.component';
 import { ChildDiagnosticBundleModalComponent } from '../orchestration/child-diagnostic-bundle.modal.component';
 import { SessionProgressPanelComponent } from './session-progress-panel.component';
 import { UserActionRequestComponent } from './user-action-request.component';
@@ -251,6 +251,7 @@ export class InstanceDetailComponent {
   };
   currentActivity = this.store.selectedInstanceActivity;
   busySince = computed(() => this.store.getSelectedInstanceBusySince());
+  lastEventAt = computed(() => latestEventTime(this.instance()?.outputBuffer, this.busySince()));
   currentReview = computed(() => {
     const inst = this.instance();
     if (!inst) return null;

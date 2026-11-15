@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ActivityStatusComponent } from './activity-status.component';
+import { ActivityStatusComponent, latestEventTime } from './activity-status.component';
 
 const NOW = 1_700_000_000_000;
 
@@ -42,6 +42,19 @@ describe('ActivityStatusComponent', () => {
     fixture.componentRef.setInput('status', 'idle');
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.activity-status')).toBeNull();
+  });
+
+  it('shows the running timer once ten quiet seconds have passed', () => {
+    fixture.componentRef.setInput('lastEventAt', NOW - 12_000);
+    expect(renderElapsed(12_000)).toBe('12s');
+    expect(fixture.componentInstance.displayText()).toBe('Working quietly');
+  });
+
+  it('finds the newest event without counting a previous turn or status updates', () => {
+    expect(latestEventTime([{ timestamp: 100 }, { timestamp: 300 }], 200)).toBe(300);
+    expect(latestEventTime([{ timestamp: 100 }], 200)).toBe(200);
+    expect(latestEventTime([], 200)).toBe(200);
+    expect(latestEventTime(undefined, undefined)).toBeUndefined();
   });
 
   it('keeps seconds below one minute and minutes plus seconds below one hour', () => {
