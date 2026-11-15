@@ -48,13 +48,13 @@ function configWithCommands(kind: 'claude' | 'codex', localState = false): Recor
 }
 function assertCommandsFiltered(value: Record<string, unknown>, kind: 'claude' | 'codex', localState = false): void {
   expect(value).not.toHaveProperty(kind === 'codex' ? 'notify' : 'statusLine');
-  expect(value.hooks).toEqual(safeHooks);
-  if (kind === 'claude') expect(value.permissions).toEqual({ allow: ['Bash(node:*)'], ask: ['Bash(node:*)'], deny: ['Bash(osascript:*)'] });
+  expect(value['hooks']).toEqual(safeHooks);
+  if (kind === 'claude') expect(value['permissions']).toEqual({ allow: ['Bash(node:*)'], ask: ['Bash(node:*)'], deny: ['Bash(osascript:*)'] });
   if (kind === 'codex' || localState) expect(value[kind === 'codex' ? 'mcp_servers' : 'mcpServers']).toEqual({ gateway: {
     command: 'node', args: ['gateway.js'], description: 'chrome-devtools is forbidden; use the Browser Gateway.',
     env: localState ? { EXAMPLE_LOCAL_SECRET: 'EXAMPLE_LOCAL_VALUE' } : { TOOLSETS: 'docs' },
   } });
-  if (kind === 'claude' && localState) expect(value.oauthAccount).toEqual({ value: 'EXAMPLE_LOCAL_LOGIN' });
+  if (kind === 'claude' && localState) expect(value['oauthAccount']).toEqual({ value: 'EXAMPLE_LOCAL_LOGIN' });
 }
 
 describe('home-base agent setup sync', () => {
@@ -84,7 +84,7 @@ describe('home-base agent setup sync', () => {
     }
     for (const { file, kind } of configs) {
       const value = configWithCommands(kind, true);
-      value.projects = { example: configWithCommands(kind, true) };
+      value['projects'] = { example: configWithCommands(kind, true) };
       write(destination, file, kind === 'codex' ? serializeToml(value) : JSON.stringify(value));
       const base = file.endsWith('.toml') ? path.posix.dirname(file) : file === '.claude.json' ? '.claude' : path.posix.dirname(file);
       write(destination, `${base}/hooks/show-status.sh`, '#!/bin/sh\nopen -a Chrome\n');
@@ -95,7 +95,7 @@ describe('home-base agent setup sync', () => {
     for (const { file, kind } of configs) {
       const value = readConfig(fs.readFileSync(path.join(destination, file), 'utf8'), kind, 'fixture');
       assertCommandsFiltered(value, kind, true);
-      assertCommandsFiltered((value.projects as Record<string, Record<string, unknown>>).example, kind, true);
+      assertCommandsFiltered((value['projects'] as Record<string, Record<string, unknown>>)['example'], kind, true);
       const base = file.endsWith('.toml') ? path.posix.dirname(file) : file === '.claude.json' ? '.claude' : path.posix.dirname(file);
       expect(fs.existsSync(path.join(destination, `${base}/hooks/show-status.sh`))).toBe(false);
       expect(fs.existsSync(path.join(destination, `${base}/commands/show-status.md`))).toBe(false);
