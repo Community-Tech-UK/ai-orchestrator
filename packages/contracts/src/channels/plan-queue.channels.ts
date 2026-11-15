@@ -14,6 +14,11 @@ export const PLAN_QUEUE_CHANNELS = {
   /** Read-only discovery counts before starting a run. */
   PLAN_QUEUE_PREVIEW: 'plan-queue:preview',
 
+  /** The Harness connectors at Linear's address, with the saved connection's state. */
+  PLAN_QUEUE_LINEAR_LIST: 'plan-queue:linear-list',
+  /** Ask who a chosen connector signs in as. Saves nothing. */
+  PLAN_QUEUE_LINEAR_IDENTIFY: 'plan-queue:linear-identify',
+
   // Commands (renderer → main)
   /** Start a run with a chosen session as its parent. */
   PLAN_QUEUE_START: 'plan-queue:start',
@@ -23,6 +28,13 @@ export const PLAN_QUEUE_CHANNELS = {
   PLAN_QUEUE_ANSWER: 'plan-queue:answer',
   /** Pause / resume / cancel a run; skip / resume / land-anyway / discard an item. */
   PLAN_QUEUE_CONTROL: 'plan-queue:control',
+
+  /** Save the Linear connection once the user id James was shown is confirmed by a second read. */
+  PLAN_QUEUE_LINEAR_CONFIRM: 'plan-queue:linear-confirm',
+  /** Clear the saved Linear connection. */
+  PLAN_QUEUE_LINEAR_FORGET: 'plan-queue:linear-forget',
+  /** Check the saved connection now and return its state. */
+  PLAN_QUEUE_LINEAR_CHECK: 'plan-queue:linear-check',
 
   // Events (main → renderer)
   /** A run or item changed; carries the run's full DTO. */

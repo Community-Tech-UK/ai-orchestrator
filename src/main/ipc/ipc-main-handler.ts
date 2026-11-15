@@ -124,6 +124,7 @@ import {
   registerAuxiliaryLlmHandlers,
   registerCampaignHandlers,
   registerPlanQueueHandlers,
+  registerPlanQueueLinearHandlers,
   registerRlmMaintenanceHandlers,
   registerNotificationHandlers,
   registerSkillAttributionHandlers,
@@ -591,6 +592,7 @@ export class IpcMainHandler {
 
     // Plan Queue panel (one worker per plan/livetest document)
     registerPlanQueueHandlers({ windowManager: this.windowManager });
+    registerPlanQueueLinearHandlers({ windowManager: this.windowManager });
 
     // Knowledge graph handlers (fact/entity CRUD and queries)
     registerKnowledgeGraphHandlers();

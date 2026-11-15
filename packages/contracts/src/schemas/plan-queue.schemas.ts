@@ -12,6 +12,7 @@ export * from './plan-queue-capability.schemas';
 // The saved per-folder checklist and the folder list, in their own file to keep this one under the size limit.
 export * from './plan-queue-folders.schemas';
 export * from './plan-queue-linear.schemas';
+export * from './plan-queue-linear-connection.schemas';
 
 // -------------------------------------------------------------------------
 // Enum schemas

@@ -4,7 +4,6 @@
  * operator, so there is no parent-session check here (MCP callers get one).
  */
 
-import { ipcMain, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS } from '@contracts/channels';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
@@ -18,25 +17,11 @@ import {
   PlanQueuePreviewPayloadSchema,
   type PlanQueueStateChangedEvent,
 } from '@contracts/schemas/plan-queue';
-import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { getPlanQueueCoordinator } from '../../plan-queue/plan-queue-coordinator';
 import type { WindowManager } from '../../window-manager';
 import { previewPlanQueueDocuments } from '../../plan-queue/plan-queue-discovery';
 import { repositoryRoot } from '../../plan-queue/plan-queue-git';
-
-function fail(code: string, error: unknown): IpcResponse {
-  return { success: false, error: { code, message: (error as Error).message, timestamp: Date.now() } };
-}
-
-function handle(channel: string, code: string, fn: (payload: unknown) => Promise<unknown> | unknown): void {
-  ipcMain.handle(channel, async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
-    try {
-      return { success: true, data: await fn(payload) };
-    } catch (error) {
-      return fail(code, error);
-    }
-  });
-}
+import { handle } from './plan-queue-ipc-helpers';
 
 export function registerPlanQueueHandlers(deps: { windowManager: WindowManager }): void {
   const coordinator = getPlanQueueCoordinator();

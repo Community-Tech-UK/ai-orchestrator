@@ -1,7 +1,13 @@
 import { IpcRenderer, IpcRendererEvent } from 'electron';
 import { IPC_CHANNELS } from '../generated/channels';
 import type { IpcResponse } from './types';
-import type { PlanQueueControlPayload, PlanQueueKind, PlanQueuePreviewPayload } from '@contracts/schemas/plan-queue';
+import type {
+  PlanQueueControlPayload,
+  PlanQueueKind,
+  PlanQueueLinearConfirmPayload,
+  PlanQueueLinearIdentifyPayload,
+  PlanQueuePreviewPayload,
+} from '@contracts/schemas/plan-queue';
 
 export function createPlanQueueDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNELS) {
   return {
@@ -34,6 +40,18 @@ export function createPlanQueueDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
 
     planQueueControl: (payload: PlanQueueControlPayload): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.PLAN_QUEUE_CONTROL, payload),
+
+    planQueueLinearList: (): Promise<IpcResponse> => ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_LIST, {}),
+
+    planQueueLinearIdentify: (payload: PlanQueueLinearIdentifyPayload): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_IDENTIFY, payload),
+
+    planQueueLinearConfirm: (payload: PlanQueueLinearConfirmPayload): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_CONFIRM, payload),
+
+    planQueueLinearForget: (): Promise<IpcResponse> => ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_FORGET, {}),
+
+    planQueueLinearCheck: (): Promise<IpcResponse> => ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_CHECK, {}),
 
     onPlanQueueStateChanged: (callback: (event: unknown) => void): (() => void) => {
       const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);

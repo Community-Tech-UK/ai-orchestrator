@@ -82,6 +82,7 @@ export { registerTerminalHandlers } from './terminal-handlers';
 export { registerAuxiliaryLlmHandlers } from './auxiliary-llm-handlers';
 export { registerCampaignHandlers } from './campaign-handlers';
 export { registerPlanQueueHandlers } from './plan-queue-handlers';
+export { registerPlanQueueLinearHandlers } from './plan-queue-linear-handlers';
 export { registerRlmMaintenanceHandlers } from './rlm-maintenance-handlers';
 export { registerNotificationHandlers } from './notification-handlers';
 export { registerSkillAttributionHandlers } from './skill-attribution-handlers';

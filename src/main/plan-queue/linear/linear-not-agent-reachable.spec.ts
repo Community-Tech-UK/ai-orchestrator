@@ -1,7 +1,7 @@
 /**
  * No agent can reach the Linear call. Agents get at the app through MCP tools, the `aio-mcp` command and the session
  * RPC, all of which live under `src/main/mcp/`, plus the Plan Queue's own tool operations. This guard fails if any
- * file outside the Linear folder imports the Linear call modules. A later step that wires the connection service into
+ * file outside the Linear folder imports the Linear call modules. A later step that wires the Linear code into
  * the app (never into those routes) adds its file to the list below on purpose.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -10,8 +10,11 @@ import { describe, expect, it } from 'vitest';
 
 const ROOT = join(__dirname, '..', '..', '..', '..');
 const LINEAR_FOLDER = join('src', 'main', 'plan-queue', 'linear') + sep;
-/** Files outside the Linear folder that may import it. Empty after Step 2: nothing calls the function yet. */
-const ALLOWED_IMPORTERS: readonly string[] = [];
+/**
+ * Files outside the Linear folder that may import it: the operator's IPC handlers for the Plan Queue page. They
+ * answer the page, never an agent.
+ */
+const ALLOWED_IMPORTERS: readonly string[] = [join('src', 'main', 'ipc', 'handlers', 'plan-queue-linear-handlers.ts')];
 const IMPORT = /from\s+['"][^'"]*\/linear\/[^'"]*['"]|from\s+['"]\.\/linear\/|linear-call['"]|linear-connector-address['"]/;
 
 function sourceFiles(directory: string): string[] {
