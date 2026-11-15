@@ -6419,7 +6419,7 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2536
+      "lines": 2543
     },
     {
       "path": "docs/superpowers/plans/2026-04-07-remote-folder-browsing_completed.md",
@@ -7106,6 +7106,10 @@
       "lines": 1103
     },
     {
+      "path": "docs/plans/livetest-backlog.md",
+      "lines": 1087
+    },
+    {
       "path": "src/main/browser-gateway/puppeteer-browser-driver.spec.ts",
       "lines": 1087
     },
@@ -7120,10 +7124,6 @@
     {
       "path": "src/main/context/__tests__/context-compactor.spec.ts",
       "lines": 1080
-    },
-    {
-      "path": "docs/plans/livetest-backlog.md",
-      "lines": 1077
     },
     {
       "path": "claude_oct-todo.md",

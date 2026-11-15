@@ -1074,3 +1074,13 @@ The final explicit-cache-disabled targeted run again passes all five MiMo files 
 two native-finality assertions (missing marker and native error replaced by timeout).
 Current main typecheck/build and a new focus-emulated live Settings repeat pass. No
 production or test code changed in this follow-up. The full canonical suite was not repeated.
+
+## OpenCode 2 live checks, round 5, 2026-11-09
+
+Round 5 added no passes. Two checks have retained passing evidence (1.3 and 3.2); nine earlier
+passes were reopened for lack of receipts. Current position is in the
+[OpenCode 2 live-check status](2026-10-16-opencode-2-support_livetest.md#status); round evidence
+is in [the round 5 history](2026-10-16-opencode-2-support_history.md). Defects are in the
+[remediation register](livetest-remediation-register.md) as LT-1018 to LT-1024 (LT-1018 to LT-1023
+were this branch's round 4 entries, renumbered from LT-1007 to LT-1012 because main already uses
+those numbers).

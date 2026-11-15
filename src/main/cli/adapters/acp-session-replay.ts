@@ -1,9 +1,21 @@
 import type { OutputMessage } from '../../../shared/types/instance.types';
+import type { ProviderRuntimeSnapshot } from './base-cli-adapter';
+import type { ResumeCursor } from '../../session/session-continuity.types';
 
 export interface AcpHistoryReplay { sessionId: string; messages: OutputMessage[] }
 
 export function acpResumeCursor(sessionId: string, provider: string, workspacePath: string): Record<string, unknown> {
   return { transport: 'acp', provider, sessionId, workspacePath };
+}
+
+/** Durable continuity uses a canonical cursor, distinct from ACP resume proof metadata. */
+export function openCodeNativeCursor(threadId: string, workspacePath: string): ResumeCursor {
+  return { provider: 'opencode', threadId, workspacePath, capturedAt: Date.now(), scanSource: 'native' };
+}
+
+export function withOpenCodeNativeCursor(snapshot: ProviderRuntimeSnapshot, cursor: ResumeCursor | null, active: boolean): ProviderRuntimeSnapshot {
+  if (cursor && active) cursor.capturedAt = snapshot.capturedAt;
+  return { ...snapshot, nativeThreadId: cursor?.threadId ?? null, resumeCursor: cursor ? { ...cursor } : null };
 }
 
 function record(value: unknown): value is Record<string, unknown> {

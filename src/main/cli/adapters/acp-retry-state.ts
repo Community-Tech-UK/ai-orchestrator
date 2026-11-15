@@ -67,3 +67,22 @@ export function buildRetryRecoveredMessage(messageId: string, recovered = true):
     },
   };
 }
+
+/** Native OpenCode clears its backoff metadata while the next attempt runs. */
+export function buildRetryAttemptingMessage(messageId: string): OutputMessage {
+  const content = 'Provider is trying the request again.';
+  return {
+    id: messageId,
+    timestamp: Date.now(),
+    type: 'system',
+    content,
+    metadata: {
+      transport: 'acp',
+      source: 'acp-retry-state',
+      sessionUpdate: 'retry_state',
+      phase: 'attempting',
+      streaming: true,
+      accumulatedContent: content,
+    },
+  };
+}

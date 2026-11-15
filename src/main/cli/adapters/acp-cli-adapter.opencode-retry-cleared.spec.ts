@@ -4,7 +4,8 @@ import type { OutputMessage } from '../../../shared/types/instance.types';
 
 // Real OpenCode 2.0.18 shapes (packages/cli/src/acp/event.ts): `session.retry.scheduled` is forwarded as
 // session_info_update with `_meta['opencode/retry'] = { attempt, nextRetryAt (ISO string), error }`, and the next
-// `session.step.started` clears it with `_meta['opencode/retry'] = null`.
+// `session.step.started` clears it with `_meta['opencode/retry'] = null`. That clear means the next attempt is
+// starting, not that it succeeded, so the notice reads "trying again" until the turn itself settles.
 const sessionId = 'sess-acp-1';
 const retryScheduled = { sessionUpdate: 'session_info_update', _meta: { 'opencode/retry': {
   attempt: 2, nextRetryAt: '2026-10-20T10:00:05.000Z', error: { type: 'api', message: 'fixture provider message', status: 429 },
@@ -12,7 +13,7 @@ const retryScheduled = { sessionUpdate: 'session_info_update', _meta: { 'opencod
 const retryCleared = { sessionUpdate: 'session_info_update', _meta: { 'opencode/retry': null } };
 
 describe('OpenCode retry marker clearing', () => {
-  it('resolves the retry notice as soon as a null opencode/retry marker arrives, before the turn ends', async () => {
+  it('moves the retry notice to "trying again" on a null opencode/retry marker, before the turn ends, and settles it at turn end', async () => {
     const proc = createInitializedAgentHarness();
     const adapter = new TestAcpCliAdapter(proc, { workingDirectory: '/tmp', promptTimeoutMs: 2000 });
     adapter.configureOpenCodeV2(true);
@@ -29,7 +30,7 @@ describe('OpenCode retry marker clearing', () => {
         proc.notify('session/update', { sessionId, update: retryCleared });
         // The turn stays open until the clear has had time to land (or the poll gives up).
         const deadline = Date.now() + 500;
-        while (Date.now() < deadline && !retryNotices().some(output => output.metadata?.['phase'] === 'recovered')) {
+        while (Date.now() < deadline && !retryNotices().some(output => output.metadata?.['phase'] === 'attempting')) {
           await new Promise(resolve => setTimeout(resolve, 5));
         }
         seenBeforeTurnEnd = retryNotices().slice();
@@ -37,12 +38,16 @@ describe('OpenCode retry marker clearing', () => {
       });
       await adapter.sendMessage({ role: 'user', content: 'go' });
       const retrying = seenBeforeTurnEnd.find(output => output.metadata?.['phase'] === 'retrying');
-      const recovered = seenBeforeTurnEnd.find(output => output.metadata?.['phase'] === 'recovered');
+      const attempting = seenBeforeTurnEnd.find(output => output.metadata?.['phase'] === 'attempting');
       expect(retrying?.content).toContain('Provider returned HTTP 429.');
       expect(retrying?.metadata?.['streaming']).toBe(true);
-      expect(recovered).toBeDefined();
-      expect(recovered?.id).toBe(retrying?.id);
-      expect(recovered?.metadata?.['streaming']).toBe(false);
+      expect(attempting?.content).toBe('Provider is trying the request again.');
+      expect(attempting?.metadata?.['streaming']).toBe(true);
+      expect(attempting?.id).toBe(retrying?.id);
+      const settled = retryNotices().at(-1);
+      expect(settled?.metadata?.['phase']).toBe('recovered');
+      expect(settled?.metadata?.['streaming']).toBe(false);
+      expect(settled?.id).toBe(retrying?.id);
       expect(JSON.stringify(outputs)).not.toContain('fixture provider message');
     } finally {
       proc.exit();

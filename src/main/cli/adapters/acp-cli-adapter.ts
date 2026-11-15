@@ -1,12 +1,4 @@
-/**
- * ACP CLI Adapter
- *
- * Implements the Agent Client Protocol over stdio and translates ACP session
- * updates into the existing adapter event surface used by the orchestrator.
- *
- * This is intentionally transport-focused: it does not assume a specific ACP
- * agent binary or expose ACP as a first-class UI-selectable provider yet.
- */
+/** Translates ACP over stdio into Harness adapter events, including OpenCode native metadata. */
 
 import { selectAcpPermissionOutcome } from './acp-permission-outcome';
 import { existsSync } from 'fs';
@@ -26,6 +18,7 @@ import {
   type CliStatus,
   type CliToolCall,
   type ResumeAttemptResult,
+  type ProviderRuntimeSnapshot,
   ndjsonSafeStringify,
 } from './base-cli-adapter';
 import { buildAcpErrorOutput } from './acp-error-output';
@@ -125,7 +118,7 @@ import {
   type AcpTurnWait,
 } from './acp-prompt-timeout-policy';
 import { classifyMissingUsage } from './acp-transport-failure';
-import { buildRetryRecoveredMessage, buildRetryStateMessage } from './acp-retry-state';
+import { buildRetryAttemptingMessage, buildRetryRecoveredMessage, buildRetryStateMessage } from './acp-retry-state';
 import { AcpNativeCompactionOperation, bareAcpCommandPrompt, buildAcpThreadCompactedNotice, classifyAcpBareCommand, resolveAcpContextCapabilities, type AcpNativeCompactionConfig } from './acp-native-compaction';
 import { dispatchOpenCodeSessionInfoMarker } from './opencode-acp-markers';
 import { buildAcpElicitationResponse } from './acp-elicitation-response';
@@ -142,15 +135,16 @@ import type { AcpStartupGate } from './acp-startup-gate';
 import { tagAcpProviderLimit } from './acp-provider-limit';
 import { normalizeAcpAvailableCommands, renderAcpPlan } from './acp-session-update-normalizers';
 import { OpenCodeAcpUpdates } from './opencode-acp-updates';
-import { acpElicitationQuestions } from './acp-elicitation-questions';
+import { acpElicitationQuestions, isQuestionToolPermission } from './acp-elicitation-questions';
 import type { AcpPendingRequest } from './acp-pending-request.types';
 import { forkAcpSession } from './acp-session-fork';
-import { AcpSessionReplay, acpResumeCursor } from './acp-session-replay';
+import { AcpSessionReplay, acpResumeCursor, openCodeNativeCursor, withOpenCodeNativeCursor } from './acp-session-replay';
 import {
   acpToolOutcomeMetadata, buildAcpMinableInput, buildAcpToolCallArguments, buildAcpToolOutcomeFallback, buildAcpToolResultMessage,
   isAcpTerminalToolStatus, renderAcpRawOutput,
 } from './acp-tool-call-material';
 import type { ProviderContextCapabilities } from '@contracts/types/context-evidence';
+import type { ResumeCursor } from '../../session/session-continuity.types';
 const logger = getLogger('AcpCliAdapter');
 
 const ACP_PROTOCOL_VERSION = 1;
@@ -406,6 +400,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
   private outputBlockedNoticed = false;
   private recentReadToolCallId: string | null = null;
   private openCodeV2 = false;
+  private openCodeResumeCursor: ResumeCursor | null = null;
   private nativeForkInProgress = false;
   private readonly nativeCompaction = new AcpNativeCompactionOperation<AcpPendingPromptTurn>();
   private readonly openCodeUpdates = new OpenCodeAcpUpdates(() => this.nativeCompaction.fail(this.currentPrompt));
@@ -493,6 +488,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
     });
   }
 
+  override getRuntimeSnapshot(): ProviderRuntimeSnapshot {
+    return this.openCodeV2 ? withOpenCodeNativeCursor(super.getRuntimeSnapshot(), this.openCodeResumeCursor, this.initialized) : super.getRuntimeSnapshot();
+  }
+
   getResumeAttemptResult(): ResumeAttemptResult | undefined {
     return this.lastResumeAttemptResult;
   }
@@ -538,6 +537,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       return this.getPid() ?? -1;
     }
 
+    this.openCodeResumeCursor = null;
     await super.initialize();
 
     // Acquire a provider concurrency slot BEFORE creating the subprocess.
@@ -618,6 +618,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       this.setSessionId(sessionId);
       await this.applySessionConfig(sessionId);
       this.initialized = true;
+      if (this.openCodeV2) this.openCodeResumeCursor = openCodeNativeCursor(sessionId, this.acpConfig.workingDirectory);
       this.emit('status', 'ready');
 
       return this.getPid() ?? -1;
@@ -1495,7 +1496,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       }
       const retry = sessionUpdate === 'session_info_update' ? undefined : this.openCodeUpdates.retry(rawUpdate);
       if (retry) this.handleRetryState(retry);
-      else if (retry === null && this.currentPrompt?.retryNoticeId) this.resolveRetryNotice(this.currentPrompt);
+      else if (retry === null && this.currentPrompt?.retryNoticeId) this.markRetryAttempting(this.currentPrompt);
       compact = this.openCodeUpdates.compaction(rawUpdate, generateId);
       if (compact) {
         this.emit('output', compact);
@@ -1549,7 +1550,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
       case 'session_info_update':
         if (this.openCodeV2 && dispatchOpenCodeSessionInfoMarker(rawUpdate, {
           onRetry: update => this.handleRetryState(update),
-          onRetryCleared: () => { if (this.currentPrompt) this.resolveRetryNotice(this.currentPrompt); }, onCompactionCompleted: () => {
+          onRetryCleared: () => { if (this.currentPrompt) this.markRetryAttempting(this.currentPrompt); }, onCompactionCompleted: () => {
             // Keyed markers already use the status row and its completion dedup.
             if (compact === undefined) this.emit('output', buildAcpThreadCompactedNotice('opencode-compaction'));
           },
@@ -1628,6 +1629,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
   }
   private resolveRetryNotice(turn: AcpPendingPromptTurn, recovered = true): void {
     if (turn.retryNoticeId) this.emit('output', buildRetryRecoveredMessage(turn.retryNoticeId, recovered));
+  }
+  /** A cleared OpenCode retry marker means the next attempt is starting, not that it succeeded. */
+  private markRetryAttempting(turn: AcpPendingPromptTurn): void {
+    if (turn.retryNoticeId) this.emit('output', buildRetryAttemptingMessage(turn.retryNoticeId));
   }
   private emitFinalAssistantFlushes(turn: AcpPendingPromptTurn): void {
     const thinking = buildAcpTurnThinking(turn);
@@ -1830,7 +1835,9 @@ export class AcpCliAdapter extends BaseCliAdapter {
     };
     this.pendingPermissionRequests.set(key, pending);
 
-    const automatic = resolveAcpAutomaticPermission(this.getName(), this.acpConfig.permissionContext?.yoloMode, toolCall);
+    const automatic = this.openCodeV2 && isQuestionToolPermission(toolCall)
+      ? true
+      : resolveAcpAutomaticPermission(this.getName(), this.acpConfig.permissionContext?.yoloMode, toolCall);
     if (automatic !== undefined) {
       if (!automatic) this.emitStructuredOutput('system', DOOM_LOOP_BLOCKED_NOTICE, { doomLoopBlocked: true, transport: 'acp' });
       await this.resolvePermissionDecision(key, {
