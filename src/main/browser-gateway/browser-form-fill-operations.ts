@@ -533,6 +533,7 @@ export async function fillCredentialOperation(
       actionClass: 'credential',
       decision: 'denied',
       outcome: 'failed',
+      ...(origin ? { origin } : {}),
       reason: `${failureStep}:${code}`,
       summary: `${toolName} failed at ${failureStep} on field ${fieldIndex} of ${request.fields.length} `
         + `(${failing?.selector ?? 'unknown'}, ${failing?.kind ?? 'unknown'}) `
@@ -553,6 +554,7 @@ export async function fillCredentialOperation(
     actionClass: 'credential',
     decision: 'allowed',
     outcome: 'succeeded',
+    ...(origin ? { origin } : {}),
     summary: `Filled ${filled} credential field(s) from the vault`,
     data: { filled },
   });

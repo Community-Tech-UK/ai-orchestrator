@@ -319,6 +319,9 @@ describe('fillCredentialOperation fill-origin resolution (embedded cross-origin 
     ]));
 
     expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded', data: { filled: 2 } });
+    // The audit row names the origin that received the secret (LT-703 live run
+    // found it empty on allowed and dispatch-failed fills).
+    expect(result).toMatchObject({ origin: FORM_ORIGIN });
     // Authorization + vault binding + the receiving-origin check all name the
     // form's frame origin, never the embedding page's.
     for (const call of deps.checked.mock.calls) {
@@ -471,6 +474,7 @@ describe('fillCredentialOperation failure classification (no swallowed errors)',
       decision: 'denied',
       outcome: 'failed',
       reason: 'dispatch:credential_selector_outside_authorized_origin',
+      origin: PAGE_ORIGIN,
       data: null,
     });
     // The audit summary names the step, the field and the count as well.

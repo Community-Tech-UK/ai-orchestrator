@@ -6305,7 +6305,7 @@
   "largeFiles": [
     {
       "path": "docs/plans/livetest-remediation-register.md",
-      "lines": 15238
+      "lines": 15272
     },
     {
       "path": "resources/browser-extension/background.js",
@@ -7224,16 +7224,16 @@
       "lines": 1001
     },
     {
+      "path": "src/main/browser-gateway/browser-form-fill-operations.spec.ts",
+      "lines": 997
+    },
+    {
       "path": "src/main/memory/project-memory-brief.ts",
       "lines": 997
     },
     {
       "path": "src/main/orchestration/cross-model-review-service.ts",
       "lines": 995
-    },
-    {
-      "path": "src/main/browser-gateway/browser-form-fill-operations.spec.ts",
-      "lines": 993
     },
     {
       "path": "src/main/orchestration/loop-completion-detector.spec.ts",
