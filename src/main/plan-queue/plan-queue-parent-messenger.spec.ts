@@ -49,6 +49,21 @@ describe('queue parent messages', () => {
 
     expect(registry.checkPersonTurn('parent')).toEqual({ ok: true, messageId: 'james', typedAt: 5_000 });
   });
+  it('forgets the announcement when the run summary could not be sent', async () => {
+    const registry = new InputTurnRegistry();
+    vi.spyOn(InputTurnRegistry, 'getInstance').mockReturnValue(registry);
+    const h = harness();
+    h.sendInput.mockRejectedValueOnce(new Error('session gone'));
+    registry.setReportsTurnStarts('parent', true);
+    registry.noteInput('parent', { messageId: 'james', personTypedAt: 5_000 });
+    registry.noteTurnStarted('parent', 'harness-send');
+
+    h.messenger.notify(h.run, 'Run ended', undefined, true);
+    const { userMessageId } = h.sendInput.mock.calls[0]![3] as { userMessageId: string };
+    await new Promise((resolve) => setTimeout(resolve, 0)); // let the failed send settle
+    registry.noteInput('parent', { messageId: userMessageId, personTypedAt: null });
+    expect(registry.checkPersonTurn('parent')).toEqual({ ok: false, reason: 'latest-input-not-person' });
+  });
   it('keeps a failed quiet note from interrupting queue work', () => {
     const h = harness();
     h.postNote.mockImplementation(() => { throw new Error('observer failed'); });

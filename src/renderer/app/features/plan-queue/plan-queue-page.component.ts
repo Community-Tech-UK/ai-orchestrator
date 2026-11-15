@@ -28,9 +28,7 @@ import type { PlanQueueParentSessionOption, PlanQueueStartRequest } from './comp
 import { PlanQueueStartFormComponent } from './components/plan-queue-start-form.component';
 import { PlanQueueSkipPendingComponent } from './components/plan-queue-skip-pending.component';
 import { planQueueKindLabel, pluralise } from '../../../../shared/utils/plan-queue-item-display';
-
-/** Marks a Set aside agent; `SET_ASIDE_FOLDER_METADATA` in the main process's plan-queue-set-aside.ts. */
-const SET_ASIDE_AGENT_METADATA = 'planQueueSetAsideFolder';
+import { setAsideFolderOf } from '../../../../shared/utils/plan-queue-set-aside-agent';
 
 /** Current work, retained work, and provider setup, each in its own tab. */
 @Component({
@@ -159,7 +157,7 @@ export class PlanQueuePageComponent implements OnInit {
         id: instance.id,
         label: `${instance.displayName} (${instance.provider}) — ${instance.workingDirectory}`,
         canBeParent: !instance.parentId && !AUTOMATION_FAILURE_STATUSES.has(instance.status)
-          && instance.metadata?.[SET_ASIDE_AGENT_METADATA] === undefined,
+          && setAsideFolderOf(instance.metadata) === undefined,
       })),
   );
 
@@ -243,8 +241,8 @@ export class PlanQueuePageComponent implements OnInit {
   protected readonly setAsideAgents = computed(() => {
     const newest = new Map<string, Instance>();
     for (const instance of this.instanceStore.instances()) {
-      const folder = instance.metadata?.[SET_ASIDE_AGENT_METADATA];
-      if (typeof folder !== 'string') continue;
+      const folder = setAsideFolderOf(instance.metadata);
+      if (folder === undefined) continue;
       const current = newest.get(folder);
       if (!current || instance.createdAt > current.createdAt) newest.set(folder, instance);
     }

@@ -37,7 +37,6 @@ const DETAIL_CHARS = 400;
 const CLEAR_BUDGET_MS = 25_000;
 const DOCUMENT_FILE = /^(docs|documents)\/|\.md$/i;
 
-
 /** `unknown` covers every git failure, so a failed read can never count as "nothing here". */
 export type SetAsideHolding = 'nothing' | 'nothing-new' | 'documents-only' | 'new-code' | 'unknown';
 

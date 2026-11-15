@@ -1743,7 +1743,8 @@ export class InstanceManager extends EventEmitter {
     }
     if (personOrigin) userMessage.metadata = { ...userMessage.metadata, inputOrigin: personOrigin };
     if (options?.watcherApproval) userMessage.metadata = { ...userMessage.metadata, [WATCHER_APPROVAL_METADATA_KEY]: { question: options.watcherApproval.question } };
-    // Every input is the session's latest input, so a later notice, automation prompt or steer displaces a person's message.
+    // Every input becomes the session's latest input, so a later notice, automation prompt or steer displaces a person's message;
+    // a Plan Queue report announced with expectNotice is the exception once that message's turn has begun (input-turn-registry.ts).
     getInputTurnRegistry().noteInput(instanceId, { messageId: userMessage.id, personTypedAt: personOrigin?.typedAt ?? null });
     recordedInputId = userMessage.id;
     if (resolvedCommandMeta?.executionType === 'compact') {
