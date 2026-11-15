@@ -90,6 +90,7 @@ import {
   retainFailedCreation, SESSION_RECORD_ROLLBACK_LABELS, shouldRetainFailedCreation,
 } from './lifecycle/failed-creation-retention';
 import { DeferredPermissionHandler } from './lifecycle/deferred-permission-handler';
+import { pauseLoopForDeclinedPermission } from './lifecycle/loop-declined-permission-pause';
 import type { ResumeDeferredOptions } from './lifecycle/deferred-permission-options';
 import {
   attachCopilotRoute,
@@ -444,6 +445,7 @@ export class InstanceLifecycleManager extends EventEmitter {
           getDeferDecisionStore().writeDecision(toolUseId, decision, reason, updatedInput),
         getDecisionDir: () => getDeferDecisionStore().getDecisionDir(),
         createDiffTracker: (workDir) => new SessionDiffTracker(workDir),
+        pauseLoopForDeclinedPermission: (id) => { pauseLoopForDeclinedPermission(id); },
       },
     );
     this.restartHelpers = new RestartPolicyHelpers(

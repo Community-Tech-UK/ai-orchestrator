@@ -175,7 +175,15 @@ export class RuntimeReadinessCoordinator {
             // When an adapter supplies proof (e.g. Claude init event precedes the
             // first output), prefer the proof signal over the raw "got output" heuristic.
             // This closes B1: a wrong-session resume is now detected and rejected.
-            finishProven(this.getResumeProof(adapter) ?? true);
+            {
+              const proof = this.getResumeProof(adapter);
+              // Output is not proof while a native resume still awaits its
+              // session-id echo: a resumed Claude CLI re-runs a deferred tool
+              // before it emits init, so its first output can precede the echo
+              // by a fraction of a second. Keep polling for the echo.
+              if (proof === null && this.hasPendingNativeResumeProof(adapter)) break;
+              finishProven(proof ?? true);
+            }
             break;
           case 'error':
             if (this.isSessionNotFoundMessage(event.message)) {

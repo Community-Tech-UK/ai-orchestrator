@@ -84,11 +84,16 @@ export function adapterHasActiveToolCalls(adapter: object | undefined): boolean 
     && typeof adapter.hasActiveToolCalls === 'function' && adapter.hasActiveToolCalls() === true;
 }
 
-/** Only a live process can be waiting for a person; a dead process must remain recoverable. */
+/**
+ * Only a live process can be waiting for a person; a dead process must remain recoverable.
+ * A person can be asked two ways: a live permission card, or a tool call the hook deferred
+ * until they decide. Either one is a wait for them, not a silent process.
+ */
 export function adapterHasPendingLiveAsk(adapter: object | undefined): boolean {
   if (!adapter || !('isRunning' in adapter) || typeof adapter.isRunning !== 'function' || adapter.isRunning() !== true) return false;
   const broker = 'livePermissions' in adapter ? adapter.livePermissions as { hasPending?: () => boolean } | undefined : undefined;
-  return typeof broker?.hasPending === 'function' && broker.hasPending() === true;
+  if (typeof broker?.hasPending === 'function' && broker.hasPending() === true) return true;
+  return 'getDeferredToolUse' in adapter && typeof adapter.getDeferredToolUse === 'function' && adapter.getDeferredToolUse() != null;
 }
 
 /**

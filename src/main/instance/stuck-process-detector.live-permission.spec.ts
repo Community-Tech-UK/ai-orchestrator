@@ -10,6 +10,13 @@ describe('live permission watchdog suppression', () => {
     expect(adapterHasPendingLiveAsk({ isRunning: () => true, livePermissions: { hasPending: () => false } })).toBe(false);
     expect(adapterHasPendingLiveAsk({ isRunning: () => true, livePermissions: { hasPending: () => true } })).toBe(true);
   });
+  it('also treats a tool call the hook deferred for a person as a pending ask', () => {
+    // LT-823: a held deferred Bash card was flagged "may be stuck" at 20 minutes and its CLI killed at 40.
+    const deferred = { toolName: 'Bash', toolUseId: 'toolu_1', sessionId: 's-1' };
+    expect(adapterHasPendingLiveAsk({ isRunning: () => true, getDeferredToolUse: () => deferred })).toBe(true);
+    expect(adapterHasPendingLiveAsk({ isRunning: () => true, getDeferredToolUse: () => null })).toBe(false);
+    expect(adapterHasPendingLiveAsk({ isRunning: () => false, getDeferredToolUse: () => deferred })).toBe(false);
+  });
   it('suppresses notices and restarts past 40 minutes, then starts a fresh silence clock', () => {
     vi.useFakeTimers();
     let pending = true;

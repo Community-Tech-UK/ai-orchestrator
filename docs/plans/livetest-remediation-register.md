@@ -519,6 +519,10 @@ Source branch had no register entries left (its branch was removed); these rows 
 | LT-826 | P1 | **SOURCE FIX ON MAIN (commit `817a30b80`); WORKER-VERIFIED; INDEPENDENT ACCEPTANCE AND FULL-APP LIVE CHECK PENDING.** Close all removed the session but left the original resident Claude process alive, because a borrowed request started a one-shot child over the resident process reference. Borrowed requests now use the resident pipe. | [LT-826 detail](#lt-826) | [Remediation plan](2026-10-27-phase0-livetest-remediation_plan.md), [live checks](2026-10-27-phase0-livetest-remediation_livetest.md) |
 | LT-1018 | P2 | **FIXED AND VERIFIED LIVE 2026-11-12.** Every priced completion's `cost:usage-recorded` event was blocked before the renderer: the completion recorder tags each entry with `origin` (`user` or `machine`) but the strict renderer event schema did not list it, so the main log said `Unrecognized key: "origin"` on each turn. The Costs page then updated only on its 10-second poll. The schema now accepts a bounded `origin` string. | [LT-1018 detail](#lt-1018) | [Phase 0 live checks, 12 November 2026](2026-10-27-phase0-livetest-remediation_livetest.md#evidence-run--2026-11-12) |
 | LT-1019 | P3 | **FIXED AND VERIFIED LIVE 2026-11-12.** The `cli-update-pill:delta` event was blocked at every start-up with `Unrecognized key: "waitingSessionCount"`: the update poll service adds that count to its state, but the strict event schema did not list it, so the title-bar pill never heard how many sessions were holding an update. The schema now accepts it. | [LT-1019 detail](#lt-1019) | [Phase 0 live checks, 12 November 2026](2026-10-27-phase0-livetest-remediation_livetest.md#evidence-run--2026-11-12) |
+| LT-1131 | P1 | **SOURCE FIX IN QUEUE BRANCH; LIVE RECHECK RECORDED IN THE PHASE 0 LIVE CHECKS (14 November 2026).** Approving a held tool permission inside a running `/goal` or Loop killed the very process that had just been approved. The resumed Claude CLI runs the held tool before it sends its session confirmation, so the resume probe settled on the first output, found no confirmation, and the approval handler terminated the live process and cancelled the loop's request. The tool still ran once, but the loop paused with "Claude CLI cancelled". Output is no longer taken as proof while the confirmation is pending. | [LT-1131 detail](#lt-1131) | [Phase 0 live checks](2026-10-27-phase0-livetest-remediation_livetest.md#evidence-run--2026-11-14-test-mac) |
+| LT-1132 | P2 | **SOURCE FIX IN QUEUE BRANCH; LIVE RECHECK RECORDED IN THE PHASE 0 LIVE CHECKS (14 November 2026).** A tool permission left waiting for a person was treated as a silent, stuck process: a warning at about 20 minutes and, at 40 minutes 55 seconds, the stuck-process watchdog killed the Claude CLI and cancelled the loop's request. The watchdog already skipped live permission cards but not the hook-deferred path used for Bash. It now skips both. | [LT-1132 detail](#lt-1132) | [Phase 0 live checks](2026-10-27-phase0-livetest-remediation_livetest.md#evidence-run--2026-11-14-test-mac) |
+| LT-1133 | P2 | **SOURCE FIX IN QUEUE BRANCH; LIVE RECHECK RECORDED IN THE PHASE 0 LIVE CHECKS (14 November 2026).** After a person clicked **Don't allow** on a tool permission held inside a running `/goal`, the loop kept starting iterations that repeated the same question to the model: seven in about a minute, about $0.04, until it was stopped by hand. The loop now pauses as soon as a person declines a call it is holding, and waits for them to resume or stop it. A refusal by a saved rule or the reviewer (nobody asked) does not pause it. | [LT-1133 detail](#lt-1133) | [Phase 0 live checks](2026-10-27-phase0-livetest-remediation_livetest.md#evidence-run--2026-11-14-test-mac) |
+| LT-1134 | P3 | **SEEN ONCE (14 November 2026, test Mac), NOT REPRODUCED in four follow-up live runs; cause unconfirmed; not repaired.** After **Don't allow** on a Bash permission in an ordinary chat, the transcript line was worded "Cancelled when the session closed" (Bash) instead of "You said no: Bash". That wording is only ever written for a card that closed because its session went away, never for a refusal. Later runs on the same build showed "You said no: Bash" every time, live and after a reload from stored history. | [LT-1134 detail](#lt-1134) | [Phase 0 live checks](2026-10-27-phase0-livetest-remediation_livetest.md#lt-1134-follow-up-14-november-2026) |
 
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
@@ -14304,6 +14308,93 @@ Every launch of the isolated dev app logged `Blocked invalid renderer event payl
 The schema accepts a non-negative integer `waitingSessionCount`. Acceptance: `renderer-event-validation.spec.ts` case
 "delivers the waiting-session count the poll service adds to its state" (failed before, passes after). Live: after the
 rebuild, start-up logged no blocked event.
+
+<a id="lt-1131"></a>
+
+## LT-1131
+
+### LT-1131 — approving a held permission inside a loop kills the resumed process
+
+**Status: source fix in the queue branch; rechecked live on 14 November 2026 (see the Phase 0 live checks). Priority P1.** Found while closing the full-app check for LT-823.
+
+### Observed behaviour
+
+In an isolated dev app on the test Mac (Claude CLI 2.1.319), a real `/goal` that needed Bash with auto-approve off showed the permission card. Clicking **Allow this once** ran the command once (the marker file held one line), but the loop then paused with "Step 1 stopped without finishing (Degraded iteration (invocation-error) ...)" and the session went to `error`. Reproduced four times: three `/goal` sessions (held 31 minutes, 24 seconds and 12 seconds, the last with extra logging) and a control started with `loopStart` instead of `/goal`. Ordinary chat approval on the same machine worked.
+
+### Root cause
+
+`DeferredPermissionHandler.resumeAfterDeferredPermission` (resident-request branch) calls `waitForResumeHealth`, which maps anything other than `healthy` to false and then terminates the adapter. `RuntimeReadinessCoordinator.evaluateResumeHealth` ended its probe on the first adapter `output` event whenever no proof was available yet (`finishProven(proof ?? true)`). A resumed Claude CLI re-runs the deferred tool first and sends `system/init` (the session-id echo that confirms the resume) afterwards. That order was seen with CLI 2.1.319 on a busy test Mac; the 12 November run on a newer CLI saw the echo first, so the order depends on CLI version or load, and the probe must not rely on it. Logged order, 14 November 08:15:37Z: tool result at +1.7 s, probe settled, lifecycle saw `confirmed: false` and reported "unconfirmed within probe window", then `system init` with the correct session id arrived 213 ms later. The process was healthy and was killed anyway; the held request failed with "Claude CLI cancelled".
+
+### Required behaviour and acceptance
+
+A native resume that has not yet echoed its session id is not proven by output. The probe keeps waiting for the echo (or the timeout) and a wrong or missing session is still rejected. Acceptance: `runtime-readiness.spec.ts` case "does not settle on the first output while a native resume echo is still pending" (failed before the fix, passes after). Live: the held `/goal` allow and the repeat with the fix in place, recorded in the Phase 0 live checks.
+
+<a id="lt-1132"></a>
+
+## LT-1132
+
+### LT-1132 — the stuck-process watchdog kills a session that is waiting for a person's decision
+
+**Status: source fix in the queue branch; rechecked live on 14 November 2026 (see the Phase 0 live checks). Priority P2.** Found while holding the LT-823 permission cards past the iteration timeout.
+
+### Observed behaviour
+
+Two `/goal` sessions held on a Bash permission card (auto-approve off). At about 20 minutes the log carried `Process may be stuck — soft timeout exceeded` for both. At 40 minutes 55 seconds (14 November 08:11:31Z) one of them logged `Process stuck — hard timeout exceeded`, the CLI process was terminated and respawned, the loop's request failed with "Claude CLI cancelled" and the loop paused. The card could no longer be answered.
+
+### Root cause
+
+`StuckProcessDetector` is told about work outside the provider through `hasExternalActivity`, which `instance-manager.ts` wires to `adapterHasPendingLiveAsk`. That helper only recognised the live permission broker. The Bash path uses the hook-deferred route instead (`ClaudeCliAdapter.getDeferredToolUse()`), so a held decision looked like a tool that had gone silent for 40 minutes (alive process, `tool_executing`, hard limit 20 minutes times two).
+
+### Required behaviour and acceptance
+
+A running adapter that holds a deferred tool call is waiting for a person, so the watchdog neither warns nor restarts. Acceptance: `stuck-process-detector.live-permission.spec.ts` case "also treats a tool call the hook deferred for a person as a pending ask" (failed before the fix, passes after). Live: a held card past 41 minutes with the fix in place, recorded in the Phase 0 live checks.
+
+<a id="lt-1133"></a>
+
+## LT-1133
+
+### LT-1133 — after "Don't allow" a loop keeps starting iterations that repeat the same question
+
+**Status: source fix in the queue branch; live recheck recorded on 14 November 2026 (rebuilt app on the test Mac: the loop stayed `paused` at one iteration after Don't allow). Priority P2.** Found while closing the full-app check for LT-823 (14 November 2026, test Mac).
+
+### Observed behaviour
+
+A real `/goal` that needed Bash with auto-approve off was held on its permission card for 45 minutes, then **Don't allow** was clicked. The command never ran and the transcript showed the refusal, but the loop then started seven iterations in about a minute (09:10 to 09:11 UTC), each asking the same question, for about $0.04, until **Stop loop** ended it (`cancelled`, "user cancelled").
+
+### Root cause
+
+`DeferredPermissionHandler.resumeAfterDeferredPermission` (resident-request branch) writes the refusal and resumes the held request. Nothing told the loop that a person had answered, so the model's reply ("approve or cancel") counted as a finished iteration and the next one began from the same goal into the same refusal. Only the no-progress check would have parked it, after several paid rounds.
+
+### Required behaviour and acceptance
+
+When a person declines a call a loop is holding, the loop pauses (the in-flight request still finishes) and waits for the person to resume or stop it. An approval, and a refusal nobody was asked about (a saved rule, the reviewer), leave the loop running. Acceptance: `deferred-permission-handler.spec.ts` cases under "a loop is awaiting the held call (LT-1133)" (the decline case failed before the fix, passes after) and `loop-declined-permission-pause.spec.ts`. Live: a held `/goal` card declined on a rebuilt app leaves the loop `paused` with no further iteration. Recorded in the Phase 0 live checks under "Round 3 recheck" (14 November 2026): paused at one iteration, no change over 80 seconds of polling.
+
+## LT-1134
+
+### LT-1134 — a refused Bash permission in an ordinary chat was once worded "Cancelled when the session closed"
+
+**Status: seen once on 14 November 2026 (test Mac); not reproduced in four follow-up runs on the same build; cause unconfirmed; not repaired. Priority P3 (wording only: the command did not run and the model was told it was refused).** Found while closing LT-823 sub-check 4 in the [Phase 0 live checks](2026-10-27-phase0-livetest-remediation_livetest.md#lt-1134-follow-up-14-november-2026).
+
+### Observed behaviour
+
+Ordinary chat, auto-approve off, **Don't allow** clicked on a Bash card at 08:29:43 UTC. `lt823-chat-deny.txt` was never created and the reply said the command was denied. The line left behind for the card read "Cancelled when the session closed" with "Bash" after it. The expected line is "You said no: Bash".
+
+### What is known
+
+- That sentence has one source, `describeRequestOutcome` for the `exited` reason (`src/shared/utils/request-outcome.ts:68`). A refusal is worded by `describeUserChoice` (`denied`, "You said no"). So a card the person had refused was closed through the "session went away" route before, or instead of, the refusal being recorded.
+- Three places can close a card with `exited`: the main-process recorder when the session status changes to `respawning`, `terminated` and similar while no reply is in flight (`input-request-receipts.ts` `statusChanged`); the window's status watcher when the card is not marked as being answered (`user-action-request.component.ts:163`, `:386`); and an adapter reporting `exited` (`claude-live-permission.ts` `finishAnswer`, when the reply could not be delivered). A refused deferred permission moves the session through `respawning` while the reply is still being applied, so each guard depends on the reply being marked in flight in time.
+- Not tested: which of the three produced the line. The original run was on a busy test Mac with other dev copies running; none of the follow-up runs below was.
+
+### Not reproduced (14 November 2026, 16:07 to 16:12 UTC, test Mac, same branch build, auto-approve off, Claude Haiku)
+
+1. Fresh session, one Bash card, **Don't allow**: "You said no: Bash" on screen; the Tool calls group opened.
+2. Same session, **Allow this once** then **Don't allow**: "You allowed once: Bash", then "You said no: Bash".
+3. Second fresh session, the same two answers, then a full page reload so the transcript came back from stored history: still "You allowed once: Bash" then "You said no: Bash".
+4. Closing the first session afterwards produced no extra line.
+
+### Required behaviour and acceptance
+
+A card a person has refused is only ever worded as their refusal. Acceptance for a fix: a spec in which the session status moves to `respawning` before and after a refusal is acknowledged leaves one "You said no" line and no "Cancelled" line, on both the main-process recorder and the window; then a live Don't allow on a rebuilt app under load. Until the cause is found, a fix would be a guess, so this stays open as an observation. Next step if it recurs: capture the app log and the stored history rows for the session at the moment of the click.
 
 <a id="lt-1065"></a>
 

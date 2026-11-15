@@ -6305,7 +6305,7 @@
   "largeFiles": [
     {
       "path": "docs/plans/livetest-remediation-register.md",
-      "lines": 15272
+      "lines": 15363
     },
     {
       "path": "resources/browser-extension/background.js",
@@ -6357,11 +6357,11 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3706
+      "lines": 3708
     },
     {
       "path": "src/main/instance/rlm-process-ownership.spec.ts",
-      "lines": 3680
+      "lines": 3682
     },
     {
       "path": "src/main/cli/adapters/codex-cli-adapter.app-server.spec.ts",

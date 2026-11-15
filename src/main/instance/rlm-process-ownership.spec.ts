@@ -2864,7 +2864,9 @@ describe('RLM process ownership', () => {
         'Ownership afterEach cleanup failed',
       );
     }
-  });
+    // The first run in a fresh worker cold-imports the runtime wiring, worker client and event
+    // relay modules here. On a loaded full-suite run that exceeded the 10s default hook budget.
+  }, 60_000);
 
   it('attempts every registered cleanup after partial setup/body and cleanup failures', async () => {
     cleanupIsolationProbe.ipcDirty = true;

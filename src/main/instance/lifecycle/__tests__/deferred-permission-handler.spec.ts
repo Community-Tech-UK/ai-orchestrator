@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Instance } from '../../../../shared/types/instance.types';
 import { ClaudeLivePermissionBroker } from '../../../cli/adapters/claude-live-permission';
+import { ClaudeCliAdapter } from '../../../cli/adapters/claude-cli-adapter';
 import { DeferredPermissionHandler } from '../deferred-permission-handler';
 import { InstanceStateMachine } from '../../instance-state-machine';
 
@@ -492,5 +493,47 @@ describe('live permission fast path', () => {
     ).rejects.toThrow('Live permission request is no longer pending');
     expect(writeDecision).not.toHaveBeenCalled();
     expect(oldAdapter.terminate).not.toHaveBeenCalled();
+  });
+});
+
+describe('DeferredPermissionHandler: a loop is awaiting the held call (LT-1133)', () => {
+  function setup() {
+    const instance = makeInstance();
+    const adapter = Object.assign(Object.create(ClaudeCliAdapter.prototype) as ClaudeCliAdapter, {
+      getName: () => 'claude-cli',
+      getRuntimeCapabilities: () => ({
+        supportsResume: true, supportsForkSession: false, supportsNativeCompaction: false,
+        supportsPermissionPrompts: true, supportsDeferPermission: true,
+      }),
+      getDeferredToolUse: () => ({ toolName: 'Bash', toolInput: { command: 'pwd' }, toolUseId: 'tool-1', sessionId: 'session-resume-1', deferredAt: 10 }),
+      hasPendingResidentRequest: () => true,
+      resumePendingResidentRequest: vi.fn().mockResolvedValue(4321),
+      terminate: vi.fn().mockResolvedValue(undefined),
+    });
+    const deps = { getInstance: () => instance, getAdapter: () => adapter, setAdapter: vi.fn(), deleteAdapter: vi.fn(), setupAdapterEvents: vi.fn(), queueUpdate: vi.fn() };
+    const ops = {
+      transitionState: vi.fn((target: Instance, status: Instance['status']) => { target.status = status; }),
+      resolveCliTypeForInstance: vi.fn(), getMcpConfig: vi.fn(), getPermissionHookPath: vi.fn(),
+      waitForResumeHealth: vi.fn().mockResolvedValue(true), createCliAdapter: vi.fn(),
+      acquireSessionMutex: vi.fn().mockResolvedValue(() => undefined),
+    };
+    const services = { writeDecision: vi.fn(), getDecisionDir: vi.fn().mockReturnValue('/tmp/decisions'), createDiffTracker: vi.fn(), pauseLoopForDeclinedPermission: vi.fn() };
+    return { instance, adapter, services, handler: new DeferredPermissionHandler(deps, ops, services) };
+  }
+
+  it("pauses the loop when a person declines, and still resumes the held request", async () => {
+    const s = setup();
+    await s.handler.resumeAfterDeferredPermission(s.instance.id, false, undefined, { denyNote: 'No.' });
+    expect(s.services.pauseLoopForDeclinedPermission).toHaveBeenCalledExactlyOnceWith(s.instance.id);
+    expect(s.adapter.resumePendingResidentRequest).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['an approval', true, undefined],
+    ['a refusal nobody saw (a saved rule)', false, 'A saved rule refuses it.'],
+  ] as const)('leaves the loop running for %s', async (_label, approved, autoReason) => {
+    const s = setup();
+    await s.handler.resumeAfterDeferredPermission(s.instance.id, approved, undefined, { autoReason });
+    expect(s.services.pauseLoopForDeclinedPermission).not.toHaveBeenCalled();
   });
 });

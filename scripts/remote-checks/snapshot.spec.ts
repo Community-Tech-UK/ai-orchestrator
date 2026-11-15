@@ -26,6 +26,11 @@ const git = (cwd: string, ...args: string[]): string =>
 function repo(): string {
   const dir = temp();
   git(dir, 'init', '-q', '-b', 'main');
+  // `git commit` can start a detached `git maintenance` that creates and removes
+  // `.git/objects/maintenance.lock` while a test is fingerprinting `.git`, which reads as
+  // a write by takeSnapshot. Turn it off for the throwaway repositories.
+  git(dir, 'config', 'maintenance.auto', 'false');
+  git(dir, 'config', 'gc.auto', '0');
   writeFileSync(join(dir, '.gitignore'), 'ignored.txt\n');
   writeFileSync(join(dir, 'tracked.txt'), 'one\n');
   git(dir, 'add', '-A');
@@ -61,8 +66,11 @@ describe('takeSnapshot', () => {
     const root = repo();
     writeFileSync(join(root, 'tracked.txt'), 'changed\n');
     writeFileSync(join(root, 'new.txt'), 'new\n');
-    const before = fingerprint(join(root, '.git'));
+    // `git status` itself may refresh the index's stat cache (files written in the
+    // same second as the index are re-checked), so run it before the fingerprint:
+    // otherwise that refresh looks like a write by takeSnapshot, and this fails at random.
     const status = git(root, 'status', '--short');
+    const before = fingerprint(join(root, '.git'));
 
     const snapshot = takeSnapshot(root);
     snapshot.cleanup();

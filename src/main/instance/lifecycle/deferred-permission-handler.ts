@@ -95,6 +95,8 @@ export interface DeferredPermissionServices {
   ) => void;
   getDecisionDir: () => string;
   createDiffTracker: (workingDirectory: string) => unknown;
+  /** Called when a person declines a call a loop is holding, so the loop waits for them (LT-1133). */
+  pauseLoopForDeclinedPermission?: (instanceId: string) => void;
 }
 
 export class DeferredPermissionHandler {
@@ -267,6 +269,9 @@ export class DeferredPermissionHandler {
       // A loop is awaiting this adapter's resident response. Keep its process
       // owner and listeners rather than leaving that promise on a dead adapter.
       if (oldAdapter instanceof ClaudeCliAdapter && oldAdapter.hasPendingResidentRequest()) {
+        // Only a person's own refusal pauses the loop; a saved rule or the
+        // reviewer refusing (autoReason) is policy the loop can work around.
+        if (!approved && !options?.autoReason) this.services.pauseLoopForDeclinedPermission?.(instanceId);
         this.ops.transitionState(instance, 'respawning');
         try {
           instance.processId = await oldAdapter.resumePendingResidentRequest(this.services.getDecisionDir(), instance.yoloMode);

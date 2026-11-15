@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-27-phase0-livetest-remediation_livetest.md",
+      "sha256": "b37d5f46a798a0396c5ca5ab477a248b80d01646cfcee44b2e587da2489b692b",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-27-phase0-livetest-remediation_history.md",
+      "sha256": "4f156bdcd182aa45a82b1c055446105bd8602c99054ba769705e196ccd2c915f",
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-27-phase0-livetest-remediation_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-27-phase0-livetest-remediation_livetest_completed.md",
+      "sha256": "eeaa46197fb229d26cf2e332574fdd9c5585a165f710ed07f8fb3626e22fa3a3"
+    },
+    {
+      "relativePath": "2026-10-27-phase0-livetest-remediation_livetest_history_f39492ca4fb2472ea4f3f7a373657ec6a55d75e81f4d82a5b04be186e349920a_completed.md",
+      "sha256": "361f3a9efbb044937d3c482a1a64d41389ddb9da6fa4022e79d53a4531e2d4fe"
+    }
+  ]
+}

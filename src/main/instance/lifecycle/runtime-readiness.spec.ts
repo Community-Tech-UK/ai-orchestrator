@@ -323,6 +323,41 @@ describe('RuntimeReadinessCoordinator.evaluateResumeHealth', () => {
     expect(settled).toBe('healthy');
   });
 
+  it('does not settle on the first output while a native resume echo is still pending', async () => {
+    // LT-823: a resumed Claude CLI re-runs the deferred tool before it emits init, so its first
+    // output (the tool result) arrives ~200ms before the session-id echo. Settling on that output
+    // read as "healthy but unconfirmed", and the deferred-permission handler killed the live resume.
+    const adapter = makeAdapter('claude-cli');
+    let attempt: Record<string, unknown> = {
+      source: 'native',
+      confirmed: false,
+      requestedSessionId: 'session-1',
+    };
+    adapter.getResumeAttemptResult = vi.fn(() => attempt);
+    const coord = new RuntimeReadinessCoordinator(
+      makeDeps(adapter as unknown as CliAdapter, 1, 'busy', 1),
+    );
+
+    let settled: string | undefined;
+    void coord.evaluateResumeHealth('inst-1', 1000, 50).then((v) => {
+      settled = v;
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    adapter.emit('output', 'tool result');
+    await vi.advanceTimersByTimeAsync(10);
+    expect(settled).toBeUndefined(); // output alone must not prove the resume
+
+    attempt = {
+      source: 'native',
+      confirmed: true,
+      requestedSessionId: 'session-1',
+      actualSessionId: 'session-1',
+    };
+    await vi.advanceTimersByTimeAsync(100);
+    expect(settled).toBe('healthy');
+  });
+
   it('reports inconclusive at timeout when a native attempt is still unconfirmed despite writability', async () => {
     const adapter = makeAdapter('claude-cli');
     adapter.formatter = { isWritable: vi.fn(() => true) };
