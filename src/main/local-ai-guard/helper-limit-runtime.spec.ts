@@ -164,6 +164,35 @@ describe('one daily helper limit through the real runtime (Step 7, A0-H)', () =>
     });
   });
 
+  it.each([
+    ['James settings (auto CLI, $2 cap)', {}],
+    ['no limit at all', { auxiliaryLlmDailySpendCapUsd: null }],
+    ['a concrete default CLI', { defaultCli: 'claude' as const }],
+  ])('leaves no allowed frontier row without a known or estimated cost for any slot: %s [Step 7 acceptance, read-only count]', async (_name, overrides) => {
+    useJamesSettings(overrides);
+    const slots = [
+      'compression', 'memoryDistillation', 'webExtract', 'titleGeneration', 'routingClassification',
+      'approvalScoring', 'approvalAdjudication', 'loopScoring', 'retrievalHypothesis',
+      'branchScoring', 'subQueryExecution', 'verifyOutputSummary',
+    ] as const;
+    for (const slot of slots) {
+      const verdict = await getLocalAiAuxiliaryHooks().authorizeFallback({ ...TITLE_FALLBACK, slot, estimatedInputTokens: 1_000 });
+      expect(verdict.allowed, slot).toBe(true);
+    }
+
+    // The same query the live check runs against the real database.
+    const unpriced = state.db.prepare(`
+      SELECT COUNT(*) AS n FROM local_ai_routing_events
+      WHERE disposition = 'allowed' AND actual_route = 'frontier'
+        AND known_cost_usd IS NULL AND estimated_cost_usd IS NULL
+    `).get<{ n: number }>();
+    const allowed = state.db.prepare(
+      "SELECT COUNT(*) AS n FROM local_ai_routing_events WHERE disposition = 'allowed' AND actual_route = 'frontier'",
+    ).get<{ n: number }>();
+    expect(allowed?.n).toBe(slots.length);
+    expect(unpriced?.n).toBe(0);
+  });
+
   it('blocks the third $1 fallback once $2 is used, with one notice and the chip [settings() auxiliaryLlmDailySpendCapUsd]', async () => {
     useJamesSettings();
 
