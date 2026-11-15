@@ -105,8 +105,9 @@ describe('find_or_open existing-tab confirmation horizon', () => {
   });
 
   it('still selects the tab when the refresh command times out but extension contact is fresh', async () => {
-    const sendCommand = vi.fn(async () => {
-      throw new Error('browser_extension_command_timeout');
+    const sendCommand = vi.fn(async (request: { command: string }) => {
+      if (request.command === 'report_inventory') throw new Error('browser_extension_command_timeout');
+      return { ok: true };
     });
     const tab = remoteTab(Date.now() - SWEEP_LAG_MS);
     const { extensionTabStore, service } = makeService({
@@ -128,6 +129,36 @@ describe('find_or_open existing-tab confirmation horizon', () => {
       outcome: 'succeeded',
       data: { id: tab.targetId },
     });
+    expect(sendCommand.mock.calls.map(([request]) => request.command)).toEqual(['report_inventory', 'claim_tab']);
+  });
+
+  it('returns no cached target when the tab reservation times out despite fresh contact', async () => {
+    const sendCommand = vi.fn(async (request: { command: string }) => {
+      if (request.command === 'claim_tab') throw new Error('browser_extension_command_timeout');
+      return { ok: true };
+    });
+    const tab = remoteTab(Date.now() - SWEEP_LAG_MS);
+    const { extensionTabStore, service } = makeService({
+      profile: null,
+      profiles: [],
+      extensionCommandStore: { sendCommand },
+    });
+    extensionTabStore.listTabs.mockReturnValue([tab]);
+
+    const result = await service.findOrOpen({
+      instanceId: 'instance-1',
+      provider: 'copilot',
+      url: tab.url,
+      nodeId: 'node-1',
+    });
+
+    expect(result).toMatchObject({
+      decision: 'allowed',
+      outcome: 'failed',
+      reason: 'browser_extension_command_timeout',
+      data: null,
+    });
+    expect(sendCommand.mock.calls.map(([request]) => request.command)).toEqual(['report_inventory', 'claim_tab']);
   });
 
   it('does not select a ghost tab left over from an ended browser session', async () => {

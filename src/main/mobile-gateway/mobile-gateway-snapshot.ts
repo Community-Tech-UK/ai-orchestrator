@@ -24,6 +24,7 @@ export interface MobileGatewaySnapshotDeps {
   readonly clients: Set<WebSocket>;
   isRunning(): boolean;
   getInstances(): Instance[];
+  getInstance(instanceId: string): Instance | undefined;
   getPrompts(): MobilePromptDto[];
   getPauseState(): MobilePauseDto;
   getActiveLoops(): Pick<LoopState, "chatId" | "status" | "endedAt">[];
@@ -66,10 +67,8 @@ export class MobileGatewaySnapshotService {
     const activeLoopChatIds = this.activeLoopChatIds();
     const instances = this.deps
       .getInstances()
-      // A session with a question waiting is always listed, so its prompt can be answered in context.
-      .filter((instance) => instance.status !== "terminated"
-        && this.deps.profileOfInstance(instance.id) === profileId
-        && (!isHiddenFromMobile(instance) || promptCounts.has(instance.id)))
+      .filter((instance) => this.deps.profileOfInstance(instance.id) === profileId
+        && this.isListedInstance(instance, promptCounts.has(instance.id)))
       .map((instance) => this.serializeInstance(instance, activeLoopChatIds))
       .map((dto) => this.withTransientState(dto, promptCounts));
 
@@ -142,14 +141,21 @@ export class MobileGatewaySnapshotService {
     const isOwner = profileId === MOBILE_OWNER_PROFILE_ID;
     switch (event.type) {
       case "instance-output":
-      case "instance-created":
-        return this.deps.profileOfInstance(
-          event.type === "instance-output" ? event.data.instanceId : event.data.id,
-        ) === profileId ? event : null;
+        return this.deps.profileOfInstance(event.data.instanceId) === profileId ? event : null;
+      case "instance-created": {
+        if (this.deps.profileOfInstance(event.data.id) !== profileId) return null;
+        const hasPrompt = this.deps.getPrompts().some((prompt) =>
+          prompt.instanceId === event.data.id && this.promptProfile(prompt) === profileId);
+        return this.isListedInstance(this.deps.getInstance(event.data.id), hasPrompt) ? event : null;
+      }
       case "instance-removed":
         return this.deps.profileOfInstance(event.data.instanceId) === profileId ? event : null;
       case "instance-state": {
-        const data = event.data.filter((dto) => this.deps.profileOfInstance(dto.id) === profileId);
+        const prompting = new Set(this.deps.getPrompts()
+          .filter((prompt) => this.promptProfile(prompt) === profileId)
+          .map((prompt) => prompt.instanceId));
+        const data = event.data.filter((dto) => this.deps.profileOfInstance(dto.id) === profileId
+          && this.isListedInstance(this.deps.getInstance(dto.id), prompting.has(dto.id)));
         return data.length > 0 ? { type: "instance-state", data } : null;
       }
       case "permission-prompt":
@@ -171,6 +177,15 @@ export class MobileGatewaySnapshotService {
         return null;
       }
     }
+  }
+
+  private isListedInstance(instance: Instance | undefined, hasPrompt: boolean): boolean {
+    // Sidechat approvals remain answerable through prompts, without creating session rows.
+    // Other hidden workers with a question still appear so it can be answered in context.
+    return instance !== undefined
+      && instance.status !== "terminated"
+      && typeof instance.metadata?.["sideChatId"] !== "string"
+      && (!isHiddenFromMobile(instance) || hasPrompt);
   }
 
   /** Browser approvals act on the owner's browser, so only the owner sees them. */

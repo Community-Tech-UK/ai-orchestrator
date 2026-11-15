@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ChatRecord } from '../../../../shared/types/chat.types';
 import { sideChatParentFor, sideChatParentSelectionFor } from './side-chat-parent';
-import { describePermissionPolicy } from './side-chat-permissions';
+import { describePermissionPolicy } from '../../../../shared/session-posture';
 import type { SideChatAuthorityPolicy } from '../../../../shared/types/side-chat.types';
 
 const CHAT: ChatRecord = {

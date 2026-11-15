@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { InputTurnRegistry } from '../instance/input-turn-registry';
 import { PlanQueueParentMessenger } from './plan-queue-parent-messenger';
 import type { PlanQueueInstancePort } from './plan-queue-host';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
@@ -15,6 +16,8 @@ function harness(questionsToParent = false) {
   });
   return { messenger, run, item, sendInput, postNote };
 }
+afterEach(() => { vi.restoreAllMocks(); });
+
 describe('queue parent messages', () => {
   it('keeps questions and ownership replays on the queue page by default', () => {
     const h = harness();
@@ -29,7 +32,22 @@ describe('queue parent messages', () => {
     expect(h.postNote).toHaveBeenCalledWith('parent', 'Routing changed');
     expect(h.sendInput).not.toHaveBeenCalled();
     h.messenger.notify(h.run, 'Run ended', undefined, true);
-    expect(h.sendInput).toHaveBeenCalledWith('parent', 'Run ended', undefined, { automatedInput: true, internalSource: 'plan-queue' });
+    expect(h.sendInput).toHaveBeenCalledWith('parent', 'Run ended', undefined,
+      { automatedInput: true, internalSource: 'plan-queue', userMessageId: expect.any(String) });
+  });
+  it("announces the run summary as a report, so it does not replace James's latest message", () => {
+    const registry = new InputTurnRegistry();
+    vi.spyOn(InputTurnRegistry, 'getInstance').mockReturnValue(registry);
+    const h = harness();
+    registry.setReportsTurnStarts('parent', true);
+    registry.noteInput('parent', { messageId: 'james', personTypedAt: 5_000 });
+    registry.noteTurnStarted('parent', 'harness-send');
+
+    h.messenger.notify(h.run, 'Run ended', undefined, true);
+    const { userMessageId } = h.sendInput.mock.calls[0]![3] as { userMessageId: string };
+    registry.noteInput('parent', { messageId: userMessageId, personTypedAt: null });
+
+    expect(registry.checkPersonTurn('parent')).toEqual({ ok: true, messageId: 'james', typedAt: 5_000 });
   });
   it('keeps a failed quiet note from interrupting queue work', () => {
     const h = harness();

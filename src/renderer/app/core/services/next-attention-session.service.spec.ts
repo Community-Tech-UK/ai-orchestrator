@@ -7,6 +7,28 @@ import { DEFAULT_KEYBINDINGS } from '../../../../shared/types/keybinding.types';
 import { ActionDispatchService } from './action-dispatch.service';
 import { NextAttentionSessionService } from './next-attention-session.service';
 describe('next session needing you', () => {
+  it('skips a hidden sidechat runtime when cycling to a session that needs an answer', async () => {
+    const selected = signal('one');
+    let run!: () => Promise<void>;
+    TestBed.configureTestingModule({ providers: [
+      { provide: InstanceStore, useValue: {
+        instances: signal([
+          { id: 'one', status: 'busy' },
+          { id: 'sidechat', status: 'waiting_for_permission', metadata: { hideFromProjectRail: true, sideChatId: 'chat' } },
+          { id: 'two', status: 'waiting_for_input' },
+        ]),
+        selectedInstanceId: selected, setSelectedInstance: (id: string) => selected.set(id),
+      } },
+      { provide: Router, useValue: { navigateByUrl: vi.fn(async () => true) } },
+      { provide: ActionDispatchService, useValue: { register: (action: { run: () => Promise<void> }) => { run = action.run; return () => undefined; } } },
+    ] });
+    TestBed.inject(NextAttentionSessionService);
+    try {
+      await run();
+      expect(selected()).toBe('two');
+    } finally { TestBed.resetTestingModule(); }
+  });
+
   it('registers a live shortcut that cycles through actionable sessions and returns to the dashboard', async () => {
     const instances = signal([{ id: 'one', status: 'busy' }, { id: 'two', status: 'waiting_for_input' },
       { id: 'three', status: 'initializing', waitReason: { kind: 'auth-required' } }]);

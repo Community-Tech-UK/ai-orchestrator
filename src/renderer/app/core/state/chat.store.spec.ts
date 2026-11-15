@@ -68,6 +68,35 @@ describe('ChatStore', () => {
     expect(store.selectedDetail()).toBeNull();
   });
 
+  it('removes a deleted sidechat transcript without changing the selected main chat', async () => {
+    const store = TestBed.inject(ChatStore);
+    await store.select('chat-1');
+    await store.ensureDetailLoaded('chat-2');
+    ipc.get.mockClear();
+
+    chatEventHandler?.({ type: 'chat-deleted', chatId: 'chat-2' });
+
+    expect(store.details().has('chat-2')).toBe(false);
+    expect(store.chats().map(chat => chat.id)).toEqual(['chat-1']);
+    expect(store.selectedChatId()).toBe('chat-1');
+    expect(ipc.get).not.toHaveBeenCalled();
+  });
+
+  it('does not restore a deleted transcript when an earlier detail request completes late', async () => {
+    const store = TestBed.inject(ChatStore);
+    await store.initialize();
+    let finish!: (value: unknown) => void;
+    ipc.get.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const loading = store.ensureDetailLoaded('chat-2');
+    await vi.waitFor(() => expect(ipc.get).toHaveBeenCalledWith('chat-2'));
+
+    chatEventHandler?.({ type: 'chat-deleted', chatId: 'chat-2' });
+    finish({ success: true, data: chatDetail(chatRecord('chat-2')) });
+    await loading;
+
+    expect(store.details().has('chat-2')).toBe(false);
+  });
+
   it('merges a transcript-appended delta, preserving prior message identity', async () => {
     const store = TestBed.inject(ChatStore);
     const base = chatDetail(chatRecord('chat-1'));
@@ -203,6 +232,49 @@ describe('ChatStore', () => {
     expect(store.selectedChatId()).toBe('chat-2');
     expect(ipc.get).toHaveBeenCalledWith('chat-2');
     expect(store.selectedDetail()?.chat.id).toBe('chat-2');
+  });
+
+  it('selects the first ordinary chat when a newer sidechat leads the backing list', async () => {
+    ipc.list.mockResolvedValueOnce({ success: true, data: [
+      { ...chatRecord('side-chat'), lastActiveAt: 100, sideChatParentKey: 'session:parent-thread' },
+      chatRecord('chat-1'), chatRecord('chat-2'),
+    ] });
+    const store = TestBed.inject(ChatStore);
+
+    await store.selectFirstChat();
+
+    expect(store.selectedChatId()).toBe('chat-1');
+    expect(store.selectedDetail()?.chat.id).toBe('chat-1');
+    expect(store.chats().some(chat => chat.id === 'side-chat')).toBe(true);
+  });
+
+  it('keeps the main chat selection empty when only sidechats exist', async () => {
+    ipc.list.mockResolvedValueOnce({ success: true, data: [
+      { ...chatRecord('side-chat'), sideChatParentKey: 'session:parent-thread' },
+    ] });
+    const store = TestBed.inject(ChatStore);
+
+    await store.selectFirstChat();
+
+    expect(store.selectedChatId()).toBeNull();
+    expect(ipc.get).not.toHaveBeenCalled();
+  });
+
+  it('clears a stale promoted-sidechat selection when restoring the main chat view', async () => {
+    ipc.list.mockResolvedValueOnce({ success: true, data: [
+      { ...chatRecord('side-chat'), sideChatParentKey: 'session:parent-thread' }, chatRecord('chat-1'),
+    ] });
+    ipc.getUiState.mockResolvedValueOnce({ success: true, data: {
+      selectedChatId: 'side-chat', openChatIds: ['side-chat'], updatedAt: 1,
+    } });
+    const store = TestBed.inject(ChatStore);
+
+    await store.initialize();
+
+    expect(store.selectedChatId()).toBeNull();
+    expect(ipc.get).not.toHaveBeenCalled();
+    expect(ipc.setUiState).toHaveBeenCalledWith({ selectedChatId: null, openChatIds: [] });
+    expect(store.chats().some(chat => chat.id === 'side-chat')).toBe(true);
   });
 
   it('creates a detached chat without selecting it or persisting UI state', async () => {

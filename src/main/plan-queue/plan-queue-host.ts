@@ -51,7 +51,7 @@ export interface PlanQueueInstancePort {
     instanceId: string,
     message: string,
     attachments?: undefined,
-    options?: { automatedInput?: boolean; internalSource?: InternalInputSource },
+    options?: { automatedInput?: boolean; internalSource?: InternalInputSource; userMessageId?: string },
   ): Promise<void>;
   terminateInstance(instanceId: string, graceful?: boolean): Promise<void>;
   /** Archive the provider conversation and start fresh while keeping the same owning instance ID. */

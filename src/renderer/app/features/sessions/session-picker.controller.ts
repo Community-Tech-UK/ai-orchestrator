@@ -4,6 +4,7 @@ import { InstanceStore } from '../../core/state/instance.store';
 import { UsageStore } from '../../core/state/usage.store';
 import type { OverlayController, OverlayGroup, OverlayItem } from '../overlay/overlay.types';
 import type { SessionPickerItem } from '../../../../shared/types/prompt-history.types';
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 import {
   ATTENTION_LEVEL_ORDER,
   attentionLevelForInstanceStatus,
@@ -34,7 +35,7 @@ export class SessionPickerController implements OverlayController<SessionPickerI
   readonly query = signal('');
 
   private readonly items = computed<SessionPickerItem[]>(() => {
-    const live = this.instanceStore.instances().map((instance): SessionPickerItem => ({
+    const live = this.instanceStore.instances().filter(instance => !isProjectRailHiddenSession(instance.metadata)).map((instance): SessionPickerItem => ({
       id: instance.id,
       title: instance.displayName || instance.sessionId || instance.id,
       subtitle: [
@@ -54,7 +55,7 @@ export class SessionPickerController implements OverlayController<SessionPickerI
       attentionLevel: instance.status ? attentionLevelForInstanceStatus(instance.status) : 'idle',
     }));
 
-    const history = this.historyStore.entries().map((entry): SessionPickerItem => ({
+    const history = this.historyStore.entries().filter(entry => !entry.hideFromProjectRail).map((entry): SessionPickerItem => ({
       id: entry.id,
       title: entry.displayName || entry.firstUserMessage || entry.sessionId,
       subtitle: [

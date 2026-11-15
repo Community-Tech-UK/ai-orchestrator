@@ -10,6 +10,7 @@ import { NeedsYouStripComponent } from './needs-you-strip.component';
 import { InstanceStore } from '../../core/state/instance.store';
 import { PendingRequestStore } from '../../core/state/pending-request.store';
 import { SessionNavigator } from '../../core/services/session-navigator.service';
+import { SideChatStore } from '../../core/state/side-chat.store';
 
 describe('NeedsYouStripComponent', () => {
   const entries = signal<NeedsYouEntry[]>([]), selectedInstanceId = signal<string | null>(null);
@@ -26,6 +27,19 @@ describe('NeedsYouStripComponent', () => {
     ] });
   });
   afterEach(() => TestBed.resetTestingModule());
+  it('opens the parent sidechat panel for an approval instead of selecting its hidden runtime', () => {
+    const parent = { kind: 'session' as const, historyThreadId: 'parent-thread', originNodeId: null };
+    const requestOpen = vi.fn();
+    TestBed.overrideProvider(SideChatStore, { useValue: {
+      attentionList: () => [{ parent, targetChatId: 'sidechat' }], requestOpen,
+    } });
+    entries.set([{ key: 'sidechat:session:parent-thread', source: 'sidechat', title: 'Parent', since: 1, version: '1', kind: 'answer', route: '/work' }]);
+    const fixture = TestBed.createComponent(NeedsYouStripComponent); fixture.detectChanges();
+    (fixture.nativeElement.querySelector('button') as HTMLButtonElement).click();
+    expect(requestOpen).toHaveBeenCalledExactlyOnceWith(parent, 'sidechat');
+    expect(navigateByUrl).toHaveBeenCalledWith('/');
+    expect(openSession).not.toHaveBeenCalled();
+  });
   const entry = (source: NeedsYouEntry['source'], instanceId = 'a'): NeedsYouEntry => ({ key: source, source, instanceId, title: 'Fix login', since: 1, version: '1', kind: 'answer' });
   it('hides with no answers and for every timed banner source', () => {
     const fixture = TestBed.createComponent(NeedsYouStripComponent); fixture.detectChanges();

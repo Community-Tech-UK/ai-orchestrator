@@ -15,7 +15,7 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { HistoryStore } from '../../core/state/history.store';
 import { InstanceStore } from '../../core/state/instance.store';
-import { SideChatStore } from '../../core/state/side-chat.store';
+import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { ViewLayoutService } from '../../core/services/view-layout.service';
 import { HistoryListComponent } from './history-list.component';
@@ -402,7 +402,6 @@ import type { OutputMessage } from '../../core/state/instance/instance.types';
 export class HistorySidebarComponent implements OnInit, OnDestroy {
   store = inject(HistoryStore);
   instanceStore = inject(InstanceStore);
-  private sideChatStore = inject(SideChatStore);
   viewLayout = inject(ViewLayoutService);
   private router = inject(Router);
   private fileIpc = inject(FileIpcService);
@@ -504,15 +503,9 @@ export class HistorySidebarComponent implements OnInit, OnDestroy {
   }
 
   onDelete(entry: ConversationHistoryEntry): void {
-    const sideChats = entry.historyThreadId
-      ? this.sideChatStore.attentionFor({ kind: 'session', historyThreadId: entry.historyThreadId, originNodeId: null })?.total ?? 0
-      : 0;
-    const sideChatNote = sideChats > 0
-      ? ` Its ${sideChats === 1 ? 'sidechat keeps' : `${sideChats} sidechats keep`} their own history but can no longer read this session's progress.`
-      : '';
     this.showConfirm(
-      'Delete Conversation',
-      `Are you sure you want to delete "${entry.displayName}" from history? This action cannot be undone.${sideChatNote}`,
+      'Delete conversation',
+      `Delete "${entry.displayName}" from history? ${copyFor('sideChat.parentDelete')}`,
       'Delete',
       true,
       () => this.store.deleteEntry(entry.id)
@@ -521,9 +514,9 @@ export class HistorySidebarComponent implements OnInit, OnDestroy {
 
   onClearAll(): void {
     this.showConfirm(
-      'Clear All History',
-      'Are you sure you want to delete all conversation history? This action cannot be undone.',
-      'Clear All',
+      'Clear all history',
+      copyFor('sideChat.clearHistory'),
+      'Clear all',
       true,
       () => this.store.clearAll()
     );

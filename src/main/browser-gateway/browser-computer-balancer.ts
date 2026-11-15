@@ -9,7 +9,12 @@
  */
 import type { BrowserTarget } from '@contracts/types/browser';
 import type { ComputerChoice } from '../../shared/types/settings.types';
-import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
+
+export interface BrowserComputer {
+  id: string;
+  name: string;
+  capabilities: { hasBrowserMcp: boolean; platform: string };
+}
 
 /** A session that has used no browser for this long chooses afresh, and stops counting towards its computer. */
 export const BROWSER_SESSION_IDLE_MS = 30 * 60_000;
@@ -22,7 +27,7 @@ interface BrowserUse {
 export interface BrowserComputerRequest {
   instanceId: string;
   /** Connected computers; only those with browser automation are chosen, and only unpaused ones for a new session. */
-  nodes: readonly WorkerNodeInfo[];
+  nodes: readonly BrowserComputer[];
   choices: readonly ComputerChoice[];
   targets: readonly BrowserTarget[];
   /** The website the request is about, when it names one. */
@@ -31,12 +36,12 @@ export interface BrowserComputerRequest {
 }
 
 /** Connected computers with browser automation, paused or not. */
-export function browserComputers(nodes: readonly WorkerNodeInfo[]): WorkerNodeInfo[] {
+export function browserComputers<T extends BrowserComputer>(nodes: readonly T[]): T[] {
   return nodes.filter(node => node.capabilities.hasBrowserMcp);
 }
 
 /** Of those, the ones a new session may go to. */
-function unpaused(computers: readonly WorkerNodeInfo[], choices: readonly ComputerChoice[]): WorkerNodeInfo[] {
+function unpaused(computers: readonly BrowserComputer[], choices: readonly ComputerChoice[]): BrowserComputer[] {
   const paused = new Set(choices.filter(choice => choice.paused).map(choice => choice.id));
   return computers.filter(node => !paused.has(node.id));
 }
@@ -50,7 +55,7 @@ export class BrowserComputerBalancer {
   }
 
   /** The computer for this request, remembered for the session; none when no computer can take a new session. */
-  choose(request: BrowserComputerRequest): WorkerNodeInfo | undefined {
+  choose(request: BrowserComputerRequest): BrowserComputer | undefined {
     this.forgetIdle(request.now);
     const own = this.uses.get(request.instanceId);
     const open = unpaused(browserComputers(request.nodes), request.choices);
@@ -62,13 +67,13 @@ export class BrowserComputerBalancer {
   }
 
   /** The computer this session would keep, if it still can take browser work. Chooses nothing new. */
-  current(instanceId: string, computers: readonly WorkerNodeInfo[], now: number): WorkerNodeInfo | undefined {
+  current(instanceId: string, computers: readonly BrowserComputer[], now: number): BrowserComputer | undefined {
     this.forgetIdle(now);
     const own = this.uses.get(instanceId);
     return computers.find(node => node.id === own?.nodeId);
   }
 
-  private leastUsed(computers: readonly WorkerNodeInfo[], request: BrowserComputerRequest): WorkerNodeInfo | undefined {
+  private leastUsed(computers: readonly BrowserComputer[], request: BrowserComputerRequest): BrowserComputer | undefined {
     const sessions = (nodeId: string) => [...this.uses].filter(([id, use]) => id !== request.instanceId && use.nodeId === nodeId).length;
     const rank = (nodeId: string) => {
       const at = request.choices.findIndex(choice => choice.id === nodeId);
@@ -89,7 +94,7 @@ export class BrowserComputerBalancer {
 }
 
 function hasOpenTab(targets: readonly BrowserTarget[], nodeId: string, origin: string | undefined): boolean {
-  return origin !== undefined && targets.some(target => target.nodeId === nodeId && target.origin === origin && !target.stale);
+  return origin !== undefined && targets.some(target => (target.nodeId ?? 'local') === nodeId && target.origin === origin && !target.stale);
 }
 
 /** The website a URL is on, or none for anything that isn't one. */

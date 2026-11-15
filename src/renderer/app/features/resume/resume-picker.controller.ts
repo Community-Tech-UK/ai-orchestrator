@@ -1,6 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { matchesOverlayQuery } from '../../shared/utils/overlay-search';
 import type { SessionRecoveryCandidate, SessionRecoveryReason } from '../../../../shared/types/session-recovery.types';
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 import { ToastService } from '../../core/services/toast.service';
 import { HistoryStore } from '../../core/state/history.store';
 import { InstanceStore } from '../../core/state/instance.store';
@@ -109,7 +110,8 @@ export class ResumePickerController implements OverlayController<ResumePickerIte
       frecencyScore: this.usageStore.frecency('resume', 'latest'),
     };
 
-    const live = this.instanceStore.instances().map((instance): ResumePickerItem => ({
+    const visibleLive = this.instanceStore.instances().filter((instance) => !isProjectRailHiddenSession(instance.metadata));
+    const live = visibleLive.map((instance): ResumePickerItem => ({
       id: instance.id,
       kind: 'live',
       title: instance.displayName || instance.sessionId || instance.id,
@@ -147,7 +149,8 @@ export class ResumePickerController implements OverlayController<ResumePickerIte
       frecencyScore: this.usageStore.frecency('resume', candidate.recoveryKey),
     }));
 
-    const history = this.historyStore.entries().map((entry): ResumePickerItem => {
+    const visibleHistory = this.historyStore.entries().filter((entry) => !entry.hideFromProjectRail);
+    const history = visibleHistory.map((entry): ResumePickerItem => {
       const nativeFailed = entry.nativeResumeFailedAt != null;
       return {
         id: entry.id,

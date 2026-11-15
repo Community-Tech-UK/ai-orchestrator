@@ -273,9 +273,18 @@ export interface MobileAutomationDto {
   schedule: MobileAutomationScheduleDto;
   enabled: boolean;
   nextRunAt: number | null;
+  /** Effective job limit; absent from hosts built before home-base monitoring. */
+  maxRunMinutes?: number;
   lastRun: {
     status: 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'cancelled';
     at: number;
+    /** Agent-reported result, deliberately excluding prompt and output content. */
+    result?: { outcome: 'no_change' | 'done' | 'needs_attention'; notify: boolean } | null;
+    /** The limit saved with this run, which later job edits do not change. */
+    maxRunMinutes?: number | null;
+    paused?: boolean;
+    /** Includes time spent paused; null until running or after completion. */
+    deadlineAt?: number | null;
   } | null;
   provider: string | null;
   model: string | null;

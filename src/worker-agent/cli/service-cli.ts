@@ -1,3 +1,4 @@
+import { workerRelayHostName } from '../worker-home';
 import { createServiceManager } from '../service/manager-factory';
 import { isElevated, NotElevatedError } from '../service/privilege';
 import { resolveToken } from '../service/token-resolver';
@@ -14,7 +15,6 @@ import {
 } from '../worker-config';
 import {
   BROWSER_EXTENSION_NATIVE_HOST_NAME,
-  BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
   browserExtensionNativeHostPaths,
   browserExtensionNativeHostManifestPath,
   isBrowserExtensionNativeHostManifestOwned,
@@ -170,7 +170,7 @@ export async function runServiceCommand(cmd: ServiceCommand): Promise<number> {
       process.stdout.write(
         [
           `Browser extension relay native host installed: ${result.manifestPath}`,
-          loadExtensionInstruction(),
+          loadExtensionInstruction(path.dirname(cmd.configPath ?? DEFAULT_CONFIG_PATH)),
           '',
         ].join('\n'),
       );
@@ -186,7 +186,7 @@ export async function runServiceCommand(cmd: ServiceCommand): Promise<number> {
       persistConfig(configPath, config);
       const result = removeBrowserExtensionNativeHostRuntime({
         userDataPath: path.dirname(configPath),
-        hostName: BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
+        hostName: workerRelayHostName(path.dirname(configPath)),
       });
       removeLegacyExtensionRelayNativeHostIfOwned(path.dirname(configPath));
       process.stdout.write(`Browser extension relay native host removed: ${result.manifestPath}\n`);

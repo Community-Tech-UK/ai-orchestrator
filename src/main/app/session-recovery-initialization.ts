@@ -18,6 +18,7 @@ import {
   type SessionRecoveryCandidateService,
 } from '../session/session-recovery-candidate-service';
 import type { SessionContinuityManager } from '../session/session-continuity';
+import { getChatServiceIfInitialized } from '../chats/chat-service';
 
 const logger = getLogger('SessionRecoveryInitialization');
 
@@ -26,11 +27,22 @@ export async function initializeSessionRecoveryRuntime(
   instanceManager: InstanceManager,
 ): Promise<void> {
   const lastStop = initLastStopSnapshot(`${app.getPath('userData')}/session-continuity`);
+  // Ownership survives clearing stale runtime links on startup. It also covers
+  // sidechats created before their runtime metadata carried the hidden flag.
+  const sideChatThreads = new Set(getChatServiceIfInitialized()?.listChats({ includeArchived: true })
+    .filter(chat => chat.sideChatParentKey).map(chat => chat.ledgerThreadId));
+  const sessions = (lastStop.getSnapshot()?.sessions ?? [])
+    .filter(session => !session.historyThreadId || !sideChatThreads.has(session.historyThreadId));
   const recoveryCandidates = initializeSessionRecoveryCandidateService({
-    getSnapshot: () => lastStop.getSnapshot(),
+    getSnapshot: () => {
+      const snapshot = lastStop.getSnapshot();
+      return snapshot ? { ...snapshot, sessions: snapshot.sessions
+        .filter(session => !session.historyThreadId || !sideChatThreads.has(session.historyThreadId)) } : null;
+    },
     waitForContinuityReady: () => continuity.waitForRecoveryDiscoveryReady(),
-    listContinuityMetadata: (modifiedSince, preferredInstanceIds) =>
-      continuity.listContinuityRecoveryMetadata(modifiedSince, preferredInstanceIds),
+    listContinuityMetadata: async (modifiedSince, preferredInstanceIds) =>
+      (await continuity.listContinuityRecoveryMetadata(modifiedSince, preferredInstanceIds))
+        .filter(record => !record.historyThreadId || !sideChatThreads.has(record.historyThreadId)),
     loadContinuityState: (sourceInstanceId) => continuity.loadRecoveryState(sourceInstanceId),
     waitForHistoryReady: () => getHistoryManager().startupTasks,
     getHistoryCoverage: (identities) => getHistoryManager().getRecoveryCoverage(identities),
@@ -40,7 +52,7 @@ export async function initializeSessionRecoveryRuntime(
     now: () => Date.now(),
   });
   wireSessionRecoveryCandidateInvalidation(recoveryCandidates, instanceManager);
-  const lastStopIngest = ingestMissingLastStopHistory(lastStop.getSnapshot()?.sessions ?? [], continuity);
+  const lastStopIngest = ingestMissingLastStopHistory(sessions, continuity);
   // Registered before the first await so no renderer listing can start ahead of it.
   const startupArchive = lastStopIngest.then(() => archiveAutosavesToHistory(recoveryCandidates));
   setSessionRecoveryStartupArchive(startupArchive);

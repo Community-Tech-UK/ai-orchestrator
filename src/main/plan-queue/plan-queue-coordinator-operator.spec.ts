@@ -1,7 +1,7 @@
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { SET_ASIDE_FOLDER_METADATA } from './plan-queue-set-aside';
+import { SET_ASIDE_FOLDER_METADATA } from '../../shared/utils/plan-queue-set-aside-agent';
 import {
   repo,
   store,
@@ -126,12 +126,15 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
       return parked;
     }
 
-    it('refuses the Set aside agent\'s Land anyway over a newer merged attempt, which stays James\'s choice', async () => {
-      const { itemId } = await withMergedAttempt(1);
+    it('lets the Set aside agent merge an older attempt over a newer merged one, since the older can hold work the newer lacks', async () => {
+      const { runId, itemId } = await withMergedAttempt(1);
       const agent = fake.addParent();
       agent.metadata = { [SET_ASIDE_FOLDER_METADATA]: repo };
-      await expect(coordinator.control({ action: 'land-anyway', itemId }, agent.id)).rejects.toThrow('A newer attempt at this document has already merged');
-      expect(coordinator.getItem(itemId).state).toBe('parked');
+      await coordinator.control({ action: 'land-anyway', itemId }, agent.id);
+      await coordinator._whenSettledForTesting();
+      const landed = coordinator.getRunDto(runId)!.items[0];
+      expect(landed.state).toBe('landed');
+      expect(landed.detail).toContain(`Landed without a verifier PASS by the Set aside agent (session ${agent.id})`);
     });
 
     it.each(['resume-item', 'retry-landing'] as const)('refuses %s once a newer attempt has merged', async (action) => {

@@ -7,147 +7,66 @@
 
   <section class="side-chat" [style.--side-chat-width.px]="panelWidth()" aria-label="Sidechats">
     <div class="panel-header">
-      <span class="collapse-icon" aria-hidden="true">⁂</span>
-      <h2 class="header-title" tabindex="0" appTooltipVariant="overflow" [appTooltip]="parentTitle() ? 'Sidechats · ' + parentTitle() : 'Sidechats'">
-        @if (parentTitle()) {
-          Sidechats · {{ parentTitle() }}
-        } @else {
-          Sidechats
-        }
+      <h2 class="header-title" tabindex="0" appTooltipVariant="overflow" [appTooltip]="parentTitle() ? 'Sidechat · ' + parentTitle() : 'Sidechat'">
+        Sidechat@if (parentTitle()) { · {{ parentTitle() }} }
       </h2>
-      @if (chat()) {
-        <button
-          type="button"
-          class="header-action"
-          (click)="openInMain()"
-          appTooltip="Open in main view"
-          aria-label="Open this sidechat in the main view"
-        >⇱</button>
+      <!-- A pending New draft is a second choice alongside the sole saved sidechat. -->
+      @if (summaries().length > 1 || (summaries().length === 1 && sideChatId() === null)) {
+        <select
+          class="sidechat-switcher"
+          aria-label="Switch sidechat"
+          [appTooltip]="copy('sideChat.switch')"
+          [value]="sideChatId() ?? ''"
+          (change)="onSwitcherChange($event)"
+        >
+          <option value="">New sidechat</option>
+          @for (summary of summaries(); track summary.chat.id) {
+            <option [value]="summary.chat.id">{{ summary.chat.name }}@if (stateLabel(summary.state); as label) { · {{ label }} }</option>
+          }
+        </select>
       }
       <button
         type="button"
         class="header-action"
         (click)="startNewSideChat()"
-        [appTooltipDisabledReason]="newSideChatDisabledReason()"
-        appTooltip="New sidechat"
-        aria-label="Start a new sidechat"
+        [appIconButtonDisabledReason]="newSideChatDisabledReason()"
+        [appIconButton]="copy('sideChat.new')"
       >+</button>
+      @if (chat()) {
+        <button
+          type="button"
+          class="header-action discard-action"
+          [disabled]="discarding()"
+          [appTooltipDisabledReason]="sending() ? 'Wait while this message is sent' : null"
+          [appTooltip]="copy('sideChat.discard')"
+          (click)="discardSideChat()"
+        >{{ discarding() ? 'Discarding…' : 'Discard' }}</button>
+      }
       <button
         type="button"
         class="header-close"
         (click)="closeRequested.emit()"
-        [appTooltip]="copy('sideChat.close')"
+        [appIconButton]="copy('sideChat.close')"
         appTooltipShortcut="toggle-side-chat"
-        aria-label="Close sidechat panel; running sidechats keep going"
       >×</button>
     </div>
 
-    @if (parent()) {
-      <div class="permission-row">
-        <button
-          type="button"
-          class="permission-pill"
-          [class.unavailable]="permissions()?.ok === false"
-          [attr.aria-expanded]="showPermissionDetails()"
-          aria-controls="side-chat-permission-details"
-          (click)="showPermissionDetails.set(!showPermissionDetails())"
-        >
-          @if (permissions()?.ok === false) {
-            Permissions unavailable
-          } @else {
-            Permissions: same as parent
-          }
-        </button>
-      </div>
-      @if (showPermissionDetails()) {
-        <div class="permission-details" id="side-chat-permission-details">
-          @if (permissions(); as summary) {
-            @if (summary.ok) {
-              <ul>
-                @for (line of permissionLines(); track line) {
-                  <li>{{ line }}</li>
-                }
-              </ul>
-            } @else {
-              <p>{{ summary.error }}</p>
-            }
-          } @else {
-            <p>Checking the parent session's permissions…</p>
-          }
-          @if (unavailableProviders().length > 0) {
-            <p class="unavailable-heading">Not available for this session:</p>
-            <ul>
-              @for (entry of unavailableProviders(); track entry.label) {
-                <li><strong>{{ entry.label }}</strong> — {{ entry.reason }}</li>
-              }
-            </ul>
-          }
-        </div>
-      }
-    }
-
-    @if (summaries().length > 0 || archived().length > 0) {
-      <div class="sidechat-selector" role="listbox" aria-label="Sidechat conversations">
-        @for (summary of summaries(); track summary.chat.id; let index = $index) {
-          <button
-            type="button"
-            class="selector-item"
-            [class.active]="summary.chat.id === sideChatId()"
-            [attr.data-state]="summary.state"
-            (click)="selectSideChat(summary.chat.id)"
-            (keydown)="onSelectorKeydown($event, index)"
-            role="option"
-            [attr.aria-selected]="summary.chat.id === sideChatId()"
-            [attr.aria-label]="summary.chat.name + ', ' + providerLabel(summary.chat.provider) + ', ' + stateLabel(summary.state)"
-          >
-            <span class="selector-title">{{ summary.chat.name }}</span>
-            <span class="selector-provider">{{ providerLabel(summary.chat.provider) }}</span>
-            @if (summary.state !== 'idle') {
-              <span class="state-chip" [attr.data-state]="summary.state">{{ stateLabel(summary.state) }}</span>
-            }
+    @if (error(); as error) {
+      <div class="error-banner" role="alert">
+        {{ error.message }}
+        @if (error.lastSnapshotAvailable) {
+          <button type="button" class="link-button" (click)="sendWithLastSnapshot()" [disabled]="sending()">
+            Send with the last saved context (may be out of date)
           </button>
         }
-        @if (archived().length > 0) {
-          <details class="archived-list">
-            <summary>Archived ({{ archived().length }})</summary>
-            @for (archivedChat of archived(); track archivedChat.id) {
-              <button
-                type="button"
-                class="selector-item archived"
-                (click)="openInMain(archivedChat.id)"
-                [attr.aria-label]="'Reopen archived sidechat ' + archivedChat.name + ' in the main view'"
-              >
-                <span class="selector-title">{{ archivedChat.name }}</span>
-                <span class="selector-provider">{{ providerLabel(archivedChat.provider) }}</span>
-              </button>
-            }
-          </details>
-        }
       </div>
-    }
-
-    @if (parent()) {
-      <div class="chat-meta">
-        <app-compact-model-picker
-          mode="pending-create"
-          [selection]="pickerSelection()"
-          [providers]="availableProviders()"
-          [disabledReason]="pickerDisabledReason()"
-          [showSelectionStatus]="false"
-          (selectionChange)="onSelectionChange($event)"
-        />
-        @if (chat()) {
-          <span class="status-pill">{{ selectedSummary() ? stateLabel(selectedSummary()!.state) : (currentInstance()?.status ?? 'Idle') }}</span>
-          <button
-            type="button"
-            class="header-action archive-action"
-            (click)="archiveSideChat()"
-            aria-label="Archive this sidechat"
-            [attr.aria-describedby]="'sidechat-archive-consequence-' + chat()?.id"
-          >◻ <span [id]="'sidechat-archive-consequence-' + chat()?.id">Archive this sidechat (keeps history, removes it from the list)</span></button>
-        } @else {
-          <span class="status-pill">New sidechat</span>
-        }
+    } @else if (notice(); as notice) {
+      <div class="error-banner" role="alert">{{ notice }}</div>
+    } @else if (permissionFailure(); as failure) {
+      <div class="error-banner" role="alert">
+        Permissions unavailable. Harness could not read this session's permissions.
+        <button type="button" class="link-button" (click)="retryPermissions()">Check permissions</button>
+        <details class="permission-diagnostics"><summary>Details</summary>{{ failure.rawDetail }}</details>
       </div>
     }
 
@@ -182,44 +101,14 @@
         }
       } @else {
         <div class="empty-state">
-          <p class="empty-title">Ask on the side</p>
-          <p class="empty-copy">
-            Ask about this session with any available provider. It reads the session's
-            latest progress for each question and never interrupts it. Your first
-            message starts the sidechat.
-          </p>
-          @if (!parent()) {
-            <p class="empty-hint">Select a session to ask about it.</p>
-          } @else if (attachCandidates().length > 0) {
-            <div class="attach-row">
-              <label for="side-chat-attach">Or attach an existing chat:</label>
-              <select id="side-chat-attach" [value]="attachChoice()" (change)="onAttachChoice($event)">
-                <option value="">Choose a chat…</option>
-                @for (candidate of attachCandidates(); track candidate.id) {
-                  <option [value]="candidate.id">{{ candidate.name }}</option>
-                }
-              </select>
-              <button type="button" class="link-button" (click)="attachSelected()">
-                Attach to this session
-              </button>
-            </div>
+          @if (parent()) {
+            <p class="empty-copy">Ask about {{ parentTitle() || 'this session' }}. Uses the same permissions as the session.</p>
+          } @else {
+            <p class="empty-copy">Select a session to ask about it.</p>
           }
         </div>
       }
     </div>
-
-    @if (error(); as error) {
-      <div class="error-banner" role="alert">
-        {{ error.message }}
-        @if (error.lastSnapshotAvailable) {
-          <button type="button" class="link-button" (click)="sendWithLastSnapshot()" [disabled]="sending()">
-            Send with the last saved context (may be out of date)
-          </button>
-        }
-      </div>
-    } @else if (notice(); as notice) {
-      <div class="error-banner" role="alert">{{ notice }}</div>
-    }
 
     <div class="composer">
       <textarea
@@ -232,25 +121,35 @@
         (keydown)="onComposerKeydown($event)"
         aria-label="Sidechat message"
       ></textarea>
-      @if (isBusy()) {
-        <button
-          type="button"
-          class="composer-button stop"
-          (click)="interrupt()"
-          aria-label="Stop this sidechat's answer"
-          [attr.aria-describedby]="'sidechat-stop-consequence-' + chat()?.id"
-        >■ <span [id]="'sidechat-stop-consequence-' + chat()?.id">Stop this sidechat's answer (the main session is not affected)</span></button>
-      } @else {
-        <button
-          type="button"
-          class="composer-button send"
-          [disabled]="sending()"
-          [appTooltipDisabledReason]="sendDisabledReason()"
-          (click)="send()"
-          appTooltip="Send"
-          aria-label="Send sidechat message"
-        >{{ sending() ? 'Sending…' : '➤' }}</button>
-      }
+      <div class="composer-controls">
+        @if (parent()) {
+          <app-compact-model-picker
+            mode="pending-create"
+            [selection]="pickerSelection()"
+            [providers]="availableProviders()"
+            [disabledReason]="pickerDisabledReason()"
+            [showSelectionStatus]="false"
+            (selectionChange)="onSelectionChange($event)"
+          />
+        }
+        @if (isBusy()) {
+          <button
+            type="button"
+            class="composer-button stop"
+            (click)="interrupt()"
+            [appTooltip]="copy('sideChat.stop')"
+          >Stop sidechat</button>
+        } @else {
+          <button
+            type="button"
+            class="composer-button send"
+            [disabled]="sending()"
+            [appTooltipDisabledReason]="sendDisabledReason()"
+            (click)="send()"
+            [appTooltip]="copy('sideChat.send')"
+          >{{ sending() ? 'Sending…' : 'Send' }}</button>
+        }
+      </div>
     </div>
   </section>
 </div>

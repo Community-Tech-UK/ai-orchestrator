@@ -174,8 +174,8 @@ export class ChatIpcService {
     return this.invokeSideChat((api) => api.sideChatSetSelection(payload));
   }
 
-  async sideChatAttach(payload: unknown): Promise<IpcResponse<unknown>> {
-    return this.invokeSideChat((api) => api.sideChatAttach(payload));
+  async sideChatDiscard(payload: unknown): Promise<IpcResponse<unknown>> {
+    return this.invokeSideChat((api) => api.sideChatDiscard(payload));
   }
 
   async sideChatPermissions(payload: unknown): Promise<IpcResponse<unknown>> {

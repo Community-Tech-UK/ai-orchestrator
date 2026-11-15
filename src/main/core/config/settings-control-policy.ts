@@ -118,7 +118,7 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   'computerUseDeniedAppsJson',
   'workspaceSecretsEnabled',
   'workspaceSecretsAllowAgentRequests',
-  'browserSecretObservationProtectionEnabled',
+  'browserSecretObservationProtectionEnabled', 'browserLocalComputerEnabled',
   'providerSignalFenceEnabled',
   'computerUseRequireApprovalForInput',
   'computerUseStoreScreenshotsForEscalations',
@@ -466,6 +466,7 @@ export const SETTINGS_TOOL_POLICY = {
   // control: the standing warning on the Browser screen's vault card.
   browserAllowSharedTabCredentialFill: readOnly(),
   browserSecretObservationProtectionEnabled: readOnly(),
+  browserLocalComputerEnabled: readOnly(true),
   workspaceSecretsEnabled: readOnly(),
   workspaceSecretsAllowAgentRequests: readOnly(),
   // An agent that could turn the fence off could kill sibling sessions.

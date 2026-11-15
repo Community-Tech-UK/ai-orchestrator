@@ -96,11 +96,15 @@ export class SideChatSendCoordinator {
     input: ChatSendMessageInput,
     options: { allowStaleContext?: boolean } = {},
   ): Promise<SideChatSendResult> {
-    const chatId = input.chatId;
+    return this.runExclusive(input.chatId, () => this.sendLocked(input, options));
+  }
+
+  /** Serialize deletion with admitted sends so no runtime can appear after discard. */
+  async runExclusive<T>(chatId: string, action: () => Promise<T>): Promise<T> {
     const previous = this.locks.get(chatId) ?? Promise.resolve();
     const run = previous
       .catch(() => undefined)
-      .then(() => this.sendLocked(input, options));
+      .then(action);
     const settled = run.finally(() => {
       if (this.locks.get(chatId) === tail) {
         this.locks.delete(chatId);
@@ -197,6 +201,11 @@ export class SideChatSendCoordinator {
   /** Forget delivery state for a runtime that has been terminated or replaced. */
   forgetRuntime(instanceId: string): void {
     this.deliveredRevision.delete(instanceId);
+  }
+
+  forgetChat(chatId: string): void {
+    this.staleDelivery.delete(chatId);
+    this.failedTurns.delete(chatId);
   }
 }
 

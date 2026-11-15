@@ -79,7 +79,7 @@ export function recoveryHarness(stored: unknown = { version: 2, origins: [PROTEC
         get: vi.fn(async (key: string) => ({ [key]: key === 'browserGatewayEnabled' && gatewayLoad ? await gatewayLoad : storage[key] })),
         set: vi.fn(async (values: Record<string, unknown>) => { Object.assign(storage, structuredClone(values)); }),
       },
-      session: { set: vi.fn(async () => undefined) },
+      session: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) },
     },
     tabs: {
       onUpdated: event(), onRemoved: event(),
@@ -112,12 +112,13 @@ export function recoveryHarness(stored: unknown = { version: 2, origins: [PROTEC
     chrome, URL, crypto: { randomUUID }, console,
     setTimeout: (callback: () => void, delay: number) => { const timer = { callback, delay }; timers.push(timer); return timer; },
     clearTimeout: (timer: unknown) => { const index = timers.indexOf(timer as typeof timers[number]); if (index >= 0) timers.splice(index, 1); },
-    // The service worker's one import is loaded just below, ahead of background.js; anything else is a mistake.
+    // The imported helpers are loaded below, ahead of background.js.
     importScripts: (name: string): void => {
-      if (name !== 'codex-device-handoff.js') throw new Error('Unexpected extension import');
+      if (!['codex-device-handoff.js', 'browser-session-claims.js'].includes(name)) throw new Error('Unexpected extension import');
     },
   });
   const source = readFileSync('resources/browser-extension/codex-device-handoff.js', 'utf8') + '\n'
+    + readFileSync('resources/browser-extension/browser-session-claims.js', 'utf8') + '\n'
     + readFileSync('resources/browser-extension/background.js', 'utf8');
   const runtime = runInContext(source + `
     ;({ assertSecretObservationAllowed, secretTaintOriginForTab, buildTabPayload,

@@ -42,6 +42,44 @@ describe('InputTurnRegistry.checkPersonTurn', () => {
     expect(registry.checkPersonTurn(S)).toEqual({ ok: false, reason: 'latest-input-not-person' });
   });
 
+  it("keeps the person's message when a Plan Queue report about the session's own run arrives during its turn", () => {
+    personTurn('m1', 5_000);
+    registry.expectNotice(S, 'run-summary');
+    registry.noteInput(S, { messageId: 'run-summary', personTypedAt: null });
+    expect(registry.checkPersonTurn(S)).toEqual({ ok: true, messageId: 'm1', typedAt: 5_000 });
+  });
+
+  it('still refuses when that report starts a turn of its own', () => {
+    personTurn();
+    registry.expectNotice(S, 'run-summary');
+    registry.noteInput(S, { messageId: 'run-summary', personTypedAt: null });
+    registry.noteTurnStarted(S, 'harness-send');
+    expect(registry.checkPersonTurn(S)).toEqual({ ok: false, reason: 'another-turn-started' });
+  });
+
+  it("treats a report that arrives before the person's turn has started as an ordinary input", () => {
+    registry.noteInput(S, { messageId: 'm1', personTypedAt: 5_000 });
+    registry.expectNotice(S, 'run-summary');
+    registry.noteInput(S, { messageId: 'run-summary', personTypedAt: null });
+    registry.noteTurnStarted(S, 'harness-send');
+    expect(registry.checkPersonTurn(S)).toEqual({ ok: false, reason: 'latest-input-not-person' });
+  });
+
+  it('forgets a report that was never sent', () => {
+    personTurn();
+    registry.expectNotice(S, 'run-summary');
+    registry.dropNotice(S, 'run-summary');
+    registry.noteInput(S, { messageId: 'run-summary', personTypedAt: null });
+    expect(registry.checkPersonTurn(S)).toEqual({ ok: false, reason: 'latest-input-not-person' });
+  });
+
+  it('treats only the announced message as a report; any other input still replaces the message', () => {
+    personTurn();
+    registry.expectNotice(S, 'run-summary');
+    registry.noteInput(S, { messageId: 'automation', personTypedAt: null });
+    expect(registry.checkPersonTurn(S)).toEqual({ ok: false, reason: 'latest-input-not-person' });
+  });
+
   it('refuses while the person message has not yet started a turn', () => {
     registry.noteInput(S, { messageId: 'm1', personTypedAt: 5_000 });
     expect(registry.checkPersonTurn(S)).toEqual({ ok: false, reason: 'turn-not-started' });

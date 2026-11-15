@@ -12,7 +12,7 @@ import {
   ChatSetReasoningPayloadSchema,
   ChatSetYoloPayloadSchema,
   ChatUiStatePayloadSchema,
-  SideChatAttachPayloadSchema,
+  SideChatDiscardPayloadSchema,
   SideChatCreatePayloadSchema,
   SideChatMarkReadPayloadSchema,
   SideChatParentRefSchema,
@@ -201,17 +201,23 @@ describe('sidechat schemas', () => {
     expect(SideChatParentRefSchema.safeParse({ kind: 'instance', id: 'x' }).success).toBe(false);
   });
 
-  it('validates create, set-selection, attach, read and send payloads', () => {
+  it('validates create, set-selection, read and send payloads', () => {
     expect(SideChatCreatePayloadSchema.safeParse({
       parent: sessionParent, selection: { provider: 'grok', model: 'grok-4' }, currentCwd: '/work',
     }).success).toBe(true);
     expect(SideChatSetSelectionPayloadSchema.safeParse({
       chatId: 'side-1', selection: { provider: 'opencode', reasoning: null },
     }).success).toBe(true);
-    expect(SideChatAttachPayloadSchema.safeParse({ chatId: 'chat-1', parent: sessionParent }).success).toBe(true);
     expect(SideChatMarkReadPayloadSchema.safeParse({ chatId: 'side-1', throughSequence: -1 }).success).toBe(false);
     expect(SideChatMarkReadPayloadSchema.safeParse({ chatId: 'side-1', throughSequence: 1.5 }).success).toBe(false);
     expect(SideChatSendPayloadSchema.safeParse({ chatId: 'side-1', text: '' }).success).toBe(false);
     expect(SideChatSendPayloadSchema.safeParse({ chatId: 'side-1', text: 'Hi', allowStaleContext: true }).success).toBe(true);
+  });
+
+  it('requires explicit discard confirmation and a bounded sidechat id', () => {
+    expect(SideChatDiscardPayloadSchema.safeParse({ chatId: 'side-1', confirmation: 'discard' }).success).toBe(true);
+    expect(SideChatDiscardPayloadSchema.safeParse({ chatId: 'side-1' }).success).toBe(false);
+    expect(SideChatDiscardPayloadSchema.safeParse({ chatId: '', confirmation: 'discard' }).success).toBe(false);
+    expect(SideChatDiscardPayloadSchema.safeParse({ chatId: 'side-1', confirmation: 'delete' }).success).toBe(false);
   });
 });

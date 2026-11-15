@@ -49,6 +49,15 @@ export const CreateAutomationArgsSchema = z
     description: z.string().max(2000).optional(),
     /** CLI provider to run with (defaults to standard Claude Opus latest). */
     provider: z.enum(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode']).optional(),
+    /** Explicit choices are retained, subject to the calling session's limits. */
+    model: ModelIdSchema.refine(value => value.length > 0, {
+      message: 'String must contain at least 1 character(s)',
+    }).optional(),
+    reasoningEffort: AutomationActionSchema.shape.reasoningEffort,
+    yoloMode: AutomationActionSchema.shape.yoloMode,
+    agentId: AutomationActionSchema.shape.agentId,
+    missedRunPolicy: z.enum(['skip', 'notify', 'runOnce']).optional(),
+    concurrencyPolicy: z.enum(['skip', 'queue']).optional(),
     /** Whether the automation is active immediately. Defaults to true. */
     enabled: z.boolean().optional(),
     /**
@@ -335,7 +344,7 @@ export function createAutomationToolDefinitions(
     {
       name: 'create_automation',
       description:
-        'Create a scheduled automation in Harness: a recurring (cron) or one-time prompt that runs an autonomous agent on a schedule. This is the ONLY correct way to schedule or automate anything inside Harness — use it whenever the user asks to "set up an automation", "run this every day/week", "schedule this", "check X every hour", or "remind me to…". Do NOT use a host CLI scheduling skill (e.g. Claude Code\'s /schedule or CronCreate): those create cloud remote agents that run in an isolated sandbox with NO browser and no access to the user\'s logged-in sessions, and the user cannot see or manage them in Harness. Harness automations are different: they run LOCALLY on this machine, and each scheduled run spawns a fresh local agent that inherits the SAME tools as this chat — including the browser gateway to the user\'s real, authenticated Chrome (real cookies). That means an automation CAN read pages/sites the user is logged into, as long as the app and the user\'s browser are running when it fires. Provide a 5-field cron expression for recurring schedules, or an ISO-8601 runAt for a one-time run. The working directory defaults to the current chat\'s project. Returns the created automation\'s id, schedule summary, and next run time.',
+        'Schedule recurring or one-time work in Harness: reminders, scheduled checks and other later tasks. Each run starts a fresh agent on this machine with this chat\'s tools, including the Browser Gateway and signed-in Chrome. Harness and that browser must be available. Keep scheduling here rather than in CLI schedulers (/schedule, CronCreate): their cloud jobs lack these tools and sign-ins and cannot be managed in Harness. Supply cron or runAt; workingDirectory defaults to this chat\'s project. Returns id, schedule summary and next run time.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -367,8 +376,15 @@ export function createAutomationToolDefinitions(
             type: 'string',
             enum: ['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode'],
             description:
-              'CLI provider to run with. When omitted, new check and monitor jobs default to Claude Sonnet at low effort; other jobs default to Claude Opus latest. An explicitly selected non-Claude provider uses that provider\'s model resolution.',
+              'Omit to inherit the calling provider. For default/Claude check jobs with no model, the default is Sonnet at low effort unless the caller uses a fast model.',
           },
+          model: { type: 'string', description: 'Model for every run. An explicit choice is retained even for a check or monitor, within this session\'s model limits.' },
+          reasoningEffort: { type: 'string', enum: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'workflow'],
+            description: 'Reasoning effort for every run, within this session\'s effort limit. An explicit choice overrides the check-job default.' },
+          yoloMode: { type: 'boolean', description: 'Auto-approve each run. Cannot be enabled if this session cannot auto-approve.' },
+          agentId: { type: 'string', maxLength: 100, description: 'Agent to use for each run.' },
+          missedRunPolicy: { type: 'string', enum: ['skip', 'notify', 'runOnce'], description: 'What to do when a scheduled run was missed.' },
+          concurrencyPolicy: { type: 'string', enum: ['skip', 'queue'], description: 'What to do when the previous run is still going.' },
           enabled: {
             type: 'boolean',
             description: 'Whether the automation is active immediately. Defaults to true.',
@@ -379,7 +395,7 @@ export function createAutomationToolDefinitions(
           hidden: {
             type: 'boolean',
             description:
-              'Keep this automation\'s sessions out of the project rail. Set it for work whose real output lands elsewhere — a health check that only matters when it fails, or a run that delivers an email or a board card. Hidden is quiet, not invisible: the Automations page still shows the automation and every run, and a run that fails or stops for permission is shown in the rail anyway. Defaults to false (visible).',
+              'Hide sessions from the project rail when their output lands elsewhere. Automations still shows all runs; failures and permission waits appear in the rail. Defaults to false.',
           },
           confirmedByUser: {
             type: 'boolean',
@@ -520,7 +536,7 @@ export function createAutomationToolDefinitions(
           hidden: {
             type: 'boolean',
             description:
-              'Keep this automation\'s sessions out of the project rail. Use it for work whose real output lands elsewhere — a health check that only matters when it fails, or a run that delivers an email or a board card. Hidden is quiet, not invisible: the Automations page still shows the automation and every run, and a run that fails or stops for permission is shown in the rail anyway. Omit to leave unchanged.',
+              'Hide sessions from the project rail when their output lands elsewhere. Automations still shows all runs; failures and permission waits appear in the rail. Omit to leave unchanged.',
           },
           confirmedByUser: {
             type: 'boolean',

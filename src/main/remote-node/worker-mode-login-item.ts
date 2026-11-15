@@ -19,20 +19,19 @@ export interface BindWorkerModeLoginItemOptions {
 }
 
 export function wantsOpenAtLogin(workerMode: WorkerModeSettings): boolean {
-  return workerMode.role === 'worker' && workerMode.openAtLogin === true;
+  return workerMode.openAtLogin === true;
 }
 
 /**
  * Keep the OS login item in step with "Open Harness when I sign in". This is
- * the no-admin way for a worker computer to come back after a reboot: Harness
- * opens as the signed-in user (so the worker keeps that user's CLI logins and
- * desktop) and the launch autostart starts the worker.
+ * the no-admin way for any Harness to come back after a reboot. It opens as the
+ * signed-in user, retaining that user's accounts and desktop session.
  *
  * Only packaged Windows/macOS builds are touched: Electron has no login items
  * on Linux, and registering a dev build would launch the bare Electron binary.
  * At startup the item is only ever turned ON, so a user who later disables it
  * from the OS (Windows "Startup apps") is not overridden on every launch; it
- * is turned off when the user turns the option or worker mode off.
+ * is turned off when the user turns the option off.
  */
 export function bindWorkerModeLoginItem(options: BindWorkerModeLoginItemOptions = {}): void {
   if (isHarnessLiveTest()) return;
@@ -48,9 +47,9 @@ export function bindWorkerModeLoginItem(options: BindWorkerModeLoginItemOptions 
   const apply = (openAtLogin: boolean): void => {
     try {
       applyLoginItem(openAtLogin);
-      logger.info('Updated open-at-login for worker mode', { openAtLogin });
+      logger.info('Updated open-at-login', { openAtLogin });
     } catch (error) {
-      logger.warn('Could not update open-at-login for worker mode', {
+      logger.warn('Could not update open-at-login', {
         openAtLogin,
         error: error instanceof Error ? error.message : String(error),
       });

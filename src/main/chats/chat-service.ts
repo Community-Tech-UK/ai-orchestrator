@@ -47,6 +47,7 @@ import { getContextEvidenceCoordinator } from '../context-evidence/context-evide
 import type { ChatEvidenceDeletion } from './chat-service.types';
 import { SideChatService, createHistoryArchiveLookup } from './side-chat-service';
 import { stopLoopsForSessions } from '../orchestration/loop-stop-for-sessions';
+import { getInitializedChatService, setInitializedChatService } from './chat-service-instance';
 
 const logger = getLogger('ChatService');
 const CHAT_DETAIL_MESSAGE_LIMIT = 200;
@@ -62,7 +63,6 @@ function toInstanceProvider(provider: ChatProvider): InstanceProvider {
 }
 
 export class ChatService {
-  private static instance: ChatService | null = null;
   readonly events: EventEmitter;
   private readonly ledger: ConversationLedgerService;
   private readonly instanceManager: InstanceManager;
@@ -73,23 +73,28 @@ export class ChatService {
   private readonly branchSummaryScheduler: ChatBranchSummaryScheduler;
   private readonly evidenceDeletion: ChatEvidenceDeletion;
   private readonly drainEvidenceCapture: (queueId: string) => Promise<void>;
+  private readonly deleteSideChatHistory: (historyThreadId: string, sessionId: string | null) => Promise<void>;
+  private readonly expireSideChatApprovals: (instanceId: string) => Promise<void>;
   /** Session-linked sidechats layered over ordinary chats. */
   readonly sideChats: SideChatService;
   private initialized = false;
   private migrationDone: Promise<void> = Promise.resolve();
 
   static getInstance(config: ChatServiceConfig): ChatService {
-    this.instance ??= new ChatService(config);
-    return this.instance;
+    const existing = getInitializedChatService();
+    if (existing) return existing;
+    const service = new ChatService(config);
+    setInitializedChatService(service);
+    return service;
   }
 
   static getIfInitialized(): ChatService | null {
-    return this.instance;
+    return getInitializedChatService();
   }
 
   static _resetForTesting(): void {
-    this.instance?.dispose();
-    this.instance = null;
+    getInitializedChatService()?.dispose();
+    setInitializedChatService(null);
   }
 
   /** Stop background work (the transcript bridge's deferred flush). Call on
@@ -126,6 +131,21 @@ export class ChatService {
     };
     this.drainEvidenceCapture = config.drainEvidenceCapture
       ?? ((queueId) => getContextEvidenceCoordinator().drain(queueId));
+    this.expireSideChatApprovals = config.expireSideChatApprovals ?? (async (instanceId) => {
+      const { getBrowserApprovalStore } = await import('../browser-gateway/browser-approval-store');
+      getBrowserApprovalStore().expireForInstance(instanceId);
+    });
+    this.deleteSideChatHistory = config.deleteSideChatHistory ?? (async (historyThreadId, sessionId) => {
+      const { getHistoryManager } = await import('../history/history-manager');
+      const history = getHistoryManager();
+      await history.recordDeletedThread(historyThreadId, sessionId);
+      for (const entry of history.getEntries()) {
+        if (entry.historyThreadId === historyThreadId) {
+          await this.expireSideChatApprovals(entry.originalInstanceId);
+          await history.deleteEntry(entry.id);
+        }
+      }
+    });
     this.branchSummaryScheduler = new ChatBranchSummaryScheduler({
       ledger: this.ledger,
       getChat: (chatId) => this.store.get(chatId),
@@ -166,6 +186,8 @@ export class ChatService {
         dispatchMessage: (input, options) => this.dispatchMessage(input, options),
         detail: (chat) => this.detailFor(chat),
         clearRuntime: (chat, reason) => this.clearRuntime(chat, reason),
+        deleteChat: (chatId) => this.deleteChat(chatId),
+        revokeConversation: (conversationId) => this.evidenceDeletion.revokeConversation(conversationId),
         emit: (event) => this.emit(event),
       },
       resolveAgentPermissions: config.resolveAgentPermissions ?? resolveAgentPermissionsLazily,
@@ -312,6 +334,10 @@ export class ChatService {
 
   async deleteChat(chatId: string): Promise<void> {
     this.initialize();
+    return this.sideChats.withChatDeletion(chatId, () => this.deleteChatLocked(chatId));
+  }
+
+  private async deleteChatLocked(chatId: string): Promise<void> {
     const chat = this.requireChat(chatId);
     await stopLoopsForSessions(chat.currentInstanceId
       ? [chat.id, chat.currentInstanceId]
@@ -321,10 +347,17 @@ export class ChatService {
       await this.drainEvidenceCapture(chat.currentInstanceId);
       await this.terminateRuntime(chat, chat.currentInstanceId, 'delete');
       await this.drainEvidenceCapture(chat.currentInstanceId);
+      if (this.sideChats.isSideChat(chat.id)) await this.expireSideChatApprovals(chat.currentInstanceId);
     }
+    await this.sideChats.deleteForParent({ kind: 'chat', chatId });
+    await this.sideChats.deleteForParent({ kind: 'session', historyThreadId: chat.ledgerThreadId, originNodeId: null });
     await this.evidenceDeletion.revokeConversation(chat.ledgerThreadId);
-    this.sideChats.onChatDeleting(chat.id);
-    if (!this.store.delete(chat.id)) throw new Error(`Chat ${chat.id} not found`);
+    if (this.sideChats.isSideChat(chat.id)) {
+      await this.deleteSideChatHistory(chat.ledgerThreadId, this.sessionBindingStore.get(chat.id)?.sessionId ?? null);
+    }
+    this.sideChats.onChatDeleting(chat.id, () => {
+      if (!this.store.delete(chat.id)) throw new Error(`Chat ${chat.id} not found`);
+    });
     this.filterUiState(this.uiStateStore.get());
     this.emit({ type: 'chat-deleted', chatId: chat.id });
   }
@@ -662,6 +695,9 @@ export class ChatService {
       reasoningEffort: chat.reasoningEffort,
       agentId: 'build',
       ...sideChatRuntime?.config,
+      ...(sideChatRuntime ? {
+        metadata: { ...sideChatRuntime.config.metadata, hideFromProjectRail: true, sideChatId: chat.id },
+      } : {}),
       historyThreadId: chat.ledgerThreadId,
       evidenceConversationOwner: {
         kind: 'chat',
@@ -843,7 +879,7 @@ export class ChatService {
   }
 
   private filterUiState(state: ChatUiState): ChatUiState {
-    const activeChatIds = new Set(this.store.list().map((chat) => chat.id));
+    const activeChatIds = new Set(this.store.list().filter((chat) => !chat.sideChatParentKey).map((chat) => chat.id));
     const openChatIds = state.openChatIds.filter((id) => activeChatIds.has(id));
     const selectedChatId = state.selectedChatId && activeChatIds.has(state.selectedChatId)
       ? state.selectedChatId

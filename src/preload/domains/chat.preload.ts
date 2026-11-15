@@ -81,8 +81,8 @@ export function createChatDomain(
     sideChatSetSelection: (payload: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.SIDE_CHAT_SET_SELECTION, payload),
 
-    sideChatAttach: (payload: unknown): Promise<IpcResponse> =>
-      ipcRenderer.invoke(ch.SIDE_CHAT_ATTACH, payload),
+    sideChatDiscard: (payload: unknown): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.SIDE_CHAT_DISCARD, payload),
 
     sideChatPermissions: (payload: unknown): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.SIDE_CHAT_PERMISSIONS, payload),

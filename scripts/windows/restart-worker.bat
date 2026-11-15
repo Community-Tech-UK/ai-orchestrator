@@ -3,10 +3,9 @@ REM ---------------------------------------------------------------------------
 REM Restart the AI Orchestrator worker node on this machine.
 REM
 REM Source of truth: scripts\windows\restart-worker.bat
-REM Deploy a COPY to: %USERPROFILE%\Desktop\restart-worker.bat
+REM Run from its owning checkout or the installed worker home.
 REM
-REM Run the deployed Desktop copy so the script remains available if the repo
-REM is moved or an explicit maintenance update changes this file.
+REM The installer deploys it beside worker-install.json in the worker home.
 REM
 REM WHY A DEDICATED RESTART SCRIPT EXISTS
 REM start-worker.bat deliberately SKIPS the build and the start when a worker is
@@ -54,12 +53,21 @@ REM above, and the first match would slice the file from there.
 
 #PS_START
 $ErrorActionPreference = 'Continue'
+$scriptFolder = Split-Path -Parent $env:AIO_SELF
+$helper = Join-Path $scriptFolder 'worker-home.ps1'
+if (-not (Test-Path -LiteralPath $helper)) {
+  Write-Host 'Run this script from its owning checkout or installed worker home.'
+  exit 5
+}
+. $helper
+try { $installation = Get-AioWorkerInstall -ScriptPath $env:AIO_SELF } catch { Write-Host $_.Exception.Message; exit 5 }
 
-$taskName = 'AI Orchestrator Worker'
+
+$taskName = $installation.TaskName
 # A legacy update task may still be running, so stop it too to prevent a
 # relaunch while this explicit restart is in progress.
-$updateTaskName = 'AI Orchestrator Worker Update'
-$orch     = Join-Path $env:USERPROFILE '.orchestrator'
+$updateTaskName = $installation.UpdateTaskName
+$orch     = $installation.Home
 $vbs      = Join-Path $orch 'run-worker-hidden.vbs'
 $bat      = Join-Path $orch 'start-worker-autoupdate.bat'
 
@@ -70,7 +78,7 @@ $bat      = Join-Path $orch 'start-worker-autoupdate.bat'
 # native-host helpers are excluded: they share the entrypoint but serve Chrome's
 # native messaging port for the browser extension relay, and killing them would
 # drop the shared-tab channel for no reason.
-$match = 'worker-agent\index.js'
+$match = Join-Path $installation.RepoPath 'dist\worker-agent\index.js'
 
 function Get-Workers {
     $procs = @()
@@ -82,11 +90,19 @@ function Get-Workers {
     # IndexOf/OrdinalIgnoreCase rather than -like: -like reads [ and ] as a
     # character class, so a profile such as C:\Users\John[Contractor] would never
     # match its own worker.
-    return @($procs | Where-Object {
+    $owned = @($procs | Where-Object {
         $_.CommandLine -and
-        $_.CommandLine.IndexOf($match, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+        $_.CommandLine.Replace('/', '\').IndexOf($match, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
         $_.CommandLine.IndexOf('native-host', [StringComparison]::OrdinalIgnoreCase) -lt 0
     })
+    # Older launchers used a relative supervisor entrypoint. Its own absolute
+    # child proves which checkout it supervises; never match all supervisors.
+    $parents = @($owned | ForEach-Object { $_.ParentProcessId })
+    $supervisors = @($procs | Where-Object {
+        $parents -contains $_.ProcessId -and $_.CommandLine -and
+        $_.CommandLine.IndexOf('--supervise', [StringComparison]::OrdinalIgnoreCase) -ge 0
+    })
+    return @($owned + $supervisors | Sort-Object ProcessId -Unique)
 }
 
 function Get-BundlePath {

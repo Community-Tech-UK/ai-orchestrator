@@ -6,6 +6,14 @@ import {
 } from './browser-computer-target';
 
 describe('browser computer target resolution', () => {
+  it('accepts the enabled local computer by name without a remote node', () => {
+    expect(resolveBrowserComputerTarget({ computer: 'CT-Test-Mac' }, {
+      connectedNodes: [], localComputerName: 'ct-test-mac',
+    })).toEqual({ ok: true, target: { localOnly: true, nodeName: 'ct-test-mac' } });
+    expect(resolveBrowserComputerTarget({ computer: 'ct-test-mac', nodeId: 'remote-node' }, {
+      connectedNodes: [], localComputerName: 'ct-test-mac',
+    }).ok).toBe(false);
+  });
   it('resolves a connected worker by normalized computer name', () => {
     const result = resolveBrowserComputerTarget(
       { computer: 'windows-pc' },

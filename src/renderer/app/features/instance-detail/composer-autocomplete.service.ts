@@ -1,5 +1,6 @@
 import { inject, Injectable, Injector, OnDestroy } from '@angular/core';
 
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 import type { HybridSearchResult } from '../../../../shared/types/codebase.types';
 import { CodebaseIpcService } from '../../core/services/ipc/codebase-ipc.service';
 import { fuzzyRank } from '../../shared/utils/fuzzy';
@@ -49,10 +50,11 @@ export class ComposerAutocompleteService implements OnDestroy {
     if (!history.entries().length) await history.loadHistory();
     if (generation !== this.generation) return [];
     const instances = this.injector.get(InstanceStore).instances();
+    // Include hidden runtimes so an unmarked older history row cannot expose them again.
     const liveIds = new Set(instances.map((instance) => instance.id));
     const sessions = [
-      ...instances.map((instance) => ({ id: instance.id, title: instance.displayName || 'Untitled session', folder: instance.workingDirectory })),
-      ...history.entries().filter((entry) => !liveIds.has(entry.originalInstanceId)).map((entry) => ({ id: entry.id, title: entry.displayName || entry.aiTitle || 'Untitled session', folder: entry.workingDirectory })),
+      ...instances.filter(instance => !isProjectRailHiddenSession(instance.metadata)).map((instance) => ({ id: instance.id, title: instance.displayName || 'Untitled session', folder: instance.workingDirectory })),
+      ...history.entries().filter((entry) => !entry.hideFromProjectRail && !liveIds.has(entry.originalInstanceId)).map((entry) => ({ id: entry.id, title: entry.displayName || entry.aiTitle || 'Untitled session', folder: entry.workingDirectory })),
     ];
     const ranked = fuzzyRank(query, sessions, (session) => `${session.title} ${session.folder}`);
     ranked.sort((left, right) => Number(right.item.folder === workspaceCwd) - Number(left.item.folder === workspaceCwd) || right.score - left.score);

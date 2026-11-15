@@ -17,6 +17,7 @@ import { ExtensionInstancePollTracker, selectNextCommandDispatch } from './brows
 // Type-only in the other direction, so this is not a runtime cycle.
 import { isDeliveredCommandTimeout } from './browser-extension-command-failures';
 import { stampSecretObservationProtection } from './browser-secret-observation-stamp';
+import { currentBrowserSessionOwner } from './browser-session-context';
 import {
   SecretObservationTracker,
   type BrowserExtensionSecretObservationState,
@@ -100,6 +101,7 @@ export class BrowserExtensionCommandStore {
     // caller sent it. The extension applies it before running anything, so an
     // open_tab or inventory refresh clears stale taints as well as a read does.
     const payload = stampSecretObservationProtection(request.payload);
+    const sessionOwner = currentBrowserSessionOwner();
     const command: BrowserExtensionQueuedCommand = {
       id: randomUUID(),
       command: request.command,
@@ -109,6 +111,7 @@ export class BrowserExtensionCommandStore {
         ? { timeoutMs: Math.floor(executionTimeoutMs) }
         : {}),
       createdAt: Date.now(),
+      ...(sessionOwner ? { sessionOwner } : {}),
     };
     if (command.command === 'report_inventory') this.secretObservation.expectReport(command.id, queueKey);
     return new Promise<unknown>((resolve, reject) => {
@@ -169,6 +172,7 @@ export class BrowserExtensionCommandStore {
           ? { denyBrowserCommandsReason: request.denyBrowserCommandsReason }
           : {}),
         allowSecureCredentialCommands: request.allowSecureCredentialCommands ?? false,
+        allowSessionClaims: request.allowSessionClaims ?? false,
         allowDeviceLoginCommands: request.allowDeviceLoginCommands ?? false,
         confidentialTransport: request.confidentialTransport,
         resolve: (command) => {
@@ -489,7 +493,9 @@ export class BrowserExtensionCommandStore {
         command.id,
         isDeviceLoginCommand(command.command) ? 'codex_device_delivery_rejected' : !poller.allowBrowserCommands
           ? poller.denyBrowserCommandsReason ?? BROWSER_EXTENSION_RUNTIME_INCOMPATIBLE
-          : 'shared_tab_secure_credential_fill_unavailable',
+          : (command.sessionOwner || command.command === 'claim_tab') && !poller.allowSessionClaims
+            ? 'browser_extension_session_claims_unavailable: Update the Harness Browser Gateway extension before using session-owned tabs.'
+            : 'shared_tab_secure_credential_fill_unavailable',
       );
       poller.resolve(null);
     }
@@ -502,6 +508,7 @@ export class BrowserExtensionCommandStore {
     if (!poller.allowBrowserCommands) {
       return false;
     }
+    if ((command.sessionOwner || command.command === 'claim_tab') && !poller.allowSessionClaims) return false;
     if (isDeviceLoginCommand(command.command)) {
       return poller.allowDeviceLoginCommands && poller.deferHandoffConfirmation
         && hasSynchronousAuthority(poller.confidentialTransport);
@@ -677,9 +684,7 @@ export class BrowserExtensionCommandStore {
     return queue;
   }
 
-  private pollersFor(
-    queueKey: BrowserExtensionCommandQueueKey,
-  ): CommandPoller[] {
+  private pollersFor(queueKey: BrowserExtensionCommandQueueKey): CommandPoller[] {
     let pollers = this.pollers.get(queueKey);
     if (!pollers) {
       pollers = [];

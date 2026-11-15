@@ -46,10 +46,19 @@ REM above, and the first match would slice the file from there.
 
 #PS_START
 $ErrorActionPreference = 'Continue'
+$scriptFolder = Split-Path -Parent $env:AIO_SELF
+$helper = Join-Path $scriptFolder 'worker-home.ps1'
+if (-not (Test-Path -LiteralPath $helper)) {
+  Write-Host 'Run this script from its owning checkout or installed worker home.'
+  exit 5
+}
+. $helper
+try { $installation = Get-AioWorkerInstall -ScriptPath $env:AIO_SELF } catch { Write-Host $_.Exception.Message; exit 5 }
 
-$taskName = 'AI Orchestrator Worker'
-$updateTaskName = 'AI Orchestrator Worker Update'
-$orch = Join-Path $env:USERPROFILE '.orchestrator'
+
+$taskName = $installation.TaskName
+$updateTaskName = $installation.UpdateTaskName
+$orch = $installation.Home
 $launcher = Join-Path $orch 'start-worker-autoupdate.bat'
 $vbs = Join-Path $orch 'run-worker-hidden.vbs'
 # start-worker.bat treats this directory as "a launcher run is in progress" for
@@ -57,7 +66,7 @@ $vbs = Join-Path $orch 'run-worker-hidden.vbs'
 $launcherLock = Join-Path $orch 'launcher.lock'
 # The launcher starts the worker with forward slashes, a manual start with
 # backslashes; match both.
-$match = 'worker-agent[\\/]index\.js'
+$match = [regex]::Escape((Join-Path $installation.RepoPath 'dist\worker-agent\index.js'))
 
 function Get-Workers {
     $procs = @()
@@ -66,10 +75,16 @@ function Get-Workers {
     } catch {
         return @()
     }
-    return @($procs | Where-Object {
-        $_.CommandLine -and $_.CommandLine -match $match -and
+    $owned = @($procs | Where-Object {
+        $_.CommandLine -and $_.CommandLine.Replace('/', '\') -match $match -and
         $_.CommandLine.IndexOf('native-host', [StringComparison]::OrdinalIgnoreCase) -lt 0
     })
+    $parents = @($owned | ForEach-Object { $_.ParentProcessId })
+    $supervisors = @($procs | Where-Object {
+        $parents -contains $_.ProcessId -and $_.CommandLine -and
+        $_.CommandLine.IndexOf('--supervise', [StringComparison]::OrdinalIgnoreCase) -ge 0
+    })
+    return @($owned + $supervisors | Sort-Object ProcessId -Unique)
 }
 
 # The checkout, from the deployed launcher's REPO line. A worker's command line
@@ -218,7 +233,7 @@ while ((Get-Date) -lt $deadline) {
     }
     # A launcher run caught mid-build would start a worker once its build ends.
     $launchers = @(Get-CimInstance Win32_Process -Filter "Name='cmd.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -and $_.CommandLine -match 'start-worker' })
+        Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($installation.RepoPath, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and $_.CommandLine -match 'start-worker' })
     foreach ($l in $launchers) {
         try { Stop-Process -Id $l.ProcessId -Force -ErrorAction Stop } catch { }
     }

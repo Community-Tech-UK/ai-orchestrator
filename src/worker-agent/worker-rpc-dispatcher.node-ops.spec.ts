@@ -304,7 +304,22 @@ describe('WorkerRpcDispatcher node.exec', () => {
     const descendantPidPath = join(fixtureDir, 'descendant.pid');
     const heartbeatPath = join(fixtureDir, 'descendant.heartbeat');
     fixtures.trackPidFile(descendantPidPath);
-    const { dispatcher, sendError } = makeDispatcher();
+    const pause = new Int32Array(new SharedArrayBuffer(4));
+    const executor = new WorkerNodeExecutor([process.cwd()], undefined, Date.now, {
+      platform: process.platform,
+      spawnProcess: ((...args: Parameters<typeof spawn>) => {
+        const child = fixtures.spawn(...args);
+        // Arm the unchanged execution timeout only once the detached fixture is ready.
+        // A short deadline must measure cleanup, rather than Node startup under suite load.
+        const deadline = Date.now() + 5_000;
+        while (!existsSync(heartbeatPath) && Date.now() < deadline) Atomics.wait(pause, 0, 0, 5);
+        expect(existsSync(heartbeatPath), 'detached fixture must start before testing termination').toBe(true);
+        return child;
+      }) as typeof spawn,
+      execFileProcess: execFile,
+      killProcess: (pid, signal) => process.kill(pid, signal),
+    }, prepareUncheckedForLifecycleTest);
+    const { dispatcher, sendError } = makeDispatcher(undefined, [process.cwd()], params => executor.execute(params));
     let descendantPid: number | undefined;
 
     try {
@@ -314,7 +329,7 @@ describe('WorkerRpcDispatcher node.exec', () => {
           '-e',
           'const {spawn}=require("node:child_process");const fs=require("node:fs");'
             + 'const child=spawn(process.execPath,["-e",'
-            + '"const fs=require(\\"node:fs\\");let n=0;const p=process.argv[1];fs.writeFileSync(p,String(n));setInterval(()=>{fs.writeFileSync(p,String(++n));' + exitOnceProcessGone() + '},25)",'
+            + '"Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,300);const fs=require(\\"node:fs\\");let n=0;const p=process.argv[1];fs.writeFileSync(p,String(n));setInterval(()=>{fs.writeFileSync(p,String(++n));' + exitOnceProcessGone() + '},25)",'
             + 'process.argv[2]],{detached:true,stdio:"ignore"});'
             + 'fs.writeFileSync(process.argv[1],String(child.pid));' + IDLE_UNTIL_TEST_PROCESS_GONE,
           descendantPidPath,

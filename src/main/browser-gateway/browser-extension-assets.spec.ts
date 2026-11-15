@@ -103,6 +103,7 @@ interface BrowserExtensionChromeHarness {
       set: Mock<(values: Record<string, unknown>) => Promise<void>>;
     };
     session: {
+      get: ReturnType<typeof vi.fn>;
       set: ReturnType<typeof vi.fn>;
     };
   };
@@ -166,8 +167,66 @@ interface NativePortHarness {
 
 const LEGACY_HOST_NAME = 'com.ai_orchestrator.browser_gateway';
 const RELAY_HOST_NAME = 'com.ai_orchestrator.browser_gateway_relay';
+const HOME_BASE_RELAY_HOST_NAME = 'com.ai_orchestrator.browser_gateway_relay_home_base';
 
 describe('browser extension assets', () => {
+  it('answers one Harness session while another session has a page pop-up waiting', async () => {
+    const harness = loadBackgroundHarnessForTest({ additionalTabs: [{ tabId: 43, groupId: -1 }] });
+    await flushPromises();
+    const local = harness.ports.get(LEGACY_HOST_NAME)!;
+    const relay = harness.ports.get(RELAY_HOST_NAME)!;
+    harness.chrome.tabs.update.mockImplementation((tabId: number, update?: { url?: string }) =>
+      tabId === 42 && update?.url
+        ? new Promise<never>(() => undefined) : Promise.resolve(harness.tabState(tabId)));
+    local.emitMessage({ type: 'browser_command', command: {
+      id: 'popup-session-a', command: 'navigate', sessionOwner: 'SESSION_A_PLACEHOLDER',
+      target: { tabId: 42 }, payload: { url: 'https://example.test/next' },
+    } });
+    await flushPromises();
+    harness.chrome.debugger.onEvent.emit({ tabId: 42 }, 'Page.javascriptDialogOpening', {
+      type: 'beforeunload', message: 'TEST_ONLY_POPUP_TEXT',
+    });
+    await flushPromises();
+    relay.emitMessage({ type: 'browser_command', command: {
+      id: 'read-session-b', command: 'snapshot', sessionOwner: 'SESSION_B_PLACEHOLDER', target: { tabId: 43 },
+    } });
+    await flushPromises();
+    expect(local.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result', commandId: 'popup-session-a', ok: false,
+      error: expect.stringContaining('browser_dialog_open'),
+    }));
+    expect(relay.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'command_result', commandId: 'read-session-b', ok: true,
+    }));
+  });
+
+  it('keeps two Harness sessions on separate tabs across the local and relay links', async () => {
+    const harness = loadBackgroundHarnessForTest({ additionalTabs: [{ tabId: 43, groupId: -1 }] });
+    await flushPromises();
+    const local = harness.ports.get(LEGACY_HOST_NAME)!;
+    const relay = harness.ports.get(RELAY_HOST_NAME)!;
+    const dispatch = async (port: NativePortHarness, command: Record<string, unknown>) => {
+      port.emitMessage({ type: 'browser_command', command });
+      await flushPromises();
+      return port.postMessage.mock.calls.map(([message]) => message as Record<string, unknown>)
+        .find(message => message['type'] === 'command_result' && message['commandId'] === command['id']);
+    };
+    expect(await dispatch(local, {
+      id: 'claim-a', command: 'claim_tab', target: { tabId: 42 }, sessionOwner: 'SESSION_A_PLACEHOLDER',
+    })).toMatchObject({ ok: true, result: { claimed: true } });
+    harness.chrome.scripting.executeScript.mockClear();
+    expect(await dispatch(relay, {
+      id: 'refuse-b', command: 'snapshot', target: { tabId: 42 }, sessionOwner: 'SESSION_B_PLACEHOLDER',
+    })).toMatchObject({ ok: false, error: 'browser_tab_held_by_another_session' });
+    expect(harness.chrome.scripting.executeScript).not.toHaveBeenCalled();
+    expect(await dispatch(relay, {
+      id: 'claim-b', command: 'claim_tab', target: { tabId: 43 }, sessionOwner: 'SESSION_B_PLACEHOLDER',
+    })).toMatchObject({ ok: true, result: { claimed: true } });
+    expect(await dispatch(local, {
+      id: 'reuse-a', command: 'claim_tab', target: { tabId: 42 }, sessionOwner: 'SESSION_A_PLACEHOLDER',
+    })).toMatchObject({ ok: true });
+  });
+
   // `extensionVersion` is the ONLY thing a node reports about which bundle it is
   // running, so shipping a changed background.js under an unchanged version makes
   // a stale service worker indistinguishable from a fresh one -- every downstream
@@ -264,6 +323,10 @@ describe('browser extension assets', () => {
     '0.2.51': 'bf8a3312ff8f',
     // Bound Codex consent, code verification and submit; hash includes the imported helper.
     '0.2.52': '40e576ed8ccc',
+    // Two worker relays and authenticated session claims shared across every link.
+    '0.2.53': '796aea1dea00',
+    // One Harness cannot disable another Harness's shared secret protection.
+    '0.2.54': '7057494c0c30',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -273,6 +336,7 @@ describe('browser extension assets', () => {
     const backgroundHash = createHash('sha256')
       .update(readFileSync('resources/browser-extension/background.js'))
       .update(readFileSync('resources/browser-extension/codex-device-handoff.js'))
+      .update(readFileSync('resources/browser-extension/browser-session-claims.js'))
       .digest('hex')
       .slice(0, 12);
 
@@ -1151,12 +1215,13 @@ describe('browser extension assets', () => {
     expect(background).toContain("stampedMessage?.type === 'poll_command'");
   });
 
-  it('starts independent native-port bridges for the legacy and relay hosts', async () => {
+  it('starts independent native-port bridges for the local and both worker hosts', async () => {
     const harness = loadBackgroundHarnessForTest();
     await flushPromises();
 
     expect(harness.chrome.runtime.connectNative).toHaveBeenCalledWith(LEGACY_HOST_NAME);
     expect(harness.chrome.runtime.connectNative).toHaveBeenCalledWith(RELAY_HOST_NAME);
+    expect(harness.chrome.runtime.connectNative).toHaveBeenCalledWith(HOME_BASE_RELAY_HOST_NAME);
     expect(harness.ports.get(LEGACY_HOST_NAME)?.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       type: 'poll_command',
       timeoutMs: 10000,
@@ -1164,6 +1229,9 @@ describe('browser extension assets', () => {
     expect(harness.ports.get(RELAY_HOST_NAME)?.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       type: 'poll_command',
       timeoutMs: 10000,
+    }));
+    expect(harness.ports.get(HOME_BASE_RELAY_HOST_NAME)?.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'poll_command', timeoutMs: 10000,
     }));
   });
 
@@ -1423,7 +1491,11 @@ describe('browser extension assets', () => {
   // lives in the MV3 service worker, so restarting the worker relay could not
   // clear it — only reloading the extension in chrome://extensions could.
   it('keeps executing commands after one fails before its error reporter', async () => {
-    const harness = loadBackgroundHarnessForTest();
+    // One Harness owns this policy change. Another connected Harness would
+    // correctly keep protection on until it too opted out.
+    const harness = loadBackgroundHarnessForTest({
+      failConnectHosts: new Set([LEGACY_HOST_NAME, HOME_BASE_RELAY_HOST_NAME]),
+    });
     await flushPromises();
     const relayBridge = harness.bridges.find((candidate) => candidate.hostName === RELAY_HOST_NAME)!;
     const relayPort = harness.ports.get(RELAY_HOST_NAME)!;
@@ -4289,6 +4361,9 @@ describe('browser extension assets', () => {
       recipients: [{
         hostName: LEGACY_HOST_NAME,
         kind: 'local',
+      }, {
+        hostName: HOME_BASE_RELAY_HOST_NAME,
+        kind: 'relay',
       }],
     }));
     expect(localPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
@@ -6027,6 +6102,7 @@ function loadBackgroundHarnessForTest(options: {
   const failConnectHosts = options.failConnectHosts ?? new Set<string>();
   const ports = new Map<string, NativePortHarness>();
   const localStore: Record<string, unknown> = { ...options.initialLocalStorage };
+  const sessionStore: Record<string, unknown> = {};
   const alarmEvent = createChromeEvent<[unknown]>();
   const messageEvent = createChromeEvent<[unknown, unknown, (response: unknown) => void]>();
   const authRequiredEvent = createChromeEvent<[unknown, (response: unknown) => void]>();
@@ -6151,7 +6227,8 @@ function loadBackgroundHarnessForTest(options: {
           }),
         },
         session: {
-          set: vi.fn(async () => undefined),
+          get: vi.fn(async (key: string) => ({ [key]: sessionStore[key] })),
+          set: vi.fn(async (values: Record<string, unknown>) => { Object.assign(sessionStore, values); }),
         },
       },
       tabs: {
@@ -6268,14 +6345,14 @@ function loadBackgroundHarnessForTest(options: {
       },
     },
     importScripts: (name: string): void => {
-      if (name !== 'codex-device-handoff.js') throw new Error('Unexpected extension import');
+      if (!['codex-device-handoff.js', 'browser-session-claims.js'].includes(name)) throw new Error('Unexpected extension import');
     },
     __backgroundHarness: undefined as (BrowserExtensionBackgroundHarness & {
       pageBridgeScript: (...args: unknown[]) => Record<string, unknown>;
     }) | undefined,
   };
   runInNewContext(
-    `${readFileSync('resources/browser-extension/codex-device-handoff.js', 'utf8')}\n${background}\n;globalThis.__backgroundHarness = { applySecretObservationProtectionEnabled, bridges, buildTabPayload, captureAccessibilitySnapshot, captureTabScreenshot, clearHttpAuthChallenge, clearHttpAuthStage, deriveToolbarBadgeState, forceReleaseCommandResources, handleHttpAuthRequired, httpAuthChallengeForTab, httpAuthChallenges, httpAuthStages, markSecretTaint, pageBridgeScript, recordHttpAuthChallenge, reportTabInventory, selfHealIfWedged, setGatewayEnabled, startControlledTab, stopControlledTab, tabDebuggerChains, dialogWatches, waitForTabComplete, activeCommandCount: () => activeBrowserCommandCount };`,
+    `${readFileSync('resources/browser-extension/codex-device-handoff.js', 'utf8')}\n${readFileSync('resources/browser-extension/browser-session-claims.js', 'utf8')}\n${background}\n;globalThis.__backgroundHarness = { applySecretObservationProtectionEnabled, bridges, buildTabPayload, captureAccessibilitySnapshot, captureTabScreenshot, clearHttpAuthChallenge, clearHttpAuthStage, deriveToolbarBadgeState, forceReleaseCommandResources, handleHttpAuthRequired, httpAuthChallengeForTab, httpAuthChallenges, httpAuthStages, markSecretTaint, pageBridgeScript, recordHttpAuthChallenge, reportTabInventory, selfHealIfWedged, setGatewayEnabled, startControlledTab, stopControlledTab, tabDebuggerChains, dialogWatches, waitForTabComplete, activeCommandCount: () => activeBrowserCommandCount };`,
     context,
     { filename: 'resources/browser-extension/background.js' },
   );

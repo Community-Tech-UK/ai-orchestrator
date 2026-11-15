@@ -1,5 +1,7 @@
 /** Parent recovery replays pending questions regardless of who resolves ownership first. */
 import { AUTOMATION_FAILURE_STATUSES } from '../../shared/types/instance-status-policy';
+import { generateId } from '../../shared/utils/id-generator';
+import { getInputTurnRegistry } from '../instance/input-turn-registry';
 import { getLogger } from '../logging/logger';
 import type { PlanQueueInstancePort } from './plan-queue-host';
 import { buildQuestionsMessage } from './plan-queue-messages';
@@ -99,10 +101,14 @@ export class PlanQueueParentMessenger {
       delivery.status = 'sending';
       return [delivery];
     });
+    // A report about the parent's own run leaves James's latest message as the one it is answering (input-turn-registry.ts).
+    const userMessageId = generateId();
+    getInputTurnRegistry().expectNotice(parentId, userMessageId);
     // Settling an old-owner send only touches its captured entries, never a newer replay.
-    void this.deps.instances.sendInput(parentId, message, undefined, { automatedInput: true, internalSource: 'plan-queue' })
+    void this.deps.instances.sendInput(parentId, message, undefined, { automatedInput: true, internalSource: 'plan-queue', userMessageId })
       .then(() => { for (const delivery of deliveries) delivery.status = 'sent'; })
       .catch((error: unknown) => {
+        getInputTurnRegistry().dropNotice(parentId, userMessageId);
         for (const delivery of deliveries) delivery.status = 'pending';
         logger.warn('Plan queue: could not message the parent session', {
           runId: run.id, error: error instanceof Error ? error.message : String(error),

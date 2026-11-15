@@ -65,7 +65,7 @@ describe('SidebarFooterComponent', () => {
     usage: FleetUsage;
     showCost?: boolean;
     /** UX5's cost-hidden hint counts instances in an active turn. */
-    instances?: { id: string; status: string; provider?: string; contextUsage?: { costEstimate?: number } }[];
+    instances?: { id: string; status: string; provider?: string; metadata?: Record<string, unknown>; contextUsage?: { costEstimate?: number } }[];
     costByProvider?: { provider: string; cost: number }[];
     quota?: ProviderQuotaSnapshot;
   }): Promise<string> {
@@ -79,7 +79,7 @@ describe('SidebarFooterComponent', () => {
             instanceCount: () => opts.instanceCount,
             totalContextUsage: () => opts.usage,
             costByProvider: () => opts.costByProvider ?? [],
-            instances: () => opts.instances ?? [],
+            instances: () => opts.instances ?? Array.from({ length: opts.instanceCount }, (_, i) => ({ id: `i${i}`, status: 'idle' })),
           },
         },
         {
@@ -128,6 +128,29 @@ describe('SidebarFooterComponent', () => {
     const text = await render({ instanceCount: 2, usage: reported(25) });
 
     expect(text).toContain('25% ctx');
+  });
+
+  it('counts listed sessions without sidechat or internal worker runtimes', async () => {
+    const text = await render({ instanceCount: 3, usage: unreported(), instances: [
+      { id: 'main', status: 'idle' },
+      { id: 'sidechat', status: 'busy', metadata: { hideFromProjectRail: true } },
+      { id: 'worker', status: 'idle', metadata: { spawnDepth: 1 } },
+    ] });
+
+    expect(fixture.nativeElement.querySelector('.stats').textContent.trim()).toBe('1 session');
+    expect(text).not.toContain('3 sessions');
+    expect(fixture.componentInstance.store.instanceCount()).toBe(3);
+    expect(fixture.nativeElement.querySelector('.btn-close-all')).not.toBeNull();
+  });
+
+  it('keeps Close all available without a session count when only hidden runtimes remain', async () => {
+    await render({ instanceCount: 1, usage: unreported(), instances: [
+      { id: 'sidechat', status: 'idle', metadata: { hideFromProjectRail: true } },
+    ] });
+
+    expect(fixture.nativeElement.querySelector('.stats')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.btn-close-all')).not.toBeNull();
+    expect(fixture.componentInstance.store.instanceCount()).toBe(1);
   });
 
   it('still renders cost when occupancy was never reported', async () => {

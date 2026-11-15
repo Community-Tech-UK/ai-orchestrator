@@ -27,6 +27,7 @@ describe('MobileGatewaySnapshotService measurement', () => {
     const service = new MobileGatewaySnapshotService({
       clients: new Set([client]), isRunning: () => true,
       getInstances: () => Array.from({ length: 10 }, (_, index) => instance(index)),
+      getInstance: () => undefined,
       getPrompts: () => [],
       getPauseState: () => ({ isPaused: false, reasons: [], pausedAt: null, lastChange: 0 }),
       getActiveLoops: () => [], hasUnreadCompletion: () => false,
@@ -60,6 +61,7 @@ describe('MobileGatewaySnapshotService per-person delivery', () => {
     const service = new MobileGatewaySnapshotService({
       clients: new Set([owner, member]), isRunning: () => true,
       getInstances: () => [], getPrompts: () => [],
+      getInstance: id => ({ ...instance(1), id }),
       getPauseState: () => ({ isPaused: false, reasons: [], pausedAt: null, lastChange: 0 }),
       getActiveLoops: () => [], hasUnreadCompletion: () => false, getQueuedMessages: () => undefined,
       profileOfClient: (client) => (client === owner ? 'owner' : 'member'),

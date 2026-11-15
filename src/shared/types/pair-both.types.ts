@@ -5,9 +5,8 @@ export interface WorkerModeSettings {
   startWorkerOnLaunch: boolean;
   installWorkerService: boolean;
   /**
-   * Open Harness when the user signs in (Windows/macOS login item), so the
-   * "run while Harness is open" worker comes back after a reboot. Only applied
-   * while the role is 'worker'.
+   * Open Harness when the user signs in (Windows/macOS login item), for any
+   * role. Kept here so existing saved choices continue to apply.
    */
   openAtLogin?: boolean;
   /**

@@ -53,6 +53,7 @@ import { SidebarNavComponent } from './sidebar-nav.component';
 import { SidebarFooterComponent } from './sidebar-footer.component';
 import { WorkspaceRailComponent } from './workspace-rail.component';
 import { BrowserPreviewNoticeComponent } from './browser-preview-notice.component';
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 import { DEFAULT_KEYBINDING_ELIGIBILITY_STATE } from '../../../../shared/types/keybinding.types';
 import {
   resolveDashboardProjectContext,
@@ -113,6 +114,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
   private modelPickerFocusService = inject(ModelPickerFocusService);
   private resumePickerController = inject(ResumePickerController);
   sourceControlStore = inject(SourceControlStore);
+  private readonly listedInstances = computed(() => this.store.instances()
+    .filter(instance => !isProjectRailHiddenSession(instance.metadata)));
 
   showHistory = signal(false);
   private readonly paletteOverlays = inject(PaletteOverlaysService);
@@ -306,7 +309,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
       const selectedInstance = this.store.selectedInstance();
       this.keybindingService.setEligibilityState({
         instanceSelected: !!selectedInstance,
-        multipleInstances: this.store.instances().length > 1,
+        multipleInstances: this.listedInstances().length > 1,
         instanceRunning:
           selectedInstance?.status === 'busy'
           || selectedInstance?.status === 'respawning'
@@ -428,7 +431,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
         id: 'next-instance',
         when: ['multiple-instances'],
         run: () => {
-          const instances = this.store.instances();
+          const instances = this.listedInstances();
           const selected = this.store.selectedInstance();
           if (instances.length > 1 && selected) {
             const currentIndex = instances.findIndex((instance) => instance.id === selected.id);
@@ -441,12 +444,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
         id: 'prev-instance',
         when: ['multiple-instances'],
         run: () => {
-          const instances = this.store.instances();
+          const instances = this.listedInstances();
           const selected = this.store.selectedInstance();
           if (instances.length > 1 && selected) {
             const currentIndex = instances.findIndex((instance) => instance.id === selected.id);
             const prevIndex =
-              currentIndex === 0 ? instances.length - 1 : currentIndex - 1;
+              currentIndex <= 0 ? instances.length - 1 : currentIndex - 1;
             this.store.setSelectedInstance(instances[prevIndex].id);
           }
         },
@@ -622,21 +625,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.showSideChat.update((open) => !open);
     if (this.showSideChat()) this.featureUsage.record('toggle-side-chat');
     this.viewLayoutService.setActivePreset(null);
-  }
-
-  /**
-   * Promote the side chat into the main workspace view (clears the instance /
-   * history selection first, mirroring `selectChats()`). Closes the panel so
-   * the same chat isn't rendered twice.
-   */
-  openSideChatInMain(chatId: string): void {
-    this.clearSideChatContext();
-    this.historyStore.clearSelection();
-    this.store.setSelectedInstance(null);
-    this.showFileExplorer.set(false);
-    this.showSourceControl.set(false);
-    this.showSideChat.set(false);
-    void this.chatStore.select(chatId);
   }
 
   /** Open the exact sidechat in its parent's panel without starting the parent. */

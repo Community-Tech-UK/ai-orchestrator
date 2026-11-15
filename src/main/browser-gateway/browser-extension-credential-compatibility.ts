@@ -18,6 +18,15 @@ export const BROWSER_EXTENSION_ONE_TIME_CODE_PROBE_MIN_VERSION = '0.2.50';
 /** First bundle with the document-bound private Codex device handoff commands. */
 export const BROWSER_EXTENSION_CODEX_DEVICE_HANDOFF_MIN_VERSION = '0.2.52';
 
+/** First bundle enforcing session claims and shared-Harness secret policy. */
+export const BROWSER_EXTENSION_SESSION_CLAIMS_MIN_VERSION = '0.2.54';
+
+export function supportsBrowserExtensionSessionClaims(
+  runtime: { extensionVersion?: string; extensionStartedAt?: number } | undefined,
+): boolean {
+  return isRuntimeAtLeast(runtime, BROWSER_EXTENSION_SESSION_CLAIMS_MIN_VERSION);
+}
+
 /** A code may only reach the exact approved, fresh install and worker generation. */
 export function supportsBrowserExtensionCodexDeviceHandoff(
   contactState: BrowserExtensionContactStateReader,

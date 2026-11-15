@@ -28,6 +28,7 @@ import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import type { TaskPreflightReport } from '../../../../shared/types/task-preflight.types';
 import { TaskPreflightCardComponent } from '../../shared/components/task-preflight-card.component';
 import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 
 interface WorktreeActionPayload {
   sessionId: string;
@@ -650,6 +651,7 @@ export class WorktreePageComponent implements OnInit, OnDestroy {
     const data = this.unwrapData<unknown[]>(response, []);
     const options = data
       .filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object')
+      .filter((item) => !isProjectRailHiddenSession(item['metadata'] as Record<string, unknown> | undefined))
       .map((item) => ({
         id: String(item['id']),
         displayName: String(item['displayName'] || item['id']),

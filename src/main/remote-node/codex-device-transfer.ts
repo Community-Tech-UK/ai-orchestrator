@@ -47,6 +47,9 @@ export class CodexDeviceTransferRegistry {
       || input.binding.origin !== 'https://auth.openai.com'
       || bindingKeys.some((key) => typeof input.binding[key] !== 'string' || !input.binding[key])
       || !affirmative(input.isCurrent)) throw refused();
+    // Trusted checks may synchronously cancel or shut down their owner.
+    if (this.closed || input.signal.aborted || this.transfers.size >= 64
+      || Date.now() >= input.expiresAt) throw refused();
     if ([...this.transfers.values()].some((entry) => entry.input.nodeId === input.nodeId
       && entry.input.handle === input.handle)) throw refused();
     const transferId = randomUUID();
@@ -76,9 +79,10 @@ export class CodexDeviceTransferRegistry {
       || bindingKeys.some((key) => payload.binding[key] !== expected.binding[key])) throw refused();
     // Burn before any callback or await; a failed or ambiguous write cannot retry.
     entry.consumed = true;
-    const current = () => this.transfers.get(payload.transferId) === entry
-      && !entry.abort.signal.aborted && Date.now() < expected.expiresAt
-      && affirmative(expected.isCurrent) && affirmative(incomingTransport);
+    const live = () => !this.closed && this.transfers.get(payload.transferId) === entry
+      && !entry.abort.signal.aborted && Date.now() < expected.expiresAt;
+    const current = () => live() && affirmative(expected.isCurrent)
+      && live() && affirmative(incomingTransport) && live();
     try {
       if (!current() || typeof payload.code !== 'string' || !/^[A-Z0-9-]{4,64}$/.test(payload.code)) throw refused();
       await abortable(expected.deliver(payload.code, entry.abort.signal), entry.abort.signal);

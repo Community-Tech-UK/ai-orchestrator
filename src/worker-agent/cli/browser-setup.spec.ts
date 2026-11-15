@@ -2,7 +2,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setUpBrowserFeatures } from './browser-setup';
+import { DEFAULT_WORKER_HOME } from '../worker-home';
+import { loadExtensionInstruction, setUpBrowserFeatures } from './browser-setup';
 
 describe('setUpBrowserFeatures', () => {
   let tempDir: string;
@@ -33,7 +34,12 @@ describe('setUpBrowserFeatures', () => {
     expect(persisted()['browserAutomation']).toEqual({ enabled: true, headless: false });
     expect(installRelay).toHaveBeenCalledWith(configPath);
     expect(lines[0]).toContain('Browser features turned on');
-    expect(lines.join('\n')).toMatch(/Load (unpacked|the Chrome extension)/);
+    expect(lines.join('\n')).toContain('Both workers use that copy.');
+  });
+
+  it('keeps installation instructions for the first worker copy', () => {
+    expect(loadExtensionInstruction(DEFAULT_WORKER_HOME)).toMatch(/Load (unpacked|the Chrome extension)/);
+    expect(loadExtensionInstruction(tempDir)).toContain('Both workers use that copy.');
   });
 
   it('leaves everything off when Chrome is not installed', () => {

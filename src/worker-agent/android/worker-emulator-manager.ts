@@ -1,7 +1,7 @@
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as net from 'node:net';
-import * as os from 'node:os';
+import { resolveWorkerHome } from '../worker-home';
 import * as path from 'node:path';
 import type { AndroidDeviceInfo } from '../../shared/types/worker-node.types';
 import type { WorkerAndroidAutomationConfig } from '../worker-config';
@@ -427,7 +427,7 @@ function startKeyFor(avd: string, excludedSerials: ReadonlySet<string>): string 
 }
 
 function defaultStatePath(): string {
-  return path.join(os.homedir(), '.orchestrator', 'worker-android-emulators.json');
+  return path.join(resolveWorkerHome(), 'worker-android-emulators.json');
 }
 
 function readProcessCommandLine(pid: number): Promise<string> {

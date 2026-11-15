@@ -183,6 +183,33 @@ describe('TerminateConfirmDialogComponent (Decision 16b)', () => {
     expect(fixture.nativeElement.querySelector('h3').textContent).toContain('Close 1 session?');
   });
 
+  it('counts only listed sessions while closing every runtime after confirmation', () => {
+    const { fixture, store } = mount([
+      ROOT_SESSION,
+      { id: 'sidechat', metadata: { hideFromProjectRail: true } },
+      { id: 'worker', metadata: { spawnDepth: 1 } },
+    ]);
+    store.requestAll();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('h3').textContent.trim()).toBe('Close 1 session?');
+    expect(terminateAllInstances).not.toHaveBeenCalled();
+    button(fixture, '.btn-confirm').click();
+    expect(terminateAllInstances).toHaveBeenCalledOnce();
+  });
+
+  it('still confirms closing hidden-only runtimes without claiming zero sessions', () => {
+    const { fixture, store } = mount([{ id: 'sidechat', metadata: { hideFromProjectRail: true } }]);
+    store.requestAll();
+    fixture.detectChanges();
+
+    expect(overlay(fixture)).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('h3').textContent.trim()).toBe('Close all sessions?');
+    expect(terminateAllInstances).not.toHaveBeenCalled();
+    button(fixture, '.btn-confirm').click();
+    expect(terminateAllInstances).toHaveBeenCalledOnce();
+  });
+
   it('does not open Close all without sessions', () => {
     const { fixture, store } = mount([]);
     store.requestAll();

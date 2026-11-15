@@ -97,6 +97,27 @@ describe('PlanQueueCoordinator — merge conflicts are never committed unresolve
     expect(git(['show', 'main:shared.txt'])).toBe('alpha+beta');
   });
 
+  it('lands a merge someone finished by hand in the job\'s folder, committing it before merging the base again', async () => {
+    const { runId } = await startConflict(never);
+    await coordinator.control({ action: 'cancel', runId });
+    // Let the kept-folder retry run while the merge is still unresolved, as it does in the app; it keeps the folder.
+    await coordinator._whenSettledForTesting();
+    const beta = conflicted(runId);
+    expect(git(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], beta.worktreePath!)).not.toBe('');
+    writeFileSync(join(beta.worktreePath!, 'shared.txt'), 'alpha+beta\n');
+    git(['add', 'shared.txt'], beta.worktreePath!);
+
+    const checksBefore = landing.mergeChecks;
+    await coordinator.control({ action: 'land-anyway', itemId: beta.id });
+    await coordinator._whenSettledForTesting();
+
+    // The project's check after a merge ran on the hand-finished result.
+    expect(landing.mergeChecks).toBe(checksBefore + 1);
+    // Landed on this first try, not after a failed landing set it aside.
+    expect(conflicted(runId)).toMatchObject({ state: 'landed', detail: 'Landed without a verifier PASS from the Plan Queue page; the document was left open.' });
+    expect(git(['show', 'main:shared.txt'])).toBe('alpha+beta');
+  });
+
   it('parks as merge-conflict when the worker ends its turn with the merge unresolved', async () => {
     const { runId } = await startConflict(() => undefined);
     await waitForRun(runId);

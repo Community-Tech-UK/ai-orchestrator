@@ -14,8 +14,11 @@ import {
 import { StreamDurabilityCoordinator } from './stream-durability-coordinator';
 import { routeInstanceTelemetry } from './rpc-instance-telemetry-routing';
 import { recordBrowserCommandReplyArrival } from './rpc-browser-command-observability';
+import { CodexDeviceTransferRegistry } from './codex-device-transfer';
+import { handleCodexDeviceDelivery, eraseCodexDeviceDelivery } from './rpc-codex-device-delivery';
 const logger = getLogger('RpcEventRouter');
 export class RpcEventRouter {
+  readonly codexDeviceTransfers = new CodexDeviceTransferRegistry();
   private readonly connection: WorkerNodeConnectionServer;
   private readonly registry: WorkerNodeRegistry;
   private readonly browserExtensionBridge?: RemoteBrowserExtensionBridge;
@@ -79,6 +82,10 @@ export class RpcEventRouter {
     this.onWsConnected = this.handleWsConnected.bind(this);
     this.onWsDisconnected = this.handleWsDisconnected.bind(this);
     this.onRpcRequest = (nodeId, request, respond) => {
+      if (request.method === NODE_TO_COORDINATOR.CODEX_DEVICE_LOGIN_DELIVER) {
+        void handleCodexDeviceDelivery(nodeId, request, respond, this.connection, this.codexDeviceTransfers);
+        return;
+      }
       recordBrowserCommandReplyArrival(nodeId, request);
       void this.handleRpcRequest(
         nodeId,
@@ -97,6 +104,7 @@ export class RpcEventRouter {
   }
 
   stop(): void {
+    this.codexDeviceTransfers.shutdown();
     this.streamDurability.dispose();
     this.connection.off('node:ws-connected', this.onWsConnected);
     this.connection.off('node:ws-disconnected', this.onWsDisconnected);
@@ -104,15 +112,12 @@ export class RpcEventRouter {
     this.connection.off('rpc:notification', this.onRpcNotification);
   }
 
-  // ---------------------------------------------------------------------------
-  // WebSocket lifecycle handlers
-  // ---------------------------------------------------------------------------
-
   private handleWsConnected(nodeId: string): void {
     logger.info('Node WebSocket connected — awaiting registration', { nodeId });
   }
 
   private handleWsDisconnected(nodeId: string): void {
+    this.codexDeviceTransfers.invalidateNode(nodeId);
     getWorkerNodeHealth().stopMonitoring(nodeId);
     this.lastSeenSeq.delete(nodeId);
     this.getBrowserExtensionBridge().expireNode(nodeId);
@@ -139,10 +144,6 @@ export class RpcEventRouter {
     this.lastSeenSeq.set(nodeId, seq);
     return true;
   }
-
-  // ---------------------------------------------------------------------------
-  // RPC request dispatcher
-  // ---------------------------------------------------------------------------
 
   private async handleRpcRequest(
     nodeId: string,
@@ -227,11 +228,11 @@ export class RpcEventRouter {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // RPC notification dispatcher
-  // ---------------------------------------------------------------------------
-
   private handleRpcNotification(nodeId: string, notification: RpcNotification): void {
+    if (notification.method === NODE_TO_COORDINATOR.CODEX_DEVICE_LOGIN_DELIVER) {
+      eraseCodexDeviceDelivery(notification);
+      return;
+    }
     // Trusted notification methods skip per-message auth validation.
     // The WebSocket was authenticated during node.register.
     if (!this.trustedNotificationMethods.has(notification.method)) {
@@ -326,9 +327,7 @@ export class RpcEventRouter {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Individual request handlers
-  // ---------------------------------------------------------------------------
 
   private handleNodeRegister(wsNodeId: string, request: RpcRequest): void {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

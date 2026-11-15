@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
+import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 
 // Mock the logger to avoid electron / filesystem dependencies
@@ -164,6 +165,54 @@ describe('RpcEventRouter', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     router = new RpcEventRouter(mockConnection as any, registry, mockBrowserBridge as any);
     router.start();
+  });
+
+  it('keeps private deliveries out of the generic fallback and erases their payload', () => {
+    const request = makeRpcRequest('provider.codexDevice.deliver', { code: 'TEST-CODE' });
+    mockConnection.emit('rpc:request', 'node-private', request);
+    expect(mockConnection.sendResponse).not.toHaveBeenCalled();
+    expect(mockLogger.warn).not.toHaveBeenCalled();
+    expect(request.params).toBeUndefined();
+  });
+
+  it('routes an authenticated delivery to the private registry and original responder', async () => {
+    const handle = randomUUID();
+    const owner = { sessionId: 'test-session', generation: 'test-generation' };
+    const binding = { browserNodeId: 'test-browser', profileId: 'test-profile', targetId: 'test-tab',
+      origin: 'https://auth.openai.com' as const, documentId: 'test-document', extensionInstanceId: 'test-extension',
+      extensionGeneration: 'test-generation', approvalId: 'test-approval', expectedIdentity: 'test@example.invalid' };
+    const expiresAt = Date.now() + 60_000;
+    const deliver = vi.fn(async () => undefined);
+    const { transferId } = router.codexDeviceTransfers.register({ nodeId: 'test-node', handle, owner, binding,
+      expiresAt, signal: new AbortController().signal, isCurrent: () => true, deliver });
+    mockConnection.captureConfidentialResponder.mockReturnValue(() => true);
+    const request: RpcRequest = { jsonrpc: '2.0', id: `codex-device-private-${randomUUID()}`,
+      method: 'provider.codexDevice.deliver', scope: 'service', token: 'test-token-placeholder',
+      params: { handle, owner, binding, transferId, expiresAt, code: 'TEST-CODE' } };
+    const respond = vi.fn(() => true);
+    mockConnection.emit('rpc:request', 'test-node', request, respond);
+    await vi.waitFor(() => expect(respond).toHaveBeenCalledWith({ jsonrpc: '2.0', id: request.id, result: { delivered: true } }));
+    expect(deliver).toHaveBeenCalledWith('TEST-CODE', expect.any(AbortSignal));
+    expect(mockConnection.captureConfidentialResponder).toHaveBeenCalledWith('test-node', respond);
+    expect(mockConnection.sendResponse).not.toHaveBeenCalled();
+    expect(mockLogger.warn).not.toHaveBeenCalled();
+  });
+
+  it('silently erases private notifications before generic authentication or logging', () => {
+    const notification = { jsonrpc: '2.0', method: 'provider.codexDevice.deliver', params: { code: 'TEST-CODE' } };
+    mockConnection.emit('rpc:notification', 'node-private', notification);
+    expect(notification.params).toBeUndefined();
+    expect(mockRemoteAuth.validateSessionToken).not.toHaveBeenCalled();
+    expect(mockLogger.warn).not.toHaveBeenCalled();
+  });
+
+  it('invalidates private transfers on disconnect and shutdown', () => {
+    const invalidate = vi.spyOn(router.codexDeviceTransfers, 'invalidateNode');
+    const shutdown = vi.spyOn(router.codexDeviceTransfers, 'shutdown');
+    mockConnection.emit('node:ws-disconnected', 'node-private');
+    expect(invalidate).toHaveBeenCalledWith('node-private');
+    router.stop();
+    expect(shutdown).toHaveBeenCalledOnce();
   });
 
   // -------------------------------------------------------------------------

@@ -141,6 +141,7 @@ export const SETTING_SURFACING = {
   instructionTrustGate: 'tab',
   browserAllowSharedTabCredentialFill: 'tab',
   browserSecretObservationProtectionEnabled: 'tab',
+  browserLocalComputerEnabled: 'tab',
   workspaceSecretsEnabled: 'tab',
   workspaceSecretsAllowAgentRequests: 'tab',
   providerSignalFenceEnabled: 'tab',

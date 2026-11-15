@@ -178,7 +178,7 @@ async function main(): Promise<void> {
     }
   });
 
-  const agent = new WorkerAgent(config, activeConfigPath, connectionStatus);
+  const agent = new WorkerAgent(config, activeConfigPath, connectionStatus, serviceMode);
 
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {

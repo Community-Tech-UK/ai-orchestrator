@@ -18,6 +18,20 @@ function chosen(result: ReturnType<typeof chooseChromeProfile>): ChromeProfileCh
 }
 
 describe('chooseChromeProfile', () => {
+  it('chooses a connected profile with the site open even with no activity history', () => {
+    expect(chosen(chooseChromeProfile({
+      connected: [OTHER, MAIN], usage: [], siteProfiles: [MAIN],
+    }))).toMatchObject({ extensionInstanceId: MAIN, basis: 'site_tab' });
+  });
+
+  it('prefers an explicit request over an open site tab and ignores disconnected site profiles', () => {
+    expect(chosen(chooseChromeProfile({
+      connected: [OTHER, MAIN], usage: [], siteProfiles: [MAIN], requested: OTHER,
+    }))).toMatchObject({ extensionInstanceId: OTHER, basis: 'requested' });
+    expect(chosen(chooseChromeProfile({
+      connected: [OTHER], usage: [], siteProfiles: [MAIN],
+    })).extensionInstanceId).toBeUndefined();
+  });
   it('picks the profile agents have used for the website, even when another is used more overall', () => {
     const choice = chosen(chooseChromeProfile({
       connected: [OTHER, MAIN],

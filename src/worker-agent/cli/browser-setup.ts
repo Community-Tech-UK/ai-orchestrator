@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import { isDefaultWorkerHome, resolveWorkerHome, workerRelayHostName } from '../worker-home';
 import {
   defaultExtensionRelaySocketPath,
   ensureExtensionRelayDefaults,
@@ -7,7 +8,6 @@ import {
 } from '../worker-config';
 import {
   BROWSER_EXTENSION_NATIVE_HOST_NAME,
-  BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
   assertBrowserExtensionNativeHostManifestWritable,
   browserExtensionNativeHostPaths,
   browserExtensionNativeHostManifestPath,
@@ -24,8 +24,8 @@ import { workerBrowserExtensionFolder } from '../browser-extension-folder';
 export function installExtensionRelay(configPath: string, force: boolean): { manifestPath: string } {
   const config = loadWorkerConfig(configPath);
   const extensionRelay = ensureExtensionRelayDefaults(
-    { ...config.extensionRelay, enabled: true },
-    defaultExtensionRelaySocketPath,
+    { ...config.extensionRelay, enabled: true, ...(!isDefaultWorkerHome(path.dirname(configPath)) ? { legacyNameRegistration: false } : {}) },
+    () => defaultExtensionRelaySocketPath(path.dirname(configPath)),
   );
   if (!extensionRelay?.extensionToken || !extensionRelay.socketPath) {
     throw new Error('Failed to prepare extension relay config');
@@ -41,11 +41,17 @@ export function installExtensionRelay(configPath: string, force: boolean): { man
       force,
     });
   }
+  const relayHostName = workerRelayHostName(userDataPath);
+  assertBrowserExtensionNativeHostManifestWritable({
+    manifestPath: browserExtensionNativeHostManifestPath(undefined, relayHostName),
+    nativeDir: browserExtensionNativeHostPaths({ userDataPath, hostName: relayHostName }).nativeDir,
+    force,
+  });
   config.extensionRelay = extensionRelay;
   persistConfig(configPath, config);
   const hostNames = extensionRelay.legacyNameRegistration !== false
-    ? [BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME, BROWSER_EXTENSION_NATIVE_HOST_NAME]
-    : [BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME];
+    ? [relayHostName, BROWSER_EXTENSION_NATIVE_HOST_NAME]
+    : [relayHostName];
   const [result] = hostNames.map((hostName) => prepareBrowserExtensionNativeHostRuntime({
     userDataPath,
     socketPath: extensionRelay.socketPath as string,
@@ -57,7 +63,10 @@ export function installExtensionRelay(configPath: string, force: boolean): { man
 }
 
 /** How to load the unpacked extension on this computer. */
-export function loadExtensionInstruction(): string {
+export function loadExtensionInstruction(workerHome = resolveWorkerHome()): string {
+  if (!isDefaultWorkerHome(workerHome)) {
+    return 'Keep the Chrome extension already loaded from the first worker checkout. Both workers use that copy.';
+  }
   const folder = workerBrowserExtensionFolder();
   return folder
     ? `Load the Chrome extension on this computer: chrome://extensions, turn on Developer mode, Load unpacked, choose ${folder}`
@@ -95,7 +104,7 @@ export function setUpBrowserFeatures(configPath: string, deps: BrowserSetupDeps 
     );
     return lines;
   }
-  lines.push(loadExtensionInstruction());
+  lines.push(loadExtensionInstruction(path.dirname(configPath)));
   return lines;
 }
 

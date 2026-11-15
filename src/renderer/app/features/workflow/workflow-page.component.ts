@@ -26,6 +26,7 @@ import { TaskIpcService } from '../../core/services/ipc/task-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import type { TaskPreflightReport } from '../../../../shared/types/task-preflight.types';
 import { TaskPreflightCardComponent } from '../../shared/components/task-preflight-card.component';
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 
 interface InstanceOption {
   id: string;
@@ -704,6 +705,9 @@ export class WorkflowPageComponent implements OnInit, OnDestroy {
       return null;
     }
     const candidate = value as Record<string, unknown>;
+    if (isProjectRailHiddenSession(candidate['metadata'] as Record<string, unknown> | undefined)) {
+      return null;
+    }
     if (typeof candidate['id'] !== 'string' || typeof candidate['displayName'] !== 'string') {
       return null;
     }

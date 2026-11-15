@@ -177,6 +177,8 @@ export interface SessionState {
   allowedAccountProfileIds?: string[];
   /** The phone-app member this session belongs to; absent for the owner's. A revived session stays theirs. */
   mobileProfileId?: string;
+  /** The folder this session sorts out as the Plan Queue's Set aside agent; a revived agent keeps its tools. */
+  planQueueSetAsideFolder?: string;
   /** Failover preferences (Plan Queue account rules); see `Instance.accountPreferences`. */
   accountPreferences?: AccountPreferences;
   /**

@@ -17,6 +17,7 @@ import { providerName } from '../../../../shared/display-names';
 import { ProviderQuotaStore } from '../../core/state/provider-quota.store';
 import { resolveBillingMode } from '../../../../shared/utils/billing-mode';
 import { sessionQuotaSnapshot } from '../instance-detail/session-quota-snapshot';
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 
 @Component({
   selector: 'app-sidebar-footer',
@@ -28,9 +29,9 @@ import { sessionQuotaSnapshot } from '../instance-detail/session-quota-snapshot'
       <div class="sidebar-footer">
         @if (hasStats()) {
           <div class="stats">
-            @if (store.instanceCount() > 0) {
+            @if (listedSessionCount() > 0) {
               <span class="stat">
-                {{ store.instanceCount() }} session{{ store.instanceCount() === 1 ? '' : 's' }}
+                {{ listedSessionCount() }} session{{ listedSessionCount() === 1 ? '' : 's' }}
               </span>
             }
             <!-- LT-018: a positive total alone was true the moment any instance
@@ -73,6 +74,8 @@ export class SidebarFooterComponent {
   store = inject(InstanceStore);
   private settings = inject(SettingsStore);
   private readonly quotas = inject(ProviderQuotaStore);
+  readonly listedSessionCount = computed(() => this.store.instances()
+    .filter(instance => !isProjectRailHiddenSession(instance.metadata)).length);
   readonly hasPlanCost = computed(() => this.store.instances().some(instance =>
     (instance.contextUsage?.costEstimate ?? 0) > 0 && resolveBillingMode(instance.provider,
       sessionQuotaSnapshot(instance, this.quotas.snapshots(), this.quotas.accountSnapshots())) === 'plan'));
@@ -93,7 +96,7 @@ export class SidebarFooterComponent {
   ));
 
   readonly hasStats = computed(() =>
-    this.store.instanceCount() > 0
+    this.listedSessionCount() > 0
       // LT-018: `total` now only accumulates from instances that reported, so
       // this is equivalent to the flag — say so, rather than leaving a second
       // spelling of the same condition to drift.

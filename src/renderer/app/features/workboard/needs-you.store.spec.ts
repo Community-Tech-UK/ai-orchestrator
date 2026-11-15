@@ -67,6 +67,40 @@ describe('NeedsYouStore', () => {
     ] });
   });
   afterEach(() => { TestBed.resetTestingModule(); vi.useRealTimers(); vi.restoreAllMocks(); });
+  it('keeps a hidden sidechat approval grouped under its parent without a standalone runtime card', () => {
+    const parent = { kind: 'session' as const, historyThreadId: 'parent-thread', originNodeId: null };
+    instances.set([{ ...failure('waiting_for_permission'), metadata: { hideFromProjectRail: true, sideChatId: 'sidechat' } }]);
+    TestBed.overrideProvider(SideChatStore, { useValue: { attentionList: () => [{
+      parent, parentTitle: 'Parent session', needsAttention: 1, attentionSince: 50, targetChatId: 'sidechat',
+    }] } });
+    TestBed.overrideProvider(PermissionApprovalsStore, { useValue: { now, pendingRequests: () => [{
+      id: 'approval', instanceId: 'a', description: 'Allow tool', createdAt: 50, expiresAt: 200,
+    }] } });
+    TestBed.overrideProvider(BrowserApprovalsStore, { useValue: { pendingRequests: () => [{
+      requestId: 'browser', instanceId: 'a', createdAt: 50, expiresAt: 200,
+    }] } });
+    const store = TestBed.inject(NeedsYouStore);
+    expect(store.workItems()).toEqual([]);
+    expect(store.entries()).toEqual([expect.objectContaining({ key: 'sidechat:session:parent-thread', source: 'sidechat' })]);
+  });
+  it('keeps a hidden sidechat question visible before its parent attention summary refreshes', () => {
+    instances.set([{ ...failure('waiting_for_input'), metadata: { hideFromProjectRail: true, sideChatId: 'sidechat' } }]);
+    TestBed.overrideProvider(PendingRequestStore, { useValue: { forInstance: () => [{
+      kind: 'question', text: 'Which file?', since: 50,
+    }] } });
+    const store = TestBed.inject(NeedsYouStore);
+    expect(store.entries()).toEqual([expect.objectContaining({
+      source: 'session-question', instanceId: 'a', detail: 'Asked you: Which file?',
+    })]);
+  });
+  it('keeps a raw browser approval visible while the hidden sidechat is still processing', () => {
+    instances.set([{ ...failure('processing'), metadata: { hideFromProjectRail: true, sideChatId: 'sidechat' } }]);
+    TestBed.overrideProvider(BrowserApprovalsStore, { useValue: { pendingRequests: () => [{
+      requestId: 'browser', instanceId: 'a', createdAt: 50, expiresAt: 200,
+    }] } });
+    const store = TestBed.inject(NeedsYouStore);
+    expect(store.entries()).toEqual([expect.objectContaining({ source: 'browser-approval', instanceId: 'a' })]);
+  });
   it('keeps a new failure version visible until the selected session is selected again', () => {
     selectedInstanceId.set('a');
     const store = TestBed.inject(NeedsYouStore);

@@ -22,6 +22,7 @@ import { loopPauseReason } from '../loop/loop-formatters.util';
 import { correlateWorkboard, instanceAttentionStatus, LOOP_PAUSE_LABELS, retainWorkboardItems, snoozeClearedByAttention } from './workboard-projection';
 import { describeInstanceStatus, presentInstanceStatus } from '../../../../shared/attention/instance-status-presentation';
 import { describeLoopEnd } from '../../../../shared/loop/loop-end-wording';
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 import { needsYouReason, requestEntries, workboardEntry, workboardEntryKey } from './needs-you-sources';
 import type { WorkboardProjectionInput } from './workboard.types';
 
@@ -82,7 +83,8 @@ export class NeedsYouStore {
   private outstandingRefreshFailed = false;
   readonly outstanding = this.outstandingSignal.asReadonly();
 
-  private readonly narrowInstances = computed(() => this.instances.instances().map((item) => ({
+  private readonly narrowInstances = computed(() => this.instances.instances()
+    .filter(item => !isProjectRailHiddenSession(item.metadata)).map((item) => ({
     id: item.id, status: item.status, pendingApprovalCount: item.pendingApprovalCount,
     displayName: item.displayName, lastActivity: item.lastActivity, parentId: item.parentId,
     workingDirectory: item.workingDirectory, provider: item.provider,
@@ -119,14 +121,31 @@ export class NeedsYouStore {
       const alert = this.tools.alertFor(id);
       return alert ? [{ ...alert, sessionName: this.instances.getInstance(id)?.displayName }] : [];
     });
-    const requests = requestEntries({ permissions: this.activePermissions(), browsers: this.activeBrowsers(),
+    // A sidechat reports through its parent's entry, whose Open action brings
+    // up the panel. A raw runtime request would select an invisible session.
+    const groupedSideChatIds = new Set(this.sidechats.attentionList()
+      .filter(item => item.needsAttention > 0).map(item => item.targetChatId));
+    const sideChatRuntimeIds = new Set(this.instances.instances()
+      .filter(item => {
+        const chatId = item.metadata?.['sideChatId'];
+        return typeof chatId === 'string' && groupedSideChatIds.has(chatId);
+      }).map(item => item.id));
+    const sideChatQuestions = this.instances.instances().flatMap(item => {
+      if (typeof item.metadata?.['sideChatId'] !== 'string' || sideChatRuntimeIds.has(item.id)) return [];
+      const request = this.pending.forInstance(item.id).find(request => request.kind === 'question');
+      return request ? [{ instanceId: item.id, sessionName: item.displayName, question: request.text,
+        requestCount: request.since, since: request.since }] : [];
+    });
+    const requests = requestEntries({
+      permissions: this.activePermissions().filter(item => !sideChatRuntimeIds.has(item.instanceId)),
+      browsers: this.activeBrowsers().filter(item => !item.instanceId || !sideChatRuntimeIds.has(item.instanceId)),
       fallbacks: this.activeFallbacks(), plans: this.plans.needsAnswerItems(), documents: this.activeDocuments(),
       memories: this.memories.proposals(), sidechats: this.sidechats.attentionList(),
       outstanding: this.outstandingSignal().map((item) => ({ ...item, userResponse: item.userResponse ?? null })), toolLoops,
-      sessionQuestions: this.sessionWatcher.flags().map((flag) => ({
+      sessionQuestions: [...this.sessionWatcher.flags().map((flag) => ({
         instanceId: flag.instanceId, sessionName: this.instances.getInstance(flag.instanceId)?.displayName, question: flag.question,
         note: flag.note, requestCount: flag.requestCount, since: flag.since,
-      })),
+      })), ...sideChatQuestions],
     }, untracked(this.now));
     return sortNeedsYou([...work, ...requests]);
   });

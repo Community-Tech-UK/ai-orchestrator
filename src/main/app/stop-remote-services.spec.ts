@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   connectionStop: vi.fn(),
   workerModeStop: vi.fn(),
   thinClientStop: vi.fn(),
+  mobileStop: vi.fn(),
 }));
 
 vi.mock('../remote-node', () => ({
@@ -19,11 +20,14 @@ vi.mock('../event-bus/thin-client-ws-server', () => ({
   getThinClientWsServer: () => ({ stop: mocks.thinClientStop }),
 }));
 
+vi.mock('../mobile-gateway/mobile-gateway-server', () => ({ getMobileGatewayServer: () => ({ stop: mocks.mobileStop }) }));
+
 import { stopRemoteServices } from './stop-remote-services';
 
 describe('stopRemoteServices', () => {
   beforeEach(() => {
     calls.length = 0;
+    mocks.mobileStop.mockReset().mockImplementation(async () => { calls.push('mobile'); });
     mocks.healthStopAll.mockReset().mockImplementation(() => { calls.push('health'); });
     mocks.connectionStop.mockReset().mockImplementation(() => { calls.push('connection'); });
     mocks.workerModeStop.mockReset().mockImplementation(() => { calls.push('worker-mode'); });
@@ -34,7 +38,7 @@ describe('stopRemoteServices', () => {
     await stopRemoteServices();
 
     expect(mocks.workerModeStop).toHaveBeenCalledOnce();
-    expect(calls).toEqual(['health', 'connection', 'worker-mode', 'thin-client']);
+    expect(calls).toEqual(['health', 'connection', 'worker-mode', 'thin-client', 'mobile']);
   });
 
   it('still stops the remaining services when the worker-mode stop throws', async () => {

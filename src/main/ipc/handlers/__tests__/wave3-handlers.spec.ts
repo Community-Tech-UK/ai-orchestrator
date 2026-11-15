@@ -178,4 +178,26 @@ describe('wave 3 IPC handlers', () => {
       workingDirectory: undefined,
     });
   });
+
+  it('resumes the latest visible conversation even when a hidden sidechat is newer', async () => {
+    const entries = [{ id: 'sidechat-runtime', hideFromProjectRail: true }, { id: 'visible-session' }];
+    getEntries.mockImplementation((options: { limit?: number }) => options.limit ? entries.slice(0, options.limit) : entries);
+    const restoreFromHistory = vi.fn(async (id: string) => ({ instanceId: id }));
+    registerResumeHandlers({ instanceManager: { restoreFromHistory } as unknown as InstanceManager });
+
+    expect(await invoke(IPC_CHANNELS.RESUME_LATEST, {})).toMatchObject({
+      success: true, data: { instanceId: 'visible-session' },
+    });
+  });
+
+  it('does not offer hidden sidechat history when no ordinary session can resume', async () => {
+    getEntries.mockReturnValue([{ id: 'sidechat-runtime', hideFromProjectRail: true }]);
+    const restoreFromHistory = vi.fn();
+    registerResumeHandlers({ instanceManager: { restoreFromHistory } as unknown as InstanceManager });
+
+    expect(await invoke(IPC_CHANNELS.RESUME_LATEST, {})).toMatchObject({
+      success: false, error: { code: 'RESUME_LATEST_NOT_FOUND' },
+    });
+    expect(restoreFromHistory).not.toHaveBeenCalled();
+  });
 });

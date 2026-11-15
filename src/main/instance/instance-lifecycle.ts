@@ -931,6 +931,7 @@ export class InstanceLifecycleManager extends EventEmitter {
    * Fire-and-forget auto-title generation from the first user message.
    */
   private triggerAutoTitle(instance: Instance, message: string, attachmentNames?: readonly string[]): void {
+    if (typeof instance.metadata?.['sideChatId'] === 'string') return;
     getAutoTitleService().maybeGenerateTitle(
       instance.id,
       message,

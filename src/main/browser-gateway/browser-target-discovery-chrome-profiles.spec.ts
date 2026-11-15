@@ -55,6 +55,18 @@ describe('find_or_open with several Chrome profiles on one computer', () => {
   const openTabCall = (sendCommand: ReturnType<typeof setup>['sendCommand']) =>
     sendCommand.mock.calls.map(([request]) => request).find((request) => request.command === 'open_tab');
 
+  it('opens a separate tab when another Harness session holds the matching tab', async () => {
+    const { service, sendCommand } = setup({ connected: [OTHER, MAIN], tabs: [facebookTab(MAIN)] });
+    sendCommand.mockImplementation(async (request: BrowserExtensionSendCommandRequest) => {
+      if (request.command === 'claim_tab') throw new Error('browser_tab_held_by_another_session');
+      return request.command === 'open_tab'
+        ? { tab: { tabId: 99, windowId: 5, title: 'Marketplace', url: URL } } : { ok: true };
+    });
+    const result = await service.findOrOpen({ instanceId: 'i-1', provider: 'codex', url: URL, nodeId: 'node-1' });
+    expect(result).toMatchObject({ outcome: 'succeeded' });
+    expect(openTabCall(sendCommand)).toMatchObject({ target: { extensionInstanceId: MAIN } });
+  });
+
   it('opens the new tab in the profile agents have used for the website', async () => {
     const { service, sendCommand, auditStore, commandStore } = setup({
       connected: [OTHER, MAIN],

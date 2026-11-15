@@ -1,3 +1,4 @@
+import { getMobileGatewayServer } from '../mobile-gateway/mobile-gateway-server';
 import { getThinClientWsServer } from '../event-bus/thin-client-ws-server';
 import {
   getWorkerNodeConnectionServer,
@@ -16,4 +17,5 @@ export async function stopRemoteServices(): Promise<void> {
   // leaving an orphan that the next launch cannot see or stop.
   try { getWorkerModeRuntimeService().stop(); } catch { /* best effort */ }
   try { await getThinClientWsServer().stop(); } catch { /* best effort */ }
+  try { await getMobileGatewayServer().stop(); } catch { /* best effort */ }
 }

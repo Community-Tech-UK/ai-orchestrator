@@ -28,6 +28,7 @@ type RegistrationSummary = Pick<
 
 export interface ExtensionRelayNativeRegistrationOptions {
   userDataPath: string;
+  hostName?: string;
   hostCommand: BrowserExtensionNativeHostCommand;
   chromeNativeMessagingDir?: string;
   registry?: WindowsNativeMessagingRegistry;
@@ -54,6 +55,7 @@ export interface LegacyExtensionRelayNativeHostOptions {
 
 export class ExtensionRelayNativeRegistration {
   private readonly userDataPath: string;
+  private readonly hostName: string;
   private readonly hostCommand: BrowserExtensionNativeHostCommand;
   private readonly chromeNativeMessagingDir?: string;
   private readonly registry: WindowsNativeMessagingRegistry;
@@ -65,6 +67,7 @@ export class ExtensionRelayNativeRegistration {
 
   constructor(options: ExtensionRelayNativeRegistrationOptions) {
     this.userDataPath = options.userDataPath;
+    this.hostName = options.hostName ?? BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME;
     this.hostCommand = options.hostCommand;
     this.chromeNativeMessagingDir = options.chromeNativeMessagingDir;
     this.registry = options.registry ?? createWindowsNativeMessagingRegistry();
@@ -81,7 +84,7 @@ export class ExtensionRelayNativeRegistration {
     const paths = browserExtensionNativeHostPaths({
       userDataPath: this.userDataPath,
       chromeNativeMessagingDir: this.chromeNativeMessagingDir,
-      hostName: BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
+      hostName: this.hostName,
     });
     const base = {
       lastRegistrationCheckAt: checkedAt,
@@ -119,7 +122,7 @@ export class ExtensionRelayNativeRegistration {
         socketPath: config.socketPath,
         extensionToken: config.extensionToken,
         hostCommand: this.hostCommand,
-        hostName: BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
+        hostName: this.hostName,
         chromeNativeMessagingDir: this.chromeNativeMessagingDir,
         windowsRegistry: this.registry,
         registerInOS: true,
@@ -130,7 +133,7 @@ export class ExtensionRelayNativeRegistration {
         this.warnContested(paths.manifestPath);
       } else {
         this.logger.info('[WorkerExtensionRelay] Repaired native-host registration', {
-          hostName: BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
+          hostName: this.hostName,
           reason: validationError,
           manifestPath: paths.manifestPath,
         });
@@ -140,7 +143,7 @@ export class ExtensionRelayNativeRegistration {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn('[WorkerExtensionRelay] Native-host registration check failed', {
-        hostName: BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
+        hostName: this.hostName,
         error: message,
       });
       this.lastSummary = {
@@ -176,7 +179,7 @@ export class ExtensionRelayNativeRegistration {
     } catch {
       return 'manifest_invalid';
     }
-    if (manifest.name !== BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME) {
+    if (manifest.name !== this.hostName) {
       return 'manifest_name_mismatch';
     }
     if (manifest.path !== paths.wrapperPath) {
@@ -242,7 +245,7 @@ export class ExtensionRelayNativeRegistration {
     if (process.platform !== 'win32') {
       return undefined;
     }
-    return this.registry.readManifestPath(BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME);
+    return this.registry.readManifestPath(this.hostName);
   }
 
   private foreignManifestOwnerPath(paths: {
@@ -285,7 +288,7 @@ export class ExtensionRelayNativeRegistration {
     }
     this.warnedContested = true;
     this.logger.warn('[WorkerExtensionRelay] Native-host registration contested', {
-      hostName: BROWSER_EXTENSION_RELAY_NATIVE_HOST_NAME,
+      hostName: this.hostName,
       manifestPath,
       repairs: this.repairTimestamps.length,
       windowMs: REPAIR_FLAP_WINDOW_MS,

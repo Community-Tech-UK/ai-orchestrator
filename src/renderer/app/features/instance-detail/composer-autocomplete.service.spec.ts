@@ -71,6 +71,30 @@ describe('ComposerAutocompleteService', () => {
     expect(search).not.toHaveBeenCalled();
   });
 
+  it('offers only listed live and history sessions, retaining live/history deduplication', async () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [ComposerAutocompleteService,
+      { provide: CodebaseIpcService, useValue: { search } },
+      { provide: InstanceStore, useValue: { instances: signal([
+        { id: 'main-live', displayName: 'Main session', workingDirectory: '/repo' },
+        { id: 'side-live', displayName: 'Sidechat runtime', workingDirectory: '/repo', metadata: { hideFromProjectRail: true, sideChatId: 'side-chat' } },
+        { id: 'worker-live', displayName: 'Internal worker', workingDirectory: '/repo', metadata: { spawnDepth: 1 } },
+      ]) } },
+      { provide: HistoryStore, useValue: { entries: signal([
+        { id: 'past-visible', displayName: 'Past session', originalInstanceId: 'old-visible', workingDirectory: '/repo' },
+        { id: 'past-hidden', displayName: 'Hidden archived session', originalInstanceId: 'old-hidden', workingDirectory: '/repo', hideFromProjectRail: true },
+        { id: 'main-duplicate', displayName: 'Duplicate main history', originalInstanceId: 'main-live', workingDirectory: '/repo' },
+        { id: 'side-duplicate', displayName: 'Legacy sidechat history', originalInstanceId: 'side-live', workingDirectory: '/repo' },
+      ] as ConversationHistoryEntry[]) } },
+    ] });
+    service = TestBed.inject(ComposerAutocompleteService);
+
+    const sessions = await service.searchSessions('', '/repo');
+
+    expect(sessions.map(item => item.label).sort()).toEqual(['Main session', 'Past session']);
+    expect(sessions.map(item => item.insertText).sort()).toEqual(['[session: Main session · main-live]', '[session: Past session · past-visible]']);
+  });
+
   it.each([false, true])('awaits an in-flight history load when typing quickly (external load: %s)', async (externalLoad) => {
     let finishLoad!: (response: { success: true; data: ConversationHistoryEntry[] }) => void;
     const listHistory = vi.fn(() => new Promise<{ success: true; data: ConversationHistoryEntry[] }>((resolve) => { finishLoad = resolve; }));

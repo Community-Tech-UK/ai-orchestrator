@@ -23,6 +23,21 @@ function setup() {
 afterEach(() => { for (const registry of registries.splice(0)) registry.shutdown(); vi.useRealTimers(); });
 
 describe('private native device-code transfer', () => {
+  it('refuses registration if its authority callback shuts down the registry', () => {
+    const { registry, input } = setup();
+    expect(() => registry.register({ ...input, handle: 'second-handle', isCurrent: () => {
+      registry.shutdown(); return true;
+    } })).toThrow('codex_device_transfer_refused');
+  });
+
+  it('does not deliver if the incoming transport callback cancels the transfer', async () => {
+    const { registry, payload, transfer, deliver } = setup();
+    await expect(registry.receive('native-node', payload, () => {
+      transfer.cancel(); return true;
+    })).rejects.toThrow('codex_device_transfer_refused');
+    expect(deliver).not.toHaveBeenCalled();
+  });
+
   it.each(['native-node', 'browser-node'])('cancels transfers when %s disconnects', async (nodeId) => {
     const { registry, payload, deliver } = setup();
     registry.invalidateNode(nodeId);

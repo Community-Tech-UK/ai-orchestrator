@@ -15,6 +15,7 @@ import { HistoryStore } from '../../core/state/history.store';
 import { InstanceStore } from '../../core/state/instance.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import type { ConversationHistoryEntry } from '../../../../shared/types/history.types';
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 
 interface SearchResult {
   kind: 'session' | 'live';
@@ -300,9 +301,15 @@ export class ChatSearchPageComponent implements OnInit, AfterViewInit {
 
   query = signal('');
   loading = computed(() => this.historyStore.loading());
+  private readonly searchableHistory = computed(() =>
+    this.historyStore.entries().filter(entry => !entry.hideFromProjectRail)
+  );
+  private readonly searchableInstances = computed(() =>
+    this.instanceStore.instances().filter(instance => !isProjectRailHiddenSession(instance.metadata))
+  );
 
   totalSearchable = computed(() =>
-    this.historyStore.entries().length + this.instanceStore.instances().length
+    this.searchableHistory().length + this.searchableInstances().length
   );
 
   private allResults = computed<SearchResult[]>(() => {
@@ -311,14 +318,14 @@ export class ChatSearchPageComponent implements OnInit, AfterViewInit {
 
     const matches: SearchResult[] = [];
 
-    for (const entry of this.historyStore.entries()) {
+    for (const entry of this.searchableHistory()) {
       if (entry.archivedAt) continue;
       if (this.entryMatches(entry, q)) {
         matches.push(this.entryToResult(entry));
       }
     }
 
-    for (const inst of this.instanceStore.instances()) {
+    for (const inst of this.searchableInstances()) {
       const title = (inst.displayName ?? '').toString();
       const wd = (inst.workingDirectory ?? '').toString();
       if (

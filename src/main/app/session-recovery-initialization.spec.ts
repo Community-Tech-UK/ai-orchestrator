@@ -19,11 +19,15 @@ const history = vi.hoisted(() => ({
   loadConversation: vi.fn(async () => null),
 }));
 const snapshotSessions = vi.hoisted(() => ({ value: [] as RecoverableSessionSelectionInput[] }));
+const sideChatThreads = vi.hoisted(() => ({ value: [] as string[] }));
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp/user-data' } }));
 const logger = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
 vi.mock('../logging/logger', () => ({ getLogger: () => logger }));
 vi.mock('../history/history-manager', () => ({ getHistoryManager: () => history }));
+vi.mock('../chats/chat-service', () => ({
+  getChatServiceIfInitialized: () => ({ listChats: () => sideChatThreads.value.map(ledgerThreadId => ({ ledgerThreadId, sideChatParentKey: 'session:parent' })) }),
+}));
 vi.mock('../session/last-stop-snapshot', () => ({
   initLastStopSnapshot: () => ({
     getSnapshot: () => ({ version: 2, writtenAt: NOW, sessions: snapshotSessions.value }),
@@ -73,6 +77,7 @@ describe('initializeSessionRecoveryRuntime', () => {
     vi.clearAllMocks();
     history.isRecoverySuppressed.mockImplementation(() => false);
     snapshotSessions.value = [];
+    sideChatThreads.value = [];
     const service = await import('../session/session-recovery-candidate-service');
     service._resetSessionRecoveryCandidateServiceForTesting();
   });
@@ -119,6 +124,18 @@ describe('initializeSessionRecoveryRuntime', () => {
     }));
 
     expect(history.archiveInstance.mock.calls.map(([instance]) => instance.id)).toEqual(['root']);
+  });
+
+  it('does not ingest or offer a pre-marker sidechat after startup clears its runtime link', async () => {
+    sideChatThreads.value = ['thread-crashed'];
+    snapshotSessions.value = [lastStopSession('crashed')];
+    const continuity = continuityWith({ crashed: crashedState() });
+    continuity.listContinuityRecoveryMetadata.mockResolvedValue([crashedMetadata()]);
+    await initialize(continuity);
+    const { getSessionRecoveryCandidateServiceIfInitialized, waitForSessionRecoveryStartupArchive } = await import('../session/session-recovery-candidate-service');
+    await waitForSessionRecoveryStartupArchive();
+    expect(history.archiveInstance).not.toHaveBeenCalled();
+    await expect(getSessionRecoveryCandidateServiceIfInitialized()!.listCandidates()).resolves.toEqual([]);
   });
 
   function crashedState(): SessionState {

@@ -15,6 +15,7 @@ import { IpcFacadeService } from '../../core/services/ipc';
 import { ToastService } from '../../core/services/toast.service';
 import { SettingsCardComponent } from './ui/settings-card.component';
 import { InlineHelpComponent } from '../../shared/help/inline-help.component';
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 
 @Component({
   selector: 'app-cross-session-messaging-settings-tab',
@@ -32,7 +33,8 @@ export class CrossSessionMessagingSettingsTabComponent {
 
   protected readonly settings = computed(() => this.store.get('interSessionMessaging'));
   protected readonly liveInstances = computed(() =>
-    this.instanceQueries.instances().filter((instance) => instance.status !== 'terminated'),
+    this.instanceQueries.instances().filter((instance) => instance.status !== 'terminated'
+      && !isProjectRailHiddenSession(instance.metadata)),
   );
 
   private readonly pendingToggles = signal<ReadonlySet<string>>(new Set());

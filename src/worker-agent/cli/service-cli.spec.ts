@@ -282,15 +282,24 @@ describe('service-cli', () => {
         }),
       );
       expect(extensionRelayCliMocks.prepareNativeHost).toHaveBeenCalledWith(expect.objectContaining({
-        hostName: 'com.ai_orchestrator.browser_gateway_relay',
+        hostName: 'com.ai_orchestrator.browser_gateway_relay_home_base',
         userDataPath: expect.any(String),
         socketPath: '\\\\.\\pipe\\ai-orchestrator-browser-gateway',
         extensionToken: 'generated-extension-token',
       }));
-      expect(writeSpy).toHaveBeenCalledWith(expect.stringContaining('resources/browser-extension'));
+      expect(writeSpy).toHaveBeenCalledWith(expect.stringContaining('Both workers use that copy.'));
     } finally {
       writeSpy.mockRestore();
     }
+  });
+
+  it('keeps the original relay native host for the default worker home', async () => {
+    const configPath = path.join(os.homedir(), '.orchestrator', 'worker-node.json');
+    await runServiceCommand({ kind: 'install-extension-relay', configPath });
+    expect(extensionRelayCliMocks.prepareNativeHost).toHaveBeenCalledWith(expect.objectContaining({
+      hostName: 'com.ai_orchestrator.browser_gateway_relay',
+      userDataPath: path.dirname(configPath),
+    }));
   });
 
   it('refuses to overwrite an extension manifest owned by another runtime without force', async () => {
@@ -349,7 +358,7 @@ describe('service-cli', () => {
       }),
     );
     expect(extensionRelayCliMocks.removeNativeHost).toHaveBeenCalledWith(expect.objectContaining({
-      hostName: 'com.ai_orchestrator.browser_gateway_relay',
+      hostName: 'com.ai_orchestrator.browser_gateway_relay_home_base',
       userDataPath: expect.any(String),
     }));
     expect(extensionRelayCliMocks.removeNativeHost).toHaveBeenCalledWith(expect.objectContaining({
@@ -367,7 +376,7 @@ describe('service-cli', () => {
     });
 
     expect(extensionRelayCliMocks.removeNativeHost).toHaveBeenCalledWith(expect.objectContaining({
-      hostName: 'com.ai_orchestrator.browser_gateway_relay',
+      hostName: 'com.ai_orchestrator.browser_gateway_relay_home_base',
     }));
     expect(extensionRelayCliMocks.removeNativeHost).not.toHaveBeenCalledWith(expect.objectContaining({
       hostName: 'com.ai_orchestrator.browser_gateway',

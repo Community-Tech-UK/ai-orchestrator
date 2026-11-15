@@ -7,7 +7,7 @@ import { DiscoveryClient } from './discovery-client';
 import { LocalInstanceManager } from './local-instance-manager';
 import { LocalModelSessionManager } from './local-model-session-manager';
 import { nextReconnectDelayMs, shouldResetReconnectAttempt } from './reconnect-backoff';
-import { applyAdvertisedCoordinatorUrls, parseCoordinatorAddressesNotification } from './worker-coordinator-addresses';
+import { applyAdvertisedCoordinatorUrls, buildDiscoveredCoordinatorUrl, parseCoordinatorAddressesNotification } from './worker-coordinator-addresses';
 import type {
   WorkerAndroidAutomationConfig,
   WorkerBrowserAutomationConfig,
@@ -16,6 +16,7 @@ import type {
   WorkerFileTransferConfig,
 } from './worker-config';
 import {
+  DEFAULT_CONFIG_PATH,
   defaultExtensionRelaySocketPath,
   ensureExtensionRelayDefaults,
   normalizeFileTransferConfig,
@@ -60,7 +61,6 @@ import { INTERNAL_CONNECT_ERROR_MESSAGE, NO_SAVED_ADDRESS_MESSAGE, noAnswerMessa
 import { resolveWorkerChildCommand } from './worker-supervisor';
 import { blocksWorkerRestart } from './worker-exec-turn';
 import { WorkerKeepAwake } from './worker-keep-awake';
-import type { DiscoveredCoordinator } from './discovery-client';
 import {
   buildCoordinatorCandidates,
   firstReachableCoordinatorCandidate,
@@ -68,11 +68,10 @@ import {
   COORDINATOR_PROBE_TIMEOUT_MS,
 } from './coordinator-network-readiness';
 import { LocalNetworkEvidence } from './local-network-evidence';
+import { isDefaultWorkerHome, workerProviderStateRoot, workerRelayHostName } from './worker-home';
 import { WorkerCodexDeviceLogin } from './worker-codex-device-login';
 
 export { buildCoordinatorCandidates } from './coordinator-network-readiness';
-
-const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.orchestrator', 'worker-node.json');
 
 const CONNECT_TIMEOUT_MS = 8_000;
 /** Matches the connection report's silence budget for an established link. */
@@ -134,6 +133,7 @@ export class WorkerAgent extends EventEmitter {
     private readonly config: WorkerConfig,
     private readonly configPath = DEFAULT_CONFIG_PATH,
     private readonly connectionStatus?: WorkerConnectionReporter,
+    serviceMode = false,
   ) {
     super();
     // Always construct the manager (even when disabled) so browser automation
@@ -141,25 +141,27 @@ export class WorkerAgent extends EventEmitter {
     // recreating the instance manager's reference.
     this.browserManager = new WorkerBrowserManager({
       config: config.browserAutomation ?? { enabled: false },
+      homeDir: path.dirname(this.configPath),
     });
     this.androidManager = new WorkerAndroidManager({
       config: config.androidAutomation ?? { enabled: false },
+      homeDir: path.dirname(this.configPath),
     });
     this.cdpTunnel = new WorkerCdpTunnel({ browserManager: this.browserManager });
     this.extensionRelay = new WorkerExtensionRelay({
       config: config.extensionRelay ?? { enabled: false },
+      ownsExtension: isDefaultWorkerHome(path.dirname(this.configPath)),
       sendRequest: (method, params, timeoutMs) => this.sendRequest(method, params, timeoutMs),
     });
     this.extensionRelayRegistration = new ExtensionRelayNativeRegistration({
       userDataPath: path.dirname(this.configPath),
-      hostCommand: this.currentWorkerNativeHostCommand(),
+      hostName: workerRelayHostName(path.dirname(this.configPath)),
+      hostCommand: resolveWorkerChildCommand(['native-host']),
     });
     this.nodeExecutor = new WorkerNodeExecutor(() => configuredNodeExecRoots(config));
-    // Copilot account state (per-profile sign-in) belongs beside this node's own
-    // config, not in a temp directory a reboot clears — which would silently
-    // sign every routed account out on this node. Set before any spawn so the
-    // profile-home resolver picks it up.
-    process.env['AI_ORCHESTRATOR_STATE_ROOT'] = path.dirname(this.configPath);
+    // Both user-session workers use this computer's existing provider sign-ins.
+    // Service mode retains its separate service account storage.
+    process.env['AI_ORCHESTRATOR_STATE_ROOT'] = workerProviderStateRoot(path.dirname(this.configPath), serviceMode);
     this.codexDeviceLogin = new WorkerCodexDeviceLogin({ config, getSocket: () => this.ws,
       getRegistered: () => this.registrationAccepted, getToken: () => this.config.nodeToken ?? this.config.authToken });
     this.instanceManager = new LocalInstanceManager(
@@ -249,6 +251,11 @@ export class WorkerAgent extends EventEmitter {
       // configured at all (first run before pairing has persisted a URL).
       let candidates = this.getCandidateUrls();
       if (candidates.length === 0) {
+        if (this.config.discoveryEnabled === false) {
+          this.connectionStatus?.set('unreachable', { message: NO_SAVED_ADDRESS_MESSAGE });
+          this.scheduleReconnect();
+          return;
+        }
         const found = await new DiscoveryClient().discover(this.config.namespace, 10_000);
         if (!found) {
           console.warn(
@@ -258,7 +265,7 @@ export class WorkerAgent extends EventEmitter {
           this.scheduleReconnect();
           return;
         }
-        candidates = [this.buildDiscoveredCoordinatorUrl(found)];
+        candidates = [buildDiscoveredCoordinatorUrl(found, this.activeCoordinatorUrl ?? this.config.coordinatorUrl)];
       }
 
       const token = this.config.nodeToken ?? this.config.authToken;
@@ -296,12 +303,12 @@ export class WorkerAgent extends EventEmitter {
         coordinatorUrl: candidates[0],
         message: this.localNetwork.notice() ?? noAnswerMessage(candidates),
       });
-      const rediscovered = await new DiscoveryClient().discover(
+      const rediscovered = this.config.discoveryEnabled === false ? null : await new DiscoveryClient().discover(
         this.config.namespace,
         REDISCOVERY_TIMEOUT_MS
       );
       if (rediscovered) {
-        this.activeCoordinatorUrl = this.buildDiscoveredCoordinatorUrl(rediscovered);
+        this.activeCoordinatorUrl = buildDiscoveredCoordinatorUrl(rediscovered, this.activeCoordinatorUrl ?? this.config.coordinatorUrl);
       }
       this.scheduleReconnect();
     } finally {
@@ -689,7 +696,7 @@ export class WorkerAgent extends EventEmitter {
           ...this.config.extensionRelay,
           ...update.extensionRelay,
         },
-        defaultExtensionRelaySocketPath,
+        () => defaultExtensionRelaySocketPath(path.dirname(this.configPath)),
       ) ?? { enabled: false };
       this.config.extensionRelay = merged;
       persistConfig(this.configPath, this.config);
@@ -697,7 +704,7 @@ export class WorkerAgent extends EventEmitter {
       this.checkExtensionRelayRegistration({ force: true });
     }
     if (update.fileTransfer) {
-      this.config.fileTransfer = normalizeFileTransferConfig(update.fileTransfer);
+      this.config.fileTransfer = normalizeFileTransferConfig(update.fileTransfer, os.homedir(), path.dirname(this.configPath));
       persistConfig(this.configPath, this.config);
       this.rebuildFilesystemHandler();
     }
@@ -779,13 +786,13 @@ export class WorkerAgent extends EventEmitter {
    * or IP changes. Reuses the existing DiscoveryClient if already running.
    */
   private startContinuousDiscovery(): void {
-    if (this.discoveryClient) return; // already running
+    if (this.config.discoveryEnabled === false || this.discoveryClient) return;
 
     this.discoveryClient = new DiscoveryClient();
     this.discoveryClient.startContinuous(
       this.config.namespace,
       (coordinator) => {
-        const discoveredUrl = this.buildDiscoveredCoordinatorUrl(coordinator);
+        const discoveredUrl = buildDiscoveredCoordinatorUrl(coordinator, this.activeCoordinatorUrl ?? this.config.coordinatorUrl);
         const currentUrl = this.activeCoordinatorUrl ?? this.config.coordinatorUrl;
         if (discoveredUrl !== currentUrl) {
           this.activeCoordinatorUrl = discoveredUrl;
@@ -808,12 +815,6 @@ export class WorkerAgent extends EventEmitter {
         console.warn(`Coordinator ${name} disappeared from mDNS`);
       }
     );
-  }
-
-  private buildDiscoveredCoordinatorUrl(coordinator: DiscoveredCoordinator): string {
-    const currentUrl = this.activeCoordinatorUrl ?? this.config.coordinatorUrl;
-    const protocol = currentUrl?.startsWith('wss://') ? 'wss' : 'ws';
-    return `${protocol}://${coordinator.host}:${coordinator.port}`;
   }
 
   private stopContinuousDiscovery(): void {
@@ -1016,6 +1017,7 @@ export class WorkerAgent extends EventEmitter {
     const token = this.extensionRelay.getExtensionToken();
     if (
       !this.extensionRelay.isEnabled()
+      || !isDefaultWorkerHome(path.dirname(this.configPath))
       || !token
       || this.config.extensionRelay?.legacyNameRegistration === false
     ) {
@@ -1025,14 +1027,9 @@ export class WorkerAgent extends EventEmitter {
       userDataPath: path.dirname(this.configPath),
       socketPath: this.extensionRelay.getSocketPath(),
       extensionToken: token,
-      hostCommand: this.currentWorkerNativeHostCommand(),
+      hostCommand: resolveWorkerChildCommand(['native-host']),
       warnedFailures: this.legacyNativeHostWarnedFailures,
     });
-  }
-
-  private currentWorkerNativeHostCommand(): { exe: string; args: string[] } {
-    // Same resolution as the supervisor's child: re-invoke the script, or the packaged binary.
-    return resolveWorkerChildCommand(['native-host']);
   }
 
   private getSyncHandler(): SyncHandler {

@@ -52,10 +52,10 @@ describe('bindWorkerModeLoginItem', () => {
     settings.change({ ...base, openAtLogin: true });
     expect(apply).not.toHaveBeenCalled();
   });
-  it('only wants a login item for a worker that opted in', () => {
+  it('wants a login item for either role that opted in', () => {
     expect(wantsOpenAtLogin({ ...base, openAtLogin: true })).toBe(true);
     expect(wantsOpenAtLogin({ ...base })).toBe(false);
-    expect(wantsOpenAtLogin({ ...base, role: 'coordinator', openAtLogin: true })).toBe(false);
+    expect(wantsOpenAtLogin({ ...base, role: 'coordinator', openAtLogin: true })).toBe(true);
   });
 
   it('registers at startup when wanted, and never unregisters at startup', () => {
@@ -78,7 +78,7 @@ describe('bindWorkerModeLoginItem', () => {
     expect(off).not.toHaveBeenCalled();
   });
 
-  it('follows the option and the worker role as they change', () => {
+  it('keeps the choice through role changes and follows explicit opt-out', () => {
     const settings = fakeSettings({ ...base });
     const apply = vi.fn();
     bindWorkerModeLoginItem({ settings, applyLoginItem: apply, platform: 'darwin', isPackaged: true });
@@ -87,8 +87,9 @@ describe('bindWorkerModeLoginItem', () => {
     settings.change({ ...base, openAtLogin: true, lastCoordinatorName: 'Mac' });
     settings.change({ ...base, role: 'coordinator', openAtLogin: true });
     settings.change({ ...base, role: 'worker', openAtLogin: true });
+    settings.change({ ...base, role: 'coordinator', openAtLogin: false });
 
-    expect(apply.mock.calls).toEqual([[true], [false], [true]]);
+    expect(apply.mock.calls).toEqual([[true], [false]]);
   });
 
   it('does nothing on Linux or in an unpackaged dev build', () => {

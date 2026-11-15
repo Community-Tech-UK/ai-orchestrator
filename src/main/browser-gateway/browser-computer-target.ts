@@ -34,6 +34,7 @@ export function resolveBrowserComputerTarget(
   options: {
     connectedNodes?: WorkerNodeInfo[];
     descriptors?: BrowserComputerDescriptor[];
+    localComputerName?: string;
   },
 ): BrowserComputerTargetResult {
   const explicitNodeId = cleanOptional(request.nodeId);
@@ -51,6 +52,14 @@ export function resolveBrowserComputerTarget(
       };
     }
     return { ok: true, target: { localOnly: true } };
+  }
+
+  const localName = options.localComputerName;
+  if (localName && normalizeComputerLookup(localName) === normalizedComputer) {
+    if (explicitNodeId) {
+      return { ok: false, reason: `browser_computer_mismatch: "${computer}" is local but nodeId "${explicitNodeId}" was also supplied` };
+    }
+    return { ok: true, target: { localOnly: true, nodeName: localName } };
   }
 
   const connectedNodes = options.connectedNodes ?? [];

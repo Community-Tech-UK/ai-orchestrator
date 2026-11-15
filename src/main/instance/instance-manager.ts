@@ -1821,7 +1821,7 @@ export class InstanceManager extends EventEmitter {
       if (!isFirstTrackedInput) return;
       this.hasReceivedFirstMessage.add(instanceId);
 
-      if (!hasPriorConversationHistory) {
+      if (!hasPriorConversationHistory && typeof instance.metadata?.['sideChatId'] !== 'string') {
         getAutoTitleService().maybeGenerateTitle(
           instanceId,
           message,
@@ -2063,6 +2063,7 @@ export class InstanceManager extends EventEmitter {
     const instance = this.state.getInstance(instanceId);
     if (!instance) return;
     const isUnnamedSession = !instance.isRenamed
+      && typeof instance.metadata?.['sideChatId'] !== 'string'
       && !this.hasReceivedFirstMessage.has(instanceId)
       && !instance.outputBuffer.some((output) => output.type === 'user' || output.type === 'assistant');
     const msg: OutputMessage = {

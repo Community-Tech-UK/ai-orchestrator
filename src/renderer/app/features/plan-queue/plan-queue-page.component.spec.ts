@@ -218,6 +218,21 @@ describe('PlanQueuePageComponent', () => {
     expect(text).toContain('/repo-a');
   });
 
+  it('keeps hidden sidechat runtimes out of both start and handover session choices', () => {
+    const sidechat = { id: 'sidechat', displayName: 'Sidechat runtime', provider: 'claude',
+      workingDirectory: '/repo-a', status: 'idle', parentId: null,
+      metadata: { hideFromProjectRail: true, sideChatId: 'chat' } };
+    rootInstances.update(current => [sidechat, ...current]);
+    instances.set([sidechat, { id: 'inst-2', displayName: 'Other session', provider: 'codex',
+      workingDirectory: '/repo-a', status: 'idle', parentId: null }]);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance['parentSessions']().map(session => session.id)).toEqual(['inst-1']);
+    expect(fixture.componentInstance['runSessions']().map(session => session.id)).toEqual(['inst-2']);
+    const select = fixture.nativeElement.querySelector('app-plan-queue-start-form select') as HTMLSelectElement;
+    expect(Array.from(select.options).map(option => option.value)).not.toContain('sidechat');
+  });
+
   it('starts a run via the store when the start form emits', async () => {
     const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
     select.value = 'inst-1';

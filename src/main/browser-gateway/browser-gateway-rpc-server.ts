@@ -33,8 +33,10 @@ import {
 } from './browser-extension-rpc-payloads';
 import {
   browserExtensionCommandId,
+  browserExtensionRuntimeFromPayload,
   recordCompatibleBrowserExtensionRuntime,
   withoutBrowserExtensionRuntimeEvidence,
+  supportsBrowserExtensionSessionClaims,
 } from './browser-extension-credential-compatibility';
 import {
   handleUnattendedRpcMethod,
@@ -55,6 +57,7 @@ import {
 } from './browser-tool-reveal-store';
 import { routeBrowserGatewayRequest } from './browser-remote-offload-policy';
 import { compactAgentTargetListing } from './browser-agent-target-listing';
+import { withBrowserSession } from './browser-session-context';
 
 interface BrowserGatewayRpcRequest {
   jsonrpc?: '2.0';
@@ -292,7 +295,7 @@ export class BrowserGatewayRpcServer {
       );
     }
 
-    const payload = this.validatePayload(request.method, routedPayload);
+    const payload = validateBrowserRpcPayload(request.method, routedPayload);
     const withContext = {
       ...payload,
       instanceId: params.instanceId,
@@ -466,6 +469,7 @@ export class BrowserGatewayRpcServer {
         ...(extensionInstanceId ? { extensionInstanceId } : {}),
         allowBrowserCommands,
         allowSecureCredentialCommands: allowBrowserCommands,
+        ...(supportsBrowserExtensionSessionClaims(browserExtensionRuntimeFromPayload(params.payload)) ? { allowSessionClaims: true } : {}),
       },
     );
   }
@@ -711,16 +715,14 @@ export class BrowserGatewayRpcServer {
     return path.join(fallbackDir, 'bg.sock');
   }
 
-  private validatePayload(method: string, payload: Record<string, unknown>): Record<string, unknown> {
-    return validateBrowserRpcPayload(method, payload);
-  }
-
   private requireMethod(name: keyof BrowserGatewayService): (payload: Record<string, unknown>) => unknown {
     const method = this.service[name];
     if (typeof method !== 'function') {
       throw new Error(`Browser Gateway service method unavailable: ${String(name)}`);
     }
-    return method.bind(this.service) as (payload: Record<string, unknown>) => unknown;
+    const invoke = method.bind(this.service) as (payload: Record<string, unknown>) => unknown;
+    return payload => typeof payload['instanceId'] === 'string'
+      ? withBrowserSession(this.userDataPath, payload['instanceId'], () => invoke(payload)) : invoke(payload);
   }
 }
 

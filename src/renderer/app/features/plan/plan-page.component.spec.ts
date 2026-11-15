@@ -55,6 +55,22 @@ describe('PlanPageComponent', () => {
     expect(getPlanModeState).toHaveBeenCalledWith('session-2');
   });
 
+  it('keeps a hidden sidechat runtime out of the session picker and initial selection', async () => {
+    TestBed.overrideProvider(InstanceStore, { useValue: {
+      selectedInstanceId: () => 'sidechat',
+      instances: () => [
+        { id: 'sidechat', displayName: 'Sidechat', metadata: { hideFromProjectRail: true, sideChatId: 'chat' } },
+        { id: 'session-1', displayName: 'Main session' },
+      ],
+    } });
+    const fixture = await render();
+    const select = (fixture.nativeElement as HTMLElement).querySelector('select')!;
+
+    expect(Array.from(select.options, option => option.value)).toEqual(['session-1']);
+    expect(select.value).toBe('session-1');
+    expect(getPlanModeState).toHaveBeenCalledWith('session-1');
+  });
+
   it('shows the session name in both identity labels without exposing its identifier', async () => {
     const fixture = await render();
     const root = fixture.nativeElement as HTMLElement;

@@ -27,7 +27,7 @@ export interface ChromeProfileUse {
   totalActions: number;
 }
 
-export type ChromeProfileBasis = 'requested' | 'site_history' | 'most_used';
+export type ChromeProfileBasis = 'requested' | 'site_history' | 'site_tab' | 'most_used';
 
 export interface ChromeProfileChoice {
   ok: true;
@@ -50,6 +50,8 @@ export function chromeProfileLabel(extensionInstanceId: string): string {
 export function chooseChromeProfile(input: {
   connected: readonly string[];
   usage: readonly ChromeProfileUse[];
+  /** Profiles with a fresh tab on the requested website. */
+  siteProfiles?: readonly string[];
   requested?: string;
 }): ChromeProfileChoiceResult {
   const { connected, usage } = input;
@@ -78,6 +80,10 @@ export function chooseChromeProfile(input: {
 
   // One profile (or none reporting yet): nothing to choose between.
   const best = ranked[0];
+  const siteProfile = input.siteProfiles?.find((id) => connected.includes(id));
+  if (connected.length > 1 && !(best && best.siteActions > 0) && siteProfile) {
+    return { ...choice, extensionInstanceId: siteProfile, basis: 'site_tab' };
+  }
   if (connected.length < 2 || !best || best.totalActions === 0) {
     return choice;
   }
@@ -161,6 +167,8 @@ function choiceExplanation(
       return ', as requested';
     case 'site_history':
       return `, chosen because agents have used ${site ?? 'this website'} there before`;
+    case 'site_tab':
+      return `, chosen because ${site ?? 'this website'} is already open there`;
     case 'most_used':
       return ', chosen because agents use it most on this computer';
     default:

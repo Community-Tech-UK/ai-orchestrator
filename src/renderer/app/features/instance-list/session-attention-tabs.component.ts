@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, output } f
 import { attentionLevelForInstanceStatus } from '../../../../shared/attention/attention-level';
 import { InstanceStore } from '../../core/state/instance.store';
 import { NeedsYouStore } from '../workboard/needs-you.store';
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 
 @Component({
   selector: 'app-session-attention-tabs', standalone: true, changeDetection: ChangeDetectionStrategy.OnPush,
@@ -20,7 +21,7 @@ export class SessionAttentionTabsComponent {
   private readonly instances = inject(InstanceStore);
   private readonly needsYou = inject(NeedsYouStore);
   readonly tabs = computed(() => {
-    const instances = this.instances.instances();
+    const instances = this.instances.instances().filter(instance => !isProjectRailHiddenSession(instance.metadata));
     const levels = instances.map((item) => attentionLevelForInstanceStatus(item.status));
     return [
       { value: 'attn:needs-you', label: 'Needs you', count: instances.filter((item) => this.needsYou.sessionIds().has(item.id)).length },

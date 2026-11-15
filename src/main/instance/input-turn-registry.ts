@@ -7,9 +7,14 @@
  * decide it, and this registry keeps the two that need memory of the session:
  *
  *   - the latest input of any kind is that message. Every send passes through
- *     `InstanceManager.sendInput`, which reports each one here, so a Harness
- *     notice, an automation prompt, another agent's message or a steer written
- *     after the person's message replaces it as the latest input;
+ *     `InstanceManager.sendInput`, which reports each one here, so an automation
+ *     prompt, another agent's message, a steer or a Harness notice written after
+ *     the person's message replaces it as the latest input. The exception is
+ *     anything the Plan Queue sends a session about a run it owns (the run summary,
+ *     a question, a capability-repair handoff), which the sender announces with
+ *     `expectNotice`: it is the queue reporting on the run, so once the person's message has started its turn
+ *     the report leaves that message in place. Before then it replaces it like
+ *     any input, and if it starts a turn of its own the count below refuses;
  *   - no other turn has started since. Adapters report each turn start
  *     (`turn_started`) and say who started it: a message Harness sent
  *     (`harness-send`) or the provider itself (`provider`: a Claude CLI turn begun
@@ -58,6 +63,8 @@ interface SessionInputState {
   latestInput: LatestInput | null;
   /** The turn the person's latest message started, and the count when it began. */
   personTurn: { messageId: string; countAtStart: number } | null;
+  /** Queue reports announced by `expectNotice` and not yet sent. */
+  notices: Set<string>;
 }
 
 export class InputTurnRegistry {
@@ -80,9 +87,24 @@ export class InputTurnRegistry {
     this.session(instanceId).reportsTurnStarts = reports;
   }
 
-  /** Every input to the session, of any kind, becomes its latest input. */
+  /** The message with this id, when sent, is a Plan Queue report about the session's own run and does not replace its latest input. */
+  expectNotice(instanceId: string, messageId: string): void {
+    this.session(instanceId).notices.add(messageId);
+  }
+
+  /** The announced report was never sent. */
+  dropNotice(instanceId: string, messageId: string): void {
+    this.sessions.get(instanceId)?.notices.delete(messageId);
+  }
+
+  /** Every other input to the session, of any kind, becomes its latest input. */
   noteInput(instanceId: string, input: { messageId: string; personTypedAt: number | null }): void {
-    this.session(instanceId).latestInput = {
+    const state = this.session(instanceId);
+    // A report counts as a report only once the person's message has started its own turn; before that, the report's
+    // turn could start first and be taken for the person's, so it replaces the message as any other input does.
+    const personTurnBegun = state.latestInput !== null && state.personTurn?.messageId === state.latestInput.messageId;
+    if (state.notices.delete(input.messageId) && personTurnBegun) return;
+    state.latestInput = {
       messageId: input.messageId,
       personTypedAt: input.personTypedAt,
       recordedAt: this.now(),
@@ -132,7 +154,7 @@ export class InputTurnRegistry {
   private session(instanceId: string): SessionInputState {
     let state = this.sessions.get(instanceId);
     if (!state) {
-      state = { reportsTurnStarts: false, turnCount: 0, latestInput: null, personTurn: null };
+      state = { reportsTurnStarts: false, turnCount: 0, latestInput: null, personTurn: null, notices: new Set<string>() };
       this.sessions.set(instanceId, state);
     }
     return state;

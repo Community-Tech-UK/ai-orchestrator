@@ -2,13 +2,20 @@
 setlocal
 cd /d "%~dp0"
 
+REM Every launch reads this checkout's installed home before acquiring locks.
+set "_AIO_HOME="
+for /f "usebackq delims=" %%H in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\windows\resolve-worker-home.ps1" -RepoPath "%~dp0."`) do set "_AIO_HOME=%%H"
+if not defined _AIO_HOME (echo Could not resolve this checkout's worker home. & exit /b 1)
+set "AIO_WORKER_TASK_NAME=AI Orchestrator Worker"
+if exist "%_AIO_HOME%\worker-task-name.txt" set /p "AIO_WORKER_TASK_NAME=" < "%_AIO_HOME%\worker-task-name.txt"
+
 REM One launcher run at a time. The keep-alive and logon triggers can fire within
 REM seconds of each other. Without a lock both would see "no
 REM worker", both build, and both start one. mkdir is atomic, so it is the lock.
 REM A lock older than 20 minutes is a leftover from a run that died mid-build
 REM (reboot, killed console): a build takes a minute or two, never twenty.
-set "_AIO_LOCK=%USERPROFILE%\.orchestrator\launcher.lock"
-if not exist "%USERPROFILE%\.orchestrator" mkdir "%USERPROFILE%\.orchestrator" 2>nul
+set "_AIO_LOCK=%_AIO_HOME%\launcher.lock"
+if not exist "%_AIO_HOME%" mkdir "%_AIO_HOME%" 2>nul
 mkdir "%_AIO_LOCK%" 2>nul
 if not errorlevel 1 goto :aio_locked
 powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $age = (Get-Date) - (Get-Item -LiteralPath $env:_AIO_LOCK -ErrorAction Stop).LastWriteTime } catch { exit 1 }; if ($age.TotalMinutes -gt 20) { exit 0 } else { exit 1 }" >nul 2>&1
@@ -84,16 +91,16 @@ REM in-process file logger entirely, so without this redirect an OOM death
 REM leaves no evidence anywhere.
 REM
 REM Local to this script only (hence setlocal) - the worker does NOT read this
-REM variable; WorkerFileLogger always uses %USERPROFILE%\.orchestrator\logs.
+REM variable; WorkerFileLogger always uses %_AIO_HOME%\logs.
 REM Roll the previous run's file aside rather than appending forever: a fatal
 REM error belongs to the run that died, and this bounds growth to two files.
-set "_AIO_STDERR_DIR=%USERPROFILE%\.orchestrator\logs"
+set "_AIO_STDERR_DIR=%_AIO_HOME%\logs"
 if not exist "%_AIO_STDERR_DIR%" mkdir "%_AIO_STDERR_DIR%" 2>nul
 if exist "%_AIO_STDERR_DIR%\worker-stderr.log" (
     move /y "%_AIO_STDERR_DIR%\worker-stderr.log" "%_AIO_STDERR_DIR%\worker-stderr.log.1" >nul 2>nul
 )
 
-REM Drift check. The deployed launcher in %USERPROFILE%\.orchestrator is rendered
+REM Drift check. The deployed launcher in %_AIO_HOME% is rendered
 REM from scripts\windows\start-worker-autoupdate.template.bat by
 REM install-worker-launcher.ps1, which records two hashes. Compare both:
 REM   template - the repo moved on (a maintenance update brought a new template).
@@ -109,7 +116,7 @@ REM Delayed expansion is scoped to this block on purpose. Script-wide it would
 REM also apply to %* on the node line below, mangling any argument containing
 REM an exclamation mark.
 setlocal EnableDelayedExpansion
-set "_AIO_ORCH=%USERPROFILE%\.orchestrator"
+set "_AIO_ORCH=%_AIO_HOME%"
 set "_AIO_STALE="
 
 set "_AIO_TSTAMP=%_AIO_ORCH%\launcher-template.sha256"
@@ -224,7 +231,7 @@ REM C:\Users\CTAdmin\.orchestrator\run-worker-hidden.vbs - a profile the worker
 REM user cannot even read - and a filename-only match reported that as HEALTHY.
 REM The launcher this host will actually use is the one in its own install root;
 REM anything else is as broken as no task at all.
-set "_AIO_TASKNAME=AI Orchestrator Worker"
+set "_AIO_TASKNAME=%AIO_WORKER_TASK_NAME%"
 set "_AIO_NOTASK="
 set "_AIO_TASKSTALE="
 set "AIO_PROBE_TASK=%_AIO_TASKNAME%"
@@ -273,7 +280,7 @@ if defined _AIO_STALE if not defined _AIO_MISSING (
     echo.
     echo *** WARNING: the deployed worker launcher does not match the repo. ***
     echo     Either scripts\windows\start-worker-autoupdate.template.bat has changed,
-    echo     or %%USERPROFILE%%\.orchestrator\start-worker-autoupdate.bat was hand-edited.
+    echo     or this worker home\start-worker-autoupdate.bat was hand-edited.
     echo     Re-run: powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-worker-launcher.ps1 -RepoPath "%CD%"
     echo.
 )
@@ -292,7 +299,7 @@ REM whole lifetime, and holding the lock that long would stop later keep-alive
 REM runs from checking whether a worker is present.
 rmdir "%_AIO_LOCK%" 2>nul
 echo Starting worker agent (supervised)...
-node dist/worker-agent/index.js %* --supervise 2>> "%_AIO_STDERR_DIR%\worker-stderr.log" & exit /b
+node "%~dp0dist\worker-agent\index.js" %* --supervise 2>> "%_AIO_STDERR_DIR%\worker-stderr.log" & exit /b
 REM Nothing below this point ever runs, which is why this note sits here.
 REM
 REM `& exit /b` must stay on the SAME line as node. The worker updates this

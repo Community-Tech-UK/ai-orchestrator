@@ -258,6 +258,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   instructionTrustGate: 'warn',
   browserAllowSharedTabCredentialFill: false,
   browserSecretObservationProtectionEnabled: true,
+  browserLocalComputerEnabled: false,
   workspaceSecretsEnabled: true,
   workspaceSecretsAllowAgentRequests: true,
   providerSignalFenceEnabled: true,

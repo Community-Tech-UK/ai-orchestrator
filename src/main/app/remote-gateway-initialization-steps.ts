@@ -1,3 +1,5 @@
+import { isMissingTailscaleHost } from '../util/tailscale-listener-start';
+import { resolveBindHost } from '../mobile-gateway/tailscale-interface';
 import { getSettingsManager } from '../core/config/settings-manager';
 import type { ComputerChoice } from '../../shared/types/settings.types';
 import { getThinClientWsServer } from '../event-bus/thin-client-ws-server';
@@ -220,20 +222,23 @@ export function createWorkerNodeSubsystemStep(
         return;
       }
 
-      await connection.start(config.serverPort, config.serverHost);
-      // Advertise over mDNS here, not only from the Settings "start server" IPC
-      // handler. Workers keep a discovery browser running for their whole
-      // lifetime and fall back to a discovered address when their pinned
-      // coordinator URL stops answering — but only if something is advertising.
-      // Publishing solely from the IPC path meant a normally-started coordinator
-      // never advertised, so on 2026-09-07 a worker pinned to a dead Tailscale
-      // address retried it for four hours with a working LAN path available.
-      getDiscoveryService().publish(config.serverPort, config.namespace, config.namespace);
-      tailscaleWatcher.start();
-      logger.info('Worker node subsystem started', {
-        port: config.serverPort,
-        host: config.serverHost,
-      });
+      const startListener = async (): Promise<void> => {
+        await connection.start(config.serverPort, config.serverHost);
+        // Advertise over mDNS here, not only from the Settings "start server" IPC
+        // handler. Workers keep a discovery browser running for their whole
+        // lifetime and fall back to a discovered address when their pinned
+        // coordinator URL stops answering — but only if something is advertising.
+        // Publishing solely from the IPC path meant a normally-started coordinator
+        // never advertised, so on 2026-09-07 a worker pinned to a dead Tailscale
+        // address retried it for four hours with a working LAN path available.
+        getDiscoveryService().publish(config.serverPort, config.namespace, config.namespace);
+        tailscaleWatcher.start();
+        logger.info('Worker node subsystem started', {
+          port: config.serverPort,
+          host: config.serverHost,
+        });
+      };
+      await startOrWaitForTailscale('Worker listener', startListener, isMissingTailscaleHost(config.serverHost));
     },
   };
 }
@@ -294,13 +299,30 @@ export function createMobileGatewayStep(
         logger.info('Mobile gateway disabled (initialized, not started)');
         return;
       }
-      await gateway.start({
-        port: settings.get('mobileGatewayPort'),
-        bindInterface: settings.get('mobileGatewayBindInterface'),
-        tlsCertPath: settings.get('mobileGatewayTlsCertPath'),
-        tlsKeyPath: settings.get('mobileGatewayTlsKeyPath'),
-      });
-      logger.info('Mobile gateway started from boot');
+      const startListener = async (): Promise<void> => {
+        await gateway.start({
+          port: settings.get('mobileGatewayPort'),
+          bindInterface: settings.get('mobileGatewayBindInterface'),
+          tlsCertPath: settings.get('mobileGatewayTlsCertPath'),
+          tlsKeyPath: settings.get('mobileGatewayTlsKeyPath'),
+        });
+        logger.info('Mobile gateway started from boot');
+      };
+      await startOrWaitForTailscale('Phone gateway', startListener,
+        resolveBindHost(settings.get('mobileGatewayBindInterface')) === null);
     },
   };
+}
+
+/** Local automations and the window must start even while Tailscale is starting. */
+async function startOrWaitForTailscale(name: string, start: () => Promise<void>, waiting: boolean): Promise<void> {
+  if (!waiting) {
+    await start();
+    return;
+  }
+  logger.info(`${name} is waiting for Tailscale`);
+  void start().catch(error => {
+    if (error instanceof Error && error.name === 'AbortError') return;
+    logger.error(`${name} could not start after waiting for Tailscale`, error instanceof Error ? error : undefined);
+  });
 }

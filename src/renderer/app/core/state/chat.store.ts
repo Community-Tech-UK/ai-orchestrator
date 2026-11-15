@@ -36,6 +36,7 @@ export class ChatStore {
   private readonly _loading = signal(false);
   private readonly _sending = signal(false);
   private readonly _error = signal<string | null>(null);
+  private readonly deletedChatIds = new Set<string>();
   private initialized = false;
   private initializationPromise: Promise<void> | null = null;
   private unsubscribeChatEvents: (() => void) | null = null;
@@ -85,7 +86,7 @@ export class ChatStore {
     try {
       const response = await this.ipc.list();
       if (response.success && response.data) {
-        this._chats.set(response.data);
+        this._chats.set(response.data.filter((chat) => !this.deletedChatIds.has(chat.id)));
       } else {
         this._error.set(response.error?.message ?? 'Failed to load chats');
       }
@@ -110,7 +111,7 @@ export class ChatStore {
 
   async selectFirstChat(): Promise<void> {
     await this.initialize();
-    const first = this._chats()[0];
+    const first = this._chats().find(chat => !chat.sideChatParentKey);
     if (first) {
       await this.select(first.id);
     }
@@ -329,6 +330,7 @@ export class ChatStore {
     this.initialized = false;
     this.initializationPromise = null;
     this.restoredUiState = false;
+    this.deletedChatIds.clear();
   }
 
   private async loadDetail(chatId: string): Promise<void> {
@@ -364,7 +366,10 @@ export class ChatStore {
     if (event.type === 'chat-created' || event.type === 'chat-updated' || event.type === 'runtime-linked' || event.type === 'runtime-cleared') {
       this.mergeChat(event.chat);
     }
-    if (event.type === 'chat-archived') {
+    if (event.type === 'chat-deleted') {
+      this.deletedChatIds.add(event.chatId);
+    }
+    if (event.type === 'chat-archived' || event.type === 'chat-deleted') {
       this._chats.update((chats) => chats.filter((chat) => chat.id !== event.chatId));
       this._details.update((details) => {
         const next = new Map(details);
@@ -375,6 +380,7 @@ export class ChatStore {
         this._selectedChatId.set(null);
         void this.persistUiState(null);
       }
+      return;
     }
     if (event.type === 'transcript-appended') {
       this.applyTranscriptAppend(event);
@@ -479,7 +485,7 @@ export class ChatStore {
       return;
     }
     const chatId = response.data.selectedChatId;
-    if (!this._chats().some((chat) => chat.id === chatId)) {
+    if (!this._chats().some((chat) => chat.id === chatId && !chat.sideChatParentKey)) {
       void this.persistUiState(null);
       return;
     }
@@ -500,6 +506,7 @@ export class ChatStore {
   }
 
   private mergeDetail(detail: ChatDetail): void {
+    if (this.deletedChatIds.has(detail.chat.id)) return;
     this._details.update((details) => {
       const next = new Map(details);
       const existing = next.get(detail.chat.id);
@@ -551,6 +558,7 @@ export class ChatStore {
   }
 
   private mergeChat(chat: ChatRecord): void {
+    if (this.deletedChatIds.has(chat.id)) return;
     this._chats.update((chats) => {
       const index = chats.findIndex((item) => item.id === chat.id);
       const next = index === -1

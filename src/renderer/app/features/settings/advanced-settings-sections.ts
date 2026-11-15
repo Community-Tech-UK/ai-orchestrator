@@ -31,6 +31,8 @@ export interface AdvancedSectionDefinition {
 
 export const ADVANCED_SECTION_DEFINITIONS: readonly AdvancedSectionDefinition[] = [
   // --- Runtime ---
+  { id: 'browser-computer-heading', title: 'Browser computer', group: 'runtime',
+    description: '', keys: ['browserLocalComputerEnabled'] },
   { id: 'retrieved-notes-heading', title: 'Retrieved notes', group: 'runtime',
     description: 'Control when Harness adds remembered notes and code snippets to messages.', keys: ['memoryNotesEveryMessage'] },
   {

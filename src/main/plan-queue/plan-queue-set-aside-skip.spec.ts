@@ -7,7 +7,7 @@ import { InputTurnRegistry } from '../instance/input-turn-registry';
 import { runLoopMigrations } from '../orchestration/loop-schema';
 import { WorkAdmission } from '../work-admission/work-admission';
 import { PlanQueueCoordinator, type PlanQueueInstanceManagerPort } from './plan-queue-coordinator';
-import { SET_ASIDE_FOLDER_METADATA } from './plan-queue-set-aside';
+import { SET_ASIDE_FOLDER_METADATA } from '../../shared/utils/plan-queue-set-aside-agent';
 import { newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueStore } from './plan-queue-store';
 import type { PlanQueueRun } from './plan-queue.types';

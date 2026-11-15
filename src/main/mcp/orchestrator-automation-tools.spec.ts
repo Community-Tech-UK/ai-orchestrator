@@ -88,3 +88,38 @@ it('passes authenticated caller identity through update_automation', async () =>
   await tools.find(tool => tool.name === 'update_automation')!.handler({ id: 'example', enabled: false });
   expect(caller).toBe('example-caller');
 });
+
+describe('creating a faithful automation copy', () => {
+  it('accepts and passes each supported execution and scheduling choice to creation', async () => {
+    let received: unknown;
+    let caller: string | null | undefined;
+    const tools = createAutomationToolDefinitions({ instanceId: 'copy-session', createAutomation: async (args, meta) => {
+      received = args;
+      caller = meta?.callerInstanceId;
+      return { id: 'copy', name: args.name, scheduleSummary: 'Daily', nextRunAt: null, enabled: false, workingDirectory: '/repo' };
+    } });
+    const args = { ...baseCreate, model: 'opus', reasoningEffort: 'max', yoloMode: true,
+      missedRunPolicy: 'runOnce', concurrencyPolicy: 'skip', agentId: 'build' };
+    await tools.find(tool => tool.name === 'create_automation')!.handler(args);
+    expect(received).toEqual(args);
+    expect(caller).toBe('copy-session');
+  });
+
+  it.each([
+    ['preCheck', { command: 'true' }], ['loop', { verifyCommand: 'npm test' }], ['attachments', []],
+    ['systemAction', { type: 'instanceProviderLimitResume', instanceId: 'session' }],
+    ['executionProfile', 'contained'], ['containedFallback', 'fail'],
+    ['trigger', { kind: 'webhook', routeId: 'route', filters: [] }],
+    ['destination', { kind: 'thread', instanceId: 'session', reviveIfArchived: true }],
+    ['forceNodeId', '11111111-2222-4333-8444-555555555555'],
+    ['executionAuthority', { provider: 'claude', model: 'opus', modelTier: 'powerful', reasoningEffort: 'max', yoloMode: true }],
+  ])('refuses unsupported %s instead of discarding it', async (field, value) => {
+    let created = false;
+    const tools = createAutomationToolDefinitions({ createAutomation: async args => {
+      created = true;
+      return { id: 'copy', name: args.name, scheduleSummary: 'Daily', nextRunAt: null, enabled: false, workingDirectory: '/repo' };
+    } });
+    await expect(tools.find(tool => tool.name === 'create_automation')!.handler({ ...baseCreate, [field as string]: value })).rejects.toThrow();
+    expect(created).toBe(false);
+  });
+});

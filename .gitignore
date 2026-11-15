@@ -108,3 +108,6 @@ cross-model-review-service.js
 # section in the owning *_livetest.md / plan doc is the durable record;
 # files already tracked here stay tracked.
 docs/plans/*evidence/
+
+# Per-checkout worker install path (never shared with another worker).
+.aio-worker-home

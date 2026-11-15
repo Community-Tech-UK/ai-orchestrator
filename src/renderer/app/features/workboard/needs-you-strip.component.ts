@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, Injector, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter, map } from 'rxjs';
@@ -7,6 +7,8 @@ import { InstanceStore } from '../../core/state/instance.store';
 import { PendingRequestStore } from '../../core/state/pending-request.store';
 import { SessionNavigator } from '../../core/services/session-navigator.service';
 import { NoticeSlotService } from '../../core/notices/notice-slot.service';
+import { SideChatStore } from '../../core/state/side-chat.store';
+import { sideChatParentKey } from '../../../../shared/types/side-chat.types';
 
 const TIMED_BANNERS = new Set(['permission-request', 'browser-approval', 'paid-fallback']);
 
@@ -35,6 +37,7 @@ export class NeedsYouStripComponent {
   private readonly requests = inject(PendingRequestStore);
   private readonly navigator = inject(SessionNavigator);
   private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
   /** The selected session stays selected after the user leaves its chat, so only the route says whether it is in view. */
   private readonly chatOnScreen = toSignal(this.router.events.pipe(
     filter((event): event is NavigationEnd => event instanceof NavigationEnd),
@@ -59,7 +62,12 @@ export class NeedsYouStripComponent {
   });
   open(): void {
     const entry = this.front();
-    if (entry?.instanceId) this.navigator.openSession(entry.instanceId);
+    if (entry?.source === 'sidechat') {
+      const sidechats = this.injector.get(SideChatStore);
+      const target = sidechats.attentionList().find(item => `sidechat:${sideChatParentKey(item.parent)}` === entry.key);
+      if (target) sidechats.requestOpen(target.parent, target.targetChatId);
+      void this.router.navigateByUrl('/');
+    } else if (entry?.instanceId) this.navigator.openSession(entry.instanceId);
     else if (entry?.route) void this.router.navigateByUrl(entry.route);
   }
   seeAll(): void { void this.router.navigateByUrl('/work'); }

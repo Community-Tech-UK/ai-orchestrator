@@ -8,11 +8,13 @@
  */
 
 import { signal, computed } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
-import { pickPaneDefaults } from './split-session-compare.component';
+import { pickPaneDefaults, SplitSessionCompareComponent } from './split-session-compare.component';
+import { InstanceStore } from '../../core/state/instance.store';
 import type { Instance } from '../../core/state/instance/instance.types';
 
 const specDirectory = dirname(fileURLToPath(import.meta.url));
@@ -74,6 +76,22 @@ describe('Split compare route navigation', () => {
 });
 
 describe('pickPaneDefaults()', () => {
+  it('keeps a hidden sidechat runtime out of the compare picker and default panes', () => {
+    const hidden = makeInstance('sidechat');
+    hidden.metadata = { hideFromProjectRail: true, sideChatId: 'chat' };
+    const store = makeStoreMock([hidden, makeInstance('alpha'), makeInstance('beta')]);
+    TestBed.configureTestingModule({ providers: [{ provide: InstanceStore, useValue: store }] });
+    try {
+      const component = TestBed.runInInjectionContext(() => new SplitSessionCompareComponent());
+      const view = component as unknown as {
+        instances: () => Instance[]; leftId: () => string | null; rightId: () => string | null;
+      };
+      TestBed.tick();
+      expect(view.instances().map(instance => instance.id)).toEqual(['alpha', 'beta']);
+      expect([view.leftId(), view.rightId()]).toEqual(['alpha', 'beta']);
+    } finally { TestBed.resetTestingModule(); }
+  });
+
   it('returns [null, null] for an empty list', () => {
     expect(pickPaneDefaults([])).toEqual([null, null]);
   });

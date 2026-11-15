@@ -16,6 +16,8 @@ import type { AutomationEventMap } from '../automations/automation-events';
 import type { AutomationFireOptions } from '../automations/automation-runner';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { sendJsonResponse } from './mobile-gateway-http-utils';
+import { withRunLimits } from '../automations/automation-run-policy';
+import { automationRunDeadline, isAutomationRunPaused } from '../automations/automation-run-clock';
 
 const MAX_AUTOMATION_ID_LENGTH = 100;
 const MAX_IDEMPOTENCY_KEY_LENGTH = 500;
@@ -75,9 +77,16 @@ export async function readMobileAutomationRunRequest(req: IncomingMessage): Prom
 
 function lastRunProjection(run: AutomationRun | undefined): MobileAutomationDto['lastRun'] {
   if (!run) return null;
+  const snapshot = run.configSnapshot;
+  const maxRunMinutes = snapshot ? withRunLimits(snapshot.action, snapshot.schedule).maxRunMinutes! : null;
   return {
     status: run.status,
     at: run.finishedAt ?? run.startedAt ?? run.createdAt,
+    result: run.result ? { outcome: run.result.outcome, notify: run.result.notify } : null,
+    maxRunMinutes,
+    paused: isAutomationRunPaused(run),
+    deadlineAt: run.status === 'running' && run.startedAt !== null && maxRunMinutes !== null
+      ? automationRunDeadline(run, maxRunMinutes, Date.now()) : null,
   };
 }
 
@@ -138,6 +147,7 @@ export class MobileGatewayAutomationHandlers {
         schedule: automation.schedule,
         enabled: automation.enabled,
         nextRunAt: automation.nextFireAt,
+        maxRunMinutes: withRunLimits(automation.action, automation.schedule).maxRunMinutes!,
         lastRun: lastRunProjection(lastRun),
         provider: target.provider && target.provider !== 'auto' ? target.provider : null,
         model: target.modelOverride ?? null,

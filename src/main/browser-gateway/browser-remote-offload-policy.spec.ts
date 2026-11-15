@@ -29,6 +29,37 @@ describe('listKnownBrowserComputers', () => {
 });
 
 describe('Browser Gateway remote offload policy', () => {
+  describe('an operator-enabled local browser computer', () => {
+    const windows = makeNode({ id: 'windows-node', name: 'windows-pc', platform: 'win32' });
+    const local = { id: 'local', name: 'ct-test-mac', capabilities: { platform: 'darwin' as const, hasBrowserMcp: true } };
+
+    it('chooses the local Chrome for a same-site tab and a worker for a site on the PC', () => {
+      const localTab = { ...makeTarget({ id: 'local-tab', profileId: 'p' }), origin: 'https://local.test' };
+      const remoteTab = { ...makeTarget({ id: 'pc-tab', profileId: 'p', nodeId: windows.id }), origin: 'https://pc.test' };
+      const deps = makeDeps({ nodes: [windows], localComputer: local, targets: [localTab, remoteTab] });
+      expect(routeBrowserGatewayRequest('browser.find_or_open', { url: 'https://local.test' }, 'a', deps))
+        .toEqual({ url: 'https://local.test', computer: 'local' });
+      expect(routeBrowserGatewayRequest('browser.find_or_open', { url: 'https://pc.test' }, 'b', deps))
+        .toMatchObject({ computer: 'windows-pc', nodeId: windows.id });
+    });
+
+    it('uses local Chrome while the PC is offline, and permits its target and profile', () => {
+      const deps = makeDeps({
+        nodes: [], localComputer: local, knownBrowserComputers: [{ id: windows.id, name: windows.name }],
+        targets: [makeTarget({ id: 'local-tab', profileId: 'p' })], profiles: [makeProfile({ id: 'p' })],
+      });
+      expect(routeBrowserGatewayRequest('browser.list_targets', {}, 'a', deps)).toEqual({ computer: 'local' });
+      expect(routeBrowserGatewayRequest('browser.snapshot', { targetId: 'local-tab' }, 'a', deps)).toEqual({ targetId: 'local-tab' });
+      expect(routeBrowserGatewayRequest('browser.open_profile', { profileId: 'p' }, 'a', deps)).toEqual({ profileId: 'p' });
+    });
+
+    it('keeps a session on the local computer it named and spreads new sessions', () => {
+      const deps = makeDeps({ nodes: [windows], localComputer: local });
+      routeBrowserGatewayRequest('browser.list_targets', { computer: local.name }, 'a', deps);
+      expect(routeBrowserGatewayRequest('browser.list_targets', {}, 'a', deps)).toEqual({ computer: 'local' });
+      expect(routeBrowserGatewayRequest('browser.list_targets', {}, 'b', deps)).toMatchObject({ computer: windows.name });
+    });
+  });
   it('rewrites unscoped discovery onto the connected Windows node but keeps explicit local', () => {
     const windows = makeNode({ id: 'windows-node', name: 'windows-pc', platform: 'win32' });
     const deps = makeDeps({ nodes: [windows] });
@@ -318,6 +349,7 @@ function makeDeps(options: {
   knownBrowserComputers?: KnownBrowserComputer[];
   choices?: ComputerChoice[];
   balancer?: BrowserComputerBalancer;
+  localComputer?: { id: string; name: string; capabilities: { platform: 'darwin'; hasBrowserMcp: boolean } };
 } = {}): BrowserRemoteOffloadPolicyDeps {
   const profiles = options.profiles ?? [];
   return {
@@ -326,6 +358,7 @@ function makeDeps(options: {
       autoOffloadBrowser: options.autoOffloadBrowser ?? true,
     }),
     getConnectedNodes: () => options.nodes ?? [],
+    getLocalComputer: () => options.localComputer,
     getKnownBrowserComputers: () => options.knownBrowserComputers ?? [],
     listTargets: () => options.targets ?? [],
     getProfile: (profileId) => profiles.find((profile) => profile.id === profileId) ?? null,

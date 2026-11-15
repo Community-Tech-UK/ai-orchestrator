@@ -989,7 +989,8 @@
     "id": "5b61848caa046074",
     "owner": "src/renderer/app/features/side-chat/side-chat-panel.component.ts",
     "text": "Archive this sidechat (keeps history, removes it from the list)",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "The approved sidechat throwaway-cleanup plan replaces Archive with confirmed Discard, which stops the answer and permanently deletes its conversation instead of keeping history."
   },
   {
     "id": "9681f6776c7f14a6",
@@ -3022,5 +3023,23 @@
     "owner": "src/renderer/app/features/instance-detail/input-panel.component.ts",
     "text": "Fence is off for every session (Settings > Advanced > Security)",
     "why": "long"
+  },
+  {
+    "id": "6f9b19efe3e53731",
+    "owner": "src/renderer/app/features/side-chat/side-chat-panel.component.ts",
+    "text": "Send sidechat message",
+    "why": "consequence"
+  },
+  {
+    "id": "8abcab8a2e6b1889",
+    "owner": "src/renderer/app/features/side-chat/side-chat-panel.component.ts",
+    "text": "Wait while this sidechat is discarded",
+    "why": "consequence"
+  },
+  {
+    "id": "c01a66a439ca0855",
+    "owner": "src/renderer/app/features/side-chat/side-chat-panel.component.ts",
+    "text": "Wait while this message is sent",
+    "why": "consequence"
   }
 ]

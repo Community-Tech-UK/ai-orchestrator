@@ -34,10 +34,10 @@ import {
 } from './worker-node-connection-helpers';
 import { bindWorkerNodeRosterUpdates } from './worker-node-roster-updates';
 import { ConnectionDisconnectLifecycle } from './connection-disconnect-lifecycle';
+import { isMissingTailscaleHost, TailscaleListenerStart } from '../util/tailscale-listener-start';
 import { listenDualStack } from './dual-stack-listen';
 import { listenWorkerNodeServer } from './worker-node-listener';
 
-// Re-exported for existing importers (tests, dispatch classification callers).
 export { isWorkerNodeWorkDispatchMethod };
 
 const logger = getLogger('WorkerNodeConnection');
@@ -67,6 +67,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
   private static instance: WorkerNodeConnectionServer | null = null;
 
   private wss: WebSocketServer | null = null;
+  private readonly listenerStart = new TailscaleListenerStart<void>();
   private readonly nodeToSocket = new Map<string, WebSocket>();
   private readonly socketToNode = new Map<WebSocket, string>();
   private readonly tlsTransports = new WeakMap<WebSocket, TLSSocket>();
@@ -116,11 +117,15 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       return;
     }
 
-    // "All interfaces" listens on `::`, which takes IPv4 and IPv6 peers (for
-    // example a worker on the Tailscale IPv6 address).
-    await listenDualStack(host, (listenHost) => this.listen(port, listenHost));
-
-    this.stopRosterUpdates = bindWorkerNodeRosterUpdates(getWorkerNodeRegistry());
+    // All interfaces accepts IPv4 and IPv6 peers through the same listener.
+    await this.listenerStart.run(() => isMissingTailscaleHost(host) ? null : host, async (address, signal) => {
+      await listenDualStack(address, (listenHost) => this.listen(port, listenHost));
+      if (signal.aborted) {
+        this.stop();
+        signal.throwIfAborted();
+      }
+      this.stopRosterUpdates = bindWorkerNodeRosterUpdates(getWorkerNodeRegistry());
+    });
   }
 
   private async listen(port: number, host: string): Promise<void> {
@@ -137,6 +142,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
   }
 
   stop(): void {
+    this.listenerStart.cancel();
     this.stopRosterUpdates?.();
     this.stopRosterUpdates = null;
 

@@ -9,6 +9,7 @@ import type {
   BrowserExistingTabAttachment,
   BrowserExtensionTabStore,
 } from './browser-extension-tab-store';
+import { extensionCommandTargetForAttachment } from './browser-extension-tab-store';
 import type { BrowserExtensionContactStateReader } from './browser-extension-contact-state';
 import {
   isRemoteExtensionContactFresh,
@@ -53,33 +54,12 @@ import {
 } from './browser-target-preflight';
 import { describeInferredWorkerAgentSkew } from './browser-worker-agent-skew';
 import type { BrowserAuditStore } from './browser-audit-store';
+import { chooseChromeProfileForRequest, EXISTING_TAB_CONFIRMATION_HORIZON_MS } from './browser-chrome-profile-selection';
 import {
-  CHROME_PROFILE_HISTORY_WINDOW_MS,
-  chooseChromeProfile,
   describeChromeProfileChoice,
   tabMatchesChromeProfileChoice,
   type ChromeProfileChoice,
-  type ChromeProfileChoiceResult,
 } from './browser-chrome-profile-choice';
-
-/**
- * How recently an extension must have re-reported a tab for `find_or_open` to
- * treat it as live.
- *
- * This deliberately does NOT mean "re-reported during the refresh we just
- * asked for". An extension relay re-reports each tab on a rolling sweep — a
- * measured 20–55s per tab on a 22-tab remote node — while the refresh command
- * itself is bounded at 2.5–3s. Requiring confirmation inside the refresh
- * window therefore rejected roughly nine live tabs in ten (LT-216): with no
- * URL the agent got `existing_tab_not_confirmed_after_inventory_refresh`, and
- * with a URL it silently opened a duplicate tab instead of reusing the
- * logged-in one.
- *
- * The horizon must exceed the observed sweep period while still excluding
- * genuinely dead inventory (ghost tabs from an ended browser session, which
- * are hours old).
- */
-const EXISTING_TAB_CONFIRMATION_HORIZON_MS = 120_000;
 
 interface BrowserTargetDiscoveryDeps {
   /**
@@ -332,7 +312,7 @@ export class BrowserTargetDiscoveryOperations {
       });
     }
 
-    const profileChoice = this.chooseChromeProfile(request, computerTarget.target, url);
+    const profileChoice = chooseChromeProfileForRequest(request, computerTarget.target, url, this.deps);
     if (!profileChoice.ok) {
       return this.deps.result({
         context: request,
@@ -367,6 +347,26 @@ export class BrowserTargetDiscoveryOperations {
       }
     }
     if (existing) {
+      try {
+        await this.deps.extensionCommandStore.sendCommand({
+          ...(existing.nodeId ? { queueKey: browserExtensionQueueKeyForNode(existing.nodeId) } : {}),
+          command: 'claim_tab', target: extensionCommandTargetForAttachment(existing),
+          timeoutMs: 10_000,
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        if (reason === 'browser_tab_held_by_another_session' && url) {
+          existing = null;
+        } else {
+          return this.deps.result({
+            context: request, action: 'find_or_open', toolName: 'browser.find_or_open',
+            actionClass: 'read', decision: 'allowed', outcome: 'failed', reason,
+            summary: 'The matching Chrome tab could not be reserved for this session', data: null,
+          });
+        }
+      }
+    }
+    if (existing) {
       const note = [
         unreadableExistingTabNote(existing),
         describeChromeProfileChoice(profileChoice, existing.extensionInstanceId, siteOf(url)),
@@ -390,30 +390,6 @@ export class BrowserTargetDiscoveryOperations {
     }
 
     return this.openTab(request, computerTarget.target, url, profileChoice);
-  }
-
-  /**
-   * Which of the computer's Chrome profiles this request works in. Only a
-   * profile that can take a browser command now can open the tab: an outdated
-   * one still polls but refuses, and would fail a bound open_tab.
-   */
-  private chooseChromeProfile(
-    request: BrowserGatewayFindOrOpenRequest,
-    target: BrowserComputerTargetResolution,
-    url: string | undefined,
-  ): ChromeProfileChoiceResult {
-    const queueKey = target.nodeId ? browserExtensionQueueKeyForNode(target.nodeId) : 'local';
-    const origin = url ? tryParseWebUrl(url)?.origin : undefined;
-    const requested = request.chromeProfile?.trim();
-    return chooseChromeProfile({
-      connected: this.deps.extensionCommandStore.listRecentExtensionInstances?.(queueKey, true) ?? [],
-      usage: this.deps.chromeProfileUsage.countChromeProfileUse({
-        ...(target.nodeId ? { nodeId: target.nodeId } : {}),
-        ...(origin ? { origin } : {}),
-        since: Date.now() - CHROME_PROFILE_HISTORY_WINDOW_MS,
-      }),
-      ...(requested ? { requested } : {}),
-    });
   }
 
   private remoteStaleResult(

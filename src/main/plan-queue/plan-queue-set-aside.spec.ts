@@ -5,7 +5,8 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ORCHESTRATOR_TOOL_DESCRIBE_NAME } from '../mcp/orchestrator-mcp-deferral';
 import { PLAN_QUEUE_TOOL_NAMES } from '../mcp/plan-queue-tools';
-import { inspectSetAsideWork, PlanQueueSetAsideAgents, SET_ASIDE_FOLDER_METADATA, setAsideAgentBrief, type PlanQueueSetAsideDeps } from './plan-queue-set-aside';
+import { SET_ASIDE_FOLDER_METADATA } from '../../shared/utils/plan-queue-set-aside-agent';
+import { inspectSetAsideWork, PlanQueueSetAsideAgents, setAsideAgentBrief, type PlanQueueSetAsideDeps } from './plan-queue-set-aside';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { useGitRepoTemplate } from '../workspace/git/git-repo-template.test-helpers';
 
@@ -118,7 +119,6 @@ describe('PlanQueueSetAsideAgents', () => {
   let jobs: PlanQueueItem[];
   let discard: ReturnType<typeof vi.fn>;
   let inPlay: boolean;
-  let newerLanded: boolean;
   let clock: number;
   let sessions: Map<string, { status: string; metadata?: Record<string, unknown> }>;
   let quietly: ReturnType<typeof vi.fn>;
@@ -128,7 +128,6 @@ describe('PlanQueueSetAsideAgents', () => {
   beforeEach(() => {
     jobs = [];
     inPlay = false;
-    newerLanded = false;
     clock = 0;
     sessions = new Map([[AGENT, { status: 'busy', metadata: { [SET_ASIDE_FOLDER_METADATA]: repo } }], ['other', { status: 'busy' }]]);
     discard = vi.fn(async (id: string) => { jobs = jobs.filter((job) => job.id !== id); });
@@ -138,10 +137,10 @@ describe('PlanQueueSetAsideAgents', () => {
       store: {
         listParkedInFolder: () => jobs.map((job) => ({ item: job, landedLater: false })),
         documentInPlay: () => inPlay,
-        newerAttemptLanded: () => newerLanded,
       },
       instances: {
         getInstance: (id: string) => sessions.get(id),
+        getAllInstances: () => [...sessions].map(([id, session]) => ({ id, ...session })),
         createInstance: vi.fn(async (config: { metadata?: Record<string, unknown> }) => {
           const id = `agent-${sessions.size}`;
           sessions.set(id, { status: 'busy', metadata: config.metadata });
@@ -237,10 +236,18 @@ describe('PlanQueueSetAsideAgents', () => {
     }
   });
 
-  it('leaves the choice between an older attempt and a newer merged one to James', () => {
-    newerLanded = true;
-    expect(() => agents.checkRestart(AGENT, 'land-anyway', blocked())).toThrow('A newer attempt at this document has already merged');
-    expect(() => agents.checkRestart(undefined, 'land-anyway', blocked())).not.toThrow();
+  it('merges a passed job that only waits on live checks, and finishes a clashed merge itself', () => {
+    const brief = setAsideAgentBrief('/repo', 12, undefined);
+    expect(brief).toContain('checker PASS and reason needs-james because live checks remain: use land-anyway');
+    expect(brief).toContain('Live checks that can follow a merge stay in the job\'s document');
+    expect(brief).toContain('Finish a merge that clashed');
+    expect(brief).toContain('Do not commit in that folder yourself');
+    expect(brief).toContain('for a job that step 4 below would merge with land-anyway');
+  });
+
+  it('tells it to compare an older attempt with the merged one before merging its extra work', () => {
+    // The refusal itself is gone; plan-queue-coordinator-operator.spec.ts lands such an attempt end to end.
+    expect(setAsideAgentBrief('/repo', 12, undefined)).toContain('compare the two with git');
   });
 
   it('lets it resume a job that passed its checks, which redoes the job', () => {
@@ -261,8 +268,14 @@ describe('PlanQueueSetAsideAgents', () => {
     expect(() => agents.checkRestart(AGENT, 'land-anyway', blocked())).toThrow('in progress');
   });
 
+  it('reuses an agent a restart revived, which this launch did not start', async () => {
+    jobs = [item()];
+    expect(await agents.start(repo)).toBe(AGENT);
+  });
+
   it('reuses a working agent but starts fresh once it has finished', async () => {
     jobs = [item()];
+    sessions.get(AGENT)!.status = 'idle';
     const first = await agents.start(repo);
     expect(await agents.start(repo)).toBe(first);
     sessions.get(first)!.status = 'idle';
@@ -271,6 +284,7 @@ describe('PlanQueueSetAsideAgents', () => {
 
   it('starts one agent when the button is pressed twice', async () => {
     jobs = [item()];
+    sessions.get(AGENT)!.status = 'idle';
     const [first, second] = await Promise.all([agents.start(repo), agents.start(repo)]);
     expect(second).toBe(first);
     expect([...sessions.keys()].filter((id) => id.startsWith('agent-'))).toHaveLength(1);
@@ -288,6 +302,7 @@ describe('PlanQueueSetAsideAgents', () => {
     const deps = (agents as unknown as { deps: PlanQueueSetAsideDeps }).deps;
     deps.harnessSource = async () => '/src/harness';
     jobs = [item()];
+    sessions.get(AGENT)!.status = 'idle';
     await agents.start(repo);
     const [config] = vi.mocked(deps.instances.createInstance).mock.calls[0];
     expect(config.initialPrompt).toContain('whose source is at /src/harness');

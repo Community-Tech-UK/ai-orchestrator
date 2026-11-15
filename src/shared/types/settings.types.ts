@@ -343,6 +343,8 @@ export interface AppSettings
    * authorisation.
    */
   browserSecretObservationProtectionEnabled: boolean;
+  /** Operator-only: include this computer's Chrome in Browser Gateway routing. */
+  browserLocalComputerEnabled: boolean;
   /**
    * Master switch for the workspace secret card. When false, agents cannot
    * request a secret and stored references fail closed. Operator-only.

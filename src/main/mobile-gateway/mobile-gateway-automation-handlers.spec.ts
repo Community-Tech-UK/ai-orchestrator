@@ -89,12 +89,52 @@ describe('MobileGatewayAutomationHandlers', () => {
     expect(result).toEqual([{
       id: 'daily-review', name: 'Daily review',
       schedule: { type: 'cron', expression: '0 8 * * *', timezone: 'Europe/London' },
-      enabled: true, nextRunAt: 20_000,
-      lastRun: { status: 'failed', at: 10_200 },
+      enabled: true, nextRunAt: 20_000, maxRunMinutes: 90,
+      lastRun: { status: 'failed', at: 10_200, result: null, maxRunMinutes: null, paused: false, deadlineAt: null },
       provider: 'codex', model: 'gpt-5.4',
     }]);
     expect(JSON.stringify(result)).not.toContain('PRIVATE');
     expect(JSON.stringify(result)).not.toContain('/repo');
+  });
+
+  it('projects the reported result and effective job limit without exposing run content', async () => {
+    const { handlers, list, listLatestRuns } = setup();
+    const job = automation();
+    job.action.maxRunMinutes = 45;
+    list.mockResolvedValue([job]);
+    listLatestRuns.mockReturnValue(new Map([['daily-review', run({ result: { outcome: 'needs_attention', notify: false } })]]));
+    const [item] = await handlers.list();
+    expect(item).toMatchObject({ maxRunMinutes: 45,
+      lastRun: { result: { outcome: 'needs_attention', notify: false } } });
+    expect(JSON.stringify(item)).not.toContain('PRIVATE');
+    expect(JSON.stringify(item)).not.toContain('/secret');
+  });
+
+  it('projects a running job clock from its run snapshot rather than a later edit to the job', async () => {
+    const { handlers, list, listLatestRuns } = setup();
+    const job = automation();
+    job.action.maxRunMinutes = 120;
+    list.mockResolvedValue([job]);
+    const configSnapshot = { name: job.name, schedule: job.schedule, trigger: job.trigger,
+      concurrencyPolicy: job.concurrencyPolicy, missedRunPolicy: job.missedRunPolicy, destination: job.destination,
+      action: { ...job.action, maxRunMinutes: 10 }, runClock: { pausedAt: null, pausedMs: 60_000 } };
+    listLatestRuns.mockReturnValue(new Map([['daily-review', run({ status: 'running', startedAt: 10_000, finishedAt: null, configSnapshot })]]));
+    const [item] = await handlers.list();
+    expect(item).toMatchObject({ maxRunMinutes: 120, lastRun: {
+      status: 'running', at: 10_000, maxRunMinutes: 10, result: null, paused: false, deadlineAt: 670_000,
+    } });
+  });
+
+  it('reports a paused run explicitly while leaving jobs without a last run alone', async () => {
+    const { handlers, listLatestRuns } = setup();
+    const job = automation();
+    const configSnapshot = { name: job.name, schedule: job.schedule, trigger: job.trigger,
+      concurrencyPolicy: job.concurrencyPolicy, missedRunPolicy: job.missedRunPolicy, destination: job.destination,
+      action: job.action, runClock: { pausedAt: 20_000, pausedMs: 0 } };
+    listLatestRuns.mockReturnValue(new Map([['daily-review', run({ status: 'running', finishedAt: null, configSnapshot })]]));
+    expect((await handlers.list())[0].lastRun).toMatchObject({ paused: true, maxRunMinutes: 90 });
+    listLatestRuns.mockReturnValue(new Map());
+    expect((await handlers.list())[0]).toMatchObject({ maxRunMinutes: 90, lastRun: null });
   });
 
   it.each([

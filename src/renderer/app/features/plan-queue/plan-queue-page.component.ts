@@ -20,6 +20,7 @@ import { PlanQueueQuestionListComponent } from './components/plan-queue-question
 import { PlanQueueRoutingPanelComponent } from './components/plan-queue-routing-panel.component';
 import { upgradePlanQueueRouting } from '../../../../shared/utils/plan-queue-routing-upgrade';
 import { machineSessionReasonOf } from '../../../../shared/utils/machine-session';
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 import { AUTOMATION_FAILURE_STATUSES } from '../../../../shared/types/instance-status-policy';
 import type { PlanQueueSessionOption } from './components/plan-queue-run-owner.component';
 import { PlanQueueRunListComponent, planQueueRoutingSummary, type PlanQueueAccountLabel } from './components/plan-queue-run-list.component';
@@ -139,7 +140,7 @@ export class PlanQueuePageComponent implements OnInit {
   ));
 
   protected readonly parentSessions = computed<PlanQueueParentSessionOption[]>(() =>
-    this.instanceStore.rootInstances().map((instance) => ({
+    this.instanceStore.rootInstances().filter(instance => !isProjectRailHiddenSession(instance.metadata)).map((instance) => ({
       id: instance.id,
       label: `${instance.displayName} (${instance.provider})`,
       workingDirectory: instance.workingDirectory,
@@ -152,6 +153,7 @@ export class PlanQueuePageComponent implements OnInit {
    */
   protected readonly runSessions = computed<PlanQueueSessionOption[]>(() =>
     this.instanceStore.instances()
+      .filter(instance => !isProjectRailHiddenSession(instance.metadata))
       .filter(instance => machineSessionReasonOf(instance) !== 'plan-queue')
       .map(instance => ({
         id: instance.id,

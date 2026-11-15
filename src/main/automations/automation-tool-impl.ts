@@ -21,6 +21,7 @@ import type {
 } from '../../shared/types/automation.types';
 import type {
   CreateAutomationFn,
+  CreateAutomationArgs,
   DeleteAutomationFn,
   ListAutomationsFn,
   PostponeAutomationFn,
@@ -154,6 +155,29 @@ function assertWritablePayload(
   );
 }
 
+/** Reuse may not silently discard an explicitly requested copy setting. */
+function assertEquivalentCopyChoices(existing: Automation, input: CreateAutomationInput, args: CreateAutomationArgs): void {
+  if (existing.destination.kind !== 'newInstance' || existing.action.attachments?.length
+    || (['preCheck', 'loop', 'systemAction', 'executionProfile', 'containedFallback', 'forceNodeId'] as const)
+      .some(key => existing.action[key] !== undefined)) {
+    throw new Error('Cannot reuse this automation: it has settings this tool cannot copy. Review it in the Automations form.');
+  }
+  const different: string[] = [];
+  for (const key of ['prompt', 'workingDirectory', 'model', 'reasoningEffort', 'yoloMode', 'agentId', 'maxRunMinutes', 'maxProcessedTokens', 'slowWhenUnchanged'] as const) {
+    if (args[key] === undefined) continue;
+    const actual = key === 'model'
+      ? verifiedAutomationModel(existing.action.provider ?? '', existing.action.model)?.id ?? existing.action.model
+      : existing.action[key];
+    if (!isDeepStrictEqual(actual, input.action[key])) different.push(key);
+  }
+  for (const key of ['enabled', 'hidden', 'description', 'missedRunPolicy', 'concurrencyPolicy'] as const) {
+    if (args[key] !== undefined && !isDeepStrictEqual(existing[key] ?? (key === 'hidden' ? false : undefined), input[key])) different.push(key);
+  }
+  if (different.length) {
+    throw new Error(`An automation with this prompt and schedule already exists with different ${different.join(', ')}. Review that job before creating a copy.`);
+  }
+}
+
 export function createAutomationToolImplementations(
   deps: AutomationToolImplDeps,
 ): AutomationToolImplementations {
@@ -212,14 +236,18 @@ export function createAutomationToolImplementations(
         description: args.description,
         enabled: args.enabled ?? true,
         schedule,
-        concurrencyPolicy: 'skip',
+        concurrencyPolicy: args.concurrencyPolicy ?? 'skip',
+        ...(args.missedRunPolicy !== undefined ? { missedRunPolicy: args.missedRunPolicy } : {}),
         action: {
           prompt: args.prompt,
           workingDirectory,
-          ...(meta ? { provider: args.provider } : resolveNewAutomationModelSelection({ provider: args.provider })),
-          ...((!args.provider || args.provider === 'claude') && /\b(check|monitor|watch|poll)\b/i.test(`${args.name} ${args.prompt}`)
+          ...(meta ? { provider: args.provider, model: args.model } : resolveNewAutomationModelSelection({ provider: args.provider, model: args.model })),
+          ...(!args.model && (!args.provider || args.provider === 'claude') && /\b(check|monitor|watch|poll)\b/i.test(`${args.name} ${args.prompt}`)
             && (!meta || verifiedAutomationModel(caller?.provider ?? '', caller?.currentModel)?.tier !== 'fast')
             ? { provider: 'claude' as const, model: CLAUDE_MODELS.SONNET, reasoningEffort: 'low' as const } : {}),
+          ...(args.reasoningEffort !== undefined ? { reasoningEffort: args.reasoningEffort } : {}),
+          ...(args.yoloMode !== undefined ? { yoloMode: args.yoloMode } : {}),
+          ...(args.agentId !== undefined ? { agentId: args.agentId } : {}),
           ...(args.maxRunMinutes !== undefined ? { maxRunMinutes: args.maxRunMinutes } : {}),
           ...(args.maxProcessedTokens !== undefined ? { maxProcessedTokens: args.maxProcessedTokens } : {}),
           ...(args.slowWhenUnchanged !== undefined ? { slowWhenUnchanged: args.slowWhenUnchanged } : {}),
@@ -236,9 +264,12 @@ export function createAutomationToolImplementations(
       // running tally instead of fragmenting across duplicate shells.
       const existing = findEquivalentAutomation(await store.list(), input);
       if (existing) {
-        if (meta) {
-          const checked = enforceAutomationAuthority(existing.action, meta.callerInstanceId ? deps.resolveCaller?.(meta.callerInstanceId) : undefined);
-          assertBoundedAutomationDestination(checked, existing.destination);
+        const checked = meta
+          ? enforceAutomationAuthority(existing.action, meta.callerInstanceId ? deps.resolveCaller?.(meta.callerInstanceId) : undefined)
+          : undefined;
+        if (checked) assertBoundedAutomationDestination(checked, existing.destination);
+        assertEquivalentCopyChoices(existing, input, args);
+        if (checked) {
           // Pin inherited defaults before acknowledging reuse; never rewrite higher authority silently.
           await store.update(existing.id, { action: checked }, undefined);
         }

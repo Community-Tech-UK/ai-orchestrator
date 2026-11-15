@@ -34,6 +34,7 @@ import {
   isSecureBrowserExtensionRuntimeEvidence,
   supportsSecureBrowserExtensionCredentialFill,
   supportsBrowserExtensionCodexDeviceHandoff,
+  supportsBrowserExtensionSessionClaims,
 } from './browser-extension-credential-compatibility';
 import {
   classifyBrowserExtensionIncompatibility,
@@ -214,6 +215,7 @@ export class RemoteBrowserExtensionBridge {
         deferHandoffConfirmation: true,
         allowBrowserCommands,
         allowSecureCredentialCommands: allowBrowserCommands,
+        ...(supportsBrowserExtensionSessionClaims(params) ? { allowSessionClaims: true } : {}),
         ...(confidentialTransport ? { confidentialTransport } : {}),
         ...(extensionInstanceId && params.extensionStartedAt !== undefined
           && supportsBrowserExtensionCodexDeviceHandoff(this.contactState, nodeId, extensionInstanceId, String(params.extensionStartedAt))

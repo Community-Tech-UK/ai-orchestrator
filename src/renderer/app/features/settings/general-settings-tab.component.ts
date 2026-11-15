@@ -138,6 +138,16 @@ const DEFAULT_MODEL_PROVIDERS: DefaultModelProvider[] = [
       <app-settings-profile-row class="settings-list-item" />
     </section>
 
+    @if (canOpenAtLogin) {
+      <section class="settings-list-card default-model" aria-label="Open at login" data-setting-key="workerMode">
+        <label class="default-model__info">
+          <input #openAtLogin type="checkbox" [checked]="store.settings().workerMode.openAtLogin === true"
+            (change)="setOpenAtLogin(openAtLogin.checked)" />
+          Open Harness when I sign in
+        </label>
+      </section>
+    }
+
     <section class="settings-list-card" aria-label="General settings">
       <app-settings-tiered-row-list
         [settings]="genericGeneralSettings()"
@@ -151,6 +161,11 @@ const DEFAULT_MODEL_PROVIDERS: DefaultModelProvider[] = [
 })
 export class GeneralSettingsTabComponent {
   store = inject(SettingsStore);
+  protected readonly canOpenAtLogin = /mac|win/i.test(navigator.platform);
+
+  protected setOpenAtLogin(openAtLogin: boolean): void {
+    void this.store.set('workerMode', { ...this.store.settings().workerMode, openAtLogin });
+  }
 
   /** Read a value by key. A bound arrow so the template can pass it as a value. */
   protected readonly readSetting = (key: string): unknown =>

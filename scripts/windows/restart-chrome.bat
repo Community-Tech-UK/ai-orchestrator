@@ -117,7 +117,7 @@ function Get-ChromePath {
 
 Write-Host ''
 Write-Host '=========================================================='
-Write-Host '  Restarting Chrome (Browser Gateway extension relay)'
+Write-Host '  Restarting shared Chrome for BOTH Harnesses (Browser Gateway)'
 Write-Host '=========================================================='
 Write-Host ''
 

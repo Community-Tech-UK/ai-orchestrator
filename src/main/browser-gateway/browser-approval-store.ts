@@ -142,6 +142,12 @@ export class BrowserApprovalStore {
     return rows.map((row) => this.map(row));
   }
 
+  /** A discarded runtime cannot answer pending approvals; retain only their audit history. */
+  expireForInstance(instanceId: string): number {
+    return this.db.prepare(`UPDATE browser_approval_requests SET status = 'expired', decided_at = ?
+      WHERE instance_id = ? AND status = 'pending'`).run(Date.now(), instanceId).changes;
+  }
+
   /** Exact indexed lookup, independent of the operator UI's 100-row page limit. */
   findCredentialAccessRequest(metadata: BrowserCredentialAccessMetadata): BrowserApprovalRequest | null {
     const row = this.db.prepare(`SELECT * FROM browser_approval_requests

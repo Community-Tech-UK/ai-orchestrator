@@ -16,6 +16,7 @@ import { BUILTIN_AGENTS } from '../../shared/types/agent.types';
 import type { ChatEvent } from '../../shared/types/chat.types';
 import { BranchSummarizer } from '../context/branch-summarizer';
 import { ChatService } from './chat-service';
+import type { ChatServiceConfig } from './chat-service.types';
 import type { SideChatArchiveLookup } from './side-chat-parent-resolver';
 
 /** Runtime stand-in recording every spawn, input, preamble and termination. */
@@ -128,7 +129,7 @@ export function createSideChatHarness(shared?: {
   ledger: ConversationLedgerService;
   agentPermissions: Map<string, AgentToolPermissions>;
   archive: SideChatHarness['archive'];
-}): SideChatHarness {
+}, options: Pick<ChatServiceConfig, 'resolveAgentPermissions'> = {}): SideChatHarness {
   const db = shared?.db ?? defaultDriverFactory(':memory:');
   if (!shared) createOperatorTables(db);
   const ledger = shared?.ledger ?? new ConversationLedgerService({
@@ -167,10 +168,12 @@ export function createSideChatHarness(shared?: {
       }),
     },
     drainEvidenceCapture: async () => undefined,
-    resolveAgentPermissions: async (_cwd, agentId) => {
+    deleteSideChatHistory: async () => undefined,
+    expireSideChatApprovals: async () => undefined,
+    resolveAgentPermissions: options.resolveAgentPermissions ?? (async (_cwd, agentId) => {
       const permissions = agentPermissions.get(agentId ?? 'build') ?? agentPermissions.get('build');
       return { ...permissions! };
-    },
+    }),
     sideChatArchive: archiveLookup,
   });
   service.initialize();
@@ -184,7 +187,7 @@ export function createSideChatHarness(shared?: {
     archive,
     restart: () => {
       service.dispose();
-      return createSideChatHarness({ db, ledger, agentPermissions, archive });
+      return createSideChatHarness({ db, ledger, agentPermissions, archive }, options);
     },
     dispose: async () => {
       service.dispose();

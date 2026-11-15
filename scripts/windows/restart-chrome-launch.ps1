@@ -26,7 +26,10 @@
 # ---------------------------------------------------------------------------
 $ErrorActionPreference = 'Stop'
 
-$source  = Join-Path $env:USERPROFILE '.orchestrator\_scratch\aio-transfers\restart-chrome.bat'
+. (Join-Path $PSScriptRoot 'worker-home.ps1')
+$installation = Get-AioWorkerInstall -ScriptPath $PSCommandPath
+$source = Join-Path $installation.Home '_scratch\aio-transfers\restart-chrome.bat'
+Write-Host 'This restarts shared Chrome for both Harnesses.'
 $desktop = [Environment]::GetFolderPath('Desktop')
 $target  = Join-Path $desktop 'restart-chrome.bat'
 

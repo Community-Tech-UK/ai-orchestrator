@@ -341,6 +341,61 @@ describe('createAutomationToolImplementations', () => {
   });
 
   describe('createAutomation', () => {
+    it.each([{ prompt: 'Write a report ' }, { workingDirectory: '/REPO' }])('refuses normalized duplicates that would change exact copied values: %j', async difference => {
+      await impls.createAutomation({ name: 'Daily report', prompt: 'Write a report', cron: '0 9 * * *' }, { callerInstanceId: 'copy-session' });
+      await expect(impls.createAutomation({ name: 'Daily report copy', prompt: 'Write a report', cron: '0 9 * * *', ...difference },
+        { callerInstanceId: 'copy-session' })).rejects.toThrow(/already exists.*different/i);
+      expect(await store.list()).toHaveLength(1);
+    });
+
+    it('refuses to reuse an existing checked job as a plain copy', async () => {
+      await seed({ action: { prompt: 'Write a report', workingDirectory: '/repo', provider: 'claude',
+        model: 'opus', reasoningEffort: 'high', yoloMode: true, preCheck: { command: 'true' } } });
+      await expect(impls.createAutomation({ name: 'Daily report copy', prompt: 'Write a report', cron: '0 9 * * *' },
+        { callerInstanceId: 'copy-session' })).rejects.toThrow(/cannot copy|cannot reuse|unsupported/i);
+      expect(await store.list()).toHaveLength(1);
+    });
+
+    it('preserves explicit choices when copying a monitor instead of rewriting its model and effort', async () => {
+      const agent = makeImpls({ resolveCaller: () => ({ provider: 'claude', currentModel: 'opus', reasoningEffort: 'max', yoloMode: true }) });
+      const copy = await agent.createAutomation({ name: 'Daily monitor', prompt: 'Check status', cron: '0 9 * * *',
+        provider: 'claude', model: 'opus', reasoningEffort: 'max', yoloMode: false, agentId: 'reviewer',
+        missedRunPolicy: 'runOnce', concurrencyPolicy: 'queue', enabled: false, hidden: true,
+        maxRunMinutes: 45, maxProcessedTokens: 12345, slowWhenUnchanged: false,
+      }, { callerInstanceId: 'copy-session' });
+      expect(await store.get(copy.id)).toMatchObject({ enabled: false, hidden: true,
+        missedRunPolicy: 'runOnce', concurrencyPolicy: 'queue', action: {
+          provider: 'claude', model: 'opus', reasoningEffort: 'max', yoloMode: false, agentId: 'reviewer',
+          maxRunMinutes: 45, maxProcessedTokens: 12345, slowWhenUnchanged: false,
+          executionAuthority: { provider: 'claude', model: 'opus', reasoningEffort: 'max', yoloMode: false },
+        } });
+    });
+
+    it.each([
+      { model: 'opus' }, { reasoningEffort: 'high' }, { yoloMode: true },
+    ] as const)('refuses an explicit copy choice above its caller: %j', async choice => {
+      const agent = makeImpls({ resolveCaller: () => ({ provider: 'claude', currentModel: 'sonnet', reasoningEffort: 'low', yoloMode: false }) });
+      await expect(agent.createAutomation({ name: 'Daily monitor', prompt: 'Check status', cron: '0 9 * * *', ...choice },
+        { callerInstanceId: 'copy-session' })).rejects.toThrow(/calling session/);
+      expect(await store.list()).toHaveLength(0);
+    });
+
+    it('preserves an explicit effort even when a monitor model is defaulted', async () => {
+      const copy = await impls.createAutomation({ name: 'Daily monitor', prompt: 'Check status', cron: '0 9 * * *',
+        reasoningEffort: 'high' }, { callerInstanceId: 'copy-session' });
+      expect((await store.get(copy.id))?.action).toMatchObject({ model: 'sonnet', reasoningEffort: 'high' });
+    });
+
+    it.each([
+      { model: 'sonnet' }, { reasoningEffort: 'low' }, { yoloMode: false }, { agentId: 'reviewer' },
+      { missedRunPolicy: 'runOnce' }, { concurrencyPolicy: 'queue' }, { hidden: true }, { enabled: false },
+    ] as const)('refuses a superficially matching existing job that differs from the requested copy: %j', async choice => {
+      await impls.createAutomation({ name: 'Daily report', prompt: 'Write a report', cron: '0 9 * * *' }, { callerInstanceId: 'copy-session' });
+      await expect(impls.createAutomation({ name: 'Daily report copy', prompt: 'Write a report', cron: '0 9 * * *', ...choice },
+        { callerInstanceId: 'copy-session' })).rejects.toThrow(/already exists.*different|different.*already exists/i);
+      expect(await store.list()).toHaveLength(1);
+    });
+
     it('requires confirmation before an agent creates a 288-per-day schedule', async () => {
       const args = { name: 'Frequent', prompt: 'Check', cron: '*/5 * * * *' };
       await expect(impls.createAutomation(args)).rejects.toThrow(/confirmedByUser: true/);

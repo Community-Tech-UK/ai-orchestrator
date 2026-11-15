@@ -41,17 +41,10 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$RepoPath,
 
-  # NOTE: start-worker.bat hardcodes %USERPROFILE%\.orchestrator when it looks for
-  # the launcher files and stamps, and has no way to discover a custom root.
-  # The two drift COMPARISONS still fail safe under an override - no stamp found
-  # means no warning, never a false alarm. The "not fully installed" check does
-  # NOT: it warns precisely because the default root is empty, so a successful
-  # install under a non-default root makes it cry wolf on every worker start.
-  # Overriding this is supported for testing; on a machine that actually runs the
-  # worker, leave it at the default.
-  [string]$InstallRoot = (Join-Path $env:USERPROFILE '.orchestrator'),
+  # Persisted into this checkout's ignored .aio-worker-home marker.
+  [string]$InstallRoot,
 
-  [string]$TaskName = 'AI Orchestrator Worker',
+  [string]$TaskName,
 
   # How often Task Scheduler re-checks that the worker is running. The task uses
   # MultipleInstancesPolicy=IgnoreNew and the worker holds a single-instance
@@ -64,7 +57,7 @@ param(
   # automatic update task. The installer disables any existing task instead.
   [switch]$RegisterUpdateTask,
 
-  [string]$UpdateTaskName = 'AI Orchestrator Worker Update',
+  [string]$UpdateTaskName,
 
   # Deprecated with -RegisterUpdateTask; accepted for old install commands.
   [int]$UpdateMinutes = 15,
@@ -182,6 +175,20 @@ function Write-RenderedTemplate {
 # --- validate -----------------------------------------------------------------
 
 $RepoPath = (Resolve-Path -LiteralPath $RepoPath).Path.TrimEnd('\')
+. (Join-Path $PSScriptRoot 'worker-home.ps1')
+$installation = Get-AioWorkerInstall -RepoPath $RepoPath -WorkerHome $InstallRoot
+if (-not $InstallRoot) { $InstallRoot = $installation.Home }
+$InstallRoot = [IO.Path]::GetFullPath($InstallRoot).TrimEnd('\')
+if (-not $TaskName) { $TaskName = Get-AioWorkerTaskName -WorkerHome $InstallRoot }
+if (-not $UpdateTaskName) { $UpdateTaskName = "$TaskName Update" }
+$existingMetadata = Join-Path $InstallRoot 'worker-install.json'
+if (Test-Path -LiteralPath $existingMetadata) {
+  $owner = Get-Content -LiteralPath $existingMetadata -Raw | ConvertFrom-Json
+  if (-not $owner.repoPath.Equals($RepoPath, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'This worker home already belongs to a different checkout. Nothing has been changed.'
+  }
+}
+
 Assert-NotOneDrivePath -PathValue $RepoPath -Label 'RepoPath'
 Assert-NotOneDrivePath -PathValue $InstallRoot -Label 'InstallRoot'
 
@@ -280,6 +287,17 @@ if ($RegisterUpdateTask) {
 }
 if ($RegisterTask) {
   $taskPresence = Get-TaskPresence -Name $TaskName
+  if ($taskPresence -eq 'yes') {
+    $ownerTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+    $ownHome = Join-Path $InstallRoot 'run-worker-hidden.vbs'
+    $owned = @($ownerTask.Actions | Where-Object {
+      $_.Arguments -and (
+        $_.Arguments.IndexOf($ownHome, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+        $_.Arguments.IndexOf($RepoPath, [StringComparison]::OrdinalIgnoreCase) -ge 0)
+    }).Count -gt 0
+    if (-not $owned) { throw 'That scheduled task belongs to another worker checkout. Choose a separate task name.' }
+  }
+
   # Gated on a task ALREADY EXISTING, not merely on -RegisterTask. Creating a task
   # for the current interactive user does not normally need elevation; it is
   # replacing one somebody else registered elevated that gets refused. Warning
@@ -295,7 +313,7 @@ if ($RegisterTask) {
 # Retire the legacy updater before writing any launcher files. If task lookup or
 # disabling fails, leave the deployed launcher alone rather than reporting a
 # partial install while automatic pulls may still be armed.
-$updateTaskNames = @('AI Orchestrator Worker Update', $UpdateTaskName) | Select-Object -Unique
+$updateTaskNames = @($UpdateTaskName)
 if ($updateTaskNames -contains $TaskName) {
   throw "The update-task name matches the keep-alive task '$TaskName'; refusing to disable it."
 }
@@ -349,6 +367,17 @@ $vbsTemplate = Join-Path $templateDir 'run-worker-hidden.template.vbs'
 if (-not (Test-Path -LiteralPath $InstallRoot -PathType Container)) {
   if ($PSCmdlet.ShouldProcess($InstallRoot, 'Create install directory')) {
     New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
+  }
+}
+
+$marker = Join-Path $RepoPath '.aio-worker-home'
+if ($PSCmdlet.ShouldProcess($marker, 'Record checkout worker home')) {
+  [IO.File]::WriteAllText($marker, $InstallRoot + [Environment]::NewLine, (New-Object Text.UTF8Encoding($false)))
+  @{ repoPath = $RepoPath; taskName = $TaskName; updateTaskName = $UpdateTaskName } |
+    ConvertTo-Json | Set-Content -LiteralPath (Join-Path $InstallRoot 'worker-install.json') -Encoding UTF8
+  Set-Content -LiteralPath (Join-Path $InstallRoot 'worker-task-name.txt') -Value $TaskName -Encoding ASCII
+  foreach ($name in @('worker-home.ps1', 'restart-worker.bat', 'restart-chrome.bat', 'restart-chrome-launch.ps1', 'install-worker-dependencies.bat')) {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $InstallRoot $name) -Force
   }
 }
 

@@ -1,6 +1,8 @@
 import { Component, input, output, signal, ɵresolveComponentResources as resolveComponentResources } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
+import { ConfirmService } from '../../shared/confirm/confirm.service';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { KeybindingService } from '../../core/services/keybinding.service';
 import { readFileSync } from 'node:fs';
@@ -134,7 +136,7 @@ describe('SideChatPanelComponent', () => {
       sideChatAttentionAll: vi.fn().mockResolvedValue({ success: true, data: [] }),
       sideChatList: vi.fn(async ({ parent }: { parent: SideChatParentRef }) => ({
         success: true,
-        data: { active: lists.get(parent.kind === 'session' ? parent.historyThreadId : parent.chatId) ?? [], archived: [] },
+        data: { active: lists.get(parent.kind === 'session' ? parent.historyThreadId : parent.chatId) ?? [] },
       })),
       sideChatPermissions: vi.fn().mockResolvedValue({ success: true, data: PERMISSIONS }),
       sideChatCreate: vi.fn().mockResolvedValue({ success: true, data: { chat: chat('new-side') } }),
@@ -143,6 +145,7 @@ describe('SideChatPanelComponent', () => {
         success: true,
         data: { chatId, parent: PARENT_A, authority: 'inherit-parent', lastReadAssistantSequence: throughSequence },
       })),
+      sideChatDiscard: vi.fn().mockResolvedValue({ success: true }),
       sideChatSetSelection: vi.fn().mockResolvedValue({ success: true, data: { chat: chat('s1') } }),
     };
 
@@ -156,7 +159,6 @@ describe('SideChatPanelComponent', () => {
             details,
             chats: signal<ChatRecord[]>([]),
             ensureDetailLoaded: vi.fn().mockResolvedValue(undefined),
-            archive: vi.fn().mockResolvedValue(undefined),
             sendMessageTo: vi.fn(),
             loadOlderMessagesFor: vi.fn().mockResolvedValue(null),
           },
@@ -179,7 +181,7 @@ describe('SideChatPanelComponent', () => {
     })
       .overrideComponent(SideChatPanelComponent, {
         set: {
-          imports: [OutputStreamStub, PickerStub, ActivityStub, UserActionStub, BrowserApprovalStub, AioTooltipDirective],
+          imports: [OutputStreamStub, PickerStub, ActivityStub, UserActionStub, BrowserApprovalStub, AioTooltipDirective, AppIconButtonDirective],
           template: PANEL_TEMPLATE,
           templateUrl: undefined,
           styles: [''],
@@ -225,11 +227,11 @@ describe('SideChatPanelComponent', () => {
 
     expect(ipc['sideChatCreate']).not.toHaveBeenCalled();
     expect(ipc['sideChatSend']).not.toHaveBeenCalled();
-    expect(el().querySelector('.header-title')?.textContent).toContain('Sidechats · Provider Hardening');
-    expect(el().querySelector('.empty-title')?.textContent).toContain('Ask on the side');
+    expect(el().querySelector('.header-title')?.textContent).toContain('Sidechat · Provider Hardening');
+    expect(el().querySelector('.empty-copy')?.textContent).toContain('Ask about Provider Hardening.');
   });
 
-  it('offers only providers that can enforce the parent\'s permissions, explaining the rest', async () => {
+  it('offers only providers that can enforce the parent\'s permissions', async () => {
     fixture.componentRef.setInput('parent', PARENT_A);
     fixture.componentRef.setInput('parentSelection', { provider: 'codex', model: 'gpt-5.5' });
     await settle();
@@ -239,13 +241,129 @@ describe('SideChatPanelComponent', () => {
     // The parent's Codex cannot enforce its restrictions, so the default falls to the first usable provider.
     expect(picker.selection()).toMatchObject({ provider: 'claude' });
 
-    el().querySelector<HTMLButtonElement>('.permission-pill')!.click();
-    await settle();
-    const details = el().querySelector('.permission-details')?.textContent ?? '';
-    expect(details).toContain('Editing files: blocked');
-    expect(details).toContain('Approvals: asks before acting');
-    expect(details).toContain('Codex');
+    expect(el().querySelector('.permission-pill')).toBeNull();
     expect(el().textContent).not.toMatch(/enable editing/i);
+  });
+
+  it('keeps healthy controls out of the answer area and puts the model below the message box', async () => {
+    fixture.componentRef.setInput('parent', PARENT_A);
+    fixture.componentRef.setInput('parentTitle', 'Provider Hardening');
+    await settle();
+
+    expect(el().querySelector('.permission-pill')).toBeNull();
+    expect(el().querySelector('.status-pill')).toBeNull();
+    expect(el().querySelector('.sidechat-switcher')).toBeNull();
+    expect(el().querySelector('.composer app-compact-model-picker')).toBeTruthy();
+    expect(el().querySelector('.empty-copy')?.textContent).toContain('Ask about Provider Hardening. Uses the same permissions as the session.');
+    expect(document.activeElement).toBe(el().querySelector('textarea'));
+  });
+
+  it('offers a switcher only for siblings and switches to the chosen conversation', async () => {
+    lists.set('thread-a', [summary('s1', PARENT_A, 0, 4), summary('s2', PARENT_A, 0, 0)]);
+    fixture.componentRef.setInput('parent', PARENT_A);
+    await settle();
+
+    const switcher = el().querySelector<HTMLSelectElement>('.sidechat-switcher')!;
+    expect(switcher).toBeTruthy();
+    expect(Array.from(switcher.options).map(option => option.textContent?.trim())).toEqual(['New sidechat', 'Chat s1 · New answer', 'Chat s2']);
+    switcher.value = 's2';
+    switcher.dispatchEvent(new Event('change'));
+    await settle();
+    expect(fixture.componentInstance.sideChatId()).toBe('s2');
+
+    lists.set('thread-a', [summary('s2', PARENT_A, 0, 0)]);
+    await TestBed.inject(SideChatStore).refresh(PARENT_A);
+    await settle();
+    expect(el().querySelector('.sidechat-switcher')).toBeNull();
+  });
+
+  it('keeps the sole existing sidechat reachable while drafting a new one without creating a blank conversation', async () => {
+    lists.set('thread-a', [summary('s1', PARENT_A, 0, 0)]);
+    fixture.componentRef.setInput('parent', PARENT_A);
+    await settle();
+    expect(fixture.componentInstance.sideChatId()).toBe('s1');
+    expect(el().querySelector('.sidechat-switcher')).toBeNull();
+
+    el().querySelector<HTMLButtonElement>('[aria-label="New sidechat"]')!.click();
+    TestBed.inject(SideChatStore).setDraft(PARENT_A, null, 'unsent second question');
+    await settle();
+    const switcher = el().querySelector<HTMLSelectElement>('.sidechat-switcher')!;
+    expect(switcher).toBeTruthy();
+    expect(Array.from(switcher.options).map(option => option.textContent?.trim())).toEqual(['New sidechat', 'Chat s1']);
+    switcher.value = 's1';
+    switcher.dispatchEvent(new Event('change'));
+    await settle();
+    expect(fixture.componentInstance.sideChatId()).toBe('s1');
+    expect(el().querySelector('.sidechat-switcher')).toBeNull();
+
+    el().querySelector<HTMLButtonElement>('[aria-label="New sidechat"]')!.click();
+    await settle();
+    expect(el().querySelector<HTMLTextAreaElement>('textarea')?.value).toBe('unsent second question');
+    expect(ipc['sideChatCreate']).not.toHaveBeenCalled();
+    expect(ipc['sideChatSend']).not.toHaveBeenCalled();
+  });
+
+  it('requires a visible deletion confirmation and cancellation keeps the sidechat', async () => {
+    lists.set('thread-a', [summary('s1', PARENT_A, 0, 0)]);
+    setDetail('s1', []);
+    fixture.componentRef.setInput('parent', PARENT_A);
+    await settle();
+
+    el().querySelector<HTMLButtonElement>('.discard-action')!.click();
+    const confirmation = TestBed.inject(ConfirmService);
+    expect(confirmation.pending()?.message).toContain('stops its answer and permanently deletes its conversation');
+    expect(ipc['sideChatDiscard']).not.toHaveBeenCalled();
+    confirmation.resolve(false);
+    await settle();
+    expect(fixture.componentInstance.sideChatId()).toBe('s1');
+    expect(ipc['sideChatDiscard']).not.toHaveBeenCalled();
+
+    el().querySelector<HTMLButtonElement>('.discard-action')!.click();
+    lists.set('thread-a', []);
+    confirmation.resolve(true);
+    await settle();
+    expect(ipc['sideChatDiscard']).toHaveBeenCalledWith({ chatId: 's1', confirmation: 'discard' });
+    expect(fixture.componentInstance.sideChatId()).toBeNull();
+  });
+
+  it('does not send another question while a discard is waiting for confirmation', async () => {
+    lists.set('thread-a', [summary('s1', PARENT_A, 0, 0)]);
+    setDetail('s1', []);
+    fixture.componentRef.setInput('parent', PARENT_A);
+    await settle();
+    TestBed.inject(SideChatStore).setDraft(PARENT_A, 's1', 'another question');
+    el().querySelector<HTMLButtonElement>('.discard-action')!.click();
+
+    await fixture.componentInstance.send();
+
+    expect(ipc['sideChatSend']).not.toHaveBeenCalled();
+    TestBed.inject(ConfirmService).resolve(false);
+    await settle();
+  });
+
+  it('keeps permission diagnostics in closed Details and retries reading the parent permissions', async () => {
+    ipc['sideChatPermissions'].mockResolvedValueOnce({
+      success: true,
+      data: { ok: false, code: 'unavailable-permissions', error: 'INTERNAL_POLICY_DIAGNOSTIC', providers: [] },
+    });
+    fixture.componentRef.setInput('parent', PARENT_A);
+    await settle();
+
+    const banner = el().querySelector<HTMLElement>('.error-banner')!;
+    const details = banner.querySelector<HTMLDetailsElement>('details');
+    expect(details).toBeTruthy();
+    expect(details?.open).toBe(false);
+    expect(details?.textContent).toContain('INTERNAL_POLICY_DIAGNOSTIC');
+    const visibleNotice = banner.cloneNode(true) as HTMLElement;
+    visibleNotice.querySelector('details')?.remove();
+    expect(visibleNotice.textContent).toContain('Permissions unavailable');
+    expect(visibleNotice.textContent).not.toContain('INTERNAL_POLICY_DIAGNOSTIC');
+
+    banner.querySelector<HTMLButtonElement>('button')!.click();
+    await settle();
+
+    expect(ipc['sideChatPermissions']).toHaveBeenCalledTimes(2);
+    expect(el().querySelector('.error-banner')).toBeNull();
   });
 
   it('uses the pre-send provider choice for the first question', async () => {
@@ -298,8 +416,8 @@ describe('SideChatPanelComponent', () => {
 
     fixture.componentRef.setInput('parent', PARENT_B);
     await settle();
-    const titles = Array.from(el().querySelectorAll('.selector-title')).map((node) => node.textContent?.trim());
-    expect(titles).toEqual(['Chat b1']);
+    expect(fixture.componentInstance.summaries().map(summary => summary.chat.id)).toEqual(['b1']);
+    expect(el().querySelector('.sidechat-switcher')).toBeNull();
     expect(store.draftFor(PARENT_A, 'a1')).toBe('draft for a1');
   });
 
@@ -309,9 +427,8 @@ describe('SideChatPanelComponent', () => {
     fixture.componentInstance.selectSideChat('s2');
     await settle();
 
-    const first = el().querySelector('.selector-item');
-    expect(first?.getAttribute('aria-label')).toContain('Unread answer');
-    expect(first?.querySelector('.state-chip')?.textContent).toContain('Unread answer');
+    const options = Array.from(el().querySelectorAll('option')).map(option => option.textContent?.trim());
+    expect(options).toContain('Chat s1 · New answer');
   });
 
   it('marks an answer read only while it is visibly on screen', async () => {
@@ -338,7 +455,7 @@ describe('SideChatPanelComponent', () => {
     expect(ipc['sideChatMarkRead']).toHaveBeenCalledWith({ chatId: 's1', throughSequence: 4 });
   });
 
-  it('keeps Close, Stop and Archive as separate actions', async () => {
+  it('closes the panel without discarding its conversation', async () => {
     lists.set('thread-a', [summary('s1', PARENT_A, 0, 0)]);
     setDetail('s1', []);
     fixture.componentRef.setInput('parent', PARENT_A);
@@ -348,14 +465,11 @@ describe('SideChatPanelComponent', () => {
 
     el().querySelector<HTMLButtonElement>('.header-close')!.click();
     expect(closed).toHaveBeenCalled();
-    expect(TestBed.inject(ChatStore).archive).not.toHaveBeenCalled();
-
-    el().querySelector<HTMLButtonElement>('.archive-action')!.click();
-    await settle();
-    expect(TestBed.inject(ChatStore).archive).toHaveBeenCalledWith('s1');
+    expect(ipc['sideChatDiscard']).not.toHaveBeenCalled();
+    expect(TestBed.inject(InstanceStore).interruptInstance).not.toHaveBeenCalled();
   });
 
-  it('shows the archive and stop consequences before either action is pressed', async () => {
+  it('stops only the sidechat through a short visible label and locks its model picker', async () => {
     lists.set('thread-a', [summary('s1', PARENT_A, 0, 0)]);
     setDetail('s1', []);
     vi.mocked(TestBed.inject(InstanceStore).getInstance).mockReturnValue({
@@ -371,19 +485,10 @@ describe('SideChatPanelComponent', () => {
     }));
     fixture.componentRef.setInput('parent', PARENT_A);
     await settle();
-    expect(el().querySelector('.archive-action')?.textContent).toContain('Archive this sidechat (keeps history, removes it from the list)');
     const stop = el().querySelector<HTMLButtonElement>('.composer-button.stop');
-    expect(stop?.textContent).toContain("Stop this sidechat's answer (the main session is not affected)");
-    const archive = el().querySelector<HTMLButtonElement>('.archive-action')!;
-    for (const [button, name, consequence] of [
-      [archive, 'Archive this sidechat', 'Archive this sidechat (keeps history, removes it from the list)'],
-      [stop!, "Stop this sidechat's answer", "Stop this sidechat's answer (the main session is not affected)"],
-    ] as const) {
-      expect(button.getAttribute('aria-label')).toBe(name);
-      const descriptionId = button.getAttribute('aria-describedby');
-      expect(descriptionId).toBeTruthy();
-      expect(el().querySelector(`[id="${descriptionId}"]`)?.textContent).toBe(consequence);
-    }
+    expect(stop?.textContent?.trim()).toBe('Stop sidechat');
+    const picker = fixture.debugElement.query(By.directive(PickerStub)).componentInstance as PickerStub;
+    expect(picker.disabledReason()).toContain('Stop the current answer');
     expect(el().querySelectorAll('[title]')).toHaveLength(0);
     stop!.click();
     expect(TestBed.inject(InstanceStore).interruptInstance).toHaveBeenCalledExactlyOnceWith('side-runtime');
@@ -393,10 +498,9 @@ describe('SideChatPanelComponent', () => {
     await settle();
     const debug = fixture.debugElement.query(By.css('.header-close'));
     const directive = debug.injector.get(AioTooltipDirective, null);
-    expect(directive?.appTooltip()).toBe('Close panel. Running sidechats keep going.');
     expect(directive?.appTooltipShortcut()).toBe('toggle-side-chat');
     const button: HTMLButtonElement = debug.nativeElement;
-    expect(button.getAttribute('aria-label')).toBe('Close sidechat panel; running sidechats keep going');
+    expect(button.getAttribute('aria-label')).toBe('Close panel. Running sidechats keep going.');
     const matches = button.matches.bind(button);
     vi.spyOn(button, 'matches').mockImplementation(selector => selector === ':focus-visible' || matches(selector));
     button.dispatchEvent(new FocusEvent('focus'));

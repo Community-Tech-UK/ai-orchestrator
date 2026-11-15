@@ -4,6 +4,7 @@ import * as tls from 'node:tls';
 import * as readline from 'node:readline/promises';
 import { DEFAULT_CONFIG_PATH, defaultWorkerName } from '../worker-config';
 import {
+  assertPairingNamespace,
   buildCoordinatorUrl,
   parsePairingConfigInput,
   sanitizePairingErrorMessage,
@@ -41,6 +42,7 @@ interface ParsedPairArgs {
   probe: boolean;
   startWorker: boolean;
   browser: boolean;
+  force: boolean;
 }
 
 export async function runPairCommand(
@@ -68,11 +70,12 @@ export async function runPairCommand(
     stdout(`${safeCoordinatorDisplay(merged.coordinatorUrl)} did not answer; using ${safeCoordinatorDisplay(reachable.coordinatorUrl)}.\n`);
   }
 
+  assertPairingNamespace(options.configPath, reachable.namespace, options.force);
   const runningState = readWorkerConnectionStatus(options.configPath)?.state;
   // Browser settings go in first, so a worker waiting to be paired starts
   // with them: it starts as soon as the file holds an address.
   const browserLines = options.browser ? (deps.setUpBrowser ?? setUpBrowserFeatures)(options.configPath) : [];
-  const config = writePairedWorkerConfig(options.configPath, reachable);
+  const config = writePairedWorkerConfig(options.configPath, reachable, options.force);
   // Any report beside the config is about the previous pairing.
   clearWorkerConnectionStatus(options.configPath);
   const coordinator = safeCoordinatorDisplay(config.coordinatorUrl);
@@ -115,6 +118,7 @@ export function parsePairCommandArgs(argv: string[]): ParsedPairArgs {
     probe: true,
     startWorker: true,
     browser: true,
+    force: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -131,6 +135,8 @@ export function parsePairCommandArgs(argv: string[]): ParsedPairArgs {
       result.startWorker = false;
     } else if (arg === '--start') {
       result.startWorker = true;
+    } else if (arg === '--force') {
+      result.force = true;
     } else if (arg === '--no-browser') {
       result.browser = false;
     } else if (arg.startsWith('--')) {

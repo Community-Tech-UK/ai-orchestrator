@@ -249,7 +249,7 @@ describe('loadWorkerConfig', () => {
     ]);
   });
 
-  it('generates local extension relay defaults when enabled without secrets', () => {
+  it('generates isolated relay defaults without claiming the local host from a nondefault home', () => {
     const configPath = path.join(tempDir, 'worker-node.json');
     fs.writeFileSync(
       configPath,
@@ -269,7 +269,7 @@ describe('loadWorkerConfig', () => {
     expect(config.extensionRelay?.enabled).toBe(true);
     expect(config.extensionRelay?.socketPath).toBeTruthy();
     expect(config.extensionRelay?.extensionToken).toHaveLength(64);
-    expect(config.extensionRelay?.legacyNameRegistration).toBe(true);
+    expect(config.extensionRelay?.legacyNameRegistration).toBe(false);
     expect(persisted.extensionRelay?.extensionToken).toBe(config.extensionRelay?.extensionToken);
   });
 

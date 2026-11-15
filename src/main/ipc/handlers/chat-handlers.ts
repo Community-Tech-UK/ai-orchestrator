@@ -15,7 +15,7 @@ import {
   ChatSetReasoningPayloadSchema,
   ChatSetYoloPayloadSchema,
   ChatUiStatePayloadSchema,
-  SideChatAttachPayloadSchema,
+  SideChatDiscardPayloadSchema,
   SideChatCreatePayloadSchema,
   SideChatListPayloadSchema,
   SideChatMarkReadPayloadSchema,
@@ -219,7 +219,6 @@ export function registerChatHandlers(deps: { instanceManager: InstanceManager })
         success: true,
         data: {
           active: await sideChats.list(validated.parent),
-          archived: sideChats.listArchived(validated.parent),
         },
       };
     } catch (error) {
@@ -285,12 +284,13 @@ export function registerChatHandlers(deps: { instanceManager: InstanceManager })
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.SIDE_CHAT_ATTACH, async (_event, payload: unknown): Promise<IpcResponse> => {
+  ipcMain.handle(IPC_CHANNELS.SIDE_CHAT_DISCARD, async (_event, payload: unknown): Promise<IpcResponse> => {
     try {
-      const validated = validateIpcPayload(SideChatAttachPayloadSchema, payload, 'SIDE_CHAT_ATTACH');
-      return { success: true, data: await sideChats.attach(validated.chatId, validated.parent) };
+      const validated = validateIpcPayload(SideChatDiscardPayloadSchema, payload, 'SIDE_CHAT_DISCARD');
+      await sideChats.discard(validated.chatId);
+      return { success: true };
     } catch (error) {
-      return sideChatError(error, 'SIDE_CHAT_ATTACH_FAILED');
+      return sideChatError(error, 'SIDE_CHAT_DISCARD_FAILED');
     }
   });
 

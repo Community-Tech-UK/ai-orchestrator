@@ -7,6 +7,8 @@ export interface RemoteNodeConfig {
   serverHost: string;
   /** Auto-route browser tasks to nodes with browser capability */
   autoOffloadBrowser: boolean;
+  /** Operator permits this computer's Chrome alongside remote browsers. */
+  localBrowserComputerEnabled: boolean;
   /** Auto-route Android tasks to nodes with Android capability */
   autoOffloadAndroid: boolean;
   /** Global cap on total remote instances */
@@ -28,6 +30,7 @@ const DEFAULT_CONFIG: RemoteNodeConfig = {
   serverPort: 4878,
   serverHost: '127.0.0.1',
   autoOffloadBrowser: true,
+  localBrowserComputerEnabled: false,
   autoOffloadAndroid: true,
   maxRemoteInstances: 20,
   namespace: 'default',
@@ -56,6 +59,7 @@ export function hydrateRemoteNodeConfig(settings: import('../../shared/types/set
     serverPort: settings.remoteNodesServerPort,
     serverHost: settings.remoteNodesServerHost,
     autoOffloadBrowser: settings.remoteNodesAutoOffloadBrowser,
+    localBrowserComputerEnabled: settings.browserLocalComputerEnabled,
     autoOffloadAndroid: settings.remoteNodesAutoOffloadAndroid,
     namespace: settings.remoteNodesNamespace,
     tlsMode: settings.remoteNodesTlsMode,

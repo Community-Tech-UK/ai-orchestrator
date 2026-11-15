@@ -148,6 +148,21 @@ describe('ResumePickerController', () => {
     expect(historyGroup?.items[0]?.value.availableActions).toEqual(['restoreFromFallback']);
   });
 
+  it('keeps hidden sidechat runtimes and their history out of resume choices', () => {
+    instances.set([
+      liveInstance(),
+      liveInstance({ id: 'sidechat-runtime', metadata: { hideFromProjectRail: true, sideChatId: 'sidechat' } }),
+    ]);
+    historyEntries.set([
+      entry(),
+      entry({ id: 'sidechat-history', hideFromProjectRail: true }),
+    ]);
+    const controller = TestBed.inject(ResumePickerController);
+
+    expect(controller.groups().find(group => group.id === 'live')?.items.map(item => item.value.id)).toEqual(['live-1']);
+    expect(controller.groups().find(group => group.id === 'history')?.items.map(item => item.value.id)).toEqual(['entry-1']);
+  });
+
   it('runs the selected resume action and selects the restored instance', async () => {
     historyEntries.set([entry()]);
     const controller = TestBed.inject(ResumePickerController);

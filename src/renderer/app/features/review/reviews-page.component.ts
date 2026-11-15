@@ -25,6 +25,7 @@ import { OrchestrationIpcService } from '../../core/services/ipc/orchestration-i
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
 import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 
 interface InstanceOption {
   id: string;
@@ -604,6 +605,7 @@ export class ReviewsPageComponent implements OnInit, OnDestroy {
     const data = this.unwrapData<unknown[]>(response, []);
     const instances = data
       .filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object')
+      .filter((item) => !isProjectRailHiddenSession(item['metadata'] as Record<string, unknown> | undefined))
       .map((item) => ({
         id: String(item['id']),
         displayName: String(item['displayName'] || item['id']),

@@ -6,6 +6,10 @@ import type { SqliteDriver } from '../db/sqlite-driver';
  * construct a fresh configuration snapshot, so they get a fresh clock. */
 type TimedSnapshot = AutomationConfigSnapshot & { runClock?: { pausedAt: number | null; pausedMs: number } };
 
+export function isAutomationRunPaused(run: AutomationRun): boolean {
+  return run.status === 'running' && (run.configSnapshot as TimedSnapshot | null)?.runClock?.pausedAt != null;
+}
+
 export function automationRunDeadline(run: AutomationRun, minutes: number, now: number): number {
   const clock = (run.configSnapshot as TimedSnapshot | null)?.runClock;
   return (run.startedAt ?? now) + minutes * 60_000 + (clock?.pausedMs ?? 0)

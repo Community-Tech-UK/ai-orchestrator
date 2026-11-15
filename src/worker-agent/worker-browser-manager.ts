@@ -26,6 +26,7 @@ import type { WorkerNodeBrowserAutomationSummary } from '../shared/types/worker-
  */
 export interface WorkerBrowserManagerOptions {
   config: WorkerBrowserAutomationConfig;
+  homeDir?: string;
   /** Override Chrome resolution (tests). */
   resolveChromePath?: () => string | null;
   /** Override process spawn (tests). */
@@ -64,6 +65,7 @@ export class WorkerBrowserManager {
   private readonly spawnProcess: typeof spawn;
   private readonly probe: (browserUrl: string) => Promise<boolean>;
   private readonly readyTimeoutMs: number;
+  private readonly defaultProfileDir: string;
 
   private child: ChildProcess | null = null;
   private browserUrl: string | null = null;
@@ -71,6 +73,7 @@ export class WorkerBrowserManager {
 
   constructor(options: WorkerBrowserManagerOptions) {
     this.config = options.config;
+    this.defaultProfileDir = options.homeDir ? path.join(options.homeDir, 'browser-automation-profile') : defaultBrowserAutomationProfileDir();
     this.resolveChromePath = options.resolveChromePath ?? resolveChromeExecutablePath;
     this.spawnProcess = options.spawnProcess ?? spawn;
     this.probe = options.probe ?? defaultProbe;
@@ -106,7 +109,7 @@ export class WorkerBrowserManager {
 
   /** Resolved automation profile directory (config or default). */
   private resolvedProfileDir(): string {
-    return this.config.profileDir ?? defaultBrowserAutomationProfileDir();
+    return this.config.profileDir ?? this.defaultProfileDir;
   }
 
   /** Non-secret summary for capability reporting. */

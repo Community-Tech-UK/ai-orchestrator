@@ -5,6 +5,7 @@ export type BrowserExtensionCommandName =
   | 'codex_device_submit'
   | 'codex_device_cancel'
   | 'open_tab'
+  | 'claim_tab'
   | 'close_tab'
   | 'navigate'
   | 'http_auth_navigate'
@@ -47,6 +48,8 @@ export interface BrowserExtensionQueuedCommand {
   payload?: Record<string, unknown>;
   timeoutMs?: number;
   createdAt: number;
+  /** Opaque owner stamped from the authenticated session, never a tool payload. */
+  sessionOwner?: string;
 }
 
 export type BrowserExtensionCommandQueueKey = string;
@@ -110,6 +113,8 @@ export interface BrowserExtensionPollRequest {
   denyBrowserCommandsReason?: string;
   /** True only when this exact authenticated poll can enforce origin-bound credential writes. */
   allowSecureCredentialCommands?: boolean;
+  /** True only when this exact authenticated poll proves session-claim support. */
+  allowSessionClaims?: boolean;
   /** Exact poll runtime supports the private document-bound device flow. */
   allowDeviceLoginCommands?: boolean;
   /** Trusted closure bound to the actual incoming poll socket, never peer metadata. */
@@ -161,6 +166,7 @@ export interface CommandPoller {
   allowBrowserCommands: boolean;
   denyBrowserCommandsReason?: string;
   allowSecureCredentialCommands: boolean;
+  allowSessionClaims: boolean;
   allowDeviceLoginCommands: boolean;
   confidentialTransport?: () => boolean;
   resolve: (command: BrowserExtensionQueuedCommand | null) => void;

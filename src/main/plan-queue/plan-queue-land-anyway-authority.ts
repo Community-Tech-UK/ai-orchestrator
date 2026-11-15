@@ -11,6 +11,10 @@
  * the stranded-run rescuer (landing is not a rescue action, see
  * STRANDED_RESCUE_ACTIONS), any other session, and a parent whose latest input
  * is a Harness notice, an automation prompt, another agent's message or a steer.
+ * What the queue itself sends the parent about the run (its end summary, a
+ * question, a capability-repair handoff) does not count as a later input once
+ * James's message has started its turn (input-turn-registry.ts): refusing on it
+ * made James send the same request twice.
  *
  * This checks who spoke, not what they said: an agent could still misread a
  * person's message, so the landing note and the queue's event record point at

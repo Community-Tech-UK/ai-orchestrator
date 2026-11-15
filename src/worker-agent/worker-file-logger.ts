@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { resolveWorkerHome } from './worker-home';
 import * as util from 'util';
 
 /**
@@ -61,7 +61,7 @@ export class WorkerFileLogger {
   private readonly originalStreamWrites = new Map<StreamName, StreamWrite>();
 
   constructor(options: WorkerFileLoggerOptions = {}) {
-    const logDir = options.logDir ?? path.join(os.homedir(), '.orchestrator', 'logs');
+    const logDir = options.logDir ?? path.join(resolveWorkerHome(), 'logs');
     this.filePath = path.join(logDir, options.fileName ?? 'worker-agent.log');
     this.maxBytes = Math.max(1024, options.maxBytes ?? 5 * 1024 * 1024);
     this.maxFiles = Math.max(1, options.maxFiles ?? 4);

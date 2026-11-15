@@ -112,7 +112,7 @@ describe('provider matrix: create → persist → reload → send → switch →
     harnesses.length = 0;
   });
 
-  const MATRIX: Array<{ selection: SideChatProviderSelection; instanceProvider: string; model: string | null }> = [
+  const MATRIX: { selection: SideChatProviderSelection; instanceProvider: string; model: string | null }[] = [
     { selection: { provider: 'claude', model: 'opus', reasoning: 'high' }, instanceProvider: 'claude', model: 'opus' },
     { selection: { provider: 'codex', model: 'gpt-5.5', reasoning: 'medium' }, instanceProvider: 'codex', model: 'gpt-5.5' },
     { selection: { provider: 'gemini', model: 'gemini-pro', reasoning: null }, instanceProvider: 'gemini', model: 'gemini-pro' },
@@ -157,6 +157,7 @@ describe('provider matrix: create → persist → reload → send → switch →
       expect(spawn.provider).toBe(instanceProvider);
       expect(spawn.modelOverride ?? null).toBe(model);
       expect(spawn.modelRuntimeTarget ?? null).toEqual(selection.modelRuntimeTarget ?? null);
+      expect(spawn.metadata).toMatchObject({ hideFromProjectRail: true, sideChatId: created.chat.id });
       expect(restarted.runtimes.preambles.at(-1)).toContain('Parent task');
 
       restarted.runtimes.setStatus(reloaded.currentInstanceId ?? (await restarted.service.getChat(created.chat.id)).chat.currentInstanceId!, 'idle');

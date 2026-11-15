@@ -81,6 +81,17 @@ describe('InstanceStateManager', () => {
     state.destroy();
   });
 
+  it("keeps a revived Set aside agent's folder, so the Plan Queue page still sees the agent", () => {
+    const state = new InstanceStateManager();
+    const instance = makeInstance({
+      metadata: { reason: 'crash-recovery', continuityRevival: true, planQueueSetAsideFolder: '/repo' },
+      communicationTokens: new Map(),
+    });
+
+    expect(state.serializeForIpc(instance)['metadata']).toEqual({ reason: 'crash-recovery', continuityRevival: true, planQueueSetAsideFolder: '/repo' });
+    state.destroy();
+  });
+
   it('redacts crash-recovery identities from batched renderer state updates', () => {
     vi.useFakeTimers();
     const state = new InstanceStateManager();

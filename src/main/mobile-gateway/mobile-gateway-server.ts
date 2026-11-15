@@ -1,4 +1,4 @@
-import { readFileSync } from "fs";
+import { resolveMobileGatewayTls } from "./mobile-gateway-tls";
 import {
   createServer,
   type IncomingMessage,
@@ -18,6 +18,8 @@ import { getLogger } from "../logging/logger";
 import { getPauseCoordinator } from "../pause/pause-coordinator";
 import { getRecentDirectoriesManager } from "../core/config/recent-directories-manager";
 import { getLoopCoordinator } from "../orchestration/loop-coordinator";
+import { formatHostForUrl } from '../../shared/remote-node/host-address';
+import { TailscaleListenerStart } from '../util/tailscale-listener-start';
 import { resolveBindHost } from "./tailscale-interface";
 import {
   deviceProfileId,
@@ -32,7 +34,6 @@ import {
   bearerFromHeader,
   bindCorsOrigin,
   corsHeaders,
-  extractCertHostname,
   readJsonBody,
   redactUrlToken,
   routeErrorStatus,
@@ -177,16 +178,12 @@ export interface MobileGatewayStartOptions {
   devCors?: boolean;
 }
 
-interface ResolvedTls {
-  cert: Buffer;
-  key: Buffer;
-  hostname: string | null;
-}
 
 export class MobileGatewayServer {
   private static instance: MobileGatewayServer | null = null;
   private deps: MobileGatewayDeps | null = null;
   private httpServer: Server | null = null;
+  private readonly listenerStart = new TailscaleListenerStart<MobileGatewayStatus>();
   private wss: WebSocketServer | null = null;
   private readonly clients = new Set<WebSocket>();
   private readonly clientAlive = new WeakMap<WebSocket, boolean>();
@@ -260,6 +257,7 @@ export class MobileGatewayServer {
     clients: this.clients,
     isRunning: () => this.isRunning(),
     getInstances: () => this.deps?.instanceManager.getAllInstances() ?? [],
+    getInstance: (instanceId) => this.deps?.instanceManager.getInstance(instanceId),
     getPrompts: () => this.promptStore.values(),
     getPauseState: () => this.pauseState(),
     getActiveLoops: () => this.loopCoordinator?.getActiveLoops() ?? [],
@@ -376,9 +374,15 @@ export class MobileGatewayServer {
     if (!this.deps)
       throw new Error("Mobile gateway dependencies have not been initialized.");
 
-    const { host, tailscaleIp } = resolveBindHost(options.bindInterface);
-    this.tailscaleIp = tailscaleIp;
-    const tls = this.resolveTls(options.tlsCertPath, options.tlsKeyPath);
+    return this.listenerStart.run(
+      () => resolveBindHost(options.bindInterface)?.host ?? null,
+      (host, signal) => this.listen(options, host, signal),
+    );
+  }
+
+  private async listen(options: MobileGatewayStartOptions, host: string, signal: AbortSignal): Promise<MobileGatewayStatus> {
+    this.tailscaleIp = resolveBindHost(options.bindInterface)?.tailscaleIp ?? null;
+    const tls = resolveMobileGatewayTls(options.tlsCertPath, options.tlsKeyPath);
     this.secure = tls !== null;
     this.tlsHostname = tls?.hostname ?? null;
     const requestHandler = (
@@ -414,6 +418,10 @@ export class MobileGatewayServer {
         resolve();
       });
     });
+    if (signal.aborted) {
+      await this.stop();
+      signal.throwIfAborted();
+    }
     setMobileGatewayCorsDev(options.devCors === true);
     this.events.attach();
     this.quota.attach();
@@ -432,6 +440,7 @@ export class MobileGatewayServer {
   }
 
   async stop(): Promise<MobileGatewayStatus> {
+    this.listenerStart.cancel();
     this.away.detach();
     this.automations.detach();
     this.quota.detach();
@@ -494,7 +503,7 @@ export class MobileGatewayServer {
       tlsHostname: this.tlsHostname,
       tailnetUrl:
         running && urlHost
-          ? `${scheme}://${urlHost}:${this.boundPort}/ws`
+          ? `${scheme}://${formatHostForUrl(urlHost)}:${this.boundPort}/ws`
           : undefined,
       startedAt: running ? this.startedAt : undefined,
       connectedClientCount: this.clients.size,
@@ -529,28 +538,6 @@ export class MobileGatewayServer {
     }
   }
 
-  private resolveTls(certPath?: string, keyPath?: string): ResolvedTls | null {
-    const certFile = certPath?.trim();
-    const keyFile = keyPath?.trim();
-    if (!certFile || !keyFile) return null;
-    try {
-      const cert = readFileSync(certFile);
-      const key = readFileSync(keyFile);
-      return {
-        cert,
-        key,
-        hostname: extractCertHostname(cert.toString("utf-8")),
-      };
-    } catch (error) {
-      logger.warn(
-        "Mobile gateway TLS configured but cert/key unreadable — falling back to ws://",
-        {
-          error: error instanceof Error ? error.message : String(error),
-        },
-      );
-      return null;
-    }
-  }
 
   private safeIsPushConfigured(): boolean {
     try {
@@ -599,7 +586,7 @@ export class MobileGatewayServer {
   ): Promise<void> {
     const url = new URL(
       req.url || "/",
-      `http://${this.boundHost || "localhost"}:${this.boundPort}`,
+      `http://${formatHostForUrl(this.boundHost || "localhost")}:${this.boundPort}`,
     );
     const method = req.method || "GET";
     bindCorsOrigin(res, req.headers.origin);

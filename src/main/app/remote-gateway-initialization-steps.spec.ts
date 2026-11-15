@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createWorkerNodeSubsystemStep } from './remote-gateway-initialization-steps';
+import { createMobileGatewayStep, createWorkerNodeSubsystemStep } from './remote-gateway-initialization-steps';
 import type { AppInitializationContext } from './initialization-steps';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { handleWorkerRestart } from '../remote-node';
@@ -24,6 +24,8 @@ const fakes = vi.hoisted(() => {
     setReservedNodeIds: vi.fn(),
   };
   return {
+    missingTailscale: false,
+    mobileStart: vi.fn(async () => undefined),
     settings: {} as Record<string, unknown>,
     settingListeners: new Map<string, (value: unknown) => void>(),
     config: {
@@ -72,7 +74,9 @@ vi.mock('../notifications/notification-service', () => ({
 }));
 
 vi.mock('../event-bus/thin-client-ws-server', () => ({ getThinClientWsServer: vi.fn() }));
-vi.mock('../mobile-gateway/mobile-gateway-server', () => ({ getMobileGatewayServer: vi.fn() }));
+vi.mock('../mobile-gateway/mobile-gateway-server', () => ({ getMobileGatewayServer: () => ({ initialize: vi.fn(), start: fakes.mobileStart }) }));
+vi.mock('../util/tailscale-listener-start', () => ({ isMissingTailscaleHost: () => fakes.missingTailscale }));
+vi.mock('../mobile-gateway/tailscale-interface', () => ({ resolveBindHost: () => fakes.missingTailscale ? null : { host: '100.64.0.2', tailscaleIp: '100.64.0.2' } }));
 vi.mock('../browser-gateway/browser-unattended-services', () => ({
   setBrowserEscalationNotifyHook: vi.fn(),
 }));
@@ -107,6 +111,7 @@ function buildContext(): AppInitializationContext {
 describe('createWorkerNodeSubsystemStep', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    fakes.missingTailscale = false;
     fakes.registry.removeAllListeners();
     fakes.settings = {};
     fakes.settingListeners.clear();
@@ -170,6 +175,28 @@ describe('createWorkerNodeSubsystemStep', () => {
 
     expect(finished).toBe(true);
     expect(fakes.publish).toHaveBeenCalledOnce();
+  });
+
+  it('lets the app start while the worker listener waits for Tailscale', async () => {
+    fakes.missingTailscale = true;
+    let ready!: () => void;
+    fakes.connectionStart.mockImplementationOnce(() => new Promise<undefined>(resolve => { ready = () => resolve(undefined); }));
+    await createWorkerNodeSubsystemStep(buildContext()).fn();
+    expect(fakes.publish).not.toHaveBeenCalled();
+    ready();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(fakes.publish).toHaveBeenCalledOnce();
+  });
+
+  it('lets the app start while the phone gateway waits for Tailscale', async () => {
+    fakes.missingTailscale = true;
+    fakes.settings = { mobileGatewayEnabled: true, mobileGatewayBindInterface: 'tailscale' };
+    let ready!: () => void;
+    fakes.mobileStart.mockImplementationOnce(() => new Promise<undefined>(resolve => { ready = () => resolve(undefined); }));
+    const context = buildContext();
+    await createMobileGatewayStep(context.instanceManager, context.windowManager).fn();
+    expect(fakes.mobileStart).toHaveBeenCalledOnce();
+    ready();
   });
 
   it('does not advertise when the remote node subsystem is disabled', async () => {

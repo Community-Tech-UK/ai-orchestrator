@@ -78,9 +78,9 @@ export const SideChatSetSelectionPayloadSchema = z.object({
   selection: SideChatProviderSelectionSchema,
 });
 
-export const SideChatAttachPayloadSchema = z.object({
+export const SideChatDiscardPayloadSchema = z.object({
   chatId: ChatIdStringSchema,
-  parent: SideChatParentRefSchema,
+  confirmation: z.literal('discard'),
 });
 
 export const SideChatMarkReadPayloadSchema = z.object({
@@ -103,7 +103,7 @@ export type SideChatMarkReadPayload = z.infer<typeof SideChatMarkReadPayloadSche
 export type SideChatSendPayload = z.infer<typeof SideChatSendPayloadSchema>;
 export type SideChatProviderSelectionPayload = z.infer<typeof SideChatProviderSelectionSchema>;
 export type SideChatSetSelectionPayload = z.infer<typeof SideChatSetSelectionPayloadSchema>;
-export type SideChatAttachPayload = z.infer<typeof SideChatAttachPayloadSchema>;
+export type SideChatDiscardPayload = z.infer<typeof SideChatDiscardPayloadSchema>;
 
 export const ChatListPayloadSchema = z.object({
   includeArchived: z.boolean().optional(),

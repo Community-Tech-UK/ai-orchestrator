@@ -46,7 +46,8 @@ import { TerminateConfirmStore } from './terminate-confirm.store';
         <div #dialog class="confirm-dialog" tabindex="-1">
           <h3 id="terminate-confirm-title">
             @if (confirmStore.isAll()) {
-              @if (confirmStore.allCount() === 1) { Close 1 session? }
+              @if (confirmStore.allCount() === 0) { Close all sessions? }
+              @else if (confirmStore.allCount() === 1) { Close 1 session? }
               @else { Close all {{ confirmStore.allCount() }} sessions? }
             } @else { Close {{ confirmStore.pendingName() }}? }
           </h3>

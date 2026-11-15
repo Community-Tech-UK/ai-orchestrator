@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
+import { isDefaultWorkerHome, resolveWorkerHome, workerRelaySocketPath } from './worker-home';
 import type { WorkerNodeFileTransferRoot } from '../shared/types/worker-node.types';
 import { formatHostPort } from '../shared/remote-node/host-address';
 import type { CodexDeviceLoginPolicy } from '../main/remote-node/codex-device-login-rpc';
@@ -112,6 +113,8 @@ export interface WorkerConfig {
   nodeToken?: string;
   recoveryToken?: string;
   namespace: string;
+  /** Disable every home-network discovery path for Tailscale-only pairings. Default true. */
+  discoveryEnabled?: boolean;
   maxConcurrentInstances: number;
   workingDirectories: string[];
   reconnectIntervalMs: number;
@@ -138,7 +141,7 @@ interface PairingConfigFile {
   requireTls?: unknown;
 }
 
-export const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.orchestrator', 'worker-node.json');
+export const DEFAULT_CONFIG_PATH = path.join(resolveWorkerHome(), 'worker-node.json');
 
 /**
  * Expand a leading `~` (bare, `~/…`, or `~\…`) to the OS home directory. Node
@@ -232,11 +235,15 @@ export function loadWorkerConfig(configPath = DEFAULT_CONFIG_PATH): WorkerConfig
   if (!merged.nodeId) {
     merged.nodeId = crypto.randomUUID();
   }
+  const relayConfig = merged.extensionRelay;
   merged.extensionRelay = ensureExtensionRelayDefaults(
-    merged.extensionRelay,
-    defaultExtensionRelaySocketPath,
+    relayConfig ? {
+      ...relayConfig,
+      legacyNameRegistration: relayConfig.legacyNameRegistration ?? isDefaultWorkerHome(path.dirname(configPath)),
+    } : undefined,
+    () => defaultExtensionRelaySocketPath(path.dirname(configPath)),
   );
-  merged.fileTransfer = normalizeFileTransferConfig(merged.fileTransfer);
+  merged.fileTransfer = normalizeFileTransferConfig(merged.fileTransfer, os.homedir(), path.dirname(configPath));
 
   // Apply CLI overrides
   const args = parseCliArgs(process.argv.slice(2));
@@ -329,10 +336,10 @@ function normalizeFileConfig(fileConfig: Partial<WorkerConfig> & PairingConfigFi
     delete normalized.advertisedCoordinatorUrls;
   }
 
+  if (typeof fileConfig.discoveryEnabled !== 'boolean') delete normalized.discoveryEnabled;
   normalized.browserAutomation = normalizeBrowserAutomation(fileConfig.browserAutomation);
   normalized.androidAutomation = normalizeAndroidAutomation(fileConfig.androidAutomation);
   normalized.extensionRelay = normalizeExtensionRelay(fileConfig.extensionRelay);
-  normalized.fileTransfer = normalizeFileTransferConfig(fileConfig.fileTransfer);
 
   return normalized;
 }
@@ -468,12 +475,13 @@ function normalizeExtensionRelay(
 export function normalizeFileTransferConfig(
   raw: unknown,
   homedir: string = os.homedir(),
+  workerHome: string = path.join(homedir, '.orchestrator'),
 ): WorkerFileTransferConfig {
   if (!raw || typeof raw !== 'object') {
     return {
       enabled: true,
       maxFileBytes: DEFAULT_FILE_TRANSFER_MAX_BYTES,
-      roots: defaultFileTransferRoots(homedir),
+      roots: defaultFileTransferRoots(homedir, workerHome),
     };
   }
   const obj = raw as Record<string, unknown>;
@@ -488,7 +496,7 @@ export function normalizeFileTransferConfig(
   return {
     enabled: true,
     maxFileBytes,
-    roots: roots.length > 0 ? roots : defaultFileTransferRoots(homedir),
+    roots: roots.length > 0 ? roots : defaultFileTransferRoots(homedir, workerHome),
   };
 }
 
@@ -534,8 +542,8 @@ function normalizeFileTransferRoots(
   return roots;
 }
 
-function defaultFileTransferRoots(homedir: string): WorkerNodeFileTransferRoot[] {
-  const scratchPath = defaultFileTransferScratchPath(homedir);
+function defaultFileTransferRoots(homedir: string, workerHome: string): WorkerNodeFileTransferRoot[] {
+  const scratchPath = defaultFileTransferScratchPath(workerHome);
   fs.mkdirSync(scratchPath, { recursive: true });
   const roots: WorkerNodeFileTransferRoot[] = [
     {
@@ -559,8 +567,8 @@ function defaultFileTransferRoots(homedir: string): WorkerNodeFileTransferRoot[]
   return roots;
 }
 
-function defaultFileTransferScratchPath(homedir: string): string {
-  return path.join(homedir, '.orchestrator', '_scratch', 'aio-transfers');
+function defaultFileTransferScratchPath(workerHome: string): string {
+  return path.join(workerHome, '_scratch', 'aio-transfers');
 }
 
 function normalizeMaxFileBytes(value: unknown): number {
@@ -591,14 +599,11 @@ export function ensureExtensionRelayDefaults(
 
 /** Default automation profile dir — sibling of the worker config file. */
 export function defaultBrowserAutomationProfileDir(): string {
-  return path.join(os.homedir(), '.orchestrator', 'browser-automation-profile');
+  return path.join(resolveWorkerHome(), 'browser-automation-profile');
 }
 
-export function defaultExtensionRelaySocketPath(): string {
-  if (process.platform === 'win32') {
-    return '\\\\.\\pipe\\ai-orchestrator-browser-gateway';
-  }
-  return path.join(os.homedir(), '.orchestrator', 'browser-gateway', 'extension-relay.sock');
+export function defaultExtensionRelaySocketPath(home = resolveWorkerHome()): string {
+  return workerRelaySocketPath(home);
 }
 
 function isValidPort(port: unknown): port is number {

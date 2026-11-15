@@ -15,13 +15,12 @@ vi.mock('electron', () => ({
 const sideChats = vi.hoisted(() => ({
   create: vi.fn(),
   list: vi.fn(),
-  listArchived: vi.fn(),
   send: vi.fn(),
   markRead: vi.fn(),
   attention: vi.fn(),
   attentionForAll: vi.fn(),
   setSelection: vi.fn(),
-  attach: vi.fn(),
+  discard: vi.fn(),
   permissions: vi.fn(),
 }));
 vi.mock('../../../chats', () => ({
@@ -89,13 +88,12 @@ describe('sidechat IPC handlers', () => {
     expect(sideChats.markRead).not.toHaveBeenCalled();
   });
 
-  it('returns active and archived conversations for a parent', async () => {
+  it('returns only active conversations for a parent', async () => {
     sideChats.list.mockResolvedValue([{ chat: { id: 'a' } }]);
-    sideChats.listArchived.mockReturnValue([{ id: 'old' }]);
 
     const response = await invoke(IPC_CHANNELS.SIDE_CHAT_LIST, { parent });
 
-    expect(response).toMatchObject({ success: true, data: { active: [{ chat: { id: 'a' } }], archived: [{ id: 'old' }] } });
+    expect(response).toEqual({ success: true, data: { active: [{ chat: { id: 'a' } }] } });
   });
 
   it('surfaces a refused send with its stable code and the snapshot hint', async () => {
@@ -122,13 +120,19 @@ describe('sidechat IPC handlers', () => {
     expect(response).toMatchObject({ success: false, error: { code: 'SIDE_CHAT_BUSY', message: 'Stop the current answer first' } });
   });
 
-  it('routes attach, permissions and global attention', async () => {
-    sideChats.attach.mockResolvedValue({ chat: { id: 'c1' } });
+  it('requires explicit confirmation before discarding a sidechat', async () => {
+    const missing = await invoke('side-chat:discard', { chatId: 'c1' });
+    expect(missing.success).toBe(false);
+    expect(sideChats.discard).not.toHaveBeenCalled();
+
+    expect((await invoke('side-chat:discard', { chatId: 'c1', confirmation: 'discard' })).success).toBe(true);
+    expect(sideChats.discard).toHaveBeenCalledWith('c1');
+  });
+
+  it('routes permissions and global attention', async () => {
     sideChats.permissions.mockResolvedValue({ ok: true, providers: [] });
     sideChats.attentionForAll.mockResolvedValue([]);
 
-    expect((await invoke(IPC_CHANNELS.SIDE_CHAT_ATTACH, { chatId: 'c1', parent })).success).toBe(true);
-    expect(sideChats.attach).toHaveBeenCalledWith('c1', parent);
     expect((await invoke(IPC_CHANNELS.SIDE_CHAT_PERMISSIONS, { parent })).success).toBe(true);
     expect((await invoke(IPC_CHANNELS.SIDE_CHAT_ATTENTION_ALL)).success).toBe(true);
   });

@@ -21,15 +21,21 @@ export interface CoordinatorUrlHosts {
 /**
  * Every host a worker could use to reach this coordinator, best-first and
  * de-duplicated: Tailscale MagicDNS name, Tailscale IPv4, Tailscale IPv6, then
- * ranked LAN IPs, then an explicitly configured bind host.
+ * ranked LAN IPs. A specific listener advertises only that address and, when
+ * it matches this computer's Tailscale address, its Tailscale name.
  */
 export function orderCoordinatorHosts(serverHost: string, hosts: CoordinatorUrlHosts): string[] {
+  const explicit = serverHost.trim().replace(/^\[|\]$/g, '');
+  if (!isAllInterfacesHost(explicit)) {
+    const ownTailscaleAddress = explicit === hosts.tailscaleIp || explicit === hosts.tailscaleIpv6;
+    return [...new Set([ownTailscaleAddress ? hosts.tailscaleDnsName : null, explicit]
+      .filter((host): host is string => typeof host === 'string' && host.length > 0))];
+  }
   const candidates = [
     hosts.tailscaleDnsName,
     hosts.tailscaleIp,
     hosts.tailscaleIpv6,
     ...hosts.localIps,
-    !isAllInterfacesHost(serverHost) ? serverHost : null,
   ].filter((host): host is string => typeof host === 'string' && host.trim().length > 0)
     .map((host) => host.trim());
   return [...new Set(candidates)];

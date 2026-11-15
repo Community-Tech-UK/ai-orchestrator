@@ -1181,7 +1181,10 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
         driver: 'extension',
       },
     });
-    expect(sendCommand).not.toHaveBeenCalled();
+    expect(sendCommand).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      command: 'claim_tab',
+      target: expect.objectContaining({ tabId: existingTab.tabId, targetId: existingTab.targetId }),
+    }));
   });
 
   it.each([
@@ -1227,7 +1230,11 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
       },
     });
     expect(result.reason).toMatch(note);
-    expect(sendCommand).not.toHaveBeenCalled();
+    // Reserving the tab reads no page content and does not wake or reopen it.
+    expect(sendCommand).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      command: 'claim_tab',
+      target: expect.objectContaining({ tabId: existingTab.tabId, targetId: existingTab.targetId }),
+    }));
   });
 
   it('filters existing-tab matches by requested remote node before opening', async () => {
@@ -1365,15 +1372,17 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
       title: 'Emergent fresh',
       updatedAt: Date.now() + 1000,
     };
-    const sendCommand = vi.fn(async () => ({ ok: true }));
+    let inventory = [staleTab];
+    const sendCommand = vi.fn(async (request: { command: string }) => {
+      if (request.command === 'report_inventory') inventory = [staleTab, freshTab];
+      return { ok: true };
+    });
     const { extensionTabStore, service } = makeService({
       profile: null,
       profiles: [],
       extensionCommandStore: { sendCommand },
     });
-    extensionTabStore.listTabs
-      .mockReturnValueOnce([staleTab])
-      .mockReturnValueOnce([staleTab, freshTab]);
+    extensionTabStore.listTabs.mockImplementation(() => inventory);
 
     const result = await service.findOrOpen({
       instanceId: 'instance-1',
@@ -1394,6 +1403,11 @@ describe('BrowserGatewayService existing Chrome tabs', () => {
         profileId: freshTab.profileId,
       },
     });
+    expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'claim_tab',
+      target: expect.objectContaining({ tabId: freshTab.tabId, targetId: freshTab.targetId }),
+    }));
+    expect(sendCommand).not.toHaveBeenCalledWith(expect.objectContaining({ command: 'open_tab' }));
   });
 
   it('fails find_or_open fast when the requested remote extension node is silent', async () => {

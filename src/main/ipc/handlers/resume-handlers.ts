@@ -25,12 +25,11 @@ export function registerResumeHandlers(deps: RegisterResumeHandlersDeps): void {
     async (_event: IpcMainInvokeEvent, payload: unknown): Promise<IpcResponse> => {
       try {
         const validated = validateIpcPayload(ResumeLatestPayloadSchema, payload ?? {}, 'RESUME_LATEST');
-        const [entry] = getHistoryManager().getEntries({
-          limit: 1,
+        const entry = getHistoryManager().getEntries({
           workingDirectory: validated.workingDirectory,
           projectScope: validated.workingDirectory ? 'current' : 'all',
           source: 'history-transcript',
-        });
+        }).find((candidate) => candidate.hideFromProjectRail !== true);
 
         if (!entry) {
           return errorResponse('RESUME_LATEST_NOT_FOUND', 'No resumable history entry found');

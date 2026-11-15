@@ -18,6 +18,7 @@ import {
 import { InstanceStore } from '../../core/state/instance.store';
 import type { Instance, OutputMessage } from '../../core/state/instance/instance.types';
 import { OutputStreamComponent } from '../instance-detail/output-stream.component';
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 
 // ────────────────────────────────────────────────────────────
 // Pure helper — exported for unit testing without TestBed
@@ -49,8 +50,10 @@ export function pickPaneDefaults(instances: Instance[]): [string | null, string 
 export class SplitSessionCompareComponent {
   private readonly store = inject(InstanceStore);
 
-  /** Reactive list of all known instances — drives both pickers. */
-  protected readonly instances = this.store.instances;
+  /** Visible sessions available in both pickers. */
+  protected readonly instances = computed(() =>
+    this.store.instances().filter(instance => !isProjectRailHiddenSession(instance.metadata))
+  );
 
   // ── Pane selection signals ─────────────────────────────────
 

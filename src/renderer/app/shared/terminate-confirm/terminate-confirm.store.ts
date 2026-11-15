@@ -27,6 +27,7 @@ import { isTerminalStatus } from '../../core/state/instance/instance-messaging-q
 import { InstanceStore } from '../../core/state/instance.store';
 import { LoopStore } from '../../core/state/loop.store';
 import { PlanQueueStore } from '../../core/state/plan-queue.store';
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 
 @Injectable({ providedIn: 'root' })
 export class TerminateConfirmStore {
@@ -44,7 +45,8 @@ export class TerminateConfirmStore {
   });
   readonly isOpen = computed(() => this.pending() !== null);
   readonly isAll = computed(() => this.pending()?.kind === 'all');
-  readonly allCount = computed(() => this.instances.instances().length);
+  readonly allCount = computed(() => this.instances.instances()
+    .filter(instance => !isProjectRailHiddenSession(instance.metadata)).length);
   readonly queueWillPause = computed(() => this.isAll() && this.queue.allRuns().some(run => run.status === 'running'));
   readonly runningLoopCount = computed(() => {
     const pending = this.pending();
@@ -115,7 +117,7 @@ export class TerminateConfirmStore {
   }
 
   requestAll(): void {
-    if (this.allCount() === 0) return;
+    if (this.instances.instances().length === 0) return;
     this.pending.set({ kind: 'all' });
   }
 

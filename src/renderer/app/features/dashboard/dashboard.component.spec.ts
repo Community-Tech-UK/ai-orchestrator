@@ -264,6 +264,50 @@ describe('DashboardComponent', () => {
     component.ngOnDestroy();
   });
 
+  it('cycles next and previous shortcuts through listed sessions while skipping sidechats and internal workers', async () => {
+    const mainA = { id: 'main-a', status: 'idle' };
+    const sidechat = { id: 'side-runtime', status: 'busy', metadata: { hideFromProjectRail: true, sideChatId: 'side-chat' } };
+    const worker = { id: 'worker-runtime', status: 'busy', metadata: { spawnDepth: 1 } };
+    const mainB = { id: 'main-b', status: 'idle' };
+    instances.set([mainA, sidechat, worker, mainB]);
+    selectedInstance.set(mainA);
+    const fixture = TestBed.createComponent(DashboardComponent);
+    fixture.detectChanges();
+
+    for (const [actionId, expected] of [
+      ['next-instance', 'main-b'], ['next-instance', 'main-a'],
+      ['prev-instance', 'main-b'], ['prev-instance', 'main-a'],
+    ]) {
+      await registeredActions.find(action => action.id === actionId)!.run();
+      expect((selectedInstance() as { id: string }).id).toBe(expected);
+    }
+    fixture.destroy();
+  });
+
+  it('keeps multiple-session shortcuts ineligible when the extra runtimes are hidden', () => {
+    const main = { id: 'main-a', status: 'idle' };
+    instances.set([main, { id: 'side-runtime', metadata: { hideFromProjectRail: true } }, { id: 'worker-runtime', metadata: { spawnDepth: 1 } }]);
+    selectedInstance.set(main);
+    const fixture = TestBed.createComponent(DashboardComponent);
+    fixture.detectChanges();
+
+    expect(TestBed.inject(KeybindingService).setEligibilityState).toHaveBeenLastCalledWith(expect.objectContaining({ multipleInstances: false }));
+    fixture.destroy();
+  });
+
+  it('moves a previously selected hidden runtime to the last listed session on Previous', async () => {
+    const sidechat = { id: 'side-runtime', status: 'busy', metadata: { hideFromProjectRail: true } };
+    instances.set([{ id: 'main-a', status: 'idle' }, sidechat, { id: 'main-b', status: 'idle' }]);
+    selectedInstance.set(sidechat);
+    const fixture = TestBed.createComponent(DashboardComponent);
+    fixture.detectChanges();
+
+    await registeredActions.find(action => action.id === 'prev-instance')!.run();
+
+    expect((selectedInstance() as { id: string }).id).toBe('main-b');
+    fixture.destroy();
+  });
+
   it('keeps banner-open recovery filtering scoped to the current picker lifetime', () => {
     const component = TestBed.runInInjectionContext(() => new DashboardComponent());
 
@@ -395,7 +439,7 @@ describe('DashboardComponent', () => {
         unread: 1, needsAttention: 0, running: 0, targetChatId: 'exact-archived-sidechat',
       }] : [] }),
       sideChatList: vi.fn(async ({ parent }: { parent: SideChatParentRef }) => ({
-        success: true, data: { active: parent.kind === 'session' && parent.historyThreadId === 'archived-thread' ? [summary] : [], archived: [] },
+        success: true, data: { active: parent.kind === 'session' && parent.historyThreadId === 'archived-thread' ? [summary] : [] },
       })),
       sideChatPermissions: vi.fn().mockResolvedValue({ success: false }),
       sideChatCreate: vi.fn(), sideChatSend: vi.fn(),
@@ -520,7 +564,7 @@ describe('DashboardComponent', () => {
     fixture.destroy();
   });
 
-  it.each(['session', 'chat', 'history', 'close', 'toggle', 'preset', 'main', 'live-request', 'chat-request'] as const)(
+  it.each(['session', 'chat', 'history', 'close', 'toggle', 'preset', 'live-request', 'chat-request'] as const)(
     'drops archived panel context after selecting %s', async (selection) => {
       const previousLive = { id: 'live-runtime', historyThreadId: 'live-thread', displayName: 'Live session', provider: 'claude', status: 'idle' };
       instances.set([previousLive]);
@@ -552,8 +596,7 @@ describe('DashboardComponent', () => {
           panels: { sidebar: true, controlPlane: false, fileExplorer: false, sourceControl: false, sideChat: false },
         });
         fixture.componentInstance.applyWorkspacePreset('research');
-      } else if (selection === 'main') {
-        fixture.componentInstance.openSideChatInMain('exact-archived-sidechat');
+
       } else if (selection === 'close') {
         fixture.debugElement.query(By.directive(SideChatPanelComponent)).triggerEventHandler('closeRequested');
       } else {

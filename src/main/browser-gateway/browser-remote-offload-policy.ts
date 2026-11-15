@@ -4,7 +4,8 @@ import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
 import { getRemoteAuthService } from '../auth/remote-auth';
 import { getRemoteNodeConfig } from '../remote-node/remote-node-config';
 import { getWorkerNodeRegistry } from '../remote-node/worker-node-registry';
-import { BrowserComputerBalancer, browserComputers, originOf } from './browser-computer-balancer';
+import { BrowserComputerBalancer, browserComputers, originOf, type BrowserComputer } from './browser-computer-balancer';
+import { getLocalBrowserComputer, LOCAL_BROWSER_COMPUTER_ID } from './browser-local-computer';
 import { resolveBrowserComputerTarget } from './browser-computer-target';
 import { getBrowserProfileStore } from './browser-profile-store';
 import { getBrowserTargetRegistry } from './browser-target-registry';
@@ -23,6 +24,7 @@ export interface KnownBrowserComputer {
 export interface BrowserRemoteOffloadPolicyDeps {
   getConfig: () => BrowserRemoteOffloadConfig;
   getConnectedNodes: () => WorkerNodeInfo[];
+  getLocalComputer: () => BrowserComputer | undefined;
   /** Paired browser computers, connected or not (persisted, sticky until unpaired). */
   getKnownBrowserComputers: () => KnownBrowserComputer[];
   listTargets: () => BrowserTarget[];
@@ -94,6 +96,7 @@ export function listKnownBrowserComputers(): KnownBrowserComputer[] {
 const defaultDeps: BrowserRemoteOffloadPolicyDeps = {
   getConfig: getRemoteNodeConfig,
   getConnectedNodes: () => getWorkerNodeRegistry().getSharedNodes(),
+  getLocalComputer: getLocalBrowserComputer,
   getKnownBrowserComputers: listKnownBrowserComputers,
   listTargets: () => getBrowserTargetRegistry().listTargets(),
   getProfile: (profileId) => getBrowserProfileStore().getProfile(profileId),
@@ -131,12 +134,23 @@ export function routeBrowserGatewayRequest(
   }
 
   const config = deps.getConfig();
+  const localComputer = deps.getLocalComputer();
+  const namedLocal = localComputer && DISCOVERY_METHODS.has(method)
+    && typeof payload['computer'] === 'string'
+    && resolveBrowserComputerTarget({ computer: payload['computer'], nodeId: stringField(payload, 'nodeId') }, {
+      connectedNodes: deps.getConnectedNodes(), localComputerName: localComputer.name,
+    });
+  if (localComputer && namedLocal && namedLocal.ok && namedLocal.target.localOnly) {
+    deps.balancer.noteUse(instanceId, localComputer.id, deps.now());
+    return { ...payload, computer: 'local' };
+  }
   if (!config.enabled || !config.autoOffloadBrowser) {
-    return payload;
+    return localComputer && DISCOVERY_METHODS.has(method) && !payload['computer'] && !payload['nodeId']
+      ? { ...payload, computer: 'local' } : payload;
   }
 
   const connectedNodes = deps.getConnectedNodes();
-  const computers = browserComputers(connectedNodes);
+  const computers = browserComputers(localComputer ? [...connectedNodes, localComputer] : connectedNodes);
   if (computers.length === 0) {
     return guardOfflineBrowserComputer(method, payload, deps);
   }
@@ -145,20 +159,20 @@ export function routeBrowserGatewayRequest(
   const preferredNode = deps.balancer.current(instanceId, computers, now) ?? computers[0]!;
 
   if (DISCOVERY_METHODS.has(method)) {
-    return routeDiscoveryRequest(payload, instanceId, connectedNodes, deps, now);
+    return routeDiscoveryRequest(payload, instanceId, connectedNodes, computers, deps, now);
   }
 
   if (method === 'browser.open_profile') {
     const profileId = stringField(payload, 'profileId');
     const profile = profileId ? deps.getProfile(profileId) : null;
-    if (profile && !profile.executionNodeId) {
+    if (profile && !profile.executionNodeId && !localComputer) {
       throw localBrowserBlockedError(preferredNode);
     }
     return payload;
   }
 
   if (TARGET_SCOPED_METHODS.has(method)) {
-    assertTargetIsRemote(payload, instanceId, preferredNode, deps, now);
+    assertTargetIsAllowed(payload, instanceId, preferredNode, Boolean(localComputer), deps, now);
   }
   return payload;
 }
@@ -167,6 +181,7 @@ function routeDiscoveryRequest(
   payload: Record<string, unknown>,
   instanceId: string,
   connectedNodes: WorkerNodeInfo[],
+  computers: BrowserComputer[],
   deps: BrowserRemoteOffloadPolicyDeps,
   now: number,
 ): Record<string, unknown> {
@@ -187,14 +202,16 @@ function routeDiscoveryRequest(
   }
   const chosen = deps.balancer.choose({
     instanceId,
-    nodes: connectedNodes,
+    nodes: computers,
     choices: deps.getComputerChoices(),
     targets: deps.listTargets(),
     origin: originOf(payload['url']),
     now,
   });
-  if (!chosen) throw browserComputersPausedError(connectedNodes);
-  return withRemoteComputer(payload, chosen);
+  if (!chosen) throw browserComputersPausedError(computers);
+  return chosen.id === LOCAL_BROWSER_COMPUTER_ID
+    ? { ...payload, computer: 'local' }
+    : withRemoteComputer(payload, chosen);
 }
 
 /**
@@ -207,10 +224,11 @@ function namedNodeId(nodeId: string | undefined, computer: string | undefined, c
   return connectedNodes.some(node => node.id === id) ? id : undefined;
 }
 
-function assertTargetIsRemote(
+function assertTargetIsAllowed(
   payload: Record<string, unknown>,
   instanceId: string,
-  preferredNode: WorkerNodeInfo,
+  preferredNode: BrowserComputer,
+  localAllowed: boolean,
   deps: BrowserRemoteOffloadPolicyDeps,
   now: number,
 ): void {
@@ -218,17 +236,17 @@ function assertTargetIsRemote(
   if (targetId) {
     const target = deps.listTargets().find((candidate) => candidate.id === targetId);
     if (target) {
-      if (!target.nodeId) {
+      if (!target.nodeId && !localAllowed) {
         throw localBrowserBlockedError(preferredNode);
       }
-      deps.balancer.noteUse(instanceId, target.nodeId, now);
+      deps.balancer.noteUse(instanceId, target.nodeId ?? LOCAL_BROWSER_COMPUTER_ID, now);
       return;
     }
   }
 
   const profileId = stringField(payload, 'profileId');
   const profile = profileId ? deps.getProfile(profileId) : null;
-  if (profile && !profile.executionNodeId) {
+  if (profile && !profile.executionNodeId && !localAllowed) {
     throw localBrowserBlockedError(preferredNode);
   }
 }
@@ -274,7 +292,7 @@ function guardOfflineBrowserComputer(
 
 function withRemoteComputer(
   payload: Record<string, unknown>,
-  node: WorkerNodeInfo,
+  node: BrowserComputer,
 ): Record<string, unknown> {
   return {
     ...payload,
@@ -309,7 +327,7 @@ function browserComputerOfflineError(offline: KnownBrowserComputer[], agreedPath
   );
 }
 
-function browserComputersPausedError(connectedNodes: WorkerNodeInfo[]): Error {
+function browserComputersPausedError(connectedNodes: BrowserComputer[]): Error {
   const names = browserComputers(connectedNodes).map(node => `"${node.name || node.id}"`).join(', ');
   return new Error(
     `browser_computers_paused: Every browser computer (${names}) is paused on the Computers page, so this request did not run. `
@@ -318,7 +336,7 @@ function browserComputersPausedError(connectedNodes: WorkerNodeInfo[]): Error {
   );
 }
 
-function localBrowserBlockedError(node: WorkerNodeInfo): Error {
+function localBrowserBlockedError(node: BrowserComputer): Error {
   const computer = node.name || node.id;
   return new Error(
     `browser_local_target_blocked_by_remote_auto_offload: Local browser control is disabled while remote browser auto-offload is enabled and "${computer}" is connected. Start with browser.find_or_open on "${computer}" and use the returned target.`,

@@ -23,6 +23,7 @@ import type {
 import type { InstanceRuntimeSummary } from '../../shared/types/local-model-runtime.types';
 import type { ExecutionLocation } from '../../shared/types/worker-node.types';
 import type { ActivityState } from '../../shared/types/activity.types';
+import { SET_ASIDE_FOLDER_METADATA, setAsideFolderOf } from '../../shared/utils/plan-queue-set-aside-agent';
 import { LIMITS } from '../../shared/constants/limits';
 import {
   getRecoverySensitiveValues,
@@ -539,6 +540,8 @@ export class InstanceStateManager extends EventEmitter {
               ? {
                   reason: 'crash-recovery',
                   ...(metadata['continuityRevival'] === true ? { continuityRevival: true } : {}),
+                  // A folder path, not an identity: the Plan Queue page uses it to recognise a revived Set aside agent.
+                  ...(setAsideFolderOf(metadata) ? { [SET_ASIDE_FOLDER_METADATA]: setAsideFolderOf(metadata) } : {}),
                 }
               : metadata,
           }

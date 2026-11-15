@@ -1,10 +1,13 @@
 importScripts('codex-device-handoff.js');
+importScripts('browser-session-claims.js');
 
 const LEGACY_HOST_NAME = 'com.ai_orchestrator.browser_gateway';
 const RELAY_HOST_NAME = 'com.ai_orchestrator.browser_gateway_relay';
+const HOME_BASE_RELAY_HOST_NAME = 'com.ai_orchestrator.browser_gateway_relay_home_base';
 const BRIDGE_DEFINITIONS = [
   { hostName: LEGACY_HOST_NAME, kind: 'local' },
   { hostName: RELAY_HOST_NAME, kind: 'relay' },
+  { hostName: HOME_BASE_RELAY_HOST_NAME, kind: 'relay' },
 ];
 const INVENTORY_ALARM = 'browser-gateway-inventory';
 const POLL_TIMEOUT_MS = 10000;
@@ -140,6 +143,8 @@ const codexDeviceCommandPorts = new WeakMap();
 const sharedTabs = [];
 const bridges = BRIDGE_DEFINITIONS.map(createBridge);
 const controlledTabLeases = new Map();
+const browserSessionClaims = createBrowserSessionClaims({ storage: chrome.storage.session });
+const sharedBrowserSecretPolicy = createSharedBrowserSecretPolicy({ storage: chrome.storage.local });
 const controlledTabRestoreLineages = new Map();
 const secretTaintedTabs = new Map();
 const secretTaintedOrigins = new Set();
@@ -306,6 +311,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  void browserSessionClaims.forget(tabId).catch(() => undefined);
   // Remove only the tab lineage. The origin remains tainted because a page can
   // persist the filled value in same-origin storage and reveal it from a future
   // tab. There is no safe automatic origin declassification boundary.
@@ -1364,7 +1370,7 @@ async function handleNativeMessage(message, bridge) {
       // Read by selfHealIfWedged; cleared in the finally below.
       runningCommandSince = Date.now();
       runningCommandLimitMs = commandExecutionTimeoutMs(command);
-      return runBrowserCommand(command, bridge);
+      return runSessionScopedBrowserCommand(command, bridge);
     })
     .catch(async (error) => {
       // Each step is fenced individually. They must not be able to cost one
@@ -2074,6 +2080,36 @@ async function executeCodexDeviceCommand(command, deadlineAt) {
   }
 }
 
+// This runs before any taint/page inspection. A refused claim reads nothing
+// from a tab another session owns, including a tab waiting on a page pop-up.
+async function runSessionScopedBrowserCommand(command, bridge) {
+  try {
+    assertCommandForThisProfile(command);
+    await browserSessionClaims.authorize(command);
+    await sharedBrowserSecretPolicy.stamp(command, bridge.hostName,
+      bridges.filter(candidate => candidate.state === 'connected').map(candidate => candidate.hostName));
+  } catch (error) {
+    postNativeMessage(bridge, {
+      type: 'command_result', commandId: command.id, ok: false,
+      error: error?.message === 'browser_tab_held_by_another_session'
+        ? 'browser_tab_held_by_another_session'
+        : isWrongProfileRefusal(error) ? WRONG_PROFILE_ERROR : 'browser_session_claims_unavailable',
+    });
+    clearPollInFlight(bridge);
+    scheduleNextPoll(bridge, 0);
+    persistBridgeStatus();
+    return;
+  }
+  if (command.command === 'claim_tab') {
+    postNativeMessage(bridge, { type: 'command_result', commandId: command.id, ok: true, result: { claimed: true } });
+    clearPollInFlight(bridge);
+    scheduleNextPoll(bridge, 0);
+    persistBridgeStatus();
+    return;
+  }
+  return runBrowserCommand(command, bridge);
+}
+
 async function runBrowserCommand(command, bridge) {
   const reloadCommand = command?.command === 'reload';
   // The internal origin-bound writer is itself proof that this command may
@@ -2115,6 +2151,9 @@ async function runBrowserCommand(command, bridge) {
       secretTaintOrigin = await targetSecretTaintOrigin(command);
     }
     const result = await runCommandWithWatchdog(command);
+    if (command.command === 'open_tab' && command.sessionOwner) {
+      await browserSessionClaims.rememberOpened(command, result);
+    }
     if (secretTaintOrigin === null && !reloadCommand) {
       // The origin-bound credential command arms taint during execution, so an
       // initially clean tab needs one post-dispatch check too.

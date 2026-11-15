@@ -1,4 +1,5 @@
 import * as os from 'node:os';
+import * as fs from 'node:fs';
 import { formatHostPort } from '../../shared/remote-node/host-address';
 import { loadWorkerConfig, persistConfig, type WorkerConfig } from '../worker-config';
 
@@ -58,10 +59,30 @@ export function buildCoordinatorUrl(params: {
   return `${protocol}://${formatHostPort(params.host, params.port)}`;
 }
 
+/** Check without loading: loading persists defaults and must not mutate a refused pairing. */
+export function assertPairingNamespace(configPath: string, namespace: string, force: boolean): void {
+  if (!fs.existsSync(configPath)) return;
+  let existing: Partial<WorkerConfig> & { host?: unknown; port?: unknown };
+  try {
+    existing = JSON.parse(fs.readFileSync(configPath, 'utf-8').replace(/^\uFEFF/, '')) as typeof existing;
+    if (!existing || typeof existing !== 'object' || Array.isArray(existing)) throw new Error();
+  } catch {
+    // JSON parse errors can contain saved credentials. Never retain their message or cause.
+    throw new Error('Existing worker config cannot be read. Repair it before pairing.');
+  }
+  if (force) return;
+  const paired = Boolean(existing.coordinatorUrl || existing.coordinatorUrls?.length || (typeof existing.host === 'string' && existing.host));
+  if (paired && (existing.namespace ?? 'default') !== namespace) {
+    throw new Error('This worker is paired to another namespace. Use a separate worker checkout and home, or --force to replace its pairing.');
+  }
+}
+
 export function writePairedWorkerConfig(
   configPath: string,
   parsed: ParsedPairingConfig,
+  force = false,
 ): WorkerConfig {
+  assertPairingNamespace(configPath, parsed.namespace, force);
   const existing = loadWorkerConfig(configPath);
   const next: WorkerConfig = {
     ...existing,
@@ -81,6 +102,7 @@ export function writePairedWorkerConfig(
   } else {
     delete next.coordinatorUrls;
   }
+  delete next.advertisedCoordinatorUrls;
   delete next.nodeToken;
   delete next.recoveryToken;
   persistConfig(configPath, next);

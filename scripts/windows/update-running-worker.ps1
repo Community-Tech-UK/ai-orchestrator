@@ -86,13 +86,15 @@ function Get-WorkerState {
   # absolute entrypoint path, native-host helpers excluded.
   $workers = @($Processes | Where-Object {
     $_.Name -eq 'node.exe' -and $_.CommandLine -and
-    $_.CommandLine.IndexOf($bundle, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+    $_.CommandLine.Replace('/', '\').IndexOf($bundle, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
     $_.CommandLine.IndexOf('native-host', [StringComparison]::OrdinalIgnoreCase) -lt 0
   })
   # A supervisor may use the relative entrypoint. Its child relationship is
   # checked before stopping a worker; the flag alone is not enough.
+  $parentIds = @($workers | ForEach-Object { $_.ParentProcessId })
   $supervisorIds = @($Processes | Where-Object {
     $_.Name -eq 'node.exe' -and $_.CommandLine -and
+    ($_.CommandLine.Replace('/', '\').IndexOf($bundle, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or $parentIds -contains $_.ProcessId) -and
     $_.CommandLine.IndexOf('--supervise', [StringComparison]::OrdinalIgnoreCase) -ge 0
   } | ForEach-Object { $_.ProcessId })
   $children = @($workers | Where-Object {

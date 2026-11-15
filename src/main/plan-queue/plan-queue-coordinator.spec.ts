@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PlanQueueCoordinator } from './plan-queue-coordinator';
 import { PlanQueueItemFlow } from './plan-queue-item-flow';
 import * as readiness from './plan-queue-readiness';
-import { SET_ASIDE_FOLDER_METADATA } from './plan-queue-set-aside';
+import { SET_ASIDE_FOLDER_METADATA } from '../../shared/utils/plan-queue-set-aside-agent';
 import { _setReportRequiredProvidersForTesting, recordWorkerReport } from './plan-queue-worker-report';
 import { landing } from './plan-queue-coordinator.test-mocks';
 import {

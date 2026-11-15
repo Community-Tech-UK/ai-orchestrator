@@ -34,13 +34,13 @@ describe('SideChatStore', () => {
   let store: SideChatStore;
   let emit: (event: ChatEvent) => void;
   let ipc: Record<string, ReturnType<typeof vi.fn>>;
-  let chatStore: { ensureDetailLoaded: ReturnType<typeof vi.fn>; archive: ReturnType<typeof vi.fn>; details: ReturnType<typeof signal> };
+  let chatStore: { ensureDetailLoaded: ReturnType<typeof vi.fn>; details: ReturnType<typeof signal> };
 
   beforeEach(() => {
     ipc = {
       onChatEvent: vi.fn((callback: (event: ChatEvent) => void) => { emit = callback; return () => undefined; }),
       sideChatAttentionAll: vi.fn().mockResolvedValue({ success: true, data: [attention(PARENT_A, { unread: 2 })] }),
-      sideChatList: vi.fn().mockResolvedValue({ success: true, data: { active: [], archived: [] } }),
+      sideChatList: vi.fn().mockResolvedValue({ success: true, data: { active: [] } }),
       sideChatPermissions: vi.fn().mockResolvedValue({ success: true, data: { ok: true, providers: [] } }),
       sideChatCreate: vi.fn().mockResolvedValue({ success: true, data: { chat: chat('new-side') } }),
       sideChatSend: vi.fn().mockResolvedValue({ success: true, data: { ok: true } }),
@@ -49,9 +49,9 @@ describe('SideChatStore', () => {
         data: { chatId, parent: PARENT_A, authority: 'inherit-parent', lastReadAssistantSequence: throughSequence },
       })),
       sideChatSetSelection: vi.fn().mockResolvedValue({ success: true, data: { chat: chat('s1') } }),
-      sideChatAttach: vi.fn().mockResolvedValue({ success: true, data: { chat: chat('loose') } }),
+      sideChatDiscard: vi.fn().mockResolvedValue({ success: true }),
     };
-    chatStore = { ensureDetailLoaded: vi.fn().mockResolvedValue(undefined), archive: vi.fn().mockResolvedValue(undefined), details: signal(new Map()) };
+    chatStore = { ensureDetailLoaded: vi.fn().mockResolvedValue(undefined), details: signal(new Map()) };
     TestBed.configureTestingModule({
       providers: [
         { provide: ChatIpcService, useValue: ipc },
@@ -235,7 +235,7 @@ describe('SideChatStore', () => {
   it('opens on the conversation that needs action, else the last selected one', async () => {
     ipc['sideChatList'].mockResolvedValue({
       success: true,
-      data: { active: [summary('s1', PARENT_A), summary('s2', PARENT_A, 'unread', 0, 4), summary('s3', PARENT_A)], archived: [] },
+      data: { active: [summary('s1', PARENT_A), summary('s2', PARENT_A, 'unread', 0, 4), summary('s3', PARENT_A)] },
     });
     store.selectChat(PARENT_A, 's3');
 
@@ -243,7 +243,7 @@ describe('SideChatStore', () => {
     expect(store.selectedChatId(PARENT_A)).toBe('s2');
 
     ipc['sideChatList'].mockResolvedValue({
-      success: true, data: { active: [summary('s1', PARENT_A), summary('s3', PARENT_A)], archived: [] },
+      success: true, data: { active: [summary('s1', PARENT_A), summary('s3', PARENT_A)] },
     });
     store.selectChat(PARENT_A, 's1');
     await store.open(PARENT_A);
@@ -257,11 +257,11 @@ describe('SideChatStore', () => {
     let resolveFirst: (value: unknown) => void = () => undefined;
     ipc['sideChatList']
       .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
-      .mockResolvedValueOnce({ success: true, data: { active: [summary('fresh', PARENT_A)], archived: [] } });
+      .mockResolvedValueOnce({ success: true, data: { active: [summary('fresh', PARENT_A)] } });
 
     const first = store.refresh(PARENT_A);
     await store.refresh(PARENT_A);
-    resolveFirst({ success: true, data: { active: [summary('stale', PARENT_A)], archived: [] } });
+    resolveFirst({ success: true, data: { active: [summary('stale', PARENT_A)] } });
     await first;
 
     expect(store.summariesFor(PARENT_A).map((item) => item.chat.id)).toEqual(['fresh']);
@@ -270,7 +270,7 @@ describe('SideChatStore', () => {
   it('never lets one parent\'s list overwrite another\'s', async () => {
     ipc['sideChatList'].mockImplementation(async ({ parent }: { parent: SideChatParentRef }) => ({
       success: true,
-      data: { active: [summary(parent === PARENT_A ? 'a1' : 'b1', parent)], archived: [] },
+      data: { active: [summary(parent === PARENT_A ? 'a1' : 'b1', parent)] },
     }));
 
     await Promise.all([store.open(PARENT_A), store.open(PARENT_B)]);
@@ -315,7 +315,7 @@ describe('SideChatStore', () => {
 
   it('acknowledges reads through a specific sequence and never rewinds locally', async () => {
     ipc['sideChatList'].mockResolvedValue({
-      success: true, data: { active: [summary('s1', PARENT_A, 'unread', 0, 6)], archived: [] },
+      success: true, data: { active: [summary('s1', PARENT_A, 'unread', 0, 6)] },
     });
     await store.refresh(PARENT_A);
 
@@ -339,11 +339,46 @@ describe('SideChatStore', () => {
     expect(ipc['sideChatList']).toHaveBeenCalledWith({ parent: PARENT_A });
   });
 
-  it('attaches an existing chat only on request and selects it', async () => {
-    expect(await store.attach(PARENT_A, 'loose')).toBe(true);
+  it('discards only the chosen sidechat and removes its draft and selection', async () => {
+    ipc['sideChatList'].mockResolvedValueOnce({ success: true, data: { active: [summary('s1', PARENT_A)] } });
+    await store.open(PARENT_A);
+    store.setDraft(PARENT_A, 's1', 'unsent question');
+    store.setDraft(PARENT_B, 'b1', 'other session');
 
-    expect(ipc['sideChatAttach']).toHaveBeenCalledWith({ chatId: 'loose', parent: PARENT_A });
-    expect(store.selectedChatId(PARENT_A)).toBe('loose');
+    expect(await store.discard(PARENT_A, 's1')).toBe(true);
+
+    expect(ipc['sideChatDiscard']).toHaveBeenCalledWith({ chatId: 's1', confirmation: 'discard' });
+    expect(store.selectedChatId(PARENT_A)).toBeNull();
+    expect(store.draftFor(PARENT_A, 's1')).toBe('');
+    expect(store.summariesFor(PARENT_A)).toEqual([]);
+    expect(store.draftFor(PARENT_B, 'b1')).toBe('other session');
+  });
+
+  it('keeps the conversation and draft and shows the error when discard fails', async () => {
+    ipc['sideChatDiscard'].mockResolvedValueOnce({ success: false, error: { message: 'Could not stop sidechat' } });
+    store.selectChat(PARENT_A, 's1');
+    store.setDraft(PARENT_A, 's1', 'unsent question');
+
+    expect(await store.discard(PARENT_A, 's1')).toBe(false);
+
+    expect(store.selectedChatId(PARENT_A)).toBe('s1');
+    expect(store.draftFor(PARENT_A, 's1')).toBe('unsent question');
+    expect(store.errorFor(PARENT_A)?.message).toBe('Could not stop sidechat');
+  });
+
+  it('clears drafts and selection when a parent deletion deletes a sidechat', async () => {
+    await store.initialize();
+    ipc['sideChatList'].mockResolvedValue({ success: true, data: { active: [summary('s1', PARENT_A)] } });
+    await store.open(PARENT_A);
+    store.setDraft(PARENT_A, 's1', 'question');
+    store.setDraft(PARENT_B, 'b1', 'other session');
+
+    emit({ type: 'chat-deleted', chatId: 's1' });
+
+    expect(store.selectedChatId(PARENT_A)).toBeNull();
+    expect(store.summariesFor(PARENT_A)).toEqual([]);
+    expect(store.draftFor(PARENT_A, 's1')).toBe('');
+    expect(store.draftFor(PARENT_B, 'b1')).toBe('other session');
   });
 
   it('raises distinct open requests for badges', () => {
@@ -353,5 +388,67 @@ describe('SideChatStore', () => {
 
     expect(store.openRequest()).toMatchObject({ parent: PARENT_A, chatId: 's1' });
     expect(store.openRequest()?.id).not.toBe(first?.id);
+  });
+
+  it.each(['refused', 'rejected'] as const)('does not restore deleted drafts or errors after a late %s send', async (outcome) => {
+    await store.initialize();
+    let finish!: (value: unknown) => void;
+    let fail!: (error: Error) => void;
+    ipc['sideChatSend'].mockImplementationOnce(() => new Promise((resolve, reject) => { finish = resolve; fail = reject; }));
+    store.selectChat(PARENT_A, 's1');
+    store.setDraft(PARENT_A, 's1', 'question');
+    const sending = store.send(PARENT_A, 's1', 'question', '/work');
+
+    emit({ type: 'chat-deleted', chatId: 's1' });
+    if (outcome === 'refused') finish({ success: false, error: { message: 'Chat is gone' } });
+    else fail(new Error('Chat is gone'));
+    await sending;
+
+    expect(store.draftFor(PARENT_A, 's1')).toBe('');
+    expect(store.errorFor(PARENT_A)).toBeNull();
+    expect(store.selectedChatId(PARENT_A)).toBeNull();
+  });
+
+  it('does not select or send to a new chat deleted before its creation reply arrives', async () => {
+    await store.initialize();
+    let finish!: (value: unknown) => void;
+    ipc['sideChatCreate'].mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    store.setPendingSelection(PARENT_A, { provider: 'claude' });
+    const sending = store.send(PARENT_A, null, 'question', '/work');
+
+    emit({ type: 'chat-deleted', chatId: 'new-side' });
+    finish({ success: true, data: { chat: chat('new-side') } });
+    expect(await sending).toBe(false);
+
+    expect(store.selectedChatId(PARENT_A)).toBeNull();
+    expect(chatStore.ensureDetailLoaded).not.toHaveBeenCalled();
+    expect(ipc['sideChatSend']).not.toHaveBeenCalled();
+  });
+
+  it('does not restore a deleted chat error after a late provider change reply', async () => {
+    await store.initialize();
+    let finish!: (value: unknown) => void;
+    ipc['sideChatSetSelection'].mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const changing = store.setSelection(PARENT_A, 's1', { provider: 'claude' });
+    emit({ type: 'chat-deleted', chatId: 's1' });
+    finish({ success: false, error: { message: 'Chat is gone' } });
+    await changing;
+
+    expect(store.errorFor(PARENT_A)).toBeNull();
+  });
+
+  it('keeps the created chat identity when its first send rejects after deletion', async () => {
+    await store.initialize();
+    let fail!: (error: Error) => void;
+    ipc['sideChatSend'].mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+    store.setPendingSelection(PARENT_A, { provider: 'claude' });
+    const sending = store.send(PARENT_A, null, 'question', '/work');
+    await vi.waitFor(() => expect(ipc['sideChatSend']).toHaveBeenCalled());
+    emit({ type: 'chat-deleted', chatId: 'new-side' });
+    fail(new Error('Chat is gone'));
+    await sending;
+
+    expect(store.errorFor(PARENT_A)).toBeNull();
+    expect(store.selectedChatId(PARENT_A)).toBeNull();
   });
 });

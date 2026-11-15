@@ -19,6 +19,7 @@ import type { IpcResponse } from '../../core/services/ipc/electron-ipc.service';
 import { RendererPollSchedulerService } from '../../core/services/renderer-poll-scheduler.service';
 import { InstanceStore } from '../../core/state/instance.store';
 import { PlanHandoffDialogComponent } from '../instance-detail/plan-handoff-dialog.component';
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 
 interface PlanState {
   instanceId: string;
@@ -740,7 +741,8 @@ export class PlanPageComponent implements OnInit, OnDestroy {
   readonly selectedSessionId = signal('');
   readonly planHandoffOpen = signal(false);
   readonly planState = signal<PlanState | null>(null);
-  readonly instances = computed(() => this.instanceStore.instances());
+  readonly instances = computed(() => this.instanceStore.instances()
+    .filter(instance => !isProjectRailHiddenSession(instance.metadata)));
   readonly currentSessionName = computed(() => this.instances()
     .find((instance) => instance.id === this.planState()?.instanceId)?.displayName ?? 'Session unavailable');
   readonly editablePlanContent = signal('');
@@ -769,8 +771,8 @@ export class PlanPageComponent implements OnInit, OnDestroy {
   private refreshInFlight = false;
 
   ngOnInit(): void {
-    const selected = this.instanceStore.selectedInstanceId()
-      ?? this.instanceStore.instances()[0]?.id
+    const selected = this.instances().find(instance => instance.id === this.instanceStore.selectedInstanceId())?.id
+      ?? this.instances()[0]?.id
       ?? '';
     if (selected) {
       this.selectedSessionId.set(selected);

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   buildCoordinatorUrls,
   MAX_ADVERTISED_COORDINATOR_URLS,
+  orderCoordinatorHosts,
   readCoordinatorReachableHosts,
   resolveAdvertisedCoordinatorUrls,
 } from './coordinator-advertised-urls';
@@ -120,5 +121,21 @@ describe('readCoordinatorReachableHosts', () => {
       tailscaleIpv6: 'fd7a:115c:a1e0::1234',
       localIps: ['192.168.0.156'],
     });
+  });
+});
+
+// A worker pinned to a private listener must never be sent a LAN fallback.
+describe('orderCoordinatorHosts explicit listen address', () => {
+  const hosts = { tailscaleDnsName: 'home.ts.net', tailscaleIp: '100.64.0.2', tailscaleIpv6: 'fd7a:115c:a1e0::2', localIps: ['192.168.1.2'] };
+  it('only advertises the chosen Tailscale address and its name', () => {
+    expect(orderCoordinatorHosts('100.64.0.2', hosts)).toEqual(['home.ts.net', '100.64.0.2']);
+    expect(orderCoordinatorHosts('fd7a:115c:a1e0::2', hosts)).toEqual(['home.ts.net', 'fd7a:115c:a1e0::2']);
+  });
+  it('does not advertise Tailscale for a LAN or loopback listener', () => {
+    expect(orderCoordinatorHosts('192.168.1.2', hosts)).toEqual(['192.168.1.2']);
+    expect(orderCoordinatorHosts('127.0.0.1', hosts)).toEqual(['127.0.0.1']);
+  });
+  it('does not attach the local Tailscale name to an unrelated address', () => {
+    expect(orderCoordinatorHosts('100.64.0.99', hosts)).toEqual(['100.64.0.99']);
   });
 });

@@ -40,4 +40,16 @@ describe('HistorySidebarComponent', () => {
     root.querySelector('.history-backdrop')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(close).toHaveBeenCalledOnce();
   });
+  it('shows the sidechat deletion consequence before clearing all history', () => {
+    TestBed.configureTestingModule({ providers: [
+      { provide: HistoryStore, useValue: {} }, { provide: InstanceStore, useValue: {} },
+      { provide: FileIpcService, useValue: {} }, { provide: ViewLayoutService, useValue: {} },
+      { provide: Router, useValue: {} },
+    ] });
+    const component = TestBed.runInInjectionContext(() => new HistorySidebarComponent());
+    component.onClearAll();
+    expect(component.confirmMessage()).toContain('sidechats');
+    expect(component.confirmMessage()).toContain('permanently');
+  });
+
 });

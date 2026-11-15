@@ -210,7 +210,7 @@ them are writable, including `browserVaultMasterPasswordFile`: it is
 secret-tier, so its value is redacted, but since 2026-08-29 it is no longer
 operator-only. See "Redaction And Secrets" below.
 
-The operator-only anchors are the six Computer Use policy keys, the five Microsoft
+The 31 operator-only anchors are the six Computer Use policy keys, the five Microsoft
 Graph keys (OAuth, the calendar allowlist and the "Always allow" change list), the context-evidence rollout mode,
 the three Local AI Guard fallback-policy and budget keys, the WS-B1
 per-project PR-creation opt-in map (`allowPrCreation`), the licence-scoping
@@ -220,7 +220,8 @@ the two account-pool keys (`providerAccountProfiles`,
 `providerAccountPools`, covering Claude, Codex and MiMo), the Plan Queue
 provider-and-account choice (`planQueueRouting`), the Plan Queue never-use and use-last account lists (`planQueueAccountRules`), the Plan Queue checklist for each project folder (`planQueueFolderChecklists`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
 `workspaceSecretsAllowAgentRequests`), the post-fill observation lock
-(`browserSecretObservationProtectionEnabled`), the macOS session signal
+(`browserSecretObservationProtectionEnabled`), permission to use this computer's
+Chrome (`browserLocalComputerEnabled`), the macOS session signal
 fence (`providerSignalFenceEnabled`), automatic Codex backup deletion
 (`codexBackupKeepThree`), and how far Harness may keep sessions going without
 the user (`keepSessionsGoing`).

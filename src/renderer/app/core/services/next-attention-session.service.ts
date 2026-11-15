@@ -1,6 +1,7 @@
 import { DestroyRef, Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { attentionLevelForInstanceStatus } from '../../../../shared/attention/attention-level';
+import { isProjectRailHiddenSession } from '../../../../shared/utils/project-rail-hidden-session';
 import { InstanceStore } from '../state/instance.store';
 import { ActionDispatchService } from './action-dispatch.service';
 
@@ -14,7 +15,7 @@ export class NextAttentionSessionService {
     inject(DestroyRef).onDestroy(unregister);
   }
   private async next(): Promise<void> {
-    const sessions = this.instances.instances();
+    const sessions = this.instances.instances().filter(session => !isProjectRailHiddenSession(session.metadata));
     const selected = sessions.findIndex(session => session.id === this.instances.selectedInstanceId());
     for (let offset = 1; offset <= sessions.length; offset++) {
       const session = sessions[(selected + offset + sessions.length) % sessions.length];

@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { InputTurnRegistry } from '../instance/input-turn-registry';
 import { DEFAULT_PLAN_QUEUE_CONFIG, PlanQueueControlArgsSchema, PlanQueueControlPayloadSchema } from '@contracts/schemas/plan-queue';
 import { authorizePlanQueueControl } from './plan-queue-control-authority';
 import { handoverRunParent, requestRunHandover } from './plan-queue-handover';
@@ -12,6 +13,9 @@ import { newPlanQueueItem, assertItemTransition } from './plan-queue-state';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PlanQueueInstanceRecord } from './plan-queue-host';
 import type { PlanQueueRun, PlanQueueItem } from './plan-queue.types';
+
+beforeEach(() => InputTurnRegistry._resetForTesting());
+afterEach(() => InputTurnRegistry._resetForTesting());
 
 function fixture() {
   const run: PlanQueueRun = { id: 'run', parentInstanceId: 'owner', parentHistoryThreadId: 'owner-thread', kind: 'plans',
@@ -196,6 +200,10 @@ it('protects an assigned idle verifier that has not completed its Queue outcome'
 
 it.each([false, true])('preserves a pending question after transfer and follows its destination setting (chat=%s)', questionsToParent => {
   const { run, deps } = fixture();
+  const registry = InputTurnRegistry.getInstance();
+  registry.setReportsTurnStarts('target', true);
+  registry.noteInput('target', { messageId: 'james', personTypedAt: 5_000 });
+  registry.noteTurnStarted('target', 'harness-send');
   const question = { question: 'May this work proceed?', options: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }] };
   const item = { id: 'pending', sourceRef: '/repo/pending_plan.md', state: 'needs-answer', question } as PlanQueueItem;
   const messenger = new PlanQueueParentMessenger({ ...deps, listItems: () => [item],
@@ -205,9 +213,14 @@ it.each([false, true])('preserves a pending question after transfer and follows 
   expect(item.question).toBe(question);
   expect(item.state).toBe('needs-answer');
   if (questionsToParent) {
+    expect(deps.instances.sendInput).toHaveBeenCalledTimes(1);
     expect(deps.instances.sendInput).toHaveBeenCalledWith('target', expect.stringContaining('May this work proceed?'), undefined,
-      { automatedInput: true, internalSource: 'plan-queue' });
+      { automatedInput: true, internalSource: 'plan-queue',
+        userMessageId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i) });
+    const { userMessageId } = deps.instances.sendInput.mock.calls[0][3] as { userMessageId: string };
+    registry.noteInput('target', { messageId: userMessageId, personTypedAt: null });
   } else expect(deps.instances.sendInput).not.toHaveBeenCalled();
+  expect(registry.checkPersonTurn('target')).toEqual({ ok: true, messageId: 'james', typedAt: 5_000 });
   messenger.shutdown();
 });
 

@@ -162,6 +162,53 @@ describe('pair-cli', () => {
     });
   });
 
+  it('refuses another namespace before browser setup or config writes unless forced', async () => {
+    const configPath = path.join(tempDir, 'worker-node.json');
+    const original = JSON.stringify({ nodeId: 'existing-node', authToken: 'placeholder', namespace: 'first', coordinatorUrl: 'ws://first:4878', advertisedCoordinatorUrls: ['ws://obsolete:4878'] });
+    fs.writeFileSync(configPath, original);
+    const setUpBrowser = vi.fn(() => []);
+    const link = 'ai-orchestrator://remote-node/pair?host=second&port=4888&namespace=home-base&token=placeholder';
+    await expect(runPairCommand([link, '--config', configPath, '--no-probe', '--no-start'], {
+      ...offline, setUpBrowser, stdout: vi.fn(), stderr: vi.fn(),
+    })).rejects.toThrow(/--force/);
+    expect(fs.readFileSync(configPath, 'utf-8')).toBe(original);
+    expect(setUpBrowser).not.toHaveBeenCalled();
+    await runPairCommand([link, '--config', configPath, '--force', '--no-probe', '--no-start'], {
+      ...offline, setUpBrowser, stdout: vi.fn(), stderr: vi.fn(),
+    });
+    const replaced = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    expect(replaced.namespace).toBe('home-base');
+    expect(replaced).not.toHaveProperty('advertisedCoordinatorUrls');
+  });
+
+  it('also protects a paired legacy host-and-port config from another namespace', async () => {
+    const configPath = path.join(tempDir, 'worker-node.json');
+    const original = JSON.stringify({ host: 'first', port: 4878, token: 'placeholder', namespace: 'first' });
+    fs.writeFileSync(configPath, original);
+    await expect(runPairCommand([
+      'ai-orchestrator://remote-node/pair?host=second&port=4888&namespace=home-base&token=placeholder',
+      '--config', configPath, '--no-probe', '--no-start',
+    ], { ...offline, stdout: vi.fn(), stderr: vi.fn() })).rejects.toThrow(/--force/);
+    expect(fs.readFileSync(configPath, 'utf-8')).toBe(original);
+  });
+
+  it.each([false, true])('refuses malformed saved config without exposing its content before mutation (force=%s)', async force => {
+    const configPath = path.join(tempDir, 'worker-node.json');
+    const original = 'EXAMPLE_SAVED_LOGIN is not valid JSON';
+    fs.writeFileSync(configPath, original);
+    const setUpBrowser = vi.fn(() => []); const stdout = vi.fn(); const stderr = vi.fn();
+    const failure = runPairCommand([
+      'ai-orchestrator://remote-node/pair?host=second&port=4888&namespace=home-base&token=placeholder',
+      '--config', configPath, '--no-probe', '--no-start', ...(force ? ['--force'] : []),
+    ], { ...offline, setUpBrowser, stdout, stderr });
+    await expect(failure).rejects.toMatchObject({ message: 'Existing worker config cannot be read. Repair it before pairing.' });
+    await expect(failure).rejects.not.toThrow('EXAMPLE_SAVED_LOGIN');
+    expect(fs.readFileSync(configPath, 'utf-8')).toBe(original);
+    expect(setUpBrowser).not.toHaveBeenCalled();
+    expect(stdout).not.toHaveBeenCalled();
+    expect(stderr).not.toHaveBeenCalled();
+  });
+
   it('clears stale node credentials when writing an explicit pairing config', async () => {
     const configPath = path.join(tempDir, 'worker-node.json');
     fs.writeFileSync(configPath, JSON.stringify({

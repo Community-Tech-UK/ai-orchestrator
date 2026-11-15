@@ -8,7 +8,7 @@ import type {
   SideChatSummary,
 } from '../../../../shared/types/side-chat.types';
 import { sideChatParentKey } from '../../../../shared/types/side-chat.types';
-import type { ChatDetail, ChatEvent, ChatRecord } from '../../../../shared/types/chat.types';
+import type { ChatDetail, ChatEvent } from '../../../../shared/types/chat.types';
 import { ChatIpcService } from '../services/ipc/chat-ipc.service';
 import { ChatStore } from './chat.store';
 
@@ -50,7 +50,6 @@ const EMPTY_STATE: SideChatSessionState = {
 
 interface SideChatListResponse {
   active: SideChatSummary[];
-  archived: ChatRecord[];
 }
 
 type AttentionLoadState = 'idle' | 'loading' | 'loaded' | 'error';
@@ -69,13 +68,13 @@ export class SideChatStore {
 
   private readonly _sessions = signal(new Map<string, SideChatSessionState>());
   private readonly _summaries = signal(new Map<string, SideChatSummary[]>());
-  private readonly _archived = signal(new Map<string, ChatRecord[]>());
   private readonly _attention = signal(new Map<string, SideChatAttention>());
   private readonly _permissions = signal(new Map<string, SideChatPermissionSummary>());
   private readonly _sendingParents = signal(new Set<string>());
   private readonly _errors = signal(new Map<string, SideChatSendError>());
   private readonly _attentionLoadState = signal<AttentionLoadState>('idle');
   private readonly _openRequest = signal<SideChatOpenRequest | null>(null);
+  private readonly deletedChatIds = new Set<string>();
   private readonly listGeneration = new Map<string, number>();
   private unsubscribe: (() => void) | null = null;
   private attentionLoadGeneration = 0;
@@ -177,10 +176,6 @@ export class SideChatStore {
     return this._summaries().get(this.sessionKey(parent)) ?? [];
   }
 
-  archivedFor(parent: SideChatParentRef): ChatRecord[] {
-    return this._archived().get(this.sessionKey(parent)) ?? [];
-  }
-
   attentionFor(parent: SideChatParentRef): SideChatAttention | null {
     return this._attention().get(this.sessionKey(parent)) ?? null;
   }
@@ -210,6 +205,7 @@ export class SideChatStore {
   }
 
   setDraft(parent: SideChatParentRef, chatId: string | null, text: string): void {
+    if (chatId && this.deletedChatIds.has(chatId)) return;
     this.patchSession(parent, (state) => ({
       ...state,
       drafts: { ...state.drafts, [chatId ?? NEW_DRAFT_KEY]: text },
@@ -225,6 +221,7 @@ export class SideChatStore {
   }
 
   selectChat(parent: SideChatParentRef, chatId: string | null): void {
+    if (chatId && this.deletedChatIds.has(chatId)) return;
     this.patchSession(parent, (state) => ({ ...state, selectedChatId: chatId }));
     if (chatId) {
       void this.chatStore.ensureDetailLoaded(chatId);
@@ -235,6 +232,18 @@ export class SideChatStore {
   requestOpen(parent: SideChatParentRef, chatId: string | null = null): void {
     this.openRequestId += 1;
     this._openRequest.set({ parent, chatId, id: this.openRequestId });
+  }
+
+  /** Resolve a runtime-addressed approval or question back to its owning panel. */
+  requestOpenForRuntime(instanceId: string): boolean {
+    const chat = this.chatStore.chats().find((record) => record.currentInstanceId === instanceId)
+      ?? [...this.chatStore.details().values()].find((detail) => detail.chat.currentInstanceId === instanceId)?.chat;
+    if (!chat?.sideChatParentKey) return false;
+    const parent = this._attention().get(chat.sideChatParentKey)?.parent
+      ?? this._summaries().get(chat.sideChatParentKey)?.find((summary) => summary.chat.id === chat.id)?.link.parent;
+    if (!parent) return false;
+    this.requestOpen(parent, chat.id);
+    return true;
   }
 
   /**
@@ -275,9 +284,9 @@ export class SideChatStore {
         return null;
       }
       const data = response.data as SideChatListResponse;
-      this._summaries.update((map) => new Map(map).set(key, data.active));
-      this._archived.update((map) => new Map(map).set(key, data.archived));
-      return data.active;
+      const active = data.active.filter((summary) => !this.deletedChatIds.has(summary.chat.id));
+      this._summaries.update((map) => new Map(map).set(key, active));
+      return active;
     } catch {
       return null;
     }
@@ -311,11 +320,11 @@ export class SideChatStore {
   ): Promise<boolean> {
     const trimmed = text.trim();
     const key = this.sessionKey(parent);
-    if (!trimmed || this._sendingParents().has(key)) return false;
+    if (!trimmed || this._sendingParents().has(key) || (chatId && this.deletedChatIds.has(chatId))) return false;
     this.setSending(key, true);
     this.setError(parent, null);
+    let targetChatId = chatId;
     try {
-      let targetChatId = chatId;
       if (!targetChatId) {
         const selection = this.pendingSelection(parent) ?? options.fallbackSelection ?? null;
         if (!selection) {
@@ -331,6 +340,7 @@ export class SideChatStore {
         text: trimmed,
         ...(options.allowStaleContext ? { allowStaleContext: true } : {}),
       });
+      if (this.deletedChatIds.has(targetChatId)) return false;
       if (response.success) {
         this.setDraft(parent, targetChatId, '');
         return true;
@@ -349,7 +359,7 @@ export class SideChatStore {
     } catch (error) {
       this.setError(parent, {
         message: error instanceof Error ? error.message : 'Failed to send message',
-        code: null, chatId, text: trimmed, lastSnapshotAvailable: false,
+        code: null, chatId: targetChatId, text: trimmed, lastSnapshotAvailable: false,
       });
       return false;
     } finally {
@@ -359,8 +369,10 @@ export class SideChatStore {
 
   /** Change a sidechat's provider/model/reasoning; history and ownership are kept. */
   async setSelection(parent: SideChatParentRef, chatId: string, selection: SideChatProviderSelection): Promise<boolean> {
+    if (this.deletedChatIds.has(chatId)) return false;
     try {
       const response = await this.ipc.sideChatSetSelection({ chatId, selection });
+      if (this.deletedChatIds.has(chatId)) return false;
       if (response.success) {
         void this.refresh(parent);
         return true;
@@ -407,30 +419,21 @@ export class SideChatStore {
     }
   }
 
-  /** Explicitly attach an existing unlinked chat to this parent. */
-  async attach(parent: SideChatParentRef, chatId: string): Promise<boolean> {
+  /** Stop and permanently delete the confirmed sidechat, including its local draft. */
+  async discard(parent: SideChatParentRef, chatId: string): Promise<boolean> {
     try {
-      const response = await this.ipc.sideChatAttach({ chatId, parent });
-      if (response.success) {
-        await this.refresh(parent);
-        this.selectChat(parent, chatId);
-        return true;
+      const response = await this.ipc.sideChatDiscard({ chatId, confirmation: 'discard' });
+      if (!response.success) {
+        this.setError(parent, { message: response.error?.message ?? 'Could not discard sidechat', code: null, chatId, text: '', lastSnapshotAvailable: false });
+        return false;
       }
-      this.setError(parent, { message: response.error?.message ?? 'Failed to attach chat', code: null, chatId, text: '', lastSnapshotAvailable: false });
-      return false;
+      this.forgetChat(chatId);
+      await this.refresh(parent);
+      return true;
     } catch (error) {
-      this.setError(parent, { message: error instanceof Error ? error.message : 'Failed to attach chat', code: null, chatId, text: '', lastSnapshotAvailable: false });
+      this.setError(parent, { message: error instanceof Error ? error.message : 'Could not discard sidechat', code: null, chatId, text: '', lastSnapshotAvailable: false });
       return false;
     }
-  }
-
-  /** Archive keeps history and removes the conversation from the active list. */
-  async archive(parent: SideChatParentRef, chatId: string): Promise<void> {
-    await this.chatStore.archive(chatId);
-    if (this.selectedChatId(parent) === chatId) {
-      this.selectChat(parent, null);
-    }
-    await this.refresh(parent);
   }
 
   private async create(
@@ -447,6 +450,7 @@ export class SideChatStore {
     });
     if (response.success && response.data) {
       const chatId = (response.data as ChatDetail).chat.id;
+      if (this.deletedChatIds.has(chatId)) return null;
       this.selectChat(parent, chatId);
       void this.refresh(parent);
       return chatId;
@@ -459,6 +463,10 @@ export class SideChatStore {
   }
 
   private onChatEvent(event: ChatEvent): void {
+    if (event.type === 'chat-deleted') {
+      this.forgetChat(event.chatId);
+      return;
+    }
     if (event.type !== 'side-chat-attention') {
       return;
     }
@@ -468,6 +476,20 @@ export class SideChatStore {
     if (this._summaries().has(key)) {
       void this.refresh(event.attention.parent);
     }
+  }
+
+  private forgetChat(chatId: string): void {
+    this.deletedChatIds.add(chatId);
+    this._sessions.update((map) => new Map<string, SideChatSessionState>([...map].map(([key, state]) => {
+      const drafts = { ...state.drafts };
+      delete drafts[chatId];
+      return [key, { ...state, drafts, selectedChatId: state.selectedChatId === chatId ? null : state.selectedChatId }];
+    })));
+    this._summaries.update((map) => new Map<string, SideChatSummary[]>([...map].map(([key, summaries]) => {
+      if (!summaries.some((summary) => summary.chat.id === chatId)) return [key, summaries];
+      return [key, summaries.filter((summary) => summary.chat.id !== chatId)];
+    })));
+    this._errors.update((map) => new Map<string, SideChatSendError>([...map].filter(([, error]) => error.chatId !== chatId)));
   }
 
   private patchSession(
@@ -488,6 +510,7 @@ export class SideChatStore {
   }
 
   private setError(parent: SideChatParentRef, error: SideChatSendError | null): void {
+    if (error?.chatId && this.deletedChatIds.has(error.chatId)) return;
     const key = this.sessionKey(parent);
     this._errors.update((map) => {
       const next = new Map(map);

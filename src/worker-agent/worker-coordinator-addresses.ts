@@ -41,3 +41,9 @@ export function applyAdvertisedCoordinatorUrls(config: WorkerConfig, urls: strin
   config.advertisedCoordinatorUrls = next;
   return true;
 }
+
+/** Keep discovery protocol selection beside the other coordinator address rules. */
+export function buildDiscoveredCoordinatorUrl(coordinator: { host: string; port: number }, currentUrl?: string | null): string {
+  const protocol = currentUrl?.startsWith('wss://') ? 'wss' : 'ws';
+  return `${protocol}://${coordinator.host}:${coordinator.port}`;
+}

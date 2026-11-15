@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import type {
   AndroidDeviceInfo,
   WorkerNodeAndroidAutomationSummary,
@@ -21,6 +22,7 @@ export interface WorkerAndroidAttach {
 
 interface WorkerAndroidManagerOptions {
   config: WorkerAndroidAutomationConfig;
+  homeDir?: string;
   detect?: () => Promise<WorkerNodeAndroidAutomationSummary | undefined>;
   emulatorManager?: WorkerEmulatorManager;
   leaseRegistry?: DeviceLeaseRegistry;
@@ -36,7 +38,7 @@ export class WorkerAndroidManager {
 
   constructor(options: WorkerAndroidManagerOptions) {
     this.config = options.config;
-    this.emulatorManager = options.emulatorManager ?? new WorkerEmulatorManager({ config: options.config });
+    this.emulatorManager = options.emulatorManager ?? new WorkerEmulatorManager({ config: options.config, ...(options.homeDir ? { statePath: path.join(options.homeDir, 'worker-android-emulators.json') } : {}) });
     this.startupCleanup = this.emulatorManager.cleanupOwnedOrphans().catch((error) => {
       console.warn(
         '[WorkerAndroidManager] failed to clean up owned Android emulator orphans; continuing',

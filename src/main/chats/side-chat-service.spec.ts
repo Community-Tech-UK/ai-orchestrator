@@ -98,28 +98,7 @@ describe('SideChatService', () => {
       expect(await h.service.sideChats.list(refB)).toEqual([]);
     });
 
-    it('attaches an existing chat only explicitly, without making old answers unread', async () => {
-      const h = harness();
-      const parent = await codexParent(h);
-      const ref: SideChatParentRef = { kind: 'chat', chatId: parent.chat.id };
-      const loose = await h.service.createChat({ provider: 'claude', currentCwd: '/work/aio', name: 'Loose' });
-      await h.service.appendSystemEvent({
-        chatId: loose.chat.id, nativeMessageId: 'old-answer', role: 'assistant', content: 'Old answer',
-      });
-
-      await h.service.sideChats.attach(loose.chat.id, ref);
-      const attention = await h.service.sideChats.attention(ref);
-
-      expect(h.service.sideChats.getLink(loose.chat.id)?.parent).toEqual(ref);
-      expect(h.service.listChats().find((chat) => chat.id === loose.chat.id)?.sideChatParentKey)
-        .toBe(`chat:${parent.chat.id}`);
-      expect(attention.unread).toBe(0);
-      await expect(h.service.sideChats.attach(loose.chat.id, ref)).rejects.toThrow('already a sidechat');
-      await expect(h.service.sideChats.attach(parent.chat.id, { kind: 'chat', chatId: loose.chat.id }))
-        .rejects.toThrow('own sidechats');
-    });
-
-    it('drops an archived sidechat from active counts but keeps it reopenable', async () => {
+    it('keeps old archived sidechat records untouched and out of active counts', async () => {
       const h = harness();
       const parent = await codexParent(h);
       const ref: SideChatParentRef = { kind: 'chat', chatId: parent.chat.id };
@@ -129,7 +108,7 @@ describe('SideChatService', () => {
 
       expect(await h.service.sideChats.list(ref)).toEqual([]);
       expect((await h.service.sideChats.attention(ref)).total).toBe(0);
-      expect(h.service.sideChats.listArchived(ref).map((chat) => chat.id)).toEqual([side.chat.id]);
+      expect(h.service.tryGetChat(side.chat.id)?.archivedAt).not.toBeNull();
     });
   });
 
@@ -199,14 +178,17 @@ describe('SideChatService', () => {
 
     it('refuses a context-free question when the parent is gone, then allows an explicit stale send', async () => {
       const h = harness();
-      const parent = await codexParent(h);
+      const parent = h.runtimes.addSession({
+        historyThreadId: 'lost-parent', workingDirectory: '/work/aio', displayName: 'Parent',
+        transcript: [{ type: 'user', content: 'Explain this work' }],
+      });
       const side = await h.service.sideChats.create({
-        parent: { kind: 'chat', chatId: parent.chat.id }, selection: CLAUDE, currentCwd: '/work/aio',
+        parent: { kind: 'session', historyThreadId: 'lost-parent', originNodeId: null }, selection: CLAUDE, currentCwd: '/work/aio',
       });
       await h.service.sideChats.send({ chatId: side.chat.id, text: 'First' });
       const sideRuntime = (await h.service.getChat(side.chat.id)).chat.currentInstanceId!;
       h.runtimes.setStatus(sideRuntime, 'idle');
-      await h.service.deleteChat(parent.chat.id);
+      await h.runtimes.terminateInstance(parent.id);
       const turnsBefore = (await h.service.getChat(side.chat.id)).conversation.messages.length;
 
       const refused = await h.service.sideChats.send({ chatId: side.chat.id, text: 'Still there?' });

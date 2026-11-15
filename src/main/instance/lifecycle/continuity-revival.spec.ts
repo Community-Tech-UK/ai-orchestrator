@@ -433,6 +433,23 @@ describe('reviveContinuitySession crash recovery', () => {
     revivalMembers.clear();
   });
 
+  it('revives the Set aside agent as the Set aside agent for its folder', async () => {
+    const resolved = resolvedCandidate({ state: { planQueueSetAsideFolder: '/repo' } });
+    const { deps, createRecoveryInstance } = makeCrashDeps();
+
+    await reviveContinuitySession(deps, { sourceInstanceId: 'source-1', reason: 'crash-recovery', resolvedCandidate: resolved });
+
+    expect(createRecoveryInstance.mock.calls[0][0].metadata).toMatchObject({ planQueueSetAsideFolder: '/repo', continuityRevival: true });
+  });
+
+  it('gives no other revived session the Set aside marker', async () => {
+    const { deps, createRecoveryInstance } = makeCrashDeps();
+
+    await reviveContinuitySession(deps, { sourceInstanceId: 'source-1', reason: 'crash-recovery', resolvedCandidate: resolvedCandidate() });
+
+    expect(createRecoveryInstance.mock.calls[0][0].metadata).not.toHaveProperty('planQueueSetAsideFolder');
+  });
+
   it("revives a removed person's session as the owner's, as before", async () => {
     revivalMembers.clear();
     const resolved = resolvedCandidate({ state: { mobileProfileId: 'gone' } });

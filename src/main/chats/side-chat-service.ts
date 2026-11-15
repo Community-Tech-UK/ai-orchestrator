@@ -79,6 +79,8 @@ export interface SideChatChatPort {
   detail(chat: ChatRecord): Promise<ChatDetail>;
   /** Terminate the chat's runtime, clear its link and emit `runtime-cleared`. */
   clearRuntime(chat: ChatRecord, reason: 'provider' | 'policy'): Promise<ChatRecord>;
+  deleteChat(chatId: string): Promise<void>;
+  revokeConversation(conversationId: string): Promise<unknown>;
   emit(event: ChatEvent): void;
 }
 
@@ -115,6 +117,8 @@ export class SideChatService {
   /** Live sidechat runtime instance → owning chat. */
   private readonly runtimeChat = new Map<string, string>();
   private readonly pendingAttention = new Map<string, SideChatParentRef>();
+  /** Generations invalidate creations that were awaiting storage when a parent was deleted. */
+  private readonly parentDeletions = new Map<string, { generation: number; depth: number }>();
   private attentionTimer: ReturnType<typeof setTimeout> | null = null;
   private attentionFlush: Promise<void> = Promise.resolve();
 
@@ -134,7 +138,10 @@ export class SideChatService {
       linkStore: this.linkStore,
       resolveAgentPermissions: deps.resolveAgentPermissions,
       loadPersistedPolicy: (parent) => this.policyStore.get(parent),
-      persistPolicy: (parent, policy) => this.policyStore.put(parent, policy),
+      persistPolicy: (parent, policy) => {
+        // A lookup may finish after the final sidechat was discarded.
+        if (this.linkStore.listForParent(parent).length > 0) this.policyStore.put(parent, policy);
+      },
     });
     this.coordinator = new SideChatSendCoordinator({
       resolver: this.resolver,
@@ -173,6 +180,7 @@ export class SideChatService {
       this.attentionTimer = null;
     }
     this.pendingAttention.clear();
+    this.parentDeletions.clear();
   }
 
   isSideChat(chatId: string): boolean {
@@ -191,8 +199,11 @@ export class SideChatService {
    * atomically. No runtime is spawned until the first question.
    */
   async create(input: ChatSideChatCreateInput): Promise<ChatDetail> {
+    const generation = this.parentDeletions.get(sideChatParentKey(input.parent))?.generation ?? 0;
+    this.assertParentAvailable(input.parent, generation);
     const authority = await this.requireAuthority(input.parent);
     const identity = await this.resolver.resolveIdentity(input.parent);
+    this.assertParentAvailable(input.parent, generation);
     assertSelectionUsable(input.selection, authority.policy);
     // The parent's own workspace wins over the renderer-supplied directory: a
     // sidechat runs where its parent runs, and a worker path is never treated
@@ -207,22 +218,33 @@ export class SideChatService {
       metadata: { chatId: id, scope: 'side-chat', operatorThreadKind: 'side-chat' },
     });
     const selection = normalizeSelection(input.selection);
-    const inserted = this.linkStore.insertWithBacker(
-      { chatId: id, parent: input.parent, authority: 'inherit-parent', lastReadAssistantSequence: 0 },
-      () => this.deps.chatStore.insert({
-        id,
-        name,
-        provider: selection.provider,
-        model: selection.model,
-        reasoningEffort: selection.reasoning === undefined
-          ? getDefaultReasoningEffort(selection.provider, selection.model)
-          : selection.reasoning,
-        modelRuntimeTarget: selection.modelRuntimeTarget,
-        currentCwd,
-        yolo: false,
-        ledgerThreadId: thread.id,
-      }),
-    );
+    let inserted: ChatRecord;
+    try {
+      this.assertParentAvailable(input.parent, generation);
+      inserted = this.linkStore.insertWithBacker(
+        { chatId: id, parent: input.parent, authority: 'inherit-parent', lastReadAssistantSequence: 0 },
+        () => {
+          // Save initial authority with ownership; previews never retain policy on their own.
+          this.policyStore.put(input.parent, authority.policy);
+          return this.deps.chatStore.insert({
+            id,
+            name,
+            provider: selection.provider,
+            model: selection.model,
+            reasoningEffort: selection.reasoning === undefined
+              ? getDefaultReasoningEffort(selection.provider, selection.model)
+              : selection.reasoning,
+            modelRuntimeTarget: selection.modelRuntimeTarget,
+            currentCwd,
+            yolo: false,
+            ledgerThreadId: thread.id,
+          });
+        },
+      );
+    } catch (error) {
+      await this.deps.chat.revokeConversation(thread.id);
+      throw error;
+    }
     // Re-read so the record carries its new ownership key.
     const chat = this.deps.chatStore.get(inserted.id) ?? inserted;
     if (!authority.policy.workspaceNode) {
@@ -233,58 +255,51 @@ export class SideChatService {
     return this.deps.chat.detail(chat);
   }
 
-  /**
-   * Explicitly attach an existing unlinked chat to a parent. Ownership is never
-   * guessed; this is the only way a pre-existing chat becomes a sidechat. Its
-   * runtime is replaced so the next turn runs under the inherited policy.
-   */
-  async attach(chatId: string, parent: SideChatParentRef): Promise<ChatDetail> {
-    const chat = this.requireChat(chatId);
-    if (chat.archivedAt !== null) {
-      throw new SideChatError('archived', 'Unarchive this chat before attaching it to a session');
-    }
-    if (this.linkStore.get(chatId)) {
-      throw new SideChatError('already-linked', 'This chat is already a sidechat of another session');
-    }
-    if (this.isAncestorOrSelf(chatId, parent)) {
-      throw new SideChatError('cycle', 'A chat cannot be attached to itself or to one of its own sidechats');
-    }
-    const authority = await this.requireAuthority(parent);
-    if (chat.provider) {
-      assertProviderEnforceable(chat.provider, authority.policy);
-    }
-    if (authority.policy.workspaceNode) {
-      const identity = await this.resolver.resolveIdentity(parent);
-      if (identity?.workspacePath !== chat.currentCwd) {
-        throw new SideChatError(
-          'workspace-mismatch',
-          'This session runs on a worker machine with a different project, so this chat cannot follow it there',
-        );
-      }
-    }
-    // Existing answers were already visible as an ordinary chat; attaching must
-    // not suddenly flag them unread.
-    const latest = await this.latestAssistantSequenceForChat(chat);
-    this.linkStore.insert({ chatId, parent, authority: 'inherit-parent', lastReadAssistantSequence: latest });
-    this.linkStore.recordAssistantSequence(chatId, latest);
-    const linked = this.requireChat(chatId);
-    const updated = linked.currentInstanceId
-      ? await this.deps.chat.clearRuntime(linked, 'policy')
-      : linked;
-    this.deps.chat.emit({ type: 'chat-updated', chatId, chat: updated });
-    this.scheduleAttention(parent);
-    return this.deps.chat.detail(updated);
-  }
-
   async list(parent: SideChatParentRef): Promise<SideChatSummary[]> {
     return this.attentionTracker.summariesForParent(parent);
   }
 
-  /** Archived sidechats of a parent: absent from active counts, reopenable from history. */
-  listArchived(parent: SideChatParentRef): ChatRecord[] {
-    return this.linkStore.listForParent(parent)
-      .map((link) => this.deps.chatStore.get(link.chatId))
-      .filter((chat): chat is ChatRecord => chat !== null && chat.archivedAt !== null);
+  async discard(chatId: string): Promise<void> {
+    if (!this.isSideChat(chatId)) {
+      throw new SideChatError('not-linked', 'This chat is not a sidechat');
+    }
+    await this.deps.chat.deleteChat(chatId);
+  }
+
+  /** Permanent parent deletion includes old archived sidechats; archiving never calls this. */
+  async deleteForParent(parent: SideChatParentRef): Promise<void> {
+    for (const link of this.linkStore.listForParent(parent)) {
+      await this.deps.chat.deleteChat(link.chatId);
+    }
+    this.policyStore.delete(parent);
+  }
+
+  withChatDeletion(chatId: string, action: () => Promise<void>): Promise<void> {
+    const remove = () => {
+      const chat = this.deps.chatStore.get(chatId);
+      return this.withParentsDeleting([
+        { kind: 'chat', chatId },
+        ...(chat ? [{ kind: 'session' as const, historyThreadId: chat.ledgerThreadId, originNodeId: null }] : []),
+      ], action);
+    };
+    return this.isSideChat(chatId) ? this.coordinator.runExclusive(chatId, remove) : remove();
+  }
+
+  /** Keep the guard active until the parent row or history entry is actually removed. */
+  async withParentsDeleting<T>(parents: SideChatParentRef[], action: () => Promise<T>): Promise<T> {
+    const states = parents.map((parent) => {
+      const key = sideChatParentKey(parent);
+      const state = this.parentDeletions.get(key) ?? { generation: 0, depth: 0 };
+      state.generation += 1;
+      state.depth += 1;
+      this.parentDeletions.set(key, state);
+      return state;
+    });
+    try {
+      return await action();
+    } finally {
+      for (const state of states) state.depth -= 1;
+    }
   }
 
   async attention(parent: SideChatParentRef): Promise<SideChatAttention> {
@@ -443,9 +458,16 @@ export class SideChatService {
   }
 
   /** Capture a sidechat's parent before its row (and link) are deleted. */
-  onChatDeleting(chatId: string): void {
+  onChatDeleting(chatId: string, deleteChat: () => void): void {
     const link = this.linkStore.get(chatId);
-    this.contextStore.delete(chatId);
+    this.deps.db.transaction(() => {
+      this.contextStore.delete(chatId);
+      deleteChat();
+      if (link && this.linkStore.listForParent(link.parent).length === 0) {
+        this.policyStore.delete(link.parent);
+      }
+    })();
+    this.coordinator.forgetChat(chatId);
     if (link) {
       this.scheduleAttention(link.parent);
     }
@@ -531,6 +553,14 @@ export class SideChatService {
     return resolution;
   }
 
+  private assertParentAvailable(parent: SideChatParentRef, generation: number): void {
+    const state = this.parentDeletions.get(sideChatParentKey(parent));
+    if (state && (state.depth > 0 || state.generation !== generation)) {
+      if (this.linkStore.listForParent(parent).length === 0) this.policyStore.delete(parent);
+      throw new SideChatError('parent-unavailable', 'The session was being deleted while this sidechat started. Select a session and try again.');
+    }
+  }
+
   private assertNoActiveTurn(chat: ChatRecord): void {
     const instance = chat.currentInstanceId
       ? this.deps.instanceManager.getInstance(chat.currentInstanceId)
@@ -538,16 +568,6 @@ export class SideChatService {
     if (instance && instance.status !== 'terminated' && SIDE_CHAT_BUSY_STATUSES.has(instance.status)) {
       throw new SideChatError('busy', 'Stop the current answer before changing provider, model or reasoning');
     }
-  }
-
-  private isAncestorOrSelf(chatId: string, parent: SideChatParentRef): boolean {
-    let current: SideChatParentRef | null = parent;
-    for (let depth = 0; current && depth < 8; depth += 1) {
-      if (current.kind !== 'chat') return false;
-      if (current.chatId === chatId) return true;
-      current = this.linkStore.get(current.chatId)?.parent ?? null;
-    }
-    return false;
   }
 
   private requireChat(chatId: string): ChatRecord {

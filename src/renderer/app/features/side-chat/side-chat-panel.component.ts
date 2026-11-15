@@ -25,7 +25,6 @@ import {
 } from '@angular/core';
 import type { InstanceStatus, OutputMessage } from '../../../../shared/types/instance.types';
 import type {
-  SideChatConversationState,
   SideChatParentRef,
   SideChatProvider,
   SideChatProviderSelection,
@@ -42,25 +41,21 @@ import { chatAsyncAnswerTarget } from '../instance-detail/async-question';
 import { ActivityStatusComponent } from '../instance-detail/activity-status.component';
 import { CompactModelPickerComponent } from '../models/compact-model-picker.component';
 import type { PendingSelection, PickerProvider } from '../models/compact-model-picker.types';
-import { PROVIDER_MENU_LABELS, SIDE_CHAT_MENU_PROVIDERS } from '../models/provider-menu.constants';
+import { SIDE_CHAT_MENU_PROVIDERS } from '../models/provider-menu.constants';
 import { ChatOutputMessageMapper } from '../chats/chat-output-message.mapper';
 import { UserActionRequestComponent } from '../instance-detail/user-action-request.component';
 import { UserInputRequestRegistry } from '../instance-detail/user-input-request.registry';
 import { BrowserApprovalRequestComponent } from '../instance-detail/browser-approval-request.component';
-import { describePermissionPolicy } from './side-chat-permissions';
+import { ConfirmService } from '../../shared/confirm/confirm.service';
+import { AppIconButtonDirective } from '../../shared/tooltip/icon-button.directive';
+import { sideChatStateLabel } from '../../../../shared/attention/side-chat-presentation';
+import { presentError } from '../../../../shared/present-error';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 
 const BUSY_STATUSES = new Set<InstanceStatus>([
   'busy', 'processing', 'thinking_deeply', 'waiting_for_permission', 'initializing',
   'interrupting', 'cancelling', 'interrupt-escalating', 'respawning', 'waking',
 ]);
-
-const STATE_LABELS: Record<SideChatConversationState, string> = {
-  'needs-attention': 'Needs action',
-  unread: 'Unread answer',
-  running: 'Running',
-  idle: 'Idle',
-};
 
 /** Distance from the bottom (px) still counted as "viewing the latest answer". */
 const AT_BOTTOM_TOLERANCE_PX = 48;
@@ -75,6 +70,7 @@ const AT_BOTTOM_TOLERANCE_PX = 48;
     UserActionRequestComponent,
     BrowserApprovalRequestComponent,
     AioTooltipDirective,
+    AppIconButtonDirective,
   ],
   templateUrl: './side-chat-panel.component.html',
   styleUrl: './side-chat-panel.component.scss',
@@ -87,6 +83,7 @@ export class SideChatPanelComponent {
   private readonly instanceStore = inject(InstanceStore);
   private readonly settingsStore = inject(SettingsStore);
   private readonly viewLayoutService = inject(ViewLayoutService);
+  private readonly confirmService = inject(ConfirmService);
   private readonly questions = inject(UserInputRequestRegistry);
   private readonly elRef = inject<ElementRef<HTMLElement>>(ElementRef);
 
@@ -102,14 +99,13 @@ export class SideChatPanelComponent {
   preferredChatId = input<string | null>(null);
 
   closeRequested = output<void>();
-  openInMainRequested = output<string>();
 
   private readonly outputMessageMapper = new ChatOutputMessageMapper();
 
   readonly panelWidth = signal(this.viewLayoutService.sideChatWidth);
   readonly isResizing = signal(false);
-  readonly showPermissionDetails = signal(false);
-  readonly attachChoice = signal('');
+  readonly discarding = signal(false);
+  readonly stateLabel = sideChatStateLabel;
   /** Panel-local message (e.g. a failed answer to an agent question). */
   readonly notice = signal<string | null>(null);
   /** Whether the transcript is scrolled to (or near) its newest content. */
@@ -126,11 +122,6 @@ export class SideChatPanelComponent {
   readonly summaries = computed<SideChatSummary[]>(() => {
     const parent = this.parent();
     return parent ? this.sideChatStore.summariesFor(parent) : [];
-  });
-
-  readonly archived = computed(() => {
-    const parent = this.parent();
-    return parent ? this.sideChatStore.archivedFor(parent) : [];
   });
 
   readonly selectedSummary = computed(() =>
@@ -163,9 +154,10 @@ export class SideChatPanelComponent {
     return parent ? this.sideChatStore.permissionsFor(parent) : null;
   });
 
-  readonly permissionLines = computed(() => {
-    const permissions = this.permissions();
-    return permissions?.ok ? describePermissionPolicy(permissions.policy) : [];
+  /** Provider diagnostics remain in Details; the notice explains the permission failure in plain words. */
+  readonly permissionFailure = computed(() => {
+    const summary = this.permissions();
+    return summary && !summary.ok ? { rawDetail: presentError(summary.error).rawDetail } : null;
   });
 
   /** Providers that can enforce the parent's policy, in picker order. */
@@ -174,15 +166,6 @@ export class SideChatPanelComponent {
     if (!permissions) return SIDE_CHAT_MENU_PROVIDERS;
     const allowed = new Set(permissions.providers.filter((entry) => entry.available).map((entry) => entry.provider));
     return SIDE_CHAT_MENU_PROVIDERS.filter((provider) => allowed.has(provider as SideChatProvider));
-  });
-
-  /** Providers hidden from the picker, with the concrete reason. */
-  readonly unavailableProviders = computed(() => {
-    const permissions = this.permissions();
-    if (!permissions) return [];
-    return permissions.providers
-      .filter((entry) => !entry.available && SIDE_CHAT_MENU_PROVIDERS.includes(entry.provider as PickerProvider))
-      .map((entry) => ({ label: PROVIDER_MENU_LABELS[entry.provider as PickerProvider], reason: entry.reason ?? '' }));
   });
 
   /** Selection shown in the picker: the chat's own, or the pending choice for a new one. */
@@ -267,27 +250,16 @@ export class SideChatPanelComponent {
     return instance ? this.instanceStore.instanceActivities().get(instance.id) ?? '' : '';
   });
   readonly pickerDisabledReason = computed(() =>
-    this.isBusy() ? 'Stop the current answer before changing provider or model' : null);
+    this.discarding() ? 'Wait while this sidechat is discarded'
+      : this.isBusy() ? 'Stop the current answer before changing provider or model' : null);
   readonly canSend = computed(() =>
-    !!this.parent() && !this.sending() && !!this.draft().trim() && (!!this.chat() || !!this.pickerSelection()));
+    !!this.parent() && !this.sending() && !this.discarding() && !!this.draft().trim() && (!!this.chat() || !!this.pickerSelection()));
   readonly newSideChatDisabledReason = computed(() => this.parent() ? null : 'Select a session first');
   readonly sendDisabledReason = computed(() => {
     if (this.sending() || this.canSend()) return null;
     if (!this.parent()) return 'Select a session first';
+    if (this.discarding()) return 'Wait while this sidechat is discarded';
     return this.draft().trim() ? 'Choose an available provider and model first' : 'Write a sidechat message first';
-  });
-
-  /** Existing chats in this workspace that could be attached explicitly. */
-  readonly attachCandidates = computed(() => {
-    const parent = this.parent();
-    if (!parent) return [];
-    const linked = new Set([...this.summaries(), ...this.archived().map((chat) => ({ chat }))].map((item) => item.chat.id));
-    const cwd = this.workingDirectory();
-    return this.chatStore.chats().filter((chat) =>
-      !linked.has(chat.id)
-      && !chat.sideChatParentKey
-      && !(parent.kind === 'chat' && parent.chatId === chat.id)
-      && (!cwd || chat.currentCwd === cwd));
   });
 
   readonly showThinking = this.settingsStore.showThinking;
@@ -309,7 +281,10 @@ export class SideChatPanelComponent {
       const parent = this.parent();
       const preferred = this.preferredChatId();
       if (parent) {
-        untracked(() => void this.sideChatStore.open(parent, preferred));
+        untracked(() => {
+          void this.sideChatStore.open(parent, preferred);
+          queueMicrotask(() => this.focusComposer());
+        });
       }
     });
     // Re-check visibility whenever the answer or selection changes.
@@ -330,6 +305,7 @@ export class SideChatPanelComponent {
       // bubble, so listen in the capture phase on the panel itself.
       const onScroll = () => this.scheduleViewCheck();
       host.addEventListener('scroll', onScroll, true);
+      this.focusComposer();
       destroyRef.onDestroy(() => host.removeEventListener('scroll', onScroll, true));
     });
   }
@@ -343,14 +319,6 @@ export class SideChatPanelComponent {
     const window = this.detail()?.conversation.window;
     return window ? { hasMore: window.hasOlder, totalStored: window.totalMessages } : null;
   };
-
-  providerLabel(provider: string | null): string {
-    return provider ? PROVIDER_MENU_LABELS[provider as PickerProvider] ?? provider : 'No provider';
-  }
-
-  stateLabel(state: SideChatConversationState): string {
-    return STATE_LABELS[state];
-  }
 
   onComposerKeydown(event: KeyboardEvent): void {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -368,7 +336,7 @@ export class SideChatPanelComponent {
 
   onSelectionChange(selection: PendingSelection): void {
     const parent = this.parent();
-    if (!parent) return;
+    if (!parent || this.discarding()) return;
     const next: SideChatProviderSelection = {
       provider: selection.provider as SideChatProvider,
       model: selection.model,
@@ -386,7 +354,7 @@ export class SideChatPanelComponent {
   async send(options: { allowStaleContext?: boolean } = {}): Promise<void> {
     const parent = this.parent();
     const text = options.allowStaleContext ? this.error()?.text ?? '' : this.draft();
-    if (!parent || !text.trim() || this.sending()) {
+    if (!parent || !text.trim() || this.sending() || this.discarding()) {
       return;
     }
     // A question waiting on this sidechat's own session gets the typed text, as in the main message box.
@@ -404,6 +372,11 @@ export class SideChatPanelComponent {
     this.scheduleViewCheck();
   }
 
+  retryPermissions(): void {
+    const parent = this.parent();
+    if (parent) void this.sideChatStore.loadPermissions(parent);
+  }
+
   sendWithLastSnapshot(): void {
     void this.send({ allowStaleContext: true });
   }
@@ -415,47 +388,38 @@ export class SideChatPanelComponent {
     }
   }
 
-  onSelectorKeydown(event: KeyboardEvent, index: number): void {
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-    event.preventDefault();
-    const items = Array.from(this.elRef.nativeElement.querySelectorAll<HTMLElement>('.selector-item'));
-    const next = items[(index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length];
-    next?.focus();
+  onSwitcherChange(event: Event): void {
+    this.selectSideChat((event.target as HTMLSelectElement).value || null);
   }
 
-  async archiveSideChat(): Promise<void> {
+  async discardSideChat(): Promise<void> {
     const parent = this.parent();
     const chatId = this.sideChatId();
-    if (parent && chatId) {
-      await this.sideChatStore.archive(parent, chatId);
+    if (!parent || !chatId || this.discarding() || this.sending()) return;
+    this.discarding.set(true);
+    try {
+      const confirmed = await this.confirmService.confirm({
+        title: 'Discard this sidechat?',
+        message: copyFor('sideChat.discardConfirmation'),
+        confirmLabel: 'Discard',
+        danger: true,
+      });
+      if (confirmed && await this.sideChatStore.discard(parent, chatId)) {
+        this.focusComposer();
+      }
+    } finally {
+      this.discarding.set(false);
     }
-  }
-
-  async attachSelected(): Promise<void> {
-    const parent = this.parent();
-    const chatId = this.attachChoice();
-    if (!parent || !chatId) {
-      this.notice.set('Choose a chat to attach first.');
-      return;
-    }
-    if (await this.sideChatStore.attach(parent, chatId)) {
-      this.attachChoice.set('');
-      this.notice.set(null);
-    }
-  }
-
-  onAttachChoice(event: Event): void {
-    this.attachChoice.set((event.target as HTMLSelectElement).value);
   }
 
   startNewSideChat(): void {
     this.selectSideChat(null);
+    this.focusComposer();
   }
 
-  openInMain(chatId: string | null = this.sideChatId()): void {
-    if (chatId) {
-      this.openInMainRequested.emit(chatId);
-    }
+  private focusComposer(): void {
+    if (!this.parent()) return;
+    this.elRef.nativeElement.querySelector<HTMLTextAreaElement>('.composer-input')?.focus();
   }
 
   async interrupt(): Promise<void> {

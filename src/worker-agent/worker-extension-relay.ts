@@ -37,6 +37,8 @@ export interface WorkerExtensionRelayOptions {
    * reply so an extension running other code can reload itself onto it.
    */
   expectedExtensionVersion?: string;
+  /** Only the first checkout owns the unpacked extension and may request a reload. */
+  ownsExtension?: boolean;
   /** This worker build's id, sent beside poll replies. Defaults to the build-time value. */
   workerBuildId?: string;
 }
@@ -99,7 +101,7 @@ export class WorkerExtensionRelay {
     this.sendRequest = options.sendRequest;
     this.logger = options.logger ?? console;
     this.now = options.now ?? Date.now;
-    this.expectedExtensionVersion = options.expectedExtensionVersion ?? BUILD_EXTENSION_VERSION;
+    this.expectedExtensionVersion = options.ownsExtension === false ? undefined : options.expectedExtensionVersion ?? BUILD_EXTENSION_VERSION;
     this.workerBuildId = options.workerBuildId ?? BUILD_ID;
   }
 
@@ -693,8 +695,4 @@ export class WorkerExtensionRelay {
       socket.setTimeout(250, () => finish(true));
     });
   }
-}
-
-export function defaultWorkerExtensionRelaySocketPath(): string {
-  return defaultExtensionRelaySocketPath();
 }

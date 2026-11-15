@@ -46,6 +46,14 @@ describe('instanceToContinuityState', () => {
     expect('mobileProfileId' in instanceToContinuityState(owner, CONFIG)).toBe(false);
   });
 
+  it("records the Set aside agent's folder, so a revived agent keeps its tools, and nothing for other sessions", () => {
+    const agent = createInstance({ workingDirectory: '/repo', metadata: { planQueueSetAsideFolder: '/repo' } });
+    const other = createInstance({ workingDirectory: '/repo' });
+
+    expect(instanceToContinuityState(agent, CONFIG).planQueueSetAsideFolder).toBe('/repo');
+    expect('planQueueSetAsideFolder' in instanceToContinuityState(other, CONFIG)).toBe(false);
+  });
+
   it('leaves the flag off ordinary and automation sessions', () => {
     const own = createInstance({ workingDirectory: '/workspace' });
     const automation = createInstance({

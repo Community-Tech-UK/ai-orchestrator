@@ -33,7 +33,7 @@ import { finishesPlan, stepPlanProblem } from './plan-queue-sections';
 import { buildActiveDocumentsPrompt, buildConflictPrompt, buildGateFailurePrompt } from './plan-queue-prompts';
 import { appendPlanningNote, clearPlanningMoveRecord, planningMoveNote } from './plan-queue-planning-files';
 import { returnToItemCheckout } from './plan-queue-squash';
-import { mergeInProgress } from './plan-queue-git';
+import { mergeInProgress, unresolvedMergeFiles } from './plan-queue-git';
 import { WAITING_FOR_TEST_MACHINE } from './plan-queue-landing-retries';
 import { PlanQueueCheckoutOwnershipError, rescueNote } from './plan-queue-worktree';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
@@ -163,11 +163,19 @@ export class PlanQueueItemLanding {
     }
 
     let rescueRef: string | null = null;
-    if (item.worktreePath && item.branchName && existsSync(item.worktreePath)) {
+    const folder = item.worktreePath;
+    if (folder && item.branchName && existsSync(folder)) {
       // A crash while the squash was being built leaves the worktree off its
       // branch; restore the item branch before anything checkpoints.
-      rescueRef = await returnToItemCheckout(item.worktreePath, item.branchName, item.id, repoRoot);
+      rescueRef = await returnToItemCheckout(folder, item.branchName, item.id, repoRoot);
       if (rescueRef) item = host.save({ ...item, detail: rescueNote(rescueRef) });
+      // Land anyway only: a merge of the base finished by hand in the folder (no clashes left) is committed first, as git
+      // will not merge the base again while that merge is open. A checked landing never lands content its checker missed.
+      if (options.landAnywayBy !== undefined && (await unresolvedMergeFiles(folder))?.length === 0) {
+        item = await host.worktrees.checkpoint(item, 'merge finished by hand');
+        // The base is now on the branch, so the sync below finds nothing to merge; the check after a merge still runs.
+        recordMergeCheckOwed(host, item);
+      }
     }
 
     const baseTip = await gitExec(['rev-parse', `refs/heads/${baseBranch}`], repoRoot);

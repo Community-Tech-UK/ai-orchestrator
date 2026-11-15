@@ -21,6 +21,7 @@ import { recordToolOutcome } from '../../learning/tool-outcome-store';
 import { computeResumeConfigFingerprint } from './session-recovery';
 import { getMobileDeviceRegistry } from '../../mobile-gateway/mobile-device-registry';
 import { memberSessionPolicy } from '../../mobile-gateway/mobile-gateway-member-session';
+import { SET_ASIDE_FOLDER_METADATA } from '../../../shared/utils/plan-queue-set-aside-agent';
 import { restoreHistoryMessages, selectRestoredEntries } from './wake-buffer-restore';
 
 /** Messages a document-review revival restores into its visible buffer. */
@@ -352,6 +353,7 @@ async function reviveCrashRecovery(
       ...memberPolicy,
       metadata: {
         ...memberPolicy?.metadata,
+        ...(state.planQueueSetAsideFolder ? { [SET_ASIDE_FOLDER_METADATA]: state.planQueueSetAsideFolder } : {}),
         continuityRevival: true,
         reason: request.reason,
         transcriptKnown: hasCompleteCheckpoint(state, initialOutputBuffer, resolved.candidate.recoveredMessageCount),

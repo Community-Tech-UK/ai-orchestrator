@@ -50,6 +50,7 @@ import { getArchiveSerializationKey, KeyedSerialTaskQueue } from './history-arch
 import { isSameHistoryEntryForIdentityBackfill } from './history-identity-backfill';
 import { isRecoverySuppressedByHistory, tombstoneDeletedHistoryEntry } from './history-recovery-suppression';
 import { isProjectRailHiddenSession } from '../../shared/utils/project-rail-hidden-session';
+import { getInitializedChatService } from '../chats/chat-service-instance';
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -324,6 +325,7 @@ export class HistoryManager {
           || undefined,
         hideFromProjectRail:
           isProjectRailHiddenSession(instance.metadata)
+          || this.sideChatHistoryThreads().has(instance.historyThreadId)
           || previousEntries.some((e) => e.hideFromProjectRail)
           || undefined,
       };
@@ -406,6 +408,16 @@ export class HistoryManager {
     return isRecoverySuppressedByHistory(this.index, query);
   }
 
+  /** A discarded sidechat can have old autosaves even when it was never archived. */
+  async recordDeletedThread(historyThreadId: string, sessionId: string | null): Promise<void> {
+    await this.startupTasks;
+    const now = Date.now();
+    tombstoneDeletedHistoryEntry(this.index, { historyThreadId, sessionId: sessionId ?? '' }, now);
+    this.index.lastUpdated = now;
+    await this.saveIndex();
+    getSessionRecoveryCandidateServiceIfInitialized()?.invalidate();
+  }
+
   async getRecoveryCoverage(identities: readonly RecoveryHistoryIdentity[]) {
     await this.startupTasks; return resolveHistoryRecoveryCoverage(this.index.entries, identities, (entryId) => this.loadPersistedConversationForCoverage(entryId));
   }
@@ -473,10 +485,24 @@ export class HistoryManager {
    * Delete a history entry
    */
   async deleteEntry(entryId: string): Promise<boolean> {
+    const entry = this.index.entries.find(e => e.id === entryId);
+    if (!entry) return false;
+    const sideChats = getInitializedChatService()?.sideChats;
+    const remove = () => this.deleteEntryAndSideChats(entryId);
+    return sideChats ? sideChats.withParentsDeleting([
+      { kind: 'session', historyThreadId: this.getEntryThreadKey(entry), originNodeId: null },
+    ], remove) : remove();
+  }
+
+  private async deleteEntryAndSideChats(entryId: string): Promise<boolean> {
+    const entry = this.index.entries.find(e => e.id === entryId);
+    if (!entry) return false;
+    await getInitializedChatService()?.sideChats.deleteForParent({
+      kind: 'session', historyThreadId: this.getEntryThreadKey(entry), originNodeId: null,
+    });
+    // Deleting a child also removes its hidden history, changing this array.
     const index = this.index.entries.findIndex(e => e.id === entryId);
-    if (index === -1) {
-      return false;
-    }
+    if (index === -1) return false;
 
     // Keep the native importer and autosave recovery from resurrecting it.
     tombstoneDeletedHistoryEntry(this.index, this.index.entries[index], Date.now());
@@ -658,6 +684,19 @@ export class HistoryManager {
   async clearAll(): Promise<void> {
     await this.startupTasks;
     await this.createSafetyBackup('clearAll');
+    const sideChats = getInitializedChatService()?.sideChats;
+    const clear = () => this.clearHistoryAndSideChats();
+    return sideChats ? sideChats.withParentsDeleting(this.index.entries.map((entry) => ({
+      kind: 'session', historyThreadId: this.getEntryThreadKey(entry), originNodeId: null,
+    })), clear) : clear();
+  }
+
+  private async clearHistoryAndSideChats(): Promise<void> {
+    for (const entry of [...this.index.entries]) {
+      await getInitializedChatService()?.sideChats.deleteForParent({
+        kind: 'session', historyThreadId: this.getEntryThreadKey(entry), originNodeId: null,
+      });
+    }
 
     // Delete all conversation files
     for (const entry of this.index.entries) {
@@ -768,7 +807,9 @@ export class HistoryManager {
   }
 
   private filterEntries(options?: HistoryLoadOptions): ConversationHistoryEntry[] {
-    let entries = [...this.index.entries];
+    const sideChatThreads = this.sideChatHistoryThreads();
+    let entries = this.index.entries.map((entry) => entry.historyThreadId && sideChatThreads.has(entry.historyThreadId)
+      ? { ...entry, hideFromProjectRail: true } : entry);
 
     if (options?.source && !includesHistoryBackedSource(options.source)) {
       return [];
@@ -811,6 +852,12 @@ export class HistoryManager {
     }
 
     return entries;
+  }
+
+  /** Legacy sidechat runtimes predate the metadata flag; durable ownership still identifies them. */
+  private sideChatHistoryThreads(): Set<string> {
+    return new Set(getInitializedChatService()?.listChats({ includeArchived: true })
+      .filter((chat) => chat.sideChatParentKey).map((chat) => chat.ledgerThreadId));
   }
 
   /**

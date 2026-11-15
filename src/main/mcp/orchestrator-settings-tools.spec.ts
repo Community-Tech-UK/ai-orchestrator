@@ -504,6 +504,7 @@ describe('privileged settings CLI writability reporting', () => {
       'contextEvidenceModeByProvider',
       'localAiGuardDailyFallbackBudgetUsd',
       'codexBackupKeepThree',
+      'browserLocalComputerEnabled',
     ] as const) {
       expect(byKey.get(key)?.cliWritable, key).toBe(false);
     }
@@ -536,7 +537,7 @@ describe('privileged settings CLI writability reporting', () => {
   });
 
   it('holds the operator-only anchor count the docs quote', () => {
-    // docs/AIO_MCP_CLI.md states 30 anchors, and it and
+    // docs/AIO_MCP_CLI.md states 31 anchors, and it and
     // docs/llm/AIO_MCP_CLI_REFERENCE.md enumerate them by group. History: the count reached 21 on
     // 2026-08-26 (`computerUseAutonomyLevel` took the Computer Use group from
     // five keys to six, after Copilot account routing added two on 2026-08-25,
@@ -569,12 +570,14 @@ describe('privileged settings CLI writability reporting', () => {
     // removed so a session he asks can add a folder from its shell, taking the
     // count back to 29. On 2026-11-15 `keepSessionsGoing` became the 30th: it
     // decides what the session watcher approves on the user's behalf, so an
-    // agent that could raise it would be approving its own work.
-    // Fail here if a 31st is added, or one is removed, without updating the
+    // agent that could raise it would be approving its own work. Also on
+    // 2026-11-15 `browserLocalComputerEnabled` became the 31st: only the
+    // operator may let agents use this computer's Chrome.
+    // Fail here if a 32nd is added, or one is removed, without updating the
     // prose.
     const anchors = [...privilegedList().values()].filter((setting) => !setting.cliWritable);
 
-    expect(anchors).toHaveLength(30);
+    expect(anchors).toHaveLength(31);
   });
 
   it('keeps the saved Plan Queue folder checklists out of reach of every agent-reachable settings tool', async () => {

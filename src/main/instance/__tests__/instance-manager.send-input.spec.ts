@@ -1954,6 +1954,52 @@ describe('InstanceManager', () => {
       expect(instance.displayName).toBe('Original Restored Name');
     });
 
+    it.each(['first send', 'initial prompt', 'synthetic input'] as const)(
+      'keeps the sidechat name and skips title generation for %s',
+      async (route) => {
+        const prompt = 'Is the next release available yet?';
+        mockAutoTitleMaybeGenerate.mockImplementation(async (
+          id: string,
+          _message: string,
+          applyTitle: (id: string, title: string, source: 'instant' | 'ai') => void,
+        ) => applyTitle(id, 'Unexpected runtime title', 'ai'));
+        const instance = await manager.createInstance({
+          workingDirectory: TEST_WORKING_DIR,
+          displayName: 'Release question',
+          metadata: { hideFromProjectRail: true, sideChatId: 'release-sidechat' },
+          ...(route === 'initial prompt' ? { initialPrompt: prompt } : {}),
+        });
+        await instance.readyPromise;
+
+        if (route === 'first send') await manager.sendInput(instance.id, prompt);
+        if (route === 'synthetic input') {
+          manager.appendSyntheticUserMessage(instance.id, prompt, { autoTitle: true });
+        }
+
+        expect(instance.outputBuffer.some((message) => message.type === 'user' && message.content === prompt)).toBe(true);
+        expect(instance.displayName).toBe('Release question');
+        expect(instance.aiTitle).toBeUndefined();
+        expect(mockAutoTitleMaybeGenerate).not.toHaveBeenCalled();
+      },
+    );
+
+    it('still titles an ordinary hidden runtime with an initial prompt', async () => {
+      mockAutoTitleMaybeGenerate.mockImplementation(async (
+        id: string,
+        _message: string,
+        applyTitle: (id: string, title: string, source: 'instant' | 'ai') => void,
+      ) => applyTitle(id, 'Worker release check', 'ai'));
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        initialPrompt: 'Check whether the next release is available.',
+        metadata: { hideFromProjectRail: true },
+      });
+      await instance.readyPromise;
+
+      expect(instance.displayName).toBe('Worker release check');
+      expect(instance.aiTitle).toBe('Worker release check');
+    });
+
     it('never auto-titles again on a follow-up message, even when Phase 2 never landed', async () => {
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,

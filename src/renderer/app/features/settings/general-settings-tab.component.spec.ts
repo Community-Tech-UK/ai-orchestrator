@@ -91,6 +91,18 @@ describe('GeneralSettingsTabComponent model defaults', () => {
     fixture = TestBed.createComponent(GeneralSettingsTabComponent);
   });
 
+  it('offers open at login for the main Harness and preserves its role', () => {
+    Object.defineProperty(navigator, 'platform', { configurable: true, value: 'MacIntel' });
+    store.settings.update((current) => ({ ...current, workerMode: { ...current.workerMode, role: 'coordinator' } }));
+    fixture.destroy();
+    fixture = TestBed.createComponent(GeneralSettingsTabComponent);
+    fixture.detectChanges();
+    const toggle = fixture.nativeElement.querySelector('[data-setting-key="workerMode"] input') as HTMLInputElement;
+    expect(toggle).not.toBeNull();
+    toggle.click();
+    expect(store.set).toHaveBeenCalledWith('workerMode', expect.objectContaining({ role: 'coordinator', openAtLogin: true }));
+  });
+
   it('uses the shared session picker for the default provider and model', () => {
     fixture.detectChanges();
 
