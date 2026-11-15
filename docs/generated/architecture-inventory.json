@@ -5215,8 +5215,8 @@
         "line": 1313
       },
       {
-        "name": "SIDE_CHAT_DISCARD",
-        "value": "side-chat:discard",
+        "name": "SIDE_CHAT_ATTACH",
+        "value": "side-chat:attach",
         "line": 1314
       },
       {
