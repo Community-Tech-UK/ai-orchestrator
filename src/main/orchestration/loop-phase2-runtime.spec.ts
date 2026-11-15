@@ -88,7 +88,12 @@ describe('Phase2 coordinator runtime', () => {
     coordinator.on('loop:invoke-iteration', (payload: { prompt: string; callback: (value: unknown) => void }) => {
       calls += 1;
       if (calls === 1) queueMicrotask(()=>payload.callback({ error: 'turn timeout', attemptEvidence: unknownAttemptEvidence('turn timeout') }));
-      else { resumedPrompt = payload.prompt; queueMicrotask(()=>payload.callback(result())); }
+      else {
+        // Only the resumed attempt (call 2) carries the instruction. The loop carries on to the next step at once, and on
+        // a slow runner that call can land before the assertions run, so a later prompt must not overwrite this one.
+        if (calls === 2) resumedPrompt = payload.prompt;
+        queueMicrotask(()=>payload.callback(result()));
+      }
     });
     const base = defaultLoopConfig(cwd,'Implement one task');
     const state = await coordinator.startLoop('pause-chat',{ ...base, onFailedStep: 'pause' });
@@ -97,6 +102,7 @@ describe('Phase2 coordinator runtime', () => {
     expect(coordinator.getLoop(state.id)?.totalIterations).toBe(0);
     expect(coordinator.resumeLoop(state.id)).toBe(true);
     await waitUntil(()=>calls>=2);
+    expect(resumedPrompt).toContain('# Loop Mode — Iteration 0');
     expect(resumedPrompt).toContain('git status'); expect(resumedPrompt).toContain('git diff');
     expect(coordinator.getLoop(state.id)?.status).toBe('running');
   },20_000);

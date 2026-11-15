@@ -1,5 +1,7 @@
 import { Worker } from 'node:worker_threads';
-import { resolve } from 'node:path';
+import { existsSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { CliSpawnWorkerGateway, type CliSpawnWorkerLike } from './cli-spawn-worker-gateway';
 import { CliAdapterWorkerProxy } from './cli-adapter-worker-proxy';
@@ -70,8 +72,11 @@ describe('worker thread loss finality', () => {
     const error = { type: 'error', error: { message: 'Fixture native failure before worker death' } };
     const frames = mode === 'native-error' ? [assistant, error] : mode === 'partial-output' ? [assistant] : [];
     const chunk = frames.map(frame => JSON.stringify(frame)).join('\n') + (frames.length ? '\n' : '');
+    // The fixture marks the moment the message reaches it: with no output there is nothing else to wait for, and the
+    // process starts before the message is written, so stopping the worker earlier tests a send that never happened.
+    const received = join(tmpdir(), `aio-lost-worker-${process.pid}-${mode}-${Date.now()}`);
     vi.spyOn(proxy as unknown as { buildArgs(): string[] }, 'buildArgs').mockReturnValue(['-e',
-      `process.stdin.once('data',()=>{process.stdout.write(${JSON.stringify(chunk)});setInterval(()=>{},1000);});process.stdin.resume();`]);
+      `process.stdin.once('data',()=>{require('fs').writeFileSync(${JSON.stringify(received)},'');process.stdout.write(${JSON.stringify(chunk)});setInterval(()=>{},1000);});process.stdin.resume();`]);
     const rows: CostAttributionRecord[] = [];
     const stop = subscribeCostAttribution(row => rows.push(row));
     const observed = vi.fn();
@@ -83,7 +88,7 @@ describe('worker thread loss finality', () => {
       .then(response => ({ response, error: undefined }), error => ({ response: undefined, error }))
       .then(result => { settled = true; return result; });
     try {
-      if (mode === 'no-output') await vi.waitFor(() => expect(proxy.isRunning()).toBe(true));
+      if (mode === 'no-output') await vi.waitFor(() => expect(existsSync(received)).toBe(true), { timeout: 5000 });
       else await vi.waitFor(() => expect(observed).toHaveBeenCalled(), { timeout: 5000 });
       await worker.terminate();
       await vi.waitFor(() => expect(settled).toBe(true), { timeout: 500 });
@@ -96,6 +101,7 @@ describe('worker thread loss finality', () => {
       proxy.off(mode === 'native-error' ? 'error' : 'output', observed);
       for (const event of ['usage', 'complete', 'error', 'exit']) expect(proxy.listenerCount(event)).toBe(0);
     } finally {
+      rmSync(received, { force: true });
       abort.abort(); await pending; stop(); await proxy.terminate(false).catch(() => undefined); await gateway.close();
       vi.unstubAllEnvs(); vi.restoreAllMocks();
     }
