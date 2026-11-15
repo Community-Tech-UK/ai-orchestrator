@@ -15,6 +15,24 @@ export const BROWSER_EXTENSION_HTTP_AUTH_MIN_VERSION = '0.2.43';
 /** First extension bundle with the boolean-only `probe_one_time_code` command. */
 export const BROWSER_EXTENSION_ONE_TIME_CODE_PROBE_MIN_VERSION = '0.2.50';
 
+/** First bundle with the document-bound private Codex device handoff commands. */
+export const BROWSER_EXTENSION_CODEX_DEVICE_HANDOFF_MIN_VERSION = '0.2.52';
+
+/** A code may only reach the exact approved, fresh install and worker generation. */
+export function supportsBrowserExtensionCodexDeviceHandoff(
+  contactState: BrowserExtensionContactStateReader,
+  channelId: string,
+  extensionInstanceId: string,
+  extensionGeneration: string,
+): boolean {
+  if (!normalizeBrowserExtensionInstanceId(extensionInstanceId)
+    || !contactState.isExtensionContactFresh(channelId)) return false;
+  const runtime = contactState.getExtensionRuntime?.(channelId, extensionInstanceId);
+  return runtime?.extensionInstanceId === extensionInstanceId
+    && String(runtime.extensionStartedAt) === extensionGeneration
+    && isRuntimeAtLeast(runtime, BROWSER_EXTENSION_CODEX_DEVICE_HANDOFF_MIN_VERSION);
+}
+
 /** Parse bounded runtime evidence from an authenticated extension RPC. */
 export function browserExtensionRuntimeFromPayload(
   payload: Record<string, unknown>,

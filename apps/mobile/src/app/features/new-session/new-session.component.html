@@ -42,6 +42,22 @@
       </button>
     }
 
+    @if (accountPlan()) {
+      <button
+        class="context-row mobile-pressable"
+        type="button"
+        (click)="openAccountSheet($event)"
+        [disabled]="busy()"
+        aria-haspopup="dialog"
+      >
+        <app-mobile-icon name="provider" />
+        <span class="context-row__copy">
+          <span>{{ accountFamilyLabel() }}</span>
+          <small>{{ accountSummary() }}</small>
+        </span>
+        <app-mobile-icon class="context-row__chevron" name="chevron-down" />
+      </button>
+    }
   </div>
 
   <form class="new-session-composer" [attr.aria-busy]="busy()" (submit)="create($event)">
@@ -239,26 +255,35 @@
         </button>
       }
 
-      @if (accountPlan(); as account) {
-        <span class="sheet-section-label">Account</span>
-        <div class="sheet-list" role="group" aria-label="Account">
-          <button class="sheet-row" type="button" (click)="chooseAccount(undefined)" [attr.aria-pressed]="!accountProfileId()">
-            <app-mobile-icon name="provider" />
-            <span><strong>Choose automatically</strong><small>{{ accountProfileId() ? 'Harness picks, and moves on at a usage limit' : accountSummary() }}</small></span>
-            @if (!accountProfileId()) { <app-mobile-icon name="check" /> }
-          </button>
-          @for (option of account.options; track option.id) {
-            <button class="sheet-row" type="button" (click)="chooseAccount(option.id)" [attr.aria-pressed]="accountProfileId() === option.id">
-              <app-mobile-icon name="provider" />
-              <span>
-                <strong>{{ option.label }}</strong>
-                @if (accountProfileId() === option.id) { <small>{{ accountSummary() }}</small> }
-              </span>
-              @if (accountProfileId() === option.id) { <app-mobile-icon name="check" /> }
-            </button>
-          }
-        </div>
+      @if (accountPlan()) {
+        <button class="sheet-row sheet-row--model" type="button" (click)="openAccountSheet($event)" aria-haspopup="dialog">
+          <app-mobile-icon name="provider" />
+          <span><strong>{{ accountFamilyLabel() }}</strong><small>{{ accountSummary() }}</small></span>
+          <app-mobile-icon name="chevron-down" />
+        </button>
       }
+    </app-mobile-sheet>
+  }
+
+  @if (accountSheetOpen() && accountPlan(); as account) {
+    <app-mobile-sheet label="Choose account" [returnFocusTo]="accountReturnFocus()" (dismiss)="accountSheetOpen.set(false)">
+      <div class="sheet-list" role="group" aria-label="Account">
+        <button class="sheet-row" type="button" (click)="chooseAccount(undefined)" [attr.aria-pressed]="!accountProfileId()">
+          <app-mobile-icon name="provider" />
+          <span><strong>Choose automatically</strong><small>{{ accountProfileId() ? 'Harness picks, and moves on at a usage limit' : accountSummary() }}</small></span>
+          @if (!accountProfileId()) { <app-mobile-icon name="check" /> }
+        </button>
+        @for (option of account.options; track option.id) {
+          <button class="sheet-row" type="button" (click)="chooseAccount(option.id)" [attr.aria-pressed]="accountProfileId() === option.id">
+            <app-mobile-icon name="provider" />
+            <span>
+              <strong>{{ option.label }}</strong>
+              @if (accountProfileId() === option.id) { <small>{{ accountSummary() }}</small> }
+            </span>
+            @if (accountProfileId() === option.id) { <app-mobile-icon name="check" /> }
+          </button>
+        }
+      </div>
     </app-mobile-sheet>
   }
 

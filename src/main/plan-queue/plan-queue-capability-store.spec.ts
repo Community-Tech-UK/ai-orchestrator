@@ -36,6 +36,25 @@ describe('durable capability repair ownership', () => {
     expect(store.origins(first.id).map(o => o.itemId)).toEqual(['first', 'second']);
     expect(store.get(first.id)?.gap).toEqual(gap);
   });
+  it('retains retry intent across store recreation and finalizes all attached checks atomically', () => {
+    const repair = store.attach(request('first'));
+    store.attach({ ...request('first'), gap: { ...gap, check: 'Remove the restricted test session' } });
+    expect(() => store.atomic(() => {
+      store.recordRetryIntent(store.origins(repair.id)[0]!);
+      throw new Error('interrupted while recording intent');
+    })).toThrow('interrupted');
+    expect(store.origins(repair.id).every(origin => !origin.retryIntent)).toBe(true);
+    store.atomic(() => { for (const origin of store.origins(repair.id)) store.recordRetryIntent(origin); });
+    store = new PlanQueueCapabilityStore(db, () => 200);
+    expect(store.origins(repair.id).map(origin => [origin.state, origin.retryIntent])).toEqual([['waiting', true], ['waiting', true]]);
+    expect(() => store.atomic(() => {
+      store.setOriginState(store.origins(repair.id)[0]!, 'retrying');
+      throw new Error('interrupted before the second check');
+    })).toThrow('interrupted');
+    expect(store.origins(repair.id).map(origin => origin.state)).toEqual(['waiting', 'waiting']);
+    store.atomic(() => { for (const origin of store.origins(repair.id)) store.setOriginState(origin, 'retrying'); });
+    expect(store.origins(repair.id).map(origin => origin.state)).toEqual(['retrying', 'retrying']);
+  });
   it('does not revive an explicitly cancelled repair on a repeated report', () => {
     const first = store.attach(request('first'));
     store.save({ ...first, state: 'cancelled', detail: 'Cancelled by the owner.' });

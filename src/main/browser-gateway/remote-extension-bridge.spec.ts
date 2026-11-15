@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { RemoteBrowserExtensionBridge } from './remote-extension-bridge';
 import { BrowserExtensionContactState } from './browser-extension-contact-state';
 import type { WorkerNodeInfo } from '../../shared/types/worker-node.types';
-import { BrowserExtensionCommandStore } from './browser-extension-command-store';
+import { BrowserExtensionCommandStore, type BrowserExtensionPollRequest } from './browser-extension-command-store';
 import { workerAgentTooOldReason } from './browser-worker-agent-skew';
 import { BrowserExtensionTabStore } from './browser-extension-tab-store';
 import { BrowserTargetRegistry } from './browser-target-registry';
@@ -23,7 +23,7 @@ function makeBridge(overrides: { tabStore?: BrowserExtensionTabStore } = {}) {
     })),
   };
   const commandStore = {
-    pollCommand: vi.fn(async () => null),
+    pollCommand: vi.fn(async (_queueKey: string, _request?: BrowserExtensionPollRequest) => null),
     validateCommandHandoff: vi.fn(() => true),
     confirmCommandHandoff: vi.fn(() => true),
     requeueUndeliveredCommand: vi.fn(() => true),
@@ -74,6 +74,34 @@ function makeBridge(overrides: { tabStore?: BrowserExtensionTabStore } = {}) {
 }
 
 describe('RemoteBrowserExtensionBridge', () => {
+  it.each(['0.2.51', '0.2.52'])('requires the exact poll to advertise device-capable version %s', async (extensionVersion) => {
+    const { bridge, commandStore } = makeBridge();
+    await bridge.pollCommand('node-1', {
+      extensionVersion, extensionStartedAt: 1_000,
+      extensionInstanceId: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa',
+    }, () => true);
+    expect(commandStore.pollCommand).toHaveBeenCalledWith('node:node-1', expect.objectContaining({
+      ...(extensionVersion === '0.2.52' ? { allowDeviceLoginCommands: true } : {}),
+    }));
+    if (extensionVersion === '0.2.51') {
+      expect(commandStore.pollCommand.mock.calls[0]?.[1]).not.toHaveProperty('allowDeviceLoginCommands', true);
+    }
+  });
+
+  it('passes the trusted poll connection proof separately from peer parameters', async () => {
+    const { bridge, commandStore } = makeBridge();
+    let connected = true;
+    const transport = () => connected;
+    await bridge.pollCommand('node-1', {
+      timeoutMs: 500, extensionVersion: '0.2.52', extensionStartedAt: 1_000,
+    }, transport);
+    expect(commandStore.pollCommand).toHaveBeenCalledWith('node:node-1', expect.objectContaining({
+      confidentialTransport: transport,
+    }));
+    connected = false;
+    expect(transport()).toBe(false);
+  });
+
   it('attaches a remote tab with node metadata and strips remote allowed origins', async () => {
     const { bridge, service } = makeBridge();
 
@@ -115,7 +143,7 @@ describe('RemoteBrowserExtensionBridge', () => {
       timeoutMs: 500,
       extensionVersion: '0.2.18',
       extensionStartedAt: 1_000,
-    });
+    }, null);
     bridge.commandResult('node-1', {
       commandId: 'cmd-1',
       ok: true,
@@ -166,7 +194,7 @@ describe('RemoteBrowserExtensionBridge', () => {
       timeoutMs: 500,
       extensionVersion: '0.2.2',
       extensionStartedAt: 2_000,
-    })).resolves.toBeNull();
+    }, null)).resolves.toBeNull();
     await rejection;
   });
 
@@ -194,7 +222,7 @@ describe('RemoteBrowserExtensionBridge', () => {
       timeoutMs: 500,
       extensionVersion: '0.2.18',
       extensionStartedAt: 1_000,
-    });
+    }, null);
     bridge.commandResult('node-1', {
       commandId: 'cmd-1',
       ok: true,
@@ -241,7 +269,7 @@ describe('RemoteBrowserExtensionBridge', () => {
       timeoutMs: 500,
       extensionVersion: '0.2.18',
       extensionStartedAt: 1_000,
-    });
+    }, null);
 
     expect(bridge.getLastExtensionContactAt('node-1')).toBe(1_000);
     expect(bridge.isExtensionContactFresh('node-1')).toBe(true);
@@ -264,7 +292,7 @@ describe('RemoteBrowserExtensionBridge', () => {
       timeoutMs: 500,
       extensionVersion: '0.2.18',
       extensionStartedAt: 1_000,
-    });
+    }, null);
     expect(commandStore.pollCommand).toHaveBeenLastCalledWith('node:node-1', {
       timeoutMs: 500,
       deferHandoffConfirmation: true,
@@ -279,7 +307,7 @@ describe('RemoteBrowserExtensionBridge', () => {
     await bridge.pollCommand('node-1', {
       timeoutMs: 500,
       extensionStartedAt: 2_000,
-    });
+    }, null);
     expect(contactState.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
   });
 
@@ -290,7 +318,7 @@ describe('RemoteBrowserExtensionBridge', () => {
       timeoutMs: 500,
       extensionVersion: '0.2.18',
       extensionStartedAt: 92_000,
-    });
+    }, null);
     setNow(91_001);
 
     expect(bridge.isExtensionContactFresh('node-1')).toBe(false);
@@ -310,7 +338,7 @@ describe('RemoteBrowserExtensionBridge', () => {
       timeoutMs: 500,
       extensionVersion: '0.2.18',
       extensionStartedAt: 1_000,
-    });
+    }, null);
 
     expect(logger.info).toHaveBeenCalledWith(
       'Remote browser extension poll resumed',
@@ -346,7 +374,7 @@ describe('RemoteBrowserExtensionBridge', () => {
       timeoutMs: 500,
       extensionVersion: '0.2.18',
       extensionStartedAt: 2_000,
-    });
+    }, null);
 
     bridge.expireNode('node-1');
     expect(contactState.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
@@ -355,7 +383,7 @@ describe('RemoteBrowserExtensionBridge', () => {
       timeoutMs: 500,
       extensionVersion: '0.2.18',
       extensionStartedAt: 2_000,
-    });
+    }, null);
 
     expect(contactState.getExtensionRuntime('node-1')).toEqual({
       extensionVersion: '0.2.18',
@@ -375,7 +403,7 @@ describe('RemoteBrowserExtensionBridge', () => {
       timeoutMs: 500,
       extensionVersion: '0.2.20',
       extensionStartedAt: 2_000,
-    });
+    }, null);
 
     bridge.extensionDisconnected('node-1', { reason: 'native_host_stdin_eof' });
     expect(contactState.getExtensionRuntime('node-1')).toEqual({ extensionStartedAt: 2_000 });
@@ -384,7 +412,7 @@ describe('RemoteBrowserExtensionBridge', () => {
       timeoutMs: 500,
       extensionVersion: '0.2.20',
       extensionStartedAt: 2_000,
-    });
+    }, null);
 
     expect(contactState.getExtensionRuntime('node-1')).toEqual({
       extensionVersion: '0.2.20',
@@ -404,9 +432,9 @@ describe('RemoteBrowserExtensionBridge', () => {
       timeoutMs: 500,
       extensionVersion: '0.2.20',
       extensionStartedAt: 2_000,
-    });
+    }, null);
 
-    await bridge.pollCommand('node-1', { timeoutMs: 500 });
+    await bridge.pollCommand('node-1', { timeoutMs: 500 }, null);
     expect(contactState.getExtensionRuntime('node-1')).toEqual({
       extensionVersion: '0.2.20',
       extensionStartedAt: 2_000,
@@ -423,7 +451,7 @@ describe('RemoteBrowserExtensionBridge', () => {
       timeoutMs: 500,
       extensionVersion: '0.2.20',
       extensionStartedAt: 2_000,
-    });
+    }, null);
     expect(commandStore.pollCommand).toHaveBeenLastCalledWith('node:node-1', {
       timeoutMs: 500,
       deferHandoffConfirmation: true,
@@ -440,11 +468,11 @@ describe('RemoteBrowserExtensionBridge', () => {
       timeoutMs: 500,
       extensionVersion: '0.2.18',
       extensionStartedAt: 92_000,
-    });
+    }, null);
     setNow(91_001);
     expect(bridge.isExtensionContactFresh('node-1')).toBe(false);
     setNow(92_000);
-    await bridge.pollCommand('node-1', { timeoutMs: 500 });
+    await bridge.pollCommand('node-1', { timeoutMs: 500 }, null);
 
     // An id-less poll restores only id-less attachments.
     expect(tabStore.restoreNode).toHaveBeenCalledWith('node-1', null);
@@ -500,7 +528,7 @@ describe('RemoteBrowserExtensionBridge', () => {
     })).rejects.toThrow(workerAgentTooOldReason('windows-pc'));
     expect(logger.warn).toHaveBeenCalledTimes(1);
 
-    await bridge.pollCommand('node-1', { timeoutMs: 500 });
+    await bridge.pollCommand('node-1', { timeoutMs: 500 }, null);
     expect(commandStore.pollCommand).toHaveBeenCalledWith('node:node-1', {
       timeoutMs: 500,
       deferHandoffConfirmation: true,
@@ -572,7 +600,7 @@ describe('RemoteBrowserExtensionBridge', () => {
       rateLimitWindowMs: 1_000,
     });
 
-    await bridge.pollCommand('node-1', {});
+    await bridge.pollCommand('node-1', {}, null);
 
     expect(() => bridge.commandResult('node-1', {
       commandId: 'cmd-1',
@@ -624,7 +652,7 @@ describe('RemoteBrowserExtensionBridge', () => {
 
     // The CONTROL budget is untouched by that flood: both the poll that
     // delivers a command and the result that answers it get through.
-    await expect(bridge.pollCommand('node-1', { ...runtime })).resolves.toBeNull();
+    await expect(bridge.pollCommand('node-1', { ...runtime }, null)).resolves.toBeNull();
     expect(() => bridge.commandResult('node-1', {
       ...runtime,
       commandId: 'cmd-1',
@@ -660,7 +688,7 @@ describe('RemoteBrowserExtensionBridge', () => {
     });
 
     const runtime = { extensionVersion: '0.2.18', extensionStartedAt: 4_000 };
-    await bridge.pollCommand('node-1', { ...runtime });
+    await bridge.pollCommand('node-1', { ...runtime }, null);
     expect(() => bridge.commandReceived('node-1', {
       ...runtime,
       commandId: 'cmd-1',
@@ -680,7 +708,7 @@ describe('RemoteBrowserExtensionBridge', () => {
         ...runtimeA,
         payload: { tabId: 42, windowId: 7, url: 'https://example.com/page', title: 'Example' },
       });
-      await bridge.pollCommand('node-1', { ...runtimeA, timeoutMs: 1_000 });
+      await bridge.pollCommand('node-1', { ...runtimeA, timeoutMs: 1_000 }, null);
 
       expect(service.attachExistingTab).toHaveBeenCalledWith(expect.objectContaining({
         nodeId: 'node-1',
@@ -695,12 +723,12 @@ describe('RemoteBrowserExtensionBridge', () => {
 
     it('keeps one profile working after the other profile\'s native host disconnects', async () => {
       const { bridge, commandStore, contactState } = makeBridge();
-      await bridge.pollCommand('node-1', { ...runtimeA, timeoutMs: 1_000 });
-      await bridge.pollCommand('node-1', { ...runtimeB, timeoutMs: 1_000 });
+      await bridge.pollCommand('node-1', { ...runtimeA, timeoutMs: 1_000 }, null);
+      await bridge.pollCommand('node-1', { ...runtimeB, timeoutMs: 1_000 }, null);
 
       bridge.extensionDisconnected('node-1', { reason: 'native_host_stdin_eof', extensionInstanceId: PROFILE_B });
       commandStore.pollCommand.mockClear();
-      await bridge.pollCommand('node-1', { ...runtimeA, timeoutMs: 1_000 });
+      await bridge.pollCommand('node-1', { ...runtimeA, timeoutMs: 1_000 }, null);
 
       expect(commandStore.pollCommand).toHaveBeenCalledWith('node:node-1', expect.objectContaining({
         extensionInstanceId: PROFILE_A,
@@ -740,7 +768,7 @@ describe('RemoteBrowserExtensionBridge', () => {
       const { bridge } = makeBridge({ tabStore });
 
       // A profile still on an extension too old to report a profile id (or be trusted).
-      await bridge.pollCommand('node-1', { extensionVersion: '0.2.17', extensionStartedAt: 5_000, timeoutMs: 1_000 });
+      await bridge.pollCommand('node-1', { extensionVersion: '0.2.17', extensionStartedAt: 5_000, timeoutMs: 1_000 }, null);
 
       const suspended = (targetId: string) =>
         tabStore.listTabs().find((attachment) => attachment.targetId === targetId)?.suspendedAt;
@@ -763,22 +791,22 @@ describe('RemoteBrowserExtensionBridge', () => {
       bridge.expireNode('node-1');
       expect([suspended(tabA.targetId), suspended(tabB.targetId), suspended(legacy.targetId)]).toEqual([true, true, true]);
 
-      await bridge.pollCommand('node-1', { ...runtimeA, extensionStartedAt: 3_000, timeoutMs: 1_000 });
+      await bridge.pollCommand('node-1', { ...runtimeA, extensionStartedAt: 3_000, timeoutMs: 1_000 }, null);
       expect([suspended(tabA.targetId), suspended(tabB.targetId), suspended(legacy.targetId)]).toEqual([false, true, true]);
 
       // A compatible id-less (pre-0.2.42) poll restores only id-less tabs.
-      await bridge.pollCommand('node-1', { extensionVersion: '0.2.41', extensionStartedAt: 4_000, timeoutMs: 1_000 });
+      await bridge.pollCommand('node-1', { extensionVersion: '0.2.41', extensionStartedAt: 4_000, timeoutMs: 1_000 }, null);
       expect([suspended(tabB.targetId), suspended(legacy.targetId)]).toEqual([true, false]);
 
-      await bridge.pollCommand('node-1', { ...runtimeB, extensionStartedAt: 5_000, timeoutMs: 1_000 });
+      await bridge.pollCommand('node-1', { ...runtimeB, extensionStartedAt: 5_000, timeoutMs: 1_000 }, null);
       expect(suspended(tabB.targetId)).toBe(false);
     });
 
     it('suspends only the profile running an incompatible extension', async () => {
       const { bridge, tabStore } = makeBridge();
 
-      await bridge.pollCommand('node-1', { ...runtimeB, extensionVersion: '0.2.17', timeoutMs: 1_000 });
-      await bridge.pollCommand('node-1', { ...runtimeA, timeoutMs: 1_000 });
+      await bridge.pollCommand('node-1', { ...runtimeB, extensionVersion: '0.2.17', timeoutMs: 1_000 }, null);
+      await bridge.pollCommand('node-1', { ...runtimeA, timeoutMs: 1_000 }, null);
 
       expect(tabStore.suspendNode).toHaveBeenCalledWith('node-1', PROFILE_B);
       expect(tabStore.suspendNode).not.toHaveBeenCalledWith('node-1', PROFILE_A);

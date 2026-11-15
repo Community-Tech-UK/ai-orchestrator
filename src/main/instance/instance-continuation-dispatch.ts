@@ -132,6 +132,12 @@ export class InstanceContinuationDispatch {
     const budget = CONTINUATION_DISPATCH_POLICY[trigger].budget;
     return budget ? this.turns.get(instanceId)?.attempts.get(budget) ?? 0 : 0;
   }
+  /** A prompt is already queued, or being sent, for this session. */
+  hasPending(instanceId: string): boolean {
+    if (this.pending.has(instanceId)) return true;
+    for (const reservation of this.sending) if (reservation.request.instanceId === instanceId) return true;
+    return false;
+  }
   canRequest(request: ContinuationRequest): boolean {
     return this.started && this.guard(request, false);
   }

@@ -83,6 +83,8 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   // `readOnly()` alone only blocks the safe `set_setting` MCP tool, not this
   // surface — same reasoning as `allowPrCreation` above.
   'providersExcludedFromAutomation',
+  // The session watcher's level decides what Harness approves on the user's behalf (2026-11-15).
+  'keepSessionsGoing',
   // Copilot account routing (2026-08-25). Same class of authority as the
   // exclusion list above, one step further: these decide WHICH GitHub identity
   // services a repository. An agent that could add a profile, move the default,
@@ -473,7 +475,9 @@ export const SETTINGS_TOOL_POLICY = {
   instanceProviderLimitResumeEnabled: open(z.boolean()),
   loopAllowProviderOverage: open(z.boolean()),
   sessionAllowProviderOverage: open(z.boolean()),
-  autoAnswerContinueQuestions: open(z.boolean()),
+  // An agent that could switch this on, or raise it, would be approving its own work. Also listed in
+  // PRIVILEGED_CLI_OPERATOR_ONLY_KEYS, because `readOnly()` alone leaves the repair CLI able to write it.
+  keepSessionsGoing: readOnly(false, z.enum(['off', 'flag-only', 'planned-work', 'clear-choices', 'own-suggestions'])),
   codebaseAutoIndexMaxFiles: open(numberSettingSchema('codebaseAutoIndexMaxFiles')),
   codebaseAutoIndexMaxBytes: open(numberSettingSchema('codebaseAutoIndexMaxBytes')),
   codebaseAutoIndexConcurrent: open(numberSettingSchema('codebaseAutoIndexConcurrent')),

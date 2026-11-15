@@ -11,6 +11,8 @@ import { SessionNavigator } from '../../core/services/session-navigator.service'
 import { SideChatStore } from '../../core/state/side-chat.store';
 import { PermissionApprovalsStore } from '../../core/state/permission-approvals.store';
 import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
+import { SessionWatcherStore } from '../../core/state/session-watcher.store';
+import type { SessionWatcherFlagPayload } from '@contracts/schemas/session-watcher';
 
 await resolveComponentResources((url) => Promise.resolve(url.endsWith('.html') || url.endsWith('.scss')
   ? readFileSync(resolve('src/renderer/app/features/loop', url), 'utf8') : ''));
@@ -105,5 +107,92 @@ describe('NeedsYouRequestRowComponent', () => {
     // A newer detection for the same session is a new question; the old failure does not carry over.
     fixture.componentRef.setInput('entry', { ...toolLoopEntry, version: '2' }); fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[role="alert"]')).toBeNull();
+  });
+});
+
+describe('NeedsYouRequestRowComponent for a session the watcher handed back', () => {
+  const answerYes = vi.fn<(flag: unknown) => Promise<string | null>>();
+  const openSession = vi.fn();
+  const flags = signal<SessionWatcherFlagPayload[]>([]);
+  const flag = (overrides: Partial<SessionWatcherFlagPayload> = {}): SessionWatcherFlagPayload => ({
+    instanceId: 'inst-1', requestCount: 4, question: 'Shall I push it?', closing: 'I have finished the change.\nShall I push it?',
+    stop: 'asked_to_continue', acceptsYes: true, since: 1, ...overrides,
+  });
+  const entry = { key: 'session-question:inst-1', source: 'session-question', kind: 'answer', title: 'Fix login', detail: 'Asked you: Shall I push it?', instanceId: 'inst-1', since: 1, version: '4' } as const;
+  const render = (flagValue: SessionWatcherFlagPayload | null) => {
+    flags.set(flagValue ? [flagValue] : []);
+    const fixture = TestBed.createComponent(NeedsYouRequestRowComponent);
+    fixture.componentRef.setInput('entry', entry);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    const buttons = () => [...element.querySelectorAll('button')] as HTMLButtonElement[];
+    return { fixture, element, buttons, yes: () => buttons().find((b) => b.textContent?.trim() === 'Yes, go ahead') };
+  };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    answerYes.mockResolvedValue(null);
+    TestBed.configureTestingModule({ imports: [NeedsYouRequestRowComponent], providers: [
+      { provide: NeedsYouStore, useValue: { outstanding: signal([]), markSeen: vi.fn() } },
+      { provide: LoopIpcService, useValue: {} },
+      { provide: SessionNavigator, useValue: { openSession } },
+      { provide: SideChatStore, useValue: { attentionList: () => [] } },
+      { provide: PermissionApprovalsStore, useValue: { now: signal(1000) } },
+      { provide: Router, useValue: { navigateByUrl: vi.fn() } },
+      { provide: ToolLoopAlertStore, useValue: { isStopping: () => false } },
+      { provide: SessionWatcherStore, useValue: { flagFor: (id: string) => flags().find((item) => item.instanceId === id), answerYes } },
+    ] });
+  });
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('shows the agent\'s closing paragraph and a "Yes, go ahead" button when a yes would answer it', () => {
+    const { element, yes } = render(flag());
+    expect(element.querySelector('.request-closing')?.textContent).toBe('I have finished the change.\nShall I push it?');
+    expect(yes()).toBeDefined();
+    expect(yes()?.getAttribute('aria-label')).toBe('Yes, go ahead: Fix login');
+  });
+
+  it('shows only Open when the flag does not take a yes', () => {
+    const { element, buttons, yes } = render(flag({ acceptsYes: false, stop: 'offered_choice' }));
+    expect(yes()).toBeUndefined();
+    expect(element.querySelector('.request-closing')).toBeNull();
+    expect(buttons().map((b) => b.textContent?.trim())).toEqual(['Open']);
+  });
+
+  it('shows only Open when there is no flag behind the entry', () => {
+    const { buttons } = render(null);
+    expect(buttons().map((b) => b.textContent?.trim())).toEqual(['Open']);
+  });
+
+  it('ties the consequence line to the yes button for screen readers', () => {
+    const { element, yes } = render(flag({ stop: 'asked_to_continue' }));
+    const describedBy = yes()?.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    expect(element.querySelector(`#${describedBy}`)?.textContent).toBe('This approves the step the agent asked about.');
+  });
+
+  it('says what the yes approves beside every yes button, whatever the judge called the stop', () => {
+    expect(render(flag({ stop: 'asked_before_outward_step' })).element.textContent).toContain('This approves the step the agent asked about.');
+    expect(render(flag({ stop: 'asked_to_continue' })).element.textContent).toContain('This approves the step the agent asked about.');
+    expect(render(flag({ acceptsYes: false, stop: 'offered_choice' })).element.textContent).not.toContain('This approves the step');
+  });
+
+  it('shows the closing paragraph as text, never as markup', () => {
+    const { element } = render(flag({ closing: '<img src=x onerror="alert(1)"><b>Push it?</b>' }));
+    expect(element.querySelector('.request-closing img')).toBeNull();
+    expect(element.querySelector('.request-closing b')).toBeNull();
+    expect(element.querySelector('.request-closing')?.textContent).toBe('<img src=x onerror="alert(1)"><b>Push it?</b>');
+  });
+
+  it('sends the click for exactly the stop that is shown', async () => {
+    const { fixture, yes } = render(flag());
+    yes()!.click(); await fixture.whenStable();
+    expect(answerYes).toHaveBeenCalledWith(expect.objectContaining({ instanceId: 'inst-1', requestCount: 4 }));
+  });
+
+  it('shows why when the yes was refused', async () => {
+    answerYes.mockResolvedValueOnce('This question has already been dealt with. Nothing was sent.');
+    const { fixture, element, yes } = render(flag());
+    yes()!.click(); await fixture.whenStable(); fixture.detectChanges();
+    expect(element.querySelector('[role="alert"]')?.textContent).toBe('This question has already been dealt with. Nothing was sent.');
   });
 });

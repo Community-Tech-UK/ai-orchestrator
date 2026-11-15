@@ -25,6 +25,7 @@ import {
   computed,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import { SessionNavigator } from '../services/session-navigator.service';
 import type {
   BrowserApprovalRequest,
   BrowserGrantProposal,
@@ -409,6 +410,7 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
   private readonly browserGateway = inject(BrowserGatewayIpcService);
   private readonly approvals = inject(BrowserApprovalsStore);
   private readonly router = inject(Router);
+  private readonly sessionNavigator = inject(SessionNavigator);
 
   readonly pendingRequests = this.approvals.pendingRequests;
   readonly oldestPending = this.approvals.oldestPending;
@@ -453,6 +455,7 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
   }
 
   describe(approval: BrowserApprovalRequest): string {
+    if (approval.deviceLogin) return `Review Codex sign-in for ${approval.deviceLogin.expectedIdentity}`;
     if (approval.credentialAccess) return 'Saved-login permission requested';
     const action = approval.toolName.replace(/^browser\./, '').replaceAll('_', ' ');
     const where = this.displayHost(approval.origin ?? approval.url ?? approval.profileId);
@@ -605,6 +608,10 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
   }
 
   review(approval: BrowserApprovalRequest): void {
+    if (approval.deviceLogin) {
+      this.sessionNavigator.openSession(approval.instanceId);
+      return;
+    }
     if (approval.credentialAccess) {
       this.approvals.restore();
       return;

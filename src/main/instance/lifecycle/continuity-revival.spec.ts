@@ -230,6 +230,37 @@ describe('reviveContinuitySession prompt retention', () => {
   });
 });
 
+describe('reviveContinuitySession session watcher mute', () => {
+  it('carries the mute onto a session woken from its saved state', async () => {
+    const { deps, createInstance } = makeDeps(10);
+    deps.resumeSession.mockResolvedValueOnce({
+      sessionId: 'sess-1', workingDirectory: '/repo', displayName: 'Revived', conversationHistory: history(10), watcherMuted: true,
+    } as unknown as SessionState);
+
+    await reviveContinuitySession(deps, { sourceInstanceId: 'src-1', initialPrompt: 'continue', reason: 'doc-review-submission' });
+
+    expect(createInstance.mock.calls[0][0].watcherMuted).toBe(true);
+  });
+
+  it('leaves a session that was never muted unmuted', async () => {
+    const { deps, createInstance } = makeDeps(10);
+
+    await reviveContinuitySession(deps, { sourceInstanceId: 'src-1', initialPrompt: 'continue', reason: 'doc-review-submission' });
+
+    expect('watcherMuted' in createInstance.mock.calls[0][0]).toBe(false);
+  });
+
+  it('carries the mute onto a crash-recovered session', async () => {
+    const { deps, createRecoveryInstance } = makeCrashDeps();
+
+    await reviveContinuitySession(deps, {
+      sourceInstanceId: 'source-1', reason: 'crash-recovery', resolvedCandidate: resolvedCandidate({ state: { watcherMuted: true } }),
+    });
+
+    expect(createRecoveryInstance.mock.calls[0][0].watcherMuted).toBe(true);
+  });
+});
+
 describe('reviveContinuitySession doc-review buffer fidelity', () => {
   it('revives tool traffic as typed tool messages rather than assistant/system text', async () => {
     const { deps, createInstance } = makeDeps(0);

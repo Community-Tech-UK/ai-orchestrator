@@ -24,11 +24,24 @@ function run(markdown: string) {
 }
 
 describe('next-lt-id CLI', () => {
+  it('includes all priority index tables, including later status tables', () => {
+    const result = run(`${indexHeader}
+| LT-1124 | P1 | Fix | Source | Source |
+
+### More findings
+| ID | Priority | Status / observed defect | Evidence | Acceptance owner |
+| --- | --- | --- | --- | --- |
+| LT-1126 | P2 | Other finding | Source | Source |
+`);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe('LT-1127\n');
+  });
+
   it('uses the maximum index ID despite out-of-order rows and detail sections', () => {
     const result = run(`# Live-Test Remediation Register
 | ID | Current status |
 | --- | --- |
-| LT-999 | Mention outside the index |
+| LT-999 | Earlier status table inside the index |
 
 ${indexHeader}
 | LT-002 | P0 | Fix | LT-9000 | Source |
@@ -41,7 +54,7 @@ ${indexHeader}
 ## LT-002: Last heading
 `);
     expect(result.status).toBe(0);
-    expect(result.stdout).toBe('LT-708\n');
+    expect(result.stdout).toBe('LT-1000\n');
     expect(result.stderr).toBe('');
   });
 
@@ -67,7 +80,7 @@ ${indexHeader}
     expect(result.stdout).toBe('LT-707\n');
   });
 
-  it.each(['ID', 'LT status', 'LT-ID', 'LT-9999', ''])('stops at a separate table headed %s after blank-separated index rows', (heading) => {
+  it.each(['LT status', 'LT-ID', 'LT-9999', ''])('stops at a separate table headed %s after blank-separated index rows', (heading) => {
     const result = run(`${indexHeader}\n| LT-707 | P1 | Fix | Source | Source |\n
 | ${heading} | Current status |
 | --- | --- |
@@ -107,4 +120,26 @@ ${indexHeader}
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('No LT IDs found in the remediation index');
   });
+});
+
+// Separate ID tables inside the authoritative index allocate numbers too.
+it('counts a status-only index table but ignores identically shaped tables in details', () => {
+  const result = run(`${indexHeader}
+| LT-707 | P1 | Fix | Source | Source |
+| ID | Current status |
+| --- | --- |
+| LT-999 | New index record |
+## LT-707 details
+| ID | Current status |
+| --- | --- |
+| LT-9999 | Example only |
+`);
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stdout).toBe('LT-1000\n');
+});
+
+it('includes all endpoints of the existing grouped range notation', () => {
+  const result = run(`${indexHeader}\n| LT-615–LT-617, LT-640-LT-642 | P1 | Fix | Source | Source |\n`);
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stdout).toBe('LT-643\n');
 });

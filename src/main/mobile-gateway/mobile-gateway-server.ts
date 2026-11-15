@@ -290,8 +290,8 @@ export class MobileGatewayServer {
       this.instanceRoutes.clearSendInFlight(instanceId),
     drainQueue: (instanceId) => this.instanceRoutes.drain(instanceId),
     drainAllQueues: () => this.instanceRoutes.drainAll(),
-    sendCompletionPush: (instanceId) =>
-      sendMobileCompletionPush(this.pushDeps(), instanceId),
+    sendCompletionPush: (instanceId, question) =>
+      sendMobileCompletionPush(this.pushDeps(), instanceId, question),
     notifyDesktopViewed: (instanceId) => this.deps?.onCompletionViewed?.(instanceId),
     sendLiveActivityPush: (instanceId, status, event) =>
       sendMobileLiveActivityPush(this.pushDeps(), instanceId, status, event),

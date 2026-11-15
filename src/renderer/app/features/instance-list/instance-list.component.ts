@@ -1,5 +1,8 @@
 /** Project-grouped session rail. */
 import { groupSessionCopyActions } from './session-menu-groups';
+import { watcherMenuItems } from './session-watcher-menu';
+import { SessionWatcherStore } from '../../core/state/session-watcher.store';
+import { SettingsStore } from '../../core/state/settings.store';
 import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
@@ -116,6 +119,8 @@ export class InstanceListComponent implements OnDestroy {
   private clipboard = inject(CLIPBOARD_SERVICE);
   private crossSessionMessaging = inject(CrossSessionMessagingStore);
   private toast = inject(ToastService);
+  private sessionWatcher = inject(SessionWatcherStore);
+  private settingsStore = inject(SettingsStore);
   private undo = inject(UndoService);
 
   filterInput = signal(loadFilterText());
@@ -518,6 +523,7 @@ export class InstanceListComponent implements OnDestroy {
           : this.selectedId() === instance.id ? 'Choose a different session to message.' : undefined,
         action: () => this.openCrossSessionMessageModal(instance, displayTitle),
       },
+      ...watcherMenuItems(instance, this.settingsStore.get('keepSessionsGoing'), (id, muted) => void this.setSessionMuted(id, muted)),
       {
         id: 'restart-session',
         label: instance.status === 'initializing' ? 'Starting session…' : supportsResume ? 'Restart and resume' : 'Restart session',
@@ -622,6 +628,11 @@ export class InstanceListComponent implements OnDestroy {
     });
 
     return groupSessionCopyActions(items);
+  }
+
+  private async setSessionMuted(instanceId: string, muted: boolean): Promise<void> {
+    const error = await this.sessionWatcher.setMuted(instanceId, muted);
+    if (error) this.toast.show(error, 'error');
   }
 
   private buildHistoryContextMenuItems(entry: ConversationHistoryEntry): ContextMenuItem[] {

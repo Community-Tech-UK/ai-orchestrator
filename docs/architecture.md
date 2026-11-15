@@ -50,6 +50,7 @@ src/main/
 ├── routing/          # Message routing
 ├── security/         # Secret detection, path validation, redaction
 ├── session/          # Session continuity, checkpoints, recovery
+├── session-watcher/  # Judges finished turns of the user's chat sessions: carry on, finished, or needs you
 ├── skills/           # Extensible skills framework
 ├── tasks/            # Background tasks, todo management
 ├── tools/            # External tools integration
@@ -327,6 +328,19 @@ Located in `src/main/instance/`:
 - **StuckProcessDetector** — two-stage timeout detection
 - **WarmStartManager** — pre-spawned process pool for instant creation
 - **InstanceStateMachine** — state transition validation (idle, busy, waiting, error, hibernated, initializing, waking)
+- **Continuation runtime** (`instance-continuation-runtime.ts`) — the listeners that may send an automatic message when a turn ends (cut-off recovery, the announce-then-halt and "shall I carry on?" rule checks, background-work results, waiting check-ins and the session watcher). They only detect; `InstanceContinuationDispatch` is the one owner that admits and sends, so Stop, a typed message, pause and loops are handled in one place.
+
+### Session watcher ("Keep sessions going without me")
+
+Located in `src/main/session-watcher/`. On each finished turn of one of the user's own Claude chat sessions it asks Claude's fast model, as a one-shot call, whether the agent can carry on, the work is finished, or the user is needed.
+
+- **Setting** `keepSessionsGoing`: `off` (default), `flag-only`, `planned-work`, `clear-choices`, `own-suggestions`. Agents cannot write it (`readOnly()` and `PRIVILEGED_CLI_OPERATOR_ONLY_KEYS`). A session can be switched off on its own (`Instance.watcherMuted`, kept through sleep, wake and an app restart; a conversation closed and reopened from history starts watched again).
+- **Pipeline** (`session-watcher.ts`): gates (`watcher-gates.ts`), brief (`watcher-brief.ts`), judge (`watcher-judge.ts`, prompt in `watcher-judge-prompt.ts`), verdict parsing (`watcher-verdict.ts`), code checks the judge cannot override (`watcher-post-checks.ts`), then act.
+- **Nothing the judge writes is sent or shown.** A carry-on is one of four fixed wordings (`watcher-replies.ts`) sent through the continuation dispatch as internal input `session-watcher`. A flag carries the agent's own question, checked to be word for word from its reply.
+- **Rule-based answer**: the older answer to a "shall I carry on?" ending (`instance-announce-then-halt-continuation.ts`, internal input `continue-question-reply`) is part of the same setting. It asks `SessionWatcher.allowsRuleReply`, so it goes only to a session the watcher covers, at a level that replies, not to a muted session and not while the user is typing.
+- **Needs you**: `watcher-attention.ts` keeps one flag per session and pushes the list to the renderer (`session-watcher` IPC channels); it appears as a `session-question` entry with a one-click "Yes, go ahead" where a yes answers the stop. The yes is the user's own answer, stored with `metadata.sessionWatcherApproval`.
+- **Notices**: the desktop and phone "finished" senders call `routeFinishedNotice` (`watcher-notices.ts`): nothing after a carry-on, "needs you" with the question after a flag, the usual notice otherwise.
+- **Log**: `<userData>/session-watcher/YYYY-MM-DD.jsonl` (`watcher-decision-log.ts`), counts and enums only. `npm run audit:session-watcher` reports on it; `npm run bench:session-watcher` replays the judge over archived stops (`scripts/session-watcher/`).
 
 ## CLAUDE.md Loading
 

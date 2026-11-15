@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { projectsEmptyStateTitle } from './projects.component';
+import { projectsEmptyStateTitle } from './project-list.view-model';
 
 describe('ProjectsComponent structure', () => {
   const source = readFileSync(resolve('src/app/features/projects/projects.component.ts'), 'utf8');
@@ -13,15 +13,15 @@ describe('ProjectsComponent structure', () => {
   });
 
   it('links the cross-host Needs you inbox from Projects', () => {
-    expect(source).toContain('(click)="openInbox()"');
+    expect(source).toContain(`(click)="openPage('/inbox')"`);
     expect(source).toContain('Needs you · {{ needsYouCount() }}');
-    expect(source).toContain("void this.router.navigate(['/inbox'])");
+    expect(source).toContain('void this.router.navigate([path]);');
   });
 
   it('links the read-and-run Automations surface from Projects', () => {
-    expect(source).toContain('(click)="openAutomations()"');
+    expect(source).toContain(`(click)="openPage('/automations')"`);
     expect(source).toContain('<span>Automations</span>');
-    expect(source).toContain("void this.router.navigate(['/automations'])");
+    expect(source).toContain("'/inbox' | '/history' | '/automations'");
   });
 
   it('uses a search and New bottom dock instead of rollup pills and a detached fab', () => {

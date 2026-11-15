@@ -8,37 +8,59 @@ import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
+interface Load { load: number; cores: number; copies: number; limit: number }
 const { main, parse, readSigningPassword } = require('./dev-app.js') as {
   readSigningPassword(input: Readable & { isTTY?: boolean }, timeoutMs?: number): Promise<Buffer>;
   main(argv: string[], options: {
     cwd?: string; env?: NodeJS.ProcessEnv; write?: (text: string) => void; commonDir?: string;
-    answers?: (port: number, waitMs?: number) => Promise<boolean>;
+    answers?: (port: number, waitMs?: number) => Promise<boolean>; localLoad?: () => Load;
   }): Promise<number>;
   parse(argv: string[]): { action: string; options: { port: number | null; data: string | null; command: string[]; mode: string; checkedTree: string | null } };
 };
 
 const LIMIT = 60_000;
-const NOT_RUN = 69;
 const STAY_HERE = 75;
+const QUIET: Load = { load: 1, cores: 10, copies: 0, limit: 3 };
+const LOADED: Load = { load: 40, cores: 10, copies: 0, limit: 3 };
 
 /**
- * Stands in for `ssh` to the test Mac. `bases` and `receive` go to the real remote-run.sh, so the snapshot really
- * travels; the dev-app commands are acted out per scenario.
+ * Stands in for `ssh` to the test machines. `bases` and `receive` go to the real remote-run.sh, so the snapshot really
+ * travels; the dev-app commands are acted out per scenario. A scenario ending `-<host>` applies to that host only.
+ * `devapp-load` answers from `load-<host>` (quiet, with no copy there, when there is none), and a `load-<host>.next`
+ * replaces it after one look. A script in `after-look-<host>` runs once, after that host's first look. A copy that
+ * started (or whose start lost its connection) is kept in `copy-<host>` until a stop, and `devapp-load` reports it.
  */
 const FAKE_SSH = String.raw`#!/bin/bash
 # The commands run with this process's environment, not the one given to main(), so the fake finds its folder itself.
 FAKE_DIR="$(cd "$(dirname "$0")" && pwd)"
 cmd="${'$'}{!#}"
-echo "$cmd" >> "$FAKE_DIR/ssh.log"
+host="${'$'}{@: -2:1}"
+echo "$host: $cmd" >> "$FAKE_DIR/ssh.log"
 scenario="$(cat "$FAKE_DIR/scenario")"
 cd "$FAKE_DIR/home" || exit 255
+case "$scenario" in unreachable | "unreachable-$host") exit 255 ;; esac
 case "$cmd" in
+  *' devapp-load '*)
+    bash -c "${'$'}{cmd% && bash *}" || exit 1
+    load='{"load":1,"cores":10,"copies":0,"limit":3}'
+    [ -f "$FAKE_DIR/load-$host" ] && load="$(cat "$FAKE_DIR/load-$host")"
+    [ -f "$FAKE_DIR/load-$host.next" ] && mv "$FAKE_DIR/load-$host.next" "$FAKE_DIR/load-$host"
+    [ -f "$FAKE_DIR/after-look-$host" ] && { bash "$FAKE_DIR/after-look-$host"; rm -f "$FAKE_DIR/after-look-$host"; }
+    copy=null
+    [ -f "$FAKE_DIR/copy-$host" ] && copy="$(cat "$FAKE_DIR/copy-$host")"
+    echo "AIO_REMOTE_RESULT ${'$'}{load%\}},\"copy\":$copy}"
+    ;;
   *' devapp-start '*)
     cat > "$FAKE_DIR/start-data"
-    echo '[dev app] building on the far Mac'
+    echo "[dev app] building on $host"
+    set -- ${'$'}{cmd#* devapp-start }
+    case "$scenario" in pass | lost)
+      printf '{"tree":"%s","data":"%s","mode":"%s"}' "$(git -C remote-checks/repo.git rev-parse "$2^{tree}")" \
+        "$(cat "$FAKE_DIR/start-data")" "$3" > "$FAKE_DIR/copy-$host" ;;
+    esac
     case "$scenario" in
-      busy) echo 'AIO_REMOTE_RESULT {"status":"busy","reason":"the test Mac already runs as many Harness copies as it takes"}' ;;
-      failed) echo 'AIO_REMOTE_RESULT {"status":"failed","reason":"npm run build:main failed"}' ;;
+      busy | "busy-$host") echo 'AIO_REMOTE_RESULT {"status":"busy","reason":"the test Mac already runs as many Harness copies as it takes"}' ;;
+      failed | failed-cleanup) echo 'AIO_REMOTE_RESULT {"status":"failed","reason":"npm run build:main failed"}' ;;
       taken) echo 'AIO_REMOTE_RESULT {"status":"taken","reason":"another live test already has a Harness copy on that debugging port"}' ;;
       lost) exit 255 ;;
       *) echo 'AIO_REMOTE_RESULT {"status":"ready","reason":""}' ;;
@@ -46,11 +68,8 @@ case "$cmd" in
     ;;
   # A real tunnel lasts as long as the copy; this one lasts until the test ends it.
   *' devapp-hold '*) [ "$scenario" = no-tunnel ] && exit 255; echo held; exec sleep 30 ;;
-  *' devapp-stop '*) echo "stopped the Harness copy on port ${'$'}{cmd##* }" ;;
-  *)
-    [ "$scenario" = unreachable ] && exit 255
-    exec bash -c "$cmd"
-    ;;
+  *' devapp-stop '*) [ "$scenario" = failed-cleanup ] && exit 255; rm -f "$FAKE_DIR/copy-$host"; echo "stopped the Harness copy on port ${'$'}{cmd##* }" ;;
+  *) exec bash -c "$cmd" ;;
 esac
 `;
 
@@ -77,7 +96,11 @@ function freePort(): Promise<number> {
   });
 }
 
-function setUp(config: Record<string, unknown> | null = {}) {
+/**
+ * `config` is the test Mac's entry. With `pc`, the Windows PC's Linux space is the file's top-level machine, as it is
+ * on James's Mac, and the test Mac follows it in `moreMachines`.
+ */
+function setUp(config: Record<string, unknown> | null = {}, { pc = false } = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'dev-app-')));
   temps.push(base);
   const root = join(base, 'harness');
@@ -96,24 +119,29 @@ function setUp(config: Record<string, unknown> | null = {}) {
   writeFileSync(ssh, FAKE_SSH);
   chmodSync(ssh, 0o755);
   if (config) {
-    writeFileSync(join(dir, 'config.json'), JSON.stringify({
-      host: 'far', label: 'the test Mac', ssh, platform: 'darwin', useThisMac: false, ...config,
-    }));
+    const mac = { host: 'far', label: 'the test Mac', ssh, platform: 'darwin', ...config };
+    writeFileSync(join(dir, 'config.json'), JSON.stringify(pc
+      ? { host: 'pc', label: 'the Windows PC', ssh, nodeName: 'windows-pc', useThisMac: false, moreMachines: [mac] }
+      : { useThisMac: false, ...mac }));
   }
   return { base, root, fake, dir };
 }
 
 type Setup = ReturnType<typeof setUp>;
 
-async function run(setup: Setup, argv: string[], { scenario = 'pass', cwd = setup.root, answers = true } = {}) {
+async function run(setup: Setup, argv: string[], {
+  scenario = 'pass', cwd = setup.root, answers = true, here = QUIET, localLoad = () => here,
+  onWrite = (_text: string) => { /* optional scheduler observation */ },
+} = {}) {
   writeFileSync(join(setup.fake, 'scenario'), scenario);
   let output = '';
   const code = await main(argv, {
     cwd,
-    env: { ...process.env, AIO_REMOTE_CHECKS_DIR: setup.dir },
-    write: (text) => { output += text; },
+    env: { ...process.env, AIO_REMOTE_CHECKS_DIR: setup.dir, AIO_DEVAPP_RECHECK_MS: '20' },
+    write: (text) => { output += text; onWrite(text); },
     commonDir: join(setup.root, '.git'),
     answers: async () => answers,
+    localLoad,
   });
   const sshLog = existsSync(join(setup.fake, 'ssh.log')) ? readFileSync(join(setup.fake, 'ssh.log'), 'utf8') : '';
   const stateDir = join(setup.dir, 'dev-apps');
@@ -124,12 +152,26 @@ async function run(setup: Setup, argv: string[], { scenario = 'pass', cwd = setu
   return { code, output, sshLog };
 }
 
-function runLog(setup: Setup): Array<Record<string, unknown>> {
+function setLoad(setup: Setup, host: string, load: Load, next?: Load) {
+  writeFileSync(join(setup.fake, `load-${host}`), JSON.stringify(load));
+  if (next) writeFileSync(join(setup.fake, `load-${host}.next`), JSON.stringify(next));
+}
+
+function runLog(setup: Setup): Record<string, unknown>[] {
   const file = join(setup.dir, 'runs.jsonl');
   return existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [];
 }
 
 describe('dev-app arguments', () => {
+  it('accepts remote-only for start and rejects it as an option for other actions', () => {
+    expect(parse(['start', '--port', '9444', '--data', '/tmp/aio-lt-owned', '--remote-only']).options)
+      .toMatchObject({ remoteOnly: true });
+    for (const action of ['stop', 'status', 'shell']) {
+      expect(() => parse([action, '--port', '9444', '--remote-only'])).toThrow(/doesn't take --remote-only/);
+    }
+    expect(parse(['shell', '--port', '9444', '--', 'echo', '--remote-only']).options.command)
+      .toEqual(['echo', '--remote-only']);
+  });
   it('only accepts bounded noninteractive signing input for explicit packaged launches', async () => {
     expect(() => parse(['start', '--port', '9877', '--data', '/tmp/aio-lt-owned', '--signing-password-stdin'])).toThrow(/packaged/);
     await expect(readSigningPassword(Object.assign(Readable.from([]), { isTTY: true }))).rejects.toThrow(/secure pipe/);
@@ -145,6 +187,8 @@ describe('dev-app arguments', () => {
       .toMatchObject({ mode: 'packaged', checkedTree: 'a'.repeat(40) });
     expect(() => parse(['start', '--port', '9877', '--data', '/tmp/aio-lt-owned', '--checked-tree', 'bad;tree'])).toThrow(/tree/);
     expect(() => parse(['stop', '--port', '9877', '--packaged'])).toThrow();
+    expect(parse(['start', '--port', '9877', '--data', '/tmp/aio-lt-owned', '--mac']).options).toMatchObject({ macOnly: true, mode: 'dev' });
+    expect(() => parse(['stop', '--port', '9877', '--mac'])).toThrow();
   });
   it('takes a port and a data folder of its own under /tmp/aio-lt-', () => {
     expect(parse(['start', '--port', '9444', '--data', '/tmp/aio-lt-batch1']).options).toMatchObject({ port: 9444, data: '/tmp/aio-lt-batch1' });
@@ -163,7 +207,8 @@ describe('dev-app arguments', () => {
 
 describe('dev-app start', () => {
   it('runs the exact checked index tree and reports actual packaged provenance', async () => {
-    const setup = setUp();
+    // The test Mac has no paired name in the config, so its host names it.
+    const setup = setUp({ host: 'ct-test-mac' });
     const tree = git(setup.root, 'rev-parse', 'HEAD^{tree}');
     const result = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-checked', '--packaged', '--checked-tree', tree]);
     expect(result.code).toBe(0);
@@ -185,7 +230,7 @@ describe('dev-app start', () => {
     const setup = setUp();
     const port = await freePort();
     const { code, output, sshLog } = await run(setup, ['start', '--port', String(port), '--data', '/tmp/aio-lt-spec']);
-    expect(output).toContain('[dev app] building on the far Mac');
+    expect(output).toContain('[dev app] building on far');
     expect(code).toBe(0);
     expect(output).toContain(`Harness is running on the test Mac, reached here at http://127.0.0.1:${port}`);
     // The folder name went as data, never inside the command.
@@ -202,26 +247,248 @@ describe('dev-app start', () => {
     expect(runLog(setup)).toEqual([expect.objectContaining({ kind: 'dev-app', ranOn: 'far', exitCode: 0 })]);
   }, LIMIT);
 
-  it('is not run when the test Mac is full and this Mac is switched off for test work', async () => {
-    const setup = setUp();
-    const { code, output } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec'], { scenario: 'busy' });
-    expect(code).toBe(NOT_RUN);
-    expect(output).toContain('Not run: the test Mac already runs as many Harness copies as it takes');
-    expect(runLog(setup)).toEqual([expect.objectContaining({ kind: 'dev-app', ranOn: 'none', exitCode: NOT_RUN })]);
+  it('tries the test Mac before the PC, though the PC comes first in the config', async () => {
+    const setup = setUp({}, { pc: true });
+    const { code, output, sshLog } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec']);
+    expect(code).toBe(0);
+    expect(output).toContain('Harness is running on the test Mac');
+    expect(sshLog).not.toMatch(/^pc: .* devapp-start /m);
   }, LIMIT);
 
-  it('says to start it here when the test Mac is away and this Mac takes test work', async () => {
-    const setup = setUp({ useThisMac: true });
+  it('starts it on the PC when the test Mac is busy, naming the PC in the receipt', async () => {
+    const setup = setUp({}, { pc: true });
+    setLoad(setup, 'far', LOADED);
+    const { code, output, sshLog } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec']);
+    expect(code).toBe(0);
+    expect(output).toContain('Harness is running on the Windows PC');
+    expect(sshLog).not.toMatch(/^far: .* devapp-start /m);
+    const line = output.split('\n').find(row => row.startsWith('AIO_DEV_APP_RECEIPT '))!;
+    expect(JSON.parse(line.slice('AIO_DEV_APP_RECEIPT '.length))).toMatchObject({ computer: 'windows-pc', mode: 'dev' });
+    expect(runLog(setup)).toEqual([expect.objectContaining({ kind: 'dev-app', ranOn: 'pc', exitCode: 0 })]);
+  }, LIMIT);
+
+  it('moves on to the PC when the test Mac turns the copy away for having as many as it takes', async () => {
+    const setup = setUp({}, { pc: true });
+    const { code, output } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec'], { scenario: 'busy-far' });
+    expect(code).toBe(0);
+    expect(output).toContain('Harness is running on the Windows PC');
+  }, LIMIT);
+
+  it('never sends a signed package to the PC or this Mac: it waits for the test Mac', async () => {
+    const setup = setUp({}, { pc: true });
+    setLoad(setup, 'far', LOADED, QUIET);
+    const { code, output, sshLog } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec', '--packaged']);
+    expect(output).toContain('waiting for a remote computer that can run this copy (the test Mac is busy (load 40 on 10 processors))');
+    expect(output).not.toContain('Start Harness on this Mac');
+    expect(code).toBe(0);
+    expect(output).toContain('Harness is running on the test Mac');
+    expect(sshLog).not.toMatch(/^pc: .* devapp-start /m);
+  }, LIMIT);
+
+  it('leaves a busy computer\'s copy in the other mode for devapp-start to refuse, never stopping it', async () => {
+    const setup = setUp({}, { pc: true });
+    setLoad(setup, 'far', LOADED);
+    setLoad(setup, 'pc', { load: 60, cores: 32, copies: 1, limit: 3 });
+    writeFileSync(join(setup.fake, 'copy-pc'), '{"tree":"x","data":"/tmp/aio-lt-spec","mode":"packaged"}');
+    const { code, output, sshLog } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec'], { scenario: 'taken' });
+    expect(code).toBe(1);
+    expect(output).toContain('for another data folder, so it was left alone');
+    expect(sshLog).toMatch(/^pc: .* devapp-start /m);
+    expect(sshLog).not.toMatch(/ devapp-stop /m);
+  }, LIMIT);
+
+  it('stops its earlier copy on a now-paused computer, so its tunnel here closes, before starting elsewhere', async () => {
+    const setup = setUp({}, { pc: true });
+    const port = await freePort();
+    const argv = ['start', '--port', String(port), '--data', '/tmp/aio-lt-spec'];
+    expect((await run(setup, argv)).code).toBe(0);
+    // A stand-in for the tunnel: it holds the port here for as long as the far copy lives, as a real one does.
+    for (const pid of tunnels) process.kill(pid);
+    tunnels.clear();
+    const copyFile = join(setup.fake, 'copy-far');
+    const holder = spawn(process.execPath, ['-e', `const fs = require('fs');
+      require('net').createServer().listen(${port}, '127.0.0.1', () => console.log('held'));
+      setInterval(() => { if (!fs.existsSync(${JSON.stringify(copyFile)})) process.exit(0); }, 100);`]);
+    await new Promise(resolve => holder.stdout!.once('data', resolve));
+    const record = join(setup.dir, 'dev-apps', `${port}.json`);
+    writeFileSync(record, JSON.stringify({ ...JSON.parse(readFileSync(record, 'utf8')), tunnelPid: holder.pid }));
+    const config = join(setup.dir, 'config.json');
+    const paused = JSON.parse(readFileSync(config, 'utf8'));
+    paused.moreMachines[0].paused = true;
+    writeFileSync(config, JSON.stringify(paused));
+    writeFileSync(join(setup.root, 'a.ts'), 'changed again\n');
+    const { code, output, sshLog } = await run(setup, argv);
+    expect(output).toContain("stopping this test's older copy on the test Mac, before starting elsewhere");
+    expect(sshLog).toMatch(new RegExp(`^far: .* devapp-stop ${port}$`, 'm'));
+    expect(code).toBe(0);
+    expect(output).toContain('Harness is running on the Windows PC');
+    expect(holder.exitCode).toBe(0);
+  }, LIMIT);
+
+  it('never signals a process a stale record names', async () => {
+    const setup = setUp(null);
+    const port = await freePort();
+    const other = spawn('sleep', ['300']);
+    mkdirSync(join(setup.dir, 'dev-apps'), { recursive: true });
+    writeFileSync(join(setup.dir, 'dev-apps', `${port}.json`), JSON.stringify({ host: 'far', port, root: setup.root, tunnelPid: other.pid }));
+    try {
+      expect((await run(setup, ['start', '--port', String(port), '--data', '/tmp/aio-lt-spec'])).code).toBe(STAY_HERE);
+      expect(other.exitCode).toBeNull();
+      expect(other.signalCode).toBeNull();
+    } finally {
+      other.kill();
+    }
+  }, LIMIT);
+
+  it('stops a moved copy where it now is, though the record here still names its old computer', async () => {
+    const setup = setUp({}, { pc: true });
+    const port = await freePort();
+    const argv = ['start', '--port', String(port), '--data', '/tmp/aio-lt-spec'];
+    expect((await run(setup, argv)).code).toBe(0);
+    for (const pid of tunnels) process.kill(pid);
+    tunnels.clear();
+    writeFileSync(join(setup.root, 'a.ts'), 'changed again\n');
+    setLoad(setup, 'far', LOADED);
+    expect((await run(setup, argv, { scenario: 'lost' })).code).toBe(1);
+    expect(JSON.parse(readFileSync(join(setup.dir, 'dev-apps', `${port}.json`), 'utf8'))).toMatchObject({ host: 'far' });
+    const { code, sshLog } = await run(setup, ['stop', '--port', String(port)]);
+    expect(code).toBe(0);
+    expect(sshLog.split('\n').filter(line => / devapp-stop /.test(line)).at(-1)).toMatch(/^pc: /);
+    expect(existsSync(join(setup.fake, 'copy-pc'))).toBe(false);
+  }, LIMIT);
+
+  it('skips the PC for a check that needs a signed-in AI tool', async () => {
+    const setup = setUp({}, { pc: true });
+    setLoad(setup, 'far', LOADED);
+    const { code, output, sshLog } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec', '--mac']);
+    expect(code).toBe(STAY_HERE);
+    expect(output).toContain('the test Mac is busy (load 40 on 10 processors). Start Harness on this Mac instead');
+    expect(sshLog).not.toMatch(/^pc: .* devapp-start /m);
+  }, LIMIT);
+
+  it('uses this Mac when the test Mac and the PC are both busy and this Mac is not', async () => {
+    const setup = setUp({}, { pc: true });
+    setLoad(setup, 'far', LOADED);
+    setLoad(setup, 'pc', { load: 2, cores: 32, copies: 3, limit: 3 });
+    const { code, output } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec']);
+    expect(code).toBe(STAY_HERE);
+    expect(output).toContain('the Windows PC already runs as many Harness copies as it takes (3)');
+    expect(output).toContain('Start Harness on this Mac instead');
+    expect(runLog(setup)).toEqual([expect.objectContaining({ kind: 'dev-app', ranOn: 'none', exitCode: STAY_HERE })]);
+  }, LIMIT);
+
+  it('keeps looking while every computer is busy, and starts the copy once one is free', async () => {
+    const setup = setUp({}, { pc: true });
+    setLoad(setup, 'far', LOADED, QUIET);
+    setLoad(setup, 'pc', { load: 60, cores: 32, copies: 0, limit: 3 });
+    const { code, output } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec'], { here: LOADED });
+    expect(output).toContain('every computer is busy (the test Mac is busy (load 40 on 10 processors); the Windows PC is busy '
+      + '(load 60 on 32 processors); this Mac is busy (load 40 on 10 processors))');
+    expect(output).toContain('Leave this running');
+    expect(code).toBe(0);
+    expect(output).toContain('Harness is running on the test Mac');
+    expect(runLog(setup)).toEqual([expect.objectContaining({ ranOn: 'far', exitCode: 0, waitedMs: 20 })]);
+  }, LIMIT);
+
+  it.each(['', '--mac', '--packaged'])('remote-only waits for a suitable remote without reading local load (%s)', async (mode) => {
+    const setup = setUp({}, { pc: true });
+    setLoad(setup, 'far', LOADED, QUIET);
+    // For Mac-only launches the PC is free but ineligible. For dev launches both remotes are initially busy.
+    if (!mode) setLoad(setup, 'pc', { load: 2, cores: 32, copies: 3, limit: 3 });
+    const { code, output, sshLog } = await run(setup, [
+      'start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec', '--remote-only', ...(mode ? [mode] : []),
+    ], { localLoad: () => { throw new Error('remote-only must not inspect this Mac'); } });
+    expect(code).toBe(0);
+    expect(output).toContain('waiting for a remote computer that can run this copy');
+    expect(output).toContain('the test Mac is busy');
+    expect(output).not.toContain('Start Harness on this Mac');
+    expect(output).toContain('Harness is running on the test Mac');
+    expect(sshLog.match(/^far: .* devapp-load /gm)).toHaveLength(2);
+    if (mode) expect(sshLog).not.toMatch(/^pc: .* devapp-start /m);
+    expect(runLog(setup)).toEqual([expect.objectContaining({ ranOn: 'far', exitCode: 0, waitedMs: 20 })]);
+  }, LIMIT);
+
+  it.each(['unreachable', 'paused', 'not-configured'])('remote-only retries when a remote is %s', async (condition) => {
+    const setup = setUp(condition === 'not-configured' ? null : { paused: condition === 'paused' });
+    const { code, output } = await run(setup, [
+      'start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec', '--remote-only',
+    ], {
+      scenario: condition === 'unreachable' ? 'unreachable' : 'pass',
+      localLoad: () => { throw new Error('remote-only must not inspect this Mac'); },
+      onWrite: text => {
+        if (!text.includes('Looking again')) return;
+        // Restore availability only after the scheduler has reported its actual first-pass reason.
+        writeFileSync(join(setup.fake, 'scenario'), 'pass');
+        writeFileSync(join(setup.dir, 'config.json'), JSON.stringify({
+          host: 'far', label: 'the test Mac', platform: 'darwin', ssh: join(setup.fake, 'ssh'),
+        }));
+      },
+    });
+    expect(code).toBe(0);
+    expect(output).not.toContain('every computer is busy');
+    expect(output).toContain(condition === 'unreachable' ? 'the test Mac could not be reached'
+      : condition === 'paused' ? 'no unpaused remote computer supports this launch' : 'no test machines are set up');
+    expect(runLog(setup)).toEqual([expect.objectContaining({ ranOn: 'far', exitCode: 0, waitedMs: 20 })]);
+  }, LIMIT);
+
+  it('joins its copy on a busy computer later in the order when a cut-off start is run again with the same files', async () => {
+    const setup = setUp({}, { pc: true });
+    const argv = ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec'];
+    setLoad(setup, 'far', LOADED);
+    expect((await run(setup, argv, { scenario: 'lost' })).code).toBe(1);
+    setLoad(setup, 'far', QUIET);
+    setLoad(setup, 'pc', { load: 60, cores: 32, copies: 1, limit: 3 });
+    const { code, output, sshLog } = await run(setup, argv);
+    expect(code).toBe(0);
+    expect(output).toContain('Harness is running on the Windows PC');
+    expect(sshLog).not.toMatch(/^far: .* devapp-start /m);
+  }, LIMIT);
+
+  it('moves a changed copy off a busy computer, stopping the old one there, rather than building there', async () => {
+    const setup = setUp({}, { pc: true });
+    const argv = ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec'];
+    setLoad(setup, 'far', LOADED);
+    expect((await run(setup, argv, { scenario: 'lost' })).code).toBe(1);
+    writeFileSync(join(setup.root, 'a.ts'), 'changed again\n');
+    setLoad(setup, 'far', QUIET);
+    setLoad(setup, 'pc', { load: 60, cores: 32, copies: 1, limit: 3 });
+    const { code, output, sshLog } = await run(setup, argv);
+    expect(output).toContain("stopping this test's older copy on the Windows PC, which is busy");
+    expect(sshLog).toMatch(/^pc: .* devapp-stop /m);
+    expect(code).toBe(0);
+    expect(output).toContain('Harness is running on the test Mac');
+  }, LIMIT);
+
+  it('reads the config again each time round, so a computer paused during the wait is passed by', async () => {
+    const setup = setUp({}, { pc: true });
+    setLoad(setup, 'far', LOADED, QUIET);
+    setLoad(setup, 'pc', { load: 60, cores: 32, copies: 0, limit: 3 }, QUIET);
+    const config = join(setup.dir, 'config.json');
+    const paused = JSON.parse(readFileSync(config, 'utf8'));
+    paused.moreMachines[0].paused = true;
+    writeFileSync(join(setup.dir, 'paused.json'), JSON.stringify(paused));
+    // Both are busy at the first look and quiet at the second; the test Mac is paused in between.
+    writeFileSync(join(setup.fake, 'after-look-pc'), `cp '${join(setup.dir, 'paused.json')}' '${config}'\n`);
+    const { code, output, sshLog } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec'], { here: LOADED });
+    expect(output).toContain('every computer is busy');
+    expect(code).toBe(0);
+    expect(output).toContain('Harness is running on the Windows PC');
+    expect(sshLog.match(/^far: .* devapp-load /gm)).toHaveLength(1);
+  }, LIMIT);
+
+  it('says to start it here when the test Mac is out of reach', async () => {
+    // With "Use this Mac when the others are busy or away" off, as on James's Mac: live-test copies may still come here.
+    const setup = setUp();
     const { code, output } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec'], { scenario: 'unreachable' });
     expect(code).toBe(STAY_HERE);
     expect(output).toContain('the test Mac could not be reached. Start Harness on this Mac instead');
   }, LIMIT);
 
-  it('is not run when the test Mac is paused, and asks nothing of it', async () => {
+  it('passes a paused test Mac by without asking anything of it', async () => {
     const setup = setUp({ paused: true });
     const { code, output, sshLog } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec']);
-    expect(code).toBe(NOT_RUN);
-    expect(output).toContain('Not run: the test Mac is paused');
+    expect(code).toBe(STAY_HERE);
+    expect(output).toContain('Start Harness on this Mac instead');
     expect(sshLog).toBe('');
   });
 
@@ -232,18 +499,19 @@ describe('dev-app start', () => {
     expect(output).toContain('no test machines are set up');
   });
 
-  it('only takes no test Mac to mean none, never a Linux test machine', async () => {
-    const setup = setUp({ platform: 'linux' });
-    const { code, output } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec']);
-    expect(code).toBe(NOT_RUN);
-    expect(output).toContain('no test Mac is in the test machine list');
-  });
-
   it('fails, saying why, when the copy does not build', async () => {
     const setup = setUp();
-    const { code, output } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec'], { scenario: 'failed' });
+    const { code, output, sshLog } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec'], { scenario: 'failed' });
     expect(code).toBe(1);
     expect(output).toContain('Harness did not start on the test Mac: npm run build:main failed');
+    expect(sshLog).toContain(' devapp-stop ');
+  }, LIMIT);
+
+  it('reports cleanup that could not be confirmed after a failed build', async () => {
+    const setup = setUp();
+    const { code, output } = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-spec'], { scenario: 'failed-cleanup' });
+    expect(code).toBe(1);
+    expect(output).toContain('cleanup of the failed copy could not be confirmed');
   }, LIMIT);
 
   it('stops the far copy when the connection back to it does not open', async () => {
@@ -308,6 +576,35 @@ describe('dev-app start', () => {
   });
 });
 
+describe('dev-app stop and shell without a record here', () => {
+  it('asks each computer which has the copy, and stops it there', async () => {
+    const setup = setUp({}, { pc: true });
+    writeFileSync(join(setup.fake, 'copy-pc'), '{"tree":"x","data":"/tmp/aio-lt-spec","mode":"dev"}');
+    const port = await freePort();
+    const { code, sshLog } = await run(setup, ['stop', '--port', String(port)]);
+    expect(code).toBe(0);
+    expect(sshLog).toMatch(new RegExp(`^pc: .* devapp-stop ${port}$`, 'm'));
+    expect(sshLog).not.toMatch(/^far: .* devapp-stop /m);
+    writeFileSync(join(setup.fake, 'copy-pc'), '{"tree":"x","data":"/tmp/aio-lt-spec","mode":"dev"}');
+    expect((await run(setup, ['shell', '--port', String(port), 'true'])).sshLog).toMatch(/^pc: .* devapp-shell /m);
+  }, LIMIT);
+
+  it('says there was nothing to stop when every computer answers without the copy', async () => {
+    const setup = setUp({}, { pc: true });
+    const { code, output } = await run(setup, ['stop', '--port', String(await freePort())]);
+    expect(code).toBe(0);
+    expect(output).toContain('so there was nothing to stop');
+  }, LIMIT);
+
+  it('fails, naming it, when a computer that might have the copy cannot be reached', async () => {
+    const setup = setUp({}, { pc: true });
+    const { code, output } = await run(setup, ['stop', '--port', String(await freePort())], { scenario: 'unreachable-pc' });
+    expect(code).toBe(1);
+    expect(output).toContain('the Windows PC could not be reached to look for the copy');
+    expect(output).not.toContain('nothing to stop');
+  }, LIMIT);
+});
+
 describe('dev-app stop', () => {
   it('stops the copy on the machine it started on and forgets it here', async () => {
     const setup = setUp();
@@ -344,6 +641,17 @@ describe('remote-run.sh dev-app commands', () => {
     expect(stopped.status).toBe(0);
     expect(stopped.stdout).toContain('stopped the Harness copy on port 9444');
     expect(far(['devapp-shell', '9444'], 'echo hi').status).toBe(3);
+  });
+
+  it('says how busy the machine is: its 5-minute load, processors and live copies', () => {
+    const far = farMachine();
+    expect(far(['devapp-load']).status).toBe(4);
+    const line = far(['devapp-load', '9444']).stdout.trim();
+    expect(line.startsWith('AIO_REMOTE_RESULT ')).toBe(true);
+    const load = JSON.parse(line.slice('AIO_REMOTE_RESULT '.length)) as Load;
+    expect(load.load).toBeGreaterThanOrEqual(0);
+    expect(load.cores).toBeGreaterThan(0);
+    expect(load).toMatchObject({ copies: 0, limit: 3, copy: null });
   });
 
   /**

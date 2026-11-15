@@ -1,5 +1,6 @@
 import { isOccupancyPressureReading } from '../../shared/utils/context-occupancy';
 import { crossPlatformBasename } from '../../shared/utils/cross-platform-path';
+import { isPlanQueueWorktreePath } from '../../shared/utils/worktree-project-path';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type {
   MobileHistorySessionDto,
@@ -71,6 +72,9 @@ export interface GatewayInstanceHistoryEntry {
   workingDirectory: string;
   createdAt: number;
   endedAt: number;
+  parentId?: string | null;
+  isHiddenAutomation?: boolean;
+  hideFromProjectRail?: boolean;
 }
 
 /**
@@ -245,5 +249,18 @@ export function serializeInstanceHistorySession(
     lastActiveAt: entry.endedAt,
     archived: true,
     live: false,
+    ...(isHiddenFromProjects(entry) ? { hiddenFromProjects: true } : {}),
   };
+}
+
+/**
+ * The desktop project rail's rules for an archived session
+ * (`project-rail-builder.service.ts`): helper sessions, hidden automations that
+ * finished cleanly, and finished Plan Queue runs that lost their parent stay
+ * out of the project list. History still lists them.
+ */
+function isHiddenFromProjects(entry: GatewayInstanceHistoryEntry): boolean {
+  return entry.hideFromProjectRail === true
+    || entry.isHiddenAutomation === true
+    || (!entry.parentId && isPlanQueueWorktreePath(entry.workingDirectory));
 }

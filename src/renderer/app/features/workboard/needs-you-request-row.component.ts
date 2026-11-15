@@ -12,7 +12,11 @@ import { NeedsYouStore } from './needs-you.store';
 import { DocReviewStore } from '../doc-review/doc-review.store';
 import { MemoryReviewStore } from '../memory-review/memory-review.store';
 import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
+import { SessionWatcherStore } from '../../core/state/session-watcher.store';
 import { TOOL_LOOP_CONTINUE_CONSEQUENCE } from '../../../../shared/tool-loop-summary';
+
+/** Shown beside every "Yes, go ahead": the click approves whatever the agent asked, which is quoted above it. */
+const YES_CONSEQUENCE = 'This approves the step the agent asked about.';
 
 /** Only for requests whose title is a bare name; the others already say what they ask. */
 const REQUEST_KIND_LABELS: Partial<Record<NeedsYouEntry['source'], string>> = {
@@ -34,11 +38,16 @@ const REQUEST_KIND_LABELS: Partial<Record<NeedsYouEntry['source'], string>> = {
         <strong class="request-title">{{ entry().title }}</strong>
         @if (entry().detail) { <p>{{ entry().detail }}</p> }
         @if (entry().source === 'tool-loop') { <p>{{ continueConsequence }}</p> }
+        @if (yesFlag(); as flag) { <p class="request-closing">{{ flag.closing }}</p> }
         @if (expiry()) { <span class="request-expiry">{{ expiry() }}</span> }
         <div class="request-actions">
           @if (entry().source === 'tool-loop') {
             <button type="button" [attr.aria-label]="(toolLoopStopping() ? 'Stopping' : 'Stop this turn') + ': ' + entry().title" [disabled]="toolLoopStopping()" (click)="stopToolLoop()">{{ toolLoopStopping() ? 'Stopping…' : 'Stop this turn' }}</button>
             <button type="button" [attr.aria-label]="'Let it continue: ' + entry().title" [disabled]="toolLoopStopping()" (click)="letToolLoopContinue()">Let it continue</button>
+          }
+          @if (yesFlag(); as flag) {
+            <button type="button" [attr.aria-label]="'Yes, go ahead: ' + entry().title" [attr.aria-describedby]="consequenceId()" [disabled]="busy()" (click)="answerYes()">Yes, go ahead</button>
+            <span class="request-consequence" [id]="consequenceId()">{{ yesConsequence }}</span>
           }
           <button type="button" [attr.aria-label]="openLabel() + ' ' + entry().title" (click)="open()">{{ openLabel() }}</button>
           @if (entry().kind === 'check') { <button type="button" (click)="store.markSeen(entry().key)">Got it</button> }
@@ -53,6 +62,8 @@ const REQUEST_KIND_LABELS: Partial<Record<NeedsYouEntry['source'], string>> = {
     .request-title { overflow-wrap:anywhere; }
     p { margin:0; color:var(--text-secondary); overflow-wrap:anywhere; }
     .request-expiry { color:var(--text-secondary); }
+    .request-closing { white-space:pre-wrap; }
+    .request-consequence { align-self:center; color:var(--text-secondary); }
     .request-actions { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
     button { font-size:11px; font-weight:600; padding:3px 10px; border-radius:var(--radius-sm,6px); border:1px solid var(--border-color); background:var(--bg-tertiary); color:var(--text-primary); cursor:pointer; }
     button:hover:not(:disabled) { background:var(--bg-hover); }
@@ -69,8 +80,18 @@ export class NeedsYouRequestRowComponent {
   private readonly sidechats = inject(SideChatStore);
   private readonly clock = inject(PermissionApprovalsStore).now;
   private readonly injector = inject(Injector);
+  private readonly watcher = inject(SessionWatcherStore);
   readonly busy = signal(false);
   protected readonly continueConsequence = TOOL_LOOP_CONTINUE_CONSEQUENCE;
+  protected readonly yesConsequence = YES_CONSEQUENCE;
+  /** Ties the consequence line to its button, so a screen reader reads both. */
+  protected readonly consequenceId = computed(() => `yes-consequence-${this.entry().key.replace(/[^A-Za-z0-9_-]/g, '-')}`);
+  /** The watcher's flag behind a session question, when a plain yes would answer it. Other flags only get Open. */
+  readonly yesFlag = computed(() => {
+    const entry = this.entry();
+    const flag = entry.source === 'session-question' ? this.watcher.flagFor(entry.instanceId) : undefined;
+    return flag?.acceptsYes ? flag : null;
+  });
   /** Read from the store, so a stop started anywhere (the session bar, the notification centre) disables this too. */
   readonly toolLoopStopping = computed(() => this.entry().source === 'tool-loop'
     && this.injector.get(ToolLoopAlertStore).isStopping(this.entry().instanceId));
@@ -117,6 +138,15 @@ export class NeedsYouRequestRowComponent {
     const instanceId = this.entry().instanceId;
     this.toolLoopErrorState.set(null);
     if (instanceId) this.injector.get(ToolLoopAlertStore).letContinue(instanceId);
+  }
+  /** The user's own yes. The entry leaves the list when main clears the flag. */
+  async answerYes(): Promise<void> {
+    const flag = this.yesFlag();
+    if (!flag || this.busy()) return;
+    this.busy.set(true); this.error.set(null);
+    try { this.error.set(await this.watcher.answerYes(flag)); }
+    catch { this.error.set('Could not send your answer.'); }
+    finally { this.busy.set(false); }
   }
   async answer(payload: LoopAnswerOutstandingPayload): Promise<void> {
     if (this.busy()) return;

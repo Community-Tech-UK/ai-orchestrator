@@ -13,6 +13,7 @@
 #   devapp-hold|devapp-stop <port>           the tunnel's far end; stop a copy
 #   devapp-shell <port>                      run a script from stdin beside a copy
 #   devapp-status                            list the copies here
+#   devapp-load <port>                       how busy this machine is, and whether that port's copy is here
 #
 # With AIO_PROJECT and AIO_SUITE set, each of those works on that repository instead, in its own
 # store and checkouts, using a recipe at the bottom of this file. It shares the same slots.
@@ -636,7 +637,8 @@ cmd_fetch() {
 }
 
 # ---- Harness copies for live tests (scripts/remote-checks/dev-app.js) ------------------------------------------------
-# A live-test job's Harness copy runs here instead of on James's Mac. Each copy is named by its debugging port, which is
+# A live-test job's Harness copy runs here instead of on James's Mac: on the test Mac, or on the PC's Linux space with a
+# screen of its own that nobody sees (a signed package needs a Mac). Each copy is named by its debugging port, which is
 # unique per job, and lives in devapps/apps/<port>: a checkout of its own that shares one install per lock file with
 # every other copy (devapps/installs/<stamp>), so Electron's native modules are built once. The copy's job leads its own
 # process group, so stopping it stops its screens' server too, and it stops itself after DEVAPP_LIFETIME_SECONDS. Every
@@ -671,9 +673,10 @@ devapp_result() {
   printf '%s{"status":"%s","reason":"%s"}\n' "$RESULT_PREFIX" "$1" "$2"
 }
 
-# Harness is opened through the app launcher (see devapp-job), so it isn't in the job's group, and it may start itself
-# again under another id (a permission repair does). Every Harness opened for a copy, and nothing else, has the copy's
-# checkout folder just before its debugging port on its command line.
+# On a Mac Harness is opened through the app launcher (see devapp-job), so it isn't in the job's group, and it may start
+# itself again under another id (a permission repair does). Every Harness opened for a copy, and nothing else, has the
+# copy's checkout folder and its debugging port on its command line, in either order: on Linux, Chromium puts its own
+# switches first and the folder last.
 devapp_app_pids() {
   local mode executable
   mode="$(cat "$1/mode" 2>/dev/null || echo dev)"
@@ -685,7 +688,7 @@ devapp_app_pids() {
     { pid=$1; $1=""; sub(/^[[:space:]]+/, ""); command=$0;
       if (index(" " command " ", " " port " ") == 0) next;
       if (mode == "packaged" && index(command, exe " ") == 1) print pid;
-      else if (mode == "dev" && index(command, " " work " ") > 0) print pid;
+      else if (mode == "dev" && index(" " command " ", " " work " ") > 0) print pid;
     }'
 }
 
@@ -790,7 +793,7 @@ cmd_devapp_start() {
   tree="$(git -C "$REPO" rev-parse --verify --quiet "$commit^{tree}")" || { devapp_result failed 'the snapshot was not received'; return 0; }
 
   dir="$(devapp_dir "$port")"
-  devapp_lock || { devapp_result busy 'another start on the test Mac is taking too long'; return 0; }
+  devapp_lock || { devapp_result busy 'another start here is taking too long'; return 0; }
   devapp_tidy
   if devapp_alive "$dir"; then
     if [ "$(cat "$dir/data" 2>/dev/null)" != "$data" ]; then
@@ -829,10 +832,10 @@ cmd_devapp_start() {
     done
     if [ "$running" -ge "$DEVAPP_LIMIT" ]; then
       devapp_unlock
-      devapp_result busy 'the test Mac already runs as many Harness copies as it takes'
+      devapp_result busy 'it already runs as many Harness copies as it takes'
       return 0
     fi
-    if [ "$MAC" != 1 ]; then devapp_unlock; devapp_result failed 'this machine is not a Mac'; return 0; fi
+    if [ "$MAC" != 1 ] && [ "$mode" = packaged ]; then devapp_unlock; devapp_result failed 'a signed package needs a Mac'; return 0; fi
     mkdir -p "$dir" "$DEVAPPS/installs" || { devapp_unlock; exit 1; }
     chmod 700 "$dir"
     printf '%s\n' "$data" > "$dir/data"
@@ -978,7 +981,7 @@ cmd_devapp_job() {
     waited=$((waited + 1))
   done
   renderer_port="$(cat "$DEVAPP_DIR/renderer-port")"
-  executable="$work/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+  if [ "$MAC" = 1 ]; then executable="$work/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"; else executable="$work/node_modules/electron/dist/electron"; fi
   fi
 
   node scripts/remote-checks/live-test-copy.js prepare "$DEVAPP_DIR" "$data" "$executable" "$mode" "$(cat "$DEVAPP_DIR/tree")" "$port" ||
@@ -998,12 +1001,31 @@ cmd_devapp_job() {
     --args --js-flags=--max-old-space-size=8192 "--remote-debugging-port=$port" ||
     devapp_fail 'the Mac would not open the packaged test copy'
   else
+  if [ "$MAC" = 1 ]; then
   open -n -g -a "$work/node_modules/electron/dist/Electron.app" \
     --stdout "$DEVAPP_DIR/app.out" --stderr "$DEVAPP_DIR/app.err" \
     --env "AIO_DEV_USER_DATA_PATH=$data" --env "PORT=$renderer_port" \
     --env AIO_LIVETEST=1 --env "AIO_LIVETEST_USER_DATA_PATH=$data" --env "AIO_LIVETEST_OWNER_FILE=$DEVAPP_DIR/livetest-owner.json" \
     --args --js-flags=--max-old-space-size=8192 "$work" "--remote-debugging-port=$port" ||
     devapp_fail 'the Mac would not open Harness'
+  else
+    # Linux has no keychain to reach, so Harness starts from this job, on a screen of its own in the job's group. The
+    # screen is started apart from Harness rather than through xvfb-run, which would close it if Harness started itself
+    # again (LT-731). A copy's packages have no setuid sandbox helper, so Chromium's sandbox is off, as in CI.
+    # -fbdir puts the copy's folder on the screen's command line, so a clean-up after the job was killed outright finds it.
+    # Only Linux's abstract socket: WSL mounts /tmp/.X11-unix for its own display, and nobody else can make sockets in it.
+    Xvfb -displayfd 4 -screen 0 1920x1200x24 -nolisten tcp -nolisten unix -fbdir "$DEVAPP_DIR/" 4> "$DEVAPP_DIR/display" > "$DEVAPP_DIR/xvfb.log" 2>&1 &
+    waited=0
+    until [ -s "$DEVAPP_DIR/display" ]; do
+      [ "$waited" -lt 30 ] || devapp_fail 'the screen for Harness did not start'
+      sleep 1
+      waited=$((waited + 1))
+    done
+    DISPLAY=":$(tr -dc 0-9 < "$DEVAPP_DIR/display")" AIO_DEV_USER_DATA_PATH="$data" PORT="$renderer_port" AIO_LIVETEST=1 \
+      AIO_LIVETEST_USER_DATA_PATH="$data" AIO_LIVETEST_OWNER_FILE="$DEVAPP_DIR/livetest-owner.json" \
+      "$executable" --js-flags=--max-old-space-size=8192 "$work" "--remote-debugging-port=$port" --no-sandbox \
+      < /dev/null > "$DEVAPP_DIR/app.out" 2> "$DEVAPP_DIR/app.err" &
+  fi
   fi
   waited=0
   # Ready once Harness's window exists, which its debugging port lists as a page; the port itself answers sooner.
@@ -1112,6 +1134,32 @@ cmd_devapp_stop() {
   echo "stopped the Harness copy on port $1"
 }
 
+# devapp-load <port>: one result line with the 5-minute load average, the processors, the live copies and, when the
+# copy on that port is one of them, its files' tree, data folder and mode, so dev-app.js can pass a busy machine by and
+# go back to the one with its copy. `kept` says that port's folder is still here, live or not, so `shell` can read a
+# stopped copy's logs. Every value is a number or a fixed-form name, so none needs escaping.
+cmd_devapp_load() {
+  local load cores dir copies=0 copy=null kept=false
+  devapp_port_ok "${1:-}" || exit 4
+  dir="$(devapp_dir "$1")"
+  [ -d "$dir" ] && kept=true
+  if devapp_alive "$dir"; then
+    copy="$(printf '{"tree":"%s","data":"%s","mode":"%s"}' "$(cat "$dir/tree" 2>/dev/null)" "$(cat "$dir/data" 2>/dev/null)" "$(cat "$dir/mode" 2>/dev/null || echo dev)")"
+  fi
+  if [ "$MAC" = 1 ]; then
+    # C locale: in some others the decimal point is a comma, which is not JSON.
+    load="$(LC_ALL=C sysctl -n vm.loadavg | awk '{print $3}')"
+    cores="$(sysctl -n hw.ncpu)"
+  else
+    load="$(awk '{print $2}' /proc/loadavg)"
+    cores="$(nproc)"
+  fi
+  for dir in "$DEVAPPS"/apps/*; do
+    [ -d "$dir" ] && devapp_alive "$dir" && copies=$((copies + 1))
+  done
+  printf '%s{"load":%s,"cores":%s,"copies":%s,"limit":%s,"copy":%s,"kept":%s}\n' "$RESULT_PREFIX" "$load" "$cores" "$copies" "$DEVAPP_LIMIT" "$copy" "$kept"
+}
+
 cmd_devapp_status() {
   local dir port found=0
   for dir in "$DEVAPPS"/apps/*; do
@@ -1153,5 +1201,6 @@ case "$command_name" in
   devapp-shell) cmd_devapp_shell "$@" ;;
   devapp-stop) cmd_devapp_stop "$@" ;;
   devapp-status) cmd_devapp_status ;;
-  *) echo "usage: remote-run.sh bases|receive|related|argv|checks|run|fetch|devapp-start|devapp-shell|devapp-stop|devapp-status" >&2; exit 2 ;;
+  devapp-load) cmd_devapp_load "$@" ;;
+  *) echo "usage: remote-run.sh bases|receive|related|argv|checks|run|fetch|devapp-start|devapp-shell|devapp-stop|devapp-status|devapp-load" >&2; exit 2 ;;
 esac

@@ -64,6 +64,7 @@ export function buildInstanceRecord(
       || crossPlatformBasename(parentContext.workingDirectory)
       || `Instance ${now}`,
     isRenamed: config.isRenamed,
+    ...(config.watcherMuted ? { watcherMuted: true } : {}),
     createdAt: now,
     historyThreadId,
     evidenceConversationOwner: config.evidenceConversationOwner,

@@ -169,6 +169,7 @@ import {
 } from './instance-input-cancellation';
 import { summarizeCreateInstanceConfig } from './lifecycle/instance-create-logging';
 import { automatedResendInput, formatInternalInputForProvider, heldTurnResendInput, internalInputMetadata } from './internal-input-provenance';
+import { WATCHER_APPROVAL_METADATA_KEY } from '../session-watcher/watcher-brief';
 import { getInputTurnRegistry } from './input-turn-registry';
 import { cancelInstanceProviderLimitResumes } from './instance-provider-limit-resume-scheduler';
 import { resolveNativeOpenCodeCommandInput } from '../commands/provider-native-commands';
@@ -1741,6 +1742,7 @@ export class InstanceManager extends EventEmitter {
       };
     }
     if (personOrigin) userMessage.metadata = { ...userMessage.metadata, inputOrigin: personOrigin };
+    if (options?.watcherApproval) userMessage.metadata = { ...userMessage.metadata, [WATCHER_APPROVAL_METADATA_KEY]: { question: options.watcherApproval.question } };
     // Every input is the session's latest input, so a later notice, automation prompt or steer displaces a person's message.
     getInputTurnRegistry().noteInput(instanceId, { messageId: userMessage.id, personTypedAt: personOrigin?.typedAt ?? null });
     recordedInputId = userMessage.id;

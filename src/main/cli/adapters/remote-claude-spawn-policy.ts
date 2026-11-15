@@ -50,6 +50,7 @@ export function resolveRemoteClaudeSpawnPolicy(
     ...(options.machineSession ? { machineSession: options.machineSession } : {}),
     ...(contextCeilingTokens !== undefined && contextCeilingTokens > 0 ? { contextCeilingTokens } : {}),
     ...(options.readOnlyReview === true ? { readOnlyReview: true } : {}),
+    ...(options.plainCompletion === true ? { plainCompletion: true } : {}),
     ...(options.maxTurns !== undefined && options.maxTurns > 0 ? { maxTurns: options.maxTurns } : {}),
     ...(typeof options.maxBudgetUsd === 'number' && Number.isFinite(options.maxBudgetUsd) && options.maxBudgetUsd > 0
       ? { maxBudgetUsd: options.maxBudgetUsd }

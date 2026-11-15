@@ -4,10 +4,12 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueCapabilityGap } from '@contracts/schemas/plan-queue';
 import { coordinator, fake, git, itemIdOf, repo, store, waitForRun, writeDoc } from './plan-queue-coordinator.test-helpers';
+import { PlanQueueItemFlow } from './plan-queue-item-flow';
 import { newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueCapabilityService, type CapabilityHooks } from './plan-queue-capability-service';
+import type { PlanQueueRun } from './plan-queue.types';
 import type { CapabilityRepair } from './plan-queue-capability-store';
-import { enableCapabilityRepairs } from './plan-queue-capability-control';
+import { enableCapabilityRepairs, retryCapabilityOrigin } from './plan-queue-capability-control';
 
 function fixture(role: 'worker' | 'triage' | 'verifier' = 'worker') {
   const parent = fake.addParent();
@@ -24,7 +26,7 @@ function fixture(role: 'worker' | 'triage' | 'verifier' = 'worker') {
   const hooks: CapabilityHooks = { currentTriage: () => true, forgetTriage: vi.fn(), accountRules: () => ({ never: [], last: [] }),
     sourceSettled: () => true,
     excludedProviders: () => [],
-    controlRun: vi.fn(async () => undefined), retryOrigin: vi.fn(async () => undefined) };
+    controlRun: vi.fn(async () => undefined), retryOrigin: vi.fn(async () => true) };
   const launch = vi.fn(async () => undefined);
   const service = new PlanQueueCapabilityService(coordinator, hooks, Date.now, launch);
   const gap: PlanQueueCapabilityGap = { capabilityKey: 'owned-session', check: 'Disposable session', requiredAction: 'Create a disposable restricted session',
@@ -151,6 +153,93 @@ function landedRepair(repair: CapabilityRepair, suffix = '') {
 }
 
 describe('repair completion and original check revalidation', () => {
+  it.each([false, true].flatMap(retained => ['before-item-save', 'after-item-save', 'after-reopen'].map(boundary => ({ retained, boundary }))))('recovers a durable retry after restart $boundary (retained work: $retained)', async ({ boundary, retained }) => {
+    const { service, gap, hooks, launch } = fixture('triage');
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    landedRepair(store.capabilities.get(repairId)!);
+    store.upsertRun({ ...coordinator.getRun('source'), status: 'completed' });
+    if (retained) coordinator.save({ ...coordinator.getItem('origin'), branchName: 'main' });
+    let enter!: () => void;
+    const entered = new Promise<void>(resolve => { enter = resolve; });
+    hooks.retryOrigin = async () => {
+      if (boundary !== 'before-item-save') coordinator.transition(coordinator.getItem('origin'), retained ? 'queued' : 'discovered', { parkReason: null });
+      if (boundary === 'after-reopen') store.upsertRun({ ...coordinator.getRun('source'), status: 'running' });
+      enter();
+      return new Promise<boolean>(() => undefined); // The old process ends here, before origin finalisation.
+    };
+    void service.reconcile();
+    await entered;
+    const flow = new PlanQueueItemFlow(coordinator);
+    const resume = vi.fn((id: string, admitted: () => boolean) => flow.resume(id, admitted));
+    const reopen = vi.fn((run: PlanQueueRun) => store.upsertRun({ ...run, status: 'running' }));
+    const restarted = new PlanQueueCapabilityService(coordinator, { ...hooks,
+      retryOrigin: id => retryCapabilityOrigin(coordinator, id, resume, reopen),
+    }, Date.now, launch);
+    await restarted.reconcile();
+    expect(store.capabilities.get(repairId)?.state).toBe('verifying-origin');
+    expect(store.capabilities.origins(repairId)[0]?.state).toBe('retrying');
+    expect(coordinator.getItem('origin').state).toBe(retained ? 'queued' : 'discovered');
+    expect(restarted.waitingForRepair('origin')).toBe(false);
+    expect(resume).toHaveBeenCalledTimes(retained && boundary === 'before-item-save' ? 1 : 0);
+    expect(reopen).toHaveBeenCalledTimes(1);
+    expect(coordinator.getRun('source').status).toBe('running');
+    await restarted.reconcile();
+    expect(reopen).toHaveBeenCalledTimes(1);
+  });
+  it.each(['source-paused', 'source-cancelled', 'repair-paused', 'repair-cancelled'] as const)('retains operator control during asynchronous original resume: %s', async stop => {
+    const { service, gap, hooks } = fixture('triage');
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    landedRepair(store.capabilities.get(repairId)!);
+    coordinator.save({ ...coordinator.getItem('origin'), branchName: 'main' });
+    const flow = new PlanQueueItemFlow(coordinator);
+    const reopen = vi.fn();
+    vi.spyOn(coordinator.history, 'recordDocumentTransformation').mockImplementation(() => {
+      const runId = stop.startsWith('source') ? 'source' : 'repair-run';
+      store.upsertRun({ ...coordinator.getRun(runId), status: stop.endsWith('paused') ? 'paused' : 'cancelled' });
+    });
+    hooks.retryOrigin = id => retryCapabilityOrigin(coordinator, id, (itemId, admitted) => flow.resume(itemId, admitted), reopen);
+    await service.reconcile();
+    expect(coordinator.getItem('origin')).toMatchObject({ state: 'parked', parkReason: 'needs-setup' });
+    expect(store.capabilities.origins(repairId)[0]?.state).toBe('waiting');
+    expect(reopen).not.toHaveBeenCalled();
+  });
+
+  it('does not finalize a retry when cancellation arrives after the item and run saves', async () => {
+    const { service, gap, hooks } = fixture('triage');
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    landedRepair(store.capabilities.get(repairId)!);
+    hooks.retryOrigin = async id => {
+      const result = await retryCapabilityOrigin(coordinator, id, async () => undefined, () => undefined);
+      store.upsertRun({ ...coordinator.getRun('source'), status: 'cancelled' });
+      return result;
+    };
+    await service.reconcile();
+    expect(store.capabilities.origins(repairId)[0]?.state).toBe('waiting');
+    await service.reconcile();
+    expect(store.capabilities.origins(repairId)[0]?.state).toBe('withdrawn');
+  });
+
+  it('refuses original PASS until every retried check has independent evidence for the current checkpoint', async () => {
+    const { service, gap } = fixture('verifier');
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });
+    await service.reportGap('caller', { item_id: 'origin', gap: { ...gap, check: 'Remove owned session' } });
+    for (const origin of store.capabilities.origins(repairId)) store.capabilities.setOriginState(origin, 'retrying');
+    const checkpoint = git(['rev-parse', 'HEAD']);
+    coordinator.save({ ...coordinator.getItem('origin'), checkpointCommit: checkpoint });
+    const pass = () => coordinator.reportVerdict('caller', { item_id: 'origin', verdict: 'PASS', findings: [],
+      gates_run: [], document_complete: true, need_james: [], not_checked: [] });
+    expect(pass).toThrow(/original check/);
+    expect(coordinator.getItem('origin').verdict).toBeNull();
+    service.reportCheck('caller', { item_id: 'origin', repair_id: repairId, check: gap.check, evidence: 'Owned session responded on the test Mac.' });
+    expect(pass).toThrow(/original check/);
+    service.reportCheck('caller', { item_id: 'origin', repair_id: repairId, check: 'Remove owned session', evidence: 'Owned session was removed on the test Mac.' });
+    coordinator.save({ ...coordinator.getItem('origin'), checkpointCommit: 'later-checkpoint' });
+    expect(pass).toThrow(/original check/);
+    coordinator.save({ ...coordinator.getItem('origin'), checkpointCommit: checkpoint });
+    expect(pass()).toMatchObject({ accepted: true });
+    // Accepted verdicts remain pending until the checker ends its turn.
+    expect(coordinator.getItem('origin').state).toBe('verifying');
+  });
   it('parks a failed original retry without repeatedly recycling a landed repair', async () => {
     const { service, gap, hooks } = fixture();
     const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap });

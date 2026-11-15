@@ -48,13 +48,79 @@ export interface OneTimeCodeFillScope {
   origin: string;
 }
 
+/** Private device-login receipt. Contains authority bindings, never the code. */
+export interface DeviceCodeFillScope extends OneTimeCodeFillScope {
+  instanceId: string;
+  ownerGeneration: string;
+  operationHandle: string;
+  nativeNodeId: string;
+  nativeProfileId: string;
+  browserNodeId: string;
+  expectedIdentity: string;
+  approvalId: string;
+  documentId: string;
+  extensionInstanceId: string;
+  extensionGeneration: string;
+  expiresAt: number;
+}
+
+const DEVICE_SCOPE_KEYS = [
+  'instanceId', 'ownerGeneration', 'profileId', 'targetId', 'origin', 'operationHandle',
+  'nativeNodeId', 'nativeProfileId', 'browserNodeId', 'expectedIdentity', 'approvalId',
+  'documentId', 'extensionInstanceId', 'extensionGeneration',
+] as const satisfies readonly (keyof DeviceCodeFillScope)[];
+
 export class BrowserOneTimeCodeFillLedger {
-  private readonly fills = new Map<string, { origin: string; filledAt: number }>();
+  private readonly fills = new Map<string, { origin: string; filledAt: number; profileId: string; targetId: string }>();
+  private readonly deviceFills = new Map<string, { scope: DeviceCodeFillScope; spent: boolean }>();
 
   constructor(private readonly now: () => number = () => Date.now()) {}
 
   record(scope: OneTimeCodeFillScope): void {
-    this.fills.set(fillKey(scope), { origin: scope.origin.toLowerCase(), filledAt: this.now() });
+    this.invalidateDeviceTab(scope);
+    this.fills.set(fillKey(scope), {
+      origin: scope.origin.toLowerCase(), filledAt: this.now(), profileId: scope.profileId, targetId: scope.targetId,
+    });
+  }
+
+  /** Call only after verified private fill, using the native operation's deadline. */
+  recordDevice(scope: DeviceCodeFillScope): boolean {
+    const now = this.now();
+    for (const [handle, fill] of this.deviceFills) {
+      if (now >= fill.scope.expiresAt) this.deviceFills.delete(handle);
+    }
+    if (scope.origin !== 'https://auth.openai.com'
+      || DEVICE_SCOPE_KEYS.some((key) => typeof scope[key] !== 'string' || !scope[key].trim())
+      || !Number.isFinite(scope.expiresAt) || scope.expiresAt <= now || scope.expiresAt > now + 5 * 60_000
+      || this.deviceFills.has(scope.operationHandle) || this.deviceFills.size >= 64) return false;
+    this.invalidateDeviceTab(scope);
+    for (const [key, fill] of this.fills) {
+      if (fill.profileId === scope.profileId && fill.targetId === scope.targetId) this.fills.delete(key);
+    }
+    this.deviceFills.set(scope.operationHandle, { scope: { ...scope }, spent: false });
+    return true;
+  }
+
+  /** Atomic final check and spend, immediately before dedicated submit dispatch. */
+  consumeDevice(scope: DeviceCodeFillScope): boolean {
+    const fill = this.deviceFills.get(scope.operationHandle);
+    if (!fill || fill.spent || this.now() >= fill.scope.expiresAt
+      || fill.scope.expiresAt !== scope.expiresAt
+      || DEVICE_SCOPE_KEYS.some((key) => fill.scope[key] !== scope[key])) return false;
+    fill.spent = true;
+    return true;
+  }
+
+  /** Cancellation and lost document/connection authority burn the remaining submit. */
+  invalidateDevice(operationHandle: string): void {
+    const fill = this.deviceFills.get(operationHandle);
+    if (fill) fill.spent = true;
+  }
+
+  private invalidateDeviceTab(scope: OneTimeCodeFillScope): void {
+    for (const fill of this.deviceFills.values()) {
+      if (fill.scope.profileId === scope.profileId && fill.scope.targetId === scope.targetId) fill.spent = true;
+    }
   }
 
   /** Whether a live fill matches this session, tab and origin. Does not spend it. */

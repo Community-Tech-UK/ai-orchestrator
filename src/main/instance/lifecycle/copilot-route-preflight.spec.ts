@@ -146,6 +146,7 @@ describe('Copilot spawn-path bypass detection', () => {
     'src/main/orchestration/consensus-coordinator.ts',
     'src/main/orchestration/multi-verify-coordinator.ts',
     'src/main/instance/auto-title-service.ts',
+    'src/main/session-watcher/watcher-judge.ts',
     'src/main/magic-prompts/magic-prompt-service.ts',
     'src/main/compare/council-provider-invoke.ts',
     'src/main/review/review-execution-host.ts',

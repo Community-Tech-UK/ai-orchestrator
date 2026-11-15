@@ -206,6 +206,13 @@ describe('verified retry landing', () => {
     expect(await readFile(test.get().sourceRef, 'utf8')).not.toContain('Plan Queue parked work');
   });
 
+  it.each(['paused', 'cancelled'] as const)('does not queue an automatic resume when the source becomes %s during retained-work cleanup', async status => {
+    const test = fixture({ landedCommit: null, parkReason: 'needs-setup' });
+    vi.spyOn(test.host.history, 'recordDocumentTransformation').mockImplementation(() => { test.run.status = status; });
+    await test.flow.resume('item-1', () => test.run.status === 'running');
+    expect(test.get()).toMatchObject({ state: 'parked', parkReason: 'needs-setup' });
+  });
+
   it('forgets cached check results on Resume, so the checks really run again', async () => {
     const forget = vi.spyOn(PlanQueueGateRunner.prototype, 'forgetCommit');
     const test = fixture({ landedCommit: null, checkpointCommit: 'checked-commit' });

@@ -1,10 +1,11 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
-const { prepareOwner, readRuntime, packagedBuildArgs } = require('./live-test-copy.js');
+const { prepareOwner, readRuntime, packagedBuildArgs, materializePackageDependencies } = require('./live-test-copy.js');
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })));
 function fixture() {
@@ -18,6 +19,28 @@ function fixture() {
 }
 
 describe('isolated live-test copy', () => {
+  it('gives npm a real dependency root so nested package metadata reaches the signed package', () => {
+    const f = fixture();
+    const cache = join(f.root, 'install/node_modules');
+    const repo = join(f.root, 'repo');
+    for (const name of ['fixture-parent', 'fixture-child']) {
+      mkdirSync(join(cache, name), { recursive: true });
+      writeFileSync(join(cache, name, 'package.json'), JSON.stringify({ name, version: '1.0.0',
+        ...(name === 'fixture-parent' ? { dependencies: { 'fixture-child': '1.0.0' } } : {}) }));
+    }
+    writeFileSync(join(repo, 'package.json'), JSON.stringify({ name: 'fixture-project', version: '1.0.0', dependencies: { 'fixture-parent': '1.0.0' } }));
+    symlinkSync(cache, join(repo, 'node_modules'));
+    const inspect = () => {
+      const result = spawnSync('npm', ['list', '-a', '--include', 'prod', '--include', 'optional', '--omit', 'dev', '--json', '--long', '--silent', '--loglevel=error'], { cwd: repo, encoding: 'utf8' });
+      return JSON.parse(result.stdout).dependencies['fixture-parent'].dependencies['fixture-child'];
+    };
+    expect(inspect().version).toBeUndefined();
+    materializePackageDependencies(f.root);
+    expect(lstatSync(join(repo, 'node_modules')).isSymbolicLink()).toBe(false);
+    expect(inspect()).toMatchObject({ version: '1.0.0', path: join(repo, 'node_modules/fixture-child') });
+    writeFileSync(join(repo, 'node_modules/fixture-child/package.json'), 'owned change');
+    expect(JSON.parse(readFileSync(join(cache, 'fixture-child/package.json'), 'utf8')).version).toBe('1.0.0');
+  });
   it('creates its own profile and can relaunch that profile without replacing its data', () => {
     const f = fixture();
     prepareOwner(f);

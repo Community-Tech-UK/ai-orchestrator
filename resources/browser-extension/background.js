@@ -1,3 +1,5 @@
+importScripts('codex-device-handoff.js');
+
 const LEGACY_HOST_NAME = 'com.ai_orchestrator.browser_gateway';
 const RELAY_HOST_NAME = 'com.ai_orchestrator.browser_gateway_relay';
 const BRIDGE_DEFINITIONS = [
@@ -133,6 +135,8 @@ let gatewayEnabled = false;
 let gatewayStateLoaded = false;
 let gatewayStatePromise = null;
 let secretObservationBoundary = Promise.resolve();
+let codexDeviceAdapter = null;
+const codexDeviceCommandPorts = new WeakMap();
 const sharedTabs = [];
 const bridges = BRIDGE_DEFINITIONS.map(createBridge);
 const controlledTabLeases = new Map();
@@ -571,6 +575,7 @@ function setBridgeState(bridge, state) {
     return;
   }
   bridge.state = state;
+  if (state !== 'connected') codexDeviceAdapter?.invalidateAll();
   bridge.stateChangedAt = Date.now();
   if (state === 'connected') {
     bridge.unhealthySince = null;
@@ -718,6 +723,7 @@ function assertGatewayEnabled() {
 }
 
 function stopAllBridges() {
+  codexDeviceAdapter?.invalidateAll();
   for (const bridge of bridges) {
     clearReconnectTimer(bridge);
     clearPollInFlight(bridge);
@@ -1323,6 +1329,9 @@ async function handleNativeMessage(message, bridge) {
     return;
   }
   const command = message.command;
+  if (typeof command.command === 'string' && command.command.startsWith('codex_device_')) {
+    codexDeviceCommandPorts.set(command, { bridge, port: bridge.nativePort });
+  }
   // Ack receipt BEFORE executing: the gateway uses this to distinguish "the
   // handoff died and the command never ran" (safe to retry) from "the command
   // ran but its result never came back" (verify before retrying a mutation).
@@ -1622,6 +1631,7 @@ async function applySecretObservationProtectionEnabled(enabled) {
     secretRecoveryRequest = null;
     return;
   }
+  if (!next) codexDeviceAdapter?.invalidateAll();
   return runWithSecretObservationBoundary(async () => {
     await loadSecretTaints();
     secretObservationProtectionEnabled = next;
@@ -1921,6 +1931,9 @@ async function targetSecretTaintOrigin(command) {
 }
 
 function browserCommandErrorMessage(command, error, targetSecretTainted = false) {
+  if (typeof command?.command === 'string' && command.command.startsWith('codex_device_')) {
+    return 'codex_device_handoff_refused';
+  }
   if (secretObservationGuardErrors.has(error)) {
     return error.message;
   }
@@ -2012,6 +2025,55 @@ function browserCommandErrorMessage(command, error, targetSecretTainted = false)
   return error instanceof Error ? error.message : String(error);
 }
 
+function sanitizeCodexDeviceResult(command, result) {
+  const fail = () => { throw new Error('codex_device_handoff_refused'); };
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return fail();
+  const keys = Object.keys(result);
+  const documentId = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]{1,256}$/.test(value);
+  if (command.command === 'codex_device_context') {
+    if (keys.length !== 4 || !documentId(result.documentId) || result.identityMatches !== true
+      || result.extensionInstanceId !== extensionInstanceId || result.extensionGeneration !== String(SW_STARTED_AT)) return fail();
+    return { documentId: result.documentId, extensionInstanceId, extensionGeneration: String(SW_STARTED_AT), identityMatches: true };
+  }
+  if (command.command === 'codex_device_attest') {
+    if (keys.length !== 2 || result.completed !== true || !documentId(result.deviceDocumentId)
+      || result.deviceDocumentId !== command.payload?.binding?.documentId) return fail();
+    return { completed: true, deviceDocumentId: result.deviceDocumentId };
+  }
+  if (command.command === 'codex_device_cancel') {
+    if (keys.length !== 1 || result.completed !== true) return fail();
+    return { completed: true };
+  }
+  if (!['codex_device_fill', 'codex_device_submit'].includes(command.command)
+    || keys.length !== 2 || result.completed !== true
+    || result.observationBlocked !== 'browser_secret_observation_blocked_for_tainted_origin') return fail();
+  return { completed: true, observationBlocked: 'browser_secret_observation_blocked_for_tainted_origin' };
+}
+
+async function executeCodexDeviceCommand(command, deadlineAt) {
+  try {
+    const dispatch = codexDeviceCommandPorts.get(command);
+    if (!dispatch?.port || dispatch.bridge.nativePort !== dispatch.port || dispatch.bridge.state !== 'connected') {
+      throw new Error('codex_device_handoff_refused');
+    }
+    if (!codexDeviceAdapter) {
+      codexDeviceAdapter = createCodexDeviceExtensionAdapter({
+        chrome,
+        runtime: () => ({ extensionInstanceId, extensionGeneration: String(SW_STARTED_AT) }),
+        enabled: () => gatewayEnabled && isSecretObservationProtectionEnabled(),
+        withBoundary: runWithSecretObservationBoundary,
+        taint: markSecretTaintLocked,
+      });
+    }
+    return await codexDeviceAdapter.run(command, deadlineAt, dispatch.bridge);
+  } catch {
+    throw new Error('codex_device_handoff_refused');
+  } finally {
+    if (command.command === 'codex_device_fill' && command.payload) delete command.payload.code;
+    codexDeviceCommandPorts.delete(command);
+  }
+}
+
 async function runBrowserCommand(command, bridge) {
   const reloadCommand = command?.command === 'reload';
   // The internal origin-bound writer is itself proof that this command may
@@ -2073,7 +2135,9 @@ async function runBrowserCommand(command, bridge) {
         || result.httpAuth === 'not_challenged')
       ? result.httpAuth
       : undefined;
-    const safeResult = !reloadCommand
+    const safeResult = typeof command?.command === 'string' && command.command.startsWith('codex_device_')
+      ? sanitizeCodexDeviceResult(command, result)
+      : !reloadCommand
       && (typeof secretTaintOrigin === 'string' || sensitiveOriginBoundType)
       ? {
           completed: true,
@@ -2112,6 +2176,10 @@ async function runBrowserCommand(command, bridge) {
     // this one is still running (the disconnect handler still resets the flag
     // if the channel drops mid-command; the commandChain stays the correctness
     // backstop for any command that arrives through that path).
+    if (typeof command?.command === 'string' && command.command.startsWith('codex_device_')) {
+      if (command.command === 'codex_device_fill' && command.payload) delete command.payload.code;
+      codexDeviceCommandPorts.delete(command);
+    }
     clearPollInFlight(bridge);
     // Re-arm BEFORE the status write. Ordering matters twice over here: losing
     // the re-arm would strand this bridge until the 30s inventory alarm, and a
@@ -2178,6 +2246,7 @@ async function forceReleaseCommandResources(command) {
   if (typeof tabId !== 'number') {
     return;
   }
+  codexDeviceAdapter?.invalidateTab(tabId);
   // The watchdog path is one of the "command ended" cases: a killed
   // http_auth_navigate must never leave its staged credential behind.
   clearHttpAuthStage(tabId);
@@ -2448,6 +2517,12 @@ async function executeBrowserCommand(command, deadlineAt) {
   await applySecretObservationProtectionFromCommand(command);
   await assertSecretObservationAllowed(command);
   switch (command.command) {
+    case 'codex_device_context':
+    case 'codex_device_attest':
+    case 'codex_device_fill':
+    case 'codex_device_submit':
+    case 'codex_device_cancel':
+      return executeCodexDeviceCommand(command, deadlineAt);
     case 'report_inventory':
       await reportTabInventory();
       return { reported: true, secretObservation: await secretObservationStatus() };

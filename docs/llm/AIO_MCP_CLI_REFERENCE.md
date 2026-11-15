@@ -221,8 +221,9 @@ the two account-pool keys (`providerAccountProfiles`,
 provider-and-account choice (`planQueueRouting`), the Plan Queue never-use and use-last account lists (`planQueueAccountRules`), the Plan Queue checklist for each project folder (`planQueueFolderChecklists`), the two Workspace Secret Card keys (`workspaceSecretsEnabled`,
 `workspaceSecretsAllowAgentRequests`), the post-fill observation lock
 (`browserSecretObservationProtectionEnabled`), the macOS session signal
-fence (`providerSignalFenceEnabled`), and automatic Codex backup deletion
-(`codexBackupKeepThree`).
+fence (`providerSignalFenceEnabled`), automatic Codex backup deletion
+(`codexBackupKeepThree`), and how far Harness may keep sessions going without
+the user (`keepSessionsGoing`).
 `PRIVILEGED_CLI_OPERATOR_ONLY_KEYS` in
 `src/main/core/config/settings-control-policy.ts` is the authoritative list.
 `planQueueAccountRules` (26th anchor) is the never-use and use-last account list for

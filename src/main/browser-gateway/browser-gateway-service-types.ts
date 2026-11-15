@@ -298,7 +298,7 @@ export interface BrowserGatewayServiceOptions {
   reliabilityEvents?: Pick<BrowserReliabilityEvents, 'record'>;
   auditStore?: Pick<BrowserAuditStore, 'record' | 'list' | 'countChromeProfileUse'>;
   grantStore?: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
-  approvalStore?: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
+  approvalStore?: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest' | 'resolveDeviceLoginRequest' | 'expireDeviceLoginRequest'>;
   healthService?: Pick<BrowserHealthService, 'diagnose'>;
   workerNodeRegistry?: Pick<WorkerNodeRegistry, 'getHealthyNodes'>;
   sendServiceRpc?: (

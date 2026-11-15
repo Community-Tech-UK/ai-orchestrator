@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import type {
   BrowserApprovalRequest,
   BrowserApprovalRequestLookup,
@@ -29,7 +30,7 @@ import { approvalComputerId, grantScopeForApproval } from './browser-grant-scope
 import { getBrowserCredentialAccessService } from './browser-credential-access-service';
 
 interface BrowserGatewayApprovalOperationsDeps {
-  approvalStore: Pick<BrowserApprovalStore, 'getRequest' | 'listRequests' | 'resolveRequest'>;
+  approvalStore: Pick<BrowserApprovalStore, 'getRequest' | 'listRequests' | 'resolveRequest' | 'resolveDeviceLoginRequest' | 'expireDeviceLoginRequest'>;
   grantStore: Pick<BrowserGrantStore, 'listGrants' | 'createGrant' | 'revokeGrant'> & Partial<Pick<BrowserGrantStore, 'getGrant'>>;
   profileStore: Pick<BrowserProfileStore, 'getProfile' | 'setRuntimeState'>;
   autoApproveApproval?: (approval: BrowserApprovalRequest) => BrowserPermissionGrant | null;
@@ -150,7 +151,7 @@ export class BrowserGatewayApprovalOperations {
   async approveRequest(
     request: BrowserGatewayContext & BrowserApproveRequestPayload,
   ): Promise<BrowserGatewayResult<BrowserPermissionGrant | null>> {
-    BrowserApproveRequestPayloadSchema.parse({ requestId: request.requestId, grant: request.grant, reason: request.reason, credentialAccess: request.credentialAccess });
+    BrowserApproveRequestPayloadSchema.parse({ requestId: request.requestId, grant: request.grant, reason: request.reason, credentialAccess: request.credentialAccess, deviceLogin: request.deviceLogin });
     const approval = this.getScopedApprovalRequest(request.requestId, request.instanceId);
     if (!approval) {
       return this.deps.result({
@@ -162,6 +163,21 @@ export class BrowserGatewayApprovalOperations {
         outcome: 'not_run',
         reason: 'approval_request_not_found',
         summary: 'Browser approval request could not be approved because it was not found',
+        data: null,
+      });
+    }
+    if (approval.deviceLogin) {
+      const exactChoice = request.deviceLogin?.permission === 'operation' && !request.credentialAccess &&
+        request.grant.mode === 'per_action' && !request.grant.autonomous && !request.grant.allowExternalNavigation &&
+        isDeepStrictEqual(request.grant, approval.proposedGrant);
+      const current = exactChoice
+        ? this.deps.approvalStore.resolveDeviceLoginRequest(approval.requestId, approval.deviceLogin, 'approved') : null;
+      return this.deps.result({
+        context: request, profileId: approval.profileId, targetId: approval.targetId,
+        action: 'approve_request', toolName: 'browser.approve_request', actionClass: 'credential',
+        decision: current ? 'allowed' : 'denied', outcome: current ? 'succeeded' : 'not_run',
+        reason: current ? undefined : 'device_login_approval_not_applied',
+        summary: current ? 'Approved this Codex sign-in only' : 'This Codex sign-in could not be approved',
         data: null,
       });
     }
@@ -273,6 +289,17 @@ export class BrowserGatewayApprovalOperations {
         reason: 'approval_request_not_found',
         summary: 'Browser approval request could not be denied because it was not found',
         data: null,
+      });
+    }
+    if (approval.deviceLogin) {
+      const current = this.deps.approvalStore.resolveDeviceLoginRequest(approval.requestId, approval.deviceLogin, 'denied');
+      return this.deps.result({
+        context: request, profileId: approval.profileId, targetId: approval.targetId,
+        action: 'deny_request', toolName: 'browser.deny_request', actionClass: 'credential',
+        decision: current ? 'allowed' : 'denied', outcome: current ? 'succeeded' : 'not_run',
+        reason: current ? undefined : 'device_login_approval_not_applied',
+        summary: current ? 'Denied this Codex sign-in' : 'This Codex sign-in is no longer pending',
+        data: current,
       });
     }
     if (approval.credentialAccess) {
@@ -422,12 +449,14 @@ export class BrowserGatewayApprovalOperations {
 
   /** Adds the computer the approval is about (worked out now, never stored). Saved-login requests carry their own. */
   private withComputer(approval: BrowserApprovalRequest): BrowserApprovalRequest {
+    if (approval.deviceLogin) return { ...approval, computerId: approval.deviceLogin.browserNodeId };
     if (approval.credentialAccess) return approval;
     const computerId = approvalComputerId(approval.profileId, (id) => this.deps.profileStore.getProfile(id));
     return computerId ? { ...approval, computerId } : approval;
   }
 
   private expireApprovalIfNeeded(approval: BrowserApprovalRequest): BrowserApprovalRequest {
+    if (approval.deviceLogin) return this.deps.approvalStore.expireDeviceLoginRequest(approval.requestId) ?? approval;
     if (approval.credentialAccess) {
       return this.deps.refreshCredentialAccess
         ? this.deps.refreshCredentialAccess(approval)
@@ -442,7 +471,7 @@ export class BrowserGatewayApprovalOperations {
   }
 
   private resolvePendingApprovalIfNeeded(approval: BrowserApprovalRequest): BrowserApprovalRequest {
-    if (approval.status !== 'pending' || approval.credentialAccess) {
+    if (approval.status !== 'pending' || approval.credentialAccess || approval.deviceLogin) {
       return approval;
     }
     const grant = this.deps.autoApproveApproval?.(approval);

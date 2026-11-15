@@ -30,6 +30,7 @@
       "@contracts/schemas/workflow":         ["./packages/contracts/src/schemas/workflow.schemas"],
       "@contracts/schemas/pause":            ["./packages/contracts/src/schemas/pause.schemas"],
       "@contracts/schemas/global-pause": ["./packages/contracts/src/schemas/global-pause.schemas"],
+      "@contracts/schemas/session-watcher": ["./packages/contracts/src/schemas/session-watcher.schemas"],
       "@contracts/schemas/instance":         ["./packages/contracts/src/schemas/instance.schemas"],
       "@contracts/schemas/session":          ["./packages/contracts/src/schemas/session.schemas"],
       "@contracts/schemas/provider":         ["./packages/contracts/src/schemas/provider.schemas"],

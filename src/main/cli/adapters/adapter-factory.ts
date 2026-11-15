@@ -235,6 +235,7 @@ export function createClaudeAdapter(options: UnifiedSpawnOptions): ClaudeCliAdap
     machineSession: options.machineSession,
     contextCeilingTokens: options.contextCeilingTokens ?? resolveContextCeilingTokens(Boolean(options.machineSession)),
     readOnlyReview: options.readOnlyReview,
+    plainCompletion: options.plainCompletion,
     sessionId: options.sessionId,
     workingDirectory: options.workingDirectory,
     systemPrompt: options.systemPrompt,

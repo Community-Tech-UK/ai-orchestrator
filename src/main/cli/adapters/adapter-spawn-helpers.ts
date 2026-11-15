@@ -317,6 +317,8 @@ export interface AdapterGuidanceBlock {
 
 /** The exact blocks this adapter will append to the supplied system prompt. */
 export function getAdapterGuidanceBlocks(options: UnifiedSpawnOptions): AdapterGuidanceBlock[] {
+  // A plain completion has no tools to guide, and its prompt is measured exactly as written.
+  if (options.plainCompletion) return [];
   const computerUse = hasComputerUseBridge(options);
   const existingPrompt = options.systemPrompt?.trim() ?? '';
   const blocks: AdapterGuidanceBlock[] = [];

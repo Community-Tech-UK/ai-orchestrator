@@ -149,7 +149,7 @@ export const SETTING_SURFACING = {
   instanceProviderLimitResumeEnabled: 'tab',
   loopAllowProviderOverage: 'tab',
   sessionAllowProviderOverage: 'tab',
-  autoAnswerContinueQuestions: 'tab',
+  keepSessionsGoing: 'tab',
   quotaPacingWarningEnabled: 'tab',
   quotaPacingUtilizationThresholdPercent: 'tab',
   quotaPacingLatestElapsedPercent: 'tab',

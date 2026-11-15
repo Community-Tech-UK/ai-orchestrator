@@ -633,6 +633,7 @@ export class RpcEventRouter {
     let result = await bridge.pollCommand(
       nodeId,
       request.params as never,
+      this.connection.captureConfidentialResponder(nodeId, respond),
     );
     if (result && !bridge.validateCommandHandoff(nodeId, result.id)) result = null;
     const sent = respond(createRpcResponse(request.id, result));
@@ -692,7 +693,6 @@ export class RpcEventRouter {
       });
     }
   }
-
 }
 
 function isKnownPlatform(platform: unknown): platform is WorkerNodeCapabilities['platform'] {

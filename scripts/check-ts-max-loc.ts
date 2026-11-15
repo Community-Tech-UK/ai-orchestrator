@@ -230,7 +230,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/main/core/config/claude-md-loader.ts': 804,
   // Raised 776 -> 840 for the interSessionMessaging readOnly() MCP settings
   // policy entry (cross-session messaging, 2026-09-16).
-  'src/main/core/config/settings-control-policy.ts': 859, // +3: codexBackupKeepThree (policy entry, operator-only key and its comment); +5: one entry per Oct-2 Phase D setting (checker catalog, four Codex round limits); +1: computers (remote-first plan); +4: Microsoft 365 "Always allow" setting; +1: planQueueQuestionsDestination; +4: Plan Queue folder list (anchor, comment, policy entry, import); +1: autoAnswerContinueQuestions
+  'src/main/core/config/settings-control-policy.ts': 863, // +3: codexBackupKeepThree (policy entry, operator-only key and its comment); +5: one entry per Oct-2 Phase D setting (checker catalog, four Codex round limits); +1: computers (remote-first plan); +4: Microsoft 365 "Always allow" setting; +1: planQueueQuestionsDestination; +4: Plan Queue folder list (anchor, comment, policy entry, import); +1: autoAnswerContinueQuestions; +4: keepSessionsGoing replaces it (two comment lines, policy entry, operator-only key and its comment)
   'src/main/core/error-recovery.ts': 990,
   // Main process — history
   // Raised from 1582 for the fix to the intermittent "written as 0 bytes" CI
@@ -553,7 +553,7 @@ const ALLOWLIST: Record<string, number> = {
   // filter, and message context-menu items extracted.
   // Raised 1222 -> 1228: AsyncQuestionAnswersComponent import + registration and
   // the asyncAnswerTarget input chat hosts use (the logic lives in that component).
-  'src/renderer/app/features/instance-detail/output-stream.component.ts': 1228,
+  'src/renderer/app/features/instance-detail/output-stream.component.ts': 1233, // +5: the session watcher's one-click "Stop doing this in this session" (store, muted state, action)
   // Allowlisted at 747 when the Outputs rows gained a right-click context menu
   // (Open with preferred program / Open in editor / Open in Finder / Copy path),
   // mirroring session-artifacts-strip. Inline template + styles push it past 700.
@@ -561,7 +561,7 @@ const ALLOWLIST: Record<string, number> = {
   'src/renderer/app/features/instance-detail/user-action-request.component.ts': 991,
   // Raised 1334 -> 1435: "Message this session…" context-menu action and
   // compose modal for cross-session messaging (2026-09-16).
-  'src/renderer/app/features/instance-list/instance-list.component.ts': 1436, // +1: import for the Plan Queue stage rows (logic lives in plan-queue-stage-rows.component.ts)
+  'src/renderer/app/features/instance-list/instance-list.component.ts': 1448, // +1: import for the Plan Queue stage rows (logic lives in plan-queue-stage-rows.component.ts); +12: per-session "Keep this session going without me" menu item (item builder lives in session-watcher-menu.ts)
   'src/renderer/app/features/knowledge/knowledge-page.component.ts': 1322,
   'src/renderer/app/features/logs/logs-page.component.ts': 1020,
   // Raised 992 -> 1051 for the Task 18 renderer follow-up affordance (queue a

@@ -144,6 +144,7 @@ describe('Claude/Codex account-pool spawn-path bypass detection', () => {
     'src/main/orchestration/consensus-coordinator.ts': 'attachProviderRoutes',
     'src/main/orchestration/multi-verify-coordinator.ts': 'attachProviderRoutes',
     'src/main/instance/auto-title-service.ts': 'attachProviderRoutes',
+    'src/main/session-watcher/watcher-judge.ts': 'attachProviderRoutes',
     'src/main/magic-prompts/magic-prompt-service.ts': 'attachProviderRoutes',
     'src/main/compare/council-provider-invoke.ts': 'attachProviderRoutes',
     'src/main/review/review-execution-host.ts': 'attachProviderRoutes',

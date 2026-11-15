@@ -19,7 +19,7 @@
 11. Include B4 presets + B5 timeline in Wave 6.
 12. **Remove** `maxToolCallsPerIteration` until a real cap exists.
 13. **Share one verify runner** across modes; default `runVerifyTwice` **off**.
-14. Keep the merged source archive untracked.
+14. Keep the merged source archive untracked. *(Superseded: James answered 14(b) on 2026-09-07 and the file was deleted in `d4f4c968b`.)*
 
 **Goal:** Stop AI Orchestrator's Loop Mode paying for tokens it does not need (unbounded same-session transcripts, re-sent scaffolds, phantom budgets, dead controls that still cost turns), make the loop stop spending when it is not advancing, and make the UI explain its controls honestly, in that order, then bring the settings and unattended-operation backlog up behind it.
 
@@ -1701,6 +1701,14 @@ The verbatim merge lived at `_archive/2026-09-03-enhancements-todo-merged-source
 
 - **No paged tour.** The earlier "16) a" was a mis-numbered answer to Decision 15, not a request for a tour. Nothing to build.
 - **Livetest doc written:** [2026-09-03-enhancements-backlog_livetest.md](2026-09-03-enhancements-backlog_livetest.md), 19 open checks. Nothing in this plan has run against a real app; the plan is not `_completed` until that doc is worked through, or until its remaining items are confirmed to be genuine live-only deferrals.
+
+### Review artifact submitted 2026-11-08 (review `dr_af3354f0-8fec-4b89-9dc7-3f0ac9ed4caf`)
+
+The in-app review of the 3 September artifact (`.aio-review/2026-09-03-enhancements-backlog-plan.html`, generated 2026-09-03 09:46, before any decision was answered) sat pending until 2026-11-08 and came back **APPROVED** on every section. Every decision choice equals the artifact's recommended option (1b, 2a, 3a, 4a, 5a, 6a, 7a, 9a, 10a, 11a, 12a, 13a, 14a); Decision 8 is multi-select with no recommended default and came back with no choice. That is the shape of a "Go with your recommendations" submission, not a fresh per-decision review.
+
+- Decisions 1–7 and 9–13: identical to the answers recorded on 2026-09-07 above and already built. No action.
+- Decision 8: no choice given; the 2026-09-06 answer ((a)(b)(c) shipped, (d) declined) stands.
+- **Decision 14: the submission says (a) keep the archive, but James explicitly answered (b) on 2026-09-07 and the file was deleted (`d4f4c968b`).** Treated as the artifact's default, not a reversal; the file was not restored. If James does want the merged source back, it is recoverable from `84b404bea` into `_archive/` untracked.
 
 ### Decision 18 — narrow the `server/` exclusion. ANSWERED (b): narrowed 2026-09-07.
 

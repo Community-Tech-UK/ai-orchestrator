@@ -6,7 +6,7 @@ import type { NeedsYouSources } from './needs-you-sources';
 const now = 30 * 86400_000;
 const entry = (source: NeedsYouEntry['source'], extra: Partial<NeedsYouEntry> = {}): NeedsYouEntry =>
   ({ key: `${source}:x`, source, kind: 'answer', title: 'Session title', since: 1, version: '1', instanceId: 'i', ...extra });
-const empty = (): NeedsYouSources => ({ permissions: [], browsers: [], fallbacks: [], plans: [], documents: [], memories: [], sidechats: [], outstanding: [], toolLoops: [] });
+const empty = (): NeedsYouSources => ({ permissions: [], browsers: [], fallbacks: [], plans: [], documents: [], memories: [], sidechats: [], outstanding: [], toolLoops: [], sessionQuestions: [] });
 
 describe('needs-you source mapping', () => {
   it('links a grouped Plan Queue card to its exact document, encoding punctuation and Unicode', () => {
@@ -77,6 +77,30 @@ describe('needs-you source mapping', () => {
     expect(needsYouReason(entry('loop-question', { title: 'Waiting for you', detail: 'Ship it?' }))).toBe('Asked you: Ship it?');
     // The session list shows the name beside the reason, so the reason leaves it out.
     expect(needsYouReason(entry('tool-loop', { title: 'Fix login may be stuck: stop it or let it continue' }))).toBe('May be stuck: stop it or let it continue');
+  });
+  it('maps a session the watcher handed back to an answer entry that carries the session and the agent\'s question', () => {
+    const sources = empty();
+    sources.sessionQuestions = [{ instanceId: 'inst-1', sessionName: 'Fix login', question: 'Shall I push it?', requestCount: 4, since: 500 }];
+    expect(requestEntries(sources, now)).toEqual([{
+      key: 'session-question:inst-1', source: 'session-question', kind: 'answer', instanceId: 'inst-1', title: 'Fix login',
+      detail: 'Asked you: Shall I push it?', since: 500, version: '4',
+    }]);
+  });
+  it('shows the watcher\'s own note instead of the question when it has one, and a plain title when the session has no name', () => {
+    const sources = empty();
+    sources.sessionQuestions = [{ instanceId: 'inst-2', question: 'Q?', note: 'The helper agent could not tell what to do next.', requestCount: 1, since: 9 }];
+    const [item] = requestEntries(sources, now);
+    expect(item?.title).toBe('A session');
+    expect(item?.detail).toBe('The helper agent could not tell what to do next.');
+  });
+  it('renews the entry when the same session is flagged again, so an earlier answer or look never covers it', () => {
+    const first = empty(); first.sessionQuestions = [{ instanceId: 'i', question: 'Q', requestCount: 1, since: 1 }];
+    const next = empty(); next.sessionQuestions = [{ instanceId: 'i', question: 'Q', requestCount: 2, since: 5 }];
+    expect(requestEntries(first, now)[0]?.version).not.toBe(requestEntries(next, now)[0]?.version);
+  });
+  it('gives the question as the reason a flagged session needs you', () => {
+    expect(needsYouReason(entry('session-question', { detail: 'Asked you: Shall I push it?' }))).toBe('Asked you: Shall I push it?');
+    expect(needsYouReason(entry('session-question', { detail: undefined, title: 'Fix login' }))).toBe('Fix login');
   });
   it('maps each correlated Workboard source once', () => {
     for (const kind of ['instance', 'loop-run', 'automation-run', 'repo-job'] as const) {

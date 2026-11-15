@@ -14,9 +14,23 @@ import {
 } from '../../core/status';
 import { providerDisplayName } from '../new-session/new-session.presentation';
 import { isMiMoModel } from '../../../../../../src/shared/display-names';
+import { isWorktreePath } from '../../../../../../src/shared/utils/worktree-project-path';
+import { NO_WORKSPACE_KEY, projectKeyFor } from '../../core/project-key';
 import type { MobileSessionRowView } from '../../shared/mobile-session-row.component';
 
 export type SessionStateFilter = 'all' | 'active' | 'attention';
+export type OrganizeMode = 'project' | 'chronological';
+
+export function projectsEmptyStateTitle(
+  stateFilter: SessionStateFilter,
+  query: string,
+  mode: OrganizeMode = 'project',
+): string {
+  if (stateFilter === 'attention') return 'Nothing needs attention';
+  if (stateFilter === 'active') return 'No active sessions';
+  if (query.trim()) return 'No matching sessions';
+  return mode === 'project' ? 'No projects yet' : 'No sessions yet';
+}
 
 export interface ProjectSessionRow extends MobileSessionRowView {
   active: boolean;
@@ -42,8 +56,13 @@ interface ProjectAccumulator {
   sessionKeys: Set<string>;
 }
 
+/**
+ * The projects the list shows, built the way the desktop project rail builds
+ * them: sessions in a `.worktrees/` checkout count toward their repository,
+ * past sessions the host marks hidden from projects are left out, and an
+ * unpinned worktree folder is not a project of its own.
+ */
 export function mergeProjects(
-  liveProjects: MobileProjectDto[],
   liveInstances: MobileInstanceDto[],
   history: MobileHistorySessionDto[],
   recentDirs: MobileRecentDirDto[],
@@ -51,22 +70,9 @@ export function mergeProjects(
   const liveIds = new Set(liveInstances.map((instance) => instance.id));
   const byKey = new Map<string, ProjectAccumulator>();
 
-  for (const project of liveProjects) {
-    byKey.set(project.key, {
-      project: {
-        ...project,
-        sessionCount: 0,
-        busyCount: 0,
-        pendingApprovalCount: 0,
-        needsAttentionCount: 0,
-      },
-      sessionKeys: new Set<string>(),
-    });
-  }
-
   for (const instance of liveInstances) {
-    const key = projectKey(instance.workingDirectory);
-    const entry = ensureProject(byKey, key, instance.projectName, instance.lastActivity);
+    const key = projectKeyFor(instance.workingDirectory);
+    const entry = ensureProject(byKey, key, instance.workingDirectory, instance.projectName, instance.lastActivity);
     entry.sessionKeys.add(`live:${instance.id}`);
     entry.project.lastActivity = Math.max(entry.project.lastActivity, instance.lastActivity);
     if (isWorkingOrLooping(instance)) entry.project.busyCount += 1;
@@ -76,16 +82,16 @@ export function mergeProjects(
     }
   }
 
-  for (const session of history) {
-    if (session.live && session.instanceId && liveIds.has(session.instanceId)) continue;
-    const key = projectKey(session.workingDirectory);
-    const entry = ensureProject(byKey, key, session.projectName, session.lastActiveAt);
+  for (const session of projectHistory(history, liveIds)) {
+    const key = projectKeyFor(session.workingDirectory);
+    const entry = ensureProject(byKey, key, session.workingDirectory, session.projectName, session.lastActiveAt);
     entry.sessionKeys.add(`history:${session.id}`);
     entry.project.lastActivity = Math.max(entry.project.lastActivity, session.lastActiveAt);
   }
 
   for (const directory of recentDirs) {
-    ensureProject(byKey, directory.path, directory.displayName, directory.lastAccessed);
+    if (!directory.isPinned && isWorktreePath(directory.path)) continue;
+    ensureProject(byKey, directory.path, directory.path, directory.displayName, directory.lastAccessed);
   }
 
   const projects = [...byKey.values()].map(({ project, sessionKeys }) => ({
@@ -100,23 +106,20 @@ export function mergeProjects(
 }
 
 export function buildProjectGroups(
-  liveProjects: MobileProjectDto[],
   liveInstances: MobileInstanceDto[],
   history: MobileHistorySessionDto[],
   recentDirs: MobileRecentDirDto[],
 ): ProjectListGroup[] {
-  const projects = mergeProjects(liveProjects, liveInstances, history, recentDirs);
+  const projects = mergeProjects(liveInstances, history, recentDirs);
   const liveIds = new Set(liveInstances.map((instance) => instance.id));
+  const visibleHistory = projectHistory(history, liveIds);
 
   return projects.map((project) => {
     const liveRows = liveInstances
-      .filter((instance) => projectKey(instance.workingDirectory) === project.key)
+      .filter((instance) => projectKeyFor(instance.workingDirectory) === project.key)
       .map((instance) => ({ row: liveSessionRow(instance), lastActivity: instance.lastActivity }));
-    const historyRows = history
-      .filter((session) => projectKey(session.workingDirectory) === project.key)
-      .filter(
-        (session) => !(session.live && session.instanceId && liveIds.has(session.instanceId)),
-      )
+    const historyRows = visibleHistory
+      .filter((session) => projectKeyFor(session.workingDirectory) === project.key)
       .map((session) => ({ row: historySessionRow(session), lastActivity: session.lastActiveAt }));
 
     const sessions = [...liveRows, ...historyRows]
@@ -193,6 +196,24 @@ export function toggleExpandedProjectKey(current: Set<string>, key: string): Set
   return next;
 }
 
+export function anyExpandedProjectKey(expanded: ReadonlySet<string>, keys: readonly string[]): boolean {
+  return keys.some((key) => expanded.has(key));
+}
+
+/**
+ * Collapse all when any of `keys` is open, otherwise expand them all. Keys not
+ * listed (projects hidden by a filter) keep their state.
+ */
+export function toggleAllExpandedProjectKeys(expanded: ReadonlySet<string>, keys: readonly string[]): Set<string> {
+  const next = new Set(expanded);
+  const collapse = anyExpandedProjectKey(expanded, keys);
+  for (const key of keys) {
+    if (collapse) next.delete(key);
+    else next.add(key);
+  }
+  return next;
+}
+
 export function reconcileProjectGroupUpdate(
   rendered: ProjectListGroup[],
   pending: ProjectListGroup[] | null,
@@ -221,20 +242,28 @@ export function projectComposeAriaLabel(project: MobileProjectDto): string {
   return `New session in ${project.name}`;
 }
 
+/** Past sessions the Projects list shows: not hidden by the host, and not the history row of a live session. */
+function projectHistory(history: MobileHistorySessionDto[], liveIds: Set<string>): MobileHistorySessionDto[] {
+  return history.filter((session) => session.hiddenFromProjects !== true
+    && !(session.live && session.instanceId && liveIds.has(session.instanceId)));
+}
+
+/** `folderName` names the session's own folder, so it only fits when that folder is the project. */
 function ensureProject(
   projects: Map<string, ProjectAccumulator>,
   key: string,
-  fallbackName: string,
+  folder: string,
+  folderName: string,
   lastActivity: number,
 ): ProjectAccumulator {
   const existing = projects.get(key);
   if (existing) return existing;
 
-  const path = key === '__no_workspace__' ? '' : key;
+  const path = key === NO_WORKSPACE_KEY ? '' : key;
   const project = {
     key,
     path,
-    name: fallbackName || projectName(path),
+    name: (folder === path ? folderName : '') || projectName(path),
     sessionCount: 0,
     busyCount: 0,
     pendingApprovalCount: 0,
@@ -291,10 +320,6 @@ function sessionSubtitle(provider: string, model?: string): string {
   const label = providerDisplayName(provider, model);
   const modelLabel = isMiMoModel(model) ? model?.split('/').at(-1) : model;
   return modelLabel ? `${label} · ${modelLabel}` : label;
-}
-
-function projectKey(workingDirectory: string): string {
-  return workingDirectory || '__no_workspace__';
 }
 
 function projectName(path: string): string {

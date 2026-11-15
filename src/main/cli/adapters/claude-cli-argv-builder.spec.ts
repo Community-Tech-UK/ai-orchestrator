@@ -90,6 +90,28 @@ describe('buildClaudeCliArgs', () => {
     expect(args).not.toContain('--allowedTools');
   });
 
+  it('plainCompletion grants no tools, no MCP servers, no settings and adds nothing to the prompt', () => {
+    const args = buildClaudeCliArgs(baseInput({ shouldUsePermissionHook: true, subagentWaitingRuleOptIn: true, cliVersion: '2.1.300',
+      spawnOptions: {
+        plainCompletion: true, yoloMode: true, readOnlyReview: true, allowedTools: ['Bash', 'Write'], permissionHookPath: '/hook',
+        mcpConfig: ['{"mcpServers":{}}'], fastMode: true, chrome: true, systemPrompt: 'Judge this.', systemPromptMode: 'replace',
+        model: 'pinned-model', fallbackModel: 'backup-model', debugLogging: true,
+      } }));
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('dontAsk');
+    expect(args[args.indexOf('--tools') + 1]).toBe('');
+    expect(args[args.indexOf('--setting-sources') + 1]).toBe('');
+    expect(args).toContain('--strict-mcp-config');
+    expect(args).toContain('--disable-slash-commands');
+    expect(args).toContain('--no-session-persistence');
+    expect(args[args.indexOf('--system-prompt') + 1]).toBe('Judge this.');
+    for (const forbidden of ['--dangerously-skip-permissions', 'acceptEdits', '--allowedTools', '--settings', '--mcp-config',
+      '--append-system-prompt', '--append-subagent-system-prompt-file', '--chrome', '--fallback-model', 'backup-model', '--debug']) {
+      expect(args).not.toContain(forbidden);
+    }
+    expect(args.filter((arg) => arg === '--tools')).toHaveLength(1);
+    expect(args[args.indexOf('--model') + 1]).toBe('pinned-model');
+  });
+
   it('readOnlyReview never passes --dangerously-skip-permissions, even with yoloMode', () => {
     const args = buildClaudeCliArgs(baseInput({ shouldUsePermissionHook: true,
       spawnOptions: { readOnlyReview: true, yoloMode: true, permissionHookPath: '/hook' } }));

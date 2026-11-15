@@ -267,6 +267,9 @@
                       <span class="repeat-badge">&times;{{ item.repeatCount }}</span>
                     }
                     <span class="message-time" tabindex="0">{{ item.message.timestamp | date: 'HH:mm:ss' }}</span>
+                    @if (messageFormat.isKeepGoingReply(item.message) && !watcherMuted()) {
+                      <button type="button" class="watcher-mute-btn" (click)="muteSessionWatcher()">Stop doing this in this session</button>
+                    }
                     @if (item.message.type === 'assistant') {
                       <button class="copy-message-btn" [class.copied]="isMessageCopied(item.message.id)"
                         (click)="copyMessageContent(item.message.content, item.message.id, item.message.attachments)"

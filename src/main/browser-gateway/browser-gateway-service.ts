@@ -275,7 +275,7 @@ export class BrowserGatewayService {
   private readonly describeLocalExtensionChannel: () => BrowserLocalExtensionHealth;
   private readonly auditStore: Pick<BrowserAuditStore, 'record' | 'list' | 'countChromeProfileUse'>;
   private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
-  private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest'>;
+  private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest' | 'resolveDeviceLoginRequest' | 'expireDeviceLoginRequest'>;
   private readonly healthService: Pick<BrowserHealthService, 'diagnose'>;
   private credentialVault?: BrowserGatewayServiceOptions['credentialVault'];
   private credentialAuthorizations?: BrowserGatewayServiceOptions['credentialAuthorizations'];

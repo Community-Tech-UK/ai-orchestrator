@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import type { AgentProfile } from '../../shared/types/agent.types';
 import { createInstance } from '../../shared/types/instance.types';
+import { buildInstanceRecord } from '../instance/lifecycle/instance-create-builder';
 import { instanceToContinuityState } from './session-continuity-instance-state';
 
 const CONFIG = { persistSessionContent: true, redactToolOutputs: false };
@@ -53,5 +55,29 @@ describe('instanceToContinuityState', () => {
 
     expect('hideFromProjectRail' in instanceToContinuityState(own, CONFIG)).toBe(false);
     expect('hideFromProjectRail' in instanceToContinuityState(automation, CONFIG)).toBe(false);
+  });
+
+  it('records a session the user switched the watcher off for, and nothing for the rest', () => {
+    const muted = createInstance({ workingDirectory: '/workspace' });
+    muted.watcherMuted = true;
+    const unmuted = createInstance({ workingDirectory: '/workspace' });
+    unmuted.watcherMuted = false;
+
+    expect(instanceToContinuityState(muted, CONFIG).watcherMuted).toBe(true);
+    expect('watcherMuted' in instanceToContinuityState(unmuted, CONFIG)).toBe(false);
+    expect('watcherMuted' in instanceToContinuityState(createInstance({ workingDirectory: '/workspace' }), CONFIG)).toBe(false);
+  });
+
+  it('keeps the mute through a save and a revival: built from the saved state, the session is still muted', () => {
+    const agent = { id: 'build', mode: 'build' } as AgentProfile;
+    const build = (watcherMuted?: boolean) => buildInstanceRecord(
+      { workingDirectory: '/workspace', ...(watcherMuted ? { watcherMuted } : {}) }, agent, { defaultYoloMode: false, getParent: () => undefined });
+
+    const saved = instanceToContinuityState(build(true), CONFIG);
+    const revived = build(saved.watcherMuted);
+    const neverMuted = build(instanceToContinuityState(build(), CONFIG).watcherMuted);
+
+    expect(revived.watcherMuted).toBe(true);
+    expect(neverMuted.watcherMuted).toBeUndefined();
   });
 });

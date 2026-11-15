@@ -98,6 +98,8 @@ export class NewSessionComponent implements OnInit {
   protected readonly directoryReturnFocus = signal<HTMLElement | null>(null);
   protected readonly settingsSheetOpen = signal(false);
   protected readonly settingsReturnFocus = signal<HTMLElement | null>(null);
+  protected readonly accountSheetOpen = signal(false);
+  protected readonly accountReturnFocus = signal<HTMLElement | null>(null);
   protected readonly attachmentSheetOpen = signal(false);
   protected readonly attachments = signal<MobileAttachmentDto[]>([]);
   protected readonly attachBusy = signal(false);
@@ -171,13 +173,20 @@ export class NewSessionComponent implements OnInit {
    * the list does not vanish under the person's finger; cleared with the provider.
    */
   protected readonly accountPlan = signal<MobileSessionAccountPlan | null>(null);
+  /** The provider those accounts belong to, kept with them for the same reason. */
+  private readonly accountProvider = signal<string | null>(null);
   /** The kept list's summary describes an older choice, so it shows only for the latest check. */
   protected readonly accountSummary = computed(() => {
     if (this.planLoading()) return 'Checking accounts…';
     if (this.planError()) return 'Accounts could not be checked';
     return this.accountPlan()?.summary ?? '';
   });
-  /** Only an account the person picked; the automatic choice is in the settings sheet. */
+  /** "Claude account": whose accounts are listed. */
+  protected readonly accountFamilyLabel = computed(() => {
+    const provider = this.accountProvider();
+    return provider ? `${accountFamilyDisplayName(provider)} account` : 'Account';
+  });
+  /** Only an account the person picked; the automatic choice shows on the Account row. */
   private readonly chosenAccountLabel = computed(() => {
     const id = this.accountProfileId();
     return id ? this.accountPlan()?.options.find((option) => option.id === id)?.label : undefined;
@@ -235,6 +244,7 @@ export class NewSessionComponent implements OnInit {
         && !this.directorySheetOpen()
         && !this.directoryReturnFocus()
         && !this.settingsSheetOpen()
+        && !this.accountSheetOpen()
         && !this.attachmentSheetOpen()
         && !this.modelSheetOpen();
       if (composer && ready && !this.composerAutofocused) {
@@ -338,12 +348,22 @@ export class NewSessionComponent implements OnInit {
       // Accounts belong to one provider.
       this.accountProfileId.set(undefined);
       this.accountPlan.set(null);
+      this.accountProvider.set(null);
     }
     this.haptics.tap();
   }
 
+  /** Opened from the New session screen or from the settings sheet, which it replaces. */
+  protected openAccountSheet(event: Event): void {
+    const opener = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    this.accountReturnFocus.set(this.settingsSheetOpen() ? this.settingsReturnFocus() : opener);
+    this.settingsSheetOpen.set(false);
+    this.accountSheetOpen.set(true);
+  }
+
   protected chooseAccount(accountProfileId: string | undefined): void {
     this.accountProfileId.set(accountProfileId);
+    this.accountSheetOpen.set(false);
     this.haptics.tap();
   }
 
@@ -535,6 +555,7 @@ export class NewSessionComponent implements OnInit {
       if (request !== this.planReq || !this.isCurrentHost()) return;
       this.plan.set(plan);
       this.accountPlan.set(plan.account ?? null);
+      this.accountProvider.set(plan.account ? plan.provider : null);
       // A removed or switched-off account must not ride along to the create.
       if (accountProfileId && this.accountProfileId() === accountProfileId
         && !plan.account?.options.some((option) => option.id === accountProfileId)) {

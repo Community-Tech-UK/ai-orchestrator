@@ -75,7 +75,8 @@ export interface BrowserAutoApproveDeps {
 export function autoApproveBrowserApproval(
   deps: BrowserAutoApproveDeps,
 ): BrowserPermissionGrant | null {
-  if (deps.approval.credentialAccess || [
+  if (deps.approval.deviceLogin || deps.approval.credentialAccess || [
+    'browser.fill_device_login',
     'browser.request_credential_access',
     'browser.request_user_login',
     'browser.pause_for_manual_step',

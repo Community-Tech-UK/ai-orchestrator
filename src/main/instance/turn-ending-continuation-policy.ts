@@ -83,7 +83,7 @@ export function turnNoticeMetadata(policy: Pick<TurnContinuationPolicy, 'source'
 }
 
 /** Source-specific admission rules; all prompt delivery goes through one owner. */
-export type ContinuationTrigger = 'cutoff' | 'cursor-transport' | 'announce' | 'async-result' | 'async-check-in' | 'waiting-check-in';
+export type ContinuationTrigger = 'cutoff' | 'cursor-transport' | 'announce' | 'async-result' | 'async-check-in' | 'waiting-check-in' | 'watcher';
 export const CONTINUATION_DISPATCH_POLICY = {
   cutoff: { rootOnly: true, allowWake: false, allowInhibitor: false, priority: 4, budget: 'cutoff', limit: 2 },
   'cursor-transport': { rootOnly: true, allowWake: true, allowInhibitor: false, priority: 2, budget: 'transport', limit: 2 },
@@ -91,4 +91,6 @@ export const CONTINUATION_DISPATCH_POLICY = {
   'async-result': { rootOnly: false, allowWake: true, allowInhibitor: true, priority: 3, budget: undefined, limit: undefined },
   'async-check-in': { rootOnly: false, allowWake: false, allowInhibitor: true, priority: 0, budget: undefined, limit: undefined },
   'waiting-check-in': { rootOnly: true, allowWake: true, allowInhibitor: false, priority: 0, budget: undefined, limit: undefined },
+  // The session watcher never wakes a sleeping session, and hands back to the user after ten replies in a row.
+  watcher: { rootOnly: true, allowWake: false, allowInhibitor: false, priority: 0, budget: 'watcher', limit: 10 },
 } as const;

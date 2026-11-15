@@ -22,6 +22,26 @@
   margin: var(--space-6) 0 var(--space-5);
 }
 
+.projects-heading__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.projects-collapse-all {
+  min-height: var(--control-size);
+  border: 0;
+  background: transparent;
+  color: var(--accent-action);
+  padding-inline: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.projects-collapse-all:active {
+  opacity: 0.75;
+}
+
 .projects-title {
   margin: 0;
   font-size: var(--font-size-xl);

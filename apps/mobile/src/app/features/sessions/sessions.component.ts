@@ -5,6 +5,7 @@ import { GatewayClient } from '../../core/gateway-client.service';
 import { HostStore } from '../../core/host-store';
 import { newSessionPresetState } from '../new-session/new-session.navigation';
 import { MobileBrowseStateStore } from '../../core/mobile-browse-state.store';
+import { NO_WORKSPACE_KEY, projectKeyFor } from '../../core/project-key';
 import { displayStatusColor, isWorking, needsAttention, statusLabel } from '../../core/status';
 import { providerDisplayName } from '../new-session/new-session.presentation';
 import { isMiMoModel } from '../../../../../../src/shared/display-names';
@@ -143,9 +144,9 @@ export class SessionsComponent {
   protected readonly connectionHeadline = computed(() => connectionHeadline(this.gateway.state()));
   protected readonly visibleCount = signal(SESSION_PAGE_SIZE);
   protected readonly sessions = computed<SessionRow[]>(() => {
-    const key = this.projectKey();
+    const key = projectKeyFor(this.projectKey());
     const live: SessionRow[] = (this.gateway.snapshot()?.instances ?? [])
-      .filter((instance) => (instance.workingDirectory || '__no_workspace__') === key)
+      .filter((instance) => projectKeyFor(instance.workingDirectory) === key)
       .map((instance) => {
         const chip = sessionChipForRow({
           live: true,
@@ -180,7 +181,7 @@ export class SessionsComponent {
     const liveHistoryHandled = new Set(live.map((row) => row.id));
     const past: SessionRow[] = this.gateway
       .historySessions()
-      .filter((session) => (session.workingDirectory || '__no_workspace__') === key)
+      .filter((session) => session.hiddenFromProjects !== true && projectKeyFor(session.workingDirectory) === key)
       .filter((session) => !(session.live && session.instanceId && liveHistoryHandled.has(session.instanceId)))
       .map((session) => {
         const chip = sessionChipForRow({
@@ -216,11 +217,9 @@ export class SessionsComponent {
   protected readonly nextPageSize = computed(() => nextSessionsPageSize(this.hiddenCount()));
   protected readonly showMoreLabel = computed(() => sessionsShowMoreLabel(this.hiddenCount()));
   protected readonly projectName = computed(() => {
-    const project = this.gateway.snapshot()?.projects.find((item) => item.key === this.projectKey());
-    if (project) return project.name;
-    const key = this.projectKey();
-    if (key === '__no_workspace__') return 'No workspace';
-    return key.split('/').filter(Boolean).pop() || 'Sessions';
+    const key = projectKeyFor(this.projectKey());
+    if (key === NO_WORKSPACE_KEY) return 'No workspace';
+    return key.split(/[\\/]/).filter(Boolean).pop() || 'Sessions';
   });
 
   protected pullRefresh(): void { void this.gateway.refreshSnapshot(); }
@@ -239,16 +238,16 @@ export class SessionsComponent {
 
   protected newSession(): void {
     const hostId = this.hosts.activeHost()?.id;
-    const requested = this.projectKey();
+    const requested = projectKeyFor(this.projectKey());
     // A restored Sessions URL may belong to another host. Establish the
     // directory from current-host data before minting a new preset.
     const known = this.gateway.dataHostId() === hostId && (
-      this.gateway.snapshot()?.projects.some((project) => project.path === requested)
-      || this.gateway.historySessions().some((session) => session.workingDirectory === requested)
+      this.gateway.snapshot()?.projects.some((project) => projectKeyFor(project.path) === requested)
+      || this.gateway.historySessions().some((session) => projectKeyFor(session.workingDirectory) === requested)
     );
-    const directory = known ? requested : '';
+    const directory = known && requested !== NO_WORKSPACE_KEY ? requested : '';
     void this.router.navigate(['/new-session'], {
-      queryParams: directory && directory !== '__no_workspace__' ? { dir: directory } : undefined,
+      queryParams: directory ? { dir: directory } : undefined,
       state: { ...this.browse.navigationState('/projects'), ...newSessionPresetState(hostId, directory) },
     });
   }

@@ -266,7 +266,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   instanceProviderLimitResumeEnabled: false,
   loopAllowProviderOverage: false,
   sessionAllowProviderOverage: false,
-  autoAnswerContinueQuestions: true,
+  keepSessionsGoing: 'off',
   quotaPacingWarningEnabled: true,
   quotaPacingUtilizationThresholdPercent: 90,
   quotaPacingLatestElapsedPercent: 72,

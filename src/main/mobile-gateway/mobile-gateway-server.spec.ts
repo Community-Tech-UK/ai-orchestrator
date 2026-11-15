@@ -333,6 +333,20 @@ describe('history serializers', () => {
     expect(fallback.projectName).toBe('No workspace');
     expect(fallback.provider).toBeNull();
   });
+
+  it('marks archived sessions the desktop project rail keeps out, and only those', () => {
+    const entry = { id: 'e', displayName: 'Session', workingDirectory: '/repo/aio', createdAt: 1, endedAt: 2 };
+    const queueFolder = '/repo/aio/.worktrees/queue/2026-10-20-oct2-phased-tokens-a4de58';
+
+    expect(serializeInstanceHistorySession(entry)).not.toHaveProperty('hiddenFromProjects');
+    expect(serializeInstanceHistorySession({ ...entry, hideFromProjectRail: true }).hiddenFromProjects).toBe(true);
+    expect(serializeInstanceHistorySession({ ...entry, isHiddenAutomation: true }).hiddenFromProjects).toBe(true);
+    // A finished Plan Queue run without a parent session; History still lists it.
+    expect(serializeInstanceHistorySession({ ...entry, workingDirectory: queueFolder, parentId: null }).hiddenFromProjects).toBe(true);
+    expect(serializeInstanceHistorySession({ ...entry, workingDirectory: queueFolder, parentId: 'parent' })).not.toHaveProperty('hiddenFromProjects');
+    // A loop worktree is grouped under its repository on the phone, not hidden.
+    expect(serializeInstanceHistorySession({ ...entry, workingDirectory: '/repo/aio/.worktrees/loop-1' })).not.toHaveProperty('hiddenFromProjects');
+  });
 });
 
 describe('MobileGatewayServer', () => {

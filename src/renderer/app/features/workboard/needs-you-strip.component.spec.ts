@@ -85,7 +85,7 @@ describe('NeedsYouStripComponent', () => {
       sidechats: [{ parent: { kind: 'chat', chatId: 'parent' }, parentTitle: 'Sidechat', needsAttention: 1, attentionSince: 500 }],
       outstanding: [{ id: 'older', kind: 'needs-human', status: 'open', riskClass: null, firstSeenRound: 1,
         userResponse: null, text: 'Older question', createdAt: 100, updatedAt: 100, chatId: 'older-session' }],
-      toolLoops: [],
+      toolLoops: [], sessionQuestions: [],
     }, 1_000)));
     const fixture = TestBed.createComponent(NeedsYouStripComponent); fixture.detectChanges();
     expect(fixture.componentInstance.front()?.key).toBe('loop-question:older');

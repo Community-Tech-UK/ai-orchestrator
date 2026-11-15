@@ -688,6 +688,13 @@ export interface Instance extends AutomationAuthorityScope {
    * `AppSettings.interSessionMessaging.enabled` master switch.
    */
   allowIncomingSessionMessages?: boolean;
+
+  /**
+   * The user switched "Keep sessions going without me" off for this one session:
+   * the session watcher neither replies to it nor flags it. A field of its own,
+   * not `metadata`, so it is carried through sleep and wake.
+   */
+  watcherMuted?: boolean;
 }
 
 export interface InstanceCreateConfig extends AutomationAuthorityScope {
@@ -698,6 +705,8 @@ export interface InstanceCreateConfig extends AutomationAuthorityScope {
    * a user-chosen name on the first message after restore.
    */
   isRenamed?: boolean;
+  /** Carried across a restart or wake from the saved state; see `Instance.watcherMuted`. */
+  watcherMuted?: boolean;
   parentId?: string | null;
   historyThreadId?: string; // Stable app-level thread identity across restore/fallback
   /** Internal trusted anchor for runtimes already owned by an AIO chat. */

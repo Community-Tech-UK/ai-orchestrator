@@ -303,6 +303,21 @@
         opacity: 1;
       }
 
+      .watcher-mute-btn {
+        padding: 0 6px;
+        height: 24px;
+        background: transparent;
+        border: 1px solid var(--border-color, transparent);
+        border-radius: var(--radius-sm);
+        color: var(--text-muted);
+        font-size: 11px;
+        cursor: pointer;
+      }
+
+      .watcher-mute-btn:hover, .watcher-mute-btn:focus-visible {
+        color: var(--text-primary);
+      }
+
       /* Hover action bar — appears below messages on hover */
       .message-hover-actions {
         display: flex;

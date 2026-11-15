@@ -125,6 +125,7 @@ describe('RpcEventRouter', () => {
     disconnectNode: ReturnType<typeof vi.fn>;
     sendNotification: ReturnType<typeof vi.fn>;
     sendRpc: ReturnType<typeof vi.fn>;
+    captureConfidentialResponder: ReturnType<typeof vi.fn>;
   };
   let mockBrowserBridge: {
     attachTab: ReturnType<typeof vi.fn>;
@@ -148,6 +149,7 @@ describe('RpcEventRouter', () => {
       disconnectNode: vi.fn(),
       sendNotification: vi.fn(() => true),
       sendRpc: vi.fn(async () => ({ cursors: [] })),
+      captureConfidentialResponder: vi.fn(() => null),
     });
     mockBrowserBridge = {
       attachTab: vi.fn(),
@@ -372,7 +374,7 @@ describe('RpcEventRouter', () => {
     mockConnection.emit('rpc:request', 'node-ext', request);
 
     await vi.waitFor(() => {
-      expect(mockBrowserBridge.pollCommand).toHaveBeenCalledWith('node-ext', request.params);
+      expect(mockBrowserBridge.pollCommand).toHaveBeenCalledWith('node-ext', request.params, null);
       expect(mockConnection.sendResponse).toHaveBeenCalledWith(
         'node-ext',
         expect.objectContaining({
@@ -386,6 +388,48 @@ describe('RpcEventRouter', () => {
       );
       expect(mockBrowserBridge.requeueUndeliveredCommand).not.toHaveBeenCalled();
     });
+  });
+
+  it('captures the actual poll responder security proof before awaiting the bridge', async () => {
+    const respond = vi.fn(() => true);
+    const transport = () => true;
+    mockConnection.captureConfidentialResponder.mockReturnValue(transport);
+    mockBrowserBridge.pollCommand.mockResolvedValue(null);
+    const request = makeRpcRequest('browser.ext.pollCommand', { timeoutMs: 1 }, 'private-poll');
+    mockConnection.emit('rpc:request', 'node-ext', request, respond);
+    await vi.waitFor(() => expect(respond).toHaveBeenCalledOnce());
+    expect(mockConnection.captureConfidentialResponder).toHaveBeenCalledWith('node-ext', respond);
+    expect(mockBrowserBridge.pollCommand).toHaveBeenCalledWith('node-ext', request.params, transport);
+  });
+
+  it('sends no device payload when the captured poll connection changes during the await', async () => {
+    const store = new BrowserExtensionCommandStore();
+    const queueKey = 'node:node-ext';
+    let connected = true;
+    const transport = () => connected;
+    mockConnection.captureConfidentialResponder.mockReturnValue(transport);
+    const filling = store.sendCommand({
+      queueKey, command: 'codex_device_fill', timeoutMs: 1_000,
+      target: { tabId: 42, extensionInstanceId: 'test-install' },
+      payload: { code: 'NON_SECRET_TEST_PLACEHOLDER' },
+      authorizeDeviceCommand: () => true,
+    }).catch((error: unknown) => error as Error);
+    mockBrowserBridge.pollCommand.mockImplementation(async (_node, _params, confidentialTransport) => {
+      const command = await store.pollCommand(queueKey, {
+        timeoutMs: 1, extensionInstanceId: 'test-install',
+        deferHandoffConfirmation: true, allowDeviceLoginCommands: true, confidentialTransport,
+      });
+      connected = false;
+      return command;
+    });
+    mockBrowserBridge.validateCommandHandoff.mockImplementation((_node: string, id: string) => store.validateCommandHandoff(queueKey, id));
+    const respond = vi.fn(() => true);
+    mockConnection.emit('rpc:request', 'node-ext', makeRpcRequest('browser.ext.pollCommand', {}, 'private-device-poll'), respond);
+    await vi.waitFor(() => expect(respond).toHaveBeenCalledOnce());
+    expect(respond).toHaveBeenCalledWith(expect.objectContaining({ result: null }));
+    expect(await filling).toMatchObject({ message: 'codex_device_delivery_rejected' });
+    expect(JSON.stringify(respond.mock.calls)).not.toContain('NON_SECRET_TEST_PLACEHOLDER');
+    expect(mockBrowserBridge.confirmCommandHandoff).not.toHaveBeenCalled();
   });
 
   it('withdraws a credential poll response if permission changes before the socket handoff', async () => {

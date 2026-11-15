@@ -262,6 +262,8 @@ describe('browser extension assets', () => {
     // probe_one_time_code also answers whether the type/fill_form target is a
     // password box, resolving accessibility uids through the debugger.
     '0.2.51': 'bf8a3312ff8f',
+    // Bound Codex consent, code verification and submit; hash includes the imported helper.
+    '0.2.52': '40e576ed8ccc',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -270,6 +272,7 @@ describe('browser extension assets', () => {
     );
     const backgroundHash = createHash('sha256')
       .update(readFileSync('resources/browser-extension/background.js'))
+      .update(readFileSync('resources/browser-extension/codex-device-handoff.js'))
       .digest('hex')
       .slice(0, 12);
 
@@ -6264,12 +6267,15 @@ function loadBackgroundHarnessForTest(options: {
         }),
       },
     },
+    importScripts: (name: string): void => {
+      if (name !== 'codex-device-handoff.js') throw new Error('Unexpected extension import');
+    },
     __backgroundHarness: undefined as (BrowserExtensionBackgroundHarness & {
       pageBridgeScript: (...args: unknown[]) => Record<string, unknown>;
     }) | undefined,
   };
   runInNewContext(
-    `${background}\n;globalThis.__backgroundHarness = { applySecretObservationProtectionEnabled, bridges, buildTabPayload, captureAccessibilitySnapshot, captureTabScreenshot, clearHttpAuthChallenge, clearHttpAuthStage, deriveToolbarBadgeState, forceReleaseCommandResources, handleHttpAuthRequired, httpAuthChallengeForTab, httpAuthChallenges, httpAuthStages, markSecretTaint, pageBridgeScript, recordHttpAuthChallenge, reportTabInventory, selfHealIfWedged, setGatewayEnabled, startControlledTab, stopControlledTab, tabDebuggerChains, dialogWatches, waitForTabComplete, activeCommandCount: () => activeBrowserCommandCount };`,
+    `${readFileSync('resources/browser-extension/codex-device-handoff.js', 'utf8')}\n${background}\n;globalThis.__backgroundHarness = { applySecretObservationProtectionEnabled, bridges, buildTabPayload, captureAccessibilitySnapshot, captureTabScreenshot, clearHttpAuthChallenge, clearHttpAuthStage, deriveToolbarBadgeState, forceReleaseCommandResources, handleHttpAuthRequired, httpAuthChallengeForTab, httpAuthChallenges, httpAuthStages, markSecretTaint, pageBridgeScript, recordHttpAuthChallenge, reportTabInventory, selfHealIfWedged, setGatewayEnabled, startControlledTab, stopControlledTab, tabDebuggerChains, dialogWatches, waitForTabComplete, activeCommandCount: () => activeBrowserCommandCount };`,
     context,
     { filename: 'resources/browser-extension/background.js' },
   );

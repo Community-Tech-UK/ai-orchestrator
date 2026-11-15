@@ -164,6 +164,21 @@ describe('MessageFormatService', () => {
       );
     });
 
+    it('explains an automatic carry-on in plain words, without the internal source name', () => {
+      const sentence = service.describeMessageSender({ metadata: { internalInput: { actor: 'harness', source: 'session-watcher' } } });
+      expect(sentence).toBe('Harness told the agent to carry on, because "Keep sessions going without me" is on. This is not a message from you.');
+      expect(sentence).not.toContain('session-watcher');
+    });
+
+    it('says the same of the rule-based answer to "shall I carry on?", which the same setting switches on', () => {
+      const ruleReply = { metadata: { internalInput: { actor: 'harness' as const, source: 'continue-question-reply' as const } } };
+      expect(service.isKeepGoingReply(ruleReply)).toBe(true);
+      expect(service.describeMessageSender(ruleReply)).toBe(
+        'Harness told the agent to carry on, because "Keep sessions going without me" is on. This is not a message from you.',
+      );
+      expect(service.isKeepGoingReply(harnessMessage)).toBe(false);
+    });
+
     it('keeps the ordinary labels for user, assistant and system messages', () => {
       expect(service.formatMessageLabel({ type: 'user' }, 'codex')).toBe('You');
       expect(service.formatMessageLabel({ type: 'assistant' }, 'codex')).toBe('Codex');

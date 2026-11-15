@@ -31,11 +31,14 @@ export class ComposerQueueComponent {
   readonly canSteer = input(false);
   /** B7 — the queue is held back after a user-initiated Stop. */
   readonly parked = input(false);
+  /** Harness's restart pause is holding this session, so queued messages wait for the resume. */
+  readonly heldForRestart = input(false);
 
   readonly editMessage = output<number>();
   readonly steerMessage = output<number>();
   readonly cancelMessage = output<number>();
   readonly resumeQueue = output<void>();
+  readonly sendHeldNow = output<void>();
 
   protected hasUnsavedMessages(): boolean { return this.messages().some(message => message.notDurable); }
 

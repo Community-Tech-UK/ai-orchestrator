@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { WebSocket } from 'ws';
+import { Socket } from 'net';
+import { TLSSocket } from 'tls';
 
 // Mock the logger to avoid electron / filesystem dependencies
 vi.mock('../../logging/logger', () => ({
@@ -45,6 +47,7 @@ vi.mock('../remote-worker-repair-tracker', () => ({
 import {
   isWorkerNodeWorkDispatchMethod,
   WorkerNodeConnectionServer,
+  type RpcRequestResponder,
 } from '../worker-node-connection';
 import {
   DISCONNECT_GRACE_MS,
@@ -463,5 +466,109 @@ describe('WorkerNodeConnectionServer — all-interfaces listener', () => {
 describe('WorkerNodeConnectionServer — work dispatch classification', () => {
   it('treats audio.transcribe as real remote-node work', () => {
     expect(isWorkerNodeWorkDispatchMethod(COORDINATOR_TO_NODE.AUDIO_TRANSCRIBE)).toBe(true);
+  });
+});
+
+describe('WorkerNodeConnectionServer — confidential connection lifetime', () => {
+  const transports: Socket[] = [];
+
+  beforeEach(() => {
+    WorkerNodeConnectionServer._resetForTesting();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    for (const transport of transports.splice(0)) transport.destroy();
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function transport(tls: boolean, negotiated = true): Socket {
+    const socket = tls ? new TLSSocket(new Socket()) : new Socket();
+    if (socket instanceof TLSSocket) {
+      vi.spyOn(socket, 'getProtocol').mockReturnValue(negotiated ? 'TLSv1.3' : null);
+    }
+    transports.push(socket);
+    return socket;
+  }
+
+  function connect(socket?: Socket) {
+    const server = WorkerNodeConnectionServer.getInstance();
+    const ws = makeFakeWs();
+    (server as unknown as {
+      handleConnection(ws: ReturnType<typeof makeFakeWs>, address?: string, socket?: Socket): void;
+    }).handleConnection(ws, '127.0.0.1', socket);
+    ws.emit('message', registerMessage());
+    return { server, ws };
+  }
+
+  it('refuses absent, plain, forged and not-yet-negotiated transport evidence', () => {
+    const forged = Object.assign(transport(false), { encrypted: true, getProtocol: () => 'TLSv1.3' });
+    for (const socket of [undefined, transport(false), forged, transport(true, false)]) {
+      const { server } = connect(socket);
+      expect(server.captureConfidentialConnection(NODE_ID)).toBeNull();
+    }
+  });
+
+  it('captures only a registered, negotiated TLS connection', () => {
+    const { server } = connect(transport(true));
+    expect(server.captureConfidentialConnection('missing-node')).toBeNull();
+    const isCurrent = server.captureConfidentialConnection(NODE_ID);
+    expect(isCurrent).not.toBeNull();
+    expect(isCurrent!()).toBe(true);
+  });
+
+  it.each([false, true])('invalidates the lease when replaced, even when replacement TLS is %s', (tls) => {
+    const { server } = connect(transport(true));
+    const isCurrent = server.captureConfidentialConnection(NODE_ID)!;
+    connect(transport(tls));
+    expect(isCurrent()).toBe(false);
+    expect(server.captureConfidentialConnection(NODE_ID) !== null).toBe(tls);
+  });
+
+  it('invalidates immediately on close, without waiting for disconnect grace', () => {
+    const { server, ws } = connect(transport(true));
+    const isCurrent = server.captureConfidentialConnection(NODE_ID)!;
+    ws.emit('close');
+    expect(isCurrent()).toBe(false);
+    expect(server.captureConfidentialConnection(NODE_ID)).toBeNull();
+  });
+
+  it('rejects a closing websocket or destroyed TLS transport before dispatch', () => {
+    const socket = transport(true);
+    const { server } = connect(socket);
+    const isCurrent = server.captureConfidentialConnection(NODE_ID)!;
+    socket.destroy();
+    expect(isCurrent()).toBe(false);
+    expect(server.captureConfidentialConnection(NODE_ID)).toBeNull();
+    const next = connect(transport(true));
+    next.ws.readyState = WebSocket.CLOSING;
+    expect(server.captureConfidentialConnection(NODE_ID)).toBeNull();
+  });
+
+  it('binds confidential response checks to the requesting socket rather than the latest node connection', () => {
+    const { server, ws } = connect(transport(true));
+    let responder: RpcRequestResponder | undefined;
+    server.on('rpc:request', (_node, _request, respond) => { responder = respond; });
+    ws.emit('message', JSON.stringify({ jsonrpc: '2.0', id: 42, method: 'browser.ext.pollCommand' }));
+    const requestResponder = responder!;
+    const isCurrent = server.captureConfidentialResponder(NODE_ID, requestResponder);
+    expect(isCurrent?.()).toBe(true);
+    const replacement = connect(transport(true));
+    expect(server.captureConfidentialConnection(NODE_ID)?.()).toBe(true);
+    expect(isCurrent!()).toBe(false);
+    expect(server.captureConfidentialResponder(NODE_ID, requestResponder)).toBeNull();
+    replacement.ws.send.mockClear();
+    expect(requestResponder({ jsonrpc: '2.0', id: 42, result: 'PLACEHOLDER' })).toBe(false);
+    expect(replacement.ws.send).not.toHaveBeenCalled();
+  });
+
+  it('refuses caller-made or foreign-node response functions as confidentiality evidence', () => {
+    const { server, ws } = connect(transport(true));
+    let responder: RpcRequestResponder | undefined;
+    server.on('rpc:request', (_node, _request, respond) => { responder = respond; });
+    ws.emit('message', JSON.stringify({ jsonrpc: '2.0', id: 42, method: 'browser.ext.pollCommand' }));
+    expect(server.captureConfidentialResponder('different-node', responder!)).toBeNull();
+    expect(server.captureConfidentialResponder(NODE_ID, () => true)).toBeNull();
   });
 });

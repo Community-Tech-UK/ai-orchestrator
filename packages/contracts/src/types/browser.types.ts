@@ -1,3 +1,5 @@
+import type { BrowserDeviceLoginMetadata, BrowserDeviceLoginChoice } from './browser-device-login.types';
+export type { BrowserDeviceLoginMetadata, BrowserDeviceLoginChoice } from './browser-device-login.types';
 import type { BrowserCredentialAccessMetadata, BrowserCredentialAccessChoice } from './browser-credential-access.types';
 
 export type BrowserActionClass =
@@ -205,6 +207,7 @@ export interface BrowserApprovalRequest {
   filePath?: string;
   detectedFileType?: string;
   credentialAccess?: BrowserCredentialAccessMetadata;
+  deviceLogin?: BrowserDeviceLoginMetadata;
   /** Why the agent asked, in its own words (cleaned). Only what the agent said; never read from the page. */
   requestReason?: string;
   /** Which computer this is about: 'local' or a remote computer's id. Worked out each time the list is read, never stored. */
@@ -705,6 +708,7 @@ export interface BrowserApproveRequestPayload {
   grant: BrowserGrantProposal;
   reason?: string;
   credentialAccess?: BrowserCredentialAccessChoice;
+  deviceLogin?: BrowserDeviceLoginChoice;
 }
 
 export type { BrowserCredentialAccessMetadata, BrowserCredentialAccessChoice, BrowserRequestCredentialAccess } from './browser-credential-access.types';

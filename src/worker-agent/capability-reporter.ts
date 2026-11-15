@@ -106,6 +106,7 @@ export function busyCoresSinceLastReport(sample: () => os.CpuInfo[] = os.cpus): 
 
 /** Values the worker computes itself and hands to the reporter. All optional. */
 export interface ReportCapabilitiesExtras {
+  codexDeviceLogin?: 1;
   /** Plain-words reason the worker had trouble connecting (macOS Local Network block). Sent as `connectionNotice`. */
   connectionNotice?: string;
   /** What the worker learned about macOS Local Network access; feeds the host check. Default 'unknown'. */
@@ -176,6 +177,7 @@ export async function reportCapabilities(
     stallProcessSampling: 1,
     ...(process.platform === 'win32' ? { keepAwake: 1 as const } : {}),
     codexSpawnMetadata: 1,
+    ...(extras.codexDeviceLogin === 1 ? { codexDeviceLogin: 1 as const } : {}),
     codexHelperPolicy: 1,
     codexExecSkillsPolicy: 1, // This worker's command-mode Codex applies the skills policy (see codexExecPolicyArgs).
     queuePushGuard: 1, // This worker builds the Plan Queue push guard itself (see SpawnParams).

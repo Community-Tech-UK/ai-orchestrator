@@ -1,37 +1,30 @@
 import { Injectable, inject } from '@angular/core';
 import { ScratchDirectoryService } from '../../core/services/scratch-directory.service';
 import {
+  isPlanQueueWorktreePath,
+  isWorktreePath,
+  sessionProjectPath,
+} from '../../../../shared/utils/worktree-project-path';
+import {
   CHATS_KEY,
   NO_WORKSPACE_KEY,
 } from './instance-list.types';
-
-/** A `.worktrees` directory segment, as created for Plan Queue items, loops and AIO-managed worktrees. */
-const WORKTREES_SEGMENT = /[\\/]\.worktrees(?:[\\/]|$)/;
-/** A Plan Queue item's worktree (`<repo>/.worktrees/queue/<item>`, see plan-queue-worktree.ts). */
-const PLAN_QUEUE_WORKTREE = /[\\/]\.worktrees[\\/]queue[\\/]/;
 
 @Injectable({ providedIn: 'root' })
 export class ProjectRailPathService {
   private scratchDirectory = inject(ScratchDirectoryService);
 
-  /**
-   * The project directory a session belongs to. A session working inside a
-   * repository's `.worktrees/` checkout belongs to that repository's project;
-   * without this, every Plan Queue item or loop worktree became a project of
-   * its own in the rail.
-   */
+  /** The project directory a session belongs to; see `sessionProjectPath`. */
   getSessionProjectPath(workingDirectory: string | null | undefined): string | null | undefined {
-    const normalized = workingDirectory?.trim() ?? '';
-    const match = WORKTREES_SEGMENT.exec(normalized);
-    return match && match.index > 0 ? normalized.slice(0, match.index) : workingDirectory;
+    return sessionProjectPath(workingDirectory);
   }
 
   isWorktreePath(workingDirectory: string | null | undefined): boolean {
-    return this.getSessionProjectPath(workingDirectory) !== workingDirectory;
+    return isWorktreePath(workingDirectory);
   }
 
   isPlanQueueWorktreePath(workingDirectory: string | null | undefined): boolean {
-    return PLAN_QUEUE_WORKTREE.test(workingDirectory ?? '');
+    return isPlanQueueWorktreePath(workingDirectory);
   }
 
   getProjectKey(workingDirectory: string | null | undefined): string {

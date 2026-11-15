@@ -81,11 +81,13 @@ npm run dev
 npm run build
 ```
 
-To run the dev app for a live test or any other check, start it on the test Mac, not on this Mac:
+To run the dev app for a live test or any other check, start it with `dev-app.js`, not by hand on this Mac:
 `node "$(git rev-parse --path-format=absolute --git-common-dir)/../scripts/remote-checks/dev-app.js" start --port <p> --data /tmp/aio-lt-<name>`,
-then drive it at `http://127.0.0.1:<p>` and `stop --port <p>` when done. This overrides any older instruction to build
-and launch the dev app from your worktree. Start it here only for a check that needs something only this Mac has, and
-say why. Details: `docs/plans/livetest-campaign-runbook.md` section 3.
+then drive it at `http://127.0.0.1:<p>` and `stop --port <p>` when done. It picks the first computer that isn't busy
+(the test Mac, then the Windows PC, then this Mac, which is exit 75) and keeps waiting while all are, so never judge
+load yourself or stop because a computer is busy. This overrides any older instruction to build and launch the dev app
+from your worktree. Start it here yourself only when `start` exits 75 or a check needs something only this Mac has,
+and say why. Details: `docs/plans/livetest-campaign-runbook.md` section 3.
 
 ## Documentation Formats
 
@@ -110,7 +112,7 @@ Before renaming the plan:
 
 The livetest doc is itself a plan: run it against the rebuilt app (typically by dragging `*_livetest.md` files into a loop) and rename it `_livetest_completed.md` only when every check passes with evidence. Searching for `*_livetest.md` lists all pending live testing.
 
-Every `*_livetest.md` carries a header block pointing at the remediation flow — include it when you create a new one. A **reproduced** defect goes into `docs/plans/livetest-remediation-register.md` as a new `LT-NNN` item (index row plus observed behaviour, root cause, required behaviour, acceptance). Run `node scripts/next-lt-id.mjs` for the next identifier and recheck before adding the row; the command does not reserve it. The register's index row is the defect's status; implementation notes go in the plan or livetest document that fixes it. Per-check evidence stays in the owning livetest doc. Before running a campaign, read `docs/plans/livetest-campaign-runbook.md`. Agents do not read `livetest-remediation-register-archive-2026.md` unless an index row points there. Never add new work to a closed plan.
+Every `*_livetest.md` carries a header block pointing at the remediation flow — include it when you create a new one. A **reproduced** defect goes into `docs/plans/livetest-remediation-register.md` as a new `LT-NNN` item (index row plus observed behaviour, root cause, required behaviour, acceptance). Run `node scripts/next-lt-id.mjs --reserve` before filing a new defect. It reserves one durable identifier against the common root register and shared Git ledger, including uncommitted root rows; use that identifier once and never delete reservation files. The old invocation without `--reserve` is read-only inspection, not allocation. Remote independent clones must obtain their reservation from the coordinator checkout, never from a local ledger. See `docs/defect-id-reservations.md`. The register's index row is the defect's status; implementation notes go in the plan or livetest document that fixes it. Per-check evidence stays in the owning livetest doc. Before running a campaign, read `docs/plans/livetest-campaign-runbook.md`. Agents do not read `livetest-remediation-register-archive-2026.md` unless an index row points there. Never add new work to a closed plan.
 
 ## TypeScript and Angular Conventions
 

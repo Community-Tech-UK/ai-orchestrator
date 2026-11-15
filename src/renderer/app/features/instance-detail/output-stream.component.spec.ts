@@ -19,6 +19,7 @@ import type { TurnBaselineResult } from '../../../../shared/types/turn-file-chan
 import { InstanceIpcService } from '../../core/services/ipc';
 import { TurnBaselineIpcService } from '../../core/services/ipc/turn-baseline-ipc.service';
 import { InstanceStore } from '../../core/state/instance/instance.store';
+import { SessionWatcherStore } from '../../core/state/session-watcher.store';
 import type { OutputMessage } from '../../core/state/instance/instance.types';
 import { OutputStreamComponent } from './output-stream.component';
 import { RequestReceiptStore } from './user-input-request.receipts';
@@ -59,7 +60,8 @@ const bashDone = (at: number, id: string, extra: Record<string, unknown> = {}) =
   msg('tool_result', at, { metadata: { name: 'Bash', id, exitCode: 0, status: 'completed', is_error: false, isCheck: false, checkFailed: false, ...extra } });
 
 describe('OutputStreamComponent turn notes', () => {
-  interface Session { status: string; workingDirectory: string; executionLocation?: { type: string } }
+  interface Session { status: string; workingDirectory: string; executionLocation?: { type: string }; watcherMuted?: boolean }
+  const setMuted = vi.fn<(instanceId: string, muted: boolean) => Promise<string | null>>();
   const session = signal<Session | undefined>({ status: 'idle', workingDirectory: '/repo' });
   const getTurnFileChanges = vi.fn<(instanceId: string, turnKey: string) => Promise<TurnBaselineResult | null>>();
   let fixture: ComponentFixture<OutputStreamComponent>;
@@ -93,6 +95,7 @@ describe('OutputStreamComponent turn notes', () => {
       providers: [
         { provide: InstanceStore, useValue: { getInstance: () => session(), setSelectedInstance: vi.fn() } },
         { provide: TurnBaselineIpcService, useValue: { getTurnFileChanges } },
+        { provide: SessionWatcherStore, useValue: { setMuted } },
       ],
     }).compileComponents();
     fixture = TestBed.createComponent(OutputStreamComponent);
@@ -367,5 +370,42 @@ describe('OutputStreamComponent turn notes', () => {
     });
     await render(finishedTurn());
     expect(rowNote('msg-r1')!.querySelector('[title]')).toBeNull();
+  });
+
+  describe('an automatic carry-on from the session watcher', () => {
+    const carryOn = () => msg('system', 14_000, {
+      id: 'w1', content: 'Carry on with the plan you already have.',
+      metadata: { internalInput: { actor: 'harness', source: 'session-watcher' } },
+    });
+    const muteButton = () => Array.from(host.querySelectorAll('button')).find((b) => text(b) === 'Stop doing this in this session');
+
+    beforeEach(() => { setMuted.mockReset(); setMuted.mockResolvedValue(null); });
+
+    it('offers one click to stop it in this session', async () => {
+      await render([user(1_000, 'u1'), reply(13_000, 'r1', 'Shall I carry on?'), carryOn()]);
+      muteButton()!.click();
+      expect(setMuted).toHaveBeenCalledWith('inst-1', true);
+    });
+
+    it('offers the same on the rule-based answer to "shall I carry on?"', async () => {
+      await render([user(1_000, 'u1'), reply(13_000, 'r1', 'Shall I carry on?'), msg('system', 14_000, {
+        id: 'q1', content: 'Carry on with the plan you already have.',
+        metadata: { internalInput: { actor: 'harness', source: 'continue-question-reply' } },
+      })]);
+      muteButton()!.click();
+      expect(setMuted).toHaveBeenCalledWith('inst-1', true);
+    });
+
+    it('does not offer it once the session is switched off, or on other automatic messages', async () => {
+      session.set({ status: 'idle', workingDirectory: '/repo', watcherMuted: true });
+      await render([user(1_000, 'u1'), reply(13_000, 'r1', 'Shall I carry on?'), carryOn()]);
+      expect(muteButton()).toBeUndefined();
+
+      session.set({ status: 'idle', workingDirectory: '/repo' });
+      await render([user(1_000, 'u1'), reply(13_000, 'r1'), msg('system', 14_000, {
+        id: 'c1', content: 'Automatic check-in.', metadata: { internalInput: { actor: 'harness', source: 'waiting-check-in' } },
+      })]);
+      expect(muteButton()).toBeUndefined();
+    });
   });
 });

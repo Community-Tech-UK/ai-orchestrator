@@ -7,7 +7,6 @@ import { InstanceContinuationDispatch, type ContinuationReservation, type Contin
 import { getLogger } from '../logging/logger';
 import { registerCleanup } from '../util/cleanup-registry';
 import { getPauseCoordinator } from '../pause/pause-coordinator';
-import { getSettingsManager } from '../core/config/settings-manager';
 import {
   isRecoverableTransportCompletion,
   TRANSPORT_RECOVERY_DELAYS_MS,
@@ -123,7 +122,7 @@ export class InstanceAnnounceThenHaltContinuation {
     isManagedLoopInstance: (instanceId: string) => boolean = () => false,
     isPaused: () => boolean = () => false,
     dispatch?: InstanceContinuationDispatch,
-    private readonly answersContinueQuestions: () => boolean = () => true,
+    private readonly answersContinueQuestions: (instance: Instance) => boolean = () => true,
   ) {
     this.ownsDispatch = dispatch === undefined;
     this.dispatch = dispatch ?? new InstanceContinuationDispatch(asyncWorkRegistry, host, isManagedLoopInstance, isPaused);
@@ -226,8 +225,8 @@ export class InstanceAnnounceThenHaltContinuation {
       : null;
     // Detection runs only while this user message still has its one automatic reply.
     const question = responseText && !transport && !detected && attempts < 1 ? detectTrailingContinueQuestion(responseText) : null;
-    // The setting is read only once a question is found, so ordinary turns never touch the settings store.
-    const answerQuestion = question !== null && this.answersContinueQuestions();
+    // Asked only once a question is found, so ordinary turns never touch the settings store.
+    const answerQuestion = question !== null && this.answersContinueQuestions(instance);
     if (!transport && ((!detected && !answerQuestion) || attempts >= 1)) return;
     state.lastHandledRequestCount = instance.requestCount;
     if (transport && attempts >= TRANSPORT_RECOVERY_DELAYS_MS.length) {
@@ -288,7 +287,9 @@ export function initializeInstanceAnnounceThenHaltContinuation(
     isManagedLoopInstance,
     isPaused,
     undefined,
-    () => getSettingsManager().get('autoAnswerContinueQuestions'),
+    // Answering a "shall I carry on?" question belongs to the continuation runtime, which knows which sessions
+    // "Keep sessions going without me" covers. This listener on its own never answers one.
+    () => false,
   );
   activeContinuation.start();
   registerCleanup(() => {

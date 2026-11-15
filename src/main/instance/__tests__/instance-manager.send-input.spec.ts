@@ -1336,6 +1336,20 @@ describe('InstanceManager', () => {
       expect(getInputTurnRegistry().checkPersonTurn(id)).toEqual({ ok: false, reason: 'latest-input-not-person' });
     });
 
+    it('stores the watcher approval marker on a "Yes, go ahead" click, with no person origin, and counts it as the user\'s own input', async () => {
+      const { id, instance } = await reportingInstance();
+      const started: { autoContinuation: boolean }[] = [];
+      manager.on('instance:input-started', (event: { autoContinuation: boolean }) => started.push(event));
+
+      await manager.sendInput(id, 'Yes, go ahead.', undefined, { watcherApproval: { question: 'Shall I push it?' } });
+
+      const stored = userMessages(instance).at(-1);
+      expect(stored?.metadata?.['sessionWatcherApproval']).toEqual({ question: 'Shall I push it?' });
+      expect(stored?.metadata?.['inputOrigin']).toBeUndefined();
+      expect(stored?.metadata?.['internalInput']).toBeUndefined();
+      expect(started.at(-1)).toEqual(expect.objectContaining({ autoContinuation: false }));
+    });
+
     it.each([
       ['Harness-written text', { internalSource: 'plan-queue' as const }],
       ['a cross-session message', { crossSessionSourceId: 'other-agent' }],

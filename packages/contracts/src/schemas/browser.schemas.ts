@@ -1,3 +1,5 @@
+import { BrowserDeviceLoginChoiceSchema, BrowserDeviceLoginMetadataSchema, validateDeviceLoginApproval } from './browser-device-login.schemas';
+export { BrowserDeviceLoginChoiceSchema, BrowserDeviceLoginMetadataSchema } from './browser-device-login.schemas';
 import { z } from 'zod';
 import { PERSISTENT_BROWSER_GRANT_EXPIRES_AT } from '../types/browser.types';
 import { BrowserCredentialAccessChoiceSchema, BrowserCredentialAccessMetadataSchema } from './browser-credential-access.schemas';
@@ -99,9 +101,7 @@ export const BrowserApprovalRequestStatusSchema = z.enum([
   'denied',
   'expired',
 ]);
-export type BrowserApprovalRequestStatus = z.infer<
-  typeof BrowserApprovalRequestStatusSchema
->;
+export type BrowserApprovalRequestStatus = z.infer<typeof BrowserApprovalRequestStatusSchema>;
 export const BrowserManualStepKindSchema = z.enum([
   'manual_review',
   'login',
@@ -289,6 +289,7 @@ export const BrowserApprovalRequestSchema = z
     filePath: z.string().min(1).max(2000).optional(),
     detectedFileType: z.string().min(1).max(120).optional(),
     credentialAccess: BrowserCredentialAccessMetadataSchema.optional(),
+    deviceLogin: BrowserDeviceLoginMetadataSchema.optional(),
     requestReason: BrowserStatedReasonSchema.optional(),
     computerId: idSchema.optional(),
     proposedGrant: BrowserGrantProposalSchema,
@@ -300,6 +301,7 @@ export const BrowserApprovalRequestSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
+    validateDeviceLoginApproval(value, ctx);
     if (value.id !== value.requestId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -762,12 +764,11 @@ export const BrowserApproveRequestPayloadSchema = z
     requestId: idSchema,
     grant: BrowserGrantProposalSchema.superRefine(validatePersistentScope),
     credentialAccess: BrowserCredentialAccessChoiceSchema.optional(),
+    deviceLogin: BrowserDeviceLoginChoiceSchema.optional(),
     reason: z.string().min(1).max(1000).optional(),
   })
   .strict();
-export type BrowserApproveRequestPayload = z.infer<
-  typeof BrowserApproveRequestPayloadSchema
->;
+export type BrowserApproveRequestPayload = z.infer<typeof BrowserApproveRequestPayloadSchema>;
 
 export const BrowserCreateGrantRequestSchema = BrowserGrantProposalSchema.extend({
   instanceId: idSchema,
@@ -825,9 +826,7 @@ export const BrowserRequestGrantRequestSchema = BrowserTargetRequestSchema.exten
   proposedGrant: BrowserGrantProposalSchema.extend({ mode: z.enum(['per_action', 'session', 'autonomous']) }),
   reason: z.string().min(1).max(1000).optional(),
 }).strict();
-export type BrowserRequestGrantRequest = z.infer<
-  typeof BrowserRequestGrantRequestSchema
->;
+export type BrowserRequestGrantRequest = z.infer<typeof BrowserRequestGrantRequestSchema>;
 
 export const BrowserListAuditLogRequestSchema = z
   .object({

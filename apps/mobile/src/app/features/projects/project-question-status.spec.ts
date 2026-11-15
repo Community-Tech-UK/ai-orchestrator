@@ -16,7 +16,7 @@ describe('phone question status in both browsing modes', () => {
     const instance: MobileInstanceDto = { id: 'question', displayName: 'Fixture session', status,
       provider: 'claude', workingDirectory: '/work/example', projectName: 'example', createdAt: 1,
       lastActivity: 1, pendingApprovalCount, hasUnreadCompletion: false };
-    const groups = buildProjectGroups([], [instance], [], []);
+    const groups = buildProjectGroups([instance], [], []);
     for (const row of [groups[0].sessions[0], flattenChronologicalSessions(groups)[0]]) {
       const fixture = TestBed.createComponent(MobileSessionRowComponent);
       fixture.componentRef.setInput('row', row);

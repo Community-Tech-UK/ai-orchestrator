@@ -20,6 +20,8 @@ export interface NeedsYouSources {
   sidechats: readonly Pick<SideChatAttention, 'parent' | 'parentTitle' | 'needsAttention' | 'attentionSince'>[];
   outstanding: readonly OutstandingNeed[];
   toolLoops: readonly (ToolLoopSummaryInput & { instanceId: string; detectedAt: number; sessionName?: string })[];
+  /** Sessions the session watcher handed back to the user: the agent's own question, or the watcher's fixed note. */
+  sessionQuestions: readonly { instanceId: string; sessionName?: string; question: string; note?: string; requestCount: number; since: number }[];
 }
 
 export function workboardEntry(item: WorkboardItem): NeedsYouEntry {
@@ -50,6 +52,8 @@ export function needsYouReason(entry: NeedsYouEntry, statusSentence?: string,
     case 'permission-request': return `Wants permission: ${entry.title}`;
     case 'browser-approval': return 'Wants your OK for a browser step';
     case 'loop-question': return entry.detail ? `Asked you: ${entry.detail}` : entry.title;
+    // The detail already reads "Asked you: ..." (or the watcher's own note), built where the entry is made.
+    case 'session-question': return entry.detail ?? entry.title;
     // The session list already shows the name beside this line.
     case 'tool-loop': return TOOL_LOOP_TITLE;
   }
@@ -104,5 +108,8 @@ export function requestEntries(sources: NeedsYouSources, now: number): NeedsYouE
   for (const item of sources.toolLoops) add('tool-loop', item.instanceId,
     item.sessionName ? `${item.sessionName} may be stuck: stop it or let it continue` : TOOL_LOOP_TITLE, item.detectedAt,
     { instanceId: item.instanceId, detail: describeToolLoop(item) });
+  // A newer stop on the same session has a new request count, so an old "seen" or answer never covers it.
+  for (const item of sources.sessionQuestions) add('session-question', item.instanceId, item.sessionName ?? 'A session', item.since,
+    { instanceId: item.instanceId, detail: item.note ?? `Asked you: ${item.question}`, version: String(item.requestCount) });
   return entries;
 }

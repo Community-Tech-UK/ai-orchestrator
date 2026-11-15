@@ -807,6 +807,8 @@ export class InstanceStore implements OnDestroy {
     return this.messagingStore.isQueueParked(instanceId);
   }
 
+  readonly queueRestartHold = this.messagingStore.restartHold;
+
   /** Get queued message count for an instance (reactive) */
   getQueuedMessageCount(instanceId: string): number {
     return this.messagingStore.getQueuedMessageCount(instanceId);

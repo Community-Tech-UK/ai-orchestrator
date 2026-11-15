@@ -10,7 +10,7 @@ import { InstanceAnnounceThenHaltContinuation } from './instance-announce-then-h
 import type { InstanceReasoningCollapseContinuationHost } from './instance-reasoning-collapse-continuation';
 
 vi.mock('../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }) }));
-const settings = vi.hoisted(() => ({ autoAnswerContinueQuestions: true }));
+const settings = vi.hoisted(() => ({ keepSessionsGoing: 'planned-work' }));
 vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => ({ get: (key: keyof typeof settings) => settings[key] }),
 }));
@@ -38,7 +38,7 @@ describe('shared continuation runtime', () => {
     registry.observe('root', { phase: 'terminal', workId, kind: 'background-shell', status: 'completed' });
   }
   beforeEach(() => {
-    settings.autoAnswerContinueQuestions = true;
+    settings.keepSessionsGoing = 'planned-work';
     events = new EventEmitter();
     registry = new InstanceAsyncWorkRegistry();
     instance = { id: 'root', parentId: null, launchMode: 'orchestrated', provider: 'opencode',
@@ -259,19 +259,79 @@ describe('shared continuation runtime', () => {
     expect(providerInputs[0]).toContain('A background task has finished.');
   });
 
-  it('answers a "shall I continue?" ending only while the setting is on', async () => {
-    settings.autoAnswerContinueQuestions = false;
-    complete(undefined, 'Shall I continue?');
-    await flush();
-    expect(providerInputs).toHaveLength(0);
+  describe('the rule-based answer to "shall I continue?"', () => {
+    let typing: boolean;
+    /** The user's own Claude chat session, with the watcher present as it is in the app. */
+    function useWatchedClaudeSession(): void {
+      runtime.stop();
+      typing = false;
+      Object.assign(instance, { provider: 'claude', childrenIds: [], metadata: {}, planMode: { enabled: false, state: 'off' } });
+      runtime = new InstanceContinuationRuntime(registry, host, () => looping, () => paused, 0, {
+        level: () => settings.keepSessionsGoing as 'off', isSideChat: () => false, hasOpenRequest: () => false,
+        isUserTyping: () => typing, judge: { available: () => false, judge: () => new Promise(() => undefined) },
+      });
+      runtime.start();
+    }
+    /** The user sends a message and the session ends its turn on the question again. */
+    function askAgain(): void {
+      events.emit('instance:input-started', { instanceId: 'root', autoContinuation: false });
+      instance.requestCount += 1;
+      instance.outputBuffer = [{ id: `question-${instance.requestCount}`, type: 'assistant', content: 'Shall I continue?', timestamp: 1 }];
+      complete(undefined, 'Shall I continue?');
+    }
 
-    settings.autoAnswerContinueQuestions = true;
-    events.emit('instance:input-started', { instanceId: 'root', autoContinuation: false });
-    instance.requestCount += 1;
-    instance.outputBuffer = [{ id: 'question', type: 'assistant', content: 'Shall I continue?', timestamp: 1 }];
-    complete(undefined, 'Shall I continue?');
-    await vi.waitFor(() => expect(providerInputs).toHaveLength(1));
-    expect(providerInputs[0]).toContain('<last_question>Shall I continue?</last_question>');
+    it('answers one of the user\'s own Claude sessions at a level that replies, and at no other level', async () => {
+      useWatchedClaudeSession();
+      for (const quiet of ['off', 'flag-only']) {
+        settings.keepSessionsGoing = quiet;
+        askAgain();
+        await flush();
+        expect(providerInputs).toHaveLength(0);
+      }
+      settings.keepSessionsGoing = 'planned-work';
+      askAgain();
+      await vi.waitFor(() => expect(providerInputs).toHaveLength(1));
+      expect(providerInputs[0]).toContain('<last_question>Shall I continue?</last_question>');
+    });
+
+    it('leaves a session alone once the user has switched it off for that session', async () => {
+      useWatchedClaudeSession();
+      instance.watcherMuted = true;
+      askAgain();
+      await flush();
+      expect(providerInputs).toHaveLength(0);
+    });
+
+    it('leaves a session on another provider, a helper agent and a loop alone', async () => {
+      useWatchedClaudeSession();
+      instance.provider = 'codex';
+      askAgain();
+      await flush();
+      instance.provider = 'claude';
+      instance.parentId = 'parent';
+      askAgain();
+      await flush();
+      instance.parentId = null;
+      looping = true;
+      askAgain();
+      await flush();
+      expect(providerInputs).toHaveLength(0);
+    });
+
+    it('sends nothing while the user is typing in that session', async () => {
+      useWatchedClaudeSession();
+      typing = true;
+      askAgain();
+      await flush();
+      expect(providerInputs).toHaveLength(0);
+    });
+
+    it('answers nothing where the app has not supplied the watcher', async () => {
+      instance.provider = 'claude';
+      askAgain();
+      await flush();
+      expect(providerInputs).toHaveLength(0);
+    });
   });
 
   it('cancels all pending source work and releases its inhibitor on runtime shutdown', async () => {

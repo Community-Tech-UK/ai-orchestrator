@@ -138,6 +138,7 @@ import { registerRuntimeProviderSessionHandlers } from './handlers/runtime-provi
 import { registerUsageInsightHandlers } from './handlers/usage-insight-handlers';
 import { registerTurnBaselineHandlers } from './handlers/turn-baseline-handlers';
 import { registerGlobalPauseHandlers } from './handlers/global-pause-handlers';
+import { registerSessionWatcherHandlers } from './handlers/session-watcher-handlers';
 import { registerWorktreeLeftoverHandlers } from './handlers/worktree-leftover-handlers';
 import { initializeRlmStorageMaintenance } from '../rlm/rlm-storage-maintenance-runtime';
 
@@ -302,6 +303,11 @@ export class IpcMainHandler {
     registerSettingsHandlers({ windowManager: this.windowManager });
     registerPauseHandlers({ windowManager: this.windowManager });
     registerGlobalPauseHandlers({ windowManager: this.windowManager, ensureTrustedSender: this.ensureTrustedSender.bind(this) });
+    registerSessionWatcherHandlers({
+      getInstance: (instanceId) => this.instanceManager.getInstance(instanceId),
+      sendInput: (instanceId, message, attachments, options) => this.instanceManager.sendInput(instanceId, message, attachments, options),
+      ensureTrustedSender: this.ensureTrustedSender.bind(this),
+    });
     registerInstructionHandlers();
 
     // Memory stats handlers (basic memory tracking)

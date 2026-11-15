@@ -18,6 +18,7 @@ async function start(failure: unknown, critical = true) {
   let startup: Promise<void> | undefined;
   const app = {
     isPackaged: false,
+    getVersion: () => 'test-build',
     getPath: () => '/unused-startup-fixture',
     setPath: vi.fn(), setName: vi.fn(), getAppPath: () => '/unused-startup-fixture',
     commandLine: { appendSwitch: vi.fn() },
@@ -45,6 +46,7 @@ async function start(failure: unknown, critical = true) {
     './providers/register-built-in-providers': { registerBuiltInProviders: vi.fn() },
     './app/shutdown-forensics': { installShutdownSignalProbes: vi.fn() },
     './app/user-data-path': { resolveHarnessUserDataPath: () => '/unused-startup-fixture' },
+    './app/live-test-context': { isHarnessLiveTest: () => false, writeHarnessLiveTestReceipt: vi.fn() },
     './process/harness-shutdown-operations': { createHarnessShutdownOperations: () => ({}) },
     './app/stateless-exec-provider': { createStatelessExecProviderPredicate: vi.fn() },
     './app/initialization-steps': {

@@ -27,6 +27,7 @@ import {
 } from '../../../shared/types/copilot-account.types';
 import { migrateProviderAccountLegacyProfiles, migrateOpenCodeLegacyProfile } from './settings-migrations-provider-accounts';
 import { migrateOwnChatContextCeiling } from './settings-migrations-own-chat-ceiling';
+import { migrateKeepSessionsGoing } from './settings-migrations-keep-sessions-going';
 import { isLegacyPlanQueueRouting, upgradePlanQueueRouting } from '../../../shared/utils/plan-queue-routing-upgrade';
 // Static, not `require`: the legacy profile must resolve to the SAME directory
 // the adapter uses, and a second copy of that derivation here would drift.
@@ -558,6 +559,7 @@ function migrateGraphAuthorityToOrganizations(store: SettingsMigrationStore): vo
 }
 
 export function runSettingsMigrations(store: SettingsMigrationStore): void {
+  migrateKeepSessionsGoing(store);
   migrateCodexBackupRetention(store);
   const observationOffMarker = '__migration_observation_memory_off_20261020';
   if (store.get(observationOffMarker) !== true) {

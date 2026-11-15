@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DraftService } from './draft.service';
 import { ToastService } from './toast.service';
 import { fingerprintFile } from './attachment-identity';
@@ -28,3 +28,34 @@ describe('DraftService pending attachments', () => {
     expect(show).toHaveBeenCalledExactlyOnceWith('Already attached.');
   });
 });
+
+describe('DraftService change times', () => {
+  let drafts: DraftService;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    vi.setSystemTime(1_000);
+    TestBed.configureTestingModule({ providers: [DraftService, { provide: ToastService, useValue: { show: vi.fn() } }] });
+    drafts = TestBed.inject(DraftService);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('records when the text last changed, and not when the same text is saved again', () => {
+    drafts.setDraft('a', 'hello');
+    expect(drafts.lastChangeAt('a')).toBe(1_000);
+    vi.setSystemTime(5_000);
+    drafts.setDraft('a', 'hello');
+    expect(drafts.lastChangeAt('a')).toBe(1_000);
+    drafts.setDraft('a', 'hello!');
+    expect(drafts.lastChangeAt('a')).toBe(5_000);
+  });
+
+  it('forgets the time once the draft is emptied or cleared', () => {
+    drafts.setDraft('a', 'hello'); drafts.setDraft('b', 'hi');
+    drafts.setDraft('a', '');
+    drafts.clearDraft('b');
+    expect(drafts.lastChangeAt('a')).toBeUndefined();
+    expect(drafts.lastChangeAt('b')).toBeUndefined();
+  });
+});
+

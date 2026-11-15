@@ -418,6 +418,12 @@ export interface MobileHistorySessionDto {
   archived: boolean;
   live: boolean;
   instanceId?: string;
+  /**
+   * Kept out of the Projects list, as the desktop project rail does: helper and
+   * hidden-automation sessions, and finished Plan Queue runs. It still shows in
+   * History. Absent from hosts that predate it.
+   */
+  hiddenFromProjects?: boolean;
 }
 
 /** Result of POST /api/history/:id/continue — a restored (new) instance. */

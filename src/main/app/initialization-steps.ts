@@ -43,7 +43,11 @@ import {
 import { bindWorkerModeLoginItem } from '../remote-node/worker-mode-login-item';
 import { initializeContextEvidenceRuntime, startContextEvidenceMaintenance } from '../context-evidence/evidence-maintenance-service';
 import { initializeLocalAiGuardRuntime } from '../local-ai-guard';
-import { initializeInstanceContinuationRuntime } from '../instance/instance-continuation-runtime';
+import { getActiveSessionWatcher, initializeInstanceContinuationRuntime } from '../instance/instance-continuation-runtime';
+import { IPC_CHANNELS } from '@contracts/channels';
+import type { SessionWatcher } from '../session-watcher/session-watcher';
+import { getWatcherAttention } from '../session-watcher/watcher-attention';
+import { createSessionWatcherExternals } from '../session-watcher/watcher-wiring';
 import { initializeInstanceAsyncWorkPublisher } from '../instance/instance-async-work-publisher';
 import { initializeInstanceAnnounceThenHaltContinuation } from '../instance/instance-announce-then-halt-continuation';
 import { initializeInstanceCrashTurnContinuation } from '../instance/instance-crash-turn-continuation';
@@ -191,7 +195,26 @@ export function createContinuationRuntimeInitializationStep(
     fn: () => {
       initialize(instanceManager, (instanceId) => getActiveLoops().some(
         (loop) => loop.chatId === instanceId && isActiveLoopRuntimeState(loop),
+      ), undefined, createSessionWatcherExternals(
+        (instanceId) => instanceManager.getOrchestrationHandler().getPendingUserActionsForInstance(instanceId),
       ));
+    },
+  };
+}
+
+/** Follows the session watcher's flags and tells the window about every change. Runs after the continuation runtime creates the watcher. */
+export function createSessionWatcherAttentionInitializationStep(
+  windowManager: Pick<WindowManager, 'sendToRenderer'>,
+  getWatcher: () => SessionWatcher | undefined = getActiveSessionWatcher,
+): AppInitializationStep {
+  return {
+    name: 'Session watcher attention',
+    fn: () => {
+      const watcher = getWatcher();
+      if (!watcher) return;
+      const attention = getWatcherAttention();
+      attention.attach(watcher, (flags) => windowManager.sendToRenderer(IPC_CHANNELS.SESSION_WATCHER_FLAGS_CHANGED, flags));
+      registerCleanup(() => attention.detach());
     },
   };
 }
@@ -477,6 +500,7 @@ export function createInitializationSteps(
       fn: () => initializeInstanceAsyncWorkPublisher(instanceManager),
     },
     createContinuationRuntimeInitializationStep(instanceManager),
+    createSessionWatcherAttentionInitializationStep(windowManager),
     { name: 'Verification invokers', fn: () => registerDefaultMultiVerifyInvoker(instanceManager) },
     { name: 'Automations', fn: () => initializeAutomations(instanceManager) },
     { name: 'Review invokers', fn: () => registerDefaultReviewInvoker(instanceManager) },

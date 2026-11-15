@@ -2,8 +2,8 @@
  * A job's turns on another computer, against the worker's real `QueueJobHost` and real git: arrange, report, save.
  * The item rows are an in-memory map; the queue's own `checkpoint` is stood in for by a commit of everything.
  */
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
 import { runQueueJobCall } from '../../../worker-agent/queue-jobs/queue-job-dispatch';
@@ -213,26 +213,44 @@ describe('Resume after a pause or park while the computer was away', () => {
 describe('the report', () => {
   const reportFile = (): string => turns.promptFor(current(), root)!.reportFile;
 
+  it('reserves only for its assigned worker and refuses replay without allocating again', async () => {
+    mkdirSync(join(root, 'scripts/lib'), { recursive: true });
+    cpSync(resolve('scripts/next-lt-id.mjs'), join(root, 'scripts/next-lt-id.mjs'));
+    cpSync(resolve('scripts/lib/lt-id-reservation.mjs'), join(root, 'scripts/lib/lt-id-reservation.mjs'));
+    write(root, 'docs/plans/livetest-remediation-register.md', '## Remediation Index\n| ID | Status |\n| --- | --- |\n| LT-050 | root-only evidence |\n');
+    rows.set(JOB, await turns.arrange(current(), run));
+    writeFileSync(reportFile(), JSON.stringify({ item_id: JOB, reserve_defect_ids: 2 }));
+    await expect(turns.storeReport(current(), 'other-worker', run)).rejects.toThrow('Only the worker currently assigned');
+    expect(existsSync(join(root, '.git/aio-lt-reservations'))).toBe(false);
+    const response = await turns.storeReport(current(), 'worker-1', run);
+    expect(response.reservationResponse).toContain('LT-051, LT-052');
+    expect(response.item.workerReport).toBeUndefined();
+    await expect(turns.storeReport(current(), 'worker-1', run)).rejects.toThrow('repeated');
+    expect(readdirSync(join(root, '.git/aio-lt-reservations')).sort()).toEqual(['LT-051', 'LT-052']);
+    writeFileSync(reportFile(), REPORT(JOB));
+    expect((await turns.storeReport(current(), 'worker-1', run)).item.workerReport?.summary).toBe('done');
+  });
+
   it('is read from this turn\'s file and stored as the worker\'s tool report', async () => {
     rows.set(JOB, await turns.arrange(current(), run));
     writeFileSync(reportFile(), REPORT(JOB, { deferred_checks: [{ title: 'Live check', steps: 's', expectedResult: 'e', whyDeferred: 'w' }] }));
-    const stored = await turns.storeReport(current(), 'worker-1', run);
+    const { item: stored } = await turns.storeReport(current(), 'worker-1', run);
     expect(stored.workerReport).toMatchObject({ summary: 'done', asBuilt: 'built', checksRun: [{ command: 'npm test', exitCode: 0 }], deferredChecks: [{ title: 'Live check' }] });
   });
 
   it('counts a missing file as no report', async () => {
     rows.set(JOB, await turns.arrange(current(), run));
-    expect((await turns.storeReport(current(), 'worker-1', run)).workerReport).toBeUndefined();
+    expect((await turns.storeReport(current(), 'worker-1', run)).item.workerReport).toBeUndefined();
   });
 
   it('counts a malformed file, or one naming another job, as no report and says so in words', async () => {
     rows.set(JOB, await turns.arrange(current(), run));
     writeFileSync(reportFile(), '{ not json');
-    let stored = await turns.storeReport(current(), 'worker-1', run);
+    let { item: stored } = await turns.storeReport(current(), 'worker-1', run);
     expect(stored.workerReport).toBeUndefined();
     expect(stored.detail).toContain('could not be used');
     writeFileSync(reportFile(), REPORT('another-job'));
-    stored = await turns.storeReport(current(), 'worker-1', run);
+    ({ item: stored } = await turns.storeReport(current(), 'worker-1', run));
     expect(stored.workerReport).toBeUndefined();
     expect(stored.detail).toContain('names another job');
   });
@@ -244,7 +262,7 @@ describe('the report', () => {
     rows.set(JOB, { ...current(), workerReport: null });
     rows.set(JOB, await turns.arrange(current(), run));
     expect(reportFile()).not.toBe(oldFile);
-    expect((await turns.storeReport(current(), 'worker-1', run)).workerReport).toBeFalsy();
+    expect((await turns.storeReport(current(), 'worker-1', run)).item.workerReport).toBeFalsy();
     expect(existsSync(oldFile)).toBe(false);
   });
 

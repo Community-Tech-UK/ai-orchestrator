@@ -112,8 +112,13 @@ export function recoveryHarness(stored: unknown = { version: 2, origins: [PROTEC
     chrome, URL, crypto: { randomUUID }, console,
     setTimeout: (callback: () => void, delay: number) => { const timer = { callback, delay }; timers.push(timer); return timer; },
     clearTimeout: (timer: unknown) => { const index = timers.indexOf(timer as typeof timers[number]); if (index >= 0) timers.splice(index, 1); },
+    // The service worker's one import is loaded just below, ahead of background.js; anything else is a mistake.
+    importScripts: (name: string): void => {
+      if (name !== 'codex-device-handoff.js') throw new Error('Unexpected extension import');
+    },
   });
-  const source = readFileSync('resources/browser-extension/background.js', 'utf8');
+  const source = readFileSync('resources/browser-extension/codex-device-handoff.js', 'utf8') + '\n'
+    + readFileSync('resources/browser-extension/background.js', 'utf8');
   const runtime = runInContext(source + `
     ;({ assertSecretObservationAllowed, secretTaintOriginForTab, buildTabPayload,
       markSecretTaint, clearSecretTaint, targetSecretTaintOrigin, runBrowserCommand, runCommandWithWatchdog, browserCommandErrorMessage,

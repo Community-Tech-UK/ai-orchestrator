@@ -41,6 +41,8 @@
     "bench:indexing": "vitest bench src/main/indexing/benchmarks/indexing.bench.ts",
     "bench:search": "vitest bench src/main/indexing/benchmarks/search.bench.ts",
     "bench:retrieval": "tsx scripts/bench-retrieval.ts",
+    "bench:session-watcher": "tsx scripts/session-watcher/replay.ts",
+    "audit:session-watcher": "tsx scripts/session-watcher/report.ts",
     "test:load": "vitest run src/main/indexing/__tests__/load/",
     "lint": "ng lint",
     "lint:colors": "node scripts/lint-colors.js",

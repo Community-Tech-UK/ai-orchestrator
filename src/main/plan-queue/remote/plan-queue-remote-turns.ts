@@ -23,6 +23,7 @@ import type { PlanQueueItem, PlanQueueRemoteJob, PlanQueueRun } from '../plan-qu
 import { placeJob, type Placement, type QueueJobNodeView } from './plan-queue-remote-placement';
 import { AWAY_CHECK_MS, AWAY_LIMIT_MS, AwayWatch, PendingRemovals } from './plan-queue-remote-away';
 import type { QueueJobComputerSource } from '../../../shared/types/plan-queue-computers.types';
+import { RemoteDefectReservationRequestSchema, reserveRemoteDefectIdentifiers } from './remote-defect-reservation';
 
 const logger = getLogger('PlanQueueRemoteTurns');
 
@@ -56,6 +57,7 @@ export interface SavedRound { item: PlanQueueItem; hold: string | null }
 
 export class PlanQueueRemoteTurns {
   private readonly paths = new Map<string, RemoteTurnPaths>();
+  private readonly reservationTurns = new Map<string, string>();
   private readonly removals: PendingRemovals;
   /** Placement decisions go one at a time, so two jobs started together cannot both take a computer's last place. */
   private placing: Promise<unknown> = Promise.resolve();
@@ -186,27 +188,39 @@ export class PlanQueueRemoteTurns {
    * so the gate, the checker and the deferred-check rule see it as a tool report. A missing or malformed file is no
    * report; a malformed one is named in the job's note.
    */
-  async storeReport(item: PlanQueueItem, instanceId: string, run: PlanQueueRun): Promise<PlanQueueItem> {
+  async storeReport(item: PlanQueueItem, instanceId: string, run: PlanQueueRun): Promise<{ item: PlanQueueItem; reservationResponse?: string }> {
     const remote = item.remote;
-    if (!remote?.turnId) return item;
+    if (!remote?.turnId) return { item };
     let text: string | null;
     try { text = await this.deps.jobs.readReport({ computer: this.computerOf(remote), item, turnId: remote.turnId }); }
     catch (error) {
       logger.warn('Plan queue: could not read the report file; the turn counts as having none', { itemId: item.id, error: error instanceof Error ? error.message : String(error) });
-      return item;
+      return { item };
     }
-    if (text === null) return item;
-    let parsed: ReturnType<typeof PlanQueueReportReadyArgsSchema.safeParse>;
-    try { parsed = PlanQueueReportReadyArgsSchema.safeParse(JSON.parse(text)); }
-    catch { parsed = PlanQueueReportReadyArgsSchema.safeParse(undefined); }
+    if (text === null) return { item };
+    let raw: unknown;
+    try { raw = JSON.parse(text); } catch { raw = undefined; }
+    if (raw && typeof raw === 'object' && 'reserve_defect_ids' in raw) {
+      const current = this.host.getItem(item.id);
+      if ((current.state !== 'working' && current.state !== 'fixing') || current.workerInstanceId !== instanceId
+        || current.remote?.turnId !== remote.turnId) throw new Error('Only the worker currently assigned to this turn may request defect identifiers');
+      const request = RemoteDefectReservationRequestSchema.safeParse(raw);
+      if (!request.success || request.data.item_id !== item.id || this.reservationTurns.get(item.id) === remote.turnId) {
+        throw new Error('Invalid or repeated defect reservation request. Keep unnumbered evidence; this is not a completion report.');
+      }
+      this.reservationTurns.set(item.id, remote.turnId);
+      const identifiers = await reserveRemoteDefectIdentifiers(run.workspaceCwd, request.data.reserve_defect_ids);
+      const reservationResponse = `The coordinator reserved these defect identifiers for this job: ${identifiers.join(', ')}. Use each at most once for a reproduced defect and keep unused numbers unused. Continue your work in the existing folders. Replace the reservation request in your report file with the normal completion report when finished. This request did not complete the job. No further reservation request is allowed in this turn; retain additional unnumbered evidence in your report follow_ups.`;
+      return { item: current, reservationResponse };
+    }
+    const parsed = PlanQueueReportReadyArgsSchema.safeParse(raw);
     if (!parsed.success || parsed.data.item_id !== item.id) {
       const named = parsed.success ? 'it names another job' : parsed.error.issues.slice(0, 3).map(issue => `${issue.path.join('.') || 'the file'}: ${issue.message}`).join('; ');
-      return this.host.save({ ...item, detail: `The report file from ${remote.label} could not be used (${named}), so this turn counts as having no report.` });
+      return { item: this.host.save({ ...item, detail: `The report file from ${remote.label} could not be used (${named}), so this turn counts as having no report.` }) };
     }
     recordWorkerReport(this.host, instanceId, parsed.data);
     await this.captureCapabilities(instanceId, parsed.data);
-    void run;
-    return this.host.getItem(item.id);
+    return { item: this.host.getItem(item.id) };
   }
 
   /**
@@ -276,6 +290,7 @@ export class PlanQueueRemoteTurns {
   async remove(item: PlanQueueItem, run: Pick<PlanQueueRun, 'workspaceCwd'>): Promise<boolean> {
     const remote = item.remote;
     this.paths.delete(item.id);
+    this.reservationTurns.delete(item.id);
     if (!remote) return true;
     try {
       const removed = await this.deps.jobs.remove({ computer: this.computerOf(remote), repoRoot: run.workspaceCwd, item: { ...item, branchName: remote.branch } });

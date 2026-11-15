@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({
@@ -10,6 +11,8 @@ vi.mock('electron', () => ({
 
 import type { InstanceManager } from '../instance/instance-manager';
 import type { WindowManager } from '../window-manager';
+import type { SessionWatcher, WatcherFlag } from '../session-watcher/session-watcher';
+import { WatcherAttention, getWatcherAttention } from '../session-watcher/watcher-attention';
 import {
   createAnnounceThenHaltContinuationInitializationStep,
   createContinuationRuntimeInitializationStep,
@@ -18,6 +21,7 @@ import {
   createGovernedProposalInitializationStep,
   createInitializationSteps,
   createLocalAiGuardInitializationStep,
+  createSessionWatcherAttentionInitializationStep,
 } from './initialization-steps';
 
 describe('Announce-then-halt continuation initialization', () => {
@@ -199,3 +203,42 @@ describe('Shared continuation runtime initialization', () => {
     expect(isManaged('closed')).toBe(false);
   });
 });
+
+describe('Session watcher attention initialization', () => {
+  const flag: WatcherFlag = {
+    instanceId: 'inst-1', requestCount: 2, question: 'Shall I push it?', closing: 'Shall I push it?',
+    stop: 'asked_to_continue', acceptsYes: true, since: 1,
+  };
+
+  it('sends the full flag list to the window on every change, using the watcher the runtime created', () => {
+    WatcherAttention._resetForTesting();
+    const watcher = new EventEmitter();
+    const sendToRenderer = vi.fn();
+
+    createSessionWatcherAttentionInitializationStep({ sendToRenderer }, () => watcher as unknown as SessionWatcher).fn();
+    watcher.emit('flag', flag);
+    watcher.emit('clear', 'inst-1');
+
+    expect(sendToRenderer).toHaveBeenNthCalledWith(1, 'session-watcher:flags-changed', [flag]);
+    expect(sendToRenderer).toHaveBeenNthCalledWith(2, 'session-watcher:flags-changed', []);
+    expect(getWatcherAttention().list()).toEqual([]);
+    WatcherAttention._resetForTesting();
+  });
+
+  it('does nothing when the continuation runtime has no watcher', () => {
+    WatcherAttention._resetForTesting();
+    const sendToRenderer = vi.fn();
+    expect(() => createSessionWatcherAttentionInitializationStep({ sendToRenderer }, () => undefined).fn()).not.toThrow();
+    expect(sendToRenderer).not.toHaveBeenCalled();
+  });
+
+  it('runs after the step that creates the watcher', () => {
+    const names = createInitializationSteps({
+      instanceManager: {} as InstanceManager, windowManager: {} as WindowManager,
+      isStatelessExecProvider: () => false, getNodeLatencyForInstance: () => undefined, syncRemoteNodeMetricsToLoadBalancer: () => undefined,
+    }).map((step) => step.name);
+    expect(names.indexOf('Session watcher attention')).toBeGreaterThan(names.indexOf('Provider turn-ending continuation'));
+    expect(names).toContain('Session watcher attention');
+  });
+});
+

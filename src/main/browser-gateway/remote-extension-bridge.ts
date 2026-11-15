@@ -33,6 +33,7 @@ import {
 import {
   isSecureBrowserExtensionRuntimeEvidence,
   supportsSecureBrowserExtensionCredentialFill,
+  supportsBrowserExtensionCodexDeviceHandoff,
 } from './browser-extension-credential-compatibility';
 import {
   classifyBrowserExtensionIncompatibility,
@@ -69,11 +70,11 @@ interface RemoteExtensionTabStore {
   restoreNode(nodeId: string, extensionInstanceId?: string | null): number;
 }
 
-type ExtensionRuntimeParams = {
+interface ExtensionRuntimeParams {
   extensionVersion?: string;
   extensionStartedAt?: number;
   extensionInstanceId?: string;
-};
+}
 
 export interface RemoteBrowserExtensionBridgeOptions {
   service?: RemoteExtensionBridgeService;
@@ -200,6 +201,7 @@ export class RemoteBrowserExtensionBridge {
   pollCommand(
     nodeId: string,
     params: BrowserExtPollCommandParams,
+    confidentialTransport: (() => boolean) | null,
   ): ReturnType<RemoteExtensionCommandStore['pollCommand']> {
     this.consumeRateLimit(nodeId, 'control');
     const allowBrowserCommands = this.recordExtensionContact(nodeId, params);
@@ -212,6 +214,10 @@ export class RemoteBrowserExtensionBridge {
         deferHandoffConfirmation: true,
         allowBrowserCommands,
         allowSecureCredentialCommands: allowBrowserCommands,
+        ...(confidentialTransport ? { confidentialTransport } : {}),
+        ...(extensionInstanceId && params.extensionStartedAt !== undefined
+          && supportsBrowserExtensionCodexDeviceHandoff(this.contactState, nodeId, extensionInstanceId, String(params.extensionStartedAt))
+          ? { allowDeviceLoginCommands: true } : {}),
         ...(!allowBrowserCommands
           ? { denyBrowserCommandsReason: this.denyBrowserCommandsReason(nodeId, params) }
           : {}),

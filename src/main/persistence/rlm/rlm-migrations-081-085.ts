@@ -58,4 +58,19 @@ export const RLM_MIGRATIONS_081_085: Migration[] = [
     up: `ALTER TABLE cost_entries ADD COLUMN origin TEXT;`,
     down: `ALTER TABLE cost_entries DROP COLUMN origin;`,
   },
+  {
+    name: '083_browser_device_login_approvals',
+    up: `
+      ALTER TABLE browser_approval_requests ADD COLUMN device_login_json TEXT;
+      CREATE UNIQUE INDEX idx_browser_device_login_operation ON browser_approval_requests(
+        json_extract(device_login_json, '$.operationHandle'),
+        json_extract(device_login_json, '$.ownerSessionId'),
+        json_extract(device_login_json, '$.ownerGeneration')
+      ) WHERE device_login_json IS NOT NULL;
+    `,
+    down: `
+      DROP INDEX idx_browser_device_login_operation;
+      ALTER TABLE browser_approval_requests DROP COLUMN device_login_json;
+    `,
+  },
 ];

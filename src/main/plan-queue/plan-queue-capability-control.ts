@@ -42,10 +42,29 @@ export async function enableCapabilityRepairs(host: PlanQueueFlowHost, runId: st
   }
 }
 
-export async function retryCapabilityOrigin(host: PlanQueueFlowHost, itemId: string, resume: (id: string) => Promise<void>, reopen: (run: PlanQueueRun) => void): Promise<void> {
-  const item = host.getItem(itemId), run = host.getRun(item.runId);
-  if (run.status === 'paused' || run.status === 'cancelled' || item.discardedAt || item.state !== 'parked') throw new Error('The original item is paused, cancelled, discarded or no longer waiting for repair.');
-  if (item.branchName || item.worktreePath) await resume(item.id);
-  else host.transition(item, 'discovered', { question: null, parkReason: null, detail: 'Its capability repair passed. Investigate current readiness and rerun the original check; no check has been marked passed.' });
-  reopen(run);
+export async function retryCapabilityOrigin(host: PlanQueueFlowHost, itemId: string,
+  resume: (id: string, canResume: () => boolean) => Promise<void>, reopen: (run: PlanQueueRun) => void): Promise<boolean> {
+  const admitted = (): boolean => {
+    const item = host.getItem(itemId), run = host.getRun(item.runId);
+    if (run.status === 'paused' || run.status === 'cancelled' || item.discardedAt || item.state === 'skipped') return false;
+    return host.store.capabilities.forOrigin(itemId).filter(repair => repair.gap.classification === 'capability' || repair.gap.classification === 'setup')
+      .every(repair => (repair.state === 'verifying-origin' || repair.state === 'resolved')
+        && (!repair.repairRunId || !['paused', 'cancelled'].includes(host.getRun(repair.repairRunId).status)));
+  };
+  if (!admitted()) return false;
+  const item = host.getItem(itemId);
+  const intended = host.store.capabilities.forOrigin(itemId).some(repair => host.store.capabilities.origins(repair.id)
+    .some(origin => origin.itemId === itemId && origin.state === 'waiting' && origin.retryIntent));
+  if (!intended) throw new Error('The original item has no recorded capability retry.');
+  if (item.state === 'parked') {
+    if (item.parkReason !== 'needs-setup') return false;
+    if (item.branchName || item.worktreePath) await resume(item.id, () => admitted() && host.getItem(itemId).state === 'parked'
+      && host.getItem(itemId).parkReason === 'needs-setup');
+    else host.transition(item, 'discovered', { question: null, parkReason: null, detail: 'Its capability repair passed. Investigate current readiness and rerun the original check; no check has been marked passed.' });
+  }
+  // Resume can be interrupted by operator control during retained-work I/O.
+  // An already queued/discovered item is a successful replay, never resumed twice.
+  if (!admitted() || host.getItem(itemId).state === 'parked') return false;
+  reopen(host.getRun(item.runId));
+  return true;
 }

@@ -8,7 +8,8 @@
  *   • 'window' — at least one shown provider has numerical windows. Shows the worst
  *     window's used/limit and a "resets in Xd Yh Zm" hint, colour-banded by ratio.
  *   • 'plan'   — at least one shown provider returned an ok snapshot but no windows
- *     (Claude/Copilot v1). Shows e.g. "Claude · max".
+ *     (Claude/Copilot v1). The strip shows e.g. "CL max"; with no strip entry
+ *     the fallback text reads "Claude · max".
  *   • 'empty'  — no useful snapshots yet (loading, all probes failed, etc.).
  *
  * The component is self-initialising: it calls `store.initialize()` on first
@@ -213,7 +214,7 @@ const NEUTRAL = { fg: '#9a9aa0', bg: 'rgba(154,154,160,0.10)' };
       padding: 5px 10px 5px 8px; border-radius: 999px; border: 0;
       font: inherit; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0;
       white-space: nowrap; cursor: pointer;
-      max-width: min(46vw, 560px);
+      max-width: min(60vw, 720px);
       -webkit-app-region: no-drag;
       transition: all var(--transition-normal, 0.2s);
     }
@@ -399,8 +400,8 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   });
 
   /**
-   * One entry per provider: its name and a part per account, in the popover's
-   * account order ("Claude 100%·11%·–"). The popover names each account.
+   * One entry per provider: its code and a part per account, in the popover's
+   * account order ("CL 100%·11%·–"). The popover names each account.
    */
   readonly stripEntries = computed<QuotaStripEntry[]>(() => {
     const snaps = this.store.snapshots();

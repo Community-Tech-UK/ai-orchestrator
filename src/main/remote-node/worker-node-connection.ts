@@ -1,4 +1,6 @@
 import { EventEmitter } from 'events';
+import type { Socket } from 'net';
+import { TLSSocket } from 'tls';
 import { WebSocketServer, WebSocket } from 'ws';
 import { getLogger } from '../logging/logger';
 import {
@@ -54,12 +56,21 @@ interface PendingRpc {
 
 export type RpcRequestResponder = (response: RpcResponse) => boolean;
 
+/** Hands a frame to the socket; a write failure after the handoff can only be logged. */
+function sendFrame(ws: WebSocket, raw: string, failure: string, meta: Record<string, unknown>): void {
+  ws.send(raw, (err) => {
+    if (err) logger.error(failure, err, meta);
+  });
+}
+
 export class WorkerNodeConnectionServer extends EventEmitter {
   private static instance: WorkerNodeConnectionServer | null = null;
 
   private wss: WebSocketServer | null = null;
   private readonly nodeToSocket = new Map<string, WebSocket>();
   private readonly socketToNode = new Map<WebSocket, string>();
+  private readonly tlsTransports = new WeakMap<WebSocket, TLSSocket>();
+  private readonly responderSockets = new WeakMap<RpcRequestResponder, WebSocket>();
   private readonly pending = new Map<string | number, PendingRpc>();
   // Grace + parked-work disconnect windows (see connection-disconnect-lifecycle).
   private readonly disconnectLifecycle = new ConnectionDisconnectLifecycle({
@@ -120,7 +131,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       isRunning: () => this.wss !== null,
     });
     wss.on('connection', (ws, request) => {
-      this.handleConnection(ws, request.socket.remoteAddress);
+      this.handleConnection(ws, request.socket.remoteAddress, request.socket);
     });
     this.wss = wss;
   }
@@ -294,11 +305,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     }
 
     const notification = createRpcNotification(method, params, undefined, scope);
-    ws.send(JSON.stringify(notification), (err) => {
-      if (err) {
-        logger.error('sendNotification failed', err, { nodeId, method });
-      }
-    });
+    sendFrame(ws, JSON.stringify(notification), 'sendNotification failed', { nodeId, method });
     return true;
   }
 
@@ -308,11 +315,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
 
     for (const [nodeId, ws] of this.nodeToSocket) {
       if (ws.readyState !== WebSocket.OPEN) continue;
-      ws.send(raw, (err) => {
-        if (err) {
-          logger.error('broadcast send failed', err, { nodeId, method });
-        }
-      });
+      sendFrame(ws, raw, 'broadcast send failed', { nodeId, method });
     }
   }
 
@@ -324,11 +327,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       return false;
     }
 
-    ws.send(JSON.stringify(response), (err) => {
-      if (err) {
-        logger.error('sendResponse failed', err, { nodeId });
-      }
-    });
+    sendFrame(ws, JSON.stringify(response), 'sendResponse failed', { nodeId });
     return true;
   }
 
@@ -339,6 +338,32 @@ export class WorkerNodeConnectionServer extends EventEmitter {
   isNodeConnected(nodeId: string): boolean {
     const ws = this.nodeToSocket.get(nodeId);
     return ws !== undefined && ws.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * Internal, non-serializable proof of this exact authenticated TLS connection.
+   * Call immediately before releasing a secret, with no intervening await.
+   * A reconnect always invalidates the captured check, even another TLS socket.
+   * Node-advertised capabilities and configured URLs are not transport proof.
+   */
+  captureConfidentialConnection(nodeId: string): (() => boolean) | null {
+    const ws = this.nodeToSocket.get(nodeId);
+    const transport = ws && this.tlsTransports.get(ws);
+    if (!ws || !transport) return null;
+    const isCurrent = () => this.nodeToSocket.get(nodeId) === ws
+      && this.socketToNode.get(ws) === nodeId
+      && ws.readyState === WebSocket.OPEN
+      && !transport.destroyed
+      && transport.encrypted
+      && ['TLSv1.2', 'TLSv1.3'].includes(transport.getProtocol() ?? '');
+    return isCurrent() ? isCurrent : null;
+  }
+
+  /** A delayed reply may only carry a secret back to its original TLS socket. */
+  captureConfidentialResponder(nodeId: string, respond: RpcRequestResponder): (() => boolean) | null {
+    const requestSocket = this.responderSockets.get(respond);
+    if (!requestSocket || this.nodeToSocket.get(nodeId) !== requestSocket) return null;
+    return this.captureConfidentialConnection(nodeId);
   }
 
   getConnectedNodeIds(): string[] {
@@ -374,7 +399,10 @@ export class WorkerNodeConnectionServer extends EventEmitter {
   // Internal — WebSocket event handling
   // ---------------------------------------------------------------------------
 
-  private handleConnection(ws: WebSocket, remoteAddress?: string): void {
+  private handleConnection(ws: WebSocket, remoteAddress?: string, transport?: Socket): void {
+    // Only the HTTPS upgrade's actual socket supplies this evidence. A plain
+    // socket with matching fields, or a worker's self-report, cannot supply it.
+    if (transport instanceof TLSSocket) this.tlsTransports.set(ws, transport);
     let nodeId: string | null = null;
 
     ws.on('message', (data) => {
@@ -603,7 +631,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
 
   private createRequestResponder(nodeId: string, requestSocket: WebSocket): RpcRequestResponder {
     let responded = false;
-    return (response) => {
+    const respond: RpcRequestResponder = (response) => {
       if (responded) {
         logger.warn('RPC request already answered', { nodeId, requestId: response.id });
         return false;
@@ -611,6 +639,8 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       responded = true;
       return this.sendResponseToSocket(nodeId, requestSocket, response);
     };
+    this.responderSockets.set(respond, requestSocket);
+    return respond;
   }
 
   private sendResponseToSocket(
@@ -628,11 +658,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
       });
       return false;
     }
-    requestSocket.send(JSON.stringify(response), (err) => {
-      if (err) {
-        logger.error('sendResponse failed', err, { nodeId });
-      }
-    });
+    sendFrame(requestSocket, JSON.stringify(response), 'sendResponse failed', { nodeId });
     return true;
   }
 

@@ -268,6 +268,8 @@ export function makeService(overrides: {
     }),
   };
   const approvalStore = {
+    resolveDeviceLoginRequest: vi.fn(() => null),
+    expireDeviceLoginRequest: vi.fn((requestId: string) => approvalRequests.find(request => request.requestId === requestId) ?? null),
     createRequest: vi.fn((input: Omit<BrowserApprovalRequest, 'id' | 'requestId' | 'status' | 'createdAt' | 'decidedAt' | 'grantId'>) => {
       const request: BrowserApprovalRequest = {
         id: `request-${approvalRequests.length + 1}`,

@@ -73,7 +73,7 @@ export interface BrowserAllowChoice {
   readonly auditReason: string;
 }
 
-export type BrowserApprovalKind = 'action' | 'handoff' | 'saved-login';
+export type BrowserApprovalKind = 'action' | 'handoff' | 'saved-login' | 'device-login';
 
 export interface BrowserApprovalView {
   readonly approval: BrowserApprovalRequest;
@@ -140,6 +140,7 @@ export function presentBrowserApproval(
   approval: BrowserApprovalRequest,
   ctx: BrowserApprovalContext = {},
 ): BrowserApprovalView {
+  if (approval.deviceLogin) return presentDeviceLogin(approval, approval.deviceLogin, ctx);
   if (approval.credentialAccess) return presentSavedLogin(approval, approval.credentialAccess, ctx);
 
   const site = siteOf(approval);
@@ -188,6 +189,35 @@ export function presentBrowserApproval(
     choices,
     note,
     phrase: choices.some((choice) => choice.needsPhrase) ? bannerConfirmationPhrase(approval) : null,
+  };
+}
+
+function presentDeviceLogin(
+  approval: BrowserApprovalRequest,
+  device: NonNullable<BrowserApprovalRequest['deviceLogin']>,
+  ctx: BrowserApprovalContext,
+): BrowserApprovalView {
+  const format = ctx.formatTime ?? ((timestamp: number) => new Date(timestamp).toLocaleString());
+  return {
+    approval, kind: 'device-login', kindLabel: 'Codex sign-in',
+    headline: `Sign in to Codex as ${device.expectedIdentity}`,
+    facts: [
+      ...(device.sessionName ? [{ label: 'Session', value: device.sessionName }] : []),
+      { label: 'Account', value: device.expectedIdentity },
+      { label: 'Codex computer', value: device.nativeComputerName },
+      { label: 'Codex profile', value: device.nativeProfileId },
+      { label: 'Browser computer', value: device.browserComputerName },
+      { label: 'Website', value: 'auth.openai.com' },
+      { label: 'Reply before', value: format(device.expiresAt) },
+    ],
+    details: compact([
+      ['Browser profile', device.browserProfileId], ['Target', device.targetId],
+      ['Codex computer id', device.nativeNodeId], ['Browser computer id', device.browserNodeId],
+    ]),
+    choices: [{ id: 'once', label: 'Allow this sign-in', hint: 'Allows only this Codex sign-in for this account and these computers.',
+      grant: approval.proposedGrant, needsPhrase: false, auditReason: 'Approved one Codex device sign-in from session page' }],
+    note: 'Only this sign-in is allowed. Harness will use its private device code for this account and these computers. This does not allow future sign-ins.',
+    phrase: null,
   };
 }
 

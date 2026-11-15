@@ -68,6 +68,7 @@ import {
   COORDINATOR_PROBE_TIMEOUT_MS,
 } from './coordinator-network-readiness';
 import { LocalNetworkEvidence } from './local-network-evidence';
+import { WorkerCodexDeviceLogin } from './worker-codex-device-login';
 
 export { buildCoordinatorCandidates } from './coordinator-network-readiness';
 
@@ -107,6 +108,7 @@ export class WorkerAgent extends EventEmitter {
   private readonly notifier: WorkerInstanceNotifier;
   private readonly streamDurability: WorkerStreamDurability;
   private readonly rpcDispatcher: WorkerRpcDispatcher;
+  private readonly codexDeviceLogin: WorkerCodexDeviceLogin;
   private readonly keepAwake = new WorkerKeepAwake();
   private readonly browserManager: WorkerBrowserManager;
   private readonly androidManager: WorkerAndroidManager;
@@ -126,7 +128,7 @@ export class WorkerAgent extends EventEmitter {
   readonly activity = new WorkerActivity(() => (this.registrationAccepted && this.coordinatorSleepsIdleSessions
     ? this.instanceManager.getAllInstanceIds().filter((id) => blocksWorkerRestart(this.instanceManager.getInstance(id))).length
     : this.instanceManager.getInstanceCount()) + this.localModelSessionManager.getSessionCount()
-    + (this.terminalHandler?.sessionCount() ?? 0) + this.cdpTunnel.activeSessionCount(), () => this.extensionRelay.getLastCommandActivityAt());
+    + (this.terminalHandler?.sessionCount() ?? 0) + this.cdpTunnel.activeSessionCount() + this.codexDeviceLogin.activeCount(), () => this.extensionRelay.getLastCommandActivityAt());
 
   constructor(
     private readonly config: WorkerConfig,
@@ -158,6 +160,8 @@ export class WorkerAgent extends EventEmitter {
     // sign every routed account out on this node. Set before any spawn so the
     // profile-home resolver picks it up.
     process.env['AI_ORCHESTRATOR_STATE_ROOT'] = path.dirname(this.configPath);
+    this.codexDeviceLogin = new WorkerCodexDeviceLogin({ config, getSocket: () => this.ws,
+      getRegistered: () => this.registrationAccepted, getToken: () => this.config.nodeToken ?? this.config.authToken });
     this.instanceManager = new LocalInstanceManager(
       config.workingDirectories,
       config.maxConcurrentInstances,
@@ -308,6 +312,7 @@ export class WorkerAgent extends EventEmitter {
   /** What the worker knows about its own connection, for the capability report. */
   private capabilityExtras(): ReportCapabilitiesExtras {
     return {
+      ...(this.codexDeviceLogin.enabled() ? { codexDeviceLogin: 1 as const } : {}),
       connectionNotice: this.localNetwork.notice(),
       localNetwork: this.localNetwork.current,
       configDir: path.dirname(this.configPath),
@@ -446,6 +451,7 @@ export class WorkerAgent extends EventEmitter {
 
   async disconnect(): Promise<void> {
     this.isShuttingDown = true;
+    this.codexDeviceLogin.shutdown();
     this.keepAwake.shutdown();
     this.connectionStatus?.set('stopped'); // first: cleanup below can take a while, and Harness reads this
     this.stopHeartbeat();
@@ -570,6 +576,7 @@ export class WorkerAgent extends EventEmitter {
 
   /** Drop per-connection state. Callers decide what happens to `this.ws`. */
   private resetCoordinatorSession(reason: string): void {
+    this.codexDeviceLogin.shutdown();
     this.stopHeartbeat();
     this.keepAwake.shutdown();
     this.registrationAccepted = false;
@@ -822,10 +829,11 @@ export class WorkerAgent extends EventEmitter {
     try {
       msg = JSON.parse(raw) as RpcMessage;
     } catch {
-      console.error('Invalid JSON from coordinator:', raw.slice(0, 200));
+      console.error('Invalid JSON from coordinator');
       return;
     }
 
+    if (this.codexDeviceLogin.handleMessage(msg, source)) return;
     // Response to one of our requests
     if (msg.result !== undefined || msg.error !== undefined) {
       const isRegistrationResponse = msg.id !== undefined && msg.id === this.pendingRegistrationId;

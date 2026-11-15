@@ -2,7 +2,7 @@
 
 Status: implementation and worker checks finished; ready for independent queue verification (2026-11-03). The shared route-snapshot fix is already present in the queue base; this follow-up verifies it and adds rendered-control navigation coverage. Active root-checkout follow-up, untracked. Full-suite/independent acceptance and the explicitly deferred Electron integration check remain pending.
 
-Origin: [MiMo saved-session live test](2026-10-11-mimo-saved-usage-session_livetest.md#evidence-run--2026-10-27). Register: [LT-711](livetest-remediation-register.md#lt-711). Evidence: `docs/plans/evidence/2026-10-27-mimo-saved-usage-session/normal-settings-navigation-uncached.json` in the queue worktree until harvest.
+Origin: [MiMo saved-session live test](2026-10-11-mimo-saved-usage-session_livetest.md#evidence-run--2026-10-27). Register: [LT-1018](livetest-remediation-register.md#lt-1018) [identifier corrected 2026-11-12: this document first cited LT-711, which in the register is an unrelated Cursor report]. Evidence: `docs/plans/evidence/2026-10-27-mimo-saved-usage-session/normal-settings-navigation-uncached.json` in the queue worktree until harvest.
 
 ## Implementation status
 
@@ -20,7 +20,7 @@ This active follow-up carries new remediation status because the historical reme
 ## As-built investigation — 2026-11-03
 
 - No separate specification is linked. The two unchecked items above are the acceptance scope.
-- The supplied queue base already contains the shared fix in `src/renderer/app/shared/control-surface/control-surface-shell.component.ts:130`: traverse `this.route.snapshot` and its snapshot children, rather than traversing live routes whose child snapshots have not yet been assigned. Keep synchronous initialization and NavigationEnd updates. No second product fix is needed.
+- The supplied queue base already contains the shared fix in `src/renderer/app/shared/control-surface/control-surface-shell.component.ts:179-192` (`findActiveSurfaceId`, at branch revision `9cfe17928`): traverse `this.route.snapshot` and its snapshot children, rather than traversing live routes whose child snapshots have not yet been assigned. Keep synchronous initialization and NavigationEnd updates. No second product fix is needed.
 - The source was integrated by the earlier queue remediation (`b277e3f39`, `2026-10-27-control-surface-route-snapshot-remediation_plan`). Existing real-router tests already cover the missing live-child snapshot, Settings/Local AI/Automations direct loads, deepest recognized metadata, shell reuse/recreation, headings, help and active navigation. Those tests pass uncached before this follow-up's edits.
 - Follow-up regression: use the real shell's rendered Settings/Automations links and Back button, checking URL, title, active navigation, contextual help and absence of RxJS route errors across two shell visits. No product wording, layout or route metadata changes.
 - A newly built production renderer passed an automated headless navigation run using the real dashboard Settings button and shell controls. Plain-browser dashboard mode intentionally displays the preview notice; `?bench=1` exposes the real dashboard controls. The test uses that supported preview path and disposable first-run-completed storage. It does not exercise Electron preload or real account services. A missing pre-existing favicon returns 404; that resource error is retained separately from runtime exceptions. No source/rendering overrides are used.

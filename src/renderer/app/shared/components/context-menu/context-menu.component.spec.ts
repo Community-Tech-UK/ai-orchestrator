@@ -14,6 +14,7 @@ import { ContextMenuComponent, type ContextMenuItem } from './context-menu.compo
       [x]="x"
       [y]="y"
       [visible]="visible"
+      [focusOnOpen]="focusOnOpen"
       (closed)="closed()"
     />
   `,
@@ -23,6 +24,7 @@ class ContextMenuHostComponent {
   x = 12;
   y = 16;
   visible = true;
+  focusOnOpen = false;
   closed = vi.fn();
 }
 
@@ -67,6 +69,39 @@ describe('ContextMenuComponent', () => {
     const menu = renderedMenu();
     expect(menu?.querySelectorAll('.context-menu-divider')).toHaveLength(1);
     expect(menu?.querySelectorAll('button[role="menuitem"]')).toHaveLength(2);
+  });
+
+  it('shows a switch item as a checkbox menu item, ticked or not, and keeps plain items as they were', () => {
+    render([
+      { id: 'on', label: 'On', checked: true, action: vi.fn() },
+      { id: 'off', label: 'Off', checked: false, action: vi.fn() },
+      { id: 'plain', label: 'Plain', action: vi.fn() },
+    ]);
+
+    const menu = renderedMenu();
+    const on = menu?.querySelector('button[role="menuitemcheckbox"][aria-checked="true"]');
+    const off = menu?.querySelector('button[role="menuitemcheckbox"][aria-checked="false"]');
+    expect(on?.textContent).toContain('✓');
+    expect(off?.textContent).not.toContain('✓');
+    expect(menu?.querySelectorAll('button[role="menuitem"]')).toHaveLength(1);
+    expect(menu?.querySelector('button[role="menuitem"]')?.hasAttribute('aria-checked')).toBe(false);
+  });
+
+  it('reaches a switch item with the arrow keys, like any other item', () => {
+    fixture.componentInstance.focusOnOpen = true;
+    render([
+      { id: 'plain', label: 'Plain', action: vi.fn() },
+      { id: 'switch', label: 'Switch', checked: true, action: vi.fn() },
+    ]);
+    const menu = renderedMenu()!;
+    const [plain, toggle] = Array.from(menu.querySelectorAll<HTMLButtonElement>('button'));
+    plain.focus();
+    plain.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement).toBe(toggle);
+    toggle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    expect(document.activeElement).toBe(plain);
+    plain.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    expect(document.activeElement).toBe(toggle);
   });
 
   it('mounts the menu in the document overlay so clipping ancestors cannot cover it', () => {

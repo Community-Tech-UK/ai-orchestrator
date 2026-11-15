@@ -71,12 +71,20 @@ export class MessageFormatService {
     return message.metadata?.internalInput ? 'Harness (automated)' : this.formatType(message.type, provider);
   }
 
+  /** A "carry on" that "Keep sessions going without me" sent: the judged reply, or the rule-based answer to "shall I carry on?". */
+  isKeepGoingReply(message: Pick<OutputMessage, 'metadata'>): boolean {
+    const source = message.metadata?.internalInput?.source;
+    return source === 'session-watcher' || source === 'continue-question-reply';
+  }
+
   /** Tooltip naming who sent a Harness-authored message; empty for everything else. */
   describeMessageSender(message: Pick<OutputMessage, 'metadata'>): string {
     const internal = message.metadata?.internalInput;
-    return internal
-      ? `Sent to the agent automatically by Harness (${internal.source}). This is not a message from you.`
-      : '';
+    if (!internal) return '';
+    if (this.isKeepGoingReply(message)) {
+      return 'Harness told the agent to carry on, because "Keep sessions going without me" is on. This is not a message from you.';
+    }
+    return `Sent to the agent automatically by Harness (${internal.source}). This is not a message from you.`;
   }
 
   formatType(type: string, provider: string): string {

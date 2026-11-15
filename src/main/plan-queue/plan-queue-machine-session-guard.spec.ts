@@ -23,10 +23,16 @@ describe('plan queue machine session call-site guard', () => {
               .filter(ts.isVariableStatement)
               .flatMap(statement => statement.declarationList.declarations);
             const declared = (name: string) => declarations.find(declaration => declaration.name.getText(source) === name)?.initializer;
-            const chosen = declared('chosenRoute');
+            const resolveRoute = declared('resolveRoute');
+            expect(resolveRoute && ts.isArrowFunction(resolveRoute) && ts.isBlock(resolveRoute.body)).toBe(true);
+            if (!resolveRoute || !ts.isArrowFunction(resolveRoute) || !ts.isBlock(resolveRoute.body)) return;
+            const chosen = resolveRoute.body.statements.filter(ts.isVariableStatement)
+              .flatMap(statement => statement.declarationList.declarations)
+              .find(declaration => declaration.name.getText(source) === 'chosenRoute')?.initializer;
             expect(chosen && ts.isCallExpression(chosen) && chosen.expression.getText(source)).toBe('routeQueueSpawn');
             expect(chosen && ts.isCallExpression(chosen) && chosen.arguments[0].getText(source)).toBe('config');
-            const route = declared('route');
+            expect(declared('route')?.getText(source)).toBe('resolveRoute()');
+            const route = resolveRoute.body.statements.find(ts.isReturnStatement)?.expression;
             expect(route && ts.isObjectLiteralExpression(route)).toBe(true);
             if (route && ts.isObjectLiteralExpression(route)) {
               expect(route.properties.map(entry => entry.getText(source)))
@@ -39,7 +45,7 @@ describe('plan queue machine session call-site guard', () => {
                 expect(options.whenTrue.properties[0].getText(source)).toBe('...route');
                 expect(property(options.whenTrue, 'metadata')).toBeUndefined();
               }
-            } else expect(options?.getText(source)).toBe('route');
+            } else expect(options?.getText(source)).toBe('resolveRoute()');
             calls.push({ file, role: 'forwarded', hasRun: true });
             ts.forEachChild(node, visit);
             return;

@@ -14,6 +14,7 @@ import type { MobileGatewayPromptStore } from "./mobile-gateway-prompt-store";
 import type { MobileGatewayStreamCursor } from "./mobile-gateway-stream-cursor";
 import { isOperatorSession } from "./mobile-gateway-session-visibility";
 import { isActiveLoopRuntimeState } from "../orchestration/loop-runtime-status";
+import { routeFinishedNotice } from "../session-watcher/watcher-notices";
 import type { MobileBroadcastEvent } from "./mobile-gateway-snapshot";
 
 /** Minimal EventEmitter surface the gateway subscribes to and detaches from. */
@@ -50,7 +51,8 @@ export interface MobileGatewayEventDeps {
   clearSendInFlight(instanceId: string): void;
   drainQueue(instanceId: string): void;
   drainAllQueues(): void;
-  sendCompletionPush(instanceId: string): void;
+  /** `question` is set when the session stopped on something only the user can answer. */
+  sendCompletionPush(instanceId: string, question?: string): void;
   notifyDesktopViewed(instanceId: string): void;
   sendLiveActivityPush(
     instanceId: string,
@@ -248,7 +250,11 @@ export class MobileGatewayEvents {
     if (!this.awaitsOperator(instanceId)) return;
     if (!this.deps.isInstanceBeingViewed(instanceId))
       this.unreadCompletions.add(instanceId);
-    this.deps.sendCompletionPush(instanceId);
+    // The unread mark is set at once, as before; only the alert waits to learn what became of the stop.
+    routeFinishedNotice(instanceId, {
+      finished: () => this.deps.sendCompletionPush(instanceId),
+      needsYou: (flag) => this.deps.sendCompletionPush(instanceId, flag.note ?? flag.question),
+    });
   }
 
   /**

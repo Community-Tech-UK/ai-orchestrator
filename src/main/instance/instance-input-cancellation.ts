@@ -44,6 +44,11 @@ export interface InstanceSendInputOptions {
   internalSource?: InternalInputSource;
   /** Selected provider catalog command; must be revalidated at native dispatch. */
   providerNativeCommandId?: string;
+  /**
+   * Set only by the "Yes, go ahead" click on a session the watcher handed back. The stored user message carries
+   * the question the click answered, so later verdicts know the step was approved. Not automatic input.
+   */
+  watcherApproval?: { question: string };
 }
 
 export function throwIfInstanceInputAborted(signal?: AbortSignal): void {

@@ -390,6 +390,34 @@ describe('BrowserApprovalRequestComponent', () => {
     });
   });
 
+  it('shows one device sign-in choice and accepts approval without a reusable grant response', async () => {
+    const request = makeRequest({
+      deviceLogin: {
+        operationHandle: 'operation-placeholder', ownerSessionId: 'inst-1', ownerGeneration: 'generation-placeholder',
+        nativeNodeId: 'native-node', nativeProfileId: 'native-profile', nativeComputerName: 'Test Mac',
+        browserNodeId: 'browser-node', browserProfileId: 'browser-profile', browserComputerName: 'Test PC', targetId: 'target-placeholder',
+        origin: 'https://auth.openai.com', expectedIdentity: 'account@example.test',
+        extensionInstanceId: 'extension-placeholder', extensionGeneration: 'extension-generation', documentId: 'document-placeholder', expiresAt: 61_000,
+      },
+    });
+    await show(request);
+    expect(buttons().map(candidate => candidate.textContent?.trim())).toEqual(['Deny', 'Allow this sign-in']);
+    for (const text of ['account@example.test', 'Test Mac', 'Test PC', 'native-profile', 'Only this sign-in']) {
+      expect(element.textContent).toContain(text);
+    }
+    expect(element.querySelector('select')).toBeNull();
+    fakeBrowserGateway.approveRequest.mockResolvedValueOnce({
+      success: true, data: { decision: 'allowed', outcome: 'succeeded', data: null, auditId: 'audit-placeholder' },
+    });
+    listOnce();
+    await press('Allow this sign-in');
+    expect(fakeBrowserGateway.approveRequest).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: request.requestId, deviceLogin: { permission: 'operation' }, grant: request.proposedGrant,
+    }));
+    expect(fixture.componentInstance.pendingRequests()).toEqual([]);
+    expect(fixture.componentInstance.errorMessage()).toBeNull();
+  });
+
   describe('a saved login', () => {
     const login = (access: Partial<NonNullable<BrowserApprovalRequest['credentialAccess']>> = {}) => makeRequest({
       toolName: 'browser.request_credential_access',

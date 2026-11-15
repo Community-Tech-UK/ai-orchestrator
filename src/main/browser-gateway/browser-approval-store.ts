@@ -2,8 +2,9 @@ import type {
   BrowserApprovalRequest,
   BrowserApprovalRequestStatus,
   BrowserCredentialAccessMetadata,
+  BrowserDeviceLoginMetadata,
 } from '@contracts/types/browser';
-import { BrowserCredentialAccessMetadataSchema } from '@contracts/schemas/browser';
+import { BrowserApprovalRequestSchema, BrowserCredentialAccessMetadataSchema, BrowserDeviceLoginMetadataSchema } from '@contracts/schemas/browser';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import { generateId } from '../../shared/utils/id-generator';
@@ -25,6 +26,7 @@ interface BrowserApprovalRequestRow {
   file_path: string | null;
   detected_file_type: string | null;
   credential_access_json: string | null;
+  device_login_json: string | null;
   request_reason: string | null;
   proposed_grant_json: string;
   status: BrowserApprovalRequestStatus;
@@ -57,6 +59,11 @@ export class BrowserApprovalStore {
   createRequest(input: BrowserApprovalRequestInput): BrowserApprovalRequest {
     const id = generateId();
     const now = Date.now();
+    const deviceLogin = input.deviceLogin ? BrowserDeviceLoginMetadataSchema.parse(input.deviceLogin) : undefined;
+    if (deviceLogin) {
+      BrowserApprovalRequestSchema.parse({ ...input, deviceLogin, id, requestId: id, status: 'pending', createdAt: now });
+      if (input.expiresAt <= now) throw new Error('device_login_approval_expired');
+    }
     this.db
       .prepare(
         `
@@ -64,8 +71,8 @@ export class BrowserApprovalStore {
           (id, request_id, instance_id, provider, profile_id, target_id,
            tool_name, action, action_class, origin, url, selector,
            element_context_json, file_path, detected_file_type,
-           proposed_grant_json, credential_access_json, request_reason, status, created_at, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+           proposed_grant_json, credential_access_json, device_login_json, request_reason, status, created_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
       `,
       )
       .run(
@@ -86,6 +93,7 @@ export class BrowserApprovalStore {
         input.detectedFileType ?? null,
         JSON.stringify(input.proposedGrant),
         input.credentialAccess ? JSON.stringify(BrowserCredentialAccessMetadataSchema.parse(input.credentialAccess)) : null,
+        deviceLogin ? JSON.stringify(deviceLogin) : null,
         input.requestReason ?? null,
         now,
         input.expiresAt,
@@ -152,6 +160,48 @@ export class BrowserApprovalStore {
     return row ? this.map(row) : null;
   }
 
+  /** Exact operation lookup, including expired/denied tombstones so retries cannot renew consent. */
+  findDeviceLoginRequest(metadata: BrowserDeviceLoginMetadata): BrowserApprovalRequest | null {
+    const safe = BrowserDeviceLoginMetadataSchema.safeParse(metadata);
+    if (!safe.success) return null;
+    const row = this.db.prepare(`SELECT * FROM browser_approval_requests
+      WHERE device_login_json IS NOT NULL AND json_extract(device_login_json, '$.operationHandle') = ?
+        AND json_extract(device_login_json, '$.ownerSessionId') = ?
+        AND json_extract(device_login_json, '$.ownerGeneration') = ?`)
+      .get<BrowserApprovalRequestRow>(safe.data.operationHandle, safe.data.ownerSessionId, safe.data.ownerGeneration);
+    if (!row || row.device_login_json !== JSON.stringify(safe.data)) return null;
+    this.expireDeviceLoginRequest(row.request_id);
+    return this.getRequest(row.request_id);
+  }
+
+  /** An operator decision compares the exact metadata and wins only while pending. */
+  resolveDeviceLoginRequest(requestId: string, metadata: BrowserDeviceLoginMetadata,
+    decision: 'approved' | 'denied'): BrowserApprovalRequest | null {
+    const safe = BrowserDeviceLoginMetadataSchema.safeParse(metadata);
+    if (!safe.success) return null;
+    this.expireDeviceLoginRequest(requestId);
+    const result = this.db.prepare(`UPDATE browser_approval_requests SET status = ?, decided_at = ?
+      WHERE request_id = ? AND status = 'pending' AND expires_at > ? AND device_login_json = ?`)
+      .run(decision, Date.now(), requestId, Date.now(), JSON.stringify(safe.data));
+    return result.changes > 0 ? this.getRequest(requestId) : null;
+  }
+
+  expireDeviceLoginRequest(requestId: string): BrowserApprovalRequest | null {
+    this.db.prepare(`UPDATE browser_approval_requests SET status = 'expired', decided_at = ?
+      WHERE request_id = ? AND device_login_json IS NOT NULL AND status IN ('pending', 'approved') AND expires_at <= ?`)
+      .run(Date.now(), requestId, Date.now());
+    return this.getRequest(requestId);
+  }
+
+  invalidateDeviceLoginRequests(operationHandle: string, owner: { sessionId: string; generation: string }): void {
+    this.db.prepare(`UPDATE browser_approval_requests SET status = 'expired', decided_at = ?
+      WHERE status IN ('pending', 'approved') AND device_login_json IS NOT NULL
+        AND json_extract(device_login_json, '$.operationHandle') = ?
+        AND json_extract(device_login_json, '$.ownerSessionId') = ?
+        AND json_extract(device_login_json, '$.ownerGeneration') = ?`)
+      .run(Date.now(), operationHandle, owner.sessionId, owner.generation);
+  }
+
   findCredentialAccessByGrant(grantId: string): BrowserApprovalRequest | null {
     const row = this.db.prepare(`SELECT * FROM browser_approval_requests
       WHERE grant_id = ? AND credential_access_json IS NOT NULL LIMIT 1`).get<BrowserApprovalRequestRow>(grantId);
@@ -172,7 +222,7 @@ export class BrowserApprovalStore {
         `
         UPDATE browser_approval_requests
         SET status = ?, grant_id = COALESCE(?, grant_id), decided_at = ?
-        WHERE request_id = ?
+        WHERE request_id = ? AND device_login_json IS NULL
       `,
       )
       .run(resolution.status, resolution.grantId ?? null, Date.now(), requestId);
@@ -226,6 +276,7 @@ export class BrowserApprovalStore {
       filePath: row.file_path ?? undefined,
       detectedFileType: row.detected_file_type ?? undefined,
       ...(row.credential_access_json ? { credentialAccess: BrowserCredentialAccessMetadataSchema.parse(JSON.parse(row.credential_access_json)) } : {}),
+      ...(row.device_login_json ? { deviceLogin: BrowserDeviceLoginMetadataSchema.parse(JSON.parse(row.device_login_json)) } : {}),
       ...(row.request_reason ? { requestReason: row.request_reason } : {}),
       proposedGrant: this.parseJson(row.proposed_grant_json, {
         mode: 'per_action',

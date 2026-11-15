@@ -256,9 +256,11 @@ export function sendBrowserEscalationPush(
   }
 }
 
+/** `question`, when given, is the agent's own question: the alert then says the session needs the user. */
 export function sendMobileCompletionPush(
   deps: MobileGatewayPushDeps,
   instanceId: string,
+  question?: string,
 ): void {
   try {
     const sender = deps.apnsSender;
@@ -269,8 +271,9 @@ export function sendMobileCompletionPush(
       : '';
     const agent = instance?.displayName || 'Agent';
     sendPersonalizedAlerts(deps, deps.profileOfInstance(instanceId), (hostDeviceId) => ({
-        title: `${agent} finished`,
-        body: where ? `${presentInstanceStatus('idle').label} · ${where}` : 'Ready for your next message',
+        title: question ? `${agent} needs you` : `${agent} finished`,
+        body: question ? question.slice(0, 160)
+          : where ? `${presentInstanceStatus('idle').label} · ${where}` : 'Ready for your next message',
         category: 'AIO_COMPLETE',
         threadId: instanceId,
         collapseId: `status-${instanceId}`.slice(0, 64),

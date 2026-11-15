@@ -397,13 +397,16 @@ export interface AppSettings
    */
   sessionAllowProviderOverage: boolean;
   /**
-   * When true (the default), a regular session that ends its turn asking
-   * permission to keep going with work it already planned ("Shall I
-   * implement?") gets an automatic, conditional "carry on", once per user
-   * message. The reply covers only local work the plan already includes;
-   * choices, drafts and clearly risky next steps are left for the user.
+   * "Keep sessions going without me": what the session watcher may do when one
+   * of the user's own chat sessions ends a turn. `off` does nothing. `flag-only`
+   * tells the user at once when a session needs them and never replies. The
+   * other three also let it tell the agent to carry on: with work already asked
+   * for (`planned-work`), also with one clear recommendation or the user's own
+   * earlier answer (`clear-choices`), also with a next step the agent itself
+   * proposes that stays on the user's own computers and can be undone
+   * (`own-suggestions`). Agents cannot change it.
    */
-  autoAnswerContinueQuestions: boolean;
+  keepSessionsGoing: 'off' | 'flag-only' | 'planned-work' | 'clear-choices' | 'own-suggestions';
   /** Enable early warnings when known quota windows are consumed ahead of time. */
   quotaPacingWarningEnabled: boolean;
   /** Utilization percentage that begins an ahead-of-window pacing warning. */

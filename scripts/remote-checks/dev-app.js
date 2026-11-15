@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * A live test's Harness copy, on the test Mac instead of this one. The agent stays here; the install, the builds, the
- * screens' server and Harness itself run on the first Mac in the remote checks config. A tunnel then carries this Mac's
- * debugging port to the copy's, so the agent drives it over CDP at http://127.0.0.1:<port> exactly as it would a copy
- * started here. The tunnel closes by itself when the copy stops.
+ * A live test's Harness copy, on another computer when one can take it. The agent stays here; the install, the builds,
+ * the screens' server and Harness itself run on the first of these that isn't busy: the test Mac, then the PC (in its
+ * Linux space, on a screen nobody sees), then this Mac (James's order, 14 November 2026). A signed package needs a Mac,
+ * and so does a check that needs a signed-in AI tool (`--mac`): those skip the PC. Busy means a 5-minute load of 1.5
+ * per processor or more, or as many copies as it takes. A computer already running this port's copy is used even when
+ * busy if the start would join it; replacing it means a fresh build, which goes to a computer that isn't busy. When
+ * every one is busy, start looks again every 2 minutes until one isn't: it never gives up for being busy. A tunnel then
+ * carries this Mac's debugging port to the copy's, so the agent drives it over CDP at http://127.0.0.1:<port> exactly
+ * as it would a copy started here. The tunnel closes by itself when the copy stops.
  *
  *   node <Harness checkout>/scripts/remote-checks/dev-app.js start --port <debugging port> --data /tmp/aio-lt-<name>
  *   node .../dev-app.js shell --port <debugging port> '<command>'   # runs beside the copy, its data folder in
@@ -13,16 +18,19 @@
  *   node .../dev-app.js status
  *
  * Run it from inside the checkout being tested; the files on disk go, uncommitted ones included. Exits 0 when done, 1
- * when the copy failed to build or start (its output says why), 2 for a usage mistake, 75 when the test Mac can't take
- * it and the copy may start here instead, and 69 (`Not run`) when it can't and this Mac is switched off for test work.
+ * when the copy failed to build or start (its output says why), 2 for a usage mistake, and 75 when this Mac is the one
+ * to use: start the copy here, as the live-test runbook's "On this Mac" part says. With --remote-only, and always for a
+ * signed package (which has no procedure on this Mac), start waits for an eligible remote computer instead and never
+ * returns 75.
  */
 
 const { execFileSync, spawn } = require('child_process');
 const fs = require('fs');
 const http = require('http');
 const net = require('net');
+const os = require('os');
 const path = require('path');
-const { NOT_RUN, appendRunLog, isLoopRun, readConfig, remoteChecksDir } = require('./route');
+const { appendRunLog, isLoopRun, readConfig, remoteChecksDir } = require('./route');
 const { SSH_OPTIONS, sendScript, sendSnapshot, sshCommand } = require('./run-remote');
 const { SnapshotRefused, cleanGitEnv, takeSnapshot } = require('./snapshot');
 
@@ -35,24 +43,31 @@ const SHELL_LIMIT_MS = 10 * 60_000;
 const TUNNEL_WAIT_MS = 20_000;
 const PORT_FREE_WAIT_MS = 15_000;
 const ANSWER_WAIT_MS = 15_000;
+/** Busy from this 5-minute load per processor: the first step of src/main/runtime/system-load-monitor.ts. */
+const BUSY_LOAD_PER_CORE = 1.5;
+/** How long to wait before looking again when every computer is busy. AIO_DEVAPP_RECHECK_MS changes it. */
+const RECHECK_MS = 2 * 60_000;
 const DATA_FOLDER = /^\/tmp\/aio-lt-[A-Za-z0-9._-][A-Za-z0-9._/-]*$/;
 
-const USAGE = `dev-app: a live test's Harness copy, run on the test Mac and driven from here.
+const USAGE = `dev-app: a live test's Harness copy, run on another computer and driven from here.
 
-  start --port <debugging port> --data /tmp/aio-lt-<name> [--packaged] [--checked-tree <tree>]
-      Sends this checkout's files, builds and starts Harness on the test Mac, and connects
-      http://127.0.0.1:<port> here to it. Takes a few minutes, longer after a package change. Running it again with
-      the same files joins the copy already starting or running.
+  start --port <debugging port> --data /tmp/aio-lt-<name> [--remote-only] [--mac] [--packaged] [--checked-tree <tree>]
+      Sends this checkout's files, builds and starts Harness on the first computer that isn't busy (the test Mac,
+      then the PC, then this Mac), and connects http://127.0.0.1:<port> here to it. Takes a few minutes, longer
+      after a package change. When all are busy it waits, looking again every 2 minutes, until one isn't. Exit 75
+      means use this Mac. Running it again with the same files joins the copy already starting or running.
+      --mac skips the PC, whose copy has no AI tool signed in: for a check that needs one.
+      --remote-only waits for an eligible remote computer; it never chooses this Mac or exits 75.
       --packaged builds a signed directory package in the owned copy; it never installs or publishes it.
       --checked-tree sends the index only and refuses a tree mismatch before sending any files.
       --signing-password-stdin (packaged only) unlocks the signing keychain in that build's SSH session.
       Supply the password through a secure pipe; never a command argument, environment variable or file.
   shell --port <debugging port> '<command>'
-      Runs a shell command in the copy's checkout on the test Mac, with its data folder in AIO_DEV_USER_DATA_PATH.
+      Runs a shell command in the copy's checkout, on its computer, with its data folder in AIO_DEV_USER_DATA_PATH.
   stop --port <debugging port>
       Stops the copy and closes the connection.
   status
-      Lists the copies on the test Mac.`;
+      Lists the copies on each computer.`;
 
 class UsageError extends Error {}
 
@@ -60,11 +75,16 @@ function parse(argv) {
   const [action, ...rest] = argv;
   if (!action || ['help', '--help', '-h'].includes(action)) return { action: 'help' };
   if (!['start', 'stop', 'shell', 'status'].includes(action)) throw new UsageError(`there is no dev-app ${action}`);
-  const options = { port: null, data: null, command: [], mode: 'dev', checkedTree: null, unlockSigning: false };
+  const options = { port: null, data: null, command: [], mode: 'dev', macOnly: false, remoteOnly: false, checkedTree: null, unlockSigning: false };
   for (let at = 0; at < rest.length; at += 1) {
     const arg = rest[at];
-    if (arg === '--packaged' && action === 'start') {
+    if (arg === '--remote-only') {
+      if (action !== 'start') throw new UsageError(`dev-app ${action} doesn't take ${arg}`);
+      options.remoteOnly = true;
+    } else if (arg === '--packaged' && action === 'start') {
       options.mode = 'packaged';
+    } else if (arg === '--mac' && action === 'start') {
+      options.macOnly = true;
     } else if (arg === '--signing-password-stdin' && action === 'start') {
       options.unlockSigning = true;
     } else if (arg === '--checked-tree' && action === 'start') {
@@ -139,14 +159,50 @@ function harnessRoot(cwd, commonDir) {
   }
 }
 
-/** `{ config, machine }`, or `{ config, reason }` when no test Mac can take it. `config` is null when none is set up. */
-function findTestMac(env) {
-  const config = readConfig(env);
-  if (!config) return { config, reason: 'no test machines are set up' };
-  const machine = config.machines.find(entry => entry.platform === 'darwin');
-  if (!machine) return { config, reason: 'no test Mac is in the test machine list' };
-  if (machine.paused) return { config, reason: `${machine.label} is paused` };
-  return { config, machine };
+/** The computers a copy may start on, in the order to try them: Macs first, so the test Mac comes before the PC. */
+function copyMachines(config, macOnly = false) {
+  const usable = (config?.machines ?? []).filter(machine => !machine.paused && (!macOnly || machine.platform === 'darwin'));
+  return [...usable.filter(machine => machine.platform === 'darwin'), ...usable.filter(machine => machine.platform !== 'darwin')];
+}
+
+/** Why a computer can't take another copy now, from its `{ load, cores, copies, limit }`; null when it can. */
+function busyReason(label, { load, cores, copies, limit }) {
+  if (copies >= limit) return `${label} already runs as many Harness copies as it takes (${copies})`;
+  if (load >= cores * BUSY_LOAD_PER_CORE) return `${label} is busy (load ${Math.round(load)} on ${cores} processors)`;
+  return null;
+}
+
+/** This Mac's own load, for when it is the last choice. Copies started here aren't counted: their load is. */
+function thisMacLoad() {
+  return { load: os.loadavg()[1], cores: os.cpus().length, copies: 0, limit: Infinity };
+}
+
+/**
+ * Sends the far script and asks how busy the computer is and about the copy on `port` there, if one lives there:
+ * `{ machine, script, reachable, busy, copy, kept }`, `busy` null when it isn't, `copy` `{ tree, data, mode }` or null,
+ * and `kept` whether that port's folder is there, running or not.
+ */
+async function lookAt(machine, port) {
+  const { script, sent } = await sendScript(machine, `devapp-load ${port}`);
+  if (sent.code !== 0 || sent.timedOut) {
+    return { machine, script, reachable: false, busy: `${machine.label} could not be reached`, copy: null, kept: false };
+  }
+  const line = sent.stdout.split('\n').find(row => row.startsWith(RESULT_PREFIX));
+  try {
+    const load = JSON.parse(line.slice(RESULT_PREFIX.length));
+    return { machine, script, reachable: true, busy: busyReason(machine.label, load), copy: load.copy ?? null, kept: load.kept === true };
+  } catch {
+    return { machine, script, reachable: true, busy: `${machine.label} did not say how busy it is`, copy: null, kept: false };
+  }
+}
+
+function recheckMs(env) {
+  const value = Number(env.AIO_DEVAPP_RECHECK_MS);
+  return Number.isFinite(value) && value >= 0 ? value : RECHECK_MS;
+}
+
+function clockTime(at) {
+  return new Date(at).toTimeString().slice(0, 5);
 }
 
 function stateDir(env) {
@@ -284,146 +340,266 @@ function isRunning(pid) {
   }
 }
 
-/** The test Mac couldn't take the copy: start it here when this Mac takes test work, otherwise it is not run. */
-function away(config, reason, write) {
-  if (!config || config.useThisMac) {
-    write(`dev-app: ${reason}. Start Harness on this Mac instead, as the live-test runbook's "On this Mac" part says.\n`);
-    return STAY_HERE;
-  }
-  write(`Not run: ${reason}, and this Mac is switched off for test work. Try again in a few minutes; if it still can't, `
-    + 'record the checks that need Harness as waiting for the test Mac.\n');
-  return NOT_RUN;
-}
-
-function logRun(env, started, machine, exitCode, reason) {
+function logRun(env, started, machine, exitCode, reason, waitedMs = 0) {
   appendRunLog({
     at: new Date(started).toISOString(), project: 'ai-orchestrator', kind: 'dev-app', loop: isLoopRun(env),
-    ranOn: exitCode === NOT_RUN || exitCode === STAY_HERE ? 'none' : machine?.host ?? 'none', waitedMs: 0,
+    ranOn: exitCode === STAY_HERE ? 'none' : machine?.host ?? 'none', waitedMs,
     tookMs: Date.now() - started, exitCode, fellBackBecause: reason ?? null,
   }, env);
 }
 
-async function start({ options, root, env, write, answers }) {
-  const { port, data, mode, checkedTree, unlockSigning } = options;
-  const started = Date.now();
-  const place = findTestMac(env);
-  if (!place.machine) {
-    const code = away(place.config, place.reason, write);
-    logRun(env, started, null, code, place.reason);
-    return code;
-  }
-  const { config, machine } = place;
-  const leave = (reason) => {
-    const code = away(config, reason, write);
-    logRun(env, started, machine, code, reason);
-    return code;
+/** The name live-test receipts give the computer: its paired name (windows-pc) or its host (ct-test-mac). */
+function computerName(machine) {
+  return machine.nodeName ?? machine.host;
+}
+
+/**
+ * Starts the copy on one computer, its far script already sent. Resolves `{ code }` when that settles it, or
+ * `{ busy: reason }` when the computer turned it away for being busy or out of reach, so the next one can be tried.
+ */
+async function startOn({ machine, script, own, previous, root, snapshot, options, signingPassword, env, write, answers, started }) {
+  const { port, data, mode, unlockSigning } = options;
+  // The commits it already has, so only what is new travels.
+  const bases = await sshCommand(machine, `bash ${script} bases`);
+  if (bases.code !== 0 || bases.timedOut) return { busy: `${machine.label} could not be reached` };
+  write(`dev-app: sending this checkout to ${machine.label}\n`);
+  const fault = await sendSnapshot(root, snapshot, machine, script, bases.stdout.split('\n').filter(Boolean), '');
+  if (fault) return { busy: fault };
+
+  const receipt = {
+    tree: snapshot.tree, root, startedAt: new Date(started).toISOString(), computer: computerName(machine), mode,
   };
+  write(`AIO_DEV_APP_START ${JSON.stringify(receipt)}\n`);
+
+  const payload = signingPassword ? Buffer.concat([Buffer.from(`${data}\n`), signingPassword]) : data;
+  const result = await streamStart(machine, `bash ${script} devapp-start ${port} ${snapshot.commit} ${mode} ${unlockSigning ? 1 : 0}`, payload, write);
+  if (!result) {
+    write(`dev-app: the connection to ${machine.label} was lost while Harness started. Run the same command again: `
+      + 'it joins the copy if it is still starting.\n');
+    return { code: 1, reason: 'the connection was lost' };
+  }
+  if (result.status === 'busy') return { busy: `${machine.label}: ${result.reason}` };
+  if (result.status === 'taken') {
+    write(`dev-app: ${result.reason}, for another data folder, so it was left alone. Use the port you were given.\n`);
+    return { code: 1, reason: result.reason };
+  }
+  if (result.status !== 'ready') {
+    write(`dev-app: Harness did not start on ${machine.label}: ${result.reason}. What it printed is above.\n`);
+    const cleanup = await sshCommand(machine, `bash ${script} devapp-stop ${port}`);
+    if (cleanup.code !== 0 || cleanup.timedOut) {
+      write(`dev-app: cleanup of the failed copy could not be confirmed; run stop --port ${port} and check status.\n`);
+    }
+    return { code: 1, reason: result.reason };
+  }
+
+  // A copy joined from this checkout's earlier start may still have its tunnel here.
+  const joined = own && previous.tree === snapshot.tree && previous.data === data && previous.mode === mode && await answers(port, 2_000);
+  // Written as soon as the tunnel exists, so a start cut off after this point can be run again and reuse it.
+  const remember = tunnelPid => fs.writeFileSync(stateFile(env, port), `${JSON.stringify({
+    host: machine.host, label: machine.label, port, data, root, tree: snapshot.tree, mode, tunnelPid,
+    startedAt: new Date(started).toISOString(),
+  })}\n`);
+  if (!joined) {
+    if (!await waitForFreePort(port)) {
+      write(`dev-app: port ${port} is in use on this Mac, perhaps by a copy started here. Stop that, then run this again.\n`);
+      await sshCommand(machine, `bash ${script} devapp-stop ${port}`);
+      return { code: 1, reason: 'the port was in use here' };
+    }
+    const tunnelPid = await openTunnel(machine, script, port, env);
+    if (tunnelPid) remember(tunnelPid);
+    if (!tunnelPid || !await answers(port)) {
+      write(`dev-app: Harness started on ${machine.label}, but the connection to it from here did not work. `
+        + `See ${path.join(stateDir(env), `${port}.tunnel.log`)}.\n`);
+      await sshCommand(machine, `bash ${script} devapp-stop ${port}`);
+      fs.rmSync(stateFile(env, port), { force: true });
+      return { code: 1, reason: 'the tunnel did not open' };
+    }
+  }
+  if (joined) remember(previous.tunnelPid);
+  write(`dev-app: Harness is running on ${machine.label}, reached here at http://127.0.0.1:${port} (CDP). Its data `
+    + `folder there is ${data}; read it with dev-app shell. Stop it with: node ${__filename} stop --port ${port}\n`);
+  write(`AIO_DEV_APP_RECEIPT ${JSON.stringify(receipt)}\n`);
+  return { code: 0, reason: null };
+}
+
+/**
+ * Stops this test's copy on a computer this start passes by. Its tunnel here, if any, closes by itself as the copy
+ * stops (devapp-hold ends with it), freeing the port; nothing on this Mac is ever signalled, as a recorded process id
+ * may by now be another program's.
+ */
+async function stopOlderCopy(look, port, previous, why, write) {
+  write(`dev-app: stopping this test's older copy on ${look.machine.label}, ${why}\n`);
+  const stopped = await sshCommand(look.machine, `bash ${look.script} devapp-stop ${port}`);
+  if (stopped.code !== 0 || stopped.timedOut) {
+    write(`dev-app: the older copy on ${look.machine.label} could not be confirmed stopped; it stops by itself within 4 `
+      + 'hours.\n');
+  }
+}
+
+/**
+ * Before this start's copy goes anywhere but where its earlier copy is, that copy goes, wherever it is: the computer may
+ * since have been paused or left out of this start's choice, and its tunnel here would hold the port until it stops.
+ * Only a copy of the recorded data folder is stopped: a record days old may name a port another test now uses there.
+ */
+async function leaveEarlierCopy(config, previous, port, write) {
+  const machine = config?.machines.find(entry => entry.host === previous.host);
+  if (!machine) return;
+  const look = await lookAt(machine, port);
+  if (look.copy?.data === previous.data) await stopOlderCopy(look, port, previous, 'before starting elsewhere', write);
+}
+
+async function start({ options, root, env, write, answers, localLoad }) {
+  const { port, mode, checkedTree, unlockSigning } = options;
+  const macOnly = options.macOnly || mode === 'packaged';
+  const remoteOnly = options.remoteOnly || mode === 'packaged';
+  const started = Date.now();
   // The port here may only be held by this checkout's own earlier copy's tunnel, which this start reuses or replaces.
   // Held by anything else, it is someone else's, and nothing is sent.
   const previous = readState(env, port);
-  const ours = previous?.root === root && previous.host === machine.host && isRunning(previous.tunnelPid);
-  if (!ours && !await portIsFree(port)) {
+  const tunnelHere = previous?.root === root && isRunning(previous.tunnelPid);
+  if (!tunnelHere && !await portIsFree(port)) {
     write(`dev-app: port ${port} is in use on this Mac, perhaps by a copy started here or another live test. Use the `
       + 'port you were given, or stop that copy first.\n');
-    logRun(env, started, machine, 1, 'the port was in use here');
+    logRun(env, started, null, 1, 'the port was in use here');
     return 1;
   }
 
+  // Taken again after every wait: the wait has no end, and a snapshot a day old is cleared away as abandoned.
   let snapshot;
-  try {
-    snapshot = takeSnapshot(root, checkedTree ? { folders: [] } : {});
-  } catch (err) {
-    if (!(err instanceof SnapshotRefused)) throw err;
-    write(`dev-app: this checkout's files can't be sent: ${err.message}\n`);
-    return 1;
-  }
-  let signingPassword;
-  try {
+  const takeChecked = () => {
+    snapshot?.cleanup();
+    snapshot = null;
+    try {
+      snapshot = takeSnapshot(root, checkedTree ? { folders: [] } : {});
+    } catch (err) {
+      if (!(err instanceof SnapshotRefused)) throw err;
+      write(`dev-app: this checkout's files can't be sent: ${err.message}\n`);
+      return false;
+    }
     if (checkedTree && snapshot.tree !== checkedTree) {
       write('dev-app: the actual index snapshot does not match the checked tree; nothing was sent.\n');
-      return 1;
+      return false;
     }
+    return true;
+  };
+  let signingPassword;
+  try {
+    if (!takeChecked()) return 1;
     if (unlockSigning) signingPassword = await readSigningPassword();
-    const { script, sent } = await sendScript(machine, 'bases');
-    if (sent.code !== 0 || sent.timedOut) return leave(`${machine.label} could not be reached`);
-    write(`dev-app: sending this checkout to ${machine.label}\n`);
-    const fault = await sendSnapshot(root, snapshot, machine, script, sent.stdout.split('\n').filter(Boolean), '');
-    if (fault) return leave(fault);
-
-    write(`AIO_DEV_APP_START ${JSON.stringify({ tree: snapshot.tree, root, startedAt: new Date(started).toISOString(), computer: 'ct-test-mac', mode })}\n`);
-
-    const payload = signingPassword ? Buffer.concat([Buffer.from(`${data}\n`), signingPassword]) : data;
-    signingPassword?.fill(0);
-    const result = await streamStart(machine, `bash ${script} devapp-start ${port} ${snapshot.commit} ${mode} ${unlockSigning ? 1 : 0}`, payload, write);
-    if (!result) {
-      write(`dev-app: the connection to ${machine.label} was lost while Harness started. Run the same command again: `
-        + 'it joins the copy if it is still starting.\n');
-      logRun(env, started, machine, 1, 'the connection was lost');
-      return 1;
-    }
-    if (result.status === 'busy') return leave(result.reason);
-    if (result.status === 'taken') {
-      write(`dev-app: ${result.reason}, for another data folder, so it was left alone. Use the port you were given.\n`);
-      logRun(env, started, machine, 1, result.reason);
-      return 1;
-    }
-    if (result.status !== 'ready') {
-      write(`dev-app: Harness did not start on ${machine.label}: ${result.reason}. What it printed is above.\n`);
-      await sshCommand(machine, `bash ${script} devapp-stop ${port}`);
-      logRun(env, started, machine, 1, result.reason);
-      return 1;
-    }
-
-    // A copy joined from this checkout's earlier start may still have its tunnel here.
-    const joined = ours && previous.tree === snapshot.tree && previous.data === data && previous.mode === mode && await answers(port, 2_000);
-    // Written as soon as the tunnel exists, so a start cut off after this point can be run again and reuse it.
-    const remember = tunnelPid => fs.writeFileSync(stateFile(env, port), `${JSON.stringify({
-      host: machine.host, label: machine.label, port, data, root, tree: snapshot.tree, mode, tunnelPid,
-      startedAt: new Date(started).toISOString(),
-    })}\n`);
-    if (!joined) {
-      if (!await waitForFreePort(port)) {
-        write(`dev-app: port ${port} is in use on this Mac, perhaps by a copy started here. Stop that, then run this again.\n`);
-        await sshCommand(machine, `bash ${script} devapp-stop ${port}`);
-        logRun(env, started, machine, 1, 'the port was in use here');
+    let waitedMs = 0;
+    for (;;) {
+      // Read each time round, so pausing or unpausing a computer during the wait counts.
+      const config = readConfig(env);
+      const reasons = config ? [] : ['no test machines are set up'];
+      // Every unpaused computer is asked, so this test's copy is found even where this start can't go (a rerun with
+      // --mac while it is on the PC); such a copy is stopped below, as its tunnel here would hold the port.
+      const eligible = copyMachines(config, macOnly);
+      const looks = [];
+      for (const machine of copyMachines(config)) {
+        const look = await lookAt(machine, port);
+        if (eligible.includes(machine)) looks.push(look);
+        else if (look.copy?.data === options.data) await stopOlderCopy(look, port, previous, 'which this start can\'t use', write);
+      }
+      // A computer already running this port's copy goes first, busy or not, when the start would join it (same files,
+      // data folder and mode: a start cut off part-way, run again) or the copy is another data folder's, which
+      // devapp-start leaves alone. Replacing a copy means a fresh build, so a busy computer's old copy is stopped and
+      // the build goes to the first computer that isn't busy, in order.
+      const first = [];
+      for (const look of looks) {
+        const { copy } = look;
+        if (!copy) continue;
+        const joins = copy.tree === snapshot.tree && copy.data === options.data && copy.mode === mode;
+        // A copy in the other mode is never replaced (devapp-start answers "taken"), so it is tried there to say so.
+        if (joins || copy.data !== options.data || copy.mode !== mode || !look.busy) {
+          first.push(look);
+        } else {
+          await stopOlderCopy(look, port, previous, 'which is busy', write);
+        }
+      }
+      const order = [...first, ...looks.filter(look => !first.includes(look) && !look.busy)];
+      for (const look of looks) if (look.busy && !first.includes(look)) reasons.push(look.busy);
+      for (const { machine, script } of order) {
+        const own = tunnelHere && previous.host === machine.host;
+        if (tunnelHere && !own) await leaveEarlierCopy(config, previous, port, write);
+        const outcome = await startOn({
+          machine, script, own, previous, root, snapshot, options, signingPassword, env, write, answers, started,
+        });
+        if (outcome.busy) {
+          reasons.push(outcome.busy);
+          continue;
+        }
+        logRun(env, started, machine, outcome.code, outcome.reason, waitedMs);
+        return outcome.code;
+      }
+      // James, 14 November 2026: when the test Mac and the PC are busy, a live-test copy may use this Mac. That holds even
+      // with "Use this Mac when the others are busy or away" off, which still governs test runs and checks.
+      if (!remoteOnly) {
+        const here = busyReason('this Mac', localLoad());
+        if (!here) {
+          if (tunnelHere) {
+            await leaveEarlierCopy(config, previous, port, write);
+            if (!await waitForFreePort(port)) {
+              write(`dev-app: this Mac is free, but port ${port} is still in use here. Stop the copy with: node `
+                + `${__filename} stop --port ${port}, then run this again.\n`);
+              logRun(env, started, null, 1, 'the port was in use here', waitedMs);
+              return 1;
+            }
+          }
+          write(`dev-app: ${reasons.join('; ') || 'no other computer takes live-test copies'}. Start Harness on this Mac `
+            + 'instead, as the live-test runbook\'s "On this Mac" part says.\n');
+          logRun(env, started, null, STAY_HERE, reasons.join('; '), waitedMs);
+          return STAY_HERE;
+        }
+        reasons.push(here);
+      }
+      const pause = recheckMs(env);
+      const waiting = remoteOnly ? 'waiting for a remote computer that can run this copy' : 'every computer is busy';
+      write(`dev-app: ${waiting} (${reasons.join('; ') || 'no unpaused remote computer supports this launch'}). Looking again at ${clockTime(Date.now() + pause)}, `
+        + 'and on until one is free. Leave this running; if it is cut off, run the same command again.\n');
+      await sleep(pause);
+      waitedMs += pause;
+      if (!takeChecked()) {
+        logRun(env, started, null, 1, 'the files could not be sent', waitedMs);
         return 1;
       }
-      const tunnelPid = await openTunnel(machine, script, port, env);
-      if (tunnelPid) remember(tunnelPid);
-      if (!tunnelPid || !await answers(port)) {
-        write(`dev-app: Harness started on ${machine.label}, but the connection to it from here did not work. `
-          + `See ${path.join(stateDir(env), `${port}.tunnel.log`)}.\n`);
-        await sshCommand(machine, `bash ${script} devapp-stop ${port}`);
-        fs.rmSync(stateFile(env, port), { force: true });
-        logRun(env, started, machine, 1, 'the tunnel did not open');
-        return 1;
-      }
     }
-    if (joined) remember(previous.tunnelPid);
-    logRun(env, started, machine, 0, null);
-    write(`dev-app: Harness is running on ${machine.label}, reached here at http://127.0.0.1:${port} (CDP). Its data `
-      + `folder there is ${data}; read it with dev-app shell. Stop it with: node ${__filename} stop --port ${port}\n`);
-    write(`AIO_DEV_APP_RECEIPT ${JSON.stringify({ tree: snapshot.tree, root, startedAt: new Date(started).toISOString(), computer: 'ct-test-mac', mode })}\n`);
-    return 0;
   } finally {
     signingPassword?.fill(0);
-    snapshot.cleanup();
+    snapshot?.cleanup();
   }
 }
 
-/** The machine a copy was started on, or the test Mac now. */
-function machineFor(env, port) {
+/**
+ * The computer a copy is on: the one its record here names, if that one still has it (or can't be asked), else
+ * whichever says it has a copy on that port. The record can be out of date: a later start that moved the copy elsewhere
+ * and was cut off before connecting never rewrote it. `{ machine }`, or `{ reason }` when none can be named.
+ */
+async function machineFor(env, port) {
+  const config = readConfig(env);
   const state = readState(env, port);
-  const place = findTestMac(env);
-  const named = state && place.config?.machines.find(entry => entry.host === state.host);
-  return named ? { machine: named } : place;
+  const named = state && config?.machines.find(entry => entry.host === state.host);
+  if (named) {
+    const look = await lookAt(named, port);
+    if (look.copy || look.kept || !look.reachable) return { machine: named };
+  }
+  const machines = copyMachines(config).filter(machine => machine !== named);
+  if (!machines.length && !named) return { reason: config ? 'every test machine is paused' : 'no test machines are set up' };
+  const unreachable = [];
+  for (const machine of machines) {
+    const look = await lookAt(machine, port);
+    if (look.copy || look.kept) return { machine };
+    if (!look.reachable) unreachable.push(machine.label);
+  }
+  if (unreachable.length) return { reason: `${unreachable.join(' and ')} could not be reached to look for the copy on port ${port}` };
+  return { reason: `no computer has a Harness copy on port ${port}`, none: true };
 }
 
 async function stop({ options, env, write }) {
-  const place = machineFor(env, options.port);
+  const place = await machineFor(env, options.port);
   if (!place.machine) {
-    write(`dev-app: ${place.reason}, so nothing could be stopped there.\n`);
-    return 1;
+    fs.rmSync(stateFile(env, options.port), { force: true });
+    write(`dev-app: ${place.reason}${place.none ? ', so there was nothing to stop' : ''}.\n`);
+    return place.none ? 0 : 1;
   }
   const { sent } = await sendScript(place.machine, `devapp-stop ${options.port}`);
   if (sent.code !== 0 || sent.timedOut) {
@@ -439,7 +615,7 @@ async function stop({ options, env, write }) {
 }
 
 async function shell({ options, env, write }) {
-  const place = machineFor(env, options.port);
+  const place = await machineFor(env, options.port);
   if (!place.machine) {
     write(`dev-app: ${place.reason}\n`);
     return 1;
@@ -459,27 +635,32 @@ async function shell({ options, env, write }) {
 }
 
 async function status({ env, write }) {
-  const place = findTestMac(env);
-  if (!place.machine) {
-    write(`dev-app: ${place.reason}\n`);
+  const config = readConfig(env);
+  const machines = copyMachines(config);
+  if (!machines.length) {
+    write(`dev-app: ${config ? 'every test machine is paused' : 'no test machines are set up'}\n`);
     return 1;
   }
-  const { sent } = await sendScript(place.machine, 'devapp-status');
-  if (sent.code !== 0 || sent.timedOut) {
-    write(`dev-app: ${place.machine.label} could not be reached\n`);
-    return 1;
+  let code = 0;
+  for (const machine of machines) {
+    const { sent } = await sendScript(machine, 'devapp-status');
+    if (sent.code !== 0 || sent.timedOut) {
+      write(`dev-app: ${machine.label} could not be reached\n`);
+      code = 1;
+    } else {
+      write(`On ${machine.label}:\n${sent.stdout}`);
+    }
   }
-  write(`On ${place.machine.label}:\n${sent.stdout}`);
-  return 0;
+  return code;
 }
 
 /**
- * Resolves with the exit code. `commonDir` (the Harness repository's git folder) and `answers` (whether a debugging
- * port answers) are only ever different in tests.
+ * Resolves with the exit code. `commonDir` (the Harness repository's git folder), `answers` (whether a debugging port
+ * answers) and `localLoad` (this Mac's load) are only ever different in tests.
  */
 async function main(argv, {
   cwd = process.cwd(), env = process.env, write = text => process.stdout.write(text),
-  commonDir = gitPath(__dirname, '--git-common-dir'), answers = answersOnPort,
+  commonDir = gitPath(__dirname, '--git-common-dir'), answers = answersOnPort, localLoad = thisMacLoad,
 } = {}) {
   try {
     const { action, options } = parse(argv);
@@ -492,7 +673,7 @@ async function main(argv, {
     if (action === 'shell') return await shell({ options, env, write });
     const root = harnessRoot(cwd, commonDir);
     if (!root) throw new UsageError('run it from inside a Harness checkout (the main checkout or a queue worktree)');
-    return await start({ options, root, env, write, answers });
+    return await start({ options, root, env, write, answers, localLoad });
   } catch (err) {
     if (err instanceof UsageError) {
       write(`dev-app: ${err.message}\n`);

@@ -524,6 +524,22 @@ export class WindowManager {
     });
   }
 
+  /** A session stopped on something only the user can answer. Same rules as the finished notice it replaces. */
+  notifySessionNeedsYou(instanceId: string, displayName: string, question: string, requestCount: number): void {
+    if (getSettingsManager().get('notifyOnAgentCompletion') === false) return;
+    if (this.mainWindow?.isFocused()) return;
+    getNotificationService().notify({
+      kind: 'session-needs-you',
+      instanceId,
+      title: `${displayName} needs you`,
+      body: question.slice(0, 140),
+      fingerprintFields: { requestCount },
+      // One cooldown per session, so two sessions needing the user at once each show their own question.
+      cooldownKey: `session-needs-you:${instanceId}`,
+    });
+    this.drawAttention();
+  }
+
   notifyUserActionRequest(request: UserActionRequest, sessionName?: string): void {
     getNotificationService().notify({
       kind: 'user-action-request',

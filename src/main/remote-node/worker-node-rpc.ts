@@ -6,6 +6,7 @@
 
 /** Methods sent FROM worker node TO coordinator */
 export const NODE_TO_COORDINATOR = {
+  CODEX_DEVICE_LOGIN_DELIVER: 'provider.codexDevice.deliver',
   REGISTER: 'node.register',
   HEARTBEAT: 'node.heartbeat',
   INSTANCE_OUTPUT: 'instance.output',
@@ -37,6 +38,10 @@ export const NODE_TO_COORDINATOR = {
 
 /** Methods sent FROM coordinator TO worker node */
 export const COORDINATOR_TO_NODE = {
+  CODEX_DEVICE_LOGIN_START: 'provider.codexDevice.start',
+  CODEX_DEVICE_LOGIN_READ: 'provider.codexDevice.read',
+  CODEX_DEVICE_LOGIN_CANCEL: 'provider.codexDevice.cancel',
+  CODEX_DEVICE_LOGIN_HANDOFF: 'provider.codexDevice.handoff',
   INSTANCE_SPAWN: 'instance.spawn',
   INSTANCE_SEND_INPUT: 'instance.sendInput',
   INSTANCE_SEND_RAW: 'instance.sendRaw',

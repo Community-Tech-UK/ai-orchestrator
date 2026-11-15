@@ -214,11 +214,18 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
     category: 'orchestration',
   },
   {
-    key: 'autoAnswerContinueQuestions',
-    label: 'Answer "shall I carry on?" for you',
-    description: 'When an agent in a chat session stops halfway through its plan to ask whether to continue, Harness tells it to carry on, at most once per message you send, and to ask you first before sending, publishing, pushing, deploying, deleting data, spending money or making a choice. Harness tries to leave questions about a choice, a drafted message or a risky next step for you.',
-    type: 'boolean',
+    key: 'keepSessionsGoing',
+    label: 'Keep sessions going without me',
+    description: 'When one of your own Claude chat sessions stops, Harness reads the conversation and either tells you straight away that it needs you, with the agent\'s question, or tells the agent to carry on. It tries to leave committing, pushing, sending, deploying, deleting data, spending money and restarting Harness to you, using a small model and a word check, and it tells the agent to stop and ask you first. That is a best effort, not a lock. Each check is a short call to a small paid Claude model. Sessions on other providers are left as they are. You can switch it off for one session from that session\'s menu.',
+    type: 'select',
     category: 'orchestration',
+    options: [
+      { value: 'off', label: 'Off' },
+      { value: 'flag-only', label: 'Tell me when a session needs me' },
+      { value: 'planned-work', label: 'Also carry on with work I already asked for' },
+      { value: 'clear-choices', label: 'Also go with a clear recommendation or my earlier answer' },
+      { value: 'own-suggestions', label: 'Also say yes to the agent\'s own next step when it can be undone' },
+    ],
   },
   {
     key: 'docReviewResumeOnSubmit',

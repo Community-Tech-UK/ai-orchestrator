@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { getLogger } from '../logging/logger';
 import {
   formatDeliveredCommandTimeout, isOriginBoundCredentialCommand, isBrowserExtensionCommandId,
+  isDeviceLoginCommand, hasSynchronousAuthority,
   type CommandPoller, type PendingCommand, type BrowserExtensionSendCommandRequest,
+  type BrowserExtensionCommandQueueKey, type BrowserExtensionQueuedCommand,
   type BrowserExtensionQueueSnapshot, type BrowserExtensionPollRequest, type BrowserExtensionCommandResult,
 } from './browser-extension-command-delivery';
 import {
@@ -21,54 +23,6 @@ import {
 } from './browser-extension-secret-observation-state';
 
 const logger = getLogger('BrowserExtensionCommandStore');
-
-export type BrowserExtensionCommandName =
-  | 'open_tab'
-  | 'close_tab'
-  | 'navigate'
-  | 'http_auth_navigate'
-  | 'reload'
-  | 'click'
-  | 'type'
-  | 'fill_form'
-  | 'select'
-  | 'press_key'
-  | 'set_viewport'
-  | 'set_zoom'
-  | 'handle_dialog'
-  | 'upload_file'
-  | 'download_file'
-  | 'snapshot'
-  | 'accessibility_snapshot'
-  | 'screenshot'
-  | 'console_messages'
-  | 'network_requests'
-  | 'wait_for'
-  | 'query_elements'
-  | 'read_control'
-  | 'probe_one_time_code'
-  | 'report_inventory'
-  | 'evaluate';
-
-export interface BrowserExtensionCommandTarget {
-  profileId?: string;
-  targetId?: string;
-  tabId?: number;
-  windowId?: number;
-  /** Install (Chrome profile) owning the tab: only its polls may take the command. */
-  extensionInstanceId?: string;
-}
-
-export interface BrowserExtensionQueuedCommand {
-  id: string;
-  command: BrowserExtensionCommandName;
-  target?: BrowserExtensionCommandTarget;
-  payload?: Record<string, unknown>;
-  timeoutMs?: number;
-  createdAt: number;
-}
-
-export type BrowserExtensionCommandQueueKey = string;
 
 /**
  * Undelivered-wait budget that survives one extension channel gap. Chrome may
@@ -95,7 +49,8 @@ export function browserExtensionQueueKeyForNode(nodeId: string): BrowserExtensio
 }
 
 export type {
-  BrowserExtensionSendCommandRequest, BrowserExtensionCommandChannelState,
+  BrowserExtensionCommandName, BrowserExtensionCommandTarget, BrowserExtensionQueuedCommand,
+  BrowserExtensionCommandQueueKey, BrowserExtensionSendCommandRequest, BrowserExtensionCommandChannelState,
   BrowserExtensionQueueSnapshot, BrowserExtensionPollRequest, BrowserExtensionCommandResult,
 } from './browser-extension-command-delivery';
 
@@ -133,6 +88,11 @@ export class BrowserExtensionCommandStore {
 
   sendCommand(request: BrowserExtensionSendCommandRequest): Promise<unknown> {
     const queueKey = request.queueKey ?? 'local';
+    if (isDeviceLoginCommand(request.command) && (
+      !queueKey.startsWith('node:') || !request.target?.extensionInstanceId
+      || !Number.isSafeInteger(request.target.tabId) || request.target.tabId! < 0
+      || !hasSynchronousAuthority(request.authorizeDeviceCommand)
+    )) return Promise.reject(new Error('codex_device_delivery_rejected'));
     const timeoutMs = request.timeoutMs ?? 30_000;
     const executionTimeoutMs = request.executionTimeoutMs ?? timeoutMs;
     const undeliveredWaitMs = request.undeliveredWaitMs ?? timeoutMs;
@@ -174,6 +134,7 @@ export class BrowserExtensionCommandStore {
         deliveryAttempt: 0,
         describeChannelState: request.describeChannelState,
         beforeDelivery: request.beforeDelivery,
+        authorizeDeviceCommand: request.authorizeDeviceCommand,
         onDelivered: request.onDelivered,
       });
       logger.info('Browser command queued', {
@@ -208,6 +169,8 @@ export class BrowserExtensionCommandStore {
           ? { denyBrowserCommandsReason: request.denyBrowserCommandsReason }
           : {}),
         allowSecureCredentialCommands: request.allowSecureCredentialCommands ?? false,
+        allowDeviceLoginCommands: request.allowDeviceLoginCommands ?? false,
+        confidentialTransport: request.confidentialTransport,
         resolve: (command) => {
           clearTimeout(timeout);
           resolve(command);
@@ -224,6 +187,20 @@ export class BrowserExtensionCommandStore {
       this.pollersFor(queueKey).push(poller);
       this.dispatchQueuedCommands(queueKey);
     });
+  }
+
+  /** Withdraw locally; a command already sent to Chrome remains an ambiguous delivery. */
+  cancelCommand(queueKey: BrowserExtensionCommandQueueKey, commandId: string): boolean {
+    const pending = this.pending.get(commandId);
+    if (!pending || pending.queueKey !== queueKey) return false;
+    this.forgetPending(commandId);
+    clearTimeout(pending.timeout);
+    this.removeQueuedCommand(queueKey, commandId);
+    if (this.handoffPending.get(queueKey) === commandId) this.handoffPending.delete(queueKey);
+    pending.reject(new Error(isDeviceLoginCommand(pending.command.command)
+      ? 'codex_device_delivery_rejected' : 'browser_extension_command_cancelled'));
+    this.dispatchQueuedCommands(queueKey);
+    return true;
   }
 
   /** Recheck after the poll promise settles, immediately before the socket write. */
@@ -244,14 +221,20 @@ export class BrowserExtensionCommandStore {
     }
     try {
       pending.beforeDelivery?.();
+      if (isDeviceLoginCommand(pending.command.command) && (
+        !hasSynchronousAuthority(pending.authorizeDeviceCommand)
+        || !hasSynchronousAuthority(pending.confidentialTransport)
+      )) throw new Error('codex_device_delivery_rejected');
       return true;
     } catch {
       // The callback may carry sensitive context. Only this fixed code escapes.
-      this.pending.delete(commandId);
+      this.forgetPending(commandId);
       clearTimeout(pending.timeout);
       this.removeQueuedCommand(queueKey, commandId);
       if (this.handoffPending.get(queueKey) === commandId) this.handoffPending.delete(queueKey);
-      pending.reject(Object.assign(new Error('credential_delivery_rejected'), { code: 'credential_delivery_rejected' }));
+      const code = isDeviceLoginCommand(pending.command.command)
+        ? 'codex_device_delivery_rejected' : 'credential_delivery_rejected';
+      pending.reject(Object.assign(new Error(code), { code }));
       return false;
     }
   }
@@ -289,7 +272,7 @@ export class BrowserExtensionCommandStore {
     if (resultQueueKey !== pending.queueKey) {
       throw new Error('browser_extension_command_queue_mismatch');
     }
-    this.pending.delete(result.commandId);
+    this.forgetPending(result.commandId);
     clearTimeout(pending.timeout);
     // Answered, not succeeded. A command the extension RAN and rejected — a
     // missing selector, a refused action — proves the execution path is alive
@@ -355,7 +338,7 @@ export class BrowserExtensionCommandStore {
     }
     const remainingMs = pending.undeliveredDeadlineAt - Date.now();
     if (remainingMs <= 0) {
-      this.pending.delete(commandId);
+      this.forgetPending(commandId);
       this.removeQueuedCommand(queueKey, commandId);
       pending.reject(new Error('browser_extension_command_not_delivered'));
       logger.info('Browser command requeue refused', { queueKey, commandId, reason: 'delivery_deadline_expired' });
@@ -447,7 +430,7 @@ export class BrowserExtensionCommandStore {
       if (pending.queueKey !== queueKey) {
         continue;
       }
-      this.pending.delete(commandId);
+      this.forgetPending(commandId);
       clearTimeout(pending.timeout);
       pending.reject(new Error(reason));
     }
@@ -483,6 +466,8 @@ export class BrowserExtensionCommandStore {
       }
       const { command, pollerIndex, capable } = next;
       if (capable) {
+        const pending = this.pending.get(command.id);
+        if (pending) pending.confidentialTransport = pollers[pollerIndex]!.confidentialTransport;
         if (!this.validateDelivery(queueKey, command.id)) {
           continue;
         }
@@ -502,7 +487,7 @@ export class BrowserExtensionCommandStore {
       queue.splice(queue.indexOf(command), 1);
       this.rejectBeforeDelivery(
         command.id,
-        !poller.allowBrowserCommands
+        isDeviceLoginCommand(command.command) ? 'codex_device_delivery_rejected' : !poller.allowBrowserCommands
           ? poller.denyBrowserCommandsReason ?? BROWSER_EXTENSION_RUNTIME_INCOMPATIBLE
           : 'shared_tab_secure_credential_fill_unavailable',
       );
@@ -516,6 +501,10 @@ export class BrowserExtensionCommandStore {
   ): boolean {
     if (!poller.allowBrowserCommands) {
       return false;
+    }
+    if (isDeviceLoginCommand(command.command)) {
+      return poller.allowDeviceLoginCommands && poller.deferHandoffConfirmation
+        && hasSynchronousAuthority(poller.confidentialTransport);
     }
     return !isOriginBoundCredentialCommand(command) || poller.allowSecureCredentialCommands;
   }
@@ -564,7 +553,7 @@ export class BrowserExtensionCommandStore {
         if (pending.receivedAt !== undefined) {
           return;
         }
-        this.pending.delete(commandId);
+        this.forgetPending(commandId);
         this.deliveryHealth.record(pending.queueKey, {
           answered: false,
           at: Date.now(),
@@ -582,7 +571,7 @@ export class BrowserExtensionCommandStore {
     if (!pending || pending.dequeuedAt !== undefined) {
       return;
     }
-    this.pending.delete(commandId);
+    this.forgetPending(commandId);
     clearTimeout(pending.timeout);
     this.preDelivery.record(pending.queueKey, { delivered: false, reason });
     pending.reject(new Error(reason));
@@ -633,7 +622,7 @@ export class BrowserExtensionCommandStore {
 
   private armExecutionTimeout(pending: PendingCommand, commandId: string): void {
     pending.timeout = setTimeout(() => {
-      this.pending.delete(commandId);
+      this.forgetPending(commandId);
       this.deliveryHealth.record(pending.queueKey, {
         answered: false,
         at: Date.now(),
@@ -650,10 +639,16 @@ export class BrowserExtensionCommandStore {
     delayMs: number,
   ): NodeJS.Timeout {
     return setTimeout(() => {
-      this.pending.delete(commandId);
+      this.forgetPending(commandId);
       this.removeQueuedCommand(queueKey, commandId);
       reject(new Error('browser_extension_command_not_delivered'));
     }, delayMs);
+  }
+
+  private forgetPending(commandId: string): void {
+    const command = this.pending.get(commandId)?.command;
+    if (command && isDeviceLoginCommand(command.command) && command.payload) delete command.payload['code'];
+    this.pending.delete(commandId);
   }
 
   private removeQueuedCommand(

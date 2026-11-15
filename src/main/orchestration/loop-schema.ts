@@ -1,9 +1,6 @@
 /**
- * Loop Mode SQLite Schema + Migrations
- *
- * Two tables: `loop_runs` (one row per loop) and `loop_iterations` (one row
- * per iteration). The migration runner pattern matches
- * `conversation-ledger-schema.ts` so that ops folks have one mental model.
+ * Loop, campaign and Plan Queue SQLite schema and migrations.
+ * The migration runner follows conversation-ledger-schema.ts.
  */
 
 import type { SqliteDriver } from '../db/sqlite-driver';

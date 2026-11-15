@@ -5,9 +5,9 @@
  */
 import { execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstanceCreateConfig } from '../../shared/types/instance.types';
@@ -198,6 +198,47 @@ const start = async (config: object = {}) => (await coordinator.startRun({ paren
 const workers = (): FakeInstance[] => fake.created.filter(i => i.role === 'worker');
 
 describe('a plan job that runs on another computer', { timeout: 60_000 }, () => {
+  it('returns coordinator-reserved IDs to the same worker before accepting its subsequent completion report', async () => {
+    mkdirSync(join(repo, 'scripts/lib'), { recursive: true });
+    cpSync(resolve('scripts/next-lt-id.mjs'), join(repo, 'scripts/next-lt-id.mjs'));
+    cpSync(resolve('scripts/lib/lt-id-reservation.mjs'), join(repo, 'scripts/lib/lt-id-reservation.mjs'));
+    write(join(repo, 'docs/plans/livetest-remediation-register.md'), '## Remediation Index\n| ID | Status |\n| --- | --- |\n| LT-050 | root-only finding |\n');
+    planDoc();
+    let requestingWorker: string | undefined;
+    fake.scripts.worker = (instance, message) => {
+      if (!requestingWorker) {
+        requestingWorker = instance.id;
+        const reportFile = /JSON file at `([^`]+)`/.exec(instance.config.initialPrompt!)![1];
+        write(reportFile, JSON.stringify({ item_id: itemIdOf(instance), reserve_defect_ids: 2 }));
+        return;
+      }
+      expect(instance.id).toBe(requestingWorker);
+      expect(message).toContain('LT-051, LT-052');
+      expect(fake.created.some(candidate => candidate.role === 'verifier')).toBe(false);
+      expect(store.getItem(itemIdOf(instance))!.workerReport ?? null).toBeNull();
+      return farWorker()(instance, message);
+    };
+    const run = await start();
+    await waitForRun(run.id);
+    expect(workers()).toHaveLength(1);
+    expect(store.listItems(run.id)[0]!.state).toBe('landed');
+    expect(readdirSync(join(repo, '.git/aio-lt-reservations')).sort()).toEqual(['LT-051', 'LT-052']);
+    expect(fake.inputs.filter(input => input.instanceId === requestingWorker)).toHaveLength(1);
+  });
+
+  it('parks a malformed reservation request without running a checker or creating a ledger', async () => {
+    planDoc();
+    fake.scripts.worker = instance => {
+      const reportFile = /JSON file at `([^`]+)`/.exec(instance.config.initialPrompt!)![1];
+      write(reportFile, JSON.stringify({ item_id: itemIdOf(instance), reserve_defect_ids: 99 }));
+    };
+    const run = await start();
+    await waitForRun(run.id);
+    expect(store.listItems(run.id)[0]).toMatchObject({ state: 'parked', parkReason: 'worker-error' });
+    expect(fake.created.some(candidate => candidate.role === 'verifier')).toBe(false);
+    expect(existsSync(join(repo, '.git/aio-lt-reservations'))).toBe(false);
+  });
+
   it('works there, comes back, is checked and lands on main here, and the computer is cleaned up', async () => {
     planDoc();
     const run = await start();

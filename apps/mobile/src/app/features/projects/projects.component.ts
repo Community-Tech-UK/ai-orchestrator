@@ -33,6 +33,7 @@ import {
   type MobileSessionRowView,
 } from '../../shared/mobile-session-row.component';
 import {
+  anyExpandedProjectKey,
   buildProjectGroups,
   filterProjectGroups,
   flattenChronologicalSessions,
@@ -43,27 +44,17 @@ import {
   orderPinnedGroups,
   projectParentLabel,
   projectSessionPreview,
+  projectsEmptyStateTitle,
   reconcileProjectGroupUpdate,
   releasePendingProjectGroups,
   sessionTargetRoute,
+  toggleAllExpandedProjectKeys,
   toggleExpandedProjectKey,
   type NavigationTarget,
+  type OrganizeMode,
   type ProjectListGroup,
   type SessionStateFilter,
 } from './project-list.view-model';
-
-type OrganizeMode = 'project' | 'chronological';
-
-export function projectsEmptyStateTitle(
-  stateFilter: SessionStateFilter,
-  query: string,
-  mode: OrganizeMode = 'project',
-): string {
-  if (stateFilter === 'attention') return 'Nothing needs attention';
-  if (stateFilter === 'active') return 'No active sessions';
-  if (query.trim()) return 'No matching sessions';
-  return mode === 'project' ? 'No projects yet' : 'No sessions yet';
-}
 
 @Component({
   standalone: true,
@@ -137,7 +128,7 @@ export function projectsEmptyStateTitle(
 
           <span class="projects-menu__separator"></span>
           <span class="projects-menu__caption">Manage</span>
-          <button type="button" class="projects-menu__attention" (click)="openInbox()">
+          <button type="button" class="projects-menu__attention" (click)="openPage('/inbox')">
             <span class="projects-menu__icon"></span>
             <app-mobile-icon name="warning" />
             <span>Needs you@if (needsYouCount() > 0) { · {{ needsYouCount() }} }</span>
@@ -148,27 +139,27 @@ export function projectsEmptyStateTitle(
               <app-mobile-icon [name]="paused() ? 'play' : 'pause'" />
               <span>{{ pausePending() ? 'Updating…' : paused() ? 'Resume agents' : 'Pause agents' }}</span>
             </button>
-            <button type="button" (click)="openHistory()">
+            <button type="button" (click)="openPage('/history')">
               <span class="projects-menu__icon"></span>
               <app-mobile-icon name="history" />
               <span>History</span>
             </button>
-            <button type="button" (click)="openAutomations()">
+            <button type="button" (click)="openPage('/automations')">
               <span class="projects-menu__icon"></span>
               <app-mobile-icon name="play" />
               <span>Automations</span>
             </button>
-            <button type="button" (click)="openAway('/loops')">
+            <button type="button" (click)="openPage('/loops')">
               <span class="projects-menu__icon"></span>
               <app-mobile-icon name="play" />
               <span>Loops</span>
             </button>
-            <button type="button" (click)="openAway('/plan-queue')">
+            <button type="button" (click)="openPage('/plan-queue')">
               <span class="projects-menu__icon"></span>
               <app-mobile-icon name="history" />
               <span>Plan queue</span>
             </button>
-            <button type="button" (click)="openAway('/reviews')">
+            <button type="button" (click)="openPage('/reviews')">
               <span class="projects-menu__icon"></span>
               <app-mobile-icon name="warning" />
               <span>Reviews</span>
@@ -185,7 +176,12 @@ export function projectsEmptyStateTitle(
       @if (isOwner()) { <app-usage class="projects-usage" /> }
 
       <div class="projects-heading">
-        <h1 class="projects-title">{{ mode() === 'project' ? 'Projects' : 'Sessions' }}</h1>
+        <div class="projects-heading__row">
+          <h1 class="projects-title">{{ mode() === 'project' ? 'Projects' : 'Sessions' }}</h1>
+          @if (mode() === 'project' && !searchQuery().trim() && visibleGroups().length > 0) {
+            <button type="button" class="projects-collapse-all" (click)="toggleAllProjects()">{{ anyProjectExpanded() ? 'Collapse all' : 'Expand all' }}</button>
+          }
+        </div>
         <div class="projects-state-filter" role="group" aria-label="Filter sessions by state">
           <button
             type="button"
@@ -214,7 +210,7 @@ export function projectsEmptyStateTitle(
       </div>
 
       @if (needsYouCount() > 0) {
-        <button type="button" class="projects-needs-you" (click)="openInbox()">
+        <button type="button" class="projects-needs-you" (click)="openPage('/inbox')">
           <app-mobile-icon name="warning" />
           <span>Needs you · {{ needsYouCount() }}</span>
           <app-mobile-icon class="needs-you-caret" name="chevron-down" />
@@ -407,7 +403,6 @@ export class ProjectsComponent implements OnInit {
 
   private readonly sourceGroups = computed(() =>
     this.gateway.dataHostId() !== (this.hostStore.activeHost()?.id ?? null) ? [] : buildProjectGroups(
-      this.gateway.snapshot()?.projects ?? [],
       this.gateway.snapshot()?.instances ?? [],
       this.gateway.historySessions(),
       this.recentDirs(),
@@ -423,6 +418,10 @@ export class ProjectsComponent implements OnInit {
     void this.gateway.loadHistory();
     void this.loadDirectories();
   }
+  /** Whether any listed project is open, which decides between Collapse all and Expand all. */
+  protected readonly anyProjectExpanded = computed(() =>
+    anyExpandedProjectKey(this.expandedProjectKeys(), this.visibleGroups().map((group) => group.project.key)),
+  );
   protected readonly chronologicalRows = computed(() =>
     flattenChronologicalSessions(this.visibleGroups()),
   );
@@ -580,6 +579,13 @@ export class ProjectsComponent implements OnInit {
     this.expandedProjectKeys.set(toggleExpandedProjectKey(this.expandedProjectKeys(), key));
   }
 
+  /** Closes every listed project, or opens them all when none is open. Projects hidden by a filter keep their state. */
+  protected toggleAllProjects(): void {
+    this.initialDisclosureApplied = true;
+    const keys = this.visibleGroups().map((group) => group.project.key);
+    this.expandedProjectKeys.set(toggleAllExpandedProjectKeys(this.expandedProjectKeys(), keys));
+  }
+
   protected beginRowPress(): void {
     if (this.rowPressReleaseTimer) {
       clearTimeout(this.rowPressReleaseTimer);
@@ -643,24 +649,9 @@ export class ProjectsComponent implements OnInit {
     void this.router.navigate(['/']);
   }
 
-  protected openHistory(): void {
-    this.menuOpen.set(false);
-    void this.router.navigate(['/history']);
-  }
-
-  protected openAutomations(): void {
-    this.menuOpen.set(false);
-    void this.router.navigate(['/automations']);
-  }
-
-  protected openAway(path: string): void {
+  protected openPage(path: '/inbox' | '/history' | '/automations' | '/loops' | '/plan-queue' | '/reviews'): void {
     this.menuOpen.set(false);
     void this.router.navigate([path]);
-  }
-
-  protected openInbox(): void {
-    this.menuOpen.set(false);
-    void this.router.navigate(['/inbox']);
   }
 
   protected openSession(projectKey: string, session: MobileSessionRowView): void {

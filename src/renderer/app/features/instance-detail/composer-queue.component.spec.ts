@@ -192,3 +192,46 @@ describe('ComposerQueueComponent — parked queue (B7)', () => {
     expect(fixture.nativeElement.textContent).toContain('held back');
   });
 });
+
+describe('ComposerQueueComponent — held for the restart', () => {
+  async function mount(heldForRestart: boolean) {
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({ imports: [ComposerQueueComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(ComposerQueueComponent);
+    fixture.componentRef.setInput('messages', [{ message: 'waiting for the restart' }]);
+    fixture.componentRef.setInput('heldForRestart', heldForRestart);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('says nothing about the restart when the session is not held', async () => {
+    const fixture = await mount(false);
+    expect(fixture.nativeElement.querySelector('.queue-held-restart')).toBeNull();
+  });
+
+  it('explains the hold, announces it, and still lists the message', async () => {
+    const fixture = await mount(true);
+    const notice = fixture.nativeElement.querySelector('.queue-held-restart') as HTMLElement;
+    expect(notice.getAttribute('role')).toBe('status');
+    expect(notice.textContent).toContain('Held for the restart');
+    expect(notice.textContent).toContain('Queued messages send after you press Resume');
+    expect(notice.textContent).toContain('takes this session out of the pause, so Resume will skip it');
+    expect(fixture.nativeElement.textContent).toContain('waiting for the restart');
+  });
+
+  it('shows one notice, not the Resume from Stop as well, while the restart pause holds the queue', async () => {
+    const fixture = await mount(true);
+    fixture.componentRef.setInput('parked', true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.queue-parked')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelector('.queue-held-restart')).not.toBeNull();
+  });
+
+  it('emits Send now', async () => {
+    const fixture = await mount(true);
+    let sent = 0;
+    fixture.componentInstance.sendHeldNow.subscribe(() => { sent += 1; });
+    (fixture.nativeElement.querySelector('.queue-held-restart__send') as HTMLButtonElement).click();
+    expect(sent).toBe(1);
+  });
+});

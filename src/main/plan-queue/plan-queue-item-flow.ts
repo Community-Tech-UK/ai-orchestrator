@@ -55,7 +55,6 @@ import { PlanQueueLandingRetries } from './plan-queue-landing-retries';
 import { PlanQueueKeptFolders } from './plan-queue-kept-folders';
 import { PlanQueueRecoveryCopies } from './plan-queue-recovery-copies';
 import { PlanQueueRunBreaker } from './plan-queue-run-breaker';
-import { planQueueBranchName } from './plan-queue-worktree';
 import { describePlanningMoves } from './plan-queue-planning-files';
 import {
   buildContinuePrompt,
@@ -441,7 +440,20 @@ export class PlanQueueItemFlow {
         ...activity, round: item.round + 1, workerInstanceId: instanceId, recordedAt: Date.now(),
       }].slice(-100) });
       if (this.host.getRun(item.runId).status === 'paused') { await this.holdUnlocked(item); return; }
-      if (outcome.kind === 'turn-complete' && item.remote && this.host.remote) item = await this.host.remote.storeReport(item, instanceId, this.host.getRun(item.runId));
+      if (outcome.kind === 'turn-complete' && item.remote && this.host.remote) {
+        try {
+          const report = await this.host.remote.storeReport(item, instanceId, this.host.getRun(item.runId));
+          item = report.item;
+          if (report.reservationResponse) {
+            if (this.host.getRun(item.runId).status === 'cancelled' || this.host.consumeUserClose?.(instanceId)) {
+              await this.parkUnlocked(item, 'cancelled', 'Stopped before the reserved identifiers were delivered. Their numbers remain reserved.'); return;
+            }
+            await this.runWorkerTurn(item, report.reservationResponse); return;
+          }
+        } catch (error) {
+          await this.parkUnlocked(this.host.getItem(item.id), 'worker-error', `The remote report could not be processed: ${errorMessage(error)}`); return;
+        }
+      }
       if (item.workerReport?.capabilityGaps?.some(gap => gap.classification === 'capability' || gap.classification === 'setup')) {
         await this.parkUnlocked(item, 'needs-setup', 'Waiting for the linked capability repair; the original check remains open.'); return;
       }
@@ -732,14 +744,17 @@ export class PlanQueueItemFlow {
   }
 
   // Parking and operator actions
-  /** Operator Resume must wait for retained-checkout recovery and other writers. */
-  resume(itemId: string): Promise<void> {
+  /** Wait for retained-work recovery; automatic callers recheck their authority after each await. */
+  resume(itemId: string, canResume: () => boolean = () => true): Promise<void> {
     return this.withItemLock(itemId, async () => {
+      if (!canResume()) return;
       this.usageWaits.clear(itemId);
       const item = this.host.getItem(itemId);
       await Promise.all([item.workerInstanceId, item.verifierInstanceId].filter((id): id is string => Boolean(id)).map(id => this.stopInstance(id)));
+      if (!canResume()) return;
       this.preparationErrors.succeeded(item.runId, item.id);
       await restoreBeforeResume(this.host, itemId);
+      if (!canResume()) return;
       // A checker must not review the note: its hash would go into the closed documents, and a later retry takes the note off.
       const resumed = this.host.getItem(itemId);
       if (resumed.checkpointCommit) this.verification.forgetResults(resumed.checkpointCommit);
@@ -752,6 +767,7 @@ export class PlanQueueItemFlow {
         });
         this.host.history.recordDocumentTransformation(resumed, change);
       }
+      if (!canResume()) return;
       // `steppedUpAt` stays: a handed-over document resumes on the step-up choice and is never handed over twice.
       this.host.transition(this.host.getItem(itemId), 'queued', { parkReason: null, detail: null, heldAt: null, discardedAt: null, discardedBy: null, round: 0, erroredRounds: 0, landingRefusals: 0, baseConflicts: 0, question: null, landedCommit: null, verdict: null, verifiedMainCommit: null, pendingInstruction: this.workerSessions.carryOverForResume(itemId) });
     });

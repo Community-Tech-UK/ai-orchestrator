@@ -13,11 +13,14 @@ export async function readCapabilityEvidence(root: string, relative: string, lim
   const parts = relative.split('/');
   if (path.isAbsolute(relative) || relative.includes('\\') || parts.some(p => !p || p === '.' || p === '..' || p === '.git')) throw new Error('Evidence must be a relative path inside the project.');
   let current = await fs.realpath(root);
-  for (const part of parts) {
+  for (const [index, part] of parts.entries()) {
     current = path.join(current, part);
-    if ((await fs.lstat(current)).isSymbolicLink()) throw new Error('Capability evidence may not use symlinks.');
+    const entry = await fs.lstat(current);
+    if (entry.isSymbolicLink()) throw new Error('Capability evidence may not use symlinks.');
+    if (index === parts.length - 1 && (!entry.isFile() || entry.size > limit)) throw new Error('Capability evidence is not a bounded regular file.');
   }
-  const handle = await fs.open(current, constants.O_RDONLY | constants.O_NOFOLLOW);
+  // Nonblocking open also covers a regular file replaced with a FIFO after lstat.
+  const handle = await fs.open(current, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const before = await handle.stat();
     const actual = await fs.realpath(current);

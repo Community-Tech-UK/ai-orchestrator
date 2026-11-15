@@ -1,4 +1,56 @@
-import type { BrowserExtensionCommandQueueKey, BrowserExtensionQueuedCommand, BrowserExtensionCommandName, BrowserExtensionCommandTarget } from './browser-extension-command-store';
+export type BrowserExtensionCommandName =
+  | 'codex_device_context'
+  | 'codex_device_attest'
+  | 'codex_device_fill'
+  | 'codex_device_submit'
+  | 'codex_device_cancel'
+  | 'open_tab'
+  | 'close_tab'
+  | 'navigate'
+  | 'http_auth_navigate'
+  | 'reload'
+  | 'click'
+  | 'type'
+  | 'fill_form'
+  | 'select'
+  | 'press_key'
+  | 'set_viewport'
+  | 'set_zoom'
+  | 'handle_dialog'
+  | 'upload_file'
+  | 'download_file'
+  | 'snapshot'
+  | 'accessibility_snapshot'
+  | 'screenshot'
+  | 'console_messages'
+  | 'network_requests'
+  | 'wait_for'
+  | 'query_elements'
+  | 'read_control'
+  | 'probe_one_time_code'
+  | 'report_inventory'
+  | 'evaluate';
+
+export interface BrowserExtensionCommandTarget {
+  profileId?: string;
+  targetId?: string;
+  tabId?: number;
+  windowId?: number;
+  /** Install (Chrome profile) owning the tab: only its polls may take the command. */
+  extensionInstanceId?: string;
+}
+
+export interface BrowserExtensionQueuedCommand {
+  id: string;
+  command: BrowserExtensionCommandName;
+  target?: BrowserExtensionCommandTarget;
+  payload?: Record<string, unknown>;
+  timeoutMs?: number;
+  createdAt: number;
+}
+
+export type BrowserExtensionCommandQueueKey = string;
+
 
 /** Coordinator-generated UUIDs only: peer strings must never become log content. */
 export function isBrowserExtensionCommandId(value: unknown): value is string {
@@ -25,6 +77,8 @@ export interface BrowserExtensionSendCommandRequest {
   describeChannelState?: () => BrowserExtensionCommandChannelState;
   /** Main-process only; retained through queue waits and safe redelivery, never serialized. */
   beforeDelivery?: () => void;
+  /** Private device flow authority, including the original encrypted connection. Never serialized. */
+  authorizeDeviceCommand?: () => boolean;
   /** Main-process audit correlation; called once, before the command can be polled. */
   onQueued?: (commandId: string) => void;
   /** Names the install (Chrome profile) each poll that takes the command came from;
@@ -56,6 +110,10 @@ export interface BrowserExtensionPollRequest {
   denyBrowserCommandsReason?: string;
   /** True only when this exact authenticated poll can enforce origin-bound credential writes. */
   allowSecureCredentialCommands?: boolean;
+  /** Exact poll runtime supports the private document-bound device flow. */
+  allowDeviceLoginCommands?: boolean;
+  /** Trusted closure bound to the actual incoming poll socket, never peer metadata. */
+  confidentialTransport?: () => boolean;
 }
 
 export interface BrowserExtensionCommandResult {
@@ -86,6 +144,8 @@ export interface PendingCommand {
   deliveryAttempt: number;
   describeChannelState?: () => BrowserExtensionCommandChannelState;
   beforeDelivery?: () => void;
+  authorizeDeviceCommand?: () => boolean;
+  confidentialTransport?: () => boolean;
   onDelivered?: (delivery: BrowserExtensionCommandDelivery) => void;
 }
 
@@ -101,6 +161,8 @@ export interface CommandPoller {
   allowBrowserCommands: boolean;
   denyBrowserCommandsReason?: string;
   allowSecureCredentialCommands: boolean;
+  allowDeviceLoginCommands: boolean;
+  confidentialTransport?: () => boolean;
   resolve: (command: BrowserExtensionQueuedCommand | null) => void;
 }
 
@@ -128,6 +190,23 @@ export function isOriginBoundCredentialCommand(command: BrowserExtensionQueuedCo
   }
   const credentialOrigin = command.payload?.['credentialOrigin'];
   return typeof credentialOrigin === 'string';
+}
+
+export function isDeviceLoginCommand(command: BrowserExtensionCommandName): boolean {
+  return command === 'codex_device_context' || command === 'codex_device_attest'
+    || command === 'codex_device_fill' || command === 'codex_device_submit'
+    || command === 'codex_device_cancel';
+}
+
+/** An asynchronous or throwing check cannot authorize a synchronous socket write. */
+export function hasSynchronousAuthority(check: (() => boolean) | undefined): boolean {
+  try {
+    const result: unknown = check?.();
+    if (result instanceof Promise) void result.catch(() => undefined);
+    return result === true;
+  } catch {
+    return false;
+  }
 }
 
 export function formatDeliveredCommandTimeout(

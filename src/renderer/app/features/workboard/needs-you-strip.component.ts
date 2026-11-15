@@ -51,7 +51,8 @@ export class NeedsYouStripComponent {
     const namedSource = front.source === 'sidechat' ? 'Sidechat' : front.source === 'loop-run' ? 'Loop'
       : front.source === 'automation-run' ? 'Automation' : front.source === 'repo-job' ? 'Repository job' : null;
     const notice = namedSource && front.title !== `${namedSource} needs you` ? `${namedSource} needs you: ${front.title}` : front.title;
-    const sentence = front.source !== 'session' ? notice : request?.kind === 'permission'
+    const sentence = front.source === 'session-question' ? `‘${front.title}’ is waiting for your answer`
+      : front.source !== 'session' ? notice : request?.kind === 'permission'
       ? `‘${front.title}’ wants permission${request.toolName ? ' to use ' + request.toolName : ''}`
       : request?.kind === 'question' ? `‘${front.title}’ is waiting for your answer` : `‘${front.title}’ is waiting for you`;
     return this.eligible().length > 1 ? `${this.eligible().length} things are waiting for you · ${sentence}` : sentence;

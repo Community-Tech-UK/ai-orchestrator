@@ -36,6 +36,13 @@ describe('the worker prompt for a job on another computer', () => {
     expect(prompt).toContain('C:\\Users\\pc\\.orchestrator\\queue-docs\\item-1\\docs\\plans\\p_history.md');
   });
 
+  it('provides a bounded coordinator reservation request and keeps it separate from completion', () => {
+    expect(prompt).toContain(JSON.stringify({ item_id: 'item-1', reserve_defect_ids: 2 }));
+    expect(prompt).toContain('from 1 to 8');
+    expect(prompt).toContain('This request is not a completion report');
+    expect(prompt).toContain('Never run the allocator in this independent clone');
+  });
+
   it('is the ordinary prompt, unchanged, for a job that runs here', () => {
     const here = buildWorkerPrompt(ctx());
     expect(here).toContain('ROOT checkout');

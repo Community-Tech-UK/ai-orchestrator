@@ -46,6 +46,7 @@ import { COPILOT_ACCOUNT_CHANNELS } from './copilot-account.channels';
 import { PROVIDER_ACCOUNT_CHANNELS } from './provider-account.channels';
 import { CLAUDE_COST_RECONCILE_CHANNELS } from './claude-cost-reconcile.channels';
 import { RUNTIME_CHANGE_PREVIEW_CHANNELS } from './runtime-change-preview.channels';
+import { SESSION_WATCHER_CHANNELS } from './session-watcher.channels';
 
 export {
   INSTANCE_CHANNELS,
@@ -88,6 +89,7 @@ export {
   PROVIDER_ACCOUNT_CHANNELS,
   CLAUDE_COST_RECONCILE_CHANNELS,
   RUNTIME_CHANGE_PREVIEW_CHANNELS,
+  SESSION_WATCHER_CHANNELS,
 };
 
 /**
@@ -135,6 +137,7 @@ export const IPC_CHANNELS = {
   ...PROVIDER_ACCOUNT_CHANNELS,
   ...CLAUDE_COST_RECONCILE_CHANNELS,
   ...RUNTIME_CHANGE_PREVIEW_CHANNELS,
+  ...SESSION_WATCHER_CHANNELS,
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

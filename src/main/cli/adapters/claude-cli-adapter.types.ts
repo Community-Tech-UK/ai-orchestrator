@@ -132,6 +132,8 @@ export interface ClaudeCliSpawnOptions {
   contextCeilingTokens?: number;
   bashOutputMaxChars?: number;
   readOnlyReview?: boolean;
+  /** A plain text completion: no tools, MCP servers, settings files, hooks or prompt additions. */
+  plainCompletion?: boolean;
   sessionId?: string;
   workingDirectory?: string;
   model?: string;

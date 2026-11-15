@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as crypto from 'crypto';
 import type { WorkerNodeFileTransferRoot } from '../shared/types/worker-node.types';
 import { formatHostPort } from '../shared/remote-node/host-address';
+import type { CodexDeviceLoginPolicy } from '../main/remote-node/codex-device-login-rpc';
 
 /**
  * Opt-in browser automation for a worker node. When enabled, the worker owns a
@@ -90,6 +91,8 @@ export interface WorkerFileTransferConfig {
 }
 
 export interface WorkerConfig {
+  /** Explicit local policy; cannot be enabled by the remote config.update RPC. */
+  codexDeviceLogin?: CodexDeviceLoginPolicy;
   nodeId: string;
   name: string;
   coordinatorUrl?: string;

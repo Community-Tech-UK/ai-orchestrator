@@ -34,6 +34,8 @@ export interface CapabilityOrigin {
   state: 'waiting' | 'retrying' | 'passed' | 'withdrawn';
   gap: PlanQueueCapabilityGap;
   verification?: { checkpoint: string; evidence: string };
+  /** Durable handoff written before resuming the original item. */
+  retryIntent?: boolean;
   reportedBy: { instanceId: string; role: 'triage' | 'worker' | 'verifier'; round: number; at: number };
 }
 interface AttachInput {
@@ -80,7 +82,7 @@ export class PlanQueueCapabilityStore {
     return this.db.prepare(`SELECT repair_id AS repairId, item_id AS itemId, check_key AS checkKey,
       check_name AS "check", state, evidence_json FROM plan_queue_capability_origins WHERE repair_id = ? ORDER BY created_at, item_id, check_key`)
       .all<Omit<CapabilityOrigin, 'gap'> & { evidence_json: string }>(repairId)
-      .map(({ evidence_json, ...row }) => ({ ...row, ...JSON.parse(evidence_json) as Pick<CapabilityOrigin, 'gap' | 'verification' | 'reportedBy'> }));
+      .map(({ evidence_json, ...row }) => ({ ...row, ...JSON.parse(evidence_json) as Pick<CapabilityOrigin, 'gap' | 'verification' | 'reportedBy' | 'retryIntent'> }));
   }
 
   attach(input: AttachInput): CapabilityRepair {
@@ -129,6 +131,12 @@ export class PlanQueueCapabilityStore {
   setOriginState(origin: CapabilityOrigin, state: CapabilityOrigin['state']): void {
     this.db.prepare(`UPDATE plan_queue_capability_origins SET state = ?, updated_at = ?
       WHERE repair_id = ? AND item_id = ? AND check_key = ?`).run(state, this.now(), origin.repairId, origin.itemId, origin.checkKey);
+  }
+
+  recordRetryIntent(origin: CapabilityOrigin): void {
+    this.db.prepare('UPDATE plan_queue_capability_origins SET evidence_json = ?, updated_at = ? WHERE repair_id = ? AND item_id = ? AND check_key = ?')
+      .run(JSON.stringify({ gap: origin.gap, reportedBy: origin.reportedBy, verification: origin.verification, retryIntent: true }),
+        this.now(), origin.repairId, origin.itemId, origin.checkKey);
   }
 
   recordCheck(origin: CapabilityOrigin, verification: NonNullable<CapabilityOrigin['verification']>): void {

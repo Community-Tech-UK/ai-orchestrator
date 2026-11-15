@@ -18,7 +18,7 @@ export interface CapabilityHooks {
   excludedProviders(): string[];
   sourceSettled(itemId: string): boolean;
   controlRun(runId: string, action: 'pause' | 'resume' | 'cancel'): Promise<void>;
-  retryOrigin(itemId: string): Promise<void>;
+  retryOrigin(itemId: string): Promise<boolean>;
 }
 const technical = (gap: PlanQueueCapabilityGap): boolean => gap.classification === 'capability' || gap.classification === 'setup';
 const activeOrigin = (origin: CapabilityOrigin): boolean => origin.state !== 'withdrawn' && origin.state !== 'passed';
@@ -101,6 +101,11 @@ export class PlanQueueCapabilityService {
 
   assertCanPass(item: PlanQueueItem): void {
     if (this.waitingForRepair(item.id)) throw new Error('This item still has an unverified capability gap. Keep its acceptance check open.');
+    const pendingChecks = this.host.store.capabilities.forOrigin(item.id).flatMap(repair => this.host.store.capabilities.origins(repair.id))
+      .filter(origin => origin.itemId === item.id && origin.state === 'retrying');
+    if (pendingChecks.some(origin => !item.checkpointCommit || origin.verification?.checkpoint !== item.checkpointCommit)) {
+      throw new Error('Report independent evidence for every retried original check at this checkpoint before PASS.');
+    }
     const repair = this.host.store.capabilities.forRepairItem(item.id);
     if (repair && (!repair.probeReceipt || repair.probeCheckedCommit !== item.checkpointCommit)) throw new Error('Report a fresh independent runtime probe for this repair checkpoint before PASS.');
   }
@@ -237,10 +242,24 @@ export class PlanQueueCapabilityService {
     for (const itemId of new Set(runnable.filter(origin => origin.state === 'waiting').map(origin => origin.itemId))) {
       const linked = store.forOrigin(itemId).filter(other => technical(other.gap));
       if (linked.some(other => other.state !== 'verifying-origin' && other.state !== 'resolved')) continue;
-      await this.hooks.retryOrigin(itemId);
-      for (const other of linked) for (const origin of store.origins(other.id)) {
-        if (origin.itemId === itemId && origin.state === 'waiting') store.setOriginState(origin, 'retrying');
-      }
+      // All checks share one durable handoff. A restart may replay it before or after
+      // the item/run saves; the control path recognises an already resumed item.
+      const pending = linked.flatMap(other => store.origins(other.id))
+        .filter(origin => origin.itemId === itemId && origin.state === 'waiting');
+      store.atomic(() => { for (const origin of pending) store.recordRetryIntent(origin); });
+      if (!await this.hooks.retryOrigin(itemId)) continue;
+      const original = this.host.getItem(itemId);
+      if (['paused', 'cancelled'].includes(this.host.getRun(original.runId).status) || original.discardedAt || original.state === 'skipped') continue;
+      if (linked.some(other => {
+        const latest = store.get(other.id)!;
+        return !['verifying-origin', 'resolved'].includes(latest.state) || (latest.repairRunId
+          && ['paused', 'cancelled'].includes(this.host.getRun(latest.repairRunId).status));
+      })) continue;
+      store.atomic(() => {
+        for (const other of linked) for (const origin of store.origins(other.id)) {
+          if (origin.itemId === itemId && origin.state === 'waiting' && origin.retryIntent) store.setOriginState(origin, 'retrying');
+        }
+      });
     }
   }
 }

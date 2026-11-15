@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generatedBy": "scripts/generate-architecture-inventory.js",
   "ipc": {
-    "channelCount": 1236,
+    "channelCount": 1241,
     "channels": [
       {
         "name": "INSTANCE_CREATE",
@@ -5215,8 +5215,8 @@
         "line": 1313
       },
       {
-        "name": "SIDE_CHAT_ATTACH",
-        "value": "side-chat:attach",
+        "name": "SIDE_CHAT_DISCARD",
+        "value": "side-chat:discard",
         "line": 1314
       },
       {
@@ -6183,11 +6183,36 @@
         "name": "INSTANCE_RUNTIME_CHANGE_PREVIEW",
         "value": "instance:runtime-change-preview",
         "line": 1649
+      },
+      {
+        "name": "SESSION_WATCHER_LIST_FLAGS",
+        "value": "session-watcher:list-flags",
+        "line": 1652
+      },
+      {
+        "name": "SESSION_WATCHER_ANSWER_YES",
+        "value": "session-watcher:answer-yes",
+        "line": 1653
+      },
+      {
+        "name": "SESSION_WATCHER_SET_MUTED",
+        "value": "session-watcher:set-muted",
+        "line": 1654
+      },
+      {
+        "name": "SESSION_WATCHER_TYPING_HOLD",
+        "value": "session-watcher:typing-hold",
+        "line": 1655
+      },
+      {
+        "name": "SESSION_WATCHER_FLAGS_CHANGED",
+        "value": "session-watcher:flags-changed",
+        "line": 1657
       }
     ]
   },
   "preload": {
-    "domainCount": 46,
+    "domainCount": 47,
     "domains": [
       "automation.preload.ts",
       "auxiliary-llm.preload.ts",
@@ -6229,6 +6254,7 @@
       "rtk.preload.ts",
       "runtime-change-preview.preload.ts",
       "runtime-plugin.preload.ts",
+      "session-watcher.preload.ts",
       "session.preload.ts",
       "terminal.preload.ts",
       "voice.preload.ts",
@@ -6283,7 +6309,7 @@
     },
     {
       "path": "resources/browser-extension/background.js",
-      "lines": 7720
+      "lines": 7795
     },
     {
       "path": "docs/plans/livetest-remediation-register-archive-2026.md",
@@ -6291,7 +6317,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
-      "lines": 6488
+      "lines": 6494
     },
     {
       "path": "docs/superpowers/plans/2026-04-21-mcp-multi-provider-management_completed.md",
@@ -6427,7 +6453,7 @@
     },
     {
       "path": "src/main/instance/instance-manager.ts",
-      "lines": 2505
+      "lines": 2507
     },
     {
       "path": "src/main/app/orchestrator-tools-step.spec.ts",
@@ -6435,7 +6461,7 @@
     },
     {
       "path": "src/main/mobile-gateway/mobile-gateway-server.spec.ts",
-      "lines": 2436
+      "lines": 2450
     },
     {
       "path": "scripts/__tests__/codex-helper-trial-report.spec.ts",
@@ -6463,7 +6489,7 @@
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.send-input.spec.ts",
-      "lines": 2285
+      "lines": 2299
     },
     {
       "path": "src/main/cli/adapters/claude-cli-adapter.ts",
@@ -6519,7 +6545,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 1995
+      "lines": 2001
     },
     {
       "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
@@ -6554,12 +6580,12 @@
       "lines": 1857
     },
     {
-      "path": "docs/superpowers/plans/2026-04-01-claude-code-hardening_completed.md",
-      "lines": 1851
+      "path": "docs/plans/2026-09-03-enhancements-backlog_plan_completed.md",
+      "lines": 1855
     },
     {
-      "path": "docs/plans/2026-09-03-enhancements-backlog_plan_completed.md",
-      "lines": 1847
+      "path": "docs/superpowers/plans/2026-04-01-claude-code-hardening_completed.md",
+      "lines": 1851
     },
     {
       "path": "src/main/desktop-gateway/desktop-gateway-service.spec.ts",
@@ -6658,12 +6684,12 @@
       "lines": 1513
     },
     {
-      "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
-      "lines": 1478
+      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
+      "lines": 1486
     },
     {
-      "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
-      "lines": 1475
+      "path": "docs/superpowers/plans/2026-04-01-claude-code-audit-phase2.COMPLETED.md",
+      "lines": 1478
     },
     {
       "path": "src/main/browser-gateway/browser-extension-origin-bound-secret.spec.ts",
@@ -6922,12 +6948,16 @@
       "lines": 1227
     },
     {
-      "path": "src/main/orchestration/debate-coordinator.ts",
-      "lines": 1220
+      "path": "src/main/remote-node/__tests__/rpc-event-router.spec.ts",
+      "lines": 1223
     },
     {
       "path": "src/renderer/app/features/instance-detail/output-stream.component.ts",
-      "lines": 1216
+      "lines": 1221
+    },
+    {
+      "path": "src/main/orchestration/debate-coordinator.ts",
+      "lines": 1220
     },
     {
       "path": "src/main/orchestration/loop-store.spec.ts",
@@ -6992,10 +7022,6 @@
     {
       "path": "src/renderer/app/features/loop/loop-control.component.spec.ts",
       "lines": 1180
-    },
-    {
-      "path": "src/main/remote-node/__tests__/rpc-event-router.spec.ts",
-      "lines": 1179
     },
     {
       "path": "docs/superpowers/plans/2026-04-02-streaming-tool-executor.COMPLETED.md",
@@ -7090,6 +7116,10 @@
       "lines": 1112
     },
     {
+      "path": "src/worker-agent/worker-agent.ts",
+      "lines": 1111
+    },
+    {
       "path": "src/main/browser-gateway/browser-health-service.spec.ts",
       "lines": 1106
     },
@@ -7100,10 +7130,6 @@
     {
       "path": "docs/superpowers/plans/2026-04-02-context-token-management.COMPLETED.md",
       "lines": 1104
-    },
-    {
-      "path": "src/worker-agent/worker-agent.ts",
-      "lines": 1103
     },
     {
       "path": "docs/plans/livetest-backlog.md",
@@ -7346,12 +7372,16 @@
       "lines": 935
     },
     {
-      "path": "src/renderer/app/core/services/new-session-draft.service.ts",
-      "lines": 931
+      "path": "src/shared/types/instance.types.ts",
+      "lines": 935
     },
     {
       "path": "docs/AIO_MCP_CLI.md",
-      "lines": 930
+      "lines": 931
+    },
+    {
+      "path": "src/renderer/app/core/services/new-session-draft.service.ts",
+      "lines": 931
     },
     {
       "path": "src/main/orchestration/loop-provider-limit-handler.spec.ts",
@@ -7362,8 +7392,8 @@
       "lines": 928
     },
     {
-      "path": "src/shared/types/instance.types.ts",
-      "lines": 926
+      "path": "src/main/plan-queue/plan-queue-item-flow.ts",
+      "lines": 922
     },
     {
       "path": "src/preload/domains/orchestration.preload.ts",
@@ -7382,6 +7412,10 @@
       "lines": 915
     },
     {
+      "path": "src/main/core/config/settings-control-policy.ts",
+      "lines": 913
+    },
+    {
       "path": "src/main/ipc/learning-ipc-handler.spec.ts",
       "lines": 911
     },
@@ -7390,19 +7424,11 @@
       "lines": 910
     },
     {
-      "path": "src/main/core/config/settings-control-policy.ts",
-      "lines": 909
-    },
-    {
       "path": "src/renderer/app/features/verification/dashboard/verification-dashboard.component.spec.ts",
       "lines": 908
     },
     {
       "path": "src/main/orchestration/loop-coordinator-terminal-intents.spec.ts",
-      "lines": 906
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-item-flow.ts",
       "lines": 906
     },
     {
@@ -7442,11 +7468,19 @@
       "lines": 896
     },
     {
+      "path": "src/renderer/app/features/instance-detail/output-stream.component.scss",
+      "lines": 895
+    },
+    {
       "path": "src/main/plan-queue/plan-queue-pause-control.spec.ts",
-      "lines": 893
+      "lines": 894
     },
     {
       "path": "src/main/instance/lifecycle/runtime-reconciler.ts",
+      "lines": 890
+    },
+    {
+      "path": "src/shared/types/settings.types.ts",
       "lines": 890
     },
     {
@@ -7460,10 +7494,6 @@
     {
       "path": "docs/superpowers/specs/2026-05-04-global-operator-control-plane-design_superseded.md",
       "lines": 888
-    },
-    {
-      "path": "src/shared/types/settings.types.ts",
-      "lines": 887
     },
     {
       "path": "scripts/run-tests-quiet.js",
@@ -7486,15 +7516,11 @@
       "lines": 881
     },
     {
-      "path": "src/renderer/app/features/instance-detail/output-stream.component.scss",
-      "lines": 880
+      "path": "src/renderer/app/core/state/instance/instance.store.ts",
+      "lines": 881
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.normalized-event.spec.ts",
-      "lines": 879
-    },
-    {
-      "path": "src/renderer/app/core/state/instance/instance.store.ts",
       "lines": 879
     },
     {
@@ -7558,15 +7584,15 @@
       "lines": 860
     },
     {
+      "path": "src/renderer/app/core/state/instance/instance-messaging.store.ts",
+      "lines": 860
+    },
+    {
       "path": "docs/superpowers/plans/2026-05-10-main-process-multicore-offload_completed.md",
       "lines": 858
     },
     {
       "path": "docs/superpowers/specs/2026-04-17-wave2-provider-normalization-design_completed.md",
-      "lines": 857
-    },
-    {
-      "path": "src/renderer/app/core/state/instance/instance-messaging.store.ts",
       "lines": 857
     },
     {
@@ -7603,7 +7629,7 @@
     },
     {
       "path": "packages/contracts/src/schemas/browser.schemas.ts",
-      "lines": 849
+      "lines": 848
     },
     {
       "path": "src/main/automations/automation-store.spec.ts",
@@ -7676,6 +7702,10 @@
     {
       "path": "docs/plans/2026-02-22-token-memory-optimization-design_completed.md",
       "lines": 819
+    },
+    {
+      "path": "src/main/browser-gateway/remote-extension-bridge.spec.ts",
+      "lines": 817
     },
     {
       "path": "src/main/memory/critique-agent.ts",

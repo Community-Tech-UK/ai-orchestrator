@@ -274,7 +274,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       excludedProviders: () => capabilityProviderExclusions(this.requireDeps().routing),
       sourceSettled: (itemId: string) => !this.triage?.hasActiveWork(this.getItem(itemId).runId) && !this.requireFlow().hasActiveWork(itemId),
       controlRun: (runId: string, action: 'pause' | 'resume' | 'cancel') => this.control({ action, runId }, undefined, 'capability'),
-      retryOrigin: (itemId: string) => retryCapabilityOrigin(this, itemId, id => this.requireFlow().resume(id), run => this.reopen(run)),
+      retryOrigin: (itemId: string) => retryCapabilityOrigin(this, itemId, (id, canResume) => this.requireFlow().resume(id, canResume), run => this.reopen(run)),
     }, () => this.requireDeps().now());
     if (interval !== null) {
       this.timer = setInterval(() => this.requestPump(), interval);

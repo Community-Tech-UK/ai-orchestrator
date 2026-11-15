@@ -158,9 +158,14 @@ class ComposerToolbarStubComponent {
     @for (message of messages; track $index; let i = $index) {
       <button class="queued-edit-btn" (click)="editMessage.emit(i)">Edit</button>
     }
+    @if (heldForRestart) {
+      <button class="held-send" (click)="sendHeldNow.emit()">Send now</button>
+    }
   `,
 })
 class ComposerQueueStubComponent {
+  @Input() heldForRestart = false;
+  @Output() sendHeldNow = new EventEmitter<void>();
   @Input() messages: { message: string }[] = [];
   @Input() holdReasonLabel: string | null = null;
   @Input() canSteer = false;
@@ -191,9 +196,13 @@ class ImageLightboxStubComponent {
 describe('InputPanelComponent queued message editing', () => {
   let fixture: ComponentFixture<InputPanelComponent>;
   let keybindingHandlers: Map<string, (event: unknown) => void>;
+  const restartHeld = signal(false);
+  const sendNow = vi.fn(async () => undefined);
 
   beforeEach(async () => {
     keybindingHandlers = new Map();
+    restartHeld.set(false);
+    sendNow.mockClear();
     TestBed.resetTestingModule();
     TestBed.overrideComponent(InputPanelComponent, {
       set: {
@@ -228,7 +237,8 @@ describe('InputPanelComponent queued message editing', () => {
         { provide: SettingsStore, useValue: { defaultYoloMode: signal(false), settings: signal(DEFAULT_SETTINGS) } },
         { provide: ActionDispatchService, useValue: { dispatch: vi.fn() } },
         { provide: InstanceStore,
-          useValue: { getInstance: vi.fn(() => undefined), isQueueParked: () => false },
+          useValue: { getInstance: vi.fn(() => undefined), isQueueParked: () => false,
+            queueRestartHold: { isHeld: () => restartHeld(), sendNow } },
          },
         { provide: InstanceMessagingStore, useValue: { getQueuedMessageCount: vi.fn(() => 0) } },
         {
@@ -281,6 +291,14 @@ describe('InputPanelComponent queued message editing', () => {
     (editButtons[1] as HTMLButtonElement).click();
 
     expect(emitted).toEqual([1]);
+  });
+
+  it('shows the restart hold on the queue card and sends Send now for this session', () => {
+    expect(fixture.nativeElement.querySelector('.held-send')).toBeNull();
+    restartHeld.set(true);
+    fixture.detectChanges();
+    (fixture.nativeElement.querySelector('.held-send') as HTMLButtonElement).click();
+    expect(sendNow).toHaveBeenCalledExactlyOnceWith('inst-1');
   });
 
   it('applies composer editing through registered keybinding actions', () => {

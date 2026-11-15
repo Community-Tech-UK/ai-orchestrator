@@ -27,6 +27,8 @@ export interface ContextMenuItem {
   disabled?: boolean;
   /** Why a lasting blocked action cannot run. */
   disabledReason?: string;
+  /** A switch item: true shows a tick, false an empty slot; the state is also read out as `aria-checked`. */
+  checked?: boolean;
   /** A folded group: choosing the entry opens or closes its actions instead of running it. */
   children?: ContextMenuItem[];
   danger?: boolean;
@@ -68,9 +70,13 @@ export interface ContextMenuItem {
             [appTooltipDisabledReason]="item.disabledReason ?? null"
             [attr.aria-haspopup]="item.children ? 'true' : null"
             [attr.aria-expanded]="item.children ? row.key === expandedKey() : null"
-            role="menuitem"
+            [attr.role]="item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'"
+            [attr.aria-checked]="item.checked ?? null"
             (click)="onItemClick(item, row.key)"
           >
+            @if (item.checked !== undefined) {
+              <span class="context-menu-icon" aria-hidden="true">{{ item.checked ? '✓' : '' }}</span>
+            }
             @if (item.icon) {
               <span class="context-menu-icon" aria-hidden="true">{{ item.icon }}</span>
             }
@@ -246,7 +252,7 @@ export class ContextMenuComponent {
   }
 
   private menuButtons(): HTMLButtonElement[] {
-    return Array.from(this.overlay?.overlayRef.overlayElement.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)') ?? []);
+    return Array.from(this.overlay?.overlayRef.overlayElement.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled), button[role="menuitemcheckbox"]:not(:disabled)') ?? []);
   }
 
   private readonly onMenuKeyDown = (event: KeyboardEvent): void => {

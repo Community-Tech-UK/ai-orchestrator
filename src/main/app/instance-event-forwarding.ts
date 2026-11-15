@@ -55,6 +55,7 @@ import {
   ProviderCompactionLifecycleRecorder,
 } from './provider-compaction-lifecycle';
 import { ProviderCompactionUsageTracker } from './provider-compaction-usage';
+import { routeFinishedNotice } from '../session-watcher/watcher-notices';
 
 const logger = getLogger('InstanceEventForwarding');
 
@@ -653,7 +654,10 @@ export function setupInstanceEventForwarding(options: InstanceEventForwardingOpt
             getContextEngine().afterTurn({ instance, status: update.status as InstanceStatus });
           }
           const displayName = instance?.displayName ?? update.instanceId;
-          windowManager.notifyAgentCompleted(update.instanceId, displayName);
+          routeFinishedNotice(update.instanceId, {
+            finished: () => windowManager.notifyAgentCompleted(update.instanceId, displayName),
+            needsYou: (flag) => windowManager.notifySessionNeedsYou(update.instanceId, displayName, flag.note ?? flag.question, flag.requestCount),
+          });
         }
         previousStatus.set(update.instanceId, update.status);
       }

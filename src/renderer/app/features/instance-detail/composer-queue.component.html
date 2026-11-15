@@ -15,7 +15,8 @@
       <button type="button" (click)="cancelMessage.emit(0)">Stop waiting and keep my message</button>
     </div>
   }
-  @if (parked()) {
+  <!-- While the restart pause also holds the queue, Resume here cannot send; Send now below clears both. -->
+  @if (parked() && !heldForRestart()) {
     <!-- B7: Stop holds the queue. Said plainly, because a queue that silently
          stops sending looks identical to one that is broken. -->
     <div class="queue-parked" role="status">
@@ -23,6 +24,15 @@
         Sending paused — queued messages will not send until you resume.
       </span>
       <button type="button" class="queue-parked__resume" (click)="resumeQueue.emit()">Resume</button>
+    </div>
+  }
+  @if (heldForRestart()) {
+    <!-- The session went quiet after its restart note, so an unexplained queue looked stuck. -->
+    <div class="queue-parked queue-held-restart" role="status">
+      <span class="queue-parked__text">
+        Held for the restart. Queued messages send after you press Resume. Send now takes this session out of the pause, so Resume will skip it.
+      </span>
+      <button type="button" class="queue-parked__resume queue-held-restart__send" (click)="sendHeldNow.emit()">Send now</button>
     </div>
   }
   <div class="queued-messages">

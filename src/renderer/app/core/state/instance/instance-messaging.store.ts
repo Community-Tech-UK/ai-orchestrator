@@ -42,6 +42,7 @@ import { QueuePersistenceService } from './queue-persistence.service';
 import { createQueuePark } from './instance-queue-park';
 import { QueueRetryTimers } from './instance-queue-retry-timers';
 import { createReadyInputHandoff } from './instance-ready-input-handoff';
+import { createQueueRestartHold } from './instance-queue-restart-hold';
 import { presentSendFailure, sendRefusedText } from '../../../../../shared/copy/user-message';
 
 // Retry explicit refusals only; provider compaction has a separate longer budget in
@@ -63,6 +64,8 @@ export class InstanceMessagingStore {
   private readonly queuePark = createQueuePark();
   readonly processReadyHandoff = createReadyInputHandoff(
     this.stateService, this.pauseStore, this.globalPause, this.queuePark, this.queuePersistence, this);
+  readonly restartHold = createQueueRestartHold(this.stateService, this.globalPause, this.queuePark, this.ipc, this,
+    (instanceId, content, detail) => this.addErrorToOutput(instanceId, content, detail));
   private queueWatchdog: ReturnType<typeof setInterval> | null = null;
   private interruptRequests = new Map<string, number>();
   private terminalRestartRequests = new Set<string>();

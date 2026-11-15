@@ -303,7 +303,7 @@ describe('plan queue prompts', () => {
     expect(prompt).toContain('start --port 9876 --data ');
   });
 
-  it('tells the livetest worker to start its dev app on the test Mac, from the main checkout\'s script', () => {
+  it('tells the livetest worker to start its dev app with the main checkout\'s script, which picks the computer', () => {
     const prompt = buildWorkerPrompt({ item: { ...item, livetestPort: 9876 }, kind: 'livetests', repoRoot: '/repo', worktreePath: '/w' });
     const { userDataPath } = livetestEnvironmentFor({ ...item, livetestPort: 9876 });
     expect(prompt).toContain(`node /repo/scripts/remote-checks/dev-app.js start --port 9876 --data ${userDataPath}`);
@@ -420,4 +420,17 @@ describe('plan status and brief in queue prompts', () => {
     expect(prompt.match(/<\/document_header>/g)).toHaveLength(1);
     expect(prompt).not.toContain('Read each one at its absolute path');
   });
+});
+
+
+it('sends defect producers to the root allocator and excludes independent remote ledgers', () => {
+  const local = buildWorkerPrompt({ item, kind: 'livetests', repoRoot: '/repo', worktreePath: '/w' });
+  expect(local).toContain('node /repo/scripts/next-lt-id.mjs --reserve');
+  expect(local).toContain('common root register');
+  expect(local).not.toContain('command does not reserve');
+  const remote = buildWorkerPrompt({ item, kind: 'livetests', repoRoot: '/repo', worktreePath: '/w',
+    remote: { computerLabel: 'test worker', repoRoot: '/repo', planningFolder: '/planning', jobFolder: '/job', reportFile: '/job/report.json' } });
+  expect(remote).toContain('have the coordinator run');
+  expect(remote).toContain('Never allocate from this independent remote clone');
+  expect(remote).toContain('Retain unnumbered evidence');
 });

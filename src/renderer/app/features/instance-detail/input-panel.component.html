@@ -600,10 +600,12 @@
       [waitReason]="waitReason()"
       [canSteer]="canSteerActiveTurn()"
       [parked]="queueParked()"
+      [heldForRestart]="queueHeldForRestart()"
       (editMessage)="onEditQueuedMessage($event)"
       (steerMessage)="onSteerQueuedMessage($event)"
       (cancelMessage)="onCancelQueuedMessage($event)"
       (resumeQueue)="onResumeQueue()"
+      (sendHeldNow)="onSendHeldQueue()"
     />
   }
 </div>

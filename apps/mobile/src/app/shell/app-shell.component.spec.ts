@@ -74,6 +74,8 @@ describe('AppShellComponent', () => {
       instances: [
         { id: 'one', displayName: 'One', status: 'idle', provider: 'codex', workingDirectory: '/work/demo', projectName: 'demo', createdAt: 1, lastActivity: 1, pendingApprovalCount: 0, hasUnreadCompletion: false },
         { id: 'two', displayName: 'Two', status: 'idle', provider: 'codex', workingDirectory: '/work/demo', projectName: 'demo', createdAt: 1, lastActivity: 1, pendingApprovalCount: 0, hasUnreadCompletion: false },
+        { id: 'queue', displayName: 'Queue', status: 'busy', provider: 'codex', workingDirectory: '/work/demo/.worktrees/queue/item-1', projectName: 'item-1', createdAt: 1, lastActivity: 1, pendingApprovalCount: 0, hasUnreadCompletion: false },
+        { id: 'elsewhere', displayName: 'Elsewhere', status: 'idle', provider: 'codex', workingDirectory: '/work/other', projectName: 'other', createdAt: 1, lastActivity: 1, pendingApprovalCount: 0, hasUnreadCompletion: false },
       ],
     });
     TestBed.configureTestingModule({
@@ -115,5 +117,14 @@ describe('AppShellComponent', () => {
     navigate.mockClear();
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
     expect(navigate).toHaveBeenCalledWith(['/projects', '/work/demo', 'sessions', 'two']);
+  });
+
+  it('moves on from a repository session into its worktree sessions', async () => {
+    const { fixture, navigate, router } = await setup(1024);
+    await router.navigateByUrl('/projects/%2Fwork%2Fdemo/sessions/two');
+    fixture.detectChanges();
+    navigate.mockClear();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+    expect(navigate).toHaveBeenCalledWith(['/projects', '/work/demo', 'sessions', 'queue']);
   });
 });

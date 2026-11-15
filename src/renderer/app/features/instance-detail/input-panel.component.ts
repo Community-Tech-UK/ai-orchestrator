@@ -578,6 +578,12 @@ export class InputPanelComponent implements OnDestroy {
     this.instanceStoreRef.resumeParkedQueue(this.instanceId());
   }
 
+  readonly queueHeldForRestart = computed(() => this.instanceStoreRef.queueRestartHold.isHeld(this.instanceId()));
+
+  onSendHeldQueue(): void {
+    void this.instanceStoreRef.queueRestartHold.sendNow(this.instanceId());
+  }
+
   readonly canSteerActiveTurn = computed(() => {
     const status = this.instanceStatus();
     return status === 'busy'

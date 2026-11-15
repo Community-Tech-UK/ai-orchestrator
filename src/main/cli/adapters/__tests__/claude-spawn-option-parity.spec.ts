@@ -6,7 +6,7 @@ import { InstanceSpawnParamsSchema } from '../../../remote-node/rpc-schemas';
 // A new local option must deliberately travel or carry a reason here. The
 // exhaustive type check prevents adding an unclassified Claude option.
 const transport = {
-  sessionKind: 'policy', machineSession: 'policy', contextCeilingTokens: 'policy', readOnlyReview: 'policy',
+  sessionKind: 'policy', machineSession: 'policy', contextCeilingTokens: 'policy', readOnlyReview: 'policy', plainCompletion: 'policy',
   bashOutputMaxChars: 'policy', maxTurns: 'policy', maxBudgetUsd: 'policy', timeout: 'policy',
   systemPromptMode: 'policy', fastMode: 'policy', fallbackModel: 'policy', jsonSchema: 'policy',
   residentClaude: 'policy', bare: 'policy', name: 'policy', chrome: 'policy', excludeDynamicSystemPromptSections: 'policy',

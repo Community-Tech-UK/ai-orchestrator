@@ -181,10 +181,18 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
     logger.info('Claude CLI version unknown; skipping prompt-cache optimization');
   }
 
-  const permissionHookEnabled = !spawnOptions.readOnlyReview && !spawnOptions.yoloMode && input.shouldUsePermissionHook;
+  const plain = spawnOptions.plainCompletion === true;
+  const permissionHookEnabled = !plain && !spawnOptions.readOnlyReview && !spawnOptions.yoloMode && input.shouldUsePermissionHook;
 
   // YOLO mode - auto-approve all permissions
-  if (spawnOptions.readOnlyReview) {
+  if (plain) {
+    // A text completion and nothing else: it reads untrusted text, so it gets no tools, no MCP servers and
+    // none of the user's settings, hooks or commands. The tool, MCP, settings, browser, backup-model and
+    // debug-log options are ignored.
+    // Nor does it leave a saved session behind: the text it was shown belongs to another session.
+    args.push('--permission-mode', 'dontAsk', '--tools', '', '--strict-mcp-config', '--setting-sources', '', '--disable-slash-commands',
+      '--no-session-persistence');
+  } else if (spawnOptions.readOnlyReview) {
     args.push('--permission-mode', 'dontAsk', '--tools', CLAUDE_READ_ONLY_REVIEW_TOOLS.join(','));
   } else if (spawnOptions.yoloMode) {
     logger.warn('YOLO mode enabled for Claude CLI instance', {
@@ -216,7 +224,7 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
     args.push('--allowedTools', allowed.join(','));
   }
 
-  const settingsOverlay = buildClaudeSettingsOverlay(spawnOptions, permissionHookEnabled, cliVersion);
+  const settingsOverlay = plain ? undefined : buildClaudeSettingsOverlay(spawnOptions, permissionHookEnabled, cliVersion);
   if (settingsOverlay) {
     args.push('--settings', materializeInlineJsonArg(settingsOverlay));
   }
@@ -256,8 +264,9 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
   }
 
   // WS14: automatic overload fallback. Never pass a fallback equal to the
-  // primary — the CLI rejects that pairing.
-  if (spawnOptions.fallbackModel && spawnOptions.fallbackModel !== spawnOptions.model) {
+  // primary — the CLI rejects that pairing. A plain completion names one model and
+  // runs on that or fails: its caller has measured that model and no other.
+  if (!plain && spawnOptions.fallbackModel && spawnOptions.fallbackModel !== spawnOptions.model) {
     args.push('--fallback-model', spawnOptions.fallbackModel);
   }
 
@@ -288,7 +297,7 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
 
   // Only add user-specified allowedTools if in YOLO mode (already handled above for non-YOLO)
   if (
-    !spawnOptions.readOnlyReview && spawnOptions.yoloMode &&
+    !plain && !spawnOptions.readOnlyReview && spawnOptions.yoloMode &&
     spawnOptions.allowedTools &&
     spawnOptions.allowedTools.length > 0
   ) {
@@ -331,14 +340,14 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
   }
 
   const waitingRuleEnabled = input.subagentWaitingRuleOptIn ?? CLAUDE_SUBAGENT_WAITING_RULE_ROLLOUT;
-  if (waitingRuleEnabled && isVersionAtLeast(cliVersion, '2.1.261')) {
+  if (!plain && waitingRuleEnabled && isVersionAtLeast(cliVersion, '2.1.261')) {
     const ruleFile = materializeSubagentWaitingRuleFile();
     if (ruleFile) args.push(...resolveClaudeSubagentPromptArgs(cliVersion, ruleFile, waitingRuleEnabled));
   }
 
   // MCP server configurations may contain decrypted workspace secrets. Keep
   // all inline JSON out of process argv on every platform.
-  if (spawnOptions.mcpConfig && spawnOptions.mcpConfig.length > 0) {
+  if (!plain && spawnOptions.mcpConfig && spawnOptions.mcpConfig.length > 0) {
     args.push(
       '--mcp-config',
       ...spawnOptions.mcpConfig.map((entry) => materializeInlineJsonArg(entry, true)),
@@ -350,19 +359,21 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
     args.push('--betas', ...spawnOptions.betas);
   }
 
-  if (spawnOptions.chrome === true) {
+  if (!plain && spawnOptions.chrome === true) {
     args.push('--chrome');
   }
 
   // Claude Code's own debug log, written to <config dir>/debug/<session-id>.txt.
   // Plain `--debug` keeps stdout clean (verified against 2.1.288 in stream-json
   // mode); never `--debug-to-stderr`, which would mix into the stderr we parse.
-  if (spawnOptions.debugLogging === true) {
+  // Not on a plain completion: the text it is shown belongs to another session and is not written to disk.
+  if (!plain && spawnOptions.debugLogging === true) {
     args.push('--debug');
   }
 
   logger.debug('buildArgs complete', {
     readOnlyReview: spawnOptions.readOnlyReview ?? false,
+    plainCompletion: plain,
     yoloMode: spawnOptions.yoloMode,
     argCount: args.length,
     resume: spawnOptions.resume ?? false,

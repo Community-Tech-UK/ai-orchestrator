@@ -123,11 +123,11 @@ export function browserApprovalFailureText(reason: string): string {
 }
 
 export function bannerCanQuickApprove(approval: BrowserApprovalRequest): boolean {
-  return Boolean(approval.credentialAccess) || bannerGrantModes(approval).length > 0;
+  return !approval.deviceLogin && (Boolean(approval.credentialAccess) || bannerGrantModes(approval).length > 0);
 }
 
 export function bannerGrantModes(approval: BrowserApprovalRequest): BannerGrantMode[] {
-  if (approval.credentialAccess) return [];
+  if (approval.credentialAccess || approval.deviceLogin) return [];
   if (NEVER_QUICK_APPROVE_CLASSES.has(approval.actionClass)) {
     return [];
   }

@@ -13,6 +13,7 @@ import { PendingRequestStore } from '../../core/state/pending-request.store';
 import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
 import { SideChatStore } from '../../core/state/side-chat.store';
 import { ToolLoopAlertStore } from '../../core/state/tool-loop-alert.store';
+import { SessionWatcherStore } from '../../core/state/session-watcher.store';
 import { LoopIpcService } from '../../core/services/ipc/loop-ipc.service';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { DocReviewStore } from '../doc-review/doc-review.store';
@@ -46,6 +47,7 @@ export class NeedsYouStore {
   private readonly guard = inject(LocalAiGuardStore);
   private readonly sidechats = inject(SideChatStore);
   private readonly tools = inject(ToolLoopAlertStore);
+  private readonly sessionWatcher = inject(SessionWatcherStore);
   private readonly pending = inject(PendingRequestStore);
   private readonly loopIpc = inject(LoopIpcService);
   private readonly ipc = inject(ElectronIpcService);
@@ -121,6 +123,10 @@ export class NeedsYouStore {
       fallbacks: this.activeFallbacks(), plans: this.plans.needsAnswerItems(), documents: this.activeDocuments(),
       memories: this.memories.proposals(), sidechats: this.sidechats.attentionList(),
       outstanding: this.outstandingSignal().map((item) => ({ ...item, userResponse: item.userResponse ?? null })), toolLoops,
+      sessionQuestions: this.sessionWatcher.flags().map((flag) => ({
+        instanceId: flag.instanceId, sessionName: this.instances.getInstance(flag.instanceId)?.displayName, question: flag.question,
+        note: flag.note, requestCount: flag.requestCount, since: flag.since,
+      })),
     }, untracked(this.now));
     return sortNeedsYou([...work, ...requests]);
   });

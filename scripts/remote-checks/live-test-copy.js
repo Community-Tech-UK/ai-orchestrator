@@ -68,6 +68,23 @@ function packagedBuildArgs(output, identity) {
     '--config.forceCodeSigning=true', `--config.mac.identity=${identity}`, `--config.directories.output=${output}`];
 }
 
+/** npm list drops nested versions/paths through a linked node_modules root. Clone only into this owned copy. */
+function materializePackageDependencies(root) {
+  const target = path.join(root, 'repo', 'node_modules');
+  if (!fs.lstatSync(target).isSymbolicLink()) return;
+  const staged = path.join(root, 'repo', 'node_modules-packaging');
+  try {
+    fs.cpSync(fs.realpathSync(target), staged, {
+      recursive: true, force: false, errorOnExist: true, verbatimSymlinks: true, mode: fs.constants.COPYFILE_FICLONE,
+    });
+    fs.unlinkSync(target);
+    fs.renameSync(staged, target);
+  } catch (error) {
+    fs.rmSync(staged, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 function buildPackage(root) {
   if (process.platform !== 'darwin') throw new Error('Packaged live tests require the test Mac');
   const { readInstalledCodeSigningIdentities, selectCodeSigningIdentity } = require('../sign-local-macos');
@@ -75,6 +92,7 @@ function buildPackage(root) {
   const { findAppBundle } = require('../localbuild-after-pack');
   // Inspect metadata only. Never export signing keys, bypass signing, install, publish or restart the everyday app.
   const identity = selectCodeSigningIdentity(readInstalledCodeSigningIdentities());
+  materializePackageDependencies(root);
   const output = path.join(root, 'repo', 'release-livetest');
   const run = (args) => {
     const result = spawnSync('npm', args, { cwd: path.join(root, 'repo'), stdio: 'inherit' });
@@ -102,4 +120,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { prepareOwner, readRuntime, packagedBuildArgs };
+module.exports = { prepareOwner, readRuntime, packagedBuildArgs, materializePackageDependencies };

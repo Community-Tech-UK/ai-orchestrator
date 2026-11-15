@@ -97,7 +97,7 @@ describe('autoApproveBrowserApproval', () => {
     expect(approvalStore.resolveRequest).not.toHaveBeenCalled();
   });
 
-  it.each(['browser.request_user_login', 'browser.pause_for_manual_step', 'browser.request_credential_access'])(
+  it.each(['browser.fill_device_login', 'browser.request_user_login', 'browser.pause_for_manual_step', 'browser.request_credential_access'])(
     'keeps %s pending even when its proposal is read-only and YOLO is enabled', (toolName) => {
     const { approvalStore, grantStore } = makeStores();
     const predicate = vi.fn(() => true);

@@ -1,6 +1,6 @@
 /**
- * The collapsed quota strip: the provider's name and one figure per account
- * ("Claude 45%·11%·4%"), so every account can be checked at a glance before
+ * The collapsed quota strip: the provider's two-letter code and one figure per
+ * account ("CL 45%·11%·4%"), so every account can be checked at a glance before
  * choosing where to send work. The strip scrolls when it is narrow; the
  * popover names each account, in the same order as the figures here.
  *
@@ -11,7 +11,6 @@ import type {
   ProviderId,
   ProviderQuotaWindow,
 } from '../../../../../shared/types/provider-quota.types';
-import { accountFamilyName } from '../../../../../shared/display-names';
 import { quotaSummaryWindow, type QuotaAccountSection } from '../../../../../shared/utils/provider-quota-account-sections';
 
 export type QuotaChipBand = 'green' | 'yellow' | 'orange' | 'red';
@@ -34,7 +33,7 @@ export interface QuotaStripPart {
 
 export interface QuotaStripEntry {
   provider: ProviderId;
-  /** The provider's name ("Claude"; the OpenCode quota is the MiMo plan's, so "MiMo"). */
+  /** The provider's two-letter code ("CL"); the popover and tooltip give the full name. */
   name: string;
   /** One part per account, in the popover's account order. */
   parts: QuotaStripPart[];
@@ -53,6 +52,21 @@ function stripEntryColor(percent: number): string {
   return STRIP_NEUTRAL_FG;
 }
 
+/**
+ * Two-letter codes that keep the strip short (James, 15 Nov 2026). OpenCode
+ * is "OC" even though its quota is the MiMo plan's; the popover says MiMo.
+ */
+const PROVIDER_CODES: Record<ProviderId, string> = {
+  claude: 'CL',
+  codex: 'CX',
+  copilot: 'CP',
+  cursor: 'CU',
+  opencode: 'OC',
+  gemini: 'GE',
+  antigravity: 'AG',
+  grok: 'GR',
+};
+
 /** Holds the place of an account that has no figure, so figures line up with the popover's accounts. */
 const NO_FIGURE = '–';
 
@@ -68,7 +82,7 @@ export function quotaStripEntry(
   provider: ProviderId,
   sections: readonly QuotaAccountSection[],
 ): QuotaStripEntry | null {
-  const name = accountFamilyName(provider);
+  const name = PROVIDER_CODES[provider];
   const parts: (QuotaStripPart & { severity: number })[] = [];
   let hasFigure = false;
   for (const { snapshot } of sections) {

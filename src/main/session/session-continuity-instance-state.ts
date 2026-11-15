@@ -27,6 +27,7 @@ export function instanceToContinuityState(instance: Instance, config: Pick<Conti
     nativeResumeFailedAt: null,
     displayName: instance.displayName,
     isRenamed: instance.isRenamed,
+    ...(instance.watcherMuted ? { watcherMuted: true } : {}),
     agentId: instance.agentId,
     modelId: instance.currentModel || CLAUDE_MODELS.OPUS_1M,
     provider: instance.provider,

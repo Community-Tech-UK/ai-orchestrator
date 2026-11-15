@@ -18,6 +18,7 @@ export type InternalInputSource =
   | 'announce-then-halt-continuation'
   | 'continue-question-reply'
   | 'waiting-check-in'
+  | 'session-watcher'
   | 'crash-turn-continuation'
   | 'reasoning-collapse-continuation'
   | 'content-filter-continuation'

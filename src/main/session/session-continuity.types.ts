@@ -91,6 +91,8 @@ export interface SessionState {
   nativeResumeFailedAt?: number | null;
   displayName: string;
   isRenamed?: boolean;
+  /** The user turned "Keep this session going without me" off for this session; see `Instance.watcherMuted`. */
+  watcherMuted?: boolean;
   agentId: string;
   modelId: string;
   provider?: InstanceProvider;

@@ -27,6 +27,7 @@ import type { UserPromptRef } from '../../../../shared/types/prompt-index.types'
 import { MarkdownService } from '../../core/services/markdown.service';
 import { InstanceIpcService } from '../../core/services/ipc';
 import { InstanceOutputStore } from '../../core/state/instance/instance-output.store';
+import { SessionWatcherStore } from '../../core/state/session-watcher.store';
 import { PerfInstrumentationService } from '../../core/services/perf-instrumentation.service';
 import { MessageAttachmentsComponent } from '../../shared/components/message-attachments/message-attachments.component';
 import { FailedImageCardComponent } from '../../shared/components/failed-image-card/failed-image-card.component';
@@ -261,6 +262,10 @@ export class OutputStreamComponent {
   private instanceStore = inject(InstanceStore);
   protected readonly isLiveView = computed(() => this.livePromptIndexEnabled() && !!this.instanceStore.getInstance(this.instanceId()));
   protected readonly requestReceipt = readRequestReceipt;
+  private readonly sessionWatcher = inject(SessionWatcherStore);
+  protected readonly watcherMuted = computed(() => this.instanceStore.getInstance(this.instanceId())?.watcherMuted === true);
+  /** The one action on an automatic "carry on": no more of them in this session. The session menu switches it back. */
+  protected muteSessionWatcher(): void { void this.sessionWatcher.setMuted(this.instanceId(), true); }
   private perf = inject(PerfInstrumentationService);
   private destroyRef = inject(DestroyRef);
   private expansionState = inject(ExpansionStateService);

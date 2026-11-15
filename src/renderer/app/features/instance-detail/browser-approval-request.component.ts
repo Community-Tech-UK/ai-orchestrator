@@ -31,7 +31,7 @@ import {
   presentBrowserApproval,
 } from './browser-approval-request.rules';
 
-type ApprovalPayload = Pick<BrowserApproveRequestPayload, 'grant' | 'reason' | 'credentialAccess'>;
+type ApprovalPayload = Pick<BrowserApproveRequestPayload, 'grant' | 'reason' | 'credentialAccess' | 'deviceLogin'>;
 
 @Component({
   selector: 'app-browser-approval-request',
@@ -173,7 +173,10 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
       this.errorMessage.set(`Type ${view.phrase} to allow publishing or deleting without another prompt.`);
       return;
     }
-    await this.submitApproval(approval, { grant: choice.grant, reason: choice.auditReason }, choiceId);
+    await this.submitApproval(approval, {
+      grant: choice.grant, reason: choice.auditReason,
+      ...(approval.deviceLogin ? { deviceLogin: { permission: 'operation' as const } } : {}),
+    }, choiceId);
   }
 
   /** A saved login has no "once": the length picked in the card is the permission. */

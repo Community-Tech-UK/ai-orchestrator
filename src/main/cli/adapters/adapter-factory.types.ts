@@ -56,6 +56,12 @@ export interface UnifiedSpawnOptions {
   contextCeilingTokens?: number;
   /** Claude only: read-only built-in tools, dontAsk permissions, never auto-approve. */
   readOnlyReview?: boolean;
+  /**
+   * Claude only: a plain text completion. No tools at all, no MCP servers, none of the user's settings files,
+   * hooks or slash commands, and nothing added to the system prompt. For one-shot calls that read untrusted
+   * text and must not be able to act on it (the session watcher's judge).
+   */
+  plainCompletion?: boolean;
   /** A Plan Queue session on a worker node: the node builds the push guard for its own copy of the repository. */
   queuePushGuard?: boolean;
   /** Run without persisting provider session/thread state (provider-specific). */

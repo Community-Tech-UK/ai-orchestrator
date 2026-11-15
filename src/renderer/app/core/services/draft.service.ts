@@ -21,6 +21,9 @@ export class DraftService {
   // Storage for drafts keyed by context
   private drafts = new Map<string, string>();
 
+  // When each non-empty draft last changed, so the session watcher can tell typing from a forgotten half-typed message
+  private draftChangedAt = new Map<string, number>();
+
   // Storage for pending files keyed by context
   private pendingFiles = new Map<string, File[]>();
 
@@ -66,11 +69,20 @@ export class DraftService {
    */
   setDraft(contextKey: string, text: string): void {
     if (text) {
+      if (this.drafts.get(contextKey) !== text) this.draftChangedAt.set(contextKey, Date.now());
       this.drafts.set(contextKey, text);
     } else {
       this.drafts.delete(contextKey);
+      this.draftChangedAt.delete(contextKey);
     }
     this.bumpTextVersion();
+  }
+
+  /**
+   * When this context's draft text last changed, or undefined when there is no draft.
+   */
+  lastChangeAt(contextKey: string): number | undefined {
+    return this.drafts.has(contextKey) ? this.draftChangedAt.get(contextKey) : undefined;
   }
 
   /**
@@ -78,6 +90,7 @@ export class DraftService {
    */
   clearDraft(contextKey: string): void {
     this.drafts.delete(contextKey);
+    this.draftChangedAt.delete(contextKey);
     this.bumpTextVersion();
   }
 

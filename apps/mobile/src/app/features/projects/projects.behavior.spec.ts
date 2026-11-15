@@ -88,6 +88,37 @@ describe('Projects browse behavior', () => {
     expect(window.scrollTo).toHaveBeenLastCalledWith({ top: 740, behavior: 'instant' });
   });
 
+  it('collapses every project, then expands them all, from one button that hides while searching', async () => {
+    const { fixture, gateway, browse } = setup();
+    gateway.snapshot.set({ ...snapshot, instances: [
+      ...snapshot.instances,
+      { ...snapshot.instances[0], id: 'session-b', workingDirectory: '/work/other', projectName: 'other' },
+    ] });
+    fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges();
+    const expanded = () => [...fixture.nativeElement.querySelectorAll('.project-disclosure')]
+      .map((button) => (button as HTMLButtonElement).getAttribute('aria-expanded'));
+    const toggle = () => fixture.nativeElement.querySelector('.projects-collapse-all') as HTMLButtonElement | null;
+    expect(expanded()).toEqual(['true', 'true']);
+
+    expect(toggle()!.textContent!.trim()).toBe('Collapse all');
+    toggle()!.click(); fixture.detectChanges();
+    expect(expanded()).toEqual(['false', 'false']);
+    expect(toggle()!.textContent!.trim()).toBe('Expand all');
+
+    toggle()!.click(); fixture.detectChanges();
+    expect(expanded()).toEqual(['true', 'true']);
+
+    toggle()!.click(); fixture.detectChanges();
+    fixture.destroy();
+    expect(browse.read('/projects', 'host-a').expandedKeys).toEqual([]);
+
+    const searching = TestBed.createComponent(ProjectsComponent);
+    searching.detectChanges(); await searching.whenStable();
+    const search: HTMLInputElement = searching.nativeElement.querySelector('input[type=search]');
+    search.value = 'other'; search.dispatchEvent(new Event('input')); searching.detectChanges();
+    expect(searching.nativeElement.querySelector('.projects-collapse-all')).toBeNull();
+  });
+
   it('holds row updates through pointer-down and reports rejected Pause with Retry', async () => {
     const { fixture, gateway } = setup();
     fixture.detectChanges(); await fixture.whenStable();

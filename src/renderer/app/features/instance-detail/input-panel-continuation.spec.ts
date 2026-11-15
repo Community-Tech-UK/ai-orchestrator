@@ -174,7 +174,7 @@ describe('InputPanelComponent continue button, queue reason and compaction wordi
         },
         { provide: SettingsStore, useValue: { defaultYoloMode: signal(false), settings: signal({ providerSignalFenceEnabled: true }) } },
         { provide: ActionDispatchService, useValue: { dispatch: vi.fn() } },
-        { provide: InstanceStore, useValue: { getInstance: vi.fn(() => undefined), isQueueParked: () => false } },
+        { provide: InstanceStore, useValue: { getInstance: vi.fn(() => undefined), isQueueParked: () => false, queueRestartHold: { isHeld: () => false } } },
         { provide: InstanceMessagingStore, useValue: { getQueuedMessageCount: vi.fn(() => 0) } },
         { provide: KeybindingService, useValue: { setContext: vi.fn(), onAction: vi.fn(() => vi.fn()) } },
         { provide: OrchestrationIpcService, useValue: { workflowNlSuggest: vi.fn(), workflowCanTransition: vi.fn(), workflowStart: vi.fn() } },

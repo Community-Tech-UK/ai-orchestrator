@@ -207,6 +207,19 @@ describe('status wording in push notifications', () => {
 
     expect(send.mock.calls[0]![1]).toMatchObject({ title: 'Fix login finished', body: 'Ready · shop' });
   });
+
+  it('says a session needs the user, with the agent\'s question, when one is given', () => {
+    const { deps, send } = makeDeps({
+      instanceManager: { getInstance: () => ({ displayName: 'Fix login', workingDirectory: '/work/shop' }) },
+    });
+
+    sendMobileCompletionPush(deps, 'instance', `Shall I push it to GitHub? ${'x'.repeat(300)}`);
+
+    const alert = send.mock.calls[0]![1] as { title: string; body: string };
+    expect(alert.title).toBe('Fix login needs you');
+    expect(alert.body.startsWith('Shall I push it to GitHub?')).toBe(true);
+    expect(alert.body).toHaveLength(160);
+  });
 });
 
 describe('mobile push identity and invalid-token lifecycle', () => {

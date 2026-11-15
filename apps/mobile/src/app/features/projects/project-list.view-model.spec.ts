@@ -18,6 +18,7 @@ import {
   reconcileProjectGroupUpdate,
   releasePendingProjectGroups,
   sessionTargetRoute,
+  toggleAllExpandedProjectKeys,
   toggleExpandedProjectKey,
 } from './project-list.view-model';
 
@@ -77,7 +78,7 @@ const recent: MobileRecentDirDto[] = [
 
 describe('project list view model', () => {
   it('merges live, history, and recent directories without double-counting live history', () => {
-    const projects = mergeProjects([], live, history, recent);
+    const projects = mergeProjects(live, history, recent);
 
     expect(projects.map((project) => [project.name, project.sessionCount])).toEqual([
       ['aio', 2],
@@ -86,7 +87,7 @@ describe('project list view model', () => {
   });
 
   it('builds one live and one history row with the live status presentation', () => {
-    const groups = buildProjectGroups([], live, history, recent);
+    const groups = buildProjectGroups(live, history, recent);
 
     expect(groups[0].sessions.map((row) => row.id)).toEqual(['live-1', 'history-2']);
     expect(groups[0].sessions[0]).toMatchObject({
@@ -99,7 +100,7 @@ describe('project list view model', () => {
   });
 
   it('filters session matches without losing project context', () => {
-    const groups = buildProjectGroups([], live, history, recent);
+    const groups = buildProjectGroups(live, history, recent);
 
     expect(filterProjectGroups(groups, 'older')[0].sessions.map((row) => row.id)).toEqual([
       'history-2',
@@ -110,7 +111,6 @@ describe('project list view model', () => {
 
   it('shows only desktop-active live rows and removes projects without active sessions', () => {
     const groups = buildProjectGroups(
-      [],
       [
         ...live,
         {
@@ -148,7 +148,7 @@ describe('project list view model', () => {
   });
 
   it('applies text search without restoring rows removed by the active filter', () => {
-    const groups = buildProjectGroups([], live, history, recent);
+    const groups = buildProjectGroups(live, history, recent);
 
     expect(filterProjectGroups(groups, 'older', 'active')).toEqual([]);
     expect(
@@ -157,7 +157,7 @@ describe('project list view model', () => {
   });
 
   it('routes live and history rows to their existing destinations', () => {
-    const groups = buildProjectGroups([], live, history, recent);
+    const groups = buildProjectGroups(live, history, recent);
 
     expect(sessionTargetRoute('/work/aio', groups[0].sessions[0])).toEqual([
       '/projects',
@@ -178,7 +178,6 @@ describe('project list view model', () => {
 
   it('prioritizes approval and loop tones over generic idle presentation', () => {
     const groups = buildProjectGroups(
-      [],
       [
         { ...live[0], status: 'idle', isLooping: true },
         {
@@ -201,7 +200,7 @@ describe('project list view model', () => {
   });
 
   it('initially expands projects with sessions and toggles disclosure immutably', () => {
-    const groups = buildProjectGroups([], live, history, recent);
+    const groups = buildProjectGroups(live, history, recent);
     const initial = initialExpandedProjectKeys(groups);
     const collapsed = toggleExpandedProjectKey(initial, '/work/aio');
 
@@ -211,8 +210,8 @@ describe('project list view model', () => {
   });
 
   it('holds live resorting during a press and releases the newest pending groups', () => {
-    const original = buildProjectGroups([], live, history, recent);
-    const updated = buildProjectGroups([], [{ ...live[0], lastActivity: 100 }], history, recent);
+    const original = buildProjectGroups(live, history, recent);
+    const updated = buildProjectGroups([{ ...live[0], lastActivity: 100 }], history, recent);
     const held = reconcileProjectGroupUpdate(original, null, updated, true);
 
     expect(held.rendered).toBe(original);
@@ -221,7 +220,7 @@ describe('project list view model', () => {
   });
 
   it('flattens sessions by activity and names project compose actions', () => {
-    const groups = buildProjectGroups([], live, history, recent);
+    const groups = buildProjectGroups(live, history, recent);
 
     expect(flattenChronologicalSessions(groups).map((row) => row.id)).toEqual([
       'live-1',
@@ -234,16 +233,6 @@ describe('project list view model', () => {
 describe('project attention and large-group previews', () => {
   it('rebuilds the canonical needs-attention count from instance attention levels', () => {
     const projects = mergeProjects(
-      [{
-        key: '/work/aio',
-        path: '/work/aio',
-        name: 'aio',
-        sessionCount: 99,
-        busyCount: 99,
-        pendingApprovalCount: 99,
-        needsAttentionCount: 99,
-        lastActivity: 1,
-      }],
       [
         { ...live[0], id: 'blocked', attentionLevel: 'blocked', status: 'waiting_for_input' },
         { ...live[0], id: 'failed', attentionLevel: 'failed', status: 'degraded' },
@@ -257,7 +246,7 @@ describe('project attention and large-group previews', () => {
   });
 
   it('finds failed and approval work separately from the unchanged Active filter', () => {
-    const groups = buildProjectGroups([], [
+    const groups = buildProjectGroups([
       live[0],
       { ...live[0], id: 'failed', status: 'failed' },
       { ...live[0], id: 'approval', pendingApprovalCount: 1, status: 'waiting_for_permission' },
@@ -270,7 +259,7 @@ describe('project attention and large-group previews', () => {
 
   it('limits disclosure previews while searching every row and disambiguating duplicate folders', () => {
     const rows = Array.from({ length: 12 }, (_, i) => ({ ...live[0], id: `row-${i}`, displayName: `Session ${i}`, lastActivity: i }));
-    const groups = buildProjectGroups([], [...rows, { ...live[0], id: 'other', workingDirectory: '/different/aio' }], [], []);
+    const groups = buildProjectGroups([...rows, { ...live[0], id: 'other', workingDirectory: '/different/aio' }], [], []);
     const group = groups.find((value) => value.project.key === '/work/aio')!;
     expect(projectSessionPreview(group, '', false)).toHaveLength(5);
     expect(projectSessionPreview(group, '', true)).toHaveLength(12);
@@ -280,7 +269,7 @@ describe('project attention and large-group previews', () => {
   });
 
   it('uses enough parent path to distinguish deeply nested duplicate folder names', () => {
-    const groups = buildProjectGroups([], [
+    const groups = buildProjectGroups([
       { ...live[0], workingDirectory: '/one/shared/work/aio' },
       { ...live[0], id: 'other', workingDirectory: '/two/shared/work/aio' },
     ], [], []);
@@ -291,7 +280,7 @@ describe('project attention and large-group previews', () => {
   it('handles a 30-project and 200-session browse fixture without losing results', () => {
     const rows = Array.from({ length: 200 }, (_, i) => ({ ...live[0], id: `row-${i}`, displayName: `Fixture session ${i}`, workingDirectory: `/work/project-${i % 30}`, projectName: `project-${i % 30}`, lastActivity: i }));
     const started = performance.now();
-    const groups = buildProjectGroups([], rows, [], []);
+    const groups = buildProjectGroups(rows, [], []);
     const found = filterProjectGroups(groups, 'Fixture session 199');
     const duration = performance.now() - started;
     expect(groups).toHaveLength(30);
@@ -304,12 +293,12 @@ describe('project attention and large-group previews', () => {
 
 describe('canonical session words and colours on actual project rows', () => {
   it('keeps a live question distinct from the pending-permission counter', () => {
-    const groups = buildProjectGroups([], [{ ...live[0], status: 'waiting_for_input', pendingApprovalCount: 1 }], [], []);
+    const groups = buildProjectGroups([{ ...live[0], status: 'waiting_for_input', pendingApprovalCount: 1 }], [], []);
     expect(groups[0].sessions[0]).toMatchObject({ statusLabel: 'Needs your answer', tone: 'attention', color: '#f59e0b' });
   });
 
   it('shows MiMo on identifiable models, hides backend aliases, and keeps a generic OpenCode session generic', () => {
-    const groups = buildProjectGroups([], [
+    const groups = buildProjectGroups([
       { ...live[0], id: 'mimo', provider: 'opencode', model: 'aio-mimo-account-placeholder/mimo-v2.6-pro' },
       { ...live[0], id: 'zen', provider: 'opencode', model: 'opencode/big-pickle' },
     ], [], []);
@@ -323,7 +312,65 @@ describe('canonical session words and colours on actual project rows', () => {
     ['hibernated', 'Asleep', '#4b5563'], ['terminated', 'Stopped', '#6b7280'],
     ['interrupt-escalating', 'Stopping', '#ef4444'], ['degraded', 'Problem', '#f97316'],
   ])('renders %s truthfully', (status, label, color) => {
-    const groups = buildProjectGroups([], [{ ...live[0], status }], [], []);
+    const groups = buildProjectGroups([{ ...live[0], status }], [], []);
     expect(groups[0].sessions[0]).toMatchObject({ statusLabel: label, color });
+  });
+});
+
+describe('projects the desktop rail keeps out', () => {
+  const repo = '/work/aio';
+  const queueFolder = `${repo}/.worktrees/queue/2026-10-20-oct2-phased-tokens-a4de58`;
+  const pastSession = (id: string, workingDirectory: string, extra: Partial<MobileHistorySessionDto> = {}): MobileHistorySessionDto => ({
+    ...history[1], id, workingDirectory, projectName: workingDirectory.split('/').at(-1)!, ...extra,
+  });
+
+  it('lists a live session in a worktree under its repository, not as a project of its own', () => {
+    const groups = buildProjectGroups([
+      { ...live[0], id: 'queue-worker', workingDirectory: queueFolder, projectName: '2026-10-20-oct2-phased-tokens-a4de58' },
+    ], [pastSession('repo-past', repo)], []);
+
+    expect(groups.map((group) => [group.project.key, group.project.name])).toEqual([[repo, 'aio']]);
+    expect(groups[0].sessions.map((row) => row.id)).toEqual(['queue-worker', 'repo-past']);
+    expect(groups[0].project.busyCount).toBe(1);
+  });
+
+  it('names a repository known only from its worktree sessions after the repository', () => {
+    const groups = buildProjectGroups([
+      { ...live[0], workingDirectory: queueFolder, projectName: '2026-10-20-oct2-phased-tokens-a4de58' },
+    ], [], []);
+
+    expect(groups[0].project).toEqual(expect.objectContaining({ key: repo, path: repo, name: 'aio' }));
+  });
+
+  it('leaves out past sessions the host marks hidden from projects', () => {
+    const groups = buildProjectGroups([], [
+      pastSession('helper', 'C:\\Users\\someone\\Documents\\Work', { hiddenFromProjects: true }),
+      pastSession('finished-queue-run', queueFolder, { hiddenFromProjects: true }),
+      pastSession('kept', repo),
+    ], []);
+
+    expect(groups.map((group) => group.project.key)).toEqual([repo]);
+    expect(groups[0].sessions.map((row) => row.id)).toEqual(['kept']);
+  });
+
+  it('skips an unpinned worktree recent folder but keeps a pinned one', () => {
+    const pinnedLoop = `${repo}/.worktrees/loop-1`;
+    const projects = mergeProjects([], [], [
+      { path: queueFolder, displayName: 'queue item', lastAccessed: 3, isPinned: false },
+      { path: pinnedLoop, displayName: 'loop-1', lastAccessed: 2, isPinned: true },
+      { path: repo, displayName: 'aio', lastAccessed: 1, isPinned: false },
+    ]);
+
+    expect(projects.map((project) => project.key)).toEqual([pinnedLoop, repo]);
+  });
+});
+
+describe('collapse all and expand all', () => {
+  it('collapses every listed project when any is open, leaving filtered-out ones alone', () => {
+    expect([...toggleAllExpandedProjectKeys(new Set(['a', 'hidden']), ['a', 'b'])]).toEqual(['hidden']);
+  });
+
+  it('expands every listed project when none is open', () => {
+    expect([...toggleAllExpandedProjectKeys(new Set(['hidden']), ['a', 'b'])].sort()).toEqual(['a', 'b', 'hidden']);
   });
 });

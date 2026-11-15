@@ -192,9 +192,12 @@ function buildLivetestWorkerPrompt(ctx: ItemPromptContext, answer: string[]): st
     ...autonomyRules(),
     WORKER_EVIDENCE_CLEANUP_RULE,
     `- Read \`${path.join(ctx.repoRoot, RUNBOOK_RELATIVE)}\` in full first and follow it.`,
-    `- From your worktree, start the dev app on the test Mac: \`node ${path.join(ctx.repoRoot, DEV_APP_RELATIVE)} start --port ${env.debugPort} --data ${env.userDataPath}\`, then drive it at http://127.0.0.1:${env.debugPort}. Start it here only for a check that needs this Mac, and say why. Enable focus emulation before any DOM assertion.`,
+    `- From your worktree, start the dev app: \`node ${path.join(ctx.repoRoot, DEV_APP_RELATIVE)} start --port ${env.debugPort} --data ${env.userDataPath}\`, then drive it at http://127.0.0.1:${env.debugPort}. Start it here only on exit 75 or for a check that needs this Mac, and say why. Enable focus emulation before any DOM assertion.`,
     '- Record per-check evidence in the document as a new dated section. File every reproduced defect in the remediation register as the runbook describes.',
-    '- Run `node scripts/next-lt-id.mjs` for the next defect identifier; it reads the maximum index number, not the last heading. Recheck before adding the row because the command does not reserve it. The index row owns status; implementation notes belong in the plan or live-check document fixing it, never in a closed plan. Read the register archive only when an index row points there.',
+    ctx.remote
+      ? '- For a new defect, have the coordinator run `node scripts/next-lt-id.mjs --reserve` in the authoritative root checkout and return the reserved identifier. Never allocate from this independent remote clone. Retain unnumbered evidence until the reservation arrives; do not invent a number.'
+      : `- For a new defect, run \`node ${path.join(ctx.repoRoot, 'scripts/next-lt-id.mjs')} --reserve\` from your worktree. It reserves against the common root register and durable Git ledger, including uncommitted root rows. Use the returned identifier once; never delete reservation files. The invocation without --reserve is inspection only.`,
+    '- The register index row owns status; implementation notes belong in the plan or live-check document fixing it, never in a closed plan. Read the register archive only when an index row points there.',
     '- Mark a check as needing James only for human authority not already granted, a physical device or identity step you cannot perform, or a necessary human fact unavailable from evidence. A routine technical choice, credential lookup or existing standing authorization is agent work. State the exact reason for each remaining human step.',
     '- Stop the dev app you launched before you finish.',
     ...answer,

@@ -6,6 +6,7 @@ import { AppearanceService } from '../core/appearance.service';
 import { connectionLabel } from '../core/connection-status';
 import { GatewayClient } from '../core/gateway-client.service';
 import { HostStore } from '../core/host-store';
+import { projectKeyFor } from '../core/project-key';
 import { DocReviewsComponent } from '../features/doc-review/doc-reviews.component';
 import { HistoryComponent } from '../features/history/history.component';
 import { LoopsComponent } from '../features/loops/loops.component';
@@ -117,9 +118,9 @@ export class AppShellComponent {
     if (typing || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) return;
     const path = this.router.url.split('?')[0];
     const key = decodeURIComponent(path.match(/^\/projects\/([^/]+)\/sessions\/[^/]+$/)?.[1] ?? '');
-    const directory = key === '__no_workspace__' ? '' : key;
+    const projectKey = projectKeyFor(key);
     const ids = (this.gateway.snapshot?.()?.instances ?? [])
-      .filter((instance) => (instance.workingDirectory || '') === directory)
+      .filter((instance) => projectKeyFor(instance.workingDirectory) === projectKey)
       .map((instance) => instance.id);
     if (!ids.length) return;
     const current = this.instanceId();

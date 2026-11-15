@@ -7,6 +7,7 @@ import {
   supportsSecureBrowserExtensionCredentialFill,
   supportsBrowserExtensionOneTimeCodeProbe,
   supportsSecureBrowserExtensionHttpAuth,
+  supportsBrowserExtensionCodexDeviceHandoff,
 } from './browser-extension-credential-compatibility';
 
 function contactState(
@@ -33,6 +34,28 @@ function contactState(
 }
 
 describe('browser extension credential compatibility', () => {
+  it('requires the new Codex command build on the exact approved install and generation', () => {
+    const state = contactState('0.2.52');
+    vi.mocked(state.getExtensionRuntime!).mockReturnValue({
+      extensionVersion: '0.2.52', extensionStartedAt: 1_000, extensionInstanceId: 'test-install',
+    });
+    expect(supportsBrowserExtensionCodexDeviceHandoff(state, 'test-node', 'test-install', '1000')).toBe(true);
+    expect(supportsBrowserExtensionCodexDeviceHandoff(state, 'test-node', 'other-install', '1000')).toBe(false);
+    expect(supportsBrowserExtensionCodexDeviceHandoff(state, 'test-node', 'test-install', '1001')).toBe(false);
+    expect(supportsBrowserExtensionCodexDeviceHandoff(state, 'test-node', '', '1000')).toBe(false);
+    for (const extensionVersion of ['0.2.51', '0.2.52-rc.1', 'invalid']) {
+      vi.mocked(state.getExtensionRuntime!).mockReturnValue({
+        extensionVersion, extensionStartedAt: 1_000, extensionInstanceId: 'test-install',
+      });
+      expect(supportsBrowserExtensionCodexDeviceHandoff(state, 'test-node', 'test-install', '1000')).toBe(false);
+    }
+  });
+
+  it('rejects a stale or incomplete Codex runtime', () => {
+    expect(supportsBrowserExtensionCodexDeviceHandoff(contactState('0.2.52', false), 'test-node', 'test-install', '1000')).toBe(false);
+    expect(supportsBrowserExtensionCodexDeviceHandoff(contactState('0.2.52'), 'test-node', 'test-install', '1000')).toBe(false);
+  });
+
   it.each(['0.2.18', '0.3.0', '1.0.0'])(
     'accepts a fresh secure extension runtime at %s',
     (version) => {

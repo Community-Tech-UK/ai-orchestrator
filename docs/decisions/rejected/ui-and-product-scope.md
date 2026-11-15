@@ -7,6 +7,7 @@ Source: October 10 and October 20 research lists (`claude_oct-todo.md`, “Previ
 - Stance: Rejected.
 - Reason: They add a hidden model call over context for every reply; Codex removed follow-up suggestions within three days.
 - Reopen when: An opt-in trial demonstrates a concrete benefit at an accepted measured cost.
+- Not covered: the session watcher (`src/main/session-watcher/`), which James asked for on 14 November 2026. It is off by default and makes one short call per finished turn of his own Claude chat sessions to Claude's fast model, to decide whether the agent can carry on or he is needed. It suggests nothing to the person. The trial and its measured cost and accuracy are in `docs/plans/2026-11-14-session-watcher_history.md`.
 
 ## Idle nudges and first-run welcome wizards
 
@@ -14,6 +15,7 @@ Source: October 10 and October 20 research lists (`claude_oct-todo.md`, “Previ
 - Reason: Repeated upstream attempts were removed; no current measured need justifies the interruption.
 - Reopen when: Observed usability failures and user research justify a targeted flow.
 - Not covered: Agent-facing waiting check-ins (`src/main/instance/instance-waiting-check-in.ts`), which James approved on 6 November 2026. They prompt the agent, not a person, and only when a turn ends waiting on work with nothing to wake it. Observed failure: Claude stopped on two things that could never notify it, and sat idle for 13 minutes.
+- Not covered: the session watcher's automatic "carry on" (`src/main/session-watcher/`), asked for by James on 14 November 2026. It prompts the agent, not the person, and only when a small model and code checks agree the next step is safe; everything else is shown to him as a question. Measured need: one in ten of his typed messages in a month was a bare "continue" or "yes".
 
 ## OpenCode tooltip component
 

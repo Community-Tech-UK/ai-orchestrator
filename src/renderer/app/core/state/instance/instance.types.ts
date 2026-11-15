@@ -223,6 +223,8 @@ export interface Instance {
   residentClaude?: boolean;
   /** Whether this session currently accepts incoming cross-session messages. Off by default. */
   allowIncomingSessionMessages?: boolean;
+  /** The user switched "Keep this session going without me" off for this session. */
+  watcherMuted?: boolean;
 }
 
 /**

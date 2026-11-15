@@ -4,7 +4,7 @@ import { attentionLevelForInstanceStatus } from './attention-level';
 export type NeedsYouKind = 'answer' | 'check' | 'applied';
 export type NeedsYouSource = 'session' | 'loop-run' | 'automation-run' | 'repo-job'
   | 'permission-request' | 'browser-approval' | 'paid-fallback' | 'plan-queue-question'
-  | 'doc-review' | 'memory-review' | 'sidechat' | 'loop-question' | 'loop-decision' | 'tool-loop';
+  | 'doc-review' | 'memory-review' | 'sidechat' | 'loop-question' | 'loop-decision' | 'tool-loop' | 'session-question';
 
 export interface NeedsYouEntry {
   key: string;

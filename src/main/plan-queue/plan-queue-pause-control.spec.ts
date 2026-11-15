@@ -686,8 +686,9 @@ it.each(['worker', 'verifier'] as const)('keeps normal Close all semantics for a
   await pausing;
   await coordinator._whenSettledForTesting();
   expect(instances.live.has(lateId!)).toBe(false);
-  // A parked worker is terminal, so this otherwise empty run can finish.
-  expect(store.getRun(run.id)?.status).toBe(role === 'worker' ? 'completed' : 'paused');
+  // Run-control lock release schedules another pump after the pause settles.
+  // A parked worker is terminal, so wait for that pass to finish this empty run.
+  await vi.waitFor(() => expect(store.getRun(run.id)?.status).toBe(role === 'worker' ? 'completed' : 'paused'));
   expect(store.getItem(item.id)).toMatchObject({
     state: role === 'worker' ? 'parked' : 'awaiting-slot',
     parkReason: role === 'worker' ? 'cancelled' : null, erroredRounds: 0,

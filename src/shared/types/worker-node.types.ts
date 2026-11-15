@@ -299,6 +299,8 @@ export interface WorkerNodeCapabilities {
   stallProcessSampling?: 1;
   /** 1 = preserves semantic Codex ownership and explicit ephemeral:false. Absent on older workers. */
   codexSpawnMetadata?: 1;
+  /** 1 = explicit worker policy enables private owner-bound device login over verified TLS. */
+  codexDeviceLogin?: 1;
   /** 1 = applies the controller-sent `codexHelperLevel` and forwards `session_turn_share` telemetry. Absent on older workers, which drop both. */
   codexHelperPolicy?: 1;
   /** 1 = command-mode (`exec`) Codex applies the skills cap, the checker's catalog omission and the required-skills line. Absent on older workers, which run it uncapped, so non-chat Codex sessions are refused there. */

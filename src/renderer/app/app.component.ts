@@ -26,6 +26,8 @@ import { AwayRecapBannerComponent } from './shared/away-recap/away-recap-banner.
 import { TerminateConfirmDialogComponent } from './shared/terminate-confirm/terminate-confirm-dialog.component';
 import { NeedsYouStripComponent } from './features/workboard/needs-you-strip.component';
 import { NeedsYouStore } from './features/workboard/needs-you.store';
+import { SessionWatcherStore } from './core/state/session-watcher.store';
+import { SessionWatcherTypingReporter } from './core/state/session-watcher-typing.service';
 import { CommandPaletteHostComponent } from './features/commands/command-palette-host.component';
 import { SessionStatusHostComponent } from './features/instance-detail/session-status/session-status-host.component';
 import { GettingStartedBarComponent } from './shared/getting-started/getting-started-bar.component';
@@ -181,6 +183,8 @@ export class AppComponent implements OnInit, OnDestroy {
   private readonly appUpdateStore = inject(AppUpdateStore);
   private readonly localAiGuardStore = inject(LocalAiGuardStore);
   private readonly needsYou = inject(NeedsYouStore);
+  private readonly sessionWatcher = inject(SessionWatcherStore);
+  private readonly watcherTyping = inject(SessionWatcherTypingReporter);
   protected readonly terminalDrawer = inject(TerminalDrawerStore);
 
   private menuListenerCleanup: (() => void) | null = null;
@@ -313,6 +317,8 @@ export class AppComponent implements OnInit, OnDestroy {
     void this.appUpdateStore.init();
     void this.localAiGuardStore.initialize();
     this.needsYou.init();
+    void this.sessionWatcher.initialize();
+    this.watcherTyping.start();
     this.skillStore.initObservability();
 
     this.ipcService.onStartupCapabilities((report) => {
