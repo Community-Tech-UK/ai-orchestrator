@@ -22,9 +22,16 @@ function choices(schema: Record<string, unknown>): { label: string; value: unkno
  * OpenCode 2 asks permission for its question tool before it shows the question form. That gate has no
  * answer channel: a typed reply to it became a refusal (LT-1018). The form that follows is the answer
  * channel, so the gate is granted and the form decides.
+ *
+ * OpenCode can fill a tool's title from model-written text, so the title alone could make another tool's gate
+ * pass for this one. The input must also hold questions and nothing else; any other gate keeps its approval card.
  */
 export function isQuestionToolPermission(toolCall: Record<string, unknown>): boolean {
-  return toolCall['title'] === 'question';
+  const input = toolCall['rawInput'];
+  if (toolCall['title'] !== 'question' || !record(input)) return false;
+  const questions = input['questions'];
+  return Object.keys(input).length === 1 && Array.isArray(questions) && questions.length > 0
+    && questions.every((entry) => record(entry) && typeof entry['question'] === 'string');
 }
 
 /** Keep the form's machine keys as headers, so answers round-trip without parsing prose. */
