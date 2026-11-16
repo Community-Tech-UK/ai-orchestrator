@@ -10,4 +10,9 @@ describe('control surface tiers', () => {
   it('tags every surface with the tier the registry lists it under', () => {
     expect(CONTROL_SURFACES.every(s => s.tier === (EVERYDAY_SURFACE_IDS.has(s.id) ? 'everyday' : 'more'))).toBe(true);
   });
+  it('keeps every page that can hold something waiting for James in the everyday set', () => {
+    for (const id of ['workboard', 'doc-review', 'plan-queue', 'memory-review', 'automations', 'settings'] as const) {
+      expect(EVERYDAY_SURFACE_IDS.has(id), id).toBe(true);
+    }
+  });
 });

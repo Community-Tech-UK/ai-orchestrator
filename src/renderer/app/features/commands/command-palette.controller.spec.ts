@@ -45,6 +45,20 @@ describe('global command palette', () => {
     expect(destinations().map(d => d.label)).toContain('Go to Costs & Usage');
     expect(destinations().length).toBeLessThanOrEqual(12);
   });
+  it('puts a page named by the typed words first, so Enter opens it ahead of matching skills', () => {
+    commands.set([command('costs-helper', { isSkill: true, skillId: 'costs-helper', description: 'costs' }),
+      command('discord-helper', { isSkill: true, skillId: 'discord-helper', description: 'discord' })]);
+    for (const [typed, label] of [['cost', 'Go to Costs & Usage'], ['discord', 'Go to Discord & WhatsApp'],
+      ['doctor', 'Go to Settings: Doctor']] as const) {
+      controller.setQuery(typed);
+      const [first, ...rest] = controller.groups();
+      expect(first.id, typed).toBe('go-to');
+      expect(first.items[0].label, typed).toBe(label);
+      expect(rest.length, typed).toBeGreaterThanOrEqual(typed === 'doctor' ? 0 : 1);
+    }
+    controller.setQuery('/cost');
+    expect(controller.groups()[0].id).not.toBe('go-to');
+  });
   it('finds a page by the name of the hub it sits in', () => {
     controller.setQuery('usage & health');
     expect(destinations().map(d => d.label)).toContain('Go to Logs');

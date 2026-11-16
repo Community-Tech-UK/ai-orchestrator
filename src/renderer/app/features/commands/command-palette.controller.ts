@@ -79,7 +79,12 @@ export class CommandPaletteController implements OverlayController<ExtendedComma
         return rank(b) - rank(a) || fallback(a) - fallback(b);
       }).slice(0, query ? 12 : 8)
       .map(d => ({ id: `go:${d.id}`, label: d.name, description: d.description, keywords: d.keywords, value: d }));
-    return [...commandGroups, { id: 'go-to', label: 'Go to', items: destinations }];
+    const goTo = { id: 'go-to', label: 'Go to', items: destinations };
+    // Enter takes the first row. A page whose name holds the typed words ("cost", "discord") goes first, so the
+    // many matching skills cannot push it out of reach; a leading "/" means the person is after a command.
+    const typedSlash = this.query().trim().startsWith('/');
+    const namedPage = !typedSlash && query !== '' && destinations.some(d => d.value.name.toLowerCase().includes(query));
+    return namedPage ? [goTo, ...commandGroups] : [...commandGroups, goTo];
   });
 
   setQuery(query: string): void {
