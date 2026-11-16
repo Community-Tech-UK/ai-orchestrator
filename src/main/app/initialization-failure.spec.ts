@@ -19,9 +19,8 @@ async function start(failure: unknown, critical = true) {
   let startup: Promise<void> | undefined;
   const app = {
     isPackaged: false,
-    getVersion: () => 'test-build',
     getPath: () => '/unused-startup-fixture',
-    setPath: vi.fn(), setName: vi.fn(), getAppPath: () => '/unused-startup-fixture',
+    setPath: vi.fn(), setName: vi.fn(), getAppPath: () => '/unused-startup-fixture', getVersion: () => '0.0.0-fixture',
     commandLine: { appendSwitch: vi.fn() },
     requestSingleInstanceLock: () => true,
     on: (event: string, fn: (...args: unknown[]) => unknown) => events.set(event, fn),
