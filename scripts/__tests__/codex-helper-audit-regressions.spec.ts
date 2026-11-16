@@ -9,6 +9,8 @@ import { costRow, writeCostDir, writeLoopDb, type QueueItemRow } from './codex-h
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 const base = Date.parse('2026-09-01T00:00:00Z');
+// Each run() starts a fresh Node process and the first test starts five; the 5 s default is too tight on a busy runner.
+const SPAWN_TIMEOUT_MS = 60_000;
 function fixture(mode: 'known' | 'missing' | 'zero' | 'descendant' | 'unknown-outcomes' = 'known', days = 22) {
   const dir = mkdtempSync(join(tmpdir(), 'codex-audit-')); dirs.push(dir);
   const policy = join(dir, 'session-policy'); mkdirSync(policy);
@@ -85,7 +87,7 @@ describe('Codex audit report evidence boundaries', () => {
     }
     expect(fixture('zero').run().verdict.chats).toBe('cheaper-justified');
     expect(fixture('missing', 36).run().verdict.chats).toBe('pending');
-  });
+  }, SPAWN_TIMEOUT_MS);
   it('uses actual Harness child outcomes with exact instance joins instead of identical completed rollouts', () => {
     const { run } = fixture(); const report = run();
     expect(report.kindTable.child.off.outcomes).toEqual({ succeeded: 8, failed: 2, decided: 10, unknown: 0 });
@@ -95,7 +97,7 @@ describe('Codex audit report evidence boundaries', () => {
     const unknown = fixture('unknown-outcomes').run();
     expect(unknown.kindTable.child.off.outcomes).toEqual({ succeeded: 8, failed: 1, decided: 9, unknown: 1 });
     expect(unknown.verdict.notes.join(' ')).toContain('Child outcome comparison unknown');
-  });
+  }, SPAWN_TIMEOUT_MS);
   it('counts distinct helper threads per turn and exposes unavailable mail/cache chronology explicitly', () => {
     const dir = mkdtempSync(join(tmpdir(), 'codex-helper-count-')); dirs.push(dir);
     const path = join(dir, 'root.jsonl');
