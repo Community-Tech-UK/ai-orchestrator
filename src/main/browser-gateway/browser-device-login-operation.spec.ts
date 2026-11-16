@@ -56,6 +56,51 @@ function setup() {
   return { controller, deps, requests, commands, view, snapshot };
 }
 describe('device login operation controller', () => {
+  it('accepts the native five-minute lifetime after start transport delay', async () => {
+    const s = setup();
+    s.deps.worker.request.mockImplementationOnce(async () => {
+      vi.setSystemTime(1001); return { ...s.view, state: 'starting', expiresAt: 301001 };
+    });
+    await expect(s.controller.start(native, owner)).resolves.toMatchObject({ expiresAt: 301001 });
+    s.controller.shutdown();
+  });
+  it('tightens the deadline when the native prompt shortens its lifetime before approval', async () => {
+    const s = setup();
+    s.deps.worker.request.mockResolvedValueOnce({ ...s.view, state: 'starting', expiresAt: 301000 });
+    await s.controller.start(native, owner);
+    await expect(s.controller.read(handle, owner)).resolves.toEqual(s.view);
+    await s.controller.fill(fill, owner);
+    expect(s.requests.get('approval')!.expiresAt).toBe(61000);
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(s.requests.get('approval')!.status).toBe('expired');
+    s.controller.shutdown();
+  });
+  it('refuses expiry changes after browser approval binding', async () => {
+    const s = setup(); await s.controller.start(native, owner); await s.controller.fill(fill, owner);
+    s.deps.worker.request.mockResolvedValueOnce({ ...s.view, expiresAt: 60000 });
+    await expect(s.controller.read(handle, owner)).rejects.toEqual(refused);
+    expect(s.requests.get('approval')!.status).toBe('expired'); s.controller.shutdown();
+  });
+  it.each(['object', 'restartEpoch', 'adapterGeneration'] as const)('rejects stale owner %s on cancel and retained reads', async key => {
+    const s = setup(); await s.controller.start(native, owner);
+    const original = { ...s.snapshot };
+    Object.assign(s.snapshot, { [key]: key === 'object' ? {} : 2 });
+    await expect(s.controller.cancel(handle, owner)).rejects.toEqual(refused);
+    expect(s.deps.worker.request).toHaveBeenCalledOnce();
+    Object.assign(s.snapshot, original); await s.controller.cancel(handle, owner);
+    Object.assign(s.snapshot, { [key]: key === 'object' ? {} : 2 });
+    await expect(s.controller.read(handle, owner)).rejects.toEqual(refused);
+    s.controller.shutdown();
+  });
+  it('releases capacity after starts fail without handles', async () => {
+    const s = setup();
+    for (let i = 0; i < 64; i++) {
+      s.deps.worker.request.mockRejectedValueOnce(refused);
+      await expect(s.controller.start(native, owner)).rejects.toEqual(refused);
+    }
+    await expect(s.controller.start(native, owner)).resolves.toEqual(s.view);
+    s.controller.shutdown();
+  });
   it('requires exact approval before private transfer, then submits only once', async () => {
     const s = setup(); await s.controller.start(native, owner);
     expect(await s.controller.fill(fill, owner)).toMatchObject({ status: 'requires_approval', requestId: 'approval' });
@@ -84,7 +129,8 @@ describe('device login operation controller', () => {
   });
   it.each(['expectedIdentity', 'nodeId', 'profileId'] as const)('refuses wrong native %s without exposing response', async key => {
     const s = setup(); s.deps.worker.request.mockResolvedValueOnce({ ...s.view, [key]: 'wrong@example.test' });
-    await expect(s.controller.start(native, owner)).rejects.toEqual(refused); s.controller.shutdown();
+    await expect(s.controller.start(native, owner)).rejects.toEqual(refused);
+    expect(s.deps.worker.request).toHaveBeenCalledOnce(); s.controller.shutdown();
   });
   it('cancels context in flight and prevents late approval creation', async () => {
     const s = setup(); await s.controller.start(native, owner);

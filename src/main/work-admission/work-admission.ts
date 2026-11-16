@@ -10,7 +10,7 @@ export type GlobalWorkPhase = 'none' | 'holding' | 'collecting' | 'ready' | 'res
 export type WorkKind = 'queue-job' | 'queue-check' | 'queue-checklist' | 'queue-triage' | 'loop-round' | 'campaign-node'
   | 'automation-run' | 'repo-job' | 'helper-agent' | 'consult' | 'background-index' | 'timed-wakeup';
 export type AdmissionDecision = { allowed: true } | {
-  allowed: false; reason: 'held' | 'paused' | 'over-limit' | 'computer-busy'; detail: string;
+  allowed: false; reason: 'maintenance' | 'held' | 'paused' | 'over-limit' | 'computer-busy'; detail: string;
 };
 export interface AdmissionContext { remote?: boolean; activeCount?: number }
 interface AdmissionOptions { cpuCount?: () => number; loadAverage?: () => number[] }
@@ -19,6 +19,7 @@ interface DeferredWork { kind: WorkKind; run: () => void | Promise<void>; contex
 /** One start-of-work policy; counters remain owned by the engines. */
 export class WorkAdmission extends EventEmitter {
   private static instance: WorkAdmission | null = null;
+  private maintenanceOwner?: symbol;
   private phase: GlobalWorkPhase = 'none';
   private level: WorkloadLevel = 3;
   private readonly counters = new Map<WorkKind, Set<() => number>>();
@@ -52,7 +53,27 @@ export class WorkAdmission extends EventEmitter {
     this.settingsCleanup?.();
     this.settingsCleanup = undefined;
     this.deferred.clear();
+    this.maintenanceOwner = undefined;
     this.removeAllListeners();
+  }
+
+  /** Exclusive, short handoff fence. Releasing it never changes the operator's pause. */
+  tryAcquireMaintenance(): { release(): void } | null {
+    if (this.maintenanceOwner) return null;
+    const owner = Symbol('maintenance');
+    this.maintenanceOwner = owner;
+    this.notifyChanged();
+    return { release: () => {
+      if (this.maintenanceOwner !== owner) return;
+      this.maintenanceOwner = undefined;
+      this.notifyChanged();
+    } };
+  }
+
+  isInMaintenance(): boolean { return this.maintenanceOwner !== undefined; }
+
+  assertNotInMaintenance(): void {
+    if (this.isInMaintenance()) throw new Error('Harness is updating. Try again after it restarts.');
   }
 
   setGlobalPhase(phase: GlobalWorkPhase): void {
@@ -81,6 +102,7 @@ export class WorkAdmission extends EventEmitter {
   }
 
   check(kind: WorkKind, context: AdmissionContext = {}): AdmissionDecision {
+    if (this.isInMaintenance()) return { allowed: false, reason: 'maintenance', detail: 'Harness is updating. New work will wait until it restarts.' };
     if (this.phase === 'collecting' || this.phase === 'ready') {
       return { allowed: false, reason: 'paused', detail: 'Harness is paused for restart. Resume before starting new work.' };
     }

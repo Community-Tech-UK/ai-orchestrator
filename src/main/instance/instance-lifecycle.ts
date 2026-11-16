@@ -895,7 +895,8 @@ export class InstanceLifecycleManager extends EventEmitter {
     }
     const cliType = await this.resolveCliTypeForInstance(instance);
     maybeMcpConfigurable.updateMcpConfig(
-      this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType, instance.workingDirectory),
+      this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType, instance.workingDirectory,
+        { reuseDeviceLoginCapability: true }),
     );
   }
 
@@ -2305,6 +2306,8 @@ export class InstanceLifecycleManager extends EventEmitter {
               sessionId: fallbackSessionId,
               resume: false,
               forkSession: false,
+              mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType, instance.workingDirectory),
+              browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(instance.executionLocation, instance.id, cliType) ?? undefined,
             };
             adapter = await this.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
             this.deps.setupAdapterEvents(instanceId, adapter);
@@ -3159,7 +3162,10 @@ export class InstanceLifecycleManager extends EventEmitter {
             adapter.removeAllListeners();
             await adapter.terminate(true);
 
-            const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
+            const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId(),
+              mcpConfig: this.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType, instance.workingDirectory),
+              browserGatewayMcp: this.spawnConfigBuilder.getBrowserGatewayMcpOptions(instance.executionLocation, instance.id, cliType) ?? undefined,
+            };
             instance.sessionId = fallbackOptions.sessionId;
             adapter = await this.createRuntimeAdapter(cliType, fallbackOptions, instance.executionLocation);
             this.deps.setupAdapterEvents(instanceId, adapter);

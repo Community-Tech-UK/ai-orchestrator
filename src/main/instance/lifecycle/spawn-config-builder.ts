@@ -6,9 +6,9 @@
  * configuration is testable in isolation and the lifecycle manager stays
  * focused on lifecycle state.
  *
- * Pure code paths only — every method is a function of (executionLocation,
- * instanceId, provider, yolo) plus singletons (settings, RPC sockets, etc.).
- * The only instance state read is its Plan Queue role (mcp-role-policy.ts); none is mutated.
+ * Configuration derives from the instance's location, provider, role and settings.
+ * New spawn preparations rotate private device-login caller authority once;
+ * provider-specific serializers and live config refreshes reuse that authority.
  */
 
 import { app } from 'electron';
@@ -30,6 +30,7 @@ import {
   type ChromeDevtoolsMcpConfigOptions,
 } from '../../browser-gateway';
 import { maybePruneBrowserForwarderLogs } from '../../browser-gateway/browser-forwarder-log-retention';
+import { getBrowserDeviceLoginCapability, mintBrowserDeviceLoginCapability } from '../../browser-gateway/browser-device-login-capability';
 import {
   buildComputerUseMcpConfigJson,
   DESKTOP_DEGRADED_TOOL_NAMES,
@@ -134,6 +135,7 @@ export class SpawnConfigBuilder {
     instanceId?: string,
     provider?: string,
     workingDirectory?: string,
+    options: { reuseDeviceLoginCapability?: boolean } = {},
   ): string[] {
     // MCP config paths are local filesystem paths. Remote workers have their
     // own MCP config on their filesystem; passing ours would cause invalid
@@ -141,6 +143,9 @@ export class SpawnConfigBuilder {
     if (executionLocation?.type === 'remote') {
       return [];
     }
+    // A spawn builds inline JSON and provider-specific configs separately.
+    // Rotate once here; all later serializers read the same prepared token.
+    if (instanceId && !options.reuseDeviceLoginCapability) mintBrowserDeviceLoginCapability(instanceId);
     const configs: string[] = [];
     const skipped = this.skippedMcpServers(instanceId);
     if (skipped.size > 0) logger.info('Plan Queue role skips MCP servers', { instanceId, skipped: [...skipped] });
@@ -434,6 +439,7 @@ export class SpawnConfigBuilder {
       });
       return null;
     }
+    const deviceLoginCapabilityToken = getBrowserDeviceLoginCapability(instanceId);
     // Some clients do not install callable wrappers after tools/list_changed.
     // Log and return the effective mode, not the requested UI mode.
     const toolMode = resolveBrowserGatewayToolMode(provider, mode === 'deferred');
@@ -453,6 +459,7 @@ export class SpawnConfigBuilder {
       socketPath,
       instanceId,
       capabilityToken,
+      ...(deviceLoginCapabilityToken ? { deviceLoginCapabilityToken } : {}),
       // Instance IDs are generated from a path-safe alphabet, but persisted
       // state can be malformed; encode the component before joining it.
       logDirectory: path.join(

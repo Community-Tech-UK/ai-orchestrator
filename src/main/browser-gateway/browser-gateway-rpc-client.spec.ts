@@ -37,6 +37,64 @@ describe('BrowserGatewayRpcClient', () => {
     });
   });
 
+  it('sends the device capability only in the four device-method envelopes', async () => {
+    const address = socketPath('device-envelope');
+    const received: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const server = net.createServer(socket => socket.on('data', chunk => {
+      const request = JSON.parse(chunk.toString('utf-8'));
+      received.push(request);
+      socket.end(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { ok: true } })}\n`);
+    }));
+    servers.push(server);
+    await new Promise<void>(resolve => server.listen(address, resolve));
+    const client = new BrowserGatewayRpcClient({ env: {
+      AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: address,
+      AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+      AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: 'PLACEHOLDER_BROWSER_CAPABILITY',
+      AI_ORCHESTRATOR_BROWSER_DEVICE_LOGIN_CAPABILITY_TOKEN: 'PLACEHOLDER_DEVICE_LOGIN_CAPABILITY',
+    } });
+    for (const method of ['browser.start_device_login', 'browser.read_device_login', 'browser.cancel_device_login', 'browser.fill_device_login']) {
+      await client.call(method, { profileId: 'profile-1' });
+      expect(received.at(-1)?.params['deviceLoginCapabilityToken']).toBe('PLACEHOLDER_DEVICE_LOGIN_CAPABILITY');
+      expect(received.at(-1)?.params['payload']).toEqual({ profileId: 'profile-1' });
+    }
+    for (const method of ['browser.navigate', 'browser.health', 'browser.start_device_login_extra']) {
+      await client.call(method, {});
+      expect(received.at(-1)?.params).not.toHaveProperty('deviceLoginCapabilityToken');
+    }
+  });
+
+  it('refuses missing device capability before connecting with a fixed result', async () => {
+    const client = new BrowserGatewayRpcClient({ env: {
+      AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: socketPath('unused-device'),
+      AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+      AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: 'PLACEHOLDER_BROWSER_CAPABILITY',
+    } });
+    await expect(client.call('browser.start_device_login', {})).resolves.toEqual({
+      decision: 'denied', outcome: 'not_run', reason: 'device_login_request_refused',
+    });
+  });
+
+  it('contains private device RPC failures without echoing their details', async () => {
+    const address = socketPath('device-error');
+    const server = net.createServer(socket => socket.on('data', chunk => {
+      const request = JSON.parse(chunk.toString('utf-8'));
+      socket.end(`${JSON.stringify({ jsonrpc: '2.0', id: request.id,
+        error: { message: 'PLACEHOLDER_PRIVATE_ERROR_DETAIL' } })}\n`);
+    }));
+    servers.push(server);
+    await new Promise<void>(resolve => server.listen(address, resolve));
+    const client = new BrowserGatewayRpcClient({ env: {
+      AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: address,
+      AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: 'instance-1',
+      AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: 'PLACEHOLDER_BROWSER_CAPABILITY',
+      AI_ORCHESTRATOR_BROWSER_DEVICE_LOGIN_CAPABILITY_TOKEN: 'PLACEHOLDER_DEVICE_LOGIN_CAPABILITY',
+    } });
+    await expect(client.call('browser.start_device_login', {})).resolves.toEqual({
+      decision: 'denied', outcome: 'not_run', reason: 'device_login_request_refused',
+    });
+  });
+
   it('fails closed before connecting when the session capability is missing', async () => {
     const client = new BrowserGatewayRpcClient({ env: {
       AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET: socketPath('unused'),

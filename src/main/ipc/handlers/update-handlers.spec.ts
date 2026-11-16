@@ -36,8 +36,8 @@ const STATUS: UpdateStatus = {
 };
 const service = new FakeService();
 
-vi.mock('../../updates/auto-update-service', () => ({
-  getAutoUpdateService: () => service,
+vi.mock('../../updates/source-update-runtime', () => ({
+  getDesktopUpdateService: () => service,
 }));
 
 vi.mock('../../util/cleanup-registry', () => ({
@@ -65,7 +65,7 @@ describe('registerUpdateHandlers', () => {
   });
 
   it('enables silent downloads only for packaged applications', () => {
-    registerUpdateHandlers({ windowManager: windowManager as never });
+    registerUpdateHandlers({ windowManager: windowManager as never, instanceManager: {} as never });
 
     expect(service.initialize).toHaveBeenCalledWith({
       enabled: true,
@@ -76,12 +76,12 @@ describe('registerUpdateHandlers', () => {
 
   it('disables the updater for a validated packaged test copy', () => {
     mocks.liveTest = true;
-    registerUpdateHandlers({ windowManager: windowManager as never });
+    registerUpdateHandlers({ windowManager: windowManager as never, instanceManager: {} as never });
     expect(service.initialize).toHaveBeenCalledWith({ enabled: false, autoDownload: false, currentVersion: '0.1.0' });
   });
 
   it('broadcasts status changes and removes the listener during cleanup', () => {
-    registerUpdateHandlers({ windowManager: windowManager as never });
+    registerUpdateHandlers({ windowManager: windowManager as never, instanceManager: {} as never });
 
     service.emit('status', { ...STATUS, state: 'downloaded' });
     expect(windowManager.sendToRenderer).toHaveBeenCalledOnce();
@@ -95,7 +95,7 @@ describe('registerUpdateHandlers', () => {
   });
 
   it('returns typed service results from every update handler', async () => {
-    registerUpdateHandlers({ windowManager: windowManager as never });
+    registerUpdateHandlers({ windowManager: windowManager as never, instanceManager: {} as never });
 
     await expect(invoke('update:get-status')).resolves.toEqual({ success: true, data: STATUS });
     await expect(invoke('update:check')).resolves.toEqual({ success: true, data: STATUS });

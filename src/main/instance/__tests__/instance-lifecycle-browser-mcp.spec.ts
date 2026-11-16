@@ -150,6 +150,7 @@ vi.mock('../../logging/logger', () => ({
 
 import type { SettingsManager } from '../../core/config/settings-manager';
 import { SpawnConfigBuilder } from '../lifecycle/spawn-config-builder';
+import { BrowserDeviceLoginCapability, getBrowserDeviceLoginCapability, setBrowserDeviceLoginCapabilityProvider } from '../../browser-gateway/browser-device-login-capability';
 
 describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
   beforeEach(() => {
@@ -165,6 +166,33 @@ describe('SpawnConfigBuilder — Browser Gateway MCP config', () => {
     desktopGatewayMocks.getDesktopGatewayRpcSocketPath.mockReturnValue(
       FAKE_DESKTOP_GATEWAY_SOCKET,
     );
+  });
+
+  it('rotates the device capability once per spawn preparation and reuses it for provider configs and live refresh', () => {
+    const capabilities = new BrowserDeviceLoginCapability(() => true);
+    setBrowserDeviceLoginCapabilityProvider(capabilities);
+    try {
+      const mint = vi.spyOn(capabilities, 'mint');
+      const builder = makeBuilder();
+      builder.getMcpConfig({ type: 'local' }, 'instance-browser', 'claude');
+      const first = getBrowserDeviceLoginCapability('instance-browser')!;
+      expect(first).toBeTruthy();
+      expect(browserGatewayMocks.buildBrowserGatewayMcpConfigJson)
+        .toHaveBeenLastCalledWith(expect.objectContaining({ deviceLoginCapabilityToken: first }));
+      expect(builder.getBrowserGatewayMcpOptions({ type: 'local' }, 'instance-browser', 'claude'))
+        .toMatchObject({ deviceLoginCapabilityToken: first });
+      expect(mint).toHaveBeenCalledOnce();
+      builder.getMcpConfig({ type: 'local' }, 'instance-browser', 'claude', undefined, { reuseDeviceLoginCapability: true });
+      expect(getBrowserDeviceLoginCapability('instance-browser')).toBe(first);
+      expect(mint).toHaveBeenCalledOnce();
+      builder.getMcpConfig({ type: 'local' }, 'instance-browser', 'claude');
+      const next = getBrowserDeviceLoginCapability('instance-browser');
+      expect(next).not.toBe(first);
+      expect(capabilities.verify('instance-browser', first)).toBeNull();
+      expect(builder.getBrowserGatewayMcpOptions({ type: 'local' }, 'instance-browser', 'claude'))
+        .toMatchObject({ deviceLoginCapabilityToken: next });
+      expect(JSON.stringify(loggerMocks.info.mock.calls)).not.toContain(next);
+    } finally { setBrowserDeviceLoginCapabilityProvider(null); }
   });
 
   it('adds Browser Gateway MCP config for local instances when the RPC socket is available', () => {

@@ -130,6 +130,7 @@ const REASONING_LABELS: Record<ReasoningEffort, string> = {
     :host { display: inline-block; }
     .compact-picker {
       display: inline-flex;
+      max-width: 100%;
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;

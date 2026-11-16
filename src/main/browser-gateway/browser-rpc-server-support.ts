@@ -1,6 +1,6 @@
 /**
  * Support logic for the Browser Gateway RPC server (reliability hardening,
- * 2026-07-17): per-method payload validation with forward-compatible
+ * 2026-07-17): agent envelope parsing, per-method payload validation with forward-compatible
  * unknown-key stripping, and the forwarder tool-surface continuity handlers.
  *
  * Main-process only (imports contracts schemas + reliability events).
@@ -50,6 +50,10 @@ import {
   BrowserHandleDialogRequestSchema,
   BrowserUploadFileRequestSchema,
   BrowserWaitForRequestSchema,
+  BrowserStartDeviceLoginRequestSchema,
+  BrowserReadDeviceLoginRequestSchema,
+  BrowserCancelDeviceLoginRequestSchema,
+  BrowserFillDeviceLoginRequestSchema,
 } from '@contracts/schemas/browser';
 import type { ZodIssue, ZodType } from 'zod';
 import { createBrowserMcpTools } from './browser-mcp-tools';
@@ -65,6 +69,36 @@ import {
 
 const INVALID_PAYLOAD = 'Invalid browser gateway RPC payload';
 
+interface BrowserGatewayRpcParams {
+  instanceId: string;
+  capabilityToken?: string;
+  deviceLoginCapabilityToken?: string;
+  provider?: string;
+  payload: Record<string, unknown>;
+}
+
+export function parseBrowserRpcParams(params: unknown): BrowserGatewayRpcParams {
+  if (!params || typeof params !== 'object') {
+    throw new Error('Browser Gateway RPC params are required');
+  }
+  const value = params as Partial<BrowserGatewayRpcParams>;
+  if (typeof value.instanceId !== 'string' || !value.instanceId) {
+    throw new Error('Browser Gateway RPC instanceId is required');
+  }
+  if (!value.payload || typeof value.payload !== 'object' || Array.isArray(value.payload)) {
+    throw new Error('Browser Gateway RPC payload is required');
+  }
+  const parsed = {
+    instanceId: value.instanceId,
+    ...(typeof value.capabilityToken === 'string' ? { capabilityToken: value.capabilityToken } : {}),
+    ...(typeof value.deviceLoginCapabilityToken === 'string' ? { deviceLoginCapabilityToken: value.deviceLoginCapabilityToken } : {}),
+    payload: value.payload,
+  };
+  return typeof value.provider === 'string' && value.provider
+    ? { ...parsed, provider: value.provider }
+    : parsed;
+}
+
 /**
  * Methods excluded from unknown-key stripping. Dropping an unknown field here
  * could weaken a security constraint the caller intended (grants, credential
@@ -73,6 +107,10 @@ const INVALID_PAYLOAD = 'Invalid browser gateway RPC payload';
  * methods requires updating both sides in lockstep.
  */
 const STRICT_NO_STRIP_METHODS: ReadonlySet<string> = new Set([
+  'browser.start_device_login',
+  'browser.read_device_login',
+  'browser.cancel_device_login',
+  'browser.fill_device_login',
   'browser.request_grant',
   'browser.revoke_grant',
   'browser.fill_credential',
@@ -99,6 +137,10 @@ const STRICT_NO_STRIP_METHODS: ReadonlySet<string> = new Set([
 
 function schemaForBrowserRpcMethod(method: string): ZodType | null {
   switch (method) {
+    case 'browser.start_device_login': return BrowserStartDeviceLoginRequestSchema;
+    case 'browser.read_device_login': return BrowserReadDeviceLoginRequestSchema;
+    case 'browser.cancel_device_login': return BrowserCancelDeviceLoginRequestSchema;
+    case 'browser.fill_device_login': return BrowserFillDeviceLoginRequestSchema;
     case 'browser.create_profile':
       return BrowserCreateProfileRequestSchema;
     case 'browser.find_or_open':

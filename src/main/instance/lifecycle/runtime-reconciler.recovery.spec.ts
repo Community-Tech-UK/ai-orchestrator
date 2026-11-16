@@ -88,6 +88,10 @@ interface Harness {
     evaluateResumeHealth: ReturnType<typeof vi.fn>;
     buildFallbackHistory: ReturnType<typeof vi.fn>;
     buildReplayContinuityMessage: ReturnType<typeof vi.fn>;
+    spawnConfigBuilder: {
+      getMcpConfig: ReturnType<typeof vi.fn>;
+      getBrowserGatewayMcpOptions: ReturnType<typeof vi.fn>;
+    };
   };
 }
 
@@ -101,6 +105,8 @@ function makeHarness(instance: Instance, adapters: CliAdapter[]): Harness {
     evaluateResumeHealth: vi.fn().mockResolvedValue('healthy'),
     buildFallbackHistory: vi.fn().mockResolvedValue('fallback history'),
     buildReplayContinuityMessage: vi.fn(() => 'replay preamble'),
+    spawnConfigBuilder: { getMcpConfig: vi.fn(() => ['PLACEHOLDER_FRESH_CONFIG']),
+      getBrowserGatewayMcpOptions: vi.fn(() => ({ deviceLoginCapabilityToken: 'PLACEHOLDER_FRESH_CAPABILITY' })) },
   };
   const reconciler = new RuntimeReconciler({
     getInstance: () => instance,
@@ -116,6 +122,7 @@ function makeHarness(instance: Instance, adapters: CliAdapter[]): Harness {
     evaluateResumeHealth: deps.evaluateResumeHealth,
     buildFallbackHistory: deps.buildFallbackHistory,
     buildReplayContinuityMessage: deps.buildReplayContinuityMessage,
+    spawnConfigBuilder: deps.spawnConfigBuilder,
   } as unknown as RuntimeReconcilerDeps);
   return { reconciler, instance, adapters, createCalls, deps };
 }
@@ -163,6 +170,16 @@ describe('RuntimeReconciler.applyRecoveryRespawn', () => {
     mockContinuity.writeThroughIdentityLocked.mockResolvedValue(undefined);
     mockHoldRespawningChildCompletions.mockReset();
     mockHoldRespawningChildCompletions.mockReturnValue(vi.fn());
+  });
+
+  it('rebuilds both browser configuration representations for a fresh fallback', async () => {
+    const { reconciler, createCalls, deps } = makeHarness(makeInstance(), [makeAdapter(81), makeAdapter(82)]);
+    deps.evaluateResumeHealth.mockResolvedValue('unrecoverable');
+    const request = makeRequest();
+    request.spawnOptions.mcpConfig = ['PLACEHOLDER_OLD_CONFIG'];
+    await reconciler.applyRecoveryRespawn('inst-1', request, makeHooks());
+    expect(createCalls[1].options).toMatchObject({ mcpConfig: ['PLACEHOLDER_FRESH_CONFIG'],
+      browserGatewayMcp: { deviceLoginCapabilityToken: 'PLACEHOLDER_FRESH_CAPABILITY' } });
   });
 
   it('holds child completions across fallback spawn readiness and fallback-history reconciliation', async () => {

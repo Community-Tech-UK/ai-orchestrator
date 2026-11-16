@@ -13,6 +13,7 @@ async function start(failure: unknown, critical = true) {
   const showErrorBox = vi.fn();
   const quit = vi.fn();
   const createMainWindow = vi.fn().mockResolvedValue(undefined);
+  const markDesktopUpdatesReady = vi.fn().mockResolvedValue(undefined);
   const step = vi.fn(() => { if (failure) throw failure; });
   const chdir = vi.fn();
   let startup: Promise<void> | undefined;
@@ -57,6 +58,7 @@ async function start(failure: unknown, critical = true) {
     },
     './app/startup-smoke-markers': { getStartupSmokeDirectory: () => null },
     './app/build-skew-watcher': { startBuildSkewWatcher: vi.fn() },
+    './updates/source-update-runtime': { markDesktopUpdatesReady },
   };
   const source = readFileSync(join(process.cwd(), 'src/main/index.ts'), 'utf8');
   const compiled = transpileModule(source, { compilerOptions: { module: ModuleKind.CommonJS } }).outputText;
@@ -74,7 +76,7 @@ async function start(failure: unknown, critical = true) {
   let rejected: unknown;
   await startup!.catch((error: unknown) => { rejected = error; });
   await Promise.resolve();
-  return { events, logger, showErrorBox, quit, createMainWindow, step, rejected, chdir };
+  return { events, logger, showErrorBox, quit, createMainWindow, markDesktopUpdatesReady, step, rejected, chdir };
 }
 
 describe('application initialization failure', () => {
@@ -88,12 +90,15 @@ describe('application initialization failure', () => {
     expect(result.quit).toHaveBeenCalledOnce();
     expect(result.showErrorBox.mock.invocationCallOrder[0]).toBeLessThan(result.quit.mock.invocationCallOrder[0]!);
     expect(result.createMainWindow).not.toHaveBeenCalled();
+    expect(result.markDesktopUpdatesReady).not.toHaveBeenCalled();
     expect(result.rejected).toBeUndefined();
   });
 
   it('continues after a noncritical failure without displaying a fatal error', async () => {
     const result = await start(new Error('optional service failed'), false);
     expect(result.createMainWindow).toHaveBeenCalledOnce();
+    expect(result.markDesktopUpdatesReady).toHaveBeenCalledOnce();
+    expect(result.createMainWindow.mock.invocationCallOrder[0]).toBeLessThan(result.markDesktopUpdatesReady.mock.invocationCallOrder[0]!);
     expect(result.showErrorBox).not.toHaveBeenCalled();
     expect(result.quit).not.toHaveBeenCalled();
     expect(result.rejected).toBeUndefined();

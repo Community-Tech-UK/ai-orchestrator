@@ -1,3 +1,4 @@
+import { initializeBrowserDeviceLoginRuntime } from '../browser-gateway/browser-device-login-runtime';
 import { isMissingTailscaleHost } from '../util/tailscale-listener-start';
 import { resolveBindHost } from '../mobile-gateway/tailscale-interface';
 import { getSettingsManager } from '../core/config/settings-manager';
@@ -57,6 +58,7 @@ export function createWorkerNodeSubsystemStep(
       const connection = getWorkerNodeConnectionServer();
       const rpcRouter = new RpcEventRouter(connection, registry);
       rpcRouter.start();
+      initializeBrowserDeviceLoginRuntime({ instanceManager, registry, connection, transfers: rpcRouter.codexDeviceTransfers });
 
       // A worker whose only working route is this Mac's Tailscale looks dead
       // when Tailscale is switched off, although it is healthy and retrying.

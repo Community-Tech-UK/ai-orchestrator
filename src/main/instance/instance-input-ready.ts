@@ -1,3 +1,5 @@
+import { getClampedLoadWatchdogMultiplier } from '../runtime/system-load-monitor';
+import { computeInitWaitBudgetMs } from './init-wait-budget';
 import type { Instance, InstanceStatus } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
 import { throwIfInstanceInputAborted, type InstanceSendInputOptions } from './instance-input-cancellation';
@@ -107,4 +109,16 @@ export async function awaitInstanceInputReady(
       + ` (status: ${liveInstance?.status ?? 'removed'})`,
     );
   }
+}
+
+/** Keep an initialization wait bounded without aborting a provider that may still be starting. */
+export async function waitForInstanceInputPreparation(work: Promise<void>, instance: Instance, timeoutMessage: string): Promise<void> {
+  const budgetMs = computeInitWaitBudgetMs(instance.contextUsage?.used ?? 0, getClampedLoadWatchdogMultiplier());
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(timeoutMessage)), budgetMs);
+    timer.unref?.();
+  });
+  try { await Promise.race([work, timeoutPromise]); }
+  finally { if (timer) clearTimeout(timer); }
 }

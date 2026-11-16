@@ -27,6 +27,10 @@ const MUTATING_BROWSER_COMMANDS: ReadonlySet<string> = new Set([
   'click',
   'type',
   'fill_form',
+  // Native sign-in and private code handoff can outlive a lost RPC response.
+  'start_device_login',
+  'cancel_device_login',
+  'fill_device_login',
   'select',
   // Native keystrokes: Enter/Space can activate or submit, so a blind retry
   // can double-fire the default action (see press_key idempotencyKey).

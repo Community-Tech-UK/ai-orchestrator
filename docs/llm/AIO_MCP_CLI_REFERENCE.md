@@ -485,6 +485,58 @@ matches this task's exact website, computer, vault item, purpose and lifetime.
 The request/secure-fill service performs those checks. No command returns the
 password: the secure fill resolves it in the main process.
 
+## Codex Device Sign-in Through Browser Gateway
+
+Use Browser Gateway tools, not a new `$AIO_MCP` command. Search with
+`browser.tool_search({query: "Codex device login"})`, or describe the exact tool
+with `browser.tool_describe({name: "browser.start_device_login"})`. Follow its
+invocation instructions; the stable interface calls
+`browser.tool_execute({name, arguments})`.
+
+| Tool | Exact required arguments |
+| --- | --- |
+| `browser.start_device_login` | `{nodeId, profileId}`: native worker and native Codex profile |
+| `browser.read_device_login` | `{loginHandle}` |
+| `browser.cancel_device_login` | `{loginHandle}` |
+| `browser.fill_device_login` | `{loginHandle, profileId, targetId}`: browser profile and tab |
+
+Start, read and cancel return `{handle, profileId, provider: "codex", nodeId,
+expectedIdentity, expiresAt, state, error?}`. Keep the opaque returned `handle`
+and pass it as **`loginHandle`**, not `handle`, in subsequent tool arguments.
+The expiry is epoch milliseconds and any error is a fixed non-secret code.
+No code or native process output is returned. Owner identity and generation
+come from the current local Harness session's authenticated envelope; the
+forwarder adds the private generation capability automatically. They are not
+tool arguments and must never be copied from another session.
+
+Prerequisites: the native worker explicitly opts into `codexDeviceLogin`; the
+named Codex profile is already in the trusted account pool, enabled, non-legacy,
+`allow-routed`, and has the expected identity matching the worker policy. Its
+native profile directory must be fresh. Both the native and browser worker
+connections need certificate-validated TLS. Preflight the browser channel and
+use a listed live shared tab at `https://auth.openai.com` within its allowed
+origins. Shared-tab credential fill must be opted in, secret-observation
+protection enabled, and the extension must support session claims and secure
+Codex device handoff. Tool discovery alone proves none of these prerequisites.
+
+1. Start once and read until `state: "awaiting_handoff"`. Other intermediate
+   states are `starting`, `reserved`, `delivering`, `awaiting_login` and `verifying`.
+2. Call fill with that handle and the real browser target. A pending approval
+   returns `{status: "requires_approval", requestId, operation}`. Wait for the
+   normal visible approval for the exact operation, identity and target.
+3. Retry fill with the **same handle and target** after approval. Do not pass
+   `requestId`; it is not an accepted argument. Fill securely fills and submits
+   once, returning `{status: "submitted", operation}`. Do not click submit again.
+4. Read until `state: "authenticated"`; `submitted` alone does not prove native
+   sign-in. Terminal failure states are `failed`, `cancelled` and `expired`.
+   Cancel an abandoned operation with its handle.
+
+Refusal is `device_login_request_refused`. Never replace the route with manual
+code extraction, terminal output, screenshots, snapshots or ordinary typing.
+Do not bypass a changed session, disconnected worker or stale tab binding.
+These instructions describe the source contract, not a deployed or live-tested
+sign-in route.
+
 ## Release Readiness
 
 Use the help output first:

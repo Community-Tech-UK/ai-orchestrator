@@ -1,3 +1,4 @@
+import { getWorkAdmission } from '../work-admission/work-admission';
 /**
  * Coordinator-side manager for remote terminal sessions (Piece C).
  *
@@ -112,6 +113,7 @@ export class RemoteTerminalManager extends EventEmitter {
 
   /** Spawn a terminal on a connected worker node. */
   async spawn(req: RemoteTerminalSpawnRequest): Promise<RemoteTerminalSpawnResult> {
+    getWorkAdmission().assertNotInMaintenance();
     if (!req.nodeId) {
       throw new Error('RemoteTerminalManager.spawn requires a nodeId');
     }

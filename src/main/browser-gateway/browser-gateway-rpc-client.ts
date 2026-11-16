@@ -1,6 +1,7 @@
 import * as net from 'node:net';
 import { isHeavyDomBrowserMethod, isMutatingBrowserMethod } from './browser-mutation-safety';
 import { BROWSER_GATEWAY_RPC_PROTOCOL_VERSION } from './browser-rpc-contract';
+import { isBrowserDeviceLoginMethod } from './browser-device-login-capability';
 
 export interface BrowserGatewayRpcClientOptions {
   env?: Record<string, string | undefined>;
@@ -140,7 +141,12 @@ export class BrowserGatewayRpcClient implements BrowserGatewayRpcClientLike {
     const socketPath = this.env['AI_ORCHESTRATOR_BROWSER_GATEWAY_SOCKET'];
     const instanceId = this.env['AI_ORCHESTRATOR_BROWSER_INSTANCE_ID'];
     const capabilityToken = this.env['AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN'];
+    const deviceLogin = isBrowserDeviceLoginMethod(method);
+    const deviceLoginCapabilityToken = this.env['AI_ORCHESTRATOR_BROWSER_DEVICE_LOGIN_CAPABILITY_TOKEN'];
     const provider = this.env['AI_ORCHESTRATOR_BROWSER_PROVIDER'];
+    if (deviceLogin && (!socketPath || !instanceId || !capabilityToken || !deviceLoginCapabilityToken)) {
+      return { decision: 'denied', outcome: 'not_run', reason: 'device_login_request_refused' };
+    }
     if (!socketPath || !instanceId || !capabilityToken) {
       return unavailable();
     }
@@ -153,6 +159,7 @@ export class BrowserGatewayRpcClient implements BrowserGatewayRpcClientLike {
         params: {
           instanceId,
           capabilityToken,
+          ...(deviceLogin ? { deviceLoginCapabilityToken } : {}),
           ...(provider ? { provider } : {}),
           // Advisory contract version. Servers that predate it ignore unknown
           // params fields; newer servers use it for skew telemetry.
@@ -162,6 +169,7 @@ export class BrowserGatewayRpcClient implements BrowserGatewayRpcClientLike {
       }, this.resolveTimeoutMs(method, payload));
     } catch (error) {
       if (error instanceof BrowserGatewayRpcError) {
+        if (deviceLogin) return { decision: 'denied', outcome: 'not_run', reason: 'device_login_request_refused' };
         return deniedForRpcError(error);
       }
       if (error instanceof BrowserGatewayTimeoutError) {

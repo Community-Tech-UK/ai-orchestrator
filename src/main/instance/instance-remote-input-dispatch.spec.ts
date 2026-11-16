@@ -42,6 +42,28 @@ const admission = vi.hoisted(() => ({ recordUserSend: vi.fn(() => ({ admissionId
 vi.mock('../session/session-admission-service', () => ({ getSessionAdmissionService: () => admission }));
 
 describe('communication to remote prompt admission', () => {
+  it('refuses a manual send when maintenance begins at the delayed provider checkpoint', async () => {
+    WorkAdmission._resetForTesting(); holder.registry = new EventEmitter();
+    const instance = createInstance(); let release!: () => void;
+    const checkpoint = vi.fn(() => new Promise<void>(resolve => { release = resolve; }));
+    const sendRpc = vi.fn(async () => ({ instanceId: instance.id }));
+    const adapter = new RemoteCliAdapter({ sendRpc, isNodeConnected: () => true } as never, 'worker', 'opencode', {
+      sessionId: instance.id, workingDirectory: '/tmp', beforeProviderPrompt: checkpoint,
+    });
+    await adapter.spawn();
+    const manager = new InstanceCommunicationManager({ getInstance: () => instance, getAdapter: () => adapter as unknown as CliAdapter,
+      setAdapter: vi.fn(), deleteAdapter: vi.fn(() => true), queueUpdate: vi.fn(), processOrchestrationOutput: vi.fn(),
+      onInterruptedExit: vi.fn().mockResolvedValue(undefined), ingestToRLM: vi.fn(), ingestToUnifiedMemory: vi.fn() });
+    const result = manager.sendInput(instance.id, 'next message').then(() => 'sent', error => (error as Error).message);
+    let lease: ReturnType<WorkAdmission['tryAcquireMaintenance']>;
+    try {
+      await vi.waitFor(() => expect(checkpoint).toHaveBeenCalledOnce());
+      lease = getWorkAdmission().tryAcquireMaintenance(); release();
+      expect(await result).toContain('updating');
+      expect(sendRpc.mock.calls.filter(call => (call as unknown[])[1] === 'instance.sendInput')).toHaveLength(0);
+    } finally { lease!?.release(); release?.(); adapter.forceCleanup(); manager.cleanupCircuitBreaker(instance.id); WorkAdmission._resetForTesting(); }
+  });
+
   it.each(['cross-session', 'timed-continuation'] as const)('holds %s delivery at a delayed native provider checkpoint', async mode => {
     WorkAdmission._resetForTesting();
     holder.registry = new EventEmitter();

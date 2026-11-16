@@ -54,6 +54,9 @@ export class InstanceContinuationRuntime {
     this.background.start();
     this.waiting.start();
   }
+  hasPendingWork(instanceId: string): boolean {
+    return this.dispatch.hasPending(instanceId) || this.watcher?.hasPendingWork(instanceId) === true;
+  }
   stop(): void {
     this.waiting.stop();
     this.background.stop();
@@ -83,4 +86,9 @@ export function initializeInstanceContinuationRuntime(
 /** The running session watcher, once the app has started it. */
 export function getActiveSessionWatcher(): SessionWatcher | undefined {
   return activeRuntime?.watcher;
+}
+
+/** Existing continuation ownership, including anonymous watcher calls. */
+export function hasPendingInstanceContinuation(instanceId: string): boolean {
+  return activeRuntime?.hasPendingWork(instanceId) === true;
 }

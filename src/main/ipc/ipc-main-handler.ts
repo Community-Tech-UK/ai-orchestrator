@@ -341,7 +341,7 @@ export class IpcMainHandler {
     registerCompareHandlers({ windowManager: this.windowManager });
     registerLspFeedback({ instanceManager: this.instanceManager });
     registerCircuitBreaker({ costTracker: getCostTracker() });
-    registerUpdateHandlers({ windowManager: this.windowManager });
+    registerUpdateHandlers({ windowManager: this.windowManager, instanceManager: this.instanceManager });
     void getPromptHistoryService().pruneOnStart().catch((error: unknown) => {
       logger.warn('Prompt history cleanup failed', { error: error instanceof Error ? error.message : String(error) });
     });

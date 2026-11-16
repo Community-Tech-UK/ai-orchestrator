@@ -1,4 +1,5 @@
 import { app } from 'electron';
+import { getBrowserDeviceLoginController } from './browser-device-login-runtime';
 import { isHarnessLiveTest } from '../app/live-test-context';
 import type { BrowserGatewayRpcServerOptions } from './browser-gateway-rpc-server';
 import {
@@ -246,6 +247,7 @@ export async function initializeBrowserGatewayRuntime(
   const server = await initializeBrowserGatewayRpcServer({
     ...options,
     service: options.service ?? service,
+    deviceLoginController: options.deviceLoginController ?? getBrowserDeviceLoginController(),
   });
   setBrowserGatewayMcpBridgeAvailabilityProvider(() => Boolean(server.getSocketPath()));
   const socketPath = server.getSocketPath();

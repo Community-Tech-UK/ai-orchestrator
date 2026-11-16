@@ -1,8 +1,7 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
-const { FILES, TREES, LINKS, approvedPath, isDirectDriver, directScript, directSkillContent, assertSecretFree, sanitizeConfig } = require('./sync-policy');
-const TEXT_EXTENSIONS = new Set(['.md', '.mdc', '.txt', '.json', '.yaml', '.yml', '.toml', '.sh', '.bash', '.zsh', '.py', '.js', '.mjs', '.cjs', '.ts', '.html', '.css', '.svg', '.xsd', '.xml', '.csv']);
+const { FILES, TREES, LINKS, approvedPath, setupFileRefusal, isDirectDriver, directSetupContent, assertSecretFree, sanitizeConfig } = require('./sync-policy');
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_PACKAGE_BYTES = 64 * 1024 * 1024;
 
@@ -46,13 +45,12 @@ function buildSyncPackage({ sourceHome }) {
       return;
     }
     if (!stat.isFile() || !approvedPath(relative)) { refused.push(`${relative}: unsupported setup file`); return; }
-    const leaf = path.basename(relative);
-    if (leaf.startsWith('.') || /^(?:auth|accounts|credentials|cookies)(?:\.|$)/i.test(leaf)) { refused.push(`${relative}: credential or hidden file`); return; }
-    if (!TEXT_EXTENSIONS.has(path.extname(leaf)) && !/^(?:LICENSE|COPYRIGHT)$/i.test(leaf)) { refused.push(`${relative}: non-text asset requires separate review`); return; }
+    const refusal = setupFileRefusal(relative);
+    if (refusal) { refused.push(`${relative}: ${refusal}`); return; }
     if (stat.size > MAX_FILE_BYTES || bytes + stat.size > MAX_PACKAGE_BYTES) { refused.push(`${relative}: setup size limit exceeded`); return; }
     let text = fs.readFileSync(absolute, 'utf8');
-    if ((relative.startsWith('.claude/hooks/') && directScript(text))
-      || (relative.startsWith('.claude/commands/') && (relative.endsWith('.md') ? directSkillContent(text) : directScript(text)))) { exclusions.push(relative); return; }
+    const skillMatch = relative.match(/^(\.(?:agents|claude|codex)\/skills\/[^/]+)\//);
+    if (!skillMatch && directSetupContent(relative, text)) { exclusions.push(relative); return; }
     try {
       if (relative === '.claude/settings.json' || relative === '.codex/config.toml') {
         const result = sanitizeConfig(text, relative.endsWith('.toml') ? 'codex' : 'claude', { source: true, label: relative });
@@ -61,8 +59,7 @@ function buildSyncPackage({ sourceHome }) {
       }
       assertSecretFree(text, relative);
     } catch (error) { refused.push(error.message); return; }
-    const skillMatch = relative.match(/^(\.(?:agents|claude|codex)\/skills\/[^/]+)\//);
-    if (skillMatch && directSkillContent(text)) {
+    if (skillMatch && directSetupContent(relative, text)) {
       exclusions.push(skillMatch[1]); return;
     }
     bytes += Buffer.byteLength(text);
@@ -91,7 +88,9 @@ function validatePackage(pkg) {
       || !Number.isFinite(file.mtimeMs) || ![0o600, 0o700].includes(file.mode)
       || typeof file.memory !== 'boolean' || file.memory !== file.path.includes('/memory/')) throw new Error('Invalid setup file in transfer package');
     if (file.path.split('/').some(isDirectDriver)) throw new Error('Transfer contains a direct browser driver');
-    if (/^\.(?:agents|claude|codex)\/skills\//.test(file.path) && directSkillContent(file.text)) throw new Error('Transfer contains a direct browser or desktop skill');
+    const refusal = setupFileRefusal(file.path);
+    if (refusal) throw new Error(`Transfer contains a ${refusal}`);
+    if (directSetupContent(file.path, file.text)) throw new Error('Transfer contains a direct browser or desktop skill, hook or command');
     bytes += Buffer.byteLength(file.text);
     if (Buffer.byteLength(file.text) > MAX_FILE_BYTES || bytes > MAX_PACKAGE_BYTES) throw new Error('Setup transfer exceeds size limit');
     assertSecretFree(file.text, file.path);

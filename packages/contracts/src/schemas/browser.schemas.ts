@@ -1,5 +1,5 @@
 import { BrowserDeviceLoginChoiceSchema, BrowserDeviceLoginMetadataSchema, validateDeviceLoginApproval } from './browser-device-login.schemas';
-export { BrowserDeviceLoginChoiceSchema, BrowserDeviceLoginMetadataSchema } from './browser-device-login.schemas';
+export { BrowserDeviceLoginChoiceSchema, BrowserDeviceLoginMetadataSchema, BrowserStartDeviceLoginRequestSchema, BrowserReadDeviceLoginRequestSchema, BrowserCancelDeviceLoginRequestSchema, BrowserFillDeviceLoginRequestSchema } from './browser-device-login.schemas';
 import { z } from 'zod';
 import { PERSISTENT_BROWSER_GRANT_EXPIRES_AT } from '../types/browser.types';
 import { BrowserCredentialAccessChoiceSchema, BrowserCredentialAccessMetadataSchema } from './browser-credential-access.schemas';

@@ -51,6 +51,13 @@ describe('browser-mutation-safety', () => {
     expect(isMutatingBrowserMethod('BROWSER.CLICK')).toBe(true);
   });
 
+  it('does not blindly retry device sign-in mutations after uncertain delivery', () => {
+    for (const command of ['start_device_login', 'cancel_device_login', 'fill_device_login']) {
+      expect(isMutatingBrowserMethod(`browser.${command}`)).toBe(true);
+    }
+    expect(isMutatingBrowserMethod('browser.read_device_login')).toBe(false);
+  });
+
   it('treats builder-style designer command names as mutating (defense-in-depth)', () => {
     for (const command of [
       'element_builder',

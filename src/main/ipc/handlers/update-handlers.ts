@@ -11,16 +11,17 @@
 
 import { app, ipcMain } from 'electron';
 import { IPC_CHANNELS, IpcResponse } from '../../../shared/types/ipc.types';
-import { getAutoUpdateService } from '../../updates/auto-update-service';
+import { getDesktopUpdateService } from '../../updates/source-update-runtime';
+import type { InstanceManager } from '../../instance/instance-manager';
 import type { WindowManager } from '../../window-manager';
 import { registerCleanup } from '../../util/cleanup-registry';
 import { isHarnessLiveTest } from '../../app/live-test-context';
 
 let activeCleanup: (() => void) | null = null;
 
-export function registerUpdateHandlers(deps: { windowManager: WindowManager }): () => void {
+export function registerUpdateHandlers(deps: { windowManager: WindowManager; instanceManager: InstanceManager }): () => void {
   activeCleanup?.();
-  const service = getAutoUpdateService();
+  const service = getDesktopUpdateService(deps.instanceManager);
 
   // Broadcast status transitions to the renderer.
   let acceptingStatus = true;
@@ -46,7 +47,7 @@ export function registerUpdateHandlers(deps: { windowManager: WindowManager }): 
   });
 
   ipcMain.handle(IPC_CHANNELS.UPDATE_INSTALL, async (): Promise<IpcResponse> => {
-    return { success: true, data: { installing: service.quitAndInstall() } };
+    return { success: true, data: { installing: await service.quitAndInstall() } };
   });
 
   ipcMain.handle(IPC_CHANNELS.UPDATE_GET_STATUS, async (): Promise<IpcResponse> => {

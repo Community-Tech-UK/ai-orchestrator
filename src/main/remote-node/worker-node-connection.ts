@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import type { Socket } from 'net';
 import { TLSSocket } from 'tls';
 import { WebSocketServer, WebSocket } from 'ws';
+import { assertWorkerNodeStartAllowed, sendWorkerNodeFrame as sendFrame } from './worker-node-connection-writes';
 import { getLogger } from '../logging/logger';
 import {
   createRpcRequest,
@@ -55,13 +56,6 @@ interface PendingRpc {
 }
 
 export type RpcRequestResponder = (response: RpcResponse) => boolean;
-
-/** Hands a frame to the socket; a write failure after the handoff can only be logged. */
-function sendFrame(ws: WebSocket, raw: string, failure: string, meta: Record<string, unknown>): void {
-  ws.send(raw, (err) => {
-    if (err) logger.error(failure, err, meta);
-  });
-}
 
 export class WorkerNodeConnectionServer extends EventEmitter {
   private static instance: WorkerNodeConnectionServer | null = null;
@@ -177,6 +171,8 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     this.wss = null;
   }
 
+  hasActiveWork(): boolean { return [...this.pending.values()].some(request => request.isWork); }
+
   isRunning(): boolean {
     return this.wss !== null;
   }
@@ -192,6 +188,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
     timeoutMs?: number,
     scope?: RpcScope,
   ): Promise<T> {
+    assertWorkerNodeStartAllowed(method);
     const id = `coord-${++this.requestCounter}`;
     const request = createRpcRequest(id, method, params, undefined, scope);
     const timeout = timeoutMs ?? RPC_TIMEOUT_MS;
@@ -304,6 +301,7 @@ export class WorkerNodeConnectionServer extends EventEmitter {
    * successful handoff are still logged asynchronously.
    */
   sendNotification(nodeId: string, method: string, params?: unknown, scope?: RpcScope): boolean {
+    assertWorkerNodeStartAllowed(method);
     const ws = this.nodeToSocket.get(nodeId);
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       logger.warn('sendNotification: node not connected — notification NOT delivered', { nodeId, method });

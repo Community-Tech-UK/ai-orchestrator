@@ -18,7 +18,9 @@ const stable = (remoteWorkersConnected: boolean) => createStableOrchestratorTool
 const BUDGET = {
   // Main added browser.handle_dialog during integration: 71,707 advertised
   // bytes including its approval schema; round up to the next 1 KiB as above.
-  browserFull: { bytes: 72704, render: () => createBrowserMcpTools(client), measure: measureToolSchemaBytes },
+  // Nov-15: four reference-only Codex device-login tools bring the measured full
+  // surface to 75,377 bytes. Existing tools retain their separate ceiling below.
+  browserFull: { bytes: 75776, render: () => createBrowserMcpTools(client), measure: measureToolSchemaBytes },
   browserDeferred: { bytes: 12288, render: () => createDeferredBrowserMcpTools(client, { onReveal: () => undefined }), measure: measureToolSchemaBytes },
   browserStable: { bytes: 12288, render: () => createStableBrowserMcpTools(client), measure: measureToolSchemaBytes },
   // Nov-07: plan_queue_report_ready (the worker completion report, roughly 2 KB of schema)
@@ -47,12 +49,16 @@ describe('advertised tool schema byte budgets', () => {
     const advertised = await server.handleRequest({ method: 'tools/list' }) as { tools: McpServerToolDefinition[] };
     const dialog = advertised.tools.filter(tool => tool.name === 'browser.handle_dialog');
     expect(dialog).toHaveLength(1);
+    const deviceLogin = advertised.tools.filter(tool => tool.name.endsWith('_device_login'));
+    expect(deviceLogin).toHaveLength(4);
+    expect(measureToolSchemaBytes(deviceLogin)).toBeLessThanOrEqual(4096);
     // The new approval-aware tool accounts for 1,435 bytes. The rest still
     // newer HEAD also adds 817 bytes for email-code sender authorization and
     // one-use code submission guidance. Its next 1 KiB ceiling is 71,680;
-    // the full 72,704-byte ratchet above is unchanged.
+    // device-login tools are measured separately, preserving this older ceiling.
     expect(measureToolSchemaBytes(dialog)).toBeLessThanOrEqual(1536);
-    expect(measureToolSchemaBytes(advertised.tools.filter(tool => tool.name !== 'browser.handle_dialog'))).toBeLessThanOrEqual(71680);
+    expect(measureToolSchemaBytes(advertised.tools.filter(tool =>
+      tool.name !== 'browser.handle_dialog' && !tool.name.endsWith('_device_login')))).toBeLessThanOrEqual(71680);
   });
 
   it.each(Object.entries(BUDGET))('%s stays within its measured ceiling', async (_surface, entry) => {

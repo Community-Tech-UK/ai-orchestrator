@@ -1,3 +1,4 @@
+import { getWorkAdmission } from '../../work-admission/work-admission';
 import type { FileAttachment, Instance, InstanceCreateConfig } from '../../../shared/types/instance.types';
 import type { CliAdapter } from '../../cli/adapters/adapter-factory';
 import { BaseCliAdapter } from '../../cli/adapters/base-cli-adapter';
@@ -18,6 +19,7 @@ export function isInitialPromptHeld(error: unknown): boolean { return error inst
 export async function sendInitialPromptToAdapter(instance: Instance, adapter: CliAdapter, message: string, attachments?: FileAttachment[]): Promise<void> {
   const signal = instance.abortController?.signal;
   const beforeProviderDispatch = (): void => {
+    getWorkAdmission().assertNotInMaintenance();
     signal?.throwIfAborted();
     assertAutomaticStartupCurrent();
     if (GlobalPauseService.peek()?.holdsAutomaticInput(instance.id)) throw new InitialPromptHeldError();

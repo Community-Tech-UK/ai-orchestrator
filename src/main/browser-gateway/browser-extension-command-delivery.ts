@@ -54,6 +54,10 @@ export interface BrowserExtensionQueuedCommand {
 
 export type BrowserExtensionCommandQueueKey = string;
 
+export function browserExtensionQueueKeyForNode(nodeId: string): BrowserExtensionCommandQueueKey {
+  return `node:${nodeId}`;
+}
+
 
 /** Coordinator-generated UUIDs only: peer strings must never become log content. */
 export function isBrowserExtensionCommandId(value: unknown): value is string {

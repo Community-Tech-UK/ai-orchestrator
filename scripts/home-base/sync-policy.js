@@ -5,6 +5,10 @@ const path = require('node:path');
 
 const DIRECT_DRIVER = /(?:chrome[-_]devtools|playwright|puppeteer|selenium|chromedriver|node[-_]repl|computer[-_]use|browser[-_]use|unified[-_]computer|remote[-_]debugging)/i;
 const DIRECT_CONTROL = /\b(?:computer\.[a-z_]+|computer\s+use|Chrome\s+DevTools|osascript|AppleScript|System\s+Events|xdotool|pyautogui|pywinauto|cliclick|AutoHotkey|robotjs|nut[-_]js|AXUIElementPerformAction|CGEventPost|UIAutomationClient|SendKeys|GUI\s+(?:scripting|automation)|Claude in Chrome)\b|\bcomputer\.\*|\bopen(?:\s+|:)(?:-(?:a|b)\b|https?:|<url>)|\b(?:chrome|chromium|firefox|msedge)\.exe\b/i;
+const APP_LAUNCH = /(?:^|[\s;&|([{])(?:\/[^\s;&|()]+\/)?open(?=$|[\s:),])/i;
+const BROWSER_EXECUTABLE = /(?:^|[\s;&|([{])(?:\/[^\s;&|()]+\/)?(?:google-chrome(?:-stable|-beta|-unstable)?|chrome|chromium(?:-browser)?|firefox(?:-esr)?|msedge|microsoft-edge(?:-stable|-beta|-dev)?|brave(?:-browser)?|opera|vivaldi|safari|xdg-open|sensible-browser|x-www-browser|gnome-open|kde-open5?)(?=$|[\s:),])/i;
+const DESKTOP_URL_LAUNCH = /(?:^|[\s;&|([{])(?:start(?:-process)?|explorer(?:\.exe)?|rundll32(?:\.exe)?)(?=$|[\s:),])/i;
+const TEXT_EXTENSIONS = new Set(['.md', '.mdc', '.txt', '.json', '.yaml', '.yml', '.toml', '.sh', '.bash', '.zsh', '.py', '.js', '.mjs', '.cjs', '.ts', '.html', '.css', '.svg', '.xsd', '.xml', '.csv']);
 const FILES = new Set(['.agents/AGENTS.md', '.claude/settings.json', '.codex/config.toml', '.codex/RTK.md',
   '.copilot/copilot-instructions.md', '.grok/AGENTS.md', '.cursor/rules/windows-pc-browser-routing.mdc',
   'work/creds/SERVER-ACCESS.md', 'work/server-inventory.md']);
@@ -37,6 +41,12 @@ function approvedPath(relative) {
   return FILES.has(relative) || TREES.some(root => relative.startsWith(root + '/')) || /^\.claude\/projects\/[^/]+\/memory\/[^].+$/.test(relative);
 }
 function isDirectDriver(value) { return DIRECT_DRIVER.test(value); }
+function setupFileRefusal(relative) {
+  const leaf = path.basename(relative);
+  if (leaf.startsWith('.') || /^(?:auth|accounts|credentials|cookies)(?:\.|$)/i.test(leaf)) return 'credential or hidden file';
+  if (!TEXT_EXTENSIONS.has(path.extname(leaf)) && !/^(?:LICENSE|COPYRIGHT)$/i.test(leaf)) return 'non-text asset requires separate review';
+  return null;
+}
 function directCommand(value) {
   const parts = input => {
     if (input === undefined || input === null || typeof input === 'boolean') return [];
@@ -52,7 +62,10 @@ function directCommand(value) {
   // Plain output is harmless; substitutions and command chaining are still inspected.
   if (/^\s*(?:echo|printf|print)\b/.test(text) && !/[;&|$`]/.test(text)) return false;
   const normalized = text.replace(/['"`]/g, ' ').replace(/\s+/g, ' ');
-  return isDirectDriver(normalized) || DIRECT_CONTROL.test(normalized);
+  return isDirectDriver(normalized) || DIRECT_CONTROL.test(normalized) || APP_LAUNCH.test(normalized)
+    || /\.app\/Contents\/MacOS\/|\b(?:webbrowser|startfile|FileProtocolHandler)\b/i.test(normalized)
+    || BROWSER_EXECUTABLE.test(normalized)
+    || (/https?:\/\//i.test(normalized) && DESKTOP_URL_LAUNCH.test(normalized));
 }
 function directScript(text) {
   return text.split('\n').filter(line => !/^\s*#/.test(line)).some(line =>
@@ -65,6 +78,10 @@ function directSkillContent(text) {
   return isDirectDriver(text) || directScript(text) || DIRECT_CONTROL.test(text)
     || /\b(?:headed|local)\s+(?:browser|Chrome)|\b(?:browser|desktop)\s+(?:automation|control)\b/i.test(text)
     || /\b(?:use|launch|start|open|drive|automate|navigate|inspect)\s+(?:(?:a|the)\s+)?(?:Chrome|Chromium|Firefox|Safari|desktop|browser(?!\.[a-z_]|\s+Gateway))\b/i.test(text);
+}
+function directSetupContent(relative, text, skill = /(?:^|\/)skills\//.test(relative)) {
+  if (skill || (/(?:^|\/)commands\//.test(relative) && relative.endsWith('.md'))) return directSkillContent(text);
+  return /(?:^|\/)(?:hooks|commands)\//.test(relative) && directScript(text);
 }
 function assertSecretFree(text, label) {
   const safeValue = value => /^(?:\$|\{|<|\[|\(|your[-_]|example[-_]|placeholder|changeme|process\.|os\.|None|null|undefined|true|false)/i.test(value);
@@ -258,5 +275,5 @@ function sanitizeConfig(text, kind, { source = false, label = 'config', pathExis
   return { text: kind === 'codex' ? serializeToml(value) : JSON.stringify(value, null, 2) + '\n', omitted, excluded };
 }
 
-module.exports = { FILES, TREES, LINKS, approvedPath, isDirectDriver, directCommand, directScript, directSkillContent, assertSecretFree, sanitizeConfig,
+module.exports = { FILES, TREES, LINKS, approvedPath, setupFileRefusal, isDirectDriver, directCommand, directSetupContent, assertSecretFree, sanitizeConfig,
   filterCodexConfig: text => sanitizeConfig(text, 'codex').text, readConfig, serializeToml, BUNDLED_DRIVERS, SAFE_BUNDLED };

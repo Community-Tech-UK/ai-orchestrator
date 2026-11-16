@@ -7,13 +7,39 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 /** Never confuse another packaged test copy, or a helper process, with home base. */
-function checkHarness({ appPath, pausePath, exists, processPaths, reopen }) {
+function checkHarness({ appPath, pausePath, exists, processPaths, reopen, sourceUpdates }) {
   if (exists(pausePath)) return 'paused';
+  const update = sourceUpdates();
+  if (update === 'busy') return 'updating';
+  if (update === 'blocked') return 'source-update-failed';
   if (!exists(appPath)) return 'not-installed';
   const executable = path.join(appPath, 'Contents', 'MacOS', 'Harness');
   if (processPaths().split(/\r?\n/).some(line => line.trim() === executable)) return 'running';
   reopen(appPath);
   return 'reopened';
+}
+
+function sourceUpdateStatus(home, dryRun) {
+  const folder = path.join(home, '.orchestrator', 'home-base');
+  const config = path.join(folder, 'source-updates.json');
+  if (!fs.existsSync(config)) return 'ready';
+  try {
+    if (dryRun) {
+      const journal = path.join(folder, 'source-update-state.json');
+      if (!fs.existsSync(journal)) return 'ready';
+      const value = JSON.parse(fs.readFileSync(journal, 'utf8'));
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid source state');
+      const phase = value.activation?.phase;
+      return phase === 'startup_failed' ? 'blocked' : phase && phase !== 'acknowledged' ? 'busy' : 'ready';
+    }
+    const result = JSON.parse(execFileSync(process.execPath,
+      [path.join(folder, 'source-update-launcher.cjs'), 'recover', '--config', config],
+      { input: '{}', encoding: 'utf8', timeout: 15_000, maxBuffer: 64 * 1024 }));
+    if (!result || !['ready', 'busy', 'blocked'].includes(result.status)) throw new Error('Invalid source recovery status');
+    return result.status;
+  } catch {
+    throw new Error('Source update recovery could not finish. Harness was left closed; inspect the update log.');
+  }
 }
 
 function launchAgentPlist(node, script) {
@@ -55,13 +81,14 @@ function main(args) {
     appPath: path.join(os.homedir(), 'Applications', 'Harness.app'),
     pausePath: path.join(os.homedir(), '.orchestrator', 'home-base-reopen.paused'),
     exists: fs.existsSync,
+    sourceUpdates: () => sourceUpdateStatus(os.homedir(), dryRun),
     processPaths: () => execFileSync('/bin/ps', ['-axo', 'comm='], { encoding: 'utf8', timeout: 10000 }),
     reopen: appPath => { if (!dryRun) execFileSync('/usr/bin/open', ['-a', appPath], { timeout: 10000 }); },
   });
   console.log(dryRun && result === 'reopened' ? 'would-reopen' : result);
 }
 
-module.exports = { checkHarness, launchAgentPlist };
+module.exports = { checkHarness, launchAgentPlist, sourceUpdateStatus };
 if (require.main === module) {
   try { main(process.argv.slice(2)); }
   catch (error) { console.error(error.message); process.exitCode = 1; }

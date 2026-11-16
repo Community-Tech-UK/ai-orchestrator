@@ -3,6 +3,8 @@ import type { InstanceCreateConfig, OutputMessage } from '../../../shared/types/
 import { personInputOrigin } from '../person-input-origin';
 
 export function getSeededInitialUserMessage(config: InstanceCreateConfig): OutputMessage | undefined {
+  // A restored transcript is display state, never permission to start a new provider turn.
+  if (!config.initialPrompt?.length && !config.attachments?.length) return undefined;
   const outputBuffer = config.initialOutputBuffer;
   if (!outputBuffer || outputBuffer.length === 0) {
     return undefined;

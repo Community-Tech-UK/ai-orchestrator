@@ -122,6 +122,16 @@ describe('SessionWatcher', () => {
     vi.useRealTimers();
   });
 
+  it('reports the live judging job until its outcome settles', async () => {
+    expect(watcher.hasPendingWork('root')).toBe(false);
+    complete();
+    await vi.waitFor(() => expect(judgeCalls).toHaveLength(1));
+    expect(watcher.hasPendingWork('root')).toBe(true);
+    await answer(verdictJson({ verdict: 'finished', stop: 'work_complete', basis: 'none' }));
+    await settled();
+    expect(watcher.hasPendingWork('root')).toBe(false);
+  });
+
   it('lets the rule-based answer through only where its own replies could go', () => {
     expect(watcher.allowsRuleReply(instance)).toBe(true);
     for (const quiet of ['off', 'flag-only'] as const) {

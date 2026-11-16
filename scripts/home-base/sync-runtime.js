@@ -1,7 +1,7 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
-const { TREES, isDirectDriver, directScript, directSkillContent, sanitizeConfig } = require('./sync-policy');
+const { TREES, isDirectDriver, directSetupContent, sanitizeConfig } = require('./sync-policy');
 const { safeDestination, validatePackage, atomicWrite, mergeMemoryIndex, inside } = require('./sync-files');
 
 function applySyncPackage(pkg, { destinationHome, stateRoots = [] }) {
@@ -118,9 +118,9 @@ function applySyncPackage(pkg, { destinationHome, stateRoots = [] }) {
       if (ancestors.has(real)) throw new Error('Setup filter refuses a cyclic setup link');
       const next = new Set([...ancestors, real]);
       for (const child of fs.readdirSync(target)) inspectSetup(`${relative}/${child}`, skillRoot, next);
-    } else if (stat.isFile() && (skillRoot || /\.(?:sh|bash|zsh|js|mjs|cjs|ts|py)$/.test(relative) || (relative.includes('/commands/') && relative.endsWith('.md')))) {
+    } else if (stat.isFile() && (skillRoot || /(?:^|\/)(?:hooks|commands)\//.test(relative))) {
       const text = fs.readFileSync(target, 'utf8');
-      if (skillRoot || (relative.includes('/commands/') && relative.endsWith('.md')) ? directSkillContent(text) : directScript(text)) exclude();
+      if (directSetupContent(relative, text, Boolean(skillRoot))) exclude();
     }
   };
   for (const root of [...TREES.filter(root => /\/(?:skills|hooks|commands)$/.test(root)), '.codex/hooks', '.codex/commands']) {

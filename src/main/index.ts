@@ -49,6 +49,7 @@ import {
 import { CLEANUP_TIMEOUT_MS } from './process/shutdown-timeouts';
 import { abortContextEvidenceMaintenance, stopContextEvidenceMaintenance } from './context-evidence/evidence-maintenance-service';
 import { createWindowAndStartEvidenceMaintenance } from './app/initialization-steps';
+import { markDesktopUpdatesReady } from './updates/source-update-runtime';
 
 // Register built-in provider adapters once at startup so the instance
 // manager (and future consumers) can look them up by ProviderName.
@@ -214,6 +215,8 @@ class HarnessApp {
       },
       Boolean(startupSmokeDirectory),
     );
+
+    await markDesktopUpdatesReady();
 
     if (startupSmokeDirectory) {
       fs.writeFileSync(

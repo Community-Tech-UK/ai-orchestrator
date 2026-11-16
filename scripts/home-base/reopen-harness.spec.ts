@@ -2,13 +2,13 @@ import { createRequire } from 'node:module';
 import { describe, expect, it, vi } from 'vitest';
 const require = createRequire(import.meta.url);
 const { checkHarness, launchAgentPlist } = require('./reopen-harness.js') as {
-  checkHarness: (input: { appPath: string; pausePath: string; exists: (path: string) => boolean; processPaths: () => string; reopen: (path: string) => void }) => string;
+  checkHarness: (input: { appPath: string; pausePath: string; exists: (path: string) => boolean; processPaths: () => string; reopen: (path: string) => void; sourceUpdates: () => 'ready' | 'busy' | 'blocked' }) => string;
   launchAgentPlist: (node: string, script: string) => string;
 };
 const appPath = '/Users/operator/Applications/Harness.app';
 const pausePath = '/Users/operator/.orchestrator/home-base-reopen.paused';
 function input(processes = '') {
-  return { appPath, pausePath, exists: (path: string): boolean => path === appPath, processPaths: () => processes, reopen: vi.fn() };
+  return { appPath, pausePath, exists: (path: string): boolean => path === appPath, processPaths: () => processes, reopen: vi.fn(), sourceUpdates: vi.fn<() => 'ready' | 'busy' | 'blocked'>(() => 'ready') };
 }
 describe('home base crash reopen', () => {
   it('reopens only the installed app path when only a test copy is running', () => {
@@ -40,5 +40,25 @@ describe('home base crash reopen', () => {
     expect(plist).toContain('<integer>300</integer>');
     expect(plist).toContain('<string>/node&amp;bin</string>');
     expect(plist).toContain('<string>/home/a&lt;b/reopen-harness.js</string>');
+  });
+  it('recovers a swap before checking whether the installed app exists', () => {
+    const deps = input();
+    let recovered = false;
+    deps.exists = location => location === appPath && recovered;
+    deps.sourceUpdates.mockImplementation(() => { recovered = true; return 'ready'; });
+    expect(checkHarness(deps)).toBe('reopened');
+    expect(deps.reopen).toHaveBeenCalledWith(appPath);
+  });
+  it.each(['busy', 'blocked'] as const)('does not launch while source updates report %s', status => {
+    const deps = input();
+    deps.sourceUpdates.mockReturnValue(status);
+    expect(checkHarness(deps)).toBe(status === 'busy' ? 'updating' : 'source-update-failed');
+    expect(deps.reopen).not.toHaveBeenCalled();
+  });
+  it('does not perform update recovery during an operator pause', () => {
+    const deps = input();
+    deps.exists = () => true;
+    expect(checkHarness(deps)).toBe('paused');
+    expect(deps.sourceUpdates).not.toHaveBeenCalled();
   });
 });

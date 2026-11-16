@@ -24,6 +24,8 @@ const fakes = vi.hoisted(() => {
     setReservedNodeIds: vi.fn(),
   };
   return {
+    deviceRuntime: vi.fn(),
+    transfers: {},
     missingTailscale: false,
     mobileStart: vi.fn(async () => undefined),
     settings: {} as Record<string, unknown>,
@@ -63,11 +65,14 @@ vi.mock('../remote-node', () => ({
   handleWorkerRestart: vi.fn(),
   RpcEventRouter: class {
     start = fakes.rpcRouterStart;
+    codexDeviceTransfers = fakes.transfers;
   },
   getRemoteNodeConfig: () => fakes.config,
   hydrateRemoteNodeConfig: vi.fn(),
   getDiscoveryService: () => ({ publish: fakes.publish }),
 }));
+
+vi.mock('../browser-gateway/browser-device-login-runtime', () => ({ initializeBrowserDeviceLoginRuntime: fakes.deviceRuntime }));
 
 vi.mock('../notifications/notification-service', () => ({
   getNotificationService: () => ({ notify: fakes.notify, resolve: fakes.resolve }),
@@ -123,6 +128,15 @@ describe('createWorkerNodeSubsystemStep', () => {
   // "start server" IPC handler, so a normally-started coordinator never
   // advertised and workers had nothing to discover when their pinned
   // coordinator URL died.
+  it('shares the RPC router transfer registry with device login, even when listener is disabled', async () => {
+    fakes.config.enabled = false;
+    const context = buildContext();
+    await createWorkerNodeSubsystemStep(context).fn();
+    expect(fakes.deviceRuntime).toHaveBeenCalledWith(expect.objectContaining({
+      instanceManager: context.instanceManager, registry: fakes.registry, transfers: fakes.transfers,
+    }));
+  });
+
   it('gives the registry the Computers page\'s choices, and each change to them', async () => {
     const first = [{ id: 'pc', paused: false, sessions: true }];
     fakes.settings = { computers: first };

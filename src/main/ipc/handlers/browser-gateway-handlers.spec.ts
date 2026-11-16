@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IPC_CHANNELS } from '@contracts/channels';
+import type { RedeliveryContext } from '../../session/session-admission-service';
 
 type IpcHandler = (event: unknown, payload: unknown) => Promise<unknown>;
 const handlers = new Map<string, IpcHandler>();
@@ -18,7 +19,8 @@ const mocks = vi.hoisted(() => ({
   })),
   markDelivered: vi.fn(),
   markFailed: vi.fn(),
-  registerRedeliveryHandler: vi.fn(),
+  registerRedeliveryHandler: vi.fn<(origin: string, handler: (ctx: RedeliveryContext) => void) => void>(),
+  getApprovalRequest: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -31,6 +33,7 @@ vi.mock('../../browser-gateway/browser-gateway-service', () => ({
   getBrowserGatewayService: () => ({
     approveRequest: mocks.approveRequest,
     denyRequest: mocks.denyRequest,
+    getApprovalRequest: mocks.getApprovalRequest,
   }),
 }));
 
@@ -49,16 +52,93 @@ vi.mock('../../logging/logger', () => ({
 
 import { registerBrowserGatewayHandlers } from './browser-gateway-handlers';
 import { resolveCredentialAccessSession, findCredentialAccessSession, notifyCredentialAccessDecision } from '../../browser-gateway/browser-credential-access-session';
+import { BrowserDeviceLoginCapability, setBrowserDeviceLoginCapabilityProvider } from '../../browser-gateway/browser-device-login-capability';
 
 describe('Browser Gateway approval resume admission', () => {
   const sendInput = vi.fn(async () => undefined);
+  afterEach(() => setBrowserDeviceLoginCapabilityProvider(null));
 
   beforeEach(() => {
+    setBrowserDeviceLoginCapabilityProvider(null);
     handlers.clear();
     vi.clearAllMocks();
+    mocks.approveRequest.mockReset().mockResolvedValue({ decision: 'allowed', outcome: 'succeeded', data: { instanceId: 'inst-1' } });
+    mocks.getApprovalRequest.mockReset();
     registerBrowserGatewayHandlers({
       instanceManager: { sendInput } as never,
     });
+  });
+
+  function deviceDecision() {
+    const capabilities = new BrowserDeviceLoginCapability(id => id === 'inst-1');
+    setBrowserDeviceLoginCapabilityProvider(capabilities);
+    const token = capabilities.mint('inst-1');
+    const deviceLogin = { ownerSessionId: 'inst-1', ownerGeneration: capabilities.verify('inst-1', token), expiresAt: Date.now() + 60_000 };
+    mocks.approveRequest.mockResolvedValueOnce({ decision: 'allowed', outcome: 'succeeded', data: null } as never);
+    mocks.getApprovalRequest.mockResolvedValueOnce({ decision: 'allowed', outcome: 'succeeded',
+      data: { instanceId: 'inst-1', status: 'approved', deviceLogin } });
+    const payload = { requestId: 'device-request', deviceLogin: { permission: 'operation' },
+      grant: { mode: 'per_action', allowedOrigins: [{ scheme: 'https', hostPattern: 'auth.openai.com', includeSubdomains: false }], allowedActionClasses: ['credential'],
+        allowExternalNavigation: false, autonomous: false } };
+    return { capabilities, deviceLogin, payload };
+  }
+
+  it('wakes the exact device-login owner after approval without a reusable grant', async () => {
+    const { deviceLogin, payload } = deviceDecision();
+    expect(await handlers.get(IPC_CHANNELS.BROWSER_APPROVE_REQUEST)?.({}, payload)).toMatchObject({ success: true });
+    expect(sendInput).toHaveBeenCalledOnce();
+    expect(mocks.admitAutomatedWrite).toHaveBeenCalledWith(expect.objectContaining({
+      sourceMetadata: { decision: 'approved', requestId: 'device-request', deviceLogin },
+    }));
+  });
+
+  it('does not wake a replacement owner for an old device approval', async () => {
+    const { capabilities, payload } = deviceDecision();
+    capabilities.mint('inst-1');
+    expect(await handlers.get(IPC_CHANNELS.BROWSER_APPROVE_REQUEST)?.({}, payload)).toMatchObject({ success: true });
+    expect(sendInput).not.toHaveBeenCalled();
+    expect(mocks.admitAutomatedWrite).not.toHaveBeenCalled();
+  });
+
+  it.each(['restart', 'expiry'] as const)('drops delayed device approval wake after %s', async change => {
+    const { capabilities, deviceLogin } = deviceDecision();
+    if (change === 'restart') capabilities.mint('inst-1');
+    else deviceLogin.expiresAt = Date.now() - 1;
+    const redeliver = mocks.registerRedeliveryHandler.mock.calls[0]![1];
+    redeliver({ instanceId: 'inst-1', admissionId: 'device-admission', message: 'Approved', sourceMetadata: { deviceLogin } });
+    expect(sendInput).not.toHaveBeenCalled();
+    expect(mocks.markFailed).toHaveBeenCalledWith('device-admission', 'device_login_owner_no_longer_current');
+  });
+
+  it('delivers a deferred device decision when its original owner is still current', async () => {
+    const { deviceLogin } = deviceDecision();
+    const redeliver = mocks.registerRedeliveryHandler.mock.calls[0]![1];
+    redeliver({ instanceId: 'inst-1', admissionId: 'device-admission', message: 'Approved', sourceMetadata: { deviceLogin } });
+    await Promise.resolve();
+    expect(sendInput).toHaveBeenCalledExactlyOnceWith('inst-1', 'Approved', undefined,
+      { automatedInput: true, internalSource: 'browser-gateway' });
+    expect(mocks.markDelivered).toHaveBeenCalledWith('device-admission');
+  });
+
+  it('checks ownership again if admission changes the session before delivery', async () => {
+    const { capabilities, payload } = deviceDecision();
+    mocks.admitAutomatedWrite.mockImplementationOnce(() => {
+      capabilities.mint('inst-1');
+      return { kind: 'admitted', admissionId: 'device-admission' };
+    });
+    expect(await handlers.get(IPC_CHANNELS.BROWSER_APPROVE_REQUEST)?.({}, payload)).toMatchObject({ success: true });
+    expect(sendInput).not.toHaveBeenCalled();
+    expect(mocks.markFailed).toHaveBeenCalledWith('device-admission', 'device_login_owner_no_longer_current');
+  });
+
+  it.each([false, true])('checks device denial ownership after restart=%s', async restarted => {
+    const { capabilities, deviceLogin } = deviceDecision();
+    mocks.denyRequest.mockResolvedValueOnce({ decision: 'allowed', outcome: 'succeeded',
+      data: { instanceId: 'inst-1', deviceLogin } } as never);
+    if (restarted) capabilities.mint('inst-1');
+    expect(await handlers.get(IPC_CHANNELS.BROWSER_DENY_REQUEST)?.({}, { requestId: 'device-request' }))
+      .toMatchObject({ success: true });
+    expect(sendInput).toHaveBeenCalledTimes(restarted ? 0 : 1);
   });
 
   it('requires a ready lifecycle and idle provider runtime before sending the resume nudge', async () => {

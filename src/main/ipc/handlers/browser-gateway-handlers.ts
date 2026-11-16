@@ -32,12 +32,13 @@ import {
   BrowserWaitForRequestSchema,
 } from '@contracts/schemas/browser';
 import { validateIpcPayload } from '@contracts/schemas/common';
-import type { BrowserGatewayResult } from '@contracts/types/browser';
+import type { BrowserDeviceLoginMetadata, BrowserGatewayResult } from '@contracts/types/browser';
 import type { IpcResponse } from '../validated-handler';
 import { getBrowserGatewayService } from '../../browser-gateway/browser-gateway-service';
 import type { InstanceManager } from '../../instance/instance-manager';
 import { getLogger } from '../../logging/logger';
 import { getSessionAdmissionService } from '../../session/session-admission-service';
+import { isBrowserDeviceLoginGenerationCurrent } from '../../browser-gateway/browser-device-login-capability';
 import {
   findCredentialAccessSession,
   setCredentialAccessDecisionNotifier,
@@ -228,7 +229,14 @@ export function registerBrowserGatewayHandlers(
     BrowserApproveRequestPayloadSchema,
     async (service, payload) => {
       const result = await service.approveRequest(payload);
-      if (result.data?.reason !== 'saved_login_access_approved') {
+      if (payload.deviceLogin && result.decision === 'allowed' && result.outcome === 'succeeded') {
+        // Device approval creates no reusable grant. Read its trusted owner from the
+        // resolved request, never from renderer-authored approval payload fields.
+        const approval = await service.getApprovalRequest({ requestId: payload.requestId });
+        if (approval.data?.deviceLogin && approval.data.status === 'approved') {
+          resumeInstanceAfterBrowserDecision(deps.instanceManager, 'approved', payload.requestId, approval);
+        }
+      } else if (result.data?.reason !== 'saved_login_access_approved') {
         resumeInstanceAfterBrowserDecision(deps.instanceManager, 'approved', payload.requestId, result);
       }
       return result;
@@ -327,6 +335,11 @@ export function registerBrowserGatewayHandlers(
   if (deps.instanceManager) {
     const instanceManager = deps.instanceManager;
     getSessionAdmissionService().registerRedeliveryHandler('browser-gateway', (ctx) => {
+      if (ctx.sourceMetadata && Object.hasOwn(ctx.sourceMetadata, 'deviceLogin') &&
+        !currentDeviceLoginResume(ctx.instanceId, ctx.sourceMetadata['deviceLogin'])) {
+        getSessionAdmissionService().markFailed(ctx.admissionId, 'device_login_owner_no_longer_current');
+        return;
+      }
       void instanceManager
         .sendInput(ctx.instanceId, ctx.message, undefined, { automatedInput: true, internalSource: 'browser-gateway' })
         .then(() => getSessionAdmissionService().markDelivered(ctx.admissionId))
@@ -410,7 +423,7 @@ export function resumeInstanceAfterBrowserDecision(
     return;
   }
 
-  const typed = result as BrowserGatewayResult<{ instanceId?: string } | null> | undefined;
+  const typed = result as BrowserGatewayResult<{ instanceId?: string; deviceLogin?: BrowserDeviceLoginMetadata } | null> | undefined;
   // Only resume when the decision actually took effect. Not-found / no-longer-
   // pending branches return `decision: 'denied'` with `outcome: 'not_run'`.
   if (!typed || typed.decision !== 'allowed' || typed.outcome !== 'succeeded') {
@@ -421,6 +434,10 @@ export function resumeInstanceAfterBrowserDecision(
   if (!instanceId) {
     return;
   }
+  const device = typed.data?.deviceLogin;
+  const deviceLogin = device ? { ownerSessionId: device.ownerSessionId,
+    ownerGeneration: device.ownerGeneration, expiresAt: device.expiresAt } : undefined;
+  if (deviceLogin && !currentDeviceLoginResume(instanceId, deviceLogin)) return;
 
   const message = decision === 'approved'
     ? `Browser Gateway approval request ${requestId} was approved by the user. Retry the action this request authorises and continue. Re-check the page before treating sign-in as complete. A manual handoff does not grant access to a saved login.`
@@ -438,7 +455,7 @@ export function resumeInstanceAfterBrowserDecision(
     instanceId,
     origin: 'browser-gateway',
     message,
-    sourceMetadata: { decision, requestId },
+    sourceMetadata: { decision, requestId, ...(deviceLogin ? { deviceLogin } : {}) },
     requireReadyForInput: true,
     coalesceKey: `browser-approval-resume:${requestId}`,
   });
@@ -452,6 +469,10 @@ export function resumeInstanceAfterBrowserDecision(
     return;
   }
 
+  if (deviceLogin && !currentDeviceLoginResume(instanceId, deviceLogin)) {
+    getSessionAdmissionService().markFailed(outcome.admissionId, 'device_login_owner_no_longer_current');
+    return;
+  }
   void instanceManager.sendInput(instanceId, message, undefined, { automatedInput: true, internalSource: 'browser-gateway' })
     .then(() => getSessionAdmissionService().markDelivered(outcome.admissionId))
     .catch((error) => {
@@ -465,4 +486,13 @@ export function resumeInstanceAfterBrowserDecision(
         error: error instanceof Error ? error.message : String(error),
       });
     });
+}
+
+function currentDeviceLoginResume(instanceId: string, value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const metadata = value as Record<string, unknown>;
+  return metadata['ownerSessionId'] === instanceId && typeof metadata['ownerGeneration'] === 'string' &&
+    typeof metadata['expiresAt'] === 'number' && Number.isSafeInteger(metadata['expiresAt']) &&
+    metadata['expiresAt'] > Date.now() &&
+    isBrowserDeviceLoginGenerationCurrent(instanceId, metadata['ownerGeneration']);
 }

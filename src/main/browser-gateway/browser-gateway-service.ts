@@ -475,6 +475,9 @@ export class BrowserGatewayService {
     }
   }
 
+  /** Main-process composition only; ordinary and device fills must invalidate each other. */
+  getDeviceLoginLedger(): BrowserOneTimeCodeFillLedger { return this.oneTimeCodeFills; }
+
   async listProfiles(
     context: BrowserGatewayContext = {},
   ): Promise<BrowserGatewayResult<ReturnType<typeof toAgentSafeProfile>[]>> {

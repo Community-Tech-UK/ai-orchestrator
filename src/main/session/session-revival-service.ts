@@ -17,7 +17,7 @@ export interface SessionRevivalRequest {
   /** Continue the revived session on this account instead of the one it was archived with. */
   accountProfileId?: string;
   reviveIfArchived: boolean;
-  reason: 'thread-wakeup' | 'history-restore' | 'global-pause-resume';
+  reason: 'thread-wakeup' | 'history-restore' | 'global-pause-resume' | 'source-update';
 }
 
 export interface SessionRevivalResult {
@@ -89,6 +89,10 @@ export class SessionRevivalService {
     }
 
     if (openCopy) {
+      // Automatic update recovery may reopen history, but never run restart's replay/continuation turn.
+      if (request.reason === 'source-update') return {
+        status: 'failed', failureCode: 'resume_failed', error: 'This conversation needs to be reopened from History.',
+      };
       return this.restartInPlace(openCopy.id);
     }
 

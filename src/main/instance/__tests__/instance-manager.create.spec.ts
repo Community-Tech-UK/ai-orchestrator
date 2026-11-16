@@ -1580,6 +1580,21 @@ describe('InstanceManager', () => {
       }));
     });
 
+    it.each(['The old user question', ''])('restores transcript text %j without sending a provider prompt', async content => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        isRestoredSession: true,
+        initialOutputBuffer: [{ id: 'archived-user', type: 'user', content, timestamp: 1 }],
+      });
+      await instance.readyPromise;
+      expect(instance.status).toBe('idle');
+      expect(instance.nodePlacement).toBeUndefined();
+      expect(instance.modelRuntimeTarget).toBeUndefined();
+      expect(instance.executionLocation).toEqual({ type: 'local' });
+      expect(instance.outputBuffer).toContainEqual(expect.objectContaining({ id: 'archived-user', content }));
+      expect(mockAdapterSendInput).not.toHaveBeenCalled();
+    });
+
     it('prepends indexed codebase context to fresh root initial prompts', async () => {
       mockIndexedBuildContext.mockResolvedValueOnce({
         context: '- src/auth/middleware.ts:10\n```typescript\nrequireAuth();\n```',

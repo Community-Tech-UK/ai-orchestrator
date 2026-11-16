@@ -1,3 +1,4 @@
+import { getWorkAdmission } from '../work-admission/work-admission';
 import { randomUUID } from 'node:crypto';
 import { getLogger } from '../logging/logger';
 import {
@@ -45,9 +46,7 @@ export const BROWSER_EXTENSION_CHANNEL_RECOVERY_WAIT_MS = 90_000;
  */
 export const BROWSER_EXTENSION_RECEIPT_WINDOW_MS = 15_000;
 
-export function browserExtensionQueueKeyForNode(nodeId: string): BrowserExtensionCommandQueueKey {
-  return `node:${nodeId}`;
-}
+export { browserExtensionQueueKeyForNode } from './browser-extension-command-delivery';
 
 export type {
   BrowserExtensionCommandName, BrowserExtensionCommandTarget, BrowserExtensionQueuedCommand,
@@ -88,6 +87,7 @@ export class BrowserExtensionCommandStore {
   }
 
   sendCommand(request: BrowserExtensionSendCommandRequest): Promise<unknown> {
+    if (getWorkAdmission().isInMaintenance()) return Promise.reject(new Error('Harness is updating. Try again after it restarts.'));
     const queueKey = request.queueKey ?? 'local';
     if (isDeviceLoginCommand(request.command) && (
       !queueKey.startsWith('node:') || !request.target?.extensionInstanceId

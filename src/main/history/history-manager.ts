@@ -626,11 +626,13 @@ export class HistoryManager {
     const concurrency = Math.max(1, options.concurrency ?? 2);
 
     const now = Date.now();
+    const sideChatThreads = this.sideChatHistoryThreads();
     const pending = entries
       .filter(
         (entry) =>
           !entry.isRenamed &&
           !entry.aiTitle &&
+          !sideChatThreads.has(entry.historyThreadId ?? '') &&
           !this.aiTitleInFlight.has(entry.id) &&
           !this.aiTitleRecentlyFailed(entry.id, now) &&
           (entry.firstUserMessage ?? '').trim().length >= 10

@@ -49,6 +49,7 @@ import {
 import {
   handleReportToolSurface,
   parseBoundedNameList,
+  parseBrowserRpcParams,
   validateBrowserRpcPayload,
 } from './browser-rpc-server-support';
 import {
@@ -58,19 +59,14 @@ import {
 import { routeBrowserGatewayRequest } from './browser-remote-offload-policy';
 import { compactAgentTargetListing } from './browser-agent-target-listing';
 import { withBrowserSession } from './browser-session-context';
+import { isBrowserDeviceLoginMethod } from './browser-device-login-capability';
+import { dispatchBrowserDeviceLoginRpc, type BrowserDeviceLoginRpcController } from './browser-device-login-rpc';
 
 interface BrowserGatewayRpcRequest {
   jsonrpc?: '2.0';
   id?: number | string | null;
   method: string;
   params?: unknown;
-}
-
-interface BrowserGatewayRpcParams {
-  instanceId: string;
-  capabilityToken?: string;
-  provider?: string;
-  payload: Record<string, unknown>;
 }
 
 interface BrowserGatewayExtensionRpcParams {
@@ -81,6 +77,7 @@ interface BrowserGatewayExtensionRpcParams {
 
 export interface BrowserGatewayRpcServerOptions {
   service?: Partial<BrowserGatewayService>;
+  deviceLoginController?: BrowserDeviceLoginRpcController;
   extensionCommandStore?: Pick<
     BrowserExtensionCommandStore,
     'pollCommand' | 'resolveCommand' | 'markReceived' | 'validateCommandHandoff'
@@ -139,6 +136,7 @@ interface BrowserGatewayRateBucketEntry {
 
 export class BrowserGatewayRpcServer {
   private readonly service: Partial<BrowserGatewayService>;
+  private readonly deviceLoginController?: BrowserDeviceLoginRpcController;
   private readonly extensionCommandStore: Pick<
     BrowserExtensionCommandStore,
     'pollCommand' | 'resolveCommand' | 'markReceived' | 'validateCommandHandoff'
@@ -166,6 +164,7 @@ export class BrowserGatewayRpcServer {
 
   constructor(options: BrowserGatewayRpcServerOptions = {}) {
     this.service = options.service ?? getBrowserGatewayService();
+    this.deviceLoginController = options.deviceLoginController;
     this.extensionCommandStore =
       options.extensionCommandStore ?? getBrowserExtensionCommandStore();
     this.checkpointStore = options.checkpointStore;
@@ -253,23 +252,29 @@ export class BrowserGatewayRpcServer {
       return this.handleExtensionDisconnected(request);
     }
 
-    const params = this.parseParams(request.params);
+    const params = parseBrowserRpcParams(request.params);
     if (!this.isKnownLocalInstance(params.instanceId)) {
       throw new Error('unknown browser gateway instance');
     }
     const payloadBytes = this.enforcePayloadSize(params.payload);
     this.enforceRateLimit(params.instanceId, payloadBytes);
+    if (isBrowserDeviceLoginMethod(request.method)) {
+      return withBrowserSession(this.userDataPath, params.instanceId,
+        () => dispatchBrowserDeviceLoginRpc(this.deviceLoginController, request.method, params));
+    }
     const routedPayload = this.routeBrowserRequest(request.method, params.payload, params.instanceId);
 
     // Unattended-layer runtime methods (escalations, campaign leases, session
     // sentinel) validate their own payloads and dispatch to the unattended
     // singletons rather than per-tool service methods.
     if (isUnattendedRpcMethod(request.method)) {
-      return handleUnattendedRpcMethod(request.method, routedPayload, {
-        instanceId: params.instanceId,
-        ...(params.provider ? { provider: params.provider } : {}),
-        service: this.service,
-      });
+      const method = request.method;
+      return withBrowserSession(this.userDataPath, params.instanceId,
+        () => handleUnattendedRpcMethod(method, routedPayload, {
+          instanceId: params.instanceId,
+          ...(params.provider ? { provider: params.provider } : {}),
+          service: this.service,
+        }));
     }
 
     // Forwarder tool-surface continuity (reliability hardening): lets a
@@ -550,7 +555,9 @@ export class BrowserGatewayRpcServer {
       this.writeError(
         socket,
         request?.id ?? null,
-        error instanceof SyntaxError
+        request && isBrowserDeviceLoginMethod(request.method)
+          ? 'device_login_request_refused'
+          : error instanceof SyntaxError
           ? 'Invalid Browser Gateway RPC request JSON'
           : error instanceof Error
             ? error.message
@@ -566,7 +573,7 @@ export class BrowserGatewayRpcServer {
    */
   private assertSocketRequestCapability(request: BrowserGatewayRpcRequest): void {
     if (EXTENSION_RPC_METHODS.has(request.method)) return;
-    const params = this.parseParams(request.params);
+    const params = parseBrowserRpcParams(request.params);
     if (!this.isKnownLocalInstance(params.instanceId)) {
       throw new Error('unknown browser gateway instance');
     }
@@ -590,27 +597,6 @@ export class BrowserGatewayRpcServer {
         },
       })}\n`,
     );
-  }
-
-  private parseParams(params: unknown): BrowserGatewayRpcParams {
-    if (!params || typeof params !== 'object') {
-      throw new Error('Browser Gateway RPC params are required');
-    }
-    const value = params as Partial<BrowserGatewayRpcParams>;
-    if (typeof value.instanceId !== 'string' || !value.instanceId) {
-      throw new Error('Browser Gateway RPC instanceId is required');
-    }
-    if (!value.payload || typeof value.payload !== 'object' || Array.isArray(value.payload)) {
-      throw new Error('Browser Gateway RPC payload is required');
-    }
-    const parsed = {
-      instanceId: value.instanceId,
-      ...(typeof value.capabilityToken === 'string' ? { capabilityToken: value.capabilityToken } : {}),
-      payload: value.payload,
-    };
-    return typeof value.provider === 'string' && value.provider
-      ? { ...parsed, provider: value.provider }
-      : parsed;
   }
 
   private parseExtensionParams(params: unknown): BrowserGatewayExtensionRpcParams {

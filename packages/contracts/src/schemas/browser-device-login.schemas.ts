@@ -2,6 +2,17 @@ import type { BrowserApprovalRequest } from '../types/browser.types';
 import { z } from 'zod';
 
 const id = z.string().min(1).max(200);
+/** Public requests contain references only; authority is supplied by authenticated transport. */
+export const BrowserStartDeviceLoginRequestSchema = z.object({
+  nodeId: id,
+  profileId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/).refine(value => value !== 'legacy'),
+}).strict();
+export const BrowserReadDeviceLoginRequestSchema = z.object({ loginHandle: z.uuid() }).strict();
+export const BrowserCancelDeviceLoginRequestSchema = z.object({ loginHandle: z.uuid() }).strict();
+export const BrowserFillDeviceLoginRequestSchema = z.object({
+  loginHandle: z.uuid(), profileId: id, targetId: id,
+}).strict();
+
 /** Non-secret bindings supplied by the authenticated native and browser owners. */
 export const BrowserDeviceLoginMetadataSchema = z.object({
   operationHandle: id,

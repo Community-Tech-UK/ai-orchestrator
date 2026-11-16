@@ -58,6 +58,8 @@ export class HistoryStore {
   /** All history entries */
   readonly entries = computed(() => this.state().entries);
 
+  private readonly displayedEntries = computed(() => this.entries().filter(entry => !entry.hideFromProjectRail));
+
   /** Loading state */
   readonly loading = computed(() => this.state().loading);
 
@@ -96,12 +98,12 @@ export class HistoryStore {
   readonly expandedSnippets = computed(() => this.state().expandedSnippets);
 
   /** Entry count */
-  readonly entryCount = computed(() => this.state().entries.length);
+  readonly entryCount = computed(() => this.displayedEntries().length);
 
   /** Filtered entries based on search query */
   readonly filteredEntries = computed(() => {
     const query = this.state().searchQuery.toLowerCase().trim();
-    const entries = this.state().entries;
+    const entries = this.displayedEntries();
 
     if (!query) return entries;
 
@@ -116,7 +118,7 @@ export class HistoryStore {
   });
 
   /** Check if there are any entries */
-  readonly hasEntries = computed(() => this.state().entries.length > 0);
+  readonly hasEntries = computed(() => this.entryCount() > 0);
 
   // ============================================
   // Public Actions

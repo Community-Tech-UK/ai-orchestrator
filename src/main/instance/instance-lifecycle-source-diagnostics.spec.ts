@@ -115,7 +115,7 @@ describe('real manager logging callers preserve their original payload', () => {
     const config = { workingDirectory: '/tmp/project', initialPrompt: source,
       attachments: [{ name: source, type: 'text/plain', size: 1, data: source }],
       initialOutputBuffer: [{ id: 'local-output', timestamp: 1, type: 'user' as const, content: source, metadata: { source } }] };
-    await expect(InstanceManager.prototype.createInstance.call({} as InstanceManager, config)).rejects.toThrow('memory-critical');
+    await expect(InstanceManager.prototype.createInstance.call(Object.assign(Object.create(InstanceManager.prototype), { pendingSessionOperations: 0 }) as InstanceManager, config)).rejects.toThrow('memory-critical');
     expect(config.initialPrompt).toBe(source); expect(config.initialOutputBuffer[0].content).toBe(source);
     expect(mocks.logManager!.getRecentLogs().some((row) => row.message.startsWith('Refusing to create instance'))).toBe(true);
     expect(serialize(mocks.logManager!.getRecentLogs())).not.toContain(source);

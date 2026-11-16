@@ -5,6 +5,8 @@ export type UpdateState =
   | 'not-available'
   | 'downloading'
   | 'downloaded'
+  | 'building'
+  | 'waiting-idle'
   | 'error';
 
 export type UpdateErrorContext = 'check' | 'download' | 'install';
@@ -13,6 +15,8 @@ export type UpdateErrorContext = 'check' | 'download' | 'install';
 export interface UpdateStatus {
   state: UpdateState;
   enabled: boolean;
+  source?: 'git' | 'release';
+  sourceBuildReady?: boolean;
   currentVersion?: string;
   availableVersion?: string;
   /** Download progress from 0 to 100 while an update is downloading. */

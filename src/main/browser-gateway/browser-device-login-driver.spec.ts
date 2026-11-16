@@ -4,6 +4,7 @@ import { BrowserExtensionContactState } from './browser-extension-contact-state'
 import { BrowserOneTimeCodeFillLedger } from './browser-one-time-code-submit';
 import type { BrowserExtensionSendCommandRequest } from './browser-extension-command-delivery';
 import { createBrowserDeviceLoginDriver } from './browser-device-login-driver';
+import { currentBrowserSessionOwner, withBrowserSession } from './browser-session-context';
 
 const metadata: BrowserDeviceLoginMetadata = {
   operationHandle: 'test-operation', ownerSessionId: 'test-owner', ownerGeneration: 'test-owner-generation',
@@ -37,7 +38,7 @@ function setup() {
   const confidential = vi.fn(() => true);
   const deps = { commands: { sendCommand, cancelCommand: vi.fn(() => true) }, contacts, ledger,
     captureConfidentialConnection: vi.fn(() => confidential), isCurrent: vi.fn(() => true),
-    isApproved: vi.fn(() => true), protectionEnabled: vi.fn(() => true), now: () => now };
+    isCleanupCurrent: vi.fn(() => true), isApproved: vi.fn(() => true), protectionEnabled: vi.fn(() => true), now: () => now };
   const destination = { ...metadata, tabId: 42 };
   const driver = createBrowserDeviceLoginDriver(deps, destination);
   const controller = new AbortController();
@@ -49,6 +50,21 @@ function setup() {
 }
 
 describe('private Codex browser driver', () => {
+  it('keeps the original session owner for commands and cleanup called outside its context', async () => {
+    const s = withBrowserSession('/tmp/aio-device-test', 'test-owner', setup);
+    const owner = withBrowserSession('/tmp/aio-device-test', 'test-owner', currentBrowserSessionOwner);
+    const observed: (string | undefined)[] = [];
+    const send = s.deps.commands.sendCommand.getMockImplementation()!;
+    s.deps.commands.sendCommand.mockImplementation(request => {
+      observed.push(currentBrowserSessionOwner());
+      return send(request);
+    });
+    await withBrowserSession('/tmp/aio-device-test', 'other-owner', s.ready);
+    await s.driver.cancel();
+    expect(observed).toEqual([owner, owner, owner]);
+    expect(owner).toBeTruthy();
+    expect(currentBrowserSessionOwner()).toBeUndefined();
+  });
   it('uses only dedicated commands and spends a verified fill once', async () => {
     const s = setup();
     const record = vi.spyOn(s.deps.ledger, 'recordDevice');
@@ -235,11 +251,36 @@ describe('private Codex browser driver', () => {
     expect(s.deps.commands.cancelCommand).toHaveBeenCalledWith('node:test-browser', 'test-command');
   });
 
-  it('never revives expired authority to send cancellation', async () => {
-    const s = setup(); await s.ready(); s.deps.isCurrent.mockReturnValue(false);
+  it('never revives invalid cleanup authority to send cancellation', async () => {
+    const s = setup(); await s.ready(); s.deps.isCleanupCurrent.mockReturnValue(false);
     await s.driver.cancel();
     expect(s.requests).toHaveLength(2);
   });
+
+  it('uses cleanup authority after approval and write authority are revoked', async () => {
+    const s = setup(); await s.ready();
+    s.controller.abort(); s.deps.isCurrent.mockReturnValue(false); s.deps.isApproved.mockReturnValue(false);
+    await s.driver.cancel(); await s.driver.cancel();
+    expect(s.requests.map(request => request.command)).toEqual([
+      'codex_device_context', 'codex_device_attest', 'codex_device_cancel',
+    ]);
+    expect(s.requests[2]!.payload).toEqual(s.requests[1]!.payload);
+    await expect(s.driver.fillAndSubmit('TESTCODEX', s.controller.signal)).rejects.toThrow('codex_device_handoff_refused');
+    expect(s.requests).toHaveLength(3);
+  });
+
+  it.each(['lease', 'runtime', 'protection', 'expiry', 'async cleanup'])(
+    'refuses cancellation after loss of %s', async cause => {
+      const s = setup(); await s.ready();
+      if (cause === 'lease') s.deps.captureConfidentialConnection().mockReturnValue(false);
+      if (cause === 'runtime') s.deps.contacts.markExtensionRuntime(metadata.browserNodeId, {
+        extensionInstanceId: metadata.extensionInstanceId, extensionStartedAt: 101, extensionVersion: '0.2.52',
+      });
+      if (cause === 'protection') s.deps.protectionEnabled.mockReturnValue(false);
+      if (cause === 'expiry') s.setNow(metadata.expiresAt);
+      if (cause === 'async cleanup') s.deps.isCleanupCurrent.mockImplementation(() => Promise.resolve(true) as unknown as boolean);
+      await s.driver.cancel(); expect(s.requests).toHaveLength(2);
+    });
 
   it('rejects extra fields in submit completion without retrying submit', async () => {
     const s = setup(); await s.ready();

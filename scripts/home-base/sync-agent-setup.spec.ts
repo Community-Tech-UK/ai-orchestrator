@@ -102,6 +102,75 @@ describe('home-base agent setup sync', () => {
       expect(fs.readFileSync(path.join(destination, `${base}/hooks/report.sh`), 'utf8')).toContain('printf ready');
     }
   });
+  it('excludes app launch commands regardless of background options or full executable paths', () => {
+    for (const command of ['open -g -a "Google Chrome"', '/usr/bin/open -n -g -a Chrome', 'open -gj https://example.com']) {
+      const source = home(); const destination = home();
+      write(source, '.claude/settings.json', JSON.stringify({ statusLine: { type: 'command', command } }));
+      write(source, '.claude/hooks/background.sh', '#!/bin/sh\n' + command + '\n');
+      const pkg = buildSyncPackage({ sourceHome: source });
+      expect(pkg.files.map(file => file.path)).not.toContain('.claude/hooks/background.sh');
+      applySyncPackage(pkg, { destinationHome: destination });
+      const value = readConfig(fs.readFileSync(path.join(destination, '.claude/settings.json'), 'utf8'), 'claude', 'fixture');
+      expect(value).not.toHaveProperty('statusLine');
+    }
+  });
+  it('refuses incoming direct hook and command files before any destination mutation', () => {
+    for (const [file, text] of [
+      ['.claude/hooks/new-hook.sh', '#!/bin/sh\nosascript -e activate\n'],
+      ['.claude/commands/new-command.md', '# Use osascript to control Chrome\n'],
+      ['.claude/commands/new-command.js', 'require("playwright").chromium.launch();'],
+    ]) {
+      const source = home(); const destination = home();
+      write(source, '.agents/AGENTS.md', '# Rules');
+      write(source, file, '# Safe placeholder');
+      const pkg = buildSyncPackage({ sourceHome: source });
+      pkg.files = pkg.files.map(entry => entry.path === file ? { ...entry, text } : entry);
+      expect(() => applySyncPackage(pkg, { destinationHome: destination })).toThrow(/direct browser or desktop/);
+      expect(fs.existsSync(path.join(destination, '.agents/AGENTS.md'))).toBe(false);
+      expect(fs.existsSync(path.join(destination, file))).toBe(false);
+    }
+  });
+  it('applies source file restrictions to incoming packages before any write', () => {
+    for (const file of ['.claude/skills/safe/auth.json', '.claude/hooks/.env', '.claude/skills/safe/asset.png']) {
+      const source = home(); const destination = home();
+      write(source, '.agents/AGENTS.md', '# Rules');
+      const pkg = buildSyncPackage({ sourceHome: source });
+      write(source, file, 'EXAMPLE_NOT_A_CREDENTIAL');
+      expect(() => buildSyncPackage({ sourceHome: source })).toThrow(/credential|hidden|non-text/);
+      pkg.files.push({ path: file, text: 'EXAMPLE_NOT_A_CREDENTIAL', mtimeMs: 0, mode: 0o600, memory: false });
+      expect(() => applySyncPackage(pkg, { destinationHome: destination })).toThrow(/credential|hidden|non-text/);
+      expect(fs.existsSync(path.join(destination, '.agents/AGENTS.md'))).toBe(false);
+      expect(fs.existsSync(path.join(destination, file))).toBe(false);
+    }
+  });
+  it('excludes native app binaries and standalone browser executables at every file boundary', () => {
+    for (const command of [
+      '"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --new-window https://example.com',
+      '/Applications/Firefox.app/Contents/MacOS/firefox https://example.com',
+      '/Applications/Utilities/Example.app/Contents/MacOS/Example',
+      '/usr/bin/google-chrome --new-window https://example.com',
+      'env DISPLAY=:0 firefox https://example.com',
+      'powershell Start-Process msedge https://example.com',
+      '/usr/bin/chromium-browser --new-window https://example.com',
+      'xdg-open https://example.com',
+      'cmd.exe /c start https://example.com',
+      'powershell Start-Process https://example.com',
+      'python -m webbrowser https://example.com',
+      'python -c "import os; os.startfile(\'https://example.com\')"',
+    ]) {
+      const source = home(); const destination = home(); const file = '.claude/hooks/native.sh';
+      write(source, file, '#!/bin/sh\n' + command + '\n');
+      expect(buildSyncPackage({ sourceHome: source }).files).toEqual([]);
+      write(destination, file, '#!/bin/sh\n' + command + '\n');
+      applySyncPackage(buildSyncPackage({ sourceHome: source }), { destinationHome: destination });
+      expect(fs.existsSync(path.join(destination, file))).toBe(false);
+      const safeSource = home(); write(safeSource, file, '#!/bin/sh\nprintf ready\n');
+      const pkg = buildSyncPackage({ sourceHome: safeSource });
+      pkg.files[0].text = '#!/bin/sh\n' + command + '\n';
+      expect(() => applySyncPackage(pkg, { destinationHome: destination })).toThrow(/direct browser or desktop/);
+      expect(fs.existsSync(path.join(destination, file))).toBe(false);
+    }
+  });
   it('preserves harmless status commands, notify argv and gateway-only hooks', () => {
     const source = home(); const destination = home();
     const statusLine = { type: 'command', command: 'node status.js' };

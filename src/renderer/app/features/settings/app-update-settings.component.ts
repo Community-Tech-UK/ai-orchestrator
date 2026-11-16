@@ -11,7 +11,9 @@ import { SettingsCardComponent } from './ui/settings-card.component';
   template: `
     <app-settings-card
       heading="Application updates"
-      description="Harness checks in the background and downloads stable releases for this computer."
+      [description]="store.status()?.source === 'git'
+        ? 'Harness follows GitHub changes and restarts automatically when work is idle.'
+        : 'Harness checks in the background and downloads stable releases for this computer.'"
       icon="general"
     >
       @if (store.status(); as status) {
@@ -48,16 +50,17 @@ import { SettingsCardComponent } from './ui/settings-card.component';
               </button>
             } @else if (status.state === 'error' && status.errorContext === 'download') {
               <button type="button" class="primary" [disabled]="store.loading()" (click)="retry()">
-                Retry download
+                {{ status.source === 'git' ? 'Retry update' : 'Retry download' }}
               </button>
             } @else {
               <button
                 type="button"
                 class="secondary"
                 [disabled]="store.loading() || status.state === 'checking' || status.state === 'downloading'"
+                [attr.aria-disabled]="status.state === 'building' ? 'true' : null"
                 (click)="check()"
               >
-                Check for updates
+                {{ status.state === 'building' ? 'Building update…' : 'Check for updates' }}
               </button>
             }
           </div>
@@ -126,6 +129,10 @@ export class AppUpdateSettingsComponent {
       case 'available': return `Update ${status.availableVersion ?? ''} found. Downloading automatically.`;
       case 'downloading': return `Downloading ${status.availableVersion ?? 'update'} · ${status.percent ?? 0}%`;
       case 'downloaded': return `Harness ${status.availableVersion ?? 'update'} is ready to install.`;
+      case 'building': return 'Building the latest update. Harness will keep running.';
+      case 'waiting-idle': return status.sourceBuildReady
+        ? 'Update ready. Harness will restart automatically when work is idle.'
+        : 'An update is available. Waiting for work to finish before building.';
       case 'not-available': return 'Harness is up to date.';
       case 'error': return 'The update could not be completed.';
       case 'idle':
@@ -141,7 +148,9 @@ export class AppUpdateSettingsComponent {
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
   }
 
-  protected check(): void { void this.store.check(); }
+  protected check(): void {
+    if (this.store.status()?.state !== 'building') void this.store.check();
+  }
   protected retry(): void { void this.store.retryDownload(); }
   protected restart(): void { void this.store.restartAndInstall(); }
 }

@@ -30,6 +30,8 @@ export interface BrowserGatewayMcpConfigOptions {
   instanceId: string;
   /** Minted by the parent browser RPC server; absent bridges fail closed. */
   capabilityToken?: string;
+  /** Prepared once per spawn; serialization must never mint or rotate it. */
+  deviceLoginCapabilityToken?: string;
   provider?: string;
   /**
    * Request a compact surface: Codex uses fixed search/describe/execute wrappers;
@@ -92,6 +94,9 @@ export function resolveBrowserGatewayBridgeSpec(
     AI_ORCHESTRATOR_BROWSER_INSTANCE_ID: options.instanceId,
     ...(options.capabilityToken
       ? { AI_ORCHESTRATOR_BROWSER_CAPABILITY_TOKEN: options.capabilityToken }
+      : {}),
+    ...(options.deviceLoginCapabilityToken
+      ? { AI_ORCHESTRATOR_BROWSER_DEVICE_LOGIN_CAPABILITY_TOKEN: options.deviceLoginCapabilityToken }
       : {}),
     ...(options.provider ? { AI_ORCHESTRATOR_BROWSER_PROVIDER: options.provider } : {}),
     ...(options.logDirectory

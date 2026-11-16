@@ -84,8 +84,6 @@ import { stopProviderAutoContinuation } from './provider-auto-continuation';
 import { adapterHasActiveProviderTurn, adapterHasActiveToolCalls, adapterHasPendingLiveAsk, StuckProcessDetector } from './stuck-process-detector';
 import { buildInteractivePromptNotice, buildStuckNotice } from './stall-notices';
 import { shouldProbeAdapterProcess, StaleRuntimeReconciler } from './stale-runtime-reconciler';
-import { getClampedLoadWatchdogMultiplier } from '../runtime/system-load-monitor';
-import { computeInitWaitBudgetMs as resolveInitWaitBudgetMs } from './init-wait-budget';
 import { getAutoTitleService } from './auto-title-service';
 import { productionCoreDeps } from './instance-deps';
 import { getSessionContinuityManager } from '../session/session-continuity';
@@ -99,7 +97,7 @@ import { inheritSubagentPermissions } from './instance-permissions-facade';
 import { InstancePermissionRequestFlow } from './instance-permission-request-flow';
 import type { ResumeDeferredOptions } from './lifecycle/deferred-permission-options';
 import { resumeDeferredPermissionWithPolicy } from './lifecycle/resume-deferred-live-policy';
-import { awaitInstanceInputReady } from './instance-input-ready';
+import { awaitInstanceInputReady, waitForInstanceInputPreparation } from './instance-input-ready';
 import { cleanupAdjudicatorBreakerForInstance } from '../security/approval-adjudicator';
 import { deleteContextManifest } from '../context/context-manifest-store';
 import type { UserActionRequest } from '../orchestration/orchestration-handler';
@@ -186,6 +184,7 @@ import { captureOverflowRecoveryOwner } from './overflow-recovery-owner';
 import { findMessageDeliveryTarget, withMessageDelivery } from './message-delivery';
 import { personInputOrigin, withoutInputOrigin } from './person-input-origin';
 import { getSendInputTimeoutMs } from '../../shared/utils/send-refusal';
+import { getWorkAdmission } from '../work-admission/work-admission';
 const logger = getLogger('InstanceManager');
 const CHILD_STARTUP_TIMEOUT_MS = 60_000;
 const INPUT_PREFLIGHT_DEADLINE_MS = 5_000;
@@ -221,6 +220,9 @@ export class InstanceManager extends EventEmitter {
   private lifecycleEvents = new InstanceEventAggregator();
   private continuityRecovery!: InstanceContinuityRecovery;
   private readonly emitObserversSafely = createInstanceManagerObserverEmitter(this);
+
+  // In-flight create/input preparation, including awaits before an adapter reports a turn.
+  private pendingSessionOperations = 0;
 
   // Tracking
   private hasReceivedFirstMessage = new Set<string>();
@@ -390,8 +392,8 @@ export class InstanceManager extends EventEmitter {
       ),
       getDiffTracker: (id) => this.state.getDiffTracker(id),
       processOrchestrationOutput: (id, content) => this.orchestrationMgr.processOrchestrationOutput(id, content),
-      onInterruptedExit: (id) => this.lifecycle.respawnAfterInterrupt(id),
-      onUnexpectedExit: (id) => this.lifecycle.respawnAfterUnexpectedExit(id),
+      onInterruptedExit: (id) => this.runSessionOperation(() => this.lifecycle.respawnAfterInterrupt(id)),
+      onUnexpectedExit: (id) => this.respawnAfterUnexpectedExit(id),
       onInterruptSettled: (id) => this.lifecycle.noteInterruptSettled(id),
       onMcpServersStatus: (id, generation, servers) => this.mcpStartupRecovery.recordStartupStatus(id, generation, servers),
       onStatusSettled: (id) => this.mcpStartupRecovery.noteSettled(id),
@@ -682,7 +684,7 @@ export class InstanceManager extends EventEmitter {
       this.publishOutput(instanceId, warningMessage);
     });
     this.stuckDetector.on('process:stuck', ({ instanceId }) => {
-      this.lifecycle.respawnAfterInterrupt(instanceId).catch(err => {
+      this.runSessionOperation(() => this.lifecycle.respawnAfterInterrupt(instanceId)).catch(err => {
         logger.error('Failed to respawn stuck process', undefined, { ...errorDiagnostic(err), instanceId });
       });
     });
@@ -1117,7 +1119,29 @@ export class InstanceManager extends EventEmitter {
   // Public API - Instance Lifecycle
   // ============================================
 
+  hasPendingSourceUpdateOperations(): boolean { return this.pendingSessionOperations > 0; }
+
+  /** Keep setup/teardown waits owned before status changes; cleanup remains allowed during handoff. */
+  private async runSessionOperation<T>(operation: () => Promise<T>, allowDuringMaintenance = false): Promise<T> {
+    if (!allowDuringMaintenance) getWorkAdmission().assertNotInMaintenance();
+    this.pendingSessionOperations++;
+    try { return await operation(); }
+    finally { this.pendingSessionOperations--; }
+  }
+
+  hasActiveSessionWork(instanceId: string): boolean {
+    const orchestration = this.orchestrationMgr.getOrchestrationHandler();
+    // Retained idle children are inspected individually; their existence alone is not running work.
+    return orchestration.getActiveConsensusQueryCount(instanceId) > 0
+      || orchestration.getPendingUserActionsForInstance(instanceId).length > 0
+      || this.state.getInstance(instanceId)?.desiredRuntime !== undefined;
+  }
+
   async createInstance(config: InstanceCreateConfig): Promise<Instance> {
+    return this.runSessionOperation(() => this.createAdmittedInstance(config));
+  }
+
+  private async createAdmittedInstance(config: InstanceCreateConfig): Promise<Instance> {
     const creationBlockReason = getResourceGovernorCreationBlockReason();
     if (creationBlockReason) {
       logger.warn('Refusing to create instance while resource governor blocks creation', {
@@ -1186,7 +1210,7 @@ export class InstanceManager extends EventEmitter {
     entryId: string,
     options: HistoryRestoreCoordinatorOptions = {},
   ): Promise<HistoryRestoreCoordinatorResult> {
-    return getHistoryRestoreCoordinator().restore(this, entryId, options);
+    return this.runSessionOperation(() => getHistoryRestoreCoordinator().restore(this, entryId, options));
   }
 
   /**
@@ -1202,47 +1226,51 @@ export class InstanceManager extends EventEmitter {
       reason: 'doc-review-submission';
     },
   ): Promise<{ instanceId: string; restoreMode: 'native' | 'replay' }> {
-    if (getPauseCoordinator().isPaused()) {
-      throw new OrchestratorPausedError('Session revival refused while Harness is paused');
-    }
-    return reviveContinuitySession({
-      resumeSession: (instanceId, options) => getSessionContinuityManager().resumeSession(instanceId, options),
-      createInstance: (config) => this.createInstance(config),
-      queueContinuityPreamble: (instanceId, preamble) => this.queueContinuityPreamble(instanceId, preamble),
-      takeStoppedHelpers: (instanceId) => getSessionContinuityManager().takeStoppedHelpers(instanceId),
-    }, request);
-  }
-
-  async recoverFromContinuity(resolvedCandidate: ResolvedRecoveryCandidate): Promise<RecoverSessionResult> {
-    return this.continuityRecovery.recover(resolvedCandidate); }
-
-  async terminateInstance(instanceId: string, graceful = true, options?: import('./lifecycle/instance-termination').TerminateInstanceOptions): Promise<void> {
-    const instance = this.state.getInstance(instanceId);
-    getAutoTitleService().clearInstance(instanceId);
-    // Drop per-instance accumulated state so long-running daemons don't leak.
-    getActionCircuitBreaker().reset(instanceId);
-    cleanupAdjudicatorBreakerForInstance(instanceId);
-    deleteContextManifest(instanceId);
-    forgetLspFeedbackInstance(instanceId);
-    await this.lifecycle.terminateInstance(instanceId, graceful, options);
-    dispatchInstanceLifecycleHook('SessionEnd', instance, {
-      instanceId,
-      stopReason: graceful ? 'graceful' : 'terminated',
-    }, logger);
-    emitPluginHook('session.terminated', {
-      instanceId,
-      parentId: instance?.parentId ?? null,
-      graceful,
-      timestamp: Date.now(),
+    return this.runSessionOperation(async () => {
+      if (getPauseCoordinator().isPaused()) {
+        throw new OrchestratorPausedError('Session revival refused while Harness is paused');
+      }
+      return reviveContinuitySession({
+        resumeSession: (instanceId, options) => getSessionContinuityManager().resumeSession(instanceId, options),
+        createInstance: (config) => this.createInstance(config),
+        queueContinuityPreamble: (instanceId, preamble) => this.queueContinuityPreamble(instanceId, preamble),
+        takeStoppedHelpers: (instanceId) => getSessionContinuityManager().takeStoppedHelpers(instanceId),
+      }, request);
     });
   }
 
+  async recoverFromContinuity(resolvedCandidate: ResolvedRecoveryCandidate): Promise<RecoverSessionResult> {
+    return this.runSessionOperation(() => this.continuityRecovery.recover(resolvedCandidate)); }
+
+  async terminateInstance(instanceId: string, graceful = true, options?: import('./lifecycle/instance-termination').TerminateInstanceOptions): Promise<void> {
+    return this.runSessionOperation(async () => {
+      const instance = this.state.getInstance(instanceId);
+      getAutoTitleService().clearInstance(instanceId);
+      // Drop per-instance accumulated state so long-running daemons don't leak.
+      getActionCircuitBreaker().reset(instanceId);
+      cleanupAdjudicatorBreakerForInstance(instanceId);
+      deleteContextManifest(instanceId);
+      forgetLspFeedbackInstance(instanceId);
+      await this.lifecycle.terminateInstance(instanceId, graceful, options);
+      dispatchInstanceLifecycleHook('SessionEnd', instance, {
+        instanceId,
+        stopReason: graceful ? 'graceful' : 'terminated',
+      }, logger);
+      emitPluginHook('session.terminated', {
+        instanceId,
+        parentId: instance?.parentId ?? null,
+        graceful,
+        timestamp: Date.now(),
+      });
+    }, true);
+  }
+
   async restartInstance(instanceId: string): Promise<RestartOutcome> {
-    return this.lifecycle.restartInstance(instanceId);
+    return this.runSessionOperation(() => this.lifecycle.restartInstance(instanceId));
   }
 
   async restartFreshInstance(instanceId: string, assertBeforeRestart?: () => void): Promise<string | undefined> {
-    return this.lifecycle.restartFreshInstance(instanceId, assertBeforeRestart);
+    return this.runSessionOperation(() => this.lifecycle.restartFreshInstance(instanceId, assertBeforeRestart));
   }
 
   async terminateAll(): Promise<void> {
@@ -1260,11 +1288,11 @@ export class InstanceManager extends EventEmitter {
   }
 
   async changeAgentMode(instanceId: string, newAgentId: string): Promise<Instance> {
-    return this.lifecycle.changeAgentMode(instanceId, newAgentId);
+    return this.runSessionOperation(() => this.lifecycle.changeAgentMode(instanceId, newAgentId));
   }
 
   async toggleYoloMode(instanceId: string): Promise<Instance> {
-    return this.lifecycle.toggleYoloMode(instanceId);
+    return this.runSessionOperation(() => this.lifecycle.toggleYoloMode(instanceId));
   }
 
   setComputerUseMode(
@@ -1280,20 +1308,20 @@ export class InstanceManager extends EventEmitter {
    * {@link InstanceLifecycle.requestYoloModeToggle}.
    */
   async requestYoloModeToggle(instanceId: string): Promise<Instance> {
-    return this.lifecycle.requestYoloModeToggle(instanceId);
+    return this.runSessionOperation(() => this.lifecycle.requestYoloModeToggle(instanceId));
   }
 
   /** WS7 Phase B — user-initiated provider switch (quota-park banner action). */
   async failoverNow(instanceId: string): Promise<{ switched: boolean; to?: string; note: string }> {
-    return this.lifecycle.failoverNow(instanceId);
+    return this.runSessionOperation(() => this.lifecycle.failoverNow(instanceId));
   }
 
   async setYoloMode(instanceId: string, desiredYoloMode: boolean): Promise<Instance> {
-    return this.lifecycle.setYoloMode(instanceId, desiredYoloMode);
+    return this.runSessionOperation(() => this.lifecycle.setYoloMode(instanceId, desiredYoloMode));
   }
 
   async toggleFastMode(instanceId: string): Promise<Instance> {
-    return this.lifecycle.toggleFastMode(instanceId);
+    return this.runSessionOperation(() => this.lifecycle.toggleFastMode(instanceId));
   }
 
   async setFastMode(
@@ -1301,7 +1329,7 @@ export class InstanceManager extends EventEmitter {
     desiredFastMode: boolean,
     options?: { restart?: boolean; reason?: 'user' | 'unavailable' },
   ): Promise<Instance> {
-    return this.lifecycle.setFastMode(instanceId, desiredFastMode, options);
+    return this.runSessionOperation(() => this.lifecycle.setFastMode(instanceId, desiredFastMode, options));
   }
 
   /**
@@ -1317,10 +1345,10 @@ export class InstanceManager extends EventEmitter {
     updatedInput?: Record<string, unknown>,
     options?: ResumeDeferredOptions,
   ): Promise<void> {
-    return resumeDeferredPermissionWithPolicy(this.state.getAdapter(instanceId), instanceId, approved, updatedInput, options, {
+    return this.runSessionOperation(() => resumeDeferredPermissionWithPolicy(this.state.getAdapter(instanceId), instanceId, approved, updatedInput, options, {
       resume: (id, allowed, input, resumeOptions) => this.lifecycle.resumeAfterDeferredPermission(id, allowed, input, resumeOptions),
       queueYoloMode: (id, enabled) => this.requestModelChange(id, { ...this.state.getInstance(id)?.desiredRuntime, yoloMode: enabled }),
-    });
+    }));
   }
 
   async changeModel(
@@ -1330,12 +1358,12 @@ export class InstanceManager extends EventEmitter {
     modelRuntimeTarget?: Instance['modelRuntimeTarget'],
     targetProvider?: Exclude<Instance['provider'], 'auto'>,
   ): Promise<Instance> {
-    return this.lifecycle.changeModel(instanceId, newModel, reasoningEffort, modelRuntimeTarget, targetProvider);
+    return this.runSessionOperation(() => this.lifecycle.changeModel(instanceId, newModel, reasoningEffort, modelRuntimeTarget, targetProvider));
   }
 
   /** Account-pool handoff applied immediately (see InstanceLifecycleManager.applyAccountHandoff). */
   async applyAccountHandoff(instanceId: string, desired: DesiredRuntime): Promise<Instance> {
-    return this.lifecycle.applyAccountHandoff(instanceId, desired);
+    return this.runSessionOperation(() => this.lifecycle.applyAccountHandoff(instanceId, desired));
   }
 
   /**
@@ -1343,7 +1371,7 @@ export class InstanceManager extends EventEmitter {
    * See {@link InstanceLifecycleManager.requestModelChange}.
    */
   async requestModelChange(instanceId: string, request: RuntimeChangeRequest): Promise<Instance> {
-    return this.lifecycle.requestModelChange(instanceId, request);
+    return this.runSessionOperation(() => this.lifecycle.requestModelChange(instanceId, request));
   }
 
   interruptInstance(instanceId: string, origin: InterruptOrigin = 'unknown'): boolean {
@@ -1358,39 +1386,41 @@ export class InstanceManager extends EventEmitter {
     message: string,
     attachments?: FileAttachment[],
   ): Promise<void> {
-    const instance = this.state.getInstance(instanceId);
-    if (!instance) {
-      throw new Error(`Instance ${instanceId} not found`);
-    }
-
-    if (getPauseCoordinator().isPaused()) {
-      throw new OrchestratorPausedError('Session steer refused while Harness is paused');
-    }
-
-    const adapter = this.state.getAdapter(instanceId) as unknown as {
-      isProviderCompacting?: () => boolean;
-    } | undefined;
-    const providerCompacting = adapter?.isProviderCompacting?.() === true;
-    if (STEER_INTERRUPT_STATUSES.has(instance.status) && !providerCompacting) {
-      const interrupted = this.interruptInstance(instanceId, 'steer');
-      if (!interrupted) {
-        throw new Error(`Instance ${instanceId} did not accept steer interrupt`);
+    return this.runSessionOperation(async () => {
+      const instance = this.state.getInstance(instanceId);
+      if (!instance) {
+        throw new Error(`Instance ${instanceId} not found`);
       }
-    }
 
-    if (providerCompacting) {
-      logger.info('Steer input queued behind provider compaction without interrupting', { instanceId });
-    }
+      if (getPauseCoordinator().isPaused()) {
+        throw new OrchestratorPausedError('Session steer refused while Harness is paused');
+      }
 
-    await this.sendInput(instanceId, message, attachments);
+      const adapter = this.state.getAdapter(instanceId) as unknown as {
+        isProviderCompacting?: () => boolean;
+      } | undefined;
+      const providerCompacting = adapter?.isProviderCompacting?.() === true;
+      if (STEER_INTERRUPT_STATUSES.has(instance.status) && !providerCompacting) {
+        const interrupted = this.interruptInstance(instanceId, 'steer');
+        if (!interrupted) {
+          throw new Error(`Instance ${instanceId} did not accept steer interrupt`);
+        }
+      }
+
+      if (providerCompacting) {
+        logger.info('Steer input queued behind provider compaction without interrupting', { instanceId });
+      }
+
+      await this.sendInput(instanceId, message, attachments);
+    });
   }
 
   async hibernateInstance(instanceId: string): Promise<void> {
-    return this.lifecycle.hibernateInstance(instanceId);
+    return this.runSessionOperation(() => this.lifecycle.hibernateInstance(instanceId));
   }
 
   async wakeInstance(instanceId: string): Promise<void> {
-    return this.lifecycle.wakeInstance(instanceId);
+    return this.runSessionOperation(() => this.lifecycle.wakeInstance(instanceId));
   }
 
   /**
@@ -1439,56 +1469,41 @@ export class InstanceManager extends EventEmitter {
   // Public API - Communication
   // ============================================
 
-  /** Load- and context-scaled init/respawn wait budget (see init-wait-budget.ts). */
-  private computeInitWaitBudgetMs(instance: Instance): number {
-    return resolveInitWaitBudgetMs(
-      instance.contextUsage?.used ?? 0,
-      getClampedLoadWatchdogMultiplier(),
-    );
-  }
-
-  /**
-   * Await a background init/wake/respawn promise, bounded by `budgetMs`. Clears
-   * and unrefs the timer once the race settles so a fast-resolving promise does
-   * not leave a multi-minute timer (and its closure) pending on the event loop.
-   */
-  private async awaitWithBudget(work: Promise<void>, budgetMs: number, timeoutMessage: string): Promise<void> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(timeoutMessage)), budgetMs);
-      timer.unref?.();
-    });
-    try {
-      await Promise.race([work, timeoutPromise]);
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  }
-
   private awaitInputReady(instance: Instance, options?: InstanceSendInputOptions): Promise<void> {
     return awaitInstanceInputReady({
       wake: (id) => this.lifecycle.wakeInstance(id),
       runtimeChangeSettled: (id) => this.lifecycle.whenRuntimeChangeSettled(id),
-      waitWithBudget: (work, inst, message) => this.awaitWithBudget(work, this.computeInitWaitBudgetMs(inst), message),
+      waitWithBudget: waitForInstanceInputPreparation,
       getInstance: (id) => this.state.getInstance(id),
     }, instance, options);
   }
 
   /** Re-deliver the resolved turn without rebuilding retrieval or appending another message. */
   private async resendPreparedInput(instanceId: string, turn: AuthRepairTurn): Promise<void> {
-    const options = { automatedInput: true, internalSource: turn.internalSource,
-      inputMessageId: turn.inputMessageId, inputContextDelivery: turn.inputContextDelivery };
-    await waitForGlobalPauseInput(instanceId, options);
-    const instance = this.state.getInstance(instanceId);
-    if (!instance) throw new Error(`Instance ${instanceId} not found`);
-    this.emit('instance:input-started', { instanceId, autoContinuation: true });
-    instance.lastActivity = Date.now();
-    if (getPauseCoordinator().isPaused()) throw new OrchestratorPausedError('Session input refused while Harness is paused');
-    await this.awaitInputReady(instance, options);
-    await this.communication.sendInput(instanceId, turn.message, turn.attachments, turn.contextBlock, options);
+    return this.runSessionOperation(async () => {
+      const options = { automatedInput: true, internalSource: turn.internalSource,
+        inputMessageId: turn.inputMessageId, inputContextDelivery: turn.inputContextDelivery };
+      await waitForGlobalPauseInput(instanceId, options);
+      const instance = this.state.getInstance(instanceId);
+      if (!instance) throw new Error(`Instance ${instanceId} not found`);
+      this.emit('instance:input-started', { instanceId, autoContinuation: true });
+      instance.lastActivity = Date.now();
+      if (getPauseCoordinator().isPaused()) throw new OrchestratorPausedError('Session input refused while Harness is paused');
+      await this.awaitInputReady(instance, options);
+      await this.communication.sendInput(instanceId, turn.message, turn.attachments, turn.contextBlock, options);
+    });
   }
 
   async sendInput(
+    instanceId: string,
+    message: string,
+    attachments?: FileAttachment[],
+    options?: InstanceSendInputOptions,
+  ): Promise<void> {
+    return this.runSessionOperation(() => this.sendAdmittedInput(instanceId, message, attachments, options));
+  }
+
+  private async sendAdmittedInput(
     instanceId: string,
     message: string,
     attachments?: FileAttachment[],
@@ -2001,9 +2016,11 @@ export class InstanceManager extends EventEmitter {
   }
 
   async sendInputResponse(instanceId: string, response: string, permissionKey?: string): Promise<void> {
-    // Clear any stored permission request mapping for this input if present.
-    // (requestId is only available in IPC payload; best-effort cleanup is done in IPC handler too.)
-    return this.communication.sendInputResponse(instanceId, response, permissionKey);
+    return this.runSessionOperation(async () => {
+      // Clear any stored permission request mapping for this input if present.
+      // (requestId is only available in IPC payload; best-effort cleanup is done in IPC handler too.)
+      return this.communication.sendInputResponse(instanceId, response, permissionKey);
+    });
   }
 
   /**
@@ -2108,7 +2125,7 @@ export class InstanceManager extends EventEmitter {
    * continuity. Delegates to the private `lifecycle` manager.
    */
   async respawnAfterUnexpectedExit(instanceId: string): Promise<void> {
-    return this.lifecycle.respawnAfterUnexpectedExit(instanceId);
+    return this.runSessionOperation(() => this.lifecycle.respawnAfterUnexpectedExit(instanceId));
   }
 
   // ============================================
@@ -2140,12 +2157,14 @@ export class InstanceManager extends EventEmitter {
   // ============================================
 
   async forkInstance(config: ForkConfig): Promise<Instance> {
-    const forked = await this.persistence.forkInstance(config);
-    const source = this.state.getInstance(config.instanceId);
-    if (source && config.supersedeSource === true) {
-      await this.supersedeSourceAfterEditFork(source, forked.id);
-    }
-    return forked;
+    return this.runSessionOperation(async () => {
+      const forked = await this.persistence.forkInstance(config);
+      const source = this.state.getInstance(config.instanceId);
+      if (source && config.supersedeSource === true) {
+        await this.supersedeSourceAfterEditFork(source, forked.id);
+      }
+      return forked;
+    });
   }
 
   private async supersedeSourceAfterEditFork(source: Instance, forkedInstanceId: string): Promise<void> {
@@ -2201,7 +2220,7 @@ export class InstanceManager extends EventEmitter {
   }
 
   async importSession(session: ExportedSession, workingDirectory?: string): Promise<Instance> {
-    return this.persistence.importSession(session, workingDirectory);
+    return this.runSessionOperation(() => this.persistence.importSession(session, workingDirectory));
   }
 
   async loadHistoricalOutput(instanceId: string, limit?: number): Promise<OutputMessage[]> {

@@ -59,6 +59,8 @@ export class BrowserDeviceLoginOperationController {
 
   async start(input: { nodeId: string; profileId: string }, authenticatedOwner: CodexDeviceLoginOwner): Promise<CodexDeviceLoginView> {
     let op: Operation | undefined;
+    let pendingStart: Promise<unknown> | undefined;
+    let startSettled = false;
     try {
       const owner = CodexDeviceLoginOwnerSchema.parse(authenticatedOwner);
       CodexDeviceLoginStartParamsSchema.parse({ profileId: input.profileId, owner });
@@ -78,31 +80,34 @@ export class BrowserDeviceLoginOperationController {
       op.timer.unref(); this.operations.add(op);
       this.requireCurrent(op);
       const pending = this.deps.worker.request(native.nodeId, COORDINATOR_TO_NODE.CODEX_DEVICE_LOGIN_START, { profileId: native.profileId, owner });
+      pendingStart = pending;
       // A late start response still owns a native child and must be cancelled after local abort.
       void pending.then(raw => {
+        startSettled = true;
         if (!op!.abort.signal.aborted) return;
-        const parsed = CodexDeviceLoginViewSchema.safeParse(raw);
-        if (parsed.success) this.cancelNative(op!, parsed.data.handle);
-      }, () => undefined);
+        this.cancelStartResponse(op!, raw);
+      }, () => { startSettled = true; });
       const raw = await this.wait(op, pending);
       try {
+        this.requireCurrent(op);
         const view = this.validateView(op, raw);
         if (!['starting', 'awaiting_handoff'].includes(view.state)) throw refused();
         op.view = view;
       }
       catch {
-        const parsed = CodexDeviceLoginViewSchema.safeParse(raw);
-        if (parsed.success) this.cancelNative(op, parsed.data.handle);
+        this.cancelStartResponse(op, raw);
         throw refused();
       }
-      op.deadline = op.view.expiresAt;
-      clearTimeout(op.timer);
-      op.timer = setTimeout(() => { this.stop(op!, 'expired'); this.operations.delete(op!); }, op.deadline - Date.now());
-      op.timer.unref();
+      this.setDeadline(op, op.view.expiresAt);
       this.requireCurrent(op);
       return { ...op.view };
     } catch {
-      if (op) this.stop(op, 'failed');
+      if (op) {
+        this.stop(op, 'failed');
+        if (!op.view && (!pendingStart || startSettled)) {
+          clearTimeout(op.timer); this.operations.delete(op);
+        }
+      }
       throw refused();
     }
   }
@@ -115,6 +120,7 @@ export class BrowserDeviceLoginOperationController {
       const raw = await this.wait(op, this.deps.worker.request(op.native.nodeId, COORDINATOR_TO_NODE.CODEX_DEVICE_LOGIN_READ, { handle, owner: op.owner }));
       this.requireCurrent(op);
       op.view = this.validateView(op, raw);
+      if (op.view.expiresAt !== op.deadline) this.setDeadline(op, op.view.expiresAt);
       if (terminal.has(op.view.state)) this.stop(op, op.view.state);
       return { ...op.view };
     } catch { this.stop(op, 'failed'); throw refused(); }
@@ -145,6 +151,7 @@ export class BrowserDeviceLoginOperationController {
         this.requireCurrent(op);
         op.driver = createBrowserDeviceLoginDriver({ ...this.deps,
           isCurrent: () => this.current(op), isApproved: (metadata, id) => this.approved(op, metadata, id),
+          isCleanupCurrent: () => this.cleanupCurrent(op),
         }, { ...target, expectedIdentity: op.native.expectedIdentity, expiresAt: op.deadline });
         const context = await this.wait(op, op.driver.context(op.abort.signal));
         this.requireCurrent(op);
@@ -211,16 +218,22 @@ export class BrowserDeviceLoginOperationController {
   }
   private owned(handle: string, owner: CodexDeviceLoginOwner): Operation {
     const op = [...this.operations].find(entry => entry.view?.handle === handle);
-    if (!op || op.owner.sessionId !== owner.sessionId || op.owner.generation !== owner.generation) throw refused();
+    if (!op || op.owner.sessionId !== owner.sessionId || op.owner.generation !== owner.generation || !this.ownerCurrent(op)) throw refused();
     return op;
   }
-  private current(op: Operation): boolean {
+  private ownerCurrent(op: Operation): boolean {
     try {
       const current = this.deps.resolveOwner(op.owner);
+      return !!current && current.object === op.snapshot.object && current.restartEpoch === op.snapshot.restartEpoch
+        && current.adapterGeneration === op.snapshot.adapterGeneration;
+    } catch { return false; }
+  }
+  private current(op: Operation): boolean { return !op.abort.signal.aborted && this.cleanupCurrent(op); }
+  private cleanupCurrent(op: Operation): boolean {
+    try {
       const native = this.deps.resolveNative({ nodeId: op.native.nodeId, profileId: op.native.profileId }, op.owner);
-      return !this.closed && !op.abort.signal.aborted && Date.now() < op.deadline && !!current
-        && current.object === op.snapshot.object && current.restartEpoch === op.snapshot.restartEpoch
-        && current.adapterGeneration === op.snapshot.adapterGeneration && isDeepStrictEqual(native, op.native) && hasSynchronousAuthority(op.lease)
+      return !this.closed && Date.now() < op.deadline && this.ownerCurrent(op)
+        && isDeepStrictEqual(native, op.native) && hasSynchronousAuthority(op.lease)
         && (!op.target || (hasSynchronousAuthority(op.target.isCurrent) && hasSynchronousAuthority(op.browserLease))) && hasSynchronousAuthority(this.deps.protectionEnabled);
     } catch { return false; }
   }
@@ -237,8 +250,20 @@ export class BrowserDeviceLoginOperationController {
   private validateView(op: Operation, raw: unknown): CodexDeviceLoginView {
     const view = CodexDeviceLoginViewSchema.parse(raw);
     if (view.nodeId !== op.native.nodeId || view.profileId !== op.native.profileId || view.expectedIdentity !== op.native.expectedIdentity
-      || view.expiresAt > op.deadline || view.expiresAt <= Date.now() || (op.view && (view.handle !== op.view.handle || view.expiresAt !== op.deadline))) throw refused();
+      || view.expiresAt <= Date.now() || view.expiresAt > (op.view ? op.deadline : Date.now() + 300_000)
+      || (op.view && (view.handle !== op.view.handle || (op.target && view.expiresAt !== op.deadline)))) throw refused();
     return view;
+  }
+  private setDeadline(op: Operation, deadline: number): void {
+    op.deadline = deadline;
+    clearTimeout(op.timer);
+    op.timer = setTimeout(() => { this.stop(op, 'expired'); this.operations.delete(op); }, deadline - Date.now());
+    op.timer.unref();
+  }
+  private cancelStartResponse(op: Operation, raw: unknown): void {
+    const parsed = CodexDeviceLoginViewSchema.safeParse(raw);
+    if (parsed.success && parsed.data.nodeId === op.native.nodeId && parsed.data.profileId === op.native.profileId
+      && parsed.data.expectedIdentity === op.native.expectedIdentity) this.cancelNative(op, parsed.data.handle);
   }
   private stop(op: Operation, state: CodexDeviceLoginView['state']): void {
     if (op.abort.signal.aborted) return;

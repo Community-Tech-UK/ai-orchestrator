@@ -203,6 +203,7 @@ function makeDeps(state: FakeDepsState): InterruptRespawnDeps {
     })),
     resolveCliTypeForInstance: vi.fn().mockResolvedValue('claude'),
     getMcpConfig: vi.fn(() => []),
+    getBrowserGatewayMcpOptions: vi.fn(() => null),
     getPermissionHookPath: vi.fn(() => undefined),
     waitForResumeHealth: vi.fn().mockResolvedValue(true),
     waitForAdapterWritable: vi.fn().mockResolvedValue(true),
@@ -225,6 +226,7 @@ function makeDeps(state: FakeDepsState): InterruptRespawnDeps {
     waitForResumeHealth: (id: string) => deps.waitForResumeHealth(id),
     buildReplayContinuityMessage: deps.buildReplayContinuityMessage,
     buildFallbackHistory: deps.buildFallbackHistory,
+    spawnConfigBuilder: { getMcpConfig: deps.getMcpConfig, getBrowserGatewayMcpOptions: deps.getBrowserGatewayMcpOptions },
   } as unknown as RuntimeReconcilerDeps);
   deps.applyRecoveryRespawn = (instanceId, request, hooks) =>
     reconciler.applyRecoveryRespawn(instanceId, request, hooks);
@@ -850,6 +852,9 @@ describe('InterruptRespawnHandler recovery replay', () => {
     await handler.respawnAfterInterrupt('inst-1');
 
     expect(resumeAdapter.terminate).toHaveBeenCalledWith(true);
+    expect(deps.getMcpConfig).toHaveBeenCalledTimes(2);
+    expect(deps.getMcpConfig).toHaveBeenLastCalledWith(instance.executionLocation, instance.id, 'claude', instance.workingDirectory);
+    expect(deps.getBrowserGatewayMcpOptions).toHaveBeenCalledTimes(2);
     expect(deps.queueContinuityPreamble).toHaveBeenCalledWith('inst-1', 'fallback history');
     expect(fallbackAdapter.sendInput).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledOnce();
@@ -1081,6 +1086,7 @@ describe('InterruptRespawnHandler routine interrupt notices (U10)', () => {
       evaluateResumeHealth: async () => (resumeHealthy ? 'healthy' : 'unrecoverable'),
       buildReplayContinuityMessage: deps.buildReplayContinuityMessage,
       buildFallbackHistory: deps.buildFallbackHistory,
+      spawnConfigBuilder: { getMcpConfig: deps.getMcpConfig, getBrowserGatewayMcpOptions: deps.getBrowserGatewayMcpOptions },
     } as unknown as RuntimeReconcilerDeps);
     deps.applyRecoveryRespawn = (instanceId, request, hooks) =>
       reconciler.applyRecoveryRespawn(instanceId, request, hooks);

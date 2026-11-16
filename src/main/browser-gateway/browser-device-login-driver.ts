@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { BrowserDeviceLoginMetadata } from '@contracts/types/browser';
 import { BrowserDeviceLoginMetadataSchema } from '@contracts/schemas/browser';
 import type { BrowserExtensionContactStateReader } from './browser-extension-contact-state';
@@ -25,6 +26,8 @@ export interface BrowserDeviceLoginDriverDependencies {
   ledger: Pick<BrowserOneTimeCodeFillLedger, 'recordDevice' | 'consumeDevice' | 'invalidateDevice'>;
   captureConfidentialConnection(nodeId: string): (() => boolean) | null;
   isCurrent(): boolean;
+  /** Exact original owner/connection/target binding, independent of revoked write approval. */
+  isCleanupCurrent(): boolean;
   isApproved(metadata: BrowserDeviceLoginMetadata, approvalId: string): boolean;
   protectionEnabled(): boolean;
   now?: () => number;
@@ -49,6 +52,9 @@ export function createBrowserDeviceLoginDriver(
   deps: BrowserDeviceLoginDriverDependencies,
   input: BrowserDeviceLoginDestination,
 ) {
+  // Private delivery and cleanup can arrive from worker/node events. Keep the
+  // authenticated session that created this driver for shared-tab claim checks.
+  const runAsOwner = AsyncLocalStorage.snapshot();
   const destination = Object.freeze({ ...input });
   const now = deps.now ?? Date.now;
   let confidential: (() => boolean) | null;
@@ -81,11 +87,11 @@ export function createBrowserDeviceLoginDriver(
       return (cancelling || (!stopped.signal.aborted && ![...signals].some((signal) => signal.aborted)))
         && now() < destination.expiresAt
         && hasSynchronousAuthority(confidential ?? undefined)
-        && hasSynchronousAuthority(deps.isCurrent)
+        && hasSynchronousAuthority(cancelling ? deps.isCleanupCurrent : deps.isCurrent)
         && hasSynchronousAuthority(deps.protectionEnabled)
         && supportsBrowserExtensionCodexDeviceHandoff(deps.contacts, destination.browserNodeId,
           destination.extensionInstanceId, destination.extensionGeneration)
-        && (!metadata || hasSynchronousAuthority(() => deps.isApproved(metadata!, approvalId!)));
+        && (cancelling || !metadata || hasSynchronousAuthority(() => deps.isApproved(metadata!, approvalId!)));
     } catch { return false; }
   }
   function requireAuthority(cancelling = false): void {
@@ -97,7 +103,9 @@ export function createBrowserDeviceLoginDriver(
       expiresAt: destination.expiresAt, extensionInstanceId: destination.extensionInstanceId,
       extensionGeneration: destination.extensionGeneration, documentId: metadata.documentId };
   }
-  async function send(command: BrowserExtensionSendCommandRequest['command'], payload: Record<string, unknown>, cancelling = false): Promise<unknown> {
+  async function send(command: BrowserExtensionSendCommandRequest['command'], payload: Record<string, unknown>): Promise<unknown> {
+    // Cleanup authority can authorize only this fixed deletion command.
+    const cancelling = command === 'codex_device_cancel';
     let active = true;
     let commandId: string | undefined;
     let settled = false;
@@ -121,11 +129,11 @@ export function createBrowserDeviceLoginDriver(
       for (const signal of observed) signal.addEventListener('abort', rejectWait, { once: true });
     });
     try {
-      const pending = deps.commands.sendCommand({ queueKey, command,
+      const pending = runAsOwner(() => deps.commands.sendCommand({ queueKey, command,
         target: { tabId: destination.tabId, extensionInstanceId: destination.extensionInstanceId }, payload,
         timeoutMs, executionTimeoutMs: timeoutMs, undeliveredWaitMs: timeoutMs,
         onQueued: (id) => { commandId = id; },
-        beforeDelivery: guard, authorizeDeviceCommand: () => active && authorized(cancelling) });
+        beforeDelivery: guard, authorizeDeviceCommand: () => active && authorized(cancelling) }));
       const result = await Promise.race([pending, interrupted]);
       guard();
       settled = true;
@@ -202,7 +210,7 @@ export function createBrowserDeviceLoginDriver(
       invalidate('cancelled');
       if (alreadyStopped || !metadata || !authorized(true)) return;
       try {
-        const result = await send('codex_device_cancel', { binding: binding() }, true);
+        const result = await send('codex_device_cancel', { binding: binding() });
         if (!exact(result, ['completed']) || result['completed'] !== true) throw refused();
       } catch { /* Best effort; expired/disconnected extension operations erase themselves. */ }
     },

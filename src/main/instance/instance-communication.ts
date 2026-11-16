@@ -1,3 +1,4 @@
+import { getWorkAdmission } from '../work-admission/work-admission';
 /**
  * Instance Communication Manager - Handles adapter events and message passing
  */
@@ -605,6 +606,7 @@ export class InstanceCommunicationManager extends EventEmitter {
     contextBlock?: string | null,
     options?: Pick<InstanceSendInputOptions, 'autoContinuation' | 'automatedInput' | 'queuedAdmissionId' | 'signal' | 'beforeProviderDispatch' | 'onProviderInputDelivered' | 'assertProviderDispatchCurrent' | 'internalSource' | 'providerNativeCommandId' | 'crossSessionSourceId' | 'inputMessageId' | 'inputContextDelivery'>,
   ): Promise<void> {
+    getWorkAdmission().assertNotInMaintenance();
     await waitForGlobalPauseInput(instanceId, options);
     throwIfInstanceInputAborted(options?.signal);
     let baselineReservation: TurnBaselineDispatchReservation | undefined;
@@ -612,6 +614,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       await baselineReservation?.release();
       baselineReservation = await getTurnFileBaselineService().beforeDispatch(instanceId, instance!, deferredDispatch && !committed);
       throwIfInstanceInputAborted(options?.signal);
+      getWorkAdmission().assertNotInMaintenance();
       return deferredDispatch
       ? adapter!.sendInput(finalMessage, attachments, { internalSource: options?.internalSource, dispatch: inputDispatch })
       : options?.internalSource
@@ -867,6 +870,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       }
     }
 
+    getWorkAdmission().assertNotInMaintenance();
     await waitForGlobalPauseInput(instanceId, options);
     logger.info('Sending message to adapter');
     // Observe admitted sends; commit context and watchdog state only while dispatch remains eligible.
@@ -875,7 +879,8 @@ export class InstanceCommunicationManager extends EventEmitter {
       if (inputContextDelivery) this.emit('input-context-delivered', { instanceId, ...inputContextDelivery });
     });
     let committed = false;
-    const deferredDispatch = (adapter instanceof BaseCliAdapter || adapter instanceof RemoteCliAdapter) && Boolean(options?.queuedAdmissionId || options?.signal || options?.beforeProviderDispatch || options?.assertProviderDispatchCurrent || isAutomaticInstanceInput(options));
+    const deferredDispatch = adapter instanceof BaseCliAdapter || adapter instanceof RemoteCliAdapter;
+    const deferReceipt = Boolean(options?.queuedAdmissionId || options?.signal || options?.beforeProviderDispatch || options?.assertProviderDispatchCurrent || isAutomaticInstanceInput(options));
     const commitDispatch = (): void => {
       throwIfInstanceInputAborted(options?.signal);
       if (committed) return;
@@ -905,6 +910,8 @@ export class InstanceCommunicationManager extends EventEmitter {
       failureScope.activate();
     }, this.deps.getInstance, this.deps.getAdapter);
     try {
+      // Ordinary attempts retain failed receipts even when provider setup rejects before native dispatch.
+      if (!deferReceipt) receipt.record();
       if (!deferredDispatch) {
         commitDispatch();
         failureScope.activate();

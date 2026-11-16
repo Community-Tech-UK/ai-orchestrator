@@ -106,6 +106,32 @@ describe('AppUpdateSettingsComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Downloading 0.2.0 · 47%');
   });
 
+  it('explains source builds and automatic idle restarts without claiming a download', () => {
+    status.set({ state: 'building', source: 'git', enabled: true, currentVersion: '0.1.0' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Building the latest update');
+    expect(fixture.nativeElement.textContent).toContain('GitHub');
+    expect(fixture.nativeElement.querySelector('progress')).toBeNull();
+
+    status.set({ state: 'waiting-idle', source: 'git', sourceBuildReady: true, enabled: true, currentVersion: '0.1.0' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('restart automatically when work is idle');
+    expect(fixture.nativeElement.textContent).not.toContain('Restart to update');
+  });
+
+  it('distinguishes waiting to build from an update ready to install', () => {
+    status.set({ state: 'waiting-idle', source: 'git', sourceBuildReady: false, enabled: true, currentVersion: '0.1.0' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('before building');
+  });
+
+  it('offers a source-update retry without calling it a download', () => {
+    status.set({ state: 'error', source: 'git', enabled: true, errorContext: 'download', error: 'The build could not finish.' });
+    fixture.detectChanges();
+    button('Retry update').click();
+    expect(store.retryDownload).toHaveBeenCalledOnce();
+  });
+
   function button(label: string): HTMLButtonElement {
     const match = [...fixture.nativeElement.querySelectorAll('button')]
       .find((candidate: HTMLButtonElement) => candidate.textContent?.includes(label));

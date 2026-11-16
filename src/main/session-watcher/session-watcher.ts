@@ -167,6 +167,9 @@ export class SessionWatcher extends EventEmitter {
     this.host.on('instance:removed', this.onRemoved);
   }
 
+  /** Includes queued judges and a decided reply that is still waiting to send. */
+  hasPendingWork(instanceId: string): boolean { return this.jobs.has(instanceId); }
+
   stop(): void {
     if (!this.started) return;
     this.started = false;

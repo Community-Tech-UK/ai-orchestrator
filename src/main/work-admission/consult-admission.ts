@@ -11,6 +11,8 @@ export function trackConsult(interrupt: () => void): () => void {
   return () => { active.delete(consult); finish(); };
 }
 
+export function getActiveConsultCount(): number { return active.size; }
+
 export async function pauseConsults(): Promise<void> {
   const running = [...active];
   for (const consult of running) consult.interrupt();

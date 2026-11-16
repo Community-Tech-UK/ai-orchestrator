@@ -41,6 +41,14 @@ describe('SessionRevivalService', () => {
     );
   });
 
+  it.each(['error', 'cancelled'] as const)('source update never invokes restart recovery of a live %s copy', async status => {
+    getInstance.mockReturnValue(liveInstance({ status }));
+    restartInstance.mockResolvedValue({ success: true, method: 'replay-fallback' });
+    await expect(service.revive({ instanceId: 'live-1', reviveIfArchived: true, reason: 'source-update' }))
+      .resolves.toMatchObject({ status: 'failed', failureCode: 'resume_failed' });
+    expect(restartInstance).not.toHaveBeenCalled();
+    expect(restore).not.toHaveBeenCalled();
+  });
   it('returns a live instance without restoring history', async () => {
     getInstance.mockReturnValue(liveInstance());
 

@@ -632,6 +632,57 @@ cancel with `browser.cancel_credential_access({requestId})`. These tools and CLI
 commands use the same service and permission checks. Do not repair this by
 editing permission records or borrowing another session's connection.
 
+### Codex device sign-in tools
+
+These are Browser Gateway MCP tools carried by the `browser-gateway` forwarder,
+not separate `aio-mcp` CLI commands. Discover them with
+`browser.tool_search({query: "Codex device login"})` or
+`browser.tool_describe({name: "browser.start_device_login"})`. Follow the returned
+invocation instructions; the stable tool interface uses
+`browser.tool_execute({name, arguments})` for these tools.
+
+| Tool | Required arguments | Result |
+| --- | --- | --- |
+| `browser.start_device_login` | `{nodeId, profileId}` | Start one native Codex sign-in; return the operation view below. `profileId` names the native Codex profile. |
+| `browser.read_device_login` | `{loginHandle}` | Return the current operation view. |
+| `browser.cancel_device_login` | `{loginHandle}` | Cancel the operation and invalidate its handoff; return its view. |
+| `browser.fill_device_login` | `{loginHandle, profileId, targetId}` | Request approval, then securely fill **and submit** once. Here `profileId` and `targetId` identify the real browser tab. |
+
+Start/read/cancel return `{handle, profileId, provider: "codex", nodeId,
+expectedIdentity, expiresAt, state, error?}`. Pass the returned **`handle` as
+`loginHandle`** in subsequent requests. `expiresAt` is epoch milliseconds;
+`state` is `starting`, `awaiting_handoff`, `reserved`, `delivering`,
+`awaiting_login`, `verifying`, `authenticated`, `failed`, `cancelled` or `expired`.
+`error`, when present, is a fixed non-secret failure code. No response contains
+the device code, native command output or caller ownership fields.
+
+The native worker must explicitly enable `codexDeviceLogin` with an expected
+identity. Its profile must already be registered in Harness's trusted Codex
+account pool, enabled, non-legacy and `allow-routed`, with the same expected
+identity; its native profile directory must be fresh. The caller is a current
+local Harness session. Its forwarder supplies the private generation capability
+automatically in the authenticated envelope; never add owner, generation or
+capability fields to tool arguments or copy them from another session.
+
+Both worker connections (native sign-in and browser delivery) require
+certificate-validated TLS. The destination must be a live shared extension tab
+at `https://auth.openai.com`, allowed by its origin policy, with shared-tab
+credential fill opted in, secret-observation protection enabled, and extension
+support for session claims and secure Codex device handoff. Use Browser Gateway
+health, preflight and listed targets; a configured URL or advertised capability
+alone does not prove that the required connection is live.
+
+Read until `state` is `awaiting_handoff`, then call fill. Pending consent returns
+`{status: "requires_approval", requestId, operation}`. Wait for the normal visible
+approval of that exact operation, identity and target; retry fill with the same
+handle and browser target. There is **no `requestId` input**. Success returns
+`{status: "submitted", operation}`; do not send a separate submit click. Read the
+operation until `authenticated` before claiming native sign-in succeeded.
+Cancellation, expiry, a changed session or connection, and stale target bindings
+can refuse the handoff. Never work around a refusal by extracting the code from
+output, snapshots or screenshots, or by typing it with ordinary browser tools.
+This documents the source interface, not deployment or live sign-in evidence.
+
 ### HTTP sign-in prompts (Basic/Digest)
 
 Chrome sometimes shows its own username/password pop-up instead of a page form

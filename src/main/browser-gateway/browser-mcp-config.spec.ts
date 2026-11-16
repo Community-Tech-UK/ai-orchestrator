@@ -19,6 +19,23 @@ const options = {
 };
 
 describe('browser-mcp-config', () => {
+  it('preserves one prepared device capability across every serialization and redacts its key', () => {
+    const prepared = { ...options, deviceLoginCapabilityToken: 'PLACEHOLDER_DEVICE_LOGIN_CAPABILITY' };
+    const envName = 'AI_ORCHESTRATOR_BROWSER_DEVICE_LOGIN_CAPABILITY_TOKEN';
+    const bridge = resolveBrowserGatewayBridgeSpec(prepared)!;
+    expect(bridge.env[envName]).toBe(prepared.deviceLoginCapabilityToken);
+    expect(JSON.parse(buildBrowserGatewayMcpConfigJson(prepared)!).mcpServers['browser-gateway'].env[envName])
+      .toBe(prepared.deviceLoginCapabilityToken);
+    expect(JSON.parse(buildBrowserGatewayGeminiSettingsJson(prepared)!).mcpServers['browser-gateway'].env[envName])
+      .toBe(prepared.deviceLoginCapabilityToken);
+    expect(buildBrowserGatewayCodexConfigToml(prepared)).toContain(`${envName} = "${prepared.deviceLoginCapabilityToken}"`);
+    expect(buildBrowserGatewayAcpMcpServers(prepared)[0].env)
+      .toContainEqual({ name: envName, value: prepared.deviceLoginCapabilityToken });
+    expect(bridge.args).not.toContain(prepared.deviceLoginCapabilityToken);
+    expect(JSON.stringify(redactForSink(bridge.env))).not.toContain(prepared.deviceLoginCapabilityToken);
+    expect(redactForSink({ deviceLoginCapabilityToken: prepared.deviceLoginCapabilityToken }))
+      .toEqual({ deviceLoginCapabilityToken: '<redacted-secret>' });
+  });
   it('builds a bridge pointing at the aio-mcp SEA browser-gateway subcommand', () => {
     const bridge = resolveBrowserGatewayBridgeSpec(options);
 

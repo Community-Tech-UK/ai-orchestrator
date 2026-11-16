@@ -1,3 +1,4 @@
+import { getWorkAdmission } from '../work-admission/work-admission';
 import { getLogger } from '../logging/logger';
 import type { AdapterInputDispatch, AdapterInputRetryReason } from '../cli/adapters/base-cli-adapter.types';
 import type { CliAdapter } from '../cli/adapters/adapter-factory';
@@ -24,6 +25,7 @@ export function createInstanceAdapterInputDispatch(
   let retryReason: AdapterInputRetryReason | undefined;
   let identity: Pick<Instance, 'requestCount' | 'sessionId' | 'adapterGeneration' | 'provider'> | undefined;
   const assertCurrent = (): void => {
+    getWorkAdmission().assertNotInMaintenance();
     throwIfInstanceInputAborted(options?.signal);
     options?.assertProviderDispatchCurrent?.(retryReason);
     const current = getInstance(instance.id);
@@ -38,6 +40,7 @@ export function createInstanceAdapterInputDispatch(
     signal: options?.signal, autoContinuation: options?.autoContinuation, assertCurrent,
     isRecoveryCurrent: () => isInstanceRecoveryEpochCurrent(instance.id, recoveryEpoch),
     assertLogicalCurrent: (reason) => {
+      getWorkAdmission().assertNotInMaintenance();
       throwIfInstanceInputAborted(options?.signal);
       options?.assertProviderDispatchCurrent?.(reason);
     },

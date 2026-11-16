@@ -496,7 +496,10 @@ export class RuntimeReconciler {
             await adapter.terminate(true);
             assertCurrent();
 
-            const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId() };
+            const fallbackOptions = { ...spawnOptions, resume: false, forkSession: false, sessionId: generateId(),
+              mcpConfig: spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, cliType, instance.workingDirectory),
+              browserGatewayMcp: spawnConfigBuilder.getBrowserGatewayMcpOptions(instance.executionLocation, instance.id, cliType) ?? undefined,
+            };
             instance.sessionId = fallbackOptions.sessionId;
             // LT-018: resume failed, identity is fresh — recompute occupancy.
             instance.contextUsage = resolveSwapContextUsage(instance.contextUsage, contextTotal, false);
@@ -788,6 +791,8 @@ export class RuntimeReconciler {
         resume: false,
         forkSession: false,
         sessionId: fallbackSessionId,
+        mcpConfig: this.deps.spawnConfigBuilder.getMcpConfig(instance.executionLocation, instance.id, request.cliType, instance.workingDirectory),
+        browserGatewayMcp: this.deps.spawnConfigBuilder.getBrowserGatewayMcpOptions(instance.executionLocation, instance.id, request.cliType) ?? undefined,
       };
       adapter = await this.deps.createRuntimeAdapter(
         request.cliType,
@@ -854,9 +859,7 @@ export class RuntimeReconciler {
     }
     instance.processId = pid;
 
-    if (!actuallyResumed && request.shouldResume) {
-      // Continuity already delivered in the fallback path above.
-    } else if (!request.shouldResume && request.hasConversation) {
+    if (!request.shouldResume && request.hasConversation) {
       // Same carry-on notice, prepended to the replay body (usage-burn item 3.2).
       const stopped = await getSessionContinuityManagerIfInitialized()?.takeStoppedHelpers(instanceId) ?? [];
       const replayBody = this.deps.buildReplayContinuityMessage(instance, request.replayReason);

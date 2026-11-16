@@ -5,6 +5,25 @@ import { limitsFor } from './workload-policy';
 afterEach(() => { WorkAdmission._resetForTesting(); vi.useRealTimers(); });
 
 describe('work admission', () => {
+  it('owns an exclusive maintenance lease independently of operator pause and blocks every kind', () => {
+    const admission = new WorkAdmission();
+    const lease = admission.tryAcquireMaintenance();
+    expect(lease).not.toBeNull();
+    expect(admission.tryAcquireMaintenance()).toBeNull();
+    admission.setGlobalPhase('holding');
+    for (const kind of ['queue-job', 'queue-check', 'queue-checklist', 'queue-triage', 'loop-round', 'campaign-node', 'automation-run', 'repo-job', 'helper-agent', 'consult', 'background-index', 'timed-wakeup'] as const) {
+      expect(admission.check(kind, { remote: true })).toMatchObject({ allowed: false, reason: 'maintenance' });
+    }
+    expect(() => admission.assertNotInMaintenance()).toThrow('updating');
+    lease!.release();
+    const next = admission.tryAcquireMaintenance();
+    lease!.release();
+    expect(admission.isInMaintenance()).toBe(true);
+    next!.release();
+    expect(admission.check('queue-job')).toMatchObject({ allowed: false, reason: 'held' });
+    expect(admission.check('consult')).toEqual({ allowed: true });
+  });
+
   it('holds engine starts while allowing a running chat to consult and spawn helpers', () => {
     const admission = new WorkAdmission({ cpuCount: () => 18, loadAverage: () => [0, 0, 0] });
     admission.setGlobalPhase('holding');
