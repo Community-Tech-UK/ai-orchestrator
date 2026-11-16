@@ -131,8 +131,16 @@ describe('native resume: the conversation is read again', () => {
 
   it('covers an account switch and a running reply', () => {
     const note = describeRuntimeChangeCost(flags({ accountProfileChanged: true }), 150_000, false, { continuity: 'native-resume-fork' });
-    expect(note?.text).toBe('Once the current reply finishes, switching account restarts this session, and the next message will re-read about 150K tokens at full price.');
+    expect(note?.text).toBe('Once the current reply finishes, switching account moves this session to the new account, and the next message will re-read about 150K tokens at full price.');
     expect(note?.large).toBe(true);
+  });
+
+  it('never says an account switch restarts the session, since a live MiMo switch keeps its process (LT-1167)', () => {
+    for (const continuity of ['native-resume', 'native-resume-fork'] as const) {
+      const note = describeRuntimeChangeCost(flags({ accountProfileChanged: true }), 150_000, true, { continuity });
+      expect(note?.text).toBe('Switching account moves this session to the new account, and the next message will re-read about 150K tokens at full price.');
+      expect(note?.text).not.toMatch(/restart/i);
+    }
   });
 
   it('says nothing for changes that resume with their cache intact', () => {

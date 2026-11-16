@@ -62,13 +62,13 @@ describe('ProviderAccountChipComponent: the cost is said before the account move
 
   it('adds the sentence to the question it already asks', async () => {
     preview.mockResolvedValue({
-      kind: 'account', text: 'Switching account restarts this session, and the next message will re-read about 230K tokens at full price.',
+      kind: 'account', text: 'Switching account moves this session to the new account, and the next message will re-read about 230K tokens at full price.',
       resendTokens: 230_000, carriedTokens: null, droppedTokens: null, large: true,
     });
     const confirm = await moveToMaxB();
     expect(preview).toHaveBeenCalledWith('inst-1', { accountProfileId: 'max-b-1a2b' });
     expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringMatching(
-      /Move this conversation to "Max B"\? The current session ends and the conversation continues on that account\. Switching account restarts this session, and the next message will re-read about 230K tokens at full price\.$/,
+      /Move this conversation to "Max B"\? The conversation continues on that account\. Switching account moves this session to the new account, and the next message will re-read about 230K tokens at full price\.$/,
     ) }));
     expect(switchSession).toHaveBeenCalledWith('inst-1', 'max-b-1a2b');
   });
@@ -77,7 +77,7 @@ describe('ProviderAccountChipComponent: the cost is said before the account move
     preview.mockResolvedValue(null);
     const confirm = await moveToMaxB();
     expect(confirm).toHaveBeenCalledWith(expect.objectContaining({
-      message: 'Move this conversation to "Max B"? The current session ends and the conversation continues on that account.',
+      message: 'Move this conversation to "Max B"? The conversation continues on that account.',
     }));
   });
 

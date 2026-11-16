@@ -385,10 +385,13 @@ sections below. The historical reproduction remains unchanged.
 | LT-782 | P2 | **FIXED + VERIFIED LIVE 2026-10-27.** Canonical gates and the independent completion review passed. A second Refresh during MiMo SSO cooldown clears the stale-login warning despite repeated real 401 responses. | [LT-782 detail](#lt-782) | [MiMo session resilience Check 2](2026-09-25-mimo-session-resilience_livetest.md) |
 | LT-1008 | P2 | **REPAIRED; independent review pending, 2026-10-27.** Each delayed option binds selection; live header and composer both select B. | [Detail](#lt-1008) | [Branch-owned DOM receipt](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/chips-ready.json) |
 | LT-1009 | P1 | **REPAIRED; independent review pending, 2026-10-27.** In-place and respawn account handoffs update continuity; the live immediate wake remains on B. | [Detail](#lt-1009) | [Branch-owned wake receipt](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/wake.json) |
-| LT-1010 | P2 | **OPEN — observed 2026-10-27.** MiMo error capture retains quota wording but omits upstream HTTP status/body. Owner: provider adapter/event-capture remediation; exact retention contract and safe transport required. | [Detail](#lt-1010) | [Capture provenance](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/capture-provenance.json) |
+| LT-1010 | P2 | **OPEN — observed 2026-10-27.** MiMo error capture retains quota wording but omits upstream HTTP status/body. **2026-11-13 live finding:** OpenCode's ACP error carries only `data: {service, errorName}`, so the status and body never reach the ledger; the branch now records `upstreamHttp: not-supplied-by-acp` for each missing field (unit-tested and seen live). Getting the real 429 and body still needs a different upstream transport; owner: provider adapter/event-capture remediation. | [Detail](#lt-1010) | [Capture provenance](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/capture-provenance.json) |
 | LT-1011 | P2 | **OPEN — independently reproduced 2026-10-27.** Vitest's error-stack parser rejects map-like template text in the locked tsx bundles, leaving an unhandled reporting error. Owner: test-toolchain remediation; no parser suppression or test weakening. | [Detail](#lt-1011) | [Parser reproduction](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r2/source-map-scan.json) |
 | LT-1012 | P2 | **OPEN — reproduced again in isolation 2026-10-27.** The native-finality child-process test sometimes reaches settlement without its final-written marker. The full-suite failures and a fresh isolated failure remain red; the cause is unconfirmed. Owner: native-finality test/runtime investigation. | [Detail](#lt-1012) | [Current isolated failure](2026-10-10-mimo-multi-account_evidence/2026-10-27-queue-61bedf-r3/finality-isolation.txt) |
 | LT-1007 | P2 | **OPEN — observed 2026-11-08.** In a sandboxed host (queue worker), every OpenCode CLI probe exits 71 because the macOS signal-fence `sandbox-exec` wrapper cannot apply its policy. The app reports `No usable OpenCode install` and the startup panel names only hardened instances, so MiMo sessions cannot start and sign-in reads `Could not check`. Owner decision needed on the fallback policy. | [Detail](#lt-1007) | [Receipt](2026-10-10-mimo-multi-account_evidence/2026-11-08-queue-61bedf-r4/observations.md) |
+| LT-1064 | P3 | **OPEN — observed 2026-11-12.** The quota-park banner on a MiMo session says "Parked on a opencode limit" and labels its account switch "Switch this session to another Claude or Codex account"; both name the wrong thing for MiMo. | [Detail](#lt-1064) | [Receipt](2026-10-10-mimo-multi-account_evidence/2026-11-12-queue-cf6857-r5/check2-quota-park-banner.json) |
+| LT-1166 | P3 | **FIXED BY REWORDING 2026-11-16; independent review pending.** MiMo multi-account live check 2 required the account chip in the session header and the composer. The one-row header (calm-screen redesign) deliberately has no account chip; only the composer toolbar shows it. Check 2 now names the composer toolbar only; no product change. | [Detail](#lt-1166) | [Receipt](2026-10-10-mimo-multi-account_evidence/2026-11-13-queue-cf6857-r6/focused-tests-full.log) |
+| LT-1167 | P3 | **FIXED IN THIS WORKTREE 2026-11-14; independent review pending.** Switching a MiMo session to another account in place said "Switching account restarts this session", but the process is not restarted (same process id before and after, three times). The account-switch text now says "moves this session to the new account" and keeps the true cold-cache cost; a live in-place switch showed the new text with the same process id. | [Detail](#lt-1167) | [Live switch receipt](2026-10-10-mimo-multi-account_evidence/2026-11-14-queue-cf6857-r9/lt1123-live-switch.json) |
 | LT-1026 | P2 | **OPEN — reproduced live 2026-10-27.** A 400,219-character context-fill message stalls the Electron main loop for 153,712 ms during the RLM keyword-search fallback before provider dispatch. The app recovers and honors a queued stop; exact cause remains unproven. | [LT-1026 detail](#lt-1026--a-large-context-fill-send-blocks-the-main-loop-during-retrieval) | [Compaction reliability round 2](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-verifier-round-2) |
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
@@ -11514,6 +11517,10 @@ Error to name/message/stack/cause, and the turn-error capture separately allows 
 only when already attached to the Error. The capture layer cannot invent HTTP fields that
 OpenCode never forwards over ACP. Direct native-store evidence is not capture-ledger evidence.
 
+### 2026-11-13 update (queue re-run)
+
+A direct ACP probe and a live ledger capture both show OpenCode 1.19.5 replying `{"code":-32603,"message":"Internal error: quota exhausted","data":{"service":"session","errorName":"APIError"}}`. `data` exists but has no HTTP status or body. The capture ledger keeps this envelope in `raw_json.payload.cause` (the earlier check read only `event_json`, which holds the normalized event). `settleAcpErrorResponse` now adds `upstreamHttp: {status, body}` set to `not-supplied-by-acp` for whichever of the two the reply lacks, so a missing field is stated rather than silent. Receipts: [ledger raw row](2026-10-10-mimo-multi-account_evidence/2026-11-13-queue-cf6857-r7/check8-ledger-raw-error.json), [direct envelope](2026-10-10-mimo-multi-account_evidence/2026-11-13-queue-cf6857-r7/check8-acp-envelope-direct.txt). Fixture spec: `src/main/cli/adapters/acp-jsonrpc-errors.spec.ts`. The real status and body are not recoverable over ACP; the item stays open for the transport decision.
+
 ### Required behaviour and owner
 
 Owner: provider adapter/event-capture remediation, tracked in the active root-owned
@@ -11680,6 +11687,87 @@ The provider-level setting `providerSignalFenceEnabled` is read-only for agents 
   either starts under the owner-chosen policy or refuses with that reason.
 - Canonical verification and independent review pass. This defect stays open until the owner
   decides the fallback policy.
+
+Update 2026-11-12: for the queue live checks James allowed the signal fence to be off in a
+throwaway test profile only, never in the real app. With it off in `/tmp/aio-lt-queue-cf6857a6`
+the OpenCode probe found a usable install and MiMo sessions started (see the 2026-11-12 section
+of the MiMo livetest). That answers how the checks run; it does not decide the product policy
+for a fence that cannot be applied, so this defect stays open.
+
+<a id="lt-1064"></a>
+
+## LT-1064 — quota-park banner names the provider and account family wrongly for MiMo
+
+### Observed behaviour
+
+On 2026-11-12 a real MiMo session was parked on an exhausted account (failover set to "Tell me and let me switch"). The banner read "Parked on a opencode limit. Re-checks the live quota every few minutes and resumes as soon as the limit lifts; resumes at 20:01:12 at the latest." Its account select carried the accessible name "Switch this session to another Claude or Codex account" while listing only "Switch account…" and "MiMo Test B". Receipt: [check2-quota-park-banner.json](2026-10-10-mimo-multi-account_evidence/2026-11-12-queue-cf6857-r5/check2-quota-park-banner.json).
+
+### Root cause
+
+`src/renderer/app/features/instance-detail/composer-banners.component.ts` builds the detail text from the raw provider id (`park.provider`, here `opencode`) in `quotaParkDetail`, with the article "a" fixed. The select's `aria-label` is a fixed string written before MiMo joined the account pool.
+
+### Required behaviour
+
+Use the display name for the provider ("MiMo" for OpenCode sessions on a Token Plan model, from `src/shared/display-names.ts`) and drop the article problem. The account select's accessible name must not name only Claude and Codex; it should name the account family of the session.
+
+### Acceptance
+
+- A component test with a MiMo park shows the detail text without "opencode" and the select name naming MiMo.
+- A live parked MiMo session shows both. Wording follows `docs/screen-and-wording-guide.md`.
+
+<a id="lt-1166"></a>
+
+## LT-1166 — live check 2 expects an account chip in the session header that the one-row header no longer has
+
+### Observed behaviour
+
+Check 2 of [the MiMo multi-account live checks](2026-10-10-mimo-multi-account_livetest.md) says the account chip shows the account label "in the session header and composer". In the current app only the composer toolbar renders `app-provider-account-chip` (`composer-toolbar.component.ts:148`, `input-panel.component.html:156`). The session header renders none. `instance-header.component.spec.ts` asserts `app-provider-account-chip` is absent from the header (test "renders one row with no model picker, account chip, hooks, skills, ..."; run 2026-11-13, 15 tests passed, log in the receipt).
+
+### Root cause
+
+The header was reduced to one row by the calm-screen work (commit 14fbf3563) and the chip was removed from it on purpose. The live check was written earlier and never reworded, so its header expectation contradicts the shipped design. This is a stale acceptance statement or a product choice, not a regression in the account switch itself (the composer chip and its switch list worked in the 2026-11-12 live run).
+
+### Required behaviour
+
+Decide one way and make the check and the product agree: either restore a compact account chip in the header, or reword check 2 to name the composer toolbar as the only place the chip appears. Until then check 2 stays open for its header clause. Do not mark it passing by ignoring the clause.
+
+### Acceptance
+
+- The livetest check 2 text and the shipped header agree, and the header spec still matches the decision.
+- A live MiMo session on two accounts shows the chip wherever the check says, with both accounts in the switch list.
+
+### Fix (2026-11-16)
+
+The calm-screen plan (`2026-10-10-oct-phase3-calm-screen_plan.md`, "model, account and context live only next to the message box")
+and `instance-header.component.spec.ts` both state the header has no account chip, so the stale acceptance text was the defect.
+Check 2 in the MiMo livetest now says the chip shows in the composer toolbar. The 13-14 November live receipts already show the chip
+and both accounts in its switch list there. These two numbers replace LT-1122 and LT-1123, which another queue item had also taken.
+
+<a id="lt-1167"></a>
+
+## LT-1167 — account-switch confirmation says the session restarts when it does not
+
+### Observed behaviour
+
+On 2026-11-13, switching a live MiMo session between `MiMo Test A` and `MiMo Test B` from the composer account chip showed a confirmation that began "Switching account restarts this session, and the next message will re-read about N tokens at full price." The process id was unchanged after the switch in both receipts: [explicit switch](2026-10-10-mimo-multi-account_evidence/2026-11-13-queue-cf6857-r6/check2-explicit-switch.json) (72814 before and after) and [banner switch](2026-10-10-mimo-multi-account_evidence/2026-11-13-queue-cf6857-r6/check2-banner-switch.json) (69780 before and after). The conversation moved in place.
+
+### Root cause
+
+`src/shared/utils/runtime-change-cost.ts` builds the native-resume warning (the `restarts this session` template, `kind` model or account) with one fixed phrase for both kinds. An account switch on a MiMo session changes only the account route; it does not restart the process. The cost half of the sentence (next message re-reads the history from a cold cache) is the true part.
+
+### Required behaviour
+
+Word the account-switch confirmation so it does not claim a restart that did not happen, keeping the cold-cache cost statement. Wording follows `docs/screen-and-wording-guide.md`. A model change may keep its own wording if that path really does restart.
+
+### Acceptance
+
+- `runtime-change-cost.spec.ts` asserts the account-kind text contains no "restarts".
+- A live in-place account switch shows the corrected text and the process id stays the same.
+
+### Fix (2026-11-14)
+
+`runtime-change-cost.ts` now builds the account-kind sentence as "<Switching account> moves this session to the new account, and the next message will re-read about N tokens at full price."; the model kind keeps "restarts this session". The composer account chip's own confirmation lead-in (`provider-account-chip.component.ts`) also said "The current session ends"; it now reads "The conversation continues on that account." because that wording had the same problem. Tests: `runtime-change-cost.spec.ts` (new case asserts no "restart" for both native-resume continuities), `provider-account-chip.cost-note.spec.ts` (full confirmation text). Live receipt: [lt1123-live-switch.json](2026-10-10-mimo-multi-account_evidence/2026-11-14-queue-cf6857-r9/lt1123-live-switch.json) (confirmation text shown, process id 80146 before and after).
+
 <a id="lt-711"></a>
 
 ## LT-711 — historical Cursor empty-completed failure reports lack correction evidence

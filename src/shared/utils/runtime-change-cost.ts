@@ -131,9 +131,11 @@ export function describeRuntimeChangeCost(
   // Native resume keeps the conversation. Only a different model or account makes the next message
   // read it all again from an empty cache; the other kinds resume with their cache intact.
   if (known === null || options.cacheWarm === false || (kind !== 'model' && kind !== 'account')) return null;
+  // An account switch may be made in place on a live MiMo session (no restart), so it never says "restarts" (LT-1167).
+  const effect = kind === 'account' ? 'moves this session to the new account' : 'restarts this session';
   return {
     kind,
-    text: `${lead} restarts this session, and the next message will re-read about ${formatApproxTokens(known)} tokens at full price.`,
+    text: `${lead} ${effect}, and the next message will re-read about ${formatApproxTokens(known)} tokens at full price.`,
     resendTokens: known,
     carriedTokens: null,
     droppedTokens: null,

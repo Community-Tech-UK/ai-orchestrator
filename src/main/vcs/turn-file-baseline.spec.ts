@@ -38,7 +38,8 @@ async function looseObjectCount(repo: string): Promise<number> {
   const root = path.join(repo, '.git', 'objects');
   let count = 0;
   for (const entry of await fs.readdir(root)) {
-    if (entry === 'info' || entry === 'pack') continue;
+    // Only the two-hex-digit fan-out folders hold loose objects; git may briefly leave files such as maintenance.lock here.
+    if (!/^[0-9a-f]{2}$/.test(entry)) continue;
     count += (await fs.readdir(path.join(root, entry))).length;
   }
   return count;

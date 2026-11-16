@@ -285,7 +285,7 @@ export class ProviderAccountChipComponent {
       // Say what the move will cost before asking (T17); nothing is added when it costs nothing.
       const cost = await this.runtimePreview.preview(boundInstance, { accountProfileId: value });
       if (dropped()) return;
-      const confirmed = await this.confirmService.confirm({ message: `Move this conversation to "${this.labelFor(value)}"? The current session ends and the conversation continues on that account.${cost ? ` ${cost.text}` : ''}`, confirmLabel: 'Move conversation', danger: true });
+      const confirmed = await this.confirmService.confirm({ message: `Move this conversation to "${this.labelFor(value)}"? The conversation continues on that account.${cost ? ` ${cost.text}` : ''}`, confirmLabel: 'Move conversation', danger: true });
       if (dropped()) return;
       if (!confirmed) {
         target.value = this.selectedValue();

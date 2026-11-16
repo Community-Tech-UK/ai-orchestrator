@@ -16,15 +16,24 @@ export function settleAcpErrorResponse<T extends PendingAcpErrorRequest>(
   const key = response.id == null ? '' : String(response.id);
   const pending = key ? pendingRequests.get(key) : undefined;
   // Preserve what the supported ACP transport actually supplied. A JSON-RPC
-  // code is not an HTTP status; missing upstream fields remain absent.
+  // code is not an HTTP status; missing upstream fields are never invented.
   // Decode JSON-encoded bodies before redaction so secret-keyed fields inside
   // them receive the same protection as ordinary structured error data.
+  // OpenCode's real quota refusal carries a `data` object with no HTTP fields,
+  // so name each missing one: otherwise a capture without them reads as if the
+  // provider sent none, when the ACP transport simply did not forward them.
+  const data = 'data' in response.error ? decodeErrorData(response.error.data) : undefined;
+  const missingHttp = {
+    ...(findKey(data, HTTP_STATUS_KEYS) === undefined ? { status: NOT_SUPPLIED } : {}),
+    ...(findKey(data, HTTP_BODY_KEYS) === undefined ? { body: NOT_SUPPLIED } : {}),
+  };
   const captured = redactForSink({
     transport: 'acp-jsonrpc', jsonrpc: response.jsonrpc, id: response.id,
     error: {
       code: response.error.code, message: response.error.message,
-      ...('data' in response.error ? { data: decodeErrorData(response.error.data) } : {}),
+      ...(data !== undefined ? { data } : {}),
     },
+    ...(Object.keys(missingHttp).length > 0 ? { upstreamHttp: missingHttp } : {}),
   });
   const error = new Error(`ACP ${pending?.method ?? 'request'} failed: ${captured.error.message} (${captured.error.code})`, { cause: captured });
   if (pending && key) {
@@ -34,6 +43,23 @@ export function settleAcpErrorResponse<T extends PendingAcpErrorRequest>(
     return;
   }
   emitError(error);
+}
+
+const NOT_SUPPLIED = 'not-supplied-by-acp';
+const HTTP_STATUS_KEYS = ['statuscode', 'status', 'httpstatus'];
+const HTTP_BODY_KEYS = ['responsebody', 'body', 'response'];
+
+/** Depth-limited, case-insensitive search for the first defined value under one of `keys`. */
+function findKey(value: unknown, keys: readonly string[], depth = 0): unknown {
+  if (depth > 12 || value === null || typeof value !== 'object') return undefined;
+  for (const [key, item] of Object.entries(value)) {
+    if (keys.includes(key.toLowerCase()) && item !== undefined && item !== null) return item;
+  }
+  for (const item of Object.values(value)) {
+    const found = findKey(item, keys, depth + 1);
+    if (found !== undefined) return found;
+  }
+  return undefined;
 }
 
 function decodeErrorData(value: unknown, depth = 0): unknown {

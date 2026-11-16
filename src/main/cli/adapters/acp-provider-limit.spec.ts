@@ -26,7 +26,8 @@ const MIMO_INSUFFICIENT = 'ACP session/prompt failed: Internal error: Insufficie
 /**
  * Real MiMo refusal, 2026-10-27: HTTP 429 with this credential-free response body:
  * { "error": { "code": "429", "message": "quota exhausted", "type": "limitation" } }
- * OpenCode logs AI_APICallError: quota exhausted; ACP exposes only the message/code below.
+ * OpenCode logs AI_APICallError: quota exhausted; over ACP it sends the message/code below plus
+ * data {service: 'session', errorName: 'APIError'} (seen again 2026-11-13), never the HTTP status or body.
  */
 const MIMO_LIVE_QUOTA_EXHAUSTED = 'ACP session/prompt failed: Internal error: quota exhausted (-32603)';
 /** Phase 0.1 negatives: auth, 5xx, connection and stream breaks are never limits. */
