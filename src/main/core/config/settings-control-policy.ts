@@ -770,10 +770,10 @@ export function coerceWritableSettingValue(
 
 /**
  * Settings whose value depends on a check the schema cannot make, so only the service that makes the check may write
- * them. `planQueueLinearFolderLinks` is saved by `LinearFolderLinkService.checkAndSave`, which confirms each folder
- * is a real repository on disk; the renderer's general write would store a well-formed link to any path.
+ * them: the folder links (each folder must be a real Git project on disk) and the team rules (each status must exist in
+ * Linear). The renderer's general write would store a well-formed entry that was never checked.
  */
-const CHECKED_CHANNEL_ONLY_SETTING_KEYS: ReadonlySet<string> = new Set(['planQueueLinearFolderLinks']);
+const CHECKED_CHANNEL_ONLY_SETTING_KEYS: ReadonlySet<string> = new Set(['planQueueLinearFolderLinks', 'planQueueLinearTeams']);
 
 /**
  * Renderer (IPC) coercion. Policy tiers gate the MCP *tool* surface only —

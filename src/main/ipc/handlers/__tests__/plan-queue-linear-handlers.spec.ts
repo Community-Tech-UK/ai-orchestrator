@@ -17,6 +17,7 @@ const state = vi.hoisted(() => ({
   },
   links: { readAll: vi.fn(), save: vi.fn() },
   projects: vi.fn(),
+  teams: { choices: vi.fn(), checkTeams: vi.fn(), save: vi.fn() },
 }));
 vi.mock('electron', () => ({
   ipcMain: {
@@ -26,6 +27,7 @@ vi.mock('electron', () => ({
 }));
 vi.mock('../../../plan-queue/linear/linear-connection-singleton', () => ({ getLinearConnectionService: () => state.service }));
 vi.mock('../../../plan-queue/linear/linear-folder-links-singleton', () => ({ getLinearFolderLinkService: () => state.links }));
+vi.mock('../../../plan-queue/linear/linear-team-rules-singleton', () => ({ getLinearTeamRuleService: () => state.teams }));
 vi.mock('../../../plan-queue/linear/linear-project-list', () => ({ listLinearProjectChoices: state.projects }));
 vi.mock('../../../core/config/settings-manager', () => ({
   getSettingsManager: () => ({ get: () => state.saved.current }),
@@ -54,6 +56,7 @@ afterEach(() => {
   Object.values(state.service).forEach((fn) => fn.mockReset());
   Object.values(state.links).forEach((fn) => fn.mockReset());
   state.projects.mockReset();
+  Object.values(state.teams).forEach((fn) => fn.mockReset());
 });
 
 describe('Plan Queue Linear channels, from the preload to the connection service', () => {
@@ -68,6 +71,9 @@ describe('Plan Queue Linear channels, from the preload to the connection service
       IPC_CHANNELS.PLAN_QUEUE_LINEAR_PROJECTS,
       IPC_CHANNELS.PLAN_QUEUE_LINEAR_LINKS,
       IPC_CHANNELS.PLAN_QUEUE_LINEAR_LINKS_SAVE,
+      IPC_CHANNELS.PLAN_QUEUE_LINEAR_TEAM_CHOICES,
+      IPC_CHANNELS.PLAN_QUEUE_LINEAR_TEAMS_CHECK,
+      IPC_CHANNELS.PLAN_QUEUE_LINEAR_TEAMS_SAVE,
     ])
       expect(state.handlers.has(channel)).toBe(true);
   });
@@ -178,5 +184,53 @@ describe('Plan Queue folder-link channels, from the preload to the link service'
     const response = await domain.planQueueLinearLinksSave({ links: 'nope' } as never);
     expect(response).toMatchObject({ success: false, error: { code: 'PLAN_QUEUE_LINEAR_LINKS_SAVE_FAILED' } });
     expect(state.links.save).not.toHaveBeenCalled();
+  });
+});
+
+describe('Plan Queue team-rule channels, from the preload to the team service', () => {
+  it('returns what Linear offers for each team and the check of each saved team', async () => {
+    const domain = api();
+    state.teams.choices.mockResolvedValue({ teams: [], providers: [], routingProviders: [] });
+    state.teams.checkTeams.mockResolvedValue({ checkedAt: 1, teams: [] });
+    await expect(domain.planQueueLinearTeamChoices()).resolves.toEqual({ success: true, data: { teams: [], providers: [], routingProviders: [] } });
+    await expect(domain.planQueueLinearTeamsCheck()).resolves.toEqual({ success: true, data: { checkedAt: 1, teams: [] } });
+  });
+
+  it('answers a failed read with the fixed words only, and asks for a fresh connection check', async () => {
+    const domain = api();
+    state.teams.checkTeams.mockRejectedValue(
+      new LinearCallError('needs-sign-in', 'The Linear connector needs to be signed in again.', { detail: 'LINEAR-SAYS-SECRET-WORDS' }),
+    );
+    const response = await domain.planQueueLinearTeamsCheck();
+    expect(response).toMatchObject({ success: false, error: { message: 'The Linear connector needs to be signed in again.' } });
+    expect(JSON.stringify(response)).not.toContain('LINEAR-SAYS-SECRET-WORDS');
+    expect(state.service.noteCallFailure).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes every row to the one checked save, and announces the saved list only when it was saved', async () => {
+    const domain = api();
+    state.saved.current = [{ teamId: 't1' }];
+    state.teams.save.mockResolvedValueOnce({ saved: true, teams: [{ teamId: 't1' }] });
+    await expect(domain.planQueueLinearTeamsSave({ teams: [{ teamId: 't1' }] })).resolves.toEqual({
+      success: true,
+      data: { saved: true, teams: [{ teamId: 't1' }] },
+    });
+    expect(state.teams.save).toHaveBeenCalledWith([{ teamId: 't1' }]);
+    expect(sendToRenderer).toHaveBeenCalledWith(IPC_CHANNELS.SETTINGS_CHANGED, { key: 'planQueueLinearTeams', value: [{ teamId: 't1' }] });
+
+    sendToRenderer.mockReset();
+    state.teams.save.mockResolvedValueOnce({ saved: false, refused: [{ index: 0, reason: 'No.' }] });
+    await expect(domain.planQueueLinearTeamsSave({ teams: [{}] })).resolves.toEqual({
+      success: true,
+      data: { saved: false, refused: [{ index: 0, reason: 'No.' }] },
+    });
+    expect(sendToRenderer).not.toHaveBeenCalled();
+  });
+
+  it('refuses a request that is not a list before the save is touched', async () => {
+    const domain = api();
+    const response = await domain.planQueueLinearTeamsSave({ teams: 'nope' } as never);
+    expect(response).toMatchObject({ success: false, error: { code: 'PLAN_QUEUE_LINEAR_TEAMS_SAVE_FAILED' } });
+    expect(state.teams.save).not.toHaveBeenCalled();
   });
 });

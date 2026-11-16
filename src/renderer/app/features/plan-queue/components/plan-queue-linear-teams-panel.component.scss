@@ -1,0 +1,157 @@
+.pq-teams {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--pq-border-color, #3a3a3a);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.pq-teams-heading {
+  margin: 0;
+  font-size: 1em;
+}
+
+.pq-teams p {
+  margin: 0;
+}
+
+.pq-teams-note {
+  opacity: 0.7;
+  font-size: 0.9em;
+}
+
+.pq-teams-problem,
+.pq-teams-row-error,
+.pq-teams-broken,
+.pq-teams-status-error {
+  color: #b3261e;
+  font-size: 0.9em;
+}
+
+.pq-teams-rows,
+.pq-teams-projects {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pq-teams-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--pq-border-color, #3a3a3a);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.pq-teams-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pq-teams-path {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
+.pq-teams-project-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9em;
+}
+
+.pq-teams-group-label {
+  opacity: 0.7;
+}
+
+.pq-teams-project {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.pq-teams-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9em;
+  max-width: 36em;
+}
+
+.pq-teams-add,
+.pq-teams-readonly-note {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.pq-teams-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.pq-teams-status-line {
+  font-size: 0.9em;
+}
+
+.pq-teams-status-ok {
+  color: #3d8b40;
+}
+
+.pq-teams-name {
+  font-weight: 600;
+}
+
+.pq-teams-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 0.9em;
+}
+
+.pq-teams-group legend {
+  padding: 0;
+  opacity: 0.7;
+}
+
+.pq-teams-choice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pq-teams-statuses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+.pq-teams-not-ready {
+  color: #b3261e;
+  font-size: 0.9em;
+}
+
+.pq-teams-checks {
+  font-size: 0.9em;
+}
+
+.pq-teams-check-lines {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}

@@ -13,6 +13,9 @@ import type {
   PlanQueueLinearLinksSaveResult,
   PlanQueueLinearListResult,
   PlanQueueLinearProjectChoices,
+  PlanQueueLinearTeamChoices,
+  PlanQueueLinearTeamsCheck,
+  PlanQueueLinearTeamsSaveResult,
   PlanQueueStateChangedEvent,
 } from '@contracts/schemas/plan-queue';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
@@ -134,6 +137,24 @@ export class PlanQueueIpcService {
   async linearLinksSave(links: readonly unknown[]): Promise<IpcResponse<PlanQueueLinearLinksSaveResult>> {
     if (!this.api) return notInElectron();
     return (await this.api.planQueueLinearLinksSave({ links: [...links] })) as IpcResponse<PlanQueueLinearLinksSaveResult>;
+  }
+
+  /** The teams with a linked project or saved rules, with their statuses and what is offered for each. */
+  async linearTeamChoices(): Promise<IpcResponse<PlanQueueLinearTeamChoices>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueueLinearTeamChoices()) as IpcResponse<PlanQueueLinearTeamChoices>;
+  }
+
+  /** Checks every saved team against Linear now. */
+  async linearTeamsCheck(): Promise<IpcResponse<PlanQueueLinearTeamsCheck>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueueLinearTeamsCheck()) as IpcResponse<PlanQueueLinearTeamsCheck>;
+  }
+
+  /** Saves the whole team list, or nothing, with a reason for each refused row. */
+  async linearTeamsSave(teams: readonly unknown[]): Promise<IpcResponse<PlanQueueLinearTeamsSaveResult>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueueLinearTeamsSave({ teams: [...teams] })) as IpcResponse<PlanQueueLinearTeamsSaveResult>;
   }
 
   onStateChanged(cb: (event: PlanQueueStateChangedEvent) => void): () => void {

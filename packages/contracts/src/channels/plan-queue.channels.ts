@@ -41,6 +41,12 @@ export const PLAN_QUEUE_CHANNELS = {
   PLAN_QUEUE_LINEAR_CHECK: 'plan-queue:linear-check',
   /** Check every row of the whole link list, then save all of it or none of it. */
   PLAN_QUEUE_LINEAR_LINKS_SAVE: 'plan-queue:linear-links-save',
+  /** The teams with a linked project or saved rules, with their statuses as Linear lists them and what is offered. */
+  PLAN_QUEUE_LINEAR_TEAM_CHOICES: 'plan-queue:linear-team-choices',
+  /** Check every saved team against Linear now. */
+  PLAN_QUEUE_LINEAR_TEAMS_CHECK: 'plan-queue:linear-teams-check',
+  /** Check every row of the whole team list against Linear, then save all of it or none of it. */
+  PLAN_QUEUE_LINEAR_TEAMS_SAVE: 'plan-queue:linear-teams-save',
 
   // Events (main → renderer)
   /** A run or item changed; carries the run's full DTO. */

@@ -13,6 +13,7 @@ export * from './plan-queue-capability.schemas';
 export * from './plan-queue-folders.schemas';
 export * from './plan-queue-linear.schemas';
 export * from './plan-queue-linear-links.schemas';
+export * from './plan-queue-linear-teams.schemas';
 export * from './plan-queue-linear-connection.schemas';
 
 // -------------------------------------------------------------------------

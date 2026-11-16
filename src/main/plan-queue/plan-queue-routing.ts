@@ -27,7 +27,7 @@ import {
 import type { CopilotAccountProfile, CopilotInvocationOrigin } from '../../shared/types/copilot-account.types';
 import type { InstanceCreateConfig } from '../../shared/types/instance.types';
 import { isLogicalMiMoModel, isPooledProvider, type ProviderAccountProfile } from '../../shared/types/provider-account.types';
-import { AUTOMATION_PROVIDER_IDS } from '../../shared/types/automation-provider.types';
+import { AUTOMATION_PROVIDER_DEFINITIONS, AUTOMATION_PROVIDER_IDS } from '../../shared/types/automation-provider.types';
 import { REMOTE_REVIEWER_PROVIDER_IDS } from '../../shared/types/reviewer-provider.types';
 import { upgradePlanQueueRouting } from '../../shared/utils/plan-queue-routing-upgrade';
 import { sameFamily } from '../../shared/models/model-family';
@@ -117,9 +117,13 @@ const NO_PROVIDER_FOR_NEVER_USE = 'This run has no worker provider, so the queue
  * (`openai` → codex, `gemini` → antigravity), so a choice is checked against the
  * "never auto-pick" list under the CLI that will actually run.
  */
-function canonicalProvider(provider: string): string {
+export function canonicalProvider(provider: string): string {
   const id = provider.trim().toLowerCase();
   return id === 'openai' ? 'codex' : id === 'gemini' ? 'antigravity' : id;
+}
+/** The providers a queue session can run on, as `{ id, label }`, in the order the app lists them. */
+export function planQueueProviderChoices(): { id: string; label: string }[] {
+  return AUTOMATION_PROVIDER_DEFINITIONS.filter((provider) => KNOWN_PROVIDERS.has(provider.id)).map(({ id, label }) => ({ id, label }));
 }
 /** Checkers must be able to run as an agentic reviewer. */
 const CHECKER_PROVIDERS: ReadonlySet<string> = new Set(REMOTE_REVIEWER_PROVIDER_IDS);

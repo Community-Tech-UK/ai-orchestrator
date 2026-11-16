@@ -1,0 +1,162 @@
+<div class="pq-teams">
+  <h3 class="pq-teams-heading" id="pq-linear-teams-heading">Team rules</h3>
+
+  @if (!loaded()) {
+    <p class="pq-teams-note">Reading the saved team rules…</p>
+  } @else {
+    @if (!usable()) {
+      <div class="pq-teams-readonly-note">
+        <p class="pq-teams-problem pq-teams-no-connection" role="alert">
+          {{ connection()?.reason ?? 'Linear is not connected yet, so team rules cannot be changed.' }}
+          Saved rules are shown below and can be changed once the connection works.
+        </p>
+        <button type="button" class="pq-teams-recheck" [disabled]="rechecking()" (click)="recheck()">
+          {{ rechecking() ? 'Checking…' : 'Check the connection again' }}
+        </button>
+      </div>
+
+      @if (saved().length === 0) {
+        <p class="pq-teams-note pq-teams-empty">No team has rules yet.</p>
+      }
+      <ul class="pq-teams-rows pq-teams-readonly">
+        @for (team of saved(); track team.teamId) {
+          <li class="pq-teams-row">
+            <span class="pq-teams-name">{{ team.teamKey }} · {{ team.teamName }}</span>
+            <span>{{ team.ownership === 'own' ? 'Your own team' : 'A client team' }}.</span>
+            <span>{{ savedSummary(team) }}</span>
+          </li>
+        }
+      </ul>
+    } @else {
+      @if (choicesError(); as problem) {
+        <p class="pq-teams-problem pq-teams-choices-error" role="alert">{{ problem }}</p>
+      }
+      @if (checksError(); as problem) {
+        <p class="pq-teams-problem pq-teams-checks-error" role="alert">{{ problem }}</p>
+      }
+      @if (draft().length === 0 && teamsToSetUp().length === 0) {
+        <p class="pq-teams-note pq-teams-empty">No team has a linked project yet. Link a project to a folder above, then set up its team here.</p>
+      }
+
+      <ul class="pq-teams-rows">
+        @for (team of draft(); track team.teamId; let index = $index) {
+          <li class="pq-teams-row">
+            <div class="pq-teams-row-head">
+              <span class="pq-teams-name">{{ team.teamKey }} · {{ team.teamName }}</span>
+              <button type="button" class="pq-teams-remove" [attr.aria-label]="'Remove the rules for ' + team.teamKey"
+                (click)="removeTeam(index)">Remove rules</button>
+            </div>
+            @if (choicesError() === null && choiceFor(team)?.exists === false) {
+              <p class="pq-teams-row-error pq-teams-gone" role="alert">Linear does not list this team any more.</p>
+            }
+
+            <fieldset class="pq-teams-group">
+              <legend>This team belongs to</legend>
+              <label class="pq-teams-choice">
+                <input type="radio" class="pq-teams-own" [attr.name]="'pq-teams-owner-' + index" [checked]="team.ownership === 'own'"
+                  (change)="setOwnership(index, 'own')" />
+                You (your own team)
+              </label>
+              <label class="pq-teams-choice">
+                <input type="radio" class="pq-teams-client" [attr.name]="'pq-teams-owner-' + index" [checked]="team.ownership === 'client'"
+                  (change)="setOwnership(index, 'client')" />
+                A client
+              </label>
+              @if (team.ownership === 'client') {
+                <span class="pq-teams-note">Plan Queue never moves a client's ticket to done. A person does that.</span>
+              }
+            </fieldset>
+
+            <div class="pq-teams-statuses">
+              @for (item of statusFields(team); track item.field) {
+                <label class="pq-teams-field">
+                  <span>{{ item.label }}</span>
+                  <select [class]="'pq-teams-pick pq-teams-pick-' + item.field" [attr.aria-label]="item.label + ' in ' + team.teamKey"
+                    (change)="setStatus(index, item.field, $any($event.target).value)">
+                    <option value="" [selected]="chosenId(team, item.field) === ''">Choose a status</option>
+                    @for (option of statusOptions(team, item.field); track option.id) {
+                      <option [value]="option.id" [selected]="option.id === chosenId(team, item.field)">{{ option.label }}</option>
+                    }
+                  </select>
+                </label>
+              }
+            </div>
+
+            <fieldset class="pq-teams-group">
+              <legend>Providers that may see this team's ticket text</legend>
+              @for (provider of providers(); track provider.id) {
+                <label class="pq-teams-choice">
+                  <input type="checkbox" class="pq-teams-provider" [value]="provider.id" [checked]="providerOn(team, provider.id)"
+                    (change)="setProvider(index, provider.id, $any($event.target).checked)" />
+                  {{ provider.label }}
+                </label>
+              }
+              <span class="pq-teams-note pq-teams-provider-note">Sessions on these providers will be sent this team's ticket text.
+                @if (team.providers.length === 0) { With none ticked, no provider is sent it and the team is not ready. }</span>
+            </fieldset>
+
+            @for (reason of reasonsFor(index); track reason) {
+              <p class="pq-teams-row-error" role="alert">{{ reason }}</p>
+            }
+
+            @if (checkFor(team); as check) {
+              @for (reason of check.reasons; track reason) {
+                <p class="pq-teams-not-ready" role="alert">Not ready for Linear runs: {{ reason }}</p>
+              }
+              <details class="pq-teams-checks" [open]="!check.ready">
+                <summary>Checks on this team</summary>
+                <ul class="pq-teams-check-lines">
+                  @for (line of check.lines; track line.id) {
+                    <li class="pq-teams-check-line"><strong>{{ resultWords(line.result) }}:</strong> {{ line.text }}</li>
+                  }
+                </ul>
+              </details>
+            } @else if (isSaved(team) && !dirty()) {
+              <p class="pq-teams-note pq-teams-no-checks">Not checked yet.</p>
+            } @else if (isSaved(team)) {
+              <p class="pq-teams-note pq-teams-no-checks">Checks run on the saved rules. Save to check these changes.</p>
+            }
+          </li>
+        }
+      </ul>
+
+      @if (teamsToSetUp().length > 0) {
+        <div class="pq-teams-add">
+          <span class="pq-teams-note">Teams with a linked project and no rules yet:</span>
+          @for (team of teamsToSetUp(); track team.teamId) {
+            <button type="button" class="pq-teams-setup" [attr.aria-label]="'Set up the rules for ' + team.teamKey"
+              (click)="setUpTeam(team.teamId)">Set up {{ team.teamKey }}</button>
+          }
+        </div>
+      }
+
+      @for (reason of rowProblems().whole; track reason) {
+        <p class="pq-teams-row-error" role="alert">{{ reason }}</p>
+      }
+      @for (reason of listRefusals(); track reason) {
+        <p class="pq-teams-row-error pq-teams-list-refusal" role="alert">{{ reason }}</p>
+      }
+
+      <div class="pq-teams-actions">
+        <button type="button" class="pq-teams-save" [disabled]="!canSave()" (click)="save()">{{ saving() ? 'Saving…' : 'Save' }}</button>
+        <button type="button" class="pq-teams-reset" [disabled]="!dirty() || saving()" (click)="resetToSaved()">Reset to saved</button>
+        <button type="button" class="pq-teams-check" [disabled]="checking() || saved().length === 0" (click)="checkTeams()">
+          {{ checking() ? 'Checking…' : 'Check the teams again' }}
+        </button>
+        @if (status(); as line) {
+          @if (line.kind === 'success') {
+            <span class="pq-teams-status-line pq-teams-status-ok" role="status">{{ line.text }}</span>
+          } @else {
+            <span class="pq-teams-status-line pq-teams-status-error" role="alert">{{ line.text }}</span>
+          }
+        } @else if (dirty()) {
+          <span class="pq-teams-status-line" role="status">Not saved yet. Plan Queue uses the saved rules until you press Save.</span>
+        }
+      </div>
+    }
+
+    @if (!usable() && status(); as line) {
+      <span class="pq-teams-status-line pq-teams-status-error" role="alert">{{ line.text }}</span>
+    }
+  }
+</div>

@@ -13,12 +13,14 @@ import {
   PlanQueueLinearIdentifyPayloadSchema,
   PlanQueueLinearLinksSavePayloadSchema,
   PlanQueueLinearNoPayloadSchema,
+  PlanQueueLinearTeamsSavePayloadSchema,
 } from '@contracts/schemas/plan-queue';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLinearConnectionService } from '../../plan-queue/linear/linear-connection-singleton';
 import { isLinearCallError } from '../../plan-queue/linear/linear-errors';
 import { getLinearFolderLinkService } from '../../plan-queue/linear/linear-folder-links-singleton';
 import { listLinearProjectChoices } from '../../plan-queue/linear/linear-project-list';
+import { getLinearTeamRuleService } from '../../plan-queue/linear/linear-team-rules-singleton';
 import type { WindowManager } from '../../window-manager';
 import { broadcastSettingsChanged } from './settings-broadcast';
 import { handle } from './plan-queue-ipc-helpers';
@@ -63,16 +65,20 @@ export function registerPlanQueueLinearHandlers(deps: { windowManager: Pick<Wind
 
   const links = getLinearFolderLinkService();
 
-  handle(IPC_CHANNELS.PLAN_QUEUE_LINEAR_PROJECTS, 'PLAN_QUEUE_LINEAR_PROJECTS_FAILED', async (payload) => {
-    validateIpcPayload(PlanQueueLinearNoPayloadSchema, payload ?? {}, 'PLAN_QUEUE_LINEAR_PROJECTS');
+  // A failed Linear read is checked again at once, as every Linear caller does, and only Harness's own words go back.
+  const readLinear = async <T>(read: () => Promise<T>): Promise<T> => {
     try {
-      return await listLinearProjectChoices();
+      return await read();
     } catch (error) {
       if (!isLinearCallError(error)) throw error;
-      // A failed call is checked again at once, as every Linear caller does, and only Harness's own words go back.
       if (error.code !== 'not-set-up') service.noteCallFailure();
       throw new Error(error.message);
     }
+  };
+
+  handle(IPC_CHANNELS.PLAN_QUEUE_LINEAR_PROJECTS, 'PLAN_QUEUE_LINEAR_PROJECTS_FAILED', (payload) => {
+    validateIpcPayload(PlanQueueLinearNoPayloadSchema, payload ?? {}, 'PLAN_QUEUE_LINEAR_PROJECTS');
+    return readLinear(() => listLinearProjectChoices());
   });
 
   handle(IPC_CHANNELS.PLAN_QUEUE_LINEAR_LINKS, 'PLAN_QUEUE_LINEAR_LINKS_FAILED', (payload) => {
@@ -87,6 +93,30 @@ export function registerPlanQueueLinearHandlers(deps: { windowManager: Pick<Wind
       broadcastSettingsChanged(deps.windowManager, {
         key: 'planQueueLinearFolderLinks',
         value: getSettingsManager().get('planQueueLinearFolderLinks') ?? [],
+      });
+    }
+    return result;
+  });
+
+  const teams = getLinearTeamRuleService();
+
+  handle(IPC_CHANNELS.PLAN_QUEUE_LINEAR_TEAM_CHOICES, 'PLAN_QUEUE_LINEAR_TEAM_CHOICES_FAILED', (payload) => {
+    validateIpcPayload(PlanQueueLinearNoPayloadSchema, payload ?? {}, 'PLAN_QUEUE_LINEAR_TEAM_CHOICES');
+    return readLinear(() => teams.choices());
+  });
+
+  handle(IPC_CHANNELS.PLAN_QUEUE_LINEAR_TEAMS_CHECK, 'PLAN_QUEUE_LINEAR_TEAMS_CHECK_FAILED', (payload) => {
+    validateIpcPayload(PlanQueueLinearNoPayloadSchema, payload ?? {}, 'PLAN_QUEUE_LINEAR_TEAMS_CHECK');
+    return readLinear(() => teams.checkTeams());
+  });
+
+  handle(IPC_CHANNELS.PLAN_QUEUE_LINEAR_TEAMS_SAVE, 'PLAN_QUEUE_LINEAR_TEAMS_SAVE_FAILED', async (payload) => {
+    const validated = validateIpcPayload(PlanQueueLinearTeamsSavePayloadSchema, payload, 'PLAN_QUEUE_LINEAR_TEAMS_SAVE');
+    const result = await readLinear(() => teams.save(validated.teams));
+    if (result.saved) {
+      broadcastSettingsChanged(deps.windowManager, {
+        key: 'planQueueLinearTeams',
+        value: getSettingsManager().get('planQueueLinearTeams') ?? [],
       });
     }
     return result;

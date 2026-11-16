@@ -175,7 +175,7 @@ describe('PlanQueuePageComponent', () => {
       providers: [
         provideRouter([{ path: 'plan-queue', children: [] }]),
         { provide: PlanQueueStore, useValue: store },
-        { provide: PlanQueueIpcService, useValue: { control: ipcControl, linearList: vi.fn().mockResolvedValue({ success: true, data: { connectors: [], connection: NOT_SET_UP } }), linearLinks: vi.fn().mockResolvedValue({ success: true, data: { links: [] } }), linearProjects: vi.fn().mockResolvedValue({ success: true, data: { teams: [] } }), preview: vi.fn().mockResolvedValue({ success: true, data: { found: 1, hiddenCopies: 0, hiddenCountComplete: true } }) } },
+        { provide: PlanQueueIpcService, useValue: { control: ipcControl, linearList: vi.fn().mockResolvedValue({ success: true, data: { connectors: [], connection: NOT_SET_UP } }), linearLinks: vi.fn().mockResolvedValue({ success: true, data: { links: [] } }), linearProjects: vi.fn().mockResolvedValue({ success: true, data: { teams: [] } }), linearTeamChoices: vi.fn().mockResolvedValue({ success: true, data: { teams: [], providers: [], routingProviders: [] } }), linearTeamsCheck: vi.fn().mockResolvedValue({ success: true, data: { checkedAt: 1, teams: [] } }), preview: vi.fn().mockResolvedValue({ success: true, data: { found: 1, hiddenCopies: 0, hiddenCountComplete: true } }) } },
         {
           provide: SettingsStore,
           useValue: {
@@ -400,6 +400,7 @@ describe('PlanQueuePageComponent', () => {
     expect(folderListPurpose).toContain('on this list or is linked to a Linear project');
     expect(folderListPurpose).toContain('not added to this one');
     expect(fixture.nativeElement.querySelector('.pq-section-linear app-plan-queue-linear-folder-links-panel')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.pq-section-linear app-plan-queue-linear-teams-panel')).not.toBeNull();
   });
 
   it('shows the surfaced error from the store', async () => {

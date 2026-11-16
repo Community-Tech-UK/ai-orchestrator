@@ -159,3 +159,10 @@ describe('Linear folder links settings control policy', () => {
     expect(coerceRendererSettingValue('planQueueFolders', []).value).toEqual([]);
   });
 });
+
+describe('Linear team rules settings control policy', () => {
+  it('refuses the general renderer write, so only the checked save channel can store team rules', () => {
+    expect(() => coerceRendererSettingValue('planQueueLinearTeams', [])).toThrow(/only through its own checked channel/);
+    expect(() => coerceRendererSettingValue('planQueueLinearTeams', [{ teamId: 't1' }])).toThrow(/checked channel/);
+  });
+});
