@@ -79,15 +79,20 @@ async function currentHash(repoRoot: string, file: string, kind: EntryKind): Pro
   });
 }
 
+/** What a heading or table row names: the heading text or the row's first cell. */
+function lineKey(line: string): string | null {
+  const heading = line.match(/^#{1,6}\s+(.+?)\s*#*$/);
+  const cell = line.match(/^\|\s*([^|]+?)\s*\|/);
+  const value = heading?.[1] ?? cell?.[1];
+  return value ? value.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[`*_]/g, '').trim() : null;
+}
+
 function addedKeys(diff: string): Set<string> {
   const keys = new Set<string>();
   for (const line of diff.split('\n')) {
     if (!line.startsWith('+') || line.startsWith('+++')) continue;
-    const added = line.slice(1);
-    const heading = added.match(/^#{1,6}\s+(.+?)\s*#*$/);
-    const cell = added.match(/^\|\s*([^|]+?)\s*\|/);
-    const value = heading?.[1] ?? cell?.[1];
-    if (value) keys.add(value.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[`*_]/g, '').trim());
+    const key = lineKey(line.slice(1));
+    if (key) keys.add(key);
   }
   return keys;
 }
@@ -123,7 +128,10 @@ async function mergeVersions(repoRoot: string, file: string, kind: EntryKind, ou
     const theirDiff = await gitBytes(['diff', '--no-index', '--unified=0', '--', basePath, theirsPath], repoRoot);
     if (ourDiff.code > 1 || theirDiff.code > 1) throw new Error(`Could not compare insertions in ${file}.`);
     const oursAdded = addedKeys(text(ourDiff.output)); const theirsAdded = addedKeys(text(theirDiff.output));
-    const duplicate = [...oursAdded].find((key) => theirsAdded.has(key));
+    // A key the file already has names nothing new: every register section repeats sub-headings such as
+    // "Observed behaviour", so two new sections would otherwise always look like the same entry added twice.
+    const existing = new Set(text(base).split('\n').map(lineKey));
+    const duplicate = [...oursAdded].find((key) => theirsAdded.has(key) && !existing.has(key));
     if (duplicate) throw new Error(`You and the item added the same table id or heading (${duplicate}) in ${file}.`);
     const union = await gitBytes(['merge-file', '-p', '--union', oursPath, basePath, theirsPath], repoRoot);
     if (union.code !== 0) throw new Error(`Could not merge insertions in ${file}.`);
