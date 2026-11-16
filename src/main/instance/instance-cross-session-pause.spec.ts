@@ -33,7 +33,7 @@ function fixture() {
   const manager = Object.create(InstanceManager.prototype) as InstanceManager;
   Object.assign(manager, { state: { getInstance: () => instance, getAdapter: () => adapter, isInstancePending: () => false }, communication,
     lifecycle: { whenRuntimeChangeSettled: () => undefined },
-    orchestrationMgr: { getOrchestrationHandler: () => ({ getPendingUserActionsForInstance: () => [] }), getLaterTurnReminderIfRelevant: () => null }, hasReceivedFirstMessage: new Set(['target']),
+    orchestrationMgr: { getOrchestrationHandler: () => ({ getPendingUserActionsForInstance: () => [] }) }, hasReceivedFirstMessage: new Set(['target']),
     context: { getInputContext: async () => ({}), formatUnifiedMemoryContextBlock: () => '', formatRlmContextBlock: () => '' }, publishOutput: vi.fn(), maybeHandleSwitchModeReply: async () => false });
 
   return { adapter, instance, manager, compactContext, pause, hold: () => { held = true; }, release: () => { held = false; pause.emit('state-changed'); }, held: () => held };

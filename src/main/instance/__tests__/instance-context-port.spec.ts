@@ -241,7 +241,6 @@ vi.mock('../instance-orchestration', async () => {
         processOrchestrationOutput: vi.fn(),
         registerInstance: vi.fn(),
         unregisterInstance: vi.fn(),
-        getLaterTurnReminderIfRelevant: vi.fn(() => null),
       };
     }),
   };
