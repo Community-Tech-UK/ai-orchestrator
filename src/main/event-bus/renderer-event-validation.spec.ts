@@ -186,6 +186,16 @@ describe('renderer event validation', () => {
     })).toBe(false);
   });
 
+  it('passes a valid helper-agent size push and drops a malformed one on its own channel', () => {
+    const sample = { instanceId: 'instance-1', toolUseId: 'toolu-1', finalContextTokens: 82000, toolUses: 14,
+      durationMs: 180000, final: false };
+    expect(isRendererEventSchemaRegistered(IPC_CHANNELS.INSTANCE_SUBAGENT_USAGE)).toBe(true);
+    expect(validateRendererEventPayload(IPC_CHANNELS.INSTANCE_SUBAGENT_USAGE, sample)).toBe(true);
+    expect(validateRendererEventPayload(IPC_CHANNELS.INSTANCE_SUBAGENT_USAGE, { ...sample, toolUses: -1 })).toBe(false);
+    expect(validateRendererEventPayload(IPC_CHANNELS.INSTANCE_SUBAGENT_USAGE, { ...sample, final: 'yes' })).toBe(false);
+    expect(validateRendererEventPayload(IPC_CHANNELS.INSTANCE_SUBAGENT_USAGE, { ...sample, extra: 1 })).toBe(false);
+  });
+
   it('validates campaign state event variants and their attached campaign DTO', () => {
     const campaign = {
       id: 'campaign-1',
