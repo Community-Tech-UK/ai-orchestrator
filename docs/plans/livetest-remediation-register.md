@@ -534,6 +534,14 @@ Source branch had no register entries left (its branch was removed); these rows 
 | LT-1133 | P2 | **SOURCE FIX IN QUEUE BRANCH; LIVE RECHECK RECORDED IN THE PHASE 0 LIVE CHECKS (14 November 2026).** After a person clicked **Don't allow** on a tool permission held inside a running `/goal`, the loop kept starting iterations that repeated the same question to the model: seven in about a minute, about $0.04, until it was stopped by hand. The loop now pauses as soon as a person declines a call it is holding, and waits for them to resume or stop it. A refusal by a saved rule or the reviewer (nobody asked) does not pause it. | [LT-1133 detail](#lt-1133) | [Phase 0 live checks](2026-10-27-phase0-livetest-remediation_livetest.md#evidence-run--2026-11-14-test-mac) |
 | LT-1134 | P3 | **SEEN ONCE (14 November 2026, test Mac), NOT REPRODUCED in four follow-up live runs; cause unconfirmed; not repaired.** After **Don't allow** on a Bash permission in an ordinary chat, the transcript line was worded "Cancelled when the session closed" (Bash) instead of "You said no: Bash". That wording is only ever written for a card that closed because its session went away, never for a refusal. Later runs on the same build showed "You said no: Bash" every time, live and after a reload from stored history. | [LT-1134 detail](#lt-1134) | [Phase 0 live checks](2026-10-27-phase0-livetest-remediation_livetest.md#lt-1134-follow-up-14-november-2026) |
 
+### New findings — 2026-11-15 sidechat acceptance
+
+| ID | Priority | Status / observed defect | Evidence | Acceptance owner |
+| --- | --- | --- | --- | --- |
+| LT-1135 | P2 | **OPEN; REPRODUCED LIVE 2026-11-15; NOT REPAIRED.** The shared transcript minimap has two 20 × 7 px tick buttons with insufficient spacing; the full-panel axe check reports a serious `target-size` violation. This predates the sidechat cleanup and remains separate work. | [LT-1135 detail](#lt-1135) | Shared transcript navigator |
+| LT-1136 | P3 | **OPEN; REPRODUCED LIVE 2026-11-15; NOT REPAIRED.** Escape closes the shared model picker but drops keyboard focus to the page body instead of its initiating chip when focus trapping is off. The same restoration path predates the sidechat cleanup. | [LT-1136 detail](#lt-1136) | Shared compact model picker |
+| LT-1137 | P3 | **OPEN; REPRODUCED LIVE 2026-11-15; NOT REPAIRED.** The shared model picker chip names a missing `aria-controls` target even while its panel is open. This existing accessibility relationship defect is separate from the Escape focus defect and the sidechat cleanup. | [LT-1137 detail](#lt-1137) | Shared compact model picker |
+
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
 ### Observed behavior
@@ -15642,3 +15650,69 @@ Seen repeatedly while running checks 3, 4 and 8 in [the deferred checks live che
 ### Required behaviour and acceptance
 
 Tell the checker to report a missing automated test only when the plan or the repository's conventions require one and a test runner exists, and otherwise to judge the plan's own acceptance criteria. Acceptance: on a one-file scratch repository with no test runner, three of three plan runs have no finding about missing tests in round 1.
+
+## LT-1135
+
+### LT-1135 — transcript minimap tick buttons are too small and too close together
+
+**Status: reproduced live 15 November 2026 in the rebuilt dev app; not repaired.**
+
+### Observed behaviour
+
+During sidechat cleanup acceptance, the full-panel axe 4.13.0 audit reported one serious `target-size` violation affecting two transcript minimap buttons (`.tick:nth-child(1)` and `.tick.active`). Both measured 20 × 7 CSS pixels; axe also reported insufficient space to adjacent targets (safe clickable-space diameter 0 px). Evidence: [audit result](../../_scratch/sidechat-cleanup/live-axe-result.json), [final wide panel](../../_scratch/sidechat-cleanup/panel-wide-final.png), and [final narrow panel](../../_scratch/sidechat-cleanup/panel-narrow-final.png).
+
+### Root cause and scope
+
+The shared [transcript jump rail](../../src/renderer/app/features/instance-detail/transcript-jump-rail.component.ts#L160) fixes each `.tick` button at 20 × 7 px. Its [marker layout](../../src/renderer/app/features/instance-detail/transcript-jump-rail.markers.ts#L44) normally separates tick centres by 12 px and can compress that to 4 px. The separately drawn thin line does not enlarge the button's hit area.
+
+This is an existing shared transcript defect, outside the sidechat throwaway cleanup functionality. The jump-rail component has no diff from the task baseline `234b7e405^`; the sidechat's existing `app-output-stream` binding is unchanged. The [shared output stream](../../src/renderer/app/features/instance-detail/output-stream.component.html#L431) renders the same navigator in this panel. No source repair or accessibility waiver is included in the sidechat task.
+
+### Required behaviour and acceptance
+
+- Make each tick satisfy the 24 × 24 CSS-pixel target-size rule or its valid spacing exception, without overlapping clickable targets or losing access to densely packed turns.
+- Re-run the full-panel accessibility check on rebuilt wide and narrow sidechat layouts and an ordinary session with an overflowing transcript. The minimap must have no `target-size` violation; include a dense turn count and earlier-message loading.
+- Preserve visible keyboard focus, prompt previews, Escape dismissal, Enter/Space activation, correct turn jumps and the active-turn indication. Retain the new live evidence with the future repair's acceptance record.
+
+## LT-1136
+
+### LT-1136 — Escape closes the model picker without returning focus to its chip
+
+**Status: reproduced live 15 November 2026 in the rebuilt dev app; not repaired.**
+
+### Observed behaviour
+
+A single browser-control session used real keys: Tab focused the sidechat's `.compact-picker__chip`, Enter expanded the picker and focused `.model-picker-search__input`, and Escape closed the menu (`aria-expanded="false"`) but left `document.activeElement` on `BODY`. The retained keyboard assertion intentionally failed on the missing focus return. Evidence: [complete single-session keyboard sequence](../../_scratch/sidechat-cleanup/live-keyboard-final.json) and [chip focus](../../_scratch/sidechat-cleanup/live-keyboard-tab.json).
+
+### Root cause and scope
+
+The shared [compact model picker](../../src/renderer/app/features/models/compact-model-picker.component.ts#L216) defaults `trapFocus` to false. Its [focus-trap effect](../../src/renderer/app/features/models/compact-model-picker.component.ts#L309) therefore creates no trap for this host. Escape dismisses the selection panel through `closeMenu()`; [closeFocusTrap](../../src/renderer/app/features/models/compact-model-picker.component.ts#L497) restores focus only through `focusTrap?.restore()`, so the default path has nothing that returns focus to the trigger before the focused overlay disappears.
+
+The task baseline `234b7e405^` has the same default and restoration mechanism, and the earlier sidechat binding also omitted `trapFocus`. The sidechat cleanup moved this existing picker to the composer and added only `max-width` styling in the shared component; it did not introduce this focus-restoration path. This is separate shared-component repair work, outside the sidechat throwaway cleanup; no source repair or accessibility waiver is included here.
+
+### Required behaviour and acceptance
+
+- When Escape dismisses a picker whose menu owns keyboard focus, return focus to the chip that opened it, including the default `trapFocus=false` path. Preserve intentional focus changes caused by navigation or parent teardown.
+- Repeat real Tab → Enter → Escape in one browser-control session on a rebuilt sidechat panel. Observe the search field focused while open, the menu closed afterwards, and the original chip focused; the next Tab must continue from that chip rather than the page body.
+- Cover default and focus-trapped shared picker callers in regression checks, including an ordinary session picker and a modal host. Preserve nested focus trapping, model selection and normal dismissal. Retain the live keyboard results with the future repair's acceptance record.
+
+## LT-1137
+
+### LT-1137 — model picker chip refers to a missing controlled panel
+
+**Status: reproduced live 15 November 2026 in the rebuilt dev app on the test Mac; not repaired.**
+
+### Observed behaviour
+
+The real-key sequence opened the sidechat model picker and focused its search input. The retained open-state receipt reports `expanded="true"` and `menuOpen=true`, but `controlsTargetPresent=false`: the chip's `aria-controls` value does not identify an element in the document even while the controlled panel is visible. Evidence: [test Mac keyboard and accessibility relationship result](../../_scratch/sidechat-cleanup/live-keyboard-mac-result.json), specifically its `opened` state. This is a separate defect from the Escape focus loss recorded in [LT-1136](#lt-1136).
+
+### Root cause and scope
+
+The shared [compact model picker trigger](../../src/renderer/app/features/models/compact-model-picker.component.ts#L80) assigns `aria-controls` from its [generated menu identifier](../../src/renderer/app/features/models/compact-model-picker.component.ts#L202). Its [selection-panel binding](../../src/renderer/app/features/models/compact-model-picker.component.ts#L110) supplies no matching `id`. The [selection panel's dialog](../../src/renderer/app/features/models/model-selection-panel.component.ts#L75) also has no supplied identifier or host-ID setter that connects this value to the rendered panel. The trigger therefore advertises a relationship that the DOM does not provide.
+
+The task baseline `234b7e405^` has the same trigger and selection-panel binding. The current diff for the shared compact picker adds only `max-width` styling, so the sidechat cleanup did not introduce the missing target. This is existing shared-component accessibility repair work outside the sidechat throwaway cleanup; no source repair or accessibility waiver is included here.
+
+### Required behaviour and acceptance
+
+- While the picker is open, make the chip's `aria-controls` resolve to the actual controlled panel with a unique, stable identifier. Keep the advertised popup semantics consistent with the rendered panel.
+- Repeat real Tab → Enter on the rebuilt test Mac app and inspect the expanded chip and its referenced element in the same browser-control session. Require an existing, visible controlled panel while open; record its accessible role and name and preserve normal search and model selection.
+- Check an ordinary session picker and a modal host as shared callers, including multiple pickers on one page. References must resolve to their own panels without duplicate identifiers. When a panel is removed on close, omit any reference that would point to a missing element. Retain the resulting live evidence with the future repair's acceptance record.
