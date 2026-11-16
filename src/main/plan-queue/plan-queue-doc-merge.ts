@@ -128,15 +128,34 @@ async function mergeVersions(repoRoot: string, file: string, kind: EntryKind, ou
     const theirDiff = await gitBytes(['diff', '--no-index', '--unified=0', '--', basePath, theirsPath], repoRoot);
     if (ourDiff.code > 1 || theirDiff.code > 1) throw new Error(`Could not compare insertions in ${file}.`);
     const oursAdded = addedKeys(text(ourDiff.output)); const theirsAdded = addedKeys(text(theirDiff.output));
-    // A key the file already has names nothing new: every register section repeats sub-headings such as
-    // "Observed behaviour", so two new sections would otherwise always look like the same entry added twice.
+    // A heading the file already uses, such as a register section's "Observed behaviour", names nothing new, so two new
+    // sections that both repeat it are not the same entry. An id such as LT-12 always names one entry, even if the file has it.
     const existing = new Set(text(base).split('\n').map(lineKey));
-    const duplicate = [...oursAdded].find((key) => theirsAdded.has(key) && !existing.has(key));
+    const duplicate = [...oursAdded].find((key) => theirsAdded.has(key) && (!existing.has(key) || ID_KEY.test(key)));
     if (duplicate) throw new Error(`You and the item added the same table id or heading (${duplicate}) in ${file}.`);
-    const union = await gitBytes(['merge-file', '-p', '--union', oursPath, basePath, theirsPath], repoRoot);
-    if (union.code !== 0) throw new Error(`Could not merge insertions in ${file}.`);
-    return union.output;
+    return Buffer.from(joinInsertions(text(first.output)), 'utf8');
   } finally { await fs.rm(temp, { recursive: true, force: true }); }
+}
+
+const ID_KEY = /^[A-Z][A-Z0-9]*-\d+\b/;
+
+/**
+ * Resolve each insertion clash of a diff3 merge as our whole block followed by theirs. `git merge-file --union` lines up
+ * lines the two blocks share, such as repeated sub-headings, and interleaves the rest. Clashes are already checked to be
+ * insertions with an empty ancestor.
+ */
+function joinInsertions(merged: string): string {
+  const lines = merged.split('\n');
+  const joined: string[] = [];
+  for (let index = 0; index < lines.length; index++) {
+    if (!lines[index].startsWith('<'.repeat(40))) { joined.push(lines[index]); continue; }
+    const ours: string[] = []; const theirs: string[] = [];
+    while (!lines[++index].startsWith('|'.repeat(40))) ours.push(lines[index]);
+    while (lines[++index] !== '='.repeat(40)) { /* the empty ancestor */ }
+    while (!lines[++index].startsWith('>'.repeat(40))) theirs.push(lines[index]);
+    joined.push(...ours, ...theirs);
+  }
+  return joined.join('\n');
 }
 
 /** What a line records: every id in an index row's first cell, or a section's id. A row and a section are separate entries. */
@@ -165,8 +184,8 @@ function ownedLines(lines: readonly string[]): OwnedLine[] {
 
 /**
  * True when taking main's side of a clash loses nothing only the job did: every line it added or removed belongs to an
- * entry that existed before the job started and that main changed too. An id both sides added since is not proof of one
- * defect: on 16 November 2026 five branches held different defects under ids main had since given to others.
+ * entry in the clash's ancestor lines that main changed too. An id both sides added is not proof of one defect: on
+ * 16 November 2026 five branches held different defects under ids main had since given to others.
  */
 function mainAnswersJob(job: readonly string[], base: readonly string[], main: readonly string[]): boolean {
   const jobEntries = registerEntries(job), baseEntries = registerEntries(base), mainEntries = registerEntries(main);

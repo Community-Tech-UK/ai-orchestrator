@@ -235,15 +235,31 @@ describe('document-only landing overlap', () => {
     expect(await readFile(join(repo, 'register.md'), 'utf8')).toBe(append('LT-SAME') + 'ours\n');
   });
 
-  it('lands two new sections that repeat sub-headings the register already uses', async () => {
-    const section = (id: string) => `\n## ${id}\n\n### Observed behaviour\n\n${id} seen.\n`;
-    const existing = base + section('LT-OLD');
-    await writeFile(join(repo, 'register.md'), existing); git(['add', '.']); git(['commit', '-qm', 'existing section']); baseTip = git(['rev-parse', 'HEAD']);
-    await prepare(existing + section('LT-OURS'), existing + section('LT-ITEM'));
+  describe('two new register sections in the standard shape', () => {
+    // The shared "Not proven." line is what makes `git merge-file --union` interleave the two sections.
+    const section = (id: string) => [
+      '', `## ${id}`, '', `### ${id} — title`, '', '### Observed behaviour', '', `${id} seen.`, '',
+      '### Root cause', '', 'Not proven.', '', `${id} cause.`, '', '### Required behaviour and acceptance', '', `- ${id} fixed.`, '',
+    ].join('\n');
+    const existing = base + section('LT-7');
+    async function commitExisting(content: string) {
+      await writeFile(join(repo, 'register.md'), content); git(['add', '.']); git(['commit', '-qm', 'existing section']); baseTip = git(['rev-parse', 'HEAD']);
+    }
 
-    expect(await promote()).toMatchObject({ status: 'promoted', mergedPaths: ['register.md'] });
-    const text = await readFile(join(repo, 'register.md'), 'utf8');
-    expect(text).toContain('LT-OURS seen.'); expect(text).toContain('LT-ITEM seen.');
+    it('lands both, each kept whole, although they repeat the sub-headings the register already uses', async () => {
+      await commitExisting(existing);
+      await prepare(existing + section('LT-8'), existing + section('LT-9'));
+
+      expect(await promote()).toMatchObject({ status: 'promoted', mergedPaths: ['register.md'] });
+      expect(await readFile(join(repo, 'register.md'), 'utf8')).toBe(existing + section('LT-8') + section('LT-9'));
+    });
+
+    it('still blocks both sides adding an id the register already has', async () => {
+      await commitExisting(existing);
+      await prepare(existing + section('LT-7'), existing + section('LT-7').replace('seen.', 'seen again.'));
+
+      expect(await promote()).toMatchObject({ status: 'blocked', reason: expect.stringContaining('LT-7') });
+    });
   });
 
   it('refuses a clash in code and staged overlaps', async () => {
