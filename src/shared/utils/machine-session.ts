@@ -9,7 +9,7 @@ export function machineSessionReasonOf(session: {parentId?:string|null;metadata?
   if(m?.['pingPongReviewer']) return 'ping-pong-review';
   if(m?.['planQueueRunId'] || m?.['planQueueRole'] || m?.['spendPurpose']==='plan-queue')return 'plan-queue';
   if(m?.['automationId'] || m?.['spendPurpose']==='automation')return 'automation';
-  if(m?.['spendPurpose']==='repo-job')return 'repo-job';
+  if(m?.['repoJobId'] || m?.['spendPurpose']==='repo-job')return 'repo-job';
   if(m?.['spawnParentInstanceId'] || m?.['spendPurpose']==='remote-node')return 'node-run';
   return session?.parentId ? 'child' : null;
 }

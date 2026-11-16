@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { automaticReviewSkipReason } from './automatic-review-skip';
+import { automaticReviewSkipReason, isMainChatSession } from './automatic-review-skip';
 import { machineSessionReasonOf } from '../../shared/utils/machine-session';
 import type { Instance } from '../../shared/types/instance.types';
 
@@ -37,5 +37,11 @@ describe('automatic review session guards', () => {
     expect(automaticReviewSkipReason({ id: 'loop' } as Instance, id => id === 'loop')).toBe('active-loop');
     expect(automaticReviewSkipReason(undefined, () => false)).toBe('no-session');
     expect(automaticReviewSkipReason({ id: 'main' } as Instance, () => false)).toBeUndefined();
+  });
+  it('isMainChatSession accepts a local root chat and refuses machine sessions and a live loop', () => {
+    expect(isMainChatSession({ id: 'main', parentId: null, executionLocation: { type: 'local' } } as Instance)).toBe(true);
+    expect(isMainChatSession({ id: 'main', parentId: null, executionLocation: { type: 'local' } } as Instance, true)).toBe(false);
+    expect(isMainChatSession({ id: 'q', metadata: { repoJobId: 'j', spendPurpose: 'repo-job' } } as unknown as Instance)).toBe(false);
+    expect(isMainChatSession({ id: 'r', executionLocation: { type: 'remote', nodeId: 'w' } } as Instance)).toBe(false);
   });
 });

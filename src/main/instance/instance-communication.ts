@@ -1378,7 +1378,7 @@ export class InstanceCommunicationManager extends EventEmitter {
           }
         }
 
-        const todoItems = extractTodoToolItems(message);
+        const todoItems = extractTodoToolItems(message, () => getTodoManager().getTodos(instance.sessionId));
         if (todoItems !== null) {
           getTodoManager().writeTodos(instance.sessionId, todoItems);
         }

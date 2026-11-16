@@ -16,3 +16,11 @@ export function automaticReviewSkipReason(instance: Pick<Instance, 'id' | 'paren
   if (instance.executionLocation?.type === 'remote') return 'remote';
   return undefined;
 }
+
+/** A chat the person started themselves, local, with no loop running: the one test other chat-only features share. */
+export function isMainChatSession(
+  instance: Pick<Instance, 'id' | 'parentId' | 'metadata' | 'executionLocation'>,
+  isLoopActive = false,
+): boolean {
+  return automaticReviewSkipReason(instance, () => isLoopActive) === undefined;
+}

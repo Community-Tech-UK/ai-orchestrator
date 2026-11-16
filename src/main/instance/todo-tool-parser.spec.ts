@@ -60,6 +60,42 @@ describe('extractTodoToolItems', () => {
     ]);
   });
 
+  it('adds a task for each Claude TaskCreate call', () => {
+    const first = extractTodoToolItems(toolUse('TaskCreate', {
+      subject: 'Create one.txt', description: 'Write the word one', activeForm: 'Creating one.txt',
+    }));
+    expect(first).toEqual([{ content: 'Create one.txt', status: 'pending', activeForm: 'Creating one.txt' }]);
+
+    const second = extractTodoToolItems(toolUse('TaskCreate', { subject: 'Create two.txt' }), () => first ?? []);
+    expect(second).toEqual([
+      { content: 'Create one.txt', status: 'pending', activeForm: 'Creating one.txt' },
+      { content: 'Create two.txt', status: 'pending' },
+    ]);
+  });
+
+  it('updates the numbered task for a Claude TaskUpdate call', () => {
+    const current = [
+      { content: 'One', status: 'pending' as const, activeForm: 'Doing one' },
+      { content: 'Two', status: 'pending' as const },
+    ];
+
+    expect(extractTodoToolItems(toolUse('TaskUpdate', { taskId: '2', status: 'in_progress' }), () => current)).toEqual([
+      { content: 'One', status: 'pending', activeForm: 'Doing one' },
+      { content: 'Two', status: 'in_progress' },
+    ]);
+    expect(extractTodoToolItems(toolUse('TaskUpdate', { taskId: '1', status: 'completed', subject: 'Uno' }), () => current)).toEqual([
+      { content: 'Uno', status: 'completed', activeForm: 'Doing one' },
+      { content: 'Two', status: 'pending' },
+    ]);
+    expect(extractTodoToolItems(toolUse('TaskUpdate', { taskId: '1', status: 'deleted' }), () => current)?.[0]?.status).toBe('cancelled');
+  });
+
+  it('ignores a TaskUpdate for a task it has not seen, and a TaskCreate with no subject', () => {
+    expect(extractTodoToolItems(toolUse('TaskUpdate', { taskId: '3', status: 'completed' }), () => [])).toBeNull();
+    expect(extractTodoToolItems(toolUse('TaskUpdate', { status: 'completed' }), () => [{ content: 'One', status: 'pending' }])).toBeNull();
+    expect(extractTodoToolItems(toolUse('TaskCreate', { description: 'no subject' }))).toBeNull();
+  });
+
   it('returns null for unrelated tools', () => {
     expect(extractTodoToolItems(toolUse('Read', { path: 'README.md' }))).toBeNull();
   });

@@ -1,6 +1,6 @@
 import type { Instance } from '../../../shared/types/instance.types';
 import type { ExecutionLocation } from '../../../shared/types/worker-node.types';
-import { isMainChatSession } from './main-chat-session-scope';
+import { isMainChatSession } from '../../orchestration/automatic-review-skip';
 
 /** Spawn-time registry: identity is preserved across respawns; fresh loop adapters have no entry. */
 const MAX_ENTRIES = 1_000;

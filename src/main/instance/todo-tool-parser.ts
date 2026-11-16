@@ -9,8 +9,18 @@ export interface ParsedTodoToolItem {
 
 const TODO_WRITE_TOOL_NAMES = new Set(['TodoWrite', 'todo_write', 'todo.write']);
 const UPDATE_PLAN_TOOL_NAMES = new Set(['update_plan', 'UpdatePlan', 'updatePlan']);
+const TASK_CREATE_TOOL_NAMES = new Set(['TaskCreate']);
+const TASK_UPDATE_TOOL_NAMES = new Set(['TaskUpdate']);
 
-export function extractTodoToolItems(message: OutputMessage): ParsedTodoToolItem[] | null {
+/**
+ * `readCurrent` supplies the session's list so far. Only Claude's incremental task tools need it:
+ * `TaskCreate` adds one task and `TaskUpdate` changes one by number, where the CLI numbers tasks 1, 2, 3
+ * in creation order, so a task's number is its place in the list.
+ */
+export function extractTodoToolItems(
+  message: OutputMessage,
+  readCurrent: () => readonly ParsedTodoToolItem[] = () => [],
+): ParsedTodoToolItem[] | null {
   if (message.type !== 'tool_use' && message.type !== 'tool_result') {
     return null;
   }
@@ -38,7 +48,48 @@ export function extractTodoToolItems(message: OutputMessage): ParsedTodoToolItem
     return parseUpdatePlanInput(input);
   }
 
+  if (TASK_CREATE_TOOL_NAMES.has(toolName)) {
+    return applyTaskCreate(input, readCurrent());
+  }
+
+  if (TASK_UPDATE_TOOL_NAMES.has(toolName)) {
+    return applyTaskUpdate(input, readCurrent());
+  }
+
   return null;
+}
+
+function applyTaskCreate(
+  input: Record<string, unknown>,
+  current: readonly ParsedTodoToolItem[],
+): ParsedTodoToolItem[] | null {
+  const content = readString(input, ['subject']);
+  if (!content) {
+    return null;
+  }
+  const activeForm = readString(input, ['activeForm', 'active_form']);
+  return [...current, { content, status: 'pending', ...(activeForm ? { activeForm } : {}) }];
+}
+
+function applyTaskUpdate(
+  input: Record<string, unknown>,
+  current: readonly ParsedTodoToolItem[],
+): ParsedTodoToolItem[] | null {
+  const taskId = readString(input, ['taskId']) ?? (typeof input['taskId'] === 'number' ? String(input['taskId']) : null);
+  const index = taskId !== null && /^\d+$/.test(taskId) ? Number(taskId) - 1 : -1;
+  const task = current[index];
+  if (!task) {
+    return null;
+  }
+  const subject = readString(input, ['subject']);
+  const activeForm = readString(input, ['activeForm', 'active_form']);
+  const status = readString(input, ['status']);
+  const updated: ParsedTodoToolItem = {
+    content: subject ?? task.content,
+    status: status === null ? task.status : status === 'deleted' ? 'cancelled' : normalizeTodoStatus(status),
+    ...((activeForm ?? task.activeForm) ? { activeForm: activeForm ?? task.activeForm } : {}),
+  };
+  return current.map((item, position) => (position === index ? updated : item));
 }
 
 function parseTodoWriteInput(input: Record<string, unknown>): ParsedTodoToolItem[] | null {

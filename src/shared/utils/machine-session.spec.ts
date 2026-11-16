@@ -33,6 +33,7 @@ describe('machineSessionReasonOf markers', () => {
     ['automationId', { metadata: { automationId: 'auto-1' } }, 'automation'],
     ['spendPurpose automation', { metadata: { spendPurpose: 'automation' } }, 'automation'],
     ['spendPurpose repo-job', { metadata: { spendPurpose: 'repo-job' } }, 'repo-job'],
+    ['repoJobId alone', { metadata: { repoJobId: 'job-1' } }, 'repo-job'],
     ['spawnParentInstanceId', { metadata: { spawnParentInstanceId: 'parent-1' } }, 'node-run'],
     ['spendPurpose remote-node', { metadata: { spendPurpose: 'remote-node' } }, 'node-run'],
     ['a parentId alone', { parentId: 'parent-1' }, 'child'],
