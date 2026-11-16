@@ -75,4 +75,24 @@ describe('ToastService notices', () => {
     expect(service.visibleToasts().map(t => t.text)).toEqual(['Four']);
     expect(service.overflowCount()).toBe(0);
   });
+  it('keeps an Undo toast on screen even when three errors are already showing', () => {
+    vi.useFakeTimers();
+    const service = new ToastService();
+    for (const name of ['One', 'Two', 'Three']) service.show(name, 'error');
+    service.show('Archived. Undo', 'success', { key: 'undo:archive', action: { label: 'Undo', run: () => undefined } });
+    expect(service.visibleToasts().map(t => t.text)).toEqual(['Archived. Undo', 'One', 'Two']);
+    expect(service.overflowCount()).toBe(1);
+  });
+  it('shows every Undo toast when more than three are live, and fills spare slots with errors', () => {
+    vi.useFakeTimers();
+    const service = new ToastService();
+    service.show('Error', 'error');
+    for (const kind of ['archive-thread', 'remove-project', 'snooze-card', 'discard-draft']) {
+      service.show(`${kind}. Undo`, 'success', { key: `undo:${kind}`, action: { label: 'Undo', run: () => undefined } });
+    }
+    expect(service.visibleToasts().map(t => t.text)).toEqual([
+      'archive-thread. Undo', 'remove-project. Undo', 'snooze-card. Undo', 'discard-draft. Undo',
+    ]);
+    expect(service.overflowCount()).toBe(1);
+  });
 });

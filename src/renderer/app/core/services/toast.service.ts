@@ -25,13 +25,21 @@ const PLAIN_TOAST_MS = 4000;
 const ACTION_TOAST_MS = 5000;
 const WARNING_TOAST_MS = 8000;
 
+function displayRank(toast: ToastMessage): number { return toast.action ? 0 : toast.type === 'error' ? 1 : 2; }
+
 @Injectable({ providedIn: 'root' })
 export class ToastService implements OnDestroy {
   readonly toasts = signal<ToastMessage[]>([]);
-  /** Errors first (they stay until closed), then the newest others, at most three. */
-  readonly visibleToasts = computed(() => [...this.toasts()]
-    .sort((a, b) => Number(b.type === 'error') - Number(a.type === 'error')).slice(0, VISIBLE_TOASTS));
-  readonly overflowCount = computed(() => Math.max(0, this.toasts().length - VISIBLE_TOASTS));
+  /**
+   * Every action toast (Undo) is always shown, however many there are: each one is a live reversal the user could not reach
+   * otherwise. The remaining slots, up to three in all, go to errors (they stay until closed), then the rest.
+   */
+  readonly visibleToasts = computed(() => {
+    const ranked = [...this.toasts()].sort((a, b) => displayRank(a) - displayRank(b));
+    const actions = ranked.filter((toast) => toast.action).length;
+    return ranked.slice(0, Math.max(VISIBLE_TOASTS, actions));
+  });
+  readonly overflowCount = computed(() => this.toasts().length - this.visibleToasts().length);
   private readonly timers = new Map<string, ToastTimer>();
 
   /**
