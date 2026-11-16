@@ -29,6 +29,19 @@ describe('resolveAioMcpCliPath', () => {
     ).toBe(DEV_BINARY);
   });
 
+  it('finds the SEA binary beside the compiled files when the working folder is `/` (launcher start, LT-1103)', () => {
+    const built = '/work/checkout/dist/aio-mcp-cli-sea/aio-mcp';
+    expect(
+      resolveAioMcpCliPath({
+        resourcesPath: '/work/checkout/node_modules/electron/dist/Electron.app/Contents/Resources',
+        moduleDir: '/work/checkout/dist/main/util',
+        cwd: '/',
+        platform: 'darwin',
+        exists: (p) => p === built,
+      }),
+    ).toBe(built);
+  });
+
   it('returns null when neither candidate exists', () => {
     expect(
       resolveAioMcpCliPath({

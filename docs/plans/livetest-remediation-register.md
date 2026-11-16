@@ -396,6 +396,10 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1100 | P2 | **FIXED AND VERIFIED LIVE 2026-11-14 (Claude half).** Reproduced live 2026-11-10 at base `e429665064` (recorded then as LT-1018, which main also used for a different defect, so renumbered 2026-11-14): `read_session` by exact title with Cross-session messaging off answered bare `not-found`. The repair (plan history, "Step 1 verifier round 1 repair", commit `bd0db3b24`) is in the branch head. On 14 Nov a rebuilt dev app showed the off reply naming the switch and the audit row `not-allowed`, one row per call. The Codex reader half did not run (Codex is not installed on the test Mac). | [LT-1100 detail](#lt-1100) | [Phase 5 live checks](2026-10-10-oct-phase5-later_livetest.md#evidence-run--2026-11-14-dev-app-on-the-test-mac) |
+| LT-1101 | P2 | **FIXED AND VERIFIED LIVE 2026-11-14.** Reproduced live 2026-11-10 (recorded then as LT-1019, which main also used for a different defect, so renumbered 2026-11-14): on a real silent Claude turn the line under the conversation read "Working" for about 8 s and then "Agent active"; "Working quietly" never appeared. Fixed in the branch head on 13 Nov (`selectedInstanceActivity` returns nothing for the bland `active` state; the ten-second clock counts real events only). On 14 Nov a silent Opus turn showed "Working quietly" with the running time from about 10 s for over seven minutes, with the hover text. | [LT-1101 detail](#lt-1101) | [Phase 5 live checks](2026-10-10-oct-phase5-later_livetest.md#evidence-run--2026-11-14-dev-app-on-the-test-mac) |
+| LT-1102 | P2 | **FIXED AND VERIFIED LIVE 2026-11-14.** Reproduced live 2026-11-10 and again 2026-11-14 at head (recorded on 10 Nov as LT-1020, which main also used for a different defect, so renumbered): with "show Claude's task list" on, the installed Claude CLI plans with `TaskCreate`/`TaskUpdate`, not `TodoWrite`, and Harness's parser only knew `TodoWrite` and `update_plan`, so the task panel stayed empty. `todo-tool-parser.ts` now builds the list from `TaskCreate`/`TaskUpdate` calls (task number = place in the list). A rebuilt dev app showed "Tasks 3 of 3 done" and a three-item list for the same prompt. | [LT-1102 detail](#lt-1102) | [Phase 5 live checks](2026-10-10-oct-phase5-later_livetest.md#evidence-run--2026-11-14-dev-app-on-the-test-mac) |
+| LT-1103 | P2 | **REPRODUCED LIVE 2026-11-14; BOTH GAPS REPAIRED IN SOURCE AND VERIFIED LIVE 2026-11-16 (launcher start on the test Mac, then a Claude session called `read_session`); not yet in a shipped build.** A Harness copy started on the test Mac by `dev-app.js` never gives its sessions the orchestrator tools (`read_session`, `run_on_node`, `list_remote_nodes` and the rest): `dist/aio-mcp-cli-sea/aio-mcp` is never built there, and even when built the app looks for it relative to its working folder, which is `/` when opened through the launcher. Every live check that needs those tools silently fails on the test Mac copy. | [LT-1103 detail](#lt-1103) | [Phase 5 live checks](2026-10-10-oct-phase5-later_livetest.md#evidence-run--2026-11-14-dev-app-on-the-test-mac) |
 | LT-1127 | P2 | **REPRODUCED LIVE 2026-11-12; SOURCE FIX + UNIT TEST 2026-11-14; rebuilt-app check with a spent Claude week pending.** A Plan Queue ranked worker list does not move past a Claude choice whose weekly usage is spent but whose paid extra-usage credits are on, when the profile has only the pre-pools Claude sign-in. The usage check for that sign-in reads only the provider-limit record, and the Claude CLI keeps running on credits, so no limit is ever recorded: triage and worker both started on Claude (about $0.84 for one trivial document) while Codex had usage. A recorded limit does move the list to Codex. | [LT-1127 detail](#lt-1127) | [Ranked provider lists live checks](2026-10-25-plan-queue-ranked-routing_livetest.md#check-3--new-sessions-move-down-the-list-when-the-first-choice-is-out-recorded-limit-passes-usage-figures-alone-fails) |
 | LT-1061 | P2 | **REPRODUCED LIVE 2026-11-12; NOT REPAIRED.** A plan whose last step needs James's approval to publish was closed and landed: the checker put the unfinished step under `deferred_checks` (it fits "needs a person") instead of a `needs-human` finding, so nothing parked and the publish was never done. A blocking fact only James has (the approver's name) did park `needs-james` as designed. | [LT-1061 detail](#lt-1061) | [Deferred checks live check](2026-11-04-pq-c1-deferred-checks_plan_livetest.md#evidence-run--2026-11-12-plan-queue-livetest-worker-dev-app) |
 | LT-1062 | P3 | **REPRODUCED LIVE 2026-11-12 (1 of 2 runs); NOT REPAIRED.** A `livetests` run with one check that needs a physical device sometimes gets a FAIL with a `needs-human` finding from the checker, which parks the item `needs-james` instead of landing with `document_complete: false`. The livetest prompt shows only a FAIL example, and the new finding-kind rules apply to livetests too. | [LT-1062 detail](#lt-1062) | [Deferred checks live check](2026-11-04-pq-c1-deferred-checks_plan_livetest.md#evidence-run--2026-11-12-plan-queue-livetest-worker-dev-app) |
@@ -14552,6 +14556,122 @@ A diagnosed cause for the mailbox `unavailable` states, with either a fix or doc
 ### Evidence
 
 [Watchdog faults live checks](../../../../communitytech/work-finding/documents/plans/watchdog-faults-2026-10-08/watchdog-faults_livetest.md), "Defect record: conversation-reconciliation source outages and stuck runs" (13 November 2026).
+
+## LT-1100
+
+### LT-1100 — a read by exact title with the switch off says "not found" instead of naming the switch
+
+**Status: FIXED AND VERIFIED LIVE 14 November 2026 (Claude half).** Reproduced 10 November 2026 on a base that did not yet contain the repair (then recorded as LT-1018; renumbered because main already used that number for a different defect).
+
+### Observed behaviour
+
+Rebuilt dev app, base `e429665064` (it predates the repair). With Cross-session messaging on, a Claude and a Codex session in the same folder both
+found `read_session` through tool search and answered from a third session by its exact title (audit rows: one per
+call, reason `same-folder`). After switching the setting off, both repeated the call by title and received exactly
+`{"outcome":"not-found"}`; the audit rows are `not-found`, target empty. The check expects a refusal that names the switch.
+
+### Root cause
+
+`SessionTranscriptReader.readPage` (`src/main/session/session-transcript-reader.ts`) matches titles only among sessions
+already readable (`this.scope(...)` is applied before the title comparison), so a title only the switch would open
+matches nothing. The plan history records a fix ("Step 1 verifier round 1 repair", 10 November, commit `bd0db3b24`) that answers
+`not-allowed` with the switch reason for that case. It was not in the base the live run used; it is in the current branch head, where
+`session-transcript-reader.spec.ts` covers the exact-title case.
+
+### Required behaviour and acceptance
+
+An exact title that only the switch would open answers `not-allowed` with the switch reason (no ids, folders or counts;
+foreign-folder and scratch titles stay `not-found`). Acceptance: rebuild from the current head and repeat the live check (switch on then off); the off
+reply names the switch and the audit row says `not-allowed`.
+
+### Recheck 14 November 2026
+
+Dev app on the test Mac built from head `39e443963`. A Claude reader started with the switch on found `read_session` through the orchestrator tool search and read a sibling session by exact title (audit row `read`, reason `same-folder`). After the switch went off, the same reader's next call by title was refused with "Ask the user to point at this session with @session. Related or same-project sessions also require Cross-session messaging in Settings." (audit row `not-allowed`; one row per call throughout). A reader started while the switch was off was not given the tool at all. The Codex reader half did not run: Codex is not installed on the test Mac.
+
+## LT-1101
+
+### LT-1101 — "Working quietly" never appears on a real silent Claude turn
+
+**Status: FIXED AND VERIFIED LIVE 14 November 2026.** Reproduced 10 November 2026 (then recorded as LT-1019; renumbered because main already used that number for a different defect). The fix is in the branch head from the 13 November change.
+
+### Observed behaviour
+
+A Claude session (Opus, effort max) given a hard question with no tools stayed busy for more than 150 s. The activity
+line read "Working" until about 8 s, then "Agent active" until the turn ended or was stopped (172 s since the last event
+when sampled); "Working quietly" and its hover were never shown.
+
+### Root cause
+
+`InstanceQueries.activityStateToLabel` returns "Agent active" whenever the process state is `active`, and
+`selectedInstanceActivity` / `instanceActivities` use it as the `activity` text. `ActivityStatusComponent.displayText`
+returns any non-empty `activity` before its ten-second "Working quietly" fallback, so the fallback only applies when
+the process state is not `active`, which is never true during a real turn.
+
+### Required behaviour and acceptance
+
+After about ten seconds without a new event the line says "Working quietly" even when the process state is `active`
+(the bland state label must not mask it). Acceptance: the live check shows the switch at about ten seconds on a silent
+Claude turn, with the hover text.
+
+### Recheck 14 November 2026
+
+Dev app on the test Mac built from head `39e443963`. A silent Opus (effort max) turn with no tools read "Working" for the first ten seconds or so, then "Working quietly" with the running time beside it, and stayed there for more than seven minutes (never "Agent active"). Hovering the words showed "This provider shares its thinking only when a step finishes. Harness shows how long it has been working." After the turn was interrupted the row disappeared. One sample at 1 m 22 s read "Working" again for under ten seconds (an event arrived), then returned to "Working quietly".
+
+## LT-1102
+
+### LT-1102 — the Progress panel does not fill when Claude plans with its newer task tools
+
+**Status: FIXED AND VERIFIED LIVE 14 November 2026.** Reproduced 10 November 2026 (then recorded as LT-1020; renumbered because main already used that number for a different defect) and again on 14 November at head `39e443963`.
+
+### Observed behaviour
+
+With the Claude task list setting on, a Claude chat asked to "plan three small steps, then do them" called `ToolSearch`,
+three `TaskCreate` and six `TaskUpdate` tools and finished the work. The Progress panel stayed empty and no `TodoWrite`
+call appears in the transcript.
+
+### Root cause
+
+`src/main/instance/todo-tool-parser.ts` recognises only `TodoWrite` (and `todo_write`, `todo.write`) and Codex's
+`update_plan`. The installed Claude CLI uses `TaskCreate` and `TaskUpdate` for its task list, which nothing parses.
+
+### Required behaviour and acceptance
+
+`TaskCreate` and `TaskUpdate` calls fill the Progress panel (or the setting is documented as `TodoWrite`-only and the
+check reworded). Acceptance: repeat the live check; the panel shows the three steps changing state.
+
+### Fix and recheck 14 November 2026
+
+Source: `extractTodoToolItems(message, readCurrent)` in `src/main/instance/todo-tool-parser.ts` builds the list from `TaskCreate` (adds a task from `subject`/`activeForm`) and `TaskUpdate` (changes the task whose number is `taskId`; `deleted` shows as cancelled); the caller in `instance-communication.ts` passes the session's current list. The CLI numbers tasks 1, 2, 3 in creation order (seen in the live transcript), so a task's number is its place in the list; this assumption is stated in the code comment. Specs: `todo-tool-parser.spec.ts` (3 new cases; 7 pass), with the 30 related spec files in `src/main/instance` and `src/main/tasks` passing (360 tests).
+
+Live: reproduced first at head (a Sonnet chat with the setting on called `ToolSearch`, three `TaskCreate`, `TaskUpdate` calls; nothing in the panel). After rebuilding the dev app from the changed tree, the same prompt produced exactly three tasks, all completed, and the panel header read "Tasks 3 of 3 done". Not covered: tasks deleted mid-run, and a Claude session restarted without resume (the CLI restarts its numbering while Harness keeps the old list).
+
+## LT-1103
+
+### LT-1103 — a test-Mac dev app copy has no orchestrator tools
+
+**Status: REPRODUCED LIVE 14 November 2026; both gaps repaired in source 14 November and verified live 16 November 2026 (one `dev-app.js start` on the test Mac gave a Claude session `read_session`, one audit row `read` / `same-folder`; evidence in the Phase 5 live-test document, final 16 November section); not yet in a shipped build.** Owner: `scripts/remote-checks/dev-app.js` / `remote-run.sh` (plan `2026-11-13-livetests-on-test-mac`).
+
+### Observed behaviour
+
+A Claude session started in a dev app copy on the test Mac (`dev-app.js start`) had only its own tools. Asked for `read_session` it searched three times and answered that the tool did not exist. The main log said `Orchestrator-tools MCP not configured — aio-mcp SEA binary, RPC socket or instance capability missing` for every spawn, and `aio-mcp SEA binary not found — Chrome native-messaging host wrapper not installed` at start-up.
+
+### Root cause
+
+Two gaps. (1) `start` runs `npm run build:main` and the screens build but never `npm run build:aio-mcp-dist`, and `build:main` clears `dist/`, so `dist/aio-mcp-cli-sea/aio-mcp` is absent after every start. (2) `resolveAioMcpCliPath` (`src/main/util/aio-mcp-cli-path.ts`) looks for `dist/aio-mcp-cli-sea/aio-mcp` under `process.cwd()`; the copy is opened through the launcher (`open -n -g -a Electron.app`), whose working folder is `/` (`lsof` showed `cwd /` for the Electron process), so a binary built inside the checkout is still not found.
+
+### Required behaviour and acceptance
+
+A copy started by `dev-app.js` gets the orchestrator tools. Either build the helper in `start` and tell the app where it is (a path setting or environment value read by `resolveAioMcpCliPath`), or copy it where the app already looks. Acceptance: after one `start`, a Claude session finds and calls `read_session` without manual steps.
+
+### Repair so far (14 November 2026, second round)
+
+Gap 2 is fixed in source: `resolveAioMcpCliPath` (`src/main/util/aio-mcp-cli-path.ts`) now also looks for `dist/aio-mcp-cli-sea/aio-mcp` beside its own compiled file (`dist/main/util/../../aio-mcp-cli-sea`), so a copy opened through the launcher (working folder `/`) finds a binary built inside its checkout. New case in `src/main/util/__tests__/aio-mcp-cli-path.spec.ts` (6 pass). Not yet seen live: the fix needs a rebuilt copy that also has the binary built.
+
+Gap 1 is repaired in the launcher: the `devapp-job` branch of `scripts/remote-checks/remote-run.sh` now runs `npm run build:aio-mcp-dist` straight after `npm run build:main` (which clears `dist/`) and before the screens build, logging to `aio-mcp.log` and failing the start with `npm run build:aio-mcp-dist failed` if it breaks. It runs under the Node version from `.nvmrc` (24), which `ensure_node` puts first on the path, so the Homebrew Node 26 SEA-fuse problem does not apply. The launcher (`remote-run.sh` devapp commands and `dev-app.js`) is not on this queue branch: it is uncommitted work in the root checkout from plan `2026-11-13-livetests-on-test-mac` (now `_completed`), so the edit was made there in place and lands when that work is committed, not with this branch. `bash -n` passes and `dev-app.spec.ts` plus `remote-run.linux.spec.ts` pass (49 tests); those specs fake the far Mac, so they do not run the build step itself. Still open: one live `dev-app.js start` on the test Mac followed by a Claude session finding and calling `read_session` (acceptance).
+
+### Workaround used on 14 November
+
+Built the helper in the copy with `dev-app shell 'npm run build:aio-mcp-dist'`, copied the binary into the shared Electron install's `Contents/Resources/aio-mcp-cli/` (a place the resolver also checks), and relaunched the app by hand with the launcher command from `remote-run.sh`. The copied file was removed afterwards.
 
 
 ## LT-1142
