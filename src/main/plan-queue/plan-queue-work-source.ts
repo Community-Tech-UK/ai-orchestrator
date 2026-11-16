@@ -72,6 +72,12 @@ export interface QueueWorkSource {
   reconcileWaiting(host: Pick<PlanQueueFlowHost, 'getRun' | 'getItem' | 'transition' | 'notifyParent' | 'store'>, run: PlanQueueRun): Promise<void>;
   /** Why a started item can no longer be checked against its work, or null when it can. */
   missingNote(item: WorkItemRef, run: PlanQueueRun): Promise<string | null>;
+  /**
+   * Why this run may not start new work now, or null. Asked by the pump before a check, triage or a worker starts, and
+   * by the page's run data. Work already running carries on, and the run's own `holdReason` and the breaker are not
+   * touched: the reason is the source's, and it clears itself when the source can be used again.
+   */
+  reasonToHold(run: PlanQueueRun): string | null;
 
   // --- Parked notes ------------------------------------------------------------------------------------------
   /** Leave a note where a person will find a parked branch. Returns a failure sentence, or null. */

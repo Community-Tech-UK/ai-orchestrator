@@ -57,6 +57,8 @@ export const markdownWorkSource: QueueWorkSource = {
   rememberedOutcome: (candidate, run, memory) => rememberedOutcomeForPath(memory, candidate.ref, run.workspaceCwd),
   reconcileWaiting: (host, run) => reconcileWaitingDocuments(host, run),
   missingNote: (item, run) => missingDocumentNote(item.sourceRef, run.workspaceCwd),
+  // Files on disk are always there to read; nothing outside the app can make a markdown run wait.
+  reasonToHold: () => null,
 
   appendParkNote: (item, run, reason, history) => appendParkedBranchNote(item, run, reason, history),
   removeParkNote: (item, branchName) => removeParkedNote(item.sourceRef, branchName),

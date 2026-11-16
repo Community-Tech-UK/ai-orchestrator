@@ -16,7 +16,7 @@ import type {
   PlanQueueQuestion,
   PlanQueueRunDto,
 } from '@contracts/schemas/plan-queue';
-import { workSourceFor } from './plan-queue-work-sources';
+import { workSourceFor, workSourceForRun } from './plan-queue-work-sources';
 import { planQueueChecksLabel } from '../../shared/utils/plan-queue-item-display';
 import { isNotReachedItem } from '../../shared/utils/plan-queue-item-outcome';
 import { relaxedSettingsFor } from './plan-queue-relaxation';
@@ -63,6 +63,16 @@ export function itemToDto(item: PlanQueueItem, stage: PlanQueueItemStage | undef
   };
 }
 
+/**
+ * Where a hold shows: the run's own hold text, or else the source's reason it may not start new work (a Linear run
+ * whose connection is not usable). Only a running run is asked: a paused or ended run starts nothing anyway, and
+ * asking can raise the one notice that says why.
+ */
+function heldReasonFor(run: PlanQueueRun): string | null {
+  if (run.holdReason) return run.holdReason;
+  return run.status === 'running' ? workSourceForRun(run).reasonToHold(run) : null;
+}
+
 export function runToDto(run: PlanQueueRun, items: readonly PlanQueueItem[], checks: PlanQueueRunDto['checks'],
   stages: ReadonlyMap<string, PlanQueueItemStage>, totalRounds: ReadonlyMap<string, number>): PlanQueueRunDto {
   const spends = [run.spend, ...items.map(item => item.spend)].filter(spend => spend !== undefined);
@@ -75,7 +85,7 @@ export function runToDto(run: PlanQueueRun, items: readonly PlanQueueItem[], che
     kind: run.kind,
     workspaceCwd: run.workspaceCwd,
     status: run.status,
-    holdReason: run.holdReason ?? null,
+    holdReason: heldReasonFor(run),
     config: run.config,
     workerProvider: run.workerProvider,
     workerModel: run.workerModel,

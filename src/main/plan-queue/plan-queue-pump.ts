@@ -61,8 +61,15 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
     const folderFree = (): boolean => folderLimit <= 0 || totalJobs < folderLimit;
     store.waits.prune(new Set(runs.flatMap(run => store.listItems(run.id)).filter(item => item.state === 'queued' || item.state === 'awaiting-slot').map(item => item.id)));
     const runChecks = new Map<string, number>();
+    // The source's own reason a run may not start new work, asked once per run per pass. It is not the run's `holdReason`:
+    // the breaker never sees it, so it starts no trial job for it and Resume cannot clear it.
+    const sourceReasons = new Map<string, string | null>();
+    const sourceHolds = (run: PlanQueueRun): boolean => {
+      if (!sourceReasons.has(run.id)) sourceReasons.set(run.id, workSourceForRun(run).reasonToHold(run));
+      return sourceReasons.get(run.id) != null;
+    };
     const whyNoCheck = (run: PlanQueueRun, item: PlanQueueItem, checklist: boolean): PlanQueueCheckWait | null => {
-      if (!flow.breaker.canStart(run)) return 'run-on-hold';
+      if (sourceHolds(run) || !flow.breaker.canStart(run)) return 'run-on-hold';
       // A held job's kept folder starts counting again when its checks start.
       if (item.heldAt && !folderFree()) return 'no-free-folder';
       const folder = pathCompareKey(run.workspaceCwd);
@@ -113,7 +120,7 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
       }
       if (run.status === 'running') {
         const policy = queueAdmission(run.config, totalJobs, verifying);
-        if (policy.canStartTriage() && flow.breaker.canStart(run)) {
+        if (policy.canStartTriage() && !sourceHolds(run) && flow.breaker.canStart(run)) {
           if (items.some(item => item.state === 'discovered')) flow.breaker.started(run, null);
           host.triage?.maybeStart(run, items);
         }
@@ -129,7 +136,7 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
           const hold = stepHold(items, item);
           if (hold?.skipped) { host.transition(item, 'skipped', { detail: `Left out because Step ${hold.waitingFor} was skipped.` }); continue; }
           if (hold) continue;
-          if (!folderFree() || !flow.breaker.canStart(run) || (!elsewhere && !queueAdmission(run.config, totalJobs, verifying).canStartWorker(inFlight))) { store.waits.blocked(item.id); continue; }
+          if (!folderFree() || sourceHolds(run) || !flow.breaker.canStart(run) || (!elsewhere && !queueAdmission(run.config, totalJobs, verifying).canStartWorker(inFlight))) { store.waits.blocked(item.id); continue; }
           flow.breaker.started(run, item.id);
           store.waits.started(item, 'worker');
           if (!elsewhere) inFlight += 1;
