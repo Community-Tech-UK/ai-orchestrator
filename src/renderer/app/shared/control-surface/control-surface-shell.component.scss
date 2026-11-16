@@ -276,6 +276,15 @@
   grid-template-columns: 56px minmax(0, 1fr) auto;
 }
 
+/* Settings hides the menu column. The collapsed state is remembered between runs, so the collapsed rule is overridden
+   too, or a person who once collapsed the menu would open Settings squeezed into a 56px first column. */
+@media (min-width: 841px) {
+  .control-shell.no-nav .control-body,
+  .control-shell.no-nav.nav-collapsed .control-body {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
 .control-shell.nav-collapsed .control-nav {
   padding: 0.65rem 0.35rem;
   overflow-x: hidden;
@@ -371,6 +380,11 @@
      row scroll like the expanded one. */
   .control-shell.nav-collapsed.layout-standard .control-nav {
     overflow-x: auto;
+  }
+
+  /* No menu strip (Settings): the page is the first row, not the strip's. */
+  .control-shell.no-nav.layout-standard .control-body {
+    grid-template-rows: minmax(0, 1fr) auto;
   }
 
   .control-shell.nav-collapsed.layout-standard .control-nav-toggle {

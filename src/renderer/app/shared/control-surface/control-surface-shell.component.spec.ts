@@ -152,9 +152,12 @@ describe('ControlSurfaceShellComponent router lifecycle', () => {
         } else {
           expect(help).toBeNull();
         }
-        if (title) expect(harness.routeNativeElement?.querySelector('#control-center-navigation')).not.toBeNull();
+        if (title) {
+          // Settings has its own section list, so the Control Center menu is hidden there.
+          expect(harness.routeNativeElement?.querySelector('#control-center-navigation') === null).toBe(url === '/settings');
+        }
         if (url === '/settings') {
-          expect(harness.routeNativeElement?.querySelector('.control-nav-item.active')?.getAttribute('href')).toBe(url);
+          expect(harness.routeNativeElement?.querySelector('.control-nav-item.active')).toBeNull();
         } else if (title && url !== '/nested/logs') {
           expect(harness.routeNativeElement?.querySelector('.hub-tab.active')?.getAttribute('href')).toBe(url);
         }
@@ -176,13 +179,15 @@ describe('ControlSurfaceShellComponent router lifecycle', () => {
 
         for (const [selector, url, title] of [
           ['a[href="/settings"]', '/settings', 'Settings'],
-          ['a[href="/automations"]', '/automations', 'Automations'],
+          // Settings has no Control Center menu, so the way on to Automations is the address.
+          [null, '/automations', 'Automations'],
           ['.control-back', '/', null],
         ] as const) {
-          const control = harness.routeNativeElement?.querySelector<HTMLElement>(selector);
-          expect(control).toBeTruthy();
+          const control = selector ? harness.routeNativeElement?.querySelector<HTMLElement>(selector) : null;
+          if (selector) expect(control).toBeTruthy();
           const navigation = firstValueFrom(router.events.pipe(filter((event) => event instanceof NavigationEnd)));
-          control!.click();
+          if (control) control.click();
+          else void router.navigateByUrl(url);
           await navigation;
           await harness.fixture.whenStable();
           harness.detectChanges();
@@ -192,7 +197,7 @@ describe('ControlSurfaceShellComponent router lifecycle', () => {
           expect(router.url).toBe(url);
           expect(harness.routeNativeElement?.querySelector('h1')?.textContent ?? null).toBe(title);
           expect(harness.routeNativeElement?.querySelector('.control-nav-item.active')?.getAttribute('href') ?? null)
-            .toBe(title ? url : null);
+            .toBe(title && title !== 'Settings' ? url : null);
           const help = harness.routeDebugElement?.query(By.directive(HelpPaneComponent));
           if (title === 'Automations') {
             expect(help?.componentInstance.entry()).toBe(CONTROL_SURFACE_HELP['automations']);
@@ -317,12 +322,25 @@ describe('ControlSurfaceShellComponent', () => {
     }
   });
 
-  it('shows the shell navigation on Settings, including a stored collapsed menu', () => {
+  it('hides the Control Center nav on Settings', () => {
+    TestBed.inject(ActivatedRoute).snapshot.firstChild!.data['controlSurfaceId'] = 'settings';
+    const settings = TestBed.createComponent(ControlSurfaceShellComponent);
+    settings.detectChanges();
+    expect(settings.nativeElement.querySelector('#control-center-navigation')).toBeNull();
+    expect(settings.nativeElement.querySelector('.control-back')).toBeTruthy();
+  });
+
+  it('keeps the Control Center nav on other pages', () => {
+    expect(fixture.nativeElement.querySelector('#control-center-navigation')).toBeTruthy();
+    expect(fixture.nativeElement.querySelector('.control-shell.no-nav')).toBeNull();
+  });
+
+  it('puts no-nav on the shell for Settings even when the stored menu state is collapsed', () => {
     localStorage.setItem('aiorch.control.navCollapsed', 'true');
     TestBed.inject(ActivatedRoute).snapshot.firstChild!.data['controlSurfaceId'] = 'settings';
-    const settings = TestBed.createComponent(ControlSurfaceShellComponent); settings.detectChanges();
-    expect(settings.nativeElement.querySelector('#control-center-navigation')).toBeTruthy();
-    expect(settings.nativeElement.querySelector('.control-shell.nav-collapsed')).toBeTruthy();
+    const settings = TestBed.createComponent(ControlSurfaceShellComponent);
+    settings.detectChanges();
+    expect(settings.nativeElement.querySelector('.control-shell.no-nav.nav-collapsed')).toBeTruthy();
   });
 
   it('renders a visible text Back button', () => {
