@@ -1,0 +1,101 @@
+<div class="pq-linear">
+  <h3 class="pq-linear-heading" id="pq-linear-connection-heading">Connection</h3>
+
+  @if (!loaded()) {
+    <p class="pq-linear-note">Reading the Linear connection…</p>
+  } @else {
+    @if (problem(); as reason) {
+      <p class="pq-linear-problem" role="alert">{{ reason }}</p>
+    }
+
+    @if (identity(); as who) {
+      <div class="pq-linear-confirm" role="group" aria-label="Confirm who this connector signs in as">
+        <p class="pq-linear-question">
+          This connector signs in to Linear as <strong class="pq-linear-who">{{ who.userName }}</strong>
+          (<span class="pq-linear-email">{{ who.userEmail }}</span>), in <strong class="pq-linear-workspace">{{ who.workspaceName }}</strong>.
+          Is this you?
+        </p>
+        <div class="pq-linear-actions">
+          <button type="button" class="pq-linear-yes" [disabled]="busy() !== null" (click)="confirmIdentity()">
+            {{ busy() === 'confirm' ? 'Saving…' : 'Yes, use it' }}
+          </button>
+          <button type="button" class="pq-linear-no" [disabled]="busy() !== null" (click)="declineIdentity()">No</button>
+        </div>
+      </div>
+    } @else if (!isSetUp()) {
+      @if (connectors().length === 0) {
+        <p class="pq-linear-note pq-linear-none">
+          No Linear connector is set up in Harness yet.
+          <a class="pq-linear-settings-link" routerLink="/settings" [queryParams]="{ tab: 'mcp' }">Open Settings → Connectors</a>
+        </p>
+      } @else {
+        @if (usableChoices().length > 0) {
+          <label class="pq-linear-field">
+            <span>Linear connector</span>
+            <select class="pq-linear-select" [value]="chosenId()" (change)="chooseConnector($any($event.target).value)">
+              <option value="" [selected]="chosenId() === ''">Choose a connector</option>
+              @for (choice of usableChoices(); track choice.connectorId) {
+                <option [value]="choice.connectorId" [selected]="choice.connectorId === chosenId()">{{ choice.name }}</option>
+              }
+            </select>
+          </label>
+        }
+        @if (blockedChoices().length > 0) {
+          <ul class="pq-linear-blocked">
+            @for (choice of blockedChoices(); track choice.connectorId) {
+              <li><strong>{{ choice.name }}</strong>: {{ choice.problemReason }}</li>
+            }
+          </ul>
+          <a class="pq-linear-settings-link" routerLink="/settings" [queryParams]="{ tab: 'mcp' }">Open Settings → Connectors</a>
+        }
+        <div class="pq-linear-actions">
+          <button type="button" class="pq-linear-identify" [disabled]="!chosenId() || busy() !== null" (click)="identify(chosenId())">
+            {{ busy() === 'identify' ? 'Checking…' : 'Check who this signs in as' }}
+          </button>
+        </div>
+      }
+    } @else {
+      <p class="pq-linear-summary">
+        Connector <strong class="pq-linear-connector">{{ connection()?.connectorName }}</strong> signs in to Linear as
+        <strong class="pq-linear-who">{{ connection()?.userName }}</strong>, in
+        <strong class="pq-linear-workspace">{{ connection()?.workspaceName }}</strong>.
+      </p>
+      <div class="pq-linear-actions">
+        <button type="button" class="pq-linear-test" [disabled]="busy() !== null" (click)="test()">
+          {{ busy() === 'test' ? 'Testing…' : 'Test connection' }}
+        </button>
+        @if (fix() === 'open-connectors') {
+          <a class="pq-linear-settings-link" routerLink="/settings" [queryParams]="{ tab: 'mcp' }">Open Settings → Connectors</a>
+        } @else if (fix() === 'check-who') {
+          <button type="button" class="pq-linear-identify" [disabled]="busy() !== null" (click)="identify(connection()?.connectorId ?? null)">
+            {{ busy() === 'identify' ? 'Checking…' : 'Check who this signs in as' }}
+          </button>
+        }
+        @if (!confirmingStop()) {
+          <button type="button" class="pq-linear-stop" [disabled]="busy() !== null" (click)="askToStop()">Stop using this connector</button>
+        }
+      </div>
+      @if (confirmingStop()) {
+        <div class="pq-linear-stop-confirm" role="group" aria-label="Confirm stop using this connector">
+          <p class="pq-linear-question">
+            Linear work will stop until you choose a connector again. Work from plan files carries on as normal.
+          </p>
+          <div class="pq-linear-actions">
+            <button type="button" class="pq-linear-stop-yes" [disabled]="busy() !== null" (click)="stop()">
+              {{ busy() === 'forget' ? 'Stopping…' : 'Yes, stop using it' }}
+            </button>
+            <button type="button" class="pq-linear-stop-no" [disabled]="busy() !== null" (click)="keepConnector()">Keep using it</button>
+          </div>
+        </div>
+      }
+    }
+
+    @if (status(); as line) {
+      @if (line.kind === 'error') {
+        <p class="pq-linear-status pq-linear-status-error" role="alert">{{ line.text }}</p>
+      } @else {
+        <p class="pq-linear-status" [class.pq-linear-status-ok]="line.kind === 'success'" role="status">{{ line.text }}</p>
+      }
+    }
+  }
+</div>

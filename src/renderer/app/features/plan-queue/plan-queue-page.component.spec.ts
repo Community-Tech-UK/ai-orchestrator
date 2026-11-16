@@ -83,6 +83,11 @@ const NEEDS_ANSWER_ITEM: PlanQueueItemDto = {
   updatedAt: 1,
 };
 
+const NOT_SET_UP = {
+  state: 'not-set-up', usable: false, reason: null, connectorId: null, connectorName: null, userName: null,
+  workspaceName: null, checkedAt: null, connectorProblem: null, unreachableCause: null, retryAt: null,
+};
+
 const PARKED_ITEM: PlanQueueItemDto = {
   ...NEEDS_ANSWER_ITEM,
   id: 'item-parked',
@@ -170,7 +175,7 @@ describe('PlanQueuePageComponent', () => {
       providers: [
         provideRouter([{ path: 'plan-queue', children: [] }]),
         { provide: PlanQueueStore, useValue: store },
-        { provide: PlanQueueIpcService, useValue: { control: ipcControl, preview: vi.fn().mockResolvedValue({ success: true, data: { found: 1, hiddenCopies: 0, hiddenCountComplete: true } }) } },
+        { provide: PlanQueueIpcService, useValue: { control: ipcControl, linearList: vi.fn().mockResolvedValue({ success: true, data: { connectors: [], connection: NOT_SET_UP } }), preview: vi.fn().mockResolvedValue({ success: true, data: { found: 1, hiddenCopies: 0, hiddenCountComplete: true } }) } },
         {
           provide: SettingsStore,
           useValue: {
@@ -390,7 +395,7 @@ describe('PlanQueuePageComponent', () => {
     const headings = () => Array.from(fixture.nativeElement.querySelectorAll('section.pq-section h2') as NodeListOf<HTMLElement>).map(h => h.textContent?.trim());
     expect(headings()).toEqual(['Needs your answer', 'Runs', 'Start a run', 'Queue health', 'Live checks that need you']);
     clickTab('Set aside'); expect(headings()).toEqual(['Set aside']);
-    clickTab('Setup'); expect(headings()).toEqual(['Providers and accounts', 'Account rules', 'Checks for each project folder', 'Folders a session may start a run in']);
+    clickTab('Setup'); expect(headings()).toEqual(['Providers and accounts', 'Account rules', 'Checks for each project folder', 'Folders a session may start a run in', 'Linear']);
   });
 
   it('shows the surfaced error from the store', async () => {

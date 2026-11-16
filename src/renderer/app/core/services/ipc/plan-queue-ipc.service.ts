@@ -7,6 +7,9 @@ import type {
   PlanQueueRunDto,
   PlanQueuePreviewPayload,
   PlanQueueDiscoveryPreview,
+  PlanQueueLinearConnectionSnapshot,
+  PlanQueueLinearIdentity,
+  PlanQueueLinearListResult,
 } from '@contracts/schemas/plan-queue';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
 
@@ -86,6 +89,36 @@ export class PlanQueueIpcService {
   async control(payload: PlanQueueControlPayload): Promise<IpcResponse<null>> {
     if (!this.api) return notInElectron();
     return (await this.api.planQueueControl(payload)) as IpcResponse<null>;
+  }
+
+  /** The Harness connectors at Linear's address, with the saved connection's state. */
+  async linearList(): Promise<IpcResponse<PlanQueueLinearListResult>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueueLinearList()) as IpcResponse<PlanQueueLinearListResult>;
+  }
+
+  /** Who a chosen connector signs in as. Saves nothing. */
+  async linearIdentify(connectorId: string): Promise<IpcResponse<PlanQueueLinearIdentity>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueueLinearIdentify({ connectorId })) as IpcResponse<PlanQueueLinearIdentity>;
+  }
+
+  /** Saves the connection, if the connector still signs in as the user that was shown. */
+  async linearConfirm(connectorId: string, userId: string): Promise<IpcResponse<PlanQueueLinearConnectionSnapshot>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueueLinearConfirm({ connectorId, userId })) as IpcResponse<PlanQueueLinearConnectionSnapshot>;
+  }
+
+  /** Clears the saved connection. */
+  async linearForget(): Promise<IpcResponse<PlanQueueLinearConnectionSnapshot>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueueLinearForget()) as IpcResponse<PlanQueueLinearConnectionSnapshot>;
+  }
+
+  /** Checks the saved connection now. */
+  async linearCheck(): Promise<IpcResponse<PlanQueueLinearConnectionSnapshot>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueueLinearCheck()) as IpcResponse<PlanQueueLinearConnectionSnapshot>;
   }
 
   onStateChanged(cb: (event: PlanQueueStateChangedPush) => void): () => void {
