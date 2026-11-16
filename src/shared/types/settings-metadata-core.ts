@@ -38,21 +38,21 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'defaultYoloMode',
     label: 'Auto-approve actions by default',
-    description: 'New instances skip the approval prompts and act on their own. Faster, but riskier — only turn this on for trusted, sandboxed work.',
+    description: 'New sessions skip the approval prompts and act on their own. Faster, but riskier — only turn this on for trusted, sandboxed work.',
     type: 'boolean',
     category: 'general',
   },
   {
     key: 'defaultFastMode',
     label: 'Fast mode by default',
-    description: 'New Claude/Codex instances start in fast mode (faster output via Opus fast mode / Codex priority tier). Requires a paid plan; instances auto-revert if it is unavailable.',
+    description: 'New Claude/Codex sessions start in fast mode (faster output via Opus fast mode / Codex priority tier). Requires a paid plan; sessions auto-revert if it is unavailable.',
     type: 'boolean',
     category: 'general',
   },
   {
     key: 'defaultWorkingDirectory',
     label: 'Default working directory',
-    description: 'Starting folder for new instances. Leave empty to use your home directory.',
+    description: 'Starting folder for new sessions. Leave empty to use your home directory.',
     type: 'directory',
     category: 'general',
     placeholder: '~/Projects',
@@ -60,7 +60,7 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'defaultCli',
     label: 'Default AI CLI',
-    description: 'Which AI command-line tool a new instance uses. "Auto-detect" picks the first one you have installed.',
+    description: 'Which AI command-line tool a new session uses. "Auto-detect" picks the first one you have installed.',
     type: 'select',
     category: 'general',
     options: [
@@ -72,7 +72,7 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'defaultModel',
     label: 'Default model',
-    description: 'Which model new instances start with, when the chosen CLI lets you pick one.',
+    description: 'Which model new sessions start with, when the chosen CLI lets you pick one.',
     type: 'select',
     category: 'general',
     options: buildDefaultModelOptions(),
@@ -237,14 +237,14 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'reactionsEnabled',
     label: 'Event-driven reactions (global master switch)',
-    description: 'On by default. The engine is willing to react, but only instances you individually arm will auto-react to CI failures, review requests, and merge conflicts (by sending a fix prompt). Turning this off is a global kill switch. Arming is still per-instance and off by default, so default-on never auto-prompts an instance you did not arm.',
+    description: 'On by default. The engine is willing to react, but only sessions you individually arm will auto-react to CI failures, review requests, and merge conflicts (by sending a fix prompt). Turning this off is a global kill switch. Arming is still per-session and off by default, so default-on never auto-prompts a session you did not arm.',
     type: 'boolean',
     category: 'orchestration',
   },
   {
     key: 'reactionsPollIntervalMs',
     label: 'Reaction poll interval (ms)',
-    description: 'How often the reaction engine checks PR/CI state for armed instances. Only relevant when reactions are enabled. Default: 60 000 (1 min).',
+    description: 'How often the reaction engine checks PR/CI state for armed sessions. Only relevant when reactions are enabled. Default: 60 000 (1 min).',
     type: 'number',
     category: 'orchestration',
     min: 10_000,
@@ -326,7 +326,7 @@ export const CORE_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'showCost',
     label: 'Show cost estimates',
-    description: 'Show running USD cost estimates per instance and across all instances. Turn off to hide spend in managed setups.',
+    description: 'Show running USD cost estimates per session and across all sessions. Turn off to hide spend in managed setups.',
     type: 'boolean',
     category: 'display',
   },

@@ -292,7 +292,7 @@ export const WORKBOARD_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'One board that projects sessions, loop runs, automation runs, and repository jobs into four attention lanes: Needs You, Working, Waiting, and Done / Idle. Related records collapse into a single card.',
+      body: 'One board that projects sessions, loop runs, automation runs, and repository jobs into four attention lanes: Needs you, Working, Waiting, and Done / Idle. Related records collapse into a single card.',
     },
     {
       kind: 'list',

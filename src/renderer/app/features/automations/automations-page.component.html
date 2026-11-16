@@ -640,8 +640,11 @@
                       <span>{{ runDisplay(run).label }}</span>
                       <span>{{ run.trigger }}</span>
                       <span>{{ formatTime(run.scheduledAt) }}</span>
+                      @if (runDisplay(run).text; as text) {
+                        <div class="run-plain">{{ text }}</div>
+                      }
                       @if (runDisplay(run).detail; as detail) {
-                        <div class="run-detail"><span>Details</span> {{ detail }}</div>
+                        <details class="run-detail"><summary>Details</summary><pre>{{ detail }}</pre></details>
                       }
                       @if (run.status === 'failed' && run.nextRetryAt !== null && run.nextRetryAt !== undefined) {
                         <span class="run-retry">Will run again {{ formatTime(run.nextRetryAt) }}</span>

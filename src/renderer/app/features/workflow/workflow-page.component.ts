@@ -4,6 +4,8 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
  * Container that wires workflow UI to orchestration IPC APIs.
  */
 
+import { presentInstanceStatus } from '../../../../shared/attention/instance-status-presentation';
+import type { InstanceStatus } from '../../../../shared/types/instance.types';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -66,7 +68,7 @@ interface GateAction {
             <option value="">Select a session</option>
             @for (instance of instances(); track instance.id) {
               <option [value]="instance.id">
-                {{ instance.displayName }} ({{ instance.status }})
+                {{ instance.displayName }} ({{ statusLabel(instance.status) }})
               </option>
             }
           </select>
@@ -394,6 +396,8 @@ export class WorkflowPageComponent implements OnInit, OnDestroy {
 
   readonly templates = signal<WorkflowTemplate[]>([]);
   readonly instances = signal<InstanceOption[]>([]);
+  readonly statusLabel = (status: string): string =>
+    presentInstanceStatus(status as InstanceStatus).label;
   readonly selectedTemplateId = signal('');
   readonly selectedInstanceId = signal('');
   readonly execution = signal<WorkflowExecution | null>(null);

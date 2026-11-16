@@ -58,7 +58,7 @@ export class NotificationShellService {
       else this.criticalToastIds.add(event.instanceId);
       // Name the session: the toast is often seen from a different one.
       const name = this.instances.getInstance(event.instanceId)?.displayName || 'A session';
-      this.toast.show(`${name} may be stuck. ${describeToolLoop(event)}${stopping ? ' Harness is stopping it.' : ''}`,
+      this.toast.show(`${name} seems to be repeating itself. ${describeToolLoop(event)}${stopping ? ' Harness is stopping it.' : ''}`,
         stopping ? 'warning' : 'error', { key: `tool-loop:${event.instanceId}`,
           action: { label: 'Show session', run: () => this.navigator.openSession(event.instanceId) } });
     }) ?? null;

@@ -101,7 +101,7 @@ describe('Session list actions', () => {
       fixture.nativeElement.querySelector('.history-entry').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
       await fixture.whenStable(); fixture.detectChanges();
       const archive = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-        .find((button) => button.textContent?.trim() === 'Archive thread');
+        .find((button) => button.textContent?.trim() === 'Archive session');
       expect(archive).toBeDefined();
       expect(archiveEntry).not.toHaveBeenCalled();
       archive!.click();

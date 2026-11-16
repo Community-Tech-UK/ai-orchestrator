@@ -37,7 +37,7 @@ export async function removeProjectWithUndo(group: ProjectGroup, nodeId: string 
     removed = await deps.recent.removeDirectory(path);
     if (!removed) throw new Error('unavailable');
     await deps.reload();
-  } catch { deps.toast.show("Couldn't remove the whole project. You can undo any threads already archived.", 'error'); }
+  } catch { deps.toast.show("Couldn't remove the whole project. You can undo any sessions already archived.", 'error'); }
   if (!removed && archived.length === 0) return;
   deps.undo.register({ kind: 'remove-project', message: `${removed ? 'Removed' : 'Kept'} ${group.title} and archived ${archived.length} ${archived.length === 1 ? 'thread' : 'threads'}`, undo: async () => {
     let restored = true;

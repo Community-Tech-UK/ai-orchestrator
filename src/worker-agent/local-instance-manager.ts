@@ -660,7 +660,7 @@ export class LocalInstanceManager extends EventEmitter implements QueueJobFolder
     }
     const spawnParams = this.hibernatedInstances.get(instanceId);
     if (!spawnParams) {
-      throw new Error(`Hibernated instance not found: ${instanceId}`);
+      throw new Error(`Asleep session not found: ${instanceId}`);
     }
     await this.spawn({
       ...spawnParams,

@@ -31,12 +31,12 @@ const DETAIL_BY_EVENT: Record<HookEvent, Omit<HookEventReference, 'event'>> = {
     example: 'Log large responses or flag unsafe suggested commands.',
   },
   Stop: {
-    when: 'When an instance completes normally.',
+    when: 'When a session completes normally.',
     fields: ['stopReason', 'transcript', 'workingDirectory'],
     example: 'Archive final transcript metadata.',
   },
   StopFailure: {
-    when: 'When an adapter error or failed process exit stops an instance.',
+    when: 'When an adapter error or failed process exit stops a session.',
     fields: ['stopReason', 'errorMessage', 'errorProvider', 'workingDirectory'],
     example: 'Notify on provider outage or repeated CLI crash.',
   },
@@ -46,7 +46,7 @@ const DETAIL_BY_EVENT: Record<HookEvent, Omit<HookEventReference, 'event'>> = {
     example: 'Persist a compaction metric or add a session note.',
   },
   CwdChanged: {
-    when: 'When a chat or instance working directory changes.',
+    when: 'When a chat or session working directory changes.',
     fields: ['oldCwd', 'newCwd', 'workingDirectory'],
     example: 'Warn when switching into a production checkout.',
   },
@@ -56,12 +56,12 @@ const DETAIL_BY_EVENT: Record<HookEvent, Omit<HookEventReference, 'event'>> = {
     example: 'Run a targeted formatter for changed TypeScript files.',
   },
   SessionStart: {
-    when: 'After a new instance starts successfully.',
+    when: 'After a new session starts successfully.',
     fields: ['sessionId', 'workingDirectory'],
     example: 'Seed per-session audit files.',
   },
   SessionEnd: {
-    when: 'When an instance is terminated.',
+    when: 'When a session is closed.',
     fields: ['sessionId', 'stopReason', 'workingDirectory'],
     example: 'Write a session-end summary with duration and exit reason.',
   },
@@ -71,7 +71,7 @@ const DETAIL_BY_EVENT: Record<HookEvent, Omit<HookEventReference, 'event'>> = {
     example: 'Block the commit unless npm run lint or tests pass.',
   },
   UserPromptSubmit: {
-    when: 'Before a user prompt is submitted to an instance.',
+    when: 'Before a user prompt is submitted to a session.',
     fields: ['userPrompt', 'content', 'workingDirectory'],
     example: 'Require review for prompts that mention production credentials.',
   },

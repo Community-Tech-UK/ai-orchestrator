@@ -318,7 +318,7 @@ describe('Wave 7 cross-wave smoke', () => {
     expect(liveGroup?.items.map((item) => item.value.id)).toEqual(['inst-b', 'inst-a']);
   });
 
-  it('keeps compaction summaries out of system-event grouping and suppresses interrupt boundaries', () => {
+  it('keeps compaction summaries and settled interrupt dividers out of system-event grouping', () => {
     const processor = new DisplayItemProcessor();
     const messages: OutputMessage[] = [
       {
@@ -368,7 +368,9 @@ describe('Wave 7 cross-wave smoke', () => {
     expect(items.map((item) => item.type)).toEqual([
       'system-event-group',
       'compaction-summary',
+      'interrupt-boundary',
     ]);
+    expect(items[2].interruptBoundary?.text).toBe('Stopped. The session restarted and kept its history.');
     const groupedIds = items
       .filter((item) => item.type === 'system-event-group')
       .flatMap((item) => item.systemEvents?.map((message) => message.id) ?? []);

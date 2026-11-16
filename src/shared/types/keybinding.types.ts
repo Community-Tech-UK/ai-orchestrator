@@ -59,7 +59,7 @@ export type KeybindingAction =
   | 'focus-input'
   | 'focus-output'
   | 'focus-instance-list'
-  // Instance management
+  // Session management
   | 'new-instance'
   | 'close-instance'
   | 'next-instance'
@@ -197,7 +197,7 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     customizable: true,
   },
 
-  // Instance management
+  // Session management
   {
     id: 'new-instance',
     name: 'New session',
@@ -205,7 +205,7 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     keys: { key: 'n', modifiers: ['meta'] },
     action: 'new-instance',
     context: 'global',
-    category: 'Instance',
+    category: 'Session',
     customizable: true,
   },
   {
@@ -216,7 +216,7 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     action: 'close-instance',
     context: 'global',
     when: ['instance-selected'],
-    category: 'Instance',
+    category: 'Session',
     customizable: true,
   },
   {
@@ -227,7 +227,7 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     action: 'next-instance',
     context: 'global',
     when: ['multiple-instances'],
-    category: 'Instance',
+    category: 'Session',
     customizable: true,
   },
   {
@@ -238,7 +238,7 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     action: 'prev-instance',
     context: 'global',
     when: ['multiple-instances'],
-    category: 'Instance',
+    category: 'Session',
     customizable: true,
   },
   {
@@ -249,13 +249,13 @@ export const DEFAULT_KEYBINDINGS: KeyBinding[] = [
     action: 'restart-instance',
     context: 'global',
     when: ['instance-selected'],
-    category: 'Instance',
+    category: 'Session',
     customizable: true,
   },
   {
     id: 'next-attention-session', name: 'Next session needing you', action: 'next-attention-session',
     description: 'Go to the next session waiting for your input, approval or sign-in',
-    keys: { key: 'j', modifiers: ['meta', 'shift'] }, context: 'global', category: 'Instance', customizable: true,
+    keys: { key: 'j', modifiers: ['meta', 'shift'] }, context: 'global', category: 'Session', customizable: true,
   },
 
   // UI

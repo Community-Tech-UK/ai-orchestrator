@@ -1958,7 +1958,7 @@ describe('MobileGatewayServer', () => {
 
   it('maps model-switch unavailability to 409 with the backend message', async () => {
     source.changeModel.mockRejectedValueOnce(
-      new Error('Model changes are only available while the instance is waiting for user input. Current status: busy.'),
+      new Error('Model changes are only available when the session is ready or waiting for you. Right now it shows "Working".'),
     );
     const token = await pairToken();
     const res = await authed(token, '/api/instances/a/model', {
@@ -1968,7 +1968,7 @@ describe('MobileGatewayServer', () => {
 
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({
-      error: 'Model changes are only available while the instance is waiting for user input. Current status: busy.',
+      error: 'Model changes are only available when the session is ready or waiting for you. Right now it shows "Working".',
     });
   });
 

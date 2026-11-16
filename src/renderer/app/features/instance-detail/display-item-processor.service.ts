@@ -44,6 +44,9 @@ interface IndexedOutputMessage {
   bufferIndex: number;
 }
 
+/** Interrupt phases that end the story; earlier phases are progress the status dot already shows. */
+const SETTLED_INTERRUPT_PHASES: ReadonlySet<string> = new Set(['completed', 'escalated']);
+
 export class DisplayItemProcessor {
   private lastProcessedCount = 0;
   private items: DisplayItem[] = [];
@@ -297,16 +300,16 @@ export class DisplayItemProcessor {
   /**
    * Structural markers stay hidden by their kind or flag, never by their wording.
    * Notices that are merely routine are not hidden at all: they fold into one
-   * inspectable "N system events" row (see `foldRoutineNotice`). The
-   * `interrupt-boundary` markers stay hidden because their text is a raw
-   * phase/outcome code ("Interrupt requested: unresolved").
+   * inspectable "N system events" row (see `foldRoutineNotice`). Interrupt
+   * boundaries show as a plain-sentence divider only once settled (`completed` or
+   * `escalated`); the in-between steps ("Stopping…") are hidden, because the status
+   * dot already says the session is stopping.
    */
   private shouldSuppressInternalNotice(message: OutputMessage): boolean {
-    return message.type === 'system' && (
-      message.metadata?.['kind'] === 'interrupt-boundary' ||
-      message.metadata?.['contextCostRecovery'] === true ||
-      isQuietProviderCompactionMarker(message)
-    );
+    if (message.type !== 'system') return false;
+    const kind = message.metadata?.['kind'];
+    if (kind === 'interrupt-boundary') return !SETTLED_INTERRUPT_PHASES.has(String(message.metadata?.['phase']));
+    return message.metadata?.['contextCostRecovery'] === true || isQuietProviderCompactionMarker(message);
   }
 
   private haveProcessedMessagesChanged(messages: readonly OutputMessage[]): boolean {

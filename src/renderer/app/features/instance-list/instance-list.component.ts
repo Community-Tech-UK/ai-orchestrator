@@ -587,7 +587,7 @@ export class InstanceListComponent implements OnDestroy {
     if (threadId && threadId !== instance.id) {
       items.push({
         id: 'copy-thread-id',
-        label: 'Copy thread ID',
+        label: 'Copy session ID',
         action: () => void this.copyTextToClipboard(threadId),
       });
     }
@@ -651,12 +651,12 @@ export class InstanceListComponent implements OnDestroy {
       },
       {
         id: 'pin-thread',
-        label: isPinned ? 'Unpin thread' : 'Pin thread',
+        label: isPinned ? 'Unpin session' : 'Pin session',
         action: () => this.historyRail.togglePinnedHistoryId(entry.id),
       },
       {
         id: 'copy-thread-id',
-        label: 'Copy thread ID',
+        label: 'Copy session ID',
         divider: true,
         action: () => void this.copyTextToClipboard(threadId),
       },
@@ -701,7 +701,7 @@ export class InstanceListComponent implements OnDestroy {
 
     items.push({
       id: 'archive-thread',
-      label: 'Archive thread',
+      label: 'Archive session',
       divider: true,
       danger: true,
       action: () => void this.archiveWithUndo(entry),

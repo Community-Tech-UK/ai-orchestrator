@@ -5,6 +5,7 @@ import { Router } from '@angular/router';
 import type { ContextEvidenceScope } from '@contracts/types/context-evidence';
 import type { ConversationMessageRecord } from '../../../../shared/types/conversation-ledger.types';
 import type { FileAttachment, InstanceStatus, OutputMessage } from '../../../../shared/types/instance.types';
+import { presentInstanceStatus } from '../../../../shared/attention/instance-status-presentation';
 import { ChatOutputMessageMapper } from './chat-output-message.mapper';
 import type { OperatorRunGraph, OperatorRunRecord } from '../../../../shared/types/operator.types';
 import { ChatStore } from '../../core/state/chat.store';
@@ -86,6 +87,10 @@ export class ChatDetailComponent {
       return detail?.currentInstance ?? null;
     }
     return this.instanceStore.getInstance(instanceId) ?? detail?.currentInstance ?? null;
+  });
+  readonly runtimeStatusLabel = computed(() => {
+    const instance = this.currentInstance();
+    return instance ? presentInstanceStatus(instance.status, instance.waitReason).label : null;
   });
   readonly messages = computed<OutputMessage[]>(() => {
     const detail = this.detail();

@@ -282,7 +282,7 @@ describe('DesiredRuntimeQueue', () => {
     const instance = makeInstance('busy');
     const h = makeHarness(instance, async () => {
       instance.status = 'respawning';
-      throw new Error('Model changes are only available while the instance is waiting for user input.');
+      throw new Error('Model changes are only available while the session is waiting for user input.');
     });
     await h.queue.requestChange('inst-1', { provider: 'codex', model: 'gpt-5.5' });
 
@@ -315,7 +315,7 @@ describe('DesiredRuntimeQueue', () => {
     const h = makeHarness(instance, async () => {
       // The reconciler's status gate rejects because a turn started mid-flight.
       instance.status = 'busy';
-      throw new Error('Model changes are only available while the instance is waiting for user input.');
+      throw new Error('Model changes are only available while the session is waiting for user input.');
     });
     await h.queue.requestChange('inst-1', { provider: 'codex', model: 'gpt-5.5' });
 

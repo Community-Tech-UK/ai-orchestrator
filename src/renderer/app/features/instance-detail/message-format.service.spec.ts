@@ -5,9 +5,11 @@ import type { DisplayItem } from './display-item-processor.service';
 describe('MessageFormatService', () => {
   const service = new MessageFormatService();
 
-  it('distinguishes a fresh session from measured in-place compaction', () => {
+  it('says a summary restart continued from a summary, never a fresh session, and keeps in-place compaction distinct', () => {
     const message = { id: 'compact', type: 'system' as const, timestamp: 1, content: '', metadata: { method: 'restart-with-summary', previousUsage: { percentage: 82 }, newUsage: { percentage: 31 } } };
-    expect(service.getCompactionLabel(message)).toBe('Context compacted — fresh session (was 82%; new size after reply)');
+    expect(service.getCompactionLabel(message)).toBe('Continued from a summary · was 82%, new size shows after the next reply');
+    expect(service.getCompactionLabel({ ...message, metadata: { method: 'restart-with-summary' } })).toBe('Continued from a summary · new size shows after the next reply');
+    expect(service.getCompactionLabel(message)).not.toMatch(/fresh session/i);
     expect(service.getCompactionLabel({ ...message, metadata: { ...message.metadata, method: 'native' } })).toBe('Context compacted in place (82% → 31%)');
   });
 
@@ -29,7 +31,36 @@ describe('MessageFormatService', () => {
           },
         ],
       };
-      expect(service.summarizeCycle(cycle)).toBe('3 thoughts');
+      expect(service.summarizeCycle(cycle)).toBe('Thought 3 times');
+    });
+
+    it('names what the tools did in words and always counts a failure', () => {
+      const tool = (id: string, name: string, input: Record<string, unknown>) =>
+        ({ id: `use-${id}`, type: 'tool_use' as const, timestamp: 1, content: '', metadata: { id, name, input } });
+      const result = (id: string, isError: boolean) =>
+        ({ id: `res-${id}`, type: 'tool_result' as const, timestamp: 2, content: isError ? 'exit 1' : 'ok', metadata: { tool_use_id: id, is_error: isError } });
+      const cycle: DisplayItem = {
+        id: 'cycle-2',
+        type: 'work-cycle',
+        children: [
+          { id: 'thought-t1', type: 'thought-group', thinking: [{ id: 'a', content: 'one', format: 'structured' }], thoughts: ['one'] },
+          {
+            id: 'tools-1',
+            type: 'tool-group',
+            toolMessages: [
+              tool('1', 'Edit', { file_path: '/p/a.ts', old_string: 'a', new_string: 'b' }), result('1', false),
+              tool('2', 'Edit', { file_path: '/p/b.ts', old_string: 'a', new_string: 'b' }), result('2', false),
+              tool('3', 'Bash', { command: 'npm test' }), result('3', true),
+              tool('4', 'Bash', { command: 'ls' }), result('4', false),
+            ],
+          },
+        ],
+      };
+      const text = service.summarizeCycle(cycle);
+      expect(text).toMatch(/^Thought 1 time · edited 2 files/);
+      expect(text).toContain('ran 2 commands');
+      expect(text).toMatch(/ · 1 failed$/);
+      expect(text).not.toMatch(/\bBash\b|\bEdit\b/);
     });
 
     it('uses singular for a single thinking block', () => {
@@ -45,7 +76,7 @@ describe('MessageFormatService', () => {
           },
         ],
       };
-      expect(service.summarizeCycle(cycle)).toBe('1 thought');
+      expect(service.summarizeCycle(cycle)).toBe('Thought 1 time');
     });
   });
 

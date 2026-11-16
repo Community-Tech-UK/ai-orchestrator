@@ -89,7 +89,7 @@ function createOperationChild(
     return utilityFork(entrypoint, args, {
       cwd,
       env,
-      serviceName: 'AIO Evidence Directory Operation',
+      serviceName: 'Harness Evidence Directory Operation',
       stdio: 'ignore',
     });
   }

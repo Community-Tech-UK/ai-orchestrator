@@ -1,23 +1,29 @@
 import type { AutomationRun, AutomationSchedule } from '../../../../shared/types/automation.types';
 import { estimateDailyRuns } from '../../../../shared/automations/automation-cadence';
+import { automationRunStatusLabel, presentAutomationFailure } from '../../../../shared/copy/automation-failure-copy';
+import { renderUserMessage } from '../../../../shared/copy/user-message';
 import { isQuietRun } from './automation-run-presentation';
 
 export interface AutomationRunDisplay {
   label: string;
+  /** What went wrong, in words and what to do. Only a failed run has it. */
+  text: string | null;
+  /** The raw text, shown under "Details". */
   detail: string | null;
   quiet: boolean;
 }
 
-/** Keep the raw result available below each plain-language run label. */
+/** A plain label and sentence for each run, with the raw error or result kept under Details. */
 export function describeRun(run: AutomationRun): AutomationRunDisplay {
   const detail = run.error || run.outputSummary || null;
+  const text = run.error ? renderUserMessage(presentAutomationFailure(run.error)) : null;
   // The agent itself reported nothing needed action (automation_result), independent of any pre-check.
-  if (isQuietRun(run)) return { label: 'Nothing needed action', detail, quiet: true };
+  if (isQuietRun(run)) return { label: 'Nothing needed action', text, detail, quiet: true };
   switch (run.outcome) {
-    case 'no-change': return { label: 'Nothing changed', detail, quiet: true };
-    case 'quiet': return { label: 'Quiet', detail, quiet: true };
-    case 'check-failed': return { label: 'Check failed', detail, quiet: false };
-    default: return { label: run.status, detail, quiet: false };
+    case 'no-change': return { label: 'Nothing changed', text, detail, quiet: true };
+    case 'quiet': return { label: 'Quiet', text, detail, quiet: true };
+    case 'check-failed': return { label: 'Check failed', text, detail, quiet: false };
+    default: return { label: automationRunStatusLabel(run.status), text, detail, quiet: false };
   }
 }
 

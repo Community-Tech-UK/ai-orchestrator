@@ -34,7 +34,7 @@ describe('NotificationShellService', () => {
     TestBed.tick();
     expect(toast.toasts()[0].type).toBe('error');
     // Names the session and says what it has been doing, in plain words rather than the detector's log wording.
-    expect(toast.toasts()[0].text).toBe('Offload heavy work may be stuck. It has run Read 9 times in a row and got the same result each time.');
+    expect(toast.toasts()[0].text).toBe('Offload heavy work seems to be repeating itself. It has run Read 9 times in a row and got the same result each time.');
     toast.toasts()[0].action?.run();
     expect(openSession).toHaveBeenCalledWith('a');
     liveIds.set(new Set()); TestBed.tick(); expect(toast.toasts()).toEqual([]);
@@ -46,7 +46,7 @@ describe('NotificationShellService', () => {
       listener({ instanceId: 'a', detector: 'repeat-no-progress', severity: 'critical', toolName: 'Edit', count: 9, windowDescription: 'x', harnessStopping: true });
       const toast = TestBed.inject(ToastService);
       expect(toast.toasts()[0]).toMatchObject({ type: 'warning',
-        text: 'Offload heavy work may be stuck. It has run Edit 9 times in a row and got the same result each time. Harness is stopping it.' });
+        text: 'Offload heavy work seems to be repeating itself. It has run Edit 9 times in a row and got the same result each time. Harness is stopping it.' });
       vi.advanceTimersByTime(8000); expect(toast.toasts()).toEqual([]);
     } finally { vi.useRealTimers(); }
   });
@@ -60,7 +60,7 @@ describe('NotificationShellService', () => {
     TestBed.inject(NotificationShellService).start();
     listener({ instanceId: 'unknown', detector: 'runaway', severity: 'critical', toolName: 'Bash', count: 400, windowDescription: '400 tool calls in one turn', harnessStopping: true });
     expect(TestBed.inject(ToastService).toasts()[0].text)
-      .toBe('A session may be stuck. It has used tools 400 times in this turn without finishing. Harness is stopping it.');
+      .toBe('A session seems to be repeating itself. It has used tools 400 times in this turn without finishing. Harness is stopping it.');
   });
 });
 

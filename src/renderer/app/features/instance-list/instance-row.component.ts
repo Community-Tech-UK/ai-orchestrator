@@ -310,7 +310,7 @@ export class InstanceRowComponent {
       // Leads, because it is the reason the row is asking for attention. The
       // underlying status ("Working") is true and actively misleading on its
       // own here — a looping session looks busy.
-      return base ? `May be stuck · ${base}` : 'May be stuck';
+      return base ? `Repeating itself · ${base}` : 'Repeating itself';
     }
     if (this.isLooping()) {
       // Surface the loop in the tooltip so the violet ring isn't a mystery.

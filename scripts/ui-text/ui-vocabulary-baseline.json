@@ -1,0 +1,14 @@
+{
+  "rule": "instance-thread",
+  "counts": {
+    "src/renderer/app/core/services/stress-fixtures.service.ts": 1,
+    "src/renderer/app/core/state/automation.store.ts": 2,
+    "src/renderer/app/features/communication/communication-page.component.ts": 4,
+    "src/renderer/app/features/instance-detail/session-skills-badge.component.ts": 1,
+    "src/renderer/app/features/settings/ecosystem-settings-tab.component.ts": 3,
+    "src/renderer/app/features/settings/help/settings-help-core.ts": 1,
+    "src/shared/types/history.types.ts": 1,
+    "src/shared/types/settings-metadata-runtime.ts": 4,
+    "src/shared/utils/send-refusal.ts": 5
+  }
+}

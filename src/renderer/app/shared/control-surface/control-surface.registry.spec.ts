@@ -99,7 +99,7 @@ describe('control surface registry', () => {
       expect(listDashboardNavGroups().flatMap((group) => group.items).some((item) => item.id === id)).toBe(false);
     }
   });
-  it('marks Training Data, Session Messaging and Chat Search hidden, yet they still resolve by id and path', () => {
+  it('marks Training Data, Session Messaging and Find Session hidden, yet they still resolve by id and path', () => {
     for (const id of ['training', 'communication', 'chat-search'] as const) {
       const item = getControlSurface(id);
       expect(item.path).toBe(`/${id}`);

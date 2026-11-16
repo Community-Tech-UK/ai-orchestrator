@@ -1426,7 +1426,7 @@ describe('InstanceManager', () => {
       mockAdapterTerminate.mockClear();
 
       await expect(manager.changeModel(instance.id, 'sonnet[1m]')).rejects.toThrow(
-        'Model changes are only available while the instance is waiting for user input.'
+        'Model changes are only available when the session is ready or waiting for you.'
       );
 
       expect(instance.status).toBe(status);

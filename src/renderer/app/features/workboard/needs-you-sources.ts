@@ -106,7 +106,7 @@ export function requestEntries(sources: NeedsYouSources, now: number): NeedsYouE
   }
   // The card names the session, so two stuck sessions never show two identical "Stop this turn" cards.
   for (const item of sources.toolLoops) add('tool-loop', item.instanceId,
-    item.sessionName ? `${item.sessionName} may be stuck: stop it or let it continue` : TOOL_LOOP_TITLE, item.detectedAt,
+    item.sessionName ? `${item.sessionName} seems to be repeating itself: stop it or let it continue` : TOOL_LOOP_TITLE, item.detectedAt,
     { instanceId: item.instanceId, detail: describeToolLoop(item) });
   // A newer stop on the same session has a new request count, so an old "seen" or answer never covers it.
   for (const item of sources.sessionQuestions) add('session-question', item.instanceId, item.sessionName ?? 'A session', item.since,

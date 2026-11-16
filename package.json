@@ -103,6 +103,7 @@
     "audit:production": "node scripts/audit-production-dependencies.js",
     "audit:build": "node scripts/audit-build-dependencies.js && node scripts/verify-release-toolchain.js",
     "audit:ui-hints": "tsx scripts/audit-ui-hints.ts",
+    "audit:ui-words": "tsx scripts/ui-text/audit-ui-words.ts",
     "check:ui-hints": "tsx scripts/check-ui-hints.ts",
     "report:where-work-ran": "node scripts/remote-checks/report.js",
     "checks": "node scripts/remote-checks/checks.js",

@@ -4,6 +4,7 @@ import {
   isModelSwitchAllowedStatus,
 } from './instance-status-policy';
 import type { InstanceStatus } from './instance.types';
+import { presentInstanceStatus } from '../attention/instance-status-presentation';
 
 describe('isModelSwitchAllowedStatus', () => {
   it.each(['idle', 'ready', 'waiting_for_input'] as const)('allows %s', (status) => {
@@ -31,7 +32,10 @@ describe('isModelSwitchAllowedStatus', () => {
     'initializing',
   ] as const)('still refuses %s so a live or in-flight turn is never torn down', (status) => {
     expect(isModelSwitchAllowedStatus(status)).toBe(false);
-    expect(getModelSwitchUnavailableReason(status)).toContain(status);
+    const reason = getModelSwitchUnavailableReason(status) ?? '';
+    expect(reason).toContain(presentInstanceStatus(status).label);
+    // Never the raw status code (e.g. "waiting_for_permission", "thinking_deeply").
+    if (status.includes('_')) expect(reason).not.toContain(status);
   });
 
   it.each(['failed', 'terminated'] as const)(

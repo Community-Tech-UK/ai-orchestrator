@@ -144,7 +144,7 @@ export class CrossModelReviewService extends EventEmitter {
   private isPaused = getPauseCoordinator().isPaused();
   private readonly handlePause = (): void => {
     this.isPaused = true;
-    this.cancelAllPendingReviews('orchestrator paused');
+    this.cancelAllPendingReviews('Harness paused');
   };
   private readonly handleResume = (): void => {
     this.isPaused = false;

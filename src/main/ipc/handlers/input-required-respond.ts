@@ -39,7 +39,7 @@ export async function respondToInputRequired(instanceManager: InstanceManager, p
         success: false,
         error: {
           code: 'ORCHESTRATOR_PAUSED',
-          message: 'Input response refused while orchestrator is paused',
+          message: 'Input response refused while Harness is paused',
           timestamp: Date.now(),
         },
       };

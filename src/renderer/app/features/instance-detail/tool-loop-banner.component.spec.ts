@@ -53,7 +53,7 @@ describe('ToolLoopBannerComponent', () => {
   it('says what the session has been doing and offers both choices', () => {
     emit(critical());
     fixture.detectChanges();
-    expect(element().textContent).toContain('This session may be stuck.');
+    expect(element().textContent).toContain('This session seems to be repeating itself.');
     expect(element().textContent).toContain('It has run Bash 12 times in a row and got the same result each time.');
     // Letting it carry on keeps spending, so the bar says so beside the choice, not only in a tooltip.
     expect(element().textContent).toContain("If you let it continue, it keeps working and you won't be asked about this again this turn.");

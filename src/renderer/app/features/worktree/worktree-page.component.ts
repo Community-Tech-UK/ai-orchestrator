@@ -4,6 +4,8 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
  * Container that wires worktree panel UI to worktree IPC APIs.
  */
 
+import { presentInstanceStatus } from '../../../../shared/attention/instance-status-presentation';
+import type { InstanceStatus } from '../../../../shared/types/instance.types';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -62,7 +64,7 @@ interface InstanceOption {
             <option value="">Select session</option>
             @for (instance of instances(); track instance.id) {
               <option [value]="instance.id">
-                {{ instance.displayName }} ({{ instance.status }})
+                {{ instance.displayName }} ({{ statusLabel(instance.status) }})
               </option>
             }
           </select>
@@ -418,6 +420,8 @@ export class WorktreePageComponent implements OnInit, OnDestroy {
 
   readonly sessions = signal<WorktreeSession[]>([]);
   readonly instances = signal<InstanceOption[]>([]);
+  readonly statusLabel = (status: string): string =>
+    presentInstanceStatus(status as InstanceStatus).label;
   readonly selectedInstanceId = signal('');
   readonly taskDescription = signal('');
   readonly baseBranch = signal('');

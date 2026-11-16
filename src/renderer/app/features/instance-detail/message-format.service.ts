@@ -2,17 +2,20 @@ import { Injectable } from '@angular/core';
 import { DisplayItem } from './display-item-processor.service';
 import { OutputMessage } from '../../core/state/instance.store';
 import { providerName } from '../../../../shared/display-names';
+import { summariseTurn } from '../../../../shared/summarise-turn';
+import { collectTurnToolEvents } from '../../../../shared/turn-tool-events';
 
 @Injectable({ providedIn: 'root' })
 export class MessageFormatService {
   /** Summary shown on a collapsed work-cycle header, e.g.
-   *  "7 thoughts · 4 Bash · 1 error" — counts grouped by sub-type. */
+   *  "Thought 7 times · edited 2 files · ran 4 commands · 1 failed". Tool work is counted the way
+   *  the note under a turn counts it, so both say the same thing and failures always show. */
   summarizeCycle(item: DisplayItem): string {
     const children = item.children;
     if (!children || children.length === 0) return '';
     let thoughtCount = 0;
     let errorCount = 0;
-    const toolCounts = new Map<string, number>();
+    const toolMessages: OutputMessage[] = [];
     for (const child of children) {
       if (child.type === 'thought-group') {
         // Count reasoning blocks, not groups: adjacent thinking turns are
@@ -20,24 +23,17 @@ export class MessageFormatService {
         // groups would under-report (a merged 5-block group would read "1").
         thoughtCount += child.thinking?.length ?? child.thoughts?.length ?? 1;
       } else if (child.type === 'tool-group' && child.toolMessages) {
-        for (const m of child.toolMessages) {
-          if (m.type === 'tool_use') {
-            const name = this.getToolName(m);
-            toolCounts.set(name, (toolCounts.get(name) ?? 0) + 1);
-          }
-        }
+        toolMessages.push(...child.toolMessages);
       } else if (child.type === 'message' && child.message) {
         if (child.message.type === 'error') errorCount++;
-        else if (child.message.type === 'tool_use') {
-          const name = this.getToolName(child.message);
-          toolCounts.set(name, (toolCounts.get(name) ?? 0) + 1);
-        }
+        else if (child.message.type === 'tool_use' || child.message.type === 'tool_result') toolMessages.push(child.message);
       }
     }
     const parts: string[] = [];
-    if (thoughtCount > 0) parts.push(`${thoughtCount} thought${thoughtCount === 1 ? '' : 's'}`);
-    for (const [name, count] of toolCounts) parts.push(`${count} ${name}`);
-    if (errorCount > 0) parts.push(`${errorCount} error${errorCount === 1 ? '' : 's'}`);
+    if (thoughtCount > 0) parts.push(`Thought ${thoughtCount} ${thoughtCount === 1 ? 'time' : 'times'}`);
+    const tools = summariseTurn(collectTurnToolEvents(toolMessages), 0);
+    if (tools) parts.push(tools.text);
+    if (errorCount > 0) parts.push(`${errorCount} ${errorCount === 1 ? 'error' : 'errors'}`);
     return parts.length > 0 ? parts.join(' · ') : `${children.length} steps`;
   }
 
@@ -159,8 +155,8 @@ export class MessageFormatService {
     }
     if (method === 'restart-with-summary') {
       return prev?.percentage !== undefined
-        ? `Context compacted — fresh session (was ${Math.round(prev.percentage)}%; new size after reply)`
-        : 'Context compacted — fresh session (new size after reply)';
+        ? `Continued from a summary · was ${Math.round(prev.percentage)}%, new size shows after the next reply`
+        : 'Continued from a summary · new size shows after the next reply';
     }
     if (prev?.percentage !== undefined && next?.percentage !== undefined) {
       return `Context compacted in place (${Math.round(prev.percentage)}% → ${Math.round(next.percentage)}%)`;

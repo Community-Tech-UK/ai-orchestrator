@@ -1,4 +1,5 @@
 import type { InstanceStatus } from './instance.types';
+import { presentInstanceStatus } from '../attention/instance-status-presentation';
 
 /**
  * Statuses from which a runtime (provider/model/yolo) change may be applied.
@@ -40,7 +41,9 @@ export function getModelSwitchUnavailableReason(
     return 'Model changes require a selected live session.';
   }
 
-  return `Model changes are only available while the instance is waiting for user input. Current status: ${status}.`;
+  // Shown in toasts and on the phone, so say the plain status word, not the code.
+  const { label } = presentInstanceStatus(status);
+  return `Model changes are only available when the session is ready or waiting for you. Right now it shows "${label}".`;
 }
 
 /**

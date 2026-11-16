@@ -65,7 +65,7 @@ export function providerChangeNoticeText(params: {
     + `to ${params.newProvider} (model ${modelLabel(params.newModel)}). `
     + `Thinking changed from ${effortLabel(params.oldReasoningEffort)} `
     + `to ${effortLabel(params.newReasoningEffort)}. `
-    + 'AIO carries over the available summary and recent messages when replaying the conversation; earlier detail may be missing.]'
+    + 'Harness carries over the available summary and recent messages when replaying the conversation; earlier detail may be missing.]'
   );
 }
 

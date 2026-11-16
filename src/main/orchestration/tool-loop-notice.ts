@@ -97,7 +97,7 @@ export function toolLoopNotice(input: ToolLoopNoticeInput): ToolLoopNotice {
     : 'It keeps going until you stop it.';
 
   return {
-    title: 'A session may be stuck',
+    title: 'A session seems to be repeating itself',
     body: `${who}${what} ${consequence}`,
     urgency: 'critical',
   };

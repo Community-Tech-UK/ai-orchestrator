@@ -27,7 +27,7 @@ export class CommIpcService {
       (b.sourceInstanceId === payload.toInstanceId && b.targetInstanceId === payload.fromInstanceId)
     );
     if (!bridge) {
-      return { success: false, error: { message: 'No bridge between these instances. Create one first.' } };
+      return { success: false, error: { message: 'No bridge between these sessions. Create one first.' } };
     }
     return this.api.commSendMessage({
       bridgeId: bridge.id,

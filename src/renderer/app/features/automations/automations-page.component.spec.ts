@@ -285,8 +285,34 @@ describe('AutomationsPageComponent row actions', () => {
     expect(root.querySelectorAll('.run-row--quiet')).toHaveLength(2);
     expect(root.textContent).toContain('Nothing changed');
     expect(root.textContent).toContain('Quiet');
-    expect(root.textContent).toContain('Details same hash');
+    const details = root.querySelector('details.run-detail');
+    expect(details?.querySelector('summary')?.textContent).toBe('Details');
+    expect(details?.textContent).toContain('same hash');
     expect(root.textContent).toContain('checked 2 times, started the AI 1 time');
+  });
+
+  it('shows a failed run in plain words with the raw error under Details', () => {
+    const automation = makeAutomation();
+    automations.set([automation]);
+    const failed: AutomationRun = {
+      id: 'failed-run', automationId: automation.id, status: 'failed', trigger: 'scheduled',
+      scheduledAt: 1_900_000_000_000, startedAt: null, finishedAt: null,
+      instanceId: null, loopRunId: null, error: 'Instance entered error', outputSummary: null,
+      outputFullRef: null, idempotencyKey: null, triggerSource: null,
+      deliveryMode: 'notify', seenAt: null, createdAt: 1_900_000_000_000,
+      updatedAt: 1_900_000_000_000, configSnapshot: automation,
+      attempt: 1, maxAttempts: 1,
+    };
+    store.runs.set([failed]);
+    fixture.componentInstance.select(automation);
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const row = root.querySelector('.run-row--failed') as HTMLElement;
+    expect(row.textContent).toContain('Failed');
+    expect(row.querySelector('.run-plain')?.textContent).toContain('The session failed.');
+    expect(row.querySelector('.run-plain')?.textContent).not.toContain('Instance entered');
+    expect(row.querySelector('details.run-detail pre')?.textContent).toBe('Instance entered error');
   });
 
   it('keeps the schedule cadence and optional check visible in the form', () => {

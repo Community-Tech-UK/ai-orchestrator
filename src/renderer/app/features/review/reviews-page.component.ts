@@ -4,6 +4,8 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
  * Container that wires review sessions to the review results UI.
  */
 
+import { presentInstanceStatus } from '../../../../shared/attention/instance-status-presentation';
+import type { InstanceStatus } from '../../../../shared/types/instance.types';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -57,7 +59,7 @@ const SEVERITY_ORDER: SeverityLevel[] = ['critical', 'high', 'medium', 'low', 'i
           <select class="select" [value]="selectedInstanceId()" (change)="onInstanceChange($event)">
             <option value="">Select session</option>
             @for (instance of instances(); track instance.id) {
-              <option [value]="instance.id">{{ instance.displayName }} ({{ instance.status }})</option>
+              <option [value]="instance.id">{{ instance.displayName }} ({{ statusLabel(instance.status) }})</option>
             }
           </select>
         </label>
@@ -375,6 +377,8 @@ export class ReviewsPageComponent implements OnInit, OnDestroy {
 
   readonly agents = signal<ReviewAgentConfig[]>([]);
   readonly instances = signal<InstanceOption[]>([]);
+  readonly statusLabel = (status: string): string =>
+    presentInstanceStatus(status as InstanceStatus).label;
 
   readonly selectedInstanceId = signal('');
   readonly selectedAgentIds = signal<Set<string>>(new Set<string>());

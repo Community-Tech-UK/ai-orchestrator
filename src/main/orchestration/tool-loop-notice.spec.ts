@@ -59,7 +59,7 @@ describe('toolLoopNotice (N2)', () => {
   it('notifies for a critical detection in the same plain words as the session bar', () => {
     const notice = toolLoopNotice(base);
     expect(notice).toEqual({
-      title: 'A session may be stuck',
+      title: 'A session seems to be repeating itself',
       body: 'It has run Read 9 times in a row and got the same result each time. It keeps going until you stop it.',
       urgency: 'critical',
     });

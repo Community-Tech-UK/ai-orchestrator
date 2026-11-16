@@ -378,7 +378,7 @@ export class WorktreeManager extends EventEmitter {
 
       const result = await getGitWriteQueue().enqueue('harvest', async () => {
         await gitExec(['add', '-A'], session.worktreePath);
-        const msg = `Harvest: orchestrator captured session output\n\nWorktree: ${session.branchName}\nTask: ${session.taskDescription.slice(0, 120)}`;
+        const msg = `Harvest: Harness captured session output\n\nWorktree: ${session.branchName}\nTask: ${session.taskDescription.slice(0, 120)}`;
         // A safety commit on the throwaway session branch: repository hooks
         // (plan-spec guard, `node` missing from a packaged app's PATH) must not
         // strand the output. Landing rules are enforced before integration.

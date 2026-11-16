@@ -20,7 +20,7 @@ export interface ToolLoopSummaryInput {
 }
 
 /** What is being asked, in the session list beside the session's name (and on a Needs you card with no name to show). */
-export const TOOL_LOOP_TITLE = 'May be stuck: stop it or let it continue';
+export const TOOL_LOOP_TITLE = 'Repeating itself: stop it or let it continue';
 
 /** What "Let it continue" means, said beside the button rather than only in a tooltip. */
 export const TOOL_LOOP_CONTINUE_CONSEQUENCE = "If you let it continue, it keeps working and you won't be asked about this again this turn.";

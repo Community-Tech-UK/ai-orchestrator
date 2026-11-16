@@ -109,6 +109,38 @@ describe('OutputStreamComponent turn notes', () => {
 
   const rowNote = (rowId: string) => host.querySelector(`[data-item-id="${rowId}"] app-turn-summary-row`);
 
+  it('folds the raw text of a system or error message behind a closed "Details" disclosure', async () => {
+    await render([
+      user(1_000, 'u1'),
+      msg('error', 2_000, { id: 'e1', content: 'Your message wasn\'t sent.', metadata: { detail: 'send input timed out after 30000ms' } }),
+      msg('system', 3_000, { id: 's1', content: 'No output for 70s. If it stays silent, Harness will restart the session.', metadata: { detail: '70' } }),
+      msg('system', 4_000, { id: 's2', content: 'A note with nothing hidden.' }),
+    ]);
+    const folds = Array.from(host.querySelectorAll('details.message-detail')) as HTMLDetailsElement[];
+    expect(folds).toHaveLength(2);
+    expect(folds.every((fold) => !fold.open)).toBe(true);
+    expect(text(folds[0].querySelector('summary'))).toBe('Details');
+    expect(text(folds[0].querySelector('pre'))).toBe('send input timed out after 30000ms');
+    expect(text(host)).toContain('Your message wasn\'t sent.');
+  });
+
+  it('shows a settled stop as a plain sentence with the raw codes only in the tooltip, and hides the steps before it', async () => {
+    const boundary = (at: number, id: string, phase: string, outcome: string) => msg('system', at, {
+      id, content: `Interrupt ${phase}: ${outcome}`,
+      metadata: { kind: 'interrupt-boundary', phase, outcome, requestId: 'req-1', at, fallbackMode: 'replay-fallback' },
+    });
+    await render([
+      user(1_000, 'u1'),
+      boundary(2_000, 'i1', 'requested', 'unresolved'),
+      boundary(2_100, 'i2', 'respawning', 'unresolved'),
+      boundary(2_200, 'i3', 'completed', 'respawn-fallback'),
+    ]);
+    const dividers = Array.from(host.querySelectorAll('.interrupt-boundary .boundary-label'));
+    expect(dividers).toHaveLength(1);
+    expect(text(dividers[0])).toBe('Stopped. The session restarted with only your recent messages carried over, so earlier detail may be missing.');
+    expect(text(dividers[0])).not.toMatch(/interrupt completed|respawn-fallback/i);
+  });
+
   it('renders a transcript with no note when nothing worth saying happened', async () => {
     await render([user(1_000, 'u1'), reply(2_000, 'r1', 'Hello there.')]);
     expect(text(host)).toContain('Hello there.');
@@ -262,7 +294,7 @@ describe('OutputStreamComponent turn notes', () => {
         bash(3_000, 'b2'), bashDone(3_100, 'b2'),
         reply(14_000, 'r1', 'Finished.'),
       ], { provider: 'claude' });
-      expect(text(host.querySelector('.work-cycle-header .cycle-summary'))).toBe('1 thought · 2 Bash');
+      expect(text(host.querySelector('.work-cycle-header .cycle-summary'))).toBe('Thought 1 time · ran 2 commands');
       expect(text(host.querySelector('.work-cycle-header .cycle-duration'))).toBe('1s');
       expect(text(host.querySelector('.message-assistant .message-type, .message .message-type'))).toContain('Claude');
     });

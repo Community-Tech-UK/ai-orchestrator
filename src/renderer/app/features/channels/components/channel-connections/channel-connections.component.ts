@@ -20,7 +20,7 @@ import { AioTooltipDirective } from '../../../../shared/tooltip/aio-tooltip.dire
   template: `
     <div class="channels-page">
       <div class="page-header">
-        <h2>Channels</h2>
+        <h2>Discord &amp; WhatsApp</h2>
         <p class="subtitle">Connect Discord and WhatsApp to control Harness from your phone</p>
         <div class="nav-links">
           <button class="nav-btn active" type="button">Connections</button>

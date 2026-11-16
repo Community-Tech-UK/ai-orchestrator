@@ -36,6 +36,6 @@ export function buildContextRecoveryBlock(messageCount?: number): string {
     : 'The messages before this reset are still in this session.';
   const body = `${countLine} Harness's \`read_session\` tool can read them: call it with `
     + `{"session": "self", "from": "before-last-compaction"} and page back with \`before\`. `
-    + 'The tool is found through the orchestrator tool search when it is not in the tool list.';
+    + 'The tool is found through the Harness tool search when it is not in the tool list.';
   return `<context_recovery>\n${escapeClosingTag(body)}\n</context_recovery>`;
 }

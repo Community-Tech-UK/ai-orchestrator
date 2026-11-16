@@ -197,7 +197,7 @@ export class InstanceListStore {
           this.stateService.setSelectedInstance(result.instanceId);
           return result.instanceId;
         }
-        this.stateService.setError('Failed to create instance');
+        this.stateService.setError('Failed to create session');
         return null;
       }
 
@@ -207,14 +207,14 @@ export class InstanceListStore {
       if (response.success) {
         return this.syncInstanceFromResponse(response.data, true);
       } else {
-        this.stateService.setError(response.error?.message || 'Failed to create instance');
+        this.stateService.setError(response.error?.message || 'Failed to create session');
       }
       return null;
     } catch (error) {
       eventFallback.cancel();
       console.error('InstanceListStore: createInstance error:', error);
       this.stateService.setLoading(false);
-      this.stateService.setError('Failed to create instance');
+      this.stateService.setError('Failed to create session');
       return null;
     }
   }
@@ -240,7 +240,7 @@ export class InstanceListStore {
 
     const fileError = files?.length ? this.validateFiles(files).join('\n') : '';
     if (fileError) {
-      this.stateService.setError(`Cannot create instance:\n${fileError}`);
+      this.stateService.setError(`Cannot create session:\n${fileError}`);
       return { ok: false, error: fileError };
     }
 
@@ -260,7 +260,7 @@ export class InstanceListStore {
         : null;
       if (countError) {
         this.stateService.setLoading(false);
-        this.stateService.setError(`Cannot create instance:\n${countError}`);
+        this.stateService.setError(`Cannot create session:\n${countError}`);
         return { ok: false, error: countError };
       }
 
@@ -273,7 +273,7 @@ export class InstanceListStore {
       );
       this.stateService.setLoading(false);
       if (!result.success) {
-        const error = result.error?.message || 'Failed to create instance';
+        const error = result.error?.message || 'Failed to create session';
         this.stateService.setError(error);
         return { ok: false, error };
       }
@@ -288,7 +288,7 @@ export class InstanceListStore {
     } catch (error) {
       console.error('InstanceListStore: createInstanceWithMessage error:', error);
       this.stateService.setLoading(false);
-      const message = `Failed to create instance: ${(error as Error).message}`;
+      const message = `Failed to create session: ${(error as Error).message}`;
       this.stateService.setError(message);
       return { ok: false, error: message };
     }
@@ -341,12 +341,12 @@ export class InstanceListStore {
     if (instance && !supportsResumeRestart(instance.provider)) {
       return this.handleRestartResponse(
         await this.ipc.restartFreshInstance(instanceId),
-        'Failed to restart instance'
+        'Failed to restart session'
       );
     }
     return this.handleRestartResponse(
       await this.ipc.restartInstance(instanceId),
-      'Failed to restart instance'
+      'Failed to restart session'
     );
   }
 
@@ -356,7 +356,7 @@ export class InstanceListStore {
   async restartFreshInstance(instanceId: string): Promise<boolean> {
     return this.handleRestartResponse(
       await this.ipc.restartFreshInstance(instanceId),
-      'Failed to restart instance with fresh context'
+      'Failed to restart session with fresh context'
     );
   }
 

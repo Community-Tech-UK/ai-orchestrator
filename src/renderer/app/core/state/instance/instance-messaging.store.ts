@@ -214,12 +214,12 @@ export class InstanceMessagingStore {
     if (count === 1) {
       this.addQueueRestoreNoticeToOutput(
         instanceId,
-        'Your message was restored to the input — restart the instance to send it.'
+        'Your message was restored to the input — restart the session to send it.'
       );
     } else {
       this.addQueueRestoreNoticeToOutput(
         instanceId,
-        `Your message was restored to the input. ${count - 1} additional queued message${count > 1 ? 's were' : ' was'} discarded. Restart the instance to continue.`
+        `Your message was restored to the input. ${count - 1} additional queued message${count > 1 ? 's were' : ' was'} discarded. Restart the session to continue.`
       );
     }
   }

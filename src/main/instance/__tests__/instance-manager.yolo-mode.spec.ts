@@ -1351,7 +1351,7 @@ describe('InstanceManager', () => {
       manager.updateInstanceStatus(instance.id, 'busy');
 
       await expect(manager.setYoloMode(instance.id, true)).rejects.toThrow(
-        /only available while the instance is waiting for user input/,
+        /only available when the session is ready or waiting for you/,
       );
       expect(instance.yoloMode).toBe(false);
     });

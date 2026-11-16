@@ -37,8 +37,8 @@
           [chat]="detail.chat"
           [hasMessages]="hasMessages()"
         />
-        @if (currentInstance(); as instance) {
-          <span class="runtime-pill status-pill">{{ instance.status }}</span>
+        @if (runtimeStatusLabel(); as statusLabel) {
+          <span class="runtime-pill status-pill">{{ statusLabel }}</span>
         } @else {
           <span class="runtime-pill status-pill">Dormant</span>
         }

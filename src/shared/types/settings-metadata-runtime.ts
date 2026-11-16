@@ -206,7 +206,7 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
     // migration has something to read. Not shown in generic listings.
     hidden: true,
     label: 'Custom model override',
-    description: 'Force a specific model name for every new instance, ignoring the Default model setting. Leave empty to use the CLI\'s own default.',
+    description: 'Force a specific model name for every new session, ignoring the Default model setting. Leave empty to use the CLI\'s own default.',
     type: 'string',
     category: 'advanced',
     placeholder: 'e.g., claude-3-opus-20240229',

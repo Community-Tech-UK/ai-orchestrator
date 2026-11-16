@@ -68,7 +68,7 @@ function surface(definition: SurfaceDefinition): ControlSurfaceItem {
 
 export const CONTROL_SURFACES: readonly ControlSurfaceItem[] = [
   surface({ id: 'settings', path: '/settings', label: 'Settings', subtitle: 'Configure app behavior, providers, and diagnostics.', group: 'settings', kind: 'setting' }),
-  surface({ id: 'chat-search', hidden: true, path: '/chat-search', label: 'Chat Search', subtitle: 'Find prior conversations and reusable context.', group: 'knowledge', kind: 'tool' }),
+  surface({ id: 'chat-search', hidden: true, path: '/chat-search', label: 'Find Session', subtitle: 'Find prior conversations and reusable context.', group: 'knowledge', kind: 'tool' }),
   surface({ id: 'automations', path: '/automations', label: 'Automations', subtitle: 'Schedule and monitor recurring agent work.', group: 'automation', kind: 'workflow', dashboard: true }),
   surface({ id: 'campaigns', path: '/campaigns', label: 'Campaigns', subtitle: 'Coordinate multi-loop campaign runs.', group: 'automation', kind: 'workflow', layout: 'wide', dashboard: true }),
   surface({ id: 'plan-queue', path: '/plan-queue', label: 'Plan Queue', subtitle: 'Work through plan and livetest documents with verified workers.', group: 'automation', kind: 'workflow', layout: 'wide', dashboard: true }),

@@ -219,7 +219,7 @@ export const INTEGRATION_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'cliUpdatePolicy',
     label: 'CLI provider updates',
-    description: 'How to handle newer versions of the AI CLIs this app wraps (Claude, Codex, Gemini, Copilot). "Notify" shows a one-click update button; "Auto-apply" installs safe updates for you when no instances are running; "Off" hides update checks.',
+    description: 'How to handle newer versions of the AI CLIs this app wraps (Claude, Codex, Gemini, Copilot). "Notify" shows a one-click update button; "Auto-apply" installs safe updates for you when no sessions are running; "Off" hides update checks.',
     type: 'select',
     category: 'general',
     options: [

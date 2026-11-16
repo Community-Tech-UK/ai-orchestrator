@@ -8,7 +8,8 @@
  * `avoid` words that must never appear in visible text, and `flag` real
  * double meanings. `src/shared/copy/ui-vocabulary.ts` holds only maps.
  */
-const APP_NAME_PATTERN = /(?<![./~\\-])\b(AIO|AI Orchestrator|Orchestrator|orchestrator)\b(?![-_./\\])/;
+/** A full stop ends a sentence unless a letter or digit follows it (`orchestrator.json`). */
+const APP_NAME_PATTERN = /(?<![./~\\-])\b(AIO|AI Orchestrator|Orchestrator|orchestrator)\b(?![-_/\\]|\.(?=[A-Za-z0-9]))/;
 
 export type GlossaryGroup = 'Product' | 'Session' | 'Loop' | 'Models' | 'Tools' | 'Status' | 'Cost' | 'Flagged';
 
@@ -88,16 +89,16 @@ export const GLOSSARY = {
   'helper-agent': { term: 'helper-agent', label: 'Helper agent', plain: 'A session another session started to do part of the work.', group: 'Session', vocabulary: { never: [/\bchild instance\b/i], enforcement: 'planned' }, aliases: ['subagent'] },
   tokens: { label: 'Tokens', plain: 'The small pieces of text a model reads and writes. Usage limits and costs are counted in them.', group: 'Cost' },
   'cache-read-write': { label: 'Cache read and write', plain: 'Some providers charge less to reuse recently seen text. Adding new text to that cache can have a separate charge.', group: 'Cost', learnMore: { surface: 'cost' } },
-  'working': { term: 'working', label: 'Working', plain: 'The agent is working on your request.', group: 'Status', vocabulary: { never: [/Processing…/, /\bBusy\b/, /Thinking deeply…/], enforcement: 'planned', owner: 'Phase 3 C6 presenter' } },
-  'starting': { term: 'starting', label: 'Starting', plain: 'The session is starting or restarting.', group: 'Status', vocabulary: { never: [/Initializing…/, /Waking up…/, /Recovering session…/], enforcement: 'planned', owner: 'Phase 3 C6 presenter' } },
-  'approval': { term: 'approval', label: 'Needs your approval', plain: 'The agent needs permission to take an action.', group: 'Status', vocabulary: { never: [/Waiting for permission/i, /Awaiting approval/i], enforcement: 'planned' } },
-  'answer': { term: 'answer', label: 'Needs your answer', plain: 'The agent has asked you a question.', group: 'Status', vocabulary: { never: [/Waiting for input/i], enforcement: 'planned' } },
+  'working': { term: 'working', label: 'Working', plain: 'The agent is working on your request.', group: 'Status', vocabulary: { never: [/Processing…/, /\bBusy\b/, /Thinking deeply/], enforcement: 'planned', owner: 'Session status presenter' } },
+  'restarting': { term: 'restarting', label: 'Restarting', plain: 'The session is restarting or waking up, and keeps its history.', group: 'Status', vocabulary: { never: [/Initializing…/, /Waking up…/, /Recovering session…/], enforcement: 'planned', owner: 'Session status presenter' } },
+  'approval': { term: 'approval', label: 'Needs your OK', plain: 'The agent needs permission to take an action.', group: 'Status', vocabulary: { never: [/Waiting for permission/i, /Awaiting approval/i, /Needs approval/], enforcement: 'planned', owner: 'Session status presenter' } },
+  'answer': { term: 'answer', label: 'Needs your answer', plain: 'The agent has asked you a question.', group: 'Status', vocabulary: { never: [/Waiting for input/, /Awaiting input/], enforcement: 'planned', owner: 'Session status presenter' } },
   'sign-off': { term: 'sign-off', label: 'Needs your sign-off', plain: 'The loop is waiting for you to accept its work.', group: 'Status', vocabulary: { never: [/Needs review/], enforcement: 'planned' } },
   'stopping': { term: 'stopping', label: 'Stopping', plain: 'The current work is stopping.', group: 'Status', vocabulary: { never: [/Interrupting…/, /Cancelling…/, /Escalating interrupt…/], enforcement: 'planned' } },
-  'ready': { term: 'ready', label: 'Ready', plain: 'Waiting for your next message.', group: 'Status', vocabulary: { never: [/\bIdle\b/, /\bCancelled\b/, /\bSuperseded\b/], enforcement: 'planned' } },
-  'connection-lost': { term: 'connection-lost', label: 'Connection lost', plain: 'The remote computer connection has dropped.', group: 'Status', vocabulary: { never: [/\bDegraded\b/], enforcement: 'planned' } },
-  'failed': { term: 'failed', label: 'Failed', plain: 'The session failed.', group: 'Status', vocabulary: { never: [/^Error$/], enforcement: 'planned' } },
-  'closed': { term: 'closed', label: 'Closed', plain: 'The session has closed.', group: 'Status', vocabulary: { never: [/\bTerminated\b/], enforcement: 'planned' } },
+  'ready': { term: 'ready', label: 'Ready', plain: 'Waiting for your next message.', group: 'Status', vocabulary: { never: [/\bIdle\b/], enforcement: 'planned', owner: 'Session status presenter' } },
+  'problem': { term: 'problem', label: 'Problem', plain: 'The session hit an error, or lost contact with its computer.', group: 'Status', vocabulary: { never: [/\bDegraded\b/, /^Error$/], enforcement: 'planned', owner: 'Session status presenter' } },
+  'stopped': { term: 'stopped', label: 'Stopped', plain: 'The session was stopped, replaced or closed.', group: 'Status', vocabulary: { never: [/\bTerminated\b/], enforcement: 'planned', owner: 'Session status presenter' } },
+  'thinking': { term: 'thinking', label: 'Thinking', plain: 'The agent has been thinking for a while before its next step.', group: 'Status', vocabulary: { never: [/Thinking deeply/], enforcement: 'planned', owner: 'Session status presenter' } },
   'round': { term: 'round', label: 'round', plain: 'One pass of a loop.', group: 'Loop', vocabulary: { never: [/\biteration\b/i], enforcement: 'planned', owner: 'Phase 2 B9' } },
   'storage-buffers': { term: 'storage-buffers', label: 'Storage & buffers', plain: 'Settings for stored output and buffers.', group: 'Tools', vocabulary: { never: [/^Memory$/], enforcement: 'planned' } },
   'phone-chat': { term: 'phone-chat', label: 'Discord & WhatsApp', plain: 'Settings for phone chat connections.', group: 'Tools', vocabulary: { never: [/^Connections$/], enforcement: 'planned' } },

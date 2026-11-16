@@ -53,7 +53,7 @@ describe('needs-you source mapping', () => {
     expect(result).toHaveLength(8);
     // A possibly stuck session says what is asked and what it has been doing, not just a tool name.
     expect(result.find((item) => item.source === 'tool-loop')).toMatchObject({
-      title: 'Fix login may be stuck: stop it or let it continue',
+      title: 'Fix login seems to be repeating itself: stop it or let it continue',
       detail: 'It has run Bash 12 times in a row and got the same result each time.',
       instanceId: 't',
     });
@@ -76,7 +76,7 @@ describe('needs-you source mapping', () => {
     expect(needsYouReason(entry('browser-approval'))).toBe('Wants your OK for a browser step');
     expect(needsYouReason(entry('loop-question', { title: 'Waiting for you', detail: 'Ship it?' }))).toBe('Asked you: Ship it?');
     // The session list shows the name beside the reason, so the reason leaves it out.
-    expect(needsYouReason(entry('tool-loop', { title: 'Fix login may be stuck: stop it or let it continue' }))).toBe('May be stuck: stop it or let it continue');
+    expect(needsYouReason(entry('tool-loop', { title: 'Fix login seems to be repeating itself: stop it or let it continue' }))).toBe('Repeating itself: stop it or let it continue');
   });
   it('maps a session the watcher handed back to an answer entry that carries the session and the agent\'s question', () => {
     const sources = empty();

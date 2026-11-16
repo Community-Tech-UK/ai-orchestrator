@@ -525,14 +525,14 @@ describe('InstanceRowComponent — tool-loop badge (N2)', () => {
     expect(attentionDot()).toBeNull();
   });
 
-  it('says the session may be stuck in the activity label, leading the underlying status', () => {
+  it('says the session is repeating itself in the activity label, leading the underlying status', () => {
     looping.add('inst-1');
     fixture.componentInstance.instance.set(makeInstance({ status: 'busy' }));
     fixture.detectChanges();
     // The leading indicator's accessible name is the structured one; the row's
     // own label is just "Select instance <name>".
     const indicator = fixture.nativeElement.querySelector('.leading-indicator') as HTMLElement;
-    expect(indicator.getAttribute('aria-label') ?? '').toContain('May be stuck');
+    expect(indicator.getAttribute('aria-label') ?? '').toContain('Repeating itself');
   });
 });
 

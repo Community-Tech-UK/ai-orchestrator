@@ -141,7 +141,7 @@ describe('NotificationCenterComponent — tool-loop actions (N2)', () => {
     id: 'notification-loop',
     kind: 'tool-loop',
     instanceId: 'inst-1',
-    title: 'A session may be stuck',
+    title: 'A session seems to be repeating itself',
     body: 'It has run Read 9 times in a row and got the same result each time. It keeps going until you stop it.',
     urgency: 'critical',
     fingerprint: 'fp-loop',

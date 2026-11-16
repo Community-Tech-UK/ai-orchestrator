@@ -572,7 +572,7 @@ const TOOL_SCHEMAS: Record<BrowserMcpToolName, Record<string, unknown>> = {
     filePath: {
       ...stringProp,
       description:
-        'Path on the coordinator (the machine running AI Orchestrator), even when the tab '
+        'Path on the coordinator (the machine running Harness), even when the tab '
         + 'lives on a remote worker node — Browser Gateway stages the file onto the node '
         + 'automatically. Never pre-copy the file to the node (e.g. with upload_to_node) '
         + 'and pass a node-local path; that fails with file_not_found.',

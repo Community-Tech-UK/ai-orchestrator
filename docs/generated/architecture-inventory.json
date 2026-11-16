@@ -7799,6 +7799,10 @@
     {
       "path": "src/main/memory/procedural-store.ts",
       "lines": 801
+    },
+    {
+      "path": "src/renderer/app/features/workflow/workflow-page.component.ts",
+      "lines": 800
     }
   ]
 }

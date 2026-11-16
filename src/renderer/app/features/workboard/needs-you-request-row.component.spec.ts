@@ -66,7 +66,7 @@ describe('NeedsYouRequestRowComponent', () => {
     expect(button.textContent).toBe('Review');
     expect(button.getAttribute('aria-label')).toBe('Review MiMo: decide the renewal');
   });
-  const toolLoopEntry = { key: 'tool-loop:a', source: 'tool-loop', kind: 'answer', title: 'May be stuck: stop it or let it continue',
+  const toolLoopEntry = { key: 'tool-loop:a', source: 'tool-loop', kind: 'answer', title: 'Repeating itself: stop it or let it continue',
     detail: 'It has run Bash 12 times in a row and got the same result each time.', instanceId: 'a', since: 1, version: '1' } as const;
   const toolLoopRow = () => {
     const fixture = TestBed.createComponent(NeedsYouRequestRowComponent);
@@ -84,7 +84,7 @@ describe('NeedsYouRequestRowComponent', () => {
     expect([...fixture.nativeElement.querySelectorAll('.request-actions button')].map((b) => (b as HTMLButtonElement).textContent?.trim()))
       .toEqual(['Stop this turn', 'Let it continue', 'Open']);
     // A screen reader hears which session each choice is about.
-    expect(find('Stop this turn')?.getAttribute('aria-label')).toBe('Stop this turn: May be stuck: stop it or let it continue');
+    expect(find('Stop this turn')?.getAttribute('aria-label')).toBe('Stop this turn: Repeating itself: stop it or let it continue');
     find('Let it continue')!.click();
     expect(letContinue).toHaveBeenCalledWith('a');
     expect(stopTurn).not.toHaveBeenCalled();

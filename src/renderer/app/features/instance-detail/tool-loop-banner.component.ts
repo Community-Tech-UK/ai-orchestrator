@@ -24,7 +24,7 @@ import { TOOL_LOOP_CONTINUE_CONSEQUENCE, describeToolLoop } from '../../../../sh
     @if (alert()) {
       <div class="tool-loop-bar">
         <p class="tool-loop-text" role="status">
-          <strong>This session may be stuck.</strong>
+          <strong>This session seems to be repeating itself.</strong>
           {{ summary() }} {{ continueConsequence }}
         </p>
         <div class="tool-loop-actions">

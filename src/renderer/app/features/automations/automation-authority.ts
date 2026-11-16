@@ -370,7 +370,7 @@ function reportDestinationCard(input: AutomationAuthorityInput): AutomationAutho
         source: 'destination',
       }
     : {
-        statement: "Starts a brand-new session for every run — its output shows up in the instance list, not tucked into an existing conversation.",
+        statement: "Starts a brand-new session for every run — its output shows up in the session list, not tucked into an existing conversation.",
         enforcement: 'technical',
         source: 'destination',
       };

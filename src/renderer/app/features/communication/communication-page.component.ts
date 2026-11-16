@@ -41,7 +41,7 @@ interface CommBridge {
       <!-- Page Header -->
       <div class="page-header">
         <div class="header-title">
-          <span class="title">Communication</span>
+          <span class="title">Session Messaging</span>
           <span class="subtitle">Cross-session message passing and bridges</span>
         </div>
         <div class="header-actions">
