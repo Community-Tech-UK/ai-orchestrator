@@ -63,6 +63,7 @@ import {
   buildResumePrompt,
   buildWorkerPrompt,
 } from './plan-queue-prompts';
+import { compactWorkerBeforeSetAside } from './plan-queue-set-aside-compaction';
 import { canStepUp, stepUpItem } from './plan-queue-step-up';
 import { PlanQueueWorkerSessions, askJamesForWorker } from './plan-queue-worker-sessions';
 import { PlanQueueVerifierReminders } from './plan-queue-verifier-reminder';
@@ -789,6 +790,7 @@ export class PlanQueueItemFlow {
     if (isNeverAutoRetried(reason)) item = this.host.save({ ...item, parkReason: reason, detail });
     const run = this.host.getRun(item.runId);
     const notes = [detail];
+    await compactWorkerBeforeSetAside(item.workerInstanceId, reason, { untrack: id => this.host.tracker.untrack(id) });
     await Promise.all([item.workerInstanceId, item.verifierInstanceId]
       .filter((id): id is string => Boolean(id)).map(id => this.stopInstance(id)));
     this.verification.forgetCheck(item.id);

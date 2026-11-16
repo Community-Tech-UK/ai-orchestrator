@@ -6951,6 +6951,10 @@
       "lines": 1263
     },
     {
+      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
+      "lines": 1262
+    },
+    {
       "path": "docs/superpowers/plans/2026-07-08-remote-local-model-runtime_completed.md",
       "lines": 1261
     },
@@ -6984,10 +6988,6 @@
     },
     {
       "path": "src/main/instance/instance-provider-limit-handler.spec.ts",
-      "lines": 1238
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-coordinator.spec.ts",
       "lines": 1238
     },
     {
@@ -7456,7 +7456,7 @@
     },
     {
       "path": "src/main/plan-queue/plan-queue-item-flow.ts",
-      "lines": 923
+      "lines": 925
     },
     {
       "path": "src/preload/domains/orchestration.preload.ts",

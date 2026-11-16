@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PlanQueueCoordinator } from './plan-queue-coordinator';
 import { PlanQueueItemFlow } from './plan-queue-item-flow';
+import { setPreSleepContext, type PreSleepContext } from '../context/pre-sleep-context';
 import * as readiness from './plan-queue-readiness';
 import { SET_ASIDE_FOLDER_METADATA } from '../../shared/utils/plan-queue-set-aside-agent';
 import { _setReportRequiredProvidersForTesting, recordWorkerReport } from './plan-queue-worker-report';
@@ -757,6 +758,29 @@ describe('PlanQueueCoordinator — whole run against a temp repo', { timeout: 30
     expect(readFileSync(doc, 'utf8')).toContain(`Plan Queue parked work: \`${item.branchName}\``);
     expect(queueWorktrees().flatMap((d) => readdirSync(join(repo, '.worktrees', 'queue', d)))).toEqual([]);
     expect(git(['log', '--format=%s', 'main'])).toBe('base');
+  });
+
+  it('asks the pre-sleep service to shrink the worker before a job is set aside at the round limit', async () => {
+    planDoc('2026-01-01-alpha');
+    const parent = fake.addParent();
+    fake.scripts.verifier = (instance) => {
+      coordinator.reportVerdict(instance.id, {
+        item_id: itemIdOf(instance), verdict: 'FAIL',
+        findings: [{ severity: 'medium', confidence: 70, summary: 'Still wrong.' }], gates_run: [], document_complete: true, need_james: [], not_checked: [],
+      });
+    };
+    const note = vi.fn(async () => ({ kind: 'skipped' as const, reason: 'test' }));
+    const revokeClaim = vi.fn();
+    setPreSleepContext({ note, revokeClaim } as unknown as PreSleepContext);
+    try {
+      const { run } = await coordinator.startRun({ parentInstanceId: parent.id, kind: 'plans', config: { maxRounds: 1 } });
+      await waitForRun(run.id);
+
+      expect(coordinator.getRunDto(run.id)!.items[0]).toMatchObject({ state: 'parked', parkReason: 'round-limit' });
+      const workerId = fake.created.find((i) => i.role === 'worker')!.id;
+      expect(note).toHaveBeenCalledWith(expect.objectContaining({ instanceId: workerId, source: 'set-aside', claimKey: `set-aside:${workerId}` }));
+      expect(revokeClaim).toHaveBeenCalledWith(`set-aside:${workerId}`);
+    } finally { setPreSleepContext(null); }
   });
 
   it('parks as verifier-unreliable after two verifiers end without a verdict', async () => {

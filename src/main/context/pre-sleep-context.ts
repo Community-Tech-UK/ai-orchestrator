@@ -3,8 +3,9 @@
  *
  * Claude's prompt cache lasts about an hour. A large session that will not be used again for
  * longer than that pays to rewrite the whole thing on its next message, so when the wake-up
- * time is known in advance (a scheduled wake-up of a chat, a loop's scheduled wake-up) the
- * session is compacted first, while its cache is still warm and cheap to read.
+ * time is known in advance (a scheduled wake-up of a chat, a loop's scheduled wake-up), or a long
+ * sleep is certain (a queue job set aside), the session is compacted first, while its cache is
+ * still warm and cheap to read.
  *
  * Quota-limited sessions are not handled here: a compaction is a model call and cannot run
  * on an account that is out of allowance. Loops recycle instead (`loop-sleep-context.ts`).
@@ -16,7 +17,7 @@ import { getLogger } from '../logging/logger';
 
 const logger = getLogger('PreSleepContext');
 
-export type PreSleepSource = 'loop-wakeup' | 'scheduled-wakeup';
+export type PreSleepSource = 'loop-wakeup' | 'scheduled-wakeup' | 'set-aside';
 
 export interface PreSleepRequest {
   instanceId: string;
