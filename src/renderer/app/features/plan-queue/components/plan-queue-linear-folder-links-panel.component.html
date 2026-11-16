@@ -1,0 +1,156 @@
+<div class="pq-links">
+  <h3 class="pq-links-heading" id="pq-linear-links-heading">Project folders and Linear projects</h3>
+
+  @if (!loaded()) {
+    <p class="pq-links-note">Reading the saved links…</p>
+  } @else {
+    @if (!usable()) {
+      <div class="pq-links-readonly-note">
+        <p class="pq-links-problem pq-links-no-connection" role="alert">
+          {{ connection()?.reason ?? 'Linear is not connected yet, so links cannot be changed.' }}
+          Saved links are shown below and can be changed once the connection works.
+        </p>
+        <button type="button" class="pq-links-recheck" [disabled]="rechecking()" (click)="recheck()">
+          {{ rechecking() ? 'Checking…' : 'Check the connection again' }}
+        </button>
+      </div>
+
+      @if (readings().length === 0) {
+        <p class="pq-links-note pq-links-empty">No folders are linked to Linear projects.</p>
+      }
+      <ul class="pq-links-rows pq-links-readonly">
+        @for (reading of readings(); track reading.link.folder) {
+          <li class="pq-links-row">
+            <span class="pq-links-path">{{ reading.link.folder }}</span>
+            <ul class="pq-links-projects">
+              @if (reading.link.privateProject; as own) {
+                <li class="pq-links-project">Private: {{ own.teamKey }} · {{ own.name }}</li>
+              }
+              @for (project of reading.link.clientProjects; track project.id) {
+                <li class="pq-links-project">Client: {{ project.teamKey }} · {{ project.name }}</li>
+              }
+            </ul>
+            @if (reading.broken; as reason) {
+              <p class="pq-links-broken" role="alert">This link is not used. {{ reason }}</p>
+            }
+          </li>
+        }
+      </ul>
+    } @else {
+      @if (projectsError(); as problem) {
+        <p class="pq-links-problem pq-links-projects-error" role="alert">{{ problem }}</p>
+      }
+      @if (links().length === 0) {
+        <p class="pq-links-note pq-links-empty">No folders are linked to Linear projects. A linked folder can start runs from another folder, as if it were on the folder list above.</p>
+      }
+
+      <ul class="pq-links-rows">
+        @for (link of links(); track link.folder; let index = $index) {
+          <li class="pq-links-row">
+            <div class="pq-links-row-head">
+              <span class="pq-links-path">{{ link.folder }}</span>
+              <button type="button" class="pq-links-remove-folder" [attr.aria-label]="'Remove the link for ' + link.folder"
+                (click)="removeFolder(index)">Remove folder</button>
+            </div>
+
+            <div class="pq-links-project-group">
+              <span class="pq-links-group-label">Your private project</span>
+              @if (link.privateProject; as own) {
+                <span class="pq-links-project">
+                  {{ own.teamKey }} · {{ own.name }}
+                  <button type="button" class="pq-links-remove-project" [attr.aria-label]="'Remove ' + own.name + ' from ' + link.folder"
+                    (click)="removeProject(index, own.id)">Remove</button>
+                </span>
+              } @else {
+                <select class="pq-links-pick-private" [attr.aria-label]="'Add a private project to ' + link.folder"
+                  (change)="addProject(index, 'private', $any($event.target).value); $any($event.target).value = ''">
+                  <option value="">Add a private project</option>
+                  @for (team of freeTeams(); track team.label) {
+                    <optgroup [label]="team.label">
+                      @for (choice of team.projects; track choice.key) {
+                        <option [value]="choice.key">{{ choice.project.name }}</option>
+                      }
+                    </optgroup>
+                  }
+                </select>
+              }
+            </div>
+
+            <div class="pq-links-project-group">
+              <span class="pq-links-group-label">Client projects</span>
+              <ul class="pq-links-projects">
+                @for (project of link.clientProjects; track project.id) {
+                  <li class="pq-links-project">
+                    {{ project.teamKey }} · {{ project.name }}
+                    <button type="button" class="pq-links-remove-project" [attr.aria-label]="'Remove ' + project.name + ' from ' + link.folder"
+                      (click)="removeProject(index, project.id)">Remove</button>
+                  </li>
+                }
+              </ul>
+              <select class="pq-links-pick-client" [attr.aria-label]="'Add a client project to ' + link.folder"
+                (change)="addProject(index, 'client', $any($event.target).value); $any($event.target).value = ''">
+                <option value="">Add a client project</option>
+                @for (team of freeTeams(); track team.label) {
+                  <optgroup [label]="team.label">
+                    @for (choice of team.projects; track choice.key) {
+                      <option [value]="choice.key">{{ choice.project.name }}</option>
+                    }
+                  </optgroup>
+                }
+              </select>
+            </div>
+
+            @if (brokenReason(link); as reason) {
+              <p class="pq-links-broken" role="alert">This link is not used. {{ reason }}</p>
+            }
+            @for (reason of reasonsFor(index); track reason) {
+              <p class="pq-links-row-error" role="alert">{{ reason }}</p>
+            }
+          </li>
+        }
+      </ul>
+
+      <div class="pq-links-add">
+        <label class="pq-links-field">
+          <span>Link a project folder (the top folder of its Git project, as a full path)</span>
+          <input type="text" class="pq-links-new" list="pq-links-suggestions" spellcheck="false"
+            [value]="newFolder()" (input)="setNewFolder($any($event.target).value)" (keydown.enter)="addFolder()" />
+        </label>
+        <datalist id="pq-links-suggestions">
+          @for (folder of suggestedFolders(); track folder) {
+            <option [value]="folder"></option>
+          }
+        </datalist>
+        @if (newFolderNeedsFullPath()) {
+          <p class="pq-links-row-error pq-links-new-error" role="alert">Give the full path of the folder, starting with / or a drive letter such as C:\.</p>
+        }
+        <button type="button" class="pq-links-add-button" [disabled]="!canAdd()" (click)="addFolder()">Add folder</button>
+      </div>
+
+      @for (reason of rowProblems().whole; track reason) {
+        <p class="pq-links-row-error" role="alert">{{ reason }}</p>
+      }
+      @for (reason of listRefusals(); track reason) {
+        <p class="pq-links-row-error pq-links-list-refusal" role="alert">{{ reason }}</p>
+      }
+
+      <div class="pq-links-actions">
+        <button type="button" class="pq-links-save" [disabled]="!canSave()" (click)="save()">{{ saving() ? 'Saving…' : 'Save' }}</button>
+        <button type="button" class="pq-links-reset" [disabled]="!dirty() || saving()" (click)="resetToSaved()">Reset to saved</button>
+        @if (status(); as line) {
+          @if (line.kind === 'success') {
+            <span class="pq-links-status pq-links-status-ok" role="status">{{ line.text }}</span>
+          } @else {
+            <span class="pq-links-status pq-links-status-error" role="alert">{{ line.text }}</span>
+          }
+        } @else if (dirty()) {
+          <span class="pq-links-status" role="status">Not saved yet. Plan Queue uses the saved links until you press Save.</span>
+        }
+      </div>
+    }
+
+    @if (!usable() && status(); as line) {
+      <span class="pq-links-status pq-links-status-error" role="alert">{{ line.text }}</span>
+    }
+  }
+</div>

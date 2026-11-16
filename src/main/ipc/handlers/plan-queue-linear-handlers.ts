@@ -2,16 +2,23 @@
  * Plan Queue IPC handlers for the Linear connection: list the connectors at Linear's address, identify who one signs
  * in as, confirm and save the connection, forget it, and check it now. IPC callers are the operator on the Plan Queue
  * page; agents have no route here. A failure message is fixed words written by Harness, never Linear's own text.
+ *
+ * It also holds the folder-link channels: Linear's teams and projects for the editor, the saved links with their live
+ * state, and the one checked save. The links' settings key is written only by that save.
  */
 import { IPC_CHANNELS } from '@contracts/channels';
 import { validateIpcPayload } from '@contracts/schemas/common';
 import {
   PlanQueueLinearConfirmPayloadSchema,
   PlanQueueLinearIdentifyPayloadSchema,
+  PlanQueueLinearLinksSavePayloadSchema,
   PlanQueueLinearNoPayloadSchema,
 } from '@contracts/schemas/plan-queue';
 import { getSettingsManager } from '../../core/config/settings-manager';
 import { getLinearConnectionService } from '../../plan-queue/linear/linear-connection-singleton';
+import { isLinearCallError } from '../../plan-queue/linear/linear-errors';
+import { getLinearFolderLinkService } from '../../plan-queue/linear/linear-folder-links-singleton';
+import { listLinearProjectChoices } from '../../plan-queue/linear/linear-project-list';
 import type { WindowManager } from '../../window-manager';
 import { broadcastSettingsChanged } from './settings-broadcast';
 import { handle } from './plan-queue-ipc-helpers';
@@ -52,5 +59,36 @@ export function registerPlanQueueLinearHandlers(deps: { windowManager: Pick<Wind
   handle(IPC_CHANNELS.PLAN_QUEUE_LINEAR_CHECK, 'PLAN_QUEUE_LINEAR_CHECK_FAILED', (payload) => {
     validateIpcPayload(PlanQueueLinearNoPayloadSchema, payload ?? {}, 'PLAN_QUEUE_LINEAR_CHECK');
     return service.check();
+  });
+
+  const links = getLinearFolderLinkService();
+
+  handle(IPC_CHANNELS.PLAN_QUEUE_LINEAR_PROJECTS, 'PLAN_QUEUE_LINEAR_PROJECTS_FAILED', async (payload) => {
+    validateIpcPayload(PlanQueueLinearNoPayloadSchema, payload ?? {}, 'PLAN_QUEUE_LINEAR_PROJECTS');
+    try {
+      return await listLinearProjectChoices();
+    } catch (error) {
+      if (!isLinearCallError(error)) throw error;
+      // A failed call is checked again at once, as every Linear caller does, and only Harness's own words go back.
+      if (error.code !== 'not-set-up') service.noteCallFailure();
+      throw new Error(error.message);
+    }
+  });
+
+  handle(IPC_CHANNELS.PLAN_QUEUE_LINEAR_LINKS, 'PLAN_QUEUE_LINEAR_LINKS_FAILED', (payload) => {
+    validateIpcPayload(PlanQueueLinearNoPayloadSchema, payload ?? {}, 'PLAN_QUEUE_LINEAR_LINKS');
+    return links.readAll().then((readings) => ({ links: readings }));
+  });
+
+  handle(IPC_CHANNELS.PLAN_QUEUE_LINEAR_LINKS_SAVE, 'PLAN_QUEUE_LINEAR_LINKS_SAVE_FAILED', async (payload) => {
+    const validated = validateIpcPayload(PlanQueueLinearLinksSavePayloadSchema, payload, 'PLAN_QUEUE_LINEAR_LINKS_SAVE');
+    const result = await links.save(validated.links);
+    if (result.saved) {
+      broadcastSettingsChanged(deps.windowManager, {
+        key: 'planQueueLinearFolderLinks',
+        value: getSettingsManager().get('planQueueLinearFolderLinks') ?? [],
+      });
+    }
+    return result;
   });
 }

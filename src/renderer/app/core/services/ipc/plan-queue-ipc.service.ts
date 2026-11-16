@@ -9,7 +9,10 @@ import type {
   PlanQueueDiscoveryPreview,
   PlanQueueLinearConnectionSnapshot,
   PlanQueueLinearIdentity,
+  PlanQueueLinearLinksReading,
+  PlanQueueLinearLinksSaveResult,
   PlanQueueLinearListResult,
+  PlanQueueLinearProjectChoices,
   PlanQueueStateChangedEvent,
 } from '@contracts/schemas/plan-queue';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
@@ -113,6 +116,24 @@ export class PlanQueueIpcService {
   async linearCheck(): Promise<IpcResponse<PlanQueueLinearConnectionSnapshot>> {
     if (!this.api) return notInElectron();
     return (await this.api.planQueueLinearCheck()) as IpcResponse<PlanQueueLinearConnectionSnapshot>;
+  }
+
+  /** Linear's teams and their projects, names only, for the folder-link editor. */
+  async linearProjects(): Promise<IpcResponse<PlanQueueLinearProjectChoices>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueueLinearProjects()) as IpcResponse<PlanQueueLinearProjectChoices>;
+  }
+
+  /** The saved folder links, each re-checked against its folder on disk. */
+  async linearLinks(): Promise<IpcResponse<PlanQueueLinearLinksReading>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueueLinearLinks()) as IpcResponse<PlanQueueLinearLinksReading>;
+  }
+
+  /** Checks every row of the list in the main process and saves all of it or none of it. */
+  async linearLinksSave(links: readonly unknown[]): Promise<IpcResponse<PlanQueueLinearLinksSaveResult>> {
+    if (!this.api) return notInElectron();
+    return (await this.api.planQueueLinearLinksSave({ links: [...links] })) as IpcResponse<PlanQueueLinearLinksSaveResult>;
   }
 
   onStateChanged(cb: (event: PlanQueueStateChangedEvent) => void): () => void {

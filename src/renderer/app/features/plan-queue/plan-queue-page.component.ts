@@ -14,6 +14,7 @@ import { PlanQueueAccountRulesPanelComponent } from './components/plan-queue-acc
 import { PlanQueueFolderChecklistsPanelComponent } from './components/plan-queue-folder-checklists-panel.component';
 import { PlanQueueFolderListPanelComponent } from './components/plan-queue-folder-list-panel.component';
 import { PlanQueueLinearConnectionPanelComponent } from './components/plan-queue-linear-connection-panel.component';
+import { PlanQueueLinearFolderLinksPanelComponent } from './components/plan-queue-linear-folder-links-panel.component';
 import { PlanQueueHealthComponent } from './components/plan-queue-health.component';
 import { PlanQueueNeedJamesListComponent } from './components/plan-queue-need-james-list.component';
 import { PlanQueueParkedListComponent, type PlanQueueSetAsideAgentView } from './components/plan-queue-parked-list.component';
@@ -42,6 +43,7 @@ import { setAsideFolderOf } from '../../../../shared/utils/plan-queue-set-aside-
     PlanQueueFolderChecklistsPanelComponent,
     PlanQueueFolderListPanelComponent,
     PlanQueueLinearConnectionPanelComponent,
+    PlanQueueLinearFolderLinksPanelComponent,
     PlanQueueHealthComponent,
     PlanQueueNeedJamesListComponent,
     PlanQueueParkedListComponent,

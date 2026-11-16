@@ -769,6 +769,13 @@ export function coerceWritableSettingValue(
 }
 
 /**
+ * Settings whose value depends on a check the schema cannot make, so only the service that makes the check may write
+ * them. `planQueueLinearFolderLinks` is saved by `LinearFolderLinkService.checkAndSave`, which confirms each folder
+ * is a real repository on disk; the renderer's general write would store a well-formed link to any path.
+ */
+const CHECKED_CHANNEL_ONLY_SETTING_KEYS: ReadonlySet<string> = new Set(['planQueueLinearFolderLinks']);
+
+/**
  * Renderer (IPC) coercion. Policy tiers gate the MCP *tool* surface only —
  * the Settings UI is the trusted human surface and legitimately manages
  * secret-tier keys (enrollment-token regeneration, APNs key upload, TLS
@@ -782,6 +789,11 @@ export function coerceRendererSettingValue(
   value: unknown,
 ): { key: keyof AppSettings; value: AppSettings[keyof AppSettings] } {
   const typedKey = requireKnownSettingsToolKey(key);
+  if (CHECKED_CHANNEL_ONLY_SETTING_KEYS.has(typedKey)) {
+    throw new Error(
+      `Setting ${typedKey} is saved only through its own checked channel; the general settings write refuses it.`,
+    );
+  }
   const policy = getSettingsToolPolicy(typedKey);
   if (policy.tier === 'open') {
     return {

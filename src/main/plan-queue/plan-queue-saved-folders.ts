@@ -19,6 +19,25 @@ export function readSavedPlanQueueFolders(): readonly string[] {
 }
 
 /**
+ * The folders James has linked to Linear projects, read live from settings. A linked folder may start a run the way a
+ * listed one does. They are read here and never copied into `planQueueFolders`, and the two lists never feed each
+ * other: removing a link takes the folder off this list at once and leaves `planQueueFolders` as it was.
+ */
+export function readLinkedPlanQueueFolders(): readonly string[] {
+  return (getSettingsManager().getAll().planQueueLinearFolderLinks ?? []).map((link) => link.folder);
+}
+
+/**
+ * True when `top` (what Git reported as the project's top folder) is where `asked` really is. Git reports the real
+ * path, so a folder reached through a link is compared by where it really is. Shared with the Linear folder links, so
+ * a linked folder is judged the way a listed one is.
+ */
+export async function isProjectTopFolder(asked: string, top: string): Promise<boolean> {
+  const real = await realpath(asked).catch(() => asked);
+  return normalizeChecklistFolder(top) === normalizeChecklistFolder(real);
+}
+
+/**
  * The folder a session asked to start a run in, once it is allowed: a full path that is on the saved list and is the
  * top folder of its Git project. Anything else throws an error whose message says why, in plain words, for the session
  * to pass on. Checked in this order, so an unlisted folder is refused without looking at the disk.
@@ -40,9 +59,7 @@ export async function resolveListedWorkspace(
       + 'Leave the workspace out to start in this session\'s own folder.');
   }
   const top = await topFolderOf(asked);
-  // Git reports the real path, so a folder reached through a link is compared by where it really is.
-  const real = await realpath(asked).catch(() => asked);
-  if (normalizeChecklistFolder(top) !== normalizeChecklistFolder(real)) {
+  if (!(await isProjectTopFolder(asked, top))) {
     throw new Error(`${asked} is a folder inside the project at ${top}. Give the project's top folder as the workspace, and ask James to list that one.`);
   }
   return top;

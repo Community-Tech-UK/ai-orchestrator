@@ -189,8 +189,8 @@
   <section class="pq-section pq-section-folder-list" aria-labelledby="pq-folder-list-heading">
     <h2 id="pq-folder-list-heading">Folders a session may start a run in</h2>
     <p class="pq-purpose">
-      A session can ask Plan Queue to start a run in another project folder only if that folder is on this list.
-      Add a folder here, or ask a session to add it for you.
+      A session can ask Plan Queue to start a run in another project folder only if that folder is on this list or is linked to a Linear project (see Linear, below).
+      Add a folder here, or ask a session to add it for you. Linked folders are kept on their own list and are not added to this one.
     </p>
     <app-plan-queue-folder-list-panel />
   </section>
@@ -201,6 +201,7 @@
       Plan Queue reaches Linear through a connector you have already signed in to. Only you can change these settings, here; a session cannot.
     </p>
     <app-plan-queue-linear-connection-panel />
+    <app-plan-queue-linear-folder-links-panel />
   </section>
 
   }

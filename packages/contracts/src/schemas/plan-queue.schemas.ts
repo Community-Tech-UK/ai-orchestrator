@@ -12,6 +12,7 @@ export * from './plan-queue-capability.schemas';
 // The saved per-folder checklist and the folder list, in their own file to keep this one under the size limit.
 export * from './plan-queue-folders.schemas';
 export * from './plan-queue-linear.schemas';
+export * from './plan-queue-linear-links.schemas';
 export * from './plan-queue-linear-connection.schemas';
 
 // -------------------------------------------------------------------------
@@ -589,7 +590,7 @@ export const PlanQueueStartArgsSchema = z.object({
   verifiers: z.array(PlanQueueRouteChoiceArgsSchema).max(10).optional(),
   /** Where a stuck document goes once; used only when James saved no step-up choice. */
   step_up: PlanQueueRouteChoiceArgsSchema.optional(),
-  /** Start the run in this project folder (an absolute path) instead of the session's own; only a folder on James's saved Plan Queue folder list. */
+  /** Start the run in this project folder (an absolute path) instead of the session's own; only a folder on James's saved Plan Queue folder list or linked by him to a Linear project. */
   workspace: z.string().min(1).max(4000).optional(),
 }).strict();
 

@@ -18,6 +18,10 @@ export const PLAN_QUEUE_CHANNELS = {
   PLAN_QUEUE_LINEAR_LIST: 'plan-queue:linear-list',
   /** Ask who a chosen connector signs in as. Saves nothing. */
   PLAN_QUEUE_LINEAR_IDENTIFY: 'plan-queue:linear-identify',
+  /** Linear's teams and their projects, names only, for the folder-link editor. */
+  PLAN_QUEUE_LINEAR_PROJECTS: 'plan-queue:linear-projects',
+  /** The saved project-to-folder links, each re-checked against its folder on disk. */
+  PLAN_QUEUE_LINEAR_LINKS: 'plan-queue:linear-links',
 
   // Commands (renderer → main)
   /** Start a run with a chosen session as its parent. */
@@ -35,6 +39,8 @@ export const PLAN_QUEUE_CHANNELS = {
   PLAN_QUEUE_LINEAR_FORGET: 'plan-queue:linear-forget',
   /** Check the saved connection now and return its state. */
   PLAN_QUEUE_LINEAR_CHECK: 'plan-queue:linear-check',
+  /** Check every row of the whole link list, then save all of it or none of it. */
+  PLAN_QUEUE_LINEAR_LINKS_SAVE: 'plan-queue:linear-links-save',
 
   // Events (main → renderer)
   /** A run or item changed; carries the run's full DTO. */

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,14 +9,15 @@ import { createPlanQueueToolDefinitions } from '../mcp/plan-queue-tools';
 import { PlanQueueCoordinator } from './plan-queue-coordinator';
 import { PLAN_QUEUE_EVIDENCE_EVENT_LIMIT } from './plan-queue-run-evidence';
 import { createPlanQueueToolOperations } from './plan-queue-tool-operations';
+import { readLinkedPlanQueueFolders } from './plan-queue-saved-folders';
 
-const saved = vi.hoisted(() => ({ folders: [] as string[] }));
+const saved = vi.hoisted(() => ({ folders: [] as string[], links: [] as { folder: string }[] }));
 const questionsDestination = vi.hoisted(() => ({ value: 'queue-page' }));
 vi.mock('../core/config/settings-manager', () => ({
   // The run summary's account-rules line reads these; none are set here. `planQueueFolders` is James's saved folder list.
   getSettingsManager: () => ({
     get: () => questionsDestination.value,
-    getAll: () => ({ planQueueAccountRules: { never: [], last: [] }, providerAccountProfiles: [], copilotAccountProfiles: [], planQueueFolders: saved.folders }),
+    getAll: () => ({ planQueueAccountRules: { never: [], last: [] }, providerAccountProfiles: [], copilotAccountProfiles: [], planQueueFolders: saved.folders, planQueueLinearFolderLinks: saved.links }),
   }),
 }));
 
@@ -224,7 +225,7 @@ it('passes a step-up choice through start and set-routing, and names it when Jam
 
 describe('plan_queue_start workspace (step 6.4)', () => {
   const folders: string[] = [];
-  afterEach(() => { saved.folders = []; for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true }); });
+  afterEach(() => { saved.folders = []; saved.links = []; for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true }); });
   const project = (): string => {
     const folder = realpathSync(mkdtempSync(join(tmpdir(), 'pq-workspace-')));
     folders.push(folder);
@@ -255,6 +256,46 @@ describe('plan_queue_start workspace (step 6.4)', () => {
     const startRun = vi.spyOn(coordinator, 'startRun').mockResolvedValue(emptyRun(folder));
     await createPlanQueueToolOperations(() => coordinator).start('caller', { kind: 'plans', workspace: folder });
     expect(startRun).toHaveBeenCalledWith(expect.objectContaining({ parentInstanceId: 'caller', workspaceCwd: folder }));
+  });
+
+  it('starts the run in a folder that is linked to a Linear project but not on the folder list, copying nothing between the two settings', async () => {
+    const coordinator = new PlanQueueCoordinator();
+    const folder = project();
+    saved.links = [{ folder }];
+    const startRun = vi.spyOn(coordinator, 'startRun').mockResolvedValue(emptyRun(folder));
+    await createPlanQueueToolOperations(() => coordinator).start('caller', { kind: 'plans', workspace: folder });
+    expect(startRun).toHaveBeenCalledWith(expect.objectContaining({ parentInstanceId: 'caller', workspaceCwd: folder }));
+    // The mocked settings have no way to write, so a copy into either list would have thrown; both are as they were.
+    expect(saved.folders).toEqual([]);
+    expect(saved.links).toEqual([{ folder }]);
+  });
+
+  it('still refuses a folder that is on neither list, even when other folders are listed and linked', async () => {
+    const coordinator = new PlanQueueCoordinator();
+    const startRun = vi.spyOn(coordinator, 'startRun');
+    saved.folders = ['/work/shop'];
+    saved.links = [{ folder: '/work/blog' }];
+    await expect(createPlanQueueToolOperations(() => coordinator).start('caller', { kind: 'plans', workspace: project() }))
+      .rejects.toThrow(/is not on James's Plan Queue folder list/);
+    expect(startRun).not.toHaveBeenCalled();
+  });
+
+  it('refuses a linked folder that has stopped being the top folder of a project', async () => {
+    const coordinator = new PlanQueueCoordinator();
+    const startRun = vi.spyOn(coordinator, 'startRun');
+    const folder = project();
+    saved.links = [{ folder: join(folder, 'packages') }];
+    mkdirSync(join(folder, 'packages'));
+    await expect(createPlanQueueToolOperations(() => coordinator).start('caller', { kind: 'plans', workspace: join(folder, 'packages') }))
+      .rejects.toThrow(/is a folder inside the project at/);
+    expect(startRun).not.toHaveBeenCalled();
+  });
+
+  it('reads the two settings apart: a listed folder is not a link, and a link is not a listed folder', () => {
+    saved.folders = ['/work/listed'];
+    saved.links = [{ folder: '/work/linked' }];
+    expect(readLinkedPlanQueueFolders()).toEqual(['/work/linked']);
+    expect(saved.folders).toEqual(['/work/listed']);
   });
 
   it('still starts in the session\'s own folder when no workspace is named, whatever is on the list', async () => {

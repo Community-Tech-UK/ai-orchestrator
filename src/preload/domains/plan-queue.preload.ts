@@ -6,6 +6,7 @@ import type {
   PlanQueueKind,
   PlanQueueLinearConfirmPayload,
   PlanQueueLinearIdentifyPayload,
+  PlanQueueLinearLinksSavePayload,
   PlanQueuePreviewPayload,
 } from '@contracts/schemas/plan-queue';
 
@@ -52,6 +53,13 @@ export function createPlanQueueDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     planQueueLinearForget: (): Promise<IpcResponse> => ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_FORGET, {}),
 
     planQueueLinearCheck: (): Promise<IpcResponse> => ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_CHECK, {}),
+
+    planQueueLinearProjects: (): Promise<IpcResponse> => ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_PROJECTS, {}),
+
+    planQueueLinearLinks: (): Promise<IpcResponse> => ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_LINKS, {}),
+
+    planQueueLinearLinksSave: (payload: PlanQueueLinearLinksSavePayload): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_LINKS_SAVE, payload),
 
     onPlanQueueStateChanged: (callback: (event: unknown) => void): (() => void) => {
       const listener = (_event: IpcRendererEvent, data: unknown) => callback(data);

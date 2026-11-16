@@ -11,7 +11,7 @@ import type { PlanQueueCoordinator } from './plan-queue-coordinator';
 import { describeAccountRules, copilotLabel, poolLabel } from './plan-queue-account-rules';
 import { describeRouting, routeChoiceFromArgs } from './plan-queue-routing';
 import { recordWorkerReport } from './plan-queue-worker-report';
-import { readSavedPlanQueueFolders, resolveListedWorkspace } from './plan-queue-saved-folders';
+import { readLinkedPlanQueueFolders, readSavedPlanQueueFolders, resolveListedWorkspace } from './plan-queue-saved-folders';
 import { describeRunEvidence, PLAN_QUEUE_EVIDENCE_EVENT_LIMIT } from './plan-queue-run-evidence';
 import { describeQueueHealth } from '../../shared/utils/plan-queue-health-lines';
 import { planQueueRunCanMove } from '../../shared/utils/plan-queue-run-movable';
@@ -97,8 +97,11 @@ export function createPlanQueueToolOperations(coordinator: () => PlanQueueCoordi
       return { authorised: true, message: 'Repairs may run in this repository under the existing restrictions. Original checks remain open until independently verified.' };
     },
     async start(callerInstanceId, args) {
-      // Checked before anything starts: a folder James has not listed is refused, in words the session can pass on.
-      const workspaceCwd = args.workspace === undefined ? undefined : await resolveListedWorkspace(args.workspace, readSavedPlanQueueFolders());
+      // Checked before anything starts: a folder James has neither listed nor linked to a Linear project is refused,
+      // in words the session can pass on. The two settings are read side by side; neither is copied into the other.
+      const workspaceCwd = args.workspace === undefined
+        ? undefined
+        : await resolveListedWorkspace(args.workspace, [...readSavedPlanQueueFolders(), ...readLinkedPlanQueueFolders()]);
       const { run, excluded, routingSetAside, accountNotes, checklistSetAside } = await coordinator().startRun({
         parentInstanceId: callerInstanceId,
         ...(workspaceCwd === undefined ? {} : { workspaceCwd }),

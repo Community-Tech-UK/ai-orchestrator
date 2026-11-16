@@ -145,3 +145,17 @@ describe('workspace secret settings policy', () => {
     }
   });
 });
+
+describe('Linear folder links settings control policy', () => {
+  const link = [{ folder: '/not/a/repository', privateProjectId: 'p1', clientProjectIds: [] }];
+
+  it('refuses the general renderer write, so only the checked save channel can store a link', () => {
+    expect(() => coerceRendererSettingValue('planQueueLinearFolderLinks', link))
+      .toThrow(/only through its own checked channel/);
+    expect(() => coerceRendererSettingValue('planQueueLinearFolderLinks', [])).toThrow(/checked channel/);
+  });
+
+  it('still lets the renderer write the neighbouring Plan Queue settings', () => {
+    expect(coerceRendererSettingValue('planQueueFolders', []).value).toEqual([]);
+  });
+});

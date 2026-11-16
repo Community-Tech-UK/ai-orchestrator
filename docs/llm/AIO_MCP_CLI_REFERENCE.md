@@ -115,7 +115,7 @@ It also exposes the Plan Queue tools: `plan_queue_start` (args: `kind` =
 `step_up` choice a document is handed to once when its worker fails every round — pass
 those only when James asks for specific providers or accounts; optional `workspace`, the full path
 of a project's top folder to start the run in instead of this session's own folder, accepted only
-for a folder on James's saved Plan Queue folder list (when he asks, add one with
+for a folder on James's saved Plan Queue folder list or one he linked to a Linear project (when he asks, add one with
 `$AIO_MCP settings set planQueueFolders`, keeping the folders already listed); his saved Plan
 Queue lists always win for any role he set; the gate lists default to this app's checklist, so pass the
 target repository's own commands or `[]` for any other repository), `plan_queue_status` (`run_id?`),
@@ -247,7 +247,7 @@ mapping and the providers allowed to see its ticket text. They are operator-only
 projects a folder takes tickets from, and which providers can read client ticket text. They are set from the Plan
 Queue page.
 `planQueueFolders` is the saved Plan Queue folder list: the only folders a session may
-name with the `workspace` argument of `plan_queue_start`; any other folder is refused with a plain
+name with the `workspace` argument of `plan_queue_start`, besides the folders James linked to Linear projects (`planQueueLinearFolderLinks`, read separately, never copied into this list); any other folder is refused with a plain
 reason. It was the 30th anchor until 2026-11-14, when the operator had it opened to this CLI. Add a
 folder only when James asks. `settings set` replaces the whole list, so run
 `$AIO_MCP settings get planQueueFolders` first and keep what is there. The safe `set_setting` tool
