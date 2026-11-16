@@ -202,12 +202,12 @@ describe('buildMessageContextMenuItems', () => {
       copyMessage: vi.fn(), forkFromHere: vi.fn(), askOtherModels, requestReview,
     });
     expect(items.map(entry => entry.label)).toEqual([
-      'Copy message', 'Fork from here', 'Ask other models about this reply', 'Get a second opinion',
+      'Copy message', 'Fork from here', 'Get a second opinion', 'Ask other models about this reply',
     ]);
-    items[2].action();
+    items[3].action();
     expect(askOtherModels).toHaveBeenCalledOnce();
     expect(requestReview).not.toHaveBeenCalled();
-    items[3].action();
+    items[2].action();
     expect(requestReview).toHaveBeenCalledOnce();
     expect(askOtherModels).toHaveBeenCalledOnce();
   });

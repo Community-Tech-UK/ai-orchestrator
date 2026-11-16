@@ -157,15 +157,15 @@ export function buildMessageContextMenuItems(
       action: actions.forkFromHere,
     });
   }
+  if (forkableMessage?.type === 'assistant' && content && actions.requestReview) {
+    items.push({ label: 'Get a second opinion', divider: true, action: actions.requestReview });
+  }
   if (forkableMessage?.type === 'assistant' && actions.askOtherModels) {
     items.push({
       id: 'ask-other-models',
       label: 'Ask other models about this reply',
       action: actions.askOtherModels,
     });
-  }
-  if (forkableMessage?.type === 'assistant' && content && actions.requestReview) {
-    items.push({ label: 'Get a second opinion', divider: true, action: actions.requestReview });
   }
   return items;
 }
