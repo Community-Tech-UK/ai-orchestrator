@@ -251,9 +251,9 @@ describe('LocalAiGuardPageComponent', () => {
     const card = fixture.nativeElement.querySelector('[data-target-id="target-1"]') as HTMLElement;
     expect(card.textContent).toContain('Studio worker');
     expect(card.textContent).not.toContain('Studio worker · Ollama');
-    expect(card.textContent).toContain('Worker endpoint');
+    expect(card.textContent).toContain('Other computer');
     expect(card.textContent).toContain('Currently advertised');
-    expect(card.textContent).toContain('Worker');
+    expect(card.textContent).toContain('Computer');
     expect(card.textContent).toContain('Endpoint');
     expect(card.textContent).toContain('Model');
     expect(card.textContent).toContain('Canary');
@@ -297,9 +297,9 @@ describe('LocalAiGuardPageComponent', () => {
 
     const card = fixture.nativeElement.querySelector('[data-target-id="target-1"]') as HTMLElement;
     expect(card.textContent).toContain('Studio worker');
-    expect(card.textContent).toContain('Worker endpoint');
+    expect(card.textContent).toContain('Other computer');
     expect(card.textContent).toContain('Not currently advertised');
-    expect(card.textContent).not.toContain('Coordinator endpoint');
+    expect(card.textContent).not.toContain('This computer');
   });
 
   it('retains authoritative coordinator identity without current discovery', async () => {
@@ -314,9 +314,9 @@ describe('LocalAiGuardPageComponent', () => {
 
     const card = fixture.nativeElement.querySelector('[data-target-id="target-1"]') as HTMLElement;
     expect(card.textContent).toContain('Coordinator Ollama');
-    expect(card.textContent).toContain('Coordinator endpoint');
+    expect(card.textContent).toContain('This computer');
     expect(card.textContent).toContain('Not currently advertised');
-    expect(card.textContent).not.toContain('Worker endpoint');
+    expect(card.textContent).not.toContain('Other computer');
   });
 
   it('labels a legacy unsupported guided result as unsupported', () => {

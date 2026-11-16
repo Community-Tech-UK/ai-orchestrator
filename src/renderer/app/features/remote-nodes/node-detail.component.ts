@@ -49,7 +49,7 @@ import { CLAUDE_CLI_FEATURE_FLOORS, COPILOT_CLI_MIN_VERSION } from '../../../../
             }
           </ul>
         } @else {
-          <p class="muted">No projects advertised by this node.</p>
+          <p class="muted">No projects advertised by this computer.</p>
         }
       </div>
 
@@ -81,7 +81,7 @@ import { CLAUDE_CLI_FEATURE_FLOORS, COPILOT_CLI_MIN_VERSION } from '../../../../
             }
           </div>
         } @else {
-          <p class="muted">No local model endpoints advertised by this node.</p>
+          <p class="muted">No local model endpoints advertised by this computer.</p>
         }
       </div>
 

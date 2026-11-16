@@ -42,14 +42,14 @@ export function describeWorkerStatus(
   if (connection && !connection.stale) {
     const view = describeConnection(connection, status.runAtSignIn);
     return externalWorker
-      ? { ...view, text: `A worker started outside Harness is running on this computer. ${view.text}` }
+      ? { ...view, text: `Sharing was started outside Harness and is running on this computer. ${view.text}` }
       : view;
   }
   if (connection?.stale) {
     return {
       text: externalWorker
-        ? 'A worker started outside Harness is running on this computer but has not reported for a few minutes. If your main Harness does not list this computer, restart this computer.'
-        : 'The worker is running but has not reported for a few minutes. If your main Harness does not list this computer, press Stop sharing and then Start sharing.',
+        ? 'Sharing was started outside Harness and is running on this computer, but has not reported for a few minutes. If your main Harness does not list this computer, restart this computer.'
+        : 'Sharing is running but has not reported for a few minutes. If your main Harness does not list this computer, press Stop sharing and then Start sharing.',
       warning: true,
     };
   }
@@ -61,7 +61,7 @@ export function describeWorkerStatus(
     : undefined;
   if (status.runAtSignIn) {
     if (failed) {
-      return { text: `The background worker could not start: ${failed}`, warning: true };
+      return { text: `Background sharing could not start: ${failed}`, warning: true };
     }
     if (context.signInStarting || status.runtime.state === 'running') {
       return { text: 'Starting background sharing...', warning: false };
@@ -72,10 +72,10 @@ export function describeWorkerStatus(
     };
   }
   if (failed) {
-    return { text: `The worker could not start: ${failed}`, warning: true };
+    return { text: `Sharing could not start: ${failed}`, warning: true };
   }
   if (status.runtime.state === 'running') {
-    return { text: 'Starting the worker...', warning: false };
+    return { text: 'Starting sharing...', warning: false };
   }
   if (status.runtime.error) {
     return { text: `${status.runtime.error} Start sharing to try again.`, warning: true };
@@ -134,11 +134,11 @@ export function describeConnection(
       };
     case 'failed':
       return {
-        text: `The worker could not start${connection.message ? `: ${connection.message}` : '.'}`,
+        text: `Sharing could not start${connection.message ? `: ${connection.message}` : '.'}`,
         warning: true,
       };
     case 'stopped':
-      return { text: 'The worker is stopped.', warning: true };
+      return { text: 'Sharing is stopped.', warning: true };
   }
 }
 

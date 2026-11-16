@@ -108,7 +108,7 @@ describe('CoordinatorPairingComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('Pairing approved. The worker can now register normally.');
   });
 
-  it('tells the user to start the worker, then says when it connects', async () => {
+  it('tells the user to start sharing, then says when it connects', async () => {
     connectedNodes.set([{ id: 'windows-pc', name: 'windows-pc' }]);
     const candidate = makeCandidate();
     const workerHello = {
@@ -132,7 +132,7 @@ describe('CoordinatorPairingComponent', () => {
 
     const text = (): string => fixture.nativeElement.textContent;
     expect(text()).toContain('Paired with Noah PC.');
-    expect(text()).toContain('Now press Start Worker on Noah PC.');
+    expect(text()).toContain('Now press Start sharing on Noah PC.');
     expect(text()).not.toContain('register normally');
 
     connectedNodes.set([
@@ -156,7 +156,7 @@ describe('CoordinatorPairingComponent', () => {
     await fixture.whenStable();
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).toContain('Now press Start Worker on the other computer.');
+    expect(fixture.nativeElement.textContent).toContain('Now press Start sharing on the other computer.');
     expect(fixture.nativeElement.textContent).not.toContain('is connected');
   });
 
@@ -170,7 +170,7 @@ describe('CoordinatorPairingComponent', () => {
     connectedNodes.set([{ id: 'windows-pc', name: 'windows-pc' }]);
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).toContain('Now press Start Worker on the other computer.');
+    expect(fixture.nativeElement.textContent).toContain('Now press Start sharing on the other computer.');
     expect(fixture.nativeElement.textContent).not.toContain('is connected');
   });
 
@@ -219,7 +219,7 @@ describe('CoordinatorPairingComponent', () => {
     connectedNodes.set([{ id: 'laptop', name: 'laptop' }]);
     fixture.detectChanges();
 
-    expect(fixture.nativeElement.textContent).toContain('Now press Start Worker on Noah PC.');
+    expect(fixture.nativeElement.textContent).toContain('Now press Start sharing on Noah PC.');
     expect(fixture.nativeElement.textContent).not.toContain('is connected');
   });
 
@@ -260,7 +260,7 @@ describe('CoordinatorPairingComponent', () => {
     }));
     await fixture.whenStable();
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Now press Start Worker on Noah PC.');
+    expect(fixture.nativeElement.textContent).toContain('Now press Start sharing on Noah PC.');
 
     connectedNodes.set([]);
     fixture.detectChanges();

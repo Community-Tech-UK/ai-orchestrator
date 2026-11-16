@@ -200,7 +200,7 @@ describe('WorkerModeRuntimeService', () => {
 
     expect(service.status()).toEqual({
       state: 'stopped',
-      error: 'The worker stopped unexpectedly (exit code 1).',
+      error: 'Sharing stopped unexpectedly (exit code 1).',
     });
   });
 
@@ -293,7 +293,7 @@ describe('readWorkerModePairing', () => {
 
   it('does not echo config contents in the parse error', () => {
     expect(() => readWorkerModePairing('/c.json', reader('{"nodeToken": placeholdervalue}')))
-      .toThrow(/^The worker config could not be read/);
+      .toThrow(/^This computer's pairing details could not be read/);
     expect(() => readWorkerModePairing('/c.json', reader('{"nodeToken": placeholdervalue}')))
       .not.toThrow(/placeholde|Unexpected token/);
   });

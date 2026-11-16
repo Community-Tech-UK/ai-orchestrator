@@ -16,7 +16,7 @@
     @if (store.discoveries().length === 0) {
       <div class="empty">
         <strong>No local endpoints discovered</strong>
-        <span>Connect a worker or start a supported local model endpoint, then refresh.</span>
+        <span>Connect another computer or start a supported local model endpoint, then refresh.</span>
       </div>
     } @else {
       <div class="discovery-list">
@@ -25,7 +25,7 @@
             <div>
               <span class="discovery-label">{{ endpoint.label }}</span>
               <span class="discovery-meta">
-                {{ endpoint.identity.location.type === 'worker' ? 'Worker' : 'Coordinator' }}
+                {{ endpoint.identity.location.type === 'worker' ? 'Other computer' : 'This computer' }}
                 · {{ endpoint.identity.provider === 'ollama' ? 'Ollama' : 'OpenAI-compatible' }}
                 · {{ endpoint.models.length }} model{{ endpoint.models.length === 1 ? '' : 's' }}
               </span>
@@ -60,7 +60,7 @@
         </li>
         <li [attr.data-state]="validationStepState()">
           <span class="step-number">2</span>
-          <div><strong>Test endpoint</strong><span>Prove the worker, service, model, and response.</span></div>
+          <div><strong>Test endpoint</strong><span>Prove the computer, service, model, and response.</span></div>
         </li>
         <li [attr.data-state]="canSave() ? 'current' : 'pending'">
           <span class="step-number">3</span>

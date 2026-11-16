@@ -23,7 +23,7 @@ export interface AndroidAutomationConfigDraft {
           [checked]="enabled()"
           (change)="enabled.set(!enabled())"
         />
-        <span>Enable Android automation on this node</span>
+        <span>Enable Android automation on this computer</span>
       </label>
 
       <div class="field-grid">
@@ -117,8 +117,8 @@ export interface AndroidAutomationConfigDraft {
 
       <p class="warning">
         Android automation leases one device per agent and injects mobile-mcp with
-        ANDROID_SERIAL locked to that lease. Enable it only on trusted worker
-        nodes where the Android SDK and emulator images are operator-managed.
+        ANDROID_SERIAL locked to that lease. Enable it only on trusted
+        computers where the Android SDK and emulator images are operator-managed.
       </p>
 
       <div class="actions">

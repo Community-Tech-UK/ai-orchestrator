@@ -45,10 +45,10 @@ interface SupervisionHealthData {
       </div>
 
       <div class="stats-bar">
-        <span class="stat">Nodes: {{ health()?.stats?.totalNodes ?? 0 }}</span>
+        <span class="stat">Computers: {{ health()?.stats?.totalNodes ?? 0 }}</span>
         <span class="stat">Running: {{ health()?.stats?.runningNodes ?? 0 }}</span>
         <span class="stat failed">Failed: {{ health()?.stats?.failedNodes ?? 0 }}</span>
-        <span class="stat">Workers: {{ health()?.stats?.activeWorkers ?? 0 }}</span>
+        <span class="stat">Working: {{ health()?.stats?.activeWorkers ?? 0 }}</span>
       </div>
 
       @if (errorMessage()) {

@@ -12,14 +12,14 @@ export const SUPERVISION_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Monitors active orchestration tree nodes, task health, and circuit-breaker states. The page refreshes automatically every few seconds.',
+      body: 'Monitors the computers in the orchestration tree, task health, and circuit-breaker states. The page refreshes automatically every few seconds.',
     },
     {
       kind: 'list',
       heading: 'What you see',
       items: [
-        'Totals: nodes, running, failed, and active workers.',
-        'A tree view of node hierarchy and relationships.',
+        'Totals: computers, running, failed, and working.',
+        'A tree view of how the computers relate.',
         'Circuit-breaker states (open, half-open, closed) with failure counts.',
         'A live event stream of supervision changes.',
       ],
@@ -29,7 +29,7 @@ export const SUPERVISION_HELP: HelpEntry = {
       heading: 'How to use it',
       items: [
         'Click Refresh to reload all data immediately.',
-        'Select a node in the tree, then Escalate to hand a failure upward.',
+        'Select a computer in the tree, then Escalate to hand a failure upward.',
         'Watch the live events panel for recent state changes.',
       ],
     },
@@ -37,7 +37,7 @@ export const SUPERVISION_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'warning',
       heading: 'Open breakers mean repeated failures',
-      body: 'An open circuit breaker indicates a node keeps failing. Check its logs and root cause before escalating manually.',
+      body: 'An open circuit breaker indicates a computer keeps failing. Check its logs and root cause before escalating manually.',
     },
   ],
 };
@@ -150,7 +150,7 @@ export const LOCAL_AI_HELP: HelpEntry = {
       kind: 'callout',
       variant: 'info',
       heading: 'What this does',
-      body: 'Shows whether your local models can complete real work across the worker, endpoint, model, and canary layers. Discovered endpoints remain neutral until you enrol them.',
+      body: 'Shows whether your local models can complete real work across the computer, endpoint, model, and canary layers. Discovered endpoints remain neutral until you enrol them.',
     },
     {
       kind: 'steps',

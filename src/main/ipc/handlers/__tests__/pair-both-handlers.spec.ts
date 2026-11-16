@@ -591,7 +591,7 @@ describe('pair-both IPC handlers', () => {
     const response = await handlerFor('pair-both:worker:run-mode')({}, { mode: 'run-while-open' });
 
     expect(response.success).toBe(false);
-    expect(response.error?.message).toBe('The worker config could not be read. Pair this computer again.');
+    expect(response.error?.message).toBe('This computer\'s pairing details could not be read. Pair this computer again.');
     expect(JSON.stringify(response)).not.toContain('secret-pass-value');
   });
 

@@ -1,8 +1,8 @@
 /**
- * The collapsed quota strip: the provider's two-letter code and one figure per
- * account ("CL 45%·11%·4%"), so every account can be checked at a glance before
- * choosing where to send work. The strip scrolls when it is narrow; the
- * popover names each account, in the same order as the figures here.
+ * The collapsed quota strip: the provider's short name and its worst figure
+ * ("Claude 45%"). The popover names each account and gives every figure. Names
+ * come from `display-names.ts`, so the strip never uses two-letter codes (CU
+ * once meant Cursor here and Computer Use elsewhere).
  *
  * Pure functions, so the rules are testable without a component.
  */
@@ -11,6 +11,7 @@ import type {
   ProviderId,
   ProviderQuotaWindow,
 } from '../../../../../shared/types/provider-quota.types';
+import { accountFamilyName } from '../../../../../shared/display-names';
 import { quotaSummaryWindow, type QuotaAccountSection } from '../../../../../shared/utils/provider-quota-account-sections';
 
 export type QuotaChipBand = 'green' | 'yellow' | 'orange' | 'red';
@@ -24,20 +25,13 @@ export const BAND_COLORS: Record<QuotaChipBand, { fg: string; bg: string }> = {
 
 const STRIP_NEUTRAL_FG = '#d4d4d8';
 
-/** One account's figure in the strip. */
-export interface QuotaStripPart {
-  /** "43%", "43% ⚠" when that account is signed out, "Signed out", "–" with no figure, or the plan name. */
-  text: string;
-  fg: string;
-}
-
 export interface QuotaStripEntry {
   provider: ProviderId;
-  /** The provider's two-letter code ("CL"); the popover and tooltip give the full name. */
+  /** Short provider name ("Claude", "MiMo" for OpenCode's plan). */
   name: string;
-  /** One part per account, in the popover's account order. */
-  parts: QuotaStripPart[];
-  /** The colour of the worst account, used for the name. */
+  /** The worst account's figure: "43%", "43% ⚠" when it is signed out, "Signed out", or the plan name. */
+  text: string;
+  /** The colour of that figure. */
   fg: string;
 }
 
@@ -53,67 +47,42 @@ function stripEntryColor(percent: number): string {
 }
 
 /**
- * Two-letter codes that keep the strip short (James, 15 Nov 2026). OpenCode
- * is "OC" even though its quota is the MiMo plan's; the popover says MiMo.
- */
-const PROVIDER_CODES: Record<ProviderId, string> = {
-  claude: 'CL',
-  codex: 'CX',
-  copilot: 'CP',
-  cursor: 'CU',
-  opencode: 'OC',
-  gemini: 'GE',
-  antigravity: 'AG',
-  grok: 'GR',
-};
-
-/** Holds the place of an account that has no figure, so figures line up with the popover's accounts. */
-const NO_FIGURE = '–';
-
-/**
- * One entry for a provider with a part per account: its summary percentage,
- * a warning glyph when that account is signed out (its last-known figure still
- * shows), "Signed out" when it has no figure, or "–" for any other account
- * with no figure (its check failed, or it reports only a plan). When no account
- * has a figure or is signed out, the plan name of a signed-in account stands
- * in. Null means "nothing to show".
+ * One entry for a provider: the worst account's summary percentage, with a
+ * warning glyph when that account is signed out (its last-known figure still
+ * shows), or "Signed out" when it has no figure. A signed-out account counts as
+ * the worst. Accounts with no figure (their check failed, or they report only a
+ * plan) are skipped; when no account has a figure or is signed out, the plan
+ * name of a signed-in account stands in. Null means "nothing to show".
  */
 export function quotaStripEntry(
   provider: ProviderId,
   sections: readonly QuotaAccountSection[],
 ): QuotaStripEntry | null {
-  const name = PROVIDER_CODES[provider];
-  const parts: (QuotaStripPart & { severity: number })[] = [];
-  let hasFigure = false;
+  const name = accountFamilyName(provider);
+  let worst: { text: string; fg: string; severity: number } | null = null;
   for (const { snapshot } of sections) {
     // A signed-out account with last-known windows still shows them.
     const summary = snapshot.ok || (snapshot.needsReauth && snapshot.windows.length > 0)
       ? quotaSummaryWindow(snapshot)
       : null;
+    let candidate: { text: string; fg: string; severity: number } | null = null;
     if (summary) {
-      hasFigure = true;
       const percent = windowPercent(summary);
-      parts.push({
+      candidate = {
         text: `${Math.round(percent)}%${snapshot.needsReauth ? ' ⚠' : ''}`,
         // Signed out reads red even when the last-known figure is low.
         fg: snapshot.needsReauth ? BAND_COLORS.red.fg : stripEntryColor(percent),
         severity: snapshot.needsReauth ? 100 : percent,
-      });
+      };
     } else if (snapshot.needsReauth) {
-      hasFigure = true;
-      parts.push({ text: 'Signed out', fg: BAND_COLORS.red.fg, severity: 100 });
-    } else {
-      parts.push({ text: NO_FIGURE, fg: STRIP_NEUTRAL_FG, severity: -1 });
+      candidate = { text: 'Signed out', fg: BAND_COLORS.red.fg, severity: 100 };
     }
+    if (candidate && (!worst || candidate.severity > worst.severity)) worst = candidate;
   }
-  if (hasFigure) {
-    const worst = parts.reduce((a, b) => (b.severity > a.severity ? b : a));
-    return { provider, name, parts: parts.map(({ text, fg }) => ({ text, fg })), fg: worst.fg };
-  }
+  if (worst) return { provider, name, text: worst.text, fg: worst.fg };
   const withPlan = sections.find(({ snapshot }) => snapshot.ok && snapshot.plan);
   if (withPlan || sections.some(({ snapshot }) => snapshot.ok)) {
-    const text = withPlan?.snapshot.plan ?? 'ok';
-    return { provider, name, parts: [{ text, fg: STRIP_NEUTRAL_FG }], fg: STRIP_NEUTRAL_FG };
+    return { provider, name, text: withPlan?.snapshot.plan ?? 'ok', fg: STRIP_NEUTRAL_FG };
   }
   return null;
 }

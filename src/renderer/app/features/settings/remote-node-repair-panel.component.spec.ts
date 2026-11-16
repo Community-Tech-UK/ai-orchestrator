@@ -150,7 +150,7 @@ describe('RemoteNodeRepairPanelComponent', () => {
 
     expect(clipboard.copyText).toHaveBeenCalledWith(
       'powershell placeholder-command',
-      { label: 'remote worker repair command' },
+      { label: 'computer repair command' },
     );
   });
 

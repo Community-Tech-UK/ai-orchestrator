@@ -74,7 +74,7 @@ const SLOT_LABELS: Record<AuxiliaryLlmSlot, string> = {
         <span class="state-pill">{{ stateLabel(status().state) }}</span>
       </header>
 
-      <ol class="evidence-rail" aria-label="Worker to canary health evidence">
+      <ol class="evidence-rail" aria-label="Computer to canary health evidence">
         @for (stage of stages(); track stage.id) {
           <li [attr.data-layer]="stage.id" [attr.data-state]="stageState(stage.result)">
             <span class="rail-node" aria-hidden="true"></span>
@@ -381,7 +381,7 @@ export class LocalAiTargetCardComponent {
   protected readonly retirementError = signal(false);
   protected readonly announcement = signal('');
   protected readonly stages = computed<EvidenceStage[]>(() => [
-    { id: 'worker', label: 'Worker', result: this.status().layers.worker },
+    { id: 'worker', label: 'Computer', result: this.status().layers.worker },
     { id: 'endpoint', label: 'Endpoint', result: this.status().layers.endpoint },
     { id: 'model', label: 'Model', result: this.status().layers.model },
     { id: 'canary', label: 'Canary', result: this.status().layers.inference },
@@ -432,8 +432,8 @@ export class LocalAiTargetCardComponent {
     const location = this.targetConfig()?.location;
     if (!location) return 'Endpoint location unavailable';
     return location.type === 'worker'
-      ? 'Worker endpoint'
-      : 'Coordinator endpoint';
+      ? 'Other computer'
+      : 'This computer';
   }
 
   protected advertisementLabel(): string {

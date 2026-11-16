@@ -133,21 +133,21 @@ export class PairBothIpcService {
   ): Promise<PairBothWorkerConfigSummary['runtime']> {
     return await this.invoke<PairBothWorkerConfigSummary['runtime']>(
       () => this.api?.pairBothWorkerRunMode(mode, options),
-      'Failed to start worker',
+      'Failed to start sharing',
     ) ?? { state: 'stopped' };
   }
 
   async stopWorker(): Promise<PairBothWorkerConfigSummary['runtime']> {
     return await this.invoke<PairBothWorkerConfigSummary['runtime']>(
       () => this.api?.pairBothWorkerStop(),
-      'Failed to stop worker',
+      'Failed to stop sharing',
     ) ?? { state: 'stopped' };
   }
 
   async unpairWorker(): Promise<PairBothWorkerConfigSummary['runtime']> {
     return await this.invoke<PairBothWorkerConfigSummary['runtime']>(
       () => this.api?.pairBothWorkerUnpair(),
-      'Failed to unpair worker',
+      'Failed to unpair this computer',
     ) ?? { state: 'stopped' };
   }
 
@@ -155,7 +155,7 @@ export class PairBothIpcService {
   async getWorkerStatus(): Promise<WorkerModeStatus | null> {
     return await this.invoke<WorkerModeStatus>(
       () => this.api?.pairBothWorkerStatus(),
-      'Failed to read worker status',
+      'Failed to read sharing status',
     );
   }
 

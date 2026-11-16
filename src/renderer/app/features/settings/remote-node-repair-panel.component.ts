@@ -86,7 +86,7 @@ import {
             }
 
             @if (diagnostic.recommendedAction === 'configure_tls') {
-              <p class="repair-hint warning">Repair command generation is blocked until the coordinator exposes a worker-reachable non-mTLS endpoint or the worker has separate TLS trust/client-certificate configuration.</p>
+              <p class="repair-hint warning">Repair command generation is blocked until the coordinator exposes an endpoint the other computer can reach without client certificates, or the other computer has separate TLS trust/client-certificate configuration.</p>
             }
 
             @if (diagnostic.availableActions.includes('check_service_status')) {
@@ -312,7 +312,7 @@ export class RemoteNodeRepairPanelComponent implements OnChanges {
   }
 
   protected async copyRepairCommand(command: string): Promise<void> {
-    const result = await this.clipboard.copyText(command, { label: 'remote worker repair command' });
+    const result = await this.clipboard.copyText(command, { label: 'computer repair command' });
     if (!result.ok) {
       this.error.set(result.reason);
     }

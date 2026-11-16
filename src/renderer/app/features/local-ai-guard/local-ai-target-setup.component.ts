@@ -178,7 +178,7 @@ export class LocalAiTargetSetupComponent {
     const resultFor = (layer: LocalAiHealthLayer) =>
       results.find((result) => result.layer === layer);
     return [
-      { id: 'worker', label: 'Worker', result: resultFor('worker') },
+      { id: 'worker', label: 'Computer', result: resultFor('worker') },
       { id: 'endpoint', label: 'Endpoint', result: resultFor('endpoint') },
       { id: 'model', label: 'Model', result: resultFor('model') },
       { id: 'canary', label: 'Test response', result: resultFor('inference') },
@@ -612,7 +612,7 @@ export class LocalAiTargetSetupComponent {
 
   private validationLayerLabel(layer: LocalAiHealthLayer): string {
     switch (layer) {
-      case 'worker': return 'Worker connection';
+      case 'worker': return 'Computer connection';
       case 'endpoint': return 'Local model service';
       case 'model': return 'Model check';
       case 'inference': return 'Test response';

@@ -42,8 +42,8 @@ type CoordinatorPairingUiState =
         <div>
           <h4 id="pair-both-title">Pair Another Computer</h4>
           <p class="hint">
-            Open Harness on the other computer and choose worker mode. Windows may ask whether
-            Harness can accept private network connections; allow private networks so the worker can pair.
+            Open Harness on the other computer and choose "Let this computer help another Harness". Windows may ask whether
+            Harness can accept private network connections; allow private networks so the other computer can pair.
           </p>
         </div>
         @if (uiState() === 'idle' || uiState() === 'completed' || uiState() === 'error') {
@@ -63,7 +63,7 @@ type CoordinatorPairingUiState =
 
       @if (uiState() === 'waiting' && active(); as activePairing) {
         <div class="pair-notice">
-          <strong>Waiting for a worker...</strong>
+          <strong>Waiting for the other computer...</strong>
           <span>Pairing expires {{ formatExpiry(activePairing.state.expiresAt) }}.</span>
         </div>
         <div class="invitation-box">
@@ -77,11 +77,11 @@ type CoordinatorPairingUiState =
 
       @if (uiState() === 'confirming' && session(); as sessionState) {
         <div class="confirm-box">
-          <span class="hint">{{ sessionState.workerHello?.machineName ?? 'Worker' }} wants to pair</span>
+          <span class="hint">{{ sessionState.workerHello?.machineName ?? 'The other computer' }} wants to pair</span>
           <strong class="pair-code">{{ sessionState.shortCode }}</strong>
           <div class="button-row">
             <button class="btn btn-primary" type="button" (click)="approve(sessionState.sessionId)">
-              Approve {{ sessionState.workerHello?.machineName ?? 'Worker' }}
+              Approve {{ sessionState.workerHello?.machineName ?? 'the other computer' }}
             </button>
             <button class="btn btn-secondary" type="button" (click)="reject(sessionState.sessionId)">Reject</button>
           </div>
@@ -90,8 +90,8 @@ type CoordinatorPairingUiState =
 
       @if (uiState() === 'approved-waiting' && session(); as sessionState) {
         <div class="pair-notice">
-          <strong>Approved {{ sessionState.workerHello?.machineName ?? 'worker' }}.</strong>
-          <span>Waiting for {{ sessionState.workerHello?.machineName ?? 'the worker' }} to confirm the code.</span>
+          <strong>Approved {{ sessionState.workerHello?.machineName ?? 'the other computer' }}.</strong>
+          <span>Waiting for {{ sessionState.workerHello?.machineName ?? 'the other computer' }} to confirm the code.</span>
         </div>
       }
 
@@ -103,7 +103,7 @@ type CoordinatorPairingUiState =
         } @else {
           <div class="pair-notice success" role="status">
             <strong>Paired with {{ pairedMachineName() }}.</strong>
-            <span>Now press Start Worker on {{ pairedMachineName() }}. This message will change once it connects.</span>
+            <span>Now press Start sharing on {{ pairedMachineName() }}. This message will change once it connects.</span>
           </div>
         }
       }

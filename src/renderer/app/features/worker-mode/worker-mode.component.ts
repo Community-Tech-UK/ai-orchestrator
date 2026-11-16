@@ -143,7 +143,7 @@ type WorkerModeState =
                 [checked]="runAtSignInChoice()"
                 (change)="runAtSignInChoice.set($any($event.target).checked)"
               />
-              Keep working when Harness is closed (recommended). The worker starts when you sign in
+              Keep working when Harness is closed (recommended). Sharing starts when you sign in
               to Windows and restarts itself if it stops.
             </label>
           } @else {
@@ -495,7 +495,7 @@ export class WorkerModeComponent {
         this.signInStartedAt.set(null);
         this.runChoiceReopened.set(false);
         this.notice.set(
-          'Windows would not let Harness set the worker up to keep working with Harness closed, so it is running while Harness is open instead. Harness will open when you sign in, so it keeps working after a restart.',
+          'Windows would not let Harness set up sharing to keep working with Harness closed, so it is running while Harness is open instead. Harness will open when you sign in, so it keeps working after a restart.',
         );
         this.state.set('connected');
       } catch (fallbackError) {

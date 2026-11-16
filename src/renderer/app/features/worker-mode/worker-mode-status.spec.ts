@@ -42,7 +42,7 @@ describe('worker mode status wording', () => {
   it('prefers the worker report over what Harness knows about the process', () => {
     const context = { connection: report('unreachable'), externalWorker: false, signInStarting: false, startedAt: null };
     expect(describeWorkerStatus(paired, context).text).toContain('Cannot reach your main Harness');
-    expect(describeWorkerStatus(paired, { ...context, connection: null }).text).toBe('Starting the worker...');
+    expect(describeWorkerStatus(paired, { ...context, connection: null }).text).toBe('Starting sharing...');
     expect(describeWorkerStatus(null, context).text).toBe('Checking this computer...');
   });
 
@@ -51,10 +51,10 @@ describe('worker mode status wording', () => {
     const running = { ...paired, connection: failed };
     const context = { connection: null, externalWorker: false, signInStarting: false, startedAt: 1_000 };
 
-    expect(describeWorkerStatus(running, context).text).toBe('The worker could not start: Bad address.');
+    expect(describeWorkerStatus(running, context).text).toBe('Sharing could not start: Bad address.');
     expect(describeWorkerStatus({ ...running, runAtSignIn: true }, { ...context, signInStarting: true }).text)
-      .toBe('The background worker could not start: Bad address.');
+      .toBe('Background sharing could not start: Bad address.');
     // A report from before the latest Start press is out of date.
-    expect(describeWorkerStatus(running, { ...context, startedAt: 3_000 }).text).toBe('Starting the worker...');
+    expect(describeWorkerStatus(running, { ...context, startedAt: 3_000 }).text).toBe('Starting sharing...');
   });
 });

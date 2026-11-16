@@ -296,7 +296,7 @@ describe('WorkerModeComponent', () => {
   it('does not claim the worker is working before it has reported in', async () => {
     const root = await renderWithStatus(status());
 
-    expect(root.textContent).toContain('Starting the worker...');
+    expect(root.textContent).toContain('Starting sharing...');
     expect(root.textContent).not.toContain('Working');
   });
 
@@ -340,7 +340,7 @@ describe('WorkerModeComponent', () => {
       connection: report('connected', { stale: true }),
     }));
 
-    expect(root.textContent).toContain('A worker started outside Harness is running on this computer but has not reported');
+    expect(root.textContent).toContain('Sharing was started outside Harness and is running on this computer, but has not reported');
     expect(root.textContent).not.toContain('press Stop sharing');
     expect(buttonWithText(root, 'Start sharing')).toBeUndefined();
     expect(buttonWithText(root, 'Stop sharing')).toBeUndefined();
@@ -352,26 +352,26 @@ describe('WorkerModeComponent', () => {
       connection: report('connected'),
     }));
 
-    expect(root.textContent).toContain('A worker started outside Harness is running on this computer. Working.');
+    expect(root.textContent).toContain('Sharing was started outside Harness and is running on this computer. Working.');
     expect(buttonWithText(root, 'Start sharing')).toBeUndefined();
     expect(buttonWithText(root, 'Stop sharing')).toBeUndefined();
   });
 
   it('shows why the worker could not start', async () => {
     const root = await renderWithStatus(status({
-      runtime: { state: 'stopped', error: 'The worker stopped unexpectedly (exit code 1).' },
+      runtime: { state: 'stopped', error: 'Sharing stopped unexpectedly (exit code 1).' },
       connection: report('failed', { alive: false, message: 'This computer has no address for the main Harness. Pair it again.' }),
     }));
 
-    expect(root.textContent).toContain('The worker could not start: This computer has no address for the main Harness. Pair it again.');
+    expect(root.textContent).toContain('Sharing could not start: This computer has no address for the main Harness. Pair it again.');
   });
 
   it('offers Start sharing when the paired worker is stopped, and starts it', async () => {
     const root = await renderWithStatus(status({
-      runtime: { state: 'stopped', error: 'The worker stopped unexpectedly (exit code 1).' },
+      runtime: { state: 'stopped', error: 'Sharing stopped unexpectedly (exit code 1).' },
     }));
 
-    expect(root.textContent).toContain('The worker stopped unexpectedly (exit code 1). Start sharing to try again.');
+    expect(root.textContent).toContain('Sharing stopped unexpectedly (exit code 1). Start sharing to try again.');
     pairBoth.getWorkerStatus.mockResolvedValue(status());
     buttonWithText(root, 'Start sharing')?.click();
     await fixture.whenStable();
@@ -505,13 +505,13 @@ describe('WorkerModeComponent', () => {
   });
 
   it('re-checks the saved pairing on Try Again when the first check failed', async () => {
-    pairBoth.getWorkerStatus.mockRejectedValueOnce(new Error('Failed to read worker status'));
+    pairBoth.getWorkerStatus.mockRejectedValueOnce(new Error('Failed to read sharing status'));
     fixture = TestBed.createComponent(WorkerModeComponent);
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
-    expect(root.textContent).toContain('Failed to read worker status');
+    expect(root.textContent).toContain('Failed to read sharing status');
 
     pairBoth.getWorkerStatus.mockResolvedValue(status());
     buttonWithText(root, 'Try Again')?.click();
@@ -585,7 +585,7 @@ describe('WorkerModeComponent', () => {
 
       expect(pairBoth.runWorker).toHaveBeenNthCalledWith(1, 'sign-in-task', {});
       expect(pairBoth.runWorker).toHaveBeenNthCalledWith(2, 'run-while-open', { openAtLogin: true });
-      expect(root.textContent).toContain('Windows would not let Harness set the worker up to keep working with Harness closed, so it is running while Harness is open instead. Harness will open when you sign in');
+      expect(root.textContent).toContain('Windows would not let Harness set up sharing to keep working with Harness closed, so it is running while Harness is open instead. Harness will open when you sign in');
       // The raw scheduler text stays out of the page.
       expect(root.textContent).not.toContain('Windows task setup failed: access denied');
       expect(root.textContent).toContain('Paired with your main Harness');
@@ -600,7 +600,7 @@ describe('WorkerModeComponent', () => {
         connection: report('failed', { alive: false, message: 'This computer has no address for the main Harness. Pair it again.' }),
       }));
 
-      expect(root.textContent).toContain('The background worker could not start: This computer has no address for the main Harness. Pair it again.');
+      expect(root.textContent).toContain('Background sharing could not start: This computer has no address for the main Harness. Pair it again.');
     });
 
     it('falls back the same way when Start sharing is pressed on the paired page', async () => {
@@ -624,13 +624,13 @@ describe('WorkerModeComponent', () => {
       const root = await renderWindowsChoice();
       pairBoth.runWorker
         .mockRejectedValueOnce(new Error('Windows task setup failed: permission denied'))
-        .mockRejectedValueOnce(new Error('The worker could not open its network port.'));
+        .mockRejectedValueOnce(new Error('Sharing could not open its network port.'));
 
       buttonWithText(root, 'Start sharing')?.click();
       await fixture.whenStable();
       fixture.detectChanges();
 
-      expect(root.textContent).toContain('The worker could not open its network port.');
+      expect(root.textContent).toContain('Sharing could not open its network port.');
       expect(root.textContent).not.toContain('Try QR or paste pairing');
     });
 
@@ -638,13 +638,13 @@ describe('WorkerModeComponent', () => {
       const root = await renderWindowsChoice();
       pairBoth.runWorker
         .mockRejectedValueOnce(new Error('Windows task setup failed: access denied'))
-        .mockRejectedValueOnce(new Error('Worker runtime binary was not found.'));
+        .mockRejectedValueOnce(new Error('The sharing program was not found.'));
 
       buttonWithText(root, 'Start sharing')?.click();
       await fixture.whenStable();
       fixture.detectChanges();
 
-      expect(root.textContent).toContain('Worker runtime binary was not found.');
+      expect(root.textContent).toContain('The sharing program was not found.');
       expect(buttonWithText(root, 'Start sharing')).toBeDefined();
     });
 

@@ -30,7 +30,7 @@ export class NodeServicePanelComponent implements OnInit {
   stop(): void { void this.store.stopService(this.nodeId()); }
   async uninstall(): Promise<void> {
     const nodeId = this.nodeId();
-    if (await this.confirmService.confirm({ message: 'Uninstall the worker service on this node? The node will disconnect.', confirmLabel: 'Uninstall worker', danger: true })) {
+    if (await this.confirmService.confirm({ message: 'Uninstall the sharing service on this computer? It will disconnect.', confirmLabel: 'Uninstall', danger: true })) {
       void this.store.uninstallService(nodeId);
     }
   }

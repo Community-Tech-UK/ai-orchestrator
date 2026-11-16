@@ -22,7 +22,7 @@ const ACTION_LABELS: Record<LocalAiRepairAction, string> = {
   'recheck-layer': 'Recheck failed layer',
   'deep-check': 'Deep check',
   'validate-models': 'Validate models',
-  'reconnect-worker': 'Reconnect worker',
+  'reconnect-worker': 'Reconnect computer',
   'restart-ollama': 'Restart Ollama',
 };
 

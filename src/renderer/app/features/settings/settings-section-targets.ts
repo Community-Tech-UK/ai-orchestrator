@@ -1,3 +1,4 @@
+import { OTHER_COMPUTERS_TITLE } from '../../../../shared/display-names';
 import type { SettingsTab } from './settings-navigation';
 
 export interface SettingsSectionTarget {
@@ -20,7 +21,7 @@ export const SETTINGS_SECTION_TARGETS: readonly SettingsSectionTarget[] = [
   { tab: 'voice', anchor: 'speech', label: 'Voice', keywords: 'speech microphone stt whisper transcription' },
   { tab: 'provider-accounts', anchor: 'accounts', label: 'Provider accounts', keywords: 'claude codex mimo subscription login pool' },
   { tab: 'copilot-accounts', anchor: 'accounts', label: 'Copilot accounts', keywords: 'github routing repository seat account' },
-  { tab: 'remote-nodes', anchor: 'workers', label: 'Remote nodes', keywords: 'worker pair browser gpu remote computer order pause test machine checks windows pc' },
+  { tab: 'remote-nodes', anchor: 'workers', label: OTHER_COMPUTERS_TITLE, keywords: 'remote nodes worker pair browser gpu remote computer order pause test machine checks windows pc' },
   { tab: 'cli-health', anchor: 'updates', label: 'CLI health', keywords: 'version update install diagnose' },
   { tab: 'about', anchor: 'build', label: 'About', keywords: 'version build commit branch data folder migration' },
   { tab: 'doctor', anchor: 'diagnostics', label: 'Doctor', keywords: 'diagnostics troubleshoot startup health' },

@@ -474,7 +474,7 @@ async function startWorkerRuntimeForMode(
   } catch {
     // Fixed message: a JSON parse error quotes part of the file, which holds
     // the worker's credentials, and this message is shown on the page.
-    throw new Error('The worker config could not be read. Pair this computer again.');
+    throw new Error('This computer\'s pairing details could not be read. Pair this computer again.');
   }
   const workerMode = getSettingsManager().get('workerMode');
   if (mode === 'sign-in-task') {
@@ -651,7 +651,7 @@ function isLoopbackHost(host: string): boolean {
 function toGuidedServiceInstallMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   if (/elevat|administrator|permission|denied|privilege/i.test(message)) {
-    return 'Installing the background worker service needs administrator permission. Run Harness as administrator, or choose "Run while Harness is open" for this computer.';
+    return 'Installing the background sharing service needs administrator permission. Run Harness as administrator, or choose "Run while Harness is open" for this computer.';
   }
   return message;
 }

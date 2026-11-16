@@ -107,7 +107,7 @@ export class WorkerModeRuntimeService {
         // — including when another worker for this node already holds the
         // single-instance lock — and non-zero when it gave up on crashes.
         if (code !== 0) {
-          this.lastError = `The worker stopped unexpectedly (${code !== null ? `exit code ${code}` : `signal ${signal ?? 'unknown'}`}).`;
+          this.lastError = `Sharing stopped unexpectedly (${code !== null ? `exit code ${code}` : `signal ${signal ?? 'unknown'}`}).`;
         }
       }
     });
@@ -124,11 +124,11 @@ export class WorkerModeRuntimeService {
   async installService(options: WorkerModeServiceInstallOptions): Promise<WorkerModeRuntimeStatus> {
     const coordinatorUrl = options.config.coordinatorUrl ?? options.config.coordinatorUrls?.[0];
     if (!coordinatorUrl) {
-      throw new Error('Worker service install needs a coordinator URL from the paired worker config.');
+      throw new Error('Installing the sharing service needs the main Harness address from this computer\'s pairing.');
     }
     const token = options.config.authToken;
     if (!token) {
-      throw new Error('Worker service install needs the freshly paired worker credential.');
+      throw new Error('Installing the sharing service needs the credential from the pairing you just made.');
     }
 
     this.stop();
@@ -151,7 +151,7 @@ export class WorkerModeRuntimeService {
       },
     });
 
-    await waitForChildExit(child, 'Worker service installation failed');
+    await waitForChildExit(child, 'Installing the sharing service failed');
     this.activeCommand = resolved.command;
     this.lastError = undefined;
     return {
@@ -256,7 +256,7 @@ export function readWorkerModePairing(
   } catch {
     // Fixed message: JSON.parse errors quote a snippet of the file, which
     // holds the worker's credentials, and this message reaches logs and the UI.
-    throw new Error('The worker config could not be read. It may be mid-save; try again shortly.');
+    throw new Error('This computer\'s pairing details could not be read. They may be mid-save; try again shortly.');
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return unpaired;
@@ -343,7 +343,7 @@ function waitForChildExit(child: ChildProcessLike, fallbackMessage: string): Pro
 
 function toGuidedServiceInstallError(message: string): string {
   if (/elevat|administrator|permission|denied|privilege/i.test(message)) {
-    return 'Installing the background worker service needs administrator permission. Run Harness as administrator, or choose "Run while Harness is open" for this computer.';
+    return 'Installing the background sharing service needs administrator permission. Run Harness as administrator, or choose "Run while Harness is open" for this computer.';
   }
   return message;
 }
@@ -374,7 +374,7 @@ export function resolveWorkerModeRuntimeCommand(
   const command = candidates.find((candidate) => existsSync(candidate));
   if (!command) {
     throw new Error(
-      'Worker runtime binary was not found. Build worker-agent SEA assets or install the packaged Harness app.',
+      'The sharing program was not found. Build the worker-agent SEA assets or install the packaged Harness app.',
     );
   }
 
