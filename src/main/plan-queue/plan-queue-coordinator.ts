@@ -161,7 +161,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   private parents: PlanQueueParentTracker | null = null;
   private setAside: PlanQueueSetAsideAgents | null = null;
   private quietDepth = 0;
-  private readonly quietRuns = new Set<string>();
+  private readonly pendingRuns = new Set<string>();
+  private announcementScheduled = false;
   private readonly roles = new Map<string, PlanQueueRoleRecord>();
   private readonly answering = new Set<string>();
   private triage: PlanQueueTriage | null = null;
@@ -228,7 +229,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       getRun: (id) => this.getRun(id),
       setParent: (runId, parentInstanceId, parentHistoryThreadId) => {
         this.requireDeps().store.setRunParent(runId, parentInstanceId, parentHistoryThreadId);
-        this.announce({ runId });
+        this.announceRun(runId);
       },
       listItems: (id) => this.store.listItems(id),
       postNote: deps.postNote, questionsToParent: deps.questionsToParent,
@@ -252,7 +253,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
           if (run) this.parentMessenger?.onParentChanged(run);
         },
       },
-      announce: (runId) => this.announce({ runId }),
+      announce: (runId) => this.announceRun(runId),
     });
     deps.instances.on('instance:event', ({ event }) => { if (event.kind === 'created' || (event.kind === 'status_changed' && event.status === 'superseded')) this.parents?.followActiveRuns(); });
     this.triage = new PlanQueueTriage({
@@ -315,14 +316,16 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     this.parentMessenger?.shutdown();
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.pendingRuns.clear();
   }
   /** Tests only: wait for in-flight item operations, landings and scheduler passes. */
   async _whenSettledForTesting(): Promise<void> {
     for (;;) {
       await new Promise((resolve) => setTimeout(resolve, 1));
       await this.flow?.whenSettled();
-      if (!this.pumping) return;
+      if (!this.pumping) break;
     }
+    this.flushAnnouncements();
   }
   // ---------------------------------------------------------------------------
   // PlanQueueFlowHost
@@ -383,7 +386,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   save(item: PlanQueueItem): PlanQueueItem {
     const saved = { ...item, updatedAt: this.requireDeps().now() };
     this.requireDeps().store.upsertItem(saved);
-    this.announce({ runId: saved.runId, itemId: saved.id });
+    this.announceRun(saved.runId);
     return saved;
   }
   transition(item: PlanQueueItem, to: PlanQueueItemState, patch: Partial<PlanQueueItem> = {}): PlanQueueItem {
@@ -440,7 +443,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       isSetAsideInstance: id => this.setAside?.folderOf(id) !== undefined,
       selectVerifier: input => this.selectVerifier(input), applyRelaxation: run => this.applyRelaxation(run),
     });
-    this.announce({ runId: run.id });
+    this.announceRun(run.id);
     this.requestPump();
     return { run: this.getRunDto(run.id)!, ...details };
   }
@@ -569,7 +572,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
           getRun: id => this.require(this.parents).follow(this.getRun(id)),
           hasActiveWork: id => !!this.triage?.hasActiveWork(id) || this.store.listItems(id).some(item => flow.hasActiveWork(item.id)),
           hasOwnerWork: id => planQueueRunCanMove({ status: this.getRun(id).status, items: this.store.listItems(id) }),
-          setParent: (id, parentId, thread) => { this.store.setRunParent(id, parentId, thread); this.announce({ runId: id }); },
+          setParent: (id, parentId, thread) => { this.store.setRunParent(id, parentId, thread); this.announceRun(id); },
           onParentChanged: updated => this.require(this.parentMessenger).onParentChanged(updated),
           notifyParent: (updated, message) => this.notifyParent(updated, message),
         }),
@@ -578,7 +581,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
         getRun: (id) => this.getRun(id),
         setParent: (runId, parentInstanceId, parentHistoryThreadId) => {
           this.requireDeps().store.setRunParent(runId, parentInstanceId, parentHistoryThreadId);
-          this.announce({ runId });
+          this.announceRun(runId);
         }, items: this.store.listItems(run.id),
         notifyParent: (adopted, message) => this.notifyParent(adopted, message),
         onParentChanged: (adopted) => this.require(this.parentMessenger).onParentChanged(adopted),
@@ -694,7 +697,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       loadAverage: () => this.requireDeps().loadAverage(), followParent: run => this.require(this.parents).follow(run),
       isShuttingDown: () => this.tracker.isShuttingDown(), isControlling: id => this.runControl.isControlling(id),
       finishRun: (run, status) => this.finishRun(run, status), logItemError: (item, error) => this.logItemError(item, error),
-      announceRun: runId => this.announce({ runId }), queueFolderLimit: () => this.worktrees.queueFolderLimit(),
+      announceRun: runId => this.announceRun(runId), queueFolderLimit: () => this.worktrees.queueFolderLimit(),
     });
   }
   private async routeOutcome(instanceId: string, outcome: PlanQueueTurnOutcome): Promise<void> {
@@ -754,7 +757,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   }
   private saveRun(run: PlanQueueRun): PlanQueueRun {
     this.requireDeps().store.upsertRun(run);
-    this.announce({ runId: run.id });
+    this.announceRun(run.id);
     return run;
   }
   /**
@@ -831,21 +834,41 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     logger.error('Plan queue item step failed', error instanceof Error ? error : undefined, { itemId: item.id });
   }
 
-  private announce(event: PlanQueueStateChangedEvent): void {
-    if (this.quietDepth > 0) this.quietRuns.add(event.runId);
-    else this.emit('state-changed', event);
+  /**
+   * Tell listeners a run changed. Each announcement carries the whole run, built once, so changes made in the same turn
+   * of the event loop, or inside `quietly`, send one per run on the next turn instead of one per change.
+   */
+  announceRun(runId: string): void {
+    this.pendingRuns.add(runId);
+    this.scheduleAnnouncements();
   }
 
-  /** Each announcement carries the whole run, so a bulk change sends one per run when it ends. */
+  private scheduleAnnouncements(): void {
+    if (this.announcementScheduled || this.quietDepth > 0 || this.pendingRuns.size === 0) return;
+    this.announcementScheduled = true;
+    setImmediate(() => { this.announcementScheduled = false; this.flushAnnouncements(); });
+  }
+
+  private flushAnnouncements(): void {
+    if (this.quietDepth > 0 || !this.deps) return;
+    const runIds = [...this.pendingRuns];
+    this.pendingRuns.clear();
+    for (const runId of runIds) {
+      try {
+        const event: PlanQueueStateChangedEvent = { runId, run: this.getRunDto(runId) };
+        this.emit('state-changed', event);
+      } catch (error) {
+        logger.warn('Plan queue: a run change could not be announced', { runId, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  }
+
+  /** Holds announcements until the work ends, so a bulk change sends one per run. */
   async quietly<T>(work: () => Promise<T>): Promise<T> {
     this.quietDepth += 1;
     try { return await work(); } finally {
       this.quietDepth -= 1;
-      if (this.quietDepth === 0) {
-        const runIds = [...this.quietRuns];
-        this.quietRuns.clear();
-        for (const runId of runIds) this.announce({ runId });
-      }
+      this.scheduleAnnouncements();
     }
   }
 

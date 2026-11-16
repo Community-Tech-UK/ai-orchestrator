@@ -8,7 +8,7 @@ const logger = getLogger('PlanQueueSpend');
 export function attachPlanQueueSpendRecorder({ store, onRecorded, subscribe = subscribeCostAttribution }: {
   store: PlanQueueStore;
   subscribe?: typeof subscribeCostAttribution;
-  onRecorded?: (runId: string, itemId?: string) => void;
+  onRecorded?: (runId: string) => void;
 }): () => void {
   let warned = false;
   return subscribe((record) => {
@@ -27,7 +27,7 @@ export function attachPlanQueueSpendRecorder({ store, onRecorded, subscribe = su
         role, round, provider: record.provider ?? null,
         model: record.model ?? null, processed, output, costUsd: resolved.costUsd,
         costBasis: resolved.costUsd === null ? 'unknown' : exact ? 'exact' : 'estimated', createdAt: Date.now() });
-      onRecorded?.(runId, typeof itemId === 'string' ? itemId : undefined);
+      onRecorded?.(runId);
     } catch (error) {
       if (!warned) { warned = true; logger.warn('Could not record queue spend', { error: String(error) }); }
     }

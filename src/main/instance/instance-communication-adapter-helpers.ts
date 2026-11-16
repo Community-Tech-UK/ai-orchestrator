@@ -6,6 +6,7 @@ import { getErrorRecoveryManager } from '../core/error-recovery';
 import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import { classifyContextOverflow, isContextOverflowError } from '../context/ptl-retry';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
+import { isAcpPromptPermissionRejection } from '../cli/adapters/acp-prompt-errors';
 
 /**
  * LT-034: does this adapter's `used`/`percentage` mean context-window
@@ -88,7 +89,8 @@ export function isRecoverableStatelessExecTurnError(adapter: CliAdapter, error: 
 
 export function isRecoverableAcpPromptTurnError(errorMessage: string): boolean {
   return /^ACP session\/prompt request timed out after \d+ms(?: without a session\/update)? \(id=.+\)\./.test(errorMessage)
-    || errorMessage === 'ACP prompt turn was cancelled by the client.';
+    || errorMessage === 'ACP prompt turn was cancelled by the client.'
+    || isAcpPromptPermissionRejection(errorMessage);
 }
 
 /**

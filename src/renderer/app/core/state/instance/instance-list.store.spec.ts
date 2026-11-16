@@ -970,6 +970,33 @@ describe('InstanceListStore', () => {
     });
   });
 
+  it('restarts a provider without native resume through the resuming restart, never the fresh one', async () => {
+    // 16 Nov 2026: typing into an errored MiMo session restarted it through the
+    // fresh route, which archived the conversation and left the model with no task.
+    const instance = store.deserializeInstance({
+      id: 'instance-opencode',
+      displayName: 'MiMo session',
+      createdAt: 1,
+      historyThreadId: 'thread-opencode',
+      parentId: null,
+      childrenIds: [],
+      status: 'error',
+      provider: 'opencode',
+      contextUsage: { used: 0, total: 200000, percentage: 0 },
+      lastActivity: 2,
+      sessionId: 'session-opencode',
+      workingDirectory: '/tmp/project',
+      yoloMode: false,
+      outputBuffer: [],
+    });
+    stateService.addInstance(instance);
+
+    await expect(store.restartInstance(instance.id)).resolves.toBe(true);
+
+    expect(ipc.restartInstance).toHaveBeenCalledWith(instance.id);
+    expect(ipc.restartFreshInstance).not.toHaveBeenCalled();
+  });
+
   it('delegates fresh restart without mutating renderer state optimistically', async () => {
     const instance = store.deserializeInstance({
       id: 'instance-4',

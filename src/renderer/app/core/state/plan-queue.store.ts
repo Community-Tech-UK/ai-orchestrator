@@ -6,9 +6,10 @@ import type {
   PlanQueueItemDto,
   PlanQueueKind,
   PlanQueueRunDto,
+  PlanQueueStateChangedEvent,
 } from '@contracts/schemas/plan-queue';
 import type { IpcResponse } from '../services/ipc/electron-ipc.service';
-import { PlanQueueIpcService, type PlanQueueStateChangedPush } from '../services/ipc/plan-queue-ipc.service';
+import { PlanQueueIpcService } from '../services/ipc/plan-queue-ipc.service';
 import { planQueueIsDiscarded } from '../../../../shared/utils/plan-queue-discarded';
 
 /**
@@ -318,7 +319,7 @@ export class PlanQueueStore {
     return '';
   }
 
-  private applyStateChanged(event: PlanQueueStateChangedPush): void {
+  private applyStateChanged(event: PlanQueueStateChangedEvent): void {
     if (!event.run) {
       void this.load();
       return;

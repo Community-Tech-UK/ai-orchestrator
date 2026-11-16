@@ -19,7 +19,7 @@ vi.mock('../logging/logger', () => ({
 
 const T0 = Date.parse('2026-07-07T20:00:00Z');
 
-class FakeGrantStore implements Pick<BrowserGrantStore, 'listGrants' | 'createGrant' | 'revokeGrant'> {
+class FakeGrantStore implements Pick<BrowserGrantStore, 'listGrants' | 'listLiveCampaignGrants' | 'createGrant' | 'revokeGrant'> {
   grants: BrowserPermissionGrant[] = [];
   private counter = 0;
   now = T0;
@@ -45,6 +45,11 @@ class FakeGrantStore implements Pick<BrowserGrantStore, 'listGrants' | 'createGr
       }
       return true;
     });
+  }
+
+  listLiveCampaignGrants(): BrowserPermissionGrant[] {
+    return this.grants.filter((grant) => grant.requestedBy.startsWith(CAMPAIGN_GRANT_REQUESTED_BY_PREFIX)
+      && grant.decision === 'allow' && grant.expiresAt > this.now && !grant.revokedAt && !grant.consumedAt);
   }
 
   revokeGrant(grantId: string, reason?: string): BrowserPermissionGrant | null {
@@ -331,6 +336,29 @@ describe('BrowserCampaignRuntime.renewLeases', () => {
     runtime.renewLeases();
 
     expect(grantStore.grants[0]!.revokedAt).toBeDefined();
+  });
+
+  it('reads live leases once per pass however many finished campaigns the store holds', () => {
+    const { runtime, campaigns, grantStore, campaign, nowRef } = makeRuntime();
+    for (let index = 0; index < 50; index++) {
+      const finished = campaigns.create({ label: `Finished ${index}`, profileId: 'profile-1', allowedOrigins: ['https://example.com'],
+        allowedActionClasses: ['navigate'], budget: { maxActions: 1, maxSubmits: 0, maxNewAccounts: 0, maxUploads: 0, maxDurationMs: 1000 } });
+      runtime.claimLease({ campaignId: finished.id, instanceId: `old-${index}` });
+    }
+    runtime.claimLease({ campaignId: campaign.id, instanceId: 'instance-1' });
+    nowRef.now = T0 + CAMPAIGN_LEASE_MS - 5 * 60 * 1000;
+    grantStore.now = nowRef.now;
+    const lookups = vi.spyOn(grantStore, 'listGrants');
+    const leaseReads = vi.spyOn(grantStore, 'listLiveCampaignGrants');
+    const before = { count: grantStore.grants.length, newest: grantStore.grants[0]!.id };
+
+    runtime.renewLeases();
+
+    expect(leaseReads).toHaveBeenCalledTimes(1);
+    expect(lookups).not.toHaveBeenCalled();
+    expect(grantStore.grants).toHaveLength(before.count + 1);
+    expect(grantStore.grants[0]!.id).not.toBe(before.newest);
+    expect(grantStore.grants[0]).toMatchObject({ instanceId: 'instance-1', requestedBy: `${CAMPAIGN_GRANT_REQUESTED_BY_PREFIX}${campaign.id}` });
   });
 });
 

@@ -56,3 +56,13 @@ export const PLAN_QUEUE_RESERVED_MIGRATIONS = [
   { version: 48, name: '048_plan_queue_item_linear_ticket', purpose: 'Linear item columns (ticket, approved brief, held change, criteria snapshot, claimed_at, cursors, last status written)' },
   { version: 49, name: '049_plan_queue_linear_tables', purpose: 'plan_queue_source_outbox and the per-run Linear cursor' },
 ] as const;
+
+/**
+ * Migration 058: finds a run's check executions without reading every queue event. The checks summary on each queue
+ * change read all of them once per job in the run, which took seconds on a long history and froze the app.
+ */
+export const PLAN_QUEUE_CHECKLIST_EVENT_INDEX_MIGRATION = {
+  version: 58,
+  name: '058_plan_queue_checklist_event_index',
+  up: `CREATE INDEX IF NOT EXISTS idx_queue_events_checklist ON plan_queue_item_events(reason) WHERE reason = 'checklist-run';`,
+};

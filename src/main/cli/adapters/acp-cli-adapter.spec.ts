@@ -28,6 +28,7 @@ import {
 } from './acp-cli-adapter.test-helpers';
 import { normalizeAcpModelId } from './acp-cli-adapter';
 import { setAcpAttachmentStoreDirForTesting } from './acp-attachment-store';
+import { isRecoverableAcpPromptTurnError } from '../../instance/instance-communication-adapter-helpers';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -3503,6 +3504,36 @@ describe('AcpCliAdapter agent-exit rejection (plan 2026-09-26)', () => {
     expect(statusEvents).not.toContain('error');
     expect(outputs.filter((m) => m.type === 'error')).toHaveLength(0);
     expect(adapter.getStderrTail()).toContain('Exiting');
+  });
+
+  it('returns to idle when the agent fails the turn because a tool permission was refused', async () => {
+    // Incident 16 Nov 2026: Harness refused a repeated MiMo tool call (doom_loop),
+    // OpenCode failed the whole prompt with this text, and the session was marked
+    // broken and its process killed, although the agent and its conversation were fine.
+    const proc = createInitializedAgentHarness();
+    proc.onRequest('session/prompt', (message) => {
+      proc.respondError(message.id, -32603, 'Internal error: The user rejected permission to use this specific tool call.');
+    });
+
+    const adapter = new TestAcpCliAdapter(proc, {
+      command: process.execPath,
+      workingDirectory: '/tmp',
+      promptTimeoutMs: 60_000,
+    });
+    await adapter.spawn();
+
+    const statusEvents: string[] = [];
+    adapter.on('status', (status: string) => statusEvents.push(status));
+    const errorEvents: Error[] = [];
+    adapter.on('error', (err: Error) => errorEvents.push(err));
+
+    await adapter.sendInput('work');
+
+    expect(statusEvents).toEqual(['busy', 'idle']);
+    expect(errorEvents).toHaveLength(1);
+    expect(isRecoverableAcpPromptTurnError(errorEvents[0].message)).toBe(true);
+
+    proc.exit();
   });
 
   it('still surfaces non-exit turn failures as an error status and error event', async () => {

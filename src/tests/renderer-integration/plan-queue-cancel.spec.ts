@@ -4,9 +4,9 @@ import { provideRouter } from '@angular/router';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import type { PlanQueueRunDto, PlanQueueStateChangedEvent } from '@contracts/schemas/plan-queue';
 import { CopilotAccountIpcService } from '../../renderer/app/core/services/ipc/copilot-account-ipc.service';
-import { PlanQueueIpcService, type PlanQueueStateChangedPush } from '../../renderer/app/core/services/ipc/plan-queue-ipc.service';
+import { PlanQueueIpcService } from '../../renderer/app/core/services/ipc/plan-queue-ipc.service';
 import { ProviderAccountIpcService } from '../../renderer/app/core/services/ipc/provider-account-ipc.service';
 import { InstanceStore } from '../../renderer/app/core/state/instance.store';
 import { PlanQueueStore } from '../../renderer/app/core/state/plan-queue.store';
@@ -36,7 +36,7 @@ const run: PlanQueueRunDto = {
 const snapshot = (runs: PlanQueueRunDto[] = [run]) => ({ success: true, data: { runs, alerts: [] } });
 
 describe('Plan Queue cancellation across live page updates', () => {
-  let push: (event: PlanQueueStateChangedPush) => void;
+  let push: (event: PlanQueueStateChangedEvent) => void;
   let list: ReturnType<typeof vi.fn>;
   let control: ReturnType<typeof vi.fn>;
 

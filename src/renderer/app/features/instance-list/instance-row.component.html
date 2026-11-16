@@ -205,8 +205,8 @@
       <div class="instance-actions">
         <button
           class="action-btn restart"
-          [appTooltip]="restartTooltip()"
-          [attr.aria-label]="restartTooltip()"
+          [appTooltip]="restartLabel"
+          [attr.aria-label]="restartLabel"
           (click)="onRestart($event)"
           [disabled]="instance().status === 'initializing'"
         >

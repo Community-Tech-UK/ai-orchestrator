@@ -4,11 +4,11 @@
  */
 
 import type { SqliteDriver } from '../db/sqlite-driver';
-import { PLAN_QUEUE_MIGRATIONS } from '../plan-queue/plan-queue-migrations';
+import { PLAN_QUEUE_CHECKLIST_EVENT_INDEX_MIGRATION, PLAN_QUEUE_MIGRATIONS } from '../plan-queue/plan-queue-migrations';
 import { addPlanQueueSections } from '../plan-queue/plan-queue-section-migration';
 import { PLAN_QUEUE_CAPABILITY_MIGRATION } from '../plan-queue/plan-queue-capability-migration';
 
-export const LOOP_SCHEMA_VERSION = 57;
+export const LOOP_SCHEMA_VERSION = 58;
 
 export interface LoopMigration {
   version: number;
@@ -645,6 +645,7 @@ export const LOOP_MIGRATIONS: readonly LoopMigration[] = [
     up: (db) => { if (!db.prepare('PRAGMA table_info(plan_queue_items)').all<{ name: string }>().some(column => column.name === 'remote_json')) db.exec('ALTER TABLE plan_queue_items ADD COLUMN remote_json TEXT;'); },
   },
   PLAN_QUEUE_CAPABILITY_MIGRATION,
+  PLAN_QUEUE_CHECKLIST_EVENT_INDEX_MIGRATION,
 ];
 
 export function createLoopMigrationsTable(db: SqliteDriver): void {

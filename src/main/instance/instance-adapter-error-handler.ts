@@ -12,6 +12,7 @@ import { ErrorCategory } from '../../shared/types/error-recovery.types';
 import { emitRecoverySafeAdapterError } from './instance-communication-recovery-safety';
 import { isRecoverableStatelessExecTurnError, isRecoverableAcpPromptTurnError, isRecoveringStatus } from './instance-communication-adapter-helpers';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
+import { isAcpPromptPermissionRejection } from '../cli/adapters/acp-prompt-errors';
 import { getSessionContinuityManagerIfInitialized } from '../session/session-continuity';
 import { recoverySessionDiagnostic, redactRecoveryError } from './instance-recovery-redaction';
 import { generateId } from '../../shared/utils/id-generator';
@@ -173,7 +174,8 @@ export async function handleInstanceAdapterError(
       instanceId,
       adapter: adapter.getName(),
       ...textDiagnostic(safeErrorMessage),
-      recoverableKind: recoverableAcpPromptTurnError ? 'acp-prompt-timeout' : 'stateless-exec',
+      recoverableKind: isAcpPromptPermissionRejection(errorMessage) ? 'acp-permission-rejected'
+        : recoverableAcpPromptTurnError ? 'acp-prompt-timeout' : 'stateless-exec',
     });
     if (!isRecoveringStatus(instance.status)) {
       host.transitionInstanceStatus(instance, 'idle');

@@ -517,7 +517,8 @@
     "id": "df14aab4d37f322a",
     "owner": "src/renderer/app/features/instance-list/instance-row.component.ts",
     "text": "Restart with fresh context — the conversation so far is not carried over",
-    "why": "consequence"
+    "why": "consequence",
+    "retired": "Restart now resumes or replays the conversation for every provider (16 Nov 2026 MiMo incident), so the 'fresh context, not carried over' warning was false; the button says 'Restart and resume the conversation' for all sessions."
   },
   {
     "id": "e47df676c030faf9",

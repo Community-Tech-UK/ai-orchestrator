@@ -27,8 +27,7 @@ export function registerPlanQueueHandlers(deps: { windowManager: WindowManager }
   const coordinator = getPlanQueueCoordinator();
 
   coordinator.on('state-changed', (event: PlanQueueStateChangedEvent) => {
-    const run = coordinator.isInitialized() ? coordinator.getRunDto(event.runId) : null;
-    deps.windowManager.sendToRenderer(IPC_CHANNELS.PLAN_QUEUE_STATE_CHANGED, { ...event, run });
+    deps.windowManager.sendToRenderer(IPC_CHANNELS.PLAN_QUEUE_STATE_CHANGED, event);
   });
 
   handle(IPC_CHANNELS.PLAN_QUEUE_LIST, 'PLAN_QUEUE_LIST_FAILED', (payload) => {

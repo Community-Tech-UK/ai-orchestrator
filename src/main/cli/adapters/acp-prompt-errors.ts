@@ -24,6 +24,16 @@ export function isAcpPromptRequestTimeout(error: Error): boolean {
   return /^ACP session\/prompt request timed out after \d+ms(?: without a session\/update)? \(id=.+\)\./.test(error.message);
 }
 
+/**
+ * OpenCode fails the whole `session/prompt` when a tool permission is refused,
+ * whether Harness refused a repeated call (doom_loop) or the person denied the
+ * card. The agent process and its conversation are intact, so this ends one
+ * turn, not the session.
+ */
+export function isAcpPromptPermissionRejection(message: string): boolean {
+  return /^ACP session\/prompt failed: (?:Internal error: )?The user rejected permission to use this specific tool call\./.test(message);
+}
+
 export function isAcpPromptCancelledByClient(error: Error): boolean {
   return error.message === ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE;
 }

@@ -104,6 +104,7 @@ import { dispatchPauseCliRpc, isPauseCliRpcMethod } from './orchestrator-tools-r
 import { dispatchMicrosoft365CliRpc, isMicrosoft365CliRpcMethod } from './orchestrator-tools-rpc-microsoft365';
 import { dispatchCopilotAccountCliRpc, isCopilotAccountCliRpcMethod, type CopilotAccountCliOperations } from './orchestrator-tools-rpc-copilot-account';
 import { dispatchBrowserCredentialsCliRpc, isBrowserCredentialsCliRpcMethod } from './orchestrator-tools-rpc-browser-credentials';
+import { dispatchToolRevealRpc, isToolRevealRpcMethod, OrchestratorToolRevealStore } from './orchestrator-tools-rpc-tool-reveal';
 
 const logger = getLogger('OrchestratorToolsRpcServer');
 
@@ -244,6 +245,7 @@ export class OrchestratorToolsRpcServer {
   private readonly copilotAccountOperations: CopilotAccountCliOperations | null;
   private readonly loopOperations: LoopCliOperations | null;
   private readonly instanceCapabilities = new OrchestratorToolsRpcInstanceCapability();
+  private readonly toolReveals = new OrchestratorToolRevealStore();
   private readonly buckets = new Map<string, number[]>();
   private readonly toolFactory: NonNullable<OrchestratorToolsRpcServerOptions['toolFactory']>;
   /** True when callers provided their own toolFactory — usually tests that
@@ -370,6 +372,7 @@ export class OrchestratorToolsRpcServer {
         },
       });
     }
+    if (isToolRevealRpcMethod(request.method)) return dispatchToolRevealRpc(this.toolReveals, request.method, params.instanceId, params.payload);
     if (isPauseCliRpcMethod(request.method)) return dispatchPauseCliRpc(request.method, params.payload);
     if (isMicrosoft365CliRpcMethod(request.method)) return dispatchMicrosoft365CliRpc(request.method, params.instanceId, params.payload, abortSignal);
     const fileTransferSpec = FILE_TRANSFER_RPC_SPECS.find((spec) => spec.method === request.method);

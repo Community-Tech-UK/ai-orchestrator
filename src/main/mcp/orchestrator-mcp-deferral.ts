@@ -107,16 +107,18 @@ function describeMatch(tool: McpServerToolDefinition): Record<string, unknown> {
 
 export interface DeferredOrchestratorToolsOptions extends RemoteWorkerListing {
   onReveal: (names: string[]) => void;
+  /** Tools this session revealed before the forwarder (re)started; listed from the start. */
+  revealed?: readonly string[];
 }
 
 export function createDeferredOrchestratorTools(
   allTools: readonly McpServerToolDefinition[],
   options: DeferredOrchestratorToolsOptions,
 ): McpServerToolDefinition[] {
-  const coreNames = orchestratorCoreToolNames(options);
+  const listedNames = new Set([...orchestratorCoreToolNames(options), ...(options.revealed ?? [])]);
   const byName = new Map<string, McpServerToolDefinition>();
   const tools = allTools.map((tool) => {
-    const wrapped = coreNames.has(tool.name) ? tool : { ...tool, hidden: true };
+    const wrapped = listedNames.has(tool.name) ? tool : { ...tool, hidden: true };
     byName.set(wrapped.name, wrapped);
     return wrapped;
   });

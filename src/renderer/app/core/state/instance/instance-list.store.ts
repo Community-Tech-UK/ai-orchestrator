@@ -45,10 +45,6 @@ export type CreateInstanceWithMessageResult =
   | { ok: true; instanceId: string }
   | { ok: false; error: string };
 
-function supportsResumeRestart(provider: Instance['provider']): boolean {
-  return provider === 'claude' || provider === 'codex';
-}
-
 /** The reason a state snapshot was refused, as support would want it: "IPC_AUTH_FAILED: Missing or invalid auth token…". */
 function describeResyncFailure(error: { code?: string; message?: string } | undefined): string {
   return [error?.code, error?.message].filter(Boolean).join(': ') || 'The state snapshot did not include a session list.';
@@ -334,16 +330,11 @@ export class InstanceListStore {
   }
 
   /**
-   * Restart an instance
+   * Restart an instance. The main process keeps the conversation for every
+   * provider: native resume where the CLI supports it, otherwise a replayed
+   * transcript.
    */
   async restartInstance(instanceId: string): Promise<boolean> {
-    const instance = this.stateService.getInstance(instanceId);
-    if (instance && !supportsResumeRestart(instance.provider)) {
-      return this.handleRestartResponse(
-        await this.ipc.restartFreshInstance(instanceId),
-        'Failed to restart session'
-      );
-    }
     return this.handleRestartResponse(
       await this.ipc.restartInstance(instanceId),
       'Failed to restart session'

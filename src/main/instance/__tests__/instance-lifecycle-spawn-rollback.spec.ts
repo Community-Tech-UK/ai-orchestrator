@@ -1632,6 +1632,35 @@ describe('createInstance spawn transaction rollback', () => {
       expect(accountRouteCalls.at(-1)?.options['moveOffLimitedAccount']).toBe(true);
     });
 
+    it('starts a clean idle session when a provider without native resume has nothing to carry over', async () => {
+      // The app used to send these restarts to the fresh-restart route itself; now
+      // every restart comes here, so an empty session must restart, not fail.
+      const harness = makeHarness();
+      const instance = await codexSession(harness, false);
+
+      const outcome = await harness.manager.restartInstance(instance.id);
+
+      expect(outcome.success).toBe(true);
+      expect(instance.recoveryMethod).toBe('fresh');
+      expect(instance.status).toBe('idle');
+    });
+
+    it('keeps the conversation when a provider without native resume restarts', async () => {
+      const harness = makeHarness();
+      const instance = await codexSession(harness, false);
+      instance.outputBuffer.push(
+        { id: 'u1', type: 'user', content: 'finish the plans', timestamp: 1 },
+        { id: 'a1', type: 'assistant', content: 'resuming the paused runs', timestamp: 2 },
+      );
+
+      const outcome = await harness.manager.restartInstance(instance.id);
+
+      expect(outcome.success).toBe(true);
+      expect(instance.recoveryMethod).toBe('replay');
+      expect(instance.outputBuffer.map((message) => message.content))
+        .toEqual(expect.arrayContaining(['finish the plans', 'resuming the paused runs']));
+    });
+
     it('asks for the move on a fresh restart', async () => {
       const harness = makeHarness();
       const instance = await codexSession(harness, true);

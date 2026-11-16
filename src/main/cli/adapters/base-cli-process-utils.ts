@@ -12,10 +12,11 @@ const MAX_TREE_DEPTH = 8;
 const REMEMBER_MS = 60_000;
 const rememberedTrees = new Map<number, { pids: number[]; at: number }>();
 
-function childPids(pid: number): number[] {
+/** Children of any of these processes, from one `pgrep` call; each call blocks the main thread while it runs. */
+function childPids(parents: readonly number[]): number[] {
   // Stopping a session must never fail because the listing did: no listing means the group signal is all we can send.
   try {
-    const result = spawnSync('pgrep', ['-P', String(pid)], { timeout: 2000, encoding: 'utf8' });
+    const result = spawnSync('pgrep', ['-P', parents.join(',')], { timeout: 2000, encoding: 'utf8' });
     if (!result || result.status !== 0 || typeof result.stdout !== 'string') return [];
     return result.stdout.split('\n').map(line => Number(line.trim())).filter(value => Number.isInteger(value) && value > 1);
   } catch {
@@ -23,15 +24,14 @@ function childPids(pid: number): number[] {
   }
 }
 
+/** One listing per level of the tree, not one per process. */
 function collectDescendants(rootPid: number): number[] {
   const found: number[] = [];
   let frontier = [rootPid];
   for (let depth = 0; depth < MAX_TREE_DEPTH && frontier.length > 0 && found.length < MAX_TREE_PIDS; depth++) {
     const next: number[] = [];
-    for (const parent of frontier) {
-      for (const child of childPids(parent)) {
-        if (!found.includes(child) && child !== rootPid) { found.push(child); next.push(child); }
-      }
+    for (const child of childPids(frontier)) {
+      if (!found.includes(child) && child !== rootPid) { found.push(child); next.push(child); }
     }
     frontier = next;
   }

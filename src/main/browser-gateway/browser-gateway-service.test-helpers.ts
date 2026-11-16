@@ -239,6 +239,8 @@ export function makeService(overrides: {
   };
   const grantStore = {
     listGrants: vi.fn(() => grants),
+    listLiveCampaignGrants: vi.fn(() => grants.filter((grant) => grant.requestedBy.startsWith('campaign:')
+      && grant.decision === 'allow' && grant.expiresAt > Date.now() && !grant.revokedAt && !grant.consumedAt)),
     consumeGrant: vi.fn((grantId: string) => {
       const grant = grants.find((item) => item.id === grantId);
       if (!grant) {

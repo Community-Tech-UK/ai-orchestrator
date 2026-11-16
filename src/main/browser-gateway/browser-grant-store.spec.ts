@@ -55,6 +55,23 @@ describe('BrowserGrantStore', () => {
     );
   });
 
+  it('lists every live campaign lease and nothing else, newest first', () => {
+    const lease = (requestedBy: string, expiresAt = 61_000) => store.createGrant({
+      mode: 'autonomous', instanceId: 'instance-1', provider: 'copilot', profileId: 'profile-1',
+      allowedOrigins: [{ scheme: 'https', hostPattern: 'example.com', includeSubdomains: false }],
+      allowedActionClasses: ['navigate'], allowExternalNavigation: false, autonomous: true,
+      requestedBy, decidedBy: 'user', decision: 'allow', expiresAt,
+    });
+    const older = lease('campaign:one');
+    lease('user');
+    lease('campaign:expired', 1_000);
+    store.revokeGrant(lease('campaign:revoked').id);
+    vi.setSystemTime(2_000);
+    const newer = lease('campaign:two');
+
+    expect(store.listLiveCampaignGrants().map((grant) => grant.id)).toEqual([newer.id, older.id]);
+  });
+
   it('creates, lists, revokes, and consumes grants', () => {
     const grant = store.createGrant({
       mode: 'per_action',

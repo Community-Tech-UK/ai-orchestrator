@@ -87,6 +87,20 @@ describe('OrchestratorToolsRpcServer.handleRequest', () => {
     expect(result).toEqual({ echoed: { root: '/repo', concurrency: 4 } });
   });
 
+  it('remembers the tools a session revealed, for that session only', async () => {
+    const { server } = makeServer();
+    const request = (instanceId: string, method: string, payload: Record<string, unknown>) => server.handleRequest({
+      jsonrpc: '2.0', id: 40, method, params: { instanceId, payload },
+    });
+
+    await request(KNOWN_INSTANCE, 'orchestrator_tools.tool_reveal_record', { names: ['plan_queue_control'] });
+
+    await expect(request(KNOWN_INSTANCE, 'orchestrator_tools.tool_reveal_get', {}))
+      .resolves.toEqual({ revealedNames: ['plan_queue_control'] });
+    await expect(request('unknown-instance', 'orchestrator_tools.tool_reveal_get', {}))
+      .rejects.toThrow('unknown orchestrator-tools instance');
+  });
+
   it('issues a remote node pairing for the calling local session only, with a validated payload', async () => {
     const issueRemoteNodePairing = vi.fn(async () => ({
       command: 'aio-worker pair "ai-orchestrator://remote-node/pair?host=mac"',

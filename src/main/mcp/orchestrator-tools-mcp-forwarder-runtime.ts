@@ -3,12 +3,15 @@
  * tool-table module so that file stays under the 700-line hard cap.
  */
 
+import { getLogger } from '../logging/logger';
 import { runStdioMcpForwarder } from './mcp-stdio-forwarder';
 import {
   createDeferredOrchestratorTools,
   ORCHESTRATOR_TOOL_DEFERRAL_ENV,
   type RemoteWorkerListing,
 } from './orchestrator-mcp-deferral';
+import { TOOL_REVEAL_RPC_METHODS } from './orchestrator-tools-rpc-tool-reveal';
+import { restoreRevealedToolNames } from './tool-reveal-restore';
 import { createStableOrchestratorTools, ORCHESTRATOR_TOOL_STABLE_ENV } from './orchestrator-mcp-stable-tools';
 import {
   OrchestratorToolsRpcClient,
@@ -66,24 +69,51 @@ function connectedWorkers(roster: unknown): boolean | undefined {
   return states.includes(undefined) ? undefined : false;
 }
 
+const FORWARDER_LOGGER_NAME = 'OrchestratorToolsMcpForwarder';
+const REVEAL_RESTORE_CALL_TIMEOUT_MS = 2_000;
+/**
+ * One try, run beside the roster probe, so startup stays near 2 s. OpenCode
+ * gives an MCP server about 5 s to list its tools; a missed restore costs one
+ * more tool search, a missed startup costs every Harness tool.
+ */
+const REVEAL_RESTORE_ATTEMPTS = 1;
+
 export async function runOrchestratorToolsForwarder(
   client: OrchestratorToolsRpcClientLike = new OrchestratorToolsRpcClient(),
 ): Promise<void> {
   // The eager surface lists everything, so only the compact modes need the roster.
   const compact = process.env[ORCHESTRATOR_TOOL_STABLE_ENV] === '1' || process.env[ORCHESTRATOR_TOOL_DEFERRAL_ENV] === '1';
-  const remoteWorkersConnected = compact ? await probeRemoteWorkersConnected(client) : undefined;
+  const deferred = process.env[ORCHESTRATOR_TOOL_DEFERRAL_ENV] === '1'
+    && process.env['AI_ORCHESTRATOR_AUTOMATION_INVOCATION'] !== '1';
+  const [remoteWorkersConnected, restore] = await Promise.all([
+    compact ? probeRemoteWorkersConnected(client) : undefined,
+    deferred
+      ? restoreRevealedToolNames(
+        () => client.call(TOOL_REVEAL_RPC_METHODS.get, {}, { timeoutMs: REVEAL_RESTORE_CALL_TIMEOUT_MS }),
+        REVEAL_RESTORE_ATTEMPTS,
+      )
+      : undefined,
+  ]);
+  if (restore && !restore.restored) {
+    getLogger(FORWARDER_LOGGER_NAME).warn(
+      'Could not restore previously revealed orchestrator tools; they stay callable after a tool search',
+      { attempts: restore.attempts },
+    );
+  }
   await runStdioMcpForwarder({
-    loggerName: 'OrchestratorToolsMcpForwarder',
+    loggerName: FORWARDER_LOGGER_NAME,
     tools: (server) => resolveOrchestratorForwarderTools(client, (names) => {
       server.revealTools(names);
-    }, { remoteWorkersConnected }),
+      // Remembered by the parent so the next forwarder for this session lists them again.
+      void client.call(TOOL_REVEAL_RPC_METHODS.record, { names }).catch(() => undefined);
+    }, { remoteWorkersConnected, revealed: restore?.names }),
   });
 }
 
 export function resolveOrchestratorForwarderTools(
   client: OrchestratorToolsRpcClientLike,
   onReveal: (names: string[]) => void,
-  listing: RemoteWorkerListing = {},
+  options: RemoteWorkerListing & { revealed?: readonly string[] } = {},
 ) {
   const tools = createOrchestratorToolsForwarderTools(
     client,
@@ -91,10 +121,10 @@ export function resolveOrchestratorForwarderTools(
   );
   if (process.env['AI_ORCHESTRATOR_AUTOMATION_INVOCATION'] === '1') return tools.filter(tool => tool.name === 'automation_result');
   if (process.env[ORCHESTRATOR_TOOL_STABLE_ENV] === '1') {
-    return createStableOrchestratorTools(tools, listing);
+    return createStableOrchestratorTools(tools, options);
   }
   if (process.env[ORCHESTRATOR_TOOL_DEFERRAL_ENV] === '1') {
-    return createDeferredOrchestratorTools(tools, { onReveal, ...listing });
+    return createDeferredOrchestratorTools(tools, { onReveal, ...options });
   }
   return tools;
 }

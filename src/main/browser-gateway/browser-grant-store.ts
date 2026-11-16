@@ -162,6 +162,16 @@ export class BrowserGrantStore {
       .map((row) => this.map(row));
   }
 
+  /** Every live campaign lease (`requestedBy: 'campaign:<id>'`), newest first, with no page limit. */
+  listLiveCampaignGrants(): BrowserPermissionGrant[] {
+    return this.db.prepare(`
+      SELECT * FROM browser_permission_grants
+      WHERE requested_by LIKE 'campaign:%' AND decision = 'allow' AND expires_at > ?
+        AND revoked_at IS NULL AND consumed_at IS NULL
+      ORDER BY created_at DESC, id DESC
+    `).all<BrowserGrantRow>(Date.now()).map((row) => this.map(row));
+  }
+
   revokeGrant(grantId: string, reason?: string): BrowserPermissionGrant | null {
     this.db
       .prepare(

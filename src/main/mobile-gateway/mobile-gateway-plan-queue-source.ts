@@ -1,4 +1,4 @@
-import type { PlanQueueItemDto, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
+import type { PlanQueueItemDto, PlanQueueRunDto, PlanQueueStateChangedEvent } from '@contracts/schemas/plan-queue';
 import { getPlanQueueCoordinator } from '../plan-queue/plan-queue-coordinator';
 import type { MobilePlanQueueItemDto, MobilePlanQueueRunDto } from '../../shared/types/mobile-gateway.types';
 import type { GatewayPlanQueueSource } from './mobile-gateway-plan-queue-handlers';
@@ -53,10 +53,10 @@ export function createLivePlanQueueSource(): GatewayPlanQueueSource {
     diffstat(itemId) {
       return coordinator.diffstat(itemId);
     },
+    // Kept even with no phone connected: the item states it tracks decide the "needs an answer" push notifications.
     subscribe(listener) {
-      const onChange = (event: { runId: string }) => {
-        const run = coordinator.isInitialized() ? coordinator.getRunDto(event.runId) : null;
-        listener(event.runId, run ? projectPlanQueueRun(run) : null);
+      const onChange = (event: PlanQueueStateChangedEvent) => {
+        listener(event.runId, event.run ? projectPlanQueueRun(event.run) : null);
       };
       coordinator.on('state-changed', onChange);
       return () => coordinator.removeListener('state-changed', onChange);

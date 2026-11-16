@@ -63,13 +63,21 @@ describe('killProcessGroup', () => {
     });
 
     describe('descendants outside the process group (LT-1093)', () => {
-      /** pgrep -P output keyed by parent pid; anything else has no children. */
+      /** pgrep -P output keyed by parent pid, for a comma-separated parent list as the real pgrep takes. */
       function childrenOf(table: Record<number, number[]>): void {
         spawnSyncMock.mockImplementation((_cmd: string, args: string[]) => {
-          const kids = table[Number(args[1])] ?? [];
+          const kids = args[1]!.split(',').flatMap(parent => table[Number(parent)] ?? []);
           return { status: kids.length ? 0 : 1, stdout: kids.map(String).join('\n') };
         });
       }
+
+      it('lists a wide tree with one pgrep call per level, not one per process', () => {
+        childrenOf({ 1234: [2000, 2001, 2002], 2000: [3000], 2002: [3002] });
+        const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true);
+        killProcessGroup(1234, 'SIGTERM');
+        expect(spawnSyncMock.mock.calls.map(call => call[1])).toEqual([['-P', '1234'], ['-P', '2000,2001,2002'], ['-P', '3000,3002']]);
+        for (const pid of [2000, 2001, 2002, 3000, 3002]) expect(killSpy).toHaveBeenCalledWith(pid, 'SIGTERM');
+      });
 
       it('signals every descendant, however deep, as well as the group', () => {
         childrenOf({ 1234: [2000], 2000: [3000] });

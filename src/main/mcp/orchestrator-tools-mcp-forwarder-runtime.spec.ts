@@ -13,6 +13,12 @@ import {
   runOrchestratorToolsForwarder,
 } from './orchestrator-tools-mcp-forwarder-runtime';
 import { createOrchestratorToolsForwarderTools } from './orchestrator-tools-mcp-forwarder';
+import {
+  dispatchToolRevealRpc,
+  isToolRevealRpcMethod,
+  OrchestratorToolRevealStore,
+  TOOL_REVEAL_RPC_METHODS,
+} from './orchestrator-tools-rpc-tool-reveal';
 
 const forwarder = vi.hoisted(() => ({ runStdioMcpForwarder: vi.fn<(options: unknown) => Promise<void>>(async () => undefined) }));
 vi.mock('./mcp-stdio-forwarder', () => forwarder);
@@ -143,7 +149,9 @@ describe('runOrchestratorToolsForwarder', () => {
 
     const tools = await startedTools(client);
 
-    expect(client.call).toHaveBeenCalledExactlyOnceWith(ROSTER_METHOD, {}, { timeoutMs: WORKER_ROSTER_PROBE_TIMEOUT_MS });
+    // Deferred mode also asks which tools the session revealed before; only the roster call is counted here.
+    const rosterCalls = client.call.mock.calls.filter((call: unknown[]) => call[0] === ROSTER_METHOD);
+    expect(rosterCalls).toEqual([[ROSTER_METHOD, {}, { timeoutMs: WORKER_ROSTER_PROBE_TIMEOUT_MS }]]);
     const direct = tools.filter((tool) => !tool.hidden).map((tool) => tool.name);
     for (const name of remoteNames) expect(direct).not.toContain(name);
     expect(direct).toContain('list_settings');
@@ -167,5 +175,83 @@ describe('runOrchestratorToolsForwarder', () => {
 
     expect(client.call).not.toHaveBeenCalled();
     for (const name of remoteNames) expect(tools.map((tool) => tool.name)).toContain(name);
+  });
+});
+
+describe('runOrchestratorToolsForwarder across a restart (16 Nov 2026)', () => {
+  // A MiMo session found the Plan Queue tools by search, Harness restarted it,
+  // and the new forwarder hid them again. OpenCode refused the model's call to
+  // plan_queue_control as an unknown tool until the session was lost.
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.stubEnv(ORCHESTRATOR_TOOL_DEFERRAL_ENV, '1');
+    vi.stubEnv(ORCHESTRATOR_TOOL_STABLE_ENV, '');
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  /** A parent that answers the reveal RPCs from a real store for one session. */
+  function parentFor(store: OrchestratorToolRevealStore): OrchestratorToolsRpcClientLike & { call: ReturnType<typeof vi.fn> } {
+    return {
+      call: vi.fn(async (method: string, payload: Record<string, unknown>) => (isToolRevealRpcMethod(method)
+        ? dispatchToolRevealRpc(store, method, 'mimo-session', payload)
+        : { connectedCount: 1, nodes: [{ connected: true }] })),
+    };
+  }
+
+  async function start(client: OrchestratorToolsRpcClientLike) {
+    forwarder.runStdioMcpForwarder.mockClear();
+    await runOrchestratorToolsForwarder(client);
+    const { tools } = forwarder.runStdioMcpForwarder.mock.calls[0][0] as unknown as {
+      tools: (server: { revealTools: (names: string[]) => void }) => McpServerToolDefinition[];
+    };
+    const server = { revealTools: vi.fn() };
+    return { tools: tools(server), server };
+  }
+
+  it('lists the tools the session found before the restart', async () => {
+    const store = new OrchestratorToolRevealStore();
+    const parent = parentFor(store);
+
+    const before = await start(parent);
+    expect(visibleNames(before.tools)).not.toContain('plan_queue_control');
+    const search = before.tools.find((tool) => tool.name === 'orchestrator.tool_search');
+    await search?.handler({ query: 'plan queue control resume run' });
+    expect(before.server.revealTools).toHaveBeenCalledWith(expect.arrayContaining(['plan_queue_control']));
+    await vi.waitFor(() => expect(store.get('mimo-session')).toContain('plan_queue_control'));
+
+    const after = await start(parent);
+
+    expect(parent.call).toHaveBeenCalledWith(TOOL_REVEAL_RPC_METHODS.get, {}, { timeoutMs: 2_000 });
+    expect(visibleNames(after.tools)).toContain('plan_queue_control');
+  });
+
+  it('gives up after one try so a busy parent cannot hold up startup', async () => {
+    const call = vi.fn(async (method: string) => {
+      if (isToolRevealRpcMethod(method)) throw new Error('parent busy');
+      return { connectedCount: 1, nodes: [{ connected: true }] };
+    });
+
+    const { tools } = await start({ call });
+
+    expect(call.mock.calls.filter(([method]) => method === TOOL_REVEAL_RPC_METHODS.get)).toHaveLength(1);
+    expect(visibleNames(tools)).not.toContain('plan_queue_control');
+  });
+
+  it('ignores remembered names that are not orchestrator tools', async () => {
+    const store = new OrchestratorToolRevealStore();
+    store.record('mimo-session', ['not_a_real_tool']);
+
+    const { tools } = await start(parentFor(store));
+
+    expect(tools.map((tool) => tool.name)).not.toContain('not_a_real_tool');
+  });
+
+  it('does not ask for remembered tools in a scheduled automation run', async () => {
+    vi.stubEnv('AI_ORCHESTRATOR_AUTOMATION_INVOCATION', '1');
+    const parent = parentFor(new OrchestratorToolRevealStore());
+
+    await start(parent);
+
+    expect(parent.call).not.toHaveBeenCalledWith(TOOL_REVEAL_RPC_METHODS.get, expect.anything(), expect.anything());
   });
 });

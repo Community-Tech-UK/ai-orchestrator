@@ -92,15 +92,21 @@ export interface PlanQueueTriageDecision {
 
 const DETAIL_HEAD_LIMIT = 500;
 
-/** One execution may cover jobs in several runs; each participating run counts it once. */
-export const PLAN_QUEUE_CHECK_SUMMARIES_SQL = `
+/**
+ * One execution may cover jobs in several runs; each participating run counts it once. The read starts from the
+ * indexed check executions (migration 058), and CROSS JOIN holds that order: starting from a run's jobs instead
+ * rescans every queue event once per job, which took seconds on a long history and ran on every queue change.
+ */
+const checkSummariesSql = (where: string) => `
   SELECT items.run_id, COUNT(DISTINCT events.id) AS runs, COUNT(DISTINCT items.id) AS jobs
   FROM plan_queue_item_events events
-  JOIN json_each(CASE WHEN events.reason = 'checklist-run' THEN events.detail_head ELSE '{}' END,
+  CROSS JOIN json_each(CASE WHEN events.reason = 'checklist-run' THEN events.detail_head ELSE '{}' END,
     '$.memberItemIds') members
-  JOIN plan_queue_items items ON items.id = members.value
-  WHERE events.reason = 'checklist-run'
+  CROSS JOIN plan_queue_items items ON items.id = members.value
+  WHERE events.reason = 'checklist-run'${where}
   GROUP BY items.run_id`;
+export const PLAN_QUEUE_CHECK_SUMMARIES_SQL = checkSummariesSql('');
+export const PLAN_QUEUE_RUN_CHECK_SUMMARY_SQL = `SELECT runs, jobs FROM (${checkSummariesSql(' AND items.run_id = ?')})`;
 
 export class PlanQueueHistoryStore {
   constructor(
@@ -126,8 +132,7 @@ export class PlanQueueHistoryStore {
   }
 
   checksSummary(runId: string): PlanQueueRunDto['checks'] {
-    return this.db.prepare(`SELECT runs, jobs FROM (${PLAN_QUEUE_CHECK_SUMMARIES_SQL}) WHERE run_id = ?`)
-      .get<NonNullable<PlanQueueRunDto['checks']>>(runId);
+    return this.db.prepare(PLAN_QUEUE_RUN_CHECK_SUMMARY_SQL).get<NonNullable<PlanQueueRunDto['checks']>>(runId);
   }
 
   /**

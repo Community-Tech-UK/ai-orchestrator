@@ -1,6 +1,7 @@
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import type { PlanQueueStateChangedEvent } from '@contracts/schemas/plan-queue';
 import { SET_ASIDE_FOLDER_METADATA } from '../../shared/utils/plan-queue-set-aside-agent';
 import {
   repo,
@@ -47,8 +48,8 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     const { runId, itemId, branch } = await parkedAtRoundLimit();
     const agent = fake.addParent();
     agent.metadata = { [SET_ASIDE_FOLDER_METADATA]: repo };
-    const events: unknown[] = [];
-    coordinator.on('state-changed', (event) => events.push(event));
+    const events: PlanQueueStateChangedEvent[] = [];
+    coordinator.on('state-changed', (event: PlanQueueStateChangedEvent) => events.push(event));
 
     expect(await coordinator.setAsideAgents.clear(agent.id)).toMatchObject({ cleared: 0, left: 1 });
     expect(git(['rev-parse', '--verify', branch])).toBeTruthy();
@@ -60,9 +61,12 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     expect(await coordinator.setAsideAgents.clear(agent.id)).toMatchObject({ cleared: 0, left: 1 });
     const fresh = fake.addParent();
     fresh.metadata = { [SET_ASIDE_FOLDER_METADATA]: repo };
+    await coordinator._whenSettledForTesting();
     events.length = 0;
     expect(await coordinator.setAsideAgents.clear(fresh.id)).toMatchObject({ cleared: 1, left: 0 });
-    expect(events).toEqual([{ runId }]);
+    await coordinator._whenSettledForTesting();
+    expect(events.map(event => event.runId)).toEqual([runId]);
+    expect(events[0]!.run?.items[0]).toMatchObject({ branchName: null });
     expect(coordinator.getRunDto(runId)!.items[0]).toMatchObject({ branchName: null });
     expect(coordinator.getRunDto(runId)!.items[0].discardedBy).toContain('the Set aside agent');
   });

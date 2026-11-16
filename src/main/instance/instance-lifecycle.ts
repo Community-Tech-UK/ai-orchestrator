@@ -2813,10 +2813,9 @@ export class InstanceLifecycleManager extends EventEmitter {
       }
 
       if (instance.status === 'initializing') {
-        this.transitionState(
-          instance,
-          result.method === 'replay-fallback' ? 'busy' : 'idle'
-        );
+        // Busy only while a replayed transcript is being answered; a replay
+        // path that had nothing to send started a clean, idle session.
+        this.transitionState(instance, instance.recoveryMethod === 'replay' ? 'busy' : 'idle');
       }
       this.deps.startStuckTracking?.(instanceId);
       this.deps.queueUpdate(

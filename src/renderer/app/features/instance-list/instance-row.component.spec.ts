@@ -171,6 +171,14 @@ describe('InstanceRowComponent — tooltip disclosure', () => {
     expect(openTooltips()[0]?.textContent).not.toContain('Needs your OK');
   });
 
+  it.each(['claude', 'opencode', 'gemini'] as const)('tells a %s session that restart keeps its conversation', (provider) => {
+    // Restart resumes or replays the conversation for every provider; the button
+    // used to warn non-Claude/Codex sessions that it would be lost.
+    fixture.componentInstance.instance.set(makeInstance({ provider }));
+    fixture.detectChanges();
+    expect(query('.action-btn.restart').getAttribute('aria-label')).toBe('Restart and resume the conversation');
+  });
+
   it('gives Close session both a hover disclosure and an accessible name', () => {
     const terminate = query('.action-btn.terminate');
     expect(terminate.getAttribute('aria-label')).toBeTruthy();

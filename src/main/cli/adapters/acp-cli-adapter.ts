@@ -31,7 +31,7 @@ import { createAcpInputLifecycle, createAcpInterruptResult, createAcpLifecycleDi
 import { isStdinWriteProcessError } from './child-stdin-write';
 import { applyAcpStartupSessionConfig } from './acp-startup-session-config';
 import { reduceAcpSessionConfigResponse } from './acp-session-config-response';
-import { ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE, isAcpPromptRequestTimeout, isAcpPromptCancelledByClient,
+import { ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE, isAcpPromptRequestTimeout, isAcpPromptCancelledByClient, isAcpPromptPermissionRejection,
   isAcpActiveTurnCollision, isAcpAgentExitRejection, isAcpInputWriteFailure, markAcpInputWriteFailure, normalizeAcpInputWriteError } from './acp-prompt-errors';
 import { AcpDelegatedTaskLiveness, type AcpChildProgressSource } from './acp-delegated-task-liveness';
 import { DOOM_LOOP_BLOCKED_NOTICE, resolveAcpAutomaticPermission } from './acp-doom-loop-permission';
@@ -703,8 +703,10 @@ export class AcpCliAdapter extends BaseCliAdapter {
       }
       if (!lifecycle.isCurrent() && (writePhase.accepted || isAcpInputWriteFailure(err))) throw err;
       const isRecoverablePromptTimeout = isAcpPromptRequestTimeout(err);
+      // A refused permission ends this turn only; the agent and its conversation are intact.
+      const turnOnlyFailure = isRecoverablePromptTimeout || isAcpPromptPermissionRejection(err.message);
       this.emit('output', buildAcpErrorOutput(err, this.acpConfig.concurrencyKey, isRecoverablePromptTimeout, this.getName()));
-      this.emit('status', isRecoverablePromptTimeout ? 'idle' : 'error');
+      this.emit('status', turnOnlyFailure ? 'idle' : 'error');
       this.emit('error', err);
       // A post-write provider failure still owns its turn through events. A
       // rejected native write never delivered input and must fail its receipt.

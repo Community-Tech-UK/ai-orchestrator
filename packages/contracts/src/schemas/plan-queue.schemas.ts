@@ -623,9 +623,10 @@ export const PlanQueueControlArgsSchema = z.discriminatedUnion('action', [z.obje
   action: z.literal('handover'), run_id: IdSchema, target_instance_id: IdSchema,
 }).strict()]);
 
+/** One run changed; `run` is null once it no longer exists. */
 export const PlanQueueStateChangedEventSchema = z.object({
   runId: IdSchema,
-  itemId: IdSchema.optional(),
+  run: PlanQueueRunDtoSchema.nullable(),
 });
 
 // -------------------------------------------------------------------------

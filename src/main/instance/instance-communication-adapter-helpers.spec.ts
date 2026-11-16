@@ -10,7 +10,7 @@ import {
   type CliResponse,
   type CliStatus,
 } from '../cli/adapters/base-cli-adapter';
-import { isAggregateOnlyOccupancy, isStatelessExecAdapter } from './instance-communication-adapter-helpers';
+import { isAggregateOnlyOccupancy, isRecoverableAcpPromptTurnError, isStatelessExecAdapter } from './instance-communication-adapter-helpers';
 
 function fakeAdapter(name: string): CliAdapter {
   return {
@@ -160,6 +160,21 @@ class OccupancyDeclaringAdapter extends BaseCliAdapter {
     };
   }
 }
+
+describe('isRecoverableAcpPromptTurnError', () => {
+  it('keeps a session alive when OpenCode fails a turn over a refused tool permission', () => {
+    expect(isRecoverableAcpPromptTurnError(
+      'ACP session/prompt failed: Internal error: The user rejected permission to use this specific tool call. (-32603)',
+    )).toBe(true);
+  });
+
+  it('still treats other prompt failures as session errors', () => {
+    expect(isRecoverableAcpPromptTurnError('ACP session/prompt failed: model exploded (-32000)')).toBe(false);
+    expect(isRecoverableAcpPromptTurnError(
+      'ACP session/load failed: Internal error: The user rejected permission to use this specific tool call. (-32603)',
+    )).toBe(false);
+  });
+});
 
 describe('isAggregateOnlyOccupancy (LT-034)', () => {
   it('treats a provider declaring current occupancy as a real measurement', () => {

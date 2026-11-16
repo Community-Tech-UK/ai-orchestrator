@@ -290,10 +290,6 @@ export class SessionRecoveryCoordinator {
       return { success: false, error: plan.reason, plan };
     }
 
-    if (plan?.kind === 'fresh') {
-      return { success: false, error: plan.reason, plan };
-    }
-
     // Phase 1: Try native resume
     if (!plan || plan.kind === 'native-resume' || plan.kind === 'provider-fork') {
       const nativeResult = await this.deps.nativeResume(instanceId, sessionId);
@@ -308,7 +304,8 @@ export class SessionRecoveryCoordinator {
       });
     }
 
-    // Phase 2: Fall back to replay
+    // Phase 2: Fall back to replay. A `fresh` plan lands here too: with no
+    // conversation to carry over, the replay path starts a clean session.
     const replayResult = await this.deps.replayFallback(instanceId, sessionId);
     if (replayResult.success) {
       logger.info('Replay fallback succeeded', { instanceId });

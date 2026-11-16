@@ -502,7 +502,6 @@ export class InstanceListComponent implements OnDestroy {
       .find((item) => item.instance.id === instance.id);
     const hasChildren = (renderedItem?.childrenCount ?? instance.childrenIds.length) > 0;
     const isCollapsed = this.collapsedIds().has(instance.id);
-    const supportsResume = instance.provider === 'claude' || instance.provider === 'codex';
 
     const items: ContextMenuItem[] = [
       {
@@ -526,22 +525,17 @@ export class InstanceListComponent implements OnDestroy {
       ...watcherMenuItems(instance, this.settingsStore.get('keepSessionsGoing'), (id, muted) => void this.setSessionMuted(id, muted)),
       {
         id: 'restart-session',
-        label: instance.status === 'initializing' ? 'Starting session…' : supportsResume ? 'Restart and resume' : 'Restart session',
+        label: instance.status === 'initializing' ? 'Starting session…' : 'Restart and resume',
         disabled: instance.status === 'initializing',
         action: () => void this.store.restartInstance(instance.id),
       },
-    ];
-
-    if (supportsResume) {
-      // Only meaningful when the provider supports session resume — otherwise
-      // a plain restart is already a fresh restart.
-      items.push({
+      {
         id: 'restart-session-fresh',
         label: instance.status === 'initializing' ? 'Starting session before fresh restart…' : 'Restart (fresh context)',
         disabled: instance.status === 'initializing',
         action: () => void this.store.restartFreshInstance(instance.id),
-      });
-    }
+      },
+    ];
 
     items.push({
       id: 'create-child-session',

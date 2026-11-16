@@ -602,7 +602,7 @@ it('upgrades v25 with existing queue work to worker-session storage and repeats 
     expect(old.prepare('SELECT COUNT(*) AS n FROM loop_migrations WHERE version = ?')
       .get<{ n: number }>(LOOP_SCHEMA_VERSION)?.n).toBe(1);
     expect(old.prepare('SELECT name FROM loop_migrations WHERE version = ?')
-      .get<{ name: string }>(LOOP_SCHEMA_VERSION)?.name).toBe('057_plan_queue_capability_repairs');
+      .get<{ name: string }>(LOOP_SCHEMA_VERSION)?.name).toBe('058_plan_queue_checklist_event_index');
   } finally { old.close(); }
 });
 

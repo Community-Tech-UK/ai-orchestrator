@@ -549,7 +549,7 @@ export class PlanQueueStore {
 }
 
 /** Keep bounded, monotonic recovery evidence using the existing persisted field. */
-function preserveRecoveryReceipts(previous: string | null, next: string | null): string | null {
+export function preserveRecoveryReceipts(previous: string | null, next: string | null): string | null {
   const receiptPattern = /^Orphan checkout (retained at|recovery location:) ([^\r\n]+)$/;
   const locations = new Map<string, boolean>();
   for (const detail of [previous, next]) {

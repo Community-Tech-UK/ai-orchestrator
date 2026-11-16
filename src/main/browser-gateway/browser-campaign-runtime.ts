@@ -99,7 +99,7 @@ export interface BrowserCampaignRuntimeOptions {
     BrowserCampaignService,
     'get' | 'list' | 'recordAction' | 'canProceed' | 'getCounters'
   >;
-  grantStore: Pick<BrowserGrantStore, 'listGrants' | 'createGrant' | 'revokeGrant'>;
+  grantStore: Pick<BrowserGrantStore, 'listGrants' | 'listLiveCampaignGrants' | 'createGrant' | 'revokeGrant'>;
   now?: () => number;
 }
 
@@ -247,8 +247,14 @@ export class BrowserCampaignRuntime {
    */
   renewLeases(): void {
     const now = this.now();
+    // One read of every live lease, not one per campaign: the store keeps every campaign it has ever held.
+    const leases = new Map<string, BrowserPermissionGrant[]>();
+    for (const grant of this.grantStore.listLiveCampaignGrants()) {
+      const campaignId = campaignIdFromGrant(grant);
+      if (campaignId) leases.set(campaignId, [...leases.get(campaignId) ?? [], grant]);
+    }
     for (const campaign of this.campaigns.list()) {
-      const live = this.liveChildGrants(campaign);
+      const live = (leases.get(campaign.id) ?? []).filter((grant) => inCampaignScope(grant, campaign));
       if (live.length === 0) {
         continue;
       }
@@ -351,6 +357,12 @@ function campaignGrantScope(
 ): Pick<BrowserPermissionGrant, 'nodeId' | 'profileId'> {
   const nodeId = existingTabGrantNodeId(campaign.profileId);
   return nodeId ? { nodeId } : { profileId: campaign.profileId };
+}
+
+/** The scope `campaignGrantListFilter` reads, for leases that were read without it. */
+function inCampaignScope(grant: BrowserPermissionGrant, campaign: BrowserCampaign): boolean {
+  const scope = campaignGrantScope(campaign);
+  return scope.nodeId ? grant.nodeId === scope.nodeId : grant.profileId === scope.profileId;
 }
 
 function campaignGrantListFilter(

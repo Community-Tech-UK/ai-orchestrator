@@ -140,6 +140,33 @@ describe('capability reporting and authority', () => {
   });
 });
 
+describe('waiting status on the original job', () => {
+  it('writes one status for a job waiting on two repairs, and leaves it alone on the next pass', async () => {
+    const { service, gap } = fixture();
+    const technical = await service.reportGap('caller', { item_id: 'origin', gap });
+    const human = await service.reportGap('caller', { item_id: 'origin', gap: { ...gap, capabilityKey: 'signed-in-account',
+      check: 'Real account signout', requiredAction: 'Sign a test account in', classification: 'human-authority' } });
+    coordinator.save({ ...coordinator.getItem('origin'), state: 'parked', parkReason: 'needs-setup', workerInstanceId: null });
+    await service.reconcile();
+    const [first, second] = [technical, human].map(({ repairId }) => store.capabilities.get(repairId)!)
+      .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+    expect(coordinator.getItem('origin').detail).toBe(['Original check still open.',
+      `${first!.detail} Repair plan: ${first!.planPath}`, `${second!.detail} Repair plan: ${second!.planPath}`].join('\n'));
+    const save = vi.spyOn(coordinator, 'save');
+    await service.reconcile(); await service.reconcile();
+    expect(save.mock.calls.filter(([item]) => item.id === 'origin')).toEqual([]);
+  });
+
+  it('keeps today\'s wording for a job waiting on one repair', async () => {
+    const { service, gap } = fixture();
+    const { repairId } = await service.reportGap('caller', { item_id: 'origin', gap: { ...gap, classification: 'human-authority' } });
+    coordinator.save({ ...coordinator.getItem('origin'), state: 'parked', parkReason: 'needs-setup', workerInstanceId: null });
+    await service.reconcile();
+    const repair = store.capabilities.get(repairId)!;
+    expect(coordinator.getItem('origin').detail).toBe(`${repair.detail} Original check still open. Repair plan: ${repair.planPath}`);
+  });
+});
+
 function landedRepair(repair: CapabilityRepair, suffix = '') {
   const run = coordinator.getRun('source'), checkpoint = git(['rev-parse', 'HEAD']);
   store.upsertRun({ ...run, id: `repair-run${suffix}`, kind: 'plans', config: { ...run.config, capabilityRepairId: repair.id } });

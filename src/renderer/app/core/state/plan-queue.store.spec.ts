@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlanQueueHealth, PlanQueueItemDto, PlanQueueRunDto } from '@contracts/schemas/plan-queue';
-import { PlanQueueIpcService, type PlanQueueStateChangedPush } from '../services/ipc/plan-queue-ipc.service';
+import type { PlanQueueHealth, PlanQueueItemDto, PlanQueueRunDto, PlanQueueStateChangedEvent } from '@contracts/schemas/plan-queue';
+import { PlanQueueIpcService } from '../services/ipc/plan-queue-ipc.service';
 import { PlanQueueStore } from './plan-queue.store';
 
 function makeRun(overrides: Partial<PlanQueueRunDto> = {}): PlanQueueRunDto {
@@ -56,7 +56,7 @@ function makeItem(overrides: Partial<PlanQueueRunDto['items'][number]> = {}): Pl
 }
 
 describe('PlanQueueStore', () => {
-  let stateChangedCallback: ((event: PlanQueueStateChangedPush) => void) | null = null;
+  let stateChangedCallback: ((event: PlanQueueStateChangedEvent) => void) | null = null;
   const ipc = {
     list: vi.fn(),
     get: vi.fn(),
@@ -65,7 +65,7 @@ describe('PlanQueueStore', () => {
     start: vi.fn(),
     answer: vi.fn(),
     control: vi.fn(),
-    onStateChanged: vi.fn((cb: (event: PlanQueueStateChangedPush) => void) => {
+    onStateChanged: vi.fn((cb: (event: PlanQueueStateChangedEvent) => void) => {
       stateChangedCallback = cb;
       return () => undefined;
     }),

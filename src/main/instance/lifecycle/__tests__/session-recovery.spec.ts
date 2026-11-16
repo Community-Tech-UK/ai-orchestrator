@@ -54,6 +54,26 @@ describe('SessionRecoveryCoordinator', () => {
     expect(result.success).toBe(false);
   });
 
+  it('starts a clean session through the replay path when the plan is fresh', async () => {
+    const nativeResume = vi.fn();
+    const replayFallback = vi.fn().mockResolvedValue({ success: true });
+    const handler = new SessionRecoveryCoordinator({ nativeResume, replayFallback });
+
+    const result = await handler.recover('instance-1', 'session-abc', {
+      reason: 'restart',
+      provider: 'opencode',
+      cwd: '/tmp/project',
+      capabilities: { supportsResume: false, supportsForkSession: false },
+      adapterGeneration: 1,
+      hasConversation: false,
+    });
+
+    expect(result.plan?.kind).toBe('fresh');
+    expect(nativeResume).not.toHaveBeenCalled();
+    expect(replayFallback).toHaveBeenCalledWith('instance-1', 'session-abc');
+    expect(result.success).toBe(true);
+  });
+
   it('plans native resume only when resume is supported and session id is usable', () => {
     const plan = planSessionRecovery({
       instanceId: 'instance-1',

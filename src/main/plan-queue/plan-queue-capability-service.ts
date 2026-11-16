@@ -10,6 +10,7 @@ import { gitExec } from '../workspace/git/git-exec';
 import type { PlanQueueItem } from './plan-queue.types';
 import { redactValue } from '../diagnostics/redaction';
 import { repositoryRoot } from './plan-queue-git';
+import { preserveRecoveryReceipts } from './plan-queue-store';
 
 export interface CapabilityHooks {
   currentTriage(runId: string, instanceId: string, sourceRef: string): boolean;
@@ -146,30 +147,45 @@ export class PlanQueueCapabilityService {
   }
 
   async reconcile(): Promise<void> {
-    for (const repair of this.host.store.capabilities.list()) {
+    const store = this.host.store.capabilities, repairs = store.list();
+    for (const repair of repairs) {
       try { await this.reconcileOne(repair); }
       catch (error) {
-        const current = this.host.store.capabilities.get(repair.id)!;
-        if (current.state !== 'cancelled') this.host.store.capabilities.save({ ...current, state: 'waiting', detail: redactValue(error instanceof Error ? error.message : String(error), { homeDir: '' }) });
+        const current = store.get(repair.id)!;
+        if (current.state !== 'cancelled') store.save({ ...current, state: 'waiting', detail: redactValue(error instanceof Error ? error.message : String(error), { homeDir: '' }) });
       }
-      this.publishWaitingStatus(this.host.store.capabilities.get(repair.id)!);
     }
+    // The repairs each original job still waits for after this pass, oldest first (the order `list()` returns).
+    const waitingFor = new Map<string, CapabilityRepair[]>();
+    for (const { id } of repairs) {
+      for (const itemId of new Set(store.origins(id).filter(origin => origin.state === 'waiting').map(origin => origin.itemId))) {
+        waitingFor.set(itemId, [...waitingFor.get(itemId) ?? [], store.get(id)!]);
+      }
+    }
+    for (const [itemId, waiting] of waitingFor) this.publishWaitingStatus(itemId, waiting);
   }
 
-  private publishWaitingStatus(repair: CapabilityRepair): void {
+  /**
+   * One status per parked job, written only when it changes. A job waiting for two repairs once took each repair's
+   * wording in turn, so every queue pass rewrote it twice and pushed the whole run to the window each time.
+   */
+  private publishWaitingStatus(itemId: string, repairs: readonly CapabilityRepair[]): void {
+    const original = this.host.getItem(itemId);
+    if (original.state !== 'parked' || original.parkReason !== 'needs-setup') return;
+    const detail = repairs.length === 1 ? `${this.repairStatus(repairs[0]!)} Original check still open. Repair plan: ${repairs[0]!.planPath}`
+      : ['Original check still open.', ...repairs.map(repair => `${this.repairStatus(repair)} Repair plan: ${repair.planPath}`)].join('\n');
+    // Compare what the store would keep: it carries recovery receipts over from the saved detail.
+    if (preserveRecoveryReceipts(original.detail, detail) !== original.detail) this.host.save({ ...original, detail });
+  }
+
+  private repairStatus(repair: CapabilityRepair): string {
     const run = repair.repairRunId ? this.host.store.getRun(repair.repairRunId) : undefined;
     const item = repair.repairItemId ? this.host.store.getItem(repair.repairItemId) : undefined;
-    const status = repair.state === 'cancelled' ? 'The repair was cancelled.' : run?.status === 'paused' ? 'The repair is paused.'
+    return repair.state === 'cancelled' ? 'The repair was cancelled.' : run?.status === 'paused' ? 'The repair is paused.'
       : item?.state === 'working' || item?.state === 'fixing' ? 'The repair is being implemented.'
       : item?.state === 'verifying' ? 'The repair is under independent review.'
       : item?.state === 'queued' || item?.state === 'preparing' || item?.state === 'awaiting-slot' ? 'The repair is queued.'
       : repair.detail;
-    for (const origin of this.host.store.capabilities.origins(repair.id)) {
-      const original = this.host.getItem(origin.itemId);
-      if (origin.state !== 'waiting' || original.state !== 'parked' || original.parkReason !== 'needs-setup') continue;
-      const detail = `${status} Original check still open. Repair plan: ${repair.planPath}`;
-      if (original.detail !== detail) this.host.save({ ...original, detail });
-    }
   }
 
   private handoff(repair: CapabilityRepair, detail: string): void {

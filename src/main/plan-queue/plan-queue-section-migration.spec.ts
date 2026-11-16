@@ -33,7 +33,7 @@ describe('migration 054, the step number on a queue job', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM plan_queue_item_events').get<{ n: number }>()?.n).toBe(1);
     expect(db.prepare('SELECT COUNT(*) AS n FROM plan_queue_item_pins').get<{ n: number }>()?.n).toBe(1);
     expect(db.prepare('SELECT name FROM loop_migrations WHERE version = 54').get<{ name: string }>()?.name).toBe('054_plan_queue_item_section');
-    expect(LOOP_SCHEMA_VERSION).toBe(57);
+    expect(LOOP_SCHEMA_VERSION).toBe(58);
   });
 
   it('keeps the worker report on an existing job through the rebuild', () => {

@@ -10,15 +10,9 @@ import type {
   PlanQueueLinearConnectionSnapshot,
   PlanQueueLinearIdentity,
   PlanQueueLinearListResult,
+  PlanQueueStateChangedEvent,
 } from '@contracts/schemas/plan-queue';
 import { ElectronIpcService, type IpcResponse } from './electron-ipc.service';
-
-/** Payload of the `plan-queue:state-changed` push event. */
-export interface PlanQueueStateChangedPush {
-  runId: string;
-  itemId?: string;
-  run: PlanQueueRunDto | null;
-}
 
 function notInElectron<T>(): IpcResponse<T> {
   return { success: false, error: { message: 'Not in Electron' } };
@@ -121,10 +115,10 @@ export class PlanQueueIpcService {
     return (await this.api.planQueueLinearCheck()) as IpcResponse<PlanQueueLinearConnectionSnapshot>;
   }
 
-  onStateChanged(cb: (event: PlanQueueStateChangedPush) => void): () => void {
+  onStateChanged(cb: (event: PlanQueueStateChangedEvent) => void): () => void {
     if (!this.api) return () => { /* noop */ };
     return this.api.onPlanQueueStateChanged((payload) => {
-      this.zone.run(() => cb(payload as PlanQueueStateChangedPush));
+      this.zone.run(() => cb(payload as PlanQueueStateChangedEvent));
     });
   }
 }

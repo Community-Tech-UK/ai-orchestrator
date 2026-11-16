@@ -4,6 +4,7 @@ import { createSqliteWasmDatabase, initSqliteWasm } from '../db/sqlite-wasm-driv
 import { runLoopMigrations } from '../orchestration/loop-schema';
 import { newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueStore } from './plan-queue-store';
+import { PLAN_QUEUE_CHECK_SUMMARIES_SQL, PLAN_QUEUE_RUN_CHECK_SUMMARY_SQL } from './plan-queue-history-store';
 import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
 
 let db: SqliteDriver;
@@ -57,6 +58,29 @@ describe('queue round history', () => {
     expect(snapshots.get('first-run')).toEqual({ runs: 3, jobs: 2 });
     expect(snapshots.get('second-run')).toEqual({ runs: 1, jobs: 1 });
     expect(snapshots.get('untested-run')).toBeUndefined();
+  });
+
+  it('reads check executions through their index, and ignores other events whose detail is not JSON', () => {
+    db = createSqliteWasmDatabase(':memory:'); runLoopMigrations(db);
+    const store = new PlanQueueStore(db);
+    store.upsertRun({
+      id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: '/repo',
+      status: 'running', config: DEFAULT_PLAN_QUEUE_CONFIG.plans, relaxation: null,
+      workerProvider: 'claude', workerModel: null, startedAt: 1, endedAt: null,
+    });
+    const job = newPlanQueueItem('job', 'run', '/repo/job_plan.md', 1);
+    store.upsertItem(job);
+    store.history.recordEvent({ itemId: 'job', runId: 'run', fromState: 'working', toState: 'verifying', reason: 'worker-claim',
+      detailHead: 'Plain words, { not JSON', round: 0, tokens: 0 });
+    store.history.recordChecklistRun(job, ['job']);
+    expect(store.history.checksSummary('run')).toEqual({ runs: 1, jobs: 1 });
+    // Each step of the plan names the table it reads; the first must be the indexed events, never a scan of them.
+    for (const [sql, ...params] of [[PLAN_QUEUE_RUN_CHECK_SUMMARY_SQL, 'run'], [PLAN_QUEUE_CHECK_SUMMARIES_SQL]]) {
+      const steps = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all<{ detail: string }>(...params).map(step => step.detail)
+        .filter(detail => /^(SCAN|SEARCH)/.test(detail));
+      expect(steps[0]).toContain('SEARCH events USING INDEX idx_queue_events_checklist');
+      expect(steps.join('\n')).not.toMatch(/SCAN events|SCAN items/);
+    }
   });
 
   it('remembers a failed group for the exact commit beyond the recent history window', () => {

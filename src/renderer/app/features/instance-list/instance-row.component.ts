@@ -259,10 +259,6 @@ export class InstanceRowComponent {
     const since = new Date(work.since).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     return `Waiting on ${tasks} (since ${since})`;
   });
-  readonly supportsResume = computed(() =>
-    this.instance().provider === 'claude' || this.instance().provider === 'codex'
-  );
-
   readonly isRemote = computed(() =>
     this.instance().executionLocation?.type === 'remote',
   );
@@ -393,9 +389,8 @@ export class InstanceRowComponent {
     return children.size ? this.instances.instances().filter(child => children.has(child.id) && !isTerminalStatus(child.status)).length : 0;
   });
 
-  readonly restartTooltip = computed(() => this.supportsResume()
-    ? 'Restart and resume the conversation'
-    : 'Restart with fresh context — the conversation so far is not carried over');
+  /** Every provider keeps the conversation on restart: native resume, or a replayed transcript. */
+  readonly restartLabel = 'Restart and resume the conversation';
 
   /** Said only while the session is doing something or waiting on you; a settled row stays quiet. */
   private readonly statusActivityLabel = computed(() => {
