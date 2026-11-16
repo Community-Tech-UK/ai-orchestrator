@@ -348,8 +348,7 @@
             <tr>
               <th>Timestamp</th>
               <th>Model</th>
-              <th class="truncate-col">Session ID</th>
-              <th class="truncate-col">Provider session ID</th>
+              <th class="truncate-col">Session</th>
               <th class="num-col">Input Tokens</th>
               <th class="num-col">Output Tokens</th>
               <th class="num-col">Cost</th>
@@ -361,7 +360,6 @@
               <tr>
                 <td class="mono">{{ formatTimestamp(entry.timestamp) }}</td>
                 <td>{{ entry.model }}</td>
-                <td class="truncate-cell">{{ costLabel(entry.sessionId, entry.instanceId).title }}</td>
                 <td class="truncate-cell"><button class="btn" type="button" [appTooltip]="entry.sessionId" appTooltipFormat="code" [disabled]="!costLabel(entry.sessionId, entry.instanceId).target" (click)="openSession(entry.sessionId, entry.instanceId)">{{ costLabel(entry.sessionId, entry.instanceId).title }}</button></td>
                 <td class="num-col mono">{{ entry.inputTokens.toLocaleString() }}</td>
                 <td class="num-col mono">{{ entry.outputTokens.toLocaleString() }}</td>

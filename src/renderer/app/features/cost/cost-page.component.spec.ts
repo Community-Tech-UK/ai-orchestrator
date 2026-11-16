@@ -592,7 +592,10 @@ describe('CostPageComponent — computed signals', () => {
       ?.querySelector('table');
     expect(tableFor('Per-Model Breakdown')?.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('≈$0.009000 at API prices');
     expect(tableFor('Per-Session Breakdown')?.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('≈$0.007000 at API prices');
-    expect(tableFor('Recent Entries')?.querySelector('tbody tr td:nth-child(7)')?.textContent?.trim()).toBe('≈$0.004500 at API prices');
+    expect(tableFor('Recent Entries')?.querySelector('tbody tr td:nth-child(6)')?.textContent?.trim()).toBe('≈$0.004500 at API prices');
+    const recentHeaders = Array.from(tableFor('Recent Entries')?.querySelectorAll('thead th') ?? []).map(th => th.textContent?.trim());
+    expect(recentHeaders.filter(name => name === 'Session')).toHaveLength(1);
+    expect(recentHeaders).not.toContain('Session ID');
     expect(root.textContent).not.toContain('\\$');
     component.entries.set([{ ...MOCK_ENTRIES[0], isEstimated: true }]);
     component.summary.set({ ...MOCK_SUMMARY, hasEstimatedEntries: true, totalEstimatedCost: 0.002 });

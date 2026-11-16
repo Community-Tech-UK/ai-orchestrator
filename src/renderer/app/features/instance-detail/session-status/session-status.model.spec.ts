@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Instance } from '../../../core/state/instance/instance.types';
+import type { ProviderQuotaSnapshot } from '../../../../../shared/types/provider-quota.types';
 import type { SessionSpendBreakdown } from '../../../../../shared/types/cost-session.types';
 import { buildSessionStatus } from './session-status.model';
 const now = 3600000;
@@ -21,6 +22,13 @@ describe('session status model', () => {
     expect(view.rows.findIndex(r => r.label === 'Plan usage')).toBeLessThan(view.rows.findIndex(r => r.label === 'Used in this session'));
     expect(view.text).toContain('API-price equivalent'); expect(view.text).toContain('312K of 1M (31%)');
     expect(view.text).toContain('59 min');
+  });
+  it('uses a 5-minute cache lifetime for an API-key plan and says the cache has cooled afterwards', () => {
+    const quotaSnapshot: ProviderQuotaSnapshot = { provider: 'claude', ok: true, plan: 'api', source: 'admin-api', takenAt: now, windows: [] };
+    const warm = buildSessionStatus({ instance: { ...instance, lastActivity: now - 60_000 }, quotaSnapshot, showCost: false, now });
+    expect(warm.rows.find(row => row.label === 'Cache')?.lines).toEqual(['Cache warm, cools in about 4 min']);
+    const cooled = buildSessionStatus({ instance: { ...instance, lastActivity: now - 6 * 60_000 }, quotaSnapshot, showCost: false, now });
+    expect(cooled.rows.find(row => row.label === 'Cache')?.lines[0]).toContain('Cache has cooled; your next message re-sends about 312K tokens');
   });
   it('hides every dollar when showCost is off, and never assigns Copilot a dollar bill', () => {
     const hidden = buildSessionStatus({ instance, breakdown, showCost: false, now });
