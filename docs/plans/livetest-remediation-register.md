@@ -423,6 +423,9 @@ sections below. The historical reproduction remains unchanged.
 | LT-1091 | P2 | **REPRODUCED LIVE 2026-11-14; NOT FIXED.** The "of which helper agents" figure undercounts the helper's own transcript: it is summed from `agent-<id>.jsonl` at the helper's finish notification, which arrives before the Claude CLI appends the helper's final assistant message line, and the later re-sum never refreshes final samples. The check-2 run booked $0.075014 against $0.0837263 for the same helper at repo rates (10.4% short, the final message); an earlier stub run booked all zeros. The sum itself is correct when re-read after the fact. | [LT-1091 detail](#lt-1091) | [Usage burn followups live checks](2026-11-12-usage-burn-followups_livetest.md#evidence-run--2026-11-13) |
 | LT-1028 | P2 | **FIX LANDED 2026-11-10 (661f79daa); rebuilt-app check pending.** On a Control Center window 840px wide or narrower, the new hub menu (Oct2 later 3.2) stacked all twelve hubs in a column above the page: the Automations page kept 280 of 800px of height, Git 168px, and the last hub was clipped. The narrow-layout strip CSS was written for the old menu's side-by-side groups. Fixed by a one-row sideways strip that keeps its own height and scrolls the open hub into view. | [LT-1028 detail](#lt-1028--the-hub-menu-fills-half-a-narrow-window) | [Oct2 later live checks, section 4](2026-10-20-oct2-later_livetest.md) |
 | LT-1029 | P2 | **OBSERVED + ROOT-CAUSED 2026-11-11; NOT A PRODUCT DEFECT (test-harness spawn lifecycle).** A disposable worker spawned from a `run_on_node` agent turn registered successfully (`Node registered via RPC`, session issued) but its WebSocket closed 1006 seven-to-eight seconds later — exactly when the agent turn ended and its background task was reaped — so the roster showed the enrolled node `disconnected` and later gate calls failed node matching. Started via Task Scheduler (outside the agent process tree), the same worker stayed connected and the signed-out-Cursor gate call succeeded. The same evidence live-verifies LT-604's router fix on the packaged build. | [LT-1029 detail](#lt-1029) | [Browser Gateway wedged-tab livetest](/Users/suas/work/communitytech/browser-gateway-wedged-tab-and-node-recovery-2026-09-11_livetest.md) |
+| LT-1142 | P2 | **OPEN — reproduced live 2026-11-12.** The worker saves its connection config, which holds the node and recovery tokens, with default file permissions, so it is readable by every user account on the computer (mode 644 in a 755 folder). `persistConfig` in `src/worker-agent/worker-config.ts` writes it with no mode. Found while running the agent-issued pairing checks; not caused by that feature. | [LT-1142 detail](#lt-1142) | [Agent-issued pairing installed-app evidence](2026-11-07-agent-issued-remote-node-pairing_plan_livetest.md#evidence-run--2026-11-12) |
+| LT-1143 | P1 | **OPEN — reproduced live 2026-11-12; cause not isolated.** A dev app on the main Mac accepts connections to its worker port (4979) and then drops them for every non-loopback address (LAN, Tailscale name and IPs), so a worker on another address cannot connect, while a plain Node server on the same LAN address answers. The worker's `aio-worker pair` address probe is a bare TCP connect, so it reports those addresses as "answered" and never tries a fallback. Found while running the agent-issued pairing checks, which then needed a loopback edit of the worker config. **Update 2026-11-14: not reproduced from this Mac to a dev app on the test Mac (LAN and Tailscale both answer, pairing works without edits), so it is specific to the main Mac's Electron; the probe weakness stands.** | [LT-1143 detail](#lt-1143) | [Agent-issued pairing installed-app evidence](2026-11-07-agent-issued-remote-node-pairing_plan_livetest.md#evidence-run--2026-11-12) |
+| LT-1144 | P3 | **REPRODUCED LIVE 2026-11-14 in a dev copy; source in this worktree already accepts both keys, so the cause of the copy's rejection is unconfirmed (suspected stale compiled contracts).** The dev app's renderer-event validation log warned about two keys it did not recognise: `waitingSessionCount` on `cli-update-pill:delta` and `origin` on `cost:usage-recorded`. | [LT-1144 detail](#lt-1144) | [Agent-issued pairing evidence](2026-11-07-agent-issued-remote-node-pairing_plan_livetest.md#evidence-run--2026-11-14) |
 | LT-708 | P1 | **OPEN — reproduced live 2026-10-27.** A non-YOLO Claude session consuming a warm adapter has no defer hook. The genuine CLI error `This command requires approval` is not recognised as a permission denial, so the session becomes idle without an approval card. A fresh adapter shows the deferred-permission card for the same harmless command. | [LT-708 detail](#lt-708) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-plan-queue-worker) |
 | LT-1099 | P2 | **FIXED + LIVE RECHECKED 2026-11-12.** On the legacy `permission_denial` path (a Claude session without the permission hook), an explicit Harness deny rule was never matched: the request was judged by the card's shortened label (`bash:command (13 chars)`, or `<folder>/from <path>` for a read), so the card still offered "Always allow (adds a rule to ~/.claude/settings.json and restarts)". The flow now judges the real command (as `bash_execute`, like the hooked path) or the exact path, and a denied request no longer stays pending. | [LT-1099 detail](#lt-1099) | [Agent runtime permission remediation, 2026-11-12 run](2026-10-27-agent-runtime-permission-remediation_livetest.md#evidence-run--2026-11-12-queue-worker) |
 | LT-710 | P2 | **REPRODUCED 2026-10-27; not fixed in this checkout.** Main and context-worker startup can collide on fresh-profile migration discovery. Reusing the migrated isolated profile reaches the renderer. This reuses the existing saved-login/housekeeping defect identifier; the housekeeping worker owns its fix. | [LT-710 detail](#lt-710) | [Worker auto-update live checks](2026-10-14-worker-auto-update_livetest.md#evidence-run--2026-10-27-plan-queue-worker); [active remediation follow-up](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-710) |
@@ -13403,6 +13406,10 @@ A development copy finds the helper wherever it was started from: either resolve
 in a copy started by `dev-app.js`, a Claude session's shell commands carry `AI_ORCHESTRATOR_INSTANCE_ID`, `AIO_MCP` is set, the session
 lists the orchestrator tools (`list_host_processes`), and `app.log` shows no `Orchestrator-tools MCP not configured` line.
 
+### Second reproduction, 14 November 2026
+
+The agent-issued pairing live checks hit the same fault independently (`dev-app.js start --port 9755`, test Mac): two yolo Claude sessions had no `AIO_MCP` or `AI_ORCHESTRATOR_*` variables, `$AIO_MCP remote-nodes pair` found nothing, and ToolSearch did not list `issue_remote_node_pairing`. The root cause is the one above (`resolveAioMcpCliPath`, `src/main/util/aio-mcp-cli-path.ts`, working folder `/` under `open`). Evidence: [agent-issued pairing live checks](2026-11-07-agent-issued-remote-node-pairing_plan_livetest.md).
+
 <a id="lt-1099"></a>
 
 ## LT-1099
@@ -14451,6 +14458,67 @@ A diagnosed cause for the mailbox `unavailable` states, with either a fix or doc
 ### Evidence
 
 [Watchdog faults live checks](../../../../communitytech/work-finding/documents/plans/watchdog-faults-2026-10-08/watchdog-faults_livetest.md), "Defect record: conversation-reconciliation source outages and stuck runs" (13 November 2026).
+
+
+## LT-1142
+
+### LT-1142 — worker config with tokens is saved world-readable
+
+**Status: open; reproduced 12 November 2026.**
+
+### Observed behaviour
+
+After `aio-worker pair "<link>"` and a first connection, the worker home's `.orchestrator/worker-node.json` held `authToken`, `nodeToken` and `recoveryToken` and had mode 644; its folder had mode 755 (default umask 022). Any other account on that computer can read the file and take over the worker's identity.
+
+### Root cause
+
+The config is written with `fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8')` (`src/worker-agent/worker-config.ts:630`), with no `mode` and no later `chmod`.
+
+### Required behaviour and acceptance
+
+The worker config is created and rewritten with mode 600 (and an existing looser file is tightened on the next write). Acceptance: a spec that writes a config under a 022 umask and asserts mode 600, failing before the change; after a real `aio-worker pair`, `stat` shows 600. Windows ignores POSIX modes, so the check applies on macOS and Linux only.
+
+
+## LT-1143
+
+### LT-1143 — worker port accepts then drops non-loopback connections; the pairing probe cannot see it
+
+**Status: open; reproduced 12 November 2026; cause not isolated.**
+
+### Observed behaviour
+
+Dev app (Electron from the queue worktree, `AIO_DEV_USER_DATA_PATH` profile) with the worker server on port 4979 listening on all interfaces. From the same Mac: `curl http://127.0.0.1:4979/` returned 426 (normal); `curl http://<LAN address>:4979/` returned an empty reply (curl exit 52); a Node `ws` client got "socket hang up" on the LAN address and on the Tailscale IPv4 address, and `aio-worker` logged "socket hang up" for the Tailscale name, both Tailscale IPs and both LAN addresses. A plain `node` HTTP server bound to 0.0.0.0 on the same LAN address answered 200 in the same minute. The macOS application firewall was on and reported incoming connections to that Electron.app as permitted. `aio-worker pair` printed `Paired ... with <tailscale name>:4979` with no "did not answer" line, because its probe passed.
+
+### Root cause
+
+Not isolated. Discriminating evidence: the drop is specific to the Electron process, not the network path (plain Node on the same address works) and not to the pairing code (loopback works). It matches the earlier note that the packaged Harness port answers on neither Tailscale address. Separately and certain: `probeCoordinatorReachability` (`src/worker-agent/cli/pair-cli.ts:148`) only opens a TCP socket and closes it, so an address that accepts then drops is treated as reachable.
+
+### Required behaviour and acceptance
+
+(1) Find why the Electron process drops non-loopback connections on this Mac (firewall or Local Network privacy for the Electron binary, or the dual-stack listener) and fix or document it. (2) The worker's probe should complete a WebSocket handshake, so that an address that accepts and then drops is skipped in favour of the next fallback. Acceptance: with the server up, `curl http://<LAN address>:<port>/` returns 426 from another computer; a pair-cli spec where the first candidate accepts TCP and then closes shows the second candidate chosen (fails before the change); the livetest "Pairing across two computers" check passes without editing the config.
+
+### Update, 14 November 2026
+
+A dev app started on the test Mac (`dev-app.js`, port 4979 on all interfaces) was reached from this Mac on its LAN address, its Tailscale IPv4 address and its MagicDNS name: `curl` returned 426 on both addresses, and `aio-worker pair` from this Mac wrote a config and connected without any edit (roster `connected`). So the drop is specific to the Electron process on this Mac, not to the pairing code or the network. Part (2) of the required behaviour (a probe that completes a WebSocket handshake) is unchanged and still open. The "Pairing across two computers" live check no longer depends on this defect (see the evidence run of 14 November 2026).
+
+
+## LT-1144
+
+### LT-1144 — dev copy's renderer-event validation rejects `waitingSessionCount` and `origin`
+
+**Status: open; reproduced 14 November 2026; cause unconfirmed.**
+
+### Observed behaviour
+
+During the agent-issued pairing evidence run (a dev app started by `dev-app.js` on the test Mac, data folder under `/tmp`), the renderer-event validation log carried two warnings: `cli-update-pill:delta` had an unrecognised key `waitingSessionCount`, and `cost:usage-recorded` had an unrecognised key `origin`. Neither is related to pairing. The events are sent by `cli-update-poll-service.ts` (`waitingSessionCount`, line 149) and by `cost-handlers.ts` (a `CostEntry` carrying `origin`).
+
+### Root cause
+
+Not isolated. In this worktree's source both keys are already in the strict schemas: `waitingSessionCount` in `CliUpdatePillStateEventSchema` (`packages/contracts/src/schemas/observability.schemas.ts:139`) and `origin` in `CostEntryEventSchema` (`packages/contracts/src/schemas/cost-events.schemas.ts:29`). `src/main/event-bus/renderer-event-validation.spec.ts` (30 tests, run 14 November 2026, all passing) asserts both are accepted. Both keys were added to the schemas on 13 November 2026 (commits `b214cd55a`, `186958a63`). The most likely explanation is that the dev copy ran compiled contracts from before those commits, but the copy's compiled output was deleted after the run, so this is not proven.
+
+### Required behaviour and acceptance
+
+Both events pass validation with no warning in a dev app freshly built from a tree that contains the two schema commits. Acceptance: start such a build, let the CLI update poll run once and record one model turn, then read the log: no `unrecognised key` warning for either channel. If a warning still appears on a fresh build, there is a second validator or a stale generated copy to find; if not, close this item as a stale build.
 
 <a id="lt-1130"></a>
 
