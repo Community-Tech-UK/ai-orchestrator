@@ -172,20 +172,28 @@ describe('syncItemWithBase', () => {
       expect(git(['log', '-1', '--format=%p'], item.worktreePath ?? '').split(' ')).toHaveLength(2);
     });
 
-    it('keeps main\'s copy when both sides recorded the same defect or changed the same row', async () => {
-      const item = makeItemWithWork({ [REGISTER]: register('| LT-1 | fixed by the job |', '| LT-2 | the job\'s words |') });
-      commitOnMain(REGISTER, register('| LT-1 | fixed on main |', '| LT-2 | main\'s words |'));
+    it('keeps main\'s copy when both sides changed the same existing row', async () => {
+      const item = makeItemWithWork({ [REGISTER]: register('| LT-1 | fixed by the job |') });
+      commitOnMain(REGISTER, register('| LT-1 | fixed on main |'));
 
       expect((await syncItemWithBase(item, 'main', repo)).status).toBe('merged');
-      expect(read(item)).toBe(register('| LT-1 | fixed on main |', '| LT-2 | main\'s words |'));
+      expect(read(item)).toBe(register('| LT-1 | fixed on main |'));
     });
 
-    it('keeps main\'s copy when both sides added the same new defect', async () => {
-      const item = makeItemWithWork({ [REGISTER]: register('| LT-1 | open |', '| LT-2 | the job\'s words |') });
-      commitOnMain(REGISTER, register('| LT-1 | open |', '| LT-2 | main\'s words |'));
+    it('leaves the merge for a worker when both sides added a row under the same new id', async () => {
+      // Two different defects can be given one id: keeping main's row would drop the job's defect without a trace.
+      const item = makeItemWithWork({ [REGISTER]: register('| LT-1 | open |', '| LT-2 | the job\'s defect |') });
+      commitOnMain(REGISTER, register('| LT-1 | open |', '| LT-2 | another defect on main |'));
 
-      expect((await syncItemWithBase(item, 'main', repo)).status).toBe('merged');
-      expect(read(item)).toBe(register('| LT-1 | open |', '| LT-2 | main\'s words |'));
+      expect(await syncItemWithBase(item, 'main', repo)).toEqual({ status: 'conflict', conflictFiles: [REGISTER] });
+      expect(read(item)).toContain('the job\'s defect');
+    });
+
+    it('leaves the merge for a worker when one side changed an existing row and both added the same new id', async () => {
+      const item = makeItemWithWork({ [REGISTER]: register('| LT-1 | fixed by the job |', '| LT-2 | the job\'s defect |') });
+      commitOnMain(REGISTER, register('| LT-1 | fixed on main |', '| LT-2 | another defect on main |'));
+
+      expect(await syncItemWithBase(item, 'main', repo)).toEqual({ status: 'conflict', conflictFiles: [REGISTER] });
     });
 
     it('puts a new section after main\'s lines, so they stay with the section they belong to', async () => {
@@ -198,13 +206,22 @@ describe('syncItemWithBase', () => {
       expect(read(item)).toBe(notes('Verified on main.', '## LT-2: new', 'From the job.'));
     });
 
-    it('keeps main\'s text for a section both sides added', async () => {
-      const section = (words: string) => `${register('| LT-1 | open |')}\n## LT-2: one defect\n\n${words}\n`;
-      const item = makeItemWithWork({ [REGISTER]: section('The job\'s words.') });
-      commitOnMain(REGISTER, section('Main\'s words.'));
+    it('keeps main\'s text for an existing section both sides rewrote', async () => {
+      const section = (status: string, words: string) => `${register('| LT-1 | open |')}\n## LT-2: one defect (${status})\n${words}\n`;
+      commitOnMain(REGISTER, section('open', 'Original words.'));
+      const item = makeItemWithWork({ [REGISTER]: section('fixed by the job', 'The job\'s words.') });
+      commitOnMain(REGISTER, section('fixed on main', 'Main\'s words.'));
 
       expect((await syncItemWithBase(item, 'main', repo)).status).toBe('merged');
-      expect(read(item)).toBe(section('Main\'s words.'));
+      expect(read(item)).toBe(section('fixed on main', 'Main\'s words.'));
+    });
+
+    it('leaves the merge for a worker when both sides added a section under the same new id', async () => {
+      const section = (heading: string, words: string) => `${register('| LT-1 | open |')}\n## LT-2: ${heading}\n\n${words}\n`;
+      const item = makeItemWithWork({ [REGISTER]: section('the job\'s defect', 'The job\'s words.') });
+      commitOnMain(REGISTER, section('another defect', 'Main\'s words.'));
+
+      expect(await syncItemWithBase(item, 'main', repo)).toEqual({ status: 'conflict', conflictFiles: [REGISTER] });
     });
 
     it.each([

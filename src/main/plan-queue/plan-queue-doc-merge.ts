@@ -155,12 +155,16 @@ function ownedLines(lines: readonly string[]): OwnedLine[] {
   });
 }
 
-/** True when taking main's side of a clash loses nothing only the job did: every line it added or removed belongs to an entry main changed too. */
+/**
+ * True when taking main's side of a clash loses nothing only the job did: every line it added or removed belongs to an
+ * entry that existed before the job started and that main changed too. An id both sides added since is not proof of one
+ * defect: on 16 November 2026 five branches held different defects under ids main had since given to others.
+ */
 function mainAnswersJob(job: readonly string[], base: readonly string[], main: readonly string[]): boolean {
   const jobEntries = registerEntries(job), baseEntries = registerEntries(base), mainEntries = registerEntries(main);
   if ([...baseEntries.keys()].some(entry => !jobEntries.has(entry))) return false;
   const answered = ({ owners }: OwnedLine) => owners.length > 0
-    && owners.every(entry => mainEntries.has(entry) && mainEntries.get(entry) !== baseEntries.get(entry));
+    && owners.every(entry => baseEntries.has(entry) && mainEntries.has(entry) && mainEntries.get(entry) !== baseEntries.get(entry));
   const added = ownedLines(job).filter(({ line }) => !base.includes(line) && !main.includes(line));
   const removed = ownedLines(base).filter(({ line }) => !job.includes(line));
   return added.every(answered) && removed.every(change => answered(change) && !main.includes(change.line));
@@ -177,9 +181,9 @@ function doubledEntries(register: string): Set<string> {
 
 /**
  * Settle each clash in a three-way merge of the live-test register: `merged` has the job's lines first and main's last.
- * Two sets of new lines are both kept. Where both sides changed the same entries main's copy stays, along with its text
- * for a section both added or changed: in every clash replayed on 6 November 2026 that was one defect recorded twice, and main's
- * copy was the newer. Null when anything else in a clash would be lost, so a person or worker decides.
+ * Two sets of new lines are both kept. Where both sides changed the same existing entries main's copy stays, along with
+ * its text for a section both changed: main's copy is the newer. An id both sides added is left to a worker, since it can
+ * name two different defects. Null when anything else in a clash would be lost, so a person or worker decides.
  */
 export function settleRegisterClashes(merged: string): { text: string; replaced: string[] } | null {
   const lines = merged.split('\n');
