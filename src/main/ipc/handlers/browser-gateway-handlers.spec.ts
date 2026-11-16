@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   markFailed: vi.fn(),
   registerRedeliveryHandler: vi.fn<(origin: string, handler: (ctx: RedeliveryContext) => void) => void>(),
   getApprovalRequest: vi.fn(),
+  listTargets: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -34,6 +35,7 @@ vi.mock('../../browser-gateway/browser-gateway-service', () => ({
     approveRequest: mocks.approveRequest,
     denyRequest: mocks.denyRequest,
     getApprovalRequest: mocks.getApprovalRequest,
+    listTargets: mocks.listTargets,
   }),
 }));
 
@@ -82,6 +84,26 @@ describe('Browser Gateway approval resume admission', () => {
         allowExternalNavigation: false, autonomous: false } };
     return { capabilities, deviceLogin, payload };
   }
+
+  it('still gives Harness\'s own screen the full tab listing (only agents get the compact one)', async () => {
+    const fullTarget = {
+      id: 'target-1',
+      targetId: 'target-1',
+      profileId: 'profile-1',
+      pageId: 'page-1',
+      driver: 'extension',
+      windowId: 7,
+      tabIndex: 2,
+      pinned: false,
+      lastSeenAt: 1_700_000_000_000,
+      lastConfirmedAt: 1_700_000_000_001,
+    };
+    mocks.listTargets.mockResolvedValueOnce({ decision: 'allowed', outcome: 'succeeded', data: [fullTarget] });
+
+    const response = await handlers.get(IPC_CHANNELS.BROWSER_LIST_TARGETS)?.({}, {});
+
+    expect(response).toMatchObject({ success: true, data: { data: [fullTarget] } });
+  });
 
   it('wakes the exact device-login owner after approval without a reusable grant', async () => {
     const { deviceLogin, payload } = deviceDecision();

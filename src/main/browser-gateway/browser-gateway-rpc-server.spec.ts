@@ -179,6 +179,52 @@ describe('BrowserGatewayRpcServer', () => {
     });
   });
 
+  it('returns the compact tab listing to agents on browser.list_targets', async () => {
+    const fullTarget = {
+      id: 'target-1',
+      targetId: 'target-1',
+      profileId: 'profile-1',
+      pageId: 'page-1',
+      driver: 'extension',
+      windowId: 7,
+      tabIndex: 2,
+      pinned: false,
+      lastSeenAt: 1_700_000_000_000,
+      lastConfirmedAt: 1_700_000_000_001,
+      title: 'x'.repeat(200),
+      url: 'https://example.com/',
+      status: 'selected',
+    };
+    const listTargets = vi.fn().mockResolvedValue({ decision: 'allowed', outcome: 'succeeded', data: [fullTarget] });
+    const server = new BrowserGatewayRpcServer({
+      service: { listTargets },
+      userDataPath: '/tmp',
+      isKnownLocalInstance: () => true,
+      registerCleanup: vi.fn(),
+    });
+
+    const result = (await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'browser.list_targets',
+      params: { instanceId: 'instance-1', payload: {} },
+    })) as BrowserGatewayResult<Array<Record<string, unknown>>>;
+
+    expect(listTargets).toHaveBeenCalledOnce();
+    expect(result.decision).toBe('allowed');
+    const [target] = result.data ?? [];
+    expect(target).toMatchObject({
+      targetId: 'target-1',
+      profileId: 'profile-1',
+      url: 'https://example.com/',
+      status: 'selected',
+    });
+    expect((target['title'] as string).length).toBeLessThan(fullTarget.title.length);
+    for (const dropped of ['id', 'pageId', 'driver', 'windowId', 'tabIndex', 'pinned', 'lastSeenAt', 'lastConfirmedAt']) {
+      expect(target).not.toHaveProperty(dropped);
+    }
+  });
+
   it('handles durable browser workflow checkpoint save and resume RPC calls', async () => {
     const checkpointStore = {
       saveStep: vi.fn(async (input: {

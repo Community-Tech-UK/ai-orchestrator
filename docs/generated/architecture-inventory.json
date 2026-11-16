@@ -6637,16 +6637,16 @@
       "lines": 1730
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-rpc-server.spec.ts",
+      "lines": 1701
+    },
+    {
       "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
       "lines": 1680
     },
     {
       "path": "src/main/local-ai-guard/local-ai-health-repository.spec.ts",
       "lines": 1663
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-rpc-server.spec.ts",
-      "lines": 1655
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
