@@ -4,12 +4,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 const require = createRequire(import.meta.url);
-interface Transfer { version: number; files: { path: string; text: string; mtimeMs: number; mode: number; memory: boolean }[]; links: { path: string; target: string }[]; exclusions: string[] }
+interface Transfer { version: number; files: { path: string; text: string; mtimeMs: number; mode: number; memory: boolean }[]; assets: { path: string; base64: string }[]; links: { path: string; target: string }[]; exclusions: string[] }
 const { buildSyncPackage, applySyncPackage, filterCodexConfig, renderSyncHook } = require('./sync-agent-setup.js') as {
   buildSyncPackage(options: { sourceHome: string }): Transfer;
   applySyncPackage(pkg: Transfer, options: { destinationHome: string }): { changed: number; exclusions: number; excludedPaths: string[] };
   filterCodexConfig(text: string): string;
-  renderSyncHook(text: string, options: { scriptPath: string; remote: string; destinationHome: string }): string;
+  renderSyncHook(text: string, options: { scriptPath: string; remote: string; destinationHome: string; remoteNode: string }): string;
 };
 const roots: string[] = [];
 function home(): string { const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aio-sync-')); roots.push(dir); return dir; }
@@ -233,6 +233,33 @@ describe('home-base agent setup sync', () => {
     expect(fs.readFileSync(path.join(destination, `${root}/gateway-testing/SKILL.md`), 'utf8')).toBe(gatewaySkill);
     directSkillInstructions.forEach((_, index) => expect(fs.existsSync(path.join(destination, `${root}/web-testing-${index}`))).toBe(false));
   });
+  it.each(['.agents/skills', '.claude/skills', '.codex/skills'])('never packages refused resources from a wholly excluded skill in %s', root => {
+    const source = home(); const destination = home();
+    write(source, `${root}/reports/auth.json`, 'EXAMPLE_LOCAL_LOGIN');
+    write(source, `${root}/reports/asset.png`, 'EXAMPLE_BINARY_ASSET');
+    write(source, `${root}/reports/notes.md`, 'token = do-not-copy-this-literal');
+    write(source, `${root}/reports/z-guide.md`, directSkillInstructions[0] + 'token = do-not-copy-this-literal');
+    write(source, `${root}/reports-safe/SKILL.md`, gatewaySkill);
+    const pkg = buildSyncPackage({ sourceHome: source });
+    expect(pkg.files.map(file => file.path)).toEqual([`${root}/reports-safe/SKILL.md`]);
+    expect(pkg.exclusions).toEqual([`${root}/reports`]);
+    expect(JSON.stringify(pkg)).not.toContain('do-not-copy-this-literal');
+    expect(JSON.stringify(pkg)).not.toContain('EXAMPLE_LOCAL_LOGIN');
+    expect(JSON.stringify(pkg)).not.toContain('EXAMPLE_BINARY_ASSET');
+    applySyncPackage(pkg, { destinationHome: destination });
+    expect(fs.existsSync(path.join(destination, root, 'reports'))).toBe(false);
+    expect(fs.readFileSync(path.join(destination, root, 'reports-safe/SKILL.md'), 'utf8')).toBe(gatewaySkill);
+  });
+  it.each([
+    ['notes.md', 'token = do-not-copy-this-literal'],
+    ['asset.png', 'EXAMPLE_BINARY_ASSET'],
+  ])('still refuses %s in a retained sibling of an excluded skill', (name, text) => {
+    const source = home();
+    write(source, '.agents/skills/reports/SKILL.md', directSkillInstructions[0]);
+    write(source, '.agents/skills/reports-safe/SKILL.md', gatewaySkill);
+    write(source, `.agents/skills/reports-safe/${name}`, text);
+    expect(() => buildSyncPackage({ sourceHome: source })).toThrow(/credential|non-text/);
+  });
   it('removes safe-named direct-control skills from existing default and named Claude/Codex homes', () => {
     const source = home(); const destination = home();
     const skillRoots = ['.agents/skills', '.claude/skills', '.codex/skills'];
@@ -368,6 +395,18 @@ describe('home-base agent setup sync', () => {
     expect(() => applySyncPackage({ ...pkg, exclusions: undefined } as unknown as Transfer, { destinationHome: destination })).toThrow(/Invalid/);
     expect(fs.existsSync(path.join(destination, '.agents/AGENTS.md'))).toBe(false);
   });
+  it('reports historical memory backups as excluded while retaining hidden-file protection', () => {
+    const source = home(); const stem = '.claude/projects/example/memory/';
+    const backup = stem + '.MEMORY.md.before-compaction-20260919T214005Z';
+    write(source, backup, 'EXAMPLE_PRIVATE_OLD_MEMORY');
+    write(source, stem + 'MEMORY.md', '# Current memory');
+    const pkg = buildSyncPackage({ sourceHome: source });
+    expect(pkg.files.map(file => file.path)).toEqual([stem + 'MEMORY.md']);
+    expect(pkg.exclusions).toContain(backup);
+    expect(JSON.stringify(pkg)).not.toContain('EXAMPLE_PRIVATE_OLD_MEMORY');
+    write(source, stem + '.credential-record.md', 'EXAMPLE_PRIVATE_VALUE');
+    expect(() => buildSyncPackage({ sourceHome: source })).toThrow(/credential or hidden/);
+  });
   it.each(['Authorization: Bearer do-not-copy-this-literal', 'command --token do-not-copy-this-literal', 'command --password=do-not-copy-this-literal'])('refuses literal credentials in setup prose or commands', line => {
     const source = home(); write(source, '.agents/AGENTS.md', line);
     expect(() => buildSyncPackage({ sourceHome: source })).toThrow(/credential/);
@@ -393,7 +432,7 @@ describe('home-base agent setup sync', () => {
   });
   it('adds one safely quoted integration block without changing the existing local sync', () => {
     const original = '#!/bin/zsh\nset -eu\nprint local\n';
-    const options = { scriptPath: "/Users/example/O'Brien/sync-agent-setup.js", remote: 'ct-test-mac', destinationHome: '/Users/example' };
+    const options = { scriptPath: "/Users/example/O'Brien/sync-agent-setup.js", remote: 'ct-test-mac', destinationHome: '/Users/example', remoteNode: '/Users/example/.local/bin/node' };
     const once = renderSyncHook(original, options);
     expect(renderSyncHook(once, options)).toBe(once);
     expect(once.startsWith(original)).toBe(true);

@@ -62,7 +62,7 @@ export function toolLoopTranscriptNotice(
   const reason = detection.detector === 'runaway'
     ? 'the agent made too many tool calls without finishing'
     : 'the agent kept repeating tool calls with the same results';
-  return `Harness is stopping this turn because ${reason}. Completed work is preserved. Choose Continue to retry. If it repeats, start a fresh session or change model.`;
+  return `Harness is stopping this turn because ${reason}. Completed work is preserved. Your next message will tell the agent why it was stopped. If it happens again, start a fresh session or change model.`;
 }
 
 // Chosen so the worst case stays inside MAX_BODY_CHARS with the fixed wording:

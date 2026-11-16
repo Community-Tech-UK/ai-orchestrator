@@ -1,10 +1,11 @@
 import { buildWatcherBrief } from '../../src/main/session-watcher/watcher-brief';
 import { buildWatcherJudgePrompt } from '../../src/main/session-watcher/watcher-judge-prompt';
+import { readWatcherProjectInstructions } from '../../src/main/session-watcher/watcher-project-instructions';
 import { applyWatcherPostChecks, type WatcherLevel } from '../../src/main/session-watcher/watcher-post-checks';
 import { parseWatcherVerdict } from '../../src/main/session-watcher/watcher-verdict';
 import type { JudgeBackend } from './judge-backends';
 import { appendJsonl, forEachLimited, readJsonl } from './jsonl';
-import { loadMessagesUpToStop } from './load-messages';
+import { loadMessagesUpToStop, workingDirectoryOf } from './load-messages';
 import type { ResultRow, StopRef } from './types';
 
 export const JUDGE_MAX_TOKENS = 400;
@@ -16,7 +17,8 @@ export async function judgeOne(stop: StopRef, backend: JudgeBackend, level: Watc
   let promptChars = 0;
   try {
     const brief = buildWatcherBrief(loadMessagesUpToStop(stop));
-    const prompt = buildWatcherJudgePrompt(brief);
+    // The folder's instruction file as it is today, which may differ from when the stop happened.
+    const prompt = buildWatcherJudgePrompt(brief, await readWatcherProjectInstructions(workingDirectoryOf(stop)));
     promptChars = prompt.system.length + prompt.user.length;
     let raw: string;
     try {

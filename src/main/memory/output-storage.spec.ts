@@ -36,7 +36,8 @@ vi.mock('../logging/logger', () => ({
 }));
 
 import type { UserPromptRef } from '../../shared/types/prompt-index.types';
-import { OutputStorageManager, mergePromptIndex } from './output-storage';
+import { getLogger } from '../logging/logger';
+import { OutputStorageManager, mergePromptIndex, wireOutputStorage } from './output-storage';
 
 let nextId = 0;
 
@@ -209,6 +210,122 @@ describe('OutputStorageManager.loadMessagesBefore', () => {
   });
 });
 
+describe('OutputStorageManager size limit and open sessions', () => {
+  let storage: OutputStorageManager;
+  const warn = () => vi.mocked(getLogger).mock.results[0]!.value.warn as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'output-storage-limit-spec-'));
+    storage = new OutputStorageManager();
+    warn().mockClear();
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempUserData, { recursive: true, force: true });
+  });
+
+  it('removes only the stored messages of sessions that no longer exist, and keeps an open session\'s whole transcript', async () => {
+    const open = new Set(['open']);
+    storage.configure({ isInstanceInUse: (instanceId) => open.has(instanceId) });
+    await storage.storeMessages('open', [msg('assistant', 'open-1')]);
+    await storage.storeMessages('gone', [msg('assistant', 'gone-1')]);
+    // A one-byte limit: everything removable goes, and the open session is still over it.
+    storage.configure({ maxDiskStorageMB: 1 / (1024 * 1024) });
+    await storage.storeMessages('open', [msg('assistant', 'open-2')]);
+
+    expect(fs.existsSync(indexPath('gone'))).toBe(false);
+    expect((await storage.loadMessages('open')).map((m) => m.content)).toEqual(['open-1', 'open-2']);
+    expect(warn()).toHaveBeenCalledTimes(1);
+    await storage.storeMessages('open', [msg('assistant', 'open-3')]);
+    expect(warn()).toHaveBeenCalledTimes(1);
+
+    open.delete('open');
+    await storage.storeMessages('other', [msg('assistant', 'other-1')]);
+    expect(await storage.loadMessages('open')).toEqual([]);
+  });
+
+  it('warns again after storage has been back under its limit', async () => {
+    const open = new Set(['open']);
+    storage.configure({ isInstanceInUse: (instanceId) => open.has(instanceId), maxDiskStorageMB: 1 / (1024 * 1024) });
+    await storage.storeMessages('open', [msg('assistant', 'open-1')]);
+    expect(warn()).toHaveBeenCalledTimes(1);
+    open.delete('open');
+    await storage.storeMessages('gone', [msg('assistant', 'gone-1')]);
+    expect(warn()).toHaveBeenCalledTimes(1);
+    open.add('again');
+    await storage.storeMessages('again', [msg('assistant', 'again-1')]);
+    expect(warn()).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('OutputStorageManager start-up and index writes', () => {
+  beforeEach(() => {
+    tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'output-storage-startup-spec-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempUserData, { recursive: true, force: true });
+  });
+
+  it('rebuilds a missing or garbled index from its chunk files at start-up, and removes an empty folder', async () => {
+    const first = new OutputStorageManager();
+    await first.storeMessages('kept', [msg('assistant', 'still readable')]);
+    const dirOf = (dir: string) => path.join(tempUserData, 'output-storage', dir);
+    for (const dir of ['no-index', 'garbled-index']) {
+      fs.mkdirSync(dirOf(dir), { recursive: true });
+      fs.writeFileSync(path.join(dirOf(dir), 'chunk-000003.gz'), zlib.gzipSync(JSON.stringify([msg('user', `${dir} first`), msg('assistant', `${dir} reply`)])));
+      fs.writeFileSync(path.join(dirOf(dir), 'chunk-000007.gz'), zlib.gzipSync(JSON.stringify([msg('assistant', `${dir} later`)])));
+    }
+    fs.writeFileSync(indexPath('garbled-index'), '{"instanceId": "garbled-in');
+    fs.mkdirSync(dirOf('empty'));
+
+    const restarted = new OutputStorageManager();
+    for (const dir of ['no-index', 'garbled-index']) {
+      expect((await restarted.loadMessages(dir)).map((m) => m.content)).toEqual([`${dir} first`, `${dir} reply`, `${dir} later`]);
+      expect(readIndex(dir)).toMatchObject({ totalMessages: 3, chunks: [{ chunkIndex: 3, messageCount: 2 }, { chunkIndex: 7, messageCount: 1 }] });
+    }
+    await restarted.storeMessages('no-index', [msg('assistant', 'written after the rebuild')]);
+    expect((readIndex('no-index') as { chunks: { chunkIndex: number }[] }).chunks.at(-1)?.chunkIndex).toBe(8);
+    await vi.waitFor(() => expect(fs.existsSync(dirOf('empty'))).toBe(false));
+    expect((await restarted.loadMessages('kept')).map((m) => m.content)).toEqual(['still readable']);
+  });
+
+  it('leaves a folder alone when its index cannot be read for another reason', async () => {
+    const dir = path.join(tempUserData, 'output-storage', 'busy');
+    fs.mkdirSync(path.join(dir, 'index.json'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'chunk-000000.gz'), zlib.gzipSync(JSON.stringify([msg('assistant', 'kept')])));
+
+    const storage = new OutputStorageManager();
+    await storage.flushInstance('busy');
+
+    expect(fs.existsSync(path.join(dir, 'chunk-000000.gz'))).toBe(true);
+    expect(fs.statSync(path.join(dir, 'index.json')).isDirectory()).toBe(true);
+  });
+
+  it('writes the index through a temporary file so a failed write leaves the previous index', async () => {
+    const storage = new OutputStorageManager();
+    await storage.storeMessages('inst', [msg('assistant', 'first')]);
+    const rename = vi.spyOn(fs.promises, 'rename').mockRejectedValueOnce(new Error('disk full'));
+    try {
+      await expect(storage.storeMessages('inst', [msg('assistant', 'second')])).rejects.toThrow('disk full');
+    } finally { rename.mockRestore(); }
+
+    expect((readIndex('inst') as { totalMessages: number }).totalMessages).toBe(1);
+    expect((await new OutputStorageManager().loadMessages('inst')).map((m) => m.content)).toEqual(['first']);
+  });
+});
+
+describe('wireOutputStorage', () => {
+  it('applies the disk storage limit setting at start and whenever it changes', () => {
+    const storage = { configure: vi.fn() };
+    let changed: ((value: number) => void) | undefined;
+    const isInUse = (): boolean => true;
+    wireOutputStorage(storage, { get: () => 2000, on: (_event, listener) => { changed = listener; } }, isInUse);
+    changed!(0);
+    expect(storage.configure.mock.calls).toEqual([[{ maxDiskStorageMB: 2000, isInstanceInUse: isInUse }], [{ maxDiskStorageMB: 0 }]]);
+  });
+});
+
 describe('mergePromptIndex', () => {
   const prompt = (id: string, content: string, timestamp: number) =>
     ({ id, type: 'user', content, timestamp }) as OutputMessage;
@@ -332,13 +449,11 @@ describe('OutputStorageManager retrieved-note delivery metadata', () => {
     const reached = new Promise<void>(resolve => { entered = resolve; });
     const bDisk = new Promise<void>(resolve => { wroteB = resolve; });
     const rename = fs.promises.rename.bind(fs.promises);
-    const writeFile = fs.promises.writeFile.bind(fs.promises);
+    // Hold only the metadata replacement's rename; index saves also rename, and b's marks its write as committed.
     vi.spyOn(fs.promises, 'rename').mockImplementation(async (from, to) => {
-      entered(); await gate; return rename(from, to);
-    });
-    vi.spyOn(fs.promises, 'writeFile').mockImplementation(async (file, data, options) => {
-      await writeFile(file, data, options);
-      if (String(file).endsWith(`${path.sep}b${path.sep}index.json`)) wroteB();
+      if (String(from).endsWith('.metadata.tmp')) { entered(); await gate; }
+      await rename(from, to);
+      if (String(to).endsWith(`${path.sep}b${path.sep}index.json`)) wroteB();
     });
     const unlink = vi.spyOn(fs.promises, 'unlink');
     const updating = storage.patchInputContextDelivery('a', { messageId: user.id, deliveryId: 'delivery', tokens: 120 });

@@ -2,8 +2,9 @@
  * Keep earlier archived messages when a thread is re-archived.
  *
  * `archiveInstance` replaces every history entry on the instance's thread with
- * one built from the live instance. That is lossless only when the instance
- * still holds the whole transcript, as a native restore does. A crash-recovery
+ * one built from the live instance. That is lossless only when the instance's
+ * buffer and its stored earlier messages together hold the whole transcript,
+ * as a native restore's do. A crash-recovery
  * revival can be seeded from a stale, trimmed continuity state instead: on
  * 2026-10-08 a revived instance holding 1,000 messages replaced a 19,398-message
  * entry and the rest of the conversation was deleted.

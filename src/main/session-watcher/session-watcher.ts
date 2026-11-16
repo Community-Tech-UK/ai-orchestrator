@@ -14,6 +14,7 @@ import {
 import type { WatcherJudge } from './watcher-judge';
 import { WATCHER_JUDGE_TIMEOUT_MS } from './watcher-judge-options';
 import { buildWatcherJudgePrompt } from './watcher-judge-prompt';
+import { readWatcherProjectInstructions } from './watcher-project-instructions';
 import { clearWatcherNoticeSource, setWatcherNoticeSource } from './watcher-notices';
 import { redactAllSecrets } from '../security/secret-redaction';
 import { applyWatcherPostChecks, closingParagraph, watcherLevelAllows, type WatcherDecision } from './watcher-post-checks';
@@ -35,6 +36,8 @@ const COMPLETION_GRACE_MS = 3_000;
 /** The desktop and phone senders both ask about one idle change; calls this close together are the same change. */
 const SAME_IDLE_CHANGE_MS = 500;
 const CLOSING_CHARS = 600;
+/** How long the judge waits for the project's instruction file before going without it. */
+const INSTRUCTIONS_WAIT_MS = 5_000;
 /** A yes can answer these stops. A request for information or a bare choice cannot be answered with one. */
 const YES_ANSWERS = new Set<WatcherStop>([
   'asked_to_continue', 'announced_next_step', 'stopped_mid_plan', 'asked_before_outward_step', 'offered_extra_work',
@@ -319,6 +322,15 @@ export class SessionWatcher extends EventEmitter {
       const brief = buildWatcherBrief(mergeWatcherMessages(instance.retainedPrompts, instance.outputBuffer));
       const skipped = watcherReplySkipReason(brief.finalReplyFull, brief.personTexts.length, model);
       if (skipped) { this.settle(instanceId, job, { skipped, outcome: 'not_sent' }); return null; }
+      // A session on another computer has its folder there. A read that stalls (a hung network drive) must not keep
+      // this judge slot: after a short wait the judge goes without, as it does for a folder with no file.
+      const projectInstructions = instance.executionLocation.type === 'local'
+        ? await Promise.race([
+          readWatcherProjectInstructions(instance.workingDirectory),
+          abortable(INSTRUCTIONS_WAIT_MS, signal).then(() => ''),
+        ])
+        : '';
+      if (signal.aborted) return null;
 
       const call = new AbortController();
       const timer = setTimeout(() => call.abort(), WATCHER_JUDGE_TIMEOUT_MS);
@@ -328,7 +340,7 @@ export class SessionWatcher extends EventEmitter {
       try {
         // Raced against the abort itself: a judge that ignores it must not keep this slot for ever.
         const reply = await Promise.race([
-          this.deps.judge.judge(buildWatcherJudgePrompt(brief), instanceId, call.signal),
+          this.deps.judge.judge(buildWatcherJudgePrompt(brief, projectInstructions), instanceId, call.signal),
           new Promise<never>((_resolve, reject) => { call.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }); }),
         ]);
         raw = reply.raw;

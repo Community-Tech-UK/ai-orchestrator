@@ -27,56 +27,10 @@ import {
   resolveRestoreAccount,
   selectMessagesForRestore,
 } from './history-restore-helpers';
-import type { ResumeAttemptResult } from '../cli/adapters/base-cli-adapter.types';
+import { waitForResumeState } from './history-restore-resume-wait';
 
 const logger = getLogger('HistoryRestoreCoordinator');
 const DEFAULT_POLL_INTERVAL_MS = 200;
-
-/**
- * Duck-typed accessor for adapter resume proof.
- * Returns true/false if the adapter has a definitive answer, null if still pending.
- */
-function getAdapterResumeProof(instanceManager: InstanceManager, instanceId: string): boolean | null {
-  // getAdapter is on InstanceManager but not on slimmer dep types — use optional call.
-  const adapter = (instanceManager as unknown as { getAdapter?(id: string): unknown }).getAdapter?.(instanceId);
-  if (!adapter) return null;
-  const a = adapter as { getResumeAttemptResult?: () => ResumeAttemptResult | null | undefined };
-  if (typeof a.getResumeAttemptResult !== 'function') return null;
-  const result = a.getResumeAttemptResult();
-  if (!result || result.source === 'none') return null;
-  // fresh-fallback means no native resume was attempted — definitively not confirmed.
-  if (result.source === 'fresh-fallback') return false;
-  // A `--fork-session` resume returns a NEW id by definition, so a mismatch is
-  // the success shape, not a failure (LT-008 — see ResumeAttemptResult.forked).
-  if (!result.forked && result.actualSessionId && result.requestedSessionId
-      && result.actualSessionId !== result.requestedSessionId) return false;
-  if (result.confirmed) return true;
-  if (result.reason) return false;
-  return null;
-}
-
-/**
- * Outcome of the post-spawn resume probe. `disproven` separates "the adapter
- * told us the native resume did NOT happen" from "we never got proof either
- * way".
- *
- * It deliberately does NOT demote the restore to the replay rung: an
- * alive-but-unresumed instance stays on `resume-unconfirmed` by design (the
- * B1/B2 locks in `history-restore-coordinator.spec.ts`). Killing a healthy
- * process only to spawn an identical one buys nothing — the archived
- * transcript is already in its buffer and the continuity preamble is queued.
- *
- * It does drive two things a silent `resume-unconfirmed` used to skip
- * (LT-014, James's call 2026-07-27): the user-facing "could not be restored
- * natively" notice, and recording `nativeResumeFailedAt` so the next restore
- * skips the doomed native rung. A merely-unproven resume (`disproven: false`)
- * stays silent — absence of proof is not proof of absence.
- */
-interface ResumeWaitState {
-  alive: boolean;
-  confirmed: boolean;
-  disproven: boolean;
-}
 
 export interface HistoryRestoreForkIds {
   sessionId: string;
@@ -171,19 +125,21 @@ function buildDisprovenResumeNotice(
     restoreNodeId?: string;
   },
   continuityInjectionQueued: boolean,
+  hiddenMessageCount: number,
 ): OutputMessage {
   const providerName = getProviderDisplayName(params.restoreProvider);
+  const earlier = hiddenMessageCount > 0 ? ` (${hiddenMessageCount} earlier messages available via "Load earlier messages")` : '';
   return {
     id: generateId(),
     timestamp: Date.now(),
     type: 'system',
-    content: `Previous ${providerName} CLI session could not be restored natively. Your conversation history is displayed above, and a condensed transcript will be attached automatically to your next message.`,
+    content: `Previous ${providerName} CLI session could not be restored natively. Your conversation history is displayed above${earlier}, and a condensed transcript will be attached automatically to your next message.`,
     metadata: {
       isRestoreNotice: true,
       systemMessageKind: 'restore-fallback',
       provider: params.restoreProvider,
       restoredMessageCount: params.restoreTranscriptMessages.length,
-      hiddenMessageCount: 0,
+      hiddenMessageCount,
       continuityInjectionQueued,
       nativeResumeFailedAt: Date.now(),
       originalSessionId: params.nativeResumeSessionId,
@@ -218,7 +174,7 @@ export class HistoryRestoreError extends Error {
 }
 
 type HistoryRestoreHistoryDep = Pick<HistoryManager, 'loadConversation' | 'markNativeResumeFailed'>;
-type OutputStorageDep = Pick<ReturnType<typeof getOutputStorageManager>, 'storeMessages'>;
+type OutputStorageDep = Pick<ReturnType<typeof getOutputStorageManager>, 'storeMessages' | 'deleteInstance'>;
 
 export interface HistoryRestoreCoordinatorDeps {
   history?: () => HistoryRestoreHistoryDep;
@@ -455,6 +411,10 @@ export class HistoryRestoreCoordinator {
   }): Promise<NativeResumeAttempt> {
     let resumeInstanceId: string | undefined;
     const postSpawnTimeoutMs = this.postSpawnTimeoutMs ?? (params.restoreNodeId ? 15_000 : 5_000);
+    // Only the newest messages go in memory, as on the replay rung; the rest go to disk storage, where "Load earlier
+    // messages" and archiving read them. A new session is sent to the window whole, and sending a long transcript froze
+    // the main process: 89 s for five long sessions restored together after a restart (16 Nov 2026).
+    const { selected: visibleMessages, hidden: earlierMessages } = selectMessagesForRestore(params.restoreTranscriptMessages);
 
     try {
       const instance = await params.instanceManager.createInstance({
@@ -465,7 +425,7 @@ export class HistoryRestoreCoordinator {
         historyThreadId: params.historyThreadId,
         sessionId: params.nativeResumeSessionId,
         resume: true,
-        initialOutputBuffer: params.restoreTranscriptMessages,
+        initialOutputBuffer: visibleMessages,
         provider: params.restoreProvider,
         additionalDirectories: normalizeOpenCodeAdditionalDirectories(params.restoreAdditionalDirectories, params.restoreProvider),
         nodePlacement: normalizeRecoveryNodePlacement(params.restoreNodePlacement),
@@ -480,21 +440,24 @@ export class HistoryRestoreCoordinator {
       });
       resumeInstanceId = instance.id;
       instance.autoRespawnSuppressedUntil = Date.now() + postSpawnTimeoutMs + 2_000;
+      // Background setup clears `readyPromise` when it ends, so take it before waiting on the write: read afterwards, a
+      // setup failure would look like a dead session and wrongly mark the thread unresumable.
+      const ready = instance.readyPromise;
+      await Promise.all([
+        earlierMessages.length > 0 ? this.outputStorage().storeMessages(instance.id, earlierMessages) : undefined,
+        (async () => {
+          try {
+            await ready;
+          } catch (error) {
+            // Keep the underlying reason (e.g. "Timeout checking Codex CLI"): it is
+            // what tells a later reader whether the session or the host failed.
+            const reason = error instanceof Error ? error.message : String(error);
+            throw new Error(`Instance initialization failed during resume: ${reason}`);
+          }
+        })(),
+      ]);
 
-      try {
-        await instance.readyPromise;
-      } catch (error) {
-        // Keep the underlying reason (e.g. "Timeout checking Codex CLI"): it is
-        // what tells a later reader whether the session or the host failed.
-        const reason = error instanceof Error ? error.message : String(error);
-        throw new Error(`Instance initialization failed during resume: ${reason}`);
-      }
-
-      const resumeState = await this.waitForResumeState(
-        params.instanceManager,
-        instance.id,
-        postSpawnTimeoutMs,
-      );
+      const resumeState = await waitForResumeState(params.instanceManager, instance.id, postSpawnTimeoutMs, this.pollIntervalMs);
       if (resumeState.alive) {
         instance.autoRespawnSuppressedUntil = undefined;
 
@@ -526,7 +489,7 @@ export class HistoryRestoreCoordinator {
         // believe the CLI still remembered everything (LT-014).
         if (resumeState.disproven) {
           instance.outputBuffer.push(
-            buildDisprovenResumeNotice(params, Boolean(preamble)),
+            buildDisprovenResumeNotice(params, Boolean(preamble), earlierMessages.length),
           );
         }
 
@@ -559,67 +522,14 @@ export class HistoryRestoreCoordinator {
     }
   }
 
-  private waitForResumeState(
-    instanceManager: InstanceManager,
-    instanceId: string,
-    postSpawnTimeoutMs: number,
-  ): Promise<ResumeWaitState> {
-    return new Promise((resolve) => {
-      let settled = false;
-      const cleanup = (): void => {
-        settled = true;
-        clearTimeout(timeout);
-        clearInterval(poll);
-      };
-      const complete = (value: ResumeWaitState): void => {
-        if (!settled) {
-          cleanup();
-          resolve(value);
-        }
-      };
-      const inspect = (): ResumeWaitState => {
-        const inst = instanceManager.getInstance(instanceId);
-        const alive = inst != null
-          && inst.status !== 'error'
-          && inst.status !== 'terminated'
-          && inst.status !== 'respawning';
-        if (!alive) return { alive: false, confirmed: false, disproven: false };
-
-        // Prefer adapter proof (set from init events) over context-usage heuristic.
-        // A `false` here is a DEFINITIVE negative (LT-014): the adapter already
-        // knows the native resume did not happen — e.g. Claude found no
-        // transcript for the id under this cwd and spawned fresh. The rung is
-        // unchanged (still `resume-unconfirmed`), but there is nothing left to
-        // wait for, so the probe stops now rather than at the timeout.
-        const proof = getAdapterResumeProof(instanceManager, instanceId);
-        if (proof !== null) return { alive: true, confirmed: proof, disproven: !proof };
-
-        // Fall back to context-usage heuristic (used > 0 means the provider resumed).
-        // Absence of usage is not proof of failure — it stays merely unconfirmed.
-        const confirmed = Boolean(inst.contextUsage && inst.contextUsage.used > 0);
-        return { alive, confirmed, disproven: false };
-      };
-
-      const timeout = setTimeout(() => {
-        complete(inspect());
-      }, postSpawnTimeoutMs);
-
-      const poll = setInterval(() => {
-        const state = inspect();
-        if (!state.alive || state.confirmed || state.disproven) {
-          complete(state);
-        }
-      }, this.pollIntervalMs);
-    });
-  }
-
   /**
    * Terminate a native-resume attempt that did not take. Sessions adopted
    * under it while it was live (a Plan Queue run follows its restored parent
    * as soon as the session appears) are released, not terminated with it:
-   * the replacement restore of the same thread adopts them. Its buffer is
-   * emptied so the archive on termination is refused by `shouldArchiveInstance`
-   * (`empty-transcript-over-history`) instead of replacing the thread's entry.
+   * the replacement restore of the same thread adopts them. Its buffer and
+   * stored messages are emptied so the archive on termination is refused by
+   * `shouldArchiveInstance` (`empty-transcript-over-history`) instead of
+   * replacing the thread's entry.
    */
   private async discardRestoreAttempt(instanceManager: InstanceManager, instanceId: string): Promise<void> {
     const attempt = instanceManager.getInstance(instanceId);
@@ -628,6 +538,8 @@ export class HistoryRestoreCoordinator {
       attempt.autoRespawnSuppressedUntil = undefined;
       attempt.terminationPolicy = 'orphan-children';
     }
+    // Archiving also reads the attempt's stored earlier messages, so they go too, or they would replace the thread's entry.
+    await this.outputStorage().deleteInstance(instanceId);
     try {
       await instanceManager.terminateInstance(instanceId, false);
     } catch {

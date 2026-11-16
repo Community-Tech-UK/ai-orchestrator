@@ -67,6 +67,7 @@ describe('HistoryRestoreCoordinator', () => {
   const loadConversation = vi.fn();
   const markNativeResumeFailed = vi.fn();
   const storeMessages = vi.fn();
+  const deleteInstance = vi.fn();
   const createInstance = vi.fn();
   const getInstance = vi.fn();
   const terminateInstance = vi.fn();
@@ -79,6 +80,7 @@ describe('HistoryRestoreCoordinator', () => {
     vi.clearAllMocks();
     loadConversation.mockResolvedValue(conversation());
     storeMessages.mockResolvedValue(undefined);
+    deleteInstance.mockResolvedValue(undefined);
     createInstance.mockImplementation(async (config: { initialOutputBuffer?: OutputMessage[]; sessionId?: string; historyThreadId?: string }) =>
       makeInstance({
         id: config.sessionId === 'fork-session' ? 'fork-instance' : 'fallback-instance',
@@ -106,6 +108,7 @@ describe('HistoryRestoreCoordinator', () => {
       }),
       outputStorage: () => ({
         storeMessages,
+        deleteInstance,
       }),
       isRemoteNodeReachable: () => true,
       postSpawnTimeoutMs: 0,
@@ -316,6 +319,46 @@ describe('HistoryRestoreCoordinator', () => {
       expect(notices[0]?.metadata?.['originalSessionId']).toBe('native-session');
     });
 
+    it('tells the user how many earlier messages a disproven long resume holds in storage', async () => {
+      const long = Array.from({ length: 250 }, (_, index) => message(`m${index}`, index % 2 ? 'assistant' : 'user', `turn ${index}`));
+      loadConversation.mockResolvedValue({ ...conversation(), messages: long });
+      const alive = makeInstance({ id: 'fallback-proof-instance', status: 'idle' });
+      getInstance.mockImplementation((id: string) => (id === 'fallback-proof-instance' ? alive : undefined));
+      (manager as unknown as Record<string, unknown>)['getAdapter'] = () => ({
+        getResumeAttemptResult: () => ({ source: 'fresh-fallback' as const, confirmed: false }) });
+      createInstance.mockImplementation(async (config: { initialOutputBuffer?: OutputMessage[] }) => {
+        alive.outputBuffer = config.initialOutputBuffer ?? [];
+        return alive;
+      });
+
+      const result = await coordinator.restore(manager, 'entry-1');
+
+      expect(result.restoreMode).toBe('resume-unconfirmed');
+      const notice = result.restoredMessages.find(entry => entry.metadata?.['systemMessageKind'] === 'restore-fallback');
+      expect(notice?.content).toContain('(150 earlier messages available via "Load earlier messages")');
+      expect(notice?.metadata?.['hiddenMessageCount']).toBe(150);
+    });
+
+    it('falls back to replay without blacklisting the thread when storing the earlier messages fails', async () => {
+      const long = Array.from({ length: 250 }, (_, index) => message(`m${index}`, index % 2 ? 'assistant' : 'user', `turn ${index}`));
+      loadConversation.mockResolvedValue({ ...conversation(), messages: long });
+      const attempt = makeInstance({ id: 'native-instance', status: 'idle' });
+      getInstance.mockImplementation((id: string) => (id === 'native-instance' ? attempt : undefined));
+      createInstance.mockImplementation(async (config: { resume?: boolean; historyThreadId?: string; initialOutputBuffer?: OutputMessage[] }) =>
+        config.resume ? attempt : makeInstance({ id: 'fallback-instance', historyThreadId: config.historyThreadId ?? 'history-thread',
+          outputBuffer: config.initialOutputBuffer ?? [] }));
+      storeMessages.mockImplementation(async (id: string) => { if (id === 'native-instance') throw new Error('disk full'); });
+      const order: string[] = [];
+      deleteInstance.mockImplementation(async (id: string) => { order.push(`delete ${id}`); });
+      terminateInstance.mockImplementation(async (id: string) => { order.push(`terminate ${id}`); });
+
+      const result = await coordinator.restore(manager, 'entry-1');
+
+      expect(result.restoreMode).toBe('replay-fallback');
+      expect(markNativeResumeFailed).not.toHaveBeenCalled();
+      expect(order).toEqual(['delete native-instance', 'terminate native-instance']);
+    });
+
     it('stays silent when the adapter has no proof either way', async () => {
       // Absence of proof is not proof of absence: a native attempt that simply
       // has not echoed its session id yet must not be noticed or blacklisted.
@@ -402,6 +445,72 @@ describe('HistoryRestoreCoordinator', () => {
       expect(result.restoreMode).toBe('replay-fallback');
       expect(terminateInstance).toHaveBeenCalledWith('native-instance', false);
       expect(policyAtTermination).toBe('orphan-children');
+    });
+
+    it('resumes a long transcript with only its newest messages in memory and the rest stored', async () => {
+      const long = Array.from({ length: 250 }, (_, index) => message(`m${index}`, index % 2 ? 'assistant' : 'user', `turn ${index}`));
+      loadConversation.mockResolvedValue({ ...conversation(), messages: long });
+      const resumed = makeInstance({ id: 'native-instance', status: 'idle' });
+      getInstance.mockImplementation((id: string) => (id === 'native-instance' ? resumed : undefined));
+      (manager as unknown as Record<string, unknown>)['getAdapter'] = () => ({ getResumeAttemptResult: () => ({
+        source: 'native' as const, confirmed: true, requestedSessionId: 'native-session', actualSessionId: 'native-session' }) });
+      createInstance.mockImplementation(async (config: { initialOutputBuffer?: OutputMessage[] }) => {
+        resumed.outputBuffer = config.initialOutputBuffer ?? [];
+        return resumed;
+      });
+
+      const result = await coordinator.restore(manager, 'entry-1');
+
+      expect(result.restoreMode).toBe('native-resume');
+      const config = createInstance.mock.calls[0]?.[0] as { initialOutputBuffer: OutputMessage[] };
+      expect(config.initialOutputBuffer.map(entry => entry.id)).toEqual(long.slice(150).map(entry => entry.id));
+      expect(storeMessages).toHaveBeenCalledWith('native-instance', long.slice(0, 150));
+      expect(deleteInstance).not.toHaveBeenCalled();
+    });
+
+    it('deletes a discarded attempt\'s stored messages before closing it, so its archive cannot replace the thread', async () => {
+      const long = Array.from({ length: 250 }, (_, index) => message(`m${index}`, index % 2 ? 'assistant' : 'user', `turn ${index}`));
+      loadConversation.mockResolvedValue({ ...conversation(), messages: long });
+      const attempt = makeInstance({ id: 'native-instance', status: 'error' });
+      getInstance.mockImplementation((id: string) => (id === 'native-instance' ? attempt : undefined));
+      createInstance.mockImplementation(async (config: { resume?: boolean; historyThreadId?: string; initialOutputBuffer?: OutputMessage[] }) =>
+        config.resume ? attempt : makeInstance({ id: 'fallback-instance', historyThreadId: config.historyThreadId ?? 'history-thread',
+          outputBuffer: config.initialOutputBuffer ?? [] }));
+      const order: string[] = [];
+      deleteInstance.mockImplementation(async (id: string) => { order.push(`delete ${id}`); });
+      terminateInstance.mockImplementation(async (id: string) => { order.push(`terminate ${id}`); });
+
+      const result = await coordinator.restore(manager, 'entry-1');
+
+      expect(result.restoreMode).toBe('replay-fallback');
+      expect(storeMessages).toHaveBeenCalledWith('native-instance', long.slice(0, 150));
+      expect(order).toEqual(['delete native-instance', 'terminate native-instance']);
+      expect(attempt.outputBuffer).toEqual([]);
+    });
+
+    it('keeps the native session handle when setup fails while the earlier messages are still being stored', async () => {
+      // Background setup clears `readyPromise` when it ends; a restore that read it only after the write saw no
+      // failure, found the instance dead and wrongly marked the thread unresumable.
+      const long = Array.from({ length: 250 }, (_, index) => message(`m${index}`, index % 2 ? 'assistant' : 'user', `turn ${index}`));
+      loadConversation.mockResolvedValue({ ...conversation(), messages: long });
+      const failed = Promise.reject(new Error('spawn codex ENOENT'));
+      failed.catch(() => undefined);
+      const attempt = makeInstance({ id: 'native-instance', status: 'initializing', readyPromise: failed });
+      getInstance.mockImplementation((id: string) => (id === 'native-instance' ? attempt : undefined));
+      createInstance.mockImplementation(async (config: { resume?: boolean; historyThreadId?: string; initialOutputBuffer?: OutputMessage[] }) =>
+        config.resume ? attempt : makeInstance({ id: 'fallback-instance', historyThreadId: config.historyThreadId ?? 'history-thread',
+          outputBuffer: config.initialOutputBuffer ?? [] }));
+      storeMessages.mockImplementation(async (id: string) => {
+        if (id !== 'native-instance') return;
+        await failed.catch(() => undefined);
+        attempt.readyPromise = undefined;
+        attempt.status = 'error';
+      });
+
+      const result = await coordinator.restore(manager, 'entry-1');
+
+      expect(result.restoreMode).toBe('replay-fallback');
+      expect(markNativeResumeFailed).not.toHaveBeenCalled();
     });
 
     it('keeps the native session handle when the resume spawn fails for a local reason', async () => {
@@ -548,7 +657,7 @@ describe('HistoryRestoreCoordinator', () => {
     function makeSlowProbeCoordinator(): HistoryRestoreCoordinator {
       return new HistoryRestoreCoordinator({
         history: () => ({ loadConversation, markNativeResumeFailed }),
-        outputStorage: () => ({ storeMessages }),
+        outputStorage: () => ({ storeMessages, deleteInstance }),
         isRemoteNodeReachable: () => true,
         postSpawnTimeoutMs: 4_000,
         pollIntervalMs: 5,

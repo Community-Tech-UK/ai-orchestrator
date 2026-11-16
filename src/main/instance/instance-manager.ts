@@ -1021,7 +1021,7 @@ export class InstanceManager extends EventEmitter {
 
   getTurnFileChanges(id: string) { return this.state.getDiffTracker(id)?.getLastTurnChanges() ?? { seq: 0, changedPaths: [], editedPaths: [] }; }
 
-  /** Published or still-private crash-recovery instance; for spawn-time capability minting only. */
+  /** Published or still-private crash-recovery instance: for spawn-time capability minting and keeping its stored output. */
   hasRuntimeInstance(id: string): boolean {
     return this.state.getInstance(id) !== undefined || this.state.isInstancePending(id);
   }

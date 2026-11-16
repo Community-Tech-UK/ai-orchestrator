@@ -85,7 +85,7 @@ describe('HistoryRestoreCoordinator — LT-196 tool_outcome records', () => {
     } as unknown as InstanceManager;
     coordinator = new HistoryRestoreCoordinator({
       history: () => ({ loadConversation: vi.fn().mockResolvedValue(conversation()), markNativeResumeFailed: vi.fn() }),
-      outputStorage: () => ({ storeMessages: vi.fn().mockResolvedValue(undefined) }),
+      outputStorage: () => ({ storeMessages: vi.fn().mockResolvedValue(undefined), deleteInstance: vi.fn().mockResolvedValue(undefined) }),
       isRemoteNodeReachable: () => true,
       postSpawnTimeoutMs: 0,
       pollIntervalMs: 1,

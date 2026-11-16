@@ -41,6 +41,13 @@ async function start(failure: unknown, critical = true) {
     './window-manager': { WindowManager: class { createMainWindow = createMainWindow; } },
     './instance/instance-manager': { InstanceManager: class {} },
     './instance/context-worker-client': { getContextWorkerClient: () => ({ signalAppReady: vi.fn() }) },
+    './memory/output-storage': {
+      getOutputStorageManager: () => ({ configure: vi.fn() }),
+      wireOutputStorage: vi.fn(),
+    },
+    './core/config/settings-manager': {
+      getSettingsManager: () => ({ get: () => 500, on: vi.fn() }),
+    },
     './logging/logger': { getLogger: () => logger },
     './providers/provider-adapter-registry': { providerAdapterRegistry: {} },
     './providers/register-built-in-providers': { registerBuiltInProviders: vi.fn() },

@@ -17,12 +17,19 @@ export interface WorkerNodeListenInput {
 
 /**
  * Opens the worker WebSocket server on `host`: WSS when a certificate and key are
- * configured, plain WS otherwise. Resolves once it is listening; a failure to
+ * configured, plain WS when no TLS paths are configured. Incomplete TLS settings
+ * reject before opening a listener. Resolves once it is listening; a failure to
  * listen rejects, while a later error is logged.
  */
 export function listenWorkerNodeServer(input: WorkerNodeListenInput): Promise<WebSocketServer> {
   const { port, host, config } = input;
   return new Promise<WebSocketServer>((resolve, reject) => {
+    const tlsConfigured = config.tlsCertPath || config.tlsKeyPath || config.tlsCaPath;
+    if (tlsConfigured && (!config.tlsCertPath || !config.tlsKeyPath)) {
+      reject(new Error('Worker TLS requires both a certificate and a private key.'));
+      return;
+    }
+
     if (config.tlsCertPath && config.tlsKeyPath) {
       const server = https.createServer({
         cert: fs.readFileSync(config.tlsCertPath),

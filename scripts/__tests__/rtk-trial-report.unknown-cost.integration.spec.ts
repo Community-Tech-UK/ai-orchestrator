@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL, URL } from 'node:url';
@@ -10,7 +10,7 @@ type Arm = 'on' | 'off';
 type Mode = 'cheap' | 'expensive' | 'zero-on' | 'zero-off' | 'known-mixture'
   | 'unknown-on' | 'unknown-off' | 'unknown-both' | 'partial-on' | 'partial-off'
   | 'excluded-transcript' | 'excluded-hook' | 'excluded-no-bash' | 'guardrail-unknown'
-  | 'torn' | 'restored' | 'torn-guardrail' | 'transcript-torn' | 'transcript-restored' | 'transcript-stop' | 'result-torn';
+  | 'torn' | 'torn-guardrail' | 'transcript-torn' | 'transcript-restored' | 'transcript-stop' | 'result-torn';
 interface Interval { point: number; lo: number; hi: number }
 interface Report {
   sessions: { withHook: number; withoutHook: number };
@@ -79,9 +79,16 @@ function runReport(mode: Mode): { report: Report; text: string } {
     }
   }
   const tail = JSON.stringify({ ...rows[0], usage: { inputTokens: 10, cost: 0.1 } });
-  const extra = mode === 'restored' ? `\n${tail}` : mode.startsWith('torn') ? `\n${tail.slice(0, -1)}` : '';
+  const extra = mode.startsWith('torn') ? `\n${tail.slice(0, -1)}` : '';
   writeFileSync(join(cost, 'fixture.jsonl'), rows.map(row => JSON.stringify(row)).join('\n') + extra);
   writeFileSync(join(hooks, 'fixture.jsonl'), hookRows.map(row => JSON.stringify(row)).join('\n'));
+  return readReport();
+}
+
+function readReport(): { report: Report; text: string } {
+  const userdata = join(root, 'userdata');
+  const cost = join(userdata, 'cost-attribution');
+  const projects = join(root, 'projects');
   const args = [fileURLToPath(new URL('../rtk-trial-report.mjs', pathToFileURL(__filename))),
     '--since', '2026-09-01', '--until', '2026-10-19', '--userdata', userdata];
   const options = { encoding: 'utf8' as const, env: { ...process.env, AIO_COST_ATTRIBUTION_DIR: cost,
@@ -111,17 +118,22 @@ describe('actual RTK report CLI admitted cost completeness', () => {
     expect(report.recommendation).toBe('off');
   });
 
-  it('withholds a positive decision for a torn final cost row; restoring only its brace exposes the cost breach', () => {
-    const torn = runReport('torn');
-    expect(torn.report.sessions).toEqual({ withHook: 150, withoutHook: 150 });
-    expect(torn.report.sampleReady).toBe(true);
-    expect(torn.report.verdicts.find(value => value.name === 'Cost per turn')?.pass).toBeNull();
-    expect(torn.report.recommendation).toBe('inconclusive');
-    expect(torn.text).toContain('NOT MEASURED — Cost per turn');
-    const restored = runReport('restored');
-    expect(restored.report.costPerTurn.on?.point).toBeGreaterThan(0.0102);
-    expect(restored.report.verdicts.find(value => value.name === 'Cost per turn')?.pass).toBe(false);
-    expect(restored.report.recommendation).toBe('off');
+  describe('with a torn final cost row', () => {
+    let torn: ReturnType<typeof runReport>;
+    beforeEach(() => { torn = runReport('torn'); });
+
+    it('withholds a positive decision; restoring only its brace exposes the cost breach', () => {
+      expect(torn.report.sessions).toEqual({ withHook: 150, withoutHook: 150 });
+      expect(torn.report.sampleReady).toBe(true);
+      expect(torn.report.verdicts.find(value => value.name === 'Cost per turn')?.pass).toBeNull();
+      expect(torn.report.recommendation).toBe('inconclusive');
+      expect(torn.text).toContain('NOT MEASURED — Cost per turn');
+      appendFileSync(join(root, 'userdata', 'cost-attribution', 'fixture.jsonl'), '}');
+      const restored = readReport();
+      expect(restored.report.costPerTurn.on?.point).toBeGreaterThan(0.0102);
+      expect(restored.report.verdicts.find(value => value.name === 'Cost per turn')?.pass).toBe(false);
+      expect(restored.report.recommendation).toBe('off');
+    });
   });
 
   it('preserves a measured guardrail stop despite an unbounded torn cost row', () => {

@@ -4586,9 +4586,22 @@ describe('prompt retention across output buffer overflow', () => {
   it('leaves outputBuffer positions untouched so fork and rewind stay addressable', () => {
     overflowWithOpeningPrompt('First thing asked.');
 
-    // Exactly the newest bufferSize messages, nothing spliced in front.
-    expect(instance.outputBuffer).toHaveLength(bufferSize);
-    expect(instance.outputBuffer.every((m) => m.type === 'tool_result')).toBe(true);
+    // Only the newest messages, in order, nothing spliced in front. Overflow moves a batch of a tenth of the buffer at
+    // a time, so between 91 and 100 remain.
+    expect(instance.outputBuffer.length).toBeGreaterThan(bufferSize - bufferSize / 10);
+    expect(instance.outputBuffer.length).toBeLessThanOrEqual(bufferSize);
+    expect(instance.outputBuffer.map((m) => m.content)).toEqual(
+      Array.from({ length: instance.outputBuffer.length }, (_, i) => `noise ${bufferSize * 2 - instance.outputBuffer.length + i}`));
+  });
+
+  it('moves overflow to disk storage in batches, not one message per write', () => {
+    settingsManagerState.enableDiskStorage = true;
+
+    overflowWithOpeningPrompt('Anything.');
+
+    const writes = outputStorageMocks.storeMessages.mock.calls.map(([, messages]) => (messages as OutputMessage[]).length);
+    expect(writes.length).toBe(11);
+    expect(writes.every((count) => count === bufferSize / 10)).toBe(true);
   });
 
   it('keeps the retained set bounded under sustained prompt traffic', () => {

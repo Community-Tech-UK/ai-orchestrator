@@ -58,6 +58,8 @@ describe('real dispatch and Claude outcome paths for turn summaries', () => {
   let communication: InstanceCommunicationManager;
   let renderer: OutputMessage[];
   let drainContextEvidence: (() => Promise<void>) | undefined;
+  let restoreBaselineSingleton: () => void;
+  let dispatchPrepared: boolean;
   const input = (id: string): OutputMessage => ({ id, type: 'user', content: 'change it', timestamp: Date.now() });
   const publish = (message: OutputMessage) => {
     const envelope = { instanceId: instance.id, eventId: message.id, provider: 'claude' as const, seq: 1, timestamp: message.timestamp, event: toProviderOutputEvent(message) };
@@ -70,7 +72,7 @@ describe('real dispatch and Claude outcome paths for turn summaries', () => {
     await letFileTimesClearBoundary(); // the agent's last write comes well before its turn ends
     finish();
     const result = await baseline.getResult(instance.id, key);
-    expect(result.state).toBe('ready');
+    expect(result.state, result.state === 'unavailable' ? result.reason : undefined).toBe('ready');
     return result.state === 'ready' ? result.files.map(file => file.path) : [];
   };
   function wire(current: BaseCliAdapter) {
@@ -92,22 +94,43 @@ describe('real dispatch and Claude outcome paths for turn summaries', () => {
     instance = createInstance({ workingDirectory: repo, provider: 'claude' });
     instance.status = 'idle';
     events = new EventEmitter(); renderer = []; drainContextEvidence = undefined;
-    baseline = TurnFileBaselineService.getInstance(); baseline.attach(events, () => instance);
+    // Content and dispatch ordering use real Git without racing the app's short
+    // best-effort budget. turn-file-baseline.spec.ts separately checks that budget.
+    baseline = new TurnFileBaselineService({ dispatchWaitMs: 60_000, endSnapshotWaitMs: 60_000, snapshotMs: 60_000 });
+    const singleton = vi.spyOn(TurnFileBaselineService, 'getInstance').mockReturnValue(baseline);
+    restoreBaselineSingleton = () => singleton.mockRestore();
+    dispatchPrepared = false;
+    const beforeDispatch = baseline.beforeDispatch.bind(baseline);
+    vi.spyOn(baseline, 'beforeDispatch').mockImplementation(async (...args) => {
+      const reservation = await beforeDispatch(...args);
+      dispatchPrepared = true;
+      return reservation;
+    });
+    baseline.attach(events, () => instance);
   });
   afterEach(async () => {
-    await baseline.forget(instance.id); TurnFileBaselineService._resetForTesting();
-    await fs.rm(repo, { recursive: true, force: true });
+    try { await baseline.forget(instance.id); }
+    finally {
+      baseline.dispose(); restoreBaselineSingleton(); TurnFileBaselineService._resetForTesting();
+      await fs.rm(repo, { recursive: true, force: true });
+    }
   });
 
   it('awaits the baseline before a regular send can make its first fast edit', async () => {
-    wire(new FastAdapter(() => fs.writeFile(path.join(repo, 'tracked.txt'), 'fast edit\n')));
+    wire(new FastAdapter(() => {
+      expect(dispatchPrepared).toBe(true);
+      return fs.writeFile(path.join(repo, 'tracked.txt'), 'fast edit\n');
+    }));
     seed(input('regular'));
     await communication.sendInput(instance.id, 'change it');
     expect(await changes('regular')).toEqual(['tracked.txt']);
   });
 
   it('awaits the initial-prompt seam before its first provider write', async () => {
-    wire(new FastAdapter(() => fs.writeFile(path.join(repo, 'initial.txt'), 'initial edit\n')));
+    wire(new FastAdapter(() => {
+      expect(dispatchPrepared).toBe(true);
+      return fs.writeFile(path.join(repo, 'initial.txt'), 'initial edit\n');
+    }));
     seed(input('initial'));
     await deliverInitialPromptAfterSpawn(instance, new AbortController().signal, () => adapter.sendInput('change it'), {
       transitionState: vi.fn(), queueUpdate: vi.fn(), addToOutputBuffer: vi.fn(), emitOutput: vi.fn(),
@@ -116,7 +139,10 @@ describe('real dispatch and Claude outcome paths for turn summaries', () => {
   });
 
   it('captures an automated input before its admission callback publishes the hidden turn boundary', async () => {
-    wire(new FastAdapter(() => fs.writeFile(path.join(repo, 'automated.txt'), 'automatic edit\n')));
+    wire(new FastAdapter(() => {
+      expect(dispatchPrepared).toBe(true);
+      return fs.writeFile(path.join(repo, 'automated.txt'), 'automatic edit\n');
+    }));
     const machine: OutputMessage = { ...input('automated'), type: 'system', metadata: { internalInput: { actor: 'harness', source: 'async-work-continuation' } } };
     await communication.sendInput(instance.id, 'continue', undefined, undefined, {
       automatedInput: true, internalSource: 'async-work-continuation', beforeProviderDispatch: () => seed(machine),
@@ -135,7 +161,7 @@ describe('real dispatch and Claude outcome paths for turn summaries', () => {
     adapter.emit('complete', { id: 'complete', role: 'assistant', content: 'Done' });
     try {
       const first = await baseline.getResult(instance.id, 'ending');
-      expect(first.state).toBe('ready');
+      expect(first.state, first.state === 'unavailable' ? first.reason : undefined).toBe('ready');
       expect(first.state === 'ready' ? first.files.map(file => file.path) : []).toEqual(['tracked.txt']);
       await fs.writeFile(path.join(repo, 'manual-after.txt'), 'manual change\n');
       adapter.emit('complete', { id: 'complete', role: 'assistant', content: 'Done' });
@@ -191,7 +217,7 @@ describe('real dispatch and Claude outcome paths for turn summaries', () => {
         id: 'entry', sessionId: 'native', historyThreadId: 'thread', workingDirectory: repo, provider: 'claude',
         displayName: 'Fixture', createdAt: 1, endedAt: Date.now(), status: 'completed',
       }, messages: archived }) as ConversationData, markNativeResumeFailed: vi.fn() }),
-      outputStorage: () => ({ storeMessages: vi.fn().mockResolvedValue(undefined) }), isRemoteNodeReachable: () => true,
+      outputStorage: () => ({ storeMessages: vi.fn().mockResolvedValue(undefined), deleteInstance: vi.fn().mockResolvedValue(undefined) }), isRemoteNodeReachable: () => true,
     });
     const restored = await restore.restore({ createInstance: async (config: { initialOutputBuffer: OutputMessage[] }) => ({
       ...instance, id: 'restored-fixture', outputBuffer: config.initialOutputBuffer,

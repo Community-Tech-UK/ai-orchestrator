@@ -99,11 +99,32 @@ export function watcherStateSkipReason(
   return null;
 }
 
+const FENCE = /^[ \t]*(`{3,}|~{3,})/;
+
+/**
+ * True when every word of the reply sits inside fenced code blocks: a copy box (a translation or draft to send,
+ * a command) with nothing said to the user, so it cannot be asking them anything. Linear, line by line.
+ */
+export function isOnlyFencedText(reply: string): boolean {
+  let fence: string | null = null;
+  let sawBlock = false;
+  for (const line of reply.split('\n')) {
+    const marker = FENCE.exec(line)?.[1];
+    if (fence === null) {
+      if (marker) { fence = marker; sawBlock = true; } else if (/[\p{L}\p{N}]/u.test(line)) return false;
+    } else if (marker && marker[0] === fence[0] && marker.length >= fence.length && line.trim() === marker) {
+      fence = null;
+    }
+  }
+  return sawBlock;
+}
+
 /** Why the final reply itself is not judged, or null. Needs the built brief, so it runs after the cheap gates. */
 export function watcherReplySkipReason(finalReply: string, typedMessages: number, model?: string): string | null {
   if (typedMessages === 0) return 'no-typed-message';
   if (!finalReply.trim()) return 'no-reply';
   if (isErrorNotice(finalReply, model)) return 'error-notice';
   if (detectWaitingOnWork(finalReply)) return 'waiting-on-work';
+  if (isOnlyFencedText(finalReply)) return 'only-copy-box';
   return null;
 }

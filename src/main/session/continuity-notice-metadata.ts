@@ -57,6 +57,7 @@ const ERROR_CATEGORIES: Readonly<Record<ErrorCategory, true>> = {
   concurrency: true,
   'tool-server': true,
   cancelled: true,
+  'permission-refused': true,
   unknown: true,
 };
 

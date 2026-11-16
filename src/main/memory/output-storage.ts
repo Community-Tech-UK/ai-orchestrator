@@ -15,6 +15,7 @@ import type { InputContextDelivery } from '../../shared/types/input-context-deli
 import { applyInputContextDelivery } from '../../shared/utils/input-context-delivery';
 import type { UserPromptRef } from '../../shared/types/prompt-index.types';
 import { getLogger } from '../logging/logger';
+import { readableChunkPositions, rebuildStorageIndex, type StorageIndex, type StorageMetadata } from './output-storage-index';
 
 const logger = getLogger('OutputStorage');
 
@@ -24,29 +25,6 @@ const gunzip = promisify(zlib.gunzip);
 const PROMPT_EXCERPT_MAX_LENGTH = 200;
 /** How long the most recently decoded chunk stays cached for paging. */
 const CHUNK_READ_CACHE_MS = 30_000;
-
-interface StorageMetadata {
-  instanceId: string;
-  chunkIndex: number;
-  messageCount: number;
-  startTimestamp: number;
-  endTimestamp: number;
-  sizeBytes: number;
-}
-
-interface StorageIndex {
-  instanceId: string;
-  chunks: StorageMetadata[];
-  totalMessages: number;
-  totalSizeBytes: number;
-  lastUpdated: number;
-  /**
-   * Running tally of user prompts stored to disk, in storage order. Absent on
-   * indices written before this field existed — getUserPrompts() backfills by
-   * scanning the chunks once and persisting the result.
-   */
-  userPrompts?: UserPromptRef[];
-}
 
 /** Squash a prompt to a bounded single line for the index. */
 function promptExcerpt(content: string): string {
@@ -90,18 +68,6 @@ export function mergePromptIndex(
   return [...byId.values()].sort((a, b) => a.timestamp - b.timestamp);
 }
 
-/**
- * Positions in an index's chunk list whose file still holds that entry's
- * messages. Indices written before chunkIndex stopped being reused after
- * eviction can list the same chunkIndex twice; the file holds only the LAST
- * write, so earlier entries sharing it are unreadable rather than duplicates.
- */
-function readableChunkPositions(chunks: readonly StorageMetadata[]): Set<number> {
-  const lastPosition = new Map<number, number>();
-  chunks.forEach((chunk, position) => lastPosition.set(chunk.chunkIndex, position));
-  return new Set(lastPosition.values());
-}
-
 /** Map user messages to prompt refs — shared with the prompt-index IPC handler. */
 export function toPromptRefs(messages: OutputMessage[]): UserPromptRef[] {
   return messages
@@ -115,26 +81,33 @@ export function toPromptRefs(messages: OutputMessage[]): UserPromptRef[] {
 
 export class OutputStorageManager {
   private storageDir: string;
-  private indices: Map<string, StorageIndex> = new Map();
+  private indices = new Map<string, StorageIndex>();
   private pendingWrites = new Map<string, Promise<void>>();
   private chunkReadRevision = 0;
   private pendingEnforcement: Promise<void> = Promise.resolve();
-  private maxDiskStorageMB: number = 500;
-  private chunkSize: number = 100; // messages per chunk
+  private maxDiskStorageMB = 500;
+  private chunkSize = 100; // messages per chunk
   private lastReadChunk: { instanceId: string; chunkIndex: number; messages: OutputMessage[] } | null = null;
+  /**
+   * Whether a session still exists (running, asleep, or being recovered after a crash). Its stored messages are the older part of a transcript it will
+   * archive in full when it closes, so the size limit never removes them; until this is set, every session counts as gone.
+   */
+  private isInstanceInUse: (instanceId: string) => boolean = () => false;
+  private overLimitWarned = false;
   /** `${instanceId}/${chunkIndex}` of chunk files found missing — never re-read. */
   private readonly missingChunks = new Set<string>();
 
   constructor() {
     this.storageDir = path.join(app.getPath('userData'), 'output-storage');
     this.ensureStorageDir();
-    this.loadIndices();
+    this.recoverUnindexedStorage(this.loadIndices());
   }
 
   /**
    * Configure storage limits
    */
-  configure(options: { maxDiskStorageMB?: number; chunkSize?: number }): void {
+  configure(options: { maxDiskStorageMB?: number; chunkSize?: number; isInstanceInUse?: (instanceId: string) => boolean }): void {
+    if (options.isInstanceInUse) this.isInstanceInUse = options.isInstanceInUse;
     if (options.maxDiskStorageMB !== undefined) {
       this.maxDiskStorageMB = options.maxDiskStorageMB;
     }
@@ -310,8 +283,8 @@ export class OutputStorageManager {
    * that `startOffset` back as the next `beforeOffset`; 0 means the start of
    * the session has been reached.
    *
-   * Chunk sizes vary wildly — buffer-overflow trimming writes one message per
-   * chunk while a history restore writes thousands in one — so paging by
+   * Chunk sizes vary wildly — older buffer-overflow trimming wrote one message
+   * per chunk while a history restore writes thousands in one — so paging by
    * chunk count returned three messages at a time in one session and silently
    * dropped most of a large chunk in another.
    */
@@ -529,33 +502,56 @@ export class OutputStorageManager {
     }
   }
 
-  /**
-   * Load all indices from disk
-   */
-  private loadIndices(): void {
+  /** Load every readable index; returns the folders whose index is missing or garbled (not a passing read error). */
+  private loadIndices(): string[] {
+    const lost: string[] = [];
     try {
-      const dirs = fs.readdirSync(this.storageDir);
-
-      for (const dir of dirs) {
-        const indexPath = path.join(this.storageDir, dir, 'index.json');
-        if (fs.existsSync(indexPath)) {
-          try {
-            const data = fs.readFileSync(indexPath, 'utf-8');
-            const index: StorageIndex = JSON.parse(data);
-            this.indices.set(dir, index);
-          } catch (error) {
-            logger.error('Failed to load index', error instanceof Error ? error : undefined, { dir });
-          }
+      for (const entry of fs.readdirSync(this.storageDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        try {
+          const index: StorageIndex = JSON.parse(fs.readFileSync(path.join(this.storageDir, entry.name, 'index.json'), 'utf-8'));
+          this.indices.set(entry.name, index);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT' || error instanceof SyntaxError) lost.push(entry.name);
+          else logger.error('Failed to load index', error instanceof Error ? error : undefined, { dir: entry.name });
         }
       }
     } catch (error) {
       logger.error('Failed to load storage indices', error instanceof Error ? error : undefined);
     }
+    return lost;
   }
 
   /**
-   * Get or create index for an instance
+   * Folders whose index is missing or garbled hold messages nothing could read, page or archive, and the size limit
+   * never counted them (an index rewritten in place could be left part-written; index writes are now atomic). Each is
+   * given its index back from its chunk files, one folder at a time in the background, so the size limit treats it like
+   * any other stored output. A folder with no chunks is removed.
    */
+  private recoverUnindexedStorage(dirs: readonly string[]): void {
+    // Every folder is queued now, so a reader waits for its rebuild, but they run one after another.
+    let previous: Promise<void> = Promise.resolve();
+    for (const dir of dirs) {
+      const prior = previous;
+      previous = this.enqueueWrite(dir, async () => {
+        await prior;
+        const instanceDir = path.join(this.storageDir, dir);
+        const rebuilt = await rebuildStorageIndex(instanceDir, dir);
+        if (!rebuilt) {
+          await fs.promises.rm(instanceDir, { recursive: true, force: true });
+          return;
+        }
+        this.indices.set(dir, rebuilt.index);
+        await this.saveIndex(dir, rebuilt.index);
+        logger.info('Rebuilt a lost output storage index', { instanceId: dir, chunks: rebuilt.index.chunks.length,
+          unreadableChunks: rebuilt.unreadableChunks });
+      }).catch((error: unknown) => logger.warn('Could not rebuild a lost output storage index', {
+        instanceId: dir, error: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }
+
+  /** Get or create index for an instance */
   private getOrCreateIndex(instanceId: string): StorageIndex {
     let index = this.indices.get(instanceId);
     if (!index) {
@@ -582,8 +578,11 @@ export class OutputStorageManager {
    * Save index to disk
    */
   private async saveIndex(instanceId: string, index: StorageIndex): Promise<void> {
+    // Written beside and then renamed over the index, so a crash mid-write leaves the previous index readable. Writes
+    // for one session are queued (`enqueueWrite`), so one temporary name is enough.
     const indexPath = this.getIndexPath(instanceId);
-    await fs.promises.writeFile(indexPath, JSON.stringify(index, null, 2));
+    await fs.promises.writeFile(`${indexPath}.tmp`, JSON.stringify(index));
+    await fs.promises.rename(`${indexPath}.tmp`, indexPath);
   }
 
   /**
@@ -616,12 +615,16 @@ export class OutputStorageManager {
     if (this.maxDiskStorageMB === 0) return; // Unlimited
     const maxBytes = this.maxDiskStorageMB * 1024 * 1024;
     const totalBytes = () => [...this.indices.values()].reduce((sum, index) => sum + index.totalSizeBytes, 0);
-    const sortedIndices = [...this.indices.values()].sort((a, b) => a.lastUpdated - b.lastUpdated);
+    // Only sessions that no longer exist lose stored messages: removing an open session's older messages meant closing it
+    // archived a shortened transcript over its full history.
+    const sortedIndices = [...this.indices.values()]
+      .filter((index) => !this.isInstanceInUse(index.instanceId))
+      .sort((a, b) => a.lastUpdated - b.lastUpdated);
     for (const index of sortedIndices) {
       if (totalBytes() <= maxBytes) break;
       await this.enqueueWrite(index.instanceId, async () => {
-        // A queued explicit delete and subsequent store may have replaced it.
-        if (this.indices.get(index.instanceId) !== index) return;
+        // A queued explicit delete and subsequent store may have replaced it, or the session may have come back.
+        if (this.indices.get(index.instanceId) !== index || this.isInstanceInUse(index.instanceId)) return;
         while (totalBytes() > maxBytes && index.chunks.length > 0) {
           const oldestChunk = index.chunks[0];
           const sharedFile = index.chunks.some(
@@ -651,6 +654,13 @@ export class OutputStorageManager {
         }
       });
     }
+    const overLimit = totalBytes() > maxBytes;
+    if (overLimit && !this.overLimitWarned) {
+      logger.warn('Output storage is over its limit; open sessions\' stored messages are kept', {
+        totalMB: Math.round(totalBytes() / (1024 * 1024)), maxMB: this.maxDiskStorageMB,
+      });
+    }
+    this.overLimitWarned = overLimit;
   }
 
   /**
@@ -659,6 +669,19 @@ export class OutputStorageManager {
   getStoragePath(): string {
     return this.storageDir;
   }
+}
+
+/**
+ * Apply James's disk storage limit now and whenever it changes, and say which sessions still exist. Without this the
+ * "Disk storage limit" setting had no effect: the limit was always the built-in 500 MB.
+ */
+export function wireOutputStorage(
+  storage: Pick<OutputStorageManager, 'configure'>,
+  settings: { get(key: 'maxDiskStorageMB'): number; on(event: 'setting:maxDiskStorageMB', listener: (value: number) => void): unknown },
+  isInstanceInUse: (instanceId: string) => boolean,
+): void {
+  storage.configure({ maxDiskStorageMB: settings.get('maxDiskStorageMB'), isInstanceInUse });
+  settings.on('setting:maxDiskStorageMB', (maxDiskStorageMB) => storage.configure({ maxDiskStorageMB }));
 }
 
 // Singleton instance

@@ -1,6 +1,7 @@
 'use strict';
 
 const { parseTOML, getStaticTOMLValue } = require('toml-eslint-parser');
+const { parse: parseShell } = require('shell-quote');
 const path = require('node:path');
 
 const DIRECT_DRIVER = /(?:chrome[-_]devtools|playwright|puppeteer|selenium|chromedriver|node[-_]repl|computer[-_]use|browser[-_]use|unified[-_]computer|remote[-_]debugging)/i;
@@ -186,18 +187,107 @@ function filterExecutionSinksAndPermissions(value, excluded, prefix) {
 }
 function validateSourceConfig(value, kind, label) {
   for (const key of Object.keys(value)) if (!(kind === 'codex' ? CODEX_KEYS : CLAUDE_KEYS).has(key)) fail(label, `unsupported setting ${safeKey(key)}`);
+  const literalText = text => {
+    const literal = text.replace(/\$\{[A-Za-z_][A-Za-z0-9_]*(?::-)?\}/g, '').replace(/\$[A-Za-z_][A-Za-z0-9_]*/g, '');
+    if (/\$\{[^{}\r\n]*(?::[-=+?]|[-=+?])/.test(literal)) fail(label, 'credential fallback or incomplete expansion requires separate provisioning');
+    return literal;
+  };
+  const credentialKey = key => {
+    if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(key)) return false;
+    const name = key.replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2').replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/-/g, '_');
+    return /password|secret|private_?key|api_?key|authorization|oauth|credentials?/i.test(name)
+      || /(?:^|_)tokens?(?:_env_var)?$/i.test(name)
+      || /(?:access|auth|refresh|bearer|id|session|csrf|xsrf)_?tokens?(?:_|$)/i.test(name);
+  };
+  const credentialFlag = /^--(?:token|password|api-key|client-secret)(=([\s\S]*))?$/i;
+  const credentialContext = /--(?:token|password|api-key|client-secret)\b|\b(?:token|password|api[_-]?key|secret|authorization)\s*[:=]/i;
+  const reviewedRetrieval = body => {
+    let words;
+    try { words = parseShell(body, () => { throw new Error('Dynamic retrieval command'); }); } catch { return false; }
+    const operator = (word, op) => word && typeof word === 'object' && word.op === op;
+    // These read already-provisioned credentials; they cannot print a supplied value.
+    return (words.length === 10 && words[0] === 'security' && words[1] === 'find-generic-password'
+      && words[2] === '-w' && words[3] === '-s' && typeof words[4] === 'string' && /^[\w.@ -]{1,200}$/.test(words[4])
+      && words[5] === '2' && operator(words[6], '>') && words[7] === '/dev/null' && operator(words[8], '||') && words[9] === 'true')
+      || (words.length === 5 && words[0] === 'tr' && words[1] === '-d' && ['\\r\\n', '\r\n'].includes(words[2])
+        && operator(words[3], '<') && typeof words[4] === 'string' && /^\/[\w./ -]+$/.test(words[4]));
+  };
+  const inspectString = (text, depth = 0) => {
+    // shell-quote does not implement shell line-continuation semantics. Refuse
+    // those strings rather than interpreting part of a credential as a new word.
+    if (/\\\r?\n/.test(text)) fail(label, 'continued command strings require separate credential provisioning');
+    if (text.includes('$"')) fail(label, 'localised command quoting requires separate credential provisioning');
+    assertSecretFree(literalText(text), label);
+    const checked = text.replace(/\$\(([^()]*)\)/g, (original, body) => reviewedRetrieval(body) ? '${AIO_SETUP_ENV_REFERENCE}' : original);
+    // Preserve expansion provenance while the parser joins adjacent quote contexts.
+    // Original NULs are forbidden above; ANSI-C NUL escapes terminate their word.
+    let words;
+    try {
+      words = parseShell(checked, name => {
+        if (!name) return '$';
+        if (/^(?:[A-Za-z_][A-Za-z0-9_]*(?::-)?|[0-9]+|[*@#?$!-])$/.test(name)) return '\0';
+        throw new Error('Unsupported expansion');
+      });
+    } catch { fail(label, 'credential expansion could not be checked; provision the command separately'); }
+    const hasCredentialContext = credentialContext.test(text) || words.some(word => credentialContext.test(typeof word === 'string' ? word : word.pattern || ''));
+    if (hasCredentialContext && /\$\(|`/.test(checked)) fail(label, 'unreviewed credential substitution requires separate provisioning');
+    const dynamicOnly = word => typeof word === 'string' && /^\0+$/.test(word);
+    for (let index = 0; index < words.length; index++) {
+      const token = words[index];
+      const entry = typeof token === 'string' ? token : token.op === 'glob' ? token.pattern : null;
+      if (entry === null) {
+        // The parser treats an unquoted # anywhere in a word as a comment.
+        // Do not let that hide a suffix or a later credential-bearing line.
+        if ('comment' in token && hasCredentialContext) fail(label, 'credential command comments require separate provisioning');
+        continue;
+      }
+      const flag = entry.match(credentialFlag);
+      if (flag && !dynamicOnly(flag[1] ? flag[2] : words[index + 1])) fail(label, 'literal credential argument requires separate provisioning');
+      const header = entry.match(/^authorization\s*[:=]\s*(?:Bearer|Basic)\s+([\s\S]*)$/i);
+      if (header && !dynamicOnly(header[1])) fail(label, 'literal credential header requires separate provisioning');
+      const nestedShell = typeof words[index - 2] === 'string' && /^(?:.*\/)?(?:sh|bash|zsh|dash|ksh)$/.test(words[index - 2])
+        && typeof words[index - 1] === 'string' && /^-[a-z]*c[a-z]*$/.test(words[index - 1]);
+      const assignment = entry.match(/^([A-Za-z_][A-Za-z0-9_]*)=([\s\S]*)$/);
+      if (!nestedShell && assignment && credentialKey(assignment[1]) && assignment[2] !== '' && !dynamicOnly(assignment[2])) fail(label, 'literal credential assignment requires separate provisioning');
+      // Quoted arguments can themselves carry a script, even behind options or
+      // another command. Inspect them without depending on a shell-option list.
+      if (nestedShell || (entry !== text && /\s/.test(entry) && !assignment && !header
+        && (credentialContext.test(entry) || /\\(?:x[0-9a-f]|u[0-9a-f]|[0-7])|\$['"]/i.test(entry)))) {
+        if (depth >= 4) fail(label, 'nested credential command requires separate provisioning');
+        inspectString(entry.replace(/\0/g, '${AIO_SETUP_ENV_REFERENCE}'), depth + 1);
+      } else {
+        // Quotes decoded inside a word cannot mask literal assignments/headers.
+        assertSecretFree(entry.replace(/\0/g, '').replace(/['"]/g, ''), label);
+      }
+    }
+  };
   const visit = object => {
+    if (typeof object === 'string') {
+      inspectString(object); return;
+    }
+    if (Array.isArray(object)) {
+      for (let index = 0; index < object.length; index++) {
+        if (typeof object[index] === 'string' && /^--(?:token|password|api-key|client-secret)$/i.test(object[index])) {
+          const argument = object[index + 1];
+          if (typeof argument !== 'string' || literalText(argument) !== '') fail(label, 'literal credential argument requires separate provisioning');
+        }
+      }
+      // Standalone argv flags were checked with their following value above.
+      object.filter(item => typeof item !== 'string' || !/^--(?:token|password|api-key|client-secret)$/i.test(item)).forEach(visit); return;
+    }
     if (!object || typeof object !== 'object') return;
     for (const [key, child] of Object.entries(object)) {
       if (key === 'env' || (key === 'set' && object === value.shell_environment_policy)) validateEnv(child, label);
-      else if (/(?:password|secret|api_key|access_token|authorization|oauth|credentials)/i.test(key) && typeof child === 'string') {
+      else {
         // Env-name references contain no credential values and are retained.
-        if (!key.endsWith('_env_var')) fail(label, `credential setting ${safeKey(key)} requires separate provisioning`);
-      } else if (child && typeof child === 'object') visit(child);
+        if (credentialKey(key) && !(key.endsWith('_env_var') && typeof child === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(child))) {
+          fail(label, `credential setting ${safeKey(key)} requires separate provisioning`);
+        }
+        visit(child);
+      }
     }
   };
   visit(value);
-  assertSecretFree(JSON.stringify(value), label);
 }
 function quoteToml(value) {
   if (typeof value === 'string') return JSON.stringify(value);
@@ -275,5 +365,5 @@ function sanitizeConfig(text, kind, { source = false, label = 'config', pathExis
   return { text: kind === 'codex' ? serializeToml(value) : JSON.stringify(value, null, 2) + '\n', omitted, excluded };
 }
 
-module.exports = { FILES, TREES, LINKS, approvedPath, setupFileRefusal, isDirectDriver, directCommand, directSetupContent, assertSecretFree, sanitizeConfig,
+module.exports = { FILES, TREES, LINKS, approvedPath, setupFileRefusal, isDirectDriver, directCommand, directSetupContent, assertSecretFree, validateSourceConfig, sanitizeConfig,
   filterCodexConfig: text => sanitizeConfig(text, 'codex').text, readConfig, serializeToml, BUNDLED_DRIVERS, SAFE_BUNDLED };

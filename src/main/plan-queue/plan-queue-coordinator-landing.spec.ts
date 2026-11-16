@@ -59,13 +59,37 @@ describe('PlanQueueCoordinator — merge conflicts are never committed unresolve
     planDoc('2026-01-02-beta');
     const parent = fake.addParent();
     conflictingWorkers(onConflict);
-    const { run } = await coordinator.startRun({
-      parentInstanceId: parent.id, kind: 'plans', config: { workerSlots: 2, verificationSlots: 1, postMergeGate: [] },
-    });
-    await vi.waitFor(() => {
-      if (!fake.inputs.some((m) => m.message.includes(CONFLICT))) throw new Error('no conflict yet');
-    }, { timeout: 20_000, interval: 25 });
-    return { runId: run.id, beta: () => coordinator.getRunDto(run.id) };
+    // Both branches must write against the original base before either can land.
+    // The coordinator's settled driver then awaits the actual checkpoint, first
+    // landing and conflicting merge, within the describe's existing test timeout.
+    let written = 0;
+    let releaseWrites!: () => void;
+    const bothWritten = new Promise<void>((resolve) => { releaseWrites = resolve; });
+    const worker = fake.scripts.worker!;
+    fake.scripts.worker = async (instance, message, f) => {
+      await worker(instance, message, f);
+      if (message.includes(CONFLICT)) return;
+      if (++written === 2) releaseWrites();
+      await bothWritten;
+    };
+    const finished = new Set<string>();
+    let releaseTurns!: () => void;
+    const bothFinished = new Promise<void>((resolve) => { releaseTurns = resolve; });
+    const onStatus = ({ instanceId, event }: { instanceId: string; event: { kind: string; status?: string } }) => {
+      if (event.kind !== 'status_changed' || event.status !== 'idle' || !fake.created.some((i) => i.id === instanceId && i.role === 'worker')) return;
+      finished.add(instanceId);
+      if (finished.size === 2) releaseTurns();
+    };
+    fake.on('instance:event', onStatus);
+    try {
+      const { run } = await coordinator.startRun({
+        parentInstanceId: parent.id, kind: 'plans', config: { workerSlots: 2, verificationSlots: 1, postMergeGate: [] },
+      });
+      await bothFinished;
+      await coordinator._whenSettledForTesting();
+      expect(fake.inputs.some((m) => m.message.includes(CONFLICT))).toBe(true);
+      return { runId: run.id, beta: () => coordinator.getRunDto(run.id) };
+    } finally { fake.off('instance:event', onStatus); }
   }
 
   /** The item whose pre-verification merge conflicted (whichever verified second). */

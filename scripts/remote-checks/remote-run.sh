@@ -241,12 +241,13 @@ cmd_slot_job() {
   [ "$no_cache" = 1 ] && { args+=(--no-cache); export AIO_TEST_NO_CACHE=1; }
   [ "$ci" = 1 ] && export CI=1
   local code
+  # Let vitest.pool.ts size workers from this machine's spare capacity, including other occupied slots.
   if [ -f "$dir/related.json" ]; then
-    AIO_TEST_MAX_FORKS=8 LANG=C.UTF-8 node scripts/run-related-tests.mjs "$dir/results.json" < "$dir/related.json"
+    LANG=C.UTF-8 node scripts/run-related-tests.mjs "$dir/results.json" < "$dir/related.json"
     code=$?
   elif [ -f "$dir/argv.json" ]; then
     # The arguments stay a list from end to end: no shell here ever reads them.
-    AIO_TEST_MAX_FORKS=8 LANG=C.UTF-8 node -e '
+    LANG=C.UTF-8 node -e '
       const { spawnSync } = require("child_process");
       const [file, noCache, results] = process.argv.slice(1);
       const list = readArgv(file);
@@ -258,7 +259,7 @@ cmd_slot_job() {
     code=$?
   else
     # Same arguments as runVitest() in scripts/run-tests-quiet.js.
-    AIO_TEST_MAX_FORKS=8 LANG=C.UTF-8 node node_modules/vitest/vitest.mjs "${args[@]}" \
+    LANG=C.UTF-8 node node_modules/vitest/vitest.mjs "${args[@]}" \
       --reporter=default --reporter=json "--outputFile.json=$dir/results.json"
     code=$?
   fi

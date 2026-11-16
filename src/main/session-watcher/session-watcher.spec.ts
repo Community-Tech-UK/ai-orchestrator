@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -34,8 +34,9 @@ describe('SessionWatcher', () => {
   let typing: boolean;
   let paused: boolean;
   let hasOpenRequest: () => boolean;
-  let judgeCalls: { signal: AbortSignal; resolve: (raw: string) => void; reject: (error: Error) => void }[];
+  let judgeCalls: { prompt: { system: string; user: string }; signal: AbortSignal; resolve: (raw: string) => void; reject: (error: Error) => void }[];
   let logDirectory: string;
+  let projectDirectory: string;
   let clock = 0;
 
   const message = (type: OutputMessage['type'], content: string, metadata?: OutputMessage['metadata']): OutputMessage =>
@@ -67,12 +68,13 @@ describe('SessionWatcher', () => {
 
   beforeEach(() => {
     logDirectory = mkdtempSync(join(tmpdir(), 'session-watcher-'));
+    projectDirectory = mkdtempSync(join(tmpdir(), 'session-watcher-project-'));
     process.env['AIO_SESSION_WATCHER_DIR'] = logDirectory;
     _resetWatcherDecisionLogForTesting();
     events = new EventEmitter();
     instance = {
       id: 'root', parentId: null, childrenIds: [], launchMode: 'orchestrated', provider: 'claude', sessionId: 's', adapterGeneration: 1,
-      status: 'idle', requestCount: 3, metadata: {}, planMode: { enabled: false, state: 'off' }, outputBuffer: conversation(),
+      status: 'idle', requestCount: 3, metadata: {}, workingDirectory: projectDirectory, executionLocation: { type: 'local' }, planMode: { enabled: false, state: 'off' }, outputBuffer: conversation(),
     } as unknown as Instance;
     sent = []; flags = []; cleared = []; outcomes = []; judgeCalls = [];
     const adapter = {};
@@ -97,9 +99,9 @@ describe('SessionWatcher', () => {
       hasInhibitor: () => false, hasOpenRequest: () => hasOpenRequest(), isUserTyping: () => typing,
       judge: {
         available: () => true,
-        judge: (_prompt, _instanceId, signal) => new Promise((resolve, reject) => {
+        judge: (prompt, _instanceId, signal) => new Promise((resolve, reject) => {
           const call = {
-            signal,
+            prompt, signal,
             resolve: (raw: string) => resolve({ raw, provider: 'claude', model: 'haiku', latencyMs: 5 }),
             reject,
           };
@@ -119,6 +121,7 @@ describe('SessionWatcher', () => {
     dispatch.stop();
     delete process.env['AIO_SESSION_WATCHER_DIR'];
     rmSync(logDirectory, { recursive: true, force: true });
+    rmSync(projectDirectory, { recursive: true, force: true });
     vi.useRealTimers();
   });
 
@@ -146,6 +149,28 @@ describe('SessionWatcher', () => {
     expect(watcher.allowsRuleReply(instance)).toBe(false);
     typing = false;
     expect(watcher.allowsRuleReply(instance)).toBe(true);
+  });
+
+  it('shows the judge the instruction file of the session\'s folder, and none when it has no file', async () => {
+    complete();
+    await vi.waitFor(() => expect(judgeCalls).toHaveLength(1));
+    expect(judgeCalls[0].prompt.user).toContain('<project_instructions>\n(none)\n</project_instructions>');
+    await answer(verdictJson({ verdict: 'finished', stop: 'work_complete', basis: 'none' }));
+    await settled();
+
+    writeFileSync(join(projectDirectory, 'CLAUDE.md'), 'Translate every message. Do not converse.');
+    instance.requestCount += 1;
+    complete();
+    await vi.waitFor(() => expect(judgeCalls).toHaveLength(2));
+    expect(judgeCalls[1].prompt.user).toContain('<project_instructions>\nTranslate every message. Do not converse.\n</project_instructions>');
+  });
+
+  it('does not look in this computer\'s folders for a session that runs on another computer', async () => {
+    writeFileSync(join(projectDirectory, 'CLAUDE.md'), 'Translate every message.');
+    instance.executionLocation = { type: 'remote', nodeId: 'windows-pc' };
+    complete();
+    await vi.waitFor(() => expect(judgeCalls).toHaveLength(1));
+    expect(judgeCalls[0].prompt.user).toContain('<project_instructions>\n(none)\n</project_instructions>');
   });
 
   it('tells a session to carry on with planned work, using the fixed wording', async () => {

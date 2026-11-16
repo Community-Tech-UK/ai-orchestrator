@@ -3526,12 +3526,19 @@ describe('AcpCliAdapter agent-exit rejection (plan 2026-09-26)', () => {
     adapter.on('status', (status: string) => statusEvents.push(status));
     const errorEvents: Error[] = [];
     adapter.on('error', (err: Error) => errorEvents.push(err));
+    const outputs: { type: string; content: string }[] = [];
+    adapter.on('output', (message: { type: string; content: string }) => outputs.push(message));
 
     await adapter.sendInput('work');
 
     expect(statusEvents).toEqual(['busy', 'idle']);
     expect(errorEvents).toHaveLength(1);
     expect(isRecoverableAcpPromptTurnError(errorEvents[0].message)).toBe(true);
+    // Resending the same request is refused again, so the turn must not say "try again".
+    expect((errorEvents[0] as NodeJS.ErrnoException).code).toBe('permission-refused');
+    const shown = outputs.filter((message) => message.type === 'error').map((message) => message.content).join(' ');
+    expect(shown).toContain('a tool call was refused');
+    expect(shown).not.toContain('try again');
 
     proc.exit();
   });

@@ -86,6 +86,19 @@ describe('needs-you source mapping', () => {
       detail: 'Asked you: Shall I push it?', since: 500, version: '4',
     }]);
   });
+  it('says the session asked only when the watcher\'s quoted words are a question; a question card always asked', () => {
+    const sources = empty();
+    sources.sessionQuestions = [
+      { instanceId: 'a', question: 'Imagino que você vai ficar em Swindon hoje à noite', requestCount: 1, since: 1 },
+      { instanceId: 'b', question: '¿Lo subo a GitHub？', requestCount: 1, since: 2 },
+      { instanceId: 'c', question: 'Pick a database for the new project', questionCard: true, requestCount: 1, since: 3 },
+    ];
+    expect(requestEntries(sources, now).map((item) => item.detail)).toEqual([
+      'Ended with: Imagino que você vai ficar em Swindon hoje à noite',
+      'Asked you: ¿Lo subo a GitHub？',
+      'Asked you: Pick a database for the new project',
+    ]);
+  });
   it('shows the watcher\'s own note instead of the question when it has one, and a plain title when the session has no name', () => {
     const sources = empty();
     sources.sessionQuestions = [{ instanceId: 'inst-2', question: 'Q?', note: 'The helper agent could not tell what to do next.', requestCount: 1, since: 9 }];

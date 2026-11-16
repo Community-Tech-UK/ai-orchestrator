@@ -22,10 +22,12 @@ describe('turn file counts when a whole directory is deleted', () => {
     await run('git', ['-c', 'core.hooksPath=/dev/null', 'add', '.'], { cwd: repo });
     await fs.writeFile(join(repo, 'parent', 'removed', 'nested', 'untracked.txt'), 'draft\n');
     await fs.writeFile(join(repo, 'kept.txt'), 'before\n');
-    service = new TurnFileBaselineService();
+    // These cases check real Git's file counts; the baseline service's deadline cases cover the app's short limits.
+    service = new TurnFileBaselineService({ dispatchWaitMs: 60_000, endSnapshotWaitMs: 60_000, snapshotMs: 60_000 });
     service.attach(new EventEmitter(), () => ({ workingDirectory: repo }));
     service.beginTurn('session', 'turn');
-    await service.getResult('session', 'turn');
+    const baseline = await service.getResult('session', 'turn');
+    expect(baseline, JSON.stringify(baseline)).toEqual({ state: 'running' });
   });
 
   afterEach(async () => {

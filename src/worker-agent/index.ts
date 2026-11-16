@@ -7,6 +7,7 @@ import {
 } from './worker-config';
 import { parseServiceArgs, runServiceCommand } from './cli/service-cli';
 import { runPairCommand } from './cli/pair-cli';
+import { runUpdateConnectionCommand } from './cli/update-connection-cli';
 import {
   parseInstallAgentArgs,
   reportHostReadiness,
@@ -35,6 +36,12 @@ async function main(): Promise<void> {
   if (argv[0] === 'native-host') {
     await runBrowserExtensionNativeHost();
     return;
+  }
+
+  if (argv[0] === 'update-connection') {
+    // Launchers append this flag even for commands. Never start a supervisor
+    // or load/persist worker defaults during an offline connection update.
+    process.exit(runUpdateConnectionCommand(argv.slice(1).filter((arg) => arg !== SUPERVISE_FLAG)));
   }
 
   if (argv[0] === 'install-agent') {

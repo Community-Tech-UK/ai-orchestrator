@@ -38,6 +38,19 @@ describe('presentFailure', () => {
     expect(failure.content).not.toContain('ENOENT');
   });
 
+  it('says a refused tool call ended the turn when the session reads the turn failure', () => {
+    // The adapter's own line normally shows; this is the line the session handler shows when that one was not de-duplicated.
+    const message = 'ACP session/prompt failed: Internal error: The user rejected permission to use this specific tool call. (-32603)';
+    const failure = presentFailure({
+      error: Object.assign(new Error(message), { code: 'permission-refused' }),
+      message,
+      instance: { provider: 'opencode' },
+    });
+
+    expect(failure.content).toBe('This turn ended because a tool call was refused. Your message and the work above are kept.'
+      + ' What to do: Tell the agent how to carry on another way.');
+  });
+
   it('opens with what failed, and does not repeat that the request could not finish', () => {
     const failure = presentFailure({ error: new Error('boom'), message: 'boom', instance: claude, lead: 'This session could not start.' });
     expect(failure.content).toBe('This session could not start. What to do: Check Details, then try again. Your message and the work above are kept.');

@@ -21,6 +21,11 @@ import {
   detectsConsensusIntent,
   detectsSchedulingIntent,
 } from './orchestration-protocol.prompts';
+import {
+  TOOL_LOOP_STOP_NOTE_HEAD,
+  TOOL_LOOP_STOP_NOTE_MAX_REASON_CHARS,
+  TOOL_LOOP_STOP_NOTE_TAIL,
+} from './tool-loop-stop-note';
 
 export type HarnessGuidanceSection = 'scheduling' | 'consensus';
 
@@ -197,8 +202,10 @@ export function stripLeadingHarnessGuidance(content: string): string {
 //    joined with a blank line.
 // 2. The continuity input queue (`InstanceContinuityInputQueue.prepare`, fed by
 //    `queueContinuityPreamble` / `queueContextWarning`) puts what it holds in FRONT
-//    of that: one queued continuity preamble, then one context warning, each joined
-//    with a blank line. The preamble is either an earlier turn's late context set
+//    of that: one queued continuity preamble, then the tool-loop stop note and
+//    the Continue button's context (`instance-interrupted-context.ts`; only the
+//    note is matched here), then one context warning, each joined with a blank
+//    line. The preamble is either an earlier turn's late context set
 //    (`queueDeferredInputContexts`: `buildContextBlock` output, so memory/indexed/
 //    retrieved only, never a goal or guidance) or a replay/handoff history
 //    (`buildReplayContinuityMessage`, `buildHandoffDocumentFromMessages`). The
@@ -207,7 +214,7 @@ export function stripLeadingHarnessGuidance(content: string): string {
 // Plan mode then puts `ultrathink\n\n` in front of the whole thing
 // (`applyPlanModeTurnHint`).
 //
-//   [ultrathink] [history | set] [warning] [set] [guidance] typed text
+//   [ultrathink] [history | set] [stop note] [warning] [set] [guidance] typed text
 //
 // Each shape below copies its builder's fixed lines; only the retrieved body is
 // open. A piece that is not exactly this shape, or that arrives in another
@@ -284,6 +291,10 @@ const CONTEXT_WARNING_SOURCE = escapeRegExp('[SYSTEM: Context Usage Warning]\nYo
     + '2. Use get_child_summary instead of get_child_output for results.\n'
     + '3. Summarize rather than copying full file contents.\n'
     + '[END SYSTEM WARNING]');
+// One line with a bounded open reason (`tool-loop-stop-note.ts`).
+const TOOL_LOOP_STOP_NOTE_SOURCE = escapeRegExp(TOOL_LOOP_STOP_NOTE_HEAD)
+  + `[^\\n]{1,${TOOL_LOOP_STOP_NOTE_MAX_REASON_CHARS}}?`
+  + escapeRegExp(TOOL_LOOP_STOP_NOTE_TAIL);
 /**
  * The goal block is derived from the real builder: the objective is the one open
  * part, so a sentinel objective marks where the fixed head ends and the tail begins.
@@ -298,7 +309,7 @@ function goalBlockSource(): string | null {
   return blockPattern(escapeRegExp(sample.slice(0, at)), escapeRegExp(sample.slice(at + sentinel.length)));
 }
 
-type LeadingPiece = 'history' | 'warning' | 'memory' | 'indexed' | 'retrieved' | 'goal';
+type LeadingPiece = 'history' | 'stopped' | 'warning' | 'memory' | 'indexed' | 'retrieved' | 'goal';
 
 interface LeadingMatchers {
   pieces: readonly (readonly [LeadingPiece, RegExp])[];
@@ -339,6 +350,7 @@ function getLeadingMatchers(): LeadingMatchers {
     leadingMatchers = {
       pieces: [
         ['history', new RegExp(`\\s*(?:${HISTORY_PREAMBLE_SOURCE})${HISTORY_END}`, 'y')],
+        ['stopped', new RegExp(`\\s*(?:${TOOL_LOOP_STOP_NOTE_SOURCE})${HISTORY_END}`, 'y')],
         ['warning', new RegExp(`\\s*(?:${CONTEXT_WARNING_SOURCE})\\n\\n`, 'y')],
         ['memory', new RegExp(`\\s*(?:${MEMORY_BLOCK_SOURCE})\\n\\n`, 'y')],
         ['indexed', new RegExp(`\\s*(?:(?:${INDEXED_BLOCK_SOURCE})\\s*)+`, 'y')],
@@ -354,9 +366,9 @@ function getLeadingMatchers(): LeadingMatchers {
 /**
  * Walks the pieces Harness puts in front of a typed message and says how far the
  * prefix reaches. The grammar is what the queue and the later-turn path really
- * compose: at most one history preamble or earlier set, at most one warning, at
- * most one current set (memory, indexed, retrieved, goal, each in that order and
- * nothing after the goal), then the guidance. The first piece that does not fit
+ * compose: at most one history preamble or earlier set, at most one stop note, at
+ * most one warning, at most one current set (memory, indexed, retrieved, goal,
+ * each in that order and nothing after the goal), then the guidance. The first piece that does not fit
  * ends the walk and is left in the text.
  */
 function harnessPrefixLength(content: string): number {
@@ -366,6 +378,7 @@ function harnessPrefixLength(content: string): number {
   let sets = 0; // history preamble or block sets started so far (at most two)
   let rank = -1; // rank of the last block in the open set; -1 when no set is open
   let warned = false;
+  let stopped = false;
   let goalSeen = false;
   let any = false;
 
@@ -378,6 +391,11 @@ function harnessPrefixLength(content: string): number {
         if (any) break walk; // only ever the very first piece (the queue's continuity slot)
         sets = 1;
         rank = -1;
+      } else if (piece === 'stopped') {
+        // The queue puts it after the history or earlier set and before the warning and the current set.
+        if (stopped || warned || goalSeen || sets >= 2) break walk;
+        stopped = true;
+        rank = -1; // a block after it opens a new set
       } else if (piece === 'warning') {
         if (warned || goalSeen || sets >= 2) break walk;
         warned = true;
@@ -415,10 +433,10 @@ export function startsWithHarnessContext(content: string): boolean {
 
 /**
  * Remove everything Harness put in front of a user message: the plan-mode
- * `ultrathink` line, a queued history preamble or earlier context set, a context
- * warning, the current memory, indexed, retrieved and active-goal blocks, then the
- * guidance, each only in its exact builder shape and in the order Harness composes
- * them. The result is the text the user typed, which is what the chat showed when
+ * `ultrathink` line, a queued history preamble or earlier context set, a tool-loop
+ * stop note, a context warning, the current memory, indexed, retrieved and
+ * active-goal blocks, then the guidance, each only in its exact builder shape and
+ * in the order Harness composes them. The result is the text the user typed, which is what the chat showed when
  * the turn was sent, except that it may lose leading whitespace. Every matcher
  * opens with `\s*` (the guidance matcher too, and it always runs last, matching
  * nothing when no guidance is present), so after a context block the typed text's

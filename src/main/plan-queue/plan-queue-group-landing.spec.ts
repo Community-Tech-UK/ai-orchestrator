@@ -33,6 +33,7 @@ let run: PlanQueueRun;
 let landing: PlanQueueItemLanding;
 let base: string;
 let gateLog: string;
+let runtimeFlows: PlanQueueItemFlow[];
 
 function git(args: string[], cwd = repo): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -54,6 +55,7 @@ const baseRepository = useGitRepoTemplate((dir) => {
 });
 
 beforeEach(() => {
+  runtimeFlows = [];
   WorktreeManager._resetForTesting(); GitWriteQueue._resetForTesting();
   repo = realpathSync(mkdtempSync(join(tmpdir(), 'queue-group-landing-')));
   baseRepository.copyTo(repo);
@@ -74,7 +76,11 @@ beforeEach(() => {
     toFixing: async (item, _prompt, detail) => { transition(item, 'fixing', { detail }); },
     park: async (item, reason, detail) => { transition(item, 'parked', { parkReason: reason, detail }); } });
 });
-afterEach(() => { vi.restoreAllMocks(); db.close(); rmSync(repo, { recursive: true, force: true });
+afterEach(async () => {
+  // A timed-out landing still owns asynchronous Git work. Drain it before its
+  // database, repository and spies can be replaced by the next test's fixture.
+  await Promise.all(runtimeFlows.map(flow => flow.whenSettled()));
+  vi.restoreAllMocks(); db.close(); rmSync(repo, { recursive: true, force: true });
   WorktreeManager._resetForTesting(); GitWriteQueue._resetForTesting(); });
 
 async function group(ids = ['one', 'two'], separateFirstRun = false): Promise<PlanQueueItem[]> {
@@ -225,6 +231,7 @@ function runtimeFlow() {
     } },
   } as unknown as PlanQueueFlowHost;
   const flow = new PlanQueueItemFlow(host);
+  runtimeFlows.push(flow);
   async function prepare(id: string) {
     const sourceRef = join(repo, `${id}_plan.md`); writeFileSync(sourceRef, '# Work\n');
     let item = await service.prepare(newPlanQueueItem(id, run.id, sourceRef, 1, { state: 'preparing' }), repo);
@@ -240,30 +247,38 @@ function runtimeFlow() {
   return { flow, execute, reviews, prepare, pass };
 }
 
-it('reuses the paired checklist after the first review really moves main, then synchronizes at landing', async () => {
-  const { flow, execute, reviews, prepare, pass } = runtimeFlow();
-  await prepare('solo'); await flow.startVerification(store.getItem('solo')!); await pass('solo');
-  await prepare('one'); const second = await prepare('two');
-  await flow.startVerification(store.getItem('one')!); await pass('one');
-  const movedBase = git(['rev-parse', 'main']);
-  expect(movedBase).not.toBe(base);
-  await flow.startVerification(store.getItem('two')!);
-  expect(execute).toHaveBeenCalledTimes(2);
-  expect(git(['rev-parse', 'HEAD'], second.worktreePath!)).toBe(second.checkpointCommit);
-  expect(store.getItem('two')?.verifiedMainCommit).not.toBe(movedBase);
-  await pass('two');
-  expect(reviews).toEqual(['solo', 'one', 'two']);
-  expect(store.history.checksSummary('run')).toEqual({ runs: 2, jobs: 3 });
-  expect(store.history.listVerdicts('one')).toHaveLength(1);
-  expect(store.history.listVerdicts('two')).toHaveLength(1);
-  const firstReceipt = store.getItem('one')!.verdict!.gatesRun[0];
-  const secondReceipt = store.getItem('two')!.verdict!.gatesRun[0];
-  expect(secondReceipt.checkGroup).toEqual(firstReceipt.checkGroup);
-  expect(secondReceipt.testedTree).toBe(firstReceipt.testedTree);
-  expect(secondReceipt.head).toBe(second.checkpointCommit);
-  expect(store.getItem('two')?.checkpointCommit).not.toBe(second.checkpointCommit);
-  expect(git(['show', 'main:one.txt'])).toBe('one');
-  expect(git(['show', 'main:two.txt'])).toBe('two');
+describe('a paired checklist after a separately checked job landed', () => {
+  let runtime: ReturnType<typeof runtimeFlow>;
+  beforeEach(async () => {
+    runtime = runtimeFlow();
+    await runtime.prepare('solo');
+    await runtime.flow.startVerification(store.getItem('solo')!);
+    await runtime.pass('solo');
+  });
+  it('reuses the paired checklist after the first review really moves main, then synchronizes at landing', async () => {
+    const { flow, execute, reviews, prepare, pass } = runtime;
+    await prepare('one'); const second = await prepare('two');
+    await flow.startVerification(store.getItem('one')!); await pass('one');
+    const movedBase = git(['rev-parse', 'main']);
+    expect(movedBase).not.toBe(base);
+    await flow.startVerification(store.getItem('two')!);
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(git(['rev-parse', 'HEAD'], second.worktreePath!)).toBe(second.checkpointCommit);
+    expect(store.getItem('two')?.verifiedMainCommit).not.toBe(movedBase);
+    await pass('two');
+    expect(reviews).toEqual(['solo', 'one', 'two']);
+    expect(store.history.checksSummary('run')).toEqual({ runs: 2, jobs: 3 });
+    expect(store.history.listVerdicts('one')).toHaveLength(1);
+    expect(store.history.listVerdicts('two')).toHaveLength(1);
+    const firstReceipt = store.getItem('one')!.verdict!.gatesRun[0];
+    const secondReceipt = store.getItem('two')!.verdict!.gatesRun[0];
+    expect(secondReceipt.checkGroup).toEqual(firstReceipt.checkGroup);
+    expect(secondReceipt.testedTree).toBe(firstReceipt.testedTree);
+    expect(secondReceipt.head).toBe(second.checkpointCommit);
+    expect(store.getItem('two')?.checkpointCommit).not.toBe(second.checkpointCommit);
+    expect(git(['show', 'main:one.txt'])).toBe('one');
+    expect(git(['show', 'main:two.txt'])).toBe('two');
+  });
 });
 
 

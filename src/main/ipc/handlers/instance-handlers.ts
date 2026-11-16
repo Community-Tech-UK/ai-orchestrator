@@ -9,6 +9,7 @@ import { getLogger } from '../../logging/logger'; import { addInstanceWritableRo
 import { getIdempotencyStore, IdempotencyStore } from '../../transport/idempotency-store';
 import { registerInstanceProviderLimitHandlers } from './instance-provider-limit-ipc';
 import { revealHiddenAutomationSession } from '../../automations/automation-hidden-outcome';
+import { getInterruptedContextQueue } from '../../instance/instance-interrupted-context';
 import { IPC_CHANNELS } from '@contracts/channels';
 import type { IpcResponse } from '../../../shared/types/ipc.types';
 import { validateIpcPayload } from '@contracts/schemas/common';
@@ -456,6 +457,9 @@ export function registerInstanceHandlers(deps: {
         );
         revealHiddenAutomationSession(instanceManager, validated.instanceId); // operator took it over
         await instanceManager.restartFreshInstance(validated.instanceId);
+        // A restart the user chose starts a new conversation with no previous turn for a
+        // tool-loop note to describe. Compaction's restart fallback keeps the note.
+        getInterruptedContextQueue().dropStopNote(validated.instanceId);
 
         return { success: true };
       } catch (error) {

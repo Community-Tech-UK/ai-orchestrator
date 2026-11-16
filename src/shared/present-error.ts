@@ -1,6 +1,7 @@
 import { accountFamilyName, providerName } from './display-names';
 
-export type ErrorCategory = 'quota' | 'auth' | 'network' | 'provider-crash' | 'concurrency' | 'tool-server' | 'cancelled' | 'unknown';
+export type ErrorCategory = 'quota' | 'auth' | 'network' | 'provider-crash' | 'concurrency' | 'tool-server' | 'cancelled'
+  | 'permission-refused' | 'unknown';
 
 export interface ErrorPresentationContext {
   provider?: string;
@@ -22,7 +23,7 @@ export interface PresentedError {
   rawDetail: string;
 }
 
-const CATEGORIES = new Set<string>(['quota', 'auth', 'network', 'provider-crash', 'concurrency', 'tool-server', 'cancelled', 'unknown']);
+const CATEGORIES = new Set<string>(['quota', 'auth', 'network', 'provider-crash', 'concurrency', 'tool-server', 'cancelled', 'permission-refused', 'unknown']);
 const PROVIDERS = new Set(['claude', 'codex', 'gemini', 'antigravity', 'copilot', 'cursor', 'grok', 'opencode', 'ollama']);
 
 /** Raw diagnostics stay in Details; closed copy may include the supplied account and server labels. */
@@ -84,6 +85,11 @@ export function presentError(codeOrError: unknown, context: ErrorPresentationCon
       advice = 'Continue when you are ready.';
       action = 'retry';
       break;
+    case 'permission-refused':
+      // No retry action: resending the same request is refused again.
+      headline = 'This turn ended because a tool call was refused. Your message and the work above are kept.';
+      advice = 'Tell the agent how to carry on another way.';
+      break;
     default:
       headline = `${provider} couldn't finish this request.`;
       advice = 'Check Details, then try again. Your message and the work above are kept.';
@@ -92,7 +98,7 @@ export function presentError(codeOrError: unknown, context: ErrorPresentationCon
   return {
     category, headline,
     whatToDo: context.retrying ? 'No action needed: Harness is already retrying.' : `What to do: ${advice}`,
-    ...(context.retrying ? {} : { action }), rawDetail,
+    ...(context.retrying || !action ? {} : { action }), rawDetail,
   };
 }
 

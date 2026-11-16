@@ -114,6 +114,21 @@ describe('Session list actions', () => {
     } finally { fixture.destroy(); }
   });
 
+  it.each(['claude', 'opencode', 'gemini'])('offers both restart choices in a %s session\'s menu', async (provider) => {
+    // Restart keeps the conversation for every provider (16 Nov 2026), so neither
+    // choice may be hidden for providers without native resume.
+    const fixture = TestBed.createComponent(InstanceListComponent);
+    try {
+      fixture.detectChanges();
+      const instance = { id: 'live-1', provider, status: 'idle', workingDirectory: '/example',
+        childrenIds: [], executionLocation: { type: 'local' } } as unknown as Instance;
+      await fixture.componentInstance.onInstanceContextMenu({ event: new MouseEvent('contextmenu'), instance, displayTitle: 'Live' });
+      await fixture.whenStable(); fixture.detectChanges();
+      const labels = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].map((button) => button.textContent?.trim());
+      expect(labels).toEqual(expect.arrayContaining(['Restart and resume', 'Restart (fresh context)']));
+    } finally { fixture.destroy(); }
+  });
+
   describe('opening a session puts the cursor in its message box', () => {
     const pending = () => TestBed.inject(ComposerFocusService).pending();
 

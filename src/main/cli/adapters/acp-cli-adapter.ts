@@ -830,6 +830,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
         this.emit('status', 'idle'); throw error;
       }
       const failure = tagAcpProviderLimit(toError(error, 'ACP prompt turn failed.'));
+      // Read by presentError, so the turn says a tool call was refused rather than "try again".
+      if (isAcpPromptPermissionRejection(failure.message)) Object.assign(failure, { code: 'permission-refused' });
       if (this.currentPrompt === turn && (!writePhase.accepted || isAcpInputWriteFailure(failure))) {
         this.systemPromptSent = previousPromptFlags.system;
         this.rtkAwarenessSent = previousPromptFlags.rtk;

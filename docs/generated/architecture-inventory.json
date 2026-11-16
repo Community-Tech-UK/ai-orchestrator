@@ -6384,7 +6384,7 @@
     },
     {
       "path": "src/main/instance/instance-communication.spec.ts",
-      "lines": 4621
+      "lines": 4634
     },
     {
       "path": "docs/plans/2026-07-19-livetest-failure-remediation_plan_completed.md",
@@ -6424,7 +6424,7 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.spec.ts",
-      "lines": 3566
+      "lines": 3573
     },
     {
       "path": "docs/superpowers/plans/2026-06-08-50-hour-loop-resilience_completed.md",
@@ -6500,7 +6500,7 @@
     },
     {
       "path": "src/main/cli/adapters/acp-cli-adapter.ts",
-      "lines": 2545
+      "lines": 2547
     },
     {
       "path": "src/main/instance/instance-manager.ts",
@@ -6699,12 +6699,12 @@
       "lines": 1582
     },
     {
-      "path": "src/main/instance/__tests__/instance-manager.overflow-owner.spec.ts",
-      "lines": 1575
+      "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
+      "lines": 1576
     },
     {
-      "path": "src/main/ipc/handlers/__tests__/instance-handlers.spec.ts",
-      "lines": 1563
+      "path": "src/main/instance/__tests__/instance-manager.overflow-owner.spec.ts",
+      "lines": 1575
     },
     {
       "path": "docs/superpowers/specs/2026-04-16-ai-orchestrator-cross-repo-improvements-design.md",
@@ -6751,6 +6751,10 @@
       "lines": 1465
     },
     {
+      "path": "src/main/ipc/handlers/__tests__/session-handlers.spec.ts",
+      "lines": 1463
+    },
+    {
       "path": "docs/plans/2026-09-27-codex-compaction-reliability_livetest_completed.md",
       "lines": 1461
     },
@@ -6773,10 +6777,6 @@
     {
       "path": "src/main/automations/automation-retry-integration.spec.ts",
       "lines": 1455
-    },
-    {
-      "path": "src/main/ipc/handlers/__tests__/session-handlers.spec.ts",
-      "lines": 1445
     },
     {
       "path": "src/main/background-jobs/__tests__/lane-gateway.spec.ts",
@@ -7216,7 +7216,7 @@
     },
     {
       "path": "src/main/ipc/handlers/instance-handlers.ts",
-      "lines": 1049
+      "lines": 1053
     },
     {
       "path": "docs/plans/2026-09-03-enhancements-backlog_livetest_completed.md",
@@ -7471,6 +7471,10 @@
       "lines": 915
     },
     {
+      "path": "src/main/plan-queue/plan-queue-pause-control.spec.ts",
+      "lines": 913
+    },
+    {
       "path": "src/worker-agent/worker-rpc-dispatcher.node-ops.spec.ts",
       "lines": 913
     },
@@ -7529,10 +7533,6 @@
     {
       "path": "src/renderer/app/features/instance-detail/output-stream.component.scss",
       "lines": 895
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-pause-control.spec.ts",
-      "lines": 894
     },
     {
       "path": "src/main/instance/lifecycle/runtime-reconciler.ts",

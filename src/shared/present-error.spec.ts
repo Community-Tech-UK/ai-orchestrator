@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { presentError } from './present-error';
 
 describe('presentError', () => {
-  it.each(['quota', 'auth', 'network', 'provider-crash', 'concurrency', 'tool-server', 'cancelled', 'unknown'] as const)(
+  it.each(['quota', 'auth', 'network', 'provider-crash', 'concurrency', 'tool-server', 'cancelled', 'permission-refused', 'unknown'] as const)(
     'gives %s a safe headline and a next step', category => {
       const result = presentError(category, { provider: 'codex', account: 'Work' });
       expect(result.category).toBe(category);
@@ -10,6 +10,13 @@ describe('presentError', () => {
       expect(result.whatToDo).toMatch(/^(What to do:|No action needed:)/);
     },
   );
+
+  it('says a refused tool call ended the turn, without offering to resend the same request', () => {
+    const result = presentError({ code: 'permission-refused', message: 'rejected permission' }, { provider: 'opencode' });
+    expect(result.headline).toBe('This turn ended because a tool call was refused. Your message and the work above are kept.');
+    expect(result.whatToDo).toBe('What to do: Tell the agent how to carry on another way.');
+    expect(result.action).toBeUndefined();
+  });
 
   it('keeps arbitrary provider text out of visible sentences', () => {
     const detail = 'unrecognised payload: PRIVATE_DIAGNOSTIC_TEXT';

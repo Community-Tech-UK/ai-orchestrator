@@ -2426,10 +2426,10 @@ export class InstanceCommunicationManager extends EventEmitter {
 
     if (instance.outputBuffer.length > bufferSize) {
       getSessionContinuityManagerIfInitialized()?.markConversationIncomplete(instance.id);
-      const overflow = instance.outputBuffer.slice(
-        0,
-        instance.outputBuffer.length - bufferSize
-      );
+      // Move a batch of the oldest messages at once. Moving one per new message wrote one file per message to disk
+      // storage and rewrote the session's whole storage index each time.
+      const keep = bufferSize - Math.min(100, Math.max(1, Math.floor(bufferSize / 10))) + 1;
+      const overflow = instance.outputBuffer.slice(0, instance.outputBuffer.length - keep);
       if (settings.enableDiskStorage) {
         this.outputStorage.storeMessages(instance.id, overflow).catch((err) => {
           logger.error('Failed to store output to disk', undefined, { instanceId: instance.id, ...errorDiagnostic(err) });
@@ -2442,7 +2442,7 @@ export class InstanceCommunicationManager extends EventEmitter {
       // deliberately not re-seated into outputBuffer, which is addressed by
       // position by fork and rewind.
       instance.retainedPrompts = mergeRetainedPrompts(instance.retainedPrompts, overflow);
-      instance.outputBuffer = instance.outputBuffer.slice(-bufferSize);
+      instance.outputBuffer = instance.outputBuffer.slice(-keep);
     }
 
     // Ingest to context systems through the B3 ContextEngine boundary. A phone-app member's conversation stays out of

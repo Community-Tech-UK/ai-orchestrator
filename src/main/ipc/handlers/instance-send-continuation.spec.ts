@@ -74,6 +74,22 @@ describe('continuation dispatch', () => {
     expect(context.queue).not.toHaveBeenCalled();
   });
 
+  it('keeps a tool-loop stop note in front of the Continue context, and keeps it if that send is rejected', async () => {
+    const manager = setup();
+    const context = new InterruptedContextQueue();
+    context.queueStopNote('session', 'STOP_NOTE');
+    let delivered: string | undefined;
+    manager.sendInput.mockImplementation(async () => { delivered = context.prepare('session').value; });
+    await sendInstanceInput(manager, { instanceId: 'session', message: SAFE_CONTINUATION, continueInterrupted: true }, context);
+    expect(delivered?.startsWith('STOP_NOTE\n\n')).toBe(true);
+    expect(delivered).toContain('ORIGINAL_REQUEST');
+
+    manager.sendInput.mockRejectedValue(new Error('Dispatch rejected'));
+    await expect(sendInstanceInput(manager, { instanceId: 'session', message: SAFE_CONTINUATION, continueInterrupted: true }, context))
+      .rejects.toThrow('Dispatch rejected');
+    expect(context.prepare('session').value).toBe('STOP_NOTE');
+  });
+
   it('does not leave interrupted context attached to the next ordinary message after a rejected send', async () => {
     const manager = setup();
     manager.sendInput.mockRejectedValue(new Error('Dispatch rejected'));

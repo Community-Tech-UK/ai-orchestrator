@@ -785,7 +785,7 @@ describe('HistoryManager — native Claude transcript import', () => {
     } as unknown as InstanceManager;
     const coordinator = new HistoryRestoreCoordinator({
       history: () => migratedManager,
-      outputStorage: () => ({ storeMessages: vi.fn() }),
+      outputStorage: () => ({ storeMessages: vi.fn(), deleteInstance: vi.fn() }),
     });
 
     const first = await coordinator.restore(instanceManager, migrated.id, { forceFallback: true });
@@ -793,7 +793,7 @@ describe('HistoryManager — native Claude transcript import', () => {
     await reloadedManager.startupTasks;
     const second = await new HistoryRestoreCoordinator({
       history: () => reloadedManager,
-      outputStorage: () => ({ storeMessages: vi.fn() }),
+      outputStorage: () => ({ storeMessages: vi.fn(), deleteInstance: vi.fn() }),
     }).restore(instanceManager, migrated.id, { forceFallback: true });
     expect(first.historyThreadId).toBe(second.historyThreadId);
     expect(first.historyThreadId).not.toBe(providerSessionId);

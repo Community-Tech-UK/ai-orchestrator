@@ -1,8 +1,9 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
-const { TREES, isDirectDriver, directSetupContent, sanitizeConfig } = require('./sync-policy');
+const { TREES, approvedPath, setupFileRefusal, isDirectDriver, directSetupContent, sanitizeConfig } = require('./sync-policy');
 const { safeDestination, validatePackage, atomicWrite, mergeMemoryIndex, inside } = require('./sync-files');
+const { validateAsset } = require('./sync-assets');
 
 function applySyncPackage(pkg, { destinationHome, stateRoots = [] }) {
   validatePackage(pkg);
@@ -10,12 +11,27 @@ function applySyncPackage(pkg, { destinationHome, stateRoots = [] }) {
   const originalConfigs = new Map();
   const readLocalConfig = target => { const text = fs.readFileSync(target, 'utf8'); originalConfigs.set(target, text); return text; };
   const operations = new Map(); const deletions = new Set(); const links = []; const omitted = []; const configExclusions = [];
-  const planned = new Set(pkg.files.map(file => path.join(home, file.path)));
+  const planned = new Set([...pkg.files, ...pkg.assets].map(file => path.join(home, file.path)));
   const pathExists = target => planned.has(target) || [...planned].some(file => inside(target, file)) || fs.existsSync(target);
   const canonicalFile = relative => {
     const target = safeDestination(home, relative);
-    return fs.existsSync(target) && fs.lstatSync(target).isSymbolicLink() ? fs.realpathSync(target) : target;
+    const missing = [];
+    let existing = target;
+    while (!fs.existsSync(existing)) { missing.unshift(path.basename(existing)); existing = path.dirname(existing); }
+    return path.join(fs.realpathSync(existing), ...missing);
   };
+  for (const file of pkg.files) {
+    const resolved = canonicalFile(file.path);
+    const relative = path.relative(home, resolved).split(path.sep).join('/');
+    const sourceTree = TREES.find(tree => file.path.startsWith(tree + '/'));
+    const targetTree = TREES.find(tree => relative.startsWith(tree + '/'));
+    const sharedSetupTree = sourceTree && targetTree && path.posix.basename(sourceTree) === path.posix.basename(targetTree);
+    if (!approvedPath(relative) || setupFileRefusal(relative)
+      || (relative !== file.path && !sharedSetupTree)) throw new Error('Setup alias would overwrite a different kind of local state; review the symlink before syncing');
+  }
+  for (const asset of pkg.assets) {
+    if (canonicalFile(asset.path) !== path.join(home, asset.path)) throw new Error('Reviewed asset destination uses an alias; review the symlink before syncing');
+  }
   const mergeConfig = (existing, incoming) => {
     const merged = { ...existing };
     for (const [key, value] of Object.entries(incoming)) {
@@ -51,6 +67,7 @@ function applySyncPackage(pkg, { destinationHome, stateRoots = [] }) {
     }
     schedule(file.path, text, file.mode, file.memory ? file.mtimeMs : undefined);
   }
+  for (const asset of pkg.assets) schedule(asset.path, validateAsset(asset), 0o600);
   for (const link of pkg.links) {
     const target = safeDestination(home, link.path); const source = safeDestination(home, link.target);
     if (fs.existsSync(target) && fs.lstatSync(target).isDirectory() && !fs.lstatSync(target).isSymbolicLink()) {

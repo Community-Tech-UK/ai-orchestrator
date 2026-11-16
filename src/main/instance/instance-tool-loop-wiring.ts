@@ -10,7 +10,9 @@
  * renderer by `setupInstanceEventForwarding()`) and, only when
  * `toolLoopAutoInterrupt` is enabled, interrupts the turn on a 'critical'
  * detection. AIO cannot veto a tool call inside the CLI process — this is
- * the earliest point at which it can act on one.
+ * the earliest point at which it can act on one. After such a stop it queues
+ * a carry-on note (`tool-loop-stop-note.ts`) that rides on the session's next
+ * turn and names what was repeated.
  *
  * This module holds no state of its own; `InstanceManager` owns the
  * `ToolLoopWiringDeps` implementation (see `instance-manager.ts`) and calls
@@ -51,6 +53,9 @@ import type { ProviderRuntimeEvent } from '@contracts/types/provider-runtime-eve
 import { isMutatingProviderTool, isReadOnlyProviderTool } from '../cli/adapters/acp-doom-loop-permission';
 import { isToolResultFailed } from '../../shared/tool-outcome';
 import { clearInstanceTurnEnding, recordInstanceTurnEnding } from './instance-turn-ending-state';
+import { getInterruptedContextQueue } from './instance-interrupted-context';
+import { toolLoopStopNote } from '../orchestration/tool-loop-stop-note';
+import { logPromptInjection } from '../logging/prompt-injection-log';
 
 const logger = getLogger('InstanceToolLoopWiring');
 
@@ -209,6 +214,14 @@ function maybeAutoInterruptOnToolLoop(
     count: detection.count,
     windowDescription: detection.windowDescription,
   });
+
+  // The user is told the next message will say why the turn stopped, before
+  // the interrupt below reports how it went, so the note is queued whatever
+  // happens next. Its wording describes only what the model did. Without it the
+  // next message ("continue") gives the model nothing new, and it repeats itself.
+  const note = toolLoopStopNote(detection);
+  getInterruptedContextQueue().queueStopNote(instanceId, note);
+  logPromptInjection('toolLoopStopNote', note, instanceId);
 
   // A `false` return means the session was not mid-turn, or its process or
   // node is already gone; either way no turn is left running. Only a throw

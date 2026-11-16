@@ -8,22 +8,52 @@ Run from this checkout:
 
 ```sh
 node scripts/home-base/sync-agent-setup.js inspect
-node scripts/home-base/sync-agent-setup.js sync --remote ct-test-mac --destination-home /Users/suas
-node scripts/home-base/sync-agent-setup.js install-hook --remote ct-test-mac --destination-home /Users/suas
+node scripts/home-base/sync-agent-setup.js sync --remote ct-test-mac --destination-home /Users/suas --remote-node /absolute/path/to/node
+node scripts/home-base/sync-agent-setup.js install-hook --remote ct-test-mac --destination-home /Users/suas --remote-node /absolute/path/to/node
 ```
 
 `inspect` reads only approved source paths. It never prints file contents or environment values. On refusal it prints
 at most six filenames/reasons and writes the complete filename-only list into the ignored
-`_scratch/home-base/sync-refusals.log` with owner-only permissions. A refusal stops the complete transfer. Current
-source inspection does refuse reference documents and memories containing credential-shaped examples, unsupported
-assets, and a broken skill link. These need separate review/sanitisation; this is not evidence those files hold real
-credentials, and it is not a successful setup copy. Known OS metadata, caches and backup files are omitted.
+`_scratch/home-base/sync-refusals.log` with owner-only permissions. A refusal stops the complete transfer. Source
+inspection now passes after separately reviewing and sanitising ambiguous examples and memory labels, moving a
+historical credential into the organisation vault, and archiving an unusable skill link. This is a source inspection,
+not evidence that a setup copy has run. Known OS metadata, caches and historical memory backups are omitted.
+
+A skill excluded by the existing direct-control policy contributes no supporting files or assets to the package,
+even when its forbidden instructions appear after a refused resource in directory order. All retained text still
+passes credential validation. Structured configurations are checked as parsed keys and string values, avoiding
+false positives from serialised quotes. Complete environment references and empty shell defaults carry no literal
+credential; malformed or nonempty fallbacks and literal additions are refused.
+Command strings are also tokenised without execution, using the pinned `shell-quote` parser bundled into the receiver.
+This retains adjacent quote boundaries and expansion provenance, so a literal suffix cannot hide beside a quoted
+environment reference. Credential flags require a complete dynamic value; encoded words and nested command strings
+are inspected too. Continued strings, comments in credential-bearing commands and unsupported
+expansions require separate provisioning because the parser does not reproduce every shell's interpretation.
+Credential assignments also require an entirely dynamic value. Inline substitutions are refused except the reviewed
+Keychain lookup (`security find-generic-password -w -s <service> 2>/dev/null || true`) and credential-file read
+(`tr -d '\r\n' < /absolute/file`) forms already used by this setup. Their full parsed argument/operator lists are
+checked, then treated as dynamic words; extra commands, substitutions and literal suffixes are refused. No credential
+lookup or command is executed while preparing or applying a package.
+Credential checks retain flag/value context across command-argument arrays and reject numeric or other scalar
+credentials as well as strings. Credential names in camel case and common header fields receive the same checks;
+ordinary metadata and token-count settings retain their normal meaning.
+
+The transfer format is version 2, sent together with its matching apply code. Text stays in the text-file collection;
+reviewed binary assets have a separate bounded base64 collection. The only approved asset is the PDF skill icon at
+`.codex/skills/pdf/assets/pdf.png`, pinned by its exact byte count and SHA-256 in `sync-assets.js` after visual review.
+Both source and destination verify that pin, and destination validation completes before any setup write. Other
+binary paths, changed bytes, malformed encoding and duplicate paths are refused. This does not permit arbitrary PNGs.
+Destination aliases are resolved during preflight. Incoming text cannot redirect writes into account state or a
+different kind of setup folder, and binary assets cannot use destination aliases. Intentional shared skill folders
+and named-profile settings links remain supported without overwriting local sign-in data.
 
 `sync` checks the saved SSH connection without a password prompt, bundles the remote apply code in memory, and sends
 only the approved package over SSH stdin. The destination needs Node 22 or newer; `--remote-node /absolute/node/path`
 selects a non-default installation. A failed connection preflight reports a skipped sync. A refusal or apply failure
 fails the command; it never reports the home base down. No source login file, cookie, `.claude.json`, credential file,
 provider account home or secret-valued environment entry enters the package.
+The installed hook retains the selected remote Node path, including spaces or quotes; its future runs do not depend
+on that executable being on the remote noninteractive shell's PATH.
 
 The destination filters its own existing Claude and Codex configs, including known named-account roots, locally.
 Its sign-in fields stay local and its credential-valued config fields are retained when approved setup is merged.

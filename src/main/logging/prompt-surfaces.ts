@@ -15,7 +15,7 @@ export const PROMPT_SURFACES = [
   'structuredReview', 'tieredReview', 'structuredRepair', 'tieredRepair',
   'pingPongReview', 'pingPongRepair',
   'localStructuredReview', 'localTieredReview', 'localReviewRepair',
-  'codexStandingNotes', 'rtk', 'summaryHelper', 'subqueryHelper', 'titleSystem', 'titleRequest',
+  'codexStandingNotes', 'rtk', 'toolLoopStopNote', 'summaryHelper', 'subqueryHelper', 'titleSystem', 'titleRequest',
 ] as const;
 
 export type PromptSurface = typeof PROMPT_SURFACES[number];

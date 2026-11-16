@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { DEFAULT_PLAN_QUEUE_CONFIG, type PlanQueueAccountRules } from '@contracts/schemas/plan-queue';
 import type { InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { SqliteDriver } from '../db/sqlite-driver';
@@ -404,25 +404,38 @@ describe('Plan Queue pause controls in the coordinator', () => {
     expect(store.listActiveRuns().every(r => r.status === 'running')).toBe(true);
   });
 
-  it('changes routing on a paused run, then starts the resumed worker on the new provider', async () => {
-    await coordinator.control({ action: 'pause', runId: run.id });
-    await coordinator.control({ action: 'set-routing', runId: run.id, routing: { workers: [{ provider: 'cursor' }], verifiers: [{ provider: 'codex' }] } });
-    expect(instances.created).toEqual([]);
-    await coordinator.control({ action: 'resume', runId: run.id });
-    await coordinator._whenSettledForTesting();
-    expect(instances.created[0]?.provider).toBe('cursor');
-    expect(instances.postNote).toHaveBeenCalledWith('parent', expect.stringContaining('James changed'));
-    expect(instances.sendInput).not.toHaveBeenCalledWith('parent', expect.anything(), undefined, expect.anything());
+  describe('routing a paused run', () => {
+    beforeEach(async () => {
+      // Establish the paused prerequisite with its real Git checkpoint before testing the route change.
+      await coordinator.control({ action: 'pause', runId: run.id });
+      await coordinator._whenSettledForTesting();
+    });
+
+    it('changes routing on a paused run, then starts the resumed worker on the new provider', async () => {
+      await coordinator.control({ action: 'set-routing', runId: run.id, routing: { workers: [{ provider: 'cursor' }], verifiers: [{ provider: 'codex' }] } });
+      expect(instances.created).toEqual([]);
+      await coordinator.control({ action: 'resume', runId: run.id });
+      await coordinator._whenSettledForTesting();
+      expect(instances.created[0]?.provider).toBe('cursor');
+      expect(instances.postNote).toHaveBeenCalledWith('parent', expect.stringContaining('James changed'));
+      expect(instances.sendInput).not.toHaveBeenCalledWith('parent', expect.anything(), undefined, expect.anything());
+    });
   });
 
-  it('moves live documents on opt-in and preserves the original session route', async () => {
-    await coordinator.control({ action: 'set-routing', runId: run.id, routing: { workers: [{ provider: 'cursor' }], verifiers: [{ provider: 'codex' }] }, moveInProgress: true });
-    await coordinator._whenSettledForTesting();
-    expect(instances.live.has('worker')).toBe(false);
-    expect(instances.created[0]?.provider).toBe('cursor');
-    await coordinator.control({ action: 'pause', runId: run.id });
-    await coordinator.control({ action: 'set-routing', runId: run.id, routing: { workers: [], verifiers: [{ provider: 'codex' }] } });
-    expect(store.getRun(run.id)?.workerProvider).toBe('claude');
+  describe('routing after moving live work', () => {
+    beforeEach(async () => {
+      // Move the live worker through the actual hold/checkpoint/start lifecycle before checking its new route.
+      await coordinator.control({ action: 'set-routing', runId: run.id, routing: { workers: [{ provider: 'cursor' }], verifiers: [{ provider: 'codex' }] }, moveInProgress: true });
+      await coordinator._whenSettledForTesting();
+    });
+
+    it('moves live documents on opt-in and preserves the original session route', async () => {
+      expect(instances.live.has('worker')).toBe(false);
+      expect(instances.created[0]?.provider).toBe('cursor');
+      await coordinator.control({ action: 'pause', runId: run.id });
+      await coordinator.control({ action: 'set-routing', runId: run.id, routing: { workers: [], verifiers: [{ provider: 'codex' }] } });
+      expect(store.getRun(run.id)?.workerProvider).toBe('claude');
+    });
   });
 
   it('uses the latest checker choice when routing changes during selection', async () => {
@@ -853,41 +866,47 @@ it('records conversation identity on readiness and again on a worker outcome', a
   expect(store.getItem(item.id)?.workerSession?.providerSessionId).toBe('conversation-at-turn-end');
 });
 
-it('parks a failed reopen when its worker cannot be stopped and Resume retries cleanup before spawning', async () => {
-  Object.assign(instances.live.get('worker')!, { providerSessionId: 'original-conversation', workingDirectory: item.worktreePath });
-  store.upsertItem({ ...store.getItem(item.id)!, pendingInstruction: 'Keep this pending repair' });
-  await coordinator.control({ action: 'pause', runId: run.id });
-  const create = instances.createInstance.bind(instances);
+describe('a failed reopen whose worker could not be stopped', () => {
   let reopenedId: string | undefined;
-  vi.spyOn(instances, 'createInstance').mockImplementation(async config => {
-    const created = await create(config);
-    if (!config.resume) return created;
-    reopenedId = created.id;
-    // Resume may checkpoint the held checkout before this writer starts.
-    checkpoint.mockClear();
-    return { ...created, readyPromise: Promise.reject(new Error('conversation expired')) };
+  let checkpoint: MockInstance<typeof coordinator.worktrees.checkpoint>;
+  beforeEach(async () => {
+    reopenedId = undefined;
+    Object.assign(instances.live.get('worker')!, { providerSessionId: 'original-conversation', workingDirectory: item.worktreePath });
+    store.upsertItem({ ...store.getItem(item.id)!, pendingInstruction: 'Keep this pending repair' });
+    await coordinator.control({ action: 'pause', runId: run.id });
+    const create = instances.createInstance.bind(instances);
+    vi.spyOn(instances, 'createInstance').mockImplementation(async config => {
+      const created = await create(config);
+      if (!config.resume) return created;
+      reopenedId = created.id;
+      // Resume may checkpoint the held checkout before this writer starts.
+      checkpoint.mockClear();
+      return { ...created, readyPromise: Promise.reject(new Error('conversation expired')) };
+    });
+    instances.terminateInstance.mockImplementation(async id => {
+      if (id === reopenedId) throw new Error('termination unavailable');
+      instances.live.delete(id);
+    });
+    checkpoint = vi.spyOn(coordinator.worktrees, 'checkpoint');
+    await coordinator.control({ action: 'resume', runId: run.id });
+    await coordinator._whenSettledForTesting();
   });
-  instances.terminateInstance.mockImplementation(async id => {
-    if (id === reopenedId) throw new Error('termination unavailable');
-    instances.live.delete(id);
+  it('parks a failed reopen when its worker cannot be stopped and Resume retries cleanup before spawning', async () => {
+    expect(store.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'worker-error',
+      workerInstanceId: reopenedId, pendingInstruction: 'Keep this pending repair' });
+    expect(store.getItem(item.id)?.detail).toContain('termination unavailable');
+    expect(instances.live.has(reopenedId!)).toBe(true);
+    expect(instances.created).toHaveLength(1);
+    expect(checkpoint).not.toHaveBeenCalled();
+    await expect(coordinator.control({ action: 'resume-item', itemId: item.id })).rejects.toThrow('termination unavailable');
+    expect(store.getItem(item.id)?.state).toBe('parked');
+    expect(instances.created).toHaveLength(1);
+    instances.terminateInstance.mockImplementation(async id => { instances.live.delete(id); });
+    vi.spyOn(instances, 'createInstance').mockRestore();
+    await coordinator.control({ action: 'resume-item', itemId: item.id });
+    await coordinator._whenSettledForTesting();
+    expect(instances.live.has(reopenedId!)).toBe(false);
+    expect(instances.created).toHaveLength(2);
+    expect(store.getItem(item.id)?.state).toBe('working');
   });
-  const checkpoint = vi.spyOn(coordinator.worktrees, 'checkpoint');
-  await coordinator.control({ action: 'resume', runId: run.id });
-  await coordinator._whenSettledForTesting();
-  expect(store.getItem(item.id)).toMatchObject({ state: 'parked', parkReason: 'worker-error',
-    workerInstanceId: reopenedId, pendingInstruction: 'Keep this pending repair' });
-  expect(store.getItem(item.id)?.detail).toContain('termination unavailable');
-  expect(instances.live.has(reopenedId!)).toBe(true);
-  expect(instances.created).toHaveLength(1);
-  expect(checkpoint).not.toHaveBeenCalled();
-  await expect(coordinator.control({ action: 'resume-item', itemId: item.id })).rejects.toThrow('termination unavailable');
-  expect(store.getItem(item.id)?.state).toBe('parked');
-  expect(instances.created).toHaveLength(1);
-  instances.terminateInstance.mockImplementation(async id => { instances.live.delete(id); });
-  vi.spyOn(instances, 'createInstance').mockRestore();
-  await coordinator.control({ action: 'resume-item', itemId: item.id });
-  await coordinator._whenSettledForTesting();
-  expect(instances.live.has(reopenedId!)).toBe(false);
-  expect(instances.created).toHaveLength(2);
-  expect(store.getItem(item.id)?.state).toBe('working');
 });

@@ -10,9 +10,9 @@ const base = {
 } as const;
 
 describe('toolLoopTranscriptNotice', () => {
-  it.each(['repeat-no-progress', 'ping-pong'] as const)('explains an automatic %s stop and offers a way forward', (detector) => {
+  it.each(['repeat-no-progress', 'ping-pong'] as const)('explains an automatic %s stop and what the next message will carry', (detector) => {
     expect(toolLoopTranscriptNotice({ severity: 'critical', detector }, true)).toBe(
-      'Harness is stopping this turn because the agent kept repeating tool calls with the same results. Completed work is preserved. Choose Continue to retry. If it repeats, start a fresh session or change model.',
+      'Harness is stopping this turn because the agent kept repeating tool calls with the same results. Completed work is preserved. Your next message will tell the agent why it was stopped. If it happens again, start a fresh session or change model.',
     );
   });
 

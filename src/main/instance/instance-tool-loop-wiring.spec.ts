@@ -15,6 +15,9 @@ import { observeToolLoopEvent, resolveToolLoopWiringDeps, willAutoInterruptToolL
 import { DoomLoopDetector, getDoomLoopDetector, type ToolLoopDetectionEvent } from '../orchestration/doom-loop-detector';
 import type { ProviderRuntimeEvent } from '@contracts/types/provider-runtime-events';
 import { getInstanceTurnEnding } from './instance-turn-ending-state';
+import { getInterruptedContextQueue, InterruptedContextQueue } from './instance-interrupted-context';
+import { InstanceContinuityInputQueue } from './instance-continuity-input-queue';
+import { toolLoopStopNote } from '../orchestration/tool-loop-stop-note';
 
 const noopDeps: ToolLoopWiringDeps = {
   getAutoInterruptSetting: () => false,
@@ -265,7 +268,10 @@ describe('resolveToolLoopWiringDeps', () => {
 });
 
 describe('provider mutating-tool backstop', () => {
-  afterEach(() => DoomLoopDetector._resetForTesting());
+  afterEach(() => {
+    DoomLoopDetector._resetForTesting();
+    InterruptedContextQueue._resetForTesting();
+  });
 
   it.each(['claude', 'opencode'])('interrupts critical repeat-no-progress for %s writes with global setting off', (provider) => {
     const interrupt = vi.fn(() => true);
@@ -275,6 +281,27 @@ describe('provider mutating-tool backstop', () => {
       observeToolLoopEvent(deps, 'inst-1', { kind: 'tool_result', toolName: 'write', toolUseId: `w${i}`, success: true, output: 'unchanged' });
     }
     expect(interrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it('puts a note naming the repeated call in front of the next message after it stops the turn', () => {
+    const deps: ToolLoopWiringDeps = { getAutoInterruptSetting: () => false, getProvider: () => 'opencode', interruptInstance: () => true };
+    for (let i = 0; i < 6; i++) {
+      observeToolLoopEvent(deps, 'inst-1', { kind: 'tool_use', toolName: 'Resize images', toolUseId: `e${i}`, input: { kind: 'execute', rawInput: { command: 'sips -Z 1200 a.jpg' } } });
+      observeToolLoopEvent(deps, 'inst-1', { kind: 'tool_result', toolName: 'Resize images', toolUseId: `e${i}`, success: true, output: 'a.jpg' });
+    }
+    const next = new InstanceContinuityInputQueue().prepare('inst-1', null, undefined, 'user');
+    expect(next.contextBlock).toBe(toolLoopStopNote({ detector: 'repeat-no-progress', toolName: 'bash', count: 6 }));
+    next.commit();
+    expect(new InstanceContinuityInputQueue().prepare('inst-1', null).contextBlock).toBeNull();
+  });
+
+  it('still leaves the note when the interrupt finds no turn to stop, as the stop line promised', () => {
+    const deps: ToolLoopWiringDeps = { getAutoInterruptSetting: () => false, getProvider: () => 'opencode', interruptInstance: () => false };
+    for (let i = 0; i < 6; i++) {
+      observeToolLoopEvent(deps, 'inst-1', { kind: 'tool_use', toolName: 'write', toolUseId: `w${i}`, input: { path: 'x', content: 'same' } });
+      observeToolLoopEvent(deps, 'inst-1', { kind: 'tool_result', toolName: 'write', toolUseId: `w${i}`, success: true, output: 'unchanged' });
+    }
+    expect(getInterruptedContextQueue().prepare('inst-1').value).toBe(toolLoopStopNote({ detector: 'repeat-no-progress', toolName: 'write', count: 6 }));
   });
 
   it('a stop that throws hands the decision back: re-emitted as failed, with the guard cleared so a later detection may retry', () => {
@@ -290,6 +317,8 @@ describe('provider mutating-tool backstop', () => {
     expect(critical.map((event) => event.autoStopFailed === true)).toEqual([false, true]);
     expect(getDoomLoopDetector().hasAutoInterruptedThisTurn('inst-1')).toBe(false);
     expect(getInstanceTurnEnding('inst-1')).toBeUndefined();
+    // The stop line already promised the next message would explain, and the note claims no stop.
+    expect(getInterruptedContextQueue().prepare('inst-1').value).toBe(toolLoopStopNote({ detector: 'repeat-no-progress', toolName: 'write', count: 6 }));
   });
 
   it.each(['claude', 'opencode', 'copilot'])('never interrupts %s read-only loops even with the global setting on', (provider) => {
@@ -300,6 +329,7 @@ describe('provider mutating-tool backstop', () => {
       observeToolLoopEvent(deps, 'inst-1', { kind: 'tool_result', toolName: 'grep', toolUseId: `r${i}`, success: true, output: 'same' });
     }
     expect(interrupt).not.toHaveBeenCalled();
+    expect(getInterruptedContextQueue().prepare('inst-1').value).toBeUndefined();
   });
 
   it('uses the ACP execute kind when a command title does not identify the mutating tool', () => {

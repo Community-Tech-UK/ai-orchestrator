@@ -20,16 +20,31 @@ export function readTranscriptMessages(file: string): OutputMessage[] {
   return transcriptToMessages(lines);
 }
 
-const cache = new Map<string, OutputMessage[]>();
-function messagesOf(ref: StopRef): OutputMessage[] {
-  if (ref.messages) return ref.messages;
-  let all = cache.get(ref.file);
-  if (!all) {
-    all = ref.source === 'archive' ? readArchiveFile(ref.file).messages : readTranscriptMessages(ref.file);
+interface LoadedConversation { messages: OutputMessage[]; workingDirectory: string }
+
+const cache = new Map<string, LoadedConversation>();
+function conversationOf(ref: StopRef): LoadedConversation {
+  if (ref.messages) return { messages: ref.messages, workingDirectory: '' };
+  let loaded = cache.get(ref.file);
+  if (!loaded) {
+    if (ref.source === 'archive') {
+      const data = readArchiveFile(ref.file);
+      loaded = { messages: data.messages, workingDirectory: data.entry.workingDirectory ?? '' };
+    } else {
+      loaded = { messages: readTranscriptMessages(ref.file), workingDirectory: '' };
+    }
     if (cache.size >= 8) cache.delete(cache.keys().next().value as string);
-    cache.set(ref.file, all);
+    cache.set(ref.file, loaded);
   }
-  return all;
+  return loaded;
+}
+function messagesOf(ref: StopRef): OutputMessage[] {
+  return conversationOf(ref).messages;
+}
+
+/** The session's folder as the archive recorded it; empty for transcripts and written asks, which do not keep one. */
+export function workingDirectoryOf(ref: StopRef): string {
+  return conversationOf(ref).workingDirectory;
 }
 
 /** The conversation up to and including the stopping message; never what came next. */

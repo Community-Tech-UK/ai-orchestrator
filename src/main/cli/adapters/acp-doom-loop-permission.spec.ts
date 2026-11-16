@@ -34,7 +34,7 @@ describe('OpenCode native doom-loop permission', () => {
       await adapter.sendMessage({ role: 'user', content: 'work' });
       expect(outcome).toEqual({ outcome: { outcome: 'selected', optionId: 'reject' } });
       expect(shown).not.toHaveBeenCalled();
-      expect(outputs).toHaveBeenCalledWith(expect.objectContaining({ content: 'Blocked: identical tool call repeated. Change approach before retrying.', metadata: expect.objectContaining({ doomLoopBlocked: true }) }));
+      expect(outputs).toHaveBeenCalledWith(expect.objectContaining({ content: 'Harness refused a tool call because the agent kept repeating it unchanged.', metadata: expect.objectContaining({ doomLoopBlocked: true }) }));
     } finally { proc.exit(); }
   });
 

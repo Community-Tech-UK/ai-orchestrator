@@ -12,6 +12,7 @@ import { createInstanceDomain } from '../../../../preload/domains/instance.prelo
 import type { IpcResponse } from '../../../../shared/types/ipc.types';
 import type { InstanceManager } from '../../../instance/instance-manager';
 import type { WindowManager } from '../../../window-manager';
+import { getInterruptedContextQueue, InterruptedContextQueue } from '../../../instance/instance-interrupted-context';
 
 // ============================================================
 // 1. Mock electron BEFORE any import that would pull it in
@@ -1059,6 +1060,18 @@ describe('instance-handlers', () => {
 
       expect(result.success).toBe(true);
       expect(mockInstanceManager.restartFreshInstance).toHaveBeenCalledWith('inst-34');
+    });
+
+    it('drops a pending tool-loop stop note only once the fresh restart has succeeded', async () => {
+      getInterruptedContextQueue().queueStopNote('inst-34', 'STOP_NOTE');
+      vi.mocked(mockInstanceManager.restartFreshInstance).mockRejectedValueOnce(new Error('Cannot restart fresh'));
+      await invoke(IPC_CHANNELS.INSTANCE_RESTART_FRESH, { instanceId: 'inst-34' });
+      expect(getInterruptedContextQueue().prepare('inst-34').value).toBe('STOP_NOTE');
+
+      vi.mocked(mockInstanceManager.restartFreshInstance).mockResolvedValue(undefined);
+      await invoke(IPC_CHANNELS.INSTANCE_RESTART_FRESH, { instanceId: 'inst-34' });
+      expect(getInterruptedContextQueue().prepare('inst-34').value).toBeUndefined();
+      InterruptedContextQueue._resetForTesting();
     });
 
     it('returns structured error when fresh restart fails', async () => {

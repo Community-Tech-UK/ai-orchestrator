@@ -19,6 +19,9 @@ import {
 } from './orchestration-protocol';
 import { buildActiveGoalContext } from '../commands/goal-command';
 import { buildReplayContinuityMessage } from '../session/replay-continuity';
+import { toolLoopStopNote } from './tool-loop-stop-note';
+import { getInterruptedContextQueue, InterruptedContextQueue } from '../instance/instance-interrupted-context';
+import { InstanceContinuityInputQueue } from '../instance/instance-continuity-input-queue';
 import {
   CONSENSUS_RULES,
   HARNESS_GUIDE,
@@ -526,6 +529,31 @@ describe('leading Harness prefix with a queued earlier set (R3J4)', () => {
     expect(stripLeadingHarnessContext(join(retrieved, warning, typed))).toBe(typed);
     expect(stripLeadingHarnessContext(join(warning, typed))).toBe(typed);
     expect(stripLeadingHarnessContext(join(warning.replace('85%', '85.5%'), typed))).toBe(typed);
+  });
+
+  it('strips the tool-loop stop note wherever the queue puts it, and only once', () => {
+    const note = toolLoopStopNote({ detector: 'repeat-no-progress', toolName: 'bash', count: 6 });
+    expect(stripLeadingHarnessContext(join(note, typed))).toBe(typed);
+    expect(stripLeadingHarnessContext(join(history, note, warning, memory, guidance, typed))).toBe(typed);
+    expect(stripLeadingHarnessContext(join(indexed, note, warning, indexed, retrieved, typed))).toBe(typed);
+    expect(stripLeadingHarnessContext(join(note, retrieved, warning, memory, typed))).toBe(typed);
+    // A message of attachments only: the CLI trims the blank line after the note.
+    expect(stripLeadingHarnessContext(note)).toBe('');
+    // The real queue composes it the same way.
+    getInterruptedContextQueue().queueStopNote('inst', note);
+    const continuity = new InstanceContinuityInputQueue();
+    continuity.queueContinuity('inst', history, { userOnly: false });
+    const composed = continuity.prepare('inst', join(memory, goal), undefined, 'user').contextBlock!;
+    InterruptedContextQueue._resetForTesting();
+    expect(composed.indexOf(note)).toBeGreaterThan(composed.indexOf('</conversation_history>'));
+    expect(stripLeadingHarnessContext(join(composed, typed))).toBe(typed);
+    // Not twice, not after the warning or the current set's goal, and not with its wording changed.
+    expect(stripLeadingHarnessContext(join(note, note, typed))).toBe(join(note, typed));
+    expect(stripLeadingHarnessContext(join(warning, note, typed))).toBe(join(note, typed));
+    expect(stripLeadingHarnessContext(join(memory, goal, note, typed))).toBe(join(note, typed));
+    const edited = note.replace('a different way', 'another way');
+    expect(stripLeadingHarnessContext(join(edited, typed))).toBe(join(edited, typed));
+    expect(startsWithHarnessContext(join(edited, typed))).toBe(false);
   });
 
   it('strips a replay or handoff history preamble in front of the blocks, or alone', () => {

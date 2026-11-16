@@ -27,9 +27,23 @@ describe('interrupted context alongside existing recovery', () => {
     expect(continuity.prepare('session', null).contextBlock).toBe('NEW_CONTEXT');
   });
 
+  it('holds a stop note apart from Continue context: neither replaces the other, and one commit sends both', () => {
+    const continuity = new InstanceContinuityInputQueue();
+    const queue = getInterruptedContextQueue();
+    queue.queueStopNote('session', 'STOP_NOTE');
+    queue.queue('session', 'CONTINUE_CONTEXT');
+    const prepared = continuity.prepare('session', 'CURRENT_CONTEXT');
+    expect(prepared.contextBlock).toBe('STOP_NOTE\n\nCONTINUE_CONTEXT\n\nCURRENT_CONTEXT');
+    queue.queueStopNote('session', 'NEWER_NOTE');
+    prepared.commit();
+    // The newer note was queued while the older one was being sent, so it stays.
+    expect(continuity.prepare('session', null).contextBlock).toBe('NEWER_NOTE');
+  });
+
   it('cleans up the extra context with the owning session', () => {
     const continuity = new InstanceContinuityInputQueue();
     getInterruptedContextQueue().queue('session', 'INTERRUPTED_CONTEXT');
+    getInterruptedContextQueue().queueStopNote('session', 'STOP_NOTE');
     continuity.cleanup('session');
     expect(continuity.prepare('session', null).contextBlock).toBeNull();
   });

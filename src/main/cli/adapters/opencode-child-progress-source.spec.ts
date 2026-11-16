@@ -78,7 +78,12 @@ describe('OpenCode child event transport', () => {
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     cleanups.push(() => { server.closeAllConnections(); server.close(); });
     const progress: { sessionId: string; toolCallId?: string }[] = [];
-    const stop = observeOpenCodeChildProgress(`http://127.0.0.1:${(server.address() as AddressInfo).port}`, 'Basic PLACEHOLDER', '/tmp', 'parent', (child) => progress.push(child));
+    let resolveFirstProgress: (() => void) | undefined;
+    const firstProgress = new Promise<void>((resolve) => { resolveFirstProgress = resolve; });
+    const stop = observeOpenCodeChildProgress(`http://127.0.0.1:${(server.address() as AddressInfo).port}`, 'Basic PLACEHOLDER', '/tmp', 'parent', (child) => {
+      progress.push(child);
+      resolveFirstProgress?.();
+    });
     cleanups.push(stop);
     await expect.poll(() => Boolean(stream) && rosterRequests > 0).toBe(true);
     stream?.write('data: {"type":"server.heartbeat","properties":{}}\n\n');
@@ -88,7 +93,9 @@ describe('OpenCode child event transport', () => {
       stream?.write(`data: ${JSON.stringify({ type: 'message.part.delta', properties: { sessionID, delta: 'ignore' } })}\n\n`);
     }
     stream?.write('data: {"type":"message.part.delta","properties":{"sessionID":"child","delta":"work"}}\n\n');
-    await expect.poll(() => progress).toEqual([{ sessionId: 'child', title: 'Gate', createdAt: 123, toolCallId: 'native-task' }]);
+    // Parent events revoke ownership until the real coalesced refresh completes.
+    await firstProgress;
+    expect(progress).toEqual([{ sessionId: 'child', title: 'Gate', createdAt: 123, toolCallId: 'native-task' }]);
     const rosterBeforeDuplicates = rosterRequests;
     for (let index = 0; index < 100; index++) {
       stream?.write('data: {"type":"message.part.delta","properties":{"sessionID":"unrelated","delta":"ignore"}}\n\n');

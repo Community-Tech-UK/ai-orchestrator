@@ -133,7 +133,7 @@ export class NeedsYouStore {
     const sideChatQuestions = this.instances.instances().flatMap(item => {
       if (typeof item.metadata?.['sideChatId'] !== 'string' || sideChatRuntimeIds.has(item.id)) return [];
       const request = this.pending.forInstance(item.id).find(request => request.kind === 'question');
-      return request ? [{ instanceId: item.id, sessionName: item.displayName, question: request.text,
+      return request ? [{ instanceId: item.id, sessionName: item.displayName, question: request.text, questionCard: true,
         requestCount: request.since, since: request.since }] : [];
     });
     const requests = requestEntries({

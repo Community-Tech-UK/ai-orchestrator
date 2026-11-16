@@ -54,6 +54,25 @@ describe('listenWorkerNodeServer', () => {
     expect(tls.servers).toHaveLength(0);
   });
 
+  it.each([
+    { tlsCertPath: '/tls/cert.pem' },
+    { tlsKeyPath: '/tls/key.pem' },
+    { tlsCaPath: '/tls/ca.pem' },
+    { tlsCertPath: '/tls/cert.pem', tlsCaPath: '/tls/ca.pem' },
+    { tlsKeyPath: '/tls/key.pem', tlsCaPath: '/tls/ca.pem' },
+    { tlsCertPath: '/tls/cert.pem', tlsKeyPath: '' },
+    { tlsCertPath: '', tlsKeyPath: '/tls/key.pem' },
+  ])('rejects incomplete TLS settings instead of opening plain WebSocket: %j', async (config) => {
+    const pending = listenWorkerNodeServer({
+      port: 0, host: '127.0.0.1', config, isRunning: () => false,
+    }).then((wss) => {
+      open.push(wss);
+    });
+
+    await expect(pending).rejects.toThrow('Worker TLS requires both a certificate and a private key.');
+    expect(tls.servers).toHaveLength(0);
+  });
+
   it('rejects when the port is taken, before the server counts as running', async () => {
     const blocker = createServer();
     await new Promise<void>((resolve) => blocker.listen(0, '127.0.0.1', resolve));

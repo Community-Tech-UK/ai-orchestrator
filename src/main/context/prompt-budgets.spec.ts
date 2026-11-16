@@ -17,6 +17,7 @@ import {
 import { buildFormatRepairPrompt, buildPrompt as buildPingPongReviewPrompt, type PingPongReviewerInput } from '../orchestration/agentic-pingpong-reviewer';
 import { LOCAL_REVIEW_REPAIR_PROMPT, buildLocalReviewPrompt } from '../review/local-reviewer';
 import { wrapRtkAwareness } from '../cli/rtk/rtk-awareness';
+import { toolLoopStopNote } from '../orchestration/tool-loop-stop-note';
 import { SUMMARIZE_SYSTEM_PROMPT, SUBQUERY_SYSTEM_PROMPT } from '../rlm/llm-service.constants';
 import { buildTitleUserPrompt, TITLE_SYSTEM_PROMPT } from '../instance/auto-title-prompt';
 import { CodexStandingNotes } from '../cli/adapters/codex/codex-standing-notes';
@@ -144,6 +145,9 @@ const BUDGET = {
   codexStandingNotesOneNote: { chars: 6400, render: () => standingNotes('x'.repeat(6000)) },
   codexStandingNotesEscaped: { chars: 6700, render: () => standingNotes('</harness_standing_notes>'.repeat(240)) },
   rtk: { chars: 1400, render: () => wrapRtkAwareness() },
+  // The carry-on note after Harness stops a repeating turn: worst case is a tool label at its 60-character cap
+  // (measured 417 on 16 Nov 2026; an ordinary 'bash' note is 341).
+  toolLoopStopNote: { chars: 500, render: () => toolLoopStopNote({ detector: 'ping-pong', toolName: `${'x'.repeat(200)}/${'x'.repeat(200)}`, count: 6 }) },
   summaryHelper: { chars: 400, render: () => SUMMARIZE_SYSTEM_PROMPT },
   subqueryHelper: { chars: 300, render: () => SUBQUERY_SYSTEM_PROMPT },
   titleSystem: { chars: 700, render: () => TITLE_SYSTEM_PROMPT },

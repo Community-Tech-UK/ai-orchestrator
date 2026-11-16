@@ -14,10 +14,11 @@ function shellQuote(value) { return `'${value.replace(/'/g, `'\\''`)}'`; }
 function validateRemote(remote) {
   if (!/^[a-z0-9][a-z0-9_.@-]*$/i.test(remote)) throw new Error('Use a saved SSH host name without command options');
 }
-function renderSyncHook(text, { scriptPath, remote, destinationHome }) {
+function renderSyncHook(text, { scriptPath, remote, destinationHome, remoteNode }) {
   validateRemote(remote);
-  if (!path.isAbsolute(scriptPath) || !path.isAbsolute(destinationHome)) throw new Error('Sync paths must be absolute');
-  const block = `${BEGIN}\nnode ${shellQuote(scriptPath)} sync --remote ${shellQuote(remote)} --destination-home ${shellQuote(destinationHome)}\n${END}\n`;
+  if (!path.isAbsolute(scriptPath) || !path.isAbsolute(destinationHome)
+    || (remoteNode !== 'node' && (typeof remoteNode !== 'string' || !path.isAbsolute(remoteNode)))) throw new Error('Sync paths must be absolute');
+  const block = `${BEGIN}\nnode ${shellQuote(scriptPath)} sync --remote ${shellQuote(remote)} --destination-home ${shellQuote(destinationHome)} --remote-node ${shellQuote(remoteNode)}\n${END}\n`;
   const first = text.indexOf(BEGIN); const last = text.indexOf(END);
   if ((first < 0) !== (last < 0) || (first >= 0 && last < first)) throw new Error('Existing setup sync block is incomplete; file left untouched');
   return first < 0 ? text.replace(/\n?$/, '\n') + block : text.slice(0, first) + block + text.slice(last + END.length).replace(/^\n/, '');
@@ -49,7 +50,7 @@ function main(argv) {
   if (command === 'install-hook') {
     const script = path.join(sourceHome, '.agents', 'sync-tool-files.sh');
     const text = fs.readFileSync(script, 'utf8');
-    const next = renderSyncHook(text, { scriptPath: __filename, remote: options['--remote'], destinationHome: options['--destination-home'] });
+    const next = renderSyncHook(text, { scriptPath: __filename, remote: options['--remote'], destinationHome: options['--destination-home'], remoteNode: options['--remote-node'] || 'node' });
     atomicWrite(script, next, fs.statSync(script).mode & 0o777);
     console.log('Added home-base setup sync to the existing global sync script.');
     return;
@@ -57,13 +58,13 @@ function main(argv) {
   if (!['inspect', 'sync'].includes(command)) throw new Error('Use inspect, sync or install-hook');
   const pkg = buildSyncPackage({ sourceHome });
   if (command === 'inspect') {
-    console.log(`Prepared ${pkg.files.length} approved setup files; excluded ${pkg.exclusions.length} direct browser items. Nothing was changed.`);
+    console.log(`Prepared ${pkg.files.length} approved setup files and ${pkg.assets.length} reviewed asset${pkg.assets.length === 1 ? '' : 's'}; excluded ${pkg.exclusions.length} setup items. Nothing was changed.`);
     return;
   }
   const result = syncRemote(pkg, { remote: options['--remote'], destinationHome: options['--destination-home'], remoteNode: options['--remote-node'] });
   if (result.skipped) console.log('Home-base setup sync skipped: the saved SSH connection did not answer its preflight.');
   else {
-    console.log(`Home-base setup synced: ${result.changed} changes; ${result.exclusions} direct browser items excluded.`);
+    console.log(`Home-base setup synced: ${result.changed} changes; ${result.exclusions} setup items excluded.`);
     for (const item of result.omitted) console.log(`Not copied because its local path is absent: ${item}`);
   }
 }

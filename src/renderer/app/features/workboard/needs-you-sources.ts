@@ -20,8 +20,11 @@ export interface NeedsYouSources {
   sidechats: readonly Pick<SideChatAttention, 'parent' | 'parentTitle' | 'needsAttention' | 'attentionSince'>[];
   outstanding: readonly OutstandingNeed[];
   toolLoops: readonly (ToolLoopSummaryInput & { instanceId: string; detectedAt: number; sessionName?: string })[];
-  /** Sessions the session watcher handed back to the user: the agent's own question, or the watcher's fixed note. */
-  sessionQuestions: readonly { instanceId: string; sessionName?: string; question: string; note?: string; requestCount: number; since: number }[];
+  /**
+   * Sessions the session watcher handed back to the user, with the agent's closing words or the watcher's fixed note,
+   * and side chats with an open question card (`questionCard`), whose words are a question however they are punctuated.
+   */
+  sessionQuestions: readonly { instanceId: string; sessionName?: string; question: string; note?: string; questionCard?: boolean; requestCount: number; since: number }[];
 }
 
 export function workboardEntry(item: WorkboardItem): NeedsYouEntry {
@@ -52,7 +55,7 @@ export function needsYouReason(entry: NeedsYouEntry, statusSentence?: string,
     case 'permission-request': return `Wants permission: ${entry.title}`;
     case 'browser-approval': return 'Wants your OK for a browser step';
     case 'loop-question': return entry.detail ? `Asked you: ${entry.detail}` : entry.title;
-    // The detail already reads "Asked you: ..." (or the watcher's own note), built where the entry is made.
+    // The detail already reads "Asked you: ...", "Ended with: ..." or the watcher's own note, built where the entry is made.
     case 'session-question': return entry.detail ?? entry.title;
     // The session list already shows the name beside this line.
     case 'tool-loop': return TOOL_LOOP_TITLE;
@@ -64,6 +67,17 @@ export function needsYouReason(entry: NeedsYouEntry, statusSentence?: string,
 
 export function workboardEntryKey(item: WorkboardItem): string {
   return item.primary.kind === 'instance' ? item.id.replace(/^instance:/, 'session:') : item.id;
+}
+
+/** Any script's question mark. */
+const QUESTION_MARK = /[?\uFF1F\u00BF\u061F]/;
+
+/**
+ * The watcher quotes the agent's closing words, which may be a statement (a translation, say) rather than a
+ * question, so the line says "Asked you" only when they hold one.
+ */
+function sessionQuestionLine(item: NeedsYouSources['sessionQuestions'][number]): string {
+  return item.questionCard || QUESTION_MARK.test(item.question) ? `Asked you: ${item.question}` : `Ended with: ${item.question}`;
 }
 
 /** All non-Workboard sources, conservatively filtered at the boundary. */
@@ -110,6 +124,6 @@ export function requestEntries(sources: NeedsYouSources, now: number): NeedsYouE
     { instanceId: item.instanceId, detail: describeToolLoop(item) });
   // A newer stop on the same session has a new request count, so an old "seen" or answer never covers it.
   for (const item of sources.sessionQuestions) add('session-question', item.instanceId, item.sessionName ?? 'A session', item.since,
-    { instanceId: item.instanceId, detail: item.note ?? `Asked you: ${item.question}`, version: String(item.requestCount) });
+    { instanceId: item.instanceId, detail: item.note ?? sessionQuestionLine(item), version: String(item.requestCount) });
   return entries;
 }

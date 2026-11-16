@@ -27,4 +27,4 @@ export function resolveAcpAutomaticPermission(
   return yoloMode === true ? true : undefined;
 }
 
-export const DOOM_LOOP_BLOCKED_NOTICE = 'Blocked: identical tool call repeated. Change approach before retrying.';
+export const DOOM_LOOP_BLOCKED_NOTICE = 'Harness refused a tool call because the agent kept repeating it unchanged.';

@@ -50,6 +50,7 @@ detached.unref();
 writeFileSync(pidFile, process.pid + ' ' + detached.pid);
 writeFileSync(pidFile + '.args', JSON.stringify(process.argv.slice(2)));
 console.log('stub vitest running');
+console.log('test worker override:', process.env.AIO_TEST_MAX_FORKS ?? 'unset');
 if (behaviour === 'hang') setInterval(() => {}, 1000);
 else {
   writeFileSync(output, JSON.stringify({ numTotalTests: 1, testResults: [{ name: process.cwd() + '/a.spec.ts' }] }));
@@ -62,6 +63,7 @@ const FAKE_RELATED = `
 import { readFileSync, writeFileSync } from 'node:fs';
 const files = JSON.parse(readFileSync(0, 'utf8'));
 console.log('stub related running');
+console.log('test worker override:', process.env.AIO_TEST_MAX_FORKS ?? 'unset');
 writeFileSync(process.argv[2], JSON.stringify({ numTotalTests: files.length, testResults: files.map(name => ({ name })) }));
 process.exit(files.some(file => file.includes('fails')) ? 3 : 0);
 `;
@@ -407,6 +409,23 @@ describe.runIf(process.platform === 'darwin').concurrent('remote-run.sh running 
 
 // Each test has its own machine folder, so they run side by side; only the one that times a wait runs alone.
 describe.runIf(canRunHere())('remote-run.sh on a real machine', () => {
+  it.each(['full', 'argv', 'related'] as const)('leaves worker sizing to the test runner for %s runs', async mode => {
+    const machine = setUp();
+    const commit = machine.snapshot('pass');
+    for (const override of [undefined, '2']) {
+      const name = `worker-sizing-${mode}-${override ?? 'adaptive'}`;
+      const id = `${name}-${process.pid}`;
+      if (mode !== 'full') {
+        execFileSync('bash', [machine.script, mode, id], { input: JSON.stringify(['src/a.spec.ts']) });
+      }
+      const run = startRun(machine.script, name, commit, { AIO_TEST_MAX_FORKS: override });
+      await run.finished;
+      expect(run.result()).toMatchObject({ status: 'ok', exit: 0 });
+      // An unset override enables load-aware sizing; an explicit remote setting must survive too.
+      expect(run.output()).toContain(`test worker override: ${override ?? 'unset'}`);
+    }
+  }, LIMIT);
+
   it.concurrent('runs a snapshot and reports its fingerprint, then hands back the report', async () => {
     const machine = setUp();
     const commit = machine.snapshot('pass');

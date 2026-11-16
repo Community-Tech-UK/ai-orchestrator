@@ -55,6 +55,8 @@ const mockUnarchiveEntry = vi.fn();
 const mockGetEntries = vi.fn().mockReturnValue([]);
 const mockBackfillMissingAiTitles = vi.fn();
 const mockGenerateLocalTitle = vi.fn();
+const mockStoreOutputMessages = vi.fn();
+const mockDeleteInstanceOutput = vi.fn();
 const mockListArchivedSessions = vi.fn().mockReturnValue([]);
 const mockRestoreArchivedSession = vi.fn();
 const mockDeleteArchivedSession = vi.fn();
@@ -90,6 +92,13 @@ vi.mock('../../../history', () => ({
 vi.mock('../../../instance/auto-title-service', () => ({
   getAutoTitleService: () => ({
     generateLocalTitle: mockGenerateLocalTitle,
+  }),
+}));
+
+vi.mock('../../../memory/output-storage', () => ({
+  getOutputStorageManager: () => ({
+    storeMessages: mockStoreOutputMessages,
+    deleteInstance: mockDeleteInstanceOutput,
   }),
 }));
 
@@ -253,6 +262,10 @@ describe('session-handlers', () => {
     mockGetArchiveStats.mockReset();
     mockBackfillMissingAiTitles.mockReset();
     mockGenerateLocalTitle.mockReset();
+    mockStoreOutputMessages.mockReset();
+    mockStoreOutputMessages.mockResolvedValue(undefined);
+    mockDeleteInstanceOutput.mockReset();
+    mockDeleteInstanceOutput.mockResolvedValue(undefined);
     mockIsRemoteNodeReachable.mockReset();
     mockGetResumableSessions.mockReset();
     mockGetResumableSessions.mockResolvedValue([]);
@@ -971,6 +984,11 @@ describe('session-handlers', () => {
         provider: 'gemini',
       });
       expect(mockMarkNativeResumeFailed).toHaveBeenCalledWith('entry-1');
+      expect(mockDeleteInstanceOutput).toHaveBeenCalledExactlyOnceWith('resume-1');
+      expect(mockInstanceManager.terminateInstance).toHaveBeenCalledExactlyOnceWith('resume-1', false);
+      expect(mockDeleteInstanceOutput.mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(mockInstanceManager.terminateInstance).mock.invocationCallOrder[0],
+      );
       expect(mockInstanceManager.queueContinuityPreamble).toHaveBeenCalledTimes(1);
       const lastMessage = fallbackInstance.outputBuffer.at(-1);
       expect(lastMessage).toBeDefined();

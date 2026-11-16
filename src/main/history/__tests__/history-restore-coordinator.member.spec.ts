@@ -80,7 +80,7 @@ describe('HistoryRestoreCoordinator for a phone-app member', () => {
     } as unknown as InstanceManager;
     coordinator = new HistoryRestoreCoordinator({
       history: () => ({ loadConversation, markNativeResumeFailed: vi.fn() }),
-      outputStorage: () => ({ storeMessages: vi.fn().mockResolvedValue(undefined) }),
+      outputStorage: () => ({ storeMessages: vi.fn().mockResolvedValue(undefined), deleteInstance: vi.fn().mockResolvedValue(undefined) }),
       isRemoteNodeReachable: () => nodeReachable,
       postSpawnTimeoutMs: 0,
       pollIntervalMs: 1,

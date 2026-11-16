@@ -50,6 +50,8 @@ import { CLEANUP_TIMEOUT_MS } from './process/shutdown-timeouts';
 import { abortContextEvidenceMaintenance, stopContextEvidenceMaintenance } from './context-evidence/evidence-maintenance-service';
 import { createWindowAndStartEvidenceMaintenance } from './app/initialization-steps';
 import { markDesktopUpdatesReady } from './updates/source-update-runtime';
+import { getOutputStorageManager, wireOutputStorage } from './memory/output-storage';
+import { getSettingsManager } from './core/config/settings-manager';
 
 // Register built-in provider adapters once at startup so the instance
 // manager (and future consumers) can look them up by ProviderName.
@@ -144,6 +146,8 @@ class HarnessApp {
     // an in-process context owner. InstanceContextManager is the worker-side
     // implementation, not an Electron-main fallback.
     this.instanceManager = new InstanceManager(this.windowManager, this.contextWorkerClient);
+    // The stored older messages of a session that still exists are part of the transcript it archives on close.
+    wireOutputStorage(getOutputStorageManager(), getSettingsManager(), (instanceId) => this.instanceManager.hasRuntimeInstance(instanceId));
     this.shutdownOperations = createHarnessShutdownOperations({
       shutdownContinuitySync: () => getSessionContinuityManagerIfInitialized()?.shutdown(),
       killActiveProcessesSync: () => {

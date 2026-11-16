@@ -125,6 +125,12 @@ describe('InstanceManager child-completion lifetime wiring', () => {
       './instance/context-worker-client': {
         getContextWorkerClient: () => ({ signalAppReady: noop, beginShutdown: noop, shutdown: async () => undefined }),
       },
+      './memory/output-storage': {
+        getOutputStorageManager: () => ({ configure: noop }), wireOutputStorage: noop,
+      },
+      './core/config/settings-manager': {
+        getSettingsManager: () => ({ get: () => 500, on: noop }),
+      },
       './logging/logger': { getLogger: () => ({ info: noop, warn: noop, error: noop }) },
       './app/initialization-steps': {
         createInitializationSteps: () => [],

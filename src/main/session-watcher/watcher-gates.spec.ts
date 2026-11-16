@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ProviderRuntimeEventEnvelope } from '@contracts/types/provider-runtime-events';
 import type { Instance } from '../../shared/types/instance.types';
 import {
-  isErrorNotice, watcherCoversSession, watcherReplySkipReason, watcherStateSkipReason, watcherTurnSkipReason, type WatcherGateDeps,
+  isErrorNotice, isOnlyFencedText, watcherCoversSession, watcherReplySkipReason, watcherStateSkipReason, watcherTurnSkipReason, type WatcherGateDeps,
 } from './watcher-gates';
 
 const instance = (overrides: Partial<Instance> = {}): Instance => ({
@@ -105,6 +105,7 @@ describe('watcherReplySkipReason', () => {
     ['error-notice', 'Failed to authenticate. Please sign in again.', 1, undefined],
     ['error-notice', 'Anything at all', 1, '<synthetic>'],
     ['waiting-on-work', "I'm waiting for the build to finish.", 1, undefined],
+    ['only-copy-box', '```\nVocê vem jantar na sexta-feira?\n```', 1, undefined],
   ])('skips with %s', (reason, reply, typed, model) => {
     expect(watcherReplySkipReason(reply, typed, model)).toBe(reason);
   });
@@ -120,5 +121,23 @@ describe('isErrorNotice', () => {
     const started = performance.now();
     isErrorNotice(`API Error ${'x '.repeat(200_000)}`);
     expect(performance.now() - started).toBeLessThan(500);
+  });
+});
+
+describe('isOnlyFencedText', () => {
+  it.each([
+    ['a copy box', '```\nImagino que você vai ficar em Swindon hoje à noite\n```', true],
+    ['two boxes with blank lines around them', '\n```\nOne?\n```\n\n~~~\nTwo\n~~~\n', true],
+    ['a box with a language tag', '```bash\nnpm test\n```', true],
+    ['a box that is never closed', '```\nStill going?', true],
+    ['a longer fence that holds a shorter one', '````\n```\nShall I push?\n````', true],
+    ['words before the box', 'Here it is:\n\n```\nOlá\n```', false],
+    ['a question after the box', '```\nnpm test\n```\nShall I run it?', false],
+    ['a short fence that does not close a longer one', '````\ncode\n```\nShall I push?', true],
+    ['plain prose', 'Shall I carry on?', false],
+    ['inline code only', '`npm test`', false],
+    ['nothing', '', false],
+  ])('%s', (_name, reply, expected) => {
+    expect(isOnlyFencedText(reply)).toBe(expected);
   });
 });

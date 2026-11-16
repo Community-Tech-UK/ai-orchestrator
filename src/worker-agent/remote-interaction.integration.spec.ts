@@ -1,5 +1,8 @@
+import '@angular/compiler';
+import { signal } from '@angular/core';
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { UserActionRequestComponent } from '../renderer/app/features/instance-detail/user-action-request.component';
 import type { WorkerNodeConnectionServer } from '../main/remote-node/worker-node-connection';
 import type { WorkerInstanceNotifier } from './worker-instance-notifier';
 const registryHolder = vi.hoisted(() => ({ value: undefined as unknown }));
@@ -179,9 +182,6 @@ describe('remote ACP question and native-command wire integration', () => {
     expect(responses).not.toHaveBeenCalledWith(88, expect.anything());
   });
   it('runs the real renderer ACP permission-option response through the opaque key and native permission RPC', async () => {
-    await import('@angular/compiler');
-    const { signal } = await import('@angular/core');
-    const { UserActionRequestComponent } = await import('../renderer/app/features/instance-detail/user-action-request.component');
     const input = vi.fn(); remote.on('input_required', input);
     protocol.handleMessageLine(JSON.stringify({ jsonrpc: '2.0', id: 88, method: 'session/request_permission', params: {
       sessionId: 'native-session', toolCall: { toolCallId: 'fixture-tool', title: 'Read a fixture', kind: 'read' },

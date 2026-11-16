@@ -86,11 +86,12 @@ describe('NeedsYouStore', () => {
   it('keeps a hidden sidechat question visible before its parent attention summary refreshes', () => {
     instances.set([{ ...failure('waiting_for_input'), metadata: { hideFromProjectRail: true, sideChatId: 'sidechat' } }]);
     TestBed.overrideProvider(PendingRequestStore, { useValue: { forInstance: () => [{
-      kind: 'question', text: 'Which file?', since: 50,
+      kind: 'question', text: 'Pick the file to change', since: 50,
     }] } });
     const store = TestBed.inject(NeedsYouStore);
+    // A question card is a question even without a question mark.
     expect(store.entries()).toEqual([expect.objectContaining({
-      source: 'session-question', instanceId: 'a', detail: 'Asked you: Which file?',
+      source: 'session-question', instanceId: 'a', detail: 'Asked you: Pick the file to change',
     })]);
   });
   it('keeps a raw browser approval visible while the hidden sidechat is still processing', () => {
