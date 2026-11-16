@@ -485,7 +485,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-780 | P2 | **REPAIR IMPLEMENTED; REVIEW PENDING.** Rebuilt CLI reads pass through the real authenticated parent; transport regression reproduces the original wrapper failure. | [LT-780 detail](#lt-780) | [Review corrections](2026-10-27-human-external-review2_plan.md) |
 | LT-781 | P2 | **REPAIR IMPLEMENTED; REVIEW PENDING.** Rebuilt CLI preserves all 115,377 bytes through a pipe, matching file output; slow-reader regression covers larger output and nonzero errors. | [LT-781 detail](#lt-781) | [Review corrections](2026-10-27-human-external-review2_plan.md) |
 | LT-890 | P1 | **OBSERVED LIVE; NOT FIXED.** Fresh isolated startup throws `database is locked` at RLM WAL initialization during critical Work controls setup and leaves no renderer target. Restarting the same profile succeeds. | [LT-890 detail](#lt-890) | [Resumed residual campaign](2026-09-27-livetest-human-external-residuals_livetest.md#evidence-run--2026-10-27-resumed-worker) |
-| LT-991 | P1 | **REPRODUCED LIVE; REPAIR IMPLEMENTED, LIVE RETEST PENDING.** Persistence sentinel ignores the extension evaluate JSON envelope, so a stale/save-failed form reports successful writes and verified persistence. | [LT-991 detail](#lt-991) | [Review corrections](2026-10-27-human-external-review2_plan.md#lt-991-implementation-status) |
+| LT-991 | P1 | **REPRODUCED LIVE; REPAIR IMPLEMENTED; LIVE RETEST PASSED 11 Nov 2026 on an owned fixture (pre-dispatch gate after a channel disconnect not live-exercised).** Persistence sentinel ignores the extension evaluate JSON envelope, so a stale/save-failed form reports successful writes and verified persistence. | [LT-991 detail](#lt-991) | [Review corrections](2026-10-27-human-external-review2_plan.md#lt-991-implementation-status) |
 | LT-992 | P2 | **REPRODUCED; NOT REPAIRED.** Packaging repeatability cannot collect under supported Node 26; the unchanged cases pass under supported Node 24. | [LT-992 detail](#lt-992) | [Review corrections](2026-10-27-human-external-review2_plan.md#lt-992-implementation-status) |
 | LT-1030 | P3 | **REPRODUCED LIVE 2026-11-12; NOT REPAIRED.** Queue health prints "1 starts", "1 checks", "1 landings" for a count of one, and "0 seconds" for a wait under half a second. | [LT-1030 detail](#lt-1030) | [Queue health live checks](2026-11-04-pq-a5-measure_plan_livetest.md) |
 | LT-1083 | P2 | **FIXED AND VERIFIED LIVE 2026-11-13.** The Context details popover, which holds the only manual "Compact now…" control for a Codex chat (the "Compact Now" banner is hidden for providers that compact themselves), was cut off by the composer panel: its "Compact now…" button sat above the panel's top edge, so a click on it hit the popover's backdrop and just closed the popover. Repaired by positioning the popover fixed in the window. | [LT-1083 detail](#lt-1083) | [Codex goal-following livetest](2026-10-27-codex-goal-following-remediation_livetest.md#evidence-run--2026-11-13-queue-worker-rebuilt-dev-app) |
@@ -10896,7 +10896,13 @@ Retained under `2026-10-27-human-external-residuals_evidence/resume2/`: `startup
 ## LT-991 — persistence sentinel ignores the extension's serialized evaluate result
 
 **Status:** reproduced live 27 October 2026; repair implemented in the queue checkout,
-focused regressions pass; packaged-coordinator live confirmation and independent review pending.
+focused regressions pass. Packaged-coordinator live retest passed 11 November 2026 on an owned
+Windows fixture: clean state `signalState:ok`; with the banner, `browser.type` refused
+`browser_target_session_stale`, journal and `assert_persisted` (`persisted:false`) carry
+`your session has expired` (evidence run in
+[the livetest](2026-10-27-human-external-review2_livetest.md)). Not live-exercised: the
+pre-dispatch refusal after an extension channel disconnect (source integration tests only).
+Independent review pending.
 Active implementation status: [review corrections](2026-10-27-human-external-review2_plan.md#lt-991-implementation-status).
 
 **Observed behaviour.** An owned Windows-loopback session serves a save-on-type form. Only its

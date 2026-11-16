@@ -1,0 +1,39 @@
+{
+  "at": "2026-11-11T06:25:00Z",
+  "check": "RES-002 / LT-991 rebuilt-coordinator persistence check",
+  "coordinator": "packaged Harness whose app.asar was built 2026-11-10 20:03; dist/main/browser-gateway/browser-target-persistence-sentinel.js in it contains the {type,json} envelope decode from commit 83465362e (read via asar extract-file)",
+  "computer": "windows-pc",
+  "fixture": {
+    "kind": "owned Node http server on 127.0.0.1:9671 (pid 32444), cookie-gated /app, save-on-type input #note, role=alert banner on a rejected save, buttons #drop and #restore toggling only the fixture's /save",
+    "globalNetworkChanged": false,
+    "businessTabsTouched": false
+  },
+  "tab": {
+    "profileId": "existing-tab:n.bb62e3ee-ccd7-4ea4-93f1-4ac0a0cd04be:p.0b779001-ea2a-4929-9faf-3ba30930ae8a:771595177:771596058",
+    "closedByOwner": true
+  },
+  "steps": [
+    {"step": "open + clean type", "auditId": "9f686e17-655e-4b28-ae0f-e9275d278f27", "outcome": "succeeded"},
+    {"step": "assert_persisted on clean state", "auditId": "18f2e490-dd1f-4e99-a8ad-95a8a719acf7", "result": {"persisted": true, "confidence": "verified", "signalState": "ok"}},
+    {"step": "click #drop (fixture save connection off)", "auditId": "28c758f3-c05e-4105-ab24-f7f2a31f6db9", "outcome": "succeeded", "journalPersistence": "ok"},
+    {"step": "type while save is down (banner appears about 150 ms later)", "auditId": "e0cb5866-5418-42dd-81eb-bf1de557c781", "outcome": "succeeded", "journalPersistence": "ok (post-write scan ran before the asynchronous banner rendered)"},
+    {"step": "snapshot", "auditId": "b42d9235-8fc0-4781-8290-3cc7fd9cc04d", "visibleText": "Save failed / Could not save changes. Your session has expired."},
+    {"step": "click #restore (fixture connection back on, banner stays)", "auditId": "eb640ed4-1fd7-4f8f-a4f1-fc86370f07f8", "outcome": "failed", "error": "browser_target_session_stale", "note": "error text says the write fired; fixture state later showed it did fire"},
+    {"step": "browser.type with banner present", "auditId": "4ea851f7-c600-42c2-8363-62d2572eed47", "outcome": "failed", "error": "browser_target_session_stale"},
+    {"step": "write_journal", "auditId": "235f6227-c8ad-47a0-b563-b91fe09a6d19", "entries": [
+      {"seq": 4, "command": "click", "selector": "#restore", "persistence": "session_stale", "matchedPattern": "your session has expired"},
+      {"seq": 5, "command": "type", "selector": "#note", "persistence": "session_stale", "matchedPattern": "your session has expired"}
+    ]},
+    {"step": "assert_persisted", "auditId": "73880338-2034-4d9b-b761-88a02711a40f", "result": {"persisted": false, "confidence": "verified", "signalState": "session_stale", "matchedPattern": "your session has expired"}}
+  ],
+  "acceptanceDecision": "James, 15 November 2026 (recorded at the top of 2026-10-27-human-external-review2_livetest.md): the owned fixture's save-endpoint cut is accepted as meeting RES-002's required network interruption; RES-002 is passed on this evidence. Recorded here on 16 November 2026 after the item was resumed.",
+  "notLiveExercised": "The pre-dispatch refusal after a channel disconnect (first-write gate) was not triggered: no extension channel disconnect occurred. Covered only by the existing source integration tests.",
+  "cleanup": {
+    "fixtureStateBeforeStop": {"down": false, "savedLength": 18},
+    "serverStopped": "pid 32444, command line checked to contain lt-res002, then stopped",
+    "port9671": "no listeners",
+    "fixtureFolder": "deleted",
+    "tabClosed": "audit ca8f5cf1-e388-4f2c-8bb2-bed96934025a",
+    "helperAgentsTerminated": ["xfhx27y37", "xvcbz3fnj"]
+  }
+}
