@@ -474,7 +474,7 @@ export class AntigravityCliAdapter extends BaseCliAdapter {
       ? `${systemPrompt}\n\n${message.content}`
       : message.content;
     const promptText = this.cliConfig.rtkEnabled
-      ? `${wrapRtkAwareness()}\n\n${baseContent}`
+      ? `${wrapRtkAwareness(this.sessionId ?? undefined)}\n\n${baseContent}`
       : baseContent;
     args.push('--print', promptText);
 

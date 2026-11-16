@@ -538,7 +538,7 @@ export class GeminiCliAdapter extends BaseCliAdapter {
     // and `supportsResume` is false (T48), so awareness is injected every turn.
     if (message.content) {
       let promptText = this.cliConfig.rtkEnabled
-        ? `${wrapRtkAwareness()}\n\n${message.content}`
+        ? `${wrapRtkAwareness(this.sessionId ?? undefined)}\n\n${message.content}`
         : message.content;
       // Deliver the configured system prompt. Gemini CLI has no system-prompt
       // flag and each non-interactive call is a fresh process, so the only

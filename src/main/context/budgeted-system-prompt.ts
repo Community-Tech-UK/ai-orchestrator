@@ -1,5 +1,5 @@
 import { omittedSectionHeadings, formatOmittedSectionNames } from './system-prompt-sections';
-import { getLogger } from '../logging/logger';
+import { logPromptInjection } from '../logging/prompt-injection-log';
 import {
   createSystemPromptComposer,
   type SystemPromptBlockKind,
@@ -47,7 +47,7 @@ export function createBudgetedSystemPromptComposer(provider?: string, session?: 
       }
       composer.add(kind, delivered);
       subsequentComposer.add(kind, firstTurnOnly ? undefined : delivered);
-      if (delivered) getLogger('PromptInjection').debug('Prompt injected', { surface: kind, characters: delivered.length, session });
+      logPromptInjection(kind, delivered, session);
     },
     compose: () => ({
       ...composer.compose(),

@@ -12,6 +12,7 @@ import { EventEmitter } from 'events';
 import { getTokenCounter, TokenCounter } from './token-counter';
 import { getCircuitBreakerRegistry } from '../core/circuit-breaker';
 import { getLogger } from '../logging/logger';
+import { logPromptInjection } from '../logging/prompt-injection-log';
 import type {
   LLMServiceConfig,
   SummarizeRequest,
@@ -148,6 +149,7 @@ Summary:`;
     // Try auxiliary LLM first (local/cheap model) before calling the primary LLM.
     let auxiliary: Awaited<ReturnType<ReturnType<typeof getAuxiliaryLlmService>['generate']>>;
     try {
+      logPromptInjection('summaryHelper', SUMMARIZE_SYSTEM_PROMPT, request.requestId);
       auxiliary = await getAuxiliaryLlmService().generate(
         'compression',
         SUMMARIZE_SYSTEM_PROMPT,
@@ -175,6 +177,7 @@ Summary:`;
     }
     try {
       return await runAuthorizedFrontierFallback(auxDecision, async () => {
+        logPromptInjection('summaryHelper', SUMMARIZE_SYSTEM_PROMPT, request.requestId);
         const summary = await this.generateCompletion(SUMMARIZE_SYSTEM_PROMPT, userPrompt);
         const originalTokens = this.countTokens(request.content);
         const summaryTokens = this.countTokens(summary);
@@ -212,6 +215,7 @@ Summary:`;
     const originalTokens = this.countTokens(request.content);
 
     try {
+      logPromptInjection('summaryHelper', SUMMARIZE_SYSTEM_PROMPT, request.requestId);
       for await (const chunk of this.generateCompletionStreaming(
         SUMMARIZE_SYSTEM_PROMPT,
         userPrompt,
@@ -264,6 +268,7 @@ Question: ${request.prompt}
 Answer:`;
 
     try {
+      logPromptInjection('subqueryHelper', SUBQUERY_SYSTEM_PROMPT, request.requestId);
       const response = await this.generateCompletion(SUBQUERY_SYSTEM_PROMPT, userPrompt);
       const inputTokens = this.countTokens(request.context + request.prompt);
       const outputTokens = this.countTokens(response);
@@ -331,6 +336,7 @@ Answer:`;
 
     let auxiliary: Awaited<ReturnType<ReturnType<typeof getAuxiliaryLlmService>['generate']>>;
     try {
+      logPromptInjection('subqueryHelper', SUBQUERY_SYSTEM_PROMPT, request.requestId);
       auxiliary = await getAuxiliaryLlmService().generate(
         slot,
         SUBQUERY_SYSTEM_PROMPT,
@@ -387,6 +393,7 @@ Answer:`;
     const inputTokens = this.countTokens(request.context + request.prompt);
 
     try {
+      logPromptInjection('subqueryHelper', SUBQUERY_SYSTEM_PROMPT, request.requestId);
       for await (const chunk of this.generateCompletionStreaming(
         SUBQUERY_SYSTEM_PROMPT,
         userPrompt,

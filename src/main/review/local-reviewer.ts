@@ -26,6 +26,7 @@ import {
   serializeUntrustedLocalReviewToolResult,
   type LocalReviewToolResult,
 } from './local-review.types';
+import { logPromptInjection } from '../logging/prompt-injection-log';
 import { LocalReviewToolRunner, type LocalReviewToolRunnerOptions } from './local-review-tool-runner';
 
 type LocalModelTarget = Extract<ModelRuntimeTarget, { kind: 'local-model' }>;
@@ -162,9 +163,11 @@ export class LocalReviewer {
     limits: NormalizedLocalReviewerLimits,
     startedAt: number,
   ): Promise<LocalReviewOutcome> {
+    const reviewPrompt = buildLocalReviewPrompt(request);
+    logPromptInjection(request.reviewDepth === 'tiered' ? 'localTieredReview' : 'localStructuredReview', reviewPrompt, request.reviewerId);
     const messages: LocalModelToolTurnMessage[] = [{
       role: 'user',
-      content: buildLocalReviewPrompt(request),
+      content: reviewPrompt,
     }];
     const successfulEvidence = new Set<string>();
     const seenCalls = new Set<string>();
@@ -256,13 +259,11 @@ export class LocalReviewer {
     const first = parseReview(content, request, successfulEvidence, startedAt);
     if (first) return first;
 
+    logPromptInjection('localReviewRepair', LOCAL_REVIEW_REPAIR_PROMPT, request.reviewerId);
     const repairMessages: LocalModelToolTurnMessage[] = [
       ...messages,
       { role: 'assistant', content, toolCalls: [] },
-      {
-        role: 'user',
-        content: 'One format repair only: return the required review JSON with evidence_paths drawn exactly from successful workspace_read or workspace_search results. Do not call tools.',
-      },
+      { role: 'user', content: LOCAL_REVIEW_REPAIR_PROMPT },
     ];
     const repaired = await abortable(
       client.sendToolTurn(repairMessages, LOCAL_REVIEW_TOOL_DEFINITIONS, signal),
@@ -281,7 +282,9 @@ export class LocalReviewer {
   }
 }
 
-function buildLocalReviewPrompt(request: LocalReviewRequest): string {
+export const LOCAL_REVIEW_REPAIR_PROMPT = 'One format repair only: return the required review JSON with evidence_paths drawn exactly from successful workspace_read or workspace_search results. Do not call tools.';
+
+export function buildLocalReviewPrompt(request: LocalReviewRequest): string {
   const base = request.reviewDepth === 'tiered'
     ? buildTieredReviewPrompt(request.taskDescription, request.content)
     : buildStructuredReviewPrompt(request.taskDescription, request.content);

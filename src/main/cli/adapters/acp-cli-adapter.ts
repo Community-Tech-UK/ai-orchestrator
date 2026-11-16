@@ -2212,7 +2212,7 @@ export class AcpCliAdapter extends BaseCliAdapter {
     }
 
     if (!this.acpConfig.resume && !this.rtkAwarenessSent && this.acpConfig.rtkEnabled) {
-      prompt.push({ type: 'text', text: wrapRtkAwareness() });
+      prompt.push({ type: 'text', text: wrapRtkAwareness(this.sessionId ?? undefined) });
       this.rtkAwarenessSent = true;
     }
 

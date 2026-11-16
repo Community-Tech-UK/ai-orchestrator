@@ -1,6 +1,8 @@
 import { EventEmitter } from 'events';
 import type { LoopStage, LoopState } from '../../shared/types/loop.types';
 import { getLogger } from '../logging/logger';
+import { logPromptInjection } from '../logging/prompt-injection-log';
+import type { PromptSurface } from '../logging/prompt-surfaces';
 import type { LoopControlEnv } from './loop-control';
 import { inferLoopPhase, type LoopInferredPhase } from './loop-phase-inference';
 import { deriveAttemptEvidenceFromResult } from './loop-invocation-attempt';
@@ -16,6 +18,8 @@ const logger = getLogger('LoopChildInvoker');
 /** Time for an interrupted adapter to finish its workspace observation. */
 export const LOOP_TIMEOUT_SETTLEMENT_GRACE_MS = 30_000;
 
+export type LoopPromptSurface = PromptSurface;
+
 export interface InvokeLoopChildIterationInput {
   emitter: EventEmitter;
   state: LoopState;
@@ -23,6 +27,8 @@ export interface InvokeLoopChildIterationInput {
   /** Goal-bearing prompt used only for model routing (T2). */
   routingPrompt?: string;
   stage: LoopStage;
+  /** Budget-table key of `prompt`, for the injection log. */
+  promptSurface: PromptSurface;
   forceContextReset: boolean;
   downshiftModel?: string;
   loopControlEnv?: LoopControlEnv;
@@ -62,6 +68,16 @@ function contextWindowTokensForInvocation(
   return calibration.windowTokens;
 }
 
+/**
+ * The budget-table key of the prompt a loop iteration actually sends. A full goal re-anchor (the first
+ * iteration, a periodic re-anchor, or a forced fresh session) is the large prompt; every other turn is the
+ * short continuation card.
+ */
+export function loopPromptSurface(input: { reviewDriven: boolean; seq: number; reanchored: boolean }): PromptSurface {
+  const kind = !input.reanchored ? 'Continuation' : input.seq === 0 ? 'First' : 'Reanchor';
+  return input.reviewDriven ? `reviewLoop${kind}` : `loop${kind}`;
+}
+
 export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): Promise<LoopChildResult> {
   const { emitter, state, stage } = input;
   if (emitter.listenerCount('loop:invoke-iteration') === 0) {
@@ -70,6 +86,10 @@ export function invokeLoopChildIteration(input: InvokeLoopChildIterationInput): 
       'Register one in src/main/index.ts to wire LLM invocation.',
     );
   }
+
+  // Measured here, not where the prompt is assembled: this is the text the child receives, after the
+  // sealed-batch note and any forced-reset swap, and it runs again for every retried attempt.
+  logPromptInjection(input.promptSurface, input.prompt, state.id);
 
   return new Promise<LoopChildResult>((resolve, reject) => {
     let settled = false;

@@ -198,7 +198,7 @@ export abstract class CodexExecAdapter extends CodexBaseAdapter {
       );
     }
     if (!this.shouldUseResumeCommand() && !this.rtkAwarenessSent && this.cliConfig.rtkEnabled) {
-      content = [wrapRtkAwareness(), '', content].join('\n');
+      content = [wrapRtkAwareness(this.sessionId ?? undefined), '', content].join('\n');
       this.rtkAwarenessSent = true;
     }
     if (skillsLine) content = `${content}\n\n${skillsLine}`;

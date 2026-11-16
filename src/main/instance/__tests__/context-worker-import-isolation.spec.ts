@@ -127,7 +127,10 @@ const WORKER_ENTRY = resolve(SPEC_DIR, '../context-worker-main.ts');
 // 2026-11-06: 162 after memory/retrieval-eval/lesson-use-detector.ts joined the graph through the
 // shared retrieval query helper (retrieval-query.ts). It is the sole addition to the 161-module walk
 // above, and the Electron check below still finds no Electron value-importer. Same one-module margin.
-const CLOSURE_SIZE_CEILING = 163;
+// 2026-11-14: 163 after logging/prompt-injection-log.ts joined the graph through rlm/llm-service.ts. It is
+// the sole addition to the 162-module walk above, imports only the logger (already in the closure), and the
+// Electron check below still finds no Electron value-importer. Same one-module margin.
+const CLOSURE_SIZE_CEILING = 164;
 
 function resolveImport(spec: string, fromFile: string): string | null {
   if (!spec.startsWith('.')) return null; // bare module (electron, node:*, npm)

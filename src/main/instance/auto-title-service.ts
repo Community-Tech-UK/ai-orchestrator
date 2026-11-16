@@ -47,6 +47,7 @@ import { recordCorrelatedFrontierAttribution } from '../rlm/frontier-cost-attrib
 import { observeModelCallUsage, isModelCallCancelled } from '../core/system/observed-model-call-usage';
 import { recordModelCall } from '../core/system/model-call-recorder';
 import { buildTitleUserPrompt, TITLE_SYSTEM_PROMPT } from './auto-title-prompt';
+import { logPromptInjection } from '../logging/prompt-injection-log';
 
 const logger = getLogger('AutoTitle');
 
@@ -293,6 +294,7 @@ export class AutoTitleService {
   async generateLocalTitle(
     text: string,
     attachmentNames: readonly string[] = [],
+    historyEntryId?: string,
   ): Promise<string | null> {
     const preamble = extractAttachmentPreamble(text);
     const effectiveText = preamble ? preamble.remainder : text;
@@ -314,6 +316,8 @@ export class AutoTitleService {
       : truncatedMessage;
     const systemPrompt = TITLE_SYSTEM_PROMPT;
     const userPrompt = buildTitleUserPrompt(modelMessage, labels);
+    logPromptInjection('titleSystem', systemPrompt, historyEntryId);
+    logPromptInjection('titleRequest', userPrompt, historyEntryId);
 
     try {
       const { text: generatedTitle, decision } = await getAuxiliaryLlmService().generate(
@@ -379,6 +383,8 @@ export class AutoTitleService {
     // Try auxiliary LLM (local/cheap model) first — much cheaper than a full CLI spawn
     const auxSystemPrompt = TITLE_SYSTEM_PROMPT;
     const auxUserPrompt = buildTitleUserPrompt(modelMessage, labels);
+    logPromptInjection('titleSystem', auxSystemPrompt, instanceId);
+    logPromptInjection('titleRequest', auxUserPrompt, instanceId);
     let fallbackDecision: AuxiliaryLlmDecision;
     try {
       const { text: auxTitle, decision: auxDecision } = await getAuxiliaryLlmService().generate(
@@ -478,6 +484,8 @@ export class AutoTitleService {
       }
 
       const startedAt = Date.now();
+      logPromptInjection('titleSystem', TITLE_SYSTEM_PROMPT, instanceId);
+      logPromptInjection('titleRequest', userInstruction, instanceId);
       let response: CliResponse;
       let observed: ReturnType<typeof observeModelCallUsage> | undefined;
       try {

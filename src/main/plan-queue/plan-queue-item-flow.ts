@@ -28,6 +28,7 @@ import type { PlanQueueParkReason, PlanQueueVerdict } from '@contracts/schemas/p
 import type { InstanceProvider } from '../../shared/types/instance.types';
 import { AUTOMATION_FAILURE_STATUSES } from '../../shared/types/instance-status-policy';
 import { getLogger } from '../logging/logger';
+import { logQueuePrompt } from './plan-queue-prompt-surface';
 import { holdFromReclaim, releaseReclaimHold } from '../process/reclaim-holds';
 import { workSourceFor } from './plan-queue-work-sources';
 import {
@@ -397,11 +398,11 @@ export class PlanQueueItemFlow {
       }
       if (this.host.getRun(item.runId).status === 'paused') { await this.holdUnlocked(this.host.getItem(item.id)); return; }
       this.host.registerRole(workerId, { role: 'worker', runId: item.runId, itemId: item.id });
-      this.host.tracker.beginTurn(workerId);
-      this.workerReports.beginTurn(workerId);
+      this.host.tracker.beginTurn(workerId); this.workerReports.beginTurn(workerId);
       worker.metadata = { ...worker.metadata, planQueueRound: item.round };
       try {
         await this.host.instances.sendInput(workerId, prompt, undefined, { automatedInput: true, internalSource: 'plan-queue' });
+        logQueuePrompt(prompt, workerId);
         this.host.save({ ...this.host.getItem(item.id), pendingInstruction: null });
         return;
       } catch (error) {

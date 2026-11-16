@@ -7,6 +7,7 @@ import { PlanQueueSpawnRunPaused } from './plan-queue-run-hold';
 import { chooseQueueWorker, queueWorkerChoices, routeQueueSpawn } from './plan-queue-routing';
 import { defaultPlanQueueRouteUsage, type PlanQueueRouteUsage, type PlanQueueRouteUsageCheck } from './plan-queue-route-usage';
 import { getLogger } from '../logging/logger';
+import { logQueuePrompt } from './plan-queue-prompt-surface';
 import type { PlanQueueItem, PlanQueueWorkerSession, PlanQueueRun } from './plan-queue.types';
 import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
 import { isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
@@ -118,6 +119,9 @@ export async function spawnQueueInstance(
     }
     throw error;
   }
+  // What the session actually receives: the short continue prompt when its own conversation was reopened.
+  const continuePrompt = config.metadata?.['planQueueContinuePrompt'];
+  logQueuePrompt(instance.queueResumed && typeof continuePrompt === 'string' ? continuePrompt : route.initialPrompt, instance.id);
   return instance;
 }
 

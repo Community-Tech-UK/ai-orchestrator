@@ -373,7 +373,7 @@ export abstract class CodexAppServerTurnAdapter extends CodexAppServerNotificati
     // Inject RTK awareness on the first turn; Harness installs no Codex RTK hook yet.
     const includeRtkAwareness = !this.rtkAwarenessSent && this.cliConfig.rtkEnabled;
     if (includeRtkAwareness) {
-      content = `${wrapRtkAwareness()}\n\n${content}`;
+      content = `${wrapRtkAwareness(rootThreadId)}\n\n${content}`;
     }
     const onInputAccepted = () => {
       // A late acknowledgment belongs to the connection/thread that received it.

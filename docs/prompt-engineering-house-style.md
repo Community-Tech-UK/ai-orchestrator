@@ -2,6 +2,20 @@
 
 Use these rules for every LLM-facing prompt and parser contract in AI Orchestrator.
 
+## Authoring Rules
+
+Every prompt is paid for on every turn it rides in. Write and change prompts by these seven rules.
+
+1. **The delete test.** Before keeping a sentence, ask what the model would do wrong without it. If the answer is "nothing", delete it.
+2. **Rules over reasons.** Say what to do. Keep a reason only when the model would get an edge case wrong without it.
+3. **Structure beats prose.** Use a short list, a table or a closed example in place of a paragraph the model must parse.
+4. **One source of truth.** State a rule in one place and build every prompt that needs it from that place. A rule copied into a second prompt or bullet will drift, and both copies cost tokens.
+5. **No sediment.** When behaviour changes, rewrite the prompt as if the new behaviour had always been the plan. Do not append "also", "note that" or a patch beside the old wording.
+6. **Measure before and after.** Every prompt surface has a size ceiling in `src/main/context/prompt-budgets.spec.ts`. Lower the ceiling in the same change that cuts the prompt. A raise needs a reason comment beside the entry. Each injection also writes one debug line (surface, characters, session; `src/main/logging/prompt-injection-log.ts`), so a size seen in the log can be matched to its ceiling.
+7. **Each added line names the failure it prevents.** Put that failure in the commit or the nearby comment, and remove the line when the failure becomes impossible.
+
+First example of rule 4: the Plan Queue's autonomy rules live in `autonomyRules()` in `src/main/plan-queue/plan-queue-prompts.ts` and are not restated in the livetest worker's own bullets.
+
 ## Structure
 
 1. State the role and goal first.

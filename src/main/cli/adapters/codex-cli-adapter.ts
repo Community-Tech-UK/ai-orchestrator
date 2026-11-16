@@ -27,6 +27,7 @@ import type {
   OutputMessage,
 } from '../../../shared/types/instance.types';
 import { getModelCapabilitiesRegistry } from '../../providers/model-capabilities';
+import { logPromptInjection } from '../../logging/prompt-injection-log';
 import { CODEX_TIMEOUTS } from '../../../shared/constants/limits';
 import { CodexTimeoutError, type CodexExecPhase, type CodexTimeoutKind } from './codex/exec-timeout';
 
@@ -99,6 +100,7 @@ export class CodexCliAdapter extends CodexAppServerTurnAdapter {
     const text = this.standingNotes.buildInjectionText(threadId);
     const client = this.getAppServerClient();
     if (!text || !client) return;
+    logPromptInjection('codexStandingNotes', text, threadId);
     try {
       await client.request('thread/inject_items', { threadId, items: [developerMessageItem(text)] });
     } catch (error) {

@@ -13,6 +13,8 @@
  * process spawns per run). Inject once per persistent session; every spawn
  * only when `supportsResume === false`. Do not prepend on every resume turn.
  */
+import { logPromptInjection } from '../../logging/prompt-injection-log';
+
 export const RTK_AWARENESS_PROMPT = `# RTK
 
 Type \`rtk\` in front of commands you run in the shell tool. Do not put \`rtk\` inside scripts, subprocess calls, pipelines, or any command whose output a program reads.
@@ -44,10 +46,12 @@ tokens; behavior and exit code are unchanged.
 /** Keep awareness blocks consistent — wrap with the same delimiters used
  *  for the existing system prompt sentinel in the Codex adapter so they
  *  parse symmetrically in transcripts. */
-export function wrapRtkAwareness(): string {
-  return [
+export function wrapRtkAwareness(session?: string): string {
+  const text = [
     '[RTK AWARENESS]',
     RTK_AWARENESS_PROMPT,
     '[/RTK AWARENESS]',
   ].join('\n');
+  logPromptInjection('rtk', text, session);
+  return text;
 }

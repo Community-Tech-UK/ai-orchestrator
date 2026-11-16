@@ -6,6 +6,9 @@ import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { createSqliteWasmDatabase, initSqliteWasm } from '../db/sqlite-wasm-driver';
 import { runLoopMigrations } from '../orchestration/loop-schema';
+const { mockLogPromptInjection } = vi.hoisted(() => ({ mockLogPromptInjection: vi.fn() }));
+vi.mock('../logging/prompt-injection-log', () => ({ logPromptInjection: mockLogPromptInjection }));
+
 import { PlanQueueRunBreaker } from './plan-queue-run-breaker';
 import { PlanQueuePreparationErrors } from './plan-queue-error-class';
 import type { PlanQueueFlowHost } from './plan-queue-host';
@@ -13,7 +16,7 @@ import { recordQueueRestart } from './plan-queue-restart-progress';
 import { preflightPlanQueueRun } from './plan-queue-run-preflight';
 import { newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueStore } from './plan-queue-store';
-import { PlanQueueTurnRetries } from './plan-queue-turn-retry';
+import { PlanQueueTurnRetries, QUEUE_WORKER_RETRY_PROMPT } from './plan-queue-turn-retry';
 import type { PlanQueueItem } from './plan-queue.types';
 
 let root: string;
@@ -99,6 +102,8 @@ describe('queue failure safeguards', () => {
     }
     expect(await retries.retry(host.getItem('one'), 'worker-one', 'provider returned 503')).toBe(false);
     expect(host.instances.sendInput).toHaveBeenCalledTimes(2);
+    expect(mockLogPromptInjection).toHaveBeenCalledTimes(2);
+    expect(mockLogPromptInjection).toHaveBeenCalledWith('queueWorkerRetry', QUEUE_WORKER_RETRY_PROMPT, 'worker-one');
     expect(await retries.retry(host.getItem('one'), 'worker-one', 'permission denied')).toBe(false);
     retries.completed('worker-one');
     const cancelled = retries.retry(host.getItem('one'), 'worker-one', 'transport closed'); retries.cancel('one');

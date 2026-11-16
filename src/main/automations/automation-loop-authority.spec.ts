@@ -99,7 +99,7 @@ describe('approved automation LOOP authority reaches actual adapter options', ()
   async function iterate(config: LoopConfig, stage: LoopStage = 'IMPLEMENT', manager = {}) {
     registerDefaultLoopInvoker(manager as never);
     return invokeLoopChildIteration({ emitter: h.coordinator, state: { id: 'loop', chatId: 'chat', totalIterations: 0, config } as LoopState,
-      prompt: 'Do approved work', stage, forceContextReset: false, idempotencyKey: 'loop:0' });
+      prompt: 'Do approved work', stage, promptSurface: 'loopContinuation', forceContextReset: false, idempotencyKey: 'loop:0' });
   }
 
   it.each(['same-session', 'fresh-child', 'hybrid'] as const)('MCP -> saved snapshot -> payload -> %s factory preserves Sonnet/low/no auto-approval', async contextStrategy => {
@@ -282,7 +282,7 @@ describe('approved automation LOOP authority reaches actual adapter options', ()
     }
     if (contextStrategy === 'same-session') {
       await invokeLoopChildIteration({ emitter: h.coordinator, state: { id: 'loop', chatId: 'chat', totalIterations: 1, config } as LoopState,
-        prompt: 'Continue approved work', stage: 'IMPLEMENT', forceContextReset: true, idempotencyKey: 'loop:1' });
+        prompt: 'Continue approved work', stage: 'IMPLEMENT', promptSurface: 'loopReanchor', forceContextReset: true, idempotencyKey: 'loop:1' });
       expect(h.createAdapter).toHaveBeenCalledTimes(2);
       expect(h.createAdapter.mock.calls[1][0].options).toMatchObject({ model: 'sonnet', reasoningEffort: 'low', yoloMode: false });
     }

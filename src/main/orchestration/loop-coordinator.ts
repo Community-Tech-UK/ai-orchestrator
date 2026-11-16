@@ -75,7 +75,7 @@ import {
   writeLoopControlFile,
   type LoopControlRuntime,
 } from './loop-control';
-import { invokeLoopChildIteration } from './loop-child-invoker';
+import { invokeLoopChildIteration, loopPromptSurface, type LoopPromptSurface } from './loop-child-invoker';
 import { harnessStopLoopEndReason, isHarnessStopError } from '../../shared/utils/harness-stop';
 import { LoopColdCacheTracker } from './loop-cold-cache';
 import { computeWorkHash } from './loop-work-hash';
@@ -2074,7 +2074,7 @@ export class LoopCoordinator extends EventEmitter {
           }
           if (iterationPrompts.reanchorGoal || forceContextReset) state.lastFullAnchorSeq = seq;
           if (!loopRoundAdmitted(state, this.lifecycle.listStates())) { clearInFlightIteration(state, seq); continue iterationLoop; }
-          childResult = await this.invokeChild(state, prompt, routingPrompt, stage, forceContextReset);
+          childResult = await this.invokeChild(state, prompt, routingPrompt, stage, loopPromptSurface({ reviewDriven, seq, reanchored: iterationPrompts.reanchorGoal || forceContextReset }), forceContextReset);
           if (consumeGlobalPauseInterruption(state.id)) childResult = null;
         } catch (err) {
           invocationFailure = err;
@@ -3678,7 +3678,7 @@ export class LoopCoordinator extends EventEmitter {
     state: LoopState,
     prompt: string,
     routingPrompt: string,
-    stage: LoopStage,
+    stage: LoopStage, promptSurface: LoopPromptSurface,
     forceContextReset = false,
   ): Promise<LoopChildResult> {
     const control = this.loopControls.get(state.id);
@@ -3687,7 +3687,7 @@ export class LoopCoordinator extends EventEmitter {
       state,
       prompt,
       routingPrompt,
-      stage,
+      stage, promptSurface,
       forceContextReset,
       downshiftModel: this.completionContext.getDownshiftModel(state.id),
       loopControlEnv: control ? buildLoopControlEnv(control) : undefined,

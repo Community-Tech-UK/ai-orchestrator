@@ -10,6 +10,7 @@ import {
   promptVersionForAngle,
   truncateForReview,
 } from './review-prompts';
+import { logPromptInjection } from '../logging/prompt-injection-log';
 import { createLocalReviewExecutionPlan, runReviewExecutionBatch } from './review-execution-batch';
 import { parseCrossModelReviewResponse } from './review-response-parser';
 import { serializeReviewResultJsonSchema } from '../../shared/validation/cross-model-review-schemas';
@@ -147,6 +148,7 @@ export async function runHeadlessReviewCommand(
             // the host applies it only when the resolved CLI is actually claude.
             const jsonSchema = serializeReviewResultJsonSchema(reviewDepth);
             for (const reviewerModel of reviewerModels) {
+              logPromptInjection(`${reviewDepth}Review`, prompt, request.correlationId ?? request.target);
               const needsModelOverride = plannedModel !== undefined
                 || (reviewer === 'antigravity' && reviewerModel !== configuredModel);
               const rawResponse = needsModelOverride

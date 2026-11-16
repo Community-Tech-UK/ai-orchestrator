@@ -9,6 +9,7 @@
 
 import { AUTOMATION_FAILURE_STATUSES } from '../../shared/types/instance-status-policy';
 import { getLogger } from '../logging/logger';
+import { logPromptInjection } from '../logging/prompt-injection-log';
 import { sameTree, snapshotTree, type TreeSnapshot } from './plan-queue-git';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
@@ -51,6 +52,7 @@ export class PlanQueueVerifierReminders {
     this.sent.set(instanceId, count + 1);
     this.host.tracker.beginTurn(instanceId);
     const prompt = buildVerifierReminderPrompt(item.id, count + 1, MAX_VERIFIER_REMINDERS);
+    logPromptInjection('queueVerifierReminder', prompt, instanceId);
     // Not awaited, like a verifier's first turn: some adapters (Codex app-server) settle
     // sendInput only when the turn ends, and the caller holds the item lock that Pause
     // and Cancel need to stop this verifier.

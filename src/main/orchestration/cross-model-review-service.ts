@@ -22,6 +22,7 @@ import {
   buildTieredReviewPrompt,
 } from './review-prompts';
 import { combineAbortSignals } from '../util/abort-signals';
+import { logPromptInjection } from '../logging/prompt-injection-log';
 import { serializeReviewResultJsonSchema } from '../../shared/validation/cross-model-review-schemas';
 import type {
   AggregatedReview,
@@ -600,6 +601,7 @@ export class CrossModelReviewService extends EventEmitter {
             const prompt = effectiveDepth === 'tiered'
               ? buildTieredReviewPrompt(request.taskDescription, request.content, undefined, request.changedFiles)
               : buildStructuredReviewPrompt(request.taskDescription, request.content, undefined, request.changedFiles);
+            logPromptInjection(`${effectiveDepth}Review`, prompt, request.instanceId);
             const usageContext = {
               purpose: 'cross-model-review',
               taskType: `cross-model-review:${request.trigger ?? 'automatic'}`,
@@ -630,9 +632,11 @@ export class CrossModelReviewService extends EventEmitter {
                 reviewId: request.id,
                 model: reviewerModel,
               });
+              const repairPrompt = buildReviewFormatRepairPrompt(effectiveDepth, initialResponse.content);
+              logPromptInjection(`${effectiveDepth}Repair`, repairPrompt, request.instanceId);
               const repairResponse = await sendAbortableReviewerMessage(
                 adapter,
-                { role: 'user', content: buildReviewFormatRepairPrompt(effectiveDepth, initialResponse.content) },
+                { role: 'user', content: repairPrompt },
                 operationSignal,
                 () => { cancelled = true; },
                 usageContext,

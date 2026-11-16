@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as injectionLog from '../../logging/prompt-injection-log';
 import type { CliMessage } from '../adapters/base-cli-adapter';
 import type { UnifiedSpawnOptions } from '../adapters/adapter-factory';
 import { buildWorkerArgs } from './cli-adapter-worker-args';
@@ -138,5 +139,14 @@ describe('worker Claude Bash PreToolUse hook (Step 18b item 3)', () => {
     };
     expect(hooksOf(buildWorkerArgs('claude', options, null, message))).toEqual(hooksOf(direct(options)));
     expect(allHooks(buildWorkerArgs('claude', options, null, message))).toEqual(allHooks(direct(options)));
+  });
+});
+
+describe('worker Gemini RTK note names its session in the injection log', () => {
+  it('passes the proxy session id to the log', () => {
+    const spy = vi.spyOn(injectionLog, 'logPromptInjection').mockImplementation(() => undefined);
+    buildWorkerArgs('gemini', { rtk: { enabled: true, binaryPath: '/placeholder/rtk' } }, 'session-7', message);
+    expect(spy).toHaveBeenCalledWith('rtk', expect.any(String), 'session-7');
+    spy.mockRestore();
   });
 });

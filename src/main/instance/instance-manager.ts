@@ -14,6 +14,7 @@ import { EventEmitter } from 'events';
 import { createHash } from 'node:crypto';
 import { ProviderRuntimeEventBus } from '../providers/provider-runtime-event-bus';
 import { getLogger } from '../logging/logger';
+import { logPromptInjection } from '../logging/prompt-injection-log';
 import { errorDiagnostic, textDiagnostic } from '../logging/source-diagnostics';
 import { generateChildPrompt, stripOrchestrationMarkers } from '../orchestration/orchestration-protocol';
 import { getCommandManager } from '../commands/command-manager';
@@ -2012,6 +2013,7 @@ export class InstanceManager extends EventEmitter {
         },
       },
     });
+    logPromptInjection('child', childPrompt, child.id);
     this.armChildStartupWatchdog(parentId, child.id, CHILD_STARTUP_TIMEOUT_MS);
   }
 
@@ -2374,6 +2376,7 @@ export class InstanceManager extends EventEmitter {
 
     // Mark this child as already having received its first message
     this.hasReceivedFirstMessage.add(child.id);
+    logPromptInjection(targetNode?.capabilities.platform === 'win32' ? 'childWindows' : 'child', childPrompt, child.id);
     this.armChildStartupWatchdog(parentId, child.id, CHILD_STARTUP_TIMEOUT_MS);
 
     return child;

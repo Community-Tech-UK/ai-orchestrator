@@ -403,7 +403,7 @@ export function registerSessionHandlers(deps: SessionHandlersDeps): void {
     HistoryListPayloadSchema,
     async (validated) => {
       const entries = history.getEntries(validated);
-      if (process.env['VITEST'] !== 'true') void history.backfillMissingAiTitles(entries, (text) => getAutoTitleService().generateLocalTitle(text));
+      if (process.env['VITEST'] !== 'true') void history.backfillMissingAiTitles(entries, (text, entryId) => getAutoTitleService().generateLocalTitle(text, [], entryId));
       return {
         success: true,
         data: entries,

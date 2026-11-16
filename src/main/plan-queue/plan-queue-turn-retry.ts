@@ -1,6 +1,10 @@
+import { logPromptInjection } from '../logging/prompt-injection-log';
 import { isTransientQueueTurnFailure } from './plan-queue-failure-class';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PlanQueueItem } from './plan-queue.types';
+
+/** The one-line nudge sent after a transient worker-turn failure. */
+export const QUEUE_WORKER_RETRY_PROMPT = 'Finish the item with a real result.';
 
 /** Two bounded retries in the same session; pause/shutdown cancels the wait. */
 export class PlanQueueTurnRetries {
@@ -29,7 +33,8 @@ export class PlanQueueTurnRetries {
           || current.workerInstanceId !== instanceId || !['working', 'fixing'].includes(current.state)) return true;
         try {
           this.host.tracker.beginTurn(instanceId);
-          await this.host.instances.sendInput(instanceId, 'Finish the item with a real result.', undefined, { automatedInput: true, internalSource: 'plan-queue' });
+          logPromptInjection('queueWorkerRetry', QUEUE_WORKER_RETRY_PROMPT, instanceId);
+          await this.host.instances.sendInput(instanceId, QUEUE_WORKER_RETRY_PROMPT, undefined, { automatedInput: true, internalSource: 'plan-queue' });
           return true;
         } catch (error) {
           if (!isTransientQueueTurnFailure(error instanceof Error ? error.message : String(error))) return false;

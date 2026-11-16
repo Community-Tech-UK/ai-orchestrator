@@ -160,10 +160,6 @@ export async function prepareLoopIterationPrompt(input: {
     justCompacted: Boolean(input.state.justCompacted),
     thisAttemptModel,
   });
-  return {
-    routingPrompt,
-    freshSessionPrompt,
-    reanchorGoal,
-    prompt: reanchorGoal ? routingPrompt : assemble(false),
-  };
+  const prompt = reanchorGoal ? routingPrompt : assemble(false);
+  return { routingPrompt, freshSessionPrompt, reanchorGoal, prompt };
 }

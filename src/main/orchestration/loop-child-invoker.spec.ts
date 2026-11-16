@@ -2,6 +2,9 @@ import { EventEmitter } from 'events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LoopState } from '../../shared/types/loop.types';
 import { invokeLoopChildIteration, LOOP_TIMEOUT_SETTLEMENT_GRACE_MS } from './loop-child-invoker';
+import { logPromptInjection } from '../logging/prompt-injection-log';
+
+vi.mock('../logging/prompt-injection-log', () => ({ logPromptInjection: vi.fn() }));
 
 function makeState(over: {
   id?: string;
@@ -34,8 +37,18 @@ describe('invokeLoopChildIteration timeout', () => {
   it('records UTF-8 bytes for the prompt actually dispatched', async () => {
     const emitter = new EventEmitter();
     emitter.on('loop:invoke-iteration', payload => payload.callback({childInstanceId:null,output:'ok',tokens:0,filesChanged:[],toolCalls:[],errors:[],testPassCount:null,testFailCount:null,exitedCleanly:true}));
-    const result = await invokeLoopChildIteration({emitter,state:makeState(),prompt:'你好',stage:'IMPLEMENT',forceContextReset:false,idempotencyKey:'bytes'});
+    const result = await invokeLoopChildIteration({emitter,state:makeState(),prompt:'你好',stage:'IMPLEMENT',promptSurface:'loopContinuation',forceContextReset:false,idempotencyKey:'bytes'});
     expect(result.promptBytes).toBe(6);
+  });
+  it('measures the delivered prompt on every dispatch, including a retry after a forced reset', async () => {
+    const emitter = new EventEmitter();
+    emitter.on('loop:invoke-iteration', payload => payload.callback({childInstanceId:null,output:'ok',tokens:0,filesChanged:[],toolCalls:[],errors:[],testPassCount:null,testFailCount:null,exitedCleanly:true}));
+    vi.mocked(logPromptInjection).mockClear();
+    const state = makeState({ id: 'loop-measure' });
+    await invokeLoopChildIteration({emitter,state,prompt:'first attempt + seal note',stage:'IMPLEMENT',promptSurface:'loopContinuation',forceContextReset:false,idempotencyKey:'m1'});
+    await invokeLoopChildIteration({emitter,state,prompt:'fresh session prompt + seal note',stage:'IMPLEMENT',promptSurface:'loopReanchor',forceContextReset:true,idempotencyKey:'m1'});
+    expect(logPromptInjection).toHaveBeenNthCalledWith(1, 'loopContinuation', 'first attempt + seal note', 'loop-measure');
+    expect(logPromptInjection).toHaveBeenNthCalledWith(2, 'loopReanchor', 'fresh session prompt + seal note', 'loop-measure');
   });
   it('excludes an operator permission wait from both iteration deadlines', async () => {
     const emitter = new EventEmitter();
@@ -43,7 +56,7 @@ describe('invokeLoopChildIteration timeout', () => {
     emitter.on('loop:invoke-iteration', payload => { callback = payload.callback; });
     const timeout = vi.fn(); emitter.on('loop:iteration-timeout', timeout);
     const pending = invokeLoopChildIteration({ emitter, state: makeState(), prompt: 'go',
-      stage: 'IMPLEMENT', forceContextReset: false, idempotencyKey: 'held-permission' });
+      stage: 'IMPLEMENT', promptSurface: 'loopContinuation', forceContextReset: false, idempotencyKey: 'held-permission' });
     void pending.catch(() => undefined);
     await vi.advanceTimersByTimeAsync(10);
     emitter.emit('loop:activity', { loopRunId: 'loop-1', seq: 0, kind: 'input_required',
@@ -69,7 +82,7 @@ describe('invokeLoopChildIteration timeout', () => {
       state: makeState(),
       prompt: 'go',
       stage: 'IMPLEMENT',
-      forceContextReset: false,
+      promptSurface: 'loopContinuation', forceContextReset: false,
       idempotencyKey: 'k-1',
     });
     const expectTimeout = expect(pending).rejects.toThrow('Loop iteration timed out after 40ms');
@@ -92,7 +105,7 @@ describe('invokeLoopChildIteration timeout', () => {
       state: makeState({ iterationTimeoutMs: 40, streamIdleTimeoutMs: 30 }),
       prompt: 'go',
       stage: 'IMPLEMENT',
-      forceContextReset: false,
+      promptSurface: 'loopContinuation', forceContextReset: false,
       idempotencyKey: 'k-2',
     });
     const expectTimeout = expect(pending).rejects.toThrow('Loop iteration timed out after 40ms');
@@ -120,7 +133,7 @@ describe('invokeLoopChildIteration timeout', () => {
       state: makeState({ iterationTimeoutMs: 40, streamIdleTimeoutMs: 30 }),
       prompt: 'go',
       stage: 'IMPLEMENT',
-      forceContextReset: false,
+      promptSurface: 'loopContinuation', forceContextReset: false,
       idempotencyKey: 'k-3',
     });
 
@@ -153,7 +166,7 @@ describe('invokeLoopChildIteration timeout', () => {
       state: makeState(),
       prompt: 'go',
       stage: 'IMPLEMENT',
-      forceContextReset: false,
+      promptSurface: 'loopContinuation', forceContextReset: false,
       idempotencyKey: 'k-observed',
     });
     const failurePromise = pending.then(
@@ -204,7 +217,7 @@ describe('invokeLoopChildIteration timeout', () => {
       state: makeState(),
       prompt: 'go',
       stage: 'IMPLEMENT',
-      forceContextReset: false,
+      promptSurface: 'loopContinuation', forceContextReset: false,
       idempotencyKey: 'k-aggregate-usage',
     });
     const failurePromise = pending.then(
@@ -246,7 +259,7 @@ describe('invokeLoopChildIteration timeout', () => {
       state: makeState(),
       prompt: 'go',
       stage: 'IMPLEMENT',
-      forceContextReset: false,
+      promptSurface: 'loopContinuation', forceContextReset: false,
       idempotencyKey: 'k-failed-observed',
     });
     const failurePromise = pending.then(
@@ -284,7 +297,7 @@ describe('invokeLoopChildIteration failure payload', () => {
       state: makeState({ iterationTimeoutMs: 10_000, streamIdleTimeoutMs: 5_000 }),
       prompt: 'go',
       stage: 'IMPLEMENT',
-      forceContextReset: false,
+      promptSurface: 'loopContinuation', forceContextReset: false,
       idempotencyKey: 'k-partial',
     }).then(
       () => { throw new Error('expected the iteration to reject'); },
@@ -312,7 +325,7 @@ describe('invokeLoopChildIteration failure payload', () => {
       state: makeState({ iterationTimeoutMs: 10_000, streamIdleTimeoutMs: 5_000 }),
       prompt: 'go',
       stage: 'IMPLEMENT',
-      forceContextReset: false,
+      promptSurface: 'loopContinuation', forceContextReset: false,
       idempotencyKey: 'k-nopartial',
     }).then(
       () => { throw new Error('expected the iteration to reject'); },

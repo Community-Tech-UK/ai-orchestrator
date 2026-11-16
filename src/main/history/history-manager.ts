@@ -619,7 +619,7 @@ export class HistoryManager {
    */
   async backfillMissingAiTitles(
     entries: ConversationHistoryEntry[],
-    generate: (text: string) => Promise<string | null>,
+    generate: (text: string, entryId: string) => Promise<string | null>,
     options: { maxPerCall?: number; concurrency?: number } = {}
   ): Promise<void> {
     const maxPerCall = options.maxPerCall ?? 10;
@@ -655,7 +655,7 @@ export class HistoryManager {
           return;
         }
         try {
-          const title = await generate(entry.firstUserMessage);
+          const title = await generate(entry.firstUserMessage, entry.id);
           if (title) {
             this.aiTitleFailures.delete(entry.id);
             await this.setEntryAiTitle(entry.id, title);

@@ -4,18 +4,25 @@ import {
 } from '../orchestration/orchestration-protocol.prompts';
 import {
   buildActiveDocumentsPrompt, buildConflictPrompt, buildContinuePrompt, buildFixPrompt, buildGateFailurePrompt,
-  buildResumePrompt, buildStepUpPrompt, buildTriagePrompt, buildVerifierPrompt, buildVerifierReminderPrompt, buildWorkerPrompt,
+  buildResumePrompt, buildStepUpPrompt, buildTriagePrompt, buildVerifierPrompt, buildVerifierReminderPrompt, buildWorkerPrompt, WORKER_WAIT_RULE,
 } from '../plan-queue/plan-queue-prompts';
+import { QUEUE_WORKER_RETRY_PROMPT } from '../plan-queue/plan-queue-turn-retry';
+import { buildWorkerReminderPrompt } from '../plan-queue/plan-queue-report-prompts';
 import type { PlanQueueItem } from '../plan-queue/plan-queue.types';
 import { LoopStageMachine } from '../orchestration/loop-stage-machine';
 import { defaultLoopConfig } from '../../shared/types/loop.types';
 import {
   REVIEW_ANGLES, buildReviewFormatRepairPrompt, buildStructuredReviewPrompt, buildTieredReviewPrompt,
 } from '../orchestration/review-prompts';
+import { buildFormatRepairPrompt, buildPrompt as buildPingPongReviewPrompt, type PingPongReviewerInput } from '../orchestration/agentic-pingpong-reviewer';
+import { LOCAL_REVIEW_REPAIR_PROMPT, buildLocalReviewPrompt } from '../review/local-reviewer';
 import { wrapRtkAwareness } from '../cli/rtk/rtk-awareness';
 import { SUMMARIZE_SYSTEM_PROMPT, SUBQUERY_SYSTEM_PROMPT } from '../rlm/llm-service.constants';
 import { buildTitleUserPrompt, TITLE_SYSTEM_PROMPT } from '../instance/auto-title-prompt';
 import { CodexStandingNotes } from '../cli/adapters/codex/codex-standing-notes';
+import { PROMPT_SURFACES } from '../logging/prompt-surfaces';
+import { loopPromptSurface } from '../orchestration/loop-child-invoker';
+import { queuePromptSurface } from '../plan-queue/plan-queue-prompt-surface';
 
 const item: PlanQueueItem = {
   id: 'item-budget', runId: 'run-budget', sourceRef: '/workspace/docs/fixture_plan.md',
@@ -34,6 +41,12 @@ const loop = (iterationSeq: number, reanchorGoal: boolean, reviewDriven = false)
   const args = { config: loopConfig, iterationSeq, pendingInterventions: [], reanchorGoal, includeSessionReplay: iterationSeq === 0 };
   return reviewDriven ? machine.buildReviewDrivenPrompt(args) : machine.buildPrompt(args);
 };
+const pingPong: PingPongReviewerInput = {
+  loopRunId: 'loop-budget', workspaceCwd: '/workspace', goal: 'Review the fixture', subject: 'impl',
+  builderProvider: 'claude', reviewerProviderSetting: 'auto', triedReviewerProviders: [], ledger: [],
+  roundNumber: 1, maxRounds: 3, diff: 'diff --git a/fixture.ts b/fixture.ts', blockingSeverities: ['critical', 'high'], timeoutMs: 60_000,
+};
+const pingPongChangedFiles = Array.from({ length: 60 }, (_, index) => `src/main/some/long/path/segment/file-${index}.ts`);
 const standingNotes = (note: string, count = 1): string => {
   const notes = new CodexStandingNotes();
   for (let index = 0; index < count; index++) notes.record('thread-budget', 'plan-queue', note);
@@ -69,7 +82,8 @@ const BUDGET = {
   // 7,267 / 7,498 / 7,709 / 8,285 / 9,299 / 9,530 / 9,683 / 8,153 / 7,006.
   queueWorker: { chars: 7300, render: () => buildWorkerPrompt(queue) },
   // 13 Nov: the livetest worker starts its dev app on the test Mac with a named command and port, instead of building
-  // here. Measured: livetest worker 5,289, livetest step-up 7,321; ceilings round up to 100.
+  // here. Measured: livetest worker 5,289, livetest step-up 7,321 before the capability-gap rules. 14 Nov (Step 8): it
+  // no longer repeats the autonomy rules in its own bullet; ceilings round up to 100 (see the 14 Nov note above).
   queueLivetestWorker: { chars: 7500, render: () => buildWorkerPrompt({ ...queue, kind: 'livetests' }) },
   queueFix: { chars: 1400, render: () => buildFixPrompt(1, 3, [{ severity: 'high', confidence: 90, summary: 'The fixture retry is missing.', file: 'fixture.ts:1', evidence: 'Pinned evidence.' }]) },
   queueConflict: { chars: 600, render: () => buildConflictPrompt('main', ['fixture.ts']) },
@@ -90,6 +104,8 @@ const BUDGET = {
   queueResumeConflict: { chars: 8300, render: () => buildResumePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
   queueStepUp: { chars: 9300, render: () => buildStepUpPrompt(queue, 3, findings) },
   queueLivetestStepUp: { chars: 9600, render: () => buildStepUpPrompt({ ...queue, kind: 'livetests' }, 3, findings) },
+  queueWorkerReminder: { chars: 2200, render: () => buildWorkerReminderPrompt(item.id, 1, 2, WORKER_WAIT_RULE) },
+  queueWorkerRetry: { chars: 100, render: () => QUEUE_WORKER_RETRY_PROMPT },
   queueVerifierReminder: { chars: 1300, render: () => buildVerifierReminderPrompt(item.id, 1, 2) },
   // Main's verifier handoff requires waiting for background gates, Harness tool
   // discovery, an accepted verdict receipt and (Oct-30) installing missing dependencies
@@ -104,17 +120,39 @@ const BUDGET = {
   tieredReview: { chars: 4600, render: () => buildTieredReviewPrompt('Review the fixture', 'Pinned implementation', REVIEW_ANGLES[0], ['fixture.ts']) },
   structuredRepair: { chars: 1300, render: () => buildReviewFormatRepairPrompt('structured', 'Pinned invalid response') },
   tieredRepair: { chars: 1800, render: () => buildReviewFormatRepairPrompt('tiered', 'Pinned invalid response') },
+  // Fresh-eyes ping-pong reviewer (agentic-pingpong-reviewer.ts) and its one format repair. The logged keys `pingPongReview`
+  // and `pingPongRepair` carry their largest real case, as `titleRequest` does. A review prompt admits a diff of up to
+  // MAX_REVIEW_DIFF_CHARS (60,000) in which every character can be escaped, plus the truncation note naming 40 paths: a diff
+  // made of "</diff" costs 72,575, and 74,467 over the cap with 60 changed files. The repair carries the previous answer
+  // cut at 40,000 characters: 42,105. The goal, ledger and delta note are not capped by the reviewer, so these ceilings
+  // assume ordinary ones (a short goal, an empty ledger); a logged size above them points at one of those. The three small
+  // fixtures below keep the fixed wording of each prompt under its own ceiling (measured 2,844 / 2,611 / 2,128).
+  pingPongReview: { chars: 75000, render: () => buildPingPongReviewPrompt({ ...pingPong, diff: '</diff'.repeat(20_000), changedFiles: pingPongChangedFiles }) },
+  pingPongReviewNoDiff: { chars: 2900, render: () => buildPingPongReviewPrompt({ ...pingPong, diff: '' }) },
+  pingPongReviewDiff: { chars: 2700, render: () => buildPingPongReviewPrompt(pingPong) },
+  pingPongRepair: { chars: 42200, render: () => buildFormatRepairPrompt(pingPong, 'x'.repeat(50_000)) },
+  pingPongRepairShort: { chars: 2200, render: () => buildFormatRepairPrompt(pingPong, 'Pinned invalid response') },
+  // Local reviewer: the structured/tiered prompt plus the read-only evidence contract, and its one format repair (measured 3,767 / 4,681 / 168).
+  localStructuredReview: { chars: 3800, render: () => buildLocalReviewPrompt({ workspaceRoot: '/workspace', taskDescription: 'Review the fixture', content: 'Pinned implementation', reviewDepth: 'structured' }) },
+  localTieredReview: { chars: 4700, render: () => buildLocalReviewPrompt({ workspaceRoot: '/workspace', taskDescription: 'Review the fixture', content: 'Pinned implementation', reviewDepth: 'tiered' }) },
+  localReviewRepair: { chars: 200, render: () => LOCAL_REVIEW_REPAIR_PROMPT },
   // Complete production resend at the retained-body cap (6,000), including wrappers,
   // closing-tag escaping and separators: 6,399 / 6,639 / 12,398 chars on Oct-31.
-  // Many single-character notes maximize separators; ceilings round up to 100.
-  codexStandingNotes: { chars: 6400, render: () => standingNotes('x'.repeat(6000)) },
+  // The logged key `codexStandingNotes` covers every resend, so its ceiling is the largest case: many
+  // single-character notes, which maximize separators. The other two cases are fixtures, not logged keys.
+  codexStandingNotes: { chars: 12400, render: () => standingNotes('x', 6000) },
+  codexStandingNotesOneNote: { chars: 6400, render: () => standingNotes('x'.repeat(6000)) },
   codexStandingNotesEscaped: { chars: 6700, render: () => standingNotes('</harness_standing_notes>'.repeat(240)) },
-  codexStandingNotesMany: { chars: 12400, render: () => standingNotes('x', 6000) },
   rtk: { chars: 1400, render: () => wrapRtkAwareness() },
   summaryHelper: { chars: 400, render: () => SUMMARIZE_SYSTEM_PROMPT },
   subqueryHelper: { chars: 300, render: () => SUBQUERY_SYSTEM_PROMPT },
   titleSystem: { chars: 700, render: () => TITLE_SYSTEM_PROMPT },
-  titleRequest: { chars: 300, render: () => buildTitleUserPrompt('Apply the fixture change', ['fixture.ts']) },
+  // Auto-title cuts the message to 2,000 characters plus '...' (MAX_INPUT_LENGTH), then JSON-escapes it: every '<'
+  // becomes 6 characters. The logged key `titleRequest` covers every title request, so its ceiling is that worst
+  // case (12,239 chars); ordinary 2,000-character prose renders 2,239 and a short message 260.
+  titleRequest: { chars: 12300, render: () => buildTitleUserPrompt(`${'<'.repeat(2000)}...`, ['fixture.ts']) },
+  titleRequestLongProse: { chars: 2300, render: () => buildTitleUserPrompt(`${'x'.repeat(2000)}...`, ['fixture.ts']) },
+  titleRequestShort: { chars: 300, render: () => buildTitleUserPrompt('Apply the fixture change', ['fixture.ts']) },
 };
 
 describe('prompt character budgets', () => {
@@ -128,5 +166,34 @@ describe('prompt character budgets', () => {
 
   it.each(Object.entries(BUDGET))('%s stays within its measured ceiling', (_surface, entry) => {
     expect(entry.render().length).toBeLessThanOrEqual(entry.chars);
+  });
+});
+
+describe('logged prompt surfaces', () => {
+  it.each(PROMPT_SURFACES)('%s is a key of the budget table', (surface) => {
+    expect(Object.keys(BUDGET)).toContain(surface);
+  });
+
+  it.each([
+    'queueWorker', 'queueLivetestWorker', 'queueResume', 'queueResumeConflict', 'queueContinue', 'queueContinueConflict',
+    'queueStepUp', 'queueLivetestStepUp', 'queueFix', 'queueConflict', 'queueGateFailure', 'queueActiveDocuments', 'queueWorkerReminder', 'queueVerifierReminder',
+    'queueVerifier', 'queueLivetestVerifier', 'queueTriage',
+  ] as const)('a rendered %s prompt is logged under that key', (surface) => {
+    expect(queuePromptSurface(BUDGET[surface].render())).toBe(surface);
+  });
+
+  it('logs no surface for a queue prompt that has no ceiling', () => {
+    expect(queuePromptSurface('James says: carry on using your best judgement.')).toBeUndefined();
+  });
+
+  it.each([
+    ['loopFirst', { reviewDriven: false, seq: 0, reanchored: true }],
+    ['loopContinuation', { reviewDriven: false, seq: 1, reanchored: false }],
+    ['loopReanchor', { reviewDriven: false, seq: 10, reanchored: true }],
+    ['reviewLoopFirst', { reviewDriven: true, seq: 0, reanchored: true }],
+    ['reviewLoopContinuation', { reviewDriven: true, seq: 1, reanchored: false }],
+    ['reviewLoopReanchor', { reviewDriven: true, seq: 10, reanchored: true }],
+  ] as const)('a %s iteration is logged under that key', (surface, input) => {
+    expect(loopPromptSurface(input)).toBe(surface);
   });
 });

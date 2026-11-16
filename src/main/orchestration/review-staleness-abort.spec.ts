@@ -29,7 +29,7 @@ vi.mock('../work-admission/consult-admission', async original => {
   const actual = await original<typeof import('../work-admission/consult-admission')>();
   return { ...actual, waitForConsult: waitConsult };
 });
-vi.mock('../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }) }));
+vi.mock('../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }) }));
 
 function request(id: string, instanceId: string): ReviewDispatchRequest {
   return { id, instanceId, primaryProvider: 'claude', workingDirectory: '/tmp/reviews',

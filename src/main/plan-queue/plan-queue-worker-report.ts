@@ -12,6 +12,7 @@
 import type { PlanQueueReportReadyArgs } from '@contracts/schemas/plan-queue';
 import { AUTOMATION_FAILURE_STATUSES } from '../../shared/types/instance-status-policy';
 import { getLogger } from '../logging/logger';
+import { logPromptInjection } from '../logging/prompt-injection-log';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
 import { WORKER_WAIT_RULE } from './plan-queue-prompts';
@@ -88,7 +89,9 @@ export class PlanQueueWorkerReports {
     this.host.tracker.beginTurn(instanceId);
     // Not awaited, like the first turn: some adapters settle sendInput only when the turn ends, and the caller
     // holds the item lock that Pause and Cancel need.
-    void this.host.instances.sendInput(instanceId, buildWorkerReminderPrompt(item.id, count + 1, MAX_WORKER_REMINDERS, WORKER_WAIT_RULE), undefined, { automatedInput: true, internalSource: 'plan-queue' })
+    const prompt = buildWorkerReminderPrompt(item.id, count + 1, MAX_WORKER_REMINDERS, WORKER_WAIT_RULE);
+    logPromptInjection('queueWorkerReminder', prompt, instanceId);
+    void this.host.instances.sendInput(instanceId, prompt, undefined, { automatedInput: true, internalSource: 'plan-queue' })
       .catch((error: unknown) => {
         if (this.host.tracker.isShuttingDown()) return;
         logger.warn('Plan queue: could not remind the worker', { itemId: item.id, instanceId, error: errorMessage(error) });

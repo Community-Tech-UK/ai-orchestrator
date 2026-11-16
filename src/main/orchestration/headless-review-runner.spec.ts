@@ -4,7 +4,9 @@ import type { HeadlessReviewAngleCacheHook, HeadlessReviewRequest, ReviewExecuti
 import type { ReviewResult } from '../../shared/types/cross-model-review.types';
 import { angleForReviewer, promptVersionForAngle } from './review-prompts';
 import { NO_RULES_HASH } from './review-coverage';
+import { logPromptInjection } from '../logging/prompt-injection-log';
 
+vi.mock('../logging/prompt-injection-log', () => ({ logPromptInjection: vi.fn() }));
 vi.mock('../core/config/settings-manager', () => ({
   getSettingsManager: () => ({ getAll: () => ({ crossModelReviewModelByProvider: {} }) }),
 }));
@@ -297,5 +299,16 @@ describe('runHeadlessReviewCommand — WS-B9 coverage + cache', () => {
     expect(dispatchReviewerPrompt).toHaveBeenCalledTimes(2);
     const workHashes = lookup.mock.calls.map((call) => call[0].workHash);
     expect(new Set(workHashes).size).toBe(2);
+  });
+});
+
+describe('runHeadlessReviewCommand: prompt injection log', () => {
+  it('logs the review prompt once for each dispatch', async () => {
+    vi.mocked(logPromptInjection).mockClear();
+    const dispatch = vi.fn(async () => reviewerJson('finding'));
+    await runHeadlessReviewCommand(baseRequest(), baseDeps({ host: { dispatchReviewerPrompt: dispatch } as unknown as ReviewExecutionHost }));
+    const dispatched = (dispatch.mock.calls[0] as unknown as [string, string])[1];
+    expect(logPromptInjection).toHaveBeenCalledTimes(1);
+    expect(logPromptInjection).toHaveBeenCalledWith('structuredReview', dispatched, 'HEAD');
   });
 });

@@ -43,6 +43,9 @@ const mockLog = vi.hoisted(() => ({
   error: vi.fn(),
 }));
 
+const { mockLogPromptInjection } = vi.hoisted(() => ({ mockLogPromptInjection: vi.fn() }));
+vi.mock('../logging/prompt-injection-log', () => ({ logPromptInjection: mockLogPromptInjection }));
+
 vi.mock('../logging/logger', () => ({
   getLogger: vi.fn(() => mockLog),
 }));
@@ -311,6 +314,26 @@ describe('AutoTitleService', () => {
     expect(mockIsCliAvailable).not.toHaveBeenCalled();
     expect(mockCreateAdapter).not.toHaveBeenCalled();
     expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('records the session on both title injections', async () => {
+    mockAuxGenerate.mockRejectedValue(new Error('authorization unavailable'));
+    mockLogPromptInjection.mockClear();
+
+    await AutoTitleService.getInstance().generateTitle('Investigate the broken deployment and summarize the fix.', [], 'chat-session');
+
+    expect(mockLogPromptInjection).toHaveBeenCalledWith('titleSystem', expect.any(String), 'chat-session');
+    expect(mockLogPromptInjection).toHaveBeenCalledWith('titleRequest', expect.any(String), 'chat-session');
+  });
+
+  it('records the history entry on both history-backfill title injections', async () => {
+    mockAuxGenerate.mockRejectedValue(new Error('authorization unavailable'));
+    mockLogPromptInjection.mockClear();
+
+    await AutoTitleService.getInstance().generateLocalTitle('Investigate the broken deployment and summarize the fix.', [], 'history-entry');
+
+    expect(mockLogPromptInjection).toHaveBeenCalledWith('titleSystem', expect.any(String), 'history-entry');
+    expect(mockLogPromptInjection).toHaveBeenCalledWith('titleRequest', expect.any(String), 'history-entry');
   });
 
   it('keeps history title generation local even when paid fallback is authorized', async () => {

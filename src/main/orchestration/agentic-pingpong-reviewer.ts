@@ -34,6 +34,7 @@ import {
 } from '../providers/automation-provider-exclusions';
 import { resolveOpenCheckerModel, resolvePingPongChecker } from './pingpong-checking-policy';
 import { learnFromCheckerFailure } from '../review/copilot-model-entitlements';
+import { logPromptInjection } from '../logging/prompt-injection-log';
 
 const logger = getLogger('AgenticPingPongReviewer');
 
@@ -296,7 +297,7 @@ function ledgerBlock(ledger: readonly PingPongIssue[]): string {
   ].join('\n');
 }
 
-function buildPrompt(input: PingPongReviewerInput): string {
+export function buildPrompt(input: PingPongReviewerInput): string {
   const isPlan = input.subject === 'plan';
   const subjectLine = isPlan
     ? `You are reviewing a PLAN${input.planFile ? ` at \`${input.planFile}\`` : ''}.`
@@ -390,7 +391,7 @@ function requiredOutputInstructions(opening: string): string {
   );
 }
 
-function buildFormatRepairPrompt(input: PingPongReviewerInput, previousOutput: string): string {
+export function buildFormatRepairPrompt(input: PingPongReviewerInput, previousOutput: string): string {
   return (
     `# Ping-pong reviewer format repair\n\n` +
     `You already completed a ping-pong review for round ${input.roundNumber}/${input.maxRounds}, ` +
@@ -489,6 +490,7 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
     ? licence.model
     : resolveOpenCheckerModel(provider, input);
   const prompt = buildPrompt(input);
+  logPromptInjection('pingPongReview', prompt, input.loopRunId);
   const spawner = getReviewerSessionSpawner();
   const session = await spawner.runReviewSession({
     provider: provider as InstanceProvider,
@@ -555,11 +557,13 @@ export const agenticPingPongReviewer: PingPongReviewer = async (input) => {
 
   let parsed = parseReviewerJson(session.finalOutput);
   if (!parsed && session.finalOutput.trim().length > 0) {
+    const repairPrompt = buildFormatRepairPrompt(input, session.finalOutput);
+    logPromptInjection('pingPongRepair', repairPrompt, input.loopRunId);
     const repair = await spawner.runReviewSession({
       provider: provider as InstanceProvider,
       modelOverride: reviewerModelOverride,
       workingDirectory: input.workspaceCwd,
-      prompt: buildFormatRepairPrompt(input, session.finalOutput),
+      prompt: repairPrompt,
       displayName: `Ping-pong reviewer format repair ${input.roundNumber}/${input.maxRounds} (${provider})`,
       timeoutMs: repairTimeoutMs(input.timeoutMs),
       signal: input.signal,

@@ -79,7 +79,7 @@ it.each([false, true])('skips archived sidechat title backfill while still namin
 
   await history.backfillMissingAiTitles(entries, generate, { maxPerCall: 1 });
 
-  expect(generate).toHaveBeenCalledExactlyOnceWith(workerPrompt);
+  expect(generate).toHaveBeenCalledExactlyOnceWith(workerPrompt, entries[1].id);
   expect((await history.loadConversation(entries[0].id))?.entry.aiTitle).toBeUndefined();
   expect((await history.loadConversation(entries[1].id))?.entry.aiTitle).toBe('Implementation review');
 });

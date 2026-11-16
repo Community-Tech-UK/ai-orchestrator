@@ -17,7 +17,7 @@ export function buildWorkerArgs(
 ): string[] {
   return cliType === 'claude'
     ? buildClaudeArgs(options, sessionId)
-    : buildGeminiArgs(options, message, state.geminiAdvisoryDelivered === true);
+    : buildGeminiArgs(options, message, state.geminiAdvisoryDelivered === true, sessionId);
 }
 
 function buildClaudeArgs(options: UnifiedSpawnOptions, sessionId: string | null): string[] {
@@ -107,6 +107,7 @@ function buildGeminiArgs(
   options: UnifiedSpawnOptions,
   message: CliMessage,
   advisoryDelivered: boolean,
+  sessionId: string | null,
 ): string[] {
   const args: string[] = [];
   if (options.model) args.push('--model', options.model);
@@ -119,7 +120,7 @@ function buildGeminiArgs(
       promptParts.push(wrapSystemInstructions(systemPrompt));
     }
     if (options.rtk?.enabled && options.rtk.binaryPath) {
-      promptParts.push(wrapRtkAwareness());
+      promptParts.push(wrapRtkAwareness(sessionId ?? undefined));
     }
     promptParts.push(message.content);
     // The explicit separator prevents a leading-dash prompt from being parsed

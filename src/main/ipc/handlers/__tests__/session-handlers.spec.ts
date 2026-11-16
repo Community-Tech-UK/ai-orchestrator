@@ -311,10 +311,10 @@ describe('session-handlers', () => {
 
         mockGenerateLocalTitle.mockResolvedValue('Session title repair');
         const generate = mockBackfillMissingAiTitles.mock.calls[0]?.[1] as
-          | ((text: string) => Promise<string | null>)
+          | ((text: string, entryId: string) => Promise<string | null>)
           | undefined;
-        await expect(generate?.(entries[0].firstUserMessage)).resolves.toBe('Session title repair');
-        expect(mockGenerateLocalTitle).toHaveBeenCalledWith(entries[0].firstUserMessage);
+        await expect(generate?.(entries[0].firstUserMessage, entries[0].id)).resolves.toBe('Session title repair');
+        expect(mockGenerateLocalTitle).toHaveBeenCalledWith(entries[0].firstUserMessage, [], entries[0].id);
       } finally {
         process.env['VITEST'] = originalVitest;
       }

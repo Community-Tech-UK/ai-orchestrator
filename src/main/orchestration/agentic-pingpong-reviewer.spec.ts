@@ -17,6 +17,9 @@ const detectionTestState = vi.hoisted(() => ({
   ],
 }));
 
+const logPromptInjection = vi.hoisted(() => vi.fn());
+vi.mock('../logging/prompt-injection-log', () => ({ logPromptInjection }));
+
 vi.mock('./reviewer-session-spawner', () => ({
   getReviewerSessionSpawner: () => ({ runReviewSession }),
 }));
@@ -113,6 +116,7 @@ describe('parseReviewerJson', () => {
 describe('agenticPingPongReviewer', () => {
   beforeEach(() => {
     runReviewSession.mockReset();
+    logPromptInjection.mockReset();
     detectionTestState.availableClis = [
       { name: 'claude', installed: true },
       { name: 'codex', installed: true },
@@ -532,6 +536,8 @@ describe('agenticPingPongReviewer', () => {
     expect(repairPrompt).not.toContain('<int>');
     expect(repairPrompt).toContain('"verdict": "APPROVED"');
     expect(repairPrompt).toContain(prose);
+    expect(logPromptInjection).toHaveBeenNthCalledWith(1, 'pingPongReview', initialPrompt, 'loop-1');
+    expect(logPromptInjection).toHaveBeenNthCalledWith(2, 'pingPongRepair', repairPrompt, 'loop-1');
   });
 
   // LT-644: Codex reviewers named their finding fields `issue`/`suggestedFix`,
