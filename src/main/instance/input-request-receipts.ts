@@ -88,7 +88,6 @@ interface OpenRequest {
   shape: RequestShape;
   /** A secret's label, or its name when it has none. */
   secretLabel?: string;
-  shownAt: number;
   requestedAt: number;
 }
 
@@ -204,7 +203,6 @@ export class InputRequestReceiptRecorder {
       requestId: request.requestId,
       shape,
       secretLabel: isSecret ? stringField(metadata, 'label') || stringField(metadata, 'name') : undefined,
-      shownAt: now,
       requestedAt: request.timestamp ?? now,
     });
   }
@@ -255,7 +253,7 @@ export class InputRequestReceiptRecorder {
   }
 
   /** An orchestrator card ended. Everything needed to word it is in the event. */
-  userActionSettled({ request, waitedMs, end }: SettledUserAction): void {
+  userActionSettled({ request, end }: SettledUserAction): void {
     const key = keyOf(request.instanceId, request.id);
     if (this.closed.get(key) === request.createdAt) return;
     const subject = request.secretRequest?.label || requestToolName(request) || request.title;
@@ -268,7 +266,6 @@ export class InputRequestReceiptRecorder {
     } else {
       words = describeRequestOutcome(end.reason, {
         permission: isApprovalRequest(request),
-        waitedMs,
         tool: previewAnswer(subject ?? '') || undefined,
       });
       outcome = end.reason;
@@ -317,7 +314,6 @@ export class InputRequestReceiptRecorder {
   private closeWithReason(key: string, request: OpenRequest, reason: RequestOutcomeReason): void {
     const words = describeRequestOutcome(reason, {
       permission: isApprovalRequest(request.shape),
-      waitedMs: Date.now() - request.shownAt,
       tool: previewAnswer(requestToolName(request.shape) ?? '') || undefined,
     });
     this.finish(key, request, words, reason);

@@ -2,7 +2,7 @@
  * Which waiting requests are an agent asking the person a question, and which
  * are an approval of an action.
  *
- * Main uses this to word the receipt a request leaves behind ("nothing ran" is
+ * Main uses this to word the receipt a request leaves behind ("did not allow" is
  * only true of an approval). The window uses it to decide what the message box
  * may answer: typing "yes" must never be able to allow a tool.
  *

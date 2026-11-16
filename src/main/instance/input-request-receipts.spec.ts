@@ -180,13 +180,13 @@ describe('InputRequestReceiptRecorder', () => {
   });
 
   describe('a request that ended without the person', () => {
-    it('says how long nobody answered, and that nothing ran, for an approval', () => {
+    it('says nobody answered in time and that Harness did not allow it, for an approval', () => {
       ask('deferred_permission', { tool_name: 'Bash' });
       vi.advanceTimersByTime(300_000);
 
       recorder.inputResolved({ instanceId: 'i-1', requestId: 'req-1', reason: 'timeout' });
 
-      expect(lines()).toEqual(['No answer in 5 minutes; nothing ran']);
+      expect(lines()).toEqual(['No answer in time, so Harness did not allow']);
       expect(written[0]?.metadata).toMatchObject({ outcome: 'timeout', subject: 'Bash', presentationKind: 'request-receipt' });
     });
 
@@ -196,14 +196,14 @@ describe('InputRequestReceiptRecorder', () => {
 
       recorder.inputResolved({ instanceId: 'i-1', requestId: 'req-1', reason: 'timeout' });
 
-      expect(lines()).toEqual(['No answer in 1 minute; the question was dropped']);
+      expect(lines()).toEqual(['No answer in time, so Harness dropped the question']);
     });
 
     it.each([
-      ['auto_approved', 'Allowed automatically'],
-      ['cancelled', 'Cancelled when the session was stopped'],
-      ['exited', 'Cancelled when the session closed'],
-      ['decided', 'Answered elsewhere'],
+      ['auto_approved', 'Allowed automatically because auto-approve is on'],
+      ['cancelled', 'Cancelled because the turn was stopped'],
+      ['exited', 'Closed because the session ended'],
+      ['decided', 'Answered somewhere else (another window or your phone)'],
     ] as const)('words %s plainly', (reason, text) => {
       ask('codex_mcp_approval', { toolName: 'fetch' });
 
@@ -234,7 +234,7 @@ describe('InputRequestReceiptRecorder', () => {
 
       recorder.inputResolved({ instanceId: 'i-1', requestId: 'req-1', reason: 'exited' });
 
-      expect(lines()).toEqual(['Cancelled when the session closed']);
+      expect(lines()).toEqual(['Closed because the session ended']);
     });
 
     it('writes only one line however many times it is told', () => {
@@ -256,8 +256,8 @@ describe('InputRequestReceiptRecorder', () => {
       recorder.inputResolved({ instanceId: 'i-1', requestId: 'req-1', reason: 'cancelled' });
 
       expect(lines()).toEqual([
-        'No answer in time; nothing ran',
-        'Cancelled when the session was stopped',
+        'No answer in time, so Harness did not allow',
+        'Cancelled because the turn was stopped',
       ]);
     });
   });
@@ -289,7 +289,7 @@ describe('InputRequestReceiptRecorder', () => {
       recorder.inputResolved({ instanceId: 'i-1', requestId: 'req-1', reason: 'decided' });
       sending.abort();
 
-      expect(lines()).toEqual(['Answered elsewhere']);
+      expect(lines()).toEqual(['Answered somewhere else (another window or your phone)']);
     });
 
     it('leaves a request waiting when the reply failed and nothing else happened', () => {
@@ -299,7 +299,7 @@ describe('InputRequestReceiptRecorder', () => {
 
       recorder.inputResolved({ instanceId: 'i-1', requestId: 'req-1', reason: 'timeout' });
 
-      expect(lines()).toEqual(['No answer in time; the question was dropped']);
+      expect(lines()).toEqual(['No answer in time, so Harness dropped the question']);
     });
 
     it('still reports a timeout that wins the race against the reply', () => {
@@ -309,7 +309,7 @@ describe('InputRequestReceiptRecorder', () => {
       recorder.inputResolved({ instanceId: 'i-1', requestId: 'req-1', reason: 'timeout' });
       sending.commit({ response: 'too late' });
 
-      expect(lines()).toEqual(['No answer in time; the question was dropped']);
+      expect(lines()).toEqual(['No answer in time, so Harness dropped the question']);
     });
 
     it('does nothing when the reply is for a request it never saw', () => {
@@ -351,7 +351,7 @@ describe('InputRequestReceiptRecorder', () => {
 
       recorder.statusChanged('i-1', 'interrupting');
 
-      expect(lines()).toEqual(['Cancelled when the session was stopped']);
+      expect(lines()).toEqual(['Cancelled because the turn was stopped']);
     });
 
     it.each(['terminated', 'failed', 'error', 'cancelled', 'hibernated', 'respawning', 'initializing', 'waking'])(
@@ -361,7 +361,7 @@ describe('InputRequestReceiptRecorder', () => {
 
         recorder.statusChanged('i-1', status);
 
-        expect(lines()).toEqual(['Cancelled when the session closed']);
+        expect(lines()).toEqual(['Closed because the session ended']);
       },
     );
 
@@ -401,11 +401,11 @@ describe('InputRequestReceiptRecorder', () => {
 
       recorder.yoloEnabled('i-1');
 
-      expect(lines()).toEqual(['Allowed automatically']);
+      expect(lines()).toEqual(['Allowed automatically because auto-approve is on']);
       recorder.inputResolved({ instanceId: 'i-1', requestId: 'mcp-question', reason: 'exited' });
-      expect(lines()).toEqual(['Allowed automatically']);
+      expect(lines()).toEqual(['Allowed automatically because auto-approve is on']);
       recorder.inputResolved({ instanceId: 'i-1', requestId: 'question', reason: 'exited' });
-      expect(lines()).toEqual(['Allowed automatically', 'Cancelled when the session closed']);
+      expect(lines()).toEqual(['Allowed automatically because auto-approve is on', 'Closed because the session ended']);
     });
 
     it('forgets everything about a removed session', () => {
@@ -441,7 +441,7 @@ describe('InputRequestReceiptRecorder', () => {
 
       recorder.inputResolved({ instanceId: 'i-1', requestId: 'req-1', reason: 'timeout' });
 
-      expect(lines()).toEqual(['No answer in time; the question was dropped']);
+      expect(lines()).toEqual(['No answer in time, so Harness dropped the question']);
     });
   });
 });
@@ -497,29 +497,29 @@ describe('InputRequestReceiptRecorder with orchestrator cards', () => {
       expect(lines()).toEqual(['You said no: read_file']);
     });
 
-    it('says nothing ran when nobody answered in time', () => {
+    it('says Harness did not allow it when nobody answered in time', () => {
       settle(picker, { reason: 'timeout' }, 300_000);
 
-      expect(lines()).toEqual(['No answer in 5 minutes; nothing ran']);
+      expect(lines()).toEqual(['No answer in time, so Harness did not allow']);
       expect(written[0]?.metadata).toMatchObject({ outcome: 'timeout', subject: 'read_file', requestId: 'uar-1', requestedAt: 5 });
     });
 
     it('says it was cancelled when the turn was stopped', () => {
       settle(picker, { reason: 'cancelled' });
 
-      expect(lines()).toEqual(['Cancelled when the session was stopped']);
+      expect(lines()).toEqual(['Cancelled because the turn was stopped']);
     });
 
     it('says it was cancelled when the session closed', () => {
       settle(picker, { reason: 'exited' });
 
-      expect(lines()).toEqual(['Cancelled when the session closed']);
+      expect(lines()).toEqual(['Closed because the session ended']);
     });
 
     it('says it was answered elsewhere when the answer came from another screen', () => {
       settle(picker, decided(true, 'allow_once', 'elsewhere'));
 
-      expect(lines()).toEqual(['Answered elsewhere']);
+      expect(lines()).toEqual(['Answered somewhere else (another window or your phone)']);
       expect(written[0]?.metadata).toMatchObject({ outcome: 'decided', subject: 'read_file' });
     });
   });
@@ -573,7 +573,7 @@ describe('InputRequestReceiptRecorder with orchestrator cards', () => {
     it('names the card in the receipt when nobody answered in time', () => {
       settle({ requestType: 'confirm', title: 'Delete the branch' }, { reason: 'exited' });
 
-      expect(lines()).toEqual(['Cancelled when the session closed']);
+      expect(lines()).toEqual(['Closed because the session ended']);
       expect(written[0]?.metadata.subject).toBe('Delete the branch');
     });
   });

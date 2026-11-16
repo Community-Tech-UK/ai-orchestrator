@@ -18,11 +18,9 @@ describe('RequestReceiptsComponent', () => {
     const fixture = mount([receipt('a', 'Answered elsewhere', 'Bash'), receipt('b', 'You answered: Bun')]);
     const lines = Array.from(fixture.nativeElement.querySelectorAll('.receipt')) as HTMLElement[];
     expect(lines.map((line) => line.querySelector('.receipt-text')?.textContent)).toEqual([
-      'Answered elsewhere',
+      'Answered elsewhere: Bash',
       'You answered: Bun',
     ]);
-    expect(lines[0].querySelector('.receipt-subject')?.textContent).toBe('(Bash)');
-    expect(lines[1].querySelector('.receipt-subject')).toBeNull();
   });
 
   it('renders nothing visible when there are no receipts', () => {

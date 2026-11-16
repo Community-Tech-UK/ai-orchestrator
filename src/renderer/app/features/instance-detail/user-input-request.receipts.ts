@@ -34,11 +34,6 @@ const REMEMBER_REQUESTS = 200;
 const keyOf = (instanceId: string, requestId: string): string => JSON.stringify([instanceId, requestId]);
 const generationOf = (instanceId: string, requestId: string, requestedAt: number): string => JSON.stringify([instanceId, requestId, requestedAt]);
 
-interface KnownRequest {
-  request: UserActionRequest;
-  shownAt: number;
-}
-
 export interface CardDecision {
   approved: boolean;
   /** What went to the agent: typed text, or the id of the option picked. */
@@ -74,7 +69,7 @@ export function choiceFor(request: UserActionRequest, decision: CardDecision): U
 export class RequestReceiptStore implements OnDestroy {
   /** Newest first. */
   private readonly receipts = signal<readonly RequestReceipt[]>([]);
-  private readonly known = new Map<string, KnownRequest>();
+  private readonly known = new Map<string, UserActionRequest>();
   private readonly settled = new Set<string>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private sequence = 0;
@@ -86,8 +81,8 @@ export class RequestReceiptStore implements OnDestroy {
   /** Replays of the same request must not reopen its feedback or reset its clock. */
   shown(request: UserActionRequest): void {
     const key = keyOf(request.instanceId, request.id);
-    if (this.known.get(key)?.request.createdAt === request.createdAt) return;
-    this.known.set(key, { request, shownAt: Date.now() });
+    if (this.known.get(key)?.createdAt === request.createdAt) return;
+    this.known.set(key, request);
     if (this.known.size > REMEMBER_REQUESTS) this.known.delete(this.known.keys().next().value as string);
   }
 
@@ -96,9 +91,8 @@ export class RequestReceiptStore implements OnDestroy {
   }
 
   closed(requestId: string, reason: RequestOutcomeReason, instanceId: string): void {
-    this.settle(instanceId, requestId, ({ request, shownAt }) => describeRequestOutcome(reason, {
+    this.settle(instanceId, requestId, (request) => describeRequestOutcome(reason, {
       permission: isApproval(request),
-      waitedMs: Date.now() - shownAt,
       tool: previewAnswer(toolNameOf(request) ?? '') || undefined,
     }));
   }
@@ -108,7 +102,7 @@ export class RequestReceiptStore implements OnDestroy {
     for (const message of messages) {
       const receipt = readRequestReceipt(message);
       if (!receipt) continue;
-      const requestedAt = receipt.requestedAt ?? this.known.get(keyOf(instanceId, receipt.requestId))?.request.createdAt;
+      const requestedAt = receipt.requestedAt ?? this.known.get(keyOf(instanceId, receipt.requestId))?.createdAt;
       if (requestedAt === undefined) continue;
       this.remember(generationOf(instanceId, receipt.requestId, requestedAt));
       for (const local of this.receipts()) {
@@ -128,18 +122,18 @@ export class RequestReceiptStore implements OnDestroy {
     this.timers.clear();
   }
 
-  private settle(instanceId: string, requestId: string, words: (entry: KnownRequest) => { text: string; subject?: string }): void {
-    const entry = this.known.get(keyOf(instanceId, requestId));
-    if (!entry) return;
-    const generation = generationOf(instanceId, requestId, entry.request.createdAt);
+  private settle(instanceId: string, requestId: string, words: (request: UserActionRequest) => { text: string; subject?: string }): void {
+    const request = this.known.get(keyOf(instanceId, requestId));
+    if (!request) return;
+    const generation = generationOf(instanceId, requestId, request.createdAt);
     if (this.settled.has(generation)) return;
     this.remember(generation);
     const receipt: RequestReceipt = {
       id: `${generation}#${++this.sequence}`,
       requestId,
-      requestedAt: entry.request.createdAt,
-      instanceId: entry.request.instanceId,
-      ...words(entry),
+      requestedAt: request.createdAt,
+      instanceId: request.instanceId,
+      ...words(request),
       expiresAt: Date.now() + RECEIPT_LIFETIME_MS,
     };
     this.receipts.update((list) => this.trimmed([receipt, ...list]));

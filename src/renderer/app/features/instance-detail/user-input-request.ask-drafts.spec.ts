@@ -254,4 +254,27 @@ describe('AskAnswerDrafts "Type your own answer"', () => {
     drafts.clear('req-1');
     expect(drafts.isPicked('req-1', 0, 'UI')).toBe(false);
   });
+
+  it('adds the typed text of a multi-select to the chosen labels', () => {
+    const drafts = new AskAnswerDrafts();
+    const request = card([multi('Areas', 'UI', 'API')]);
+    drafts.toggle('req-1', 0, 'UI', true);
+    drafts.toggle('req-1', 0, 'API', true);
+    drafts.toggleOwn('req-1', 0, true);
+    drafts.setText('req-1', 0, 'docs too');
+    expect(drafts.responseText(request)).toBe('Areas: UI, API, docs too');
+    expect(drafts.summary(request)).toBe('UI, API, docs too');
+    drafts.toggle('req-1', 0, 'API', true);
+    expect(drafts.responseText(request)).toBe('Areas: UI, docs too');
+  });
+
+  it('keeps a typed answer on its own when the question has no choice picked, and is complete with text alone', () => {
+    const drafts = new AskAnswerDrafts();
+    const request = card([multi('Areas', 'UI', 'API')]);
+    drafts.toggleOwn('req-1', 0, true);
+    expect(drafts.canSubmit(request)).toBe(false);
+    drafts.setText('req-1', 0, 'docs only');
+    expect(drafts.canSubmit(request)).toBe(true);
+    expect(drafts.responseText(request)).toBe('Areas: docs only');
+  });
 });

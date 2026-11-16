@@ -130,3 +130,14 @@ export function permissionHintFor(meta: PermissionMetadata, scope: InputRequired
 export function canTellWhatToDoInstead(meta: PermissionMetadata): boolean {
   return permissionAskKind(meta) !== 'single';
 }
+
+/** What the agent is told after a permission answer. A typed refusal note replaces the fixed sentence for a held call. */
+export function permissionReplyText(meta: { type?: string; action?: string; path?: string } | undefined, approved: boolean, denyNote?: string): string {
+  if (approved) {
+    return meta?.action && meta?.path
+      ? `Permission granted. Please proceed to ${meta.action} ${meta.path}.`
+      : 'Permission granted. Please proceed with the operation.';
+  }
+  const note = denyNote?.trim();
+  return meta?.type === 'deferred_permission' && note ? note : 'Permission denied. Please do not perform that operation.';
+}

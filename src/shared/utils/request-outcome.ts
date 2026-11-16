@@ -22,8 +22,6 @@ export interface RequestReceiptWords {
 export interface ClosedRequestFacts {
   /** True for an approval of an action, false for a question. */
   permission: boolean;
-  /** How long the card was on screen, as the renderer measured it. */
-  waitedMs?: number;
   tool?: string;
 }
 
@@ -40,15 +38,6 @@ export type UserChoice =
   | { kind: 'auto-approve' };
 
 const ANSWER_PREVIEW_CHARS = 60;
-/** Half a minute rounds up to a minute, so a 60 s timeout never reads "in time". */
-const SHORTEST_NAMED_WAIT_MS = 30_000;
-
-function waited(ms: number | undefined): string {
-  if (ms === undefined || ms < SHORTEST_NAMED_WAIT_MS) return 'time';
-  const minutes = Math.round(ms / 60_000);
-  return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
-}
-
 /** The first 60 characters of an answer on one line, never splitting a character. */
 export function previewAnswer(answer: string): string {
   const characters = Array.from(answer.replace(/\s+/g, ' ').trim());
@@ -61,11 +50,11 @@ export function describeRequestOutcome(reason: RequestOutcomeReason, facts: Clos
   const text = (() => {
     switch (reason) {
       case 'timeout':
-        return `No answer in ${waited(facts.waitedMs)}; ${facts.permission ? 'nothing ran' : 'the question was dropped'}`;
-      case 'auto_approved': return 'Allowed automatically';
-      case 'decided': return 'Answered elsewhere';
-      case 'cancelled': return 'Cancelled when the session was stopped';
-      case 'exited': return 'Cancelled when the session closed';
+        return `No answer in time, so Harness ${facts.permission ? 'did not allow' : 'dropped the question'}`;
+      case 'auto_approved': return 'Allowed automatically because auto-approve is on';
+      case 'decided': return 'Answered somewhere else (another window or your phone)';
+      case 'cancelled': return 'Cancelled because the turn was stopped';
+      case 'exited': return 'Closed because the session ended';
     }
   })();
   return subject ? { text, subject } : { text };

@@ -94,7 +94,7 @@ describe('closed-request receipts in durable history', () => {
     expect(lifecycle.settle('engine-exit', { reason: 'decided', approved: true, via: 'window' })).toBeNull();
     const restored = await reload();
     expect(restored.map(row => readRequestReceipt(row)?.outcome)).toEqual(['exited']);
-    expect(restored.map(row => row.content)).toEqual(['Cancelled when the session closed']);
+    expect(restored.map(row => row.content)).toEqual(['Closed because the session ended']);
   });
 
   it('persists only the label of a saved secret and never the reference or any value', async () => {

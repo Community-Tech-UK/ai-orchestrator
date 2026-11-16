@@ -6,6 +6,9 @@
           <span class="request-title">{{ request.title }}</span>
         </div>
         <p class="request-message">{{ request.message }}</p>
+        @if (request.permissionMetadata?.expiresAt; as expiresAt) {
+          <app-request-deadline [expiresAt]="expiresAt" />
+        }
 
         @if (request.requestType === 'ask_questions' && request.questions) {
           <!-- Ask questions: render text inputs for each question -->

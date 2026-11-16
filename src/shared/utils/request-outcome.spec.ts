@@ -9,39 +9,28 @@ import {
 } from './request-outcome';
 
 describe('describeRequestOutcome', () => {
-  it('says how long nobody answered, and that nothing ran, for an approval', () => {
-    expect(describeRequestOutcome('timeout', { permission: true, waitedMs: 300_000 }).text)
-      .toBe('No answer in 5 minutes; nothing ran');
-    expect(describeRequestOutcome('timeout', { permission: true, waitedMs: 60_000 }).text)
-      .toBe('No answer in 1 minute; nothing ran');
-  });
-
-  it('reports the measured wait, not a fixed five minutes', () => {
-    expect(describeRequestOutcome('timeout', { permission: true, waitedMs: 59_900 }).text)
-      .toBe('No answer in 1 minute; nothing ran');
-    expect(describeRequestOutcome('timeout', { permission: true, waitedMs: 12_000 }).text)
-      .toBe('No answer in time; nothing ran');
+  it('says nobody answered in time and that Harness did not allow it, for an approval', () => {
     expect(describeRequestOutcome('timeout', { permission: true }).text)
-      .toBe('No answer in time; nothing ran');
+      .toBe('No answer in time, so Harness did not allow');
   });
 
   it('does not claim a question "ran" anything', () => {
-    expect(describeRequestOutcome('timeout', { permission: false, waitedMs: 300_000 }).text)
-      .toBe('No answer in 5 minutes; the question was dropped');
+    expect(describeRequestOutcome('timeout', { permission: false }).text)
+      .toBe('No answer in time, so Harness dropped the question');
   });
 
   it.each([
-    ['decided', 'Answered elsewhere'],
-    ['cancelled', 'Cancelled when the session was stopped'],
-    ['exited', 'Cancelled when the session closed'],
-    ['auto_approved', 'Allowed automatically'],
+    ['decided', 'Answered somewhere else (another window or your phone)'],
+    ['cancelled', 'Cancelled because the turn was stopped'],
+    ['exited', 'Closed because the session ended'],
+    ['auto_approved', 'Allowed automatically because auto-approve is on'],
   ] as const)('words %s plainly', (reason, text) => {
     expect(describeRequestOutcome(reason, { permission: true }).text).toBe(text);
   });
 
   it('names the tool separately so the sentence itself stays fixed', () => {
     const words = describeRequestOutcome('decided', { permission: true, tool: 'Bash' });
-    expect(words).toEqual({ text: 'Answered elsewhere', subject: 'Bash' });
+    expect(words).toEqual({ text: 'Answered somewhere else (another window or your phone)', subject: 'Bash' });
     expect(describeRequestOutcome('decided', { permission: true }).subject).toBeUndefined();
   });
 });

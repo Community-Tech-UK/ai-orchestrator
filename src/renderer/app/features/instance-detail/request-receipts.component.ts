@@ -12,10 +12,7 @@ export type { RequestReceipt } from './user-input-request.receipts';
     <div class="receipts" aria-live="polite">
       @for (receipt of receipts(); track receipt.id) {
         <div class="receipt">
-          <span class="receipt-text">{{ receipt.text }}</span>
-          @if (receipt.subject) {
-            <span class="receipt-subject">({{ receipt.subject }})</span>
-          }
+          <span class="receipt-text">{{ receipt.text }}@if (receipt.subject) {: {{ receipt.subject }}}</span>
           <button
             type="button"
             class="receipt-dismiss"
@@ -39,9 +36,6 @@ export type { RequestReceipt } from './user-input-request.receipts';
       align-items: baseline;
       gap: var(--spacing-sm);
       margin: var(--spacing-sm) 0;
-    }
-    .receipt-subject {
-      color: var(--text-secondary);
     }
     .receipt-dismiss {
       background: transparent;

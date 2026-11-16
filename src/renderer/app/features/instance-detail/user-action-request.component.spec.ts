@@ -1024,10 +1024,20 @@ describe('UserActionRequestComponent', () => {
     expect(fakeIpc.respondToInputRequired).toHaveBeenCalledWith('inst-a', 'permission-1', 'once', 'permission-1');
   });
 
+  it('shows the time left on a request that has a deadline', async () => {
+    await showPermission({ type: 'acp_permission_request', transport: 'acp', expiresAt: Date.now() + 42_000, options: [{ optionId: 'once', name: 'Allow once', kind: 'allow_once' }] });
+    expect(fixture.nativeElement.querySelector('app-request-deadline')?.textContent).toMatch(/\d+s left/);
+  });
+
+  it('shows no countdown on a request that has no deadline', async () => {
+    await showPermission({ type: 'acp_permission_request', transport: 'acp', options: [{ optionId: 'once', name: 'Allow once', kind: 'allow_once' }] });
+    expect(fixture.nativeElement.querySelector('app-request-deadline')).toBeNull();
+  });
+
   it('shows and dismisses a quiet receipt when a pending card times out', async () => {
     await showPermission({ type: 'deferred_permission', tool_name: 'Write' });
     onInputRequiredResolved({ instanceId: 'inst-a', requestId: 'permission-1', reason: 'timeout' }); fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('No answer in time; nothing ran');
+    expect(fixture.nativeElement.textContent).toContain('No answer in time, so Harness did not allow');
     buttonByText('Dismiss').click(); fixture.detectChanges();
     expect(fixture.nativeElement.textContent).not.toContain('No answer in time');
   });

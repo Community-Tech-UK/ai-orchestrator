@@ -25,6 +25,7 @@ import {
   canTellWhatToDoInstead,
   decisionFor,
   permissionHintFor,
+  permissionReplyText,
   permissionScopesFor,
   rejectLabelFor,
   scopeOptionLabel,
@@ -53,6 +54,7 @@ import {
   clearResponseError,
   errorMessage,
   responseErrorMessage,
+  sendNoteToAgent,
   setResponseError
 } from './user-action-request.response-utils';
 import {
@@ -63,10 +65,12 @@ import {
 } from './user-action-request.secret-card';
 import { AcpPermissionOptionsComponent } from './acp-permission-options.component';
 import { PermissionDenyNoteComponent } from './permission-deny-note.component';
+import { RequestDeadlineComponent } from './request-deadline.component';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { copyFor } from '../../shared/tooltip/tooltip-copy';
 import { RuntimeChangeConfirmComponent } from './runtime-change-confirm.component';
 import { UserActionYoloCost } from './user-action-request.yolo-cost';
+import { ModifyDrafts, parseModifiedInput } from './user-action-request.modify-drafts';
 
 export type { UserActionRequest } from './user-action-request.types';
 
@@ -77,7 +81,7 @@ const requestGeneration = (request: UserActionRequest): string => JSON.stringify
 @Component({
   selector: 'app-user-action-request',
   standalone: true,
-  imports: [AioTooltipDirective, RequestReceiptsComponent, PlanHandoffDialogComponent, RuntimeChangeConfirmComponent, AcpPermissionOptionsComponent, PermissionDenyNoteComponent],
+  imports: [AioTooltipDirective, RequestReceiptsComponent, PlanHandoffDialogComponent, RuntimeChangeConfirmComponent, AcpPermissionOptionsComponent, PermissionDenyNoteComponent, RequestDeadlineComponent],
   templateUrl: './user-action-request.component.html',
   styleUrl: './user-action-request.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -111,9 +115,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   private inputRequiredTexts = new Map<string, string>();
   private readonly secretCardDrafts = new SecretCardDrafts();
 
-  private modifyPanelOpen = new Map<string, boolean>();
-  private modifyInputTexts = new Map<string, string>();
-  modifyInputErrors = signal<Map<string, string>>(new Map());
+  private readonly modify = new ModifyDrafts();
 
   /** What has been chosen or typed for each question; shared by the buttons and the message box. */
   private readonly drafts = new Map<string, AskAnswerDrafts>();
@@ -187,17 +189,11 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         for (const previous of this.retainedInputRequired) {
           if (!currentPayloads.has(previous)) {
             const key = this.draftKey(previous.instanceId, previous.requestId);
-            for (const drafts of [this.inputRequiredTexts, this.inputRequiredScopes, this.modifyPanelOpen,
-              this.modifyInputTexts]) {
-              drafts.delete(key);
-            }
+            this.inputRequiredTexts.delete(key);
+            this.inputRequiredScopes.delete(key);
+            this.modify.clear(key);
             this.draftsFor(previous.instanceId).clear(previous.requestId);
             clearResponseError(this.responseErrors, key);
-            this.modifyInputErrors.update((errors) => {
-              const next = new Map(errors);
-              next.delete(key);
-              return next;
-            });
           }
         }
         for (const previous of this.visibleInputRequired) {
@@ -292,13 +288,30 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     if (reason && (reason !== 'decided' || !this.answering.has(key))) this.receiptStore.closed(requestId, reason, instanceId);
     this.inputRequiredTexts.delete(key);
     this.inputRequiredScopes.delete(key);
-    this.modifyPanelOpen.delete(key);
-    this.modifyInputTexts.delete(key);
+    this.modify.clear(key);
     this.secretCardDrafts.clear(key);
     this.eventBus.dismissInputRequired(instanceId, requestId);
     this.drafts.get(instanceId)?.clear(requestId);
     clearResponseError(this.responseErrors, key);
     this.pendingRequests.update(requests => requests.filter(r => r.id !== requestId || r.instanceId !== instanceId));
+  }
+
+  private removeCard(request: UserActionRequest): void {
+    this.pendingRequests.update((requests) => requests.filter((r) => r.id !== request.id || r.instanceId !== request.instanceId));
+  }
+
+  /** An answered card leaves the screen; the pending count drops unless a resolved event already took it. */
+  private settleCard(request: UserActionRequest): void {
+    this.eventBus.dismissInputRequired(request.instanceId, request.id);
+    this.removeCard(request);
+    if (!this.resolutions.has(this.draftKey(request.instanceId, request.id))) this.instanceStore.decrementPendingApproval(request.instanceId, request.id);
+  }
+
+  /** Auto-approve turned on: every ask it covers is cleared, each leaving its receipt. */
+  private clearAfterYoloEnabled(instanceId: string): void {
+    this.clearCachedInputRequiredForInstance(instanceId, (cached) => shouldClearRequestAfterYoloEnabled(cached, instanceId), 'auto_approved');
+    this.pendingRequests.update((requests) => requests.filter((r) => !shouldClearRequestAfterYoloEnabled(r, instanceId)));
+    this.instanceStore.clearPendingApprovals(instanceId);
   }
 
   private requestClosed(request: UserActionRequest): boolean {
@@ -512,37 +525,23 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
   }
 
   isModifyPanelOpen(requestId: string): boolean {
-    return this.modifyPanelOpen.get(this.draftKey(this.instanceId(), requestId)) ?? false;
+    return this.modify.isOpen(this.draftKey(this.instanceId(), requestId));
   }
 
   toggleModifyPanel(request: UserActionRequest): void {
-    const open = !this.isModifyPanelOpen(request.id);
-    this.modifyPanelOpen.set(this.draftKey(request.instanceId, request.id), open);
-    // Pre-fill from tool_input the first time the panel is opened
-    if (open && !this.modifyInputTexts.has(this.draftKey(request.instanceId, request.id))) {
-      const toolInput = request.permissionMetadata?.tool_input;
-      this.modifyInputTexts.set(
-        this.draftKey(request.instanceId, request.id),
-        toolInput ? JSON.stringify(toolInput, null, 2) : ''
-      );
-    }
+    this.modify.toggle(this.draftKey(request.instanceId, request.id), request.permissionMetadata?.tool_input);
   }
 
   getModifyInputText(requestId: string): string {
-    return this.modifyInputTexts.get(this.draftKey(this.instanceId(), requestId)) ?? '';
+    return this.modify.text(this.draftKey(this.instanceId(), requestId));
   }
 
   onModifyInputTextChange(requestId: string, event: Event): void {
-    const target = event.target as HTMLTextAreaElement;
-    this.modifyInputTexts.set(this.draftKey(this.instanceId(), requestId), target.value);
-    // Clear any stale error as user edits
-    const errors = new Map(this.modifyInputErrors());
-    errors.delete(this.draftKey(this.instanceId(), requestId));
-    this.modifyInputErrors.set(errors);
+    this.modify.setText(this.draftKey(this.instanceId(), requestId), (event.target as HTMLTextAreaElement).value);
   }
 
   getModifyInputError(requestId: string): string {
-    return this.modifyInputErrors().get(this.draftKey(this.instanceId(), requestId)) ?? '';
+    return this.modify.error(this.draftKey(this.instanceId(), requestId));
   }
 
   /** Submit answers for an ask_questions request: { "Question text": "Answer text" }. */
@@ -617,39 +616,12 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
     await this.respond(request, false);
   }
 
-  /**
-   * "Approve with changes" path: parse the edited JSON, validate it is a
-   * non-empty plain object, then call respondToInputRequired with
-   * decisionAction='modify' and the parsed object as updatedInput.
-   */
+  /** "Approve with changes": the edited JSON must be a non-empty object, then it goes as `modify` with the new input. */
   async onApproveWithChanges(request: UserActionRequest): Promise<void> {
-    const rawText = (this.modifyInputTexts.get(this.draftKey(request.instanceId, request.id)) ?? '').trim();
-
-    // Parse JSON
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(rawText);
-    } catch {
-      const errors = new Map(this.modifyInputErrors());
-      errors.set(this.draftKey(request.instanceId, request.id), 'Invalid JSON — please fix the syntax before approving.');
-      this.modifyInputErrors.set(errors);
-      return;
-    }
-
-    // Validate: must be a non-empty plain object
-    if (
-      typeof parsed !== 'object' ||
-      parsed === null ||
-      Array.isArray(parsed) ||
-      Object.keys(parsed as object).length === 0
-    ) {
-      const errors = new Map(this.modifyInputErrors());
-      errors.set(this.draftKey(request.instanceId, request.id), 'Input must be a non-empty JSON object ({ … }).');
-      this.modifyInputErrors.set(errors);
-      return;
-    }
-
-    await this.respondWithModify(request, parsed as Record<string, unknown>);
+    const key = this.draftKey(request.instanceId, request.id);
+    const edited = parseModifiedInput(this.modify.text(key));
+    if ('error' in edited) this.modify.setError(key, edited.error);
+    else await this.respondWithModify(request, edited.input);
   }
 
   async onEnableYolo(request: UserActionRequest): Promise<void> {
@@ -670,15 +642,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       if (result.success) {
         // Remove all pending permission requests for this instance since YOLO is now enabled
         this.receiptStore.chose(request.id, { kind: 'auto-approve' }, request.instanceId);
-        this.clearCachedInputRequiredForInstance(
-          request.instanceId,
-          (cachedRequest) => shouldClearRequestAfterYoloEnabled(cachedRequest, request.instanceId),
-          'auto_approved',
-        );
-        this.pendingRequests.update((requests) =>
-          requests.filter((r) => !shouldClearRequestAfterYoloEnabled(r, request.instanceId))
-        );
-        this.instanceStore.clearPendingApprovals(request.instanceId);
+        this.clearAfterYoloEnabled(request.instanceId);
       } else {
         setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), responseErrorMessage(result, 'Could not turn on Auto-approve.'));
       }
@@ -749,7 +713,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       if (result.success) {
         this.receiptStore.chose(request.id, { kind, what: request.secretRequest?.label || request.title }, request.instanceId);
         this.eventBus.dismissInputRequired(request.instanceId, request.id);
-        this.pendingRequests.update((requests) => requests.filter((r) => r.id !== request.id || r.instanceId !== request.instanceId));
+        this.removeCard(request);
       } else {
         setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), responseErrorMessage(result, fallback));
       }
@@ -801,17 +765,9 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
       if (result.success) {
         // Clean up local state
         this.receiptStore.chose(request.id, choiceFor(request, { approved: true, scope: decisionScope }), request.instanceId);
-        this.modifyInputTexts.delete(this.draftKey(request.instanceId, request.id));
-        this.modifyPanelOpen.delete(this.draftKey(request.instanceId, request.id));
-        const errors = new Map(this.modifyInputErrors());
-        errors.delete(this.draftKey(request.instanceId, request.id));
-        this.modifyInputErrors.set(errors);
+        this.modify.clear(this.draftKey(request.instanceId, request.id));
         this.inputRequiredScopes.delete(this.draftKey(request.instanceId, request.id));
-        this.eventBus.dismissInputRequired(request.instanceId, request.id);
-        this.pendingRequests.update((requests) =>
-          requests.filter((r) => r.id !== request.id || r.instanceId !== request.instanceId)
-        );
-        if (!this.resolutions.has(this.draftKey(request.instanceId, request.id))) this.instanceStore.decrementPendingApproval(request.instanceId, request.id);
+        this.settleCard(request);
       } else setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), responseErrorMessage(result, 'Failed to submit your decision.'));
     } catch (error) {
       setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), errorMessage(error, 'Failed to submit your decision.'));
@@ -861,11 +817,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
           if (result.success) {
             this.receiptStore.chose(request.id, receipt ?? choiceFor(request, { approved, reply: inputText }), request.instanceId);
             this.inputRequiredTexts.delete(this.draftKey(request.instanceId, request.id));
-            this.eventBus.dismissInputRequired(request.instanceId, request.id);
-            this.pendingRequests.update((requests) =>
-              requests.filter((r) => r.id !== request.id || r.instanceId !== request.instanceId)
-            );
-            if (!this.resolutions.has(this.draftKey(request.instanceId, request.id))) this.instanceStore.decrementPendingApproval(request.instanceId, request.id);
+            this.settleCard(request);
             return 'sent';
           }
           if (this.resolutions.get(this.draftKey(request.instanceId, request.id)) === 'decided') this.receiptStore.closed(request.id, 'decided', request.instanceId);
@@ -873,28 +825,14 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
           return 'failed';
         }
 
-        let response: string;
         const meta = request.permissionMetadata;
         // Create permission key to clear pending permission tracking
         const permissionKey = meta?.action && meta?.path ? `${meta.action}:${meta.path}` : undefined;
         const decision = decisionFor(meta, approved, this.getInputRequiredScope(request));
         const decisionScope = decision?.scope;
         const decisionAction = decision?.action;
-
-        if (approved) {
-          // Construct a helpful retry message based on the permission metadata
-          if (meta?.action && meta?.path) {
-            // Tell Claude to retry the specific action
-            response = `Permission granted. Please proceed to ${meta.action} ${meta.path}.`;
-          } else {
-            // Generic approval message
-            response = `Permission granted. Please proceed with the operation.`;
-          }
-        } else {
-          const denyNote = metadataExtras?.['denyNote'];
-          response = this.isDeferredPermission(request) && typeof denyNote === 'string' && denyNote.trim()
-            ? denyNote.trim() : 'Permission denied. Please do not perform that operation.';
-        }
+        const denyNote = typeof metadataExtras?.['denyNote'] === 'string' ? metadataExtras['denyNote'].trim() : '';
+        const response = permissionReplyText(meta, approved, denyNote);
 
         // Pass metadata so the IPC handler can route to the correct flow:
         //   - `deferred_permission` → resume the CLI via the hook bridge
@@ -935,16 +873,8 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
           // A Claude denial is final before the note exists, so the note goes to the agent as its next message.
           // The denial is already accepted by now: if the note fails, the card still closes (a second answer would
           // reach a request that is gone) and the failure is reported where the note can still be typed again.
-          const denyNote = metadataExtras?.['denyNote'];
-          let noteFailure: string | null = null;
-          if (!approved && this.isPermissionDenial(request) && typeof denyNote === 'string' && denyNote.trim()) {
-            try {
-              const sent = await this.ipc.sendInput(request.instanceId, denyNote.trim());
-              if (!sent.success) noteFailure = responseErrorMessage(sent, 'Could not send your note.');
-            } catch (error) {
-              noteFailure = errorMessage(error, 'Could not send your note.');
-            }
-          }
+          const noteFailure = !approved && this.isPermissionDenial(request) && denyNote
+            ? await sendNoteToAgent(this.ipc, request.instanceId, denyNote) : null;
           const resultData = result.data as { yoloMode?: boolean; granted?: boolean } | undefined;
           this.inputRequiredScopes.delete(this.draftKey(request.instanceId, request.id));
           const acknowledgedOnly = rejectLabelFor(meta, this.getInputRequiredScope(request)) === 'OK';
@@ -952,21 +882,9 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
             : receipt ?? choiceFor(request, { approved, scope: decisionScope, acknowledgedOnly }), request.instanceId);
           if (resultData?.yoloMode === true) {
             this.instanceStore.setLocalYoloMode(request.instanceId, true);
-            this.clearCachedInputRequiredForInstance(
-              request.instanceId,
-              (cachedRequest) => shouldClearRequestAfterYoloEnabled(cachedRequest, request.instanceId),
-              'auto_approved',
-            );
-            this.pendingRequests.update((requests) =>
-              requests.filter((r) => !shouldClearRequestAfterYoloEnabled(r, request.instanceId))
-            );
-            this.instanceStore.clearPendingApprovals(request.instanceId);
+            this.clearAfterYoloEnabled(request.instanceId);
           } else {
-            this.eventBus.dismissInputRequired(request.instanceId, request.id);
-            this.pendingRequests.update((requests) =>
-              requests.filter((r) => r.id !== request.id || r.instanceId !== request.instanceId)
-            );
-            if (!this.resolutions.has(this.draftKey(request.instanceId, request.id))) this.instanceStore.decrementPendingApproval(request.instanceId, request.id);
+            this.settleCard(request);
           }
           if (noteFailure) this.toast.show(`Denied, but your note was not sent (${noteFailure.replace(/[.\s]+$/, '')}). Type it in the message box to send it.`, 'error');
           return 'sent';
@@ -1000,9 +918,7 @@ export class UserActionRequestComponent implements OnInit, OnDestroy {
         }
         // Remove the request from the list
         this.receiptStore.chose(request.id, receipt ?? choiceFor(request, { approved, reply: selectedOption }), request.instanceId);
-        this.pendingRequests.update((requests) =>
-          requests.filter((r) => r.id !== request.id || r.instanceId !== request.instanceId)
-        );
+        this.removeCard(request);
         return 'sent';
       }
       setResponseError(this.responseErrors, this.draftKey(request.instanceId, request.id), responseErrorMessage(response, 'Failed to submit your decision.'));

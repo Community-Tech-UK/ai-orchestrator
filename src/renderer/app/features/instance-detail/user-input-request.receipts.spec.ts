@@ -59,16 +59,15 @@ describe('RequestReceiptStore', () => {
     store.closed('shared', 'timeout', 'inst-2');
     store.chose('shared', { kind: 'answered', answer: 'Bun' }, 'inst-1');
     expect(store.forSession('inst-1').map(row => row.text)).toEqual(['You answered: Bun']);
-    expect(store.forSession('inst-2').map(row => row.text)).toEqual(['No answer in time; the question was dropped']);
+    expect(store.forSession('inst-2').map(row => row.text)).toEqual(['No answer in time, so Harness dropped the question']);
   });
 
-  it('says how long an approval waited, measured here, and that nothing ran', () => {
+  it('says an unanswered approval was not allowed, naming the tool', () => {
     const store = new RequestReceiptStore();
     store.shown(approval('r1'));
-    vi.advanceTimersByTime(300_000);
     store.closed('r1', 'timeout', 'inst-1');
     expect(store.forSession('inst-1')[0]).toMatchObject({
-      text: 'No answer in 5 minutes; nothing ran',
+      text: 'No answer in time, so Harness did not allow',
       subject: 'Bash',
     });
   });
@@ -76,16 +75,15 @@ describe('RequestReceiptStore', () => {
   it('words a timed-out question as dropped, not as something that ran', () => {
     const store = new RequestReceiptStore();
     store.shown(question('q1'));
-    vi.advanceTimersByTime(60_000);
     store.closed('q1', 'timeout', 'inst-1');
-    expect(store.forSession('inst-1')[0].text).toBe('No answer in 1 minute; the question was dropped');
+    expect(store.forSession('inst-1')[0].text).toBe('No answer in time, so Harness dropped the question');
   });
 
   it.each([
-    ['decided', 'Answered elsewhere'],
-    ['exited', 'Cancelled when the session closed'],
-    ['cancelled', 'Cancelled when the session was stopped'],
-    ['auto_approved', 'Allowed automatically'],
+    ['decided', 'Answered somewhere else (another window or your phone)'],
+    ['exited', 'Closed because the session ended'],
+    ['cancelled', 'Cancelled because the turn was stopped'],
+    ['auto_approved', 'Allowed automatically because auto-approve is on'],
   ] as const)('words a %s close', (reason, text) => {
     const store = new RequestReceiptStore();
     store.shown(question('q1'));
@@ -103,7 +101,7 @@ describe('RequestReceiptStore', () => {
     store.chose('r2', { kind: 'denied', tool: 'Bash' }, 'inst-1');
     expect(store.forSession('inst-1').map((receipt) => receipt.requestId).sort()).toEqual(['r1', 'r2']);
     expect(store.forSession('inst-1').find((receipt) => receipt.requestId === 'r1')?.text).toBe('You allowed for this session: Bash');
-    expect(store.forSession('inst-1').find((receipt) => receipt.requestId === 'r2')?.text).toBe('No answer in time; nothing ran');
+    expect(store.forSession('inst-1').find((receipt) => receipt.requestId === 'r2')?.text).toBe('No answer in time, so Harness did not allow');
   });
 
   it('starts afresh when an adapter reuses a request id after the first one closed', () => {
@@ -115,8 +113,8 @@ describe('RequestReceiptStore', () => {
     vi.advanceTimersByTime(120_000);
     store.closed('acp_permission:1', 'decided', 'inst-1');
     expect(store.forSession('inst-1').map((receipt) => receipt.text)).toEqual([
-      'Answered elsewhere',
-      'No answer in time; nothing ran',
+      'Answered somewhere else (another window or your phone)',
+      'No answer in time, so Harness did not allow',
     ]);
     expect(store.forSession('inst-1')[0].subject).toBe('Edit');
   });
@@ -126,16 +124,6 @@ describe('RequestReceiptStore', () => {
     store.closed('ghost', 'timeout', 'inst-1');
     store.chose('ghost', { kind: 'skipped' }, 'inst-1');
     expect(store.forSession('inst-1')).toEqual([]);
-  });
-
-  it('measures the wait from the first time a request was shown, not a repeat', () => {
-    const store = new RequestReceiptStore();
-    store.shown(approval('r1'));
-    vi.advanceTimersByTime(120_000);
-    store.shown(approval('r1'));
-    vi.advanceTimersByTime(60_000);
-    store.closed('r1', 'timeout', 'inst-1');
-    expect(store.forSession('inst-1')[0].text).toBe('No answer in 3 minutes; nothing ran');
   });
 
   it('keeps only the three newest receipts for a session', () => {
@@ -166,7 +154,7 @@ describe('RequestReceiptStore', () => {
     // The card is gone (a stale reply dropped it); the reason shows up afterwards.
     vi.advanceTimersByTime(60_000);
     store.closed('r1', 'timeout', 'inst-1');
-    expect(store.forSession('inst-1')[0].text).toBe('No answer in 1 minute; nothing ran');
+    expect(store.forSession('inst-1')[0].text).toBe('No answer in time, so Harness did not allow');
   });
 
   it.each(['before', 'after'] as const)('replaces temporary feedback when durable history arrives %s acknowledgement', order => {

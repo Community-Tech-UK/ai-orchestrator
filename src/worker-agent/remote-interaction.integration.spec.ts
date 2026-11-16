@@ -195,10 +195,14 @@ describe('remote ACP question and native-command wire integration', () => {
     const component = UserActionRequestComponent.prototype as unknown as {
       respond: (this: unknown, request: unknown, approved: boolean, selectedOption: string) => Promise<void>;
       draftKey: (instanceId: string | null, requestId: string) => string;
+      settleCard: (this: unknown, request: unknown) => void;
+      removeCard: (this: unknown, request: unknown) => void;
     };
     const view = { isResponding: signal(false), responseErrors: signal(new Map<string, string>()),
       respond: component.respond,
       draftKey: component.draftKey,
+      settleCard: component.settleCard,
+      removeCard: component.removeCard,
       isPermissionRequest: UserActionRequestComponent.prototype.isPermissionRequest,
       requestClosed: () => false, answering: new Set<string>(), resolutions: new Map<string, never>(),
       receiptStore: { chose: vi.fn(), closed: vi.fn() },

@@ -6866,7 +6866,7 @@
     },
     {
       "path": "src/renderer/app/features/instance-detail/user-action-request.component.spec.ts",
-      "lines": 1307
+      "lines": 1317
     },
     {
       "path": "claude_oct-2-todo.md",
@@ -7225,10 +7225,6 @@
       "lines": 1025
     },
     {
-      "path": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
-      "lines": 1020
-    },
-    {
       "path": "src/main/cli/adapters/base-cli-adapter.ts",
       "lines": 1016
     },
@@ -7390,6 +7386,10 @@
     },
     {
       "path": "packages/contracts/src/schemas/loop.schemas.ts",
+      "lines": 936
+    },
+    {
+      "path": "src/renderer/app/features/instance-detail/user-action-request.component.ts",
       "lines": 936
     },
     {

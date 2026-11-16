@@ -101,26 +101,18 @@ export class AskAnswerDrafts {
     const entries = questionSlots(request) ?? [];
     if (isAcpInputRequired(request)) {
       return JSON.stringify(Object.fromEntries(entries.map((entry, index) => {
-        const { typed, picked } = this.parts(request.id, index);
-        const value = entry.options.length === 0 ? typed
-          : typed ? (entry.multiSelect ? [typed] : typed)
-            : entry.multiSelect ? picked : picked[0];
+        const answer = this.answerParts(request.id, entry, index);
+        const value = entry.multiSelect && entry.options.length > 0 ? answer : answer[0];
         return [entry.header || entry.question, value];
       })));
     }
-    return entries.map((entry, index) => {
-      const { typed, picked } = this.parts(request.id, index);
-      return `${entry.header || entry.question}: ${typed || picked.join(', ')}`;
-    }).join('\n').trim();
+    return entries.map((entry, index) => `${entry.header || entry.question}: ${this.answerParts(request.id, entry, index).join(', ')}`).join('\n').trim();
   }
 
   /** Just the answers, joined on one line, for the receipt. */
   summary(request: UserActionRequest): string {
     return (questionSlots(request) ?? [])
-      .map((_, index) => {
-        const { typed, picked } = this.parts(request.id, index);
-        return typed || picked.join(', ');
-      })
+      .map((entry, index) => this.answerParts(request.id, entry, index).join(', '))
       .filter(Boolean)
       .join('; ');
   }
@@ -160,6 +152,13 @@ export class AskAnswerDrafts {
       typed: (this.texts.get(requestId)?.get(index) ?? '').trim(),
       picked: [...(this.picks.get(requestId)?.get(index) ?? [])],
     };
+  }
+
+  /** What one question answers with: its chosen labels, then the typed text. A single choice is one or the other. */
+  private answerParts(requestId: string, entry: AskUserQuestionEntry, index: number): string[] {
+    const { typed, picked } = this.parts(requestId, index);
+    if (entry.multiSelect) return typed ? [...picked, typed] : picked;
+    return [typed || picked[0]].filter(Boolean);
   }
 
   private isAnswered(requestId: string, entry: AskUserQuestionEntry, index: number): boolean {

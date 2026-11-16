@@ -188,8 +188,7 @@
           } @else if (item.message) {
             @if (requestReceipt(item.message); as receipt) {
               <div class="request-receipt" [attr.data-request-id]="receipt.requestId" [attr.data-outcome]="receipt.outcome">
-                <span>{{ receipt.text }}</span>
-                @if (receipt.subject) { <span> ({{ receipt.subject }})</span> }
+                <span>{{ receipt.text }}@if (receipt.subject) {: {{ receipt.subject }}}</span>
               </div>
             } @else if (isCompactionBoundary(item.message)) {
               <div class="compaction-boundary">

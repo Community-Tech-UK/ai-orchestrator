@@ -365,7 +365,7 @@ describe('OutputStreamComponent turn notes', () => {
     ]);
     const receipts = host.querySelectorAll('.request-receipt');
     expect(receipts).toHaveLength(2);
-    expect(text(receipts[0])).toBe('You allowed this once. (Read)');
+    expect(text(receipts[0])).toBe('You allowed this once.: Read');
     expect(receipts[0].getAttribute('data-request-id')).toBe('request-1');
     expect(text(receipts[1])).toBe('You answered.');
     expect(host.querySelector('.message-system, app-system-event-group')).toBeNull();

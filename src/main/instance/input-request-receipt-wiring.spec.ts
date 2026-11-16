@@ -50,7 +50,7 @@ describe('bindInputRequestReceipts', () => {
 
       manager.emit('instance:input-required-resolved', { instanceId: 'i-1', requestId: 'perm-1', reason: 'timeout' });
 
-      expect(lines).toEqual(['No answer in time; nothing ran']);
+      expect(lines).toEqual(['No answer in time, so Harness did not allow']);
     });
 
     it('ignores a reason it does not know rather than guessing one', () => {
@@ -69,7 +69,7 @@ describe('bindInputRequestReceipts', () => {
       expect(lines).toEqual([]);
       manager.emit('instance:state-changed', { instanceId: 'i-1', status: 'interrupting' });
 
-      expect(lines).toEqual(['Cancelled when the session was stopped', 'Cancelled when the session was stopped']);
+      expect(lines).toEqual(['Cancelled because the turn was stopped', 'Cancelled because the turn was stopped']);
     });
 
     it('forgets a session that was removed', () => {
@@ -88,7 +88,7 @@ describe('bindInputRequestReceipts', () => {
       expect(lines).toEqual([]);
       manager.emit('instance:yolo-toggled', { instanceId: 'i-1', yoloMode: true });
 
-      expect(lines).toEqual(['Allowed automatically']);
+      expect(lines).toEqual(['Allowed automatically because auto-approve is on']);
     });
   });
 
@@ -100,7 +100,7 @@ describe('bindInputRequestReceipts', () => {
 
       orchestration.emit('user-action-resolved', settled);
 
-      expect(lines).toEqual(['No answer in 5 minutes; nothing ran']);
+      expect(lines).toEqual(['No answer in time, so Harness did not allow']);
       expect(resolvedForWindows).toEqual([{ instanceId: 'i-1', requestId: 'uar-1', reason: 'timeout', kind: 'user-action' }]);
     });
 

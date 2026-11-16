@@ -478,7 +478,7 @@ describe('answering a waiting question from the message box', () => {
       onResolved({ instanceId: 'inst-a', requestId: 'acp_permission:7', reason: 'timeout' });
       fixture.detectChanges();
 
-      expect(receiptLines()).toEqual(['No answer in 5 minutes; nothing ran']);
+      expect(receiptLines()).toEqual(['No answer in time, so Harness did not allow: rm answer.txt']);
       expect(text()).not.toContain('Allow rm?');
     });
 
@@ -492,10 +492,10 @@ describe('answering a waiting question from the message box', () => {
     });
 
     it.each([
-      ['decided', 'Answered elsewhere'],
-      ['exited', 'Cancelled when the session closed'],
-      ['cancelled', 'Cancelled when the session was stopped'],
-      ['auto_approved', 'Allowed automatically'],
+      ['decided', 'Answered somewhere else (another window or your phone)'],
+      ['exited', 'Closed because the session ended'],
+      ['cancelled', 'Cancelled because the turn was stopped'],
+      ['auto_approved', 'Allowed automatically because auto-approve is on'],
     ])('says %s plainly', async (reason, line) => {
       await show('perm-1', { type: 'acp_permission_request', transport: 'acp' }, 'Allow it?');
       onResolved({ instanceId: 'inst-a', requestId: 'perm-1', reason });
@@ -512,7 +512,7 @@ describe('answering a waiting question from the message box', () => {
       await settle();
 
       expect(text()).not.toContain('Which posting flow?');
-      expect(receiptLines()).toEqual(['Cancelled when the session closed']);
+      expect(receiptLines()).toEqual(['Closed because the session ended']);
       expect(await registry().offer('inst-a', 'autonomous')).toBe('not-applicable');
     });
 
@@ -523,7 +523,7 @@ describe('answering a waiting question from the message box', () => {
       fixture.detectChanges();
       await settle();
 
-      expect(receiptLines()).toEqual(['Cancelled when the session was stopped']);
+      expect(receiptLines()).toEqual(['Cancelled because the turn was stopped: Bash']);
     });
 
     it('does not call it "answered elsewhere" when the reply was this window\'s own', async () => {
@@ -566,7 +566,7 @@ describe('answering a waiting question from the message box', () => {
       });
       expect(await registry().offer('inst-a', 'Bun')).toBe('not-applicable');
       await settle();
-      expect(receiptLines()).toEqual(['No answer in time; the question was dropped']);
+      expect(receiptLines()).toEqual(['No answer in time, so Harness dropped the question']);
     });
 
     it('keeps only the receipts for the session being shown', async () => {
@@ -578,7 +578,7 @@ describe('answering a waiting question from the message box', () => {
       instanceId.set('inst-b');
       fixture.detectChanges();
       await settle();
-      expect(receiptLines()).toEqual(['Answered elsewhere']);
+      expect(receiptLines()).toEqual(['Answered somewhere else (another window or your phone): ls']);
     });
   });
 

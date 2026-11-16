@@ -8,6 +8,7 @@ import {
   canAddClaudeAllowRule,
   decisionFor,
   permissionAskKind,
+  permissionReplyText,
   permissionScopesFor,
   rejectLabelFor,
   scopeOptionLabel,
@@ -147,5 +148,18 @@ describe('live card tools and refusal notes', () => {
       expect(permissionHintFor(meta, 'once')).toBe('Allows only this call.');
       expect(permissionHintFor(meta, 'always')).toContain('Settings > Permissions > Rules');
     }
+  });
+});
+
+describe('permissionReplyText', () => {
+  it('tells the agent to retry the specific action when the card named one', () => {
+    expect(permissionReplyText({ action: 'edit', path: '/tmp/a.ts' }, true)).toBe('Permission granted. Please proceed to edit /tmp/a.ts.');
+    expect(permissionReplyText({}, true)).toBe('Permission granted. Please proceed with the operation.');
+  });
+
+  it('uses the typed note as the reason only for a held call', () => {
+    expect(permissionReplyText({ type: 'deferred_permission' }, false, '  use /tmp instead ')).toBe('use /tmp instead');
+    expect(permissionReplyText({ type: 'permission_denial' }, false, 'use /tmp instead')).toBe('Permission denied. Please do not perform that operation.');
+    expect(permissionReplyText({ type: 'deferred_permission' }, false, '   ')).toBe('Permission denied. Please do not perform that operation.');
   });
 });
