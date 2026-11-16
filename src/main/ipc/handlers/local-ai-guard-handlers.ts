@@ -286,7 +286,7 @@ function registerUnavailableHandlers(
     success: false,
     error: {
       code: 'LOCAL_AI_GUARD_RUNTIME_UNAVAILABLE',
-      message: 'Local AI Guard is unavailable for this session.',
+      message: 'Local models are unavailable for this session.',
       timestamp: Date.now(),
     },
   });
@@ -383,7 +383,7 @@ async function safeOperation<T>(
       success: false,
       error: {
         code,
-        message: 'The Local AI Guard operation could not be completed.',
+        message: 'The local models operation could not be completed.',
         timestamp: Date.now(),
       },
     };
@@ -395,7 +395,7 @@ function unavailableResponse<T>(): IpcResponse<T> {
     success: false,
     error: {
       code: 'LOCAL_AI_GUARD_RUNTIME_UNAVAILABLE',
-      message: 'Local AI Guard is unavailable for this session.',
+      message: 'Local models are unavailable for this session.',
       timestamp: Date.now(),
     },
   };

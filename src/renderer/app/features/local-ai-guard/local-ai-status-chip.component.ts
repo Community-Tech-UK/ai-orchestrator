@@ -4,7 +4,7 @@ import { LocalAiGuardStore } from '../../core/state/local-ai-guard.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
 import { localAiTargetFailureReason } from './local-ai-failure-copy';
 
-type ChipTone = 'degraded' | 'unavailable' | 'paused';
+type ChipTone = 'checking' | 'degraded' | 'unavailable' | 'paused';
 
 interface ChipView {
   tone: ChipTone;
@@ -21,9 +21,9 @@ const lowerFirst = (text: string): string => `${text.charAt(0).toLowerCase()}${t
 let nextDescriptionId = 0;
 
 /**
- * Title-bar chip for the local models. Healthy means hidden: it appears only
- * when something needs a look (paused, not working, the helper
- * models' daily limit reached, or the status itself could not be read), and says
+ * Title-bar chip for the local models. Healthy means hidden: it appears for
+ * every state except healthy and not set up (checking, paused, not working, the
+ * helper models' daily limit reached, or the status itself could not be read), and says
  * so in plain words. With nothing set up, or everything working, it renders
  * nothing and takes no room.
  *
@@ -172,8 +172,11 @@ export class LocalAiStatusChipComponent {
           : { tone: 'unavailable', text: 'Local models: not reachable', detail: "Harness can't reach some of your local models." };
       case 'paused':
         return { tone: 'paused', text: 'Local models: paused', detail: "Your local models are paused, so Harness isn't using them." };
+      case 'checking':
+        // Set up but not checked yet: never "unavailable", just say so.
+        return { tone: 'checking', text: 'Local models: checking…', detail: "Harness is still checking your local models." };
       default:
-        // Healthy, nothing set up, or still checking (over in a moment): hidden.
+        // Healthy or nothing set up: hidden.
         return null;
     }
   });

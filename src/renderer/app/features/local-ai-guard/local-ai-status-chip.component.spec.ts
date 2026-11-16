@@ -93,13 +93,24 @@ describe('LocalAiStatusChipComponent', () => {
     return { fixture, button, tooltip };
   }
 
-  it.each(['not-configured', 'checking', 'healthy'] as const)('shows nothing while the local models are %s', (state) => {
+  it.each(['not-configured', 'healthy'] as const)('shows nothing while the local models are %s', (state) => {
     currentAggregate.set(aggregate(state, state === 'not-configured' ? 0 : 2));
 
     const { fixture, button } = render();
 
     expect(button).toBeNull();
     expect(fixture.nativeElement.textContent.trim()).toBe('');
+  });
+
+  it('says "checking" in plain words while configured models are still being checked', () => {
+    currentAggregate.set(aggregate('checking', 2));
+
+    const { button, tooltip } = render();
+
+    expect(button?.textContent?.trim()).toBe('Local models: checking…');
+    expect(button?.dataset['state']).toBe('checking');
+    expect(button?.textContent).not.toMatch(/unavailable/i);
+    expect(tooltip).toBe('Harness is still checking your local models. Open Local models.');
   });
 
   it('preserves the complete helper pause explanation on the real directive and shows it on keyboard focus', () => {

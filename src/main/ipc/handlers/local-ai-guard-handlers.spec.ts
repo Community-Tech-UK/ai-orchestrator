@@ -552,7 +552,7 @@ describe('registerLocalAiGuardHandlers', () => {
         success: false,
         error: {
           code: 'LOCAL_AI_GUARD_SUMMARY_FAILED',
-          message: 'The Local AI Guard operation could not be completed.',
+          message: 'The local models operation could not be completed.',
         },
       });
       expect(JSON.stringify(response).length).toBeLessThan(512);
@@ -790,7 +790,7 @@ describe('registerLocalAiGuardHandlers', () => {
       success: false,
       error: {
         code: 'LOCAL_AI_GUARD_SNAPSHOT_FAILED',
-        message: 'The Local AI Guard operation could not be completed.',
+        message: 'The local models operation could not be completed.',
       },
     });
     expect(JSON.stringify(response)).not.toContain('SECRET');
@@ -806,7 +806,7 @@ describe('registerLocalAiGuardHandlers', () => {
       success: false,
       error: {
         code: 'LOCAL_AI_GUARD_SNAPSHOT_FAILED',
-        message: 'The Local AI Guard operation could not be completed.',
+        message: 'The local models operation could not be completed.',
       },
     });
     expect(failed).not.toHaveProperty('data');
@@ -862,7 +862,7 @@ describe('registerLocalAiGuardHandlers', () => {
       success: false,
       error: {
         code: 'LOCAL_AI_GUARD_RUNTIME_UNAVAILABLE',
-        message: 'Local AI Guard is unavailable for this session.',
+        message: 'Local models are unavailable for this session.',
       },
     });
     expect(JSON.stringify(await invoke(IPC_CHANNELS.LOCAL_AI_GUARD_GET_SNAPSHOT)))
