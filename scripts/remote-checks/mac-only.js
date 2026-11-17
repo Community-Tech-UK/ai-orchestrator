@@ -13,6 +13,8 @@ const MAC_ONLY_SPECS = [
   'src/main/cli/rtk/__tests__/rtk-tracking-reader.spec.ts',
   // Connection migration verifies macOS ACLs with the real chmod and ls tools.
   'src/worker-agent/cli/update-connection-cli.spec.ts',
+  // HEIC conversion uses macOS's sips to build and convert a real image fixture.
+  'src/main/services/heic-converter.spec.ts',
   'scripts/remote-checks/run-tests-quiet-remote.spec.ts',
   // Undistilled's recipe exists only on a Mac.
   'scripts/remote-checks/harness-remote-check.spec.ts',

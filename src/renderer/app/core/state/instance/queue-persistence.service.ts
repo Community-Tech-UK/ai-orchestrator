@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { InstanceIpcService, type PersistedQueuedMessage, type QueuedMessageDTO } from '../../services/ipc/instance-ipc.service';
+import { FileIpcService } from '../../services/ipc/file-ipc.service';
 import type { FileAttachment } from '../../../../../shared/types/instance.types';
 import { SettingsStore } from '../settings.store';
 import { ToastService } from '../../services/toast.service';
@@ -37,6 +38,7 @@ const MAX_ENQUEUE_ATTEMPTS = 6;
 export class QueuePersistenceService {
   private stateService = inject(InstanceStateService);
   private ipc = inject(InstanceIpcService);
+  private fileIpc = inject(FileIpcService);
   private settings = inject(SettingsStore);
   private toast = inject(ToastService);
   private admissionIdByEntry = new WeakMap<QueuedMessage, string>();
@@ -281,7 +283,7 @@ export class QueuePersistenceService {
 
   private async filesToAttachments(files: File[]): Promise<FileAttachment[] | undefined> {
     try {
-      return (await Promise.all(files.map((f) => fileToAttachments(f)))).flat();
+      return (await Promise.all(files.map((f) => fileToAttachments(f, (heic) => this.fileIpc.convertHeicToJpeg(heic))))).flat();
     } catch (error) {
       // Durability is additive — an attachment that fails to convert here
       // just means this queued message isn't crash-safe; it must never block

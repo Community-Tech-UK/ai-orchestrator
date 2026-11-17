@@ -724,13 +724,13 @@ Most of the 10 October screen work (C2, C3c-g, C4, C8, C9, C12, C13) is already 
 - **What's wrong.**
   - **A MiMo account has five names:** "OpenCode" (popover and model menu), "OC" (strip), "MiMo" (Settings), "MiMo Token Plan" (account chip) and "xiaomi-token-plan" (a plan-queue error).
   - **Codex is named in 17 maps with four spellings**, and Grok in two.
-  - **The quota strip still uses CC/CX/GM/AG/CP/CU/GX/OC,** where CU is Cursor while every session header uses CU for Computer Use.
+  - **The quota strip still uses CC/CX/GM/AG/CP/CU/GX/OC,** where CU is Cursor while every session header uses CU for Computer Use. (Superseded: James decided on 15 Nov 2026 that the strip keeps two-letter codes and one figure per account.)
   - **"Reauth" and shell commands sit in the title bar** ("Run `gh auth login` …").
   - **Other computers have five names:** "Remote Nodes", "Worker Nodes", "computers", "browser computer" and "worker node".
 - **Fix.** `src/shared/display-names.ts` with `providerName(id, {long?})`, `accountFamilyName`, `computerName(node)` and `PRODUCT_NAME = 'Harness'`.
   - Replace the 17 maps, with a guard spec that fails on any new local display map.
   - MiMo reads "MiMo" everywhere, with "via OpenCode" only under Details.
-  - The strip shows short names plus the worst percentage, with account names in the popover.
+  - The strip shows short names plus the worst percentage, with account names in the popover. (Superseded: James decided on 15 Nov 2026 that the strip keeps two-letter codes and one figure per account.)
   - A signed-out account becomes "Signed out of <name>. [Sign in]".
   - Word list: "your other computers" and "this Mac"; "node" and "worker" only under Details.
 - **Sources:** UX2-3, UX2-9. Extends C7.

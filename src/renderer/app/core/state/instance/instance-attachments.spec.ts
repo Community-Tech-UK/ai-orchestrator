@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest';
-import { validateAttachmentCount, validateFiles, type InstanceAttachment } from './instance-attachments';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  fileToAttachments,
+  isHeicFile,
+  validateAttachmentCount,
+  validateFiles,
+  type InstanceAttachment,
+} from './instance-attachments';
 import { FILE_LIMITS } from './instance.types';
 import { InstanceCreateWithMessagePayloadSchema } from '@contracts/schemas/instance';
 
@@ -104,5 +110,35 @@ describe('renderer/main attachment-limit parity', () => {
       InstanceCreateWithMessagePayloadSchema.safeParse(payload(FILE_LIMITS.MAX_ATTACHMENTS + 1))
         .success,
     ).toBe(false);
+  });
+});
+
+describe('HEIC photos', () => {
+  it('recognises iPhone photos by MIME type or by extension', () => {
+    expect(isHeicFile(new File([], 'IMG_1531.HEIC', { type: 'image/heic' }))).toBe(true);
+    expect(isHeicFile(new File([], 'photo.heif', { type: 'image/heif' }))).toBe(true);
+    // Loaded from a path or dropped with no type: only the extension says what it is.
+    expect(isHeicFile(new File([], 'IMG_1531.HEIC', { type: '' }))).toBe(true);
+    expect(isHeicFile(new File([], 'IMG_1531.heic', { type: 'application/octet-stream' }))).toBe(true);
+    expect(isHeicFile(new File([], 'shot.png', { type: 'image/png' }))).toBe(false);
+    expect(isHeicFile(new File([], 'heic-notes.txt', { type: 'text/plain' }))).toBe(false);
+  });
+
+  it('converts a HEIC photo before trying to load it as an image', async () => {
+    const photo = new File([new Uint8Array([1])], 'IMG_1531.HEIC', { type: 'image/heic' });
+    const convertHeic = vi.fn().mockRejectedValue(new Error('HEIC photos can only be converted on a Mac.'));
+
+    await expect(fileToAttachments(photo, convertHeic)).rejects.toThrow('HEIC photos can only be converted on a Mac.');
+    expect(convertHeic).toHaveBeenCalledWith(photo);
+  });
+
+  it('leaves other files alone', async () => {
+    const notes = new File(['hello'], 'notes.txt', { type: 'text/plain' });
+    const convertHeic = vi.fn();
+
+    const [attachment] = await fileToAttachments(notes, convertHeic);
+
+    expect(convertHeic).not.toHaveBeenCalled();
+    expect(attachment).toMatchObject({ name: 'notes.txt', type: 'text/plain', size: 5 });
   });
 });

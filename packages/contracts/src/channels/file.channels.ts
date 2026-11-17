@@ -42,6 +42,7 @@ export const FILE_CHANNELS = {
   IMAGE_COPY_MESSAGE: 'image:copy-message',
   IMAGE_CONTEXT_MENU: 'image:context-menu',
   IMAGE_RESOLVE: 'image:resolve',
+  IMAGE_CONVERT_HEIC: 'image:convert-heic',
 
   // File Watcher
   WATCHER_START: 'watcher:start',

@@ -15,7 +15,7 @@ import type { InputContextDelivery } from '../../shared/types/input-context-deli
 import { applyInputContextDelivery } from '../../shared/utils/input-context-delivery';
 import type { UserPromptRef } from '../../shared/types/prompt-index.types';
 import { getLogger } from '../logging/logger';
-import { readableChunkPositions, rebuildStorageIndex, type StorageIndex, type StorageMetadata } from './output-storage-index';
+import { readableChunkPositions, type StorageIndex, type StorageMetadata } from './output-storage-index';
 
 const logger = getLogger('OutputStorage');
 
@@ -100,7 +100,7 @@ export class OutputStorageManager {
   constructor() {
     this.storageDir = path.join(app.getPath('userData'), 'output-storage');
     this.ensureStorageDir();
-    this.recoverUnindexedStorage(this.loadIndices());
+    this.removeLostStorage(this.loadIndices());
   }
 
   /**
@@ -523,29 +523,19 @@ export class OutputStorageManager {
   }
 
   /**
-   * Folders whose index is missing or garbled hold messages nothing could read, page or archive, and the size limit
-   * never counted them (an index rewritten in place could be left part-written; index writes are now atomic). Each is
-   * given its index back from its chunk files, one folder at a time in the background, so the size limit treats it like
-   * any other stored output. A folder with no chunks is removed.
+   * Folders whose index is missing or garbled hold messages nothing can read, page or archive, and the size limit never
+   * counts them. They were left by part-written indexes (index writes are now atomic) and unfinished deletions, and the
+   * user chose to delete them (16 Nov 2026). Removed one at a time in the background, each in its own write queue.
    */
-  private recoverUnindexedStorage(dirs: readonly string[]): void {
-    // Every folder is queued now, so a reader waits for its rebuild, but they run one after another.
+  private removeLostStorage(dirs: readonly string[]): void {
     let previous: Promise<void> = Promise.resolve();
     for (const dir of dirs) {
       const prior = previous;
       previous = this.enqueueWrite(dir, async () => {
         await prior;
-        const instanceDir = path.join(this.storageDir, dir);
-        const rebuilt = await rebuildStorageIndex(instanceDir, dir);
-        if (!rebuilt) {
-          await fs.promises.rm(instanceDir, { recursive: true, force: true });
-          return;
-        }
-        this.indices.set(dir, rebuilt.index);
-        await this.saveIndex(dir, rebuilt.index);
-        logger.info('Rebuilt a lost output storage index', { instanceId: dir, chunks: rebuilt.index.chunks.length,
-          unreadableChunks: rebuilt.unreadableChunks });
-      }).catch((error: unknown) => logger.warn('Could not rebuild a lost output storage index', {
+        await fs.promises.rm(path.join(this.storageDir, dir), { recursive: true, force: true });
+        logger.info('Removed stored output that had no readable index', { instanceId: dir });
+      }).catch((error: unknown) => logger.warn('Could not remove stored output that had no readable index', {
         instanceId: dir, error: error instanceof Error ? error.message : String(error),
       }));
     }

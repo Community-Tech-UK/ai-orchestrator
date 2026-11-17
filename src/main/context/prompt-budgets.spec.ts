@@ -25,6 +25,7 @@ import { SUMMARIZE_SYSTEM_PROMPT, SUBQUERY_SYSTEM_PROMPT } from '../rlm/llm-serv
 import { buildTitleUserPrompt, TITLE_SYSTEM_PROMPT } from '../instance/auto-title-prompt';
 import { CodexStandingNotes } from '../cli/adapters/codex/codex-standing-notes';
 import { PROMPT_SURFACES } from '../logging/prompt-surfaces';
+import { WATCHER_JUDGE_SYSTEM_PROMPT } from '../session-watcher/watcher-judge-prompt';
 import { loopPromptSurface } from '../orchestration/loop-child-invoker';
 import { queuePromptSurface } from '../plan-queue/plan-queue-prompt-surface';
 
@@ -166,6 +167,8 @@ const BUDGET = {
   summaryHelper: { chars: 400, render: () => SUMMARIZE_SYSTEM_PROMPT },
   subqueryHelper: { chars: 300, render: () => SUBQUERY_SYSTEM_PROMPT },
   titleSystem: { chars: 700, render: () => TITLE_SYSTEM_PROMPT },
+  // Session watcher judge, measured 16 Nov 2026 at 3,144 characters; its input is bounded by watcher-brief.spec.ts.
+  watcherJudgeSystem: { chars: 3200, render: () => WATCHER_JUDGE_SYSTEM_PROMPT },
   // Auto-title cuts the message to 2,000 characters plus '...' (MAX_INPUT_LENGTH), then JSON-escapes it: every '<'
   // becomes 6 characters. The logged key `titleRequest` covers every title request, so its ceiling is that worst
   // case (12,239 chars); ordinary 2,000-character prose renders 2,239 and a short message 260.

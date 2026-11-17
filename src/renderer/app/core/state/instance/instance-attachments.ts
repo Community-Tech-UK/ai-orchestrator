@@ -63,7 +63,18 @@ export function validateAttachmentCount(attachments: InstanceAttachment[], stage
   );
 }
 
-export async function fileToAttachments(file: File): Promise<InstanceAttachment[]> {
+/** Converts a HEIC/HEIF photo, which Chromium cannot decode, into a JPEG `File`. */
+export type HeicConverter = (file: File) => Promise<File>;
+
+const HEIC_MIME_TYPES = new Set(['image/heic', 'image/heif', 'image/heic-sequence', 'image/heif-sequence']);
+
+/** iPhone photos arrive as HEIC; a file loaded from a path may carry no MIME type, so the extension counts too. */
+export function isHeicFile(file: File): boolean {
+  return HEIC_MIME_TYPES.has(file.type.toLowerCase()) || /\.hei[cf]$/i.test(file.name);
+}
+
+export async function fileToAttachments(input: File, convertHeic: HeicConverter): Promise<InstanceAttachment[]> {
+  const file = isHeicFile(input) ? await convertHeic(input) : input;
   const isImage = file.type.startsWith('image/');
 
   if (!isImage) {

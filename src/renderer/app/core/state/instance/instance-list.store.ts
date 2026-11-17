@@ -7,7 +7,7 @@
 
 import type { TerminationPolicy } from '../../../../../shared/types/supervision.types';
 import { Injectable, inject } from '@angular/core';
-import { IpcFacadeService } from '../../services/ipc';
+import { FileIpcService, IpcFacadeService } from '../../services/ipc';
 import { ProviderStateService, type ProviderType } from '../../services/provider-state.service';
 import { InstanceStateService } from './instance-state.service';
 import { ToastService } from '../../services/toast.service';
@@ -54,6 +54,7 @@ function describeResyncFailure(error: { code?: string; message?: string } | unde
 export class InstanceListStore {
   private stateService = inject(InstanceStateService);
   private ipc = inject(IpcFacadeService);
+  private fileIpc = inject(FileIpcService);
   private providerState = inject(ProviderStateService);
   private toast = inject(ToastService);
 
@@ -837,6 +838,6 @@ export class InstanceListStore {
    * the Claude API's multi-image dimension limit.
    */
   async fileToAttachments(file: File): Promise<InstanceAttachment[]> {
-    return fileToAttachments(file);
+    return fileToAttachments(file, (heic) => this.fileIpc.convertHeicToJpeg(heic));
   }
 }

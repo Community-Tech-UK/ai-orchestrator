@@ -8,6 +8,7 @@ import type {
   ImageResolveResponse,
 } from '@contracts/schemas/image';
 import { ElectronIpcService, IpcResponse, FileEntry } from './electron-ipc.service';
+import { presentError } from '../../../../../shared/present-error';
 
 @Injectable({ providedIn: 'root' })
 export class FileIpcService {
@@ -97,6 +98,26 @@ export class FileIpcService {
       view[i] = binary.charCodeAt(i);
     }
     return { buffer, truncated: data.truncated, totalSize: data.totalSize };
+  }
+
+  /**
+   * Convert a HEIC/HEIF photo to a JPEG `File`. Chromium cannot decode HEIC,
+   * so the main process converts it. Failures offer an alternative format;
+   * the main process's diagnostic is kept in the cause for Details.
+   */
+  async convertHeicToJpeg(file: File): Promise<File> {
+    if (!this.api) {
+      throw new Error(`HEIC photo ${file.name} can only be converted in the desktop app`);
+    }
+    const response = await this.api.imageConvertHeic({ data: new Uint8Array(await file.arrayBuffer()) });
+    if (!response.success) {
+      throw new Error('This photo could not be converted. Save it as JPEG or PNG and attach that instead.', {
+        cause: presentError(response.error).rawDetail,
+      });
+    }
+    const { data } = response.data as { data: Uint8Array<ArrayBuffer> };
+    const jpegName = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+    return new File([data], jpegName, { type: 'image/jpeg' });
   }
 
   /**

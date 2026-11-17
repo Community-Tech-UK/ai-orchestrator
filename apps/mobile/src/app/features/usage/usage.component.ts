@@ -17,7 +17,7 @@ export interface UsageStripEntry {
   readonly parts: UsageStripPart[];
 }
 
-/** One strip value per account, matching the desktop quota strip: "Claude 42% · 7%". */
+/** One strip value per account, like the desktop quota strip ("CL 42%·7%"). */
 export function usageStripPart(account: UsageAccountView): UsageStripPart | null {
   if (account.needsReauth) return { text: 'sign in', band: 'critical', stale: false };
   const stale = account.freshness !== 'fresh';

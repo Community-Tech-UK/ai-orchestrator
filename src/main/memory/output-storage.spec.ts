@@ -267,39 +267,36 @@ describe('OutputStorageManager start-up and index writes', () => {
     fs.rmSync(tempUserData, { recursive: true, force: true });
   });
 
-  it('rebuilds a missing or garbled index from its chunk files at start-up, and removes an empty folder', async () => {
+  it('removes stored output whose index is missing or garbled at start-up, and keeps readable storage', async () => {
     const first = new OutputStorageManager();
     await first.storeMessages('kept', [msg('assistant', 'still readable')]);
     const dirOf = (dir: string) => path.join(tempUserData, 'output-storage', dir);
+    for (const dir of ['no-index', 'garbled-index', 'empty']) fs.mkdirSync(dirOf(dir), { recursive: true });
     for (const dir of ['no-index', 'garbled-index']) {
-      fs.mkdirSync(dirOf(dir), { recursive: true });
-      fs.writeFileSync(path.join(dirOf(dir), 'chunk-000003.gz'), zlib.gzipSync(JSON.stringify([msg('user', `${dir} first`), msg('assistant', `${dir} reply`)])));
-      fs.writeFileSync(path.join(dirOf(dir), 'chunk-000007.gz'), zlib.gzipSync(JSON.stringify([msg('assistant', `${dir} later`)])));
+      fs.writeFileSync(path.join(dirOf(dir), 'chunk-000003.gz'), zlib.gzipSync(JSON.stringify([msg('assistant', dir)])));
     }
     fs.writeFileSync(indexPath('garbled-index'), '{"instanceId": "garbled-in');
-    fs.mkdirSync(dirOf('empty'));
 
     const restarted = new OutputStorageManager();
-    for (const dir of ['no-index', 'garbled-index']) {
-      expect((await restarted.loadMessages(dir)).map((m) => m.content)).toEqual([`${dir} first`, `${dir} reply`, `${dir} later`]);
-      expect(readIndex(dir)).toMatchObject({ totalMessages: 3, chunks: [{ chunkIndex: 3, messageCount: 2 }, { chunkIndex: 7, messageCount: 1 }] });
+    for (const dir of ['no-index', 'garbled-index', 'empty']) {
+      await restarted.flushInstance(dir);
+      expect(fs.existsSync(dirOf(dir))).toBe(false);
     }
-    await restarted.storeMessages('no-index', [msg('assistant', 'written after the rebuild')]);
-    expect((readIndex('no-index') as { chunks: { chunkIndex: number }[] }).chunks.at(-1)?.chunkIndex).toBe(8);
-    await vi.waitFor(() => expect(fs.existsSync(dirOf('empty'))).toBe(false));
     expect((await restarted.loadMessages('kept')).map((m) => m.content)).toEqual(['still readable']);
   });
 
   it('leaves a folder alone when its index cannot be read for another reason', async () => {
-    const dir = path.join(tempUserData, 'output-storage', 'busy');
-    fs.mkdirSync(path.join(dir, 'index.json'), { recursive: true });
-    fs.writeFileSync(path.join(dir, 'chunk-000000.gz'), zlib.gzipSync(JSON.stringify([msg('assistant', 'kept')])));
+    const dirOf = (dir: string) => path.join(tempUserData, 'output-storage', dir);
+    fs.mkdirSync(path.join(dirOf('busy'), 'index.json'), { recursive: true });
+    fs.writeFileSync(path.join(dirOf('busy'), 'chunk-000000.gz'), zlib.gzipSync(JSON.stringify([msg('assistant', 'kept')])));
+    fs.mkdirSync(dirOf('lost'), { recursive: true });
 
     const storage = new OutputStorageManager();
-    await storage.flushInstance('busy');
-
-    expect(fs.existsSync(path.join(dir, 'chunk-000000.gz'))).toBe(true);
-    expect(fs.statSync(path.join(dir, 'index.json')).isDirectory()).toBe(true);
+    // The lost folder's removal is queued after any earlier ones, so once it is gone the start-up pass is over.
+    await storage.flushInstance('lost');
+    expect(fs.existsSync(dirOf('lost'))).toBe(false);
+    expect(fs.existsSync(path.join(dirOf('busy'), 'chunk-000000.gz'))).toBe(true);
+    expect(vi.mocked(getLogger).mock.results[0]!.value.error).toHaveBeenCalledWith('Failed to load index', expect.anything(), { dir: 'busy' });
   });
 
   it('writes the index through a temporary file so a failed write leaves the previous index', async () => {

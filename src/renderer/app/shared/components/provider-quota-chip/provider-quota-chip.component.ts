@@ -108,7 +108,11 @@ const NEUTRAL = { fg: '#9a9aa0', bg: 'rgba(154,154,160,0.10)' };
           @if (stripEntries().length > 0) {
             @for (entry of stripEntries(); track entry.provider) {
               <span class="provider-entry" [style.color]="entry.fg">
-                <span class="provider-name">{{ entry.name }}</span>{{ ' ' }}<span class="provider-value">{{ entry.text }}</span>
+                <span class="provider-name">{{ entry.name }}</span>{{ ' ' }}<span class="provider-value">
+                  @for (part of entry.parts; track $index) {
+                    @if (!$first) {<span class="account-separator">·</span>}<span class="account-value" [style.color]="part.fg">{{ part.text }}</span>
+                  }
+                </span>
                 @if (pacingProvider() === entry.provider) {
                   <svg
                     class="pacing-badge"
@@ -223,7 +227,8 @@ const NEUTRAL = { fg: '#9a9aa0', bg: 'rgba(154,154,160,0.10)' };
     .provider-entry { display: inline-flex; align-items: baseline; gap: 3px; }
     .provider-name { font-weight: 700; }
     .provider-value { opacity: 0.82; font-variant-numeric: tabular-nums; }
-        .pacing-badge { width: 11px; height: 11px; color: #f6c453; flex-shrink: 0; }
+    .account-separator { margin: 0 2px; opacity: 0.55; }
+    .pacing-badge { width: 11px; height: 11px; color: #f6c453; flex-shrink: 0; }
     .text { text-transform: none; }
     .account-rows { display: contents; }
     .account-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; font-size: 0.72rem; }
@@ -395,8 +400,8 @@ export class ProviderQuotaChipComponent implements OnInit, OnDestroy {
   });
 
   /**
-   * One entry per provider: its short name and its worst figure ("Claude 100%").
-   * The popover names each account and gives every figure.
+   * One entry per provider: its code and a part per account, in the popover's
+   * account order ("CL 100%·11%·–"). The popover names each account.
    */
   readonly stripEntries = computed<QuotaStripEntry[]>(() => {
     const snaps = this.store.snapshots();

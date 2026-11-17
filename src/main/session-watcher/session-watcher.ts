@@ -322,14 +322,7 @@ export class SessionWatcher extends EventEmitter {
       const brief = buildWatcherBrief(mergeWatcherMessages(instance.retainedPrompts, instance.outputBuffer));
       const skipped = watcherReplySkipReason(brief.finalReplyFull, brief.personTexts.length, model);
       if (skipped) { this.settle(instanceId, job, { skipped, outcome: 'not_sent' }); return null; }
-      // A session on another computer has its folder there. A read that stalls (a hung network drive) must not keep
-      // this judge slot: after a short wait the judge goes without, as it does for a folder with no file.
-      const projectInstructions = instance.executionLocation.type === 'local'
-        ? await Promise.race([
-          readWatcherProjectInstructions(instance.workingDirectory),
-          abortable(INSTRUCTIONS_WAIT_MS, signal).then(() => ''),
-        ])
-        : '';
+      const projectInstructions = await this.projectInstructions(instance, signal);
       if (signal.aborted) return null;
 
       const call = new AbortController();
@@ -392,6 +385,31 @@ export class SessionWatcher extends EventEmitter {
         return null;
       }
       return { decision, record };
+    }
+  }
+
+  /**
+   * The start of the session folder's instruction file. A session on another computer has its folder there. A read
+   * that stalls (a hung network drive) must not keep the judge slot: after a short wait, or once the stop is over,
+   * the judge goes without, as it does for a folder with no file.
+   */
+  private async projectInstructions(instance: Instance, signal: AbortSignal): Promise<string> {
+    if (instance.executionLocation.type !== 'local') return '';
+    const wait = new AbortController();
+    const stopWaiting = (): void => wait.abort();
+    signal.addEventListener('abort', stopWaiting, { once: true });
+    try {
+      return await Promise.race([
+        readWatcherProjectInstructions(instance.workingDirectory),
+        abortable(INSTRUCTIONS_WAIT_MS, wait.signal).then(() => {
+          if (!wait.signal.aborted) logger.debug('Session watcher judged without the project instructions: the read was too slow', { instanceId: instance.id });
+          return '';
+        }),
+      ]);
+    } finally {
+      // Ends the wait when the read wins, so its timer goes and it never reports a fast read as slow.
+      wait.abort();
+      signal.removeEventListener('abort', stopWaiting);
     }
   }
 

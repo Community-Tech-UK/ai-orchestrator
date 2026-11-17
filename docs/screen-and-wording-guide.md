@@ -11,7 +11,8 @@ Tokens and layout live in `docs/shell-component-standards.md`; this page owns wo
 - Follow `src/shared/copy/ui-vocabulary.ts`: use one name for each concept. Say session and helper agent.
   A page title is its menu label. The vocabulary migration and guard remain Phase 3 work; planned rows are guidance.
 - Plain English, sentence case. Say what happened, what it means and what to do next. Codes, ids, raw statuses and
-  stack text go behind Details. Never say Harness is fixing something unless a fix is running.
+  stack text go behind Details. One exception: the title-bar quota strip keeps two-letter provider codes and one
+  figure per account (James, 15 Nov 2026). Never say Harness is fixing something unless a fix is running.
 - Remove introductory copy when the title, control or nearby status already explains the task. Keep text that
   changes a decision, explains a failure or gives a required next step.
 - Settings names describe what the user wants done. A word that needs explaining gets an entry in GLOSSARY

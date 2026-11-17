@@ -15,10 +15,21 @@ import {
   ImageResolveResponseSchema,
 } from '@contracts/schemas/image';
 import { getImageResolver } from '../../services/image-resolver';
+import { convertHeicToJpeg } from '../../services/heic-converter';
 import { validatedHandler } from '../validated-handler';
 
 const ImageCopyPayloadSchema = z.object({
   dataUrl: z.string().startsWith('data:'),
+});
+
+const MAX_HEIC_BYTES = 50_000_000;
+
+const ImageConvertHeicPayloadSchema = z.object({
+  data: z
+    .instanceof(Uint8Array)
+    .refine((bytes) => bytes.byteLength > 0 && bytes.byteLength <= MAX_HEIC_BYTES, {
+      message: `HEIC data must be between 1 byte and ${MAX_HEIC_BYTES} bytes`,
+    }),
 });
 
 const ImageContextMenuPayloadSchema = z.object({
@@ -68,6 +79,20 @@ export function registerImageHandlers(): void {
           success: true,
           data: ImageResolveResponseSchema.parse(resolved),
         };
+      }
+    )
+  );
+
+  // Convert a HEIC/HEIF photo (which Chromium cannot decode) to JPEG so the
+  // renderer's attachment pipeline can load, resize and send it.
+  ipcMain.handle(
+    IPC_CHANNELS.IMAGE_CONVERT_HEIC,
+    validatedHandler(
+      'IMAGE_CONVERT_HEIC',
+      ImageConvertHeicPayloadSchema,
+      async (validated): Promise<IpcResponse> => {
+        const jpeg = await convertHeicToJpeg(validated.data);
+        return { success: true, data: { data: jpeg } };
       }
     )
   );

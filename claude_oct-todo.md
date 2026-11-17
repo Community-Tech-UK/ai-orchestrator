@@ -721,7 +721,7 @@ In RTK's own study, input fell 2-4%, but the bill did not fall (net cost −0.2%
 1. **A banner budget:** at most one banner row; extra ones collapse to "N more".
    - No startup chip and banner shown together.
    - No "Local AI: Not configured" shown forever.
-   - Provider names instead of two-letter codes ("CU" means two different things today).
+   - Provider names instead of two-letter codes ("CU" means two different things today). (Superseded: James decided on 15 Nov 2026 that the strip keeps two-letter codes and one figure per account.)
    - In the 4 October captures, banners took 30-45% of the window height.
 2. **A placement rule:** a banner only if it changes what Send does; otherwise one quiet line in the transcript with one action (t3code).
 3. **Toasts with a key, priority, fold and invalidation.** Errors stay until dismissed and offer the fix as a button. Today every toast vanishes after 2.2 seconds, including errors such as "model swap degraded" (HU-6).

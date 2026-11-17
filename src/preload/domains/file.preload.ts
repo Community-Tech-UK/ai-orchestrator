@@ -202,6 +202,14 @@ export function createFileDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNE
     },
 
     /**
+     * Convert HEIC/HEIF photo bytes (which Chromium cannot decode) to JPEG.
+     * macOS only; other platforms get an error explaining what to do.
+     */
+    imageConvertHeic: (payload: { data: Uint8Array }): Promise<IpcResponse> => {
+      return ipcRenderer.invoke(ch.IMAGE_CONVERT_HEIC, payload);
+    },
+
+    /**
      * Open a documentation file from the docs folder
      */
     openDocsFile: (filename: string): Promise<IpcResponse> => {

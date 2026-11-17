@@ -45,8 +45,10 @@ async function realPathOrEmpty(path: string): Promise<string> {
  * The start of the instruction file the session's agent follows in its folder, so the judge knows rules the
  * conversation never states (a folder that translates every message, say). A line that only imports a file
  * inside the folder, after following links, is replaced by that file, one level deep. Empty when there is no file.
+ * Only the folder's own CLAUDE.md is read; Claude also loads parent folders' files and CLAUDE.local.md, which the
+ * judge goes without.
  */
-export async function readWatcherProjectInstructions(workingDirectory: string): Promise<string> {
+async function readInstructions(workingDirectory: string): Promise<string> {
   if (!isAbsolute(workingDirectory)) return '';
   const root = await realPathOrEmpty(workingDirectory);
   if (!root) return '';
@@ -62,4 +64,15 @@ export async function readWatcherProjectInstructions(workingDirectory: string): 
     length += expanded.length + 1;
   }
   return lines.join('\n').trim().slice(0, WATCHER_PROJECT_INSTRUCTIONS_CHARS);
+}
+
+/** Reads still running, per folder. A read that has stalled (a hung network drive) is shared, never started again. */
+const inFlight = new Map<string, Promise<string>>();
+
+export function readWatcherProjectInstructions(workingDirectory: string): Promise<string> {
+  const running = inFlight.get(workingDirectory);
+  if (running) return running;
+  const read = readInstructions(workingDirectory).finally(() => inFlight.delete(workingDirectory));
+  inFlight.set(workingDirectory, read);
+  return read;
 }

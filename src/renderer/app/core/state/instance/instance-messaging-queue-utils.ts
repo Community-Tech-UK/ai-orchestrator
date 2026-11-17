@@ -4,6 +4,7 @@ import type { FileAttachment } from '../../../../../shared/types/instance.types'
 import type { PersonInputOrigin } from '../../../../../shared/types/input-provenance.types';
 import { validateAttachmentCount } from './instance-attachments';
 import type { InstanceStateService } from './instance-state.service';
+import { presentError } from '../../../../../shared/present-error';
 
 export type QueuedMetadata = Pick<QueuedMessage, 'kind' | 'hadAttachmentsDropped' | 'seededAlready' | 'origin' | 'userMessageId'>;
 
@@ -226,7 +227,7 @@ export async function inputFilesToAttachments(
   files: File[],
   action: 'send' | 'steer',
   adapter: FileAttachmentAdapter,
-  addErrorToOutput: (instanceId: string, message: string) => void,
+  addErrorToOutput: (instanceId: string, message: string, detail?: string) => void,
 ): Promise<FileAttachment[] | null> {
   const validationErrors = adapter.validateFiles(files);
   if (validationErrors.length > 0) {
@@ -251,6 +252,14 @@ export async function inputFilesToAttachments(
     return attachments;
   } catch (error) {
     console.error('InstanceMessagingStore: File conversion failed:', error);
+    if (error instanceof Error && error.cause) {
+      addErrorToOutput(
+        instanceId,
+        'The attachment could not be processed. Save photos as JPEG or PNG and try again.',
+        presentError(error.cause).rawDetail,
+      );
+      return null;
+    }
     addErrorToOutput(
       instanceId,
       `Failed to process attachment: ${(error as Error).message}`

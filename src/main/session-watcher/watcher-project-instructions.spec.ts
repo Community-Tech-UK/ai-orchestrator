@@ -49,6 +49,14 @@ describe('readWatcherProjectInstructions', () => {
     expect(await readWatcherProjectInstructions(project)).toBe(`@../secret.md\n@${join(root, 'secret.md')}\n@notes.md\n@everyone`);
   });
 
+  it('shares one read between stops in the same folder while it is still running', async () => {
+    writeFileSync(join(project, 'CLAUDE.md'), 'Rules.');
+    const first = readWatcherProjectInstructions(project);
+    expect(readWatcherProjectInstructions(project)).toBe(first);
+    expect(await first).toBe('Rules.');
+    expect(readWatcherProjectInstructions(project)).not.toBe(first);
+  });
+
   it('keeps only the start of a long file', async () => {
     writeFileSync(join(project, 'CLAUDE.md'), 'Rule.\n'.repeat(200_000));
     const text = await readWatcherProjectInstructions(project);

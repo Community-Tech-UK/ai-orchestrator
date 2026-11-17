@@ -98,6 +98,27 @@ describe('inputFilesToAttachments', () => {
       expect.stringContaining('exceeds maximum size of 5MB'),
     );
   });
+
+  it('keeps a conversion diagnostic in Details and offers another photo format', async () => {
+    const diagnostic = 'SYNTHETIC_CONVERSION_DIAGNOSTIC';
+    const adapter = {
+      validateFiles: () => [],
+      fileToAttachments: async () => {
+        throw new Error('This photo could not be converted.', { cause: diagnostic });
+      },
+    };
+    const addError = vi.fn();
+
+    const result = await inputFilesToAttachments('inst-1', [image(1)], 'send', adapter, addError);
+
+    expect(result).toBeNull();
+    expect(addError).toHaveBeenCalledExactlyOnceWith(
+      'inst-1',
+      'The attachment could not be processed. Save photos as JPEG or PNG and try again.',
+      diagnostic,
+    );
+    expect(addError.mock.calls[0][1]).not.toContain(diagnostic);
+  });
 });
 
 describe('queued bubble identity', () => {

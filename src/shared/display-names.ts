@@ -3,11 +3,11 @@
  *
  * Before this module the same provider was spelled four ways ("Codex",
  * "OpenAI Codex", "Codex CLI", "OpenAI Codex CLI") across about 17 local maps,
- * MiMo had five names, the quota strip used two-letter codes in which CU meant
- * Cursor while every session header used CU for Computer Use, and other
- * computers were "nodes", "workers" and "browser computers" depending on the
- * screen. This file holds ONLY the name maps; the word list those names follow
- * is Phase F's glossary.
+ * MiMo had five names, and other computers were "nodes", "workers" and
+ * "browser computers" depending on the screen. This file holds ONLY the name
+ * maps; the word list those names follow is Phase F's glossary. The title-bar
+ * quota strip is the one deliberate exception: it keeps two-letter codes
+ * (James, 15 Nov 2026; see `provider-quota-strip.ts`).
  *
  * Three questions, three functions:
  * - `providerName(id)`: what to call the provider a session runs on. Short for

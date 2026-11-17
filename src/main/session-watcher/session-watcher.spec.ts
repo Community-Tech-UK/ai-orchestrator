@@ -13,7 +13,21 @@ import { _resetWatcherDecisionLogForTesting } from './watcher-decision-log';
 import { routeFinishedNotice } from './watcher-notices';
 import type { WatcherLevel } from './watcher-post-checks';
 
-vi.mock('../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn() }) }));
+const logDebug = vi.hoisted(() => vi.fn());
+vi.mock('../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: vi.fn(), debug: logDebug, error: vi.fn() }) }));
+const TOO_SLOW = 'Session watcher judged without the project instructions: the read was too slow';
+/** `stall` makes the instruction-file read never finish, as on a hung network drive. */
+const instructionReads = vi.hoisted(() => ({ stall: false, calls: 0 }));
+vi.mock('./watcher-project-instructions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./watcher-project-instructions')>();
+  return {
+    ...actual,
+    readWatcherProjectInstructions: (directory: string) => {
+      instructionReads.calls += 1;
+      return instructionReads.stall ? new Promise<string>(() => undefined) : actual.readWatcherProjectInstructions(directory);
+    },
+  };
+});
 
 const QUESTION = 'Shall I carry on with phase 2?';
 const verdictJson = (overrides: Record<string, unknown> = {}): string => JSON.stringify({
@@ -69,6 +83,9 @@ describe('SessionWatcher', () => {
   beforeEach(() => {
     logDirectory = mkdtempSync(join(tmpdir(), 'session-watcher-'));
     projectDirectory = mkdtempSync(join(tmpdir(), 'session-watcher-project-'));
+    instructionReads.stall = false;
+    instructionReads.calls = 0;
+    logDebug.mockClear();
     process.env['AIO_SESSION_WATCHER_DIR'] = logDirectory;
     _resetWatcherDecisionLogForTesting();
     events = new EventEmitter();
@@ -163,6 +180,44 @@ describe('SessionWatcher', () => {
     complete();
     await vi.waitFor(() => expect(judgeCalls).toHaveLength(2));
     expect(judgeCalls[1].prompt.user).toContain('<project_instructions>\nTranslate every message. Do not converse.\n</project_instructions>');
+  });
+
+  it('judges without the project instructions when reading them stalls, instead of holding the judge slot', async () => {
+    writeFileSync(join(projectDirectory, 'CLAUDE.md'), 'Translate every message.');
+    instructionReads.stall = true;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    complete();
+    await vi.waitFor(() => expect(instructionReads.calls).toBe(1));
+    expect(judgeCalls).toEqual([]);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.waitFor(() => expect(judgeCalls).toHaveLength(1));
+    expect(judgeCalls[0].prompt.user).toContain('<project_instructions>\n(none)\n</project_instructions>');
+    expect(logDebug).toHaveBeenCalledWith(TOO_SLOW, { instanceId: 'root' });
+  });
+
+  it('does not report a fast read as slow when the judge itself takes longer than the wait', async () => {
+    writeFileSync(join(projectDirectory, 'CLAUDE.md'), 'Translate every message.');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    complete();
+    await vi.waitFor(() => expect(judgeCalls).toHaveLength(1));
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(logDebug).not.toHaveBeenCalledWith(TOO_SLOW, expect.anything());
+  });
+
+  it('frees the judge slot as soon as a stop whose instructions are still being read is over', async () => {
+    instructionReads.stall = true;
+    // Two stalled stops, both dropped by the user typing, would fill both judge slots if either were kept.
+    for (let stop = 1; stop <= 2; stop += 1) {
+      complete();
+      await vi.waitFor(() => expect(instructionReads.calls).toBe(stop));
+      events.emit('instance:input-started', { instanceId: 'root' });
+      await vi.waitFor(() => expect(outcomes).toHaveLength(stop));
+      instance.requestCount += 1;
+    }
+    expect(outcomes.map((outcome) => outcome.outcome)).toEqual(['not_sent', 'not_sent']);
+    instructionReads.stall = false;
+    complete();
+    await vi.waitFor(() => expect(judgeCalls).toHaveLength(1));
   });
 
   it('does not look in this computer\'s folders for a session that runs on another computer', async () => {

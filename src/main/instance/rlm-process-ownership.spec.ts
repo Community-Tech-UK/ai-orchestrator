@@ -8,6 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IPC_CHANNELS } from '../../shared/types/ipc.types';
 import type { ContextWorkerInboundMsg } from './context-worker-protocol';
 
+// Transform the large manager graph during collection; scenarios still reset and
+// re-import its real module state before acquiring their own resources.
+import './instance-manager';
+
 type IpcHandler = (event: unknown, payload?: unknown) => unknown | Promise<unknown>;
 
 const electronMocks = vi.hoisted(() => ({
