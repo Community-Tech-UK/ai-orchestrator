@@ -122,7 +122,7 @@ describe('a Linear run is refused wherever the ordinary Start can reach', () => 
   });
 
   it('the markdown source is not quietly used for a tickets run', () => {
-    expect(() => workSourceForRun({ kind: 'tickets' })).toThrow(/not built yet/);
-    expect(workSourceForRun({ kind: 'plans' })).toBeDefined();
+    expect(workSourceForRun({ kind: 'tickets' }).kind).toBe('linear');
+    expect(workSourceForRun({ kind: 'plans' }).kind).toBe('markdown');
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSortKey, PRIORITY_NONE } from './plan-queue-sort-key';
+import { buildSortKey, priorityRank, PRIORITY_NONE } from './plan-queue-sort-key';
 
 const order = (keys: string[]): string[] => [...keys].sort();
 
@@ -34,5 +34,17 @@ describe('buildSortKey', () => {
     [{ priority: 10, discoveryIndex: 0 }], [{ sourceOrder: -2, discoveryIndex: 0 }],
   ])('refuses a part that would break the order: %j', parts => {
     expect(() => buildSortKey(parts)).toThrow(/Invalid sort key/);
+  });
+});
+
+describe('priorityRank', () => {
+  it('ranks Urgent, High, Medium, Low, then no priority last', () => {
+    expect([1, 2, 3, 4, PRIORITY_NONE].map(priorityRank)).toEqual([1, 2, 3, 4, 9]);
+  });
+
+  it('refuses a priority that is not whole or out of range', () => {
+    expect(() => priorityRank(-1)).toThrow(/Invalid sort key priority/);
+    expect(() => priorityRank(10)).toThrow(/Invalid sort key priority/);
+    expect(() => priorityRank(1.5)).toThrow(/Invalid sort key priority/);
   });
 });

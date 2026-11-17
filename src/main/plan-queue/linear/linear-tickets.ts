@@ -143,10 +143,14 @@ export interface LinearRead<T> {
   calls: number;
 }
 
+/**
+ * A project and one status. The status is the id James saved for the team (matched by id: no status name is compared),
+ * or, for a team James has saved no rules for, Linear's own kind word `unstarted`. Give exactly one.
+ */
 export interface ListLinearTicketsInput {
   projectId: string;
-  /** The status id James saved for the team. Matched by id: no status name is compared. */
-  statusId: string;
+  statusId?: string;
+  statusKind?: 'unstarted';
 }
 
 /** Every ticket of one project in one status, every page. */
@@ -155,7 +159,8 @@ export async function listLinearTickets(
   counter: LinearCallCounter,
   dependencies?: LinearCallDependencies,
 ): Promise<LinearRead<LinearListedTicket[]>> {
-  if (!input.projectId || !input.statusId) throw new Error('A ticket list needs a project id and a status id.');
+  const state = input.statusId ?? input.statusKind;
+  if (!input.projectId || !state || (input.statusId && input.statusKind)) throw new Error('A ticket list needs a project id and one status id or kind.');
   const started = counter.calls;
   const raw = await readAllLinearPages<LinearListedTicketRaw>(async (cursor) => {
     counter.beforeCall();
@@ -163,7 +168,7 @@ export async function listLinearTickets(
       'list_issues',
       {
         project: input.projectId,
-        state: input.statusId,
+        state,
         fields: [...LIST_FIELDS],
         limit: PAGE_SIZE,
         ...(cursor ? { cursor } : {}),

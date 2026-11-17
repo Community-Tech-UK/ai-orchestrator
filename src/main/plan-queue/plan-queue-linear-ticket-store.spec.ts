@@ -172,6 +172,23 @@ describe('the Linear ticket store', () => {
       expect(tickets.findLatestLandedItem('lin-1')).toMatchObject({ itemId: 'new', landedCommit: 'bbb222', identifier: 'ORC-7', linearId: 'lin-1' });
       expect(tickets.findLatestLandedItem('lin-other')).toBeUndefined();
     });
+
+    it('reports when the newest landed item was last saved as when it landed', () => {
+      addItem('landed', { state: 'landed', createdAt: 10, landedCommit: 'aaa111' });
+      tickets.insert(ticket('landed'));
+      const saved = queue.getItem('landed')!.updatedAt;
+      expect(saved).toBeGreaterThan(0);
+      expect(tickets.findLatestLandedItem('lin-1')?.landedAt).toBe(saved);
+    });
+
+    it('names a ticket from its newest row: the identifier and the approved title', () => {
+      addItem('old', { createdAt: 10 });
+      addItem('new', { createdAt: 50 });
+      tickets.insert({ ...ticket('old'), approvedTitle: 'Old title' });
+      tickets.insert({ ...ticket('new'), approvedTitle: 'New title' });
+      expect(tickets.findNames('lin-1')).toEqual({ identifier: 'ORC-7', approvedTitle: 'New title' });
+      expect(tickets.findNames('lin-other')).toBeUndefined();
+    });
   });
 });
 

@@ -93,6 +93,8 @@ describe('finding a work source', () => {
   it('uses markdown for plan runs and livetest runs alike', () => {
     expect(workSourceForRun({ kind: 'plans' })).toBe(markdownWorkSource);
     expect(workSourceForRun({ kind: 'livetests' })).toBe(markdownWorkSource);
-    expect(allWorkSources()).toEqual([markdownWorkSource]);
+    // The Linear source joined the list in Step 3 of the Linear plan; markdown is still first and unchanged.
+    expect(allWorkSources().map(source => source.kind)).toEqual(['markdown', 'linear']);
+    expect(allWorkSources()[0]).toBe(markdownWorkSource);
   });
 });

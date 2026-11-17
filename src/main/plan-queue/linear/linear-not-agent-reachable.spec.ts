@@ -11,10 +11,16 @@ import { describe, expect, it } from 'vitest';
 const ROOT = join(__dirname, '..', '..', '..', '..');
 const LINEAR_FOLDER = join('src', 'main', 'plan-queue', 'linear') + sep;
 /**
- * Files outside the Linear folder that may import it: the operator's IPC handlers for the Plan Queue page. They
- * answer the page, never an agent.
+ * Files outside the Linear folder that may import it, each on purpose:
+ * - the operator's IPC handlers for the Plan Queue page: they answer the page, never an agent;
+ * - the Linear work source (`plan-queue-linear-source.ts`): the queue's own code, run by the app for a Linear run. It
+ *   is reached only through `plan-queue-work-sources.ts`, which imports the source file and not the Linear folder, and
+ *   nothing under `src/main/mcp/` names it (the second test below), so no tool, command or RPC method can call it.
  */
-const ALLOWED_IMPORTERS: readonly string[] = [join('src', 'main', 'ipc', 'handlers', 'plan-queue-linear-handlers.ts')];
+const ALLOWED_IMPORTERS: readonly string[] = [
+  join('src', 'main', 'ipc', 'handlers', 'plan-queue-linear-handlers.ts'),
+  join('src', 'main', 'plan-queue', 'plan-queue-linear-source.ts'),
+];
 const IMPORT = /from\s+['"][^'"]*\/linear\/[^'"]*['"]|from\s+['"]\.\/linear\/|linear-call['"]|linear-connector-address['"]/;
 
 function sourceFiles(directory: string): string[] {

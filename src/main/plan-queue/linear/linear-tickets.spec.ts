@@ -123,6 +123,16 @@ describe('listing the tickets of one project in one status', () => {
     expect(fields).not.toContain('description');
   });
 
+  it('sends Linear\'s own kind word when no saved status is given, and refuses both or neither', async () => {
+    const { connector, deps } = await setup({ list_issues: byCursor({ first: { issues: [], hasNextPage: false } }) });
+    await listLinearTickets({ projectId: 'project-1', statusKind: 'unstarted' }, new LinearCallCounter(10), deps);
+    expect(connector.calls[0].args['state']).toBe('unstarted');
+    const counter = new LinearCallCounter(10);
+    await expect(listLinearTickets({ projectId: 'project-1' }, counter, deps)).rejects.toThrow(/one status id or kind/);
+    await expect(listLinearTickets({ projectId: 'project-1', statusId: 'a', statusKind: 'unstarted' }, counter, deps)).rejects.toThrow(/one status id or kind/);
+    expect(connector.calls).toHaveLength(1);
+  });
+
   it('turns a listed ticket into Harness\'s own shape', async () => {
     const { deps } = await setup({
       list_issues: () =>

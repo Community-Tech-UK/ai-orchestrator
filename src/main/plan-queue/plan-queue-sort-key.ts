@@ -29,10 +29,13 @@ function fixed(value: number, name: string): string {
   return String(value).padStart(WIDTH, '0');
 }
 
-export function buildSortKey(parts: SortKeyParts): string {
-  const priority = parts.priority ?? PRIORITY_NONE;
+/** Where a priority sorts: 1 (Urgent) first to 4 (Low), then "no priority" after every real one. */
+export function priorityRank(priority: number): number {
   if (!Number.isSafeInteger(priority) || priority < 0 || priority > LAST_PRIORITY_RANK) throw new Error(`Invalid sort key priority: ${priority}`);
-  // "No priority" ranks after every real priority.
-  const rank = priority === PRIORITY_NONE ? LAST_PRIORITY_RANK : priority;
+  return priority === PRIORITY_NONE ? LAST_PRIORITY_RANK : priority;
+}
+
+export function buildSortKey(parts: SortKeyParts): string {
+  const rank = priorityRank(parts.priority ?? PRIORITY_NONE);
   return `${rank}.${fixed(parts.sourceOrder ?? 0, 'source order')}.${fixed(parts.discoveryIndex, 'discovery index')}`;
 }

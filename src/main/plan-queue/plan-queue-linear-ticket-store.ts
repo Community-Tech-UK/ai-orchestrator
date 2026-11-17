@@ -74,6 +74,14 @@ export interface LandedLinearTicket extends LinearTicketItemRef {
   linearId: string;
   identifier: string;
   landedCommit: string | null;
+  /** When the item row was last saved. The item has no landing time of its own, and a landed item is rarely saved again. */
+  landedAt: number;
+}
+
+/** What a ticket is called, from its newest row. The title is the one James approved. */
+export interface LinearTicketNames {
+  identifier: string;
+  approvedTitle: string;
 }
 
 interface Row {
@@ -180,12 +188,20 @@ export class PlanQueueLinearTicketStore {
 
   /** The newest item of this ticket that landed, by when its attempt began. */
   findLatestLandedItem(linearId: string): LandedLinearTicket | undefined {
-    const row = this.db.prepare(`SELECT t.item_id, t.linear_id, t.identifier, i.run_id, i.state, i.created_at, i.landed_commit FROM plan_queue_linear_tickets t
+    const row = this.db.prepare(`SELECT t.item_id, t.linear_id, t.identifier, i.run_id, i.state, i.created_at, i.updated_at, i.landed_commit FROM plan_queue_linear_tickets t
       JOIN plan_queue_items i ON i.id = t.item_id
       WHERE t.linear_id = ? AND i.state = 'landed'
       ORDER BY i.created_at DESC, i.id DESC LIMIT 1`)
-      .get<{ item_id: string; linear_id: string; identifier: string; run_id: string; state: string; created_at: number; landed_commit: string | null }>(linearId);
-    return row ? { itemId: row.item_id, runId: row.run_id, state: row.state, createdAt: row.created_at, linearId: row.linear_id, identifier: row.identifier, landedCommit: row.landed_commit } : undefined;
+      .get<{ item_id: string; linear_id: string; identifier: string; run_id: string; state: string; created_at: number; updated_at: number; landed_commit: string | null }>(linearId);
+    return row ? { itemId: row.item_id, runId: row.run_id, state: row.state, createdAt: row.created_at, linearId: row.linear_id, identifier: row.identifier, landedCommit: row.landed_commit, landedAt: row.updated_at } : undefined;
+  }
+
+  /** The identifier and approved title from this ticket's newest row, for naming sessions, branches and commits. */
+  findNames(linearId: string): LinearTicketNames | undefined {
+    const row = this.db.prepare(`SELECT t.identifier, t.approved_title FROM plan_queue_linear_tickets t
+      JOIN plan_queue_items i ON i.id = t.item_id
+      WHERE t.linear_id = ? ORDER BY i.created_at DESC, i.id DESC LIMIT 1`).get<{ identifier: string; approved_title: string }>(linearId);
+    return row ? { identifier: row.identifier, approvedTitle: row.approved_title } : undefined;
   }
 
   private requireRow(itemId: string): void {
