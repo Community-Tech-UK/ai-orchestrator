@@ -118,7 +118,7 @@ describe('paused runs never continue work or park it', () => {
     const forgetCheck = vi.fn();
     await expect(spawnQueueChecker({ host, snapshots, checkedBase: () => 'checkpoint', usageWaits: new PlanQueueUsageWaits(),
       prompt: async () => 'Review', hold: vi.fn(), select: vi.fn(), stop: id => flow.stopInstance(id),
-      forgetCheck, erroredRound: vi.fn(), onVerifierOutcome: vi.fn() }, item, run, 'main', { provider: 'codex' })).resolves.toBeUndefined();
+      forgetCheck, erroredRound: vi.fn(), park: vi.fn(), onVerifierOutcome: vi.fn() }, item, run, 'main', { provider: 'codex' })).resolves.toBeUndefined();
     expect(item).toMatchObject({ state: 'parked', parkReason: 'worktree-error', worktreePath: directory,
       workerInstanceId: null, verifierInstanceId: null, detail: expect.stringContaining('checkout is invalid') });
     expect(snapshots.size).toBe(0);
@@ -184,7 +184,7 @@ describe('paused runs never continue work or park it', () => {
     const erroredRound = vi.fn(async () => undefined);
     await spawnQueueChecker({ host, snapshots, checkedBase: () => 'checkpoint', usageWaits: new PlanQueueUsageWaits(),
       prompt: async () => 'Review', hold: vi.fn(), select: vi.fn(), stop: id => flow.stopInstance(id),
-      forgetCheck: vi.fn(), erroredRound, onVerifierOutcome: vi.fn() }, item, run, 'main', { provider: 'codex' });
+      forgetCheck: vi.fn(), erroredRound, park: vi.fn(), onVerifierOutcome: vi.fn() }, item, run, 'main', { provider: 'codex' });
     expect(host.instances.createInstance).toHaveBeenCalledTimes(1);
     expect(erroredRound).not.toHaveBeenCalled();
     expect(item).toEqual(savedAtShutdown);
@@ -202,7 +202,7 @@ describe('paused runs never continue work or park it', () => {
     vi.mocked(host.instances.terminateInstance).mockRejectedValueOnce(new Error('checker stop failed'));
     await spawnQueueChecker({ host, snapshots: new Map(), checkedBase: () => 'checkpoint', usageWaits: new PlanQueueUsageWaits(),
       prompt: async () => 'Review', hold: vi.fn(), select: vi.fn(), stop: id => flow.stopInstance(id),
-      forgetCheck: vi.fn(), erroredRound: vi.fn(), onVerifierOutcome: (id, outcome) => flow.onVerifierOutcome(id, outcome) }, item, run, 'main', { provider: 'codex' });
+      forgetCheck: vi.fn(), erroredRound: vi.fn(), park: vi.fn(), onVerifierOutcome: (id, outcome) => flow.onVerifierOutcome(id, outcome) }, item, run, 'main', { provider: 'codex' });
     await flow.whenSettled();
     await new Promise(resolve => setImmediate(resolve));
     expect(warning).toHaveBeenCalledWith('Plan queue: handling checker startup failure failed', expect.objectContaining({ instanceId: 'fresh', error: 'checker stop failed' }));
@@ -260,7 +260,7 @@ describe('paused runs never continue work or park it', () => {
     const forgetCheck = vi.fn();
     await expect(spawnQueueChecker({ host, snapshots, checkedBase: () => 'checkpoint', usageWaits: new PlanQueueUsageWaits(),
       prompt: async () => 'Review', hold: vi.fn(), select: vi.fn(), stop: id => flow.stopInstance(id),
-      forgetCheck, erroredRound: vi.fn(), onVerifierOutcome: vi.fn() }, item, run, 'main', { provider: 'codex' })).rejects.toThrow('Worker stop refused');
+      forgetCheck, erroredRound: vi.fn(), park: vi.fn(), onVerifierOutcome: vi.fn() }, item, run, 'main', { provider: 'codex' })).rejects.toThrow('Worker stop refused');
     expect(item).toMatchObject({ state: 'verifying', workerInstanceId: 'worker' });
     expect(snapshots.has(item.id)).toBe(true);
     expect(forgetCheck).not.toHaveBeenCalled();

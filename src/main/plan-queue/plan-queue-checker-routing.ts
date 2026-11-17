@@ -1,5 +1,6 @@
 /** Checker selection can yield; repeat it if James edits routing meanwhile. */
 import type { PlanQueueFlowHost } from './plan-queue-host';
+import { excludedProvidersForRun } from './plan-queue-linear-providers';
 import { PlanQueueSpawnRunPaused } from './plan-queue-run-hold';
 import type { PlanQueueItem } from './plan-queue.types';
 import type { VerifierSelection } from './plan-queue-verifier-select';
@@ -19,15 +20,19 @@ export async function selectCurrentQueueVerifier(host: PlanQueueFlowHost, item: 
       : item.workerProvider ? { provider: item.workerProvider, model: item.workerModel ?? null }
         : { provider: run.workerProvider ?? 'claude', model: run.workerModel };
     // A failed lookup (usage, provider detection) parks the item with the reason; it must never stay "verifying" with no checker.
-    const selection: VerifierSelection = await host.selectVerifier({
-      workerProvider: ranOn.provider,
-      workerModel: ranOn.model,
-      workingDirectory: item.worktreePath ?? run.workspaceCwd,
-      choices: run.config.routing?.verifiers,
-      choicesOverrideLicence: run.config.routing?.checkersChosenBy === 'saved',
-      ...(run.config.capabilityRepairExcludedProviders ? { excludedProviders: run.config.capabilityRepairExcludedProviders } : {}),
-      ...(run.config.capabilityRepairAccountRules ? { accountRules: run.config.capabilityRepairAccountRules } : {}),
-    }).catch((error: unknown) => ({ ok: false, reason: `could not choose a checker: ${error instanceof Error ? error.message : String(error)}` }));
+    const selection: VerifierSelection = await (async () => {
+      // A Linear run's automatic choice leaves out every provider its teams do not all allow.
+      const excludedProviders = excludedProvidersForRun(run);
+      return host.selectVerifier({
+        workerProvider: ranOn.provider,
+        workerModel: ranOn.model,
+        workingDirectory: item.worktreePath ?? run.workspaceCwd,
+        choices: run.config.routing?.verifiers,
+        choicesOverrideLicence: run.config.routing?.checkersChosenBy === 'saved',
+        ...(excludedProviders ? { excludedProviders } : {}),
+        ...(run.config.capabilityRepairAccountRules ? { accountRules: run.config.capabilityRepairAccountRules } : {}),
+      });
+    })().catch((error: unknown) => ({ ok: false, reason: `could not choose a checker: ${error instanceof Error ? error.message : String(error)}` }));
     const current = host.getRun(item.runId);
     if (current.status === 'paused') throw new PlanQueueSpawnRunPaused();
     if (JSON.stringify(current.config.routing) === JSON.stringify(run.config.routing)) return { run: current, selection };

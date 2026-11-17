@@ -10,6 +10,7 @@ import { recordQueueRestart } from './plan-queue-restart-progress';
 import { PARK_ON_REPEATED_FINDING, repeatedFindingIds } from './plan-queue-progress';
 import { selectCurrentQueueVerifier } from './plan-queue-checker-routing';
 import { holdItem, isHoldNote, parkAfterVerifierRestoreFailure, PlanQueueSpawnRunPaused, resumeReason, restoreVerifierTree, usageWaitNote } from './plan-queue-run-hold';
+import { PlanQueueProviderNotAllowed } from './plan-queue-linear-providers';
 import { PlanQueueSpawnOutOfUsage } from './plan-queue-spawn';
 import { PlanQueueUsageWaits, takeUsageHold } from './plan-queue-usage-wait';
 import { recordItemTiming, recordSessionEnd, recordSessionStart, TIMING_REASONS } from './plan-queue-timings';
@@ -364,6 +365,11 @@ export class PlanQueueItemFlow {
         this.usageWaits.start(item.id, error, 'worker');
         return;
       }
+      if (error instanceof PlanQueueProviderNotAllowed) {
+        // A provider James has not allowed for this ticket's team: no session started and no round is counted.
+        await this.parkUnlocked(this.host.getItem(item.id), 'needs-james', error.message);
+        return;
+      }
       if (error instanceof PlanQueueSpawnStoppedByUser && error.instanceId) {
         this.host.save({ ...this.host.getItem(item.id), workerInstanceId: error.instanceId });
         await this.stopInstance(error.instanceId);
@@ -584,6 +590,7 @@ export class PlanQueueItemFlow {
       prompt: (current, currentRun, base) => this.verification.prompt(current, currentRun, base),
       hold: current => this.holdUnlocked(current), select: (current, base) => this.selectAndSpawnVerifier(current, base),
       stop: id => this.stopInstance(id), forgetCheck: id => this.verification.forgetCheck(id), erroredRound: (current, reason) => this.erroredRound(current, reason),
+      park: (current, reason, detail) => this.parkUnlocked(current, reason, detail),
       onVerifierOutcome: (id, outcome) => this.onVerifierOutcome(id, outcome),
     }, item, run, baseBranch, choice);
   }

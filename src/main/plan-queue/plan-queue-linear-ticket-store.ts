@@ -188,6 +188,14 @@ export class PlanQueueLinearTicketStore {
     return row ? { identifier: row.identifier, approvedTitle: row.approved_title } : undefined;
   }
 
+  /** Every team with a ticket in this run, with one of its tickets' short addresses (the address starts with the team's key). */
+  teamsOfRun(runId: string): { teamId: string; identifier: string }[] {
+    return this.db.prepare(`SELECT t.team_id, MIN(t.identifier) AS identifier FROM plan_queue_linear_tickets t
+      JOIN plan_queue_items i ON i.id = t.item_id
+      WHERE i.run_id = ? GROUP BY t.team_id ORDER BY t.team_id`).all<{ team_id: string; identifier: string }>(runId)
+      .map((row) => ({ teamId: row.team_id, identifier: row.identifier }));
+  }
+
   private requireRow(itemId: string): void {
     if (!this.db.prepare('SELECT 1 AS present FROM plan_queue_linear_tickets WHERE item_id = ?').get(itemId)) {
       throw new Error(`No Linear ticket row for item ${itemId}.`);

@@ -5,6 +5,7 @@ import {
   assertRoutingInstalled, defaultPlanQueueRoutingDeps, describeRouting, resolveRunRouting,
   type PlanQueueParentRoute, type PlanQueueRoutingDeps, PlanQueueRoutingError,
 } from './plan-queue-routing';
+import { getLinearProviderPolicy } from './plan-queue-linear-providers';
 import type { PlanQueueRun } from './plan-queue.types';
 
 const logger = getLogger('PlanQueueRunRoutingChange');
@@ -43,6 +44,14 @@ export async function changeRunRouting(
   }, { ...deps, readSaved: () => ({
     workers: choice.workers, verifiers: actor === 'parent' ? [] : choice.verifiers, ...(choice.stepUp ? { stepUp: choice.stepUp } : {}),
   }) });
+  // A Linear run's tickets go only to providers every one of its teams allows. Checked again just before saving,
+  // because the teams' lists can change while the checks below wait; a refused change saves nothing.
+  const assertLinearProviders = (): void => {
+    if (run.kind !== 'tickets') return;
+    const policy = getLinearProviderPolicy();
+    policy.assertRoutingAllowed(policy.teamsOf(run.id), routing, host.parentRoute(run));
+  };
+  assertLinearProviders();
   await assertRoutingInstalled(routing, deps);
   // Detection can yield while the scheduler finishes the run or restores its parent.
   // Keep that newer lifecycle state while changing only routing fields.
@@ -59,6 +68,7 @@ export async function changeRunRouting(
   const after = describeRouting(routing);
   const latest = host.getRun(run.id);
   if (!['running', 'paused'].includes(latest.status) && !host.hasParkedWork(latest)) throw new PlanQueueRoutingError('This run has finished and has no parked documents to resume.');
+  assertLinearProviders();
   host.upsertRun({ ...latest, workerProvider: updated.workerProvider, workerModel: updated.workerModel, config: { ...latest.config, routing } });
   const message = `James changed this run's workers from ${before.workers} to ${after.workers}; checkers from ${before.checkers} to ${after.checkers}; `
     + `if a worker gets stuck, from ${before.stepUp} to ${after.stepUp}.`

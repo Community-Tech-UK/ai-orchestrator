@@ -9,6 +9,7 @@ import { getLogger } from '../logging/logger';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
 import { buildTriagePrompt } from './plan-queue-prompts';
+import { excludedProvidersForRun, PlanQueueProviderNotAllowed } from './plan-queue-linear-providers';
 import { readPlanHeader } from './plan-queue-plan-extract';
 import type { PlanQueueRunBreaker } from './plan-queue-run-breaker';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
@@ -80,6 +81,12 @@ export class PlanQueueTriage {
       }
       this.triageByRun.delete(run.id);
       if (this.host.tracker.isShuttingDown() || error instanceof PlanQueueSpawnStoppedByUser || error instanceof PlanQueueSpawnRunPaused) return;
+      if (error instanceof PlanQueueProviderNotAllowed) {
+        // No session started: set the documents aside for James with the refusal, and count no failed try.
+        for (const id of session.itemIds) this.setAsideForJames(id, error.message);
+        this.host.requestPump();
+        return;
+      }
       if (error instanceof PlanQueueSpawnOutOfUsage) {
         // A wait, not a failed try: it never counts toward parking the documents.
         this.spawnFailures.set(run.id, { count: this.spawnFailures.get(run.id)?.count ?? 0, notBefore: this.host.now() + USAGE_RECHECK_MS });
@@ -127,12 +134,13 @@ export class PlanQueueTriage {
         run = this.host.getRun(run.id);
         if (this.triageByRun.get(run.id) !== session || this.host.tracker.isShuttingDown() || run.status !== 'running') return;
         const routingKey = JSON.stringify(run.config.routing);
+        const excludedProviders = excludedProvidersForRun(run);
         try {
           const selected = await this.host.selectVerifier({ workerProvider: attempt.provider,
             workerModel: attempt.model, workingDirectory: run.workspaceCwd,
             choices: run.config.routing?.verifiers,
             choicesOverrideLicence: run.config.routing?.checkersChosenBy === 'saved',
-            ...(run.config.capabilityRepairExcludedProviders ? { excludedProviders: run.config.capabilityRepairExcludedProviders } : {}),
+            ...(excludedProviders ? { excludedProviders } : {}),
             ...(run.config.capabilityRepairAccountRules ? { accountRules: run.config.capabilityRepairAccountRules } : {}) });
           choice = selected.ok ? selected.choice : undefined;
         } catch (error) {
@@ -301,6 +309,13 @@ export class PlanQueueTriage {
     const waitMs = count <= freeRetries ? 0 : BACKOFF_MS[Math.min(count - freeRetries, BACKOFF_MS.length) - 1];
     this.spawnFailures.set(runId, { count, notBefore: this.host.now() + waitMs });
     this.host.breaker().note(runId, null, message);
+  }
+
+  private setAsideForJames(id: string, detail: string): void {
+    const item = this.host.getItem(id);
+    if (item.state !== 'discovered' || !['running', 'paused'].includes(this.host.getRun(item.runId).status)) return;
+    this.host.transition(item, 'parked', { parkReason: 'needs-james', question: null, detail });
+    this.attempts.delete(id);
   }
 
   private park(id: string, cause: string, stoppedByHarness = false): void {

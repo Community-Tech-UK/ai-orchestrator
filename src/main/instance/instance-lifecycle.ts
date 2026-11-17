@@ -130,6 +130,7 @@ import { detectAvailableClis } from '../cli/cli-detection';
 import { DesiredRuntimeQueue } from './lifecycle/desired-runtime-queue';
 import { isAdapterOnLoan, onAdapterLoanReleased, warnIfLoanLooksWedged } from './lifecycle/adapter-loan-registry';
 import { describeLoopProviderDivergence } from './lifecycle/loop-provider-divergence';
+import { assertLinearSessionKeepsProvider } from './lifecycle/linear-session-provider-guard';
 import { RuntimeReconciler } from './lifecycle/runtime-reconciler';
 import type { SwapTargetProvider } from './lifecycle/model-change-provider-swap';
 import { PlanModeManager } from './lifecycle/plan-mode-manager';
@@ -638,6 +639,8 @@ export class InstanceLifecycleManager extends EventEmitter {
       throw new Error(`Instance ${instanceId} not found`);
     }
     const provider = request.provider === 'auto' ? undefined : request.provider;
+    // Refused now, not when the queued change would be applied: the answer reaches the person who asked.
+    if (provider && provider !== instance.provider) assertLinearSessionKeepsProvider(instance);
     return this.desiredRuntimeQueue.requestChange(instanceId, {
       ...request,
       provider: provider ?? instance.provider,

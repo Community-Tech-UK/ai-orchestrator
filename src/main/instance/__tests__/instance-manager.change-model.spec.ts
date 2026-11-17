@@ -1388,6 +1388,27 @@ describe('InstanceManager', () => {
       );
     });
 
+    it('refuses a provider change for a Linear run\'s queue session at once, and still queues a model change on its provider', async () => {
+      const instance = await manager.createInstance({
+        workingDirectory: TEST_WORKING_DIR,
+        modelOverride: 'sonnet',
+        metadata: { planQueueRunId: 'run', planQueueRole: 'worker', planQueueRunKind: 'tickets' },
+      });
+      await instance.readyPromise;
+      manager.updateInstanceStatus(instance.id, 'ready');
+      manager.updateInstanceStatus(instance.id, 'busy');
+      mockCreateCliAdapter.mockClear();
+
+      await expect(manager.requestModelChange(instance.id, { provider: 'codex', model: 'gpt-5.5' }))
+        .rejects.toThrow('cannot be changed while it runs');
+      expect(instance.desiredRuntime).toBeUndefined();
+      expect(instance.provider).toBe('claude');
+
+      const queued = await manager.requestModelChange(instance.id, { provider: 'claude', model: 'opus' });
+      expect(queued.desiredRuntime).toEqual({ provider: 'claude', model: 'opus' });
+      expect(mockCreateCliAdapter).not.toHaveBeenCalled();
+    });
+
     it('cancels a queued change when the live config is re-selected', async () => {
       const instance = await manager.createInstance({
         workingDirectory: TEST_WORKING_DIR,

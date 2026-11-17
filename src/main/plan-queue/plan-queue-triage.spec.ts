@@ -8,6 +8,7 @@ import type { InstanceCreateConfig } from '../../shared/types/instance.types';
 import type { PlanQueueInstancePort } from './plan-queue-host';
 import { PlanQueueSpawnOutOfUsage, spawnQueueInstance, USAGE_RECHECK_MS } from './plan-queue-spawn';
 import { PlanQueueSpawnRoutingChanged } from './plan-queue-checker-routing';
+import { PlanQueueProviderNotAllowed } from './plan-queue-linear-providers';
 import { PlanQueueSpawnRunPaused } from './plan-queue-run-hold';
 import { PlanQueueTriage } from './plan-queue-triage';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
@@ -60,6 +61,25 @@ async function start(): Promise<void> {
   await vi.waitFor(() => expect(create).toHaveBeenCalled());
   await new Promise((resolve) => setImmediate(resolve));
 }
+
+describe('a provider the team does not allow', () => {
+  it('sets each batch of documents aside for James with the refusal and counts no failed try', async () => {
+    const refusal = new PlanQueueProviderNotAllowed('Cursor is not allowed to see tickets from the COM team. Choose another provider, or allow this one for the COM team on the Plan Queue page.');
+    create.mockRejectedValue(refusal);
+    triage.maybeStart(run, items);
+    await vi.waitFor(() => expect(items.some((item) => item.state === 'parked')).toBe(true));
+    // Only the batch the refused session was for is set aside; the rest wait for the next session, which is refused the same way.
+    const first = items.filter((item) => item.state === 'parked').length;
+    expect(first).toBeGreaterThan(0);
+    expect(items.every((item) => item.state === 'discovered' || (item.parkReason === 'needs-james' && item.detail === refusal.message))).toBe(true);
+    await vi.waitFor(() => {
+      triage.maybeStart(run, items);
+      expect(items.every((item) => item.state === 'parked')).toBe(true);
+    }, { timeout: 5000 });
+    expect(items.every((item) => item.parkReason === 'needs-james' && item.detail === refusal.message)).toBe(true);
+    expect(breaker.note).not.toHaveBeenCalled();
+  });
+});
 
 describe('usage waits', () => {
   it('waits for usage without spending the three start attempts that park documents', async () => {

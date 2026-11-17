@@ -68,6 +68,7 @@ import { stampRtkArm } from '../../cli/rtk/rtk-rollout';
 import type { DesiredRuntime, Instance } from '../../../shared/types/instance.types';
 import { isLogicalMiMoModel } from '../../../shared/types/provider-account.types';
 import { initializeInstanceEvidenceOwnership } from '../../context-evidence/evidence-conversation-resolver';
+import { assertLinearSessionKeepsProvider } from './linear-session-provider-guard';
 import { getInstanceProviderLimitHandler } from '../instance-provider-limit-handler';
 import { userTurnFollowsPark } from '../instance-provider-limit-runtime';
 import { currentAccountProfileId } from '../../providers/account-pool/account-failover-coordinator';
@@ -143,6 +144,8 @@ export class RuntimeReconciler {
         ? desired.modelRuntimeTarget
         : null;
       const diff = computeRuntimeDiff(instance, desired);
+      // A Linear run's session keeps the provider its team's ticket text was checked for; nothing has changed yet.
+      if (diff.providerChanged) assertLinearSessionKeepsProvider(instance);
       if (diff.accountProfileChanged && desired.provider === 'opencode'
         && !isLogicalMiMoModel(desired.model ?? instance.currentModel)) {
         throw new Error('MiMo account switches require a MiMo Token Plan model.');

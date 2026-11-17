@@ -6427,7 +6427,7 @@
     },
     {
       "path": "src/main/instance/instance-lifecycle.ts",
-      "lines": 3713
+      "lines": 3716
     },
     {
       "path": "src/main/instance/rlm-process-ownership.spec.ts",
@@ -6694,12 +6694,12 @@
       "lines": 1663
     },
     {
-      "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
-      "lines": 1640
+      "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
+      "lines": 1660
     },
     {
-      "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
-      "lines": 1639
+      "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
+      "lines": 1640
     },
     {
       "path": "docs/superpowers/plans/2026-04-10-knowledge-wiring-and-mining_completed.md",
@@ -7454,6 +7454,10 @@
       "lines": 935
     },
     {
+      "path": "src/main/plan-queue/plan-queue-item-flow.ts",
+      "lines": 932
+    },
+    {
       "path": "src/renderer/app/core/services/new-session-draft.service.ts",
       "lines": 931
     },
@@ -7468,10 +7472,6 @@
     {
       "path": "src/main/browser-gateway/browser-mcp-tools.ts",
       "lines": 926
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-item-flow.ts",
-      "lines": 925
     },
     {
       "path": "src/preload/domains/orchestration.preload.ts",
@@ -7542,16 +7542,16 @@
       "lines": 899
     },
     {
+      "path": "src/main/instance/lifecycle/runtime-reconciler.ts",
+      "lines": 896
+    },
+    {
       "path": "src/main/workspace/lsp-manager.ts",
       "lines": 896
     },
     {
       "path": "src/renderer/app/features/instance-detail/output-stream.component.scss",
       "lines": 895
-    },
-    {
-      "path": "src/main/instance/lifecycle/runtime-reconciler.ts",
-      "lines": 893
     },
     {
       "path": "src/main/ipc/handlers/mcp-handlers.ts",

@@ -314,7 +314,7 @@ const ALLOWLIST: Record<string, number> = {
   // context percentage into a new session. Two extractions already came out of
   // this file in the same change (`resolveRuntimeChangeModel`,
   // `resolveSwapContextUsage`); a third purely to reclaim 5 lines would be churn.
-  'src/main/instance/lifecycle/runtime-reconciler.ts': 843, // raised 705 -> 775 (2026-10-10): MiMo in-place account-switch branch (machinery in runtime-reconciler-account-handoff.ts); 775 -> 790 (2026-11-06): ending a provider-limit park after a move; 790 -> 843 (2026-11-06): Phase 1 token levers merged on top
+  'src/main/instance/lifecycle/runtime-reconciler.ts': 846, // raised 705 -> 775 (2026-10-10): MiMo in-place account-switch branch (machinery in runtime-reconciler-account-handoff.ts); 775 -> 790 (2026-11-06): ending a provider-limit park after a move; 790 -> 843 (2026-11-06): Phase 1 token levers merged on top; 843 -> 846 (2026-11-17): a Linear run's session keeps its provider (the check itself is in linear-session-provider-guard.ts; the file already sat at 892, the ceiling plus slack)
   // Main process — IPC handlers
   'src/main/ipc/handlers/app-handlers.ts': 660,
   // Tightened 1251 -> 1230 after extracting instance-deferred-permission-response.ts.

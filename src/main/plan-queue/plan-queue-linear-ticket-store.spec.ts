@@ -190,6 +190,20 @@ describe('the Linear ticket store', () => {
       expect(tickets.findNames('lin-1')).toEqual({ identifier: 'ORC-7', approvedTitle: 'New title' });
       expect(tickets.findNames('lin-other')).toBeUndefined();
     });
+
+    it('lists each team that has a ticket in a run once, with one of its addresses, and leaves other runs out', () => {
+      queue.upsertRun({ id: 'run-2', parentInstanceId: 'owner', parentHistoryThreadId: null, kind: 'tickets', workspaceCwd: '/repo', status: 'running',
+        config: DEFAULT_PLAN_QUEUE_CONFIG.tickets, relaxation: null, workerProvider: 'claude', workerModel: null, startedAt: 1, endedAt: null });
+      addItem('a'); addItem('b'); addItem('c');
+      queue.upsertItem(newPlanQueueItem('other', 'run-2', 'linear:other', 1));
+      tickets.insert(ticket('a', 'lin-a', { identifier: 'ORC-9', teamId: 'team-orc' }));
+      tickets.insert(ticket('b', 'lin-b', { identifier: 'ORC-4', teamId: 'team-orc' }));
+      tickets.insert(ticket('c', 'lin-c', { identifier: 'COM-2', teamId: 'team-com' }));
+      tickets.insert(ticket('other', 'lin-d', { identifier: 'ZZZ-1', teamId: 'team-zzz' }));
+      expect(tickets.teamsOfRun('run-1')).toEqual([{ teamId: 'team-com', identifier: 'COM-2' }, { teamId: 'team-orc', identifier: 'ORC-4' }]);
+      expect(tickets.teamsOfRun('run-2')).toEqual([{ teamId: 'team-zzz', identifier: 'ZZZ-1' }]);
+      expect(tickets.teamsOfRun('none')).toEqual([]);
+    });
   });
 });
 

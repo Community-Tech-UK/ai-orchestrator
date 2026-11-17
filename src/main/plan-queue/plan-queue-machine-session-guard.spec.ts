@@ -36,7 +36,7 @@ describe('plan queue machine session call-site guard', () => {
             expect(route && ts.isObjectLiteralExpression(route)).toBe(true);
             if (route && ts.isObjectLiteralExpression(route)) {
               expect(route.properties.map(entry => entry.getText(source)))
-                .toEqual(['...chosenRoute', 'metadata: { ...chosenRoute.metadata, unattended: true }']);
+                .toEqual(['...chosenRoute', 'metadata: { ...chosenRoute.metadata, unattended: true, ...kindMark }']);
             }
             if (options && ts.isConditionalExpression(options)) {
               expect(options.whenFalse.getText(source)).toBe('route');

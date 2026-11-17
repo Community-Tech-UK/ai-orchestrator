@@ -8,6 +8,7 @@ import type { ProviderAccountStore } from '../../providers/account-pool/provider
 import type { ProviderAccountBindingService } from '../../providers/account-pool/provider-account-binding-service';
 import { ProviderAccountRoutingService } from '../../providers/account-pool/provider-account-routing-service';
 import { RuntimeReconciler } from './runtime-reconciler';
+import { LINEAR_SESSION_PROVIDER_FIXED } from './linear-session-provider-guard';
 import type { RuntimeReconcilerDeps } from './runtime-reconciler.types';
 import { attachAccountRoute, persistedAccountProfileId, stampAccountRouteOnInstance } from './account-route-preflight';
 import { _resetAdapterLoansForTesting } from './adapter-loan-registry';
@@ -455,5 +456,32 @@ describe('a session parked on a provider limit', () => {
     expect(park.limits.isParked(h.instance.id)).toBe(true);
     expect(park.cancelResume).not.toHaveBeenCalled();
     expect(park.resentOn).toEqual([]);
+  });
+});
+
+describe('a Linear run\'s session keeps its provider', () => {
+  const linear = { planQueueRunId: 'run', planQueueRole: 'worker', planQueueRunKind: 'tickets' };
+
+  it('refuses a move to another provider before anything changes', async () => {
+    const h = harness({ metadata: linear });
+    await expect(h.reconciler.applyRuntimeChange(h.instance.id, { provider: 'codex', model: 'gpt-6-sol' })).rejects.toThrow(LINEAR_SESSION_PROVIDER_FIXED);
+    expect(h.instance).toMatchObject({ provider: 'opencode', status: 'error', accountProfileId: 'example-mimo' });
+    expect(h.createRuntimeAdapter).not.toHaveBeenCalled();
+    expect(h.adapter.terminate).not.toHaveBeenCalled();
+    expect(h.snapshot.provider).toBe('opencode');
+  });
+
+  it('lets a plans run\'s queue session and an ordinary session move', async () => {
+    for (const metadata of [{ planQueueRunId: 'run', planQueueRole: 'worker' }, undefined]) {
+      const h = harness({ metadata });
+      await h.reconciler.applyRuntimeChange(h.instance.id, { provider: 'codex', model: 'gpt-6-sol' });
+      expect(h.instance.provider).toBe('codex');
+    }
+  });
+
+  it('does not treat the mark alone, without a queue role, as a queue session', async () => {
+    const h = harness({ metadata: { planQueueRunKind: 'tickets' } });
+    await h.reconciler.applyRuntimeChange(h.instance.id, { provider: 'codex', model: 'gpt-6-sol' });
+    expect(h.instance.provider).toBe('codex');
   });
 });

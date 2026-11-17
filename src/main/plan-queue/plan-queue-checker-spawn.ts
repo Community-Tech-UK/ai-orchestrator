@@ -2,11 +2,13 @@
 import { requireOwnWorkFolder } from './plan-queue-spawn-guard';
 import { InvalidQueueCheckoutError } from './plan-queue-orphan-checkout';
 import { isLargeQueueDocument } from './plan-queue-document-policy';
+import type { PlanQueueParkReason } from '@contracts/schemas/plan-queue';
 import type { InstanceProvider } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
 import { snapshotTree, type TreeSnapshot } from './plan-queue-git';
 import { PlanQueueSpawnRoutingChanged } from './plan-queue-checker-routing';
 import { parkAfterVerifierRestoreFailure, PlanQueueSpawnRunPaused, restoreVerifierTree, usageWaitNote } from './plan-queue-run-hold';
+import { PlanQueueProviderNotAllowed } from './plan-queue-linear-providers';
 import { PlanQueueSpawnOutOfUsage } from './plan-queue-spawn';
 import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
 import type { PlanQueueFlowHost } from './plan-queue-host';
@@ -30,6 +32,7 @@ interface CheckerSpawnDeps {
   stop(id: string): Promise<void>;
   forgetCheck(itemId: string): void;
   erroredRound(item: PlanQueueItem, reason: string): Promise<void>;
+  park(item: PlanQueueItem, reason: PlanQueueParkReason, detail: string): Promise<void>;
   onVerifierOutcome(id: string, outcome: PlanQueueTurnOutcome): Promise<void>;
 }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
@@ -83,6 +86,12 @@ export async function spawnQueueChecker(deps: CheckerSpawnDeps, waiting: PlanQue
         deps.snapshots.delete(item.id);
         deps.host.transition(deps.host.getItem(item.id), 'awaiting-slot', { detail: usageWaitNote(error.message) });
         deps.usageWaits.start(item.id, error, 'check');
+        return;
+      }
+      if (error instanceof PlanQueueProviderNotAllowed) {
+        // No checker started, so the tree is untouched and no round is counted: set the job aside for James.
+        deps.snapshots.delete(item.id);
+        await deps.park(deps.host.getItem(item.id), 'needs-james', error.message);
         return;
       }
       if (error instanceof PlanQueueSpawnStoppedByUser) {

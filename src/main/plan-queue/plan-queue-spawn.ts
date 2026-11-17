@@ -12,6 +12,7 @@ import type { PlanQueueItem, PlanQueueWorkerSession, PlanQueueRun } from './plan
 import { PlanQueueSpawnStoppedByUser } from './plan-queue-user-close';
 import { isProviderExcludedFromAutomation } from '../providers/automation-provider-exclusions';
 import { mergePlanQueueAccountRules } from './plan-queue-account-rules';
+import { getLinearProviderPolicy } from './plan-queue-linear-providers';
 
 /** How long work that found no usage left waits before the queue looks again. */
 export const USAGE_RECHECK_MS = 5 * 60_000;
@@ -70,7 +71,16 @@ export async function spawnQueueInstance(
       if (!chosenRoute.provider || chosenRoute.provider === 'auto') throw new Error('A capability repair needs a fixed provider so its original exclusions can be enforced.');
       if (isExcluded(chosenRoute.provider)) throw new Error(`${chosenRoute.provider} is on this repair's never auto-pick list.`);
     }
-    return { ...chosenRoute, metadata: { ...chosenRoute.metadata, unattended: true } };
+    // A Linear run's text goes only to providers every one of its teams allows, as that list stands now. Every role,
+    // a respawn and a reopened conversation pass through here, and a missing or `auto` provider is refused.
+    const run = runOf();
+    if (run?.kind === 'tickets') {
+      const policy = getLinearProviderPolicy();
+      policy.assertProviderAllowed(policy.teamsOf(run.id), chosenRoute.provider);
+    }
+    // The mark stops a live move to another provider (`linear-session-provider-guard.ts`).
+    const kindMark = run?.kind === 'tickets' ? { planQueueRunKind: 'tickets' } : {};
+    return { ...chosenRoute, metadata: { ...chosenRoute.metadata, unattended: true, ...kindMark } };
   };
   // Choosing and checking usage yield; repeat them if James changes the run's
   // routing meanwhile, so the spawn never uses a stale list.

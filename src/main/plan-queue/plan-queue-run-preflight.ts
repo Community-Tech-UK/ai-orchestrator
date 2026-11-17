@@ -1,5 +1,6 @@
 import type { PlanQueueAccountRules, PlanQueueRouting } from '@contracts/schemas/plan-queue';
 import { currentBranch } from './plan-queue-git';
+import { excludedProvidersForRun } from './plan-queue-linear-providers';
 import { assertRunReady } from './plan-queue-run-readiness';
 import type { VerifierSelectInput, VerifierSelection } from './plan-queue-verifier-select';
 import type { PlanQueueRun } from './plan-queue.types';
@@ -23,9 +24,10 @@ export async function preflightPlanQueueRun(input: {
 
 /** Routing only: what a change of workers or checkers needs. */
 export function preflightRunRouting(run: PlanQueueRun, selectVerifier: (input: VerifierSelectInput) => Promise<VerifierSelection>): Promise<void> {
+  const excludedProviders = excludedProvidersForRun(run);
   return preflightPlanQueueRun({ routing: run.config.routing ?? { workers: [], verifiers: [] }, workspaceCwd: run.workspaceCwd,
     workerProvider: run.workerProvider ?? 'claude', workerModel: run.workerModel, selectVerifier,
-    ...(run.config.capabilityRepairExcludedProviders ? { excludedProviders: run.config.capabilityRepairExcludedProviders } : {}),
+    ...(excludedProviders ? { excludedProviders } : {}),
     ...(run.config.capabilityRepairAccountRules ? { accountRules: run.config.capabilityRepairAccountRules } : {}) });
 }
 
