@@ -33,6 +33,9 @@ export const LINEAR_TOOLS = [
   'list_issue_labels',
   'list_projects',
   'list_users',
+  'list_issues',
+  'get_issue',
+  'list_comments',
 ] as const;
 export type LinearTool = (typeof LINEAR_TOOLS)[number];
 
