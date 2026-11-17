@@ -8,6 +8,11 @@ import { logPromptInjection } from '../logging/prompt-injection-log';
 export function queuePromptSurface(prompt: string): PromptSurface | undefined {
   const conflicts = prompt.includes('the merge has conflicts. The merge is still in progress');
   const livetest = prompt.includes('Plan Queue livetest worker');
+  // A ticket prompt opens with its own words (`plan-queue-ticket-prompts.ts`), so it is not counted against a plan's ceiling.
+  if (prompt.startsWith('You are resuming a Plan Queue ticket.')) return prompt.includes('An earlier, cheaper attempt did not pass') ? 'queueTicketStepUp' : 'queueTicketResume';
+  if (prompt.startsWith('You are a Plan Queue ticket worker.')) return 'queueTicketWorker';
+  if (prompt.startsWith('You are the Plan Queue ticket worker on a fix round.')) return 'queueTicketFix';
+  if (prompt.startsWith('You are an independent Plan Queue ticket verifier.')) return 'queueTicketChecker';
   if (prompt.startsWith('Your session was stopped and has now been reopened.')) return conflicts ? 'queueContinueConflict' : 'queueContinue';
   if (prompt.startsWith('You are resuming a Plan Queue item.')) {
     if (prompt.includes('An earlier, cheaper attempt did not pass')) return livetest ? 'queueLivetestStepUp' : 'queueStepUp';

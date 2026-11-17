@@ -12,6 +12,7 @@ export const PROMPT_SURFACES = [
   'queueContinue', 'queueContinueConflict', 'queueStepUp', 'queueLivetestStepUp',
   'queueFix', 'queueConflict', 'queueGateFailure', 'queueActiveDocuments', 'queueWorkerReminder', 'queueWorkerRetry', 'queueVerifierReminder',
   'queueVerifier', 'queueLivetestVerifier', 'queueTriage',
+  'queueTicketWorker', 'queueTicketFix', 'queueTicketResume', 'queueTicketStepUp', 'queueTicketChecker',
   'structuredReview', 'tieredReview', 'structuredRepair', 'tieredRepair',
   'pingPongReview', 'pingPongRepair',
   'localStructuredReview', 'localTieredReview', 'localReviewRepair',

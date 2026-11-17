@@ -6,6 +6,9 @@ import {
   buildActiveDocumentsPrompt, buildConflictPrompt, buildContinuePrompt, buildFixPrompt, buildGateFailurePrompt,
   buildResumePrompt, buildStepUpPrompt, buildTriagePrompt, buildVerifierPrompt, buildVerifierReminderPrompt, buildWorkerPrompt, WORKER_WAIT_RULE,
 } from '../plan-queue/plan-queue-prompts';
+import {
+  buildTicketCheckerPrompt, buildTicketFixPrompt, buildTicketResumePrompt, buildTicketStepUpPrompt, buildTicketWorkerPrompt,
+} from '../plan-queue/plan-queue-ticket-prompts';
 import { QUEUE_WORKER_RETRY_PROMPT } from '../plan-queue/plan-queue-turn-retry';
 import { buildWorkerReminderPrompt } from '../plan-queue/plan-queue-report-prompts';
 import type { PlanQueueItem } from '../plan-queue/plan-queue.types';
@@ -35,6 +38,11 @@ const item: PlanQueueItem = {
 const queue = { item, kind: 'plans' as const, repoRoot: '/workspace', worktreePath: '/workspace/.worktrees/fixture' };
 const verifier = { ...queue, baseBranch: 'main', gates: ['npm run lint', 'npm run test:quiet'] };
 const findings = [{ severity: 'high' as const, confidence: 90, summary: 'The fixture retry is missing.', file: 'fixture.ts:1', evidence: 'Pinned evidence.' }];
+// A small fixture brief: a ticket's own text rides in its block on top of these fixed parts, up to 12,000 characters.
+const ticketPrompt = {
+  item, repoRoot: '/workspace', worktreePath: '/workspace/.worktrees/fixture', briefPath: '/data/plan-queue/briefs/item-budget.md',
+  ticket: { identifier: 'ORC-1', title: 'Fix the fixture', text: { description: 'The fixture retry is missing.', comments: [], labels: ['Harness'], priority: 2, projectName: null, relatedTickets: [], attachmentNames: [] } },
+};
 const conflictAddendum = () => `\n\n${buildConflictPrompt('main', ['fixture.ts'])}`;
 const loopConfig = defaultLoopConfig('/workspace', 'Implement the fixture plan');
 const loop = (iterationSeq: number, reanchorGoal: boolean, reviewDriven = false): string => {
@@ -116,6 +124,13 @@ const BUDGET = {
   // the finding-kind rules, the plan deferral rules and the PASS/FAIL example calls: 7,080 / 5,550.
   queueVerifier: { chars: 9700, render: () => buildVerifierPrompt(verifier) },
   queueLivetestVerifier: { chars: 8200, render: () => buildVerifierPrompt({ ...verifier, kind: 'livetests' }) },
+  // 17 Nov (Linear step 4): the five ticket prompts, measured with the small fixture brief above (worker 5,956, fix 1,806, resume 6,317, step-up 7,849, checker 6,100) and rounded up to 100.
+  // They share the plan prompts' rules by import; a ticket's own text adds up to 12,000 characters inside its block.
+  queueTicketWorker: { chars: 6000, render: () => buildTicketWorkerPrompt(ticketPrompt) },
+  queueTicketFix: { chars: 2050, render: () => buildTicketFixPrompt(ticketPrompt, 1, 3, findings) },
+  queueTicketResume: { chars: 6400, render: () => buildTicketResumePrompt(ticketPrompt, 'Continue verified earlier work') },
+  queueTicketStepUp: { chars: 7900, render: () => buildTicketStepUpPrompt(ticketPrompt, 3, findings) },
+  queueTicketChecker: { chars: 6200, render: () => buildTicketCheckerPrompt({ ...ticketPrompt, baseBranch: 'main', gates: ['npm run lint', 'npm run test:quiet'] }) },
   queueTriage: { chars: 7100, render: () => buildTriagePrompt('run-budget', ['/workspace/docs/fixture_plan.md']) },
   structuredReview: { chars: 3700, render: () => buildStructuredReviewPrompt('Review the fixture', 'Pinned implementation', REVIEW_ANGLES[0], ['fixture.ts']) },
   tieredReview: { chars: 4600, render: () => buildTieredReviewPrompt('Review the fixture', 'Pinned implementation', REVIEW_ANGLES[0], ['fixture.ts']) },
@@ -182,6 +197,7 @@ describe('logged prompt surfaces', () => {
     'queueWorker', 'queueLivetestWorker', 'queueResume', 'queueResumeConflict', 'queueContinue', 'queueContinueConflict',
     'queueStepUp', 'queueLivetestStepUp', 'queueFix', 'queueConflict', 'queueGateFailure', 'queueActiveDocuments', 'queueWorkerReminder', 'queueVerifierReminder',
     'queueVerifier', 'queueLivetestVerifier', 'queueTriage',
+    'queueTicketWorker', 'queueTicketFix', 'queueTicketResume', 'queueTicketStepUp', 'queueTicketChecker',
   ] as const)('a rendered %s prompt is logged under that key', (surface) => {
     expect(queuePromptSurface(BUDGET[surface].render())).toBe(surface);
   });

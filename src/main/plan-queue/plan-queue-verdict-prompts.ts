@@ -31,19 +31,31 @@ export function verdictRules(kind: PlanQueueKind, step = false): string[] {
   return [...FINDING_KIND_RULES, ...(kind === 'plans' ? ['', ...plan] : [])];
 }
 
-/** The example call arguments: the last JSON object in the prompt, which must always be a valid call. */
-export function verdictExamples(kind: PlanQueueKind, itemId: string, firstGate: string, step = false): string[] {
-  const livetest = kind === 'livetests';
-  const gates = [{ command: firstGate, exitCode: 0 }];
-  const fail = {
+/** A FAIL with one finding of each kind a checker may give, as the call arguments. */
+function failExample(itemId: string, firstGate: string) {
+  return {
     item_id: itemId,
     verdict: 'FAIL',
     findings: [
       { severity: 'high', kind: 'code', confidence: 90, summary: 'The retry path never resets the attempt counter.', file: 'src/main/example/retry.ts:42', evidence: 'attempts is incremented on line 42 and never cleared on success.' },
       { severity: 'high', kind: 'environment', confidence: 95, summary: 'The signing gate cannot run on this computer.', missing: 'The CODESIGN_IDENTITY environment variable and the certificate it names', evidence: 'npm run sign exits 1 with "no identity found".' },
     ],
-    gates_run: gates,
+    gates_run: [{ command: firstGate, exitCode: 0 }],
     not_checked: [],
+  };
+}
+
+/** The example call arguments of a ticket checker: a ticket has no plan to close, so there is no `document_complete` and no deferral. */
+export function ticketVerdictExamples(itemId: string, firstGate: string): string[] {
+  const pass = { item_id: itemId, verdict: 'PASS', findings: [], gates_run: [{ command: firstGate, exitCode: 0 }], not_checked: [] };
+  return ['A ticket that passes:', JSON.stringify(pass, null, 2), '', 'A ticket that fails, with a code finding and an environment finding:', JSON.stringify(failExample(itemId, firstGate), null, 2)];
+}
+
+/** The example call arguments: the last JSON object in the prompt, which must always be a valid call. */
+export function verdictExamples(kind: PlanQueueKind, itemId: string, firstGate: string, step = false): string[] {
+  const livetest = kind === 'livetests';
+  const fail = {
+    ...failExample(itemId, firstGate),
     ...(livetest ? { document_complete: false, need_james: [{ check: 'Check 3: Face ID unlock', classification: 'real', reason: 'Needs a physical iPhone with enrolled biometrics.' }] } : {}),
   };
   if (livetest) return [JSON.stringify(fail, null, 2)];
@@ -51,7 +63,7 @@ export function verdictExamples(kind: PlanQueueKind, itemId: string, firstGate: 
     item_id: itemId,
     verdict: 'PASS',
     findings: [],
-    gates_run: gates,
+    gates_run: [{ command: firstGate, exitCode: 0 }],
     document_complete: !step,
     deferred_checks: [{ title: 'Each provider calls the report tool', whyDeferred: 'Needs a rebuilt app and a live session on each provider.' }],
     criteria_total: 6,

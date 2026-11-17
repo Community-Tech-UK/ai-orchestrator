@@ -32,7 +32,8 @@ export function normaliseTicketLineEndings(text: string): string {
   return text.replace(/\r\n?/g, '\n');
 }
 
-function createdOrder(a: TicketTextComment, b: TicketTextComment): number {
+/** Oldest first; the hash and the brief both read comments in this order. */
+export function createdOrder(a: TicketTextComment, b: TicketTextComment): number {
   const first = Date.parse(a.createdAt);
   const second = Date.parse(b.createdAt);
   if (Number.isFinite(first) && Number.isFinite(second) && first !== second) return first - second;

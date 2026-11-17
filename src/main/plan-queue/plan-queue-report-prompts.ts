@@ -16,9 +16,13 @@ export function toolDiscoverySteps(tool: string): readonly string[] {
   ];
 }
 
-/** Final instruction of every worker turn: report through the tool, then stop. */
-export function reportReadyTask(itemId: string): string {
-  return `When the work is complete, call the \`${REPORT_READY_TOOL}\` tool once with \`item_id\` "${itemId}": \`summary\` (two or three plain sentences for a human), \`as_built\` (what you built), \`checks_run\` (each command with its exit code), \`deferred_checks\` (each check that needs a rebuilt app, a person or an outside service: \`title\`, \`steps\`, \`expectedResult\`, \`whyDeferred\`; [] when none; write each one in the \`_livetest.md\` beside the plan under the same title, because the checker compares the two) and \`follow_ups\` (problems you found outside this job's scope; [] when none). Include optional \`capability_gaps\` (up to eight investigated missing controls, using the capability-report schema) when an original check remains blocked. Do not report while a command you started is still running: wait for it to finish first. Confirm the tool answered accepted: true, then stop.`;
+/**
+ * Final instruction of every worker turn: report through the tool, then stop. A plan's deferred checks are also written
+ * in its `_livetest.md`; a ticket has no plan, so its worker (`livetestFile` false) lists them in the report alone.
+ */
+export function reportReadyTask(itemId: string, livetestFile = true): string {
+  const livetest = livetestFile ? '; write each one in the `_livetest.md` beside the plan under the same title, because the checker compares the two' : '';
+  return `When the work is complete, call the \`${REPORT_READY_TOOL}\` tool once with \`item_id\` "${itemId}": \`summary\` (two or three plain sentences for a human), \`as_built\` (what you built), \`checks_run\` (each command with its exit code), \`deferred_checks\` (each check that needs a rebuilt app, a person or an outside service: \`title\`, \`steps\`, \`expectedResult\`, \`whyDeferred\`; [] when none${livetest}) and \`follow_ups\` (problems you found outside this job's scope; [] when none). Include optional \`capability_gaps\` (up to eight investigated missing controls, using the capability-report schema) when an original check remains blocked. Do not report while a command you started is still running: wait for it to finish first. Confirm the tool answered accepted: true, then stop.`;
 }
 
 /**

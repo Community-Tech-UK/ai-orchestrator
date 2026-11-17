@@ -7,22 +7,7 @@
  */
 import { z } from 'zod';
 import type { SqliteDriver } from '../db/sqlite-driver';
-
-const ApprovedCommentSchema = z.object({
-  id: z.string().min(1),
-  authorId: z.string().nullable(),
-  authorName: z.string().nullable(),
-  body: z.string(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  fromBot: z.boolean(),
-}).strict();
-
-/** The description and comments of a ticket as James saw them. The title is kept in its own column. */
-export const ApprovedTicketTextSchema = z.object({
-  description: z.string(),
-  comments: z.array(ApprovedCommentSchema),
-}).strict();
+import { ApprovedTicketTextSchema, type ApprovedTicketText } from './plan-queue-ticket-approved-text';
 
 /** Which part of a ticket differs from what James approved. */
 export const TicketChangeKindSchema = z.enum(['title', 'description', 'comments']);
@@ -36,7 +21,6 @@ export const OpenTicketAskSchema = z.object({
   openedAt: z.number().int().positive(),
 }).strict();
 
-export type ApprovedTicketText = z.infer<typeof ApprovedTicketTextSchema>;
 export type OpenTicketAsk = z.infer<typeof OpenTicketAskSchema>;
 export type TicketChangeKind = z.infer<typeof TicketChangeKindSchema>;
 

@@ -6,15 +6,16 @@ import { LOOP_SCHEMA_VERSION, runLoopMigrations, runLoopMigrationsUpTo } from '.
 import { newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueStore } from './plan-queue-store';
 import { hashTicketText } from './plan-queue-linear-ticket-hash';
+import type { ApprovedTicketText } from './plan-queue-ticket-approved-text';
 import { PlanQueueLinearTicketStore, type NewPlanQueueLinearTicket, type OpenTicketAsk } from './plan-queue-linear-ticket-store';
 
 let db: SqliteDriver;
 let queue: PlanQueueStore;
 let tickets: PlanQueueLinearTicketStore;
 
-const text = { description: 'The button does nothing.', comments: [
+const text: ApprovedTicketText = { description: 'The button does nothing.', comments: [
   { id: 'c1', authorId: 'user-1', authorName: 'Sam', body: 'Seen on Safari too.', createdAt: '2026-11-01T10:00:00.000Z', updatedAt: '2026-11-01T10:00:00.000Z', fromBot: false },
-] };
+], labels: ['Harness'], priority: 2, projectName: 'Website', relatedTickets: [{ relation: 'blocked-by', identifier: 'ORC-3', title: null }], attachmentNames: [] };
 const hashOf = (title: string, description = text.description) => hashTicketText({ title, description, comments: text.comments });
 
 function ticket(itemId: string, linearId = 'lin-1', over: Partial<NewPlanQueueLinearTicket> = {}): NewPlanQueueLinearTicket {
