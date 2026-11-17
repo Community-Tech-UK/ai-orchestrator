@@ -41,6 +41,16 @@ describe('isolated live-test copy', () => {
     writeFileSync(join(repo, 'node_modules/fixture-child/package.json'), 'owned change');
     expect(JSON.parse(readFileSync(join(cache, 'fixture-child/package.json'), 'utf8')).version).toBe('1.0.0');
   });
+  it('removes a stand-in provider left in a reused profile, keeping the rest of its data', () => {
+    const f = fixture();
+    prepareOwner(f);
+    mkdirSync(join(f.data, 'live-test-overrides'));
+    writeFileSync(join(f.data, 'live-test-overrides/claude'), 'stand-in');
+    writeFileSync(join(f.data, 'kept'), 'saved pause');
+    prepareOwner(f);
+    expect(existsSync(join(f.data, 'live-test-overrides'))).toBe(false);
+    expect(readFileSync(join(f.data, 'kept'), 'utf8')).toBe('saved pause');
+  });
   it('creates its own profile and can relaunch that profile without replacing its data', () => {
     const f = fixture();
     prepareOwner(f);

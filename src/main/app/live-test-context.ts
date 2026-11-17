@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { constants, accessSync, lstatSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export interface HarnessLiveTestContext {
@@ -80,6 +80,41 @@ export function initializeHarnessLiveTest(options: {
 }
 
 export function isHarnessLiveTest(): boolean { return context !== null; }
+
+/** Folder inside the owned profile that holds test-only stand-ins. The runner empties it on every start. */
+export const LIVE_TEST_OVERRIDES_DIR = 'live-test-overrides';
+const CLAUDE_STAND_IN_FILE = 'claude';
+
+/**
+ * The stand-in Claude CLI a live test placed in its own profile, or null when there is none or this
+ * is not an owned live-test run. A stand-in that is present but not safe throws: running the real
+ * CLI instead would spend the user's real allowance, so there is no quiet fallback.
+ */
+export function resolveLiveTestClaudeStandIn(): string | null {
+  if (!context) return null;
+  const file = join(context.dataPath, LIVE_TEST_OVERRIDES_DIR, CLAUDE_STAND_IN_FILE);
+  if (!lstatOrNull(file)) return null;
+  // The profile must still be the one this process was started for.
+  const marker = JSON.parse(readFileSync(join(context.dataPath, '.aio-livetest-profile.json'), 'utf8')) as Partial<HarnessLiveTestContext>;
+  if (marker.schemaVersion !== 1 || marker.mode !== context.mode || marker.dataPath !== context.dataPath) {
+    throw new Error('Live-test profile no longer matches its ownership marker; refusing its Claude stand-in');
+  }
+  const stat = lstatSync(file);
+  if (!stat.isFile() || (process.getuid && stat.uid !== process.getuid()) || (stat.mode & 0o022) !== 0) {
+    throw new Error('Live-test Claude stand-in must be a plain file owned by this user and not writable by others');
+  }
+  accessSync(file, constants.X_OK);
+  const real = realpathSync(file);
+  if (!contains(context.dataPath, real)) throw new Error('Live-test Claude stand-in must live inside its profile');
+  return real;
+}
+
+function lstatOrNull(file: string): ReturnType<typeof lstatSync> | null {
+  try { return lstatSync(file); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
 
 /** Safe metadata only, emitted by the real main process, never supplied by a CDP client. */
 export function writeHarnessLiveTestReceipt(runtime: { pid: number; isPackaged: boolean; version: string; ready: boolean }): void {

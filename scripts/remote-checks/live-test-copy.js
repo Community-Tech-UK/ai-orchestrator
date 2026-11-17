@@ -45,6 +45,8 @@ function prepareOwner({ root, data, executablePath, mode, tree, port }) {
   }
   executablePath = fs.realpathSync(executablePath);
   if (mode === 'packaged' && !executablePath.startsWith(`${root}${path.sep}`)) throw new Error('Package must be inside its owned copy');
+  // A stand-in provider from an earlier run must not outlive that run in a reused profile.
+  fs.rmSync(path.join(dataPath, 'live-test-overrides'), { recursive: true, force: true });
   const owner = { schemaVersion: 1, mode, tree, dataPath, executablePath, port };
   fs.writeFileSync(path.join(root, 'livetest-owner.json'), JSON.stringify(owner), { mode: 0o600 });
   fs.writeFileSync(path.join(root, 'executable'), executablePath);

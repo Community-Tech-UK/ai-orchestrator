@@ -25,6 +25,7 @@ import {
   type TurnStartedEvent,
 } from './base-cli-adapter';
 import { NdjsonParser } from '../ndjson-parser';
+import { resolveLiveTestClaudeStandIn } from '../../app/live-test-context';
 import { applyClaudeHygieneEnv, resolveClaudeDebugLogging, resolveClaudeFallbackModel } from './claude-env-pack';
 import { buildClaudeRtkEnv } from '../rtk/rtk-rollout';
 import { claudePolicyExposure } from './claude-policy-exposure';
@@ -245,6 +246,13 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       ...(options.envRemove && options.envRemove.length > 0 ? { envRemove: options.envRemove } : {}),
     };
     super(config);
+
+    // A stand-in the live test put in its own owned profile (null in every normal run).
+    const liveTestStandIn = resolveLiveTestClaudeStandIn();
+    if (liveTestStandIn) {
+      this.setSpawnCommand(liveTestStandIn);
+      logger.warn('Live-test Claude stand-in in use; the real CLI will not run for this session');
+    }
 
     // WS14: settings-backed fallback model unless the caller pinned one.
     const fallbackModel = resolveClaudeFallbackModel(options.fallbackModel);

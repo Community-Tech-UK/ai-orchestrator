@@ -1,7 +1,9 @@
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { initializeHarnessLiveTest, isHarnessLiveTest, writeHarnessLiveTestReceipt } from './live-test-context';
+import {
+  initializeHarnessLiveTest, isHarnessLiveTest, LIVE_TEST_OVERRIDES_DIR, resolveLiveTestClaudeStandIn, writeHarnessLiveTestReceipt,
+} from './live-test-context';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -66,5 +68,76 @@ describe('owned live-test context', () => {
     chmodSync(f.ownerFile, 0o600);
     writeFileSync(f.ownerFile, JSON.stringify({ ...f.owner, executablePath: process.execPath }));
     expect(() => initializeHarnessLiveTest({ ...f.options, execPath: process.execPath })).toThrow(/owned copy/);
+  });
+});
+
+describe('live-test Claude stand-in', () => {
+  function install(f: ReturnType<typeof fixture>, mode = 0o700) {
+    const dir = join(f.data, LIVE_TEST_OVERRIDES_DIR);
+    mkdirSync(dir, { mode: 0o700, recursive: true });
+    const file = join(dir, 'claude');
+    writeFileSync(file, '#!/bin/sh\n', { mode });
+    chmodSync(file, mode);
+    return { dir, file };
+  }
+
+  it('is ignored outside a live test, even when a file sits where it would be', () => {
+    const f = fixture();
+    install(f);
+    expect(isHarnessLiveTest()).toBe(false);
+    expect(resolveLiveTestClaudeStandIn()).toBeNull();
+  });
+
+  it('returns nothing in a live test that has no stand-in', () => {
+    initializeHarnessLiveTest(fixture().options);
+    expect(resolveLiveTestClaudeStandIn()).toBeNull();
+  });
+
+  it('returns the real path of an owned, private, executable stand-in', () => {
+    const f = fixture();
+    const { file } = install(f);
+    initializeHarnessLiveTest(f.options);
+    expect(resolveLiveTestClaudeStandIn()).toBe(file);
+  });
+
+  it('is gone once the profile files are removed, and refuses a stale or replaced profile', () => {
+    const f = fixture();
+    const { dir } = install(f);
+    initializeHarnessLiveTest(f.options);
+    rmSync(dir, { recursive: true });
+    expect(resolveLiveTestClaudeStandIn()).toBeNull();
+    install(f);
+    rmSync(join(f.data, '.aio-livetest-profile.json'));
+    expect(() => resolveLiveTestClaudeStandIn()).toThrow();
+    writeFileSync(join(f.data, '.aio-livetest-profile.json'), JSON.stringify({ schemaVersion: 1, mode: 'dev', dataPath: f.data }));
+    expect(() => resolveLiveTestClaudeStandIn()).toThrow(/no longer matches/);
+  });
+
+  it.each([
+    ['not executable', 0o600],
+    ['writable by others', 0o777],
+    ['writable by its group', 0o770],
+  ])('refuses a stand-in that is %s', (_name, mode) => {
+    const f = fixture();
+    install(f, mode);
+    initializeHarnessLiveTest(f.options);
+    expect(() => resolveLiveTestClaudeStandIn()).toThrow();
+  });
+
+  it('refuses a link, even to a file inside the profile, and a link in place of the folder', () => {
+    const f = fixture();
+    const { dir, file } = install(f);
+    initializeHarnessLiveTest(f.options);
+    const target = join(f.data, 'elsewhere');
+    writeFileSync(target, '#!/bin/sh\n', { mode: 0o700 });
+    rmSync(file);
+    symlinkSync(target, file);
+    expect(() => resolveLiveTestClaudeStandIn()).toThrow(/plain file/);
+    rmSync(dir, { recursive: true });
+    const outside = join(f.root, 'outside');
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'claude'), '#!/bin/sh\n', { mode: 0o700 });
+    symlinkSync(outside, dir);
+    expect(() => resolveLiveTestClaudeStandIn()).toThrow(/inside its profile/);
   });
 });
