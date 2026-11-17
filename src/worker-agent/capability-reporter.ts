@@ -179,6 +179,7 @@ export async function reportCapabilities(
     codexSpawnMetadata: 1,
     ...(extras.codexDeviceLogin === 1 ? { codexDeviceLogin: 1 as const } : {}),
     codexHelperPolicy: 1,
+    codexThreadCredits: 1, // This worker forwards `session_thread_credits` telemetry (see worker-instance-telemetry).
     codexExecSkillsPolicy: 1, // This worker's command-mode Codex applies the skills policy (see codexExecPolicyArgs).
     queuePushGuard: 1, // This worker builds the Plan Queue push guard itself (see SpawnParams).
     queueJobs: 1, // This worker answers the `queue.*` calls (src/worker-agent/queue-jobs/).

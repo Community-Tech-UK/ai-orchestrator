@@ -303,6 +303,8 @@ export interface WorkerNodeCapabilities {
   codexDeviceLogin?: 1;
   /** 1 = applies the controller-sent `codexHelperLevel` and forwards `session_turn_share` telemetry. Absent on older workers, which drop both. */
   codexHelperPolicy?: 1;
+  /** 1 = forwards `session_thread_credits` telemetry (the Codex thread's final credit reading). Absent on older workers, which drop it, so every Codex session is refused there. */
+  codexThreadCredits?: 1;
   /** 1 = command-mode (`exec`) Codex applies the skills cap, the checker's catalog omission and the required-skills line. Absent on older workers, which run it uncapped, so non-chat Codex sessions are refused there. */
   codexExecSkillsPolicy?: 1;
   /** 1 = `instance.spawn` honours `queuePushGuard` (builds the Plan Queue push guard on this node). Absent on older workers, which would drop it, so queue sessions are refused there. */

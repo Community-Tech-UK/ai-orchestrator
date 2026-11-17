@@ -5,7 +5,7 @@ import type { WorkerNodeConnectionServer } from '../remote-node/worker-node-conn
 
 const factory = vi.hoisted(() => vi.fn());
 vi.mock('../cli/adapters/adapter-factory', () => ({ createCliAdapter: factory }));
-const registry = Object.assign(new EventEmitter(), { getNode: () => ({ capabilities: { codexHelperPolicy: 1 } }) });
+const registry = Object.assign(new EventEmitter(), { getNode: () => ({ capabilities: { codexHelperPolicy: 1, codexThreadCredits: 1 } }) });
 vi.mock('../remote-node/worker-node-registry', () => ({ getWorkerNodeRegistry: () => registry }));
 vi.mock('../pause/pause-coordinator', () => ({ getPauseCoordinator: () => ({ isPaused: () => false }) }));
 vi.mock('../logging/logger', () => ({ getLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }) }));

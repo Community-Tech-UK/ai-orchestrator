@@ -36,7 +36,7 @@ import { assertRemoteQueuePushGuardSupported } from './remote-queue-push-guard';
 import { assertRemoteCodexWorkerSupported } from './remote-codex-helper-policy';
 import { remoteCliCapabilities } from './remote-cli-capabilities';
 import { observeRemoteCodexUsage } from './remote-codex-usage';
-import { publishRemoteTurnShare } from './codex/codex-session-telemetry';
+import { publishRemoteCodexTelemetry } from './codex/codex-session-telemetry';
 const logger = getLogger('RemoteCliAdapter');
 /**
  * Max time to wait for a terminal remote event after an interrupt before the
@@ -198,7 +198,7 @@ export class RemoteCliAdapter extends EventEmitter {
   private readonly onRemoteTelemetryEvent = (event: RemoteInstanceTelemetry): void => {
     if (!this.matchesRemoteInstance(event.nodeId, event.instanceId)) return;
     if (event.telemetry.event === 'codex_ephemeral_usage') return; // Consumed by the ownership-validated numeric store only.
-    if (event.telemetry.event === 'session_turn_share') return publishRemoteTurnShare(this, event.telemetry.payload, this.spawnOptions);
+    if (publishRemoteCodexTelemetry(this, event.telemetry, this.spawnOptions)) return;
     this.emit(event.telemetry.event, event.telemetry.payload);
   };
   constructor(

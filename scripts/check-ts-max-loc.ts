@@ -356,7 +356,7 @@ const ALLOWLIST: Record<string, number> = {
   // Main process — remote node file transfer
   // Crossed 700 adding the sync_to_node/sync_from_node MCP handlers, which
   // must share this service's node/root/workspace validation helpers.
-  'src/main/remote-node/rpc-schemas.ts': 708,
+  'src/main/remote-node/rpc-schemas.ts': 709, // +1: codexThreadCredits capability (the file already sat at 708 + full slack)
   'src/main/remote-node/remote-node-file-transfer-mcp-service.ts': 830,
   // Crossed 700 adding readFileChunk/writeFileChunk for streamed transfers,
   // which must share this handler's path/root/symlink write validations.

@@ -24,6 +24,23 @@ export function assertRemoteCodexHelperPolicySupported(
   if (capabilities?.codexHelperPolicy !== REMOTE_CODEX_HELPER_POLICY_PROTOCOL) throw new Error(REMOTE_CODEX_HELPER_POLICY_UNSUPPORTED);
 }
 
+export const REMOTE_CODEX_THREAD_CREDITS_PROTOCOL = 1;
+
+export const REMOTE_CODEX_THREAD_CREDITS_UNSUPPORTED =
+  'This worker is out of date, so it would not report the Codex credits this chat used. Update the worker, or use local execution.';
+
+/**
+ * The worker's final credit reading for a Codex thread arrives as `session_thread_credits` telemetry, which a worker that
+ * does not advertise `codexThreadCredits: 1` never sends (it can still advertise `codexHelperPolicy: 1`). The controller
+ * would then log no credit row for the thread, so every remote Codex session is refused there.
+ */
+export function assertRemoteCodexThreadCreditsSupported(
+  capabilities: Pick<WorkerNodeCapabilities, 'codexThreadCredits'> | undefined,
+): void {
+  // Registration capabilities reach the registry unparsed: accept only the exact value.
+  if (capabilities?.codexThreadCredits !== REMOTE_CODEX_THREAD_CREDITS_PROTOCOL) throw new Error(REMOTE_CODEX_THREAD_CREDITS_UNSUPPORTED);
+}
+
 export const REMOTE_CODEX_EXEC_SKILLS_POLICY_PROTOCOL = 1;
 
 export const REMOTE_CODEX_EXEC_SKILLS_POLICY_UNSUPPORTED =
@@ -48,12 +65,13 @@ export function assertRemoteCodexExecSkillsPolicySupported(
 export function assertRemoteCodexWorkerSupported(
   cliType: string,
   options: { ephemeral?: boolean; sessionKind?: string },
-  capabilities: Pick<WorkerNodeCapabilities, 'codexSpawnMetadata' | 'codexHelperPolicy' | 'codexExecSkillsPolicy'> | undefined,
+  capabilities: Pick<WorkerNodeCapabilities, 'codexSpawnMetadata' | 'codexHelperPolicy' | 'codexThreadCredits' | 'codexExecSkillsPolicy'> | undefined,
 ): void {
   if (cliType !== 'codex') return;
   if (options.ephemeral === false && capabilities?.codexSpawnMetadata !== 1) {
     throw new Error('Persistent Codex requires an updated worker that preserves its session policy. Update the worker or use local execution.');
   }
   assertRemoteCodexHelperPolicySupported(capabilities);
+  assertRemoteCodexThreadCreditsSupported(capabilities);
   assertRemoteCodexExecSkillsPolicySupported(options, capabilities);
 }

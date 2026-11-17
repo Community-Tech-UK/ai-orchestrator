@@ -11,7 +11,7 @@ vi.mock('../../remote-node/worker-node-registry', () => ({ getWorkerNodeRegistry
 vi.mock('../../pause/pause-coordinator', () => ({ getPauseCoordinator: () => ({ isPaused: () => false }) }));
 
 import { RemoteCliAdapter } from './remote-cli-adapter';
-import { REMOTE_CODEX_EXEC_SKILLS_POLICY_UNSUPPORTED, REMOTE_CODEX_HELPER_POLICY_UNSUPPORTED } from './remote-codex-helper-policy';
+import { REMOTE_CODEX_EXEC_SKILLS_POLICY_UNSUPPORTED, REMOTE_CODEX_HELPER_POLICY_UNSUPPORTED, REMOTE_CODEX_THREAD_CREDITS_UNSUPPORTED } from './remote-codex-helper-policy';
 import type { WorkerNodeConnectionServer } from '../../remote-node/worker-node-connection';
 import type { UnifiedSpawnOptions } from './adapter-factory';
 
@@ -38,7 +38,7 @@ describe('RemoteCliAdapter Codex helper policy capability', () => {
 
   it('starts on a worker that advertises the capability, sending the resolved level', async () => {
     settings.value = { codexHelperAgentsChats: 'trial' };
-    nodes.capabilities = { codexHelperPolicy: 1 };
+    nodes.capabilities = { codexHelperPolicy: 1, codexThreadCredits: 1 };
     const sendRpc = vi.fn().mockResolvedValue({ instanceId: 'inst-1' });
     await makeAdapter(sendRpc).spawn();
     expect(sendRpc).toHaveBeenCalledWith('windows-pc', 'instance.spawn', expect.objectContaining({ codexHelperLevel: 'economy' }));
@@ -52,12 +52,20 @@ describe('RemoteCliAdapter Codex helper policy capability', () => {
     expect(sendRpc).not.toHaveBeenCalled();
   });
 
+  it('refuses a worker that has the helper policy but cannot forward thread-credit telemetry, before any spawn RPC', async () => {
+    settings.value = { codexHelperAgentsChats: 'full' };
+    nodes.capabilities = { codexHelperPolicy: 1 };
+    const sendRpc = vi.fn();
+    await expect(makeAdapter(sendRpc).spawn()).rejects.toThrow(REMOTE_CODEX_THREAD_CREDITS_UNSUPPORTED);
+    expect(sendRpc).not.toHaveBeenCalled();
+  });
+
   describe('command-mode skills policy', () => {
     const checker = { sessionKind: 'plan-queue', queueRole: 'verifier' } as Partial<UnifiedSpawnOptions>;
 
     it('refuses a worker built before the skills policy for a plan-queue checker, before any spawn RPC', async () => {
       settings.value = { codexHelperAgentsHarnessWork: 'full' };
-      nodes.capabilities = { codexSpawnMetadata: 1, codexHelperPolicy: 1 };
+      nodes.capabilities = { codexSpawnMetadata: 1, codexHelperPolicy: 1, codexThreadCredits: 1 };
       const sendRpc = vi.fn();
       await expect(makeAdapter(sendRpc, checker).spawn()).rejects.toThrow(REMOTE_CODEX_EXEC_SKILLS_POLICY_UNSUPPORTED);
       expect(sendRpc).not.toHaveBeenCalled();
@@ -65,7 +73,7 @@ describe('RemoteCliAdapter Codex helper policy capability', () => {
 
     it('starts the checker on a worker that advertises the skills policy, sending the checker catalog choice', async () => {
       settings.value = { codexHelperAgentsHarnessWork: 'full', codexCheckerSkillCatalog: 'omit' };
-      nodes.capabilities = { codexSpawnMetadata: 1, codexHelperPolicy: 1, codexExecSkillsPolicy: 1 };
+      nodes.capabilities = { codexSpawnMetadata: 1, codexHelperPolicy: 1, codexThreadCredits: 1, codexExecSkillsPolicy: 1 };
       const sendRpc = vi.fn().mockResolvedValue({ instanceId: 'inst-1' });
       await makeAdapter(sendRpc, checker).spawn();
       expect(sendRpc).toHaveBeenCalledWith('windows-pc', 'instance.spawn', expect.objectContaining({ sessionKind: 'plan-queue', codexOmitSkillCatalog: true }));
@@ -73,7 +81,7 @@ describe('RemoteCliAdapter Codex helper policy capability', () => {
 
     it('still starts a chat on a worker built before the skills policy', async () => {
       settings.value = { codexHelperAgentsChats: 'full' };
-      nodes.capabilities = { codexSpawnMetadata: 1, codexHelperPolicy: 1 };
+      nodes.capabilities = { codexSpawnMetadata: 1, codexHelperPolicy: 1, codexThreadCredits: 1 };
       const sendRpc = vi.fn().mockResolvedValue({ instanceId: 'inst-1' });
       await makeAdapter(sendRpc).spawn();
       expect(sendRpc).toHaveBeenCalledTimes(1);

@@ -158,7 +158,7 @@ async function harness(options: {
       }
       if (cliType === 'codex') {
         // A current worker advertises the Codex helper policy; the real registry has no such node here.
-        const spy = vi.spyOn(getWorkerNodeRegistry(), 'getNode').mockReturnValue({ capabilities: { codexHelperPolicy: 1 } } as never);
+        const spy = vi.spyOn(getWorkerNodeRegistry(), 'getNode').mockReturnValue({ capabilities: { codexHelperPolicy: 1, codexThreadCredits: 1 } } as never);
         cleanups.push(() => spy.mockRestore());
       }
       const adapter = new RemoteCliAdapter(connection, 'windows-pc', cliType, routed);

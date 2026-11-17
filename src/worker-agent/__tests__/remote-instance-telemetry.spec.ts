@@ -25,7 +25,7 @@ import { WorkerInstanceNotifier } from '../worker-instance-notifier';
 import { WorkerStreamDurability } from '../worker-stream-durability';
 
 const auth = { allowed: true };
-const registry = Object.assign(new EventEmitter(), { getNode: (id: string) => id === 'windows-pc' ? { capabilities: { codexHelperPolicy: 1, codexExecSkillsPolicy: 1 } } : undefined });
+const registry = Object.assign(new EventEmitter(), { getNode: (id: string) => id === 'windows-pc' ? { capabilities: { codexHelperPolicy: 1, codexThreadCredits: 1, codexExecSkillsPolicy: 1 } } : undefined });
 type WorkerAdapter = EventEmitter & { spawn(): Promise<number | void>; sendInput(message: string): Promise<void>; terminate(): Promise<void> };
 let workerAdapter: WorkerAdapter;
 vi.mock('../../main/cli/adapters/adapter-factory', () => ({ createCliAdapter: () => workerAdapter }));
@@ -193,6 +193,29 @@ describe('actual remote instance telemetry transport', () => {
         .filter(row => row['event'] === 'turn-share');
       expect(rows.map(row => row['revision'])).toEqual([0, 1]); // The replayed frames are deduplicated by sequence.
       expect(rows[0]).toMatchObject({ threadId: 'thread-1', turnId: 'turn-1', sessionKind: 'plan-queue', instanceId: 'controller-instance', arm: 'off', armKey: 'run-7', rootTokens: 70, helperTokens: 30 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('writes a remote Codex thread\'s credits to the controller log under the controller\'s own labels', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aio-thread-credits-'));
+    vi.stubEnv('AIO_SESSION_POLICY_DIR', dir);
+    try {
+      workerAdapter = Object.assign(new EventEmitter(), { spawn: async () => 123, sendInput: async () => undefined, terminate: async () => undefined });
+      remote = new RemoteCliAdapter(connection as unknown as WorkerNodeConnectionServer, 'windows-pc', 'codex',
+        { instanceId: 'controller-instance', sessionId: 'worker-instance', workingDirectory: '/tmp', sessionKind: 'plan-queue', trialArm: 'off', trialKey: 'run-7' });
+      await remote.spawn();
+      const credits = { event: 'thread-credits', provider: 'codex', threadId: 'thread-1', sessionKind: 'chat', estimatedUsageCreditsMicros: 2_500_000,
+        estimatedUsageUsdMicros: null, totalTokens: 900, groups: [{ model: 'gpt-6.1-sol', reasoningEffort: 'high', speed: null, totalTokens: 900, estimatedUsageCreditsMicros: 2_500_000 }] };
+      workerAdapter.emit('session_thread_credits', { ...credits, instanceId: 'forged', arm: 'full', note: 'not forwarded' });
+      notifier.replayDurableEvents([{ instanceId: 'worker-instance', afterSeq: 0 }]);
+      const rows = readdirSync(dir).flatMap(name => readFileSync(join(dir, name), 'utf8').trim().split('\n')).map(line => JSON.parse(line) as Record<string, unknown>)
+        .filter(row => row['event'] === 'thread-credits');
+      expect(rows).toHaveLength(1); // The replayed frame is deduplicated by sequence.
+      expect(rows[0]).toMatchObject({ threadId: 'thread-1', sessionKind: 'plan-queue', instanceId: 'controller-instance', arm: 'off', armKey: 'run-7',
+        estimatedUsageCreditsMicros: 2_500_000, totalTokens: 900, groups: credits.groups });
+      expect(rows[0]).not.toHaveProperty('note');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

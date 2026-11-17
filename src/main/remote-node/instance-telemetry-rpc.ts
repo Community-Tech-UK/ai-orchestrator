@@ -33,6 +33,24 @@ export const InstanceTelemetrySchema = z.discriminatedUnion('event', [
     }).strict(),
   }).strict(),
   z.object({
+    // Codex's own credit estimate for one root thread (Step 11.1), read on the worker where the app-server runs.
+    // Labels come from the controller's spawn options, as for `session_turn_share`.
+    event: z.literal('session_thread_credits'),
+    payload: z.object({
+      threadId: z.string().min(1).max(512),
+      estimatedUsageCreditsMicros: z.number().nonnegative().max(Number.MAX_SAFE_INTEGER),
+      estimatedUsageUsdMicros: z.number().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable(),
+      totalTokens: z.number().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable(),
+      groups: z.array(z.object({
+        model: z.string().max(100).nullable(),
+        reasoningEffort: z.string().max(100).nullable(),
+        speed: z.string().max(100).nullable(),
+        totalTokens: z.number().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable(),
+        estimatedUsageCreditsMicros: z.number().nonnegative().max(Number.MAX_SAFE_INTEGER),
+      }).strict()).max(20),
+    }).strict(),
+  }).strict(),
+  z.object({
     event: z.literal('subagent_usage'),
     payload: z.object({
       toolUseId: z.string().min(1).max(512),

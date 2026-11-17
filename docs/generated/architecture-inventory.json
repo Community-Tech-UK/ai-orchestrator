@@ -7295,6 +7295,10 @@
       "lines": 991
     },
     {
+      "path": "src/worker-agent/capability-reporter.spec.ts",
+      "lines": 991
+    },
+    {
       "path": "docs/AIO_MCP_CLI.md",
       "lines": 990
     },
@@ -7324,10 +7328,6 @@
     },
     {
       "path": "src/main/rlm/context-residency-controller.spec.ts",
-      "lines": 984
-    },
-    {
-      "path": "src/worker-agent/capability-reporter.spec.ts",
       "lines": 984
     },
     {

@@ -154,6 +154,7 @@ const WorkerNodeCapabilitiesSchema = z.object({
   codexSpawnMetadata: z.literal(1).optional().catch(undefined),
   codexDeviceLogin: z.literal(1).optional().catch(undefined),
   codexHelperPolicy: z.literal(1).optional().catch(undefined),
+  codexThreadCredits: z.literal(1).optional().catch(undefined), // Malformed reads as absent: Codex is refused.
   codexExecSkillsPolicy: z.literal(1).optional().catch(undefined), // Malformed reads as absent: non-chat Codex is refused.
   queuePushGuard: z.literal(1).optional().catch(undefined), // Malformed reads as absent: queue sessions are refused.
   queueJobs: z.literal(1).optional().catch(undefined), // Malformed reads as absent: no job is sent there.

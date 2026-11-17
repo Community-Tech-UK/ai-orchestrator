@@ -137,7 +137,7 @@ describe('actual instance.spawn executing-worker account ingress', () => {
 
   it.each(['claude', 'codex', 'opencode'] as const)('accepts actual controller-emitted %s wire including optional/default metadata', async (cliType) => {
     // The worker the controller targets advertises the Codex helper policy, as a current worker does.
-    vi.spyOn(getWorkerNodeRegistry(), 'getNode').mockReturnValue({ capabilities: { codexHelperPolicy: 1 } } as never);
+    vi.spyOn(getWorkerNodeRegistry(), 'getNode').mockReturnValue({ capabilities: { codexHelperPolicy: 1, codexThreadCredits: 1 } } as never);
     const emitted: unknown[] = [];
     // Isolate native sign-in for these compatibility controls; ingress/schema is real.
     managerSpawn.mockImplementation(async (params: SpawnParams) => { emitted.push(params); });

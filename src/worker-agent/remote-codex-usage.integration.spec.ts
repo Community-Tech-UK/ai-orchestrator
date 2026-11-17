@@ -74,7 +74,7 @@ describe('remote Codex ownership and final numeric receipts over authenticated w
     fixture.directory = mkdtempSync(join(tmpdir(), 'aio-remote-codex-usage-'));
     fixture.authenticated = true; frames = []; spawns = []; legacyWorker = false; modernCapability = true; failSpawn = false;
     onTerminate = () => undefined; lateFinalize = undefined;
-    registry = Object.assign(new EventEmitter(), { getNode: () => ({ capabilities: modernCapability ? { codexSpawnMetadata: 1, codexHelperPolicy: 1, codexExecSkillsPolicy: 1, instanceModelChange: 1 } : {} }) });
+    registry = Object.assign(new EventEmitter(), { getNode: () => ({ capabilities: modernCapability ? { codexSpawnMetadata: 1, codexHelperPolicy: 1, codexThreadCredits: 1, codexExecSkillsPolicy: 1, instanceModelChange: 1 } : {} }) });
     fixture.registry = registry;
     manager = new LocalInstanceManager(['/tmp']);
     const original = factory.createCliAdapter;
