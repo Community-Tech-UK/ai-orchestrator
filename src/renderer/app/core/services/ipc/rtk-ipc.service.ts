@@ -10,7 +10,7 @@ import { ElectronIpcService, IpcResponse } from './electron-ipc.service';
 
 export interface RtkCoverageRow {
   surface: string;
-  mode: 'Hook' | 'Instructions only' | 'Trial' | 'Off';
+  mode: 'Hook' | 'Instructions only' | 'Harm check' | 'Off';
   note: string;
 }
 

@@ -454,7 +454,7 @@ export const TOOLTIP_COPY = {
   'rtk.ranInFull': { label: 'Ran in full', meaning: 'Commands that ran through RTK without shortening their output.' },
   'rtk.savedCapped': { label: 'Output tokens saved', meaning: 'An estimate capped at the output size the AI could have seen.' },
   'rtk.weighted': { label: 'Typical reduction', meaning: 'Output reduction weighted by command size among shortened commands.' },
-  'rtk.scope': { label: 'Where it applies', meaning: 'Shows which sessions use the hook, instructions, a trial, or no output compression.' },
+  'rtk.scope': { label: 'Where it applies', meaning: 'Shows which sessions use the hook, instructions, a harm check, or no output compression.' },
   'quickAsk.button': { label: 'Quick ask', meaning: 'Ask this running Claude conversation a question without saving the answer to its transcript. It rereads the current conversation.' },
   'coldCache.compactFirst': { label: 'Compact first', meaning: 'Make a checkpoint and summarize the conversation before the next message. The summary keeps key context but can omit detail; choose full history to skip this once.' },
 } as const satisfies Record<string, TooltipCopyEntry>;

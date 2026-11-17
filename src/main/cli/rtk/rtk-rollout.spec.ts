@@ -277,8 +277,8 @@ describe('describeRtkCoverage', () => {
 
   it('reports the scope on the two auto-approve surfaces', () => {
     const trial = describeRtkCoverage(settings({ rtkAutoApproveScope: 'trial' }));
-    expect(trial.find((r) => r.surface === 'Claude auto-approve')?.mode).toBe('Trial');
-    expect(trial.find((r) => r.surface === 'Loops')?.mode).toBe('Trial');
+    expect(trial.find((r) => r.surface === 'Claude auto-approve')?.mode).toBe('Harm check');
+    expect(trial.find((r) => r.surface === 'Loops')?.mode).toBe('Harm check');
 
     const sessionsOnly = describeRtkCoverage(settings({ rtkAutoApproveScope: 'sessions-only' }));
     expect(sessionsOnly.find((r) => r.surface === 'Claude auto-approve')?.mode).toBe('Hook');

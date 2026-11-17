@@ -1,5 +1,5 @@
 /**
- * Types for the RTK auto-approve hook trial report script (consumed by its
+ * Types for the RTK auto-approve hook harm check report script (consumed by its
  * fixture spec; the script itself is plain ESM JavaScript).
  */
 

@@ -33,7 +33,7 @@ describe('RtkSavingsTabComponent', () => {
     getStatus.mockReset().mockResolvedValue({ success: true, data: {
       enabled: true, available: true, binarySource: 'bundled', version: '0.51.0',
       trackingDbPath: '/tmp/tracking.db', trackingDbAvailable: true,
-      coverage: [{ surface: 'Claude auto-approve', mode: 'Trial', note: 'Half get a hook.' }],
+      coverage: [{ surface: 'Claude auto-approve', mode: 'Harm check', note: 'Half get a hook.' }],
     } });
     TestBed.configureTestingModule({ providers: [
       { provide: RtkIpcService, useValue: { getSummary, getStatus, lastSummary: { value: null } } },
@@ -58,7 +58,7 @@ describe('RtkSavingsTabComponent', () => {
     expect(root.textContent).toContain('Commands made shorter');
     expect(root.textContent).toContain('Ran in full (not shortened)');
     expect(root.textContent).toContain('Claude auto-approve');
-    expect(root.textContent).toContain('Trial');
+    expect(root.textContent).toContain('Harm check');
     expect(root.textContent).toContain('Rust Token Killer');
     expect(root.querySelectorAll('[title]')).toHaveLength(0);
   });

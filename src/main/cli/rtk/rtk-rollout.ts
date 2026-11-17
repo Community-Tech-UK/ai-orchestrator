@@ -275,7 +275,7 @@ function resolveHookLogDir(): string | undefined {
 
 export interface RtkCoverageRow {
   surface: string;
-  mode: 'Hook' | 'Instructions only' | 'Trial' | 'Off';
+  mode: 'Hook' | 'Instructions only' | 'Harm check' | 'Off';
   note: string;
 }
 
@@ -289,14 +289,14 @@ export function describeRtkCoverage(settings: RtkRolloutSettings): RtkCoverageRo
     : scope === 'off'
       ? 'Off'
       : scope === 'trial'
-        ? 'Trial'
+        ? 'Harm check'
         : 'Hook';
   const loopMode: RtkCoverageRow['mode'] = !eligible
     ? 'Off'
     : scope === 'on'
       ? 'Hook'
       : scope === 'trial'
-        ? 'Trial'
+        ? 'Harm check'
         : 'Off';
   return [
     {
@@ -309,8 +309,8 @@ export function describeRtkCoverage(settings: RtkRolloutSettings): RtkCoverageRo
     {
       surface: 'Claude auto-approve',
       mode: sessionMode,
-      note: sessionMode === 'Trial'
-        ? 'Half of sessions get the hook, so Harness can measure it.'
+      note: sessionMode === 'Harm check'
+        ? 'Half of sessions get the hook, so Harness can check it does no harm.'
         : sessionMode === 'Hook'
           ? 'The hook shortens output without ever asking or denying.'
           : 'Auto-approve sessions never get a hook that can prompt.',
@@ -318,8 +318,8 @@ export function describeRtkCoverage(settings: RtkRolloutSettings): RtkCoverageRo
     {
       surface: 'Loops',
       mode: loopMode,
-      note: loopMode === 'Trial'
-        ? 'Half of loop runs get the hook, so Harness can measure it.'
+      note: loopMode === 'Harm check'
+        ? 'Half of loop runs get the hook, so Harness can check it does no harm.'
         : loopMode === 'Hook'
           ? 'Every loop run gets the rewrite-only hook.'
           : 'Loop runs stay unhooked for now.',

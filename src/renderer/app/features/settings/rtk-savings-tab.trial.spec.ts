@@ -14,8 +14,8 @@ await resolveComponentResources((url) => {
 // (`rtk-rollout.ts:282-346`): seven rows, surface/mode/note, mode one of four words.
 const TRIAL_COVERAGE: RtkCoverageRow[] = [
   { surface: 'Claude asking for approval', mode: 'Hook', note: 'The approval hook also shortens command output.' },
-  { surface: 'Claude auto-approve', mode: 'Trial', note: 'Half of sessions get the hook, so Harness can measure it.' },
-  { surface: 'Loops', mode: 'Trial', note: 'Half of loop runs get the hook, so Harness can measure it.' },
+  { surface: 'Claude auto-approve', mode: 'Harm check', note: 'Half of sessions get the hook, so Harness can check it does no harm.' },
+  { surface: 'Loops', mode: 'Harm check', note: 'Half of loop runs get the hook, so Harness can check it does no harm.' },
   { surface: 'Codex', mode: 'Instructions only', note: 'Codex is asked to run commands through RTK in the shell tool.' },
   { surface: 'Copilot, Cursor, OpenCode, Grok', mode: 'Instructions only', note: 'Same instruction text; no hook is installed for these CLIs.' },
   { surface: 'Antigravity and Gemini', mode: 'Instructions only', note: 'Same instruction text; no hook is installed for these CLIs.' },
@@ -58,25 +58,25 @@ describe('RtkSavingsTabComponent trial line and coverage table (R6N4)', () => {
   it('shows the running trial with both session counts and its start date', async () => {
     getStatus.mockResolvedValue(status({ trial: { startedAt: '2026-10-09', sessionsWithHook: 93, sessionsWithout: 97 } }));
     const root = await render();
-    expect(text(root)).toContain('Trial running: 93 sessions with RTK, 97 without. Started 2026-10-09.');
+    expect(text(root)).toContain('Harm check running: 93 sessions with RTK, 97 without. Started 2026-10-09.');
   });
 
   it('leaves out the start date when the trial has none yet, and still shows zero counts', async () => {
     getStatus.mockResolvedValue(status({ trial: { startedAt: null, sessionsWithHook: 0, sessionsWithout: 0 } }));
     const root = await render();
-    expect(text(root)).toContain('Trial running: 0 sessions with RTK, 0 without.');
+    expect(text(root)).toContain('Harm check running: 0 sessions with RTK, 0 without.');
     expect(text(root)).not.toContain('Started');
   });
 
   it('shows no trial line when status carries no trial', async () => {
-    expect(text(await render())).not.toContain('Trial running');
+    expect(text(await render())).not.toContain('Harm check running');
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({ providers: [
       { provide: RtkIpcService, useValue: { getSummary, getStatus, lastSummary: { value: null } } },
       { provide: SettingsStore, useValue: { rtkSettings: () => [], get: () => true, set: vi.fn() } },
     ] });
     getStatus.mockResolvedValue(status({ trial: null }));
-    expect(text(await render())).not.toContain('Trial running');
+    expect(text(await render())).not.toContain('Harm check running');
   });
 
   it('renders every coverage row it is given, in order, with surface, mode and note', async () => {
@@ -84,7 +84,7 @@ describe('RtkSavingsTabComponent trial line and coverage table (R6N4)', () => {
     const rows = Array.from(root.querySelectorAll('table.rtk-table tbody tr'))
       .map((tr) => Array.from(tr.querySelectorAll('td')).map((td) => td.textContent?.trim()));
     expect(rows).toEqual(TRIAL_COVERAGE.map((row) => [row.surface, row.mode, row.note]));
-    expect(rows[1]?.[1], 'the first hook-eligible auto-approve row shows the Trial mode').toBe('Trial');
+    expect(rows[1]?.[1], 'the first hook-eligible auto-approve row shows the Harm check mode').toBe('Harm check');
   });
 
   it('renders an empty coverage table body, not stale rows, when none are supplied', async () => {

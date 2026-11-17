@@ -132,11 +132,11 @@ export const INTEGRATION_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'rtkAutoApproveScope',
     label: 'Output compression in auto-approve sessions and loops',
-    description: 'Controls the rewrite-only RTK hook in auto-approve Claude sessions and loops. Off is the default until the hook has been fully checked. Trial assigns half of eligible sessions to the hook and records results for comparison. Changes apply to new sessions.',
+    description: 'Controls the rewrite-only RTK hook in auto-approve Claude sessions and loops. Off is the default until the hook has been fully checked. Harm check gives the hook to half of eligible sessions and compares Bash calls per session with the other half; it catches harm of about 25% or more. Changes apply to new sessions.',
     type: 'select',
     options: [
       { value: 'off', label: 'Off' },
-      { value: 'trial', label: 'Trial: half of sessions, to measure it' },
+      { value: 'trial', label: 'Harm check: half of sessions, to look for harm' },
       { value: 'on', label: 'On' },
       { value: 'sessions-only', label: 'On for sessions, off for loops' },
     ],

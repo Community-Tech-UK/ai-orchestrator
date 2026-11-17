@@ -161,8 +161,8 @@ describe('rtk:get-status coverage and trial (R6N6)', () => {
   it('passes the stored scope through, so a trial scope shows Trial on sessions and loops', async () => {
     setSettings(true, 'trial');
     const { coverage } = await status();
-    expect(coverage[1]).toMatchObject({ surface: 'Claude auto-approve', mode: 'Trial' });
-    expect(coverage[2]).toMatchObject({ surface: 'Loops', mode: 'Trial' });
+    expect(coverage[1]).toMatchObject({ surface: 'Claude auto-approve', mode: 'Harm check' });
+    expect(coverage[2]).toMatchObject({ surface: 'Loops', mode: 'Harm check' });
   });
 
   it('returns the real trial counts read from the ledger, hook log and transcripts', async () => {

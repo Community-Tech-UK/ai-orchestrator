@@ -2409,7 +2409,8 @@
     "id": "c8f7e7cb884d0fde",
     "owner": "src/renderer/app/features/settings/rtk-savings-tab.component.ts",
     "text": "Shows which sessions use the hook, instructions, a trial, or no output compression.",
-    "why": "long"
+    "why": "long",
+    "retired": "Renamed the RTK queued trial a harm check (Phase D Step 13); the tooltip now says harm check instead of trial."
   },
   {
     "id": "c9478a7d27e16e7e",
@@ -3042,5 +3043,11 @@
     "owner": "src/renderer/app/features/side-chat/side-chat-panel.component.ts",
     "text": "Wait while this message is sent",
     "why": "consequence"
+  },
+  {
+    "id": "acd219dc61014f5d",
+    "owner": "src/renderer/app/features/settings/rtk-savings-tab.component.ts",
+    "text": "Shows which sessions use the hook, instructions, a harm check, or no output compression.",
+    "why": "long"
   }
 ]

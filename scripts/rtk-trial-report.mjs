@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * RTK auto-approve hook trial report (A13, Step 18b).
+ * RTK auto-approve hook harm check report (A13, Step 18b).
  *
  * Read-only. Joins three sources by session id:
  *   1. the cost-attribution JSONL (explicit eligible trial rows carry arm,
@@ -606,7 +606,7 @@ async function main() {
     stopReached,
     recommendation: recommendTrial(verdicts, { sampleReady, stopReached }),
     verdicts,
-    note: '150 sessions per group resolves only a 15-20% cost difference; RTK is expected to move input 2-4%, so the trial proves "no harm and shorter results". Any real bill change shows in the Phase 0 day check.',
+    note: '150 sessions per group resolves only a 15-20% cost difference; RTK is expected to move input 2-4%, so the harm check (judged on Bash calls per session) only catches harm of about 25% or more and shows results got shorter. Any real bill change shows in the Phase 0 day check.',
   };
   if (!transcriptsComplete) {
     out.bash.rewrittenCalls = null;
@@ -619,7 +619,7 @@ async function main() {
     console.log(JSON.stringify(out, null, 2));
     return;
   }
-  console.log(`# RTK auto-approve hook trial (${out.window.since} → ${out.window.until ?? 'now'})\n`);
+  console.log(`# RTK auto-approve hook harm check (${out.window.since} → ${out.window.until ?? 'now'})\n`);
   console.log(`Sessions: ${out.sessions.withHook} with RTK, ${out.sessions.withoutHook} without.`);
   console.log(`Unmeasured (no Bash): ${unmeasuredNoBash.on} assigned on, ${unmeasuredNoBash.off} assigned off.`);
   if (!transcriptsComplete) console.log(`Transcript evidence unknown: ${unparsableTranscriptLines} unparsable line(s), ${unreadableTranscripts} unreadable file(s). Counts and errors below cover observed records only.`);

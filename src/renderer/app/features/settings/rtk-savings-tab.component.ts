@@ -104,7 +104,7 @@ type WindowChoice = 7 | 30 | 90 | 0;
           </div>
         </div>
         @if (st.trial; as trial) {
-          <p class="rtk-hint">Trial running: {{ trial.sessionsWithHook }} sessions with RTK,
+          <p class="rtk-hint">Harm check running: {{ trial.sessionsWithHook }} sessions with RTK,
             {{ trial.sessionsWithout }} without.
             @if (trial.startedAt) { Started {{ trial.startedAt }}. }
           </p>
