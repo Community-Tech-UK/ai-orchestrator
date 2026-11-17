@@ -5,6 +5,7 @@ import {
 } from '../../shared/types/history.types';
 import type { Instance, OutputMessage } from '../../shared/types/instance.types';
 import type { MemberSessionPolicy } from '../mobile-gateway/mobile-gateway-member-session';
+import { SET_ASIDE_FOLDER_METADATA } from '../../shared/utils/plan-queue-set-aside-agent';
 import { resolveMemberRestore } from './history-restore-member';
 import { isToolOutcomeMessage } from '../../shared/types/tool-outcome';
 import { normalizeRecoveryNodePlacement } from '../session/session-recovery-node-placement';
@@ -270,6 +271,11 @@ export class HistoryRestoreCoordinator {
 
     const { policy: memberPolicy, problem } = resolveMemberRestore(data.entry.mobileProfileId, restoreNodeId, remoteNodeAvailable);
     if (problem) throw new HistoryRestoreError(problem.code, problem.message);
+    // The Sort out agent reopened from History keeps its Plan Queue tools. A fork is a new conversation, not that agent.
+    const setAsideFolder = opts.forkAs ? undefined : data.entry.planQueueSetAsideFolder;
+    const sessionPolicy: Partial<MemberSessionPolicy> | undefined = setAsideFolder
+      ? { ...memberPolicy, metadata: { ...memberPolicy?.metadata, [SET_ASIDE_FOLDER_METADATA]: setAsideFolder } }
+      : memberPolicy;
 
     if (!remoteNodeAvailable && restoreAdditionalDirectories?.length) {
       throw new HistoryRestoreError('ADDITIONAL_DIRECTORIES_NODE_UNAVAILABLE', 'This session has additional folders on an unavailable worker. Restore it when that worker is available.');
@@ -318,7 +324,7 @@ export class HistoryRestoreCoordinator {
         restoreCopilotProfileId,
         restoreAccountProfileId,
         restoreNodeId,
-        memberPolicy,
+        sessionPolicy,
       });
       if (attempt.kind === 'restored') {
         // An alive-but-disproven resume keeps its rung but still burns the
@@ -368,7 +374,7 @@ export class HistoryRestoreCoordinator {
       originalSessionId: data.entry.sessionId,
       storedMessages: data.messages,
       explicitAccountProfileId: accountPlan.explicitAccountProfileId,
-      memberPolicy,
+      sessionPolicy,
     }), data.messages);
   }
 
@@ -407,7 +413,8 @@ export class HistoryRestoreCoordinator {
     restoreCopilotProfileId?: string;
     restoreAccountProfileId?: string;
     restoreNodeId?: string;
-    memberPolicy?: MemberSessionPolicy;
+    /** A phone member's fence and stamp, and the Sort out marker: what the session carries beyond its transcript. */
+    sessionPolicy?: Partial<MemberSessionPolicy>;
   }): Promise<NativeResumeAttempt> {
     let resumeInstanceId: string | undefined;
     const postSpawnTimeoutMs = this.postSpawnTimeoutMs ?? (params.restoreNodeId ? 15_000 : 5_000);
@@ -436,7 +443,7 @@ export class HistoryRestoreCoordinator {
       copilotAccountProfileId: params.restoreCopilotProfileId,
         accountProfileId: params.restoreAccountProfileId,
         forceNodeId: params.restoreNodeId,
-        ...params.memberPolicy,
+        ...params.sessionPolicy,
       });
       resumeInstanceId = instance.id;
       instance.autoRespawnSuppressedUntil = Date.now() + postSpawnTimeoutMs + 2_000;
@@ -571,7 +578,8 @@ export class HistoryRestoreCoordinator {
     originalSessionId: string;
     storedMessages: OutputMessage[];
     explicitAccountProfileId?: string;
-    memberPolicy?: MemberSessionPolicy;
+    /** A phone member's fence and stamp, and the Sort out marker: what the session carries beyond its transcript. */
+    sessionPolicy?: Partial<MemberSessionPolicy>;
   }): Promise<HistoryRestoreCoordinatorResult> {
     const { selected: displayMessages, hidden: hiddenMessages, truncatedCount } =
       selectMessagesForRestore(params.restoreTranscriptMessages, 100);
@@ -601,7 +609,7 @@ export class HistoryRestoreCoordinator {
       copilotAccountProfileId: params.restoreCopilotProfileId,
       ...(params.explicitAccountProfileId ? { accountProfileId: params.explicitAccountProfileId } : {}),
       forceNodeId: fallbackNodeId,
-      ...params.memberPolicy,
+      ...params.sessionPolicy,
     });
 
     let canLoadEarlierMessages = hiddenMessages.length > 0;

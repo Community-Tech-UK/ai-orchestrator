@@ -471,6 +471,19 @@ describe('archiveRecoverableSessionsToHistory', () => {
     expect(await service.listCandidates()).toEqual([]);
   });
 
+  it('files a crash-recovered Sort out agent with its folder, so reopening it keeps its tools', async () => {
+    const { history, run } = await setup([
+      continuityState('sort-out', { planQueueSetAsideFolder: '/work/project' }),
+      continuityState('own'),
+    ]);
+
+    await run();
+
+    const byInstance = new Map(history.getEntries().map((item) => [item.originalInstanceId, item]));
+    expect(byInstance.get('sort-out')?.planQueueSetAsideFolder).toBe('/work/project');
+    expect(byInstance.get('own')?.planQueueSetAsideFolder).toBeUndefined();
+  });
+
   it('files crash-recovered automation runs with the labels a clean shutdown would give them', async () => {
     const { history, run } = await setup([
       continuityState('quiet', { automation: { automationId: 'auto-1', hidden: true, runSucceeded: true } }),

@@ -115,6 +115,27 @@ describe('HistoryManager durable node placement', () => {
     expect(history.getEntries().find((entry) => entry.originalInstanceId === owner.id)?.mobileProfileId).toBeUndefined();
   });
 
+  it('keeps the Sort out folder through archive and a later rearchive of the same thread', async () => {
+    const history = await manager();
+    const agent = record(false);
+    agent.metadata = { planQueueSetAsideFolder: '/work/project' };
+    await history.archiveInstance(agent);
+    expect(history.getEntries()[0].planQueueSetAsideFolder).toBe('/work/project');
+
+    // A copy restored before this was carried has no marker; the earlier entry still says what it was.
+    const restored = record(false);
+    restored.historyThreadId = agent.historyThreadId;
+    restored.outputBuffer.push({ id: 'placeholder-new-reply', type: 'assistant', timestamp: 200, content: 'Placeholder reply' });
+    await history.archiveInstance(restored);
+    expect(history.getEntries()[0].planQueueSetAsideFolder).toBe('/work/project');
+
+    const other = record(false);
+    await history.archiveInstance(other);
+    expect(history.getEntries().find((entry) => entry.originalInstanceId === other.id)?.planQueueSetAsideFolder).toBeUndefined();
+    const reloaded = await (await manager()).loadConversation(history.getEntries().find((entry) => entry.originalInstanceId === restored.id)!.id);
+    expect(reloaded?.entry.planQueueSetAsideFolder).toBe('/work/project');
+  });
+
   it('refuses malformed placement before writing an archive that would silently lose its constraint', async () => {
     const history = await manager();
     const instance = record(false);

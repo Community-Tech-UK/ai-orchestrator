@@ -542,6 +542,12 @@ Source branch had no register entries left (its branch was removed); these rows 
 | LT-1136 | P3 | **OPEN; REPRODUCED LIVE 2026-11-15; NOT REPAIRED.** Escape closes the shared model picker but drops keyboard focus to the page body instead of its initiating chip when focus trapping is off. The same restoration path predates the sidechat cleanup. | [LT-1136 detail](#lt-1136) | Shared compact model picker |
 | LT-1137 | P3 | **OPEN; REPRODUCED LIVE 2026-11-15; NOT REPAIRED.** The shared model picker chip names a missing `aria-controls` target even while its panel is open. This existing accessibility relationship defect is separate from the Escape focus defect and the sidechat cleanup. | [LT-1137 detail](#lt-1137) | Shared compact model picker |
 
+### New findings — 2026-11-17 Set aside live checks
+
+| ID | Priority | Status / observed defect | Evidence | Acceptance owner |
+| --- | --- | --- | --- | --- |
+| LT-1185 | P2 | **REPRODUCED LIVE 2026-11-16; FIX BUILT, AWAITING LIVE RECHECK.** After a Harness restart the Sort out (Set aside) session came back through History, which never carried its `planQueueSetAsideFolder` marker, so every Set aside tool refused it with "Only the agent started from the Set aside tab on the Plan Queue page may use this tool". | [LT-1185 detail](#lt-1185) | [Set aside live checks, check 2](2026-11-15-set-aside-agent-merges-itself_plan_livetest.md) |
+
 ## LT-001: Existing-Tab Browser Grant Scope Mismatch
 
 ### Observed behavior
@@ -15716,3 +15722,24 @@ The task baseline `234b7e405^` has the same trigger and selection-panel binding.
 - While the picker is open, make the chip's `aria-controls` resolve to the actual controlled panel with a unique, stable identifier. Keep the advertised popup semantics consistent with the rendered panel.
 - Repeat real Tab → Enter on the rebuilt test Mac app and inspect the expanded chip and its referenced element in the same browser-control session. Require an existing, visible controlled panel while open; record its accessible role and name and preserve normal search and model selection.
 - Check an ordinary session picker and a modal host as shared callers, including multiple pickers on one page. References must resolve to their own panels without duplicate identifiers. When a panel is removed on close, omit any reference that would point to a missing element. Retain the resulting live evidence with the future repair's acceptance record.
+
+## LT-1185
+
+### LT-1185 — Sort out loses its Plan Queue tools when reopened from History after a restart
+
+**Status: reproduced live 16 November 2026 in the installed app; fix built 17 November 2026; awaiting the live recheck.**
+
+### Observed behaviour
+
+Live check 2 of the [Set aside live checks](2026-11-15-set-aside-agent-merges-itself_plan_livetest.md): after the 23:03 restart on 16 November the Sort out session was reopened twice (16 November 23:08 and 17 November 18:53). The app log records `HistoryRestoreCoordinator "History restore complete" restoreMode native-resume` for both, on the same History thread. Neither restored session's saved state held the `planQueueSetAsideFolder` marker, and its Set aside tool calls were refused with "Only the agent started from the Set aside tab on the Plan Queue page may use this tool". The original Sort out session did hold the marker.
+
+### Root cause
+
+The earlier fix carried the marker only through crash-recovery revival (continuity state). A restart archives open sessions into History, and reopening one goes through `HistoryRestoreCoordinator`, which builds the new session from the History entry. The History entry had no field for the marker, and startup archiving of crash autosaves (`archive-recoverable-sessions.ts`) also dropped it.
+
+### Required behaviour and acceptance
+
+- The History entry records the folder when a Sort out session is archived, keeps it when the thread is archived again, and startup archiving of a crash autosave keeps it too.
+- Reopening the entry from History, by native resume or by replay, gives the new session the marker, merged with any phone-member policy. A fork of the conversation does not get it.
+- Live: rebuild and restart, press Sort out, restart again, reopen the Sort out session and confirm its Set aside tool calls succeed (check 2 of the live-test document).
+- Fix record: [2026-11-17-sort-out-keeps-tools-after-history-restore_plan_completed.md](2026-11-17-sort-out-keeps-tools-after-history-restore_plan_completed.md).

@@ -6375,7 +6375,7 @@
   "largeFiles": [
     {
       "path": "docs/plans/livetest-remediation-register.md",
-      "lines": 15719
+      "lines": 15746
     },
     {
       "path": "resources/browser-extension/background.js",
@@ -6675,7 +6675,7 @@
     },
     {
       "path": "src/main/history/history-manager.ts",
-      "lines": 1786
+      "lines": 1784
     },
     {
       "path": "src/main/orchestration/default-invokers.ts",

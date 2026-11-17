@@ -4,6 +4,7 @@ import { buildVerifiedRecoveryBuffer } from '../instance/lifecycle/continuity-re
 import { normalizeRecoveryNodePlacement } from '../session/session-recovery-node-placement';
 import { normalizeRecoveryExecutionLocation } from '../session/session-recovery-execution-location';
 import { automationMetadataFromProvenance } from '../session/continuity-automation-provenance';
+import { SET_ASIDE_FOLDER_METADATA } from '../../shared/utils/plan-queue-set-aside-agent';
 import type { ArchiveInstanceOptions, ArchiveInstanceOutcome } from './should-archive-instance';
 import type {
   ResolvedRecoveryCandidate,
@@ -54,10 +55,11 @@ export function buildArchiveInstanceFromRecovery(
   const sessionId = state.sessionId?.trim() || undefined;
   const modelId = state.modelId?.trim() || undefined;
   const executionLocation = normalizeRecoveryExecutionLocation(state.executionLocation);
-  // History derives its hidden and automation flags from metadata.
+  // History derives its hidden, automation and Sort out flags from metadata.
   const metadata = {
     ...(state.hideFromProjectRail === true ? { hideFromProjectRail: true } : {}),
     ...automationMetadataFromProvenance(state.automation),
+    ...(state.planQueueSetAsideFolder ? { [SET_ASIDE_FOLDER_METADATA]: state.planQueueSetAsideFolder } : {}),
   };
   const instance = createInstance({
     displayName: state.displayName,

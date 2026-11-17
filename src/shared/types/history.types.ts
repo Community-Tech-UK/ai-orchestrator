@@ -187,6 +187,12 @@ export interface ConversationHistoryEntry {
    */
   mobileProfileId?: string;
 
+  /**
+   * The folder this conversation sorts out, when it is the agent started from the Set aside tab of the Plan Queue
+   * page. Reopening it from History keeps its Plan Queue tools. Absent on every other conversation.
+   */
+  planQueueSetAsideFolder?: string;
+
   /** Precomputed transcript snippets for advanced search. Capped at 5 per entry. */
   snippets?: HistorySnippet[];
 

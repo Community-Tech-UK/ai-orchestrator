@@ -141,7 +141,7 @@ Rules:
 - When James tells you to do something to a job, such as discard it, do it.
 - Never push, rebase, reset, stash, check out another branch in the project's own checkout or a job's folder, or delete a branch yourself, and do not start another Harness session. Merges and restarts go through the queue so its checks run.
 - If Harness refuses a call, read why. Fix the cause if it is a Harness bug you may fix; otherwise move on and report it.
-- If a Set aside tool says it is only for the agent started from the Set aside tab, stop and tell James to press Sort out again. A restart keeps your tools, but a session reopened from History does not. Make no other Plan Queue calls.
+- If a Set aside tool says it is only for the agent started from the Set aside tab, stop and tell James to press Sort out again. A restart or reopening from History keeps your tools, so this only happens to a copy of the conversation. Make no other Plan Queue calls.
 
 Steps:
 1. If plan_queue_set_aside_clear, plan_queue_set_aside, plan_queue_control and plan_queue_status are not already callable, use your provider's discovery mechanism to find ${ORCHESTRATOR_TOOL_SEARCH_NAME} or ${ORCHESTRATOR_TOOL_DESCRIBE_NAME}, then describe each of those exact names. Searching only your provider's native tool list is not enough. If the returned invocation names a different route, follow it.

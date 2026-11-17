@@ -35,6 +35,7 @@ import { createNativeClaudeArchiveRepairPlan } from './native-claude-archive-rep
 import { recoverFalseMissingOpeningPromptRepair } from './native-claude-false-repair-recovery';
 import { projectMemoryKeysEqual } from '../memory/project-memory-key';
 import { memberProfileIdOf } from '../../shared/utils/mobile-profile-stamp';
+import { setAsideFolderOf } from '../../shared/utils/plan-queue-set-aside-agent';
 import { archiveHistoryEntry, unarchiveHistoryEntry } from './history-archive-state';
 import { getCompleteInstanceMessages } from './complete-instance-messages';
 import { isSessionNotFoundText } from '../cli/adapters/resume-error-classifier';
@@ -286,14 +287,11 @@ export class HistoryManager {
           instance.copilotRoutingSource
           ?? previousEntries.find((e) => e.copilotRoutingSource)?.copilotRoutingSource,
         // Account-pool profile: the latest the conversation ran on.
-        accountProfileId:
-          instance.accountProfileId
-          ?? previousEntries.find((e) => e.accountProfileId)?.accountProfileId,
-        accountRoutingSource:
-          instance.accountRoutingSource
-          ?? previousEntries.find((e) => e.accountRoutingSource)?.accountRoutingSource,
+        accountProfileId: instance.accountProfileId ?? previousEntries.find((e) => e.accountProfileId)?.accountProfileId,
+        accountRoutingSource: instance.accountRoutingSource ?? previousEntries.find((e) => e.accountRoutingSource)?.accountRoutingSource,
         executionLocation,
         mobileProfileId: memberProfileIdOf(instance.metadata) ?? previousEntries.find((e) => e.mobileProfileId)?.mobileProfileId,
+        planQueueSetAsideFolder: setAsideFolderOf(instance.metadata) ?? previousEntries.find((e) => e.planQueueSetAsideFolder)?.planQueueSetAsideFolder,
         snippets,
         // Net line-change summary for the completed session, shown as the
         // +add/-del badge on the history rail. Falls back to a previous entry's
