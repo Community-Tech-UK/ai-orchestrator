@@ -216,7 +216,7 @@ describe('PlanQueueStore', () => {
       .all<{ name: string }>()
       .map((r) => r.name)
       .sort();
-    expect(tables).toEqual(['plan_queue_capability_origins', 'plan_queue_capability_repairs', 'plan_queue_item_events', 'plan_queue_item_pins', 'plan_queue_items', 'plan_queue_runs', 'plan_queue_spend', 'plan_queue_triage_decisions', 'plan_queue_verdicts']);
+    expect(tables).toEqual(['plan_queue_capability_origins', 'plan_queue_capability_repairs', 'plan_queue_item_events', 'plan_queue_item_pins', 'plan_queue_items', 'plan_queue_linear_tickets', 'plan_queue_runs', 'plan_queue_spend', 'plan_queue_triage_decisions', 'plan_queue_verdicts']);
     expect(old.prepare('SELECT COUNT(*) AS n FROM loop_runs').get<{ n: number }>()?.n).toBe(1);
     old.close();
   });
@@ -602,7 +602,7 @@ it('upgrades v25 with existing queue work to worker-session storage and repeats 
     expect(old.prepare('SELECT COUNT(*) AS n FROM loop_migrations WHERE version = ?')
       .get<{ n: number }>(LOOP_SCHEMA_VERSION)?.n).toBe(1);
     expect(old.prepare('SELECT name FROM loop_migrations WHERE version = ?')
-      .get<{ name: string }>(LOOP_SCHEMA_VERSION)?.name).toBe('058_plan_queue_checklist_event_index');
+      .get<{ name: string }>(LOOP_SCHEMA_VERSION)?.name).toBe('059_plan_queue_linear_tickets');
   } finally { old.close(); }
 });
 

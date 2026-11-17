@@ -60,6 +60,7 @@ export function pluralise(count: number, singular: string, plural = `${singular}
 const KIND_LABELS: Record<PlanQueueKind, string> = {
   plans: 'Plans',
   livetests: 'Live checks',
+  tickets: 'Linear tickets',
 };
 
 /** The run kind in plain words; the raw code never reaches the screen. */

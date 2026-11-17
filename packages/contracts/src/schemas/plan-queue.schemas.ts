@@ -7,6 +7,7 @@
  */
 import { z } from 'zod';
 import { PlanQueueCapabilityGapSchema } from './plan-queue-capability.schemas';
+import { PlanQueueLinearRunQuerySchema } from './plan-queue-linear-run.schemas';
 export * from './plan-queue-capability.schemas';
 
 // The saved per-folder checklist and the folder list, in their own file to keep this one under the size limit.
@@ -15,14 +16,15 @@ export * from './plan-queue-linear.schemas';
 export * from './plan-queue-linear-links.schemas';
 export * from './plan-queue-linear-teams.schemas';
 export * from './plan-queue-linear-connection.schemas';
+export * from './plan-queue-linear-run.schemas';
 
 // -------------------------------------------------------------------------
 // Enum schemas
 // -------------------------------------------------------------------------
 
-export const PlanQueueKindSchema = z.enum(['plans', 'livetests']);
-/** Where an item's work comes from. Markdown files are the only source so far (`plan-queue-work-source.ts`). */
-export const PlanQueueSourceKindSchema = z.enum(['markdown']);
+export const PlanQueueKindSchema = z.enum(['plans', 'livetests', 'tickets']);
+/** Where an item's work comes from: markdown files, or Linear tickets (`plan-queue-work-source.ts`). */
+export const PlanQueueSourceKindSchema = z.enum(['markdown', 'linear']);
 
 export const PlanQueueRunStatusSchema = z.enum(['running', 'paused', 'completed', 'cancelled']);
 
@@ -315,6 +317,8 @@ export const PlanQueueRunConfigSchema = z.object({
   routing: PlanQueueRoutingSchema.optional(),
   /** Every job of this run stays on this Mac (its browser and Harness tools), even when another computer takes Plan Queue jobs. Absent on older runs means false. */
   keepOnThisMac: z.boolean().optional(),
+  /** The Linear query of a `tickets` run: ids and hashes only, never ticket text. Set only by the Plan Queue page's Linear start. */
+  linear: PlanQueueLinearRunQuerySchema.optional(),
 });
 
 // -------------------------------------------------------------------------
@@ -705,6 +709,17 @@ export const DEFAULT_PLAN_QUEUE_CONFIG: Record<PlanQueueKind, PlanQueueRunConfig
     // A livetest mostly edits documents; the verifier judges evidence, and any
     // tracked code change still has to type-check and lint.
     verifierGates: ['npx tsc --noEmit', 'npm run lint'],
+    relaxSettings: false,
+  },
+  // Linear tickets are code work like a plan, so a run of them has the plan numbers and gates.
+  tickets: {
+    workerSlots: 3,
+    verificationSlots: 2,
+    checkBatchSize: 4,
+    maxRounds: 3,
+    maxLoadAverage: 30,
+    postMergeGate: ['npx tsc --noEmit', 'npm run typecheck:spec'],
+    verifierGates: CANONICAL_GATES,
     relaxSettings: false,
   },
 };

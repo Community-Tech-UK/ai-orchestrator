@@ -53,7 +53,7 @@ export const PLAN_QUEUE_MIGRATIONS = [
 export const PLAN_QUEUE_RESERVED_MIGRATIONS = [
   { version: 46, name: '046_plan_queue_item_planning_file_hashes', purpose: 'moved planning-file hashes per path, as JSON (step 1.1)' },
   { version: 47, name: '047_plan_queue_item_worker_retry_backoff', purpose: 'persisted worker-retry backoff expiry (step 1.4), unless the restart counter covers it' },
-  { version: 48, name: '048_plan_queue_item_linear_ticket', purpose: 'Linear item columns (ticket, approved brief, held change, criteria snapshot, claimed_at, cursors, last status written)' },
+  { version: 48, name: '048_plan_queue_item_linear_ticket', purpose: 'Linear item columns still to come (criteria snapshot, cursors, last status written); the ticket, approved text, held change and claim are in table 059' },
   { version: 49, name: '049_plan_queue_linear_tables', purpose: 'plan_queue_source_outbox and the per-run Linear cursor' },
 ] as const;
 
@@ -65,4 +65,36 @@ export const PLAN_QUEUE_CHECKLIST_EVENT_INDEX_MIGRATION = {
   version: 58,
   name: '058_plan_queue_checklist_event_index',
   up: `CREATE INDEX IF NOT EXISTS idx_queue_events_checklist ON plan_queue_item_events(reason) WHERE reason = 'checklist-run';`,
+};
+
+/**
+ * The ticket text of a Linear run, one row per queue item (step 2 of the Linear discovery plan).
+ *
+ * It is its own table, not columns on `plan_queue_items`: the item row is what `plan_queue_status`, the Plan Queue
+ * page and the phone are sent, so ticket text kept off it cannot leak through them. The row goes with its item.
+ * `approved_text_json` is empty once the text has been cleared (`text_cleared_at` says when); the title, the hash and
+ * the times stay.
+ */
+export const PLAN_QUEUE_LINEAR_TICKET_MIGRATION = {
+  version: 59,
+  name: '059_plan_queue_linear_tickets',
+  up: `
+    CREATE TABLE plan_queue_linear_tickets (
+      item_id TEXT PRIMARY KEY REFERENCES plan_queue_items(id) ON DELETE CASCADE,
+      linear_id TEXT NOT NULL,
+      identifier TEXT NOT NULL,
+      address TEXT NOT NULL,
+      team_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      approved_title TEXT NOT NULL,
+      approved_text_json TEXT,
+      approved_hash TEXT NOT NULL,
+      approved_at INTEGER NOT NULL,
+      claimed_at INTEGER,
+      open_ask_json TEXT,
+      left_out_hash TEXT,
+      text_cleared_at INTEGER
+    );
+    CREATE INDEX idx_queue_linear_tickets_linear_id ON plan_queue_linear_tickets(linear_id);
+  `,
 };

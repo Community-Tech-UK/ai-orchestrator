@@ -26,7 +26,12 @@ type RunCreateHost = Pick<PlanQueueCoordinatorDeps, 'store' | 'instances' | 'rou
     applyRelaxation(run: PlanQueueRun): void;
   };
 
+/** Both `plan_queue_start` and the page's ordinary Start reach `createPlanQueueRun`, so this one sentence covers both. */
+export const LINEAR_RUN_PAGE_ONLY_MESSAGE = 'Linear runs start only on the Plan Queue page, where James ticks the tickets.';
+
 export async function createPlanQueueRun(input: StartRunInput, host: RunCreateHost): Promise<Omit<StartRunResult, 'run'> & { run: PlanQueueRun }> {
+  // First, before anything is read: a Linear run is made by its own function (Step 11), never from these arguments.
+  if (input.kind === 'tickets' || input.config?.linear !== undefined) throw new Error(LINEAR_RUN_PAGE_ONLY_MESSAGE);
   if (input.config?.capabilityRepairId !== undefined || input.config?.capabilityRepairAccountRules !== undefined
     || input.config?.startingProviderExclusions !== undefined || input.config?.capabilityRepairExcludedProviders !== undefined) {
     throw new Error('Repair identity and inherited account restrictions are assigned only by the coordinator.');

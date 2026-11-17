@@ -590,7 +590,7 @@ export interface MobilePlanQueueItemDto {
 
 export interface MobilePlanQueueRunDto {
   id: string;
-  kind: 'plans' | 'livetests';
+  kind: 'plans' | 'livetests' | 'tickets';
   status: MobilePlanQueueRunStatus;
   workspaceCwd: string;
   startedAt: number;

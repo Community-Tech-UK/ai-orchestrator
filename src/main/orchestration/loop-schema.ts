@@ -4,11 +4,11 @@
  */
 
 import type { SqliteDriver } from '../db/sqlite-driver';
-import { PLAN_QUEUE_CHECKLIST_EVENT_INDEX_MIGRATION, PLAN_QUEUE_MIGRATIONS } from '../plan-queue/plan-queue-migrations';
+import { PLAN_QUEUE_CHECKLIST_EVENT_INDEX_MIGRATION, PLAN_QUEUE_LINEAR_TICKET_MIGRATION, PLAN_QUEUE_MIGRATIONS } from '../plan-queue/plan-queue-migrations';
 import { addPlanQueueSections } from '../plan-queue/plan-queue-section-migration';
 import { PLAN_QUEUE_CAPABILITY_MIGRATION } from '../plan-queue/plan-queue-capability-migration';
 
-export const LOOP_SCHEMA_VERSION = 58;
+export const LOOP_SCHEMA_VERSION = 59;
 
 export interface LoopMigration {
   version: number;
@@ -646,6 +646,7 @@ export const LOOP_MIGRATIONS: readonly LoopMigration[] = [
   },
   PLAN_QUEUE_CAPABILITY_MIGRATION,
   PLAN_QUEUE_CHECKLIST_EVENT_INDEX_MIGRATION,
+  PLAN_QUEUE_LINEAR_TICKET_MIGRATION,
 ];
 
 export function createLoopMigrationsTable(db: SqliteDriver): void {

@@ -11,11 +11,13 @@ import type { QueueWorkSource } from './plan-queue-work-source';
 export function workSourceFor(kind: PlanQueueSourceKind | undefined): QueueWorkSource {
   switch (kind ?? 'markdown') {
     case 'markdown': return markdownWorkSource;
+    case 'linear': throw new Error('The Linear work source is not built yet.');
   }
 }
 
-/** The source a run takes its work from. Plan and livetest runs are both markdown; this is where a run's own source would be read. */
-export function workSourceForRun(_run: { kind: string }): QueueWorkSource {
+/** The source a run takes its work from. Plan and livetest runs are both markdown. A tickets run has no source until the Linear source is built (Step 3). */
+export function workSourceForRun(run: { kind: string }): QueueWorkSource {
+  if (run.kind === 'tickets') throw new Error('The Linear work source is not built yet.');
   return markdownWorkSource;
 }
 

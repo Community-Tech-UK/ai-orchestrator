@@ -5,6 +5,7 @@ import {
   PlanQueueReportVerdictArgsSchema, PlanQueueParkReasonSchema,
   PlanQueueFolderChecklistsSchema, normalizeChecklistFolder, isAbsoluteChecklistFolder,
   PlanQueueFoldersSchema, PlanQueueSourceKindSchema, triageRecordRef,
+  PlanQueueKindSchema, PlanQueueLinearRunQuerySchema,
   DEFAULT_PLAN_QUEUE_CONFIG, PlanQueueRunConfigSchema, PlanQueueGateRunSchema, PlanQueueRunDtoSchema, PlanQueueStartPayloadSchema,
 } from '../plan-queue.schemas';
 
@@ -237,9 +238,10 @@ describe('Plan Queue folder list (step 6.4)', () => {
 });
 
 describe('Plan Queue work source fields (step 6.3)', () => {
-  it('knows the markdown source and nothing else yet', () => {
+  it('knows the markdown and Linear sources and nothing else yet', () => {
     expect(PlanQueueSourceKindSchema.parse('markdown')).toBe('markdown');
-    expect(PlanQueueSourceKindSchema.safeParse('linear').success).toBe(false);
+    expect(PlanQueueSourceKindSchema.parse('linear')).toBe('linear');
+    expect(PlanQueueSourceKindSchema.safeParse('github').success).toBe(false);
   });
 
   it('names an item by its source reference, with the kind optional', () => {
@@ -259,5 +261,35 @@ describe('Plan Queue work source fields (step 6.3)', () => {
     expect(triageRecordRef({ documentPath: '/repo/old.md', sourceRef: '/repo/new.md' })).toBe('/repo/new.md');
     expect(triageRecordRef({ documentPath: '/repo/old.md' })).toBe('/repo/old.md');
     expect(() => triageRecordRef({})).toThrow(/documentPath or a sourceRef/);
+  });
+});
+
+describe('Plan Queue Linear run kind and query', () => {
+  const query = { projects: [{ projectId: 'proj-1', teamId: 'team-1' }], previewLoadedAt: 1_700_000_000_000,
+    tickets: [{ linearId: 'lin-1', identifier: 'ORC-12', previewHash: 'b'.repeat(64) }] };
+
+  it('adds the tickets kind and the linear source, with the plan numbers for a run of tickets', () => {
+    expect(PlanQueueKindSchema.parse('tickets')).toBe('tickets');
+    expect(PlanQueueSourceKindSchema.parse('linear')).toBe('linear');
+    expect(PlanQueueKindSchema.safeParse('linear').success).toBe(false);
+    expect(DEFAULT_PLAN_QUEUE_CONFIG.tickets).toEqual(DEFAULT_PLAN_QUEUE_CONFIG.plans);
+    expect(PlanQueueRunConfigSchema.safeParse(DEFAULT_PLAN_QUEUE_CONFIG.tickets).success).toBe(true);
+  });
+
+  it('holds ids and hashes in the run config, and refuses a title or any text beside them', () => {
+    expect(PlanQueueRunConfigSchema.parse({ ...DEFAULT_PLAN_QUEUE_CONFIG.tickets, linear: query }).linear).toEqual(query);
+    const withTitle = { ...query, tickets: [{ ...query.tickets[0], title: 'Fix the login page' }] };
+    expect(PlanQueueLinearRunQuerySchema.safeParse(withTitle).success).toBe(false);
+    expect(PlanQueueLinearRunQuerySchema.safeParse({ ...query, description: 'text' }).success).toBe(false);
+  });
+
+  it('refuses a run with no project, too many tickets, a bad address or a bad hash', () => {
+    expect(PlanQueueLinearRunQuerySchema.safeParse({ ...query, projects: [] }).success).toBe(false);
+    const ticket = query.tickets[0];
+    expect(PlanQueueLinearRunQuerySchema.safeParse({ ...query, tickets: Array.from({ length: 200 }, () => ticket) }).success).toBe(true);
+    expect(PlanQueueLinearRunQuerySchema.safeParse({ ...query, tickets: Array.from({ length: 201 }, () => ticket) }).success).toBe(false);
+    expect(PlanQueueLinearRunQuerySchema.safeParse({ ...query, tickets: [{ ...ticket, identifier: 'not an address' }] }).success).toBe(false);
+    expect(PlanQueueLinearRunQuerySchema.safeParse({ ...query, tickets: [{ ...ticket, previewHash: 'ABC' }] }).success).toBe(false);
+    expect(PlanQueueLinearRunQuerySchema.safeParse({ ...query, tickets: [{ ...ticket, previewHash: 'B'.repeat(64) }] }).success).toBe(false);
   });
 });

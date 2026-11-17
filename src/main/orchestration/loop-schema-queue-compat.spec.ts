@@ -64,8 +64,8 @@ describe('queue migration compatibility', () => {
     }
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'plan_queue_%' ORDER BY name")
       .all<{ name: string }>().map(row => row.name)).toEqual([
-      'plan_queue_capability_origins', 'plan_queue_capability_repairs', 'plan_queue_item_events', 'plan_queue_item_pins', 'plan_queue_items', 'plan_queue_runs',
-      'plan_queue_spend', 'plan_queue_triage_decisions', 'plan_queue_verdicts',
+      'plan_queue_capability_origins', 'plan_queue_capability_repairs', 'plan_queue_item_events', 'plan_queue_item_pins', 'plan_queue_items',
+      'plan_queue_linear_tickets', 'plan_queue_runs', 'plan_queue_spend', 'plan_queue_triage_decisions', 'plan_queue_verdicts',
     ]);
     db.exec(`INSERT INTO plan_queue_item_events VALUES
       ('after-event', 'saved-item', 'saved-run', 2, 'working', 'awaiting-slot', NULL, 'keep after event', 0, 25);
