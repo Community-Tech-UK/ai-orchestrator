@@ -228,7 +228,7 @@ function isClaudeModel(model: string | undefined | null): boolean {
   return /^(?:claude-|opus(?:\[|$)|sonnet(?:\[|$)|haiku(?:\[|$))/.test(model?.trim().toLowerCase() ?? '');
 }
 
-// Rechecked 2 November 2026 against the two official model pricing pages:
+// Rechecked 16 November 2026 (first read 2 November) against the two official model pricing pages:
 // https://developers.openai.com/api/docs/models/gpt-6.1-sol
 // https://developers.openai.com/api/docs/models/gpt-6-astra
 // Above 272K input: 2x input/cache and 1.5x output for the WHOLE request.
