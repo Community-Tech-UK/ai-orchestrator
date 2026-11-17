@@ -1071,7 +1071,7 @@ export class InstanceDetailComponent {
       await this.flipYolo(inst.id);
       return;
     }
-    // Turning it off asks too when the restart would leave a large conversation behind; turning it on was
+    // Turning it off asks too when the restart would re-read a large conversation at full price; turning it on was
     // just confirmed above, with the same sentence in the question.
     await this.runtimeChange.gate(inst.id, yoloChangeRequestOf(inst, false), () => this.flipYolo(inst.id),
       { confirm: 'Turn auto-approve off anyway', cancel: 'Keep auto-approve on' });

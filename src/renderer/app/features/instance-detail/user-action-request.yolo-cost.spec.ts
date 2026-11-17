@@ -13,8 +13,8 @@ const template = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '
 await resolveComponentResources(url => Promise.resolve(url.endsWith('user-action-request.component.html') ? template : ''));
 
 const note = {
-  kind: 'auto-approve', text: 'Changing auto-approve starts a new session with a short summary; the rest does not carry over.',
-  carriedTokens: 8_600, droppedTokens: 221_400, resendTokens: null, large: true,
+  kind: 'auto-approve', text: 'Changing auto-approve restarts this session, and the next message will re-read about 230K tokens at full price.',
+  carriedTokens: null, droppedTokens: null, resendTokens: 230_000, large: true,
 };
 
 for (const type of ['deferred_permission', 'codex_mcp_approval']) {

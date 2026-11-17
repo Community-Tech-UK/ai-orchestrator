@@ -87,15 +87,15 @@ describe('ComposerToolbarComponent: a large re-read waits for a yes', () => {
     expect(controller.pendingConfirmation()).toBeNull();
   });
 
-  it('holds a replay that would leave a large conversation behind, just the same', async () => {
+  it('applies a replay at once, since it only says what carries over', async () => {
     const replay: RuntimeChangeCostNote = {
-      kind: 'provider', resendTokens: null, carriedTokens: 8_600, droppedTokens: 221_400, large: true,
+      kind: 'provider', resendTokens: null, carriedTokens: 8_600, droppedTokens: 221_400, large: false,
       text: 'Switching provider starts a new session with a short summary of this one; the rest does not carry over.',
     };
     preview.mockResolvedValue(replay);
     await component.onPickerSelectionChange(sel);
-    expect(changeModel).not.toHaveBeenCalled();
-    expect(controller.pendingConfirmation()?.text).toBe(replay.text);
+    expect(changeModel).toHaveBeenCalledTimes(1);
+    expect(controller.pendingConfirmation()).toBeNull();
   });
 
   it('shows the question in the shared confirm box, and its buttons answer it', async () => {

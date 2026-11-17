@@ -61,11 +61,9 @@ describe('previewRuntimeChange: Claude replays, so the new session gets a short 
     expect(note?.text).toContain("Claude's");
   });
 
-  it('asks first when the new session would leave a large part of the conversation behind', () => {
-    expect(preview(makeInstance(), { model: 'claude-sonnet-4-6' })).toMatchObject({ large: true });
-    // 60K tokens leave about 51K behind: worth saying, not worth a yes.
-    const modest = makeInstance({ contextUsage: { used: 60_000, total: 1_000_000, percentage: 6, occupancyReported: true } });
-    expect(preview(modest, { model: 'claude-sonnet-4-6' })).toMatchObject({ large: false });
+  it('says what is left behind but never holds the change for a yes', () => {
+    expect(preview(makeInstance(), { model: 'claude-sonnet-4-6' })).toMatchObject({ large: false, resendTokens: null });
+    expect(preview(makeInstance(), { model: 'claude-sonnet-4-6' })?.droppedTokens).toBeGreaterThan(100_000);
   });
 
   it('describes an effort-only change the same way, because Claude replays it too', () => {
@@ -102,7 +100,7 @@ describe('previewRuntimeChange: providers that resume read the whole conversatio
     const remote = { getRuntimeCapabilities: () => ({ supportsResume: false, supportsForkSession: false }) };
     const note = preview(codex(), { model: 'gpt-6.1-sol' }, remote);
     expect(note?.text).toMatch(/^Switching model starts a new session with a short summary/);
-    expect(note?.large).toBe(true); // the replay leaves about 221K tokens behind
+    expect(note?.large).toBe(false); // a replay is told, not held
   });
 
   it('describes a provider switch as a replay onto the target, whatever the adapter can do', () => {
@@ -148,7 +146,7 @@ describe('previewRuntimeChange: an account handoff follows the pool continuation
     const cold = makeInstance({ lastActivity: NOW - 3 * 60 * MIN });
     const note = preview(cold, account);
     expect(pool.askedFor).toContain('claude');
-    expect(note).toMatchObject({ kind: 'account', large: true });
+    expect(note).toMatchObject({ kind: 'account', large: false });
     expect(note?.text).toMatch(/short summary/);
     expect(note?.text).toContain('the rest does not carry over');
   });
@@ -167,7 +165,7 @@ describe('previewRuntimeChange: an account handoff follows the pool continuation
       const request = provider === 'copilot' ? { copilotAccountProfileId: 'seat-b', yoloMode: enable }
         : { accountProfileId: 'account-b', yoloMode: enable };
       const note = preview(instance, request);
-      expect(note).toMatchObject({ large: true, resendTokens: null });
+      expect(note).toMatchObject({ large: false, resendTokens: null });
       expect(note?.text).toContain('the rest does not carry over');
     }
   });

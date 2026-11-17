@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  LARGE_REPLAY_DROPPED_TOKENS,
   LARGE_RESEND_TOKENS,
   describeRuntimeChangeCost,
   runtimeChangeKind,
@@ -38,7 +37,7 @@ describe('replay: a new session gets a short summary', () => {
     const note = describeRuntimeChangeCost(flags({ modelChanged: true }), 230_000, true, {
       ...replay, targetWindowTokens: 200_000, targetLabel: 'Claude',
     });
-    expect(note).toMatchObject({ kind: 'model', large: true, resendTokens: null, carriedTokens: REPLAY_DIGEST_MAX_TOKENS });
+    expect(note).toMatchObject({ kind: 'model', large: false, resendTokens: null, carriedTokens: REPLAY_DIGEST_MAX_TOKENS });
     expect(note?.droppedTokens).toBe(230_000 - REPLAY_DIGEST_MAX_TOKENS);
     expect(note?.text).toBe(
       'Switching model starts a new session with a short summary of this one '
@@ -85,25 +84,12 @@ describe('replay: a new session gets a short summary', () => {
     expect(note).toMatchObject({ carriedTokens: null, droppedTokens: null, large: false });
   });
 
-  describe('asking first', () => {
+  describe('never asking first', () => {
     const askedAbout = (contextTokens: number | null) =>
       describeRuntimeChangeCost(flags({ providerChanged: true }), contextTokens, true, replay)?.large;
 
-    it('asks when a large part of the conversation would be left behind, because that cannot be undone', () => {
-      expect(askedAbout(900_000)).toBe(true);
-    });
-
-    it('draws the line on what is left behind, not on the size of the session', () => {
-      expect(askedAbout(REPLAY_DIGEST_MAX_TOKENS + LARGE_REPLAY_DROPPED_TOKENS - 1)).toBe(false);
-      expect(askedAbout(REPLAY_DIGEST_MAX_TOKENS + LARGE_REPLAY_DROPPED_TOKENS)).toBe(true);
-    });
-
-    it('does not ask about a modest session, even though something is left behind', () => {
-      expect(askedAbout(60_000)).toBe(false);
-    });
-
-    it('does not ask when the size is not known, since nothing can be said about how much is lost', () => {
-      expect(askedAbout(null)).toBe(false);
+    it('says what is left behind but does not hold the change, however large the session', () => {
+      for (const size of [900_000, 230_000, 60_000, null]) expect(askedAbout(size)).toBe(false);
     });
 
     it('never claims a bill: the re-send is only the summary', () => {

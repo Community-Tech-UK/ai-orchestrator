@@ -30,8 +30,6 @@ export type RuntimeChangeKind =
 
 /** Ask before a change whose next message re-reads at least this much at full price. */
 export const LARGE_RESEND_TOKENS = 100_000;
-/** Ask before a replay that leaves at least this much of the conversation behind: that is lost context, not a bill. */
-export const LARGE_REPLAY_DROPPED_TOKENS = 100_000;
 
 export interface RuntimeChangeCostOptions {
   continuity: RuntimeContinuity;
@@ -52,7 +50,7 @@ export interface RuntimeChangeCostNote {
   /** On a replay: the most the new session can start with, and so the least it leaves behind. */
   carriedTokens: number | null;
   droppedTokens: number | null;
-  /** Big enough to ask first: a large re-read at full price, or a large part of the conversation left behind by a replay. */
+  /** Big enough to ask first: only a large re-read at full price. A replay is said before the click but never held. */
   large: boolean;
 }
 
@@ -122,9 +120,8 @@ export function describeRuntimeChangeCost(
       resendTokens: null,
       carriedTokens,
       droppedTokens,
-      // `droppedTokens` is the least that is left behind, so this never asks without cause. It can stay quiet for
-      // a session up to one digest (about 9K tokens) below the line, where the real loss may already pass it.
-      large: droppedTokens !== null && droppedTokens >= LARGE_REPLAY_DROPPED_TOKENS,
+      // A replay costs little; what it leaves behind is told in the sentence, not held for a yes.
+      large: false,
     };
   }
 

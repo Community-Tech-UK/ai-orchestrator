@@ -109,8 +109,8 @@ const SWITCH_LABELS: { confirm: string; cancel: string } = { confirm: 'Switch an
 
 /**
  * Says what a restarting change will cost before it is made: a line while someone points at an
- * option in the picker, and a yes/no before a change that would leave a large conversation behind
- * or re-read it at full price. Provided per component; it holds no state beyond what is on screen.
+ * option in the picker, and a yes/no before a change that would re-read a large conversation
+ * at full price. Provided per component; it holds no state beyond what is on screen.
  *
  * The owner is a reused node whose inputs swap when the session changes (the composer) or that
  * retargets on a session switch (the instance header): every question is bound to the session it
@@ -182,8 +182,8 @@ export class RuntimeChangePreviewController {
   }
 
   /**
-   * Run `apply` now, unless the change is a large one (it would leave a large part of the conversation
-   * behind, or re-read it at full price): then hold it for a yes. An unavailable answer never holds
+   * Run `apply` now, unless the change is a large one (it would re-read a large part of the conversation
+   * at full price): then hold it for a yes. An unavailable answer never holds
    * anything back. A preview that lands after the session changed (or the owner went away) is
    * dropped instead of held or applied.
    */

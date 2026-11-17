@@ -194,31 +194,28 @@ describe('RuntimeChangePreviewController', () => {
       expect(apply).toHaveBeenCalledTimes(1);
     });
 
-    it('holds a replay that would leave a large conversation behind, and says so in the question', async () => {
+    it('applies a replay at once: the sentence is shown in the picker, but nothing is held for a yes', async () => {
       const apply = vi.fn();
-      const replay = note({
-        kind: 'provider', resendTokens: null, carriedTokens: 8_600, droppedTokens: 221_400, large: true,
+      preview.mockResolvedValue(note({
+        kind: 'provider', resendTokens: null, carriedTokens: 8_600, droppedTokens: 221_400, large: false,
         text: 'Switching provider starts a new session with a short summary of this one (up to 8.6K of the 230K tokens here, 3% of Codex\'s 258K window); the rest does not carry over.',
-      });
-      preview.mockResolvedValue(replay);
+      }));
 
       await controller.gateSelection('i1', { provider: 'codex', model: 'gpt-6-astra', reasoning: null } as PendingSelection, apply);
 
-      expect(apply).not.toHaveBeenCalled();
-      expect(controller.pendingConfirmation()?.text).toBe(replay.text);
-      controller.confirm('i1');
       expect(apply).toHaveBeenCalledTimes(1);
+      expect(controller.pendingConfirmation()).toBeNull();
     });
 
     it('asks about exactly the auto-approve flip the click would make, and holds it when it is large', async () => {
       const apply = vi.fn();
-      preview.mockResolvedValue(note({ kind: 'auto-approve', resendTokens: null, droppedTokens: 150_000, large: true, text: 'Changing auto-approve starts a new session.' }));
+      preview.mockResolvedValue(note({ kind: 'auto-approve', resendTokens: 150_000, droppedTokens: null, large: true, text: 'Changing auto-approve restarts this session, and the next message will re-read about 150K tokens at full price.' }));
 
       await controller.gate('i1', yoloChangeRequestOf({ currentModel: 'gemini-3-pro' }, false), apply);
 
       expect(preview).toHaveBeenCalledWith('i1', { model: 'gemini-3-pro', yoloMode: false });
       expect(apply).not.toHaveBeenCalled();
-      expect(controller.pendingConfirmation()?.text).toBe('Changing auto-approve starts a new session.');
+      expect(controller.pendingConfirmation()?.text).toBe('Changing auto-approve restarts this session, and the next message will re-read about 150K tokens at full price.');
     });
 
     it('asks a model or provider switch with Switch anyway and Keep current', async () => {
