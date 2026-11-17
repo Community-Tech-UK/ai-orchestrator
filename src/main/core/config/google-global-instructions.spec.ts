@@ -43,7 +43,16 @@ describe('Google global instruction diet', () => {
     expectGlobalRulesKept(omitNativeOwnedInstructionStack(resolution(), 'gemini', ownGeminiFile('@/home/.agents/AGENTS.md\n'), '/home', { remote: true }));
   });
 
-  it('keeps the full global instructions for Antigravity, whose print mode is not known to read GEMINI.md', () => {
-    expectGlobalRulesKept(omitNativeOwnedInstructionStack(resolution(), 'antigravity', ownGeminiFile('@/home/.agents/AGENTS.md\n'), '/home'));
+  it.each([
+    ['local', {}],
+    ['remote', { remote: true }],
+  ])('replaces the global Claude source with the safety digest for Antigravity, %s, even without a GEMINI.md', (_label, options) => {
+    const result = omitNativeOwnedInstructionStack(resolution(), 'antigravity', ownGeminiFile(null), '/home', options);
+    expect(result.mergedContent).not.toContain('Lengthy global Claude rules');
+    expect(result.mergedContent).toContain('Project-specific rules');
+    expect(result.mergedContent).toContain('Never expose secrets');
+    expect(result.sources[0]).toMatchObject({ path: '/home/.claude/CLAUDE.md', applied: true });
+    expect(result.sources[0].reason).toContain('safety digest');
+    expect(result.sources[0].reason).not.toContain('Gemini loads');
   });
 });
