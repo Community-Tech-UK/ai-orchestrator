@@ -71,12 +71,18 @@ export interface LinearTicketReaderDependencies {
   call?: LinearCallDependencies;
 }
 
+/** The rows, plus the linked projects they were read from and each team's readiness (the Start preview shows both). */
+export interface FolderDiscovery extends DiscoveryResult {
+  projects: PlanQueueLinearProject[];
+  teams: DiscoveryTeam[];
+}
+
 /** Reads the folder's tickets and builds the rows. Throws `LinearDiscoveryFailure` and returns nothing on any failure. */
 export async function readDiscoveryForFolder(
   folder: string,
   counter: LinearCallCounter,
   deps: LinearTicketReaderDependencies,
-): Promise<DiscoveryResult> {
+): Promise<FolderDiscovery> {
   try {
     return await read(folder, counter, deps);
   } catch (error) {
@@ -84,7 +90,7 @@ export async function readDiscoveryForFolder(
   }
 }
 
-async function read(folder: string, counter: LinearCallCounter, deps: LinearTicketReaderDependencies): Promise<DiscoveryResult> {
+async function read(folder: string, counter: LinearCallCounter, deps: LinearTicketReaderDependencies): Promise<FolderDiscovery> {
   const paused = deps.connectionReason();
   if (paused) throw new LinearDiscoveryFailure('connection-paused', paused);
 
@@ -150,7 +156,7 @@ async function read(folder: string, counter: LinearCallCounter, deps: LinearTick
     const landedAt = deps.landedAt(id);
     if (landedAt !== null) landedBefore.set(id, landedAt);
   }
-  return discoverTickets({
+  const result = discoverTickets({
     tickets,
     harnessLabel,
     teams,
@@ -158,6 +164,7 @@ async function read(folder: string, counter: LinearCallCounter, deps: LinearTick
     landedBefore,
     blockers,
   });
+  return { ...result, projects, teams };
 }
 
 /** Each team of a linked project, with whether it is ready now and why not. */

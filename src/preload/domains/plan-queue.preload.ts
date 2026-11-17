@@ -7,6 +7,8 @@ import type {
   PlanQueueLinearConfirmPayload,
   PlanQueueLinearIdentifyPayload,
   PlanQueueLinearLinksSavePayload,
+  PlanQueueLinearPreviewLoadPayload,
+  PlanQueueLinearPreviewTextPayload,
   PlanQueueLinearTeamsSavePayload,
   PlanQueuePreviewPayload,
 } from '@contracts/schemas/plan-queue';
@@ -65,6 +67,12 @@ export function createPlanQueueDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
     planQueueLinearTeamChoices: (): Promise<IpcResponse> => ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_TEAM_CHOICES, {}),
 
     planQueueLinearTeamsCheck: (): Promise<IpcResponse> => ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_TEAMS_CHECK, {}),
+
+    planQueueLinearPreviewLoad: (payload: PlanQueueLinearPreviewLoadPayload): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_PREVIEW_LOAD, payload),
+
+    planQueueLinearPreviewText: (payload: PlanQueueLinearPreviewTextPayload): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_PREVIEW_TEXT, payload),
 
     planQueueLinearTeamsSave: (payload: PlanQueueLinearTeamsSavePayload): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_TEAMS_SAVE, payload),

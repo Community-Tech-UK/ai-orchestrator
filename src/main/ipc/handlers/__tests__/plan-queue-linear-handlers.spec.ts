@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IPC_CHANNELS, type IpcResponse } from '../../../../shared/types/ipc.types';
 import { createPlanQueueDomain } from '../../../../preload/domains/plan-queue.preload';
 import { LinearCallError } from '../../../plan-queue/linear/linear-errors';
+import { LinearPreviewError } from '../../../plan-queue/linear/linear-preview';
+import { LinearDiscoveryFailure } from '../../../plan-queue/linear/linear-ticket-reader';
 
 const state = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, payload: unknown) => Promise<IpcResponse>>(),
@@ -18,6 +20,7 @@ const state = vi.hoisted(() => ({
   links: { readAll: vi.fn(), save: vi.fn() },
   projects: vi.fn(),
   teams: { choices: vi.fn(), checkTeams: vi.fn(), save: vi.fn() },
+  preview: { load: vi.fn(), loadText: vi.fn() },
 }));
 vi.mock('electron', () => ({
   ipcMain: {
@@ -28,6 +31,7 @@ vi.mock('electron', () => ({
 vi.mock('../../../plan-queue/linear/linear-connection-singleton', () => ({ getLinearConnectionService: () => state.service }));
 vi.mock('../../../plan-queue/linear/linear-folder-links-singleton', () => ({ getLinearFolderLinkService: () => state.links }));
 vi.mock('../../../plan-queue/linear/linear-team-rules-singleton', () => ({ getLinearTeamRuleService: () => state.teams }));
+vi.mock('../../../plan-queue/linear/linear-preview-singleton', () => ({ getLinearPreviewService: () => state.preview }));
 vi.mock('../../../plan-queue/linear/linear-project-list', () => ({ listLinearProjectChoices: state.projects }));
 vi.mock('../../../core/config/settings-manager', () => ({
   getSettingsManager: () => ({ get: () => state.saved.current }),
@@ -57,6 +61,7 @@ afterEach(() => {
   Object.values(state.links).forEach((fn) => fn.mockReset());
   state.projects.mockReset();
   Object.values(state.teams).forEach((fn) => fn.mockReset());
+  Object.values(state.preview).forEach((fn) => fn.mockReset());
 });
 
 describe('Plan Queue Linear channels, from the preload to the connection service', () => {
@@ -74,6 +79,8 @@ describe('Plan Queue Linear channels, from the preload to the connection service
       IPC_CHANNELS.PLAN_QUEUE_LINEAR_TEAM_CHOICES,
       IPC_CHANNELS.PLAN_QUEUE_LINEAR_TEAMS_CHECK,
       IPC_CHANNELS.PLAN_QUEUE_LINEAR_TEAMS_SAVE,
+      IPC_CHANNELS.PLAN_QUEUE_LINEAR_PREVIEW_LOAD,
+      IPC_CHANNELS.PLAN_QUEUE_LINEAR_PREVIEW_TEXT,
     ])
       expect(state.handlers.has(channel)).toBe(true);
   });
@@ -232,5 +239,58 @@ describe('Plan Queue team-rule channels, from the preload to the team service', 
     const response = await domain.planQueueLinearTeamsSave({ teams: 'nope' } as never);
     expect(response).toMatchObject({ success: false, error: { code: 'PLAN_QUEUE_LINEAR_TEAMS_SAVE_FAILED' } });
     expect(state.teams.save).not.toHaveBeenCalled();
+  });
+
+  it('loads a folder\'s preview and one ticket\'s text through the preview service', async () => {
+    const domain = api();
+    state.preview.load.mockResolvedValue({ previewId: 'p1', rows: [] });
+    state.preview.loadText.mockResolvedValue({ linearId: 'l1', hash: 'h' });
+    await expect(domain.planQueueLinearPreviewLoad({ folder: '/work/project' })).resolves.toEqual({ success: true, data: { previewId: 'p1', rows: [] } });
+    expect(state.preview.load).toHaveBeenCalledWith('/work/project');
+    await expect(domain.planQueueLinearPreviewText({ previewId: 'p1', linearId: 'l1' })).resolves.toEqual({ success: true, data: { linearId: 'l1', hash: 'h' } });
+    expect(state.preview.loadText).toHaveBeenCalledWith('p1', 'l1');
+  });
+
+  it('refuses a badly shaped preview request before the service is touched', async () => {
+    const domain = api();
+    const load = await domain.planQueueLinearPreviewLoad({ folder: '' });
+    const text = await domain.planQueueLinearPreviewText({ previewId: 'p1' } as never);
+    const extra = await domain.planQueueLinearPreviewText({ previewId: 'p1', linearId: 'l1', identifier: 'ORC-1' } as never);
+    expect(load).toMatchObject({ success: false, error: { code: 'PLAN_QUEUE_LINEAR_PREVIEW_LOAD_FAILED' } });
+    expect(text).toMatchObject({ success: false, error: { code: 'PLAN_QUEUE_LINEAR_PREVIEW_TEXT_FAILED' } });
+    expect(extra).toMatchObject({ success: false, error: { code: 'PLAN_QUEUE_LINEAR_PREVIEW_TEXT_FAILED' } });
+    expect(state.preview.load).not.toHaveBeenCalled();
+    expect(state.preview.loadText).not.toHaveBeenCalled();
+  });
+
+  it('answers a failed preview read with the fixed words only, and asks for a fresh connection check', async () => {
+    const domain = api();
+    state.preview.loadText.mockRejectedValue(
+      new LinearCallError('unreachable', 'Linear could not be reached.', { detail: 'LINEAR-SAYS-SECRET-WORDS' }),
+    );
+    const response = await domain.planQueueLinearPreviewText({ previewId: 'p1', linearId: 'l1' });
+    expect(response).toMatchObject({ success: false, error: { message: 'Linear could not be reached.' } });
+    expect(JSON.stringify(response)).not.toContain('LINEAR-SAYS-SECRET-WORDS');
+    expect(state.service.noteCallFailure).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not recheck the connection when Harness itself refused the preview', async () => {
+    const domain = api();
+    state.preview.load.mockRejectedValue(new LinearDiscoveryFailure('call-limit', 'There are too many tickets to load at once.'));
+    state.preview.loadText.mockRejectedValue(new LinearPreviewError('out-of-date', 'This list is out of date. Load it again.'));
+    await expect(domain.planQueueLinearPreviewLoad({ folder: '/work/project' })).resolves.toMatchObject({
+      success: false, error: { message: 'There are too many tickets to load at once.' },
+    });
+    await expect(domain.planQueueLinearPreviewText({ previewId: 'p1', linearId: 'l1' })).resolves.toMatchObject({
+      success: false, error: { message: 'This list is out of date. Load it again.' },
+    });
+    expect(state.service.noteCallFailure).not.toHaveBeenCalled();
+  });
+
+  it('asks for a fresh connection check when a list read failed in Linear', async () => {
+    const domain = api();
+    state.preview.load.mockRejectedValue(new LinearDiscoveryFailure('needs-sign-in', 'The Linear connector needs to be signed in again.'));
+    await domain.planQueueLinearPreviewLoad({ folder: '/work/project' });
+    expect(state.service.noteCallFailure).toHaveBeenCalledTimes(1);
   });
 });

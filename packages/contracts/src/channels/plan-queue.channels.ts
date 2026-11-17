@@ -48,6 +48,11 @@ export const PLAN_QUEUE_CHANNELS = {
   /** Check every row of the whole team list against Linear, then save all of it or none of it. */
   PLAN_QUEUE_LINEAR_TEAMS_SAVE: 'plan-queue:linear-teams-save',
 
+  /** Load the Linear Start preview for a folder: its tickets, built in code from their basic fields. */
+  PLAN_QUEUE_LINEAR_PREVIEW_LOAD: 'plan-queue:linear-preview-load',
+  /** Load one ticket's description and comments from a Linear preview, with the hash that pins them. */
+  PLAN_QUEUE_LINEAR_PREVIEW_TEXT: 'plan-queue:linear-preview-text',
+
   // Events (main → renderer)
   /** A run or item changed; carries the run's full DTO. */
   PLAN_QUEUE_STATE_CHANGED: 'plan-queue:state-changed',

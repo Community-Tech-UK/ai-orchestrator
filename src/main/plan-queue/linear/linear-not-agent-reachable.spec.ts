@@ -49,4 +49,17 @@ describe('the Linear call is not reachable by agents', () => {
       .filter((path) => /linear/i.test(readFileSync(join(ROOT, path), 'utf8')));
     expect(agentRoutes).toEqual([]);
   });
+
+  it('reaches the Start preview only from the Plan Queue page\'s own handlers', () => {
+    // The preview holds ticket text in memory. No tool, command, RPC method or tool operation may name it.
+    const preview = /LinearPreviewService|linear-preview(-singleton)?['"]/;
+    const reachers = ['src/main', 'src/preload', 'src/shared', 'packages']
+      .flatMap((folder) => sourceFiles(join(ROOT, folder)))
+      .map((path) => relative(ROOT, path))
+      .filter((path) => !path.startsWith(LINEAR_FOLDER))
+      .filter((path) => preview.test(readFileSync(join(ROOT, path), 'utf8')));
+    expect(reachers).toEqual([join('src', 'main', 'ipc', 'handlers', 'plan-queue-linear-handlers.ts')]);
+    const routes = sourceFiles(join(ROOT, 'src/main/mcp')).filter((path) => preview.test(readFileSync(path, 'utf8')));
+    expect(routes).toEqual([]);
+  });
 });

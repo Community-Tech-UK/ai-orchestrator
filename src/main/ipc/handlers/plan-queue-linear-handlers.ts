@@ -3,6 +3,9 @@
  * in as, confirm and save the connection, forget it, and check it now. IPC callers are the operator on the Plan Queue
  * page; agents have no route here. A failure message is fixed words written by Harness, never Linear's own text.
  *
+ * The Start preview's two channels (load a folder's list, load one ticket's text) are here too. They answer the page
+ * only: the preview service holds ticket text in memory, and no tool, command or session method reaches it.
+ *
  * It also holds the folder-link channels: Linear's teams and projects for the editor, the saved links with their live
  * state, and the one checked save. The links' settings key is written only by that save.
  */
@@ -13,6 +16,8 @@ import {
   PlanQueueLinearIdentifyPayloadSchema,
   PlanQueueLinearLinksSavePayloadSchema,
   PlanQueueLinearNoPayloadSchema,
+  PlanQueueLinearPreviewLoadPayloadSchema,
+  PlanQueueLinearPreviewTextPayloadSchema,
   PlanQueueLinearTeamsSavePayloadSchema,
 } from '@contracts/schemas/plan-queue';
 import { getSettingsManager } from '../../core/config/settings-manager';
@@ -20,6 +25,8 @@ import { getLinearConnectionService } from '../../plan-queue/linear/linear-conne
 import { isLinearCallError } from '../../plan-queue/linear/linear-errors';
 import { getLinearFolderLinkService } from '../../plan-queue/linear/linear-folder-links-singleton';
 import { listLinearProjectChoices } from '../../plan-queue/linear/linear-project-list';
+import { getLinearPreviewService } from '../../plan-queue/linear/linear-preview-singleton';
+import { isLinearDiscoveryFailure } from '../../plan-queue/linear/linear-ticket-reader';
 import { getLinearTeamRuleService } from '../../plan-queue/linear/linear-team-rules-singleton';
 import type { WindowManager } from '../../window-manager';
 import { broadcastSettingsChanged } from './settings-broadcast';
@@ -120,5 +127,30 @@ export function registerPlanQueueLinearHandlers(deps: { windowManager: Pick<Wind
       });
     }
     return result;
+  });
+
+  // A failed preview read is checked again at once like every Linear read, unless it was Harness's own refusal.
+  const HARNESS_OWN_REFUSALS = new Set(['not-set-up', 'not-linked', 'broken-link', 'connection-paused', 'call-limit']);
+  const readPreview = async <T>(read: () => Promise<T>): Promise<T> => {
+    try {
+      return await read();
+    } catch (error) {
+      // A text read fails with the call's own error; a list read, with the discovery's, which wraps it.
+      if (isLinearCallError(error) && error.code !== 'not-set-up') service.noteCallFailure();
+      if (isLinearDiscoveryFailure(error) && !HARNESS_OWN_REFUSALS.has(error.code)) service.noteCallFailure();
+      throw error;
+    }
+  };
+
+  const preview = getLinearPreviewService();
+
+  handle(IPC_CHANNELS.PLAN_QUEUE_LINEAR_PREVIEW_LOAD, 'PLAN_QUEUE_LINEAR_PREVIEW_LOAD_FAILED', (payload) => {
+    const validated = validateIpcPayload(PlanQueueLinearPreviewLoadPayloadSchema, payload, 'PLAN_QUEUE_LINEAR_PREVIEW_LOAD');
+    return readPreview(() => preview.load(validated.folder));
+  });
+
+  handle(IPC_CHANNELS.PLAN_QUEUE_LINEAR_PREVIEW_TEXT, 'PLAN_QUEUE_LINEAR_PREVIEW_TEXT_FAILED', (payload) => {
+    const validated = validateIpcPayload(PlanQueueLinearPreviewTextPayloadSchema, payload, 'PLAN_QUEUE_LINEAR_PREVIEW_TEXT');
+    return readPreview(() => preview.loadText(validated.previewId, validated.linearId));
   });
 }
