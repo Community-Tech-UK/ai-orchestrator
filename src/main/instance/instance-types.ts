@@ -12,7 +12,7 @@ export type RlmContextInfo = {
   tokens: number;
   sectionsAccessed: string[];
   durationMs: number;
-  source: 'semantic' | 'lexical' | 'hybrid';
+  source: 'semantic' | 'hybrid';
 };
 
 /**

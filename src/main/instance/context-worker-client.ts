@@ -243,11 +243,7 @@ export class ContextWorkerClient implements
   formatRlmContextBlock(context: RlmContextInfo | null): string | null {
     if (!context) return null;
     const sourceLabel =
-      context.source === 'hybrid'
-        ? 'RLM hybrid search'
-        : context.source === 'lexical'
-          ? 'RLM lexical search'
-          : 'RLM semantic search';
+      context.source === 'hybrid' ? 'RLM hybrid search' : 'RLM semantic search';
     return [
       '[Retrieved Context]',
       `Source: ${sourceLabel}`,

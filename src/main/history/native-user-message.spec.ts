@@ -184,7 +184,7 @@ describe('extractAuthoredUserMessage on a real later-turn composition', () => {
     });
 
     it('strips every retrieved-source label', () => {
-      for (const source of ['semantic', 'lexical', 'hybrid'] as const) {
+      for (const source of ['semantic', 'hybrid'] as const) {
         const bundle: InputContextBundle = { ...contexts, rlmContext: { ...contexts.rlmContext!, source } };
         expect(extractAuthoredUserMessage(wire(context, bundle, { guidance: null }))).toBe(typed);
       }

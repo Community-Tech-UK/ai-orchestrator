@@ -219,6 +219,23 @@ describe('executeSemanticSearch — LT-055 degradation is observable', () => {
     );
   });
 
+  it('returns nothing instead of a keyword search when keywordFallback is false (LT-1184)', async () => {
+    const vectorStore = { search: async () => [] };
+
+    const result = await executeSemanticSearch(
+      storeWithContent('alpha lexical fallback content'),
+      { query: 'alpha lexical', topK: 3, minSimilarity: 0.5, useHyDE: false, keywordFallback: false },
+      { vectorStore: vectorStore as never, hydeService: null, searchWindowSize: 30 },
+    );
+
+    expect(result.sectionsAccessed).toEqual([]);
+    expect(result.result).toBe('No matches found.');
+    // The log must say what actually happened, not claim a keyword search ran.
+    const message = String(loggerInfo.mock.calls.at(-1)?.[0]);
+    expect(message).toContain('keyword fallback is off');
+    expect(message).not.toContain('falling back');
+  });
+
   it('does not log the zero-matches degradation line when real matches are found', async () => {
     const vectorStore = {
       search: async () => [{ entry: { sectionId: 'section-1', contentPreview: 'a' }, similarity: 0.9 }],

@@ -118,6 +118,12 @@ export interface SemanticSearchParams {
   topK?: number;
   minSimilarity?: number;
   useHyDE?: boolean;
+  /**
+   * When no stored text clears the similarity floor, search for the query's
+   * words instead (default true). Context added to a message sets this to
+   * false: a match on everyday words alone is not relevance (LT-1184).
+   */
+  keywordFallback?: boolean;
 }
 
 /**

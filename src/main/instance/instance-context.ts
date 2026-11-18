@@ -422,6 +422,8 @@ export class InstanceContextManager implements InstanceContextPort {
       params: {
         query: message,
         topK,
+        // Everyday words alone must not add text (LT-1184).
+        keywordFallback: false,
         ...(queryStrategy ? { queryStrategy } : {}),
       }
     };
@@ -457,7 +459,9 @@ export class InstanceContextManager implements InstanceContextPort {
 
       const semanticIds = semanticResult?.sectionsAccessed ?? [];
       const lexicalIds = lexicalResult?.sectionsAccessed ?? [];
-      const candidateIds = new Set<string>([...semanticIds, ...lexicalIds]);
+      // Only text the meaning search returned can be added. The word search
+      // reorders those, and never adds text on shared everyday words (LT-1184).
+      const candidateIds = new Set<string>(semanticIds);
 
       if (candidateIds.size === 0) {
         return null;
@@ -483,12 +487,7 @@ export class InstanceContextManager implements InstanceContextPort {
         tokens: this.estimateTokens(payload.context),
         sectionsAccessed: payload.sectionIds,
         durationMs: Date.now() - startTime,
-        source:
-          semanticIds.length > 0 && lexicalIds.length > 0
-            ? 'hybrid'
-            : semanticIds.length > 0
-              ? 'semantic'
-              : 'lexical'
+        source: lexicalIds.some((id) => candidateIds.has(id)) ? 'hybrid' : 'semantic'
       };
     } catch (error) {
       logger.error('Failed to retrieve RLM context', error instanceof Error ? error : undefined, { instanceId });
@@ -503,11 +502,7 @@ export class InstanceContextManager implements InstanceContextPort {
     if (!context) return null;
 
     const sourceLabel =
-      context.source === 'hybrid'
-        ? 'RLM hybrid search'
-        : context.source === 'lexical'
-          ? 'RLM lexical search'
-          : 'RLM semantic search';
+      context.source === 'hybrid' ? 'RLM hybrid search' : 'RLM semantic search';
 
     return [
       '[Retrieved Context]',

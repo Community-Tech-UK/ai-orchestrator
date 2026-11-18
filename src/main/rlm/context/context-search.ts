@@ -179,7 +179,11 @@ export async function executeSemanticSearch(
     };
   }) => void
 ): Promise<QueryResult> {
-  const { query, topK = 5, minSimilarity, useHyDE = true } = params;
+  const { query, topK = 5, minSimilarity, useHyDE = true, keywordFallback = true } = params;
+  // Logged with every degradation below, so it must match what happens next.
+  const nextStep = keywordFallback
+    ? 'falling back to keyword search'
+    : 'keyword fallback is off, returning no matches';
 
   // Use vector store for semantic search if available
   if (deps.vectorStore) {
@@ -276,21 +280,30 @@ export async function executeSemanticSearch(
       // `RLMContextManager.ensureStoreIndexedForSemanticSearch`), this branch
       // means real vectors were searched and none cleared `minSimilarity` —
       // still worth a log line so the degradation to keyword is observable.
-      logger.info('Semantic search returned no vector matches; falling back to keyword search', {
+      logger.info(`Semantic search returned no vector matches; ${nextStep}`, {
         storeId: store.id,
         queryPreview: query.slice(0, 100),
         minSimilarity
       });
     } catch (error) {
-      logger.error('Semantic search failed, falling back to keyword search', error instanceof Error ? error : undefined);
+      logger.error(`Semantic search failed; ${nextStep}`, error instanceof Error ? error : undefined);
     }
   } else {
     // LT-055: no vector store attached at all (persistence disabled) — same
     // observability requirement as the zero-matches case above.
-    logger.info('No vector store attached; semantic_search running as keyword search', {
-      storeId: store.id,
-      queryPreview: query.slice(0, 100)
-    });
+    logger.info(
+      keywordFallback
+        ? 'No vector store attached; semantic_search running as keyword search'
+        : `No vector store attached; ${nextStep}`,
+      {
+        storeId: store.id,
+        queryPreview: query.slice(0, 100)
+      }
+    );
+  }
+
+  if (!keywordFallback) {
+    return { result: 'No matches found.', sectionsAccessed: [] };
   }
 
   // Fall back to keyword search
