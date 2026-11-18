@@ -797,7 +797,8 @@ describe('AppComponent title bar layout', () => {
     expect(container?.classList.contains('windows')).toBe(true);
     expect(container?.classList.contains('macos')).toBe(false);
     expect(styles).toContain('.app-container.windows');
-    expect(styles).toContain('padding-top: 40px');
+    expect(styles).toContain('--title-bar-height: 40px');
+    expect(styles).toContain('padding-top: var(--title-bar-height)');
   });
 });
 

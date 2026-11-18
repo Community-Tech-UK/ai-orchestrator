@@ -7,11 +7,13 @@
 }
 
 .app-container.macos {
-  padding-top: 52px;
+  --title-bar-height: 52px;
+  padding-top: var(--title-bar-height);
 }
 
 .app-container.windows {
-  padding-top: 40px;
+  --title-bar-height: 40px;
+  padding-top: var(--title-bar-height);
 }
 
 .title-bar-drag-area {

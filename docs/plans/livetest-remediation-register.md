@@ -443,6 +443,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-1085 | P2 | **SOURCE FIX VERIFIED 2026-11-10; rebuilt dev app rechecked live.** After Claude's own `/compact` (Compact now on a resident session) the chat showed "The model sent no reply. Your message and the work above are kept." with a Retry button, because the compaction turn's empty result was judged an empty model reply. | [LT-1085 detail](#lt-1085) | [Token levers live checks](2026-10-10-oct-phase1-token-levers_livetest.md) |
 | LT-1088 | P1 | **SOURCE FIX VERIFIED 2026-11-13; rebuilt-app rollout still gated.** With the rewrite-only RTK hook on, `FOO=1 git push`, `timeout 5 git push` and `git -C <dir> push` ran in a Claude session whose project denies `Bash(git push*)`: the hook rewrote them to `FOO=1 rtk git push` and the like, Claude matched its deny rule against the rewritten text and the push executed (it stopped only because the scratch repo had no remote). The hook no longer rewrites a command that starts with a `NAME=value` word, a wrapper such as `timeout`, or `git` plus a global option. | [LT-1088 detail](#lt-1088) | [Token levers live checks](2026-10-10-oct-phase1-token-levers_livetest.md) |
 | LT-1089 | P4 | **REPRODUCED LIVE 2026-11-13; NOT FIXED.** Renaming a new Claude chat within about 300 ms of its first message makes the title service log "AI title upgrade skipped: no live session and spawning a new CLI for a label is switched off" for that Claude chat. The rename is kept and no second process starts, so only the log reason is misleading; the livetest expects that line only for non-Claude chats. | [LT-1089 detail](#lt-1089) | [Token levers live checks](2026-10-10-oct-phase1-token-levers_livetest.md) |
+| LT-1160 | P2 | **REPRODUCED 2026-11-10; FIXED on this branch and re-checked live 2026-11-14.** The shared Help panel ("Words used in Harness", "Working in a session", "Loop Mode") opens under the title bar. Its own title and Close button sit beneath the status chips and the title-bar drag strip, so a mouse click on the "×" does nothing, and when a glossary word opens the panel the highlighted entry is scrolled flush to the top edge, partly hidden under the chips. Escape and the dark backdrop still close it. | [LT-1160 detail](#lt-1160) | [Phase 4 tooltips live checks](2026-10-10-oct-phase4-tooltips_livetest.md#evidence-run--2026-11-10) |
 | LT-1091 | P2 | **REPRODUCED LIVE 2026-11-14; NOT FIXED.** The "of which helper agents" figure undercounts the helper's own transcript: it is summed from `agent-<id>.jsonl` at the helper's finish notification, which arrives before the Claude CLI appends the helper's final assistant message line, and the later re-sum never refreshes final samples. The check-2 run booked $0.075014 against $0.0837263 for the same helper at repo rates (10.4% short, the final message); an earlier stub run booked all zeros. The sum itself is correct when re-read after the fact. | [LT-1091 detail](#lt-1091) | [Usage burn followups live checks](2026-11-12-usage-burn-followups_livetest.md#evidence-run--2026-11-13) |
 | LT-1028 | P2 | **FIX LANDED 2026-11-10 (661f79daa); rebuilt-app check pending.** On a Control Center window 840px wide or narrower, the new hub menu (Oct2 later 3.2) stacked all twelve hubs in a column above the page: the Automations page kept 280 of 800px of height, Git 168px, and the last hub was clipped. The narrow-layout strip CSS was written for the old menu's side-by-side groups. Fixed by a one-row sideways strip that keeps its own height and scrolls the open hub into view. | [LT-1028 detail](#lt-1028--the-hub-menu-fills-half-a-narrow-window) | [Oct2 later live checks, section 4](2026-10-20-oct2-later_livetest.md) |
 | LT-1029 | P2 | **OBSERVED + ROOT-CAUSED 2026-11-11; NOT A PRODUCT DEFECT (test-harness spawn lifecycle).** A disposable worker spawned from a `run_on_node` agent turn registered successfully (`Node registered via RPC`, session issued) but its WebSocket closed 1006 seven-to-eight seconds later — exactly when the agent turn ended and its background task was reaped — so the roster showed the enrolled node `disconnected` and later gate calls failed node matching. Started via Task Scheduler (outside the agent process tree), the same worker stayed connected and the signed-out-Cursor gate call succeeded. The same evidence live-verifies LT-604's router fix on the packaged build. | [LT-1029 detail](#lt-1029) | [Browser Gateway wedged-tab livetest](/Users/suas/work/communitytech/browser-gateway-wedged-tab-and-node-recovery-2026-09-11_livetest.md) |
@@ -16006,6 +16007,47 @@ Seen repeatedly while running checks 3, 4 and 8 in [the deferred checks live che
 ### Required behaviour and acceptance
 
 Tell the checker to report a missing automated test only when the plan or the repository's conventions require one and a test runner exists, and otherwise to judge the plan's own acceptance criteria. Acceptance: on a one-file scratch repository with no test runner, three of three plan runs have no finding about missing tests in round 1.
+
+<a id="lt-1160"></a>
+
+## LT-1160
+
+### LT-1160 — the shared Help panel opens under the title bar, so its Close button cannot be clicked
+
+**Status: reproduced 10 November 2026 on the dev app built from `queue/2026-10-10-oct-phase4-tooltips-6bbc5c`; fixed on that branch and re-checked live 14 November 2026.**
+
+**Fix:** `.app-container.macos/.windows` now define `--title-bar-height` (52 px / 40 px, also used for their `padding-top`); the Help drawer's `aside` uses `inset: var(--title-bar-height, 0px) 0 0 auto`, so it starts below the title bar and its chips; glossary entries have `scroll-margin-top: var(--spacing-md)`. Spec: `help-drawer.component.spec.ts` ("starts below the fixed title bar"). Live result is in the 14 November (second) section of the Phase 4 tooltips live-test document.
+
+### Observed behaviour
+
+With the window at 1400 by 900, a real mouse click at the centre of the Help panel's "×" does nothing and the panel stays
+open. `document.elementFromPoint` at the button's centre returns `DIV.title-bar-overlay.macos`, and at the panel's own
+title ("Working in a session") returns the quota chip button. The panel (`aside`, `position: fixed; inset: 0 0 0 auto`,
+`z-index: calc(var(--z-modal) + 3)` = 403) starts at the very top of the window, but `.title-bar-drag-area` (`z-index:
+1000`) and `.title-bar-overlay` (`z-index: 1100`) in `app.component.scss` sit above it. The same panel opened from the
+Settings "Help & tips" drawer at 1000 by 700 shows the same cover. Escape and a click on the dark backdrop close
+it while focus is inside the panel, and focus returns to the opening control. After the dead click on the "×", focus fell to
+`BODY` and Escape no longer closed the panel (the handler is `(keydown.escape)` on the `aside` only); only the backdrop did.
+
+Second symptom, same cause: opening a glossary word (the queued "steer" word, Settings → RTK savings "Output
+compression") runs `anchor.scrollIntoView({ block: 'start' })` in `help-drawer.component.ts`. The entry's heading ends
+up at y = 0.06 px and its definition at y 22 to 58 px, where the drag strip and the status chips take the pointer and
+hide the right half of the text. The panel's own header has scrolled away at that point (header top at -2012 px), so
+there is no visible way to close it with the mouse.
+
+### Root cause
+
+The drawer was written as a full-height overlay with no top offset, but the title bar (52 px on macOS, 40 px on
+Windows) and its right-hand chip cluster are fixed above every modal layer. Nothing reserves that strip for the
+drawer, and the scroll target has no margin below it.
+
+### Required behaviour and acceptance
+
+The panel's header and Close button are fully visible and clickable below the title bar (offset the drawer by the title
+bar height, or lower the title bar's layer while a modal Help panel is open), and the scrolled-to entry lands fully
+below the title bar (for example `scroll-margin-top`). Acceptance: at 1400 by 900 and 800 by 600, in dark and light
+themes, `elementFromPoint` at the centre of "Close help" returns that button, a mouse click on it closes the panel, and
+after clicking "steer" the whole highlighted entry (heading and definition) is visible. Add a spec for the offset.
 
 ## LT-1135
 

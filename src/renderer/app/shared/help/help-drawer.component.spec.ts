@@ -80,6 +80,15 @@ describe('HelpDrawerComponent', () => {
     expect(drawer.target()).toBeNull();
     expect(document.activeElement?.id).toBe('opener');
   });
+  it('starts below the fixed title bar so its header and Close button stay clickable (LT-1160)', async () => {
+    const source = readFileSync(resolve(directory, 'help-drawer.component.ts'), 'utf8');
+    expect(source).toMatch(/aside \{[^}]*inset: var\(--title-bar-height, 0px\) 0 0 auto/);
+    const app = readFileSync(resolve(directory, '../../app.component.scss'), 'utf8');
+    expect(app).toMatch(/\.app-container\.macos \{[^}]*--title-bar-height: 52px;[^}]*padding-top: var\(--title-bar-height\)/);
+    expect(app).toMatch(/\.app-container\.windows \{[^}]*--title-bar-height: 40px;[^}]*padding-top: var\(--title-bar-height\)/);
+    const pane = readFileSync(resolve(directory, 'help-pane.component.scss'), 'utf8');
+    expect(pane).toMatch(/> div \{ scroll-margin-top: var\(--spacing-md\); \}/);
+  });
   it('keeps focus inside when switching from an anchored word to another topic', async () => {
     drawer.open({ topic: 'glossary', anchor: 'worktree' });
     await render();

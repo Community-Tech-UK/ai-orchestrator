@@ -21,7 +21,8 @@ import { createFocusTrap, type FocusTrapHandle } from '../utils/focus-trap';
   `,
   styles: [`
     .help-scrim { position: fixed; inset: 0; z-index: calc(var(--z-modal) + 2); border: 0; background: var(--overlay-dark-medium); }
-    aside { position: fixed; inset: 0 0 0 auto; z-index: calc(var(--z-modal) + 3); width: min(380px, 100%); overflow-y: auto; background: var(--bg-primary); color: var(--text-primary); box-shadow: var(--shadow-lg); }
+    /* Start below the fixed title bar and its chips (z-index 1000+), which would otherwise cover the header and the Close button. */
+    aside { position: fixed; inset: var(--title-bar-height, 0px) 0 0 auto; z-index: calc(var(--z-modal) + 3); width: min(380px, 100%); overflow-y: auto; background: var(--bg-primary); color: var(--text-primary); box-shadow: var(--shadow-lg); }
     header { display: flex; align-items: center; justify-content: space-between; padding: var(--spacing-md); }
     h2 { font-size: 16px; margin: 0; }
     header button { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: inherit; cursor: pointer; }

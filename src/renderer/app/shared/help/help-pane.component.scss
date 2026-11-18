@@ -143,6 +143,7 @@
   line-height: var(--leading-normal);
   dt { font-weight: 600; }
   dd { margin: var(--spacing-xs) 0 var(--spacing-sm); }
+  > div { scroll-margin-top: var(--spacing-md); }
   > div:focus { outline: 2px solid var(--primary-color); outline-offset: 3px; }
   .help-term-aliases { color: var(--text-muted); }
 }
