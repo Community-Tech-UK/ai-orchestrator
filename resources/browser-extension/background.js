@@ -1583,7 +1583,10 @@ async function loadSecretTaints() {
         for (const [tabId, origin] of Object.entries(storedTabs)) {
           if (/^\d+$/.test(tabId) && typeof origin === 'string') {
             secretTaintedTabs.set(tabId, origin);
-            secretTaintedOrigins.add(origin);
+            // Version 2 stores the protected sites itself. A tab kept locked on
+            // its own after an automatic release carries a site that is no
+            // longer protected as a whole, and must not re-protect it on restart.
+            if (!versioned) secretTaintedOrigins.add(origin);
           }
         }
         if (versioned && Array.isArray(stored.origins)) {
@@ -1879,11 +1882,19 @@ function reviewSecretProtection(command) {
     await loadSecretTaints();
     let origins;
     try {
-      const markedOrigin = await secretTaintOriginForTab(await chrome.tabs.get(tabId));
+      const tab = await chrome.tabs.get(tabId);
+      const markedOrigin = await secretTaintOriginForTab(tab);
       const frameOrigins = await taintedFrameOriginsForTabId(tabId);
+      // A site released automatically whose written values are no longer all
+      // known (after a worker restart, say) still refuses deep reads (page
+      // scripts, logs, traffic, downloads). The user's release covers that too.
+      await loadSecretAutoReleased();
+      const pageOrigin = browserTabOrigin(tab);
+      const deepLocked = secretAutoReleasedOrigins.has(pageOrigin) && !secretValuesAllKnown(pageOrigin);
       origins = [...new Set([
         ...(typeof markedOrigin === 'string' ? [markedOrigin] : []),
         ...frameOrigins,
+        ...(deepLocked ? [pageOrigin] : []),
       ])].sort();
     } catch {
       // Isolation from other protected origins cannot be established.
@@ -1956,8 +1967,13 @@ function releaseSecretProtection(command) {
     }
     // A tab that inherited protection after the review (opened from a
     // protected tab, say) was not in what the user saw: review again.
+    // A site released automatically can still be carried by a tab kept locked on its own.
+    // ...and a site released automatically can still refuse deep reads.
+    await loadSecretAutoReleased();
+    const carried = (origin) => secretTaintedOrigins.has(origin) || [...secretTaintedTabs.values()].includes(origin)
+      || (secretAutoReleasedOrigins.has(origin) && !secretValuesAllKnown(origin));
     if (secretWriteGeneration !== payload.writeGeneration
-      || origins.some((origin) => !secretTaintedOrigins.has(origin))
+      || origins.some((origin) => !carried(origin))
       || secretRecoveryAffectedTabsKey(origins).key !== review.tabsKey) {
       throw new Error('secret_release_state_changed');
     }
@@ -1966,12 +1982,22 @@ function releaseSecretProtection(command) {
     const clearedTabCount = secretTaintedTabs.size - nextTabs.size;
     const nextReceipts = [...secretRecoveryReceipts, { operationId, clearedTabCount }]
       .slice(-SECRET_RECOVERY_RECEIPT_LIMIT);
+    // The user's release is an operator release, like the popup reset: these
+    // sites also leave automatic-release tracking, or its checks would take
+    // the consented access back (or keep deep reads refused) afterwards.
+    await loadSecretAutoReleased();
+    const nextAutoReleased = [...secretAutoReleasedOrigins].filter((origin) => !origins.includes(origin));
     // Persist first. A storage failure must leave the in-memory guard intact.
     await chrome.storage.local.set({
       [SECRET_TAINT_STORAGE_KEY]: secretTaintStorageValue(
         nextOrigins, nextTabs, secretWriteGeneration, nextReceipts,
       ),
+      [SECRET_AUTO_RELEASED_STORAGE_KEY]: nextAutoReleased,
     });
+    for (const origin of origins) {
+      secretAutoReleasedOrigins.delete(origin);
+      secretValueChecks.delete(origin);
+    }
     // Remove only what was reviewed from the live state. A read outside this
     // boundary can add an inherited mark while storage is being written, and
     // replacing the live state with the snapshot would silently drop it.
@@ -2016,7 +2042,8 @@ function rememberSecretValueCheck(origin, value) {
     await loadSecretTaints();
     await loadSecretAutoReleased();
     const existing = secretValueChecks.get(origin);
-    const unprotected = !secretTaintedOrigins.has(origin);
+    // A tab kept locked on its own still carries the site after it is released.
+    const unprotected = !secretTaintedOrigins.has(origin) && ![...secretTaintedTabs.values()].includes(origin);
     // complete: every value written since the site was last unprotected is
     // known, so it can be released again. allKnown: every value ever written
     // since the popup reset is known, so page memory, log and traffic reads can
@@ -2134,18 +2161,24 @@ async function loadSecretAutoReleased() {
 
 // Automatic release, inside the shared boundary. Every open tab carrying the
 // site (marked with it, or showing it) is read in every frame: field values,
-// page text, title and address. Any read that fails, is cut short or holds a
-// written value keeps protection. Persisted before memory changes.
+// page text, title, address and site storage. A written value anywhere keeps
+// protection. A tab showing the site that cannot be read whole keeps it too. A
+// tab now on another site that cannot be read (marked only because it could
+// not be checked when the value was written) keeps its own mark and stays
+// locked, without holding the whole site (17 Nov 2026 live check: a local
+// network page on ct-test-mac did that). Persisted before memory changes.
 async function autoReleaseSecretProtectionLocked(origin) {
   if (!isSecretObservationProtectionEnabled()) return false;
   await loadSecretTaints();
-  if (!secretTaintedOrigins.has(origin)) return true;
+  // A site already released can still have tabs kept locked on their own.
+  if (!secretTaintedOrigins.has(origin) && ![...secretTaintedTabs.values()].includes(origin)) return true;
   if (!secretValuesKnown(origin)) return false;
   const texts = [];
+  const keptTabs = new Set();
   for (const tab of await chrome.tabs.query({})) {
     if (typeof tab?.id !== 'number'
       || (secretTaintedTabs.get(String(tab.id)) !== origin && browserTabOrigin(tab) !== origin)) continue;
-    texts.push(String(tab.url ?? ''), String(tab.title ?? ''));
+    const pageTexts = [String(tab.url ?? ''), String(tab.title ?? '')];
     let frames;
     let timer;
     try {
@@ -2154,21 +2187,27 @@ async function autoReleaseSecretProtectionLocked(origin) {
         new Promise((_resolve, reject) => { timer = setTimeout(() => reject(new Error('residue_probe_timeout')), 1500); }),
       ]);
     } catch {
-      return false;
+      frames = null;
     } finally {
       clearTimeout(timer);
     }
-    if (!Array.isArray(frames) || frames.length === 0) return false;
-    for (const frame of frames) {
-      const result = frame?.result;
-      if (result?.complete !== true || !Array.isArray(result.texts)) return false;
-      texts.push(...result.texts);
+    const readable = Array.isArray(frames) && frames.length > 0
+      && frames.every((frame) => frame?.result?.complete === true && Array.isArray(frame.result.texts));
+    if (!readable) {
+      if (browserTabOrigin(tab) === origin) return false;
+      keptTabs.add(String(tab.id));
+      continue;
     }
+    texts.push(...pageTexts);
+    for (const frame of frames) texts.push(...frame.result.texts);
   }
   if (await textsContainWrittenSecret(texts, origin)) return false;
+  // Nothing to release: only tabs that stay locked carry the site already.
+  if (!secretTaintedOrigins.has(origin)
+    && [...secretTaintedTabs].every(([tabId, entry]) => entry !== origin || keptTabs.has(tabId))) return false;
   await loadSecretAutoReleased();
   const nextOrigins = new Set([...secretTaintedOrigins].filter((entry) => entry !== origin));
-  const nextTabs = new Map([...secretTaintedTabs].filter(([, entry]) => entry !== origin));
+  const nextTabs = new Map([...secretTaintedTabs].filter(([tabId, entry]) => entry !== origin || keptTabs.has(tabId)));
   const nextReleased = [...new Set([...secretAutoReleasedOrigins, origin])].slice(-256);
   await chrome.storage.local.set({
     [SECRET_TAINT_STORAGE_KEY]: secretTaintStorageValue(
@@ -2178,12 +2217,16 @@ async function autoReleaseSecretProtectionLocked(origin) {
   });
   secretTaintedOrigins.delete(origin);
   for (const [tabId, entry] of [...secretTaintedTabs]) {
-    if (entry === origin) secretTaintedTabs.delete(tabId);
+    if (entry === origin && !keptTabs.has(tabId)) secretTaintedTabs.delete(tabId);
   }
   secretAutoReleasedOrigins.clear();
   for (const entry of nextReleased) secretAutoReleasedOrigins.add(entry);
   // Reviews of the old state, in Harness or the popup, no longer describe it.
-  secretReleaseReviews.clear();
+  // A Harness review of other sites still does: keep it, so an approved
+  // recovery elsewhere is not turned into a request to approve again.
+  for (const [token, entry] of [...secretReleaseReviews]) {
+    if (entry.originsKey.split(' ').includes(origin)) secretReleaseReviews.delete(token);
+  }
   secretRecoveryRequest = null;
   return true;
 }
@@ -2377,7 +2420,8 @@ async function assertSecretObservationAllowed(command) {
       message = 'browser_secret_observation_blocked_for_tainted_origin: command not run. '
         + 'A saved secret was typed on this site earlier and this read of page memory, logs or traffic can no '
         + 'longer be checked for it. browser.snapshot, browser.query_elements and browser.screenshot still work. '
-        + 'The user can lift this in the Harness extension popup.';
+        + 'Call browser.recover_secret_observation for this tab (load it through browser.tool_search if it is not '
+        + 'listed) to ask the user in Harness to lift it, then call it again with the requestId once resumed.';
     }
   }
   if (message) {
@@ -2398,11 +2442,15 @@ async function assertSecretObservationAllowed(command) {
 async function releaseSecretProtectionIfClear(command) {
   if (!SECRET_OBSERVATION_COMMANDS.has(command?.command) || !isSecretObservationProtectionEnabled()) return;
   const tabId = requireTargetTabId(command);
+  const tried = new Set();
   for (let attempt = 0; attempt < 4; attempt++) {
     // Classification can persist lineage, so it shares the boundary with the release.
     const released = await runWithSecretObservationBoundary(async () => {
       const origin = await secretTaintOriginForTabId(tabId);
-      return typeof origin === 'string' && autoReleaseSecretProtectionLocked(origin);
+      // Once per site: a tab kept locked on its own still carries the site.
+      if (typeof origin !== 'string' || tried.has(origin)) return false;
+      tried.add(origin);
+      return autoReleaseSecretProtectionLocked(origin);
     });
     if (!released) return;
   }

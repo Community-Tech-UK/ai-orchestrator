@@ -27,6 +27,7 @@ const EFFECT_POLL_INTERVAL_MS = 100;
 const EFFECT_DEADLINE_ERROR = 'browser_effect_observation_deadline_exceeded';
 const EFFECT_ORIGIN_ERROR = 'browser_effect_observation_origin_not_allowed';
 const EFFECT_UNVERIFIED_ERROR = 'browser_effect_observation_unverified';
+const SECRET_PROTECTION_BLOCK = 'browser_secret_observation_blocked_for_tainted_origin';
 
 interface BrowserMutationEffectObservation {
   evidence: BrowserMutationEffectState;
@@ -141,18 +142,20 @@ export class BrowserMutationEffectVerifier {
    * The "before" reading for a click. On a tab locked after a password fill the
    * extension refuses every page read, but still runs the click itself, so the
    * submit of the form Harness filled must not fail here (17 Nov 2026). Returns
-   * null when the reading fails, so the click runs and is reported as sent but
-   * unverified; the agent reads the page afterwards, once the lock has released.
+   * 'page_protected' for that lock (the click is reported as sent, see
+   * sentOnProtectedPage), and null when the reading fails otherwise, so the
+   * click runs and is reported as sent but unverified.
    */
   async captureBeforeClick(
     request: BrowserGatewayTargetRequest,
     attachment: BrowserExistingTabAttachment | undefined,
     expectation: BrowserRequestedMutationEffect,
     allowedOrigins: BrowserAllowedOrigin[],
-  ): Promise<BrowserMutationEffectObservation | null> {
+  ): Promise<BrowserMutationEffectObservation | 'page_protected' | null> {
     try {
       return await this.capture(request, attachment, expectation, allowedOrigins, this.deadline());
     } catch (error) {
+      if (attachment && error instanceof Error && error.message.startsWith(SECRET_PROTECTION_BLOCK)) return 'page_protected';
       // On a shared tab a failed reading changes nothing on the page: a locked
       // tab, or a reading the lock's own page check or a slow computer held up,
       // is no reason to refuse the click. It runs and is reported unverified
@@ -255,6 +258,27 @@ export class BrowserMutationEffectVerifier {
       action, toolName, actionClass: prepared.actionClass,
       decision: 'allowed', outcome: 'failed', reason,
       summary: `${toolName} dispatched but its post-action effect could not be verified`,
+      origin: prepared.origin, ...(url ? { url: redactBrowserUrl(url).slice(0, 2_000) } : {}), grantId: prepared.grant.id,
+      autonomous: prepared.grant.autonomous, data: null,
+    });
+  }
+
+  /**
+   * A click sent on a page locked after a saved-login fill. A success, so the agent
+   * does not click again; its effect could not be checked (18 Nov 2026: the plain
+   * "unverified" failure made an agent ask for a recovery instead of reading on).
+   */
+  sentOnProtectedPage(
+    request: BrowserGatewayContext & BrowserGatewayTargetRequest,
+    prepared: BrowserGatewayPreparedMutation,
+    url: string | undefined,
+  ): BrowserGatewayResult<null> {
+    return this.deps.result<null>({
+      context: request, profileId: request.profileId, targetId: request.targetId,
+      action: 'click', toolName: 'browser.click', actionClass: prepared.actionClass,
+      decision: 'allowed', outcome: 'succeeded', reason: 'browser_click_sent_page_protected',
+      summary: 'browser.click sent. The page is protected after the saved-login fill, so its effect was not checked: '
+        + 'do not click again; read the page next (reads work again once the page has moved on and the password is gone).',
       origin: prepared.origin, ...(url ? { url: redactBrowserUrl(url).slice(0, 2_000) } : {}), grantId: prepared.grant.id,
       autonomous: prepared.grant.autonomous, data: null,
     });

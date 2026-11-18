@@ -212,6 +212,96 @@ describe('Harness secret protection recovery (shipped extension)', () => {
     expect(h.secretTaintedOrigins.has(PROTECTED_ORIGIN)).toBe(false);
   });
 
+  describe('with automatic release in play', () => {
+    const VALUE = 'TEST_ONLY_FILLED_VALUE_9c1e';
+    interface AutoRelease {
+      rememberSecretValueCheck: (origin: string, value: string) => Promise<void>;
+      releaseSecretProtectionIfClear: (command: TestCommand) => Promise<void>;
+      withheldIfSecretReturned: (command: TestCommand, result: unknown) => Promise<Error | null>;
+    }
+    async function autoReleasedThenFilledAgain() {
+      const h = await ready({ version: 2, origins: [], tabs: {} });
+      const auto = h.context as unknown as AutoRelease;
+      let pageTexts = [VALUE];
+      const realExecute = h.chrome.scripting.executeScript.getMockImplementation()!;
+      h.chrome.scripting.executeScript.mockImplementation(async (input: { func: { name: string }; target: { tabId: number } }) => (
+        input.func.name === 'secretResidueProbe'
+          ? [{ frameId: 0, result: { complete: true, texts: pageTexts } }]
+          : realExecute(input as never)));
+      h.tabs.set(42, { id: 42, windowId: 7, url: PROTECTED_ORIGIN + '/login', title: 'Sign in' });
+      // First sign-in: filled, then the page moves on and protection lifts by itself.
+      await auto.rememberSecretValueCheck(PROTECTED_ORIGIN, VALUE);
+      await h.markSecretTaint(42, PROTECTED_ORIGIN);
+      h.tabs.set(42, { id: 42, windowId: 7, url: PROTECTED_ORIGIN + '/home', title: 'Home' });
+      pageTexts = ['Welcome'];
+      await auto.releaseSecretProtectionIfClear(command('snapshot'));
+      expect(h.secretTaintedOrigins.has(PROTECTED_ORIGIN)).toBe(false);
+      expect(h.storage['browserGatewaySecretAutoReleasedOrigins']).toContain(PROTECTED_ORIGIN);
+      // Second sign-in: filled again, and the page still shows the value.
+      h.tabs.set(42, { id: 42, windowId: 7, url: PROTECTED_ORIGIN + '/login', title: 'Sign in' });
+      pageTexts = [VALUE];
+      await auto.rememberSecretValueCheck(PROTECTED_ORIGIN, VALUE);
+      await h.markSecretTaint(42, PROTECTED_ORIGIN);
+      return { h, auto };
+    }
+
+    it('keeps the user\'s release: a later read is neither withheld nor protected again', async () => {
+      const { h, auto } = await autoReleasedThenFilledAgain();
+      const reviewed = await review(h);
+      expect(await release(h, reviewed)).toMatchObject({ ok: true, result: { released: true } });
+      // The site leaves automatic-release tracking in the same write.
+      expect(h.storage['browserGatewaySecretAutoReleasedOrigins']).not.toContain(PROTECTED_ORIGIN);
+      expect(await auto.withheldIfSecretReturned(command('snapshot'), { text: VALUE })).toBeNull();
+      expect(h.secretTaintedOrigins.has(PROTECTED_ORIGIN)).toBe(false);
+      // Deep reads are covered by the user's consent too, with no popup step.
+      await expect(h.assertSecretObservationAllowed(command('evaluate'))).resolves.toBeUndefined();
+    });
+
+    it('keeps a site released as a whole after a restart, while a tab kept locked on its own stays locked', async () => {
+      // Stored after an automatic release that kept tab 77 locked on its own.
+      const h = await ready({ version: 2, origins: [], tabs: { '77': PROTECTED_ORIGIN } });
+      h.tabs.set(42, { id: 42, windowId: 7, url: PROTECTED_ORIGIN + '/home', title: 'Home' });
+      h.chrome.scripting.executeScript.mockResolvedValue([{ frameId: 0, result: { origin: PROTECTED_ORIGIN } }]);
+      await expect(h.assertSecretObservationAllowed(command('snapshot'))).resolves.toBeUndefined();
+      await expect(h.assertSecretObservationAllowed(command('snapshot', {}, 77))).rejects.toThrow('blocked_for_tainted_origin');
+      expect(h.secretTaintedOrigins.has(PROTECTED_ORIGIN)).toBe(false);
+    });
+
+    it('lets the user lift the deep-read lock left on a site released automatically before a restart', async () => {
+      // After a restart: the site was released automatically, and the written values are forgotten.
+      const h = await ready({ version: 2, origins: [], tabs: {} });
+      h.storage['browserGatewaySecretAutoReleasedOrigins'] = [PROTECTED_ORIGIN];
+      h.tabs.set(42, { id: 42, windowId: 7, url: PROTECTED_ORIGIN + '/documents', title: 'Documents' });
+      h.chrome.scripting.executeScript.mockResolvedValue([{ frameId: 0, result: { origin: PROTECTED_ORIGIN } }]);
+      await expect(h.assertSecretObservationAllowed(command('snapshot'))).resolves.toBeUndefined();
+      const refused = await h.assertSecretObservationAllowed(command('download_file')).catch((error: unknown) => String(error));
+      expect(refused).toContain('browser.recover_secret_observation');
+      expect(refused).not.toContain('popup');
+      const reviewed = await review(h);
+      expect(reviewed).toMatchObject({ state: 'protected', origins: [PROTECTED_ORIGIN], affectedTabCount: 0 });
+      expect(await release(h, reviewed)).toMatchObject({ ok: true, result: { released: true, clearedTabCount: 0 } });
+      await expect(h.assertSecretObservationAllowed(command('download_file'))).resolves.toBeUndefined();
+      expect(h.storage['browserGatewaySecretAutoReleasedOrigins']).not.toContain(PROTECTED_ORIGIN);
+      // The check afterwards sees nothing left to release.
+      expect(await review(h)).toEqual({ state: 'not_protected' });
+    });
+
+    it('keeps a Harness review of another site when one site is released automatically', async () => {
+      const { h, auto } = await autoReleasedThenFilledAgain();
+      await h.markSecretTaint(77, OTHER_ORIGIN);
+      const other = await review(h, {}, 77);
+      expect(other.origins).toEqual([OTHER_ORIGIN]);
+      h.tabs.set(42, { id: 42, windowId: 7, url: PROTECTED_ORIGIN + '/home', title: 'Home' });
+      h.chrome.scripting.executeScript.mockImplementation(async (input: { func: { name: string }; target: { tabId: number } }) => (
+        input.func.name === 'secretResidueProbe'
+          ? [{ frameId: 0, result: { complete: true, texts: ['Welcome'] } }]
+          : [{ frameId: 0, result: { origin: new URL(h.tabs.get(input.target.tabId)!.url).origin } }]));
+      await auto.releaseSecretProtectionIfClear(command('snapshot'));
+      expect(h.secretTaintedOrigins.has(PROTECTED_ORIGIN)).toBe(false);
+      expect(await release(h, other, {}, 77)).toMatchObject({ ok: true, result: { released: true } });
+    });
+  });
+
   it('reports a tab it cannot inspect as unavailable and an unprotected tab as not protected', async () => {
     const h = await ready({ version: 2, origins: [PROTECTED_ORIGIN], tabs: {} });
     h.chrome.scripting.executeScript.mockRejectedValue(new Error(MARKER));

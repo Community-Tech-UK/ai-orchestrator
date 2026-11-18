@@ -332,6 +332,11 @@ describe('browser extension assets', () => {
     // release once written values have left the site's pages (unreleased
     // until both land, so they share this version).
     '0.2.55': '15ae0ba70ca1',
+    // Automatic release no longer held up by an unreadable tab on another site
+    // swept into the lock at write time; that tab stays locked on its own.
+    // Also: a Harness recovery release takes its sites out of automatic-release
+    // tracking, and an automatic release keeps Harness reviews of other sites.
+    '0.2.56': '67bab82fed7f',
   };
 
   it('ships each background bundle under its own manifest version', () => {

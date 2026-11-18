@@ -287,7 +287,7 @@ export class BrowserSecretRecoveryOperations {
         if (code === 'secret_release_review_invalid' || code === 'secret_release_state_changed') {
           // Refused, so nothing was released. Say why from what the tab shows now:
           // protection may have been switched off or cleared meanwhile.
-          throw new RecoveryStop('stale_review', await this.refusalReason(attachment));
+          throw new RecoveryStop('stale_review', await this.refusalReason(attachment, meta));
         }
         if (code === 'secret_release_protection_off') throw new RecoveryStop('stale_review', 'protection_protection_off');
         throw new RecoveryStop('indeterminate', 'release_outcome_unknown');
@@ -359,10 +359,11 @@ export class BrowserSecretRecoveryOperations {
   }
 
   /** Why the extension refused a release, from a fresh look at the tab. */
-  private async refusalReason(attachment: BrowserExistingTabAttachment): Promise<string> {
+  private async refusalReason(attachment: BrowserExistingTabAttachment, meta: BrowserSecretRecoveryMetadata): Promise<string> {
     const now = await this.review(attachment).catch(() => null);
     if (now?.state === 'protection_off') return 'protection_protection_off';
     if (now?.state === 'not_protected') return 'protection_not_protected';
+    if (now?.state === 'protected' && meta.origins.some((origin) => !now.origins.includes(origin))) return 'protected_sites_changed';
     return 'protected_state_changed';
   }
 
@@ -391,11 +392,19 @@ export class BrowserSecretRecoveryOperations {
   }
 
   private assertSameReview(review: Extract<Review, { state: 'protected' }>, meta: BrowserSecretRecoveryMetadata): void {
+    // Which sites are protected changed (one was released automatically, say):
+    // some may already be readable, so never report them all as still protected.
+    if (JSON.stringify(review.origins) !== JSON.stringify(meta.origins)) {
+      // An approved site gone means some may already be readable; only sites
+      // added means a new password entry, so everything approved is still protected.
+      throw new RecoveryStop('stale_review', meta.origins.some((origin) => !review.origins.includes(origin))
+        ? 'protected_sites_changed'
+        : 'protected_state_changed');
+    }
     // The tab count is part of what the user approved: a tab that inherited
     // protection since then needs a fresh approval.
     if (review.writeGeneration !== meta.writeGeneration
-      || review.affectedTabCount !== meta.affectedTabCount
-      || JSON.stringify(review.origins) !== JSON.stringify(meta.origins)) {
+      || review.affectedTabCount !== meta.affectedTabCount) {
       throw new RecoveryStop('stale_review', 'protected_state_changed');
     }
   }
@@ -508,7 +517,7 @@ const NEXT_ACTION: Record<BrowserSecretRecoveryState, string> = {
   not_protected: 'This tab is not protected. Retry the read; if it is still refused, check browser.health.',
   denied: 'The user kept this site protected. Do not retry; continue without reading this tab.',
   unsupported_extension: 'The browser extension on that computer is older than 0.2.55 and cannot do this. Tell the user it needs updating; do not retry.',
-  failed: 'Recovery did not finish and protection is unchanged. You may call again with this requestId once; if it fails again, tell the user.',
+  failed: 'Recovery did not finish and Harness did not lift protection. You may call again with this requestId once; if it fails again, tell the user.',
   indeterminate: 'Harness could not confirm whether protection was released. Call again with this requestId to check; never repeat a sign-in meanwhile.',
 };
 

@@ -244,4 +244,93 @@ describe('automatic release of secret protection after sign-in', () => {
     const huge = { value: Array.from({ length: 20_001 }, (_item, index) => ({ text: `item ${index}` })) };
     expect((await h.withheldIfSecretReturned(read('evaluate'), huge))?.message).toMatch(/result withheld/);
   });
+
+  it('releases the site even when an unreadable tab on another site was swept into the lock, which stays locked alone', async () => {
+    // 17 Nov 2026 live check, ct-test-mac: a local network page the extension
+    // cannot read was marked with the site when the password was written.
+    const h = signedInHarness();
+    h.tabs.set(77, { id: 77, windowId: 7, url: 'http://192.168.0.96:8765/page.html', title: 'Local page' });
+    let otherTabReadable = false;
+    const probeAware = h.chrome.scripting.executeScript.getMockImplementation()!;
+    h.chrome.scripting.executeScript.mockImplementation(async (input) => {
+      if (input.target.tabId === 77 && !otherTabReadable) throw new Error('Cannot access contents of the page');
+      if (input.target.tabId === 77 && input.func.name === 'secretResidueProbe') return pageWith('Local page')();
+      return probeAware(input);
+    });
+    await h.fill();
+    expect(h.secretTaintedTabs.get('77')).toBe(PROTECTED_ORIGIN);
+
+    h.navigate('/dashboard', 'Dashboard');
+    h.setPage(pageWith('Welcome back'));
+    await expect(guardRead(h, read())).resolves.toBeUndefined();
+    expect(h.secretTaintedOrigins.has(PROTECTED_ORIGIN)).toBe(false);
+    // The tab that could not be checked stays locked on its own.
+    const otherRead = { id: 'other-1', command: 'snapshot', target: { tabId: 77 } };
+    await expect(guardRead(h, otherRead)).rejects.toThrow(BLOCKED);
+    expect(h.secretTaintedTabs.get('77')).toBe(PROTECTED_ORIGIN);
+
+    // Once it can be read and is clean, it is released too.
+    otherTabReadable = true;
+    await expect(guardRead(h, otherRead)).resolves.toBeUndefined();
+    expect(h.secretTaintedTabs.size).toBe(0);
+  });
+
+  it('keeps the whole site locked when a tab showing the site cannot be read', async () => {
+    const h = signedInHarness();
+    await h.fill();
+    h.navigate('/dashboard', 'Dashboard');
+    h.setPage(() => { throw new Error('Cannot access contents of the page'); });
+    await expect(guardRead(h, read())).rejects.toThrow(BLOCKED);
+    expect(h.secretTaintedOrigins.has(PROTECTED_ORIGIN)).toBe(true);
+  });
+
+  /** The 18 Nov situation: site released, unreadable tab 77 on another site kept locked on its own. */
+  async function withKeptTab() {
+    const h = signedInHarness();
+    h.tabs.set(77, { id: 77, windowId: 7, url: 'http://192.168.0.96:8765/page.html', title: 'Local page' });
+    const state = { otherTabReadable: false, otherTabTexts: ['Local page'] };
+    const probeAware = h.chrome.scripting.executeScript.getMockImplementation()!;
+    h.chrome.scripting.executeScript.mockImplementation(async (input) => {
+      if (input.target.tabId === 77 && !state.otherTabReadable) throw new Error('Cannot access contents of the page');
+      if (input.target.tabId === 77 && input.func.name === 'secretResidueProbe') return pageWith(...state.otherTabTexts)();
+      return probeAware(input);
+    });
+    await h.fill();
+    h.navigate('/dashboard', 'Dashboard');
+    h.setPage(pageWith('Welcome back'));
+    await guardRead(h, read());
+    expect(h.secretTaintedTabs.get('77')).toBe(PROTECTED_ORIGIN);
+    return { h, state, otherRead: { id: 'other-1', command: 'snapshot', target: { tabId: 77 } } as TestCommand };
+  }
+
+  it('lets the Harness recovery release a tab kept locked on its own', async () => {
+    const { h } = await withKeptTab();
+    await h.setGatewayEnabled(true);
+    const review = await h.run({ id: 'review-1', command: 'secret_protection_review', target: { tabId: 77 }, payload: {} });
+    const reviewed = review['result'] as { state: string; origins: string[]; writeGeneration: string; reviewToken: string };
+    expect(reviewed).toMatchObject({ state: 'protected', origins: [PROTECTED_ORIGIN] });
+    const released = await h.run({ id: 'release-1', command: 'release_secret_observation', target: { tabId: 77 }, payload: {
+      operationId: 'op-test-only-0002', reviewToken: reviewed.reviewToken, origins: reviewed.origins, writeGeneration: reviewed.writeGeneration,
+    } });
+    expect(released).toMatchObject({ ok: true, result: { released: true, clearedTabCount: 1 } });
+    expect(h.secretTaintedTabs.size).toBe(0);
+  });
+
+  it('does not release a kept tab once older values for its site were forgotten', async () => {
+    const { h, state, otherRead } = await withKeptTab();
+    // Sign-ins on 16 other sites push this site's remembered values out.
+    for (let index = 0; index < 16; index++) await h.rememberSecretValueCheck(`https://test-only-${index}.example`, `TEST_ONLY_OTHER_${index}`);
+    // A newer value for the site is remembered; the first one, still in tab 77, is not.
+    await h.rememberSecretValueCheck(PROTECTED_ORIGIN, 'TEST_ONLY_NEWER_VALUE');
+    state.otherTabReadable = true;
+    state.otherTabTexts = [SECRET];
+    await expect(guardRead(h, otherRead)).rejects.toThrow(BLOCKED);
+  });
+
+  it('does not rewrite protection or cancel recovery reviews when a kept tab is still unreadable', async () => {
+    const { h, otherRead } = await withKeptTab();
+    const writes = h.chrome.storage.local.set.mock.calls.length;
+    await expect(guardRead(h, otherRead)).rejects.toThrow(BLOCKED);
+    expect(h.chrome.storage.local.set.mock.calls.length).toBe(writes);
+  });
 });

@@ -246,10 +246,15 @@ export class BrowserApprovalStore {
     return row ? this.map(row) : null;
   }
 
-  /** Whether this task was ever denied this saved login on this site, whatever was asked or on which computer. */
+  /**
+   * Whether James said no to this saved login on this site in this task, whatever was
+   * asked or on which computer. A request that failed or that its agent cancelled
+   * (operationError set) is not his no (brief 18 Nov 2026, item 3).
+   */
   hasDeniedCredentialAccess(taskScope: string, vaultItemRef: string, origin: string): boolean {
     return this.db.prepare(`SELECT 1 FROM browser_approval_requests
       WHERE credential_access_json IS NOT NULL AND status = 'denied'
+        AND json_extract(credential_access_json, '$.operationError') IS NULL
         AND json_extract(credential_access_json, '$.taskScope') = ?
         AND json_extract(credential_access_json, '$.vaultItemRef') = ?
         AND json_extract(credential_access_json, '$.origin') = ? LIMIT 1`).get(taskScope, vaultItemRef, origin) !== undefined;

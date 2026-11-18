@@ -302,10 +302,29 @@ describe('browser.reload and effect verification', () => {
     expect(sendCommand.mock.calls.filter(([request]) => request.command === 'click')).toHaveLength(1);
   });
 
-  it.each([
+  it('reports the submit click as sent, not failed, when the page is locked after a password fill', async () => {
     // 17 Nov 2026, windows-pc: fill_credential, then click with expectUrlChange.
-    // The extension refuses every read on the locked tab but runs clicks.
-    ['protection after a password fill refuses it', 'browser_secret_observation_blocked_for_tainted_origin: command not run.'],
+    // The extension refuses every read on the locked tab but runs clicks. On
+    // 18 Nov an "unverified" failure here made an agent ask for a recovery.
+    const sendCommand = vi.fn(async (request: { command: string }) => {
+      if (request.command === 'click') return { completed: true };
+      throw new Error('browser_secret_observation_blocked_for_tainted_origin: command not run.');
+    });
+    const { service } = makeService({ existingTab, grants: [inputGrant()], extensionCommandStore: { sendCommand } });
+
+    const result = await service.click({ ...context, selector: 'form button[type="submit"]', expectUrlChange: true });
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'succeeded', reason: 'browser_click_sent_page_protected' });
+    expect(sendCommand.mock.calls.map(([request]) => request.command)).toEqual(['snapshot', 'click']);
+
+    // A requested read-back is skipped too: the locked page refuses it as well.
+    sendCommand.mockClear();
+    const verified = await service.click({ ...context, selector: 'form button[type="submit"]', expectUrlChange: true, verify: { selector: '#email', value: 'x' } });
+    expect(verified).toMatchObject({ outcome: 'succeeded', reason: 'browser_click_sent_page_protected' });
+    expect(sendCommand.mock.calls.filter(([request]) => request.command === 'click')).toHaveLength(1);
+  });
+
+  it.each([
     ['the extension does not answer in time', 'browser_extension_command_timeout'],
     ['it is never delivered', 'browser_extension_command_not_delivered'],
   ])('sends the click once and reports it unverified when the before-reading fails because %s', async (_case, failure) => {

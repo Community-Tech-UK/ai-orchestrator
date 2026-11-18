@@ -391,6 +391,75 @@ describe('browser.recover_secret_observation (main process with the shipped exte
     expect(data(await t.ask())).toMatchObject({ state: 'approval_pending' });
   });
 
+  it('does not claim every site stays protected when one of the reviewed sites was released meanwhile', async () => {
+    const t = await setup();
+    const probe = t.h.chrome.scripting.executeScript;
+    const original = probe.getMockImplementation()!;
+    // The tab also embeds the other protected site, so the review covers both.
+    probe.mockImplementation(async (input: { func: { name: string }; target: { tabId: number } }) => (
+      input.func.name === 'credentialFrameOriginProbe' && input.target.tabId === 42 && t.h.secretTaintedOrigins.has(OTHER_ORIGIN)
+        ? [{ frameId: 0, result: { origin: PUBLIC_ORIGIN } }, { frameId: 5, result: { origin: OTHER_ORIGIN } }]
+        : original(input as never)));
+    const pending = data(await t.ask());
+    expect(pending.origins).toEqual([OTHER_ORIGIN, PROTECTED_ORIGIN].sort());
+    // Like an automatic release of the other site before the user approved.
+    t.h.secretTaintedOrigins.delete(OTHER_ORIGIN);
+    t.h.secretTaintedTabs.delete('77');
+    await t.approve(pending.requestId!);
+    expect(data(await t.ask({ requestId: pending.requestId }))).toMatchObject({
+      state: 'stale_review', reasonCode: 'protected_sites_changed',
+    });
+  });
+
+  it('does not claim every site stays protected when one was released in the gap just before the release', async () => {
+    let embedOther = true;
+    const t = await setup({ beforeCommand: async (command, h) => {
+      // Between the last review and the release, the other site's frame goes and
+      // that site is released, which also ends the review token: the extension
+      // refuses the release.
+      if (command === 'release_secret_observation') {
+        embedOther = false;
+        await h.markSecretTaint(77, OTHER_ORIGIN);
+        h.secretTaintedOrigins.delete(OTHER_ORIGIN);
+        h.secretTaintedTabs.delete('77');
+      }
+    } });
+    const probe = t.h.chrome.scripting.executeScript;
+    const original = probe.getMockImplementation()!;
+    probe.mockImplementation(async (input: { func: { name: string }; target: { tabId: number } }) => (
+      input.func.name === 'credentialFrameOriginProbe' && input.target.tabId === 42 && embedOther
+        ? [{ frameId: 0, result: { origin: PUBLIC_ORIGIN } }, { frameId: 5, result: { origin: OTHER_ORIGIN } }]
+        : original(input as never)));
+    const pending = data(await t.ask());
+    expect(pending.origins).toEqual([OTHER_ORIGIN, PROTECTED_ORIGIN].sort());
+    await t.approve(pending.requestId!);
+    expect(t.h.secretTaintedOrigins.has(PROTECTED_ORIGIN)).toBe(true);
+    expect(t.store.getRequest(pending.requestId!)!.secretRecoveryProgress).toMatchObject({
+      state: 'stale_review', reasonCode: 'protected_sites_changed',
+    });
+  });
+
+  it('treats a site only added after approval as a new password entry, not as something released', async () => {
+    let embedOther = false;
+    const t = await setup({ stored: { version: 2, origins: [PROTECTED_ORIGIN], tabs: { '42': PROTECTED_ORIGIN } } });
+    const probe = t.h.chrome.scripting.executeScript;
+    const original = probe.getMockImplementation()!;
+    probe.mockImplementation(async (input: { func: { name: string }; target: { tabId: number } }) => (
+      input.func.name === 'credentialFrameOriginProbe' && input.target.tabId === 42 && embedOther
+        ? [{ frameId: 0, result: { origin: PUBLIC_ORIGIN } }, { frameId: 5, result: { origin: OTHER_ORIGIN } }]
+        : original(input as never)));
+    const pending = data(await t.ask());
+    expect(pending.origins).toEqual([PROTECTED_ORIGIN]);
+    // After approval was asked for, a password is entered on another site framed in this tab.
+    await t.h.markSecretTaint(77, OTHER_ORIGIN);
+    embedOther = true;
+    await t.approve(pending.requestId!);
+    expect(t.store.getRequest(pending.requestId!)!.secretRecoveryProgress).toMatchObject({
+      state: 'stale_review', reasonCode: 'protected_state_changed',
+    });
+    expect(t.h.secretTaintedOrigins.has(PROTECTED_ORIGIN)).toBe(true);
+  });
+
   it('says protection was lifted when the tab still holds another protected site', async () => {
     const t = await setup();
     const pending = data(await t.ask());
@@ -417,6 +486,21 @@ describe('browser.recover_secret_observation (main process with the shipped exte
     await new Promise((resolve) => setImmediate(resolve));
     const finished = await t.recovery.completion(pending.requestId!);
     expect(finished?.secretRecoveryProgress).toMatchObject({ state: 'stale_review', reasonCode: 'target_tab_gone' });
+  });
+
+  it('recovers the deep-read lock left after an automatic release and a restart, end to end', async () => {
+    const t = await setup({ stored: { version: 2, origins: [], tabs: {} } });
+    t.h.storage['browserGatewaySecretAutoReleasedOrigins'] = [PROTECTED_ORIGIN];
+    t.h.tabs.set(42, { id: 42, windowId: 7, url: PROTECTED_ORIGIN + '/documents', title: 'Documents' });
+    t.h.chrome.scripting.executeScript.mockResolvedValue([{ frameId: 0, result: { origin: PROTECTED_ORIGIN } }]);
+    const download = { id: 'dl', command: 'download_file', target: { tabId: 42 } };
+    await expect(t.h.assertSecretObservationAllowed(download)).rejects.toThrow('browser.recover_secret_observation');
+    const pending = data(await t.ask());
+    expect(pending).toMatchObject({ state: 'approval_pending', origins: [PROTECTED_ORIGIN], affectedTabCount: 0 });
+    await t.approve(pending.requestId!);
+    expect(data(await t.ask({ requestId: pending.requestId }))).toMatchObject({ state: 'recovered' });
+    await expect(t.h.assertSecretObservationAllowed({ id: 'dl', command: 'download_file', target: { tabId: 42 } }))
+      .resolves.toBeUndefined();
   });
 
   it('reports an older extension without sending it anything', async () => {

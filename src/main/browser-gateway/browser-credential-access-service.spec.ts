@@ -429,19 +429,32 @@ describe('agent-folder pre-approval setting', () => {
     expect(h.store.getRequest(result.data!.requestId)!.credentialAccess!.permissionExpiresAt! - Date.now()).toBeGreaterThan(yearMs - 60_000);
   });
 
-  it('sends the fresh request to James, not the setting, after he denied a failed pre-approval', async () => {
+  it('lets the setting answer again after a denial that only followed a failed approval (brief 18 Nov, item 3)', async () => {
     const h = harness(); h.setPreApprove(true);
     h.inspect.mockResolvedValue(inFolder(['https://login.example.test']));
     h.enrol.mockRejectedValueOnce(new CredentialVaultError('Locked', 'vault_locked'));
     const failed = (await h.service.request(h.input, h.context())).data!;
+    expect(failed.credentialAccess?.operationError).toBe('vault_locked');
     await h.service.deny(failed);
     const retry = await h.service.request(h.input, h.context());
-    expect(retry).toMatchObject({ decision: 'requires_user', data: { status: 'pending' } });
+    expect(retry).toMatchObject({ decision: 'allowed', reason: 'preapproved_by_setting', data: { status: 'approved' } });
     expect(retry.data!.requestId).not.toBe(failed.requestId);
-    // Asking again while that request waits for James must not let the setting answer it.
-    expect(await h.service.request(h.input, h.context())).toMatchObject({ decision: 'requires_user', data: { requestId: retry.data!.requestId, status: 'pending' } });
-    expect(h.grants).toHaveLength(0);
-    expect(h.enrol).toHaveBeenCalledOnce();
+    expect(retry.data!.credentialAccess?.afterDenial).toBeUndefined();
+  });
+
+  it('does not treat the agent cancelling its own request as a denial', async () => {
+    const h = harness();
+    h.inspect.mockResolvedValue(inFolder(['https://login.example.test']));
+    const p = (await h.service.request(h.input, h.context())).data!;
+    expect((await h.service.cancel(p.requestId, h.context())).data).toMatchObject({ status: 'denied', credentialAccess: { operationError: 'cancelled_by_agent' } });
+    // Without the setting: a fresh request at once, not the dead one.
+    const fresh = await h.service.request(h.input, h.context());
+    expect(fresh).toMatchObject({ decision: 'requires_user', data: { status: 'pending' } });
+    expect(fresh.data!.requestId).not.toBe(p.requestId);
+    await h.service.cancel(fresh.data!.requestId, h.context());
+    // With it: the setting still answers.
+    h.setPreApprove(true);
+    expect(await h.service.request(h.input, h.context())).toMatchObject({ decision: 'allowed', reason: 'preapproved_by_setting' });
   });
 
   it('never lets the setting answer this login and site again in the task after James denied it', async () => {

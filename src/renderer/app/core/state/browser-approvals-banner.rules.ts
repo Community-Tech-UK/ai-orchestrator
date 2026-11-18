@@ -84,6 +84,7 @@ const CREDENTIAL_ACCESS_ERROR_TEXT: Readonly<Record<string, string>> = {
   target_closed: 'The sign-in tab has closed. The requesting session needs to open a fresh sign-in tab and request saved-login access again.',
   target_held_by_another_session: 'Another session is using this browser tab. Close that session or let the requesting session open its own tab, then approve again.',
   computer_offline: 'The browser computer for this tab is offline. Approve again once it has reconnected.',
+  cancelled_by_agent: 'The requesting session cancelled this request.',
   target_secret_protected: 'This tab is locked because a password was typed into it. The requesting session needs to open the sign-in page again, then approve again.',
   bw_command_failed: 'The password vault command failed. Check the vault is reachable, then approve again.',
   credential_access_failed: 'Something went wrong while preparing the saved login.',

@@ -6415,7 +6415,7 @@
     },
     {
       "path": "resources/browser-extension/background.js",
-      "lines": 8404
+      "lines": 8452
     },
     {
       "path": "docs/plans/livetest-remediation-register-archive-2026.md",
@@ -6423,7 +6423,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
-      "lines": 6578
+      "lines": 6583
     },
     {
       "path": "docs/superpowers/plans/2026-04-21-mcp-multi-provider-management_completed.md",
@@ -6543,7 +6543,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2625
+      "lines": 2630
     },
     {
       "path": "src/main/instance/instance-communication.ts",
@@ -7322,6 +7322,10 @@
       "lines": 1005
     },
     {
+      "path": "src/main/browser-gateway/browser-gateway-reload-no-effect.spec.ts",
+      "lines": 1003
+    },
+    {
       "path": "src/renderer/app/features/file-explorer/file-explorer.component.ts",
       "lines": 1001
     },
@@ -7380,10 +7384,6 @@
     {
       "path": "src/worker-agent/worker-extension-relay.spec.ts",
       "lines": 985
-    },
-    {
-      "path": "src/main/browser-gateway/browser-gateway-reload-no-effect.spec.ts",
-      "lines": 984
     },
     {
       "path": "src/main/rlm/context-residency-controller.spec.ts",

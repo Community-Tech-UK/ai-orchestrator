@@ -1608,6 +1608,11 @@ export class BrowserGatewayService {
       } else {
         await this.driver.click(request.profileId, request.targetId, request.selector!);
       }
+      // A locked page cannot be read back either: the click was sent, say so.
+      if (effectBefore === 'page_protected') {
+        this.actionGuard.recordMutationSucceeded(prepared);
+        return this.mutationEffectVerifier.sentOnProtectedPage(request, prepared, existingTab?.url);
+      }
       await this.verifyMutationReadback(request, request.verify, request.selector, existingTab ?? undefined);
       const noEffect = await this.mutationEffectVerifier.failureIfMissing(
         request, existingTab ?? undefined, effectExpectation, effectBefore,

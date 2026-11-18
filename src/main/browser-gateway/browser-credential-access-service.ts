@@ -134,6 +134,11 @@ export class BrowserCredentialAccessService {
   async cancel(requestId: string, context: BrowserGatewayContext): Promise<BrowserGatewayResult<BrowserApprovalRequest | null>> {
     const request = this.owned(requestId, context);
     if (!request) return this.report(null, context, 'denied', 'request_not_owned');
+    // The agent withdrawing its own request is not James saying no: recorded so a
+    // later request is fresh and the agent-folder setting can still answer it.
+    if (request.status === 'pending' && request.credentialAccess) {
+      this.deps.store.updateCredentialAccess(request.requestId, { ...request.credentialAccess, operationError: 'cancelled_by_agent' });
+    }
     return this.deny(request);
   }
 
