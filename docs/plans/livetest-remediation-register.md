@@ -402,6 +402,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1156 | P2 | **SOURCE FIX VERIFIED 2026-11-11; rebuilt-app check pending.** The one-time "turn cost display on" settings change that Phase A recorded as implemented (Decision 15(a)) was not in the code. James's saved settings hold `showCost: false`, so session cost stayed hidden after the upgrade. Reproduced in a throwaway dev app, then fixed by restoring the migration (`migrateCostDisplayDecision`) with a test. |
 | LT-1145 | P2 | **PATCHED IN SOURCE + LIVE RECHECKED 2026-11-11 (queue worktree dev app); independent review pending.** A session context menu opened from the keyboard (Menu key or Shift+F10) stayed open but could not be reached: focus stayed on the row, arrow keys did nothing and 70 Tab presses never entered the menu. The instance list now moves focus into the menu for keyboard-opened menus and returns it to the row on close. [Detail](#lt-1145) | [Oct2 later live checks, 11 Nov 2026 run](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11) | same |
 | LT-1146 | P2 | **PATCHED IN SOURCE + LIVE RECHECKED 2026-11-11; independent review pending.** A thread wake-up that came due while its session was mid-turn read "Next run unverified" instead of "Due now, waiting for the session to be idle", because the held run is recorded as `skipped` (not `pending`) and the countdown only looked for a pending run. The countdown now recognises the held run. [Detail](#lt-1146) | [Oct2 later live checks, 11 Nov 2026 run](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11) | same |
 | LT-1031 | P3 | **OPEN — product choice, 2026-11-11.** A session waiting on a provider sign-in reads "Problem — signed out of Codex" in the list and a sign-in banner in the conversation; the specific words "Waiting for you to sign in" required by Oct-2 later item 4 are in no source file on main (they existed only on the 2 Nov queue checkpoint). [Detail](#lt-1031) | [Oct2 later live checks, 11 Nov 2026 run](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11) | same |
@@ -16011,6 +16012,35 @@ Seen repeatedly while running checks 3, 4 and 8 in [the deferred checks live che
 ### Required behaviour and acceptance
 
 Tell the checker to report a missing automated test only when the plan or the repository's conventions require one and a test runner exists, and otherwise to judge the plan's own acceptance criteria. Acceptance: on a one-file scratch repository with no test runner, three of three plan runs have no finding about missing tests in round 1.
+
+<a id="lt-1156"></a>
+
+## LT-1156
+
+### LT-1156 — the one-time cost-display settings change was missing from the code
+
+**Status: source fix verified 11 November 2026; rebuilt-app check pending.**
+
+### Observed behaviour
+
+Phase A livetest check 2.4 (session cost shown following Decision 15(a)). The Phase A history records "one-shot showCost
+migration enables stored display once", but `src/main/core/config/settings-migrations.ts` held no such migration
+(a checkpoint commit that had it was never landed). James's real `settings.json` stores `"showCost": false`. In a
+throwaway dev app (profile `/tmp/aio-lt-queue-506c8006`) with `showCost: false` saved, restarting kept it `false` and wrote
+no `__migration_show_cost_enabled_20261020` marker.
+
+### Root cause
+
+The migration was lost between the paused queue run's checkpoint and the landed tree; the default (`true`) only
+applies where nothing is saved.
+
+### Required behaviour and acceptance
+
+On first start after the upgrade a saved `showCost: false` becomes `true` once and the marker is recorded; a later
+explicit opt-out stays off; nothing is written when no value was saved. Verified 11 November 2026: new spec
+`__tests__/settings-migrations.show-cost.spec.ts` (3 cases) passes, and in the dev app the stored `false` became
+`true` with the marker, then an explicit opt-out survived a restart. Remaining: on the rebuilt installed app,
+James's saved `false` flips to `true` on first start (his choice can be set off again afterwards).
 
 <a id="lt-1168"></a>
 
