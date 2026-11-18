@@ -9,7 +9,6 @@ export const HOVER_ONLY_REASONS: Record<string, string> = {
   [prefix + 'instance-detail/context-attribution-panel.component.ts#div.segment']: 'the visible legend below lists the same source labels and token counts',
   [prefix + 'instance-list/instance-list.component.ts#span.project-draft-pill']: 'visible text reads Draft; the hint only adds when the draft was last saved',
   [prefix + 'instance-list/instance-list.component.ts#span.history-entry-time']: 'visible text is the time; the hint says whether it is the created or last-interacted time, chosen by the sort setting in the filter menu',
-  ['src/renderer/app/app.component.ts#span.title-activity-chip']: 'visible text reads Sending N, and the resume toast shows Sending N queued messages at the same time',
   [prefix + 'instance-list/instance-row.component.ts#span.approval-chip']: 'visible text already reads Awaiting approval',
   [prefix + 'instance-list/instance-row.component.ts#span.remote-badge']: 'visible text carries offline when disconnected',
   [prefix + 'instance-list/instance-row.component.ts#div.diff-stats']: 'visible text is the +N/-N counts themselves',

@@ -450,6 +450,10 @@ sections below. The historical reproduction remains unchanged.
 | LT-1142 | P2 | **OPEN — reproduced live 2026-11-12.** The worker saves its connection config, which holds the node and recovery tokens, with default file permissions, so it is readable by every user account on the computer (mode 644 in a 755 folder). `persistConfig` in `src/worker-agent/worker-config.ts` writes it with no mode. Found while running the agent-issued pairing checks; not caused by that feature. | [LT-1142 detail](#lt-1142) | [Agent-issued pairing installed-app evidence](2026-11-07-agent-issued-remote-node-pairing_plan_livetest.md#evidence-run--2026-11-12) |
 | LT-1143 | P1 | **OPEN — reproduced live 2026-11-12; cause not isolated.** A dev app on the main Mac accepts connections to its worker port (4979) and then drops them for every non-loopback address (LAN, Tailscale name and IPs), so a worker on another address cannot connect, while a plain Node server on the same LAN address answers. The worker's `aio-worker pair` address probe is a bare TCP connect, so it reports those addresses as "answered" and never tries a fallback. Found while running the agent-issued pairing checks, which then needed a loopback edit of the worker config. **Update 2026-11-14: not reproduced from this Mac to a dev app on the test Mac (LAN and Tailscale both answer, pairing works without edits), so it is specific to the main Mac's Electron; the probe weakness stands.** | [LT-1143 detail](#lt-1143) | [Agent-issued pairing installed-app evidence](2026-11-07-agent-issued-remote-node-pairing_plan_livetest.md#evidence-run--2026-11-12) |
 | LT-1144 | P3 | **REPRODUCED LIVE 2026-11-14 in a dev copy; source in this worktree already accepts both keys, so the cause of the copy's rejection is unconfirmed (suspected stale compiled contracts).** The dev app's renderer-event validation log warned about two keys it did not recognise: `waitingSessionCount` on `cli-update-pill:delta` and `origin` on `cost:usage-recorded`. | [LT-1144 detail](#lt-1144) | [Agent-issued pairing evidence](2026-11-07-agent-issued-remote-node-pairing_plan_livetest.md#evidence-run--2026-11-14) |
+| LT-1168 | P2 | **FIXED + VERIFIED LIVE 2026-11-16** (source fix 2026-11-11). Reproduced live 2026-11-10. In Settings, Escape on a focused icon closes its hint and also leaves the Settings page, so one key press does two things. Hint directive's Escape handler does not stop the key reaching Settings' own Escape handler. | [LT-1168 detail](#lt-1018) | [Phase 4b live checks](2026-10-10-oct-phase4b-tooltips-migration_livetest.md#evidence-run--2026-11-10-dev-app-on-this-mac-with-forced-state) |
+| LT-1169 | P2 | **FIXED + VERIFIED LIVE 2026-11-16** (source fix 2026-11-11). Reproduced live 2026-11-10. A waiting session's header shows only the label (for example "Backing off — retry in 203s"). The detail (attempt number, retry time) is still hover-only, although the migration plan and its as-built note say it is visible text. The header spec pins the hover-only behaviour. | [LT-1169 detail](#lt-1019) | [Phase 4b live checks](2026-10-10-oct-phase4b-tooltips-migration_livetest.md#evidence-run--2026-11-10-dev-app-on-this-mac-with-forced-state) |
+| LT-1170 | P3 | **FIXED + VERIFIED LIVE 2026-11-16** (source fix 2026-11-11). Reproduced live 2026-11-10. The title bar's "Sending N" chip shows its hint on hover but cannot be reached with Tab (a plain span with no tab stop), so a keyboard user never gets the hint. | [LT-1170 detail](#lt-1020) | [Phase 4b live checks](2026-10-10-oct-phase4b-tooltips-migration_livetest.md#evidence-run--2026-11-10-dev-app-on-this-mac-with-forced-state) |
+| LT-1171 | P3 | **FIXED + VERIFIED LIVE 2026-11-16** (source fix 2026-11-11). Reproduced live 2026-11-10. The clock chip on an automation history row shows its hint on hover but cannot be reached with Tab (a role=img span with no tab stop), although the plan's round-2 fix says it was made keyboard reachable. | [LT-1171 detail](#lt-1021) | [Phase 4b live checks](2026-10-10-oct-phase4b-tooltips-migration_livetest.md#evidence-run--2026-11-10-dev-app-on-this-mac-with-forced-state) |
 | LT-708 | P1 | **OPEN — reproduced live 2026-10-27.** A non-YOLO Claude session consuming a warm adapter has no defer hook. The genuine CLI error `This command requires approval` is not recognised as a permission denial, so the session becomes idle without an approval card. A fresh adapter shows the deferred-permission card for the same harmless command. | [LT-708 detail](#lt-708) | [Agent runtime residuals AR-006](2026-09-27-livetest-agent-runtime-residuals_livetest.md#evidence-run--2026-10-27-plan-queue-worker) |
 | LT-1099 | P2 | **FIXED + LIVE RECHECKED 2026-11-12.** On the legacy `permission_denial` path (a Claude session without the permission hook), an explicit Harness deny rule was never matched: the request was judged by the card's shortened label (`bash:command (13 chars)`, or `<folder>/from <path>` for a read), so the card still offered "Always allow (adds a rule to ~/.claude/settings.json and restarts)". The flow now judges the real command (as `bash_execute`, like the hooked path) or the exact path, and a denied request no longer stays pending. | [LT-1099 detail](#lt-1099) | [Agent runtime permission remediation, 2026-11-12 run](2026-10-27-agent-runtime-permission-remediation_livetest.md#evidence-run--2026-11-12-queue-worker) |
 | LT-710 | P2 | **REPRODUCED 2026-10-27; not fixed in this checkout.** Main and context-worker startup can collide on fresh-profile migration discovery. Reusing the migrated isolated profile reaches the renderer. This reuses the existing saved-login/housekeeping defect identifier; the housekeeping worker owns its fix. | [LT-710 detail](#lt-710) | [Worker auto-update live checks](2026-10-14-worker-auto-update_livetest.md#evidence-run--2026-10-27-plan-queue-worker); [active remediation follow-up](2026-07-19-livetest-failure-remediation-followup_plan.md#lt-710) |
@@ -16007,6 +16011,139 @@ Seen repeatedly while running checks 3, 4 and 8 in [the deferred checks live che
 ### Required behaviour and acceptance
 
 Tell the checker to report a missing automated test only when the plan or the repository's conventions require one and a test runner exists, and otherwise to judge the plan's own acceptance criteria. Acceptance: on a one-file scratch repository with no test runner, three of three plan runs have no finding about missing tests in round 1.
+
+<a id="lt-1168"></a>
+
+## LT-1168
+
+### LT-1168 — Escape on a focused Settings icon also leaves Settings
+
+### Observed behaviour
+
+Dev app on this Mac, 10 November 2026, Settings menu squeezed to icons. Tab to the "General" icon: its hint opens.
+Press Escape: the hint closes and the browser URL goes from `/settings` to `/`, so the whole Settings page closes
+too. Reproduced with a real key press over the debugging connection (`esc-probe.mjs` in the run's scratch folder):
+focused General, tooltip `["General"]`, URL `/settings`; after Escape, tooltip `[]`, URL `/`.
+
+### Root cause
+
+`aio-tooltip.directive.ts` binds `(keydown.escape)': 'hide()'` with no `stopPropagation`. The key then bubbles to
+`SettingsComponent.onKeydown` (`settings.component.ts`), whose own comment says Escape closes "the deepest open
+overlay first ... never more than one thing at a time", and which calls `goBack()` when no drawer is open. It does not
+know a hint is open.
+
+### Required behaviour and acceptance
+
+Escape pressed while a hint is open closes only the hint; a second Escape then leaves Settings. Acceptance: with a
+Settings icon focused and its hint open, one Escape leaves the URL on `/settings`; a second Escape returns to `/`. Add a
+directive spec that the key event is stopped only when a hint was actually open (Escape with no hint must still reach
+other handlers).
+
+### Fix (11 November 2026)
+
+Fix: `AioTooltipDirective.onEscape` stops the key only while a hint is open (spec: Escape reaches other handlers only when no hint is open). `plan-handoff-dialog.component.spec.ts` now expects the first Escape to close the open hint and the second to close the picker.
+
+
+### Live recheck
+
+Verified live 16 November 2026 (rebuilt dev app, real key events): with a collapsed Settings icon focused and its hint open, one Escape closed only the hint and the URL stayed `/settings`; a second Escape returned to `/`. Checked on General, Display & input, Agents and Second opinion.
+
+<a id="lt-1169"></a>
+
+## LT-1169
+
+### LT-1169 — a waiting session's reason detail is hover-only in the header
+
+### Observed behaviour
+
+Dev app, 10 November 2026, seeded session with `waitReason: {kind:'backoff', attempt:2, retryAt: now+300 s}`. The header
+reads "Charlie waiting rename Backing off — retry in 203s" and nothing else. "Attempt 2, retry at …" appears only in the
+hint on the label. The migration plan says "the wait reason is now visible text ('Backing off — retry in 5s — Attempt
+2, retry at …')" and the live check 1f.2 requires the detail to be visible without hovering.
+
+### Root cause
+
+`instance-header.component.html` renders `<span class="wait-reason-label" tabindex="0"
+[appTooltip]="waitReasonDetail()">{{ waitReasonLabel() }}</span>`; no element prints `waitReasonDetail()`. The
+as-built claim was not what landed in `6824ebec1`: `instance-header.component.spec.ts` ("explains the waiting state on a
+focusable hover…") asserts `textContent` does **not** contain "Attempt 2".
+
+### Required behaviour and acceptance
+
+Print the detail beside the label whenever the session is waiting, keeping the hint only for anything longer. Acceptance:
+the header text of a backoff-waiting session contains the attempt and retry time without hovering; update the spec so it
+asserts the visible text rather than its absence.
+
+### Fix (11 November 2026)
+
+Fix: the header prints the detail beside the label (`.wait-reason-detail`); the specs assert the visible text. The old hover wording "allowance resets at" was retired in the wording ledger (a quota wait has no header label; its banner carries the time).
+
+
+### Live recheck
+
+Verified live 16 November 2026 (rebuilt dev app): a session backing off showed "Backing off — retry in 300s — Attempt 2, retry at 01:48:16" in the header with no hover. The live check also showed the first fix printed "300s— Attempt" with no space before the dash (Angular dropped the whitespace-only text between the label and the detail span); fixed the same day with `&ngsp;` and the header spec now pins "Waiting for interrupt… — Attempt 2".
+
+<a id="lt-1170"></a>
+
+## LT-1170
+
+### LT-1170 — the "Sending N" title-bar chip is not keyboard reachable
+
+### Observed behaviour
+
+Dev app, 10 November 2026, resume toast seeded in the app shell. Hover shows "Queued paused traffic is resuming" after
+about 225 ms. The chip's `tabIndex` is -1 and a real Tab walk through the title bar never lands on it. Live check 1c.2
+requires it to be reachable by Tab.
+
+### Root cause
+
+`app.component.html` renders it as `<span class="title-activity-chip" [appTooltip]="copy('shell.resumeTraffic')">`
+with no `tabindex="0"`; the directive does not add a tab stop to non-interactive hosts.
+
+### Required behaviour and acceptance
+
+Give the chip `tabindex="0"` (it only lives a few seconds, so it also needs the hint to stay up while focused).
+Acceptance: Tab reaches the chip while it is shown and the hint opens on focus.
+
+### Fix (11 November 2026)
+
+Fix: the chip has `tabindex="0"`; its hover-only exemption was removed from `scripts/ui-hints/hover-only-reasons.ts`; `app.component.spec.ts` asserts the tab stop.
+
+
+### Live recheck
+
+Verified live 16 November 2026 (rebuilt dev app, real Tab): from the Notifications button one Tab lands on the "Sending 3" chip, its hint "Queued paused traffic is resuming" opens on focus and Escape closes it; hover shows the same hint after about 226 ms.
+
+<a id="lt-1171"></a>
+
+## LT-1171
+
+### LT-1171 — the automation clock chip on a history row is not keyboard reachable
+
+### Observed behaviour
+
+Dev app, 10 November 2026, seeded history entry with `isAutomation: true`. Hover over the 12 px clock opens "Started by
+a scheduled automation". `tabIndex` is -1 and Tab skips it (Tab order on the row: title, Archive, Pin, next row). The
+plan's round-2 fix and live check 1e.5 say the chip is keyboard reachable.
+
+### Root cause
+
+`instance-list.component.html` renders `<span class="history-entry-automation-clock" role="img" appTooltip="Started by a
+scheduled automation" aria-label="Automation session">` with no `tabindex`.
+
+### Required behaviour and acceptance
+
+Add `tabindex="0"` (the neighbouring change-summary chip already has it). Acceptance: Tab on an automation history row
+lands on the clock and shows the hint.
+
+### Fix (11 November 2026)
+
+Fix: the clock chip has `tabindex="0"`; `instance-list-tooltips.component.spec.ts` asserts it.
+
+
+### Live recheck
+
+Verified live 16 November 2026 (rebuilt dev app, real Tab): from an automation history row's title one more Tab lands on the clock chip, "Started by a scheduled automation" opens on focus and Escape closes it; hover shows it after about 225 ms.
 
 <a id="lt-1160"></a>
 

@@ -37,7 +37,7 @@
               <span class="remote-connecting">Connecting to {{ remoteNodeName() }}...</span>
             }
             @if (waitReasonLabel()) {
-              <span class="wait-reason-label" tabindex="0" [appTooltip]="waitReasonDetail()">{{ waitReasonLabel() }}</span>
+              <span class="wait-reason-label" tabindex="0">{{ waitReasonLabel() }}@if (waitReasonDetail()) { <span class="wait-reason-detail">&ngsp;— {{ waitReasonDetail() }}</span> }</span>
             }
           </div>
         </div>

@@ -2531,7 +2531,7 @@
     "owner": "src/renderer/app/features/instance-detail/instance-header.component.ts",
     "text": " allowance resets at ",
     "why": "consequence",
-    "retired": "The waiting-line wording moved unchanged to instance-header-presentation.ts (waitReasonDetail); the header still shows it"
+    "retired": "The waiting-line wording moved unchanged to instance-header-presentation.ts (waitReasonDetail); the header now shows it as visible text beside the label, and a quota-limit wait has no header label (its banner above the message box carries the reset time), so this hover sentence never showed there."
   },
   {
     "id": "0b53ab7caa3154e8",

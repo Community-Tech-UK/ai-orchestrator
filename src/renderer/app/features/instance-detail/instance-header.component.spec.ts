@@ -145,6 +145,17 @@ describe('InstanceHeaderComponent', () => {
     expect(fixture.nativeElement.querySelector('.chip').classList.contains('pending')).toBe(true);
   });
 
+  it('shows the waiting reason and its detail as visible text, focusable and without a hover hint', () => {
+    render({ ...instance('codex'), waitReason: { kind: 'interrupt-ack', attempt: 2, startedAt: 0 } });
+    const wait = fixture.debugElement.query(By.css('.wait-reason-label'));
+    expect(wait.nativeElement.tabIndex).toBe(0);
+    expect(wait.nativeElement.textContent).toContain('Waiting for interrupt…');
+    expect(wait.nativeElement.textContent).toContain('Waiting for interrupt… — Attempt 2');
+    expect(wait.nativeElement.getAttribute('aria-describedby')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.header-action-detail')).toBeNull();
+    expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
+  });
+
   it('shows the Computer Use chip only when computerUseEnabled is on and the session differs from global', () => {
     const session = { ...instance('claude'), status: 'idle' } as Instance;
     settings = { computerUseEnabled: false, computerUseAutonomyLevel: 'trusted' };
@@ -206,37 +217,21 @@ describe('InstanceHeaderComponent', () => {
     expect(TestBed.inject(HelpDrawerService).target()).toEqual({ topic: 'session' });
   });
 
-  it('explains the waiting state on a focusable hover', () => {
-    render({ ...instance('codex'), waitReason: { kind: 'interrupt-ack', attempt: 2, startedAt: 0 } });
-    const wait = fixture.debugElement.query(By.css('.wait-reason-label'));
-    expect(wait.nativeElement.tabIndex).toBe(0);
-    expect(wait.nativeElement.textContent).not.toContain('Attempt 2');
-    expect(wait.injector.get(AioTooltipDirective).appTooltip()).toBe('Attempt 2');
-    expect(fixture.nativeElement.querySelector('.header-action-detail')).toBeNull();
-    expect(fixture.nativeElement.querySelectorAll('[title]')).toHaveLength(0);
-  });
-
-  it('updates formatted waiting details while their hint is open and removes it when waiting ends', () => {
+  it('shows formatted waiting details as visible text, updates them, and removes them when waiting ends', () => {
     const retryAt = Date.UTC(2026, 10, 3, 10, 15, 30);
     render({ ...instance('codex'), waitReason: { kind: 'backoff', attempt: 2, retryAt } });
-    const waiting = fixture.debugElement.query(By.css('.wait-reason-label'));
-    const tooltip = waiting.injector.get(AioTooltipDirective);
-    expect(waiting.nativeElement.tabIndex).toBe(0);
-    tooltip.show();
-    fixture.detectChanges();
-    const linkedHint = (): HTMLElement | null => document.getElementById(
-      waiting.nativeElement.getAttribute('aria-describedby'),
-    );
-    expect(linkedHint()?.textContent).toBe(`Attempt 2, retry at ${new Date(retryAt).toLocaleTimeString()}`);
+    const waiting = (): HTMLElement => fixture.nativeElement.querySelector('.wait-reason-label') as HTMLElement;
+    expect(waiting().tabIndex).toBe(0);
+    expect(waiting().textContent).toContain(`Attempt 2, retry at ${new Date(retryAt).toLocaleTimeString()}`);
 
     render({
       ...instance('codex'),
       waitReason: { kind: 'resume-proof', provider: 'codex', sessionId: 'session-12345', startedAt: retryAt },
     });
-    expect(linkedHint()?.textContent).toBe('Session: session-…');
+    expect(waiting().textContent).toContain('Session: session-…');
 
     render({ ...instance('codex'), waitReason: { kind: 'remote-heartbeat', nodeId: 'worker', staleForMs: 2_600 } });
-    expect(linkedHint()?.textContent).toBe('No reply for 3s');
+    expect(waiting().textContent).toContain('No reply for 3s');
 
     render(instance('codex'));
     expect(fixture.nativeElement.querySelector('.wait-reason-label')).toBeNull();

@@ -326,6 +326,7 @@ describe('AppComponent startup banner', () => {
     const chip = fixture.debugElement.query(By.css('.title-activity-chip'));
     expect(chip.nativeElement.textContent.trim()).toBe('Sending 3');
     expect(chip.nativeElement.hasAttribute('title')).toBe(false);
+    expect(chip.nativeElement.tabIndex).toBe(0);
     expect(chip.injector.get(AioTooltipDirective).appTooltip()).toBe('Queued paused traffic is resuming');
     expect(fixture.nativeElement.querySelectorAll('.title-activity-chip')).toHaveLength(1);
     expect(fixture.nativeElement.querySelector('.resume-toast')).toBeNull();

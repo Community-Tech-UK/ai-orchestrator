@@ -90,7 +90,7 @@ const liveTooltips = new Set<AioTooltipDirective>();
     '(focus)': 'onFocus()',
     '(blur)': 'hide()',
     '(click)': 'onClick()',
-    '(keydown.escape)': 'hide()',
+    '(keydown.escape)': 'onEscape($event)',
     '(touchstart)': 'onTouchStart()',
     '(touchend)': 'onTouchEnd()',
     '(touchcancel)': 'onTouchEnd()',
@@ -269,6 +269,12 @@ export class AioTooltipDirective implements OnDestroy {
     const action = this.appTooltipShortcut();
     ref.setInput('shortcut', action ? this.injector.get(KeybindingService).formatBindingByAction(action) : '');
     this.applyDescribedBy(template ? 'template' : this.effectiveText());
+  }
+
+  /** Escape closes an open hint and nothing else; with no hint open the key goes on to whoever else handles it. */
+  protected onEscape(event: Event): void {
+    if (this.overlayRef?.hasAttached()) event.stopPropagation();
+    this.hide();
   }
 
   hide(): void {

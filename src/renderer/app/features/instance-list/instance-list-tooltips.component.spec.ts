@@ -123,6 +123,7 @@ describe('Session list tooltip DOM', () => {
     expect(host.querySelector('.history-entry-automation-clock')?.textContent?.trim()).toBe('');
     expect(hintOf('.history-entry-automation-clock')).toBe('Started by a scheduled automation');
     expect(host.querySelector('.history-entry-automation-clock')?.getAttribute('role')).toBe('img');
+    expect((host.querySelector('.history-entry-automation-clock') as HTMLElement).tabIndex).toBe(0);
     expect(hintOf('.history-entry-action')).toBe('Hides this session from the project list. The conversation is kept in Archive.');
     host.querySelector<HTMLButtonElement>('.history-entry-action')!.click(); fixture.detectChanges();
     expect(archiveEntry).toHaveBeenCalledExactlyOnceWith('history-1');

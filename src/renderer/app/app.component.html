@@ -30,7 +30,7 @@
     <app-computer-use-permission-chip />
     <app-notification-center />
     @if (resumeToast(); as toast) {
-      <span class="title-activity-chip" [appTooltip]="copy('shell.resumeTraffic')">
+      <span class="title-activity-chip" tabindex="0" [appTooltip]="copy('shell.resumeTraffic')">
         Sending {{ toast.queuedTotal }}
       </span>
     }

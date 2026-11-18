@@ -178,6 +178,11 @@ describe('PlanHandoffDialogComponent', () => {
     expect(document.activeElement).toBe(first);
     expect(key(first, 'Tab', true).defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(last);
+    // Focusing the row opened its hint: the first Escape closes only that hint, the next one closes the picker.
+    expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(1);
+    key(last, 'Escape');
+    expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(0);
+    expect(document.querySelector('.model-picker-panel')).not.toBeNull();
     expect(key(last, 'Escape').defaultPrevented).toBe(true);
     fixture.detectChanges();
     await fixture.whenStable();

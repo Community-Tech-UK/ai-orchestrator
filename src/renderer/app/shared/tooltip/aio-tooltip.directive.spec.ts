@@ -158,6 +158,24 @@ describe('AioTooltipDirective', () => {
     expect(tooltipEl()).toBeNull();
   });
 
+  it('keeps Escape from reaching other handlers only while a hint is open', () => {
+    const button = trigger(fixture);
+    const outer = vi.fn();
+    document.addEventListener('keydown', outer);
+    try {
+      button.dispatchEvent(new MouseEvent('mouseenter'));
+      vi.advanceTimersByTime(TOOLTIP_DELAY_MS);
+      fixture.detectChanges();
+      button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(outer).not.toHaveBeenCalled();
+      expect(tooltipEl()).toBeNull();
+      button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(outer).toHaveBeenCalledTimes(1);
+    } finally {
+      document.removeEventListener('keydown', outer);
+    }
+  });
+
   it('closes on click and does not immediately reopen on hover', () => {
     const button = trigger(fixture);
     button.dispatchEvent(new MouseEvent('mouseenter'));
