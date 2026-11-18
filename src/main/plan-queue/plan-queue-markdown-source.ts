@@ -94,6 +94,7 @@ export const markdownWorkSource: QueueWorkSource = {
   itemHold: () => null,
   // A document is read when a prompt is built, so there is nothing to check before a session.
   assertReadyForSession: async () => undefined,
+  beginResume: async () => () => undefined,
 
   reviewFingerprint: item => readDocumentReview(item.sourceRef),
   contentHash: item => documentContentSha256(item.sourceRef),

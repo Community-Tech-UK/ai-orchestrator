@@ -136,6 +136,13 @@ export interface QueueWorkSource {
    * failed. Markdown reads its document when a prompt is built, so it has nothing to check.
    */
   assertReadyForSession(item: WorkItemId, run: PlanQueueRun): Promise<void>;
+  /**
+   * Called when a set-aside job is resumed, before it is moved back to the queue. A source that deletes the work's text after a
+   * time (a ticket's, `plan-queue-ticket-retention.ts`) reads the work again here when the text is gone and asks James, and it
+   * names the job so nothing deletes its text before the Resume ends. Throws, and changes nothing, when the work cannot be
+   * read now. The caller calls the returned function once the Resume is over, whether or not it worked.
+   */
+  beginResume(item: WorkItemId, run: PlanQueueRun): Promise<() => void>;
 
   // --- Rounds: what is reviewed, what counts as progress, what a session is told -------------------------------
   /** What the checker reviewed, as a fingerprint. A PASS cannot stand when it differs when the check ends or the work lands. */

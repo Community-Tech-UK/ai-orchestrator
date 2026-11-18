@@ -1,6 +1,6 @@
 /**
  * The words and the refusal for a Linear ticket that may not be sent to a session: its text changed since James approved
- * it, it is gone, or Linear could not be read. Everything here is fixed words plus the ticket's short address (checked
+ * it, its approved text was cleared, it is gone, or Linear could not be read. Everything here is fixed words plus the ticket's short address (checked
  * for its shape when the run was made). No ticket text is ever put in a sentence, a question or an error: the text a
  * change would bring waits in the ticket table, and only the Plan Queue page reads it.
  */
@@ -11,6 +11,7 @@ const ASK_TAIL = ' Answer on the Plan Queue page.';
 
 const ASK_PHRASE: Record<OpenTicketAskKind, string> = {
   changed: 'changed in Linear.',
+  cleared: 'had its text cleared (client text is kept for 30 days at most). Read it again to carry on.',
   gone: 'was removed from Linear or moved out of its project.',
   unconfirmed: 'has no text Harness can confirm you approved.',
 };
@@ -43,7 +44,7 @@ const LEAVE_WAITING = { id: 'leave-waiting', label: 'Leave it waiting' };
 export function ticketAskQuestion(identifier: string, kind: OpenTicketAskKind): PlanQueueQuestion {
   return {
     question: ticketAskSentence(identifier, kind),
-    options: kind === 'changed' ? [USE_NOW, KEEP_APPROVED, STOP] : [STOP, LEAVE_WAITING],
+    options: kind === 'changed' ? [USE_NOW, KEEP_APPROVED, STOP] : kind === 'cleared' ? [USE_NOW, STOP] : [STOP, LEAVE_WAITING],
     jamesOnly: true,
   };
 }

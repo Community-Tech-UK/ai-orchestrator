@@ -33,6 +33,7 @@ function sourceOver(rows: Record<string, PlanQueueLinearTicketRecord | undefined
     namesFor: () => ({ identifier: 'ORC-12', approvedTitle: 'Make the sign-in button work' }),
     ticketRound: { record: (itemId) => rows[itemId] },
     ticketGuard: { check: async () => undefined, itemHold: () => null },
+    retention: { holdForResume: () => () => undefined },
   });
 }
 

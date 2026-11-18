@@ -63,3 +63,15 @@ export async function holdTicketLanding(host: HoldHost & Pick<PlanQueueFlowHost,
   host.transition(item, 'awaiting-slot', { verifiedMainCommit: null, landedCommit: null, heldAt: item.heldAt ?? Date.now(), ...ticketHoldPatch(held) });
   if (held.askKind && !alreadyAsked) host.notifyParent(host.getRun(item.runId), held.message);
 }
+
+/**
+ * A Resume, with its source's part: a source that deletes the work's text after a time reads the work again before anything else
+ * changes and names the job until the Resume is over (`QueueWorkSource.beginResume`). Lock held. Nothing runs when the caller no
+ * longer has the authority to resume, and a source that cannot read the work now refuses the Resume before it changes anything.
+ */
+export async function resumeWithSource(host: HoldHost, itemId: string, canResume: () => boolean, resume: () => Promise<void>): Promise<void> {
+  if (!canResume()) return;
+  const item = host.getItem(itemId);
+  const endResume = await workSourceFor(item.sourceKind).beginResume(item, host.getRun(item.runId));
+  try { await resume(); } finally { endResume(); }
+}

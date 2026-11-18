@@ -61,18 +61,21 @@ const ORC12: TestTicket = {
 const ORC13: TestTicket = { linearId: 'lin-13', identifier: 'ORC-13', title: 'Fix the footer link', text: ticketText('The footer link goes nowhere.') };
 
 /** What every session was sent: its first prompt, and each later turn. */
-interface Turn { role: string; itemId: string; message: string; briefExistedAtTheTime: boolean; briefPath: string }
+interface Turn { role: string; itemId: string; message: string; briefExistedAtTheTime: boolean; briefPath: string; briefText: string | null }
 let turns: Turn[];
 let dataDir: string;
 /** Linear as the check before each session sees it: the tickets are as approved, so every check passes. The prompts still never read it. */
 let linear: FakeLinearTickets;
 
-/** Records the turn, with whether the brief file existed when the prompt arrived, then does what the role does. */
+/**
+ * Records the turn, with whether the brief file existed when the prompt arrived and what it said, then does what the role does.
+ * The file is deleted when the job lands, so what it said is read while the turn runs.
+ */
 function recording(role: 'worker' | 'verifier', then: Script): Script {
   return async (instance, message, f) => {
     const itemId = itemIdOf(instance);
     const briefPath = ticketBriefPath(itemId);
-    turns.push({ role, itemId, message, briefExistedAtTheTime: existsSync(briefPath), briefPath });
+    turns.push({ role, itemId, message, briefExistedAtTheTime: existsSync(briefPath), briefPath, briefText: existsSync(briefPath) ? readFileSync(briefPath, 'utf8') : null });
     await then(instance, message, f);
   };
 }
@@ -180,7 +183,9 @@ describe('a ticket job through a whole round', { timeout: 60_000 }, () => {
     const item = store.listItems(RUN_ID)[0];
     expect(first.briefPath).toBe(join(dataDir, 'briefs', `${item.id}.md`));
     expect(first.briefPath.startsWith(repo)).toBe(false);
-    expect(readFileSync(first.briefPath, 'utf8')).toContain(APPROVED_COMMENT);
+    expect(first.briefText).toContain(APPROVED_COMMENT);
+    // The job landed, so its brief file is gone (`plan-queue-ticket-retention.ts`).
+    expect(existsSync(first.briefPath)).toBe(false);
   });
 
   it('starts a fix round after a FAIL, and the fix prompt carries the brief block with the file written again first', async () => {
@@ -247,8 +252,9 @@ describe('a ticket job through a whole round', { timeout: 60_000 }, () => {
     expect(resumed.config.initialPrompt).toContain('Reason for the resume: the app restarted');
     expect(resumed.config.initialPrompt).toContain('<ticket_brief>');
     expect(resumed.config.initialPrompt).toContain(APPROVED_COMMENT);
-    expect(readFileSync(ticketBriefPath(itemId), 'utf8')).not.toContain('stale brief');
-    expect(readFileSync(ticketBriefPath(itemId), 'utf8')).toContain(APPROVED_COMMENT);
+    const resumedTurn = turns.filter((turn) => turn.role === 'worker').at(-1);
+    expect(resumedTurn?.briefText).not.toContain('stale brief');
+    expect(resumedTurn?.briefText).toContain(APPROVED_COMMENT);
     expect(store.listItems(RUN_ID)[0].state).toBe('landed');
   });
 
@@ -257,8 +263,8 @@ describe('a ticket job through a whole round', { timeout: 60_000 }, () => {
     await waitForRun(RUN_ID);
 
     const [a, b] = store.listItems(RUN_ID);
-    expect(readFileSync(ticketBriefPath(a.id), 'utf8')).toContain('The button does nothing.');
-    expect(readFileSync(ticketBriefPath(b.id), 'utf8')).toContain('The footer link goes nowhere.');
+    expect(turns.find((turn) => turn.itemId === a.id && turn.role === 'worker')?.briefText).toContain('The button does nothing.');
+    expect(turns.find((turn) => turn.itemId === b.id && turn.role === 'worker')?.briefText).toContain('The footer link goes nowhere.');
     for (const turn of turns) {
       const own = turn.itemId === a.id ? ORC12 : ORC13;
       const other = own === ORC12 ? ORC13 : ORC12;
@@ -292,7 +298,7 @@ describe('text that is live in Linear but was not approved', { timeout: 60_000 }
     expect(turns.filter((turn) => turn.role === 'verifier')).toHaveLength(2);
     expect(allText()).toContain(APPROVED_COMMENT);
     expect(allText()).not.toContain(words);
-    expect(readFileSync(ticketBriefPath(item.id), 'utf8')).not.toContain(words);
+    expect(turns.every((turn) => turn.briefText !== null && !turn.briefText.includes(words))).toBe(true);
     expect(connector.calls).toEqual([]);
   });
 
@@ -308,7 +314,7 @@ describe('text that is live in Linear but was not approved', { timeout: 60_000 }
     expect(text).toContain('Reason for the resume: the app restarted');
     expect(text).not.toContain(LIVE_COMMENT);
     expect(text).not.toContain(LIVE_DESCRIPTION);
-    expect(readFileSync(ticketBriefPath(store.listItems(RUN_ID)[0].id), 'utf8')).not.toContain(LIVE_COMMENT);
+    expect(turns.every((turn) => turn.briefText !== null && !turn.briefText.includes(LIVE_COMMENT))).toBe(true);
     expect(connector.calls).toEqual([]);
   });
 });

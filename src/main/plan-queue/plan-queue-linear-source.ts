@@ -26,6 +26,8 @@ import { getPlanQueueLinearTicketStore } from './plan-queue-linear-ticket-store-
 import type { LinearTicketNames } from './plan-queue-linear-ticket-store';
 import { buildStepUpInstruction } from './plan-queue-prompts';
 import { createTicketGuard, type LiveTicketRead, type TicketGuard } from './plan-queue-ticket-guard';
+import { PlanQueueTicketHeld } from './plan-queue-ticket-ask';
+import { getTicketRetention, type TicketRetention } from './plan-queue-ticket-retention';
 import { buildTicketBrief } from './plan-queue-ticket-brief';
 import {
   buildTicketCheckerPrompt, buildTicketFixPrompt, buildTicketResumePrompt, buildTicketStepUpPrompt, buildTicketWorkerPrompt,
@@ -57,6 +59,8 @@ export interface LinearWorkSourceDependencies {
   ticketRound: TicketRoundDeps;
   /** The check before every session, and what holds a job the pump must not start. */
   ticketGuard: TicketGuard;
+  /** How long ticket text is kept; a Resume names its job here. */
+  retention: Pick<TicketRetention, 'holdForResume'>;
 }
 
 /** Letters, digits and hyphens only, cut to `max` characters with no hyphen at either end. */
@@ -109,6 +113,20 @@ export function createLinearWorkSource(deps: LinearWorkSourceDependencies): Queu
     reasonToHold: () => deps.connectionReason(),
     itemHold: (item, runItems) => deps.ticketGuard.itemHold(item, runItems),
     assertReadyForSession: (item, run) => deps.ticketGuard.check(item, run),
+    async beginResume(item, run) {
+      const release = deps.retention.holdForResume(item.id);
+      // A ticket whose text was cleared cannot build a brief: it is read again and James is asked, which the check does.
+      if (deps.ticketRound.record(item.id)?.approvedText !== null) return release;
+      try {
+        await deps.ticketGuard.check(item, run);
+      } catch (error) {
+        // A question is now open and holds the job once it is back in the queue. Anything else leaves the job set aside.
+        if (error instanceof PlanQueueTicketHeld && error.askKind !== null) return release;
+        release();
+        throw error instanceof PlanQueueTicketHeld ? new Error(`${error.identifier} could not be read in Linear, so it was not resumed. Try Resume again soon.`) : error;
+      }
+      return release;
+    },
 
     // What the checker reviews, and what counts as progress, is the text James approved.
     reviewFingerprint: async item => ticketReviewFingerprint(deps.ticketRound, item.id),
@@ -195,4 +213,5 @@ export const linearWorkSource: QueueWorkSource = createLinearWorkSource({
   namesFor: (linearId) => getPlanQueueLinearTicketStore()?.findNames(linearId),
   ticketRound: { record: (itemId) => getPlanQueueLinearTicketStore()?.get(itemId) },
   ticketGuard: { check: (item, run) => ticketGuard.check(item, run), itemHold: (item, runItems) => ticketGuard.itemHold(item, runItems) },
+  retention: { holdForResume: (itemId) => getTicketRetention().holdForResume(itemId) },
 });

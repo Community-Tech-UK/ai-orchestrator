@@ -18,6 +18,7 @@ import { preflightResumedRun, preflightRunRouting } from './plan-queue-run-prefl
 import { createPlanQueueRun } from './plan-queue-run-create';
 import { rememberJamesAnswer } from './plan-queue-triage-memory';
 import { recheckReadiness } from './plan-queue-recheck-readiness';
+import { getTicketRetention } from './plan-queue-ticket-retention';
 import { answerTicketAsk, CONTROLS_THAT_START_WORK, refuseJamesOnlyAnswer, refuseWhileTicketAskOpen, type TicketAnswerInput } from './plan-queue-ticket-answer';
 import { PlanQueueCapabilityService } from './plan-queue-capability-service';
 import { capabilityAccountRulesFor, capabilityProviderExclusions, enableCapabilityRepairs, noteCapabilityControl, retryCapabilityOrigin } from './plan-queue-capability-control';
@@ -295,6 +296,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     for (const [kind, state] of [['queue-job', 'working'], ['queue-check', 'verifying']] as const) {
       this.admissionCleanup.push(admission.registerCounter(kind, () => deps.store.listActiveRuns().flatMap(run => deps.store.listItems(run.id)).filter(item => state === 'working' ? itemHoldsWorktree(item.state) : item.state === state).length));
     }
+    getTicketRetention().start();
     logger.info('PlanQueueCoordinator initialized');
   }
   isInitialized(): boolean {
@@ -316,6 +318,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     this.admissionCleanup.splice(0).forEach(cleanup => cleanup());
     this.trackerInstance?.noteAppShutdown();
     this.parentMessenger?.shutdown();
+    getTicketRetention().stop();
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.pendingRuns.clear();
@@ -388,6 +391,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   save(item: PlanQueueItem): PlanQueueItem {
     const saved = { ...item, updatedAt: this.requireDeps().now() };
     this.requireDeps().store.upsertItem(saved);
+    if (saved.sourceKind === 'linear') getTicketRetention().noteItem(saved);
     this.announceRun(saved.runId);
     return saved;
   }
@@ -772,6 +776,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   }
   private saveRun(run: PlanQueueRun): PlanQueueRun {
     this.requireDeps().store.upsertRun(run);
+    if (run.kind === 'tickets' && run.status === 'cancelled') getTicketRetention().noteRunCancelled(run.id);
     this.announceRun(run.id);
     return run;
   }

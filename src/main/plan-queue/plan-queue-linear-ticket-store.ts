@@ -16,7 +16,8 @@ export const TicketChangeKindSchema = z.enum(['title', 'description', 'comments'
  * A question for James. `changed`: Linear's text no longer matches what he approved, and the held text waits here, unseen
  * by any session. `gone`: the ticket was deleted, archived, moved out of its project or team, or can no longer be read as
  * that ticket. `unconfirmed`: the run's saved hash and the ticket table disagree, so what he approved cannot be confirmed.
- * The last two hold no text at all.
+ * `cleared`: the approved text was deleted (`plan-queue-ticket-retention.ts`) and the ticket was read again; its text waits
+ * here for him to read, as a change's does. `gone` and `unconfirmed` hold no text at all.
  */
 export const OpenTicketAskSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -25,6 +26,13 @@ export const OpenTicketAskSchema = z.discriminatedUnion('kind', [
     heldText: ApprovedTicketTextSchema,
     heldHash: z.string().regex(/^[0-9a-f]{64}$/),
     changed: z.array(TicketChangeKindSchema).min(1),
+    openedAt: z.number().int().positive(),
+  }).strict(),
+  z.object({
+    kind: z.literal('cleared'),
+    heldTitle: z.string(),
+    heldText: ApprovedTicketTextSchema,
+    heldHash: z.string().regex(/^[0-9a-f]{64}$/),
     openedAt: z.number().int().positive(),
   }).strict(),
   z.object({ kind: z.literal('gone'), openedAt: z.number().int().positive() }).strict(),
@@ -36,11 +44,11 @@ export type OpenTicketAskKind = OpenTicketAsk['kind'];
 
 /**
  * What James is shown with a question and sends back with his answer, so an answer is applied only while the question is
- * still the one he saw. A change is identified by the hash of the text it holds; the other two hold no text, so their
+ * still the one he saw. A question that holds text is identified by the hash of that text; the other two hold none, so their
  * opening time stands in.
  */
 export function openTicketAskHash(ask: OpenTicketAsk): string {
-  return ask.kind === 'changed' ? ask.heldHash : `${ask.kind}:${ask.openedAt}`;
+  return ask.kind === 'changed' || ask.kind === 'cleared' ? ask.heldHash : `${ask.kind}:${ask.openedAt}`;
 }
 
 /** What James chose for a question: new text approved, a change left out, or neither (work on the ticket stops). */
@@ -86,6 +94,19 @@ export interface LandedLinearTicket extends LinearTicketItemRef {
   landedCommit: string | null;
   /** When the item row was last saved. The item has no landing time of its own, and a landed item is rarely saved again. */
   landedAt: number;
+}
+
+/** What decides how long a ticket's text is kept. */
+export interface TicketRetentionRow {
+  itemId: string;
+  runId: string;
+  /** The job's state. */
+  state: string;
+  discardedAt: number | null;
+  /** When the job was last set aside, from the queue's own record of its moves; when it was last saved if that has none. */
+  setAsideAt: number;
+  runStatus: string | null;
+  textClearedAt: number | null;
 }
 
 /** What a ticket is called, from its newest row. The title is the one James approved. */
@@ -187,7 +208,8 @@ export class PlanQueueLinearTicketStore {
    * text replaced with the question still open, or the question closed with the old text still approved.
    *
    * `use-now`: the held text becomes the approved text, with its hash and the time; a change left out earlier is forgotten, and
-   * a ticket not yet claimed is claimed now, because the hash the run was started with is no longer what he approves.
+   * a ticket not yet claimed is claimed now, because the hash the run was started with is no longer what he approves. For a
+   * cleared ticket this is how its text comes back.
    * `keep-approved`: the held hash is recorded as left out, so the same change does not ask again. `stop`: the question
    * closes and nothing else changes.
    */
@@ -198,8 +220,9 @@ export class PlanQueueLinearTicketStore {
       const ask = record.openAsk;
       if (!ask) return 'no-ask';
       if (openTicketAskHash(ask) !== askHash) return 'stale';
-      if (answer.choice !== 'stop' && ask.kind !== 'changed') throw new Error('Only a question about changed text can be answered with the text.');
-      if (answer.choice === 'use-now' && ask.kind === 'changed') {
+      if (answer.choice === 'use-now' && ask.kind !== 'changed' && ask.kind !== 'cleared') throw new Error('Only a question that holds text can be answered with the text.');
+      if (answer.choice === 'keep-approved' && ask.kind !== 'changed') throw new Error('Only a question about changed text can be answered with the version he approved.');
+      if (answer.choice === 'use-now' && (ask.kind === 'changed' || ask.kind === 'cleared')) {
         this.replaceApprovedText(itemId, { title: ask.heldTitle, text: ask.heldText, hash: ask.heldHash, approvedAt: answer.at });
         this.closeAsk(itemId, null);
         this.recordClaim(itemId, answer.at);
@@ -210,10 +233,37 @@ export class PlanQueueLinearTicketStore {
     })();
   }
 
-  /** Deletes the approved text and any held text. The title, the hash and the times stay. */
+  /**
+   * Deletes the approved text, any held text and every hash, and records when. The identifier, the approved title, the address and
+   * the ids that place the ticket stay. The hash column cannot be null, so an empty string stands for "none".
+   * A job already in a final state also loses the question on its own row, in the same step: the question it showed was the
+   * ticket's open one, which is gone, so nothing could answer it. (A Resume asks again from a fresh read of the ticket.)
+   */
   clearText(itemId: string, at: number): void {
     this.requireRow(itemId);
-    this.db.prepare('UPDATE plan_queue_linear_tickets SET approved_text_json = NULL, open_ask_json = NULL, text_cleared_at = ? WHERE item_id = ?').run(at, itemId);
+    this.db.transaction((): void => {
+      this.db.prepare(`UPDATE plan_queue_linear_tickets
+        SET approved_text_json = NULL, open_ask_json = NULL, approved_hash = '', left_out_hash = NULL, text_cleared_at = ? WHERE item_id = ?`).run(at, itemId);
+      this.db.prepare(`UPDATE plan_queue_items SET question_json = NULL WHERE id = ? AND state IN ('landed', 'skipped', 'parked')`).run(itemId);
+    })();
+  }
+
+  /**
+   * Every ticket with the facts that decide how long its text is kept: the job's state, whether it was discarded, when it was last
+   * set aside, and its run's status. No ticket text is read.
+   */
+  retentionRows(): TicketRetentionRow[] {
+    return this.db.prepare(`SELECT t.item_id, t.text_cleared_at, i.state, i.discarded_at, i.run_id, r.status AS run_status,
+      COALESCE((SELECT MAX(e.at) FROM plan_queue_item_events e
+        WHERE e.item_id = i.id AND e.to_state = 'parked' AND (e.from_state IS NULL OR e.from_state != 'parked')), i.updated_at) AS set_aside_at
+      FROM plan_queue_linear_tickets t
+      JOIN plan_queue_items i ON i.id = t.item_id
+      LEFT JOIN plan_queue_runs r ON r.id = i.run_id`).all<{
+      item_id: string; text_cleared_at: number | null; state: string; discarded_at: number | null; set_aside_at: number; run_id: string; run_status: string | null;
+    }>().map((row) => ({
+      itemId: row.item_id, runId: row.run_id, state: row.state, discardedAt: row.discarded_at, setAsideAt: row.set_aside_at,
+      runStatus: row.run_status, textClearedAt: row.text_cleared_at,
+    }));
   }
 
   /** The item that holds this ticket and has not finished, if any. Step 11 owns the rule that stops a second one. */

@@ -8,7 +8,8 @@
  *   about again, and the hold is released;
  * - stop work on the ticket: a ticket that has not started is skipped, one that has is set aside as `needs-james`.
  *
- * A ticket that has gone, or whose approved text cannot be confirmed, offers only stop and "Leave it waiting".
+ * A ticket whose approved text was cleared offers the first and the last: the ticket was read again for the question, and its text
+ * is what he approves. A ticket that has gone, or whose approved text cannot be confirmed, offers only stop and "Leave it waiting".
  *
  * Only the Plan Queue page reaches this file: the page's two handlers (read the question, answer it) and the coordinator.
  * No tool, command, session method or phone route does (`plan-queue-ticket-answer-not-agent-reachable.spec.ts`). The text
@@ -71,8 +72,8 @@ export function readTicketAsk(itemId: string): PlanQueueTicketAskView | null {
     approved: record.approvedText
       ? { title: record.approvedTitle, text: buildTicketBrief({ identifier, title: record.approvedTitle, text: record.approvedText }), hash: record.approvedHash, approvedAt: record.approvedAt }
       : null,
-    held: ask.kind === 'changed'
-      ? { title: ask.heldTitle, text: buildTicketBrief({ identifier, title: ask.heldTitle, text: ask.heldText }), hash: ask.heldHash, changed: ask.changed }
+    held: ask.kind === 'changed' || ask.kind === 'cleared'
+      ? { title: ask.heldTitle, text: buildTicketBrief({ identifier, title: ask.heldTitle, text: ask.heldText }), hash: ask.heldHash, changed: ask.kind === 'changed' ? ask.changed : [] }
       : null,
     options: ticketAskQuestion(identifier, ask.kind).options,
   };
@@ -124,7 +125,9 @@ export async function answerTicketAsk(host: AnswerHost, flow: Parker, input: Tic
       }
     }
     host.save({ ...host.getItem(input.itemId), question: null, answer });
-    closeAsk(table, input, { choice: 'stop' });
+    // A job that is skipped has had its text cleared with the question, which is the stop, not an earlier answer.
+    const stopped = host.getItem(input.itemId).state === 'skipped';
+    closeAsk(table, input, { choice: 'stop' }, stopped);
     host.requestPump();
     return;
   }
@@ -135,8 +138,8 @@ export async function answerTicketAsk(host: AnswerHost, flow: Parker, input: Tic
   host.requestPump();
 }
 
-function closeAsk(table: PlanQueueLinearTicketStore, input: TicketAnswerInput, choice: Parameters<PlanQueueLinearTicketStore['answerAsk']>[2]): void {
+function closeAsk(table: PlanQueueLinearTicketStore, input: TicketAnswerInput, choice: Parameters<PlanQueueLinearTicketStore['answerAsk']>[2], closedWithTheJob = false): void {
   const result = table.answerAsk(input.itemId, input.askHash, choice);
-  if (result === 'no-ask') throw new Error(ALREADY_ANSWERED);
+  if (result === 'no-ask' && !closedWithTheJob) throw new Error(ALREADY_ANSWERED);
   if (result === 'stale') throw new Error(CHANGED_AGAIN);
 }

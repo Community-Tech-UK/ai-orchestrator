@@ -76,6 +76,53 @@ beforeEach(() => {
 });
 afterEach(() => db.close());
 
+describe('a ticket whose approved text was cleared', () => {
+  it('reads the ticket again and opens a question holding it in full, whether or not Linear still says the same', async () => {
+    const item = addTicket(ORC12, 'queued');
+    table.clearText(item.id, 500);
+    const held = await refusal(guard.check(item, runWithPins([ORC12])));
+
+    expect(held.askKind).toBe('cleared');
+    expect(held.message).toBe('ORC-12 had its text cleared (client text is kept for 30 days at most). Read it again to carry on. Answer on the Plan Queue page.');
+    expect(linear.reads).toEqual(['ORC-12']);
+    const ask = table.get(item.id)?.openAsk;
+    expect(ask).toMatchObject({ kind: 'cleared', heldTitle: ORC12.title, openedAt: 1_000, heldText: { description: 'The button does nothing.' } });
+    expect(table.get(item.id)).toMatchObject({ approvedText: null, claimedAt: null });
+  });
+
+  it('holds the text Linear has now, not the text that was cleared', async () => {
+    const item = addTicket(ORC12);
+    table.clearText(item.id, 500);
+    linear.change('ORC-12', { description: HELD_WORDS });
+    await refusal(guard.check(item, runWithPins([ORC12])));
+    expect(table.get(item.id)?.openAsk).toMatchObject({ kind: 'cleared', heldText: { description: HELD_WORDS } });
+  });
+
+  it('asks that the ticket is gone, not for its text, when Linear no longer has it', async () => {
+    const item = addTicket(ORC12);
+    table.clearText(item.id, 500);
+    linear.gone('ORC-12');
+    expect((await refusal(guard.check(item, runWithPins([ORC12])))).askKind).toBe('gone');
+  });
+
+  it('refuses without a question, and says so, when the text is missing for any other reason', async () => {
+    const item = addTicket(ORC12);
+    db.prepare('UPDATE plan_queue_linear_tickets SET approved_text_json = NULL WHERE item_id = ?').run(item.id);
+    await expect(guard.check(item, runWithPins([ORC12]))).rejects.toThrow('approved text is not available');
+    expect(table.get(item.id)?.openAsk).toBeNull();
+  });
+
+  it('opens one question for two checks, and reads nothing once it is open', async () => {
+    const item = addTicket(ORC12);
+    table.clearText(item.id, 500);
+    await Promise.allSettled([guard.check(item, runWithPins([ORC12])), guard.check(item, runWithPins([ORC12]))]);
+    expect(table.get(item.id)?.openAsk?.kind).toBe('cleared');
+    const reads = linear.reads.length;
+    await refusal(guard.check(item, runWithPins([ORC12])));
+    expect(linear.reads).toHaveLength(reads);
+  });
+});
+
 describe('unchanged text', () => {
   it('carries on, reads the ticket, and records the claim time once', async () => {
     const item = addTicket(ORC12);

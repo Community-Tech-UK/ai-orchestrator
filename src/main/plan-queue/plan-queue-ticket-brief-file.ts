@@ -74,3 +74,32 @@ export async function writeTicketBriefFile(input: { itemId: string; brief: strin
 export async function deleteTicketBriefFile(itemId: string): Promise<void> {
   await fs.rm(ticketBriefPath(itemId), { force: true });
 }
+
+/** A half-written brief (the private name `writeTicketBriefFile` uses) is left alone this long, in case its write is still running. */
+export const TICKET_BRIEF_TEMPORARY_FILE_GRACE_MS = 60 * 60_000;
+
+/**
+ * Deletes every brief file whose item `keep` does not name, and every half-written one older than the grace time, so a delete
+ * that was interrupted is finished later. Returns how many files it removed. A folder that does not exist has nothing to remove.
+ */
+export async function sweepTicketBriefFiles(keep: (itemId: string) => boolean, now: number): Promise<number> {
+  const folder = path.dirname(ticketBriefPath('x'));
+  let names: string[];
+  try {
+    names = await fs.readdir(folder);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0;
+    throw error;
+  }
+  let removed = 0;
+  for (const name of names) {
+    const brief = /^([A-Za-z0-9_-]{1,100})\.md$/.exec(name);
+    const unwanted = brief
+      ? !keep(brief[1])
+      : name.endsWith('.tmp') && now - (await fs.stat(path.join(folder, name)).then((stat) => stat.mtimeMs, () => now)) > TICKET_BRIEF_TEMPORARY_FILE_GRACE_MS;
+    if (!unwanted) continue;
+    await fs.rm(path.join(folder, name), { force: true });
+    removed += 1;
+  }
+  return removed;
+}

@@ -191,11 +191,42 @@ describe('the Linear ticket store', () => {
       tickets.insert(ticket('item-1'));
       tickets.openAsk('item-1', { kind: 'gone', openedAt: 5 });
       const before = tickets.get('item-1');
-      expect(() => tickets.answerAsk('item-1', 'gone:5', { choice: 'use-now', at: 9 })).toThrow('Only a question about changed text');
+      expect(() => tickets.answerAsk('item-1', 'gone:5', { choice: 'use-now', at: 9 })).toThrow('Only a question that holds text');
       expect(() => tickets.answerAsk('item-1', 'gone:5', { choice: 'keep-approved' })).toThrow('Only a question about changed text');
       expect(tickets.get('item-1')).toEqual(before);
       expect(tickets.answerAsk('item-1', 'gone:5', { choice: 'stop' })).toBe('applied');
       expect(() => tickets.answerAsk('ghost', 'x', { choice: 'stop' })).toThrow('No Linear ticket row for item ghost.');
+    });
+
+    describe('a question about cleared text', () => {
+      const cleared: OpenTicketAsk = { kind: 'cleared', heldTitle: 'Fix the login page', heldText, heldHash, openedAt: 500 };
+      const openCleared = () => {
+        addItem('item-1');
+        tickets.insert(ticket('item-1'));
+        tickets.clearText('item-1', 400);
+        tickets.openAsk('item-1', cleared);
+      };
+
+      it('is named by the hash of the text it holds', () => {
+        expect(openTicketAskHash(cleared)).toBe(heldHash);
+      });
+
+      it('"use now" brings the text back: new text, new hash, the clearing undone, the question closed and the claim made', () => {
+        openCleared();
+        expect(tickets.get('item-1')).toMatchObject({ approvedText: null, approvedHash: '', textClearedAt: 400 });
+        expect(tickets.answerAsk('item-1', heldHash, { choice: 'use-now', at: 900 })).toBe('applied');
+        expect(tickets.get('item-1')).toMatchObject({
+          approvedText: heldText, approvedHash: heldHash, approvedAt: 900, openAsk: null, textClearedAt: null, claimedAt: 900,
+        });
+      });
+
+      it('"stop" closes it and leaves the text cleared, and "carry on with the version I approved" is refused: nothing is approved', () => {
+        openCleared();
+        expect(() => tickets.answerAsk('item-1', heldHash, { choice: 'keep-approved' })).toThrow('Only a question about changed text');
+        expect(tickets.get('item-1')?.openAsk).not.toBeNull();
+        expect(tickets.answerAsk('item-1', heldHash, { choice: 'stop' })).toBe('applied');
+        expect(tickets.get('item-1')).toMatchObject({ approvedText: null, openAsk: null, textClearedAt: 400 });
+      });
     });
 
     it('crash window: a stop part way leaves the old text approved and the question open', () => {
@@ -242,15 +273,41 @@ describe('the Linear ticket store', () => {
     });
   });
 
-  it('clears the approved text and any held text, and keeps the title, hash and times', () => {
+  it('clears the approved text, any held text and every hash, and keeps the identifier, title, address and ids', () => {
     addItem('item-1');
     tickets.insert(ticket('item-1'));
+    tickets.recordClaim('item-1', 150);
     tickets.openAsk('item-1', { kind: 'changed', heldTitle: 'T', heldText: text, heldHash: hashOf('T'), changed: ['title'], openedAt: 500 });
+    tickets.closeAsk('item-1', hashOf('T'));
+    tickets.openAsk('item-1', { kind: 'changed', heldTitle: 'U', heldText: text, heldHash: hashOf('U'), changed: ['title'], openedAt: 600 });
     tickets.clearText('item-1', 700);
-    expect(tickets.get('item-1')).toMatchObject({ approvedText: null, openAsk: null, textClearedAt: 700,
-      approvedTitle: 'Fix the login page', approvedHash: hashOf('Fix the login page'), approvedAt: 100 });
-    const raw = db.prepare('SELECT approved_text_json, open_ask_json FROM plan_queue_linear_tickets WHERE item_id = ?').get('item-1');
-    expect(raw).toEqual({ approved_text_json: null, open_ask_json: null });
+    expect(tickets.get('item-1')).toEqual({
+      itemId: 'item-1', linearId: 'lin-1', identifier: 'ORC-7', address: 'https://linear.app/x/issue/ORC-7', teamId: 'team-1', projectId: 'proj-1',
+      approvedTitle: 'Fix the login page', approvedText: null, approvedHash: '', approvedAt: 100, claimedAt: 150, openAsk: null, leftOutHash: null, textClearedAt: 700,
+    });
+    const raw = db.prepare('SELECT approved_text_json, open_ask_json, left_out_hash, approved_hash FROM plan_queue_linear_tickets WHERE item_id = ?').get('item-1');
+    expect(raw).toEqual({ approved_text_json: null, open_ask_json: null, left_out_hash: null, approved_hash: '' });
+  });
+
+  describe('what decides how long the text is kept', () => {
+    it('lists each ticket with its job\'s state, discard, run status and the time it was set aside', () => {
+      addItem('item-1');
+      tickets.insert(ticket('item-1'));
+      expect(tickets.retentionRows()).toEqual([{ itemId: 'item-1', runId: 'run-1', state: 'discovered', discardedAt: null, setAsideAt: expect.any(Number), runStatus: 'running', textClearedAt: null }]);
+      queue.upsertItem(newPlanQueueItem('item-1', 'run-1', 'linear:item-1', 1, { state: 'parked', parkReason: 'needs-james' }));
+      expect(tickets.retentionRows()[0]).toMatchObject({ state: 'parked' });
+      const event = db.prepare("SELECT MAX(at) AS at FROM plan_queue_item_events WHERE item_id = 'item-1' AND to_state = 'parked'").get<{ at: number }>()!;
+      expect(tickets.retentionRows()[0].setAsideAt).toBe(event.at);
+      queue.upsertRun({ ...queue.getRun('run-1')!, status: 'cancelled', endedAt: 5 });
+      tickets.clearText('item-1', 9);
+      expect(tickets.retentionRows()[0]).toMatchObject({ runStatus: 'cancelled', textClearedAt: 9 });
+    });
+
+    it('carries no ticket text', () => {
+      addItem('item-1');
+      tickets.insert(ticket('item-1'));
+      expect(JSON.stringify(tickets.retentionRows())).not.toContain('The button does nothing.');
+    });
   });
 
   it('says plainly which item has no row, without naming any ticket text', () => {

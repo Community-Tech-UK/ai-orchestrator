@@ -37,15 +37,18 @@ export interface PlanQueueTicketAskView {
   itemId: string;
   /** The ticket's short address, such as `COM-123`. */
   identifier: string;
-  /** `changed`: the text differs. `gone`: the ticket is deleted or moved. `unconfirmed`: what James approved cannot be confirmed. */
-  kind: 'changed' | 'gone' | 'unconfirmed';
+  /**
+   * `changed`: the text differs. `cleared`: the approved text was deleted and the ticket was read again. `gone`: the ticket is
+   * deleted or moved. `unconfirmed`: what James approved cannot be confirmed.
+   */
+  kind: 'changed' | 'cleared' | 'gone' | 'unconfirmed';
   /** Sent back with the answer. */
   askHash: string;
   /** Unix milliseconds. */
   openedAt: number;
   /** What James approved, with when. Null once its text has been cleared. */
   approved: (PlanQueueTicketAskText & { approvedAt: number }) | null;
-  /** What Linear says now. Null unless the ticket changed. */
+  /** What Linear says now. Null unless the ticket changed or was cleared; `changed` is empty for a cleared one. */
   held: (PlanQueueTicketAskText & { changed: ('title' | 'description' | 'comments')[] }) | null;
   /** The answers offered, in the order to show them. */
   options: { id: string; label: string }[];

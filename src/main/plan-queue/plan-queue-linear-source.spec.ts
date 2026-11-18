@@ -10,6 +10,7 @@ import { allWorkSources, workSourceFor, workSourceForRun } from './plan-queue-wo
 import { markdownWorkSource } from './plan-queue-markdown-source';
 import type { DiscoveryResult, DiscoveryRow } from './linear/linear-discovery';
 import { LinearDiscoveryFailure } from './linear/linear-ticket-reader';
+import { PlanQueueTicketHeld } from './plan-queue-ticket-ask';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
 const row = (identifier: string, canTick: boolean): DiscoveryRow => ({
@@ -25,6 +26,7 @@ function make(overrides: Partial<LinearWorkSourceDependencies> = {}) {
     namesFor: (id) => (id === 'uuid-ORC-3' ? { identifier: 'ORC-3', approvedTitle: 'Fix the login page, now!' } : undefined),
     ticketRound: { record: () => undefined },
     ticketGuard: { check: async () => undefined, itemHold: () => null },
+    retention: { holdForResume: () => () => undefined },
     ...overrides,
   };
   return { source: createLinearWorkSource(deps), discover };
@@ -146,6 +148,54 @@ describe('the Linear work source', () => {
     it('is nothing for a markdown run: no check before a session, and no job held', async () => {
       await expect(markdownWorkSource.assertReadyForSession(ticketItem, run)).resolves.toBeUndefined();
       expect(markdownWorkSource.itemHold(ticketItem, [ticketItem])).toBeNull();
+    });
+  });
+
+  describe('a Resume', () => {
+    const ticketItem = { ...item('linear:uuid-ORC-3'), id: 'item-1' } as unknown as PlanQueueItem;
+    const held = (askKind: 'cleared' | 'gone' | null) => new PlanQueueTicketHeld('held', 'ORC-3', askKind);
+    const withText = { record: () => ({ approvedText: { description: 'x' } }) } as unknown as LinearWorkSourceDependencies['ticketRound'];
+    const cleared = { record: () => ({ approvedText: null }) } as unknown as LinearWorkSourceDependencies['ticketRound'];
+
+    it('names the job while it is resumed and reads nothing when its text is still there', async () => {
+      const check = vi.fn(async () => undefined);
+      const release = vi.fn();
+      const holdForResume = vi.fn(() => release);
+      const end = await make({ ticketRound: withText, ticketGuard: { check, itemHold: () => null }, retention: { holdForResume } }).source.beginResume(ticketItem, run);
+      expect(holdForResume).toHaveBeenCalledWith('item-1');
+      expect(check).not.toHaveBeenCalled();
+      expect(release).not.toHaveBeenCalled();
+      end();
+      expect(release).toHaveBeenCalledOnce();
+    });
+
+    it.each(['cleared', 'gone'] as const)('reads a ticket whose text is gone again; a %s question that opens does not stop the Resume', async (kind) => {
+      const check = vi.fn(async () => { throw held(kind); });
+      const release = vi.fn();
+      const end = await make({ ticketRound: cleared, ticketGuard: { check, itemHold: () => null }, retention: { holdForResume: () => release } }).source.beginResume(ticketItem, run);
+      expect(check).toHaveBeenCalledWith(ticketItem, run);
+      expect(release).not.toHaveBeenCalled();
+      end();
+      expect(release).toHaveBeenCalledOnce();
+    });
+
+    it('refuses in fixed words, and lets the job go, when the ticket cannot be read', async () => {
+      const release = vi.fn();
+      const { source } = make({ ticketRound: cleared, ticketGuard: { check: async () => { throw held(null); }, itemHold: () => null }, retention: { holdForResume: () => release } });
+      await expect(source.beginResume(ticketItem, run)).rejects.toThrow('ORC-3 could not be read in Linear, so it was not resumed. Try Resume again soon.');
+      expect(release).toHaveBeenCalledOnce();
+    });
+
+    it('lets any other failure through, and lets the job go', async () => {
+      const release = vi.fn();
+      const { source } = make({ ticketRound: cleared, ticketGuard: { check: async () => { throw new Error('broken'); }, itemHold: () => null }, retention: { holdForResume: () => release } });
+      await expect(source.beginResume(ticketItem, run)).rejects.toThrow('broken');
+      expect(release).toHaveBeenCalledOnce();
+    });
+
+    it('is nothing for a markdown run', async () => {
+      const end = await markdownWorkSource.beginResume(ticketItem, run);
+      expect(end()).toBeUndefined();
     });
   });
 

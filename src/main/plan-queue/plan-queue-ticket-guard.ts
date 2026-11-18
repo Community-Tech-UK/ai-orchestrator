@@ -4,7 +4,8 @@
  *
  * In order: (1) an open question refuses, and nothing is read from Linear; (2) the ticket and its comments are read and
  * hashed the way the approved text was, and an equal hash (or the hash of a change James chose to leave out) carries on;
- * (3) anything else opens a question for James and refuses. It is opened the same way whoever made the change: the
+ * (3) anything else opens a question for James and refuses. A ticket whose approved text was cleared always asks, showing
+ * the ticket as it is now. It is opened the same way whoever made the change: the
  * connector cannot say who did, and another session using his Linear tools would look like him.
  *
  * Reading Linear is injected, so this file imports nothing from the Linear folder. Ticket text is other people's text:
@@ -129,7 +130,11 @@ export function createTicketGuard(deps: TicketGuardDependencies): TicketGuard {
       throw ask(table, item.id, record.identifier, { kind: 'gone', openedAt: now });
     }
     const live = read.ticket;
-    if (!record.approvedText) throw new TicketTextUnavailable();
+    if (!record.approvedText) {
+      // Cleared on purpose (`plan-queue-ticket-retention.ts`): nothing can be built from it, so he reads the ticket again.
+      if (record.textClearedAt === null) throw new TicketTextUnavailable();
+      throw ask(table, item.id, record.identifier, { kind: 'cleared', heldTitle: live.title, heldText: live.text, heldHash: live.hash, openedAt: now });
+    }
 
     // At the claim, what James approved must still be what the run was started with: the hash saved with the run.
     if (record.claimedAt === null) {

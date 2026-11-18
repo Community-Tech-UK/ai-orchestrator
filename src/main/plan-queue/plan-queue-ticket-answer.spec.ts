@@ -336,7 +336,8 @@ describe('the crash window', { timeout: 60_000 }, () => {
     await waitForRun(RUN_ID);
 
     expect(askOf()).toBeNull();
-    expect(table().get(itemOf().id)?.approvedText?.description).toBe(HELD);
+    // The new text was approved and used (the prompts say so); the job landed, so its text is cleared now.
+    expect(table().get(itemOf().id)).toMatchObject({ approvedText: null, textClearedAt: expect.any(Number) });
     expect(itemOf()).toMatchObject({ state: 'landed', question: null });
     expect(workers(next)).toHaveLength(1);
     expect(promptsFor(next)).toContain(HELD);

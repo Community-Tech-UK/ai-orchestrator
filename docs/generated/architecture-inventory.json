@@ -7475,7 +7475,7 @@
     },
     {
       "path": "src/main/plan-queue/plan-queue-item-flow.ts",
-      "lines": 941
+      "lines": 940
     },
     {
       "path": "src/renderer/app/features/editor/editor-page.component.ts",
@@ -7550,6 +7550,10 @@
       "lines": 908
     },
     {
+      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
+      "lines": 907
+    },
+    {
       "path": "src/main/orchestration/loop-coordinator-terminal-intents.spec.ts",
       "lines": 906
     },
@@ -7560,10 +7564,6 @@
     {
       "path": "src/main/browser-gateway/browser-gateway-action-guard.spec.ts",
       "lines": 903
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
-      "lines": 902
     },
     {
       "path": "docs/superpowers/plans/2026-04-09-remote-session-latency_completed.md",

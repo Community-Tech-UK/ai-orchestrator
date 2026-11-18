@@ -12,6 +12,7 @@ describe('the words for a ticket that may not start', () => {
     expect(ticketAskSentence('ORC-12', 'changed')).toBe('ORC-12 changed in Linear. Answer on the Plan Queue page.');
     expect(ticketAskSentence('ORC-12', 'gone')).toBe('ORC-12 was removed from Linear or moved out of its project. Answer on the Plan Queue page.');
     expect(ticketAskSentence('ORC-12', 'unconfirmed')).toBe('ORC-12 has no text Harness can confirm you approved. Answer on the Plan Queue page.');
+    expect(ticketAskSentence('ORC-12', 'cleared')).toBe('ORC-12 had its text cleared (client text is kept for 30 days at most). Read it again to carry on. Answer on the Plan Queue page.');
   });
 
   it('offers three answers for a change and two for a ticket that has gone, all valid questions marked for James alone', () => {
@@ -19,7 +20,9 @@ describe('the words for a ticket that may not start', () => {
     expect(changed.options.map((option) => option.id)).toEqual(['use-now', 'keep-approved', 'stop']);
     expect(ticketAskQuestion('ORC-12', 'gone').options.map((option) => option.id)).toEqual(['stop', 'leave-waiting']);
     expect(ticketAskQuestion('ORC-12', 'unconfirmed').options.map((option) => option.id)).toEqual(['stop', 'leave-waiting']);
-    for (const kind of ['changed', 'gone', 'unconfirmed'] as const) {
+    // Nothing is approved once the text was cleared, so there is no version to carry on with.
+    expect(ticketAskQuestion('ORC-12', 'cleared').options.map((option) => option.id)).toEqual(['use-now', 'stop']);
+    for (const kind of ['changed', 'cleared', 'gone', 'unconfirmed'] as const) {
       const question = ticketAskQuestion('ORC-12', kind);
       expect(PlanQueueQuestionSchema.parse(question)).toEqual(question);
       expect(question.jamesOnly).toBe(true);
@@ -33,7 +36,7 @@ describe('the words for a ticket that may not start', () => {
   });
 
   it('recognises its own sentences as a hold note, which is a status for James and never an instruction to a worker', () => {
-    for (const note of [ticketAskSentence('ORC-12', 'changed'), ticketAskSentence('COM-9', 'gone'), ticketUnreadableSentence('ORC-12', null), 'Linear work is paused: x.']) {
+    for (const note of [ticketAskSentence('ORC-12', 'changed'), ticketAskSentence('ORC-12', 'cleared'), ticketAskSentence('COM-9', 'gone'), ticketUnreadableSentence('ORC-12', null), 'Linear work is paused: x.']) {
       expect(isTicketHoldNote(note)).toBe(true);
       expect(isHoldNote(note)).toBe(true);
     }

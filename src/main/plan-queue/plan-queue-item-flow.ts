@@ -11,7 +11,7 @@ import { selectCurrentQueueVerifier } from './plan-queue-checker-routing';
 import { holdItem, isHoldNote, parkAfterVerifierRestoreFailure, PlanQueueSpawnRunPaused, resumeReason, restoreVerifierTree, usageWaitNote } from './plan-queue-run-hold';
 import { PlanQueueProviderNotAllowed } from './plan-queue-linear-providers';
 import { PlanQueueTicketHeld } from './plan-queue-ticket-ask';
-import { holdTicketJob, ticketNotReady } from './plan-queue-ticket-hold';
+import { holdTicketJob, resumeWithSource, ticketNotReady } from './plan-queue-ticket-hold';
 import { PlanQueueSpawnOutOfUsage } from './plan-queue-spawn';
 import { PlanQueueUsageWaits, takeUsageHold } from './plan-queue-usage-wait';
 import { recordItemTiming, recordSessionEnd, recordSessionStart, TIMING_REASONS } from './plan-queue-timings';
@@ -757,8 +757,7 @@ export class PlanQueueItemFlow {
   // Parking and operator actions
   /** Wait for retained-work recovery; automatic callers recheck their authority after each await. */
   resume(itemId: string, canResume: () => boolean = () => true): Promise<void> {
-    return this.withItemLock(itemId, async () => {
-      if (!canResume()) return;
+    return this.withItemLock(itemId, () => resumeWithSource(this.host, itemId, canResume, async () => {
       this.usageWaits.clear(itemId);
       const item = this.host.getItem(itemId);
       await Promise.all([item.workerInstanceId, item.verifierInstanceId].filter((id): id is string => Boolean(id)).map(id => this.stopInstance(id)));
@@ -781,7 +780,7 @@ export class PlanQueueItemFlow {
       if (!canResume()) return;
       // `steppedUpAt` stays: a handed-over document resumes on the step-up choice and is never handed over twice.
       this.host.transition(this.host.getItem(itemId), 'queued', { parkReason: null, detail: null, heldAt: null, discardedAt: null, discardedBy: null, round: 0, erroredRounds: 0, landingRefusals: 0, baseConflicts: 0, question: null, landedCommit: null, verdict: null, verifiedMainCommit: null, pendingInstruction: this.workerSessions.carryOverForResume(itemId) });
-    });
+    }));
   }
 
   /** Park from outside the flow (cancel, operator). Waits for any running operation. */
