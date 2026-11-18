@@ -8,19 +8,7 @@ import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive'
 import { DEFAULT_SETTINGS } from '../../../../shared/types/settings-defaults';
 import { badgesFor } from '../../../../shared/types/settings-stage';
 import type { SettingMetadata } from '../../../../shared/types/settings.types';
-import { USAGE_CAUSE_TOOLTIPS } from '../../../../shared/usage-insight/usage-cause-copy';
-
-/**
- * The limits on how many helper agents a session may start. Each helper uses its
- * own allowance, so these rows say so in visible text, in the words the usage card
- * uses. The Codex helper choices are left out on purpose: their descriptions
- * already say what each choice costs for Codex.
- */
-const HELPER_LIMIT_KEYS: ReadonlySet<string> = new Set([
-  'maxChildrenPerParent',
-  'allowNestedOrchestration',
-  'maxSpawnDepth',
-]);
+import { settingCostNote } from '../../../../shared/usage-insight/helper-cost-note';
 
 interface SettingRowApi {
   selectFolder?: () => Promise<{ success: boolean; data?: string }>;
@@ -41,9 +29,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
   template: `
     <div class="setting-row" [attr.data-tone]="rowTone()">
       <div class="setting-info">
-        <label [for]="setting().key" class="setting-label">{{
-          setting().label
-        }}</label>
+        <label [for]="setting().key" class="setting-label">{{ setting().label }}</label>
         <p class="setting-description" [id]="descriptionId()">
           {{ setting().description }}
         </p>
@@ -83,6 +69,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
                 [id]="setting().key"
                 [attr.aria-describedby]="describedBy()"
                 [checked]="value()"
+                [appTooltip]="costNote()"
                 (change)="onBooleanChange($event)"
               />
               <span class="toggle-slider"></span>
@@ -109,6 +96,7 @@ const getApi = () => (window as unknown as { electronAPI?: SettingRowApi }).elec
               [value]="value()"
               [min]="setting().min"
               [max]="setting().max"
+              [appTooltip]="costNote()"
               (change)="onNumberChange($event)"
             />
           }
@@ -199,9 +187,12 @@ export class SettingRowComponent {
     return JSON.stringify(current ?? null) !== JSON.stringify(fallback ?? null);
   });
 
-  /** What extra helpers cost; only the helper limits carry it. */
+  /**
+   * What extra helpers cost; only the helper limits carry it. Shown as visible text and as the
+   * tooltip on the control, so a keyboard user gets it on focus and a mouse user on hover.
+   */
   protected readonly costNote = computed<string | null>(() =>
-    HELPER_LIMIT_KEYS.has(this.setting().key) ? USAGE_CAUSE_TOOLTIPS.helperControls : null,
+    settingCostNote(this.setting().key),
   );
 
   protected readonly costNoteId = computed(() => `setting-cost-note-${this.setting().key}`);

@@ -74,7 +74,7 @@ describe('cause buttons', () => {
 
   it('gives buttons only to the causes the plan names', () => {
     const withButtons = USAGE_CAUSES.filter((entry) => entry.action).map((entry) => entry.id);
-    expect(withButtons).toEqual(['cacheMiss', 'longContext', 'helperHeavy', 'longRunning', 'alwaysOnContext']);
+    expect(withButtons).toEqual(['cacheMiss', 'longContext', 'helperHeavy', 'longRunning', 'alwaysOnContext', 'bigToolResults']);
   });
 
   it('points each button at the control the plan names', () => {
@@ -83,14 +83,11 @@ describe('cause buttons', () => {
     expect(usageCauseDefinition('helperHeavy').action).toMatchObject({ kind: 'open-settings', tab: 'orchestration' });
     expect(usageCauseDefinition('longRunning').action).toMatchObject({ kind: 'open-route', path: '/automations' });
     expect(usageCauseDefinition('alwaysOnContext').action).toMatchObject({ kind: 'open-context-details' });
+    expect(usageCauseDefinition('bigToolResults').action).toMatchObject({ kind: 'open-settings', tab: 'memory', label: 'Output size limit' });
   });
 
   it.each(['parallelSessions', 'maxEffort', 'workflows'] as const)('gives %s a sentence only', (id) => {
     expect(usageCauseDefinition(id).action).toBeUndefined();
-  });
-
-  it('gives big tool results no button until a setting for the result limits exists', () => {
-    expect(usageCauseDefinition('bigToolResults').action).toBeUndefined();
   });
 
   it('gives every button a short label that does not use internal words', () => {

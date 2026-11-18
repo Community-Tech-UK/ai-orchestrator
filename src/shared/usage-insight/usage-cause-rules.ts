@@ -61,8 +61,8 @@ export interface UsageCauseDefinition {
 }
 
 /**
- * Parallel sessions, max effort and workflows have no button. The tool-result
- * cause has none either until a setting for the result limits exists.
+ * Parallel sessions, max effort and workflows have no button: Harness has no control for them.
+ * Big tool results point at the command-output limit (`claudeBashOutputMaxChars`, Storage & buffers).
  */
 export const USAGE_CAUSES: readonly UsageCauseDefinition[] = [
   { id: 'cacheMiss', action: { kind: 'compact-session', label: 'Compact first' } },
@@ -73,7 +73,7 @@ export const USAGE_CAUSES: readonly UsageCauseDefinition[] = [
   { id: 'maxEffort' },
   { id: 'workflows' },
   { id: 'alwaysOnContext', action: { kind: 'open-context-details', label: 'Context details' } },
-  { id: 'bigToolResults', estimated: true },
+  { id: 'bigToolResults', action: { kind: 'open-settings', tab: 'memory', label: 'Output size limit' }, estimated: true },
 ];
 
 export function usageCauseDefinition(id: UsageCauseId): UsageCauseDefinition {

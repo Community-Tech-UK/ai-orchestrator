@@ -3049,5 +3049,17 @@
     "owner": "src/renderer/app/features/settings/rtk-savings-tab.component.ts",
     "text": "Shows which sessions use the hook, instructions, a harm check, or no output compression.",
     "why": "long"
+  },
+  {
+    "id": "1a8d7d28f3c246f9",
+    "owner": "src/renderer/app/features/automations/automations-page.component.ts",
+    "text": "Wait for the attachments to finish loading",
+    "why": "long"
+  },
+  {
+    "id": "8a697609e03d79a8",
+    "owner": "src/renderer/app/features/settings/setting-row.component.ts",
+    "text": "Each helper agent uses its own allowance, so sessions where helpers do most of the work cost the most.",
+    "why": "consequence"
   }
 ]

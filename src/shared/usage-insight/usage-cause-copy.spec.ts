@@ -24,9 +24,10 @@ describe('cause copy', () => {
     const { title, sentence, measure } = USAGE_CAUSE_COPY[id];
     expect(title.length).toBeGreaterThan(0);
     expect(measure.length).toBeGreaterThan(0);
-    // "One sentence": a single full stop, at the end.
+    // "One sentence": a single full stop, at the end. Max effort shows Anthropic's own
+    // two-sentence wording, which the effort picker uses verbatim.
     expect(sentence.endsWith('.')).toBe(true);
-    expect(sentence.slice(0, -1)).not.toMatch(/[.!?]/);
+    if (id !== 'maxEffort') expect(sentence.slice(0, -1)).not.toMatch(/[.!?]/);
     expect(sentence.length).toBeLessThanOrEqual(160);
   });
 
@@ -109,8 +110,10 @@ describe('tooltip copy for the controls beside these costs', () => {
     expect(USAGE_CAUSE_TOOLTIPS.contextRing).toBe(USAGE_CAUSE_COPY.longContext.sentence);
     expect(USAGE_CAUSE_TOOLTIPS.contextRingIdle).toBe(USAGE_CAUSE_COPY.cacheMiss.sentence);
     expect(USAGE_CAUSE_TOOLTIPS.helperControls).toBe(USAGE_CAUSE_COPY.helperHeavy.sentence);
-    expect(USAGE_CAUSE_TOOLTIPS.effortMax).toBe(EFFORT_MAX_DESCRIPTION);
-    expect(USAGE_CAUSE_TOOLTIPS.effortWorkflow).toBe(EFFORT_WORKFLOW_DESCRIPTION);
+    expect(USAGE_CAUSE_TOOLTIPS.effortMax).toBe(USAGE_CAUSE_COPY.maxEffort.sentence);
+    expect(USAGE_CAUSE_TOOLTIPS.effortWorkflow).toBe(USAGE_CAUSE_COPY.workflows.sentence);
+    expect(USAGE_CAUSE_COPY.maxEffort.sentence).toBe(EFFORT_MAX_DESCRIPTION);
+    expect(USAGE_CAUSE_COPY.workflows.sentence).toBe(EFFORT_WORKFLOW_DESCRIPTION);
   });
 });
 

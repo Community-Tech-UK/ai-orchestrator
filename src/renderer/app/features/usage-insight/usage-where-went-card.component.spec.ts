@@ -446,6 +446,12 @@ describe('UsageWhereWentCardComponent', () => {
       expect(navigate).toHaveBeenCalledWith(['/settings'], { queryParams: { tab: 'memory' } });
     });
 
+    it('opens the Settings tab that holds the command output limit', async () => {
+      const root = await render(ready());
+      click(button(root, 'Output size limit'));
+      expect(navigate).toHaveBeenCalledWith(['/settings'], { queryParams: { tab: 'memory' } });
+    });
+
     it('opens the helper settings', async () => {
       const root = await render(ready());
       click(button(root, 'Helper settings'));
@@ -458,7 +464,7 @@ describe('UsageWhereWentCardComponent', () => {
       expect(navigate).toHaveBeenCalledWith(['/automations']);
     });
 
-    it.each(['parallelSessions', 'maxEffort', 'workflows', 'bigToolResults'])('gives %s a sentence only', async (id) => {
+    it.each(['parallelSessions', 'maxEffort', 'workflows'])('gives %s a sentence only', async (id) => {
       const root = await render(ready());
       expect(row(root, id)!.querySelector('button')).toBeNull();
     });

@@ -14,6 +14,7 @@ import type {
   UsageInsightScope,
   UsageInsightUnsupportedReason,
 } from './usage-insight.types';
+import { HELPER_HEAVY_SENTENCE } from './helper-cost-note';
 
 export interface UsageCauseCopy {
   /** Short heading shown on the card row. */
@@ -26,6 +27,16 @@ export interface UsageCauseCopy {
 
 export const CACHE_MISS_ADVICE = 'After a break, Claude reads a long chat again at full price; compacting it first shrinks that re-read.';
 export const LONG_CONTEXT_ADVICE = 'Every message in a chat over 150K reads the whole chat again, so a size cap that summarises earlier keeps each message cheaper.';
+
+/**
+ * Anthropic's own words for the two effort levels that cost the most. The effort
+ * picker uses these verbatim (Phase E Step 7, item 8) and the card rows below show
+ * the same strings, so the picker and the card never say different things.
+ */
+export const EFFORT_MAX_DESCRIPTION =
+  'Thinks as long as it can on every step and uses much more of your allowance. Keep it for the hardest problems.';
+export const EFFORT_WORKFLOW_DESCRIPTION =
+  'Splits every task across many helper agents; each one uses its own allowance.';
 
 export const USAGE_CAUSE_COPY: Readonly<Record<UsageCauseId, UsageCauseCopy>> = {
   cacheMiss: {
@@ -40,7 +51,7 @@ export const USAGE_CAUSE_COPY: Readonly<Record<UsageCauseId, UsageCauseCopy>> = 
   },
   helperHeavy: {
     title: 'Helper-heavy sessions',
-    sentence: 'Each helper agent uses its own allowance, so sessions where helpers do most of the work cost the most.',
+    sentence: HELPER_HEAVY_SENTENCE,
     measure: 'Sessions where helper agents did at least half of the work.',
   },
   parallelSessions: {
@@ -55,12 +66,12 @@ export const USAGE_CAUSE_COPY: Readonly<Record<UsageCauseId, UsageCauseCopy>> = 
   },
   maxEffort: {
     title: 'Max effort',
-    sentence: 'Max effort thinks as long as it can on every step, so it uses much more of your allowance; save it for the hardest problems.',
+    sentence: EFFORT_MAX_DESCRIPTION,
     measure: 'Requests from sessions set to max effort. Only known for sessions Harness started after it began recording the setting.',
   },
   workflows: {
     title: 'Workflows',
-    sentence: 'Workflow mode splits every task across many helper agents, and each one uses its own allowance.',
+    sentence: EFFORT_WORKFLOW_DESCRIPTION,
     measure: 'Requests from sessions running in workflow mode. Only known for sessions Harness started after it began recording the setting.',
   },
   alwaysOnContext: {
@@ -76,16 +87,6 @@ export const USAGE_CAUSE_COPY: Readonly<Record<UsageCauseId, UsageCauseCopy>> = 
 };
 
 /**
- * Anthropic's own words for the two effort levels that cost the most. The effort
- * picker uses these verbatim (Phase E Step 7, item 8); the card above words the
- * same facts as one sentence.
- */
-export const EFFORT_MAX_DESCRIPTION =
-  'Thinks as long as it can on every step and uses much more of your allowance. Keep it for the hardest problems.';
-export const EFFORT_WORKFLOW_DESCRIPTION =
-  'Splits every task across many helper agents; each one uses its own allowance.';
-
-/**
  * Tooltip copy for the controls that already sit next to these costs. Each value
  * is plain text meant for `[appTooltip]`.
  */
@@ -95,9 +96,9 @@ export const USAGE_CAUSE_TOOLTIPS = {
   /** The context bar / ring: why coming back after a break costs more. */
   contextRingIdle: USAGE_CAUSE_COPY.cacheMiss.sentence,
   /** The effort picker's Max row. */
-  effortMax: EFFORT_MAX_DESCRIPTION,
+  effortMax: USAGE_CAUSE_COPY.maxEffort.sentence,
   /** The effort picker's Workflow row. */
-  effortWorkflow: EFFORT_WORKFLOW_DESCRIPTION,
+  effortWorkflow: USAGE_CAUSE_COPY.workflows.sentence,
   /** The helper-agent limit controls. */
   helperControls: USAGE_CAUSE_COPY.helperHeavy.sentence,
 } as const;

@@ -251,8 +251,8 @@ describe('SettingRowComponent — reset to default (S1.3)', () => {
 
 /**
  * The three limits on how many helper agents a session may start. Every helper
- * uses its own allowance, so the row says so in text anyone can see: a tooltip on
- * a plain box never reaches a keyboard user.
+ * uses its own allowance, so the row says so in text anyone can see, and repeats
+ * it as a tooltip on the focusable control (never on the label, which a keyboard cannot reach).
  */
 describe('SettingRowComponent — helper limit controls', () => {
   const metadata = (key: SettingMetadata['key'], type: SettingMetadata['type']): SettingMetadata => ({
@@ -275,9 +275,15 @@ describe('SettingRowComponent — helper limit controls', () => {
     expect(control(fixture, key).getAttribute('aria-describedby')?.split(' ')).toContain(note!.id);
   });
 
-  it('keeps the cost sentence out of a tooltip on the control box', () => {
-    const fixture = render(metadata('maxChildrenPerParent', 'number'), 10);
-    expect(fixture.debugElement.query(By.css('.setting-control')).injector.get(AioTooltipDirective, null)).toBeNull();
+  it.each([
+    ['maxChildrenPerParent', 'number', 10],
+    ['allowNestedOrchestration', 'boolean', false],
+    ['maxSpawnDepth', 'number', 3],
+  ] as const)('also shows the same sentence as a tooltip on the %s control', (key, type, value) => {
+    const fixture = render(metadata(key, type), value);
+    const tooltipOf = (selector: string): string | null | undefined =>
+      fixture.debugElement.query(By.css(selector)).injector.get(AioTooltipDirective).appTooltip();
+    expect(tooltipOf(`[id="${key}"]`)).toBe(USAGE_CAUSE_TOOLTIPS.helperControls);
   });
 
   it.each([
