@@ -38,6 +38,13 @@ function parseFirst(input: string): OrchestratorCommand | undefined {
   return parseOrchestratorCommands(input)[0];
 }
 
+describe('spawn_child hardened flag', () => {
+  it('arrives from a session\'s command block with the flag intact', () => {
+    const command = parseFirst(commandBlock({ action: 'spawn_child', task: 'Run the probe', provider: 'codex', hardened: true }));
+    expect(command).toMatchObject({ action: 'spawn_child', provider: 'codex', hardened: true });
+  });
+});
+
 describe('orchestration-protocol module', () => {
   it('exports the documented marker constants', () => {
     expect(ORCHESTRATION_MARKER_START).toBe(':::ORCHESTRATOR_COMMAND:::');

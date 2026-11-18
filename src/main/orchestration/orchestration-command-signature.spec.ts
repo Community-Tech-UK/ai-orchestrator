@@ -15,6 +15,14 @@ describe('computeCommandSignature', () => {
     );
   });
 
+  it('keeps a hardened spawn apart from an ordinary one with the same task', () => {
+    const ordinary = { action: 'spawn_child', task: 'Run the probe', provider: 'codex' } as OrchestratorCommand;
+    const hardened = { ...ordinary, hardened: true } as OrchestratorCommand;
+    expect(computeCommandSignature(hardened)).toBe(`${computeCommandSignature(ordinary)}:hardened`);
+    expect(computeCommandSignature({ ...ordinary, hardened: false } as OrchestratorCommand))
+      .toBe(computeCommandSignature(ordinary));
+  });
+
   it('dedups message_child by child and truncated message', () => {
     expect(computeCommandSignature({
       action: 'message_child',

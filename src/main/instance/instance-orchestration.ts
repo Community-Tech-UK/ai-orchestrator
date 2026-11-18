@@ -14,6 +14,7 @@ import { getHabitTracker } from '../learning/habit-tracker';
 import { getPreferenceStore } from '../learning/preference-store';
 import { getAgentById, getDefaultAgent } from '../../shared/types/agent.types';
 import { routeSpawnCommand } from '../orchestration/scout-defaults';
+import { hardenedChildRefusal } from '../orchestration/hardened-child-gate';
 import {
   CLAUDE_MODELS,
   isModelTier,
@@ -249,6 +250,7 @@ export class InstanceOrchestrationManager {
           model: command.model,
           provider: command.provider,
           node: command.node,
+          hardened: command.hardened,
         });
         if (!validation.success) {
           const issue = validation.error.issues[0];
@@ -258,6 +260,10 @@ export class InstanceOrchestrationManager {
           );
           return;
         }
+
+        // A hardened request that cannot be honoured is refused before anything is created.
+        const hardenedRefusal = hardenedChildRefusal(command, parent);
+        if (hardenedRefusal) { this.orchestration.notifyError(parentId, `Cannot spawn child: ${hardenedRefusal}`); return; }
 
         // Check max total instances limit
         if (
@@ -426,7 +432,8 @@ export class InstanceOrchestrationManager {
                   id: child.id,
                   name: child.displayName,
                   status: child.status,
-                  createdAt: child.createdAt
+                  createdAt: child.createdAt,
+                  ...(child.hardened ? { hardened: true } : {}),
                 }
               : null;
           })
@@ -999,7 +1006,8 @@ export class InstanceOrchestrationManager {
   // ============================================
 
   private shouldUseFastPath(command: SpawnChildCommand): boolean {
-    if (command.model || command.agentId) return false;
+    // A hardened request is a request for a real jailed session; a search result would silently skip it.
+    if (command.model || command.agentId || command.hardened === true) return false;
     if (!this.isRetrievalTask(command.task)) return false;
     return command.task.trim().length <= 220;
   }

@@ -863,6 +863,7 @@ import type { RoutingDecision } from '../../routing';
 import type { SpawnChildCommand } from '../../orchestration/orchestration-protocol';
 import { SessionTranscriptReader } from '../../session/session-transcript-reader';
 import type { Instance } from '../../../shared/types/instance.types';
+import { isInstanceHardened } from '../lifecycle/hardened-mode-scoping';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -1495,6 +1496,43 @@ describe('InstanceManager', () => {
         undefined,
         { executionPlatform: 'win32', workerName: 'windows-pc' },
       );
+    });
+
+    describe('hardened children (spawn_child hardened:true)', () => {
+      const routingDecision: RoutingDecision = { model: 'claude-sonnet', complexity: 'moderate', tier: 'balanced', confidence: 0.9, reason: 'test routing' };
+      const spawnChild = (parentId: string, command: Partial<SpawnChildCommand>): Promise<Instance> =>
+        (manager as unknown as {
+          createChildInstance: (parentId: string, command: SpawnChildCommand, routing: RoutingDecision) => Promise<Instance>;
+        }).createChildInstance(parentId, { action: 'spawn_child', task: 'Run the progress prompt', ...command }, routingDecision);
+
+      it('creates a hardened child owned by the parent, registered for the jail, and clears it when the child ends', async () => {
+        const parent = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR, displayName: 'Parent' });
+        await parent.readyPromise;
+
+        const child = await spawnChild(parent.id, { provider: 'codex', hardened: true });
+        await child.readyPromise;
+
+        expect(child.hardened).toBe(true);
+        expect(child.parentId).toBe(parent.id);
+        expect(isInstanceHardened(child.id)).toBe(true);
+        expect(mockCreateCliAdapter).toHaveBeenLastCalledWith('codex', expect.anything(), expect.anything());
+
+        await manager.terminateInstance(child.id, true);
+        expect(isInstanceHardened(child.id)).toBe(false);
+      });
+
+      it('leaves an ordinary child unhardened', async () => {
+        const parent = await manager.createInstance({ workingDirectory: TEST_WORKING_DIR, displayName: 'Parent' });
+        await parent.readyPromise;
+
+        const child = await spawnChild(parent.id, { provider: 'codex' });
+        const explicitFalse = await spawnChild(parent.id, { provider: 'codex', hardened: false });
+
+        expect(child.hardened).toBeUndefined();
+        expect(explicitFalse.hardened).toBeUndefined();
+        expect(isInstanceHardened(child.id)).toBe(false);
+        expect(isInstanceHardened(explicitFalse.id)).toBe(false);
+      });
     });
 
     // Only words a person typed in a session can grant `@session` reads there. A

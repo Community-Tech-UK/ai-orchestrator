@@ -113,6 +113,8 @@ export interface ChildInfo {
   name: string;
   status: string;
   createdAt: number;
+  /** True when the child runs in the macOS Seatbelt jail (hardened mode). */
+  hardened?: boolean;
 }
 
 export interface ChildTerminationResult {

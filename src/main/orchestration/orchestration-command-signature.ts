@@ -10,7 +10,7 @@ import type { OrchestratorCommand } from './orchestration-protocol';
 export function computeCommandSignature(command: OrchestratorCommand): string {
   switch (command.action) {
     case 'spawn_child':
-      return `spawn_child:${command.task.slice(0, 100)}:${command.name || ''}:${command.provider || ''}:${command.model || ''}`;
+      return `spawn_child:${command.task.slice(0, 100)}:${command.name || ''}:${command.provider || ''}:${command.model || ''}${command.hardened === true ? ':hardened' : ''}`;
     case 'message_child':
       return `message_child:${command.childId}:${command.message.slice(0, 80)}`;
     case 'terminate_child':

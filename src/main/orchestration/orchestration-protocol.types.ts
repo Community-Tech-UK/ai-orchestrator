@@ -57,6 +57,12 @@ export interface SpawnChildCommand {
   yoloMode?: boolean;
   /** Connected worker node (id or name, e.g. "windows-pc") to run this child on. Omit to run locally / inherit the parent's machine. */
   node?: string;
+  /**
+   * Run the child inside the macOS Seatbelt jail (hardened mode). Local macOS and supported providers only;
+   * anything else is refused before the child is created. The app starts the child, so it is outside the sandbox
+   * of the session that asked for it.
+   */
+  hardened?: boolean;
   /** `"scout"`: read-only research for the lead to combine. Runs on the balanced model at high effort unless `model` is set. */
   role?: 'scout';
 }

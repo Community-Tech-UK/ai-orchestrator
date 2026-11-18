@@ -2343,7 +2343,7 @@ export class InstanceManager extends EventEmitter {
       displayName: command.name || `Child of ${parent.displayName}`,
       parentId: parentId,
       initialPrompt: childPrompt,
-      yoloMode: command.yoloMode === true,
+      yoloMode: command.yoloMode === true, ...(command.hardened === true ? { hardened: true } : {}),
       agentId: childAgentId,
       modelOverride: routingDecision.model,
       provider: resolvedProvider,

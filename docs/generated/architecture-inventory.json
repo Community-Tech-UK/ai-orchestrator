@@ -6701,16 +6701,16 @@
       "lines": 1701
     },
     {
+      "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
+      "lines": 1698
+    },
+    {
       "path": "src/main/ipc/handlers/__tests__/loop-handlers.spec.ts",
       "lines": 1680
     },
     {
       "path": "src/main/local-ai-guard/local-ai-health-repository.spec.ts",
       "lines": 1663
-    },
-    {
-      "path": "src/main/instance/__tests__/instance-manager.change-model.spec.ts",
-      "lines": 1660
     },
     {
       "path": "src/main/instance/__tests__/instance-manager.create.spec.ts",
@@ -7141,6 +7141,10 @@
       "lines": 1161
     },
     {
+      "path": "src/main/instance/instance-orchestration.ts",
+      "lines": 1149
+    },
+    {
       "path": "docs/plans/completed/claude2_completed.md",
       "lines": 1145
     },
@@ -7151,10 +7155,6 @@
     {
       "path": "src/main/remote-node/__tests__/rpc-schemas.spec.ts",
       "lines": 1143
-    },
-    {
-      "path": "src/main/instance/instance-orchestration.ts",
-      "lines": 1141
     },
     {
       "path": "src/renderer/app/core/state/loop.store.spec.ts",
