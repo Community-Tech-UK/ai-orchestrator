@@ -58,7 +58,8 @@ interface LatestInput {
 }
 
 interface SessionInputState {
-  reportsTurnStarts: boolean;
+  /** Asked at check time: a Codex adapter only knows it is resident once it has spawned, after it was attached. */
+  reportsTurnStarts: () => boolean;
   turnCount: number;
   latestInput: LatestInput | null;
   /** The turn the person's latest message started, and the count when it began. */
@@ -82,8 +83,8 @@ export class InputTurnRegistry {
     InputTurnRegistry.instance = null;
   }
 
-  /** Whether this session's adapter reports turn starts; set each time an adapter is attached. */
-  setReportsTurnStarts(instanceId: string, reports: boolean): void {
+  /** Whether this session's adapter reports turn starts; set each time an adapter is attached, read at each check. */
+  setReportsTurnStarts(instanceId: string, reports: () => boolean): void {
     this.session(instanceId).reportsTurnStarts = reports;
   }
 
@@ -138,7 +139,7 @@ export class InputTurnRegistry {
   /** Whether the session's current turn is the one a person's latest message started and nothing else has started since. */
   checkPersonTurn(instanceId: string): PersonTurnCheck {
     const state = this.sessions.get(instanceId);
-    if (!state?.reportsTurnStarts) return { ok: false, reason: 'provider-cannot-report' };
+    if (!state?.reportsTurnStarts()) return { ok: false, reason: 'provider-cannot-report' };
     const input = state.latestInput;
     if (!input) return { ok: false, reason: 'no-input' };
     if (input.personTypedAt === null) return { ok: false, reason: 'latest-input-not-person' };
@@ -154,7 +155,7 @@ export class InputTurnRegistry {
   private session(instanceId: string): SessionInputState {
     let state = this.sessions.get(instanceId);
     if (!state) {
-      state = { reportsTurnStarts: false, turnCount: 0, latestInput: null, personTurn: null, notices: new Set<string>() };
+      state = { reportsTurnStarts: () => false, turnCount: 0, latestInput: null, personTurn: null, notices: new Set<string>() };
       this.sessions.set(instanceId, state);
     }
     return state;

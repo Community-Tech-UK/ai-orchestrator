@@ -64,7 +64,7 @@ describe('queue parent messages', () => {
     const registry = new InputTurnRegistry();
     vi.spyOn(InputTurnRegistry, 'getInstance').mockReturnValue(registry);
     const h = harness();
-    registry.setReportsTurnStarts('parent', true);
+    registry.setReportsTurnStarts('parent', () => true);
     registry.noteInput('parent', { messageId: 'james', personTypedAt: 5_000 });
     registry.noteTurnStarted('parent', 'harness-send');
 
@@ -79,7 +79,7 @@ describe('queue parent messages', () => {
     vi.spyOn(InputTurnRegistry, 'getInstance').mockReturnValue(registry);
     const h = harness();
     h.sendInput.mockRejectedValueOnce(new Error('session gone'));
-    registry.setReportsTurnStarts('parent', true);
+    registry.setReportsTurnStarts('parent', () => true);
     registry.noteInput('parent', { messageId: 'james', personTypedAt: 5_000 });
     registry.noteTurnStarted('parent', 'harness-send');
 

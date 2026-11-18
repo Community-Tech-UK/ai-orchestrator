@@ -402,6 +402,7 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1157 | P1 | **FIXED AND VERIFIED LIVE 2026-11-12 (source fix and rebuilt-app recheck).** A Codex session could never use Land anyway: its call was always refused with "This session's provider can't report when a turn starts". The queue asked the Codex adapter whether it reports turn starts while the adapter was being attached, before it had started, when it still says no. Found live on a Codex parent in a dev app. The check now asks at the time of the call. | [LT-1157 detail](#lt-1157) | [Land anyway live checks](2026-11-04-pq-b1-land-anyway_plan_livetest.md) |
 | LT-1156 | P2 | **SOURCE FIX VERIFIED 2026-11-11; rebuilt-app check pending.** The one-time "turn cost display on" settings change that Phase A recorded as implemented (Decision 15(a)) was not in the code. James's saved settings hold `showCost: false`, so session cost stayed hidden after the upgrade. Reproduced in a throwaway dev app, then fixed by restoring the migration (`migrateCostDisplayDecision`) with a test. |
 | LT-1145 | P2 | **PATCHED IN SOURCE + LIVE RECHECKED 2026-11-11 (queue worktree dev app); independent review pending.** A session context menu opened from the keyboard (Menu key or Shift+F10) stayed open but could not be reached: focus stayed on the row, arrow keys did nothing and 70 Tab presses never entered the menu. The instance list now moves focus into the menu for keyboard-opened menus and returns it to the row on close. [Detail](#lt-1145) | [Oct2 later live checks, 11 Nov 2026 run](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11) | same |
 | LT-1146 | P2 | **PATCHED IN SOURCE + LIVE RECHECKED 2026-11-11; independent review pending.** A thread wake-up that came due while its session was mid-turn read "Next run unverified" instead of "Due now, waiting for the session to be idle", because the held run is recorded as `skipped` (not `pending`) and the countdown only looked for a pending run. The countdown now recognises the held run. [Detail](#lt-1146) | [Oct2 later live checks, 11 Nov 2026 run](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11) | same |
@@ -13360,6 +13361,26 @@ excludes. Regenerated code (`register-aliases.ts`, IPC channels) and any other d
 failure runs them too. Acceptance: `run-git-hook.spec.ts` case `regenerated: documentation` skips (it failed before
 the fix), `regenerated: code` runs the tests, and the mocked changed-tree case still runs them. On the rebuilt app, a
 plan landing whose code equals its tested code has a short commit check.
+
+<a id="lt-1157"></a>
+
+## LT-1157
+
+### LT-1157 — Land anyway always refused a Codex parent ("provider can't report when a turn starts")
+
+**Status: fixed and verified live 12 November 2026. The rebuilt dev app accepted a Codex parent's typed-message `land-anyway` (07:54) and refused the call made in the goal-started turn (07:57), see livetest check 3.**
+
+### Observed behaviour
+
+Dev app (isolated profile) with a Codex parent session that started a Plan Queue run. The item parked, a message was typed in the real message box ("Land that anyway…"), and the session called `plan_queue_control` with `land-anyway`. Twice (07:47 and 07:48) the call was refused: "This session's provider can't report when a turn starts, so Harness can't tell that you are answering James's message." The same sequence on a Claude parent was accepted. The item stayed parked.
+
+### Root cause
+
+`InstanceCommunicationManager.setupAdapterEvents` read `adapter.getAdapterCapabilities().reportsTurnStarts` once, when the adapter was attached, and stored the boolean in `InputTurnRegistry`. For Codex that capability is `this.useAppServer`, which is only set to true inside `spawn()`. Every attach path (`instance-lifecycle.ts` create and resume) calls `setupAdapterEvents` before `adapter.spawn()`, so a fresh Codex session was recorded as unable to report turn starts for good. The registry unit tests set the flag by hand and the adapter spec sets `useAppServer` directly, so neither saw the order.
+
+### Required behaviour and acceptance
+
+The registry asks the adapter at each check (`setReportsTurnStarts(instanceId, () => boolean)`), so a resident Codex session reports, an exec-mode fallback or terminated one is refused. Acceptance: `instance-communication-turn-start-capability.spec.ts` (fails with the old eager read, mutation-checked), `input-turn-registry.spec.ts` case "asks the adapter at check time"; on the rebuilt app (done 12 November 2026), a Codex parent's typed-message `land-anyway` is accepted ([livetest check 3](2026-11-04-pq-b1-land-anyway_plan_livetest.md)).
 
 
 <a id="lt-1184"></a>

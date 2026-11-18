@@ -8,7 +8,7 @@ let registry: InputTurnRegistry;
 beforeEach(() => {
   clock = 1_000_000;
   registry = new InputTurnRegistry(() => clock);
-  registry.setReportsTurnStarts(S, true);
+  registry.setReportsTurnStarts(S, () => true);
 });
 
 /** A person's message that has started its turn. */
@@ -24,8 +24,19 @@ describe('InputTurnRegistry.checkPersonTurn', () => {
   });
 
   it('refuses a provider whose adapter cannot report turn starts', () => {
-    registry.setReportsTurnStarts(S, false);
+    registry.setReportsTurnStarts(S, () => false);
     personTurn();
+    expect(registry.checkPersonTurn(S)).toEqual({ ok: false, reason: 'provider-cannot-report' });
+  });
+
+  it('asks the adapter at check time, because a Codex adapter only knows it is resident after it has spawned', () => {
+    let resident = false; // attached before spawn: not yet resident
+    registry.setReportsTurnStarts(S, () => resident);
+    personTurn();
+    expect(registry.checkPersonTurn(S)).toEqual({ ok: false, reason: 'provider-cannot-report' });
+    resident = true; // spawn finished in app-server mode
+    expect(registry.checkPersonTurn(S)).toEqual({ ok: true, messageId: 'm1', typedAt: 5_000 });
+    resident = false; // fell back to exec mode, or terminated
     expect(registry.checkPersonTurn(S)).toEqual({ ok: false, reason: 'provider-cannot-report' });
   });
 
@@ -136,7 +147,7 @@ describe('InputTurnRegistry.checkPersonTurn', () => {
 
   it('keeps sessions apart and forgets a removed one', () => {
     personTurn();
-    registry.setReportsTurnStarts('other', true);
+    registry.setReportsTurnStarts('other', () => true);
     expect(registry.checkPersonTurn('other')).toEqual({ ok: false, reason: 'no-input' });
     registry.forget(S);
     expect(registry.checkPersonTurn(S)).toEqual({ ok: false, reason: 'provider-cannot-report' });

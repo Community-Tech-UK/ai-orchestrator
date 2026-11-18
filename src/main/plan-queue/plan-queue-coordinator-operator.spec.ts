@@ -341,7 +341,7 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
     const parkedAt = (itemId: string): number => store.history.lastParkedAt(itemId)!;
     /** A person's message in the parent session that has started its turn. */
     function personMessage(parentId: string, typedAt: number, messageId = 'msg-1'): void {
-      personTurns.setReportsTurnStarts(parentId, true);
+      personTurns.setReportsTurnStarts(parentId, () => true);
       personTurns.noteInput(parentId, { messageId, personTypedAt: typedAt });
       personTurns.noteTurnStarted(parentId, 'harness-send');
     }
@@ -384,7 +384,7 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
       ['a turn started by itself after the message (Claude CLI background job, Codex goal turn)',
         (parentId: string) => personTurns.noteTurnStarted(parentId, 'provider'), /Another turn has started since/],
       ['the provider cannot report turn starts',
-        (parentId: string) => personTurns.setReportsTurnStarts(parentId, false), /can't report when a turn starts/],
+        (parentId: string) => personTurns.setReportsTurnStarts(parentId, () => false), /can't report when a turn starts/],
     ])('refuses when %s', async (_label, interfere, reason) => {
       const { runId, itemId, branch, parentId } = await parkedAtRoundLimit();
       personMessage(parentId, parkedAt(itemId) + 60_000);
@@ -407,7 +407,7 @@ describe('PlanQueueCoordinator — operator actions', { timeout: 30_000 }, () =>
 
     it('refuses a parent with no message at all, which is also how it stands after a restart', async () => {
       const { runId, itemId, branch, parentId } = await parkedAtRoundLimit();
-      personTurns.setReportsTurnStarts(parentId, true);
+      personTurns.setReportsTurnStarts(parentId, () => true);
 
       await expect(coordinator.control({ action: 'land-anyway', itemId }, parentId)).rejects.toThrow(/no message from James in this session/);
 

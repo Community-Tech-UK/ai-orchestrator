@@ -53,7 +53,7 @@ function queued(id: string) {
 }
 
 function jamesTyped(at: Date): void {
-  personTurns.setReportsTurnStarts('agent', true);
+  personTurns.setReportsTurnStarts('agent', () => true);
   personTurns.noteInput('agent', { messageId: 'm1', personTypedAt: at.getTime() });
   personTurns.noteTurnStarted('agent', 'harness-send');
 }
@@ -67,7 +67,7 @@ it("skips a job that has not started in its reply to James's typed message, and 
 
 it('refuses without a message from James, and when the latest input is a Harness notice', async () => {
   const itemId = queued('fresh');
-  personTurns.setReportsTurnStarts('agent', true);
+  personTurns.setReportsTurnStarts('agent', () => true);
   await expect(coordinator.control({ action: 'skip-item', itemId }, 'agent')).rejects.toThrow('in its reply to a message James typed');
   jamesTyped(new Date());
   personTurns.noteInput('agent', { messageId: 'notice', personTypedAt: null });

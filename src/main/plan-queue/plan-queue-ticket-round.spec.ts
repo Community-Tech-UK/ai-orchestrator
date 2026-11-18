@@ -158,6 +158,9 @@ describe('a ticket job through a whole round', { timeout: 60_000 }, () => {
     fake.scripts.worker = recording('worker', () => new Promise<void>(() => undefined));
     await startRound([ORC12]);
     await vi.waitFor(() => expect(store.listItems(RUN_ID)[0].state).toBe('working'), { timeout: 15_000 });
+    // The fake worker's first turn starts on the next tick and reads the data folder. Wait for it, or it can start
+    // after afterEach has cleared the folder and throw outside the test.
+    await vi.waitFor(() => expect(turns.filter((turn) => turn.role === 'worker')).toHaveLength(1), { timeout: 15_000 });
     expect(store.listItems(RUN_ID)[0].parkReason).toBeNull();
     expect(store.history.getPin(store.listItems(RUN_ID)[0].id)).toMatchObject({ unchecked: [], documentSha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
   });

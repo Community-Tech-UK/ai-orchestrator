@@ -201,7 +201,7 @@ it('protects an assigned idle verifier that has not completed its Queue outcome'
 it.each([false, true])('preserves a pending question after transfer and follows its destination setting (chat=%s)', questionsToParent => {
   const { run, deps } = fixture();
   const registry = InputTurnRegistry.getInstance();
-  registry.setReportsTurnStarts('target', true);
+  registry.setReportsTurnStarts('target', () => true);
   registry.noteInput('target', { messageId: 'james', personTypedAt: 5_000 });
   registry.noteTurnStarted('target', 'harness-send');
   const question = { question: 'May this work proceed?', options: [{ id: 'yes', label: 'Yes' }, { id: 'no', label: 'No' }] };

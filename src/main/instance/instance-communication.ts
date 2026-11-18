@@ -1494,8 +1494,8 @@ export class InstanceCommunicationManager extends EventEmitter {
       observeAsyncWork: (event) => observeInstanceBackgroundWork(instanceId, event, this.deps),
       observeTurnStarted: (source) => getInputTurnRegistry().noteTurnStarted(instanceId, source),
     });
-    const capabilities = (adapter as { getAdapterCapabilities?: () => AdapterCapabilities }).getAdapterCapabilities?.();
-    getInputTurnRegistry().setReportsTurnStarts(instanceId, capabilities?.reportsTurnStarts === true);
+    // Asked at each check, not now: a Codex adapter attached here has not spawned yet, so it does not know it is resident.
+    getInputTurnRegistry().setReportsTurnStarts(instanceId, () => (adapter as { getAdapterCapabilities?: () => AdapterCapabilities }).getAdapterCapabilities?.()?.reportsTurnStarts === true);
 
     const onAdapterStatus = (status: InstanceStatus): void => {
       if (isStaleAdapterEvent('status')) {
