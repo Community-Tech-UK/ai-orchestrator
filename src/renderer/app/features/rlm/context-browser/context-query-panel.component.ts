@@ -62,6 +62,7 @@ export interface SavedQueryTemplate {
               <input
                 type="number"
                 class="query-input small"
+                aria-label="Max results"
                 [value]="maxResults()"
                 (input)="updateQueryParam('maxResults', $event)"
                 [appTooltipDisabledReason]="!hasSession() ? 'Start a context session first.' : null"
@@ -74,6 +75,7 @@ export interface SavedQueryTemplate {
               <input
                 type="number"
                 class="query-input"
+                aria-label="Start offset"
                 [value]="start()"
                 (input)="updateQueryParam('start', $event)"
                 [appTooltipDisabledReason]="!hasSession() ? 'Start a context session first.' : null"
@@ -82,6 +84,7 @@ export interface SavedQueryTemplate {
               <input
                 type="number"
                 class="query-input"
+                aria-label="End offset"
                 [value]="end()"
                 (input)="updateQueryParam('end', $event)"
                 [appTooltipDisabledReason]="!hasSession() ? 'Start a context session first.' : null"
@@ -155,6 +158,7 @@ export interface SavedQueryTemplate {
               <input
                 type="number"
                 class="query-input small"
+                aria-label="Top K results"
                 [value]="topK()"
                 (input)="updateQueryParam('topK', $event)"
                 [appTooltipDisabledReason]="!hasSession() ? 'Start a context session first.' : null"

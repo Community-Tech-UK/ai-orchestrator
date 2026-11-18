@@ -62,6 +62,7 @@ import type {
             [value]="confidenceThreshold()"
             (input)="onConfidenceChange($event)"
             class="confidence-slider"
+            aria-label="Minimum confidence"
           />
         </div>
 

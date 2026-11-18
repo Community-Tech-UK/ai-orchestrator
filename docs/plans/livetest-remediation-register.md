@@ -442,6 +442,10 @@ sections below. The historical reproduction remains unchanged.
 | LT-1097 | P3 | **OPEN — reproduced live 2026-11-11.** Opening the Wake screen records every displayed note as "shown", so one visit inflates "shown this week" and un-hides legacy notes. | [LT-1097 detail](#lt-1097) | [Oct-2 housekeeping check 5](2026-10-20-oct2-housekeeping_livetest.md#evidence-run--2026-11-11-plan-queue-worker) |
 | LT-1098 | P3 | **OPEN — reproduced live 2026-11-11.** Removing a Wake note deletes only that one row; a duplicate copy of the same text stays and becomes the visible note, although the prompt says the note is removed. | [LT-1098 detail](#lt-1098) | [Oct-2 housekeeping check 5](2026-10-20-oct2-housekeeping_livetest.md#evidence-run--2026-11-11-plan-queue-worker) |
 | LT-1090 | P3 | **SOURCE FIX PRESENT; live re-checks passed 2026-11-11, 2026-11-12 and 2026-11-14 (18 of 18 steps each on the last two); independent verification pending.** Opening Settings from the dashboard threw `Cannot read properties of undefined (reading 'data')` in the shared page shell (`findActiveSurfaceId`) while the page still rendered. Reported during the 2026-10-27 MiMo live test as LT-711 (a number the register gives to the unrelated Cursor report) and by other campaigns as LT-723 and LT-790 (neither has a section here); LT-1090 is the register entry for this defect (the MiMo navigation queue branch briefly filed it as LT-1018, an id main gave to the unrelated cost-event defect; merged here 2026-11-14). | [LT-1090 detail](#lt-1090) | [MiMo saved usage live test](2026-10-11-mimo-saved-usage-session_livetest.md#evidence-run--2026-11-11) |
+| LT-1161 | P2 | **SOURCE FIX APPLIED 10 NOVEMBER 2026; rebuilt-app light-theme check passed in a hidden off-screen window, Windows check pending.** The transcript jump-rail preview card used a colour variable that no stylesheet defines, so it was always dark while its text followed the theme: in the light theme the prompt line was near-black on dark grey (contrast 1.06:1). | [LT-1161 detail](#lt-1161) | [Phase 4 part 3 evidence](2026-10-10-oct-phase4c-tooltips-finish_livetest.md#evidence-run--10-november-2026-hidden-window-on-the-coordinator-mac) |
+| LT-1162 | P3 | **SOURCE FIX APPLIED 11 NOVEMBER 2026; screen-reader check pending.** The sort drop-down on the Memory screen had no accessible name (the visible "Sort:" text was a separate span, not a label), so a screen reader announced an unnamed combo box. Found by the 10 November Tab sweep of the tooltip work; it predates that work. | [LT-1162 detail](#lt-1162) | [Phase 4 part 3 evidence](2026-10-10-oct-phase4c-tooltips-finish_livetest.md#evidence-run--10-november-2026-hidden-window-on-the-coordinator-mac) |
+| LT-1163 | P2 | **SOURCE FIX APPLIED 14 NOVEMBER 2026; same defect as LT-1168, which main fixed and verified live on 16 November 2026 (main's fix is the one kept); recheck of the attachment preview pending.** With a hint showing on a focused control, pressing Escape closed the hint and also left the whole page: in Settings, Escape on a provider-account button with its hint open took the user back to the main screen. The Settings Escape handler promises one layer per press. | [LT-1163 detail](#lt-1163) | [Phase 4 part 3 evidence](2026-10-10-oct-phase4c-tooltips-finish_livetest.md#evidence-run--14-november-2026-test-mac-copy-of-the-dev-app) |
+| LT-1164 | P3 | **SOURCE FIX APPLIED 14 NOVEMBER 2026; screen-reader check pending.** Six controls had no accessible name, so a screen reader announced them as unnamed: the Evaluation Preview box on the Hooks screen, the Min Confidence slider on Reviews, and the Max Results, Top K, Start Offset and End Offset number fields on the RLM context browser (the last two were found by the verifier on 14 November; they only render in Slice mode). Found by the 14 November sweep of 44 screens; they predate the tooltip work. | [LT-1164 detail](#lt-1164) | [Phase 4 part 3 evidence](2026-10-10-oct-phase4c-tooltips-finish_livetest.md#evidence-run--14-november-2026-test-mac-copy-of-the-dev-app) |
 | LT-1085 | P2 | **SOURCE FIX VERIFIED 2026-11-10; rebuilt dev app rechecked live.** After Claude's own `/compact` (Compact now on a resident session) the chat showed "The model sent no reply. Your message and the work above are kept." with a Retry button, because the compaction turn's empty result was judged an empty model reply. | [LT-1085 detail](#lt-1085) | [Token levers live checks](2026-10-10-oct-phase1-token-levers_livetest.md) |
 | LT-1088 | P1 | **SOURCE FIX VERIFIED 2026-11-13; rebuilt-app rollout still gated.** With the rewrite-only RTK hook on, `FOO=1 git push`, `timeout 5 git push` and `git -C <dir> push` ran in a Claude session whose project denies `Bash(git push*)`: the hook rewrote them to `FOO=1 rtk git push` and the like, Claude matched its deny rule against the rewritten text and the push executed (it stopped only because the scratch repo had no remote). The hook no longer rewrites a command that starts with a `NAME=value` word, a wrapper such as `timeout`, or `git` plus a global option. | [LT-1088 detail](#lt-1088) | [Token levers live checks](2026-10-10-oct-phase1-token-levers_livetest.md) |
 | LT-1089 | P4 | **REPRODUCED LIVE 2026-11-13; NOT FIXED.** Renaming a new Claude chat within about 300 ms of its first message makes the title service log "AI title upgrade skipped: no live session and spawning a new CLI for a label is switched off" for that Claude chat. The rename is kept and no second process starts, so only the log reason is misleading; the livetest expects that line only for non-Claude chats. | [LT-1089 detail](#lt-1089) | [Token levers live checks](2026-10-10-oct-phase1-token-levers_livetest.md) |
@@ -16302,6 +16306,79 @@ The task baseline `234b7e405^` has the same trigger and selection-panel binding.
 - While the picker is open, make the chip's `aria-controls` resolve to the actual controlled panel with a unique, stable identifier. Keep the advertised popup semantics consistent with the rendered panel.
 - Repeat real Tab → Enter on the rebuilt test Mac app and inspect the expanded chip and its referenced element in the same browser-control session. Require an existing, visible controlled panel while open; record its accessible role and name and preserve normal search and model selection.
 - Check an ordinary session picker and a modal host as shared callers, including multiple pickers on one page. References must resolve to their own panels without duplicate identifiers. When a panel is removed on close, omit any reference that would point to a missing element. Retain the resulting live evidence with the future repair's acceptance record.
+
+## LT-1161
+
+### LT-1161 — jump-rail preview card is dark with dark text in the light theme
+
+**Status: source fix applied 10 November 2026 (`transcript-jump-rail.component.ts`); verified live in a hidden off-screen window; Windows check pending.**
+
+### Observed behaviour
+
+On the dev renderer with the light theme applied through the real settings path (`SettingsStore.applyTheme('light')`), Tab to a transcript tick. The preview card appears with a dark background and the prompt line in near-black (`rgb(12, 10, 9)`), contrast 1.06:1 against the card; the reply line is 4.37:1. In the dark theme the same card measures 18.28:1 and 7.07:1.
+
+### Root cause
+
+`.preview` set `background: color-mix(in srgb, var(--surface-color, #1a1d24) 94%, transparent)`. No stylesheet defines `--surface-color` (searched `src/renderer`), so the `#1a1d24` fallback always applied, while `.preview-prompt` and `.preview-reply` use the theme-aware `--text-primary` and `--text-muted`. It predates the keyboard work: the card has been dark-only since the July hover preview.
+
+### Required behaviour and acceptance
+
+The card background follows the theme (`--bg-elevated`, the variable the other popovers use). Acceptance: with the light theme, the prompt line against the card is at least 4.5:1 and the reply line likewise; the dark theme is unchanged in look.
+
+## LT-1162
+
+### LT-1162 — Memory screen sort drop-down has no accessible name
+
+**Status: source fix applied 11 November 2026 (`memory-browser.component.ts`); verified in the accessibility tree; spoken check pending.**
+
+### Observed behaviour
+
+In the hidden-window sweep of the Memory screen (10 November 2026) the accessibility tree reported the `select.sort-select` combo box with an empty name. The visible "Sort:" text is a plain `<span class="sort-label">` with no `for` or `aria-labelledby`.
+
+### Root cause
+
+`memory-browser.component.ts` rendered the select with no `aria-label`, `<label for>` or `aria-labelledby`. It predates the tooltip migration (the guard rules cover icon buttons and titles, not selects).
+
+### Required behaviour and acceptance
+
+The select has the accessible name "Sort memories by"; its options and behaviour are unchanged. Acceptance: the accessibility tree gives the combo box that name on the Memory screen.
+
+## LT-1163
+
+### LT-1163 — Escape with a hint showing also closes the page or dialog around the control
+
+**Status: source fix applied 14 November 2026; on merging with main (18 November 2026) this branch's mark-the-press approach was dropped in favour of the fix already on main: the hint's Escape handler stops the press (`event.stopPropagation()`) only while a hint is open, so Settings never sees it (`aio-tooltip.directive.ts`, covered by the directive spec). Live recheck of the Settings sequence and of the attachment preview (which now also stays open on the first Escape while a hint shows) pending on the rebuilt copy.**
+
+### Observed behaviour
+
+Reproduced on 14 November 2026 in a dev app copy on the test Mac (real keys over the debugging port). Settings > Provider accounts, Tab to "Sign in again": its hint ("Opens a terminal already running the sign-in command") opens. Pressing Escape closed the hint and also navigated away from Settings (path `/settings` became `/`). The hint's own Escape handler and the Settings page's Escape handler (`settings.component.ts`, `onKeydown`: "Escape closes the deepest open overlay first ... never more than one thing at a time") both ran for one key press.
+
+### Root cause
+
+`AioTooltipDirective` handled `(keydown.escape)` with `hide()` and left no sign on the event, so the Settings page's own Escape handler could not tell that the press had already been used for a hint.
+
+### Required behaviour and acceptance
+
+When a hint is showing, Escape closes the hint and the press goes no further (the directive stops it), so the first Escape closes only the hint and the second leaves Settings. With no hint showing nothing changes. Every page or dialog that closes on Escape, including the attachment preview, behaves the same way. Acceptance: the Settings sequence above leaves the page open with the hint closed, a second Escape leaves Settings; the attachment preview stays open on the first Escape while a hint shows and closes on the second; the directive case passes.
+
+## LT-1164
+
+### LT-1164 — six controls with no accessible name (Hooks, Reviews, RLM context browser)
+
+**Status: source fix applied 14 November 2026 (`hooks-page.component.ts`, `review-results.component.ts`, `context-query-panel.component.ts`); first four verified in the accessibility tree; Start and End Offset verified by a component test only (`context-query-panel.component.spec.ts`), not yet in the live accessibility tree; spoken check pending.**
+
+### Observed behaviour
+
+A Tab-order sweep of 44 screens in the test Mac dev app (14 November 2026) listed every focusable control with no visible text, label or aria-label, then read each one's accessible name from Chromium's accessibility tree. Four had an empty name: the `textarea.textarea` in Hooks > Evaluation Preview, the `input.confidence-slider` range in Reviews ("Min Confidence: n%" is a separate span), and the two `input.query-input.small` number fields in the RLM context browser (the "Max Results" and "Top K Results" text is a separate span). Verifier review the same day found two more in the RLM Slice query mode, which the sweep never rendered (it only saw the default Grep mode): the Start Offset and End Offset number fields (`context-query-panel.component.ts`, sibling spans only).
+
+### Root cause
+
+None of the six had an `aria-label`, `<label for>` or `aria-labelledby`; the visible words sit in sibling spans. They predate the tooltip migration (like LT-1162).
+
+### Required behaviour and acceptance
+
+Each control has an accessible name: "Evaluation context (JSON)", "Minimum confidence", "Max results", "Top K results", "Start offset", "End offset". Acceptance: the accessibility tree gives each control that name; behaviour unchanged.
+
 
 ## LT-1185
 

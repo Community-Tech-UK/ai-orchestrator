@@ -138,6 +138,7 @@ const DEFAULT_EVAL_CONTEXT = JSON.stringify(
             <div class="panel-title">Evaluation Preview</div>
             <textarea
               class="textarea"
+              aria-label="Evaluation context (JSON)"
               [value]="evaluationContextJson()"
               (input)="onEvaluationContextInput($event)"
             ></textarea>

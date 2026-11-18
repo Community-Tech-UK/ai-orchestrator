@@ -221,7 +221,7 @@ let nextPreviewId = 0;
       width: 280px;
       padding: 10px 12px;
       border-radius: 10px;
-      background: color-mix(in srgb, var(--surface-color, #1a1d24) 94%, transparent);
+      background: color-mix(in srgb, var(--bg-elevated, #1a1d24) 94%, transparent);
       border: 1px solid color-mix(in srgb, var(--text-muted) 22%, transparent);
       box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
       pointer-events: none;

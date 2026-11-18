@@ -75,6 +75,7 @@ interface MemoryEntryWithType extends MemoryEntry {
         <span class="sort-label">Sort:</span>
         <select
           class="sort-select"
+          aria-label="Sort memories by"
           [value]="sortBy()"
           (change)="onSortChange($event)"
         >
