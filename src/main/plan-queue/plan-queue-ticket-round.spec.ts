@@ -132,6 +132,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // A fake session starts its first turn on the next tick. When a test ends first, that turn must not run against the
+  // data folder removed below: it would throw as an unhandled rejection and fail the whole run.
+  fake.live.clear();
   _setLinearTicketReadForTesting(null);
   _setLinearProviderPolicyForTesting(null);
   _setPlanQueueDataDirForTesting(null);
