@@ -110,3 +110,47 @@ export async function updatePlanIntegrationStatus(documentPath: string, branch: 
   const updated = replaceOnMainLine(content, landedIntegrationStatus(content, branch, commit, step, finishesPlan));
   if (content !== updated) changeDocumentFile(identity, bytes, updated);
 }
+
+/** One sentence of a plan that a change made directly on the base branch overtook (PlanQueueStalePlanTextSchema). */
+export interface StalePlanNote {
+  commit: string;
+  /** "10 Nov 2026". */
+  date: string;
+  step: number | null;
+  sentence: string;
+}
+
+/** The note under a step: a later job or checker reads it before the stale sentence below it. */
+export function stalePlanNoteLine(note: StalePlanNote): string {
+  const sentence = note.sentence.replace(/\s+/g, ' ').trim().slice(0, 400);
+  return `> Overridden by ${note.commit.slice(0, 9)}, ${note.date}: "${sentence}" no longer applies; keep that change.`;
+}
+
+/**
+ * Writes each note once, directly under its step's `## Step N` heading (the job's own step when the note names none
+ * or names a step the plan lacks). Other steps are untouched; a note already present is not written again.
+ */
+export function withStalePlanNotes(content: string, notes: readonly StalePlanNote[], ownStep: number): string {
+  const eol = content.includes('\r\n') ? '\r\n' : '\n';
+  const lines = content.split(/\r?\n/);
+  const headingOf = (step: number) => lines.findIndex(line => new RegExp(`^##[ \\t]+Step[ \\t]+${step}\\b`, 'i').test(line));
+  for (const note of notes) {
+    const line = stalePlanNoteLine(note);
+    if (lines.includes(line)) continue;
+    let heading = note.step != null ? headingOf(note.step) : -1;
+    if (heading < 0) heading = headingOf(ownStep);
+    if (heading < 0) continue;
+    lines.splice(heading + 1, 0, '', line);
+  }
+  return lines.join(eol);
+}
+
+/** Root plan of a step job after it lands; the same write rules as the "On main" line above. */
+export async function writeStalePlanNotes(documentPath: string, notes: readonly StalePlanNote[], ownStep: number): Promise<void> {
+  if (!notes.length) return;
+  const identity = documentFileIdentity(documentPath);
+  const bytes = await readFile(documentPath);
+  const content = bytes.toString('utf8');
+  const updated = withStalePlanNotes(content, notes, ownStep);
+  if (content !== updated) changeDocumentFile(identity, bytes, updated);
+}

@@ -10,6 +10,7 @@ import {
   sendMobileAutomationFailurePush,
   sendMobileCompletionPush,
   sendMobileLiveActivityPush,
+  sendMobilePlanQueuePush,
   sendMobilePromptPush,
 } from './mobile-gateway-push';
 
@@ -294,4 +295,15 @@ it('pushes the exact presenter tone even where labels share different severity',
       contentState: { displayLabel: presentInstanceStatus(status).label, displayTone: presentInstanceStatus(status).tone },
     });
   }
+});
+
+describe('sendMobilePlanQueuePush', () => {
+  it.each([
+    ['answer', 'Plan Queue needs your answer', 'Open Harness to answer the question.'],
+    ['direct-change-choice', 'Plan Queue needs your choice', 'A job would undo a change made directly on the branch. Open Harness to choose which version to keep.'],
+  ] as const)('words a job waiting for %s by what it needs', (waitingFor, title, body) => {
+    const { deps, send } = makeDeps();
+    sendMobilePlanQueuePush(deps, 'item-1', waitingFor);
+    expect(send.mock.calls[0]![1]).toMatchObject({ title, body, category: 'AIO_PLAN_QUEUE', data: { kind: 'plan-queue', itemId: 'item-1' } });
+  });
 });

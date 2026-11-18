@@ -20,7 +20,10 @@ const BUDGET = {
   // bytes including its approval schema; round up to the next 1 KiB as above.
   // Nov-15: four reference-only Codex device-login tools bring the measured full
   // surface to 75,377 bytes. Existing tools retain their separate ceiling below.
-  browserFull: { bytes: 75776, render: () => createBrowserMcpTools(client), measure: measureToolSchemaBytes },
+  // Nov-17: browser.recover_secret_observation lets agents ask the user to restore
+  // access, which the popup-only reset never allowed (76,667 bytes measured); it has its own ceiling
+  // below. Next 1 KiB ceiling is 76,800.
+  browserFull: { bytes: 76800, render: () => createBrowserMcpTools(client), measure: measureToolSchemaBytes },
   browserDeferred: { bytes: 12288, render: () => createDeferredBrowserMcpTools(client, { onReveal: () => undefined }), measure: measureToolSchemaBytes },
   browserStable: { bytes: 12288, render: () => createStableBrowserMcpTools(client), measure: measureToolSchemaBytes },
   // Nov-07: plan_queue_report_ready (the worker completion report, roughly 2 KB of schema)
@@ -33,7 +36,9 @@ const BUDGET = {
   // Nov-14: live-test capability repair adds four tools (report_capability_gap/_check/_probe and
   // authorize_capability_repairs), the recheck-readiness control and capability_gaps on the worker report:
   // 84,986 bytes; next 1 KiB ceiling is 84,992.
-  orchestratorFull: { bytes: 84992, render: all, measure: measureOrchestratorToolSchemaBytes },
+  // Nov-17: `stale_plan_text` on plan_queue_report_ready and plan_queue_report_verdict (one shared, trimmed schema), so
+  // agents can say which plan sentence a change made directly on main overtook: 85,415 bytes; next 1 KiB ceiling is 86,016.
+  orchestratorFull: { bytes: 86016, render: all, measure: measureOrchestratorToolSchemaBytes },
   orchestratorDeferredConnected: { bytes: 10240, render: () => deferred(true), measure: measureOrchestratorToolSchemaBytes },
   orchestratorDeferredOffline: { bytes: 4096, render: () => deferred(false), measure: measureOrchestratorToolSchemaBytes },
   orchestratorStableConnected: { bytes: 11264, render: () => stable(true), measure: measureOrchestratorToolSchemaBytes },
@@ -57,8 +62,12 @@ describe('advertised tool schema byte budgets', () => {
     // one-use code submission guidance. Its next 1 KiB ceiling is 71,680;
     // device-login tools are measured separately, preserving this older ceiling.
     expect(measureToolSchemaBytes(dialog)).toBeLessThanOrEqual(1536);
+    const recovery = advertised.tools.filter(tool => tool.name === 'browser.recover_secret_observation');
+    expect(recovery).toHaveLength(1);
+    expect(measureToolSchemaBytes(recovery)).toBeLessThanOrEqual(1536);
     expect(measureToolSchemaBytes(advertised.tools.filter(tool =>
-      tool.name !== 'browser.handle_dialog' && !tool.name.endsWith('_device_login')))).toBeLessThanOrEqual(71680);
+      tool.name !== 'browser.handle_dialog' && tool.name !== 'browser.recover_secret_observation'
+      && !tool.name.endsWith('_device_login')))).toBeLessThanOrEqual(71680);
   });
 
   it.each(Object.entries(BUDGET))('%s stays within its measured ceiling', async (_surface, entry) => {

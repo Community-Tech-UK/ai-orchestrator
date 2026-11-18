@@ -17,3 +17,19 @@ export function withBrowserSession<T>(userDataPath: string, instanceId: string, 
 export function currentBrowserSessionOwner(): string | undefined {
   return ownerContext.getStore();
 }
+
+let sessionUserDataPath: (() => string) | undefined;
+
+/** Set once at startup to the same user-data path the RPC server stamps owners with. */
+export function setBrowserSessionUserDataPathProvider(provider: (() => string) | undefined): void {
+  sessionUserDataPath = provider;
+}
+
+/**
+ * Run Harness-initiated work (not an RPC call) as one session's browser owner,
+ * so the extension treats it as that session's own command on a tab the
+ * session holds. Without a provider (unit tests) the work runs owner-less.
+ */
+export function withBrowserSessionOfInstance<T>(instanceId: string, work: () => T): T {
+  return sessionUserDataPath ? withBrowserSession(sessionUserDataPath(), instanceId, work) : work();
+}

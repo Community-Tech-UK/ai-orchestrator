@@ -102,6 +102,9 @@ export type CredentialVaultErrorCode =
   | 'item_changed'
   | 'target_unavailable'
   | 'target_closed'
+  | 'target_held_by_another_session'
+  | 'target_secret_protected'
+  | 'computer_offline'
   | 'shared_tab_credential_fill_not_allowed'
   | 'shared_tab_secure_credential_fill_unavailable'
   | 'item_outside_agent_folder'
@@ -188,6 +191,8 @@ export interface ExistingCredentialInspection {
   folderName: string;
   requiresMoveIntoFolder: boolean;
   existingBinding?: { origin: string; createdAt: number };
+  /** Exact http(s) origins of the item's own saved URLs. Never a secret. */
+  savedOrigins: string[];
 }
 
 export interface EnrolExistingCredentialResult {
@@ -229,6 +234,7 @@ interface BwItem {
   login?: {
     username?: string | null;
     password?: string | null;
+    uris?: { uri?: string | null }[] | null;
   };
   /** Bitwarden custom fields — where generic (non-login) secrets live. */
   fields?: { name?: string | null; value?: string | null; type?: number }[];
@@ -386,6 +392,7 @@ export class CredentialVault {
       folderName: this.folderName,
       requiresMoveIntoFolder: folderId === undefined || item.folderId !== folderId,
       ...(binding ? { existingBinding: { origin: binding.origin, createdAt: binding.createdAt } } : {}),
+      savedOrigins: savedOrigins(item),
     };
   }
 
@@ -654,6 +661,19 @@ export class CredentialVault {
     }
     return parsed;
   }
+}
+
+/** Full http(s) URLs only: a bare host has no scheme to match exactly. */
+function savedOrigins(item: BwItem): string[] {
+  const origins = (item.login?.uris ?? []).flatMap((entry) => {
+    try {
+      const url = new URL(typeof entry?.uri === 'string' ? entry.uri : '');
+      return url.protocol === 'https:' || url.protocol === 'http:' ? [url.origin] : [];
+    } catch {
+      return [];
+    }
+  });
+  return [...new Set(origins)];
 }
 
 function recoveryFailure(

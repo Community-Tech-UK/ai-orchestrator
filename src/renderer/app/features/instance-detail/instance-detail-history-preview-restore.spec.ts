@@ -325,7 +325,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
     historyStore.restoreEntry.mockResolvedValue({ success: true, instanceId: 'restored-1' });
     changeModel.mockResolvedValue({ success: false, error: { message: 'Model unavailable' } });
     const onResolved = vi.fn();
-    await fixture.componentInstance.onHistoryPreviewLoopStartRequested({ config: validLoopConfig(), firstMessage: 'Continue', attachments: [], onResolved });
+    await fixture.componentInstance.onHistoryPreviewLoopStartRequested({ config: validLoopConfig(), firstMessage: 'Continue', attachments: [], stagedFiles: [], onResolved });
     expect(loopStore.start).not.toHaveBeenCalled();
     expect(onResolved).toHaveBeenCalledWith(false, expect.stringContaining('Model unavailable'));
     await fixture.componentInstance.onResendEdited({ messageIndex: 0, text: 'Edited' });
@@ -342,7 +342,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
     failPendingIpc.push(() => confirm({ success: false, error: { message: 'Example test cleanup' } }));
     const onResolved = vi.fn();
     const pending = trackAction(path === 'loop'
-      ? fixture.componentInstance.onHistoryPreviewLoopStartRequested({ config: validLoopConfig(), firstMessage: 'Continue', attachments: [], onResolved })
+      ? fixture.componentInstance.onHistoryPreviewLoopStartRequested({ config: validLoopConfig(), firstMessage: 'Continue', attachments: [], stagedFiles: [], onResolved })
       : fixture.componentInstance.onResendEdited({ messageIndex: 0, text: 'Edited' }));
     await vi.waitFor(() => expect(changeModel).toHaveBeenCalledOnce());
     expect(loopStore.start).not.toHaveBeenCalled();
@@ -369,7 +369,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
     failPendingIpc.push(() => restore({ success: false, error: 'Example test cleanup' }));
     changeModel.mockResolvedValue({ success: true, data: { id: 'restored-1', provider: 'codex', currentModel: 'gpt-6-astra', status: 'idle' } });
     const onResolved = vi.fn();
-    const pending = trackAction(fixture.componentInstance.onHistoryPreviewLoopStartRequested({ config: validLoopConfig(), firstMessage: 'Continue', attachments: [], onResolved }));
+    const pending = trackAction(fixture.componentInstance.onHistoryPreviewLoopStartRequested({ config: validLoopConfig(), firstMessage: 'Continue', attachments: [], stagedFiles: [], onResolved }));
     sessions.select('history-1', { provider: 'codex', model: 'gpt-6-astra', reasoning: 'high' });
     restore({ success: true, instanceId: 'restored-1' });
     await pending;
@@ -378,7 +378,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
     expect(historyStore.clearSelection).not.toHaveBeenCalled();
     expect(sessions.selection('history-1')?.provider).toBe('codex');
     loopStore.start.mockResolvedValue({ ok: true });
-    await fixture.componentInstance.onHistoryPreviewLoopStartRequested({ config: { ...validLoopConfig(), provider: 'codex' }, firstMessage: 'Continue', attachments: [], onResolved });
+    await fixture.componentInstance.onHistoryPreviewLoopStartRequested({ config: { ...validLoopConfig(), provider: 'codex' }, firstMessage: 'Continue', attachments: [], stagedFiles: [], onResolved });
     expect(loopStore.start).toHaveBeenCalledWith('restored-1', expect.objectContaining({ provider: 'codex' }), [], { typedByPerson: true });
     expect(historyStore.restoreEntry).toHaveBeenCalledOnce();
   });
@@ -450,6 +450,7 @@ describe('InstanceDetailComponent history preview restore send', () => {
       config,
       firstMessage: 'Continue once restored',
       attachments: [],
+      stagedFiles: [],
       onResolved: (ok, error) => resolved.push({ ok, error }),
     });
 

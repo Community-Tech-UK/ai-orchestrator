@@ -128,6 +128,8 @@ const PRIVILEGED_CLI_OPERATOR_ONLY_KEYS = new Set<keyof AppSettings>([
   'workspaceSecretsEnabled',
   'workspaceSecretsAllowAgentRequests',
   'browserSecretObservationProtectionEnabled', 'browserLocalComputerEnabled',
+  // 17 Nov 2026: decides which saved logins agents may use without asking James.
+  'browserPreApproveAgentFolderLogins',
   'providerSignalFenceEnabled',
   'computerUseRequireApprovalForInput',
   'computerUseStoreScreenshotsForEscalations',
@@ -475,6 +477,7 @@ export const SETTINGS_TOOL_POLICY = {
   // control: the standing warning on the Browser screen's vault card.
   browserAllowSharedTabCredentialFill: readOnly(),
   browserSecretObservationProtectionEnabled: readOnly(),
+  browserPreApproveAgentFolderLogins: readOnly(),
   browserLocalComputerEnabled: readOnly(true),
   workspaceSecretsEnabled: readOnly(),
   workspaceSecretsAllowAgentRequests: readOnly(),

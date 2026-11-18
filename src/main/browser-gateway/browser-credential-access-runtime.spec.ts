@@ -23,6 +23,7 @@ vi.mock('./browser-unattended-services', () => ({
 vi.mock('./browser-audit-store', () => ({ getBrowserAuditStore: () => ({ record: () => ({ id: 'audit' }) }) }));
 
 import { createCredentialAccessDependencies, resolveCredentialComputerId } from './browser-credential-access-runtime';
+import { currentBrowserSessionOwner, setBrowserSessionUserDataPathProvider, withBrowserSession } from './browser-session-context';
 
 const profileId = 'existing-tab:n.node-1:1:2';
 const targetId = `${profileId}:target`;
@@ -87,9 +88,37 @@ describe('credential request live runtime checks', () => {
       .rejects.toMatchObject({ code: 'shared_tab_secure_credential_fill_unavailable' });
   });
 
-  it('refuses a disconnected worker', async () => {
+  it('refuses a disconnected worker and says the computer is offline', async () => {
     mocks.getNode.mockReturnValue({ id: 'node-1', name: 'windows-pc', connected: false, status: 'disconnected' });
-    await expect(createCredentialAccessDependencies().readTarget(profileId, targetId)).rejects.toMatchObject({ code: 'target_unavailable' });
+    await expect(createCredentialAccessDependencies().readTarget(profileId, targetId)).rejects.toMatchObject({ code: 'computer_offline' });
+  });
+
+  it('checks the tab as the requesting session, so a tab that session holds is not refused', async () => {
+    setBrowserSessionUserDataPathProvider(() => '/test-only/user-data');
+    try {
+      let owner: string | undefined;
+      mocks.snapshot.mockImplementation(async () => {
+        owner = currentBrowserSessionOwner();
+        return { decision: 'allowed', outcome: 'succeeded', data: { url: 'https://test.example/login' } };
+      });
+      // An operator approval arrives from the window with no session owner in scope.
+      expect(currentBrowserSessionOwner()).toBeUndefined();
+      await createCredentialAccessDependencies().readTarget(profileId, targetId, { instanceId: 'requesting-session' });
+      expect(owner).toBe(withBrowserSession('/test-only/user-data', 'requesting-session', currentBrowserSessionOwner));
+    } finally {
+      setBrowserSessionUserDataPathProvider(undefined);
+    }
+  });
+
+  it.each([
+    ['browser_tab_held_by_another_session', 'target_held_by_another_session'],
+    ['browser_secret_observation_blocked_for_tainted_origin: command not run.', 'target_secret_protected'],
+    ['browser_extension_session_claims_unavailable: Update the Harness Browser Gateway extension before using session-owned tabs.', 'shared_tab_secure_credential_fill_unavailable'],
+    ['browser_extension_command_timeout', 'target_unavailable'],
+  ])('names the real cause when the live check fails with %s', async (reason, code) => {
+    mocks.snapshot.mockResolvedValue({ decision: 'allowed', outcome: 'failed', reason, data: null });
+    await expect(createCredentialAccessDependencies().readTarget(profileId, targetId, { instanceId: 'requesting-session' }))
+      .rejects.toMatchObject({ code });
   });
 
   it('checks connection state again after the live snapshot', async () => {
@@ -97,7 +126,7 @@ describe('credential request live runtime checks', () => {
       mocks.getNode.mockReturnValue({ connected: false, status: 'disconnected' });
       return { decision: 'allowed', outcome: 'succeeded', data: { url: 'https://test.example/login' } };
     });
-    await expect(createCredentialAccessDependencies().readTarget(profileId, targetId)).rejects.toMatchObject({ code: 'target_unavailable' });
+    await expect(createCredentialAccessDependencies().readTarget(profileId, targetId)).rejects.toMatchObject({ code: 'computer_offline' });
   });
 
   it('refuses disagreement between the live snapshot and the current tab origin', async () => {

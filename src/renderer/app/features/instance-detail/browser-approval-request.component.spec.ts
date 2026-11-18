@@ -538,6 +538,75 @@ describe('BrowserApprovalRequestComponent', () => {
       expect(fixture.componentInstance.errorMessage()).toBe('The password vault is locked. Unlock it, then approve again.');
     });
   });
+
+  describe('restoring access to a protected site', () => {
+    function recovery(overrides: Partial<BrowserApprovalRequest> = {}): BrowserApprovalRequest {
+      return makeRequest({
+        toolName: 'browser.recover_secret_observation', action: 'recover_secret_observation', actionClass: 'credential',
+        origin: 'https://www.etenders.example', url: undefined, computerId: 'node-win',
+        secretRecovery: {
+          operationId: '00000000-0000-4000-8000-000000000001', ownerSessionId: 'inst-1', nodeId: 'node-win',
+          computerName: 'Windows PC', targetId: 'target-1', origins: ['https://www.etenders.example'],
+          affectedTabCount: 1, writeGeneration: 'generation-test-only', expiresAt: Date.now() + 60_000,
+        },
+        proposedGrant: { ...grant(['read']), allowedOrigins: [{ scheme: 'https', hostPattern: 'www.etenders.example', includeSubdomains: false }] },
+        ...overrides,
+      });
+    }
+
+    function listByStatus(pending: BrowserApprovalRequest[], approved: BrowserApprovalRequest[]): void {
+      fakeBrowserGateway.listApprovalRequests.mockImplementation(async (filter: { status: string }) => ({
+        success: true,
+        data: { decision: 'allowed', outcome: 'succeeded', auditId: 'audit-1', data: filter.status === 'pending' ? pending : approved },
+      }));
+    }
+
+    it('sends only the exact recovery choice and calls refusing "Keep protected"', async () => {
+      listByStatus([recovery()], []);
+      fixture.detectChanges();
+      await settle(fixture);
+      element = fixture.nativeElement;
+      expect(element.textContent).toContain('Resume browser access for www.etenders.example on Windows PC');
+      expect(button('Keep protected')).toBeTruthy();
+      await press('Recover access');
+      expect(fakeBrowserGateway.approveRequest).toHaveBeenCalledWith({
+        requestId: recovery().requestId, grant: recovery().proposedGrant,
+        reason: 'Approved restoring browser access from session page',
+        secretRecovery: { permission: 'operation' },
+      });
+    });
+
+    it('shows what Harness is doing after approval, with the code only under Details', async () => {
+      const decided = recovery({ status: 'approved', decidedAt: Date.now(), secretRecoveryProgress: {
+        state: 'running', reasonCode: 'secret_recovery_running', loginVerified: null, updatedAt: Date.now(),
+      } });
+      listByStatus([], [decided, recovery({ requestId: 'old', id: 'old', status: 'approved', decidedAt: 1 })]);
+      fixture.detectChanges();
+      await settle(fixture);
+      element = fixture.nativeElement;
+      const status = element.querySelectorAll('[data-kind="secret-recovery-status"]');
+      expect(status).toHaveLength(1);
+      expect(status[0].getAttribute('role')).toBe('status');
+      expect(status[0].textContent).toContain('Recovering access…');
+      expect(status[0].querySelector('details')?.open).toBe(false);
+      expect(status[0].querySelector('details')?.textContent).toContain('secret_recovery_running');
+    });
+
+    it('still shows a recovery Stop ended after its release, and hides one Stop ended before', async () => {
+      const progress = { state: 'recovered' as const, reasonCode: 'protection_released_and_verified', loginVerified: null,
+        receiptId: '00000000-0000-4000-8000-000000000001', updatedAt: Date.now() };
+      listByStatus([], [
+        recovery({ status: 'expired', decidedAt: Date.now(), secretRecoveryProgress: progress }),
+        recovery({ requestId: 'stopped-early', id: 'stopped-early', status: 'expired', decidedAt: Date.now() }),
+      ]);
+      fixture.detectChanges();
+      await settle(fixture);
+      element = fixture.nativeElement;
+      const status = element.querySelectorAll('[data-kind="secret-recovery-status"]');
+      expect(status).toHaveLength(1);
+      expect(status[0].textContent).toContain('Protection for this site was lifted.');
+    });
+  });
 });
 
 function overrideInputs(

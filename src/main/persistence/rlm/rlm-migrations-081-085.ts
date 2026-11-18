@@ -73,4 +73,21 @@ export const RLM_MIGRATIONS_081_085: Migration[] = [
       ALTER TABLE browser_approval_requests DROP COLUMN device_login_json;
     `,
   },
+  {
+    // One approval per Harness secret-protection recovery operation, and what
+    // Harness did after it was approved (never page content).
+    name: '083_browser_secret_recovery_approvals',
+    up: `
+      ALTER TABLE browser_approval_requests ADD COLUMN secret_recovery_json TEXT;
+      ALTER TABLE browser_approval_requests ADD COLUMN secret_recovery_progress_json TEXT;
+      CREATE UNIQUE INDEX idx_browser_secret_recovery_operation ON browser_approval_requests(
+        json_extract(secret_recovery_json, '$.operationId')
+      ) WHERE secret_recovery_json IS NOT NULL;
+    `,
+    down: `
+      DROP INDEX idx_browser_secret_recovery_operation;
+      ALTER TABLE browser_approval_requests DROP COLUMN secret_recovery_progress_json;
+      ALTER TABLE browser_approval_requests DROP COLUMN secret_recovery_json;
+    `,
+  },
 ];

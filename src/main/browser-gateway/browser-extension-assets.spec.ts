@@ -327,6 +327,11 @@ describe('browser extension assets', () => {
     '0.2.53': '796aea1dea00',
     // One Harness cannot disable another Harness's shared secret protection.
     '0.2.54': '7057494c0c30',
+    // Harness-approved secret protection recovery: review and release
+    // commands, write generation, persisted release receipts. Automatic
+    // release once written values have left the site's pages (unreleased
+    // until both land, so they share this version).
+    '0.2.55': '15ae0ba70ca1',
   };
 
   it('ships each background bundle under its own manifest version', () => {
@@ -6155,6 +6160,8 @@ function loadBackgroundHarnessForTest(options: {
     },
     URL,
     Uint8ClampedArray,
+    // A real extension service worker has Web Crypto; secret writes use randomUUID.
+    crypto: globalThis.crypto,
     chrome: {
       action: {
         setBadgeBackgroundColor: vi.fn(async () => undefined),

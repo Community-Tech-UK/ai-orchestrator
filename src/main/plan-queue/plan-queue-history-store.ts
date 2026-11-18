@@ -92,6 +92,14 @@ export interface PlanQueueTriageDecision {
 
 const DETAIL_HEAD_LIMIT = 500;
 
+export type DirectChangeFingerprintKind = 'found' | 'approved';
+export const DIRECT_CHANGE_EVENTS: Record<DirectChangeFingerprintKind, string> = {
+  found: 'direct-change-found',
+  approved: 'direct-change-approved',
+};
+/** 20 fingerprints of 16 hex characters fit an event's 500-character detail. */
+const FINGERPRINTS_PER_EVENT = 20;
+
 /**
  * One execution may cover jobs in several runs; each participating run counts it once. The read starts from the
  * indexed check executions (migration 058), and CROSS JOIN holds that order: starting from a run's jobs instead
@@ -253,6 +261,31 @@ export class PlanQueueHistoryStore {
       WHERE item_id = ? AND to_state = 'parked' AND (from_state IS NULL OR from_state != 'parked') AND ${NOT_TIMING_SQL}
       ORDER BY at DESC, rowid DESC LIMIT 1`).get<{ at: number }>(itemId);
     return row?.at ?? null;
+  }
+
+  /**
+   * Fingerprints of direct changes a landing found the job undoing (`found`), or that James chose the job's version of
+   * (`approved`); see plan-queue-direct-changes.ts. Stored as same-state events, in chunks that fit an event's detail.
+   * One call writes one batch, all at the same time.
+   */
+  recordDirectChangeFingerprints(item: PlanQueueItem, kind: DirectChangeFingerprintKind, fingerprints: readonly string[]): void {
+    const at = this.now();
+    for (let start = 0; start < fingerprints.length; start += FINGERPRINTS_PER_EVENT) {
+      const detail = JSON.stringify(fingerprints.slice(start, start + FINGERPRINTS_PER_EVENT));
+      if (detail.length > DETAIL_HEAD_LIMIT || /[^0-9a-f",[\]]/.test(detail)) throw new Error('Direct-change fingerprints must be short hex strings');
+      this.recordEvent({ itemId: item.id, runId: item.runId, at, fromState: item.state, toState: item.state,
+        reason: DIRECT_CHANGE_EVENTS[kind], detailHead: detail, round: item.round, tokens: 0 });
+    }
+  }
+
+  /** `found`: the newest batch only, what James was last shown. `approved`: every approval James has given this job. */
+  directChangeFingerprints(itemId: string, kind: DirectChangeFingerprintKind): string[] {
+    const reason = DIRECT_CHANGE_EVENTS[kind];
+    const rows = kind === 'found'
+      ? this.db.prepare(`SELECT detail_head FROM plan_queue_item_events WHERE item_id = ? AND reason = ?
+          AND at = (SELECT MAX(at) FROM plan_queue_item_events WHERE item_id = ? AND reason = ?)`).all<{ detail_head: string | null }>(itemId, reason, itemId, reason)
+      : this.db.prepare('SELECT detail_head FROM plan_queue_item_events WHERE item_id = ? AND reason = ?').all<{ detail_head: string | null }>(itemId, reason);
+    return rows.flatMap(row => JSON.parse(row.detail_head ?? '[]') as string[]);
   }
 
   /**

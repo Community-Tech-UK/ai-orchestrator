@@ -248,12 +248,13 @@ export const ADVANCED_SECTION_DEFINITIONS: readonly AdvancedSectionDefinition[] 
   {
     id: 'shared-tab-credentials-heading',
     title: 'Shared browser tab credentials',
-    description: 'Whether an agent may fill saved credentials on your own shared Chrome tabs (not just its managed profiles), and whether a filled tab locks itself until you clear protection in the Harness extension.',
+    description: 'Whether an agent may fill saved credentials on your own shared Chrome tabs (not just its managed profiles), whether a filled tab locks itself until the password has left the page, and whether agent-folder logins need your approval.',
     group: 'security',
     dangerous: true,
     keys: [
       'browserAllowSharedTabCredentialFill',
       'browserSecretObservationProtectionEnabled',
+      'browserPreApproveAgentFolderLogins',
     ],
   },
 ];

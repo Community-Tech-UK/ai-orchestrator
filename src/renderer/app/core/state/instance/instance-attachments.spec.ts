@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   fileToAttachments,
   isHeicFile,
+  readStagedFiles,
+  StagedFileError,
   validateAttachmentCount,
   validateFiles,
   type InstanceAttachment,
@@ -140,5 +142,42 @@ describe('HEIC photos', () => {
 
     expect(convertHeic).not.toHaveBeenCalled();
     expect(attachment).toMatchObject({ name: 'notes.txt', type: 'text/plain', size: 5 });
+  });
+});
+
+describe('readStagedFiles', () => {
+  it('reads each file in order, converting HEIC photos first', async () => {
+    const photo = new File([new Uint8Array([1])], 'IMG_1531.HEIC', { type: 'image/heic' });
+    const notes = new File(['hi'], 'notes.txt', { type: 'text/plain' });
+    const jpeg = new File([new Uint8Array([0xff])], 'IMG_1531.jpg', { type: 'image/jpeg' });
+    const convertHeic = vi.fn(async () => jpeg);
+
+    const names = await readStagedFiles([photo, notes], convertHeic, async (file) => file.name);
+
+    expect(names).toEqual(['IMG_1531.jpg', 'notes.txt']);
+    expect(convertHeic).toHaveBeenCalledExactlyOnceWith(photo);
+  });
+
+  it('names the file that failed in plain words and keeps the reason as the cause', async () => {
+    const diagnostic = new Error('SYNTHETIC_DIAGNOSTIC');
+    const photo = new File([new Uint8Array([1])], 'IMG_1531.HEIC', { type: 'image/heic' });
+
+    const failure = await readStagedFiles([photo], vi.fn(async () => { throw diagnostic; }), async (file) => file)
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(StagedFileError);
+    expect((failure as StagedFileError).visibleMessage)
+      .toBe('IMG_1531.HEIC could not be converted. Save it as JPEG or PNG and attach that instead.');
+    expect((failure as StagedFileError).cause).toBe(diagnostic);
+  });
+
+  it('gives a file that is not a photo advice that fits it', async () => {
+    const report = new File(['%PDF'], 'report.pdf', { type: 'application/pdf' });
+
+    const failure = await readStagedFiles([report], vi.fn(), async () => { throw new Error('NotReadableError'); })
+      .catch((error: unknown) => error);
+
+    expect((failure as StagedFileError).visibleMessage)
+      .toBe('report.pdf could not be read. Check the file still exists, then attach it again.');
   });
 });

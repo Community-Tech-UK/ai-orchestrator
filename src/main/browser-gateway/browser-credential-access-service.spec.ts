@@ -26,10 +26,11 @@ function harness() {
   const createGrant = vi.fn((input: Omit<BrowserPermissionGrant, 'id' | 'createdAt' | 'revokedAt' | 'consumedAt'>) => {
     const grant = { ...input, id: `grant-${grants.length}`, createdAt: now }; grants.push(grant); return grant;
   });
-  const inspect = vi.fn(async () => ({ vaultItemRef: 'vault-placeholder', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: true }));
+  const inspect = vi.fn(async () => ({ vaultItemRef: 'vault-placeholder', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: true, savedOrigins: [] as string[] }));
   const enrol = vi.fn(async () => ({ vaultItemRef: 'vault-placeholder', username: 'NON_SECRET_USERNAME_PLACEHOLDER', movedIntoFolder: true }));
   const readTarget = vi.fn(async () => target);
   const notify = vi.fn();
+  let preApprove = false;
   const service = new BrowserCredentialAccessService({
     store, authorizations: auth,
     vault: { inspectExistingCredential: inspect, enrolExistingCredential: enrol },
@@ -41,6 +42,7 @@ function harness() {
     resolveSession: (id) => id === session.instanceId ? session : undefined,
     findSession: (scope) => scope === session.taskScope ? session : undefined,
     readTarget, notify,
+    preApproveAgentFolderLogins: () => preApprove,
     now: () => now,
     result: (input) => ({ ...input, auditId: 'audit-placeholder' }) as never,
   });
@@ -50,6 +52,7 @@ function harness() {
     setTarget: (next: typeof target) => { target = next; },
     resume: () => { session = { ...session, instanceId: 'resumed-placeholder' }; },
     advance: (ms: number) => { now += ms; },
+    setPreApprove: (on: boolean) => { preApprove = on; },
   };
 }
 
@@ -171,7 +174,7 @@ describe('saved login access workflow', () => {
     const pause = async () => { entered(); await waiting; };
     if (stage === 'inspection') h.inspect.mockImplementationOnce(async () => {
       await pause();
-      return { vaultItemRef: 'vault-placeholder', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: true };
+      return { vaultItemRef: 'vault-placeholder', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: true, savedOrigins: [] };
     });
     else if (stage === 'enrolment') h.enrol.mockImplementationOnce(async () => {
       await pause();
@@ -260,6 +263,19 @@ describe('saved login access workflow', () => {
     await h.service.deny(p);
     expect(await h.service.request(h.input, h.context())).toMatchObject({ decision: 'denied', data: { requestId: p.requestId, status: 'denied' } });
     expect(h.store.listRequests({})).toHaveLength(1);
+  });
+
+  it('makes a fresh request after a request that failed was then denied', async () => {
+    const h = harness(); const p = (await h.service.request(h.input, h.context())).data!;
+    h.readTarget.mockRejectedValueOnce(new CredentialVaultError('Held', 'target_held_by_another_session'));
+    expect(await h.service.approve(p)).toMatchObject({ decision: 'denied', reason: 'target_held_by_another_session' });
+    expect(h.store.getRequest(p.requestId)).toMatchObject({ status: 'pending', credentialAccess: { operationError: 'target_held_by_another_session' } });
+    await h.service.deny(p);
+    const retry = await h.service.request(h.input, h.context());
+    expect(retry).toMatchObject({ decision: 'requires_user', data: { status: 'pending' } });
+    expect(retry.data!.requestId).not.toBe(p.requestId);
+    expect(retry.data!.credentialAccess?.operationError).toBeUndefined();
+    expect((await h.service.approve(retry.data!)).decision).toBe('allowed');
   });
 
   it('bounds a changed retry choice after enrolment fails', async () => {
@@ -358,5 +374,110 @@ describe('saved login access for emailed sign-in codes', () => {
     // Once approved, the fill-time check carries the new sender despite the older grant.
     expect(await h.service.approve(withSender.data!)).toMatchObject({ decision: 'allowed' });
     expect(h.auth.check(codeCheck)).toMatchObject({ authorized: true, allowedSenderDomains: ['mailer.example.org'] });
+  });
+});
+
+describe('agent-folder pre-approval setting', () => {
+  const inFolder = (savedOrigins: string[]) => ({
+    vaultItemRef: 'vault-placeholder', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: false, savedOrigins,
+  });
+
+  it('approves an agent-folder item on one of its own saved sites without a prompt, and records it', async () => {
+    const h = harness(); h.setPreApprove(true);
+    h.inspect.mockResolvedValue(inFolder(['https://other.example.test', 'https://login.example.test']));
+    const result = await h.service.request(h.input, h.context());
+    expect(result).toMatchObject({ decision: 'allowed', reason: 'preapproved_by_setting', data: { status: 'approved', credentialAccess: { preApproved: true, permission: 'task' } } });
+    expect(h.enrol).toHaveBeenCalledOnce();
+    expect(h.grants).toEqual([expect.objectContaining({ reason: 'saved_login_preapproved_by_setting', allowedActionClasses: ['credential'], userApprovedCredentials: false })]);
+    expect(h.auth.check({ profileId: 'node-placeholder', origin: 'https://login.example.test', purpose: 'login', taskScope: 'conversation:placeholder', vaultItemRef: 'vault-placeholder', computerId: 'node-placeholder' }).authorized).toBe(true);
+    // The agent has its answer already; no wake-up message is sent.
+    expect(h.notify).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['the site is not one the item lists', inFolder(['https://login.example.test.evil', 'http://login.example.test'])],
+    ['the item is outside the agent folder', { ...inFolder(['https://login.example.test']), requiresMoveIntoFolder: true }],
+  ])('still asks when %s', async (_case, inspection) => {
+    const h = harness(); h.setPreApprove(true);
+    h.inspect.mockResolvedValue(inspection);
+    expect(await h.service.request(h.input, h.context())).toMatchObject({ decision: 'requires_user', data: { status: 'pending' } });
+    expect(h.enrol).not.toHaveBeenCalled(); expect(h.grants).toHaveLength(0);
+  });
+
+  it('still asks for emailed codes, and asks for everything when the setting is off', async () => {
+    const h = harness(); h.setPreApprove(true);
+    h.inspect.mockResolvedValue(inFolder(['https://login.example.test']));
+    expect(await h.service.request({ ...h.input, purposes: ['email_code'], senderDomains: ['example.test'] }, h.context()))
+      .toMatchObject({ decision: 'requires_user' });
+    h.setPreApprove(false);
+    expect(await h.service.request(h.input, h.context())).toMatchObject({ decision: 'requires_user' });
+    expect(h.grants).toHaveLength(0);
+  });
+
+  it('leaves the request pending for James when pre-approval cannot finish', async () => {
+    const h = harness(); h.setPreApprove(true);
+    h.inspect.mockResolvedValue(inFolder(['https://login.example.test']));
+    h.enrol.mockRejectedValueOnce(new CredentialVaultError('Locked', 'vault_locked'));
+    const result = await h.service.request(h.input, h.context());
+    expect(result).toMatchObject({ decision: 'requires_user', data: { status: 'pending', credentialAccess: { operationError: 'vault_locked' } } });
+    expect(h.store.getRequest(result.data!.requestId)?.credentialAccess?.preApproved).toBeUndefined();
+    // The attempt does not limit the duration James then picks.
+    expect(h.store.getRequest(result.data!.requestId)?.credentialAccess?.permissionExpiresAt).toBeUndefined();
+    const yearMs = 365 * 86_400_000;
+    expect((await h.service.approve(result.data!, { permission: 'remember', rememberForMs: yearMs })).decision).toBe('allowed');
+    expect(h.store.getRequest(result.data!.requestId)?.credentialAccess).toMatchObject({ permission: 'remember', permissionExpiresAt: expect.any(Number) });
+    expect(h.store.getRequest(result.data!.requestId)!.credentialAccess!.permissionExpiresAt! - Date.now()).toBeGreaterThan(yearMs - 60_000);
+  });
+
+  it('sends the fresh request to James, not the setting, after he denied a failed pre-approval', async () => {
+    const h = harness(); h.setPreApprove(true);
+    h.inspect.mockResolvedValue(inFolder(['https://login.example.test']));
+    h.enrol.mockRejectedValueOnce(new CredentialVaultError('Locked', 'vault_locked'));
+    const failed = (await h.service.request(h.input, h.context())).data!;
+    await h.service.deny(failed);
+    const retry = await h.service.request(h.input, h.context());
+    expect(retry).toMatchObject({ decision: 'requires_user', data: { status: 'pending' } });
+    expect(retry.data!.requestId).not.toBe(failed.requestId);
+    // Asking again while that request waits for James must not let the setting answer it.
+    expect(await h.service.request(h.input, h.context())).toMatchObject({ decision: 'requires_user', data: { requestId: retry.data!.requestId, status: 'pending' } });
+    expect(h.grants).toHaveLength(0);
+    expect(h.enrol).toHaveBeenCalledOnce();
+  });
+
+  it('never lets the setting answer this login and site again in the task after James denied it', async () => {
+    const h = harness();
+    h.inspect.mockResolvedValue(inFolder(['https://login.example.test']));
+    const p = (await h.service.request(h.input, h.context())).data!;
+    await h.service.deny(p);
+    h.setPreApprove(true);
+    h.advance(31 * 60_000);
+    const later = await h.service.request(h.input, h.context());
+    expect(later).toMatchObject({ decision: 'requires_user', data: { status: 'pending', credentialAccess: { afterDenial: true } } });
+    expect(await h.service.request(h.input, h.context())).toMatchObject({ decision: 'requires_user' });
+    expect(h.grants).toHaveLength(0);
+  });
+
+  it.each([
+    ['asks for an authenticator code as well', (h: ReturnType<typeof harness>) => ({ ...h.input, purposes: ['login', 'totp'] as ('login' | 'totp')[] })],
+    ['uses a tab on another computer', (h: ReturnType<typeof harness>) => {
+      h.setTarget({ origin: 'https://login.example.test', scope: 'other-node-placeholder', computerName: 'Other test computer' });
+      return h.input;
+    }],
+  ])('still sends it to James after he denied the login when the agent %s', async (_case, change) => {
+    const h = harness();
+    h.inspect.mockResolvedValue(inFolder(['https://login.example.test']));
+    await h.service.deny((await h.service.request(h.input, h.context())).data!);
+    h.setPreApprove(true);
+    expect(await h.service.request(change(h), h.context())).toMatchObject({ decision: 'requires_user', data: { status: 'pending', credentialAccess: { afterDenial: true } } });
+    expect(h.grants).toHaveLength(0);
+  });
+
+  it('does not override a plain denial', async () => {
+    const h = harness();
+    h.inspect.mockResolvedValue(inFolder(['https://login.example.test']));
+    const p = (await h.service.request(h.input, h.context())).data!;
+    await h.service.deny(p);
+    h.setPreApprove(true);
+    expect(await h.service.request(h.input, h.context())).toMatchObject({ decision: 'denied', data: { requestId: p.requestId } });
   });
 });

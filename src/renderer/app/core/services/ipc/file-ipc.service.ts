@@ -13,6 +13,7 @@ import { presentError } from '../../../../../shared/present-error';
 @Injectable({ providedIn: 'root' })
 export class FileIpcService {
   private base = inject(ElectronIpcService);
+  private readonly heicConversions = new WeakMap<File, Promise<File>>();
 
   private get api() {
     return this.base.getApi();
@@ -104,14 +105,28 @@ export class FileIpcService {
    * Convert a HEIC/HEIF photo to a JPEG `File`. Chromium cannot decode HEIC,
    * so the main process converts it. Failures offer an alternative format;
    * the main process's diagnostic is kept in the cause for Details.
+   *
+   * The composer preview, sending, durable queueing and loop start all need
+   * the same photo converted, so each `File` is converted once. A failure is
+   * forgotten so a later attempt can retry.
    */
-  async convertHeicToJpeg(file: File): Promise<File> {
+  convertHeicToJpeg(file: File): Promise<File> {
+    let conversion = this.heicConversions.get(file);
+    if (!conversion) {
+      conversion = this.requestHeicConversion(file);
+      this.heicConversions.set(file, conversion);
+      conversion.catch(() => this.heicConversions.delete(file));
+    }
+    return conversion;
+  }
+
+  private async requestHeicConversion(file: File): Promise<File> {
     if (!this.api) {
       throw new Error(`HEIC photo ${file.name} can only be converted in the desktop app`);
     }
     const response = await this.api.imageConvertHeic({ data: new Uint8Array(await file.arrayBuffer()) });
     if (!response.success) {
-      throw new Error('This photo could not be converted. Save it as JPEG or PNG and attach that instead.', {
+      throw new Error(`${file.name} could not be converted. Save it as JPEG or PNG and attach that instead.`, {
         cause: presentError(response.error).rawDetail,
       });
     }

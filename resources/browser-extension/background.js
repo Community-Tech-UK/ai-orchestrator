@@ -168,6 +168,39 @@ const dialogErrorMessages = new WeakMap();
 const dialogInterruptedCommands = new WeakSet();
 let secretRecoveryInProgress = false;
 let secretRecoveryRequest = null;
+// Random id regenerated on every protected secret write and persisted with the
+// taint state. A Harness recovery approval is bound to the id it reviewed, so a
+// later fill (by any task) can never be released by that earlier consent. A
+// random id, not a counter: a counter could return to an approved value.
+let secretWriteGeneration = null;
+// Release receipts by Harness operation id, persisted in the same write as the
+// release, so a lost reply or a retry never releases twice.
+let secretRecoveryReceipts = [];
+// One-use Harness release reviews: token -> { tabId, originsKey, tabsKey, generation, expiresAt }.
+// Memory only: a service-worker restart drops them and the release fails closed.
+const secretReleaseReviews = new Map();
+const SECRET_RELEASE_REVIEW_TTL_MS = 2 * 60000;
+const SECRET_RELEASE_REVIEW_LIMIT = 8;
+const SECRET_RECOVERY_RECEIPT_LIMIT = 20;
+const SECRET_RECOVERY_ID_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
+// Automatic release (17 Nov 2026, James's call). After a sign-in, a site's
+// protection lifts by itself once no tab carrying it still holds a value that
+// was written there: not in a field, the page text, the title or the address.
+// Proof needs the written values, so this keeps, IN MEMORY ONLY, a SHA-256 and
+// a short rolling fingerprint of each one (never the value, never storage). A
+// worker restart forgets them, and then protection stays until a person lifts it.
+// origin -> [{ length, fingerprint, digest }]
+const secretValueChecks = new Map();
+const SECRET_VALUE_CHECK_LIMIT = 16;
+// Released sites, persisted. Reads of page memory, logs and traffic there are
+// checked for the written values while they are known, and refused once not.
+const SECRET_AUTO_RELEASED_STORAGE_KEY = 'browserGatewaySecretAutoReleasedOrigins';
+const secretAutoReleasedOrigins = new Set();
+let secretAutoReleasedLoaded = false;
+const SECRET_DEEP_READ_COMMANDS = new Set(['evaluate', 'console_messages', 'network_requests', 'download_file']);
+// Rolling fingerprint: a prime under 2^26 keeps every product exact in a double.
+const SECRET_SCAN_PRIME = 67108859;
+const SECRET_SCAN_BASE = 257 + Math.floor(Math.random() * 60000000);
 
 // HTTP authentication prompts (Chrome's own Basic/Digest sign-in box, not a
 // page form). Two in-memory maps, never chrome.storage:
@@ -314,7 +347,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   void browserSessionClaims.forget(tabId).catch(() => undefined);
   // Remove only the tab lineage. The origin remains tainted because a page can
   // persist the filled value in same-origin storage and reveal it from a future
-  // tab. There is no safe automatic origin declassification boundary.
+  // tab. It is released automatically only by autoReleaseSecretProtectionLocked.
   void clearSecretTaint(tabId).catch(() => undefined);
   // Drop per-tab input-control state so it cannot leak across tab churn
   // (press_key dedupe memory, zoom baselines).
@@ -1560,6 +1593,18 @@ async function loadSecretTaints() {
             }
           }
         }
+        if (versioned && typeof stored.writeGeneration === 'string'
+          && SECRET_RECOVERY_ID_PATTERN.test(stored.writeGeneration)) {
+          secretWriteGeneration = stored.writeGeneration;
+        }
+        if (versioned && Array.isArray(stored.recoveryReceipts)) {
+          secretRecoveryReceipts = stored.recoveryReceipts
+            .filter((receipt) => receipt && typeof receipt.operationId === 'string'
+              && SECRET_RECOVERY_ID_PATTERN.test(receipt.operationId)
+              && Number.isInteger(receipt.clearedTabCount) && receipt.clearedTabCount >= 0)
+            .map((receipt) => ({ operationId: receipt.operationId, clearedTabCount: receipt.clearedTabCount }))
+            .slice(-SECRET_RECOVERY_RECEIPT_LIMIT);
+        }
       }
       secretTaintsLoaded = true;
     })().finally(() => {
@@ -1643,6 +1688,7 @@ async function applySecretObservationProtectionEnabled(enabled) {
     secretObservationProtectionEnabled = next;
     secretObservationProtectionLoaded = true;
     secretRecoveryRequest = null;
+    secretReleaseReviews.clear();
     if (!next) {
       // Persist first. A storage failure must leave in-memory taint intact.
       await chrome.storage.local.set({
@@ -1669,14 +1715,25 @@ async function applySecretObservationProtectionFromCommand(command) {
 
 async function persistSecretTaints() {
   await chrome.storage.local.set({
-    [SECRET_TAINT_STORAGE_KEY]: {
-      version: 2,
-      origins: [...secretTaintedOrigins].sort(),
-      tabs: Object.fromEntries(
-        [...secretTaintedTabs.entries()].sort(([left], [right]) => left.localeCompare(right)),
-      ),
-    },
+    [SECRET_TAINT_STORAGE_KEY]: secretTaintStorageValue(
+      secretTaintedOrigins,
+      secretTaintedTabs,
+      secretWriteGeneration,
+      secretRecoveryReceipts,
+    ),
   });
+}
+
+function secretTaintStorageValue(origins, tabs, writeGeneration, receipts) {
+  return {
+    version: 2,
+    origins: [...origins].sort(),
+    tabs: Object.fromEntries(
+      [...tabs.entries()].sort(([left], [right]) => left.localeCompare(right)),
+    ),
+    ...(writeGeneration ? { writeGeneration } : {}),
+    ...(receipts.length ? { recoveryReceipts: receipts } : {}),
+  };
 }
 
 function runWithSecretObservationBoundary(operation) {
@@ -1696,6 +1753,9 @@ async function markSecretTaintLocked(tabId, origin) {
   }
   await loadSecretTaints();
   secretRecoveryRequest = null;
+  // Every secret write ends every outstanding Harness release review.
+  secretReleaseReviews.clear();
+  secretWriteGeneration = crypto.randomUUID();
   secretTaintedOrigins.add(origin);
   secretTaintedTabs.set(String(tabId), origin);
   // Tag every current same-origin tab before the secret-bearing injection.
@@ -1783,20 +1843,411 @@ async function handleSecretProtectionMessage(message, sender) {
       throw new Error('secret_recovery_requires_current_operator_review_and_idle_gateway');
     }
     secretRecoveryRequest = null;
+    secretReleaseReviews.clear();
     secretRecoveryInProgress = true;
     try {
       // Persist first. A storage failure must leave the in-memory guard intact.
       await chrome.storage.local.set({
         [GATEWAY_ENABLED_STORAGE_KEY]: false,
         [SECRET_TAINT_STORAGE_KEY]: { version: 2, origins: [], tabs: {} },
+        [SECRET_AUTO_RELEASED_STORAGE_KEY]: [],
       });
       secretTaintedTabs.clear();
       secretTaintedOrigins.clear();
+      secretAutoReleasedOrigins.clear();
+      secretValueChecks.clear();
       return { ok: true };
     } finally {
       secretRecoveryInProgress = false;
     }
   });
+}
+
+// Harness recovery, step 1. Classifies the target tab's protection inside the
+// shared boundary and, when it is protected, issues a one-use review token bound
+// to the exact protected origins in the tab and the current write generation.
+// Origins come only from the protected-origin set (credential origins Harness
+// supplied), never from page text; nothing page-derived leaves. The token goes
+// to Harness's main process only and is never stored there or shown to a model.
+function reviewSecretProtection(command) {
+  const tabId = requireTargetTabId(command);
+  return runWithSecretObservationBoundary(async () => {
+    await loadSecretObservationProtection();
+    if (!isSecretObservationProtectionEnabled()) {
+      return { state: 'protection_off' };
+    }
+    await loadSecretTaints();
+    let origins;
+    try {
+      const markedOrigin = await secretTaintOriginForTab(await chrome.tabs.get(tabId));
+      const frameOrigins = await taintedFrameOriginsForTabId(tabId);
+      origins = [...new Set([
+        ...(typeof markedOrigin === 'string' ? [markedOrigin] : []),
+        ...frameOrigins,
+      ])].sort();
+    } catch {
+      // Isolation from other protected origins cannot be established.
+      return { state: 'inspection_unavailable' };
+    }
+    if (origins.length === 0) {
+      return { state: 'not_protected' };
+    }
+    if (!secretWriteGeneration) {
+      // Protection stored by an extension older than 0.2.55 has no generation.
+      // Give it one now, so the review binds to this exact state from here on.
+      secretWriteGeneration = crypto.randomUUID();
+      await persistSecretTaints();
+    }
+    const now = Date.now();
+    for (const [token, review] of secretReleaseReviews) {
+      if (review.expiresAt <= now) secretReleaseReviews.delete(token);
+    }
+    while (secretReleaseReviews.size >= SECRET_RELEASE_REVIEW_LIMIT) {
+      secretReleaseReviews.delete(secretReleaseReviews.keys().next().value);
+    }
+    const affectedTabs = secretRecoveryAffectedTabsKey(origins);
+    const reviewToken = crypto.randomUUID();
+    secretReleaseReviews.set(reviewToken, {
+      tabId,
+      originsKey: origins.join(' '),
+      tabsKey: affectedTabs.key,
+      generation: secretWriteGeneration,
+      expiresAt: now + SECRET_RELEASE_REVIEW_TTL_MS,
+    });
+    return {
+      state: 'protected',
+      origins,
+      affectedTabCount: affectedTabs.count,
+      writeGeneration: secretWriteGeneration,
+      reviewToken,
+    };
+  });
+}
+
+// Harness recovery, step 2, sent only after James approved the exact review.
+// Removes the reviewed origins and their tab marks, keeps every other mark, the
+// operator setting and the sharing state, and persists the narrowed state with
+// a receipt before memory changes. A replayed operation id returns its receipt.
+function releaseSecretProtection(command) {
+  const tabId = requireTargetTabId(command);
+  const payload = command?.payload ?? {};
+  const operationId = typeof payload.operationId === 'string'
+    && SECRET_RECOVERY_ID_PATTERN.test(payload.operationId) ? payload.operationId : null;
+  const origins = secretRecoveryOrigins(payload.origins);
+  if (!operationId || origins.length === 0 || typeof payload.reviewToken !== 'string'
+    || typeof payload.writeGeneration !== 'string') {
+    throw new Error('secret_release_payload_invalid');
+  }
+  return runWithSecretObservationBoundary(async () => {
+    await loadSecretObservationProtection();
+    await loadSecretTaints();
+    const review = secretReleaseReviews.get(payload.reviewToken);
+    secretReleaseReviews.delete(payload.reviewToken);
+    const receipt = secretRecoveryReceipts.find((entry) => entry.operationId === operationId);
+    if (receipt) {
+      return { released: true, alreadyApplied: true, clearedTabCount: receipt.clearedTabCount };
+    }
+    if (!review || review.expiresAt <= Date.now() || review.tabId !== tabId
+      || review.originsKey !== origins.join(' ') || review.generation !== payload.writeGeneration) {
+      throw new Error('secret_release_review_invalid');
+    }
+    if (!isSecretObservationProtectionEnabled()) {
+      throw new Error('secret_release_protection_off');
+    }
+    // A tab that inherited protection after the review (opened from a
+    // protected tab, say) was not in what the user saw: review again.
+    if (secretWriteGeneration !== payload.writeGeneration
+      || origins.some((origin) => !secretTaintedOrigins.has(origin))
+      || secretRecoveryAffectedTabsKey(origins).key !== review.tabsKey) {
+      throw new Error('secret_release_state_changed');
+    }
+    const nextOrigins = new Set([...secretTaintedOrigins].filter((origin) => !origins.includes(origin)));
+    const nextTabs = new Map([...secretTaintedTabs].filter(([, origin]) => !origins.includes(origin)));
+    const clearedTabCount = secretTaintedTabs.size - nextTabs.size;
+    const nextReceipts = [...secretRecoveryReceipts, { operationId, clearedTabCount }]
+      .slice(-SECRET_RECOVERY_RECEIPT_LIMIT);
+    // Persist first. A storage failure must leave the in-memory guard intact.
+    await chrome.storage.local.set({
+      [SECRET_TAINT_STORAGE_KEY]: secretTaintStorageValue(
+        nextOrigins, nextTabs, secretWriteGeneration, nextReceipts,
+      ),
+    });
+    // Remove only what was reviewed from the live state. A read outside this
+    // boundary can add an inherited mark while storage is being written, and
+    // replacing the live state with the snapshot would silently drop it.
+    for (const origin of origins) secretTaintedOrigins.delete(origin);
+    for (const [key, origin] of [...secretTaintedTabs]) {
+      if (origins.includes(origin)) secretTaintedTabs.delete(key);
+    }
+    secretRecoveryReceipts = nextReceipts;
+    const addedMeanwhile = [...secretTaintedTabs.keys()].some((key) => !nextTabs.has(key))
+      || [...secretTaintedOrigins].some((origin) => !nextOrigins.has(origin));
+    if (addedMeanwhile) {
+      // Store the mark the snapshot missed. If this write fails the mark still
+      // protects in memory, as any failed lineage write does.
+      await persistSecretTaints().catch(() => undefined);
+    }
+    // A popup review of the old state no longer describes it.
+    secretRecoveryRequest = null;
+    return { released: true, alreadyApplied: false, clearedTabCount };
+  });
+}
+
+/** The tracked tabs carrying any of these origins, as a comparable key and a count. */
+function secretRecoveryAffectedTabsKey(origins) {
+  const tabIds = [...secretTaintedTabs].filter(([, origin]) => origins.includes(origin))
+    .map(([tabId]) => tabId).sort();
+  return { key: tabIds.join(' '), count: tabIds.length };
+}
+
+/** Exact, sorted, unique credential origins from a Harness payload; anything else is dropped. */
+function secretRecoveryOrigins(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((origin) => typeof origin === 'string'
+    && normalizeCredentialOrigin(origin) === origin))].sort().slice(0, 16);
+}
+
+// Automatic release, step 0: remember how to recognise a value about to be
+// written. A site is releasable only when every value written there is known,
+// so a site already protected before this worker started never qualifies.
+function rememberSecretValueCheck(origin, value) {
+  return runWithSecretObservationBoundary(async () => {
+    if (typeof value !== 'string' || value.length === 0) return;
+    await loadSecretTaints();
+    await loadSecretAutoReleased();
+    const existing = secretValueChecks.get(origin);
+    const unprotected = !secretTaintedOrigins.has(origin);
+    // complete: every value written since the site was last unprotected is
+    // known, so it can be released again. allKnown: every value ever written
+    // since the popup reset is known, so page memory, log and traffic reads can
+    // be checked; a site released before this worker started never gets that.
+    const complete = (existing?.complete ?? false) || unprotected;
+    const allKnown = existing ? existing.allKnown : unprotected && !secretAutoReleasedOrigins.has(origin);
+    // The value as typed, and as an address or a JSON string would carry it.
+    const forms = [...new Set([
+      value, encodeURIComponent(value), encodeURIComponent(value).replace(/%20/g, '+'),
+      new URLSearchParams({ v: value }).toString().slice(2),
+      JSON.stringify(value).slice(1, -1),
+    ])];
+    const checks = [];
+    for (const form of forms) {
+      checks.push({ length: form.length, fingerprint: secretScanFingerprint(form, 0, form.length), digest: await secretValueDigest(form) });
+    }
+    const digests = new Set(checks.map((check) => check.digest));
+    const values = [...(existing?.values ?? []).filter((entry) => !digests.has(entry.digest)), ...checks];
+    secretValueChecks.delete(origin);
+    // Over the limit a site loses older checks, so it can no longer be released.
+    const whole = values.length <= 32;
+    secretValueChecks.set(origin, { complete: complete && whole, allKnown: allKnown && whole, values: values.slice(-32) });
+    while (secretValueChecks.size > SECRET_VALUE_CHECK_LIMIT) {
+      secretValueChecks.delete(secretValueChecks.keys().next().value);
+    }
+  });
+}
+
+function secretValuesKnown(origin) {
+  const record = secretValueChecks.get(origin);
+  return Boolean(record?.complete && record.values.length > 0);
+}
+
+function secretValuesAllKnown(origin) {
+  const record = secretValueChecks.get(origin);
+  return Boolean(record?.allKnown && record.values.length > 0);
+}
+
+/**
+ * The released site whose written values appear in these strings, or null.
+ * Checks every value still remembered, including partial records: checking
+ * more can only add protection.
+ */
+async function writtenSecretOriginIn(texts) {
+  if (!isSecretObservationProtectionEnabled() || secretValueChecks.size === 0) return null;
+  await loadSecretAutoReleased();
+  for (const origin of secretAutoReleasedOrigins) {
+    if (!secretValueChecks.has(origin)) continue;
+    if (texts.truncated === true || await textsContainWrittenSecret(texts, origin)) return origin;
+  }
+  return null;
+}
+
+function secretScanFingerprint(text, start, length) {
+  let hash = 0;
+  for (let index = 0; index < length; index++) {
+    hash = (hash * SECRET_SCAN_BASE + text.charCodeAt(start + index)) % SECRET_SCAN_PRIME;
+  }
+  return hash;
+}
+
+async function secretValueDigest(text) {
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/** Whether any of these strings contains one of the site's written values. */
+async function textsContainWrittenSecret(texts, origin) {
+  for (const check of secretValueChecks.get(origin)?.values ?? []) {
+    let power = 1;
+    for (let index = 1; index < check.length; index++) power = (power * SECRET_SCAN_BASE) % SECRET_SCAN_PRIME;
+    let confirmations = 0;
+    for (const text of texts) {
+      if (typeof text !== 'string' || text.length < check.length) continue;
+      let hash = secretScanFingerprint(text, 0, check.length);
+      for (let start = 0; ; start++) {
+        if (hash === check.fingerprint) {
+          // Fingerprint collisions are rare; very many of them fail closed.
+          if (++confirmations > 64) return true;
+          if (await secretValueDigest(text.slice(start, start + check.length)) === check.digest) return true;
+        }
+        if (start + check.length >= text.length) break;
+        hash = (hash - (text.charCodeAt(start) * power) % SECRET_SCAN_PRIME + SECRET_SCAN_PRIME) % SECRET_SCAN_PRIME;
+        hash = (hash * SECRET_SCAN_BASE + text.charCodeAt(start + check.length)) % SECRET_SCAN_PRIME;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Every string in a command result, for the post-release check. A result too
+ * large or deep to read whole sets out.truncated, which counts as a match.
+ */
+function collectResultStrings(value, out = [], depth = 0) {
+  if (typeof value === 'string') out.push(value);
+  else if (value && typeof value === 'object') {
+    if (depth >= 12 || out.length >= 20000) {
+      out.truncated = true;
+      return out;
+    }
+    for (const item of Object.values(value)) collectResultStrings(item, out, depth + 1);
+  }
+  return out;
+}
+
+async function loadSecretAutoReleased() {
+  if (secretAutoReleasedLoaded) return;
+  const stored = (await chrome.storage.local.get(SECRET_AUTO_RELEASED_STORAGE_KEY))?.[SECRET_AUTO_RELEASED_STORAGE_KEY];
+  for (const origin of Array.isArray(stored) ? stored : []) {
+    if (typeof origin === 'string' && normalizeCredentialOrigin(origin) === origin) secretAutoReleasedOrigins.add(origin);
+  }
+  secretAutoReleasedLoaded = true;
+}
+
+// Automatic release, inside the shared boundary. Every open tab carrying the
+// site (marked with it, or showing it) is read in every frame: field values,
+// page text, title and address. Any read that fails, is cut short or holds a
+// written value keeps protection. Persisted before memory changes.
+async function autoReleaseSecretProtectionLocked(origin) {
+  if (!isSecretObservationProtectionEnabled()) return false;
+  await loadSecretTaints();
+  if (!secretTaintedOrigins.has(origin)) return true;
+  if (!secretValuesKnown(origin)) return false;
+  const texts = [];
+  for (const tab of await chrome.tabs.query({})) {
+    if (typeof tab?.id !== 'number'
+      || (secretTaintedTabs.get(String(tab.id)) !== origin && browserTabOrigin(tab) !== origin)) continue;
+    texts.push(String(tab.url ?? ''), String(tab.title ?? ''));
+    let frames;
+    let timer;
+    try {
+      frames = await Promise.race([
+        chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: secretResidueProbe }),
+        new Promise((_resolve, reject) => { timer = setTimeout(() => reject(new Error('residue_probe_timeout')), 1500); }),
+      ]);
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!Array.isArray(frames) || frames.length === 0) return false;
+    for (const frame of frames) {
+      const result = frame?.result;
+      if (result?.complete !== true || !Array.isArray(result.texts)) return false;
+      texts.push(...result.texts);
+    }
+  }
+  if (await textsContainWrittenSecret(texts, origin)) return false;
+  await loadSecretAutoReleased();
+  const nextOrigins = new Set([...secretTaintedOrigins].filter((entry) => entry !== origin));
+  const nextTabs = new Map([...secretTaintedTabs].filter(([, entry]) => entry !== origin));
+  const nextReleased = [...new Set([...secretAutoReleasedOrigins, origin])].slice(-256);
+  await chrome.storage.local.set({
+    [SECRET_TAINT_STORAGE_KEY]: secretTaintStorageValue(
+      nextOrigins, nextTabs, secretWriteGeneration, secretRecoveryReceipts,
+    ),
+    [SECRET_AUTO_RELEASED_STORAGE_KEY]: nextReleased,
+  });
+  secretTaintedOrigins.delete(origin);
+  for (const [tabId, entry] of [...secretTaintedTabs]) {
+    if (entry === origin) secretTaintedTabs.delete(tabId);
+  }
+  secretAutoReleasedOrigins.clear();
+  for (const entry of nextReleased) secretAutoReleasedOrigins.add(entry);
+  // Reviews of the old state, in Harness or the popup, no longer describe it.
+  secretReleaseReviews.clear();
+  secretRecoveryRequest = null;
+  return true;
+}
+
+/**
+ * Page function for automatic release: every field value (open shadow roots
+ * included), the page text, title and address, as strings for the extension's
+ * own check. Nothing here leaves the extension. complete is false when the
+ * page is too large to read whole, which keeps protection.
+ */
+function secretResidueProbe() {
+  const texts = [String(location.href), String(document.title || '')];
+  let complete = true;
+  const visit = (root, depth) => {
+    for (const element of root.querySelectorAll('input, textarea')) {
+      if (typeof element.value === 'string' && element.value) texts.push(element.value);
+    }
+    if (depth >= 8) return;
+    for (const element of root.querySelectorAll('*')) {
+      if (element.shadowRoot) visit(element.shadowRoot, depth + 1);
+    }
+  };
+  visit(document, 0);
+  // The site's own storage can keep a typed value and show it later.
+  try {
+    for (const store of [localStorage, sessionStorage]) {
+      for (let index = 0; index < store.length && texts.length <= 5000; index++) {
+        const key = store.key(index);
+        texts.push(String(key), String(store.getItem(key) ?? ''));
+      }
+    }
+  } catch {
+    complete = false;
+  }
+  const text = String(document.body ? document.body.innerText : '');
+  if (text.length > 2000000 || texts.length > 5000
+    || texts.reduce((total, entry) => total + entry.length, 0) > 8000000) complete = false;
+  texts.push(text);
+  return { complete, texts: complete ? texts : [] };
+}
+
+// Only fixed fields cross the native boundary from the two recovery commands.
+function sanitizeSecretRecoveryResult(command, result) {
+  const record = result && typeof result === 'object' ? result : {};
+  const count = (value) => (Number.isInteger(value) && value >= 0 ? value : 0);
+  if (command?.command === 'release_secret_observation') {
+    return {
+      released: record.released === true,
+      alreadyApplied: record.alreadyApplied === true,
+      clearedTabCount: count(record.clearedTabCount),
+    };
+  }
+  const state = ['protection_off', 'not_protected', 'inspection_unavailable', 'protected']
+    .includes(record.state) ? record.state : 'inspection_unavailable';
+  if (state !== 'protected') return { state };
+  return {
+    state,
+    origins: secretRecoveryOrigins(record.origins),
+    affectedTabCount: count(record.affectedTabCount),
+    writeGeneration: typeof record.writeGeneration === 'string'
+      && SECRET_RECOVERY_ID_PATTERN.test(record.writeGeneration) ? record.writeGeneration : '',
+    reviewToken: typeof record.reviewToken === 'string'
+      && SECRET_RECOVERY_ID_PATTERN.test(record.reviewToken) ? record.reviewToken : '',
+  };
 }
 
 function browserTabOrigin(tab) {
@@ -1808,8 +2259,14 @@ function browserTabOrigin(tab) {
 }
 
 async function taintedFrameOriginForTabId(tabId) {
+  const origins = await taintedFrameOriginsForTabId(tabId);
+  return origins[0] ?? null;
+}
+
+/** Every protected origin with a frame in this tab, in frame order. Throws on uncertainty. */
+async function taintedFrameOriginsForTabId(tabId) {
   if (secretTaintedOrigins.size === 0) {
-    return null;
+    return [];
   }
   let frameResults;
   let timer;
@@ -1834,13 +2291,14 @@ async function taintedFrameOriginForTabId(tabId) {
   } finally {
     clearTimeout(timer);
   }
+  const origins = [];
   for (const entry of frameResults ?? []) {
     const origin = entry?.result?.origin;
-    if (typeof origin === 'string' && secretTaintedOrigins.has(origin)) {
-      return origin;
+    if (typeof origin === 'string' && secretTaintedOrigins.has(origin) && !origins.includes(origin)) {
+      origins.push(origin);
     }
   }
-  return null;
+  return origins;
 }
 
 async function secretTaintOriginForTab(tab) {
@@ -1906,9 +2364,21 @@ async function assertSecretObservationAllowed(command) {
   }
   if (typeof origin === 'string') {
     message = 'browser_secret_observation_blocked_for_tainted_origin: command not run. '
-      + 'Secret protection is active. The operator can review and reset it in the '
-      + 'Harness extension popup with Browser Gateway off. Navigation or a new tab '
-      + 'does not clear confirmed protection.';
+      + 'Secret protection is active because a saved secret was entered on this site and is still in the page. '
+      + 'Clicking the submit button of the form Harness filled still works: call browser.click on it by selector, '
+      + 'without reading the page first. Protection lifts by itself once the page has moved on and the secret '
+      + 'is no longer in it; then read again. If it stays, call browser.recover_secret_observation for this tab '
+      + '(load it through browser.tool_search if it is not listed) to ask the user in Harness to restore access, '
+      + 'then call it again with the requestId once resumed.';
+  } else if (!message && SECRET_DEEP_READ_COMMANDS.has(command.command)) {
+    await loadSecretAutoReleased();
+    const pageOrigin = browserTabOrigin(await chrome.tabs.get(tabId));
+    if (secretAutoReleasedOrigins.has(pageOrigin) && !secretValuesAllKnown(pageOrigin)) {
+      message = 'browser_secret_observation_blocked_for_tainted_origin: command not run. '
+        + 'A saved secret was typed on this site earlier and this read of page memory, logs or traffic can no '
+        + 'longer be checked for it. browser.snapshot, browser.query_elements and browser.screenshot still work. '
+        + 'The user can lift this in the Harness extension popup.';
+    }
   }
   if (message) {
     const error = new Error(message);
@@ -1917,6 +2387,48 @@ async function assertSecretObservationAllowed(command) {
     secretObservationGuardErrors.add(error);
     throw error;
   }
+}
+
+/**
+ * Before a page read on a protected tab: lift protection from each site whose
+ * written values have left every page (see autoReleaseSecretProtectionLocked).
+ * Runs before runBrowserCommand classifies the tab, so a released read returns
+ * the page, not the protected placeholder.
+ */
+async function releaseSecretProtectionIfClear(command) {
+  if (!SECRET_OBSERVATION_COMMANDS.has(command?.command) || !isSecretObservationProtectionEnabled()) return;
+  const tabId = requireTargetTabId(command);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    // Classification can persist lineage, so it shares the boundary with the release.
+    const released = await runWithSecretObservationBoundary(async () => {
+      const origin = await secretTaintOriginForTabId(tabId);
+      return typeof origin === 'string' && autoReleaseSecretProtectionLocked(origin);
+    });
+    if (!released) return;
+  }
+}
+
+/**
+ * After an automatic release, every command result and error is checked for
+ * the values written on released sites while they are remembered. A hit
+ * restores protection on the tab. Returns null when clear; for a page read the
+ * guard error to report instead; for anything else (a mutation already ran)
+ * the site, so the caller sends the protected placeholder instead.
+ */
+async function withheldIfSecretReturned(command, result) {
+  const origin = await writtenSecretOriginIn(collectResultStrings(result));
+  if (origin === null) return null;
+  const tabId = typeof command?.target?.tabId === 'number' ? command.target.tabId : result?.tabId;
+  if (typeof tabId === 'number') await markSecretTaint(tabId, origin);
+  if (SECRET_OBSERVATION_COMMANDS.has(command?.command)) {
+    const error = new Error('browser_secret_observation_blocked_for_tainted_origin: result withheld. '
+      + 'It contained a secret Harness typed on this site. Do not repeat this read; '
+      + 'browser.snapshot and browser.query_elements work while the page itself no longer shows the secret.');
+    secretObservationGuardErrors.add(error);
+    return error;
+  }
+  // A mutation already ran: its result is replaced by the protected placeholder instead.
+  return origin;
 }
 
 async function targetSecretTaintOrigin(command) {
@@ -1952,6 +2464,24 @@ function browserCommandErrorMessage(command, error, targetSecretTainted = false)
       || command?.command === 'http_auth_navigate'
       || (command?.command === 'type' && typeof command?.payload?.credentialOrigin === 'string');
     return pageTextUnsafe ? dialogMessages.withoutPageText : dialogMessages.full;
+  }
+  if (command?.command === 'secret_protection_review' || command?.command === 'release_secret_observation') {
+    // Fixed codes only. Listed here so this function stays self-contained for
+    // the source-extraction test harness. A release that failed any other way
+    // may or may not have been stored; Harness reconciles it by operation id.
+    const safeRecoveryErrors = [
+      'secret_release_payload_invalid',
+      'secret_release_review_invalid',
+      'secret_release_protection_off',
+      'secret_release_state_changed',
+      'browser_safe_mode_enabled',
+      'browser_extension_wrong_profile',
+    ];
+    const recoveryMessage = error instanceof Error ? error.message : String(error);
+    if (safeRecoveryErrors.includes(recoveryMessage)) return recoveryMessage;
+    return command.command === 'release_secret_observation'
+      ? 'secret_release_failed_or_may_have_applied'
+      : 'secret_protection_review_failed';
   }
   if (command?.command === 'reload') {
     const message = error instanceof Error ? error.message : String(error);
@@ -2144,6 +2674,10 @@ async function runBrowserCommand(command, bridge) {
       await applySecretObservationProtectionFromCommand(command);
     }
     assertGatewayEnabled();
+    if (!reloadCommand) {
+      // Any failure here only keeps protection; the read is then refused as before.
+      await releaseSecretProtectionIfClear(command).catch(() => undefined);
+    }
     // Snapshot taint BEFORE dispatch as well as afterward. A later mutation can
     // close the tab, which fires onRemoved and legitimately clears persisted
     // state; that must not declassify the still-in-flight command result.
@@ -2151,6 +2685,11 @@ async function runBrowserCommand(command, bridge) {
       secretTaintOrigin = await targetSecretTaintOrigin(command);
     }
     const result = await runCommandWithWatchdog(command);
+    if (secretTaintOrigin === null && !reloadCommand) {
+      const withheld = await withheldIfSecretReturned(command, result);
+      if (withheld instanceof Error) throw withheld;
+      if (typeof withheld === 'string') secretTaintOrigin = withheld;
+    }
     if (command.command === 'open_tab' && command.sessionOwner) {
       await browserSessionClaims.rememberOpened(command, result);
     }
@@ -2176,6 +2715,10 @@ async function runBrowserCommand(command, bridge) {
       : undefined;
     const safeResult = typeof command?.command === 'string' && command.command.startsWith('codex_device_')
       ? sanitizeCodexDeviceResult(command, result)
+      // Extension-built fixed fields only; never page content. They must reach
+      // Harness even though (by design) the target tab is protected.
+      : command?.command === 'secret_protection_review' || command?.command === 'release_secret_observation'
+      ? sanitizeSecretRecoveryResult(command, result)
       : !reloadCommand
       && (typeof secretTaintOrigin === 'string' || sensitiveOriginBoundType)
       ? {
@@ -2199,15 +2742,20 @@ async function runBrowserCommand(command, bridge) {
     if (secretTaintOrigin === null && !reloadCommand && !isWrongProfileRefusal(error)) {
       secretTaintOrigin = await targetSecretTaintOrigin(command);
     }
+    let errorMessage = browserCommandErrorMessage(command, error, typeof secretTaintOrigin === 'string');
+    if (typeof secretTaintOrigin !== 'string' && !reloadCommand) {
+      // A page error on a released site can carry a written value as well as a result can.
+      const withheld = await withheldIfSecretReturned(command, errorMessage).catch(() => '');
+      if (withheld !== null) {
+        errorMessage = withheld instanceof Error ? withheld.message
+          : 'browser_secret_observation_blocked_for_tainted_origin: result withheld. It contained a secret Harness typed on this site.';
+      }
+    }
     postNativeMessage(bridge, {
       type: 'command_result',
       commandId: command.id,
       ok: false,
-      error: browserCommandErrorMessage(
-        command,
-        error,
-        typeof secretTaintOrigin === 'string',
-      ),
+      error: errorMessage,
     });
   } finally {
     // Only now is the extension ready for the next command. Clearing the poll
@@ -2759,6 +3307,10 @@ async function executeBrowserCommand(command, deadlineAt) {
       return probeOneTimeCodeFields(command);
     case 'handle_dialog':
       return answerDialogCommand(command);
+    case 'secret_protection_review':
+      return reviewSecretProtection(command);
+    case 'release_secret_observation':
+      return releaseSecretProtection(command);
     case 'close_tab': {
       const tabId = requireTargetTabId(command);
       let tab;
@@ -5290,6 +5842,7 @@ async function runOriginBoundType(
     }
 
     if (credentialProtection !== 'public') {
+      await rememberSecretValueCheck(expectedOrigin, value);
       await markSecretTaint(tabId, expectedOrigin);
     }
 
@@ -5735,6 +6288,23 @@ async function buildTabPayloadLocked(tab, options = {}) {
     if (typeof postCaptureOrigin === 'string') {
       secretTainted = true;
       secretTaintedOrigin = postCaptureOrigin;
+      page = {
+        title: tab.title, text: '', selectorText: undefined,
+        selectorFingerprint: undefined, textUnavailableReason: null,
+      };
+      screenshotBase64 = undefined;
+    }
+  }
+  if (!secretTainted && !inspectionUnavailable) {
+    // After an automatic release, inventory and attach reports carry page text
+    // too: check them for values written on released sites (see
+    // withheldIfSecretReturned). Inside the boundary, so mark directly.
+    const leaked = await writtenSecretOriginIn([tab.url, tab.title, page.title, page.text, page.selectorText])
+      .catch(() => '');
+    if (leaked !== null) {
+      if (leaked) await markSecretTaintLocked(tab.id, leaked).catch(() => undefined);
+      secretTainted = true;
+      secretTaintedOrigin = leaked;
       page = {
         title: tab.title, text: '', selectorText: undefined,
         selectorFingerprint: undefined, textUnavailableReason: null,

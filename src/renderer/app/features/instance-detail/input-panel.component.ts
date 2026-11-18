@@ -34,7 +34,7 @@ import { ActionDispatchService } from '../../core/services/action-dispatch.servi
 import { DraftService } from '../../core/services/draft.service';
 import { ComposerFocusService } from '../../core/services/composer-focus.service';
 import { KeybindingService, type KeybindingEvent } from '../../core/services/keybinding.service';
-import { OrchestrationIpcService } from '../../core/services/ipc';
+import { FileIpcService, OrchestrationIpcService } from '../../core/services/ipc';
 import { InstanceIpcService } from '../../core/services/ipc/instance-ipc.service';
 import { ElectronIpcService } from '../../core/services/ipc/electron-ipc.service';
 import { InstanceStore } from '../../core/state/instance.store';
@@ -116,6 +116,8 @@ import {
   tryStartLoopFromPanel,
   type LoopStartRequestPayload,
 } from './input-panel-loop-start';
+import { ComposerFilePreviews } from './composer-file-previews';
+import { ToastService } from '../../core/services/toast.service';
 import {
   NewSessionSubmissionController,
   type NewSessionSubmitRequest,
@@ -207,7 +209,9 @@ export class InputPanelComponent implements OnDestroy {
   private submissions = inject(ComposerSubmissionService);
   private questions = inject(UserInputRequestRegistry);
   protected voice = inject(VoiceConversationStore);
-  private filePreviewUrls = new Map<File, string>();
+  private fileIpc = inject(FileIpcService);
+  private toast = inject(ToastService);
+  private filePreviews = new ComposerFilePreviews((file) => this.fileIpc.convertHeicToJpeg(file));
   private textareaRef = viewChild<ElementRef<HTMLTextAreaElement>>('textareaRef');
   private wakeupControlRef = viewChild<ElementRef<HTMLElement>>('wakeupControl');
   private imageLightbox = viewChild(ImageLightboxComponent);
@@ -255,21 +259,17 @@ export class InputPanelComponent implements OnDestroy {
   // Computed preview data for pending files
   pendingFilePreviews = computed(() => {
     const files = this.pendingFiles();
-    return files.map(file => ({
-      file,
-      isImage: file.type.startsWith('image/'),
-      previewUrl: this.getOrCreatePreviewUrl(file),
-      size: formatFileSize(file.size),
-    }));
+    return files.map(file => {
+      // Null for non-images, and for a HEIC photo until its JPEG thumbnail is ready.
+      const thumbnail = this.filePreviews.thumbnailFor(file);
+      return {
+        file,
+        isImage: thumbnail !== null,
+        previewUrl: thumbnail ?? '',
+        size: formatFileSize(file.size),
+      };
+    });
   });
-
-  private getOrCreatePreviewUrl(file: File): string {
-    if (!this.filePreviewUrls.has(file)) {
-      const url = URL.createObjectURL(file);
-      this.filePreviewUrls.set(file, url);
-    }
-    return this.filePreviewUrls.get(file)!;
-  }
 
   // Items shown in the full-screen lightbox (mirrors pendingFilePreviews order)
   lightboxItems = computed<LightboxItem[]>(() =>
@@ -417,11 +417,15 @@ export class InputPanelComponent implements OnDestroy {
    */
   private async tryStartLoopFromPanel(): Promise<boolean> {
     return tryStartLoopFromPanel({
+      // Hosts start the loop in this chat (or, with none, the session shown); a chat's live instance can change.
+      sessionId: () => this.loopChatId() ?? this.instanceId(),
+      notify: (message, kind = 'warning') => this.toast.show(message, kind),
       isLoopStarting: () => this.loopStarting(),
       panelConfig: () => this.latestLoopConfig(),
       message: () => this.message(),
       setMessage: (value) => this.message.set(value),
       pendingFiles: () => this.pendingFiles(),
+      convertHeic: (file) => this.fileIpc.convertHeicToJpeg(file),
       setLoopStarting: (value) => this.loopStarting.set(value),
       setLoopArmed: (value) => this.loopArmed.set(value),
       setShowLoopPanel: (value) => this.showLoopPanel.set(value),
@@ -926,18 +930,9 @@ export class InputPanelComponent implements OnDestroy {
       if (textarea) this.scheduleTextareaResize(textarea);
     });
 
-    // Clean up preview URLs when files change
+    // Revoke preview URLs for files that are no longer staged
     effect(() => {
-      const files = this.pendingFiles();
-      const currentFiles = new Set(files);
-
-      // Revoke URLs for removed files
-      for (const [file, url] of this.filePreviewUrls.entries()) {
-        if (!currentFiles.has(file)) {
-          URL.revokeObjectURL(url);
-          this.filePreviewUrls.delete(file);
-        }
-      }
+      this.filePreviews.retainOnly(this.pendingFiles());
     });
 
     // Generate ghost text suggestion when conversation state changes
@@ -991,11 +986,7 @@ export class InputPanelComponent implements OnDestroy {
       clearTimeout(this.nlWorkflowSuggestionTimer);
       this.nlWorkflowSuggestionTimer = null;
     }
-    // Clean up all preview URLs
-    for (const url of this.filePreviewUrls.values()) {
-      URL.revokeObjectURL(url);
-    }
-    this.filePreviewUrls.clear();
+    this.filePreviews.dispose();
     this.keybindingService.setContext('global');
     this.voice.stop();
   }
@@ -1756,12 +1747,7 @@ export class InputPanelComponent implements OnDestroy {
   }
 
   onRemoveFile(file: File): void {
-    // Revoke the preview URL
-    const url = this.filePreviewUrls.get(file);
-    if (url) {
-      URL.revokeObjectURL(url);
-      this.filePreviewUrls.delete(file);
-    }
+    this.filePreviews.release(file);
     this.removeFile.emit(file);
   }
 

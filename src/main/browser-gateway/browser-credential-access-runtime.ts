@@ -18,6 +18,10 @@ import { CredentialVaultError } from './browser-credential-vault';
 import { getSettingsManager } from '../core/config/settings-manager';
 import { getRemoteNodeRosterService } from '../remote-node/remote-node-roster-service';
 import { isMissingExtensionTabError } from './browser-extension-command-failures';
+import { withBrowserSessionOfInstance } from './browser-session-context';
+import { getLogger } from '../logging/logger';
+
+const logger = getLogger('BrowserCredentialAccess');
 
 interface CredentialTarget {
   origin: string;
@@ -40,23 +44,38 @@ export function createCredentialAccessDependencies(): BrowserCredentialAccessDep
     now: Date.now,
     result: (input) => resultRecorder.record(input),
     notify: notifyCredentialAccessDecision,
+    preApproveAgentFolderLogins: () => getSettingsManager().getAll().browserPreApproveAgentFolderLogins === true,
   };
 }
 
 async function readCredentialTarget(profileId: string, targetId: string, context: BrowserGatewayContext = {}): Promise<CredentialTarget> {
   const before = requireTarget(profileId, targetId);
-  const snapshot = await getBrowserGatewayService().snapshot({ ...context, profileId, targetId, requireLive: true }).catch(() => {
-    throw new CredentialVaultError('The browser target could not be confirmed live', 'target_unavailable');
+  // The operator's approval reaches here from the window, outside any session.
+  // Run the live check as the requesting session: the extension refuses an
+  // owner-less command on a tab that session holds (17 Nov 2026, ct-test-mac).
+  const read = () => getBrowserGatewayService().snapshot({ ...context, profileId, targetId, requireLive: true });
+  const snapshot = await (context.instanceId ? withBrowserSessionOfInstance(context.instanceId, read) : read()).catch((error: unknown) => {
+    unavailable('snapshot_threw', error instanceof Error ? error.message : 'unknown');
   });
   if (snapshot.decision !== 'allowed' || snapshot.outcome !== 'succeeded' || !snapshot.data) {
-    if (profileId.startsWith('existing-tab:') && isMissingExtensionTabError(snapshot.reason ?? '')) {
+    const reason = snapshot.reason ?? '';
+    if (profileId.startsWith('existing-tab:') && isMissingExtensionTabError(reason)) {
       throw new CredentialVaultError('The sign-in tab has closed', 'target_closed');
     }
-    throw new CredentialVaultError('The browser target could not be confirmed live', 'target_unavailable');
+    if (reason.includes('browser_secret_observation_blocked_for_tainted_origin')) {
+      throw new CredentialVaultError('The tab is locked after a password was typed into it', 'target_secret_protected');
+    }
+    if (reason.includes('browser_tab_held_by_another_session')) {
+      throw new CredentialVaultError('Another session is using this tab', 'target_held_by_another_session');
+    }
+    if (reason.includes('browser_extension_session_claims_unavailable') || reason.includes('shared_tab_secure_credential_fill_unavailable')) {
+      throw new CredentialVaultError('A current secure browser extension is required', 'shared_tab_secure_credential_fill_unavailable');
+    }
+    unavailable(`snapshot_${snapshot.decision}_${snapshot.outcome}`, reason);
   }
   const after = requireTarget(profileId, targetId);
   if (before.scope !== after.scope || before.computerId !== after.computerId) {
-    throw new CredentialVaultError('The browser computer changed during validation', 'target_unavailable');
+    unavailable('computer_changed_during_check');
   }
   let origin: string;
   try {
@@ -98,24 +117,25 @@ function requireTarget(profileId: string, targetId: string): Omit<CredentialTarg
     throw new CredentialVaultError('The sign-in tab has closed', 'target_closed');
   }
   if (!target || target.profileId !== profileId || target.stale) {
-    throw new CredentialVaultError('The browser target is unavailable', 'target_unavailable');
+    unavailable(!target ? 'target_not_registered' : 'target_stale');
   }
   const shared = profileId.startsWith('existing-tab:');
   const attachment = shared ? getBrowserExtensionTabStore().getTab(profileId, targetId) : null;
   const profile = shared ? null : getBrowserProfileStore().getProfile(profileId);
-  if ((shared && (!attachment || attachment.suspendedAt !== undefined)) || (!shared && (!profile || profile.status !== 'running'))) {
-    throw new CredentialVaultError('The browser target is unavailable', 'target_unavailable');
+  if (shared && (!attachment || attachment.suspendedAt !== undefined)) {
+    unavailable(!attachment ? 'tab_not_attached' : 'tab_suspended');
   }
+  if (!shared && (!profile || profile.status !== 'running')) unavailable('profile_not_running');
   const scope = credentialScopeForProfile(profileId);
   const computerId = shared ? attachment!.nodeId ?? 'local' : profile!.executionNodeId ?? 'local';
-  if (shared && (computerId !== scope || (target.nodeId ?? 'local') !== computerId)) {
-    throw new CredentialVaultError('The browser attachment does not match this computer', 'target_unavailable');
+  if (shared && (computerId !== scope || (target!.nodeId ?? 'local') !== computerId)) {
+    unavailable('attachment_computer_mismatch');
   }
   let computerName = 'This computer';
   if (computerId !== 'local') {
     const node = getRemoteNodeRosterService().get(computerId);
     if (!node?.connected || node.status === 'disconnected' || node.status === 'connecting') {
-      throw new CredentialVaultError('The browser computer is disconnected', 'target_unavailable');
+      throw new CredentialVaultError('The browser computer is disconnected', 'computer_offline');
     }
     computerName = node.name;
   }
@@ -128,4 +148,14 @@ function requireTarget(profileId: string, targetId: string): Omit<CredentialTarg
     }
   }
   return { scope, computerName, computerId };
+}
+
+/**
+ * Log the real reason and refuse. Only a leading snake_case error code of a
+ * failure message is kept, so page text that reached an error cannot reach the log.
+ */
+function unavailable(cause: string, detail?: string): never {
+  const code = /^[a-z][a-z0-9_]{2,80}$/.exec((detail ?? '').split(':')[0] ?? '')?.[0];
+  logger.warn('Saved-login tab check failed', { cause, ...(code ? { detail: code } : {}) });
+  throw new CredentialVaultError('The browser target is unavailable', 'target_unavailable');
 }

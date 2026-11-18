@@ -302,6 +302,55 @@ describe('browser.reload and effect verification', () => {
     expect(sendCommand.mock.calls.filter(([request]) => request.command === 'click')).toHaveLength(1);
   });
 
+  it.each([
+    // 17 Nov 2026, windows-pc: fill_credential, then click with expectUrlChange.
+    // The extension refuses every read on the locked tab but runs clicks.
+    ['protection after a password fill refuses it', 'browser_secret_observation_blocked_for_tainted_origin: command not run.'],
+    ['the extension does not answer in time', 'browser_extension_command_timeout'],
+    ['it is never delivered', 'browser_extension_command_not_delivered'],
+  ])('sends the click once and reports it unverified when the before-reading fails because %s', async (_case, failure) => {
+    const sendCommand = vi.fn(async (request: { command: string }) => {
+      if (request.command === 'click') return { completed: true };
+      throw new Error(failure);
+    });
+    const { service } = makeService({ existingTab, grants: [inputGrant()], extensionCommandStore: { sendCommand } });
+
+    const result = await service.click({ ...context, selector: 'form button[type="submit"]', expectUrlChange: true });
+
+    expect(result).toMatchObject({ decision: 'allowed', outcome: 'failed', reason: 'browser_effect_observation_unverified' });
+    expect(sendCommand.mock.calls.filter(([request]) => request.command === 'click')).toHaveLength(1);
+  });
+
+  it('sends the click once and reports it unverified when the before-reading hangs', async () => {
+    vi.useFakeTimers();
+    try {
+      const sendCommand = vi.fn(async (request: { command: string }) => {
+        if (request.command === 'click') return { clicked: true };
+        return new Promise(() => undefined);
+      });
+      const { service } = makeService({ existingTab, grants: [inputGrant()], extensionCommandStore: { sendCommand } });
+      const pending = service.click({ ...context, selector: 'form button[type="submit"]', expectUrlChange: true });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(await pending).toMatchObject({ outcome: 'failed', reason: 'browser_effect_observation_unverified' });
+      expect(sendCommand.mock.calls.filter(([request]) => request.command === 'click')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refuses the click when the before-reading finds the tab outside the allowed sites', async () => {
+    const sendCommand = vi.fn(async (request: { command: string }) => {
+      if (request.command === 'click') return { clicked: true };
+      return { tabId: 42, windowId: 7, url: 'https://other-site.example.test/', title: 'Other', text: '', inspectionState: 'readable' };
+    });
+    const { service } = makeService({ existingTab, grants: [inputGrant()], extensionCommandStore: { sendCommand } });
+
+    const result = await service.click({ ...context, selector: '#save', expectUrlChange: true });
+
+    expect(result).toMatchObject({ outcome: 'failed', reason: 'browser_effect_observation_origin_not_allowed' });
+    expect(sendCommand.mock.calls.map(([request]) => request.command)).not.toContain('click');
+  });
+
   it('cannot treat a secret-taint URL substitution as a verified URL change', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(600_000);

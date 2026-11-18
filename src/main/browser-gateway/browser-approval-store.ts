@@ -3,8 +3,16 @@ import type {
   BrowserApprovalRequestStatus,
   BrowserCredentialAccessMetadata,
   BrowserDeviceLoginMetadata,
+  BrowserSecretRecoveryMetadata,
+  BrowserSecretRecoveryProgress,
 } from '@contracts/types/browser';
-import { BrowserApprovalRequestSchema, BrowserCredentialAccessMetadataSchema, BrowserDeviceLoginMetadataSchema } from '@contracts/schemas/browser';
+import {
+  BrowserApprovalRequestSchema,
+  BrowserCredentialAccessMetadataSchema,
+  BrowserDeviceLoginMetadataSchema,
+  BrowserSecretRecoveryMetadataSchema,
+  BrowserSecretRecoveryProgressSchema,
+} from '@contracts/schemas/browser';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { getRLMDatabase } from '../persistence/rlm-database';
 import { generateId } from '../../shared/utils/id-generator';
@@ -27,6 +35,8 @@ interface BrowserApprovalRequestRow {
   detected_file_type: string | null;
   credential_access_json: string | null;
   device_login_json: string | null;
+  secret_recovery_json: string | null;
+  secret_recovery_progress_json: string | null;
   request_reason: string | null;
   proposed_grant_json: string;
   status: BrowserApprovalRequestStatus;
@@ -39,7 +49,7 @@ interface BrowserApprovalRequestRow {
 /** `computerId` is worked out when the list is read, so it is not something a caller can store. */
 export type BrowserApprovalRequestInput = Omit<
   BrowserApprovalRequest,
-  'id' | 'requestId' | 'status' | 'grantId' | 'createdAt' | 'decidedAt' | 'computerId'
+  'id' | 'requestId' | 'status' | 'grantId' | 'createdAt' | 'decidedAt' | 'computerId' | 'secretRecoveryProgress'
 >;
 
 export interface BrowserApprovalListFilter {
@@ -64,6 +74,11 @@ export class BrowserApprovalStore {
       BrowserApprovalRequestSchema.parse({ ...input, deviceLogin, id, requestId: id, status: 'pending', createdAt: now });
       if (input.expiresAt <= now) throw new Error('device_login_approval_expired');
     }
+    const secretRecovery = input.secretRecovery ? BrowserSecretRecoveryMetadataSchema.parse(input.secretRecovery) : undefined;
+    if (secretRecovery) {
+      BrowserApprovalRequestSchema.parse({ ...input, secretRecovery, id, requestId: id, status: 'pending', createdAt: now });
+      if (input.expiresAt <= now) throw new Error('secret_recovery_approval_expired');
+    }
     this.db
       .prepare(
         `
@@ -71,8 +86,8 @@ export class BrowserApprovalStore {
           (id, request_id, instance_id, provider, profile_id, target_id,
            tool_name, action, action_class, origin, url, selector,
            element_context_json, file_path, detected_file_type,
-           proposed_grant_json, credential_access_json, device_login_json, request_reason, status, created_at, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+           proposed_grant_json, credential_access_json, device_login_json, secret_recovery_json, request_reason, status, created_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
       `,
       )
       .run(
@@ -94,6 +109,7 @@ export class BrowserApprovalStore {
         JSON.stringify(input.proposedGrant),
         input.credentialAccess ? JSON.stringify(BrowserCredentialAccessMetadataSchema.parse(input.credentialAccess)) : null,
         deviceLogin ? JSON.stringify(deviceLogin) : null,
+        secretRecovery ? JSON.stringify(secretRecovery) : null,
         input.requestReason ?? null,
         now,
         input.expiresAt,
@@ -142,10 +158,74 @@ export class BrowserApprovalStore {
     return rows.map((row) => this.map(row));
   }
 
-  /** A discarded runtime cannot answer pending approvals; retain only their audit history. */
+  /**
+   * A discarded runtime cannot answer pending approvals; retain only their audit
+   * history. An approved secret recovery that has not finished is stopped too,
+   * so a stopped task can never have its protection released afterwards.
+   */
   expireForInstance(instanceId: string): number {
     return this.db.prepare(`UPDATE browser_approval_requests SET status = 'expired', decided_at = ?
-      WHERE instance_id = ? AND status = 'pending'`).run(Date.now(), instanceId).changes;
+      WHERE instance_id = ? AND (status = 'pending' OR (status = 'approved' AND secret_recovery_json IS NOT NULL
+        AND (secret_recovery_progress_json IS NULL
+          OR json_extract(secret_recovery_progress_json, '$.state') <> 'recovered')))`).run(Date.now(), instanceId).changes;
+  }
+
+  /** A stopped or closed session's pending or unfinished secret recoveries can never run. */
+  expireSecretRecoveriesForInstance(instanceId: string): number {
+    return this.db.prepare(`UPDATE browser_approval_requests SET status = 'expired', decided_at = ?
+      WHERE instance_id = ? AND secret_recovery_json IS NOT NULL AND (status = 'pending' OR (status = 'approved'
+        AND (secret_recovery_progress_json IS NULL
+          OR json_extract(secret_recovery_progress_json, '$.state') <> 'recovered')))`).run(Date.now(), instanceId).changes;
+  }
+
+  /**
+   * The newest recovery approval for this exact review (session, computer, tab,
+   * origins and write generation) that can still be reused: pending, or
+   * approved and not yet finished. Expired, denied and finished ones never are.
+   */
+  findReusableSecretRecoveryRequest(binding: Pick<BrowserSecretRecoveryMetadata,
+    'ownerSessionId' | 'nodeId' | 'targetId' | 'origins' | 'writeGeneration'>): BrowserApprovalRequest | null {
+    const row = this.db.prepare(`SELECT * FROM browser_approval_requests
+      WHERE secret_recovery_json IS NOT NULL AND status IN ('pending', 'approved') AND expires_at > ?
+        AND json_extract(secret_recovery_json, '$.ownerSessionId') = ?
+        AND json_extract(secret_recovery_json, '$.nodeId') = ?
+        AND json_extract(secret_recovery_json, '$.targetId') = ?
+        AND json_extract(secret_recovery_json, '$.writeGeneration') = ?
+        AND json_extract(secret_recovery_json, '$.origins') = ?
+        AND (secret_recovery_progress_json IS NULL
+          OR json_extract(secret_recovery_progress_json, '$.state') IN ('running', 'failed', 'indeterminate'))
+      ORDER BY created_at DESC, id DESC LIMIT 1`).get<BrowserApprovalRequestRow>(Date.now(), binding.ownerSessionId,
+      binding.nodeId, binding.targetId, binding.writeGeneration, JSON.stringify(binding.origins));
+    return row ? this.map(row) : null;
+  }
+
+  /** An operator decision compares the exact metadata and wins only while pending. */
+  resolveSecretRecoveryRequest(requestId: string, metadata: BrowserSecretRecoveryMetadata,
+    decision: 'approved' | 'denied'): BrowserApprovalRequest | null {
+    const safe = BrowserSecretRecoveryMetadataSchema.safeParse(metadata);
+    if (!safe.success) return null;
+    const now = Date.now();
+    const result = this.db.prepare(`UPDATE browser_approval_requests SET status = ?, decided_at = ?
+      WHERE request_id = ? AND status = 'pending' AND expires_at > ? AND secret_recovery_json = ?`)
+      .run(decision, now, requestId, now, JSON.stringify(safe.data));
+    return result.changes > 0 ? this.getRequest(requestId) : null;
+  }
+
+  /**
+   * Records what Harness did, only while the recovery is still approved. A
+   * result carrying a release receipt is recorded even if Stop or expiry ended
+   * the approval meanwhile, and a stored receipt is never overwritten by a
+   * result without one: the release happened and must not be hidden.
+   */
+  setSecretRecoveryProgress(requestId: string, progress: BrowserSecretRecoveryProgress): BrowserApprovalRequest | null {
+    const safe = BrowserSecretRecoveryProgressSchema.parse(progress);
+    const result = this.db.prepare(`UPDATE browser_approval_requests SET secret_recovery_progress_json = ?
+      WHERE request_id = ? AND secret_recovery_json IS NOT NULL
+        AND (status = 'approved' OR (status = 'expired' AND ? IS NOT NULL))
+        AND (secret_recovery_progress_json IS NULL
+          OR json_extract(secret_recovery_progress_json, '$.receiptId') IS NULL OR ? IS NOT NULL)`)
+      .run(JSON.stringify(safe), requestId, safe.receiptId ?? null, safe.receiptId ?? null);
+    return result.changes > 0 ? this.getRequest(requestId) : null;
   }
 
   /** Exact indexed lookup, independent of the operator UI's 100-row page limit. */
@@ -164,6 +244,15 @@ export class BrowserApprovalStore {
         metadata.origin, metadata.scope, metadata.computerId, metadata.vaultItemRef, JSON.stringify(metadata.purposes),
         metadata.senderDomains ? JSON.stringify(metadata.senderDomains) : null);
     return row ? this.map(row) : null;
+  }
+
+  /** Whether this task was ever denied this saved login on this site, whatever was asked or on which computer. */
+  hasDeniedCredentialAccess(taskScope: string, vaultItemRef: string, origin: string): boolean {
+    return this.db.prepare(`SELECT 1 FROM browser_approval_requests
+      WHERE credential_access_json IS NOT NULL AND status = 'denied'
+        AND json_extract(credential_access_json, '$.taskScope') = ?
+        AND json_extract(credential_access_json, '$.vaultItemRef') = ?
+        AND json_extract(credential_access_json, '$.origin') = ? LIMIT 1`).get(taskScope, vaultItemRef, origin) !== undefined;
   }
 
   /** Exact operation lookup, including expired/denied tombstones so retries cannot renew consent. */
@@ -229,9 +318,11 @@ export class BrowserApprovalStore {
         UPDATE browser_approval_requests
         SET status = ?, grant_id = COALESCE(?, grant_id), decided_at = ?
         WHERE request_id = ? AND device_login_json IS NULL
+          AND (secret_recovery_json IS NULL OR ? <> 'approved')
       `,
       )
-      .run(resolution.status, resolution.grantId ?? null, Date.now(), requestId);
+      // Only resolveSecretRecoveryRequest, with the exact metadata, may approve a recovery.
+      .run(resolution.status, resolution.grantId ?? null, Date.now(), requestId, resolution.status);
     return this.getRequest(requestId);
   }
 
@@ -283,6 +374,12 @@ export class BrowserApprovalStore {
       detectedFileType: row.detected_file_type ?? undefined,
       ...(row.credential_access_json ? { credentialAccess: BrowserCredentialAccessMetadataSchema.parse(JSON.parse(row.credential_access_json)) } : {}),
       ...(row.device_login_json ? { deviceLogin: BrowserDeviceLoginMetadataSchema.parse(JSON.parse(row.device_login_json)) } : {}),
+      ...(row.secret_recovery_json
+        ? { secretRecovery: BrowserSecretRecoveryMetadataSchema.parse(JSON.parse(row.secret_recovery_json)) }
+        : {}),
+      ...(row.secret_recovery_progress_json
+        ? { secretRecoveryProgress: BrowserSecretRecoveryProgressSchema.parse(JSON.parse(row.secret_recovery_progress_json)) }
+        : {}),
       ...(row.request_reason ? { requestReason: row.request_reason } : {}),
       proposedGrant: this.parseJson(row.proposed_grant_json, {
         mode: 'per_action',

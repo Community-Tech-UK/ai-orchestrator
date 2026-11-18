@@ -337,14 +337,25 @@ export interface AppSettings
   browserAllowSharedTabCredentialFill: boolean;
   /**
    * When true (default), a vault password/secret fill on a shared Chrome tab
-   * taints that origin and tab so agents cannot snapshot, click, or download
-   * until the operator resets protection in the extension popup. When false,
+   * taints that origin and tab so agents cannot read or download from it
+   * until the written value has left every page of the site (automatic
+   * release), the user approves an agent's recovery request in Harness, or
+   * resets protection in the extension popup. When false,
    * fills do not taint and existing taint flags for that browser profile are
    * cleared (flags only). Operator-only: agents cannot change this via MCP
    * or the privileged settings CLI. Does not weaken vault binding or origin
    * authorisation.
    */
   browserSecretObservationProtectionEnabled: boolean;
+  /**
+   * Operator-only (17 Nov 2026). When true, a saved-login request for an item
+   * already in the agent vault folder, on a website that exact item lists, is
+   * approved without a prompt on any connected browser computer. Items outside
+   * the folder, other sites and emailed-code reads still ask, and so does a
+   * login and site James has denied in that task. Secrets still never reach
+   * the agent, and each use is recorded in the browser audit.
+   */
+  browserPreApproveAgentFolderLogins: boolean;
   /** Operator-only: include this computer's Chrome in Browser Gateway routing. */
   browserLocalComputerEnabled: boolean;
   /**

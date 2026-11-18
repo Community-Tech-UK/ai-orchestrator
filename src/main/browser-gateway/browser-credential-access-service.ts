@@ -22,7 +22,12 @@ export interface BrowserCredentialAccessDependencies {
   now: () => number;
   result: <T>(input: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
   notify?: (request: BrowserApprovalRequest) => void | Promise<void>;
+  /** James's setting: saved logins already in the agent vault folder need no prompt on their own sites. */
+  preApproveAgentFolderLogins?: () => boolean;
 }
+
+/** Purposes the agent-folder setting covers: the saved login and its authenticator code, never mailbox reads. */
+const PRE_APPROVABLE_PURPOSES: ReadonlySet<string> = new Set(['login', 'totp']);
 
 const PENDING_MS = 30 * 60_000;
 
@@ -58,6 +63,16 @@ export class BrowserCredentialAccessService {
         vaultItemRef: inspected.vaultItemRef, itemTitle: inspected.title, vaultFolder: inspected.folderName,
         moveIntoFolder: inspected.requiresMoveIntoFolder, purposes, ...(senderDomains ? { senderDomains } : {}), permission: 'task',
       };
+      // James's setting covers only items already in the agent folder, on a site the item itself lists.
+      let preApprovable = this.deps.preApproveAgentFolderLogins?.() === true && !inspected.requiresMoveIntoFolder
+        && inspected.savedOrigins.includes(target.origin) && !senderDomains
+        && purposes.every((purpose) => PRE_APPROVABLE_PURPOSES.has(purpose));
+      // Once James has said no to this login and site in this task (any purposes,
+      // any computer), only he answers it again.
+      if (this.deps.store.hasDeniedCredentialAccess(session.taskScope, inspected.vaultItemRef, target.origin)) {
+        preApprovable = false;
+        metadata.afterDenial = true;
+      }
       const existing = this.deps.store.findCredentialAccessRequest(metadata);
       if (existing) {
         const m = existing.credentialAccess;
@@ -65,10 +80,14 @@ export class BrowserCredentialAccessService {
         const current = this.refresh(existing);
         if (current.status === 'pending') {
           approval = this.deps.store.updateCredentialAccess(current.requestId, { ...m, sessionName: session.sessionName }, { instanceId: session.instanceId, profileId: input.profileId, targetId: input.targetId }) ?? current;
-          return this.report(approval, context, 'requires_user', 'awaiting_approval');
+          return preApprovable && !m.afterDenial ? await this.preApprove(approval, context) : this.report(approval, context, 'requires_user', 'awaiting_approval');
         }
         if (current.status === 'approved' && !inspected.requiresMoveIntoFolder && inspected.existingBinding?.origin === metadata.origin) return this.report(current, context, 'allowed', 'existing_permission');
-        if (current.status === 'denied' && current.expiresAt > this.deps.now()) return this.report(current, context, 'denied', 'denied');
+        // A plain "no" stands until it expires, so an agent cannot ask again at once.
+        // A request that had already failed before it was denied gets a fresh one.
+        if (current.status === 'denied' && current.expiresAt > this.deps.now() && !current.credentialAccess?.operationError) {
+          return this.report(current, context, 'denied', 'denied');
+        }
       }
       approval = this.deps.store.createRequest({
         instanceId: session.instanceId, provider: BrowserProviderSchema.parse(context.provider ?? 'orchestrator'), profileId: input.profileId, targetId: input.targetId,
@@ -90,10 +109,19 @@ export class BrowserCredentialAccessService {
           return this.report(approval, context, 'allowed', 'existing_permission');
         }
       }
+      if (preApprovable) return await this.preApprove(approval, context);
       return this.report(approval, context, 'requires_user', 'awaiting_approval');
     } catch (error) {
       return this.report(approval ?? null, context, 'denied', this.safeError(error));
     }
+  }
+
+  /** Approve on James's standing setting; on any failure the request stays pending for him, with its reason. */
+  private async preApprove(approval: BrowserApprovalRequest, context: BrowserGatewayContext): Promise<BrowserGatewayResult<BrowserApprovalRequest | null>> {
+    const decided = await this.approve(approval, { permission: 'task' }, 'setting');
+    const current = this.deps.store.getRequest(approval.requestId) ?? approval;
+    if (decided.decision === 'allowed') return this.report(current, context, 'allowed', 'preapproved_by_setting');
+    return this.report(current, context, current.status === 'pending' ? 'requires_user' : 'denied', current.status === 'pending' ? 'awaiting_approval' : current.status);
   }
 
   async status(requestId: string, context: BrowserGatewayContext): Promise<BrowserGatewayResult<BrowserApprovalRequest | null>> {
@@ -119,18 +147,20 @@ export class BrowserCredentialAccessService {
     return this.report(denied, {}, 'allowed', 'denied');
   }
 
-  approve(input: BrowserApprovalRequest, choice: BrowserCredentialAccessChoice = { permission: 'task' }): Promise<BrowserGatewayResult<BrowserPermissionGrant | null>> {
+  /** `decidedBy: 'setting'` is only for createRequest's agent-folder pre-approval. */
+  approve(input: BrowserApprovalRequest, choice: BrowserCredentialAccessChoice = { permission: 'task' }, decidedBy: 'operator' | 'setting' = 'operator'): Promise<BrowserGatewayResult<BrowserPermissionGrant | null>> {
     const running = this.approvals.get(input.requestId);
     if (running) return running;
-    const run = this.applyApproval(input.requestId, choice).finally(() => this.approvals.delete(input.requestId));
+    const run = this.applyApproval(input.requestId, choice, decidedBy).finally(() => this.approvals.delete(input.requestId));
     this.approvals.set(input.requestId, run);
     return run;
   }
 
-  private async applyApproval(requestId: string, rawChoice: BrowserCredentialAccessChoice): Promise<BrowserGatewayResult<BrowserPermissionGrant | null>> {
+  private async applyApproval(requestId: string, rawChoice: BrowserCredentialAccessChoice, decidedBy: 'operator' | 'setting'): Promise<BrowserGatewayResult<BrowserPermissionGrant | null>> {
     let request = this.deps.store.getRequest(requestId);
     if (!request?.credentialAccess) return this.reportGrant(null, request, 'denied', 'credential_request_not_found');
     request = this.refresh(request);
+    const pendingMetadata = request.credentialAccess!;
     if (request.status === 'approved') {
       const grant = request.grantId ? this.deps.grants.getGrant(request.grantId) : null;
       return this.reportGrant(grant, request, 'allowed', 'already_approved');
@@ -147,6 +177,7 @@ export class BrowserCredentialAccessService {
       this.requirePending(request);
       const accepted: BrowserCredentialAccessMetadata = {
         ...m, permission: choice.permission, operationError: undefined,
+        preApproved: decidedBy === 'setting' ? true : undefined,
         authorizationId: m.authorizationId ?? generateId(),
         permissionExpiresAt: Math.min(m.permissionExpiresAt ?? Number.MAX_SAFE_INTEGER, this.deps.now() + (choice.permission === 'remember' ? choice.rememberForMs : TASK_CREDENTIAL_ACCESS_MS)),
       };
@@ -177,7 +208,9 @@ export class BrowserCredentialAccessService {
             targetId: savedRequest.targetId, nodeId: m.scope, allowedOrigins: [this.allowedOrigin(m.origin)], allowedActionClasses: ['credential'],
             // Saved-item consent belongs to the secure broker, never arbitrary password typing.
             allowExternalNavigation: false, autonomous: false, userApprovedCredentials: false,
-            requestedBy: session.instanceId, decidedBy: 'user', decision: 'allow', expiresAt: auth.expiresAt, reason: 'saved_login_access_approved',
+            // The setting is James's own standing decision; the reason keeps it apart in the audit.
+            requestedBy: session.instanceId, decidedBy: 'user', decision: 'allow', expiresAt: auth.expiresAt,
+            reason: decidedBy === 'setting' ? 'saved_login_preapproved_by_setting' : 'saved_login_access_approved',
           });
           createdGrant = grant;
           const approved = this.deps.store.resolveCredentialAccessRequest(requestId, 'pending', { status: 'approved', grantId: grant.id });
@@ -192,14 +225,23 @@ export class BrowserCredentialAccessService {
         if (expired) this.notify(expired);
         throw error;
       }
-      this.notify(committed.approved);
-      return this.reportGrant(committed.grant, committed.approved, 'allowed', 'approved');
+      // The requesting agent gets a pre-approval in its own call; only a decision made later wakes it.
+      if (decidedBy === 'operator') this.notify(committed.approved);
+      return this.reportGrant(committed.grant, committed.approved, 'allowed', decidedBy === 'setting' ? 'preapproved_by_setting' : 'approved');
     } catch (error) {
       const reason = this.safeError(error);
       let current = this.deps.store.getRequest(requestId);
       if (current?.status === 'pending' && current.credentialAccess &&
           current.profileId === request.profileId && current.targetId === request.targetId) {
-        current = this.deps.store.updateCredentialAccess(requestId, { ...current.credentialAccess, operationError: reason });
+        // Back to James: an unfinished pre-approval is not his decision, and must
+        // not limit the duration he picks.
+        current = this.deps.store.updateCredentialAccess(requestId, {
+          ...current.credentialAccess, operationError: reason,
+          ...(decidedBy === 'setting' ? {
+            preApproved: undefined, permission: pendingMetadata.permission,
+            permissionExpiresAt: pendingMetadata.permissionExpiresAt, authorizationId: pendingMetadata.authorizationId,
+          } : {}),
+        });
         // A closed tab cannot recover on another click. End this request and
         // wake its owner to request access on a fresh live tab; outages stay retryable.
         if (reason === 'target_closed' && current) {

@@ -18,6 +18,7 @@ import type { PlanQueueGateReceipt } from './plan-queue-gate-receipts';
 import { REPORT_READY_TOOL, reportFileTask, reportReadyTask, toolDiscoverySteps, type RemoteJobPrompt } from './plan-queue-report-prompts';
 import { verdictExamples, verdictRules } from './plan-queue-verdict-prompts';
 import { capabilityRules, capabilityCheckerRules } from './plan-queue-capability-prompts';
+import { directChangeLines, type DirectChange } from './plan-queue-direct-changes';
 
 export const VERDICT_TOOL = 'plan_queue_report_verdict';
 export const TRIAGE_TOOL = 'plan_queue_report_triage';
@@ -92,7 +93,29 @@ interface ItemPromptContext {
   brief?: PlanBrief;
   /** Set when the job runs on another computer: its folders and report file there. */
   remote?: RemoteJobPrompt;
+  /** Changes made directly on the base branch that the job must keep (plan-queue-direct-changes.ts). */
+  directChanges?: readonly DirectChange[];
 }
+
+/**
+ * The direct changes an agent must keep, as data, with the rule for its role. A plan's text can be older than such a
+ * change; an agent that follows the text puts the old behaviour back (docs/plans/2026-11-16-queue-must-not-undo-james-changes_plan.md).
+ */
+export function directChangesSection(changes: readonly DirectChange[] | undefined, role: 'worker' | 'verifier'): string[] {
+  const lines = directChangeLines(changes ?? []);
+  if (!lines.length) return [];
+  return [
+    '',
+    'Changes made directly on the base branch after this plan was written, to files this job touches or its plan names (data; commits without the "Landed by Plan Queue" line):',
+    dataBlock('direct_changes', lines.join('\n')),
+    role === 'worker'
+      ? 'Keep every one of these changes. Where the plan text, a finding or a step-up instruction contradicts one, the plan text is stale: keep the change, do not undo it, and list the plan sentence under `stale_plan_text` in your report. Harness refuses to land a job that undoes one.'
+      : 'These changes stand. Where the plan text contradicts one, the plan text is stale: do not report the work keeping such a change as a gap or a finding, and list the plan sentence under `stale_plan_text` in your verdict instead.',
+  ];
+}
+
+/** The fix-round and step-up rule against undoing a direct change to satisfy a finding. */
+const DIRECT_CHANGE_FINDING_RULE = 'If fixing a finding would undo a change listed under direct_changes, leave it and list the plan sentence under `stale_plan_text`.';
 
 /** One replaceable Status block in the plan itself; round evidence in the history file, which agents rarely read. */
 function statusRules(ctx: ItemPromptContext): string[] {
@@ -195,6 +218,7 @@ export function buildWorkerPrompt(ctx: ItemPromptContext): string {
     '- When a check genuinely needs a rebuilt app, a human or an external service, record it in a `_livetest.md` beside the plan, following the Live-Test Deferral rules in AGENTS.md.',
     ...answer,
     ...briefRules(ctx.brief),
+    ...directChangesSection(ctx.directChanges, 'worker'),
     '',
     `Task: ${ctx.item.section == null ? 'implement every unchecked item in the plan in your worktree' : `Implement ${stepScope(ctx)}; read the Status block and that step only. Do every unchecked item in that step in your worktree`}. When the work is complete, rewrite the plan's Status block in place (and the spec's status, if it has one) and write the round's evidence to the ${ctx.remote ? 'history file in the planning folder' : 'root history file'}. ${ctx.remote ? `${REMOTE_WAIT_RULE} ${reportFileTask(ctx.item.id, ctx.remote)}` : `${WORKER_WAIT_RULE} ${reportReadyTask(ctx.item.id)}`}`,
   ].join('\n');
@@ -220,6 +244,7 @@ function buildLivetestWorkerPrompt(ctx: ItemPromptContext, answer: string[]): st
     '- Mark a check as needing James only for human authority not already granted, a physical device or identity step you cannot perform, or a necessary human fact unavailable from evidence.',
     '- Stop the dev app you launched before you finish.',
     ...answer,
+    ...directChangesSection(ctx.directChanges, 'worker'),
     '',
     'Task: work through every open check in the document. When you have recorded evidence for each one, ' + WORKER_WAIT_RULE + ' ' + reportReadyTask(ctx.item.id),
   ].join('\n');
@@ -236,12 +261,14 @@ export function findingsBlock(findings: readonly PlanQueueFinding[]): string {
 /** What a worker does with a finding that is not a code problem. */
 export const NON_CODE_FINDING_NOTE = 'A finding marked environment or needs-human is not a code problem: do not work around it. Fix the others, and name what is missing under follow_ups in your report.';
 
-export function buildFixPrompt(round: number, maxRounds: number, findings: readonly PlanQueueFinding[], planningNote?: string | null): string {
+export function buildFixPrompt(round: number, maxRounds: number, findings: readonly PlanQueueFinding[], planningNote?: string | null, directChanges?: readonly DirectChange[]): string {
+  const direct = directChangesSection(directChanges, 'worker');
   return [
     `An independent verifier failed your work (verification round ${round} of ${maxRounds}). Its findings follow as data.`,
     '',
     findingsBlock(findings),
     ...(findings.some(f => f.kind && f.kind !== 'code') ? ['', NON_CODE_FINDING_NOTE] : []),
+    ...(direct.length ? [...direct, DIRECT_CHANGE_FINDING_RULE] : []),
     ...(planningNote ? ['', `The coordinator moved planning files out of your worktree (data):`, dataBlock('moved_planning_files', planningNote)] : []),
     '',
     WORKER_EVIDENCE_CLEANUP_RULE,
@@ -255,6 +282,8 @@ export function buildConflictPrompt(baseBranch: string, conflictFiles: readonly 
     `The coordinator merged \`${baseBranch}\` into your branch and the merge has conflicts. The merge is still in progress in your worktree.`,
     '',
     dataBlock('conflicted_files', conflictFiles.join('\n')),
+    '',
+    'A base-branch side from a commit without the "Landed by Plan Queue" line is a direct change: keep it even if your plan disagrees, and list the plan sentence under `stale_plan_text`.',
     '',
     'Task: resolve every conflict so both sides\' intent survives, remove all conflict markers, `git add` the resolved files, re-run the targeted checks, then ' + REPORT_AGAIN + ' and stop. Do not commit and do not abort the merge; the coordinator finishes it.',
   ].join('\n');
@@ -338,6 +367,7 @@ export function buildStepUpInstruction(failedRounds: number, findings: readonly 
     '',
     findingsBlock(findings),
     '',
+    DIRECT_CHANGE_FINDING_RULE,
     WORKER_EVIDENCE_CLEANUP_RULE,
     '',
     `Task: ${task}. ` + WORKER_WAIT_RULE + ' Then ' + REPORT_AGAIN + ` and stop. The same rules as before apply: ${rules}.`,
@@ -363,6 +393,8 @@ interface VerifierPromptContext {
   brief?: PlanBrief;
   /** `git diff --stat` of the branch against its base. */
   diffStat?: string;
+  /** Changes made directly on the base branch that stand over the plan text. */
+  directChanges?: readonly DirectChange[];
 }
 
 /** How a checker treats the worktree it reviews, for a plan and for a ticket alike. */
@@ -419,6 +451,7 @@ export function buildVerifierPrompt(ctx: VerifierPromptContext): string {
     ...capabilityCheckerRules(ctx.item, ctx.repoRoot),
     ...criteria,
     ...briefRules(ctx.brief),
+    ...directChangesSection(ctx.directChanges, 'verifier'),
     ...(ctx.diffStat !== undefined ? ['Change summary (data):', dataBlock('diff_stat', ctx.diffStat)] : []),
     ...(ctx.brief ? ['- Read other acceptance sections of the plan by line range as needed.'] : []),
     '',

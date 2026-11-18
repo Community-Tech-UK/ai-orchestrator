@@ -58,22 +58,65 @@ describe('InstanceDetailComponent compact then send', () => {
   });
 
   it('marks a loop goal as typed by a person only when it came from the message box', async () => {
+    TestBed.configureTestingModule({ providers: [DraftService] });
     const start = vi.fn().mockResolvedValue({ ok: true });
     const detail = Object.assign(Object.create(InstanceDetailComponent.prototype) as object, {
       store: { selectedInstance: () => ({ id: 'session' }), setError: vi.fn() },
       loopStore: { start },
       loopPromptHistory: { remember: vi.fn() },
+      draftService: TestBed.inject(DraftService),
     }) as unknown as InstanceDetailComponent;
     const config = { initialPrompt: 'goal', workspaceCwd: '/repo' };
     const onResolved = vi.fn();
 
-    await detail.onLoopStartRequested({ config: config as never, firstMessage: 'goal', attachments: [], onResolved });
+    await detail.onLoopStartRequested({ config: config as never, firstMessage: 'goal', attachments: [], stagedFiles: [], onResolved });
     // An empty message box means the goal is the loop panel's prompt, which may be Harness's default or an old goal.
-    await detail.onLoopStartRequested({ config: config as never, firstMessage: '  ', attachments: [], onResolved });
+    await detail.onLoopStartRequested({ config: config as never, firstMessage: '  ', attachments: [], stagedFiles: [], onResolved });
 
     expect(start).toHaveBeenNthCalledWith(1, 'session', config, [], { typedByPerson: true });
     expect(start).toHaveBeenNthCalledWith(2, 'session', config, [], { typedByPerson: false });
     expect(onResolved).toHaveBeenCalledWith(true);
+  });
+
+  it('clears the goal and photos a started loop took, and keeps them when the start fails', async () => {
+    TestBed.configureTestingModule({ providers: [DraftService] });
+    const drafts = TestBed.inject(DraftService);
+    const photo = new File(['jpeg'], 'IMG_1531.jpg', { type: 'image/jpeg' });
+    const otherFile = new File(['notes'], 'notes.txt', { type: 'text/plain' });
+    const start = vi.fn().mockResolvedValueOnce({ ok: false, error: 'busy' });
+    const detail = Object.assign(Object.create(InstanceDetailComponent.prototype) as object, {
+      store: { selectedInstance: () => ({ id: 'session' }), setError: vi.fn() },
+      loopStore: { start },
+      loopPromptHistory: { remember: vi.fn() },
+      draftService: drafts,
+    }) as unknown as InstanceDetailComponent;
+    drafts.setDraft('session', 'Look at this photo');
+    drafts.addPendingFiles('session', [photo]);
+    drafts.setDraft('other', 'Unrelated draft');
+    drafts.addPendingFiles('other', [otherFile]);
+    // Dropped while the photo was still being prepared, so the composer never sent it.
+    const duringPreparation = new File(['gif'], 'during.gif', { type: 'image/gif' });
+    drafts.addPendingFiles('session', [duringPreparation]);
+    const request = {
+      config: { initialPrompt: 'Continue', workspaceCwd: '/repo' } as never,
+      firstMessage: 'Look at this photo', attachments: [], stagedFiles: [photo],
+    };
+
+    await detail.onLoopStartRequested({ ...request, onResolved: vi.fn() });
+    expect(drafts.getDraft('session')).toBe('Look at this photo');
+    expect(drafts.getPendingFiles('session')).toEqual([photo, duringPreparation]);
+
+    const lateFile = new File(['png'], 'late.png', { type: 'image/png' });
+    start.mockImplementationOnce(async () => {
+      drafts.addPendingFiles('session', [lateFile]);
+      return { ok: true };
+    });
+    await detail.onLoopStartRequested({ ...request, onResolved: vi.fn() });
+    expect(drafts.getDraft('session')).toBe('');
+    // Neither file added after Send reached the loop, so both stay.
+    expect(drafts.getPendingFiles('session')).toEqual([duringPreparation, lateFile]);
+    expect(drafts.getDraft('other')).toBe('Unrelated draft');
+    expect(drafts.getPendingFiles('other')).toEqual([otherFile]);
   });
 
   it('keeps pending attachments and restores text when compaction fails', async () => {

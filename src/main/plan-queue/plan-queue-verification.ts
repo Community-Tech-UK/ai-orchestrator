@@ -15,6 +15,7 @@ import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { PlanQueueCheckGroups, type CheckGroupFlow } from './plan-queue-check-groups';
 import { deferredPassProblems } from './plan-queue-deferred-checks';
 import { canStepUp } from './plan-queue-step-up';
+import { directChangesForItem } from './plan-queue-direct-changes';
 
 /** `retryMs` holds the job back that long before the pump tries again. */
 type Preparation = { kind: 'ready' } | { kind: 'wait'; detail: string; retryMs?: number }
@@ -201,6 +202,7 @@ export class PlanQueueVerification {
       // The checker reads the plan's Status and open work and a change summary, then sections by line range.
       diffStat: bounded(await gitExec(['diff', '--stat', `${baseBranch}...HEAD`], item.worktreePath!), PLAN_BRIEF_BYTES, '[Change summary truncated. Run git diff --stat for the rest.]'),
       ...(run.kind === 'plans' ? { brief: await readPlanBrief(item.sourceRef, item.section) } : {}),
+      directChanges: await directChangesForItem(run, item),
       earlierRounds: rows.length ? JSON.stringify({ earlier, diffSinceLastCheck: diff }) : undefined,
       documentChanges: pin ? JSON.stringify({ originalHash: pin.documentSha256, originalUnchecked: pin.unchecked,
         changes: comparePinnedUnchecked(pin.unchecked, extractChecklistItems(current, 'all')), diff: docDiff }) : undefined });

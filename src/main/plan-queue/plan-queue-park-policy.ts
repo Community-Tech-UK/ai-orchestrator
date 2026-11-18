@@ -6,7 +6,9 @@ import type { PlanQueueParkReason } from '@contracts/schemas/plan-queue';
  * tokens again if a retry restarted it, so only James's explicit Resume does.
  * Phase C's retry rules must ask this before they requeue anything.
  */
-const NEVER_AUTO_RETRIED: ReadonlySet<PlanQueueParkReason> = new Set<PlanQueueParkReason>(['stopped-by-harness']);
+const NEVER_AUTO_RETRIED: ReadonlySet<PlanQueueParkReason> = new Set<PlanQueueParkReason>(['stopped-by-harness',
+  // Only James decides whether a job may undo a change made directly on the base branch (plan-queue-direct-changes.ts).
+  'undoes-direct-change']);
 
 export function isNeverAutoRetried(reason: PlanQueueParkReason | null): boolean {
   return reason !== null && NEVER_AUTO_RETRIED.has(reason);

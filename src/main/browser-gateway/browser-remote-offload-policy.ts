@@ -66,6 +66,7 @@ const TARGET_SCOPED_METHODS = new Set([
   'browser.download_file',
   'browser.request_user_login',
   'browser.pause_for_manual_step',
+  'browser.recover_secret_observation',
   'browser.request_grant',
   'browser.snapshot',
   'browser.accessibility_snapshot',

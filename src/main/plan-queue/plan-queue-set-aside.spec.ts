@@ -245,6 +245,13 @@ describe('PlanQueueSetAsideAgents', () => {
     expect(brief).toContain('for a job that step 4 below would merge with land-anyway');
   });
 
+  it('keeps a direct change: resumes a job that would undo one, and never undoes one to match a plan', () => {
+    const brief = setAsideAgentBrief('/repo', 12, undefined);
+    expect(brief).toContain('reason undoes-direct-change');
+    expect(brief).toContain('land-anyway is refused; use resume-item, which keeps that change');
+    expect(brief).toContain('Never undo one to match a plan');
+  });
+
   it('tells it to compare an older attempt with the merged one before merging its extra work', () => {
     // The refusal itself is gone; plan-queue-coordinator-operator.spec.ts lands such an attempt end to end.
     expect(setAsideAgentBrief('/repo', 12, undefined)).toContain('compare the two with git');

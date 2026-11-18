@@ -1,7 +1,7 @@
 import { Injectable, effect, inject, signal } from '@angular/core';
 import { GatewayClient } from '../../core/gateway-client.service';
 import { HostStore } from '../../core/host-store';
-import type { MobilePlanQueueItemDto, MobilePlanQueueRunDto } from '../../core/models';
+import type { MobilePlanQueueDirectChangeChoice, MobilePlanQueueItemDto, MobilePlanQueueRunDto } from '../../core/models';
 
 @Injectable({ providedIn: 'root' })
 export class PlanQueueStore {
@@ -54,6 +54,10 @@ export class PlanQueueStore {
 
   async answer(itemId: string, optionId: string): Promise<boolean> {
     return this.act(async () => { await this.gateway.answerPlanQueue(itemId, optionId); });
+  }
+
+  async chooseDirectChange(itemId: string, choice: MobilePlanQueueDirectChangeChoice): Promise<boolean> {
+    return this.act(async () => { await this.gateway.choosePlanQueueDirectChange(itemId, choice); });
   }
 
   async control(runId: string, action: 'pause' | 'resume' | 'cancel'): Promise<boolean> {

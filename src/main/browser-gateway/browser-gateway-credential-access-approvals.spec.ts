@@ -24,7 +24,8 @@ function accessRequest(): BrowserApprovalRequest {
 
 function setup(approval = accessRequest()) {
   const approvalStore = {
-    resolveDeviceLoginRequest: vi.fn(() => null), expireDeviceLoginRequest: vi.fn(() => null),
+    resolveDeviceLoginRequest: vi.fn(() => null),
+    resolveSecretRecoveryRequest: vi.fn(() => null), expireDeviceLoginRequest: vi.fn(() => null),
     getRequest: vi.fn(() => approval), listRequests: vi.fn(() => [approval]), resolveRequest: vi.fn(),
   };
   const grantStore = {

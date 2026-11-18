@@ -771,8 +771,8 @@ In RTK's own study, input fell 2-4%, but the bill did not fall (net cost −0.2%
 - **Fix:** about 20 everyday destinations, with the rest under "More tools"; "Needs you" replaces Plugins on the rail; the palette works anywhere and lists "Go to <page / settings tab>". (UX-7, UX-8)
 - **Better still, an "Everyday / Full" view switch.** hermes uses one switch that quietly hides the instrumentation (status bar, terminal and file panes, raw tool payloads, diffs, the live reasoning stream). It never overwrites your own settings, and ⌘K is always the way back. Everyday view would show the ~20 destinations and a calm session screen; Full shows everything. Unlike hermes, AIO must **never** hide the auto-approve indicator in the simple view (HU-4).
 
-### C11. Settings with one menu column and fewer tabs · P1 · S then M
-- Hide the shell menu column on Settings, which today shows three columns plus Help. Fold the 30 tabs to about 12, add missing search keywords ("discord"), and wire `dependsOn` into "why is this disabled". (UX-9, TT-5)
+### C11. Settings with fewer tabs · P1 · S then M
+- ~~Hide the shell menu column on Settings, which today shows three columns plus Help.~~ (Superseded: James decided on 10 Nov 2026, confirmed 17 Nov, that the Control Center menu stays on Settings.) Fold the 30 tabs to about 12, add missing search keywords ("discord"), and wire `dependsOn` into "why is this disabled". (UX-9, TT-5)
 - Give the custom settings tabs a typed list of searchable sections, with a guard test, so the next "search can't find X" can't happen silently (openclaw, OCX-7).
 
 ### C12. Undo instead of "Are you sure?" for reversible actions · P2 · M

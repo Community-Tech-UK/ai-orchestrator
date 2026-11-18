@@ -137,6 +137,32 @@ export class BrowserMutationEffectVerifier {
     );
   }
 
+  /**
+   * The "before" reading for a click. On a tab locked after a password fill the
+   * extension refuses every page read, but still runs the click itself, so the
+   * submit of the form Harness filled must not fail here (17 Nov 2026). Returns
+   * null when the reading fails, so the click runs and is reported as sent but
+   * unverified; the agent reads the page afterwards, once the lock has released.
+   */
+  async captureBeforeClick(
+    request: BrowserGatewayTargetRequest,
+    attachment: BrowserExistingTabAttachment | undefined,
+    expectation: BrowserRequestedMutationEffect,
+    allowedOrigins: BrowserAllowedOrigin[],
+  ): Promise<BrowserMutationEffectObservation | null> {
+    try {
+      return await this.capture(request, attachment, expectation, allowedOrigins, this.deadline());
+    } catch (error) {
+      // On a shared tab a failed reading changes nothing on the page: a locked
+      // tab, or a reading the lock's own page check or a slow computer held up,
+      // is no reason to refuse the click. It runs and is reported unverified
+      // (failureIfMissing with no "before"). A page outside the allowed sites
+      // still refuses it.
+      if (attachment && !(error instanceof Error && error.message === EFFECT_ORIGIN_ERROR)) return null;
+      throw error;
+    }
+  }
+
   async wait(
     request: BrowserGatewayTargetRequest,
     attachment: BrowserExistingTabAttachment | undefined,
@@ -191,7 +217,9 @@ export class BrowserMutationEffectVerifier {
     toolName: 'browser.click' | 'browser.evaluate' | 'browser.press_key',
     prepared: BrowserGatewayPreparedMutation,
   ): Promise<BrowserGatewayResult<BrowserMutationNoEffectEvidence | null> | null> {
-    if (!expectation || !before) return null;
+    if (!expectation) return null;
+    // Requested, but the "before" reading failed (captureBeforeClick): sent, not checked.
+    if (!before) return this.unverifiedResult(request, action, toolName, prepared, attachment?.url, EFFECT_UNVERIFIED_ERROR);
     let after: BrowserMutationEffectObservation;
     try {
       after = await this.wait(
@@ -201,12 +229,12 @@ export class BrowserMutationEffectVerifier {
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
       const reason = message === EFFECT_ORIGIN_ERROR ? EFFECT_ORIGIN_ERROR : EFFECT_UNVERIFIED_ERROR;
-      return this.unverifiedResult(request, action, toolName, prepared, before, reason);
+      return this.unverifiedResult(request, action, toolName, prepared, before.evidence.url, reason);
     }
     if (this.occurred(expectation, before, after)) return null;
     if (!allRequestedDimensionsObservable(expectation, before, after)) {
       return this.unverifiedResult(
-        request, action, toolName, prepared, before, EFFECT_UNVERIFIED_ERROR,
+        request, action, toolName, prepared, before.evidence.url, EFFECT_UNVERIFIED_ERROR,
       );
     }
     return this.noEffectResult(
@@ -219,7 +247,7 @@ export class BrowserMutationEffectVerifier {
     action: 'click' | 'evaluate' | 'press_key',
     toolName: 'browser.click' | 'browser.evaluate' | 'browser.press_key',
     prepared: BrowserGatewayPreparedMutation,
-    before: BrowserMutationEffectObservation,
+    url: string | undefined,
     reason: typeof EFFECT_ORIGIN_ERROR | typeof EFFECT_UNVERIFIED_ERROR,
   ): BrowserGatewayResult<BrowserMutationNoEffectEvidence | null> {
     return this.deps.result<BrowserMutationNoEffectEvidence | null>({
@@ -227,7 +255,7 @@ export class BrowserMutationEffectVerifier {
       action, toolName, actionClass: prepared.actionClass,
       decision: 'allowed', outcome: 'failed', reason,
       summary: `${toolName} dispatched but its post-action effect could not be verified`,
-      origin: prepared.origin, url: before.evidence.url, grantId: prepared.grant.id,
+      origin: prepared.origin, ...(url ? { url: redactBrowserUrl(url).slice(0, 2_000) } : {}), grantId: prepared.grant.id,
       autonomous: prepared.grant.autonomous, data: null,
     });
   }

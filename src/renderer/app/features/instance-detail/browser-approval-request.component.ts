@@ -21,6 +21,7 @@ import {
   credentialAccessChoice,
   credentialAccessErrorText,
   credentialAccessWords,
+  secretRecoverySites,
 } from '../../core/state/browser-approvals-banner.rules';
 import { RemoteNodeStore } from '../../core/state/remote-node.store';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
@@ -30,8 +31,12 @@ import {
   browserApprovalFailureText,
   presentBrowserApproval,
 } from './browser-approval-request.rules';
+import { secretRecoveryProgressText } from './browser-secret-recovery-approval.rules';
 
-type ApprovalPayload = Pick<BrowserApproveRequestPayload, 'grant' | 'reason' | 'credentialAccess' | 'deviceLogin'>;
+type ApprovalPayload = Pick<BrowserApproveRequestPayload, 'grant' | 'reason' | 'credentialAccess' | 'deviceLogin' | 'secretRecovery'>;
+
+/** How long a finished access recovery stays on the session page. */
+const RECOVERY_STATUS_MS = 3 * 60_000;
 
 @Component({
   selector: 'app-browser-approval-request',
@@ -53,6 +58,14 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
   instanceId = input<string | null>(null);
 
   readonly pendingRequests = signal<BrowserApprovalRequest[]>([]);
+  /** Approved access recoveries Harness is doing, or did a moment ago. */
+  private readonly recentRecoveries = signal<BrowserApprovalRequest[]>([]);
+  readonly recoveryStatuses = computed(() => this.recentRecoveries().map((approval) => ({
+    requestId: approval.requestId,
+    headline: `Browser access for ${approval.secretRecovery ? secretRecoverySites(approval.secretRecovery) : 'this site'}`,
+    text: secretRecoveryProgressText(approval.secretRecoveryProgress, approval.secretRecovery),
+    code: approval.secretRecoveryProgress?.reasonCode ?? null,
+  })));
   readonly workingRequestId = signal<string | null>(null);
   /** Which button was pressed, so only that one reads "Allowing…". */
   private readonly workingChoice = signal<string | null>(null);
@@ -78,6 +91,7 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
       const instanceId = this.instanceId();
       this.clearError();
       this.pendingRequests.set([]);
+      this.recentRecoveries.set([]);
       this.typedPhrases.set({});
       this.credentialChoices.set({});
       if (!instanceId) {
@@ -127,6 +141,17 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
         return;
       }
       this.pendingRequests.set(response.data?.data ?? []);
+      // Newest decisions of any status: an approved recovery, or one that Stop
+      // ended after its release had already happened (it carries a receipt).
+      const decided = await this.browserGateway.listApprovalRequests({ instanceId, limit: 25 });
+      if (this.destroyed || this.instanceId() !== instanceId) {
+        return;
+      }
+      const since = Date.now() - RECOVERY_STATUS_MS;
+      this.recentRecoveries.set(decided.success
+        ? (decided.data?.data ?? []).filter((approval) => approval.secretRecovery && (approval.decidedAt ?? 0) >= since
+          && (approval.status === 'approved' || (approval.status === 'expired' && Boolean(approval.secretRecoveryProgress?.receiptId))))
+        : []);
     } catch (error) {
       if (!this.destroyed && this.instanceId() === instanceId) {
         this.setFailure("Harness couldn't load the browser requests. Check Details, then try again.", error);
@@ -176,6 +201,7 @@ export class BrowserApprovalRequestComponent implements OnInit, OnDestroy {
     await this.submitApproval(approval, {
       grant: choice.grant, reason: choice.auditReason,
       ...(approval.deviceLogin ? { deviceLogin: { permission: 'operation' as const } } : {}),
+      ...(approval.secretRecovery ? { secretRecovery: { permission: 'operation' as const } } : {}),
     }, choiceId);
   }
 

@@ -62,7 +62,7 @@ function harness() {
   const store = new BrowserApprovalStore(db);
   const authorizations = new CredentialAuthorizationService(new InMemoryCredentialAuthorizationStore(), () => now);
   const vault = {
-    inspectExistingCredential: vi.fn(async () => ({ vaultItemRef: 'item-placeholder', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: true })),
+    inspectExistingCredential: vi.fn(async () => ({ vaultItemRef: 'item-placeholder', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: true, savedOrigins: [] as string[] })),
     enrolExistingCredential: vi.fn(async () => ({ vaultItemRef: 'item-placeholder', username: 'TEST_ONLY_USERNAME_PLACEHOLDER', movedIntoFolder: true })),
     getSecretForFill: vi.fn(async () => 'TEST_ONLY_PASSWORD_PLACEHOLDER'),
     createAgentCredential: vi.fn(),

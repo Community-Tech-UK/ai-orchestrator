@@ -9,6 +9,7 @@ import { readPlanBrief, type PlanBrief } from './plan-queue-plan-extract';
 import { isLastStepJob } from './plan-queue-sections';
 import type { PlanQueueRun, PlanQueueItem } from './plan-queue.types';
 import { workSourceFor } from './plan-queue-work-sources';
+import { directChangesForItem } from './plan-queue-direct-changes';
 const logger = getLogger('PlanQueueWorkerSessions');
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 
@@ -70,6 +71,8 @@ export class PlanQueueWorkerSessions {
     return {
       ...this.continueContext(run, item),
       ...(run.kind === 'plans' ? { brief: this.lastStepOfRun(run, item, await readPlanBrief(item.sourceRef, item.section)) } : {}),
+      // Rebuilt for every prompt: changes land on the base branch while a job runs.
+      directChanges: await directChangesForItem(run, item),
     };
   }
 

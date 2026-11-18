@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   registerRedeliveryHandler: vi.fn<(origin: string, handler: (ctx: RedeliveryContext) => void) => void>(),
   getApprovalRequest: vi.fn(),
   listTargets: vi.fn(),
+  secretRecoveryCompletion: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -36,6 +37,7 @@ vi.mock('../../browser-gateway/browser-gateway-service', () => ({
     denyRequest: mocks.denyRequest,
     getApprovalRequest: mocks.getApprovalRequest,
     listTargets: mocks.listTargets,
+    secretRecoveryCompletion: mocks.secretRecoveryCompletion,
   }),
 }));
 
@@ -84,6 +86,56 @@ describe('Browser Gateway approval resume admission', () => {
         allowExternalNavigation: false, autonomous: false } };
     return { capabilities, deviceLogin, payload };
   }
+
+  describe('browser access recovery', () => {
+    const payload = { requestId: 'recovery-request', secretRecovery: { permission: 'operation' },
+      grant: { mode: 'per_action', allowedOrigins: [{ scheme: 'https', hostPattern: 'site.example', includeSubdomains: false }],
+        allowedActionClasses: ['read'], allowExternalNavigation: false, autonomous: false } };
+    function finished(state: string, receiptId?: string) {
+      return { requestId: 'recovery-request', instanceId: 'inst-1', status: 'approved',
+        secretRecovery: { operationId: 'op' },
+        secretRecoveryProgress: { state, reasonCode: 'code_test_only', loginVerified: null, updatedAt: 1, ...(receiptId ? { receiptId } : {}) } };
+    }
+
+    it('wakes the asking session only after Harness has finished, with fixed words', async () => {
+      mocks.approveRequest.mockResolvedValueOnce({ decision: 'allowed', outcome: 'succeeded', data: null } as never);
+      let finish!: (value: unknown) => void;
+      mocks.secretRecoveryCompletion.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+      expect(await handlers.get(IPC_CHANNELS.BROWSER_APPROVE_REQUEST)?.({}, payload)).toMatchObject({ success: true });
+      // Approval alone wakes nobody.
+      expect(sendInput).not.toHaveBeenCalled();
+      finish(finished('recovered', 'op'));
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(sendInput).toHaveBeenCalledExactlyOnceWith('inst-1',
+        'Browser access recovery recovery-request finished: recovered (code_test_only). '
+        + 'Call browser.recover_secret_observation again with this requestId for the result and next step.',
+        undefined, { automatedInput: true, internalSource: 'browser-gateway' });
+    });
+
+    it('wakes the session for a recovery that already stopped before the handler asked', async () => {
+      mocks.approveRequest.mockResolvedValueOnce({ decision: 'allowed', outcome: 'succeeded', data: null } as never);
+      mocks.secretRecoveryCompletion.mockReturnValueOnce(Promise.resolve(finished('stale_review')));
+      await handlers.get(IPC_CHANNELS.BROWSER_APPROVE_REQUEST)?.({}, payload);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(sendInput).toHaveBeenCalledOnce();
+    });
+
+    it('does not wake a session that was stopped while its recovery ran', async () => {
+      mocks.approveRequest.mockResolvedValueOnce({ decision: 'allowed', outcome: 'succeeded', data: null } as never);
+      mocks.secretRecoveryCompletion.mockReturnValueOnce(Promise.resolve({ ...finished('recovered', 'op'), status: 'expired' }));
+      await handlers.get(IPC_CHANNELS.BROWSER_APPROVE_REQUEST)?.({}, payload);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(sendInput).not.toHaveBeenCalled();
+    });
+
+    it('does not wake anyone when the recovery approval was not applied', async () => {
+      mocks.approveRequest.mockResolvedValueOnce({ decision: 'denied', outcome: 'not_run', data: null } as never);
+      await handlers.get(IPC_CHANNELS.BROWSER_APPROVE_REQUEST)?.({}, payload);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(mocks.secretRecoveryCompletion).not.toHaveBeenCalled();
+      expect(sendInput).not.toHaveBeenCalled();
+    });
+  });
 
   it('still gives Harness\'s own screen the full tab listing (only agents get the compact one)', async () => {
     const fullTarget = {

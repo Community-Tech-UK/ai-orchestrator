@@ -5,6 +5,8 @@
 
 import type { MobileReasoningEffort as ContractReasoningEffort } from '@contracts/types/mobile-gateway';
 
+export { waitsForDirectChangeChoice } from '@contracts/types/mobile-gateway';
+
 export type {
   MobileAttachmentDto,
   MobileAttentionLevel,
@@ -51,6 +53,8 @@ export type {
   MobilePlanQueueAnswerRequest,
   MobilePlanQueueControlRequest,
   MobilePlanQueueDiffstatDto,
+  MobilePlanQueueDirectChangeChoice,
+  MobilePlanQueueDirectChangeRequest,
   MobilePlanQueueItemDto,
   MobilePlanQueueItemState,
   MobilePlanQueueOptionDto,

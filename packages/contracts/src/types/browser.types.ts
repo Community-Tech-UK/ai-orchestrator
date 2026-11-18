@@ -1,5 +1,15 @@
 import type { BrowserDeviceLoginMetadata, BrowserDeviceLoginChoice } from './browser-device-login.types';
 export type { BrowserDeviceLoginMetadata, BrowserDeviceLoginChoice } from './browser-device-login.types';
+import type { BrowserSecretRecoveryMetadata, BrowserSecretRecoveryProgress, BrowserSecretRecoveryChoice } from './browser-secret-recovery.types';
+export type {
+  BrowserSecretRecoveryMetadata,
+  BrowserSecretRecoveryProgress,
+  BrowserSecretRecoveryProgressState,
+  BrowserSecretRecoveryChoice,
+  BrowserSecretRecoveryState,
+  BrowserRecoverSecretObservationRequest,
+  BrowserSecretRecoveryOutcome,
+} from './browser-secret-recovery.types';
 import type { BrowserCredentialAccessMetadata, BrowserCredentialAccessChoice } from './browser-credential-access.types';
 
 export type BrowserActionClass =
@@ -208,6 +218,9 @@ export interface BrowserApprovalRequest {
   detectedFileType?: string;
   credentialAccess?: BrowserCredentialAccessMetadata;
   deviceLogin?: BrowserDeviceLoginMetadata;
+  secretRecovery?: BrowserSecretRecoveryMetadata;
+  /** What Harness did after the recovery approval; absent until it starts. */
+  secretRecoveryProgress?: BrowserSecretRecoveryProgress;
   /** Why the agent asked, in its own words (cleaned). Only what the agent said; never read from the page. */
   requestReason?: string;
   /** Which computer this is about: 'local' or a remote computer's id. Worked out each time the list is read, never stored. */
@@ -709,6 +722,7 @@ export interface BrowserApproveRequestPayload {
   reason?: string;
   credentialAccess?: BrowserCredentialAccessChoice;
   deviceLogin?: BrowserDeviceLoginChoice;
+  secretRecovery?: BrowserSecretRecoveryChoice;
 }
 
 export type { BrowserCredentialAccessMetadata, BrowserCredentialAccessChoice, BrowserRequestCredentialAccess } from './browser-credential-access.types';

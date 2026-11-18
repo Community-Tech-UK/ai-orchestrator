@@ -73,6 +73,37 @@ export function isHeicFile(file: File): boolean {
   return HEIC_MIME_TYPES.has(file.type.toLowerCase()) || /\.hei[cf]$/i.test(file.name);
 }
 
+/** A staged file that could not be converted or read. Show `visibleMessage`; the reason stays the cause for logs. */
+export class StagedFileError extends Error {
+  readonly visibleMessage: string;
+
+  constructor(file: File, cause: unknown) {
+    super(`Could not prepare attachment ${file.name}`, { cause });
+    this.name = 'StagedFileError';
+    this.visibleMessage = isHeicFile(file)
+      ? `${file.name} could not be converted. Save it as JPEG or PNG and attach that instead.`
+      : `${file.name} could not be read. Check the file still exists, then attach it again.`;
+  }
+}
+
+/**
+ * Reads staged files for saving as they are (loop and automation attachments), converting HEIC photos first,
+ * since agents cannot open them either. Rejects with a `StagedFileError` naming the first file that failed.
+ */
+export function readStagedFiles<T>(
+  files: readonly File[],
+  convertHeic: HeicConverter,
+  read: (file: File) => Promise<T>,
+): Promise<T[]> {
+  return Promise.all(files.map(async (staged) => {
+    try {
+      return await read(isHeicFile(staged) ? await convertHeic(staged) : staged);
+    } catch (error) {
+      throw new StagedFileError(staged, error);
+    }
+  }));
+}
+
 export async function fileToAttachments(input: File, convertHeic: HeicConverter): Promise<InstanceAttachment[]> {
   const file = isHeicFile(input) ? await convertHeic(input) : input;
   const isImage = file.type.startsWith('image/');

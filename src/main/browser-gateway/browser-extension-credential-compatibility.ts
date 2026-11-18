@@ -21,6 +21,26 @@ export const BROWSER_EXTENSION_CODEX_DEVICE_HANDOFF_MIN_VERSION = '0.2.52';
 /** First bundle enforcing session claims and shared-Harness secret policy. */
 export const BROWSER_EXTENSION_SESSION_CLAIMS_MIN_VERSION = '0.2.54';
 
+/** First bundle with the Harness-approved secret protection review and release commands. */
+export const BROWSER_EXTENSION_SECRET_RECOVERY_MIN_VERSION = '0.2.55';
+
+/**
+ * Whether this exact channel/install can review and release secret protection.
+ * An older bundle is never sent the commands: it would refuse them without
+ * resetting anything, but Harness reports the version instead.
+ */
+export function supportsBrowserExtensionSecretRecovery(
+  contactState: BrowserExtensionContactStateReader,
+  channelId: string,
+  extensionInstanceId?: string,
+): boolean {
+  return contactState.isExtensionContactFresh(channelId)
+    && isRuntimeAtLeast(
+      contactState.getExtensionRuntime?.(channelId, extensionInstanceId),
+      BROWSER_EXTENSION_SECRET_RECOVERY_MIN_VERSION,
+    );
+}
+
 export function supportsBrowserExtensionSessionClaims(
   runtime: { extensionVersion?: string; extensionStartedAt?: number } | undefined,
 ): boolean {

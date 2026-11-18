@@ -1,4 +1,4 @@
-@if (pendingRequests().length > 0 || errorMessage()) {
+@if (pendingRequests().length > 0 || recoveryStatuses().length > 0 || errorMessage()) {
   <div class="browser-approval-requests">
     @if (errorMessage(); as error) {
       <div class="browser-approval-error" role="alert">{{ error }}</div>
@@ -66,7 +66,7 @@
             [disabled]="workingRequestId() !== null"
             (click)="denyRequest(view.approval)"
           >
-            Deny
+            {{ view.denyLabel }}
           </button>
           @if (view.kind === 'saved-login') {
             <label class="browser-approval-length">
@@ -107,6 +107,24 @@
             }
           }
         </div>
+      </article>
+    }
+
+    @for (status of recoveryStatuses(); track status.requestId) {
+      <article class="browser-approval-card" data-kind="secret-recovery-status" role="status">
+        <div class="browser-approval-header">
+          <span class="browser-approval-kicker">Browser access</span>
+        </div>
+        <div class="browser-approval-main">
+          <div class="browser-approval-title">{{ status.headline }}</div>
+        </div>
+        <p class="browser-approval-note">{{ status.text }}</p>
+        @if (status.code; as code) {
+          <details class="browser-approval-more">
+            <summary>Details</summary>
+            <dl class="browser-approval-raw"><div><dt>Result code</dt><dd>{{ code }}</dd></div></dl>
+          </details>
+        }
       </article>
     }
   </div>

@@ -271,6 +271,10 @@ export function makeService(overrides: {
   };
   const approvalStore = {
     resolveDeviceLoginRequest: vi.fn(() => null),
+    // Secret-recovery approvals are exercised against the real store in their own specs.
+    findReusableSecretRecoveryRequest: vi.fn(() => null),
+    resolveSecretRecoveryRequest: vi.fn(() => null),
+    setSecretRecoveryProgress: vi.fn(() => null),
     expireDeviceLoginRequest: vi.fn((requestId: string) => approvalRequests.find(request => request.requestId === requestId) ?? null),
     createRequest: vi.fn((input: Omit<BrowserApprovalRequest, 'id' | 'requestId' | 'status' | 'createdAt' | 'decidedAt' | 'grantId'>) => {
       const request: BrowserApprovalRequest = {

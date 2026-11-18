@@ -16,6 +16,12 @@ describe('set-aside finding text', () => {
       expect(['see-findings', 'choose-checker', 'resume', 'retry-landing', 'merge-without-checks', 'discard']).toContain(action);
     }
   });
+  it('offers James both answers for a job that would undo a change made directly on main, and says what each does', () => {
+    const help = PARK_REASON_HELP['undoes-direct-change'];
+    expect(help.actions).toEqual(['resume', 'merge-without-checks', 'discard']);
+    expect(help.next).toContain('Resume keeps that change');
+    expect(help.next).toContain('Merge without checks takes the job\'s version');
+  });
   it('says plainly that a Codex round passed its token limit, that Resume would likely spend the same again, and where the limit is', () => {
     const help = PARK_REASON_HELP['stopped-by-harness'];
     expect(help.meaning).toContain('Codex round passed its token limit');

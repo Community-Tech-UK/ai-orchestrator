@@ -90,17 +90,22 @@ const BUDGET = {
   // descriptions and prose per prompt while preserving the complete example and authority rules.
   // The allocator ownership rule adds 131 chars to livetest workers/step-up. New measures:
   // 7,267 / 7,498 / 7,709 / 8,285 / 9,299 / 9,530 / 9,683 / 8,153 / 7,006.
-  queueWorker: { chars: 7300, render: () => buildWorkerPrompt(queue) },
+  // 17 Nov (queue must not undo James's direct changes): every worker report instruction names `stale_plan_text`, the
+  // conflict and step-up prompts carry the keep-the-direct-change rule, and the checker's PASS example shows one stale
+  // sentence. (The direct-change list itself is data, absent from these fixtures.) Measured: worker 7,373, conflict 757,
+  // resume 7,815, continue + conflicts 926, resume + conflicts 8,574, step-up 9,535, livetest step-up 9,614, worker
+  // reminder 2,217, verifier 9,830, ticket worker 6,067, ticket resume 6,428, ticket step-up 8,090; rounded up to 100.
+  queueWorker: { chars: 7400, render: () => buildWorkerPrompt(queue) },
   // 13 Nov: the livetest worker starts its dev app on the test Mac with a named command and port, instead of building
   // here. Measured: livetest worker 5,289, livetest step-up 7,321 before the capability-gap rules. 14 Nov (Step 8): it
   // no longer repeats the autonomy rules in its own bullet; ceilings round up to 100 (see the 14 Nov note above).
   queueLivetestWorker: { chars: 7500, render: () => buildWorkerPrompt({ ...queue, kind: 'livetests' }) },
   queueFix: { chars: 1400, render: () => buildFixPrompt(1, 3, [{ severity: 'high', confidence: 90, summary: 'The fixture retry is missing.', file: 'fixture.ts:1', evidence: 'Pinned evidence.' }]) },
-  queueConflict: { chars: 600, render: () => buildConflictPrompt('main', ['fixture.ts']) },
+  queueConflict: { chars: 800, render: () => buildConflictPrompt('main', ['fixture.ts']) },
   queueGateFailure: { chars: 500, render: () => buildGateFailurePrompt('npm run lint', 'Pinned failure output') },
   queueActiveDocuments: { chars: 1000, render: () => buildActiveDocumentsPrompt(['/workspace/docs/fixture_plan.md']) },
   // The resumed worker carries that same dependency-preserving rule (3,759 chars).
-  queueResume: { chars: 7800, render: () => buildResumePrompt(queue, 'Continue verified earlier work') },
+  queueResume: { chars: 7900, render: () => buildResumePrompt(queue, 'Continue verified earlier work') },
   // Nov-07: every worker turn now ends with the plan_queue_report_ready instruction (about 650 characters; later turns
   // add a shorter "report again" clause). Renders: worker 4,510, livetest worker 5,010, fix 1,352, conflict 574,
   // gate failure 452, active documents 983, resume 4,901, continue + conflicts 743, resume + conflicts 5,477,
@@ -110,11 +115,11 @@ const BUDGET = {
   // step-up 4,888 (livetest 4,853), verifier reminder 1,284. Existing caps stay.
   // 8 Nov (replay onto main with the Oct-2 stack): the stack's Status-block, root-history, foreground-checks and step-scope rules sit on top of main's deferred-checks wording. Measured: worker 5,189, resume 5,631, resume + conflicts 6,207, step-up 7,221, livetest step-up 7,224, triage 4,763; ceilings round up to 100.
   queueContinue: { chars: 200, render: () => buildContinuePrompt(queue, 'Continue verified earlier work') },
-  queueContinueConflict: { chars: 800, render: () => buildContinuePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
-  queueResumeConflict: { chars: 8300, render: () => buildResumePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
-  queueStepUp: { chars: 9300, render: () => buildStepUpPrompt(queue, 3, findings) },
-  queueLivetestStepUp: { chars: 9600, render: () => buildStepUpPrompt({ ...queue, kind: 'livetests' }, 3, findings) },
-  queueWorkerReminder: { chars: 2200, render: () => buildWorkerReminderPrompt(item.id, 1, 2, WORKER_WAIT_RULE) },
+  queueContinueConflict: { chars: 1000, render: () => buildContinuePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
+  queueResumeConflict: { chars: 8600, render: () => buildResumePrompt(queue, 'Continue verified earlier work') + conflictAddendum() },
+  queueStepUp: { chars: 9600, render: () => buildStepUpPrompt(queue, 3, findings) },
+  queueLivetestStepUp: { chars: 9700, render: () => buildStepUpPrompt({ ...queue, kind: 'livetests' }, 3, findings) },
+  queueWorkerReminder: { chars: 2300, render: () => buildWorkerReminderPrompt(item.id, 1, 2, WORKER_WAIT_RULE) },
   queueWorkerRetry: { chars: 100, render: () => QUEUE_WORKER_RETRY_PROMPT },
   queueVerifierReminder: { chars: 1300, render: () => buildVerifierReminderPrompt(item.id, 1, 2) },
   // Main's verifier handoff requires waiting for background gates, Harness tool
@@ -123,14 +128,14 @@ const BUDGET = {
   // 8 Nov (deferred checks): the report instruction now says each deferred check must also be written in the
   // _livetest.md (~110 chars on every worker prompt; measured: 4,623 / 5,123 / 5,014 / 5,590 / 6,576 / 7,076). The verifier gained
   // the finding-kind rules, the plan deferral rules and the PASS/FAIL example calls: 7,080 / 5,550.
-  queueVerifier: { chars: 9700, render: () => buildVerifierPrompt(verifier) },
+  queueVerifier: { chars: 9900, render: () => buildVerifierPrompt(verifier) },
   queueLivetestVerifier: { chars: 8200, render: () => buildVerifierPrompt({ ...verifier, kind: 'livetests' }) },
   // 17 Nov (Linear step 4): the five ticket prompts, measured with the small fixture brief above (worker 5,956, fix 1,806, resume 6,317, step-up 7,849, checker 6,100) and rounded up to 100.
   // They share the plan prompts' rules by import; a ticket's own text adds up to 12,000 characters inside its block.
-  queueTicketWorker: { chars: 6000, render: () => buildTicketWorkerPrompt(ticketPrompt) },
+  queueTicketWorker: { chars: 6100, render: () => buildTicketWorkerPrompt(ticketPrompt) },
   queueTicketFix: { chars: 2050, render: () => buildTicketFixPrompt(ticketPrompt, 1, 3, findings) },
-  queueTicketResume: { chars: 6400, render: () => buildTicketResumePrompt(ticketPrompt, 'Continue verified earlier work') },
-  queueTicketStepUp: { chars: 7900, render: () => buildTicketStepUpPrompt(ticketPrompt, 3, findings) },
+  queueTicketResume: { chars: 6500, render: () => buildTicketResumePrompt(ticketPrompt, 'Continue verified earlier work') },
+  queueTicketStepUp: { chars: 8100, render: () => buildTicketStepUpPrompt(ticketPrompt, 3, findings) },
   queueTicketChecker: { chars: 6200, render: () => buildTicketCheckerPrompt({ ...ticketPrompt, baseBranch: 'main', gates: ['npm run lint', 'npm run test:quiet'] }) },
   queueTriage: { chars: 7100, render: () => buildTriagePrompt('run-budget', ['/workspace/docs/fixture_plan.md']) },
   structuredReview: { chars: 3700, render: () => buildStructuredReviewPrompt('Review the fixture', 'Pinned implementation', REVIEW_ANGLES[0], ['fixture.ts']) },

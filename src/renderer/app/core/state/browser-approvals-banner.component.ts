@@ -50,6 +50,7 @@ import {
   bannerModeLabel,
   buildBannerGrant,
   browserApprovalFailureText,
+  secretRecoverySites,
 } from './browser-approvals-banner.rules';
 
 @Component({
@@ -456,6 +457,7 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
 
   describe(approval: BrowserApprovalRequest): string {
     if (approval.deviceLogin) return `Review Codex sign-in for ${approval.deviceLogin.expectedIdentity}`;
+    if (approval.secretRecovery) return `Review restoring browser access for ${secretRecoverySites(approval.secretRecovery)}`;
     if (approval.credentialAccess) return 'Saved-login permission requested';
     const action = approval.toolName.replace(/^browser\./, '').replaceAll('_', ' ');
     const where = this.displayHost(approval.origin ?? approval.url ?? approval.profileId);
@@ -608,7 +610,7 @@ export class BrowserApprovalsBannerComponent implements OnInit, OnDestroy {
   }
 
   review(approval: BrowserApprovalRequest): void {
-    if (approval.deviceLogin) {
+    if (approval.deviceLogin || approval.secretRecovery) {
       this.sessionNavigator.openSession(approval.instanceId);
       return;
     }

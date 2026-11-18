@@ -30,7 +30,8 @@ import { approvalComputerId, grantScopeForApproval } from './browser-grant-scope
 import { getBrowserCredentialAccessService } from './browser-credential-access-service';
 
 interface BrowserGatewayApprovalOperationsDeps {
-  approvalStore: Pick<BrowserApprovalStore, 'getRequest' | 'listRequests' | 'resolveRequest' | 'resolveDeviceLoginRequest' | 'expireDeviceLoginRequest'>;
+  approvalStore: Pick<BrowserApprovalStore, 'getRequest' | 'listRequests' | 'resolveRequest' | 'resolveDeviceLoginRequest'
+    | 'expireDeviceLoginRequest' | 'resolveSecretRecoveryRequest'>;
   grantStore: Pick<BrowserGrantStore, 'listGrants' | 'createGrant' | 'revokeGrant'> & Partial<Pick<BrowserGrantStore, 'getGrant'>>;
   profileStore: Pick<BrowserProfileStore, 'getProfile' | 'setRuntimeState'>;
   autoApproveApproval?: (approval: BrowserApprovalRequest) => BrowserPermissionGrant | null;
@@ -43,6 +44,8 @@ interface BrowserGatewayApprovalOperationsDeps {
   ) => Promise<BrowserGatewayResult<BrowserApprovalRequest | null>>;
   refreshCredentialAccess?: (approval: BrowserApprovalRequest) => BrowserApprovalRequest;
   revokeCredentialAccess?: (grantId: string) => void;
+  /** Starts the approved recovery. Harness does the work; the approval itself changes nothing. */
+  onSecretRecoveryApproved?: (approval: BrowserApprovalRequest) => void;
   result: <T>(params: BrowserGatewayResultInput<T>) => BrowserGatewayResult<T>;
 }
 
@@ -186,6 +189,26 @@ export class BrowserGatewayApprovalOperations {
         ? this.deps.approveCredentialAccess(approval, request.credentialAccess)
         : getBrowserCredentialAccessService().approve(approval, request.credentialAccess);
     }
+    if (approval.secretRecovery) {
+      // Only the exact recovery choice, with the unchanged proposal, applies. It
+      // creates no grant: the approval is consent for one recovery operation.
+      const exactChoice = request.secretRecovery?.permission === 'operation' && !request.credentialAccess
+        && !request.deviceLogin && isDeepStrictEqual(request.grant, approval.proposedGrant);
+      const current = exactChoice
+        ? this.deps.approvalStore.resolveSecretRecoveryRequest(approval.requestId, approval.secretRecovery, 'approved')
+        : null;
+      if (current) this.deps.onSecretRecoveryApproved?.(current);
+      return this.deps.result({
+        context: request, profileId: approval.profileId, targetId: approval.targetId,
+        action: 'approve_request', toolName: 'browser.approve_request', actionClass: 'credential',
+        decision: current ? 'allowed' : 'denied', outcome: current ? 'succeeded' : 'not_run',
+        reason: current ? undefined : 'secret_recovery_approval_not_applied',
+        summary: current
+          ? 'Approved recovering browser access; Harness is finishing it now'
+          : 'This browser access recovery could not be approved',
+        data: null,
+      });
+    }
     if (approval.status !== 'pending' || approval.expiresAt <= Date.now()) {
       const current = this.expireApprovalIfNeeded(approval);
       return this.deps.result({
@@ -306,6 +329,17 @@ export class BrowserGatewayApprovalOperations {
       return this.deps.denyCredentialAccess
         ? this.deps.denyCredentialAccess(approval)
         : getBrowserCredentialAccessService().deny(approval);
+    }
+    if (approval.secretRecovery) {
+      const current = this.deps.approvalStore.resolveSecretRecoveryRequest(approval.requestId, approval.secretRecovery, 'denied');
+      return this.deps.result({
+        context: request, profileId: approval.profileId, targetId: approval.targetId,
+        action: 'deny_request', toolName: 'browser.deny_request', actionClass: 'credential',
+        decision: current ? 'allowed' : 'denied', outcome: current ? 'succeeded' : 'not_run',
+        reason: current ? undefined : 'secret_recovery_no_longer_pending',
+        summary: current ? 'Kept this browser site protected' : 'This browser access recovery is no longer pending',
+        data: current,
+      });
     }
     const denied = this.deps.approvalStore.resolveRequest(approval.requestId, {
       status: 'denied',
@@ -451,6 +485,7 @@ export class BrowserGatewayApprovalOperations {
   private withComputer(approval: BrowserApprovalRequest): BrowserApprovalRequest {
     if (approval.deviceLogin) return { ...approval, computerId: approval.deviceLogin.browserNodeId };
     if (approval.credentialAccess) return approval;
+    if (approval.secretRecovery) return { ...approval, computerId: approval.secretRecovery.nodeId };
     const computerId = approvalComputerId(approval.profileId, (id) => this.deps.profileStore.getProfile(id));
     return computerId ? { ...approval, computerId } : approval;
   }
@@ -471,7 +506,8 @@ export class BrowserGatewayApprovalOperations {
   }
 
   private resolvePendingApprovalIfNeeded(approval: BrowserApprovalRequest): BrowserApprovalRequest {
-    if (approval.status !== 'pending' || approval.credentialAccess || approval.deviceLogin) {
+    // Recovery, saved-login and device sign-in consent are never auto-approved, in any mode.
+    if (approval.status !== 'pending' || approval.credentialAccess || approval.deviceLogin || approval.secretRecovery) {
       return approval;
     }
     const grant = this.deps.autoApproveApproval?.(approval);

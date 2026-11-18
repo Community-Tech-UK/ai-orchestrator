@@ -44,6 +44,7 @@ const MACHINE_LOCAL_SETTING_KEYS = new Set<keyof AppSettings>([
   'browserVaultAutoUnlock',
   'browserAllowSharedTabCredentialFill',
   'browserSecretObservationProtectionEnabled',
+  'browserPreApproveAgentFolderLogins',
   'browserLocalComputerEnabled',
   'providerSignalFenceEnabled',
   'workspaceSecretsEnabled',

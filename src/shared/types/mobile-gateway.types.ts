@@ -53,6 +53,8 @@ export type {
   MobilePlanQueueAnswerRequest,
   MobilePlanQueueControlRequest,
   MobilePlanQueueDiffstatDto,
+  MobilePlanQueueDirectChangeChoice,
+  MobilePlanQueueDirectChangeRequest,
   MobilePlanQueueItemDto,
   MobilePlanQueueItemState,
   MobilePlanQueueOptionDto,
@@ -81,6 +83,8 @@ export type {
 
 export {
   MOBILE_LOOP_STATUSES,
+  MOBILE_PLAN_QUEUE_DIRECT_CHANGE_CHOICES,
+  waitsForDirectChangeChoice,
   MOBILE_PLAN_QUEUE_ITEM_STATES,
   MOBILE_PLAN_QUEUE_RUN_STATUSES,
 } from '@contracts/types/mobile-gateway';

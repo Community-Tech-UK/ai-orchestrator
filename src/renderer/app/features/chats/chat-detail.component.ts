@@ -18,6 +18,7 @@ import { OperatorIpcService } from '../../core/services/ipc/operator-ipc.service
 import { OutputStreamComponent } from '../instance-detail/output-stream.component';
 import { chatAsyncAnswerTarget } from '../instance-detail/async-question';
 import { InputPanelComponent } from '../instance-detail/input-panel.component';
+import type { LoopStartRequestPayload } from '../instance-detail/input-panel-loop-start';
 import { ActivityStatusComponent } from '../instance-detail/activity-status.component';
 import { FileAttachmentService } from '../instance-detail/file-attachment.service';
 import { DropZoneComponent } from '../file-drop/drop-zone.component';
@@ -28,7 +29,6 @@ import { SessionArtifactsStripComponent } from './session-artifacts-strip.compon
 import { ContextEvidencePanelComponent } from '../../shared/components/context-evidence-panel/context-evidence-panel.component';
 import { LoopStore } from '../../core/state/loop.store';
 import { LoopPromptHistoryService } from '../loop/loop-prompt-history.service';
-import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 import type { ChatOlderMessagesLoadResult } from '../../core/state/chat.store';
 import { UserActionRequestComponent } from '../instance-detail/user-action-request.component';
 import { BrowserApprovalRequestComponent } from '../instance-detail/browser-approval-request.component';
@@ -463,20 +463,22 @@ export class ChatDetailComponent {
     return this.outputMessageMapper.toOutputMessage(message);
   }
 
-  async onLoopStartRequested(payload: {
-    config: LoopStartConfigInput;
-    firstMessage: string;
-    attachments: { name: string; data: Uint8Array }[];
-    onResolved: (ok: boolean, error?: string) => void;
-  }): Promise<void> {
+  async onLoopStartRequested(payload: LoopStartRequestPayload): Promise<void> {
     try {
       const chatId = this.detail()?.chat.id;
       if (!chatId) {
         payload.onResolved(false, 'No chat selected.');
         return;
       }
+      // Where the composer keeps this chat's text and files, read before the chat's live session can change.
+      const textKey = this.streamInstanceId();
+      const filesKey = this.chatDraftKey();
       const r = await this.loopStore.start(chatId, payload.config, payload.attachments);
       if (r.ok) {
+        // The loop has the goal and attachments now; keeping them staged would offer to send them again.
+        // Files added while it was starting were not sent, so they stay.
+        this.draftService.clearDraft(textKey);
+        if (filesKey) for (const file of payload.stagedFiles) this.draftService.removePendingFile(filesKey, file);
         // Remember the loop directive (what's reusable next time), not the
         // textarea goal which is task-specific.
         this.loopPromptHistory.remember(payload.config.iterationPrompt ?? payload.config.initialPrompt);

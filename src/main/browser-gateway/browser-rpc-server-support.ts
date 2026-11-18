@@ -27,6 +27,7 @@ import {
   BrowserNavigateRequestSchema,
   BrowserReloadRequestSchema,
   BrowserRecoverExtensionRequestSchema,
+  BrowserRecoverSecretObservationRequestSchema,
   BrowserProfileRequestSchema,
   BrowserQueryElementsRequestSchema,
   BrowserRequestGrantRequestSchema,
@@ -133,6 +134,7 @@ const STRICT_NO_STRIP_METHODS: ReadonlySet<string> = new Set([
   'browser.set_viewport',
   'browser.set_zoom',
   'browser.handle_dialog',
+  'browser.recover_secret_observation',
 ]);
 
 function schemaForBrowserRpcMethod(method: string): ZodType | null {
@@ -155,6 +157,8 @@ function schemaForBrowserRpcMethod(method: string): ZodType | null {
       return BrowserReloadRequestSchema;
     case 'browser.recover_extension':
       return BrowserRecoverExtensionRequestSchema;
+    case 'browser.recover_secret_observation':
+      return BrowserRecoverSecretObservationRequestSchema;
     case 'browser.click':
       return BrowserClickRequestSchema;
     case 'browser.type':

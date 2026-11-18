@@ -54,7 +54,7 @@ export class MobileGatewayAwayFeatures {
     this.planQueue = new MobileGatewayPlanQueueHandlers({
       getSource: () => createLivePlanQueueSource(),
       broadcast: (event) => this.deps.broadcast(event),
-      sendNeedsAnswerPush: (item) => sendMobilePlanQueuePush(this.deps.pushDeps(), item.id),
+      sendWaitingPush: (item, waitingFor) => sendMobilePlanQueuePush(this.deps.pushDeps(), item.id, waitingFor),
     });
     this.docReviews = new MobileGatewayDocReviewHandlers({
       getSource: () => createLiveDocReviewSource(),

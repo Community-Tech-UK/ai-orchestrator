@@ -290,9 +290,17 @@ export const RUNTIME_SETTINGS_METADATA: SettingMetadata[] = [
   {
     key: 'browserSecretObservationProtectionEnabled',
     label: 'Lock shared tabs after a credential fill',
-    description: 'When on (default), filling a password or secret on a shared Chrome tab locks that site so agents cannot snapshot, click, or download until you reset secret protection in the Harness extension popup with Browser Gateway off. Turn this off for procurement work that must read and download from the same origin immediately after sign-in. If several Harnesses share this Chrome, protection stays on until all of them turn it off. Off clears protection flags only; it does not delete cookies, passwords, or site data, and it does not change vault binding or origin authorisation. Operator-only; agents cannot change this.',
+    description: 'When on (default), filling a password or secret on a shared Chrome tab locks that site so agents cannot read or download from it. The lock lifts by itself once the page has moved on and the secret is no longer in it (agents can still click the form\'s sign-in button), or when you approve a request in Harness to restore access, or reset protection in the Harness extension popup. Turn this off for procurement work that must read and download from the same origin immediately after sign-in. If several Harnesses share this Chrome, protection stays on until all of them turn it off. Off clears protection flags only; it does not delete cookies, passwords, or site data, and it does not change vault binding or origin authorisation. Operator-only; agents cannot change this.',
     type: 'boolean',
     category: 'advanced',
+  },
+  {
+    key: 'browserPreApproveAgentFolderLogins',
+    label: 'Let agents use agent-folder logins without asking',
+    description: 'Agents can sign in with a saved login from the AIO-Agent vault folder without asking you, on any browser computer, but only on the websites that login lists. Everything else still asks; only you can change this.',
+    type: 'boolean',
+    category: 'advanced',
+    keywords: ['browser', 'saved login', 'password', 'vault', 'approval', 'AIO-Agent'],
   },
   {
     key: 'orchestrationRoutingPolicyJson',

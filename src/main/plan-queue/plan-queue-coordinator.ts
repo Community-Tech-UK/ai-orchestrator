@@ -60,6 +60,7 @@ import {
 } from './plan-queue-instance-tracker';
 import type { PlanQueueFlowHost, PlanQueueInstancePort, PlanQueueRoleRecord, PlanQueueSessionTreePort } from './plan-queue-host';
 import { PlanQueueItemFlow } from './plan-queue-item-flow';
+import { UNDO_DIRECT_CHANGE_REFUSAL } from './plan-queue-direct-changes';
 import { PlanQueueSetAsideAgents, type PlanQueueSetAsideDeps } from './plan-queue-set-aside';
 import { hasPendingLandingCleanup } from './plan-queue-item-landing';
 import { spawnQueueInstance } from './plan-queue-spawn';
@@ -595,6 +596,8 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
     // Land anyway has its own, stricter rule; it runs first so its plain reasons win over the general refusal.
     // A Set aside agent is authorised by the general check below (its own folder only), so it skips the person-message rule.
     const setAsideCaller = callerInstanceId !== undefined && this.setAside?.folderOf(callerInstanceId) !== undefined;
+    // No session, the starting one and the Set aside agent included, may take a job's version over a direct change.
+    if (payload.action === 'land-anyway' && item.parkReason === 'undoes-direct-change' && callerInstanceId !== undefined) throw new Error(UNDO_DIRECT_CHANGE_REFUSAL);
     let landAnyway = payload.action === 'land-anyway' && !setAsideCaller
       ? this.authorizeLandAnyway(run, item, callerInstanceId)
       : null;
@@ -656,6 +659,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       documentComplete: args.document_complete,
       needJames: args.need_james, deferredChecks: args.deferred_checks, criteriaTotal: args.criteria_total,
       notChecked: args.not_checked,
+      ...(args.stale_plan_text?.length ? { stalePlanText: args.stale_plan_text } : {}),
     });
     return { accepted: true, message: 'Verdict recorded. End your turn now; the coordinator acts on it when you stop.' };
   }

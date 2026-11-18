@@ -80,8 +80,11 @@ export function credentialAccessMovement(approval: BrowserApprovalRequest): stri
 
 const CREDENTIAL_ACCESS_ERROR_TEXT: Readonly<Record<string, string>> = {
   vault_locked: 'The password vault is locked. Unlock it, then approve again.',
-  target_unavailable: 'The browser tab could not be reached. It may be closed, not responding, on a site Harness is not allowed to use, or on a computer that is offline.',
+  target_unavailable: 'Harness could not check the browser tab. It may have closed, stopped responding, or moved to a site Harness is not allowed to use. Try Approve again in a moment.',
   target_closed: 'The sign-in tab has closed. The requesting session needs to open a fresh sign-in tab and request saved-login access again.',
+  target_held_by_another_session: 'Another session is using this browser tab. Close that session or let the requesting session open its own tab, then approve again.',
+  computer_offline: 'The browser computer for this tab is offline. Approve again once it has reconnected.',
+  target_secret_protected: 'This tab is locked because a password was typed into it. The requesting session needs to open the sign-in page again, then approve again.',
   bw_command_failed: 'The password vault command failed. Check the vault is reachable, then approve again.',
   credential_access_failed: 'Something went wrong while preparing the saved login.',
   expired: 'This request timed out.',
@@ -122,12 +125,24 @@ export function browserApprovalFailureText(reason: string): string {
   return APPROVAL_FAILURE_TEXT[reason] ?? "Harness couldn't record this decision. Check Details, then try again.";
 }
 
+/** The protected sites a recovery approval covers, as host names. */
+export function secretRecoverySites(recovery: NonNullable<BrowserApprovalRequest['secretRecovery']>): string {
+  return recovery.origins.map((origin) => {
+    try {
+      return new URL(origin).host;
+    } catch {
+      return origin;
+    }
+  }).join(', ');
+}
+
 export function bannerCanQuickApprove(approval: BrowserApprovalRequest): boolean {
-  return !approval.deviceLogin && (Boolean(approval.credentialAccess) || bannerGrantModes(approval).length > 0);
+  return !approval.deviceLogin && !approval.secretRecovery
+    && (Boolean(approval.credentialAccess) || bannerGrantModes(approval).length > 0);
 }
 
 export function bannerGrantModes(approval: BrowserApprovalRequest): BannerGrantMode[] {
-  if (approval.credentialAccess || approval.deviceLogin) return [];
+  if (approval.credentialAccess || approval.deviceLogin || approval.secretRecovery) return [];
   if (NEVER_QUICK_APPROVE_CLASSES.has(approval.actionClass)) {
     return [];
   }

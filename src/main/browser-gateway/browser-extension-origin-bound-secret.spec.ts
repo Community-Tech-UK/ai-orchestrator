@@ -26,6 +26,16 @@ async function loadSecretObservationProtection() { return secretObservationProte
 function isSecretObservationProtectionEnabled() { return secretObservationProtectionEnabled !== false; }
 async function applySecretObservationProtectionFromCommand() {}
 async function applySecretObservationProtectionEnabled() {}
+let secretWriteGeneration = null;
+let secretRecoveryReceipts = [];
+const secretReleaseReviews = new Map();
+// Automatic release (browser-secret-auto-release.spec.ts covers it): inert here.
+const SECRET_DEEP_READ_COMMANDS = new Set();
+const secretAutoReleasedOrigins = new Set();
+async function loadSecretAutoReleased() {}
+function secretValuesKnown() { return false; }
+async function releaseSecretProtectionIfClear() {}
+async function withheldIfSecretReturned() { return null; }
 `;
 
 interface ScriptInjection {
@@ -92,6 +102,8 @@ function buildOriginBoundTypeHarness(options: {
   const markSecretTaint = vi.fn(async () => {
     if (options.taintError) throw new Error(options.taintError);
   });
+  // Automatic release's value check: covered in browser-secret-auto-release.spec.ts.
+  const rememberSecretValueCheck = vi.fn(async () => undefined);
   const build = new Function(
     'chrome',
     'assertGatewayEnabled',
@@ -100,6 +112,7 @@ function buildOriginBoundTypeHarness(options: {
     'stopControlledTab',
     'reportTab',
     'markSecretTaint',
+    'rememberSecretValueCheck',
     `${extractFunctionSource(background, 'normalizeCredentialOrigin')}
 ${extractFunctionSource(background, 'credentialFrameOriginProbe')}
 ${extractFunctionSource(background, 'mergeFrameResults')}
@@ -117,6 +130,7 @@ return runOriginBoundType;`,
     stopControlledTab,
     reportTab,
     markSecretTaint,
+    rememberSecretValueCheck,
   ) as (
     command: { target: { tabId: number } },
     selector: string,
@@ -125,7 +139,7 @@ return runOriginBoundType;`,
     credentialProtection?: string,
     expectedPageOrigin?: string,
   ) => Promise<unknown>;
-  return { chrome, markSecretTaint, runOriginBoundType };
+  return { chrome, markSecretTaint, rememberSecretValueCheck, runOriginBoundType };
 }
 
 describe('extension origin-bound secret typing', () => {
@@ -283,10 +297,12 @@ return buildTabPayload;`,
       `let secretRecoveryRequest = null;
 ${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'persistSecretTaints')}
+${extractFunctionSource(background, 'secretTaintStorageValue')}
 ${extractFunctionSource(background, 'clearSecretTaint')}
 ${extractFunctionSource(background, 'browserTabOrigin')}
 ${extractFunctionSource(background, 'credentialFrameOriginProbe')}
 ${extractFunctionSource(background, 'taintedFrameOriginForTabId')}
+${extractFunctionSource(background, 'taintedFrameOriginsForTabId')}
 ${extractFunctionSource(background, 'secretTaintOriginForTab')}
 ${extractFunctionSource(background, 'httpAuthChallengeForTab')}
 ${extractFunctionSource(background, 'buildTabPayload')}
@@ -390,9 +406,11 @@ return { clearSecretTaint, buildTabPayload };`,
       `let secretRecoveryRequest = null;
 ${SECRET_OBSERVATION_PROTECTION_STUBS}
 ${extractFunctionSource(background, 'persistSecretTaints')}
+${extractFunctionSource(background, 'secretTaintStorageValue')}
 ${extractFunctionSource(background, 'browserTabOrigin')}
 ${extractFunctionSource(background, 'credentialFrameOriginProbe')}
 ${extractFunctionSource(background, 'taintedFrameOriginForTabId')}
+${extractFunctionSource(background, 'taintedFrameOriginsForTabId')}
 ${extractFunctionSource(background, 'markSecretTaint')}
 ${extractFunctionSource(background, 'markSecretTaintLocked')}
 return markSecretTaint;`,
@@ -423,6 +441,8 @@ return markSecretTaint;`,
           '43': AUTHORIZED_ORIGIN,
           '50': AUTHORIZED_ORIGIN,
         },
+        // Each secret write records a new random generation (Harness recovery binds to it).
+        writeGeneration: expect.stringMatching(/^[A-Za-z0-9_-]{8,128}$/),
       },
     });
   });
@@ -900,6 +920,26 @@ ${extractFunctionSource(background, 'executeBrowserCommand')}; return executeBro
       JSON.stringify(input));
     expect(serializedCalls).toHaveLength(1);
     expect(serializedCalls.join('\n')).not.toContain(SECRET);
+  });
+
+  it('remembers how to recognise the value before protecting the tab and writing it', async () => {
+    const { chrome, markSecretTaint, rememberSecretValueCheck, runOriginBoundType } = buildOriginBoundTypeHarness({
+      frameOrigins: [{ frameId: 0, origin: AUTHORIZED_ORIGIN }],
+    });
+    await runOriginBoundType({ target: { tabId: 42 } }, '#password', SECRET, AUTHORIZED_ORIGIN, 'password').catch(() => undefined);
+    expect(rememberSecretValueCheck).toHaveBeenCalledWith(AUTHORIZED_ORIGIN, SECRET);
+    const write = chrome.scripting.executeScript.mock.invocationCallOrder
+      .find((_order, index) => chrome.scripting.executeScript.mock.calls[index]?.[0].func.name === 'pageBridgeScript');
+    expect(rememberSecretValueCheck.mock.invocationCallOrder[0]).toBeLessThan(markSecretTaint.mock.invocationCallOrder[0]!);
+    expect(markSecretTaint.mock.invocationCallOrder[0]).toBeLessThan(write!);
+  });
+
+  it('records nothing for a public (username) write', async () => {
+    const { rememberSecretValueCheck, runOriginBoundType } = buildOriginBoundTypeHarness({
+      frameOrigins: [{ frameId: 0, origin: AUTHORIZED_ORIGIN }],
+    });
+    await runOriginBoundType({ target: { tabId: 42 } }, '#email', SECRET, AUTHORIZED_ORIGIN, 'public').catch(() => undefined);
+    expect(rememberSecretValueCheck).not.toHaveBeenCalled();
   });
 
   it('fails closed before secret dispatch when taint persistence is unavailable', async () => {

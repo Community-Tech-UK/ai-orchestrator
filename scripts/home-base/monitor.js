@@ -120,8 +120,9 @@ function readConfiguration(file) {
 
 function readDeviceToken(config) {
   const saved = readPrivateJson(path.join(config.directory, 'device-token.json'));
-  if (typeof saved.token !== 'string' || !saved.token || !Number.isFinite(saved.expiresAt) || saved.expiresAt <= Date.now()) {
-    throw new Error('Monitor pairing has expired or is invalid');
+  // The gateway renews the same token on use, so the saved expiry is only the original deadline.
+  if (typeof saved?.token !== 'string' || !saved.token.trim() || !Number.isFinite(saved.expiresAt)) {
+    throw new Error('The monitor pairing file is invalid');
   }
   return saved.token;
 }
@@ -176,13 +177,19 @@ async function runMonitorCheck(file, deps = {}) {
     let deliveryFailed = false;
     // One queued message per invocation keeps the scheduled check bounded even after a mail outage.
     if (state.outbox.length) {
+      const [alert, ...remaining] = state.outbox;
       try {
-        await (deps.notify ?? (alert => notify(config.notificationCommand, alert)))(state.outbox[0]);
-        const acknowledged = acknowledgeAlert(state, state.outbox[0].id);
-        savePrivateJson(statePath, acknowledged);
-        state = acknowledged;
+        await (deps.notify ?? (queued => notify(config.notificationCommand, queued)))(alert);
+      } catch { deliveryFailed = true; /* Never echo sender errors. */ }
+      if (deliveryFailed && remaining.length) {
+        // One unresolved delivery must not stop all later alerts.
+        state = { ...state, outbox: [...remaining, alert] };
+        savePrivateJson(statePath, state);
+      } else if (!deliveryFailed) {
+        state = acknowledgeAlert(state, alert.id);
+        savePrivateJson(statePath, state);
         notified = 1;
-      } catch { deliveryFailed = true; /* Keep the durable outbox intact; never echo sender errors. */ }
+      }
     }
     return { pending: state.outbox.length, notified, deliveryFailed, gatewayReachable: jobs !== undefined };
   } finally { release(); }
@@ -216,7 +223,7 @@ async function main() {
     const config = readConfiguration(file);
     if (!config.notificationCommand) throw new Error('Configure and prove the PC mail command before enabling the monitor');
     readDeviceToken(config);
-    process.stdout.write('Monitor configuration and pairing are valid. Live connectivity and email still need checking.\n');
+    process.stdout.write('Monitor configuration and saved pairing file passed local checks. Live connectivity and email still need checking.\n');
   } else {
     const result = await runMonitorCheck(file);
     if (result.deliveryFailed) {

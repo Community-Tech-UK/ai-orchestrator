@@ -28,6 +28,7 @@ import type {
   MobileSessionPlan,
   MobilePauseDto,
   MobilePlanQueueDiffstatDto,
+  MobilePlanQueueDirectChangeChoice,
   MobilePlanQueueRunDto,
   MobileQuotaStateDto,
   MobilePromptDto,
@@ -507,6 +508,10 @@ export class GatewayClient {
 
   async controlPlanQueue(runId: string, action: 'pause' | 'resume' | 'cancel'): Promise<{ ok: true }> {
     return this.request('POST', `/api/plan-queue/${encodeURIComponent(runId)}/control`, { action });
+  }
+
+  async choosePlanQueueDirectChange(itemId: string, choice: MobilePlanQueueDirectChangeChoice): Promise<{ ok: true }> {
+    return this.request('POST', `/api/plan-queue/${encodeURIComponent(itemId)}/direct-change`, { choice });
   }
 
   async planQueueDiffstat(itemId: string): Promise<MobilePlanQueueDiffstatDto> {

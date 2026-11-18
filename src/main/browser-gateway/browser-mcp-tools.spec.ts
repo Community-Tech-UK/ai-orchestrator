@@ -36,6 +36,7 @@ const ALLOWED_TOOLS = [
   'browser.download_file',
   'browser.request_user_login',
   'browser.pause_for_manual_step',
+  'browser.recover_secret_observation',
   'browser.request_grant',
   'browser.get_approval_status',
   'browser.list_grants',

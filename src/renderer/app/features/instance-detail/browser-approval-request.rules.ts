@@ -40,6 +40,7 @@ import {
   type BannerGrantMode,
   type CredentialAccessDuration,
 } from '../../core/state/browser-approvals-banner.rules';
+import { secretRecoveryCardText } from './browser-secret-recovery-approval.rules';
 
 export type BrowserAllowChoiceId = 'once' | 'session' | 'without-asking';
 
@@ -73,7 +74,7 @@ export interface BrowserAllowChoice {
   readonly auditReason: string;
 }
 
-export type BrowserApprovalKind = 'action' | 'handoff' | 'saved-login' | 'device-login';
+export type BrowserApprovalKind = 'action' | 'handoff' | 'saved-login' | 'device-login' | 'secret-recovery';
 
 export interface BrowserApprovalView {
   readonly approval: BrowserApprovalRequest;
@@ -88,6 +89,8 @@ export interface BrowserApprovalView {
   readonly note: string | null;
   /** The text to type before a button that covers submitting or deleting works. */
   readonly phrase: string | null;
+  /** The refuse button's words. */
+  readonly denyLabel: string;
 }
 
 export interface BrowserApprovalContext {
@@ -142,6 +145,7 @@ export function presentBrowserApproval(
 ): BrowserApprovalView {
   if (approval.deviceLogin) return presentDeviceLogin(approval, approval.deviceLogin, ctx);
   if (approval.credentialAccess) return presentSavedLogin(approval, approval.credentialAccess, ctx);
+  if (approval.secretRecovery) return presentSecretRecovery(approval, approval.secretRecovery, ctx);
 
   const site = siteOf(approval);
   const computer = computerOf(approval, ctx);
@@ -189,6 +193,33 @@ export function presentBrowserApproval(
     choices,
     note,
     phrase: choices.some((choice) => choice.needsPhrase) ? bannerConfirmationPhrase(approval) : null,
+    denyLabel: 'Deny',
+  };
+}
+
+function presentSecretRecovery(
+  approval: BrowserApprovalRequest,
+  recovery: NonNullable<BrowserApprovalRequest['secretRecovery']>,
+  ctx: BrowserApprovalContext,
+): BrowserApprovalView {
+  const format = ctx.formatTime ?? ((timestamp: number) => new Date(timestamp).toLocaleString());
+  const computer = computerOf(approval, ctx)?.name ?? recovery.computerName;
+  const text = secretRecoveryCardText(approval, recovery, computer, format(recovery.expiresAt));
+  return {
+    approval, kind: 'secret-recovery', kindLabel: 'Browser access',
+    headline: text.headline,
+    facts: text.facts,
+    details: compact([
+      ['Tool', approval.toolName], ['Protected sites', recovery.origins.join(', ')],
+      ['Profile', approval.profileId], ['Target', recovery.targetId],
+      ['Computer id', recovery.nodeId],
+    ]),
+    // Exactly the proposal the gateway made; it applies to this one recovery and creates no grant.
+    choices: [{ id: 'once', label: text.allowLabel, hint: text.allowHint, grant: approval.proposedGrant,
+      needsPhrase: false, auditReason: 'Approved restoring browser access from session page' }],
+    note: text.note,
+    phrase: null,
+    denyLabel: text.keepLabel,
   };
 }
 
@@ -218,6 +249,7 @@ function presentDeviceLogin(
       grant: approval.proposedGrant, needsPhrase: false, auditReason: 'Approved one Codex device sign-in from session page' }],
     note: 'Only this sign-in is allowed. Harness will use its private device code for this account and these computers. This does not allow future sign-ins.',
     phrase: null,
+    denyLabel: 'Deny',
   };
 }
 
@@ -269,6 +301,7 @@ function presentSavedLogin(
     choices: [],
     note: null,
     phrase: null,
+    denyLabel: 'Deny',
   };
 }
 

@@ -20,6 +20,10 @@ export interface BrowserCredentialAccessMetadata {
   permissionExpiresAt?: number;
   authorizationId?: string;
   operationError?: string;
+  /** Approved by James's agent-folder setting rather than an Approve press. */
+  preApproved?: true;
+  /** Asked again after James denied the same login and site: only he may answer it. */
+  afterDenial?: true;
 }
 
 export interface BrowserCredentialAccessChoice {

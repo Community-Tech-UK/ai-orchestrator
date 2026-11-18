@@ -11,6 +11,31 @@ let db: SqliteDriver;
 beforeAll(() => initSqliteWasm());
 afterEach(() => db?.close());
 
+describe('direct-change fingerprints', () => {
+  it('shows only the newest batch found, while every approval James gave the job counts', () => {
+    let now = 1_000;
+    db = createSqliteWasmDatabase(':memory:'); runLoopMigrations(db);
+    const store = new PlanQueueStore(db, () => now);
+    store.upsertRun({
+      id: 'run', parentInstanceId: 'parent', parentHistoryThreadId: null, kind: 'plans', workspaceCwd: '/repo',
+      status: 'running', config: DEFAULT_PLAN_QUEUE_CONFIG.plans, relaxation: null,
+      workerProvider: 'claude', workerModel: null, startedAt: 1, endedAt: null,
+    });
+    const job = newPlanQueueItem('job', 'run', '/repo/job_plan.md', 1);
+    store.upsertItem(job);
+    const many = Array.from({ length: 25 }, (_, i) => i.toString(16).padStart(16, '0'));
+    store.history.recordDirectChangeFingerprints(job, 'found', many);
+    expect(store.history.directChangeFingerprints('job', 'found')).toEqual(many);
+    store.history.recordDirectChangeFingerprints(job, 'approved', many.slice(0, 2));
+    now += 10;
+    store.history.recordDirectChangeFingerprints(job, 'found', ['ffffffffffffffff']);
+    expect(store.history.directChangeFingerprints('job', 'found')).toEqual(['ffffffffffffffff']);
+    store.history.recordDirectChangeFingerprints(job, 'approved', ['ffffffffffffffff']);
+    expect(store.history.directChangeFingerprints('job', 'approved')).toEqual([...many.slice(0, 2), 'ffffffffffffffff']);
+    expect(() => store.history.recordDirectChangeFingerprints(job, 'found', ['not hex'])).toThrow('short hex');
+  });
+});
+
 describe('queue round history', () => {
   it('lists one run\'s events newest first with timing rows, without workers\' closing messages or other runs', () => {
     db = createSqliteWasmDatabase(':memory:'); runLoopMigrations(db);

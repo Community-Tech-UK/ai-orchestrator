@@ -471,6 +471,38 @@ describe('InputPanelComponent queued message editing', () => {
     }
   });
 
+  it("keeps a chat's loop start with that chat when its live session changes meanwhile", async () => {
+    const component = fixture.componentInstance;
+    let liveSession = 'inst-1';
+    const hosted = component as unknown as { instanceId: () => string; loopChatId: () => string | null };
+    hosted.instanceId = () => liveSession;
+    hosted.loopChatId = () => 'chat-1';
+    const loopStarts: { onResolved: (ok: boolean) => void }[] = [];
+    (component as unknown as {
+      loopStartRequested: { subscribe(callback: (event: { onResolved: (ok: boolean) => void }) => void): void };
+    }).loopStartRequested.subscribe((event) => loopStarts.push(event));
+
+    component.onLoopOpenConfig();
+    component.onLoopValidityChange(true);
+    component.onLoopConfigChange({
+      initialPrompt: 'continue until done',
+      workspaceCwd: '/tmp/project',
+      provider: 'claude',
+      contextStrategy: 'same-session',
+    });
+    component.message.set('implement the plan');
+
+    await component.onSend();
+    // Changing the chat's model gives it a new live session; the chat, and the loop's target, are unchanged.
+    liveSession = 'inst-2';
+    loopStarts[0].onResolved(true);
+
+    expect(loopStarts).toHaveLength(1);
+    expect(component.message()).toBe('');
+    expect(component.loopArmed()).toBe(false);
+    expect(component.loopStarting()).toBe(false);
+  });
+
   it('emits send while initializing so callers can queue during restore', async () => {
     const component = fixture.componentInstance;
     (component as unknown as { isInitializing: () => boolean }).isInitializing = () => true;

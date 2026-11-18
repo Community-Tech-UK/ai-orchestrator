@@ -18,7 +18,7 @@ import type {
   BrowserElementCandidate,
   BrowserEvaluateRequest,
   BrowserEvaluateResult,
-  BrowserMutationNoEffectEvidence, BrowserReloadResult, BrowserRecoverExtensionResult,
+  BrowserMutationNoEffectEvidence, BrowserReloadResult, BrowserRecoverExtensionResult, BrowserRecoverSecretObservationRequest, BrowserSecretRecoveryOutcome,
   BrowserAssertPersistedRequest,
   BrowserFillFormRequest,
   BrowserFillHttpAuthResult,
@@ -211,6 +211,8 @@ import type {
   BrowserSetZoomResult,
 } from '@contracts/schemas/browser';
 import { BrowserExtensionRecoveryOperation } from './browser-extension-recovery-operation';
+import type { BrowserSecretRecoveryOperations } from './browser-secret-recovery-operations';
+import { createBrowserSecretRecoveryOperations } from './browser-secret-recovery-wiring';
 export type {
   BrowserGatewayAttachExistingTabRequest,
   BrowserGatewayAuditLogRequest,
@@ -275,7 +277,7 @@ export class BrowserGatewayService {
   private readonly describeLocalExtensionChannel: () => BrowserLocalExtensionHealth;
   private readonly auditStore: Pick<BrowserAuditStore, 'record' | 'list' | 'countChromeProfileUse'>;
   private readonly grantStore: Pick<BrowserGrantStore, 'listGrants' | 'consumeGrant' | 'createGrant' | 'revokeGrant'>;
-  private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest' | 'resolveDeviceLoginRequest' | 'expireDeviceLoginRequest'>;
+  private readonly approvalStore: Pick<BrowserApprovalStore, 'createRequest' | 'getRequest' | 'listRequests' | 'resolveRequest' | 'resolveDeviceLoginRequest' | 'expireDeviceLoginRequest' | 'findReusableSecretRecoveryRequest' | 'resolveSecretRecoveryRequest' | 'setSecretRecoveryProgress'>;
   private readonly healthService: Pick<BrowserHealthService, 'diagnose'>;
   private credentialVault?: BrowserGatewayServiceOptions['credentialVault'];
   private credentialAuthorizations?: BrowserGatewayServiceOptions['credentialAuthorizations'];
@@ -298,6 +300,7 @@ export class BrowserGatewayService {
   private readonly manualHandoffOperations: BrowserManualHandoffOperations;
   private readonly reloadOperation: BrowserReloadOperation;
   private readonly extensionRecoveryOperation: BrowserExtensionRecoveryOperation;
+  private readonly secretRecovery: BrowserSecretRecoveryOperations;
   private readonly mutationEffectVerifier: BrowserMutationEffectVerifier;
   private readonly inputControls: BrowserInputControlOperations;
   constructor(options: BrowserGatewayServiceOptions = {}) {
@@ -394,8 +397,12 @@ export class BrowserGatewayService {
       grantStore: this.grantStore,
       profileStore: this.profileStore,
       autoApproveApproval: (approval) => this.autoApproveApproval(approval),
+      onSecretRecoveryApproved: (approval) => void this.secretRecovery.start(approval),
       result: <T>(params: BrowserGatewayResultInput<T>) => this.result(params),
     });
+    this.secretRecovery = createBrowserSecretRecoveryOperations({ approvalStore: this.approvalStore,
+      extensionTabStore: this.extensionTabStore, existingTabOperations: this.existingTabOperations,
+      extensionContactState: this.extensionContactState, service: this, result: (params) => this.result(params) });
     this.actionGuard = new BrowserGatewayActionGuard({
       profileStore: this.profileStore, targetRegistry: this.targetRegistry,
       probePageChallenge: options.pageChallengeProbe === undefined ? createBrowserPageChallengeProbe({
@@ -920,6 +927,14 @@ export class BrowserGatewayService {
 
   async recoverExtension(request: BrowserGatewayRecoverExtensionRequest): Promise<BrowserGatewayResult<BrowserRecoverExtensionResult | null>> {
     return this.extensionRecoveryOperation.run(request); }
+
+  /** Ask the user, in Harness, to restore access to a tab protected after a saved secret was entered. */
+  async recoverSecretObservation(request: BrowserGatewayContext & BrowserRecoverSecretObservationRequest): Promise<BrowserGatewayResult<BrowserSecretRecoveryOutcome | null>> {
+    return this.secretRecovery.recover(request); }
+
+  /** The running recovery started by an approval, if any. */
+  secretRecoveryCompletion(requestId: string): Promise<BrowserApprovalRequest | null> | undefined {
+    return this.secretRecovery.completion(requestId); }
 
   async snapshot(request: BrowserGatewaySnapshotRequest): Promise<
     BrowserGatewayResult<(BrowserSnapshot & {
@@ -1581,9 +1596,8 @@ export class BrowserGatewayService {
       const existingTab = this.extensionTabStore.getTab(request.profileId, request.targetId);
       const effectExpectation = this.mutationEffectVerifier.expectationFor(request);
       const effectBefore = effectExpectation
-        ? await this.mutationEffectVerifier.capture(
-          request, existingTab ?? undefined, effectExpectation,
-          prepared.grant.allowedOrigins, this.mutationEffectVerifier.deadline(),
+        ? await this.mutationEffectVerifier.captureBeforeClick(
+          request, existingTab ?? undefined, effectExpectation, prepared.grant.allowedOrigins,
         )
         : null;
       let journalSeq: number | undefined;

@@ -67,8 +67,9 @@ export function verdictExamples(kind: PlanQueueKind, itemId: string, firstGate: 
     document_complete: !step,
     deferred_checks: [{ title: 'Each provider calls the report tool', whyDeferred: 'Needs a rebuilt app and a live session on each provider.' }],
     criteria_total: 6,
+    stale_plan_text: [{ commit: 'abc1234', step: 2, sentence: 'Show provider names, not codes.' }],
     not_checked: [],
   };
-  return [(step ? 'A step' : 'A plan') + ' that passes with one deferred check (a PASS with nothing deferred leaves `deferred_checks` out):', '', JSON.stringify(pass, null, 2), '',
+  return [(step ? 'A step' : 'A plan') + ' that passes with one deferred check and one stale plan sentence (leave out either list when empty):', '', JSON.stringify(pass, null, 2), '',
     'A plan that fails, with a code finding and an environment finding:', JSON.stringify(fail, null, 2)];
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CredentialVault, type BwRunner, type VaultOriginBinding } from './browser-credential-vault';
 
-function setup(options: { folderExists?: boolean; names?: string[]; locked?: boolean; stale?: boolean; savedElsewhere?: boolean; syncFails?: boolean } = {}) {
+function setup(options: { folderExists?: boolean; names?: string[]; locked?: boolean; stale?: boolean; savedElsewhere?: boolean; syncFails?: boolean; uris?: unknown[] } = {}) {
   const commands: string[][] = [];
   // savedElsewhere: the login exists on the server but not yet in the CLI's local copy.
   let localCopyCurrent = !options.savedElsewhere;
@@ -17,7 +17,7 @@ function setup(options: { folderExists?: boolean; names?: string[]; locked?: boo
       if (args[0] !== 'list' && !localCopyCurrent) return { stdout: '', stderr: 'Not found.', code: 1 };
       const items = (options.names ?? ['Saved test login']).map((name, index) => ({
         id: `item-${index}`, name, folderId: 'personal-folder',
-        login: { username: 'TEST_ONLY_USERNAME', password: 'TEST_ONLY_PASSWORD' },
+        login: { username: 'TEST_ONLY_USERNAME', password: 'TEST_ONLY_PASSWORD', ...(options.uris ? { uris: options.uris } : {}) },
       }));
       let body: unknown;
       if (args[0] === 'list' && args[1] === 'folders') {
@@ -44,11 +44,20 @@ describe('saved login consent preview', () => {
     const preview = await vault.inspectExistingCredential({ item: 'Saved test login', origin: 'https://test.example' });
     expect(preview).toEqual({
       vaultItemRef: 'item-0', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: true,
-      existingBinding: { origin: 'https://test.example', createdAt: 10 },
+      existingBinding: { origin: 'https://test.example', createdAt: 10 }, savedOrigins: [],
     });
     expect(JSON.stringify(preview)).not.toContain('TEST_ONLY_USERNAME');
     expect(JSON.stringify(preview)).not.toContain('TEST_ONLY_PASSWORD');
     expect(commands.every((args) => ['sync', 'get', 'list'].includes(args[0]!))).toBe(true);
+  });
+
+  it('lists only the exact http(s) origins of the item\'s own saved URLs', async () => {
+    const { vault } = setup({ uris: [
+      { uri: 'https://test.example/login?next=1' }, { uri: 'https://test.example/' }, { uri: 'http://dev.test.example:8080/x' },
+      { uri: 'test.example' }, { uri: 'androidapp://example' }, { uri: null }, {},
+    ] });
+    const preview = await vault.inspectExistingCredential({ item: 'item-0', origin: 'https://test.example' });
+    expect(preview.savedOrigins).toEqual(['https://test.example', 'http://dev.test.example:8080']);
   });
 
   it('refreshes the local vault copy so a login saved elsewhere can be approved', async () => {

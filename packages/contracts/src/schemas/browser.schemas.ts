@@ -1,4 +1,6 @@
 import { BrowserDeviceLoginChoiceSchema, BrowserDeviceLoginMetadataSchema, validateDeviceLoginApproval } from './browser-device-login.schemas';
+import { BrowserSecretRecoveryChoiceSchema, BrowserSecretRecoveryMetadataSchema, BrowserSecretRecoveryProgressSchema, validateSecretRecoveryApproval } from './browser-secret-recovery.schemas';
+export { BrowserSecretRecoveryChoiceSchema, BrowserSecretRecoveryMetadataSchema, BrowserSecretRecoveryProgressSchema, BrowserRecoverSecretObservationRequestSchema } from './browser-secret-recovery.schemas';
 export { BrowserDeviceLoginChoiceSchema, BrowserDeviceLoginMetadataSchema, BrowserStartDeviceLoginRequestSchema, BrowserReadDeviceLoginRequestSchema, BrowserCancelDeviceLoginRequestSchema, BrowserFillDeviceLoginRequestSchema } from './browser-device-login.schemas';
 import { z } from 'zod';
 import { PERSISTENT_BROWSER_GRANT_EXPIRES_AT } from '../types/browser.types';
@@ -75,9 +77,7 @@ export const BrowserTargetInspectionStateSchema = z.enum([
   'secret_tainted',
   'inspection_unavailable',
 ]);
-export type BrowserTargetInspectionState = z.infer<
-  typeof BrowserTargetInspectionStateSchema
->;
+export type BrowserTargetInspectionState = z.infer<typeof BrowserTargetInspectionStateSchema>;
 export const BrowserGatewayDecisionSchema = z.enum([
   'allowed',
   'denied',
@@ -290,6 +290,8 @@ export const BrowserApprovalRequestSchema = z
     detectedFileType: z.string().min(1).max(120).optional(),
     credentialAccess: BrowserCredentialAccessMetadataSchema.optional(),
     deviceLogin: BrowserDeviceLoginMetadataSchema.optional(),
+    secretRecovery: BrowserSecretRecoveryMetadataSchema.optional(),
+    secretRecoveryProgress: BrowserSecretRecoveryProgressSchema.optional(),
     requestReason: BrowserStatedReasonSchema.optional(),
     computerId: idSchema.optional(),
     proposedGrant: BrowserGrantProposalSchema,
@@ -302,6 +304,7 @@ export const BrowserApprovalRequestSchema = z
   .strict()
   .superRefine((value, ctx) => {
     validateDeviceLoginApproval(value, ctx);
+    validateSecretRecoveryApproval(value, ctx);
     if (value.id !== value.requestId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -389,9 +392,7 @@ export const BrowserCreateProfileRequestSchema = z
     defaultUrl: optionalUrlSchema,
   })
   .strict();
-export type BrowserCreateProfileRequest = z.infer<
-  typeof BrowserCreateProfileRequestSchema
->;
+export type BrowserCreateProfileRequest = z.infer<typeof BrowserCreateProfileRequestSchema>;
 
 export const BrowserAttachExistingTabRequestSchema = z
   .object({
@@ -411,9 +412,7 @@ export const BrowserAttachExistingTabRequestSchema = z
     extensionOrigin: z.string().min(1).max(200).optional(),
   })
   .strict();
-export type BrowserAttachExistingTabRequest = z.infer<
-  typeof BrowserAttachExistingTabRequestSchema
->;
+export type BrowserAttachExistingTabRequest = z.infer<typeof BrowserAttachExistingTabRequestSchema>;
 
 export const BrowserDetachExistingTabRequestSchema = z
   .object({
@@ -421,9 +420,7 @@ export const BrowserDetachExistingTabRequestSchema = z
     targetId: idSchema,
   })
   .strict();
-export type BrowserDetachExistingTabRequest = z.infer<
-  typeof BrowserDetachExistingTabRequestSchema
->;
+export type BrowserDetachExistingTabRequest = z.infer<typeof BrowserDetachExistingTabRequestSchema>;
 
 export const BrowserUpdateProfileRequestSchema = z
   .object({
@@ -765,6 +762,7 @@ export const BrowserApproveRequestPayloadSchema = z
     grant: BrowserGrantProposalSchema.superRefine(validatePersistentScope),
     credentialAccess: BrowserCredentialAccessChoiceSchema.optional(),
     deviceLogin: BrowserDeviceLoginChoiceSchema.optional(),
+    secretRecovery: BrowserSecretRecoveryChoiceSchema.optional(),
     reason: z.string().min(1).max(1000).optional(),
   })
   .strict();

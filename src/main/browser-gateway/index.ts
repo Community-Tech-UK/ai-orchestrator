@@ -1,4 +1,7 @@
 import { app } from 'electron';
+import { setBrowserSessionUserDataPathProvider } from './browser-session-context';
+import { getBrowserApprovalStore } from './browser-approval-store';
+import { cancelSecretRecoveriesWhenStopped } from './browser-secret-recovery-wiring';
 import { getBrowserDeviceLoginController } from './browser-device-login-runtime';
 import { isHarnessLiveTest } from '../app/live-test-context';
 import type { BrowserGatewayRpcServerOptions } from './browser-gateway-rpc-server';
@@ -88,6 +91,10 @@ export * from './puppeteer-browser-driver';
 
 export interface BrowserGatewayRuntimeOptions extends BrowserGatewayRpcServerOptions {
   autoApproveRequests?: BrowserGatewayServiceOptions['autoApproveRequests'];
+  /** Called with a listener for each session that is removed (stopped and closed). */
+  onSessionRemoved?: (listener: (instanceId: string) => void) => void;
+  /** Called with a listener for each requested interrupt of a session's turn. */
+  onSessionInterrupted?: (listener: (event: { instanceId: string; origin?: string }) => void) => void;
 }
 
 /**
@@ -160,6 +167,11 @@ export async function initializeBrowserGatewayRuntime(
   setBrowserLocalExtensionUserDataPathProvider(
     () => options.userDataPath ?? app.getPath('userData'),
   );
+  // Work Harness starts itself for a session (an approved secret-protection
+  // recovery) carries the same browser owner as that session's RPC calls.
+  setBrowserSessionUserDataPathProvider(() => options.userDataPath ?? app.getPath('userData'));
+  cancelSecretRecoveriesWhenStopped(options,
+    (instanceId) => getBrowserApprovalStore().expireSecretRecoveriesForInstance(instanceId));
   const credentials = buildCredentialServices();
   // Operator-owned full-autonomy bootstrap: provision managed profiles,
   // standing credential authorizations, and campaigns from the config file,

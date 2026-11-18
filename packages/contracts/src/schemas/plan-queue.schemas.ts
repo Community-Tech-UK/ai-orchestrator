@@ -62,6 +62,8 @@ export const PlanQueueParkReasonSchema = z.enum([
   'missing-document',
   'stopped-by-harness',
   'needs-setup', 'needs-james',
+  // The job would undo a change made directly on the base branch after its plan was written; only James may land it.
+  'undoes-direct-change',
 ]);
 
 export const PlanQueueRoleSchema = z.enum(['triage', 'worker', 'verifier']);
@@ -120,6 +122,17 @@ export const PlanQueueNeedJamesEntrySchema = z.object({
 /** A check the verifier left for live validation: its title as in the worker's report, and why. */
 export const PlanQueueDeferredCheckRefSchema = z.object({ title: z.string().trim().min(1).max(500), whyDeferred: z.string().trim().min(1).max(4000) });
 
+/**
+ * A plan sentence that a change made directly on the base branch has overtaken: the agent kept the change instead of
+ * following the sentence. Never a finding, and never fails a round (docs/plans/2026-11-16-queue-must-not-undo-james-changes_plan.md).
+ */
+export const PlanQueueStalePlanTextSchema = z.object({
+  commit: z.string().trim().regex(/^[0-9a-f]{7,40}$/i, 'a commit hash'),
+  step: z.number().int().positive().max(1000).nullable().optional(),
+  sentence: z.string().trim().min(1).max(2000),
+});
+const StalePlanTextListSchema = z.array(PlanQueueStalePlanTextSchema).max(50).optional();
+
 export const PlanQueueVerdictSchema = z.object({
   verdict: z.enum(['PASS', 'FAIL']),
   findings: z.array(PlanQueueFindingSchema).max(100).default([]),
@@ -136,6 +149,7 @@ export const PlanQueueVerdictSchema = z.object({
   notChecked: z.array(z.string().trim().min(1).max(2000)).max(200).optional(),
   /** Plans only: what a PASS leaves for live validation, and how many criteria it judged (the deferral share). Absent on older verdicts. */
   deferredChecks: z.array(PlanQueueDeferredCheckRefSchema).max(50).optional(), criteriaTotal: z.number().int().positive().max(1000).optional(),
+  stalePlanText: StalePlanTextListSchema,
 });
 
 /** What a worker says it did when it reports its work ready (`plan_queue_report_ready`). */
@@ -156,6 +170,7 @@ export const PlanQueueWorkerReportSchema = z.object({
   })).max(50),
   /** Problems found outside the job's scope. */
   followUps: z.array(z.string().trim().min(1).max(2000)).max(50),
+  stalePlanText: StalePlanTextListSchema,
 });
 
 /** A recommendation records reasoning, never new permission to take an action. */
@@ -546,6 +561,7 @@ export const PlanQueueReportVerdictArgsSchema = z.object({
   document_complete: z.boolean().default(true),
   need_james: z.array(PlanQueueNeedJamesEntrySchema).max(200).default([]),
   deferred_checks: PlanQueueVerdictSchema.shape.deferredChecks, criteria_total: PlanQueueVerdictSchema.shape.criteriaTotal,
+  stale_plan_text: StalePlanTextListSchema,
   not_checked: z.array(z.string().trim().min(1).max(2000).refine(
     value => !/^(?:todo|n\/?a|not run)[.!]?$/i.test(value),
     'Explain what was not checked and why.',
@@ -561,6 +577,7 @@ export const PlanQueueReportReadyArgsSchema = z.object({
   checks_run: PlanQueueWorkerReportSchema.shape.checksRun,
   deferred_checks: PlanQueueWorkerReportSchema.shape.deferredChecks,
   follow_ups: PlanQueueWorkerReportSchema.shape.followUps,
+  stale_plan_text: StalePlanTextListSchema,
 });
 
 export const PlanQueueReportTriageArgsSchema = z.object({

@@ -876,12 +876,22 @@ export class ModelSelectionPanelComponent implements AfterViewInit {
     const term = this.searchTerm().trim().toLowerCase();
     const usageByKey = this.modelUsageMemory.usageByKey();
     const allRows = this.allRows();
-    const scopedRows = active === 'favorites'
-      ? orderFavoriteRowsByUsage(allRows, this.effectiveFavoriteKeys(), usageByKey)
-      : orderProviderRowsByUsage(
+    let scopedRows: ModelPickerRow[];
+    if (active === 'favorites') {
+      scopedRows = orderFavoriteRowsByUsage(allRows, this.effectiveFavoriteKeys(), usageByKey);
+      // Searching from Favorites looks through every model, so one that is
+      // neither starred nor used yet (a new release) can still be found.
+      // Favorites and used models stay first.
+      if (term) {
+        const shownKeys = new Set(scopedRows.map((row) => row.key));
+        scopedRows = [...scopedRows, ...allRows.filter((row) => !shownKeys.has(row.key))];
+      }
+    } else {
+      scopedRows = orderProviderRowsByUsage(
         allRows.filter((row) => row.provider === active),
         usageByKey,
       );
+    }
     const filteredRows = term
       ? scopedRows.filter((row) => row.searchText.includes(term))
       : scopedRows;

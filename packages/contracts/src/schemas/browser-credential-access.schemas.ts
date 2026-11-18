@@ -60,4 +60,8 @@ export const BrowserCredentialAccessMetadataSchema = z.object({
   permissionExpiresAt: z.number().int().positive().optional(),
   authorizationId: id.optional(),
   operationError: z.string().min(1).max(200).optional(),
+  /** Approved by James's agent-folder setting rather than an Approve press. */
+  preApproved: z.literal(true).optional(),
+  /** Asked again after James denied the same login and site: only he may answer it. */
+  afterDenial: z.literal(true).optional(),
 }).strict();

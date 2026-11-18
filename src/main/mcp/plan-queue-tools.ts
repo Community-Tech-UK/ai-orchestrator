@@ -67,6 +67,19 @@ export interface PlanQueueToolContext {
   planQueueTools?: PlanQueueToolOperations | null;
 }
 
+/** `stale_plan_text`, the same on the worker's report and the checker's verdict (PlanQueueStalePlanTextSchema). */
+const STALE_PLAN_TEXT_INPUT = {
+  type: 'array',
+  maxItems: 50,
+  description: 'Plan sentences a change listed under direct_changes overtook (you kept the change). Not findings.',
+  items: {
+    type: 'object',
+    properties: { commit: { type: 'string' }, step: { type: 'integer', minimum: 1 }, sentence: { type: 'string' } },
+    required: ['commit', 'sentence'],
+    additionalProperties: false,
+  },
+};
+
 const FINDING_ITEMS = {
   type: 'object',
   properties: {
@@ -294,6 +307,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
           },
         },
         follow_ups: { type: 'array', maxItems: 50, items: { type: 'string', minLength: 1, maxLength: 2000 }, description: 'Problems you found outside this job\'s scope. Use [] when none.' },
+        stale_plan_text: STALE_PLAN_TEXT_INPUT,
       },
       required: ['item_id', 'summary', 'as_built', 'checks_run', 'deferred_checks', 'follow_ups'],
       additionalProperties: false,
@@ -327,6 +341,7 @@ export const PLAN_QUEUE_TOOL_SPECS = {
             additionalProperties: false,
           },
         },
+        stale_plan_text: STALE_PLAN_TEXT_INPUT,
         criteria_total: { type: 'integer', minimum: 1, description: 'With deferred_checks: all acceptance criteria you judged. Over half deferred sets the item aside.' },
         not_checked: { type: 'array', maxItems: 200, items: { type: 'string', minLength: 1, maxLength: 2000 }, description: 'What you did not check and why. Use [] when every required check was performed; TODO, n/a and not run alone are refused.' },
         need_james: {

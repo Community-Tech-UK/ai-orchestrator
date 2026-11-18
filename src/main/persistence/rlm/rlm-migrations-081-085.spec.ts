@@ -61,7 +61,7 @@ describe('082_cost_entry_origin', () => {
   it('registers origin after the existing browser migration', () => {
     expect(RLM_MIGRATIONS_081_085.map(migration => migration.name)).toEqual([
       '081_browser_audit_command_id', '081_browser_login_portal_accounts', '082_cost_entry_origin',
-      '083_browser_device_login_approvals',
+      '083_browser_device_login_approvals', '083_browser_secret_recovery_approvals',
     ]);
   });
 

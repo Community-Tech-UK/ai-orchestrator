@@ -6379,7 +6379,7 @@
     },
     {
       "path": "resources/browser-extension/background.js",
-      "lines": 7834
+      "lines": 8404
     },
     {
       "path": "docs/plans/livetest-remediation-register-archive-2026.md",
@@ -6387,7 +6387,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-extension-assets.spec.ts",
-      "lines": 6571
+      "lines": 6578
     },
     {
       "path": "docs/superpowers/plans/2026-04-21-mcp-multi-provider-management_completed.md",
@@ -6507,7 +6507,7 @@
     },
     {
       "path": "src/main/browser-gateway/browser-gateway-service.ts",
-      "lines": 2611
+      "lines": 2625
     },
     {
       "path": "src/main/instance/instance-communication.ts",
@@ -6614,10 +6614,6 @@
       "lines": 2009
     },
     {
-      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
-      "lines": 2001
-    },
-    {
       "path": "src/worker-agent/__tests__/worker-agent.spec.ts",
       "lines": 1994
     },
@@ -6628,6 +6624,10 @@
     {
       "path": "docs/superpowers/plans/2026-04-11-knowledge-ui-completion_completed.md",
       "lines": 1991
+    },
+    {
+      "path": "src/renderer/app/features/instance-detail/input-panel.component.ts",
+      "lines": 1987
     },
     {
       "path": "src/main/session/session-continuity.spec.ts",
@@ -6754,6 +6754,10 @@
       "lines": 1516
     },
     {
+      "path": "src/main/browser-gateway/browser-extension-origin-bound-secret.spec.ts",
+      "lines": 1505
+    },
+    {
       "path": "src/renderer/app/features/instance-list/instance-list.component.ts",
       "lines": 1480
     },
@@ -6762,20 +6766,12 @@
       "lines": 1478
     },
     {
-      "path": "src/main/browser-gateway/browser-extension-origin-bound-secret.spec.ts",
-      "lines": 1465
-    },
-    {
       "path": "src/main/ipc/handlers/__tests__/session-handlers.spec.ts",
       "lines": 1463
     },
     {
       "path": "docs/plans/2026-09-27-codex-compaction-reliability_livetest_completed.md",
       "lines": 1461
-    },
-    {
-      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
-      "lines": 1460
     },
     {
       "path": "docs/superpowers/plans/2026-04-08-phase2-provider-tool-sdk_completed.md",
@@ -6792,6 +6788,10 @@
     {
       "path": "src/main/automations/automation-retry-integration.spec.ts",
       "lines": 1455
+    },
+    {
+      "path": "src/renderer/app/features/instance-detail/instance-detail.component.ts",
+      "lines": 1454
     },
     {
       "path": "src/main/background-jobs/__tests__/lane-gateway.spec.ts",
@@ -7130,6 +7130,10 @@
       "lines": 1145
     },
     {
+      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
+      "lines": 1144
+    },
+    {
       "path": "src/main/remote-node/__tests__/rpc-schemas.spec.ts",
       "lines": 1143
     },
@@ -7148,10 +7152,6 @@
     {
       "path": "src/main/ipc/handlers/__tests__/pair-both-handlers.spec.ts",
       "lines": 1136
-    },
-    {
-      "path": "src/renderer/app/features/models/model-selection-panel.component.ts",
-      "lines": 1134
     },
     {
       "path": "src/main/review/local-review-tool-runner.spec.ts",
@@ -7306,16 +7306,16 @@
       "lines": 992
     },
     {
+      "path": "docs/AIO_MCP_CLI.md",
+      "lines": 991
+    },
+    {
       "path": "src/main/core/error-recovery.ts",
       "lines": 991
     },
     {
       "path": "src/worker-agent/capability-reporter.spec.ts",
       "lines": 991
-    },
-    {
-      "path": "docs/AIO_MCP_CLI.md",
-      "lines": 990
     },
     {
       "path": "docs/superpowers/specs/2026-04-28-wave4-output-clipboard-theme-terminal-design_completed.md",
@@ -7340,6 +7340,10 @@
     {
       "path": "src/worker-agent/worker-extension-relay.spec.ts",
       "lines": 985
+    },
+    {
+      "path": "src/main/browser-gateway/browser-gateway-reload-no-effect.spec.ts",
+      "lines": 984
     },
     {
       "path": "src/main/rlm/context-residency-controller.spec.ts",
@@ -7427,7 +7431,11 @@
     },
     {
       "path": "src/main/core/config/settings-control-policy.ts",
-      "lines": 938
+      "lines": 941
+    },
+    {
+      "path": "src/main/plan-queue/plan-queue-item-flow.ts",
+      "lines": 940
     },
     {
       "path": "src/renderer/app/features/editor/editor-page.component.ts",
@@ -7446,16 +7454,12 @@
       "lines": 935
     },
     {
-      "path": "src/main/browser-gateway/browser-gateway-reload-no-effect.spec.ts",
+      "path": "src/main/browser-gateway/browser-mcp-tools.ts",
       "lines": 935
     },
     {
       "path": "src/shared/types/instance.types.ts",
       "lines": 935
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-item-flow.ts",
-      "lines": 932
     },
     {
       "path": "src/renderer/app/core/services/new-session-draft.service.ts",
@@ -7468,10 +7472,6 @@
     {
       "path": "src/renderer/app/features/memory/memory-browser.component.ts",
       "lines": 928
-    },
-    {
-      "path": "src/main/browser-gateway/browser-mcp-tools.ts",
-      "lines": 926
     },
     {
       "path": "src/preload/domains/orchestration.preload.ts",
@@ -7495,6 +7495,10 @@
     },
     {
       "path": "src/main/ipc/learning-ipc-handler.spec.ts",
+      "lines": 911
+    },
+    {
+      "path": "src/shared/types/settings.types.ts",
       "lines": 911
     },
     {
@@ -7530,10 +7534,6 @@
       "lines": 900
     },
     {
-      "path": "src/shared/types/settings.types.ts",
-      "lines": 900
-    },
-    {
       "path": "src/main/plan-queue/plan-queue-coordinator-routing.spec.ts",
       "lines": 899
     },
@@ -7550,8 +7550,16 @@
       "lines": 896
     },
     {
+      "path": "src/renderer/app/features/models/model-selection-panel.component.spec.ts",
+      "lines": 896
+    },
+    {
       "path": "src/renderer/app/features/instance-detail/output-stream.component.scss",
       "lines": 895
+    },
+    {
+      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
+      "lines": 891
     },
     {
       "path": "src/main/ipc/handlers/mcp-handlers.ts",
@@ -7567,10 +7575,6 @@
     },
     {
       "path": "src/main/mcp/orchestrator-tools-rpc-server.ts",
-      "lines": 887
-    },
-    {
-      "path": "src/main/plan-queue/plan-queue-coordinator.ts",
       "lines": 887
     },
     {
@@ -7646,10 +7650,6 @@
       "lines": 862
     },
     {
-      "path": "src/renderer/app/features/models/model-selection-panel.component.spec.ts",
-      "lines": 862
-    },
-    {
       "path": "src/main/orchestration/loop-stage-machine.spec.ts",
       "lines": 860
     },
@@ -7694,12 +7694,16 @@
       "lines": 850
     },
     {
-      "path": "packages/contracts/src/schemas/browser.schemas.ts",
-      "lines": 848
-    },
-    {
       "path": "src/main/automations/automation-store.spec.ts",
       "lines": 847
+    },
+    {
+      "path": "src/renderer/app/features/automations/automations-page.component.ts",
+      "lines": 847
+    },
+    {
+      "path": "packages/contracts/src/schemas/browser.schemas.ts",
+      "lines": 846
     },
     {
       "path": "src/main/orchestration/embedding-service.ts",
@@ -7750,6 +7754,10 @@
       "lines": 833
     },
     {
+      "path": "src/renderer/app/features/automations/automations-page.component.spec.ts",
+      "lines": 833
+    },
+    {
       "path": "src/renderer/app/features/settings/provider-accounts-tab.component.spec.ts",
       "lines": 831
     },
@@ -7787,10 +7795,6 @@
     },
     {
       "path": "src/main/session-watcher/session-watcher.spec.ts",
-      "lines": 816
-    },
-    {
-      "path": "src/renderer/app/features/automations/automations-page.component.ts",
       "lines": 816
     },
     {

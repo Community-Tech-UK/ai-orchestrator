@@ -15,7 +15,8 @@ function setup(kind: 'plans' | 'livetests', itemPatch: Partial<PlanQueueItem> = 
     livetestPortsInUse: vi.fn(() => [] as number[]),
   } as unknown as PlanQueueFlowHost;
   const sessions = new PlanQueueWorkerSessions({ host, lock: vi.fn(), stop: vi.fn(), spawn: vi.fn(), failed: vi.fn() });
-  return { sessions, host, run: { id: 'run', kind } as PlanQueueRun, current: () => item };
+  // No base branch, so no direct-change list: that has its own specs (plan-queue-direct-changes*.spec.ts).
+  return { sessions, host, run: { id: 'run', kind, config: { baseBranch: null } } as unknown as PlanQueueRun, current: () => item };
 }
 
 describe('PlanQueueWorkerSessions.withLivetestPort', () => {
@@ -61,6 +62,7 @@ describe('PlanQueueWorkerSessions.promptContext', () => {
       const plans = setup('plans', { sourceRef: file });
       const context = await plans.sessions.promptContext(plans.run, plans.current());
       expect(context.brief).toEqual({ status: 'Next: Step 2', acceptance: '- [ ] Open item' });
+      expect(context.directChanges).toEqual([]);
       const livetests = setup('livetests');
       expect(await livetests.sessions.promptContext(livetests.run, livetests.current())).not.toHaveProperty('brief');
       expect(plans.sessions.continueContext(plans.run, plans.current())).not.toHaveProperty('brief');

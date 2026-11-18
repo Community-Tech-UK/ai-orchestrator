@@ -537,7 +537,7 @@ describe('privileged settings CLI writability reporting', () => {
   });
 
   it('holds the operator-only anchor count the docs quote', () => {
-    // docs/AIO_MCP_CLI.md states 34 anchors, and it and
+    // docs/AIO_MCP_CLI.md states 35 anchors, and it and
     // docs/llm/AIO_MCP_CLI_REFERENCE.md enumerate them by group. History: the count reached 21 on
     // 2026-08-26 (`computerUseAutonomyLevel` took the Computer Use group from
     // five keys to six, after Copilot account routing added two on 2026-08-25,
@@ -576,12 +576,14 @@ describe('privileged settings CLI writability reporting', () => {
     // became the 33rd: it decides what the session watcher approves on the user's
     // behalf, so an agent that could raise it would be approving its own work, and
     // `browserLocalComputerEnabled` became the 34th: only the operator may let
-    // agents use this computer's Chrome.
-    // Fail here if a 35th is added, or one is removed, without updating the
+    // agents use this computer's Chrome. On 2026-11-17
+    // `browserPreApproveAgentFolderLogins` became the 35th: it decides which
+    // saved logins agents may use without asking James.
+    // Fail here if a 36th is added, or one is removed, without updating the
     // prose.
     const anchors = [...privilegedList().values()].filter((setting) => !setting.cliWritable);
 
-    expect(anchors).toHaveLength(34);
+    expect(anchors).toHaveLength(35);
   });
 
   it('keeps the saved Plan Queue folder checklists out of reach of every agent-reachable settings tool', async () => {

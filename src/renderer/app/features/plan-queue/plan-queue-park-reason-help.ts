@@ -138,6 +138,12 @@ export const PARK_REASON_HELP: Record<PlanQueueParkReason, PlanQueueParkReasonHe
     next: 'The details say what is needed. Provide it, then Resume. Merge without checks adds the work as it is.',
     actions: ['see-findings', 'resume', 'merge-without-checks', 'discard'],
   },
+  'undoes-direct-change': {
+    label: 'Would undo a change made directly on main',
+    meaning: 'This job would undo a change made directly on main: it puts back lines that change removed, and may take out lines it added. That change came after the plan was written, so the plan may be out of date. The details name the change and the files.',
+    next: 'Resume keeps that change: the worker puts it back and the merge is checked again. Merge without checks takes the job\'s version, which undoes that change; a job its checker passed still merges as checked. Only you can choose that, not a session.',
+    actions: ['resume', 'merge-without-checks', 'discard'],
+  },
 };
 
 /**

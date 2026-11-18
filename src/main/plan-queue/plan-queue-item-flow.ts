@@ -45,6 +45,7 @@ import type { PlanQueueFlowHost } from './plan-queue-host';
 import { relaxedSettingsFor } from './plan-queue-relaxation';
 import { isStoppedByHarnessError, unreportedVerifierReason, type PlanQueueTurnOutcome } from './plan-queue-instance-tracker';
 import { isNeverAutoRetried } from './plan-queue-park-policy';
+import { directChangesForItem, UNDO_DIRECT_CHANGE_REFUSAL } from './plan-queue-direct-changes';
 import { findingKind, parkingForDeferrals, parkingForFailure, refuseInconsistentVerdict, refuseUnclosedPlanPass } from './plan-queue-deferred-checks';
 import { hasPendingLandingCleanup, PlanQueueItemLanding, isAncestor, type PlanQueueLandingOptions } from './plan-queue-item-landing';
 import type { LandAnywayApproval } from './plan-queue-land-anyway-authority';
@@ -693,7 +694,7 @@ export class PlanQueueItemFlow {
     }
     await this.toFixing(
       this.host.save({ ...item, round, verdict }),
-      buildFixPrompt(round, run.config.maxRounds, verdict.findings, await describePlanningMoves(run.workspaceCwd, item.id)) + this.verification.stepBack(item),
+      buildFixPrompt(round, run.config.maxRounds, verdict.findings, await describePlanningMoves(run.workspaceCwd, item.id), await directChangesForItem(run, item)) + this.verification.stepBack(item),
     );
   }
 
@@ -865,8 +866,13 @@ export class PlanQueueItemFlow {
     return this.withItemLock(itemId, async () => {
       const item = this.host.getItem(itemId);
       if (item.state !== 'parked' || !item.branchName) throw new Error('Only a parked item with a branch can be landed');
-      const run = this.host.getRun(item.runId);
-      const reattached = await this.host.worktrees.reattach(item, run.workspaceCwd);
+      if (item.parkReason === 'undoes-direct-change') {
+        // Taking the job's version is James's alone and covers only the lines he was shown. A checked job keeps its PASS.
+        if (approval.reference.actor !== 'page') throw new Error(UNDO_DIRECT_CHANGE_REFUSAL);
+        this.host.history.recordDirectChangeFingerprints(item, 'approved', this.host.history.directChangeFingerprints(item.id, 'found'));
+        if (item.verdict?.verdict === 'PASS') return this.landPassedAgain(item, false);
+      }
+      const reattached = await this.host.worktrees.reattach(item, this.host.getRun(item.runId).workspaceCwd);
       this.host.history.recordEvent({ itemId: item.id, runId: item.runId, fromState: item.state, toState: item.state,
         reason: LAND_ANYWAY_AUTHORISED, detailHead: JSON.stringify(approval.reference), round: item.round, tokens: 0 });
       this.host.transition(reattached, 'landing', { verifiedMainCommit: null, parkReason: null, detail: null });
@@ -879,20 +885,22 @@ export class PlanQueueItemFlow {
     return this.withItemLock(itemId, async () => {
       const item = this.host.getItem(itemId);
       const blocked = item.parkReason === 'land-blocked' || (options.automatic === true && item.parkReason === 'merge-conflict');
-      if (item.state !== 'parked' || !blocked || item.verdict?.verdict !== 'PASS' || !item.branchName) {
-        throw new Error('Only a land-blocked parked item with a verifier PASS can retry landing');
-      }
-      const run = this.host.getRun(item.runId);
-      const reattached = await this.host.worktrees.reattach(item, run.workspaceCwd);
-      const change = await workSourceFor(reattached.sourceKind).removeParkNote(reattached, reattached.branchName!);
-      this.host.history.recordDocumentTransformation(reattached, change);
-      // A commit not yet on the base carries the document as it was before the note, which no longer matches: build it again.
-      const stale = change && reattached.landedCommit
-        && !await isAncestor(reattached.landedCommit, `refs/heads/${run.config.baseBranch}`, run.workspaceCwd);
-      this.host.transition(reattached, 'landing', { parkReason: null, detail: null, landingAutomatic: options.automatic === true,
-        ...(stale ? { landedCommit: null } : {}) });
-      void this.enqueueLanding(itemId);
+      if (item.state !== 'parked' || !blocked || item.verdict?.verdict !== 'PASS' || !item.branchName) throw new Error('Only a land-blocked parked item with a verifier PASS can retry landing');
+      await this.landPassedAgain(item, options.automatic === true);
     });
+  }
+
+  /** A parked item with a PASS back to an ordinary, checked landing, without its park note. Lock held. */
+  private async landPassedAgain(item: PlanQueueItem, automatic: boolean): Promise<void> {
+    const run = this.host.getRun(item.runId);
+    const reattached = await this.host.worktrees.reattach(item, run.workspaceCwd);
+    const change = await workSourceFor(reattached.sourceKind).removeParkNote(reattached, reattached.branchName!);
+    this.host.history.recordDocumentTransformation(reattached, change);
+    // A commit not yet on the base carries the document as it was before the note, which no longer matches: build it again.
+    const stale = change && reattached.landedCommit
+      && !await isAncestor(reattached.landedCommit, `refs/heads/${run.config.baseBranch}`, run.workspaceCwd);
+    this.host.transition(reattached, 'landing', { parkReason: null, detail: null, landingAutomatic: automatic, ...(stale ? { landedCommit: null } : {}) });
+    void this.enqueueLanding(item.id);
   }
 
   // Instances

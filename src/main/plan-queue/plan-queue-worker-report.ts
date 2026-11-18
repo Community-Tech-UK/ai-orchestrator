@@ -53,6 +53,7 @@ export function recordWorkerReport(host: Pick<PlanQueueFlowHost, 'getItem' | 'sa
   host.save({ ...item, workerReport: {
     summary: args.summary, asBuilt: args.as_built, checksRun: args.checks_run,
     deferredChecks: args.deferred_checks, followUps: args.follow_ups,
+    ...(args.stale_plan_text?.length ? { stalePlanText: args.stale_plan_text } : {}),
     ...(args.capability_gaps ? { capabilityGaps: args.capability_gaps } : {}),
   } });
   return { accepted: true, message: 'Report recorded. End your turn now; the coordinator hands the work over when you stop.' };

@@ -12,7 +12,7 @@ import {
 import { MobileGatewayHistoryContinueHandlers } from './mobile-gateway-history-continue';
 import { tokenFromWsUpgrade } from './mobile-gateway-ws-handlers';
 import { allowedCorsOrigin, redactUrlToken } from './mobile-gateway-http-utils';
-import type { MobilePromptDto } from '../../shared/types/mobile-gateway.types';
+import type { MobilePlanQueueItemDto, MobilePlanQueueRunDto, MobilePromptDto } from '../../shared/types/mobile-gateway.types';
 
 function jsonRequest(_body: unknown): IncomingMessage {
   return new EventEmitter() as IncomingMessage;
@@ -81,13 +81,14 @@ describe('mobile away-from-desk handlers', () => {
       list: () => [],
       answer: vi.fn(async () => undefined),
       control: vi.fn(async () => undefined),
+      chooseDirectChange: vi.fn(async () => undefined),
       diffstat: vi.fn(async () => '1 file changed'),
       subscribe: () => () => undefined,
     };
     const handlers = new MobileGatewayPlanQueueHandlers({
       getSource: () => source,
       broadcast: () => undefined,
-      sendNeedsAnswerPush: () => undefined,
+      sendWaitingPush: () => undefined,
     });
     const answered = response();
     await withJson({ optionId: 'keep' }, (req) => handlers.handle(req, answered.res, ['api', 'plan-queue', 'item-1', 'answer'], 'POST'));
@@ -99,6 +100,59 @@ describe('mobile away-from-desk handlers', () => {
       req, response().res, ['api', 'plan-queue', 'run-1', 'control'], 'POST',
     ))).rejects.toThrow(/pause, resume, or cancel/);
     expect(source.control).not.toHaveBeenCalled();
+  });
+
+  it('sends the direct-change choice and refuses any other choice', async () => {
+    const source: GatewayPlanQueueSource = {
+      list: () => [],
+      answer: vi.fn(async () => undefined),
+      control: vi.fn(async () => undefined),
+      chooseDirectChange: vi.fn(async () => undefined),
+      diffstat: vi.fn(async () => ''),
+      subscribe: () => () => undefined,
+    };
+    const handlers = new MobileGatewayPlanQueueHandlers({ getSource: () => source, broadcast: () => undefined, sendWaitingPush: () => undefined });
+    for (const choice of ['keep-change', 'take-job-version'] as const) {
+      const sent = response();
+      await withJson({ choice }, (req) => handlers.handle(req, sent.res, ['api', 'plan-queue', 'item-1', 'direct-change'], 'POST'));
+      expect(sent.body).toEqual({ ok: true });
+      expect(source.chooseDirectChange).toHaveBeenLastCalledWith('item-1', choice);
+    }
+    await expect(withJson({ choice: 'land-anyway' }, (req) => handlers.handle(
+      req, response().res, ['api', 'plan-queue', 'item-1', 'direct-change'], 'POST',
+    ))).rejects.toThrow(/keep-change or take-job-version/);
+    expect(source.chooseDirectChange).toHaveBeenCalledTimes(2);
+  });
+
+  it('pushes when a job starts needing an answer or a direct-change choice, once each', async () => {
+    const item = (state: MobilePlanQueueItemDto['state'], parkReason: string | null = null): MobilePlanQueueItemDto => ({
+      id: 'item-1', runId: 'run-1', title: 'plan.md', sourceRef: '/repo/plan.md', state, round: 1, question: null,
+      answer: null, parkReason, detail: null, verdict: null, workerInstanceId: null, updatedAt: 1,
+    });
+    const runWith = (entry: MobilePlanQueueItemDto): MobilePlanQueueRunDto => ({
+      id: 'run-1', kind: 'plans', status: 'running', workspaceCwd: '/repo', startedAt: 0, endedAt: null,
+      workerProvider: null, workerModel: null, items: [entry],
+    });
+    let emit: (runId: string, run: MobilePlanQueueRunDto | null) => void = () => undefined;
+    const source: GatewayPlanQueueSource = {
+      list: () => [runWith(item('working'))],
+      answer: vi.fn(), control: vi.fn(), chooseDirectChange: vi.fn(), diffstat: vi.fn(),
+      subscribe: (listener) => { emit = listener; return () => undefined; },
+    };
+    const pushed: string[] = [];
+    const handlers = new MobileGatewayPlanQueueHandlers({
+      getSource: () => source, broadcast: () => undefined,
+      sendWaitingPush: (entry, waitingFor) => pushed.push(`${entry.state}:${waitingFor}`),
+    });
+    handlers.attach();
+    emit('run-1', runWith(item('landing')));
+    emit('run-1', runWith(item('parked', 'undoes-direct-change')));
+    emit('run-1', runWith(item('parked', 'undoes-direct-change')));
+    emit('run-1', runWith(item('queued')));
+    emit('run-1', runWith(item('parked', 'round-limit')));
+    emit('run-1', runWith(item('needs-answer')));
+    expect(pushed).toEqual(['parked:direct-change-choice', 'needs-answer:answer']);
+    handlers.detach();
   });
 
   it('parses review items and submits the canonical decision payload', async () => {

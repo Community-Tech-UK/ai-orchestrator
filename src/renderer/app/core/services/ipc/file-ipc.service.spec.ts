@@ -90,13 +90,40 @@ describe('FileIpcService', () => {
       };
 
       await expect(service.convertHeicToJpeg(heic())).rejects.toMatchObject({
-        message: 'This photo could not be converted. Save it as JPEG or PNG and attach that instead.',
+        message: 'IMG_1531.HEIC could not be converted. Save it as JPEG or PNG and attach that instead.',
         cause: 'HEIC photos can only be converted on a Mac.',
       });
     });
 
     it('throws outside the desktop app', async () => {
       await expect(service.convertHeicToJpeg(heic())).rejects.toThrow(/only be converted in the desktop app/);
+    });
+
+    it('converts each photo once, however many places ask for it', async () => {
+      const imageConvertHeic = vi.fn().mockResolvedValue({ success: true, data: { data: new Uint8Array([0xff]) } });
+      api = { imageConvertHeic };
+      const photo = heic();
+
+      const [forPreview, forSend] = await Promise.all([service.convertHeicToJpeg(photo), service.convertHeicToJpeg(photo)]);
+      const forQueue = await service.convertHeicToJpeg(photo);
+
+      expect(imageConvertHeic).toHaveBeenCalledTimes(1);
+      expect(forSend).toBe(forPreview);
+      expect(forQueue).toBe(forPreview);
+      await service.convertHeicToJpeg(heic());
+      expect(imageConvertHeic).toHaveBeenCalledTimes(2);
+    });
+
+    it('tries again after a failed conversion', async () => {
+      const imageConvertHeic = vi.fn()
+        .mockResolvedValueOnce({ success: false, error: { code: 'IMAGE_CONVERT_HEIC_FAILED', message: 'busy' } })
+        .mockResolvedValueOnce({ success: true, data: { data: new Uint8Array([0xff]) } });
+      api = { imageConvertHeic };
+      const photo = heic();
+
+      await expect(service.convertHeicToJpeg(photo)).rejects.toThrow('could not be converted');
+      await expect(service.convertHeicToJpeg(photo)).resolves.toMatchObject({ name: 'IMG_1531.jpg' });
+      expect(imageConvertHeic).toHaveBeenCalledTimes(2);
     });
   });
 });

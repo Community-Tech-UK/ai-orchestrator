@@ -628,6 +628,8 @@ export function createLateRuntimeInitializationSteps(
           },
           autoApproveRequests: ({ instanceId }) =>
             Boolean(instanceManager.getInstance(instanceId)?.yoloMode),
+          onSessionRemoved: (listener) => instanceManager.on('instance:removed', listener),
+          onSessionInterrupted: (listener) => instanceManager.on('instance:interrupt-requested', listener),
         }),
     },
     {

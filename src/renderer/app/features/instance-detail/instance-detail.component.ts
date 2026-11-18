@@ -59,6 +59,7 @@ import { BrowserApprovalRequestComponent } from './browser-approval-request.comp
 import { InstanceHeaderComponent } from './instance-header.component';
 import { InstanceWelcomeComponent } from './instance-welcome.component';
 import type { NewSessionSubmitRequest } from './input-panel-new-session-submit';
+import type { LoopStartRequestPayload } from './input-panel-loop-start';
 import { resolveEscapeRouting, type DockToast } from './session-status-dock.rules';
 import { SessionStatusCardComponent } from './session-status-card.component';
 import { CrossModelReviewIpcService } from '../../core/services/ipc/cross-model-review-ipc.service';
@@ -67,7 +68,6 @@ import { LoopStopConfirmService } from '../loop/loop-stop-confirm.service';
 import { LoopControlComponent } from '../loop/loop-control.component';
 import { LoopStore } from '../../core/state/loop.store';
 import { LoopPromptHistoryService } from '../loop/loop-prompt-history.service';
-import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
 import { QuickActionDispatcherService } from '../orchestration/quick-action-dispatcher.service';
 import { AutomationStore } from '../../core/state/automation.store';
 import { RemoteBrowseModalComponent } from '../../shared/components/remote-browse-modal/remote-browse-modal.component';
@@ -741,12 +741,7 @@ export class InstanceDetailComponent {
     }
   }
 
-  async onHistoryPreviewLoopStartRequested(payload: {
-    config: LoopStartConfigInput;
-    firstMessage: string;
-    attachments: { name: string; data: Uint8Array }[];
-    onResolved: (ok: boolean, error?: string) => void;
-  }): Promise<void> {
+  async onHistoryPreviewLoopStartRequested(payload: LoopStartRequestPayload): Promise<void> {
     const preview = this.historyPreview();
     if (!preview) {
       payload.onResolved(false, 'No history preview selected.');
@@ -1209,13 +1204,8 @@ export class InstanceDetailComponent {
     }
   }
 
-  async onLoopStartRequested(payload: {
-    config: LoopStartConfigInput;
-    firstMessage: string;
-    attachments: { name: string; data: Uint8Array }[];
-    onResolved: (ok: boolean, error?: string) => void;
-  }): Promise<void> {
-    const { config, firstMessage, attachments, onResolved } = payload;
+  async onLoopStartRequested(payload: LoopStartRequestPayload): Promise<void> {
+    const { config, firstMessage, attachments, stagedFiles, onResolved } = payload;
     try {
       // The loop directive (panel prompt) is what's reusable across sessions —
       // remember that, not the goal-specific textarea content.
@@ -1224,6 +1214,10 @@ export class InstanceDetailComponent {
       if (inst) {
         const r = await this.loopStore.start(inst.id, config, attachments, loopGoalTyped(firstMessage));
         if (r.ok) {
+          // The loop has the goal and attachments now; keeping them staged would offer to send them again.
+          // Files added while it was starting were not sent, so they stay.
+          this.draftService.clearDraft(inst.id);
+          for (const file of stagedFiles) this.draftService.removePendingFile(inst.id, file);
           this.loopPromptHistory.remember(directiveForHistory);
           onResolved(true);
         } else {

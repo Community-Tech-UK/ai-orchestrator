@@ -51,6 +51,8 @@ import {
 } from './automation-form-model';
 import { describeCheckStatsLine, describeDailyRunsLine, describeRun, runRowClass } from './automation-run-display';
 import { AutomationIpcService } from '../../core/services/ipc/automation-ipc.service';
+import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
+import { readStagedFiles, StagedFileError } from '../../core/state/instance/instance-attachments';
 import type { WebhookRouteConfig } from '../../../../shared/types/webhook.types';
 import { describeSchedule } from './schedule-format';
 import { AutomationCountdownComponent } from '../../shared/components/automation-countdown.component';
@@ -103,6 +105,7 @@ export class AutomationsPageComponent {
   private readonly automationIpc = inject(AutomationIpcService);
   private readonly settingsStore = inject(SettingsStore);
   private readonly modelFavorites = inject(ModelFavoritesService);
+  private readonly fileIpc = inject(FileIpcService);
   store = inject(AutomationStore);
 
   /** WS5: webhook routes for the trigger picker (loaded when the form opens). */
@@ -114,6 +117,11 @@ export class AutomationsPageComponent {
   menuOpen = signal(false);
   preflightAcknowledged = signal(false);
   form = signal<AutomationFormModel>(emptyForm());
+  attachmentError = signal<string | null>(null);
+  /** Bumped per file pick and by `replaceForm`, so a slow HEIC conversion cannot land in a newer pick or another form. */
+  private attachmentPick = 0;
+  /** True while the latest pick is being read (a HEIC photo takes a second or two), so Save cannot drop it. */
+  attachmentsLoading = signal(false);
   confirmingDeleteId = signal<string | null>(null);
   readonly nextCheckExplanation = nextCheckExplanation;
   readonly dismissedMonitorHints = signal<ReadonlySet<string>>(new Set());
@@ -270,7 +278,7 @@ export class AutomationsPageComponent {
     this.selectedTemplateId.set('');
     this.preflightAcknowledged.set(false);
     this.store.clearPreflight();
-    this.form.set(draftToFormImpl(draft, this.chatWorkingDir()));
+    this.replaceForm(draftToFormImpl(draft, this.chatWorkingDir()));
     this.overlay.set('form');
     if (this.canRunPreflight()) {
       void this.runPreflightForForm();
@@ -402,7 +410,7 @@ export class AutomationsPageComponent {
     this.selectedTemplateId.set('');
     this.preflightAcknowledged.set(false);
     this.store.clearPreflight();
-    this.form.set({ ...emptyForm(), workingDirectory: this.defaultWorkingDirectory() });
+    this.replaceForm({ ...emptyForm(), workingDirectory: this.defaultWorkingDirectory() });
     this.overlay.set('form');
     void this.loadWebhookRoutes();
   }
@@ -413,7 +421,7 @@ export class AutomationsPageComponent {
     this.selectedTemplateId.set('');
     this.preflightAcknowledged.set(false);
     this.store.clearPreflight();
-    this.form.set(automationToForm(automation));
+    this.replaceForm(automationToForm(automation));
     this.overlay.set('form');
     void this.loadWebhookRoutes();
   }
@@ -616,7 +624,7 @@ export class AutomationsPageComponent {
     if ((model.triggerKind === 'webhook' && !model.webhookRouteId.trim()) || this.pinnedCheckBlocksSave()
       || this.oneTimeCheckBlocksSave() || this.containedCheckBlocksSave()) return false;
     return Boolean(model.name.trim() && model.workingDirectory.trim() && model.prompt.trim() && !this.store.preflightLoading()
-      && this.validRunMinutes() && this.validTokenLimit());
+      && this.validRunMinutes() && this.validTokenLimit() && !this.attachmentsLoading());
   }
 
   /** A check runs on this computer only, so a job pinned to another computer cannot keep one. */
@@ -691,12 +699,35 @@ export class AutomationsPageComponent {
     this.closeOverlay();
   }
 
-  onFiles(event: Event): void {
+  /** Every route into the form goes through here, so an attachment pick never carries over to another form. */
+  private replaceForm(model: AutomationFormModel): void {
+    this.form.set(model);
+    this.attachmentError.set(null);
+    this.attachmentsLoading.set(false);
+    this.attachmentPick++;
+  }
+
+  async onFiles(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
     const files = Array.from(input.files ?? []);
-    Promise.all(files.map((file) => this.readAttachment(file))).then((attachments) => {
-      this.form.update((current) => ({ ...current, attachments }));
-    });
+    input.value = ''; // so picking the same file again, after fixing it, still fires a change
+    this.attachmentError.set(null);
+    const pick = ++this.attachmentPick;
+    this.attachmentsLoading.set(true);
+    try {
+      // The agent receives these as images, and no provider accepts HEIC photos.
+      const attachments = await readStagedFiles(files, (file) => this.fileIpc.convertHeicToJpeg(file), (file) => this.readAttachment(file));
+      if (pick === this.attachmentPick) this.form.update((current) => ({ ...current, attachments }));
+    } catch (error) {
+      console.warn('Automations: could not prepare attachments', error);
+      if (pick === this.attachmentPick) {
+        // A pick replaces the attachments, so a failed one must not leave the previous pick in place to be saved.
+        this.form.update((current) => ({ ...current, attachments: [] }));
+        this.attachmentError.set(error instanceof StagedFileError ? error.visibleMessage : 'The attachments could not be prepared. Try again.');
+      }
+    } finally {
+      if (pick === this.attachmentPick) this.attachmentsLoading.set(false);
+    }
   }
 
   formCronLabel(): string {

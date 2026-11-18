@@ -11,6 +11,9 @@ AI Orchestrator is an Electron 42 + Angular 22 desktop app that coordinates Clau
 - Never put secrets, credentials, tokens, OAuth values, private keys, passwords, or realistic secret-like values in repo files, tests, fixtures, screenshots, logs, or examples. Use environment variables, ignored local files, OS keychain storage, runtime discovery, or obvious placeholders.
 - Do not commit unfinished plans or specs, including specs marked `_planned`. After full implementation and verification, rename them with `_completed` before committing. Checks that genuinely need a rebuilt or restarted app, a human, or an external service may be deferred into a `_livetest.md` doc first — see Live-Test Deferral below.
 - Preserve unrelated work in a dirty tree. Do not discard, reset, or overwrite user changes.
+- A commit on `main` without the "Landed by Plan Queue" line that is newer than a plan is usually a direct decision. If
+  the plan text contradicts it, treat the plan text as stale: keep the change, and ask James before undoing it to match
+  a plan.
 
 ## Plan and Spec Filename States
 

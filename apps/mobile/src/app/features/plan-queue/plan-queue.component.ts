@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { MobileHeaderComponent } from '../../shared/mobile-header.component';
 import { MobileIconComponent } from '../../shared/mobile-icon.component';
+import { waitsForDirectChangeChoice } from '../../core/models';
 import { PlanQueueStore } from './plan-queue.store';
 
 @Component({
@@ -34,7 +35,7 @@ import { PlanQueueStore } from './plan-queue.store';
               <li>
                 <button type="button" (click)="open(item.id)">
                   <span>{{ item.title }}</span>
-                  <span>{{ item.state }}@if (item.question) { · needs an answer }</span>
+                  <span>{{ item.state }}@if (item.question) { · needs an answer } @else if (waitsForDirectChangeChoice(item)) { · needs your choice }</span>
                 </button>
               </li>
             }
@@ -58,6 +59,7 @@ import { PlanQueueStore } from './plan-queue.store';
 })
 export class PlanQueueComponent {
   protected readonly queue = inject(PlanQueueStore);
+  protected readonly waitsForDirectChangeChoice = waitsForDirectChangeChoice;
   private readonly router = inject(Router);
   protected back(): void { void this.router.navigate(['/projects']); }
   protected open(id: string): void { void this.router.navigate(['/plan-queue', id]); }

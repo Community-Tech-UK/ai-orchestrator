@@ -1,6 +1,8 @@
 import type { PlanQueueItemDto, PlanQueueRunDto, PlanQueueStateChangedEvent } from '@contracts/schemas/plan-queue';
 import { getPlanQueueCoordinator } from '../plan-queue/plan-queue-coordinator';
 import type { MobilePlanQueueItemDto, MobilePlanQueueRunDto } from '../../shared/types/mobile-gateway.types';
+import { waitsForDirectChangeChoice } from '../../shared/types/mobile-gateway.types';
+import { MobileRouteError } from './mobile-gateway-http-utils';
 import type { GatewayPlanQueueSource } from './mobile-gateway-plan-queue-handlers';
 
 function titleOf(path: string): string {
@@ -49,6 +51,13 @@ export function createLivePlanQueueSource(): GatewayPlanQueueSource {
     },
     async control(runId, action) {
       await coordinator.control({ action, runId });
+    },
+    async chooseDirectChange(itemId, choice) {
+      if (!waitsForDirectChangeChoice(coordinator.getItem(itemId))) {
+        throw new MobileRouteError('This job is not waiting for a choice about a direct change', 409);
+      }
+      // No caller, as from the Plan Queue page: only James's own controls may take the job's version.
+      await coordinator.control(choice === 'take-job-version' ? { action: 'land-anyway', itemId } : { action: 'resume-item', itemId });
     },
     diffstat(itemId) {
       return coordinator.diffstat(itemId);

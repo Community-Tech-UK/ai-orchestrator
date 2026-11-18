@@ -43,6 +43,9 @@ const MUTATING_BROWSER_COMMANDS: ReadonlySet<string> = new Set([
   'evaluate',
   'close_tab',
   'close_matching',
+  // Releases secret protection; a retry is reconciled by its stored receipt.
+  'release_secret_observation',
+  'recover_secret_observation',
 ]);
 
 // Defense-in-depth for builder-style command names from third-party designer MCP

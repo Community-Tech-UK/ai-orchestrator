@@ -29,6 +29,8 @@ export type BrowserExtensionCommandName =
   | 'query_elements'
   | 'read_control'
   | 'probe_one_time_code'
+  | 'secret_protection_review'
+  | 'release_secret_observation'
   | 'report_inventory'
   | 'evaluate';
 

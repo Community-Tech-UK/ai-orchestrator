@@ -21,6 +21,7 @@ import type { PendingSelection } from '../models/compact-model-picker.types';
 import { AutomationStore } from '../../core/state/automation.store';
 import { InstanceStore } from '../../core/state/instance/instance.store';
 import { AutomationsPageComponent } from './automations-page.component';
+import { FileIpcService } from '../../core/services/ipc/file-ipc.service';
 import { estimateDailyRuns } from '../../../../shared/automations/automation-cadence';
 
 // Pass-through spy: the real estimate runs, but its calls can be counted.
@@ -313,6 +314,119 @@ describe('AutomationsPageComponent row actions', () => {
     expect(row.querySelector('.run-plain')?.textContent).toContain('The session failed.');
     expect(row.querySelector('.run-plain')?.textContent).not.toContain('Instance entered');
     expect(row.querySelector('details.run-detail pre')?.textContent).toBe('Instance entered error');
+  });
+
+  it('attaches a HEIC photo as the JPEG the agent can read', async () => {
+    const jpeg = new File([new Uint8Array([0xff, 0xd8])], 'IMG_1531.jpg', { type: 'image/jpeg' });
+    const convert = vi.spyOn(TestBed.inject(FileIpcService), 'convertHeicToJpeg').mockResolvedValue(jpeg);
+    const photo = new File([new Uint8Array([1])], 'IMG_1531.HEIC', { type: 'image/heic' });
+    const notes = new File(['hi'], 'notes.txt', { type: 'text/plain' });
+    fixture.componentInstance.startCreate();
+
+    await fixture.componentInstance.onFiles({ target: { files: [photo, notes] } } as unknown as Event);
+
+    expect(convert).toHaveBeenCalledExactlyOnceWith(photo);
+    expect(fixture.componentInstance.form().attachments.map(({ name, type }) => ({ name, type }))).toEqual([
+      { name: 'IMG_1531.jpg', type: 'image/jpeg' },
+      { name: 'notes.txt', type: 'text/plain' },
+    ]);
+    expect(fixture.componentInstance.attachmentError()).toBeNull();
+  });
+
+  it('drops a slow conversion when the form changed while it ran', async () => {
+    let finish!: (file: File) => void;
+    vi.spyOn(TestBed.inject(FileIpcService), 'convertHeicToJpeg')
+      .mockReturnValue(new Promise<File>((resolve) => { finish = resolve; }));
+    fixture.componentInstance.startCreate();
+
+    const picked = fixture.componentInstance.onFiles({
+      target: { files: [new File([new Uint8Array([1])], 'IMG_1531.HEIC', { type: 'image/heic' })] },
+    } as unknown as Event);
+    fixture.componentInstance.startCreate();
+    finish(new File([new Uint8Array([0xff])], 'IMG_1531.jpg', { type: 'image/jpeg' }));
+    await picked;
+
+    expect(fixture.componentInstance.form().attachments).toEqual([]);
+    expect(fixture.componentInstance.attachmentsLoading()).toBe(false);
+  });
+
+  it('opens a reviewed draft without the attachment pick from a cancelled form', async () => {
+    let finish!: (file: File) => void;
+    vi.spyOn(TestBed.inject(FileIpcService), 'convertHeicToJpeg')
+      .mockRejectedValueOnce(new Error('IMG_1.HEIC could not be converted.'))
+      .mockReturnValueOnce(new Promise<File>((resolve) => { finish = resolve; }));
+    const component = fixture.componentInstance;
+    const heic = (name: string) => ({ target: { files: [new File([new Uint8Array([1])], name, { type: 'image/heic' })] } }) as unknown as Event;
+    component.startCreate();
+    await component.onFiles(heic('IMG_1.HEIC'));
+    expect(component.attachmentError()).not.toBeNull();
+    const slow = component.onFiles(heic('IMG_2.HEIC'));
+    component.closeOverlay();
+
+    component.startChat();
+    component.chatWorkingDir.set('/repo');
+    component.chatDraft.set({ name: 'Daily check', scheduleType: 'cron', cronExpression: '0 9 * * *', prompt: 'Check the repo' });
+    component.useDraft();
+    finish(new File([new Uint8Array([0xff])], 'IMG_2.jpg', { type: 'image/jpeg' }));
+    await slow;
+
+    expect(component.attachmentError()).toBeNull();
+    expect(component.attachmentsLoading()).toBe(false);
+    expect(component.form().attachments).toEqual([]);
+  });
+
+  it('will not save until picked attachments have finished loading', async () => {
+    let finish!: (file: File) => void;
+    vi.spyOn(TestBed.inject(FileIpcService), 'convertHeicToJpeg')
+      .mockReturnValue(new Promise<File>((resolve) => { finish = resolve; }));
+    const component = fixture.componentInstance;
+    component.startCreate();
+    component.form.update((current) => ({ ...current, name: 'Photo check', workingDirectory: '/repo', prompt: 'Describe the photo' }));
+    expect(component.canSave()).toBe(true);
+
+    const picked = component.onFiles({
+      target: { files: [new File([new Uint8Array([1])], 'IMG_1531.HEIC', { type: 'image/heic' })] },
+    } as unknown as Event);
+    expect(component.canSave()).toBe(false);
+    fixture.detectChanges();
+    const status = (fixture.nativeElement as HTMLElement).querySelector('[role="status"]');
+    expect(status?.textContent).toContain('Loading attachments');
+
+    finish(new File([new Uint8Array([0xff])], 'IMG_1531.jpg', { type: 'image/jpeg' }));
+    await picked;
+    expect(component.canSave()).toBe(true);
+    expect(component.form().attachments.map((attachment) => attachment.name)).toEqual(['IMG_1531.jpg']);
+  });
+
+  it('says why a HEIC photo could not be attached', async () => {
+    const reason = 'IMG_1531.HEIC could not be converted. Save it as JPEG or PNG and attach that instead.';
+    vi.spyOn(TestBed.inject(FileIpcService), 'convertHeicToJpeg').mockRejectedValue(new Error('SYNTHETIC_DIAGNOSTIC'));
+    fixture.componentInstance.startCreate();
+
+    await fixture.componentInstance.onFiles({
+      target: { files: [new File([new Uint8Array([1])], 'IMG_1531.HEIC', { type: 'image/heic' })] },
+    } as unknown as Event);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.form().attachments).toEqual([]);
+    const alerts = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('[role="alert"]'));
+    expect(alerts.some((alert) => alert.textContent?.includes(reason))).toBe(true);
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('SYNTHETIC_DIAGNOSTIC');
+  });
+
+  it('drops the previous attachments when a new pick fails, so Save cannot keep them unseen', async () => {
+    vi.spyOn(TestBed.inject(FileIpcService), 'convertHeicToJpeg').mockRejectedValue(new Error('SYNTHETIC_DIAGNOSTIC'));
+    const component = fixture.componentInstance;
+    component.startCreate();
+    await component.onFiles({ target: { files: [new File(['hi'], 'notes.txt', { type: 'text/plain' })] } } as unknown as Event);
+    expect(component.form().attachments.map((attachment) => attachment.name)).toEqual(['notes.txt']);
+
+    const input = { files: [new File([new Uint8Array([1])], 'IMG_1531.HEIC', { type: 'image/heic' })], value: 'C:\\fakepath\\IMG_1531.HEIC' };
+    await component.onFiles({ target: input } as unknown as Event);
+
+    expect(component.form().attachments).toEqual([]);
+    expect(component.attachmentError()).toContain('IMG_1531.HEIC could not be converted');
+    expect(input.value).toBe('');
   });
 
   it('keeps the schedule cadence and optional check visible in the form', () => {

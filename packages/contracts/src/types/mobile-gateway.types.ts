@@ -604,10 +604,19 @@ export interface MobilePlanQueueAnswerRequest {
   optionId: string;
 }
 
-/** Run-level controls only; item-level landing stays on the desktop. */
+/** Run-level controls only; item-level landing stays on the desktop, apart from the direct-change choice below. */
 export interface MobilePlanQueueControlRequest {
   action: 'pause' | 'resume' | 'cancel';
 }
+
+/** The park reason of a job that would undo a change made directly on the base branch. */
+export const MOBILE_PLAN_QUEUE_DIRECT_CHANGE_PARK_REASON = 'undoes-direct-change';
+export const MOBILE_PLAN_QUEUE_DIRECT_CHANGE_CHOICES = ['keep-change', 'take-job-version'] as const;
+export const waitsForDirectChangeChoice = (item: { state: string; parkReason: string | null }): boolean =>
+  item.state === 'parked' && item.parkReason === MOBILE_PLAN_QUEUE_DIRECT_CHANGE_PARK_REASON;
+export type MobilePlanQueueDirectChangeChoice = (typeof MOBILE_PLAN_QUEUE_DIRECT_CHANGE_CHOICES)[number];
+/** James's choice for that park reason only: keep the change (the job resumes) or take the job's version (it lands). */
+export interface MobilePlanQueueDirectChangeRequest { choice: MobilePlanQueueDirectChangeChoice }
 
 export interface MobilePlanQueueDiffstatDto {
   diffstat: string;

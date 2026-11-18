@@ -362,12 +362,19 @@ export function sendMobileLoopPush(
   }
 }
 
-export function sendMobilePlanQueuePush(deps: MobileGatewayPushDeps, itemId: string): void {
+export function sendMobilePlanQueuePush(
+  deps: MobileGatewayPushDeps,
+  itemId: string,
+  waitingFor: 'answer' | 'direct-change-choice',
+): void {
+  const choice = waitingFor === 'direct-change-choice';
   try {
     if (!deps.apnsSender.isConfigured()) return;
     sendPersonalizedAlerts(deps, MOBILE_OWNER_PROFILE_ID, (hostDeviceId) => ({
-      title: 'Plan Queue needs your answer',
-      body: 'Open Harness to answer the question.',
+      title: choice ? 'Plan Queue needs your choice' : 'Plan Queue needs your answer',
+      body: choice
+        ? 'A job would undo a change made directly on the branch. Open Harness to choose which version to keep.'
+        : 'Open Harness to answer the question.',
       category: 'AIO_PLAN_QUEUE',
       threadId: itemId,
       collapseId: `plan-queue-${itemId}`.slice(0, 64),

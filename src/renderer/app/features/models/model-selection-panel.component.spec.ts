@@ -318,6 +318,40 @@ describe('ModelSelectionPanelComponent', () => {
     expect(rowNames()).toEqual(['GPT-5.5 Mini']);
   });
 
+  it('searches every model from the Favorites tab, keeping favorites first', () => {
+    setInputs();
+    const search = fixture.nativeElement.querySelector('.model-picker-search__input') as HTMLInputElement;
+
+    // Neither starred nor used: a newly released model must still be findable.
+    search.value = 'mini';
+    search.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(rowNames()).toEqual(['GPT-5.5 Mini']);
+
+    search.value = '';
+    search.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(rowNames()).toEqual(['Claude Opus 4.7', 'GPT-5.5']);
+  });
+
+  it('lists starred, then used, then other matches when searching from Favorites', () => {
+    setInputs();
+    // Unstar GPT-5.5 so only Opus is starred, then record a use of GPT-5.5 Mini.
+    const stars = (): HTMLElement[] => Array.from(fixture.nativeElement.querySelectorAll('.model-picker-row__favorite'));
+    stars()[1].click();
+    usageByKey.set({ 'codex:gpt-5.5-mini': { count: 2, lastUsedAt: Date.now() } });
+    fixture.detectChanges();
+    expect(rowNames()).toEqual(['Claude Opus 4.7', 'GPT-5.5 Mini']);
+    const search = fixture.nativeElement.querySelector('.model-picker-search__input') as HTMLInputElement;
+
+    // 'o' matches every row (Opus, Sonnet, Codex); catalog order would be Opus, Sonnet, GPT-5.5, Mini.
+    search.value = 'o';
+    search.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(rowNames()).toEqual(['Claude Opus 4.7', 'GPT-5.5 Mini', 'Claude Sonnet 4.6', 'GPT-5.5']);
+    expect(stars().map(star => star.getAttribute('aria-pressed'))).toEqual(['true', 'false', 'false', 'false']);
+  });
+
   it('floats used models to the top of a provider tab', () => {
     const now = Date.now();
     usageByKey.set({

@@ -1,11 +1,14 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import type {
+  MobilePlanQueueDirectChangeChoice,
   MobilePlanQueueItemDto,
   MobilePlanQueueRunDto,
 } from '../../shared/types/mobile-gateway.types';
 import {
+  MOBILE_PLAN_QUEUE_DIRECT_CHANGE_CHOICES,
   MOBILE_PLAN_QUEUE_ITEM_STATES,
   MOBILE_PLAN_QUEUE_RUN_STATUSES,
+  waitsForDirectChangeChoice,
 } from '../../shared/types/mobile-gateway.types';
 import { MobileRouteError, sendJsonResponse, readJsonBody } from './mobile-gateway-http-utils';
 import type { MobileBroadcastEvent } from './mobile-gateway-snapshot';
@@ -13,11 +16,14 @@ import type { MobileBroadcastEvent } from './mobile-gateway-snapshot';
 const ITEM_STATES = new Set<string>(MOBILE_PLAN_QUEUE_ITEM_STATES);
 const RUN_STATUSES = new Set<string>(MOBILE_PLAN_QUEUE_RUN_STATUSES);
 const CONTROLS = new Set(['pause', 'resume', 'cancel']);
+const DIRECT_CHANGE_CHOICES = new Set<string>(MOBILE_PLAN_QUEUE_DIRECT_CHANGE_CHOICES);
 
 export interface GatewayPlanQueueSource {
   list(): MobilePlanQueueRunDto[];
   answer(itemId: string, optionId: string): Promise<void>;
   control(runId: string, action: 'pause' | 'resume' | 'cancel'): Promise<void>;
+  /** Only for a job set aside because it would undo a direct change; any other job is refused. */
+  chooseDirectChange(itemId: string, choice: MobilePlanQueueDirectChangeChoice): Promise<void>;
   diffstat(itemId: string): Promise<string>;
   subscribe(listener: (runId: string, run: MobilePlanQueueRunDto | null) => void): () => void;
 }
@@ -48,32 +54,43 @@ function decodeId(raw: string, label: string): string {
   }
 }
 
-/** Plan Queue list, answer, and run-level pause/resume/cancel. Landing stays on the desktop. */
+/** What a job is waiting for James to do, if anything. */
+export type PlanQueueWaitingFor = 'answer' | 'direct-change-choice';
+
+function waitingFor(item: MobilePlanQueueItemDto): PlanQueueWaitingFor | null {
+  if (item.state === 'needs-answer') return 'answer';
+  return waitsForDirectChangeChoice(item) ? 'direct-change-choice' : null;
+}
+
+/**
+ * Plan Queue list, answer, run-level pause/resume/cancel, and the direct-change choice. Other landing stays on the desktop.
+ */
 export class MobileGatewayPlanQueueHandlers {
   private unsubscribe: (() => void) | null = null;
-  private readonly itemStates = new Map<string, string>();
+  private readonly waiting = new Map<string, PlanQueueWaitingFor | null>();
 
   constructor(private readonly deps: {
     getSource(): GatewayPlanQueueSource;
     broadcast(event: MobileBroadcastEvent): void;
-    sendNeedsAnswerPush(item: MobilePlanQueueItemDto): void;
+    /** A job has started waiting for James. */
+    sendWaitingPush(item: MobilePlanQueueItemDto, waitingFor: PlanQueueWaitingFor): void;
   }) {}
 
   attach(): void {
     if (this.unsubscribe) return;
     const source = this.deps.getSource();
     for (const run of source.list()) {
-      for (const item of run.items) this.itemStates.set(item.id, item.state);
+      for (const item of run.items) this.waiting.set(item.id, waitingFor(item));
     }
     this.unsubscribe = source.subscribe((runId, run) => {
       this.deps.broadcast({ type: 'plan-queue-state', data: { runId, run } });
       if (!run) return;
       for (const item of run.items) {
-        const previous = this.itemStates.get(item.id);
-        this.itemStates.set(item.id, item.state);
-        if (previous && previous !== 'needs-answer' && item.state === 'needs-answer') {
-          this.deps.sendNeedsAnswerPush(item);
-        }
+        const previous = this.waiting.get(item.id);
+        const now = waitingFor(item);
+        this.waiting.set(item.id, now);
+        // A job seen for the first time is not news; one that starts waiting, or waits for something new, is.
+        if (previous !== undefined && now && previous !== now) this.deps.sendWaitingPush(item, now);
       }
     });
   }
@@ -81,7 +98,7 @@ export class MobileGatewayPlanQueueHandlers {
   detach(): void {
     this.unsubscribe?.();
     this.unsubscribe = null;
-    this.itemStates.clear();
+    this.waiting.clear();
   }
 
   async handle(req: IncomingMessage, res: ServerResponse, segments: string[], method: string): Promise<boolean> {
@@ -112,6 +129,14 @@ export class MobileGatewayPlanQueueHandlers {
       const control = typeof body.action === 'string' ? body.action : '';
       if (!CONTROLS.has(control)) throw new MobileRouteError('action must be pause, resume, or cancel');
       await source.control(id, control as 'pause' | 'resume' | 'cancel');
+      sendJsonResponse(res, 200, { ok: true });
+      return true;
+    }
+    if (action === 'direct-change') {
+      const body = await readJsonBody(req) as { choice?: unknown };
+      const choice = typeof body.choice === 'string' ? body.choice : '';
+      if (!DIRECT_CHANGE_CHOICES.has(choice)) throw new MobileRouteError('choice must be keep-change or take-job-version');
+      await source.chooseDirectChange(id, choice as MobilePlanQueueDirectChangeChoice);
       sendJsonResponse(res, 200, { ok: true });
       return true;
     }

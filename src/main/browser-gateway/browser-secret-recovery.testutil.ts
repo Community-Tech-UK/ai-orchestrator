@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, webcrypto } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createContext, runInContext } from 'node:vm';
 import { vi } from 'vitest';
@@ -21,6 +21,7 @@ export interface TestCommand {
   target?: { tabId: number };
   payload?: Record<string, unknown>;
   timeoutMs?: number;
+  sessionOwner?: string;
 }
 interface RecoveryStatus {
   ok: boolean;
@@ -38,6 +39,7 @@ interface Runtime {
   clearSecretTaint: (tabId: number) => Promise<void>;
   targetSecretTaintOrigin: (command: TestCommand) => Promise<string | null>;
   runBrowserCommand: (command: TestCommand, bridge: unknown) => Promise<void>;
+  runSessionScopedBrowserCommand: (command: TestCommand, bridge: unknown) => Promise<void>;
   runCommandWithWatchdog: (command: TestCommand) => Promise<unknown>;
   browserCommandErrorMessage: (command: TestCommand, error: unknown, tainted: boolean) => string;
   handleSecretProtectionMessage: (message: Record<string, unknown>, sender: unknown) => Promise<RecoveryStatus>;
@@ -52,6 +54,7 @@ interface Runtime {
   activeCount: () => number;
   enabled: () => boolean;
   protectionEnabled: () => boolean;
+  writeGeneration: () => string | null;
 }
 
 export function recoveryHarness(stored: unknown = { version: 2, origins: [PROTECTED_ORIGIN], tabs: {} }, gatewayLoad?: Promise<boolean>) {
@@ -59,6 +62,7 @@ export function recoveryHarness(stored: unknown = { version: 2, origins: [PROTEC
     id: 42, windowId: 7, url: PUBLIC_ORIGIN + '/', title: 'Test page',
   }]]);
   const storage: Record<string, unknown> = { browserGatewayEnabled: false, browserGatewaySecretTaints: stored };
+  const sessionStorage: Record<string, unknown> = {};
   const event = () => ({ addListener: vi.fn(), removeListener: vi.fn() });
   const nativeMessages: Array<Record<string, unknown>> = [];
   const chrome = {
@@ -79,7 +83,11 @@ export function recoveryHarness(stored: unknown = { version: 2, origins: [PROTEC
         get: vi.fn(async (key: string) => ({ [key]: key === 'browserGatewayEnabled' && gatewayLoad ? await gatewayLoad : storage[key] })),
         set: vi.fn(async (values: Record<string, unknown>) => { Object.assign(storage, structuredClone(values)); }),
       },
-      session: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) },
+      // Real session storage, so tab claims persist between commands like Chrome's.
+      session: {
+        get: vi.fn(async (key: string) => (key in sessionStorage ? { [key]: structuredClone(sessionStorage[key]) } : {})),
+        set: vi.fn(async (values: Record<string, unknown>) => { Object.assign(sessionStorage, structuredClone(values)); }),
+      },
     },
     tabs: {
       onUpdated: event(), onRemoved: event(),
@@ -109,7 +117,7 @@ export function recoveryHarness(stored: unknown = { version: 2, origins: [PROTEC
   let now = Date.now();
   const context = createContext({
     Date: { now: () => now },
-    chrome, URL, crypto: { randomUUID }, console,
+    chrome, URL, crypto: { randomUUID, subtle: webcrypto.subtle }, TextEncoder, URLSearchParams, console,
     setTimeout: (callback: () => void, delay: number) => { const timer = { callback, delay }; timers.push(timer); return timer; },
     clearTimeout: (timer: unknown) => { const index = timers.indexOf(timer as typeof timers[number]); if (index >= 0) timers.splice(index, 1); },
     // The imported helpers are loaded below, ahead of background.js.
@@ -122,12 +130,14 @@ export function recoveryHarness(stored: unknown = { version: 2, origins: [PROTEC
     + readFileSync('resources/browser-extension/background.js', 'utf8');
   const runtime = runInContext(source + `
     ;({ assertSecretObservationAllowed, secretTaintOriginForTab, buildTabPayload,
-      markSecretTaint, clearSecretTaint, targetSecretTaintOrigin, runBrowserCommand, runCommandWithWatchdog, browserCommandErrorMessage,
+      markSecretTaint, clearSecretTaint, targetSecretTaintOrigin, runBrowserCommand, runSessionScopedBrowserCommand,
+      runCommandWithWatchdog, browserCommandErrorMessage,
       handleSecretProtectionMessage, applySecretObservationProtectionEnabled, applySecretObservationProtectionFromCommand, setGatewayEnabled, loadSecretTaints,
       loadSecretObservationProtection, secretObservationStatus,
       secretTaintedTabs, secretTaintedOrigins,
       activeCount: () => activeBrowserCommandCount, enabled: () => gatewayEnabled,
-      protectionEnabled: () => secretObservationProtectionEnabled });`, context) as Runtime;
+      protectionEnabled: () => secretObservationProtectionEnabled,
+      writeGeneration: () => secretWriteGeneration });`, context) as Runtime;
   const send = (message: Record<string, unknown>, sender: unknown = POPUP_SENDER) => new Promise<RecoveryStatus>((resolve) => {
     const listener = chrome.runtime.onMessage.addListener.mock.calls[0][0];
     listener(message, sender, resolve);
@@ -136,7 +146,17 @@ export function recoveryHarness(stored: unknown = { version: 2, origins: [PROTEC
   const reset = (reviewToken: string | null | undefined, sender: unknown = POPUP_SENDER) => send({
     type: 'reset_secret_protection', confirmed: true, reviewToken,
   }, sender);
-  return { ...runtime, advanceTime: (ms: number) => { now += ms; }, context, chrome, storage, tabs, timers, nativeMessages, send, status, reset };
+  /** Runs one command through the real native command runner and returns its command_result. */
+  const run = async (command: TestCommand, options: { sessionScoped?: boolean } = {}): Promise<Record<string, unknown>> => {
+    const sent: Array<Record<string, unknown>> = [];
+    const bridge = { outbox: [], hostName: 'test-only-host', nativePort: { postMessage: (m: Record<string, unknown>) => sent.push(m) } };
+    // The session-scoped path is the one real commands take: it enforces tab claims first.
+    await (options.sessionScoped ? runtime.runSessionScopedBrowserCommand : runtime.runBrowserCommand)(command, bridge);
+    const result = sent.find((message) => message['type'] === 'command_result' && message['commandId'] === command.id);
+    if (!result) throw new Error('no command_result for ' + command.id);
+    return result;
+  };
+  return { ...runtime, advanceTime: (ms: number) => { now += ms; }, context, chrome, storage, tabs, timers, nativeMessages, send, status, reset, run };
 }
 
 export async function settle() {

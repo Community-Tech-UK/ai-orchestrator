@@ -37,7 +37,7 @@ function harness() {
     findSession: (scope) => scope === session.taskScope ? session : undefined,
     readTarget: async () => ({ origin, scope: 'test-computer', computerId: 'test-computer', computerName: 'Test computer' }),
     vault: {
-      inspectExistingCredential: async () => ({ vaultItemRef: 'test-item', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: !enrolled, ...(enrolled ? { existingBinding: { origin, createdAt: 1 } } : {}) }),
+      inspectExistingCredential: async () => ({ vaultItemRef: 'test-item', title: 'Saved test login', folderName: 'AIO-Agent', requiresMoveIntoFolder: !enrolled, savedOrigins: [], ...(enrolled ? { existingBinding: { origin, createdAt: 1 } } : {}) }),
       enrolExistingCredential: enrol,
     },
     notify: (request) => {

@@ -14,7 +14,7 @@ import { DropZoneComponent } from '../file-drop/drop-zone.component';
 import { InputPanelComponent } from './input-panel.component';
 import { RecentDirectoriesDropdownComponent } from '../../shared/components/recent-directories-dropdown/recent-directories-dropdown.component';
 import { NodePickerComponent } from '../../shared/components/node-picker/node-picker.component';
-import type { LoopStartConfigInput } from '../../core/services/ipc/loop-ipc.service';
+import type { LoopStartRequestPayload } from './input-panel-loop-start';
 import type { ModelRuntimeTarget } from '../../../../shared/types/local-model-runtime.types';
 import type { NewSessionSubmitRequest } from './input-panel-new-session-submit';
 import { AioTooltipDirective } from '../../shared/tooltip/aio-tooltip.directive';
@@ -487,12 +487,7 @@ export class InstanceWelcomeComponent {
   discardDraft = output<void>();
   addFiles = output<void>();
   browseRemote = output<string>();
-  loopStartRequested = output<{
-    config: LoopStartConfigInput;
-    firstMessage: string;
-    attachments: { name: string; data: Uint8Array }[];
-    onResolved: (ok: boolean, error?: string) => void;
-  }>();
+  loopStartRequested = output<LoopStartRequestPayload>();
 
   onNodeSelected(nodeId: string | null): void {
     this.selectedNodeId.set(nodeId);

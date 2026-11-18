@@ -32,7 +32,7 @@ import {
   BrowserWaitForRequestSchema,
 } from '@contracts/schemas/browser';
 import { validateIpcPayload } from '@contracts/schemas/common';
-import type { BrowserDeviceLoginMetadata, BrowserGatewayResult } from '@contracts/types/browser';
+import type { BrowserApprovalRequest, BrowserDeviceLoginMetadata, BrowserGatewayResult } from '@contracts/types/browser';
 import type { IpcResponse } from '../validated-handler';
 import { getBrowserGatewayService } from '../../browser-gateway/browser-gateway-service';
 import type { InstanceManager } from '../../instance/instance-manager';
@@ -229,7 +229,16 @@ export function registerBrowserGatewayHandlers(
     BrowserApproveRequestPayloadSchema,
     async (service, payload) => {
       const result = await service.approveRequest(payload);
-      if (payload.deviceLogin && result.decision === 'allowed' && result.outcome === 'succeeded') {
+      if (payload.secretRecovery) {
+        // The approval only starts the recovery; wake the agent when Harness has finished it.
+        if (result.decision === 'allowed' && result.outcome === 'succeeded') {
+          void service.secretRecoveryCompletion(payload.requestId)?.then((approval) => {
+            if (approval) resumeInstanceAfterSecretRecovery(deps.instanceManager, approval);
+          }).catch((error: unknown) => logger.warn('Could not wake the session after browser access recovery', {
+            requestId: payload.requestId, error: error instanceof Error ? error.message : String(error),
+          }));
+        }
+      } else if (payload.deviceLogin && result.decision === 'allowed' && result.outcome === 'succeeded') {
         // Device approval creates no reusable grant. Read its trusted owner from the
         // resolved request, never from renderer-authored approval payload fields.
         const approval = await service.getApprovalRequest({ requestId: payload.requestId });
@@ -445,6 +454,38 @@ export function resumeInstanceAfterBrowserDecision(
       ? `Browser Gateway approval request ${requestId} was denied by the user or cancelled. Do not retry this denied browser action; continue without it.`
       : `Browser Gateway approval request ${requestId} expired or its permission was revoked. It no longer grants permission. Request saved-login access again if it is still needed.`;
 
+  deliverBrowserResume(instanceManager, instanceId, requestId, message,
+    { decision, requestId, ...(deviceLogin ? { deviceLogin } : {}) }, deviceLogin);
+}
+
+/**
+ * Wake the agent once an approved secret-protection recovery has finished
+ * (recovered or not). Fixed states and codes only; the agent reads the
+ * result and next step by calling the tool again with the request id.
+ */
+export function resumeInstanceAfterSecretRecovery(
+  instanceManager: InstanceManager | undefined,
+  approval: BrowserApprovalRequest,
+): void {
+  const progress = approval.secretRecoveryProgress;
+  // A stopped or closed session (approval expired) is not woken: Stop ends the task's continuation.
+  if (!instanceManager || !approval.secretRecovery || approval.status !== 'approved' || !progress
+    || progress.state === 'running') return;
+  const message = `Browser access recovery ${approval.requestId} finished: ${progress.state} (${progress.reasonCode}). `
+    + 'Call browser.recover_secret_observation again with this requestId for the result and next step.';
+  deliverBrowserResume(instanceManager, approval.instanceId, approval.requestId, message,
+    { decision: 'approved', requestId: approval.requestId, secretRecovery: progress.state }, undefined);
+}
+
+function deliverBrowserResume(
+  instanceManager: InstanceManager,
+  instanceId: string,
+  requestId: string,
+  message: string,
+  sourceMetadata: Record<string, unknown>,
+  deviceLogin: { ownerSessionId: string; ownerGeneration: string; expiresAt: number } | undefined,
+): void {
+  const decision = sourceMetadata['decision'];
   // A5: re-check live instance state — the agent's turn may have moved on
   // (interrupted, respawning, quota-parked) between the approval dialog
   // resolving and this nudge firing. Suppressed nudges are refired on the
@@ -455,7 +496,7 @@ export function resumeInstanceAfterBrowserDecision(
     instanceId,
     origin: 'browser-gateway',
     message,
-    sourceMetadata: { decision, requestId, ...(deviceLogin ? { deviceLogin } : {}) },
+    sourceMetadata,
     requireReadyForInput: true,
     coalesceKey: `browser-approval-resume:${requestId}`,
   });

@@ -508,6 +508,12 @@
                   <input type="file" multiple (change)="onFiles($event)" />
                 </label>
 
+                @if (attachmentError()) {
+                  <div class="error" role="alert">{{ attachmentError() }}</div>
+                } @else if (attachmentsLoading()) {
+                  <p class="hint" role="status">Loading attachments…</p>
+                }
+
                 @if (form().attachments.length > 0) {
                   <div class="attachments">
                     @for (attachment of form().attachments; track attachment.name + attachment.size) {
@@ -580,7 +586,7 @@
                 }
 
                 <div class="actions">
-                  <button class="btn btn--primary" type="submit" [disabled]="store.preflightLoading()" [appTooltipDisabledReason]="!form().name.trim() ? 'Enter an automation name first' : !form().workingDirectory.trim() ? tooltipChooseFolder : !form().prompt.trim() ? tooltipEnterPrompt : form().triggerKind === 'webhook' && !form().webhookRouteId.trim() ? 'Select a webhook route first' : !validRunMinutes() ? 'Enter whole minutes, 1 or more' : !validTokenLimit() ? 'Enter a whole token limit from 1 to 1,000,000,000' : pinnedCheckBlocksSave() ? 'Remove the check to save: checks run on this computer only' : oneTimeCheckBlocksSave() ? 'Remove the check to save: a one-time job has no earlier run to compare with' : containedCheckBlocksSave() ? 'Remove the check to save: checks run outside the sandbox, so a contained job cannot have one' : null">Save</button>
+                  <button class="btn btn--primary" type="submit" [disabled]="store.preflightLoading()" [appTooltipDisabledReason]="attachmentsLoading() ? 'Wait for the attachments to finish loading' : !form().name.trim() ? 'Enter an automation name first' : !form().workingDirectory.trim() ? tooltipChooseFolder : !form().prompt.trim() ? tooltipEnterPrompt : form().triggerKind === 'webhook' && !form().webhookRouteId.trim() ? 'Select a webhook route first' : !validRunMinutes() ? 'Enter whole minutes, 1 or more' : !validTokenLimit() ? 'Enter a whole token limit from 1 to 1,000,000,000' : pinnedCheckBlocksSave() ? 'Remove the check to save: checks run on this computer only' : oneTimeCheckBlocksSave() ? 'Remove the check to save: a one-time job has no earlier run to compare with' : containedCheckBlocksSave() ? 'Remove the check to save: checks run outside the sandbox, so a contained job cannot have one' : null">Save</button>
                   <button class="btn" type="button" (click)="closeOverlay()">Cancel</button>
                 </div>
               </form>

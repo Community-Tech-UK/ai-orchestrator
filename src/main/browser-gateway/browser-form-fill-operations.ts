@@ -31,6 +31,7 @@ import {
   type FillControlReadback,
   type FillPlanResult,
 } from './browser-fill-plan-executor';
+const NEXT_AFTER_SECRET_FILL = '. Next, call browser.click on the form\'s submit button by selector, without reading the page first (with secret protection on, reads stay blocked until the page has moved on and the secret is gone from it).';
 
 /**
  * The two compound form-fill service operations (execute_fill_plan +
@@ -553,7 +554,7 @@ export async function fillCredentialOperation(
     toolName,
     actionClass: 'credential', decision: 'allowed', outcome: 'succeeded',
     ...(origin ? { origin } : {}),
-    summary: `Filled ${filled} credential field(s) from the vault`,
+    summary: `Filled ${filled} credential field(s) from the vault${secretObservationBlocked && isExistingTab ? NEXT_AFTER_SECRET_FILL : ''}`,
     data: { filled },
   });
 }

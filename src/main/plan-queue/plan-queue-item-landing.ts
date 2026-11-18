@@ -7,8 +7,9 @@
  *      post-merge gate → back to the worker);
  *   2. prepare the closed documents without touching the root checkout — a
  *      failure here parks the item `land-blocked` before anything lands;
- *   3. check the root checkout's uncommitted edits would merge (it waits if
- *      not, before any hook runs), then build the squash commit with hooks (a
+ *   3. park a job that would undo a change made directly on the base branch
+ *      (plan-queue-direct-changes.ts), check the root checkout's uncommitted
+ *      edits would merge (it waits if not, before any hook runs), then build the squash commit with hooks (a
  *      refusal goes back to the worker once, then parks) and record it before
  *      promoting, so a crash in between re-promotes instead of rebuilding;
  *   4. fast-forward the base, then retire the superseded root documents;
@@ -28,9 +29,10 @@ import type { PlanQueueFlowHost } from './plan-queue-host';
 import { mergeCheckStillOwed, recordMergeCheckOwed } from './plan-queue-check-timeouts';
 import { landItemBranch, runPostMergeGate, syncItemWithBase } from './plan-queue-landing';
 import { landingBlockers, overlapReason, type PlanQueueLandingWaits } from './plan-queue-landing-wait';
-import { updatePlanIntegrationStatus } from './plan-queue-document-status';
+import { updatePlanIntegrationStatus, writeStalePlanNotes } from './plan-queue-document-status';
 import { finishesPlan, stepPlanProblem } from './plan-queue-sections';
 import { buildActiveDocumentsPrompt, buildConflictPrompt, buildGateFailurePrompt } from './plan-queue-prompts';
+import { findUndoneDirectChanges, itemReferenceTime, stalePlanNotesFor, undoneDirectChangeNote } from './plan-queue-direct-changes';
 import { appendPlanningNote, clearPlanningMoveRecord, planningMoveNote } from './plan-queue-planning-files';
 import { returnToItemCheckout } from './plan-queue-squash';
 import { mergeInProgress, unresolvedMergeFiles } from './plan-queue-git';
@@ -209,6 +211,12 @@ export class PlanQueueItemLanding {
     if (!closeDocuments && run.kind === 'plans') {
       try { await updatePlanIntegrationStatus(item.sourceRef, item.branchName ?? '', item.landedCommit!, item.section, finishesPlan(host.store.listItems(item.runId), item)); }
       catch (error) { notes.push(`Code landed, but the plan's "On main" line could not be updated: ${errorMessage(error)}`); }
+      // The plan stays open for later steps: mark the sentences a direct change overtook, so their jobs and checkers
+      // read the note instead of the stale text. A closed plan has no later job, so a whole-document job writes none.
+      if (item.section != null) {
+        try { await writeStalePlanNotes(item.sourceRef, await stalePlanNotesFor(item, repoRoot, `refs/heads/${baseBranch}`, itemReferenceTime(item)), item.section); }
+        catch (error) { notes.push(`Code landed, but the plan's notes on out-of-date text could not be written: ${errorMessage(error)}`); }
+      }
     }
 
     item = host.transition(item, 'landed', { workerSession: undefined, detail: notes.join(' ') || null, question: null, parkReason: null });
@@ -321,6 +329,7 @@ export class PlanQueueItemLanding {
     }
     if (!item.landedCommit) {
       item = await host.worktrees.checkpoint(item, 'final');
+      if (await this.undoesDirectChange(item, repoRoot, baseTip)) return null;
       // Before the planning files move and the hook runs: a landing that cannot promote must not spend the hook's time.
       const blockers = await landingBlockers(item, run);
       if (blockers.length) { await this.waitOrPark(item, blockers, canWait); return null; }
@@ -438,6 +447,24 @@ export class PlanQueueItemLanding {
     await this.returnForBase(item, baseBranch, buildGateFailurePrompt(gate.command, gate.output),
       `\`${gate.command}\` failed after merging ${baseBranch}`);
     return null;
+  }
+
+  /**
+   * Parks the job when it would undo a change made directly on the base branch after its plan was written, unless James
+   * chose the job's version of exactly those lines (Land anyway from the Plan Queue page). Runs on every landing, Land anyway
+   * included; the job's branch already has `baseTip` merged in. Lock held.
+   */
+  private async undoesDirectChange(item: PlanQueueItem, repoRoot: string, baseTip: string): Promise<boolean> {
+    const { history } = this.ctx.host;
+    const head = await gitExec(['rev-parse', 'HEAD'], item.worktreePath!);
+    const found = await findUndoneDirectChanges(repoRoot, baseTip, head, itemReferenceTime(item));
+    if (!found.length) return false;
+    const approved = new Set(history.directChangeFingerprints(item.id, 'approved'));
+    const open = found.filter(entry => !approved.has(entry.fingerprint));
+    if (!open.length) return false;
+    history.recordDirectChangeFingerprints(item, 'found', open.map(entry => entry.fingerprint));
+    await this.ctx.park(item, 'undoes-direct-change', undoneDirectChangeNote(open, requireBaseBranch(this.ctx.host.getRun(item.runId))));
+    return true;
   }
 
   /** The root checkout's uncommitted code is in the way: wait for it to clear, or park when waiting is not allowed. Lock held. */

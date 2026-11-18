@@ -35,6 +35,8 @@ vi.mock('../workspace/git/git-exec', () => ({ gitExec: vi.fn(async (args: string
 }), gitExecSafe: vi.fn(async () => '0') }));
 vi.mock('./plan-queue-doc-merge', () => ({ recoverDocumentMergeForItem: async () => ({ ok: true, mergedPaths: [] }) }));
 vi.mock('./plan-queue-squash', () => ({ returnToItemCheckout: async () => null }));
+// Git is canned here, so the check for undone direct changes finds none; it has its own git-backed specs.
+vi.mock('./plan-queue-direct-changes', async original => ({ ...(await original<typeof import('./plan-queue-direct-changes')>()), findUndoneDirectChanges: async () => [] }));
 // The work folder here is not a git checkout, so the pre-commit overlap check has nothing to read.
 vi.mock('./plan-queue-landing-wait', async original => ({ ...(await original<typeof import('./plan-queue-landing-wait')>()), landingBlockers: async () => [] }));
 vi.mock('./plan-queue-landing', () => ({ landItemBranch: vi.fn(async () => ({ status: 'landed', commit: 'promoted' })) }));
@@ -332,6 +334,41 @@ describe('reviewed root document through landing and closure', () => {
     expect(vi.mocked(landItemBranch).mock.calls[0][5]).toEqual([]);
     expect(existsSync(join(root, 'stepped_plan_completed.md'))).toBe(false);
     expect(readFileSync(item.sourceRef, 'utf8')).toMatch(/On main: Step 2 landed \(\w+\); the other steps may still be open/);
+  });
+
+  it('writes a stale-sentence note under the step once a step job lands, only for a direct change', async () => {
+    const plan = '# Plan\n\n## Status\n\nOn main: no (queue/noted)\n\n## Step 2. Two\n\nHide the menu on Settings.\n\n- [x] Done.\n\n## Step 3. Three\n\n- [ ] Later.\n';
+    // Dated 10 Oct, so a direct change on 10 Nov is newer than the plan and one on 1 Oct is not.
+    const item = await checkedItem('2026-10-10-noted', plan, 'run', 2);
+    store.upsertItem(newPlanQueueItem('later', 'run', item.sourceRef, 9, { state: 'queued', section: 3 }));
+    host.save({ ...host.getItem(item.id), verdict: { ...item.verdict!, stalePlanText: [
+      { commit: 'abc1234', step: 2, sentence: 'Hide the menu on Settings.' },
+      { commit: 'def5678', step: 3, sentence: 'A queue landing is not a direct change.' },
+      { commit: 'aaa1111', step: 3, sentence: 'A change older than the plan cannot overtake it.' },
+      { commit: 'bbb2222', step: 3, sentence: 'A commit that is not on main cannot overtake it.' },
+      { commit: 'ccc3333', step: 3, sentence: 'A change to files this job never touched cannot overtake it.' },
+      { commit: 'abc1234', step: 3, sentence: 'A sentence the plan does not contain.' },
+    ] } });
+    const { gitExec } = await import('../workspace/git/git-exec');
+    const canned = vi.mocked(gitExec).getMockImplementation()!;
+    vi.mocked(gitExec).mockImplementation(async (args: string[], cwd: string) => {
+      if (args[0] === 'log' && args.includes('abc1234')) return 'abc1234ffff\x1f2026-11-10T20:00:25Z\x1fOctober updates\x1fOctober updates\n';
+      if (args[0] === 'log' && args.includes('def5678')) return 'def5678ffff\x1f2026-11-11T20:00:25Z\x1fPlan: x\x1fPlan: x\n\nLanded by Plan Queue after 1 verification round(s).\n';
+      if (args[0] === 'log' && args.includes('aaa1111')) return 'aaa1111ffff\x1f2026-10-01T20:00:25Z\x1fOld\x1fOld\n';
+      if (args[0] === 'log' && args.includes('bbb2222')) return 'bbb2222ffff\x1f2026-11-12T20:00:25Z\x1fElsewhere\x1fElsewhere\n';
+      if (args[0] === 'log' && args.includes('ccc3333')) return 'ccc3333ffff\x1f2026-11-12T20:00:25Z\x1fOther files\x1fOther files\n';
+      if (args[0] === 'merge-base' && args.includes('bbb2222ffff')) throw new Error('not an ancestor');
+      if (args.includes('show') && args.includes('--name-only')) return args.includes('ccc3333ffff') ? 'src/elsewhere.ts' : 'src/menu.ts';
+      return canned(args, cwd);
+    });
+    try {
+      await flow.enqueueLanding(item.id); await flow.whenSettled();
+    } finally { vi.mocked(gitExec).mockImplementation(canned); }
+    expect(host.getItem(item.id).state).toBe('landed');
+    const after = readFileSync(item.sourceRef, 'utf8');
+    expect(after).toContain('## Step 2. Two\n\n> Overridden by abc1234ff, 10 Nov 2026: "Hide the menu on Settings." no longer applies; keep that change.\n\nHide the menu');
+    for (const dropped of ['def5678', 'aaa1111', 'bbb2222', 'ccc3333', 'does not contain']) expect(after).not.toContain(dropped);
+    expect(after).toContain('## Step 3. Three\n\n- [ ] Later.\n');
   });
 
   it.each([['landed', 'yes ('], ['parked', 'Step 3 landed (']] as const)('says the whole plan is on main only when the last step lands after every earlier one (earlier step %s)', async (earlier, wording) => {
