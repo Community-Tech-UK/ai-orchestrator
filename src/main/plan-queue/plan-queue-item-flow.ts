@@ -1,6 +1,5 @@
 import { spawnQueueChecker } from './plan-queue-checker-spawn';
 import { requireOwnWorkFolder } from './plan-queue-spawn-guard';
-import { isLargeQueueDocument } from './plan-queue-document-policy';
 import { PlanQueueVerification } from './plan-queue-verification';
 import { PlanQueueGateRunner } from './plan-queue-gate-receipts';
 import { PlanQueuePreparationErrors } from './plan-queue-error-class';
@@ -59,12 +58,7 @@ import { PlanQueueKeptFolders } from './plan-queue-kept-folders';
 import { PlanQueueRecoveryCopies } from './plan-queue-recovery-copies';
 import { PlanQueueRunBreaker } from './plan-queue-run-breaker';
 import { describePlanningMoves } from './plan-queue-planning-files';
-import {
-  buildContinuePrompt,
-  buildFixPrompt,
-  buildResumePrompt,
-  buildWorkerPrompt,
-} from './plan-queue-prompts';
+import { buildContinuePrompt } from './plan-queue-prompts';
 import { compactWorkerBeforeSetAside } from './plan-queue-set-aside-compaction';
 import { canStepUp, stepUpItem } from './plan-queue-step-up';
 import { PlanQueueWorkerSessions, askJamesForWorker } from './plan-queue-worker-sessions';
@@ -220,13 +214,12 @@ export class PlanQueueItemFlow {
         return;
       }
       if (this.remoteFlow) { const arranged = await this.remoteFlow.arrange(item, run); if (!arranged) return; item = arranged; }
-      const ctx = await this.workerSessions.promptContext(run, item);
       try { await this.verification.pin(item); }
       catch (error) { await this.parkUnlocked(item, 'missing-document', errorMessage(error)); return; }
       const prompt = resuming
-        ? buildResumePrompt(ctx, resumeReason(item)) + (await this.workerSessions.conflictAddendum(item, run))
-        : buildWorkerPrompt(ctx);
-      await this.spawnWorker(item, prompt, 'working', resuming ? buildContinuePrompt(ctx, resumeReason(item)) + (await this.workerSessions.conflictAddendum(item, run)) : undefined);
+        ? await this.workerSessions.resumePrompt(run, item, resumeReason(item)) + (await this.workerSessions.conflictAddendum(item, run))
+        : await this.workerSessions.firstPrompt(run, item);
+      await this.spawnWorker(item, prompt, 'working', resuming ? buildContinuePrompt(this.workerSessions.continueContext(run, item), resumeReason(item)) + (await this.workerSessions.conflictAddendum(item, run)) : undefined);
     });
   }
 
@@ -266,7 +259,7 @@ export class PlanQueueItemFlow {
         await this.parkUnlocked(item, 'restart-loop', 'Restarted 3 times without progress. Check the saved work, then Resume.'); return;
       }
       if (this.remoteFlow) { const arranged = await this.remoteFlow.arrange(item, run); if (!arranged) return; item = arranged; }
-      const prompt = buildResumePrompt(await this.workerSessions.promptContext(run, item), 'the app restarted') + (await this.workerSessions.conflictAddendum(item, run));
+      const prompt = await this.workerSessions.resumePrompt(run, item, 'the app restarted') + (await this.workerSessions.conflictAddendum(item, run));
       await this.spawnWorker(item, prompt, item.state === 'preparing' ? 'working' : null, buildContinuePrompt(this.workerSessions.continueContext(run, item), 'the app restarted') + (await this.workerSessions.conflictAddendum(item, run)));
     });
   }
@@ -333,7 +326,7 @@ export class PlanQueueItemFlow {
         ...(run.workerModel ? { modelOverride: run.workerModel } : {}),
         yoloMode: true,
         // A handed-over document's every later worker takes the run's step-up choice (`queueWorkerChoices`).
-        metadata: { planQueueLargeDocument: isLargeQueueDocument(item.sourceRef), planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'worker', planQueueRound: item.round, ...(continuePrompt ? { planQueueContinuePrompt: continuePrompt } : {}), ...(item.steppedUpAt ? { planQueueSteppedUp: true } : {}) },
+        metadata: { planQueueLargeDocument: workSourceFor(item.sourceKind).isLarge(item), planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'worker', planQueueRound: item.round, ...(continuePrompt ? { planQueueContinuePrompt: continuePrompt } : {}), ...(item.steppedUpAt ? { planQueueSteppedUp: true } : {}) },
       });
       this.host.registerRole(instance.id, { role: 'worker', runId: run.id, itemId: item.id });
       if (far) this.host.remote!.noteSession(item, instance.id);
@@ -380,7 +373,7 @@ export class PlanQueueItemFlow {
         // The other computer could not start the session: carry on here from the last checkpoint.
         const here = await this.host.remote.fallBackHere(this.host.getItem(item.id), `${failedRemote.label} could not start the worker (${errorMessage(error)})`);
         const reason = 'the other computer could not start the session';
-        await this.spawnWorker(here, buildResumePrompt(await this.workerSessions.promptContext(run, here), reason), nextState,
+        await this.spawnWorker(here, await this.workerSessions.resumePrompt(run, here, reason), nextState,
           buildContinuePrompt(this.workerSessions.continueContext(run, here), reason));
         return;
       }
@@ -399,7 +392,7 @@ export class PlanQueueItemFlow {
       try {
         if (await recycleQueueCopilotSession(this.host.instances, worker, () => this.host.tracker.untrack(workerId))) {
           this.workerSessions.record(item.id, workerId);
-          prompt = buildResumePrompt(await this.workerSessions.promptContext(this.host.getRun(item.runId), item), 'Copilot compaction left its context above 90%') + '\n\n' + prompt;
+          prompt = await this.workerSessions.resumePrompt(this.host.getRun(item.runId), item, 'Copilot compaction left its context above 90%') + '\n\n' + prompt;
         }
       } catch (error) {
         await this.parkUnlocked(item, 'worker-error', `Could not refresh Copilot context: ${errorMessage(error)}`); return;
@@ -421,7 +414,7 @@ export class PlanQueueItemFlow {
     if (workerId) { this.workerSessions.record(item.id, workerId); await this.stopInstance(workerId); item = this.host.getItem(item.id); }
     const run = this.host.getRun(item.runId);
     if (this.remoteFlow) { const arranged = await this.remoteFlow.arrange(item, run); if (!arranged) return; item = arranged; }
-    const resume = buildResumePrompt(await this.workerSessions.promptContext(run, item), 'the previous worker session ended');
+    const resume = await this.workerSessions.resumePrompt(run, item, 'the previous worker session ended');
     await this.spawnWorker(item, resume, null, buildContinuePrompt(this.workerSessions.continueContext(run, item), 'the previous worker session ended'));
   }
 
@@ -694,7 +687,7 @@ export class PlanQueueItemFlow {
     }
     await this.toFixing(
       this.host.save({ ...item, round, verdict }),
-      buildFixPrompt(round, run.config.maxRounds, verdict.findings, await describePlanningMoves(run.workspaceCwd, item.id), await directChangesForItem(run, item)) + this.verification.stepBack(item),
+      await workSourceFor(item.sourceKind).workerPrompts.fix(run, item, round, run.config.maxRounds, verdict.findings, await describePlanningMoves(run.workspaceCwd, item.id), await directChangesForItem(run, item)) + this.verification.stepBack(item),
     );
   }
 
@@ -703,7 +696,7 @@ export class PlanQueueItemFlow {
       host: this.host,
       stopInstance: (id) => this.stopInstance(id),
       spawnWorker: (next, prompt) => this.spawnWorker(next, prompt, null),
-      promptContext: (r, i) => this.workerSessions.promptContext(r, i),
+      stepUpPrompt: (r, i, rounds, findings) => this.workerSessions.stepUpPrompt(r, i, rounds, findings),
     }, item, failedRounds, verdict);
   }
 

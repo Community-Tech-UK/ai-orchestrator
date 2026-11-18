@@ -5,10 +5,11 @@ import { hasCheckout } from './plan-queue-orphan-checkout';
 import { unresolvedMergeFiles } from './plan-queue-git';
 import { allocateLivetestPort } from './plan-queue-livetest-port';
 import { buildConflictPrompt, buildParkedCarryOver } from './plan-queue-prompts';
-import { readPlanBrief, type PlanBrief } from './plan-queue-plan-extract';
 import { isLastStepJob } from './plan-queue-sections';
 import type { PlanQueueRun, PlanQueueItem } from './plan-queue.types';
 import { workSourceFor } from './plan-queue-work-sources';
+import type { PlanQueueFinding } from '@contracts/schemas/plan-queue';
+import type { WorkerPromptBase } from './plan-queue-work-source';
 import { directChangesForItem } from './plan-queue-direct-changes';
 const logger = getLogger('PlanQueueWorkerSessions');
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -66,19 +67,33 @@ export class PlanQueueWorkerSessions {
     return first?.answer ?? null;
   }
 
-  /** What a worker, resume or step-up prompt is built from; a plan's Status and open work are read fresh from the root checkout. */
-  async promptContext(run: PlanQueueRun, item: PlanQueueItem) {
+  /**
+   * What the work's own source needs, with what only this host knows, to build a worker prompt. The direct-change list is
+   * rebuilt for every prompt: changes land on the base branch while a job runs.
+   */
+  private async promptBase(run: PlanQueueRun, item: PlanQueueItem): Promise<WorkerPromptBase> {
     return {
       ...this.continueContext(run, item),
-      ...(run.kind === 'plans' ? { brief: this.lastStepOfRun(run, item, await readPlanBrief(item.sourceRef, item.section)) } : {}),
-      // Rebuilt for every prompt: changes land on the base branch while a job runs.
+      lastStepOfRun: run.kind === 'plans' && item.section != null && isLastStepJob(this.deps.host.store.listItems(run.id), item),
       directChanges: await directChangesForItem(run, item),
     };
   }
 
-  /** The step that writes the as-built summary is the run's last job, which is not the plan's last heading when that step is already ticked off. */
-  private lastStepOfRun(run: PlanQueueRun, item: PlanQueueItem, brief: PlanBrief): PlanBrief {
-    return brief.step ? { ...brief, step: { ...brief.step, last: isLastStepJob(this.deps.host.store.listItems(run.id), item) } } : brief;
+  /**
+   * The worker's first prompt, a resume prompt and a step-up prompt. Each is built from the work as it is now: a plan's
+   * Status and open work are read fresh from the root checkout, and a ticket's brief file is written again from the text
+   * James approved.
+   */
+  async firstPrompt(run: PlanQueueRun, item: PlanQueueItem): Promise<string> {
+    return workSourceFor(item.sourceKind).workerPrompts.first(await this.promptBase(run, item));
+  }
+
+  async resumePrompt(run: PlanQueueRun, item: PlanQueueItem, reason: string): Promise<string> {
+    return workSourceFor(item.sourceKind).workerPrompts.resume(await this.promptBase(run, item), reason);
+  }
+
+  async stepUpPrompt(run: PlanQueueRun, item: PlanQueueItem, failedRounds: number, findings: readonly PlanQueueFinding[]): Promise<string> {
+    return workSourceFor(item.sourceKind).workerPrompts.stepUp(await this.promptBase(run, item), failedRounds, findings);
   }
 
   /**

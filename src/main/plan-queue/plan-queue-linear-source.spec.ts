@@ -23,6 +23,7 @@ function make(overrides: Partial<LinearWorkSourceDependencies> = {}) {
     discover,
     connectionReason: () => null,
     namesFor: (id) => (id === 'uuid-ORC-3' ? { identifier: 'ORC-3', approvedTitle: 'Fix the login page, now!' } : undefined),
+    ticketRound: { record: () => undefined },
     ...overrides,
   };
   return { source: createLinearWorkSource(deps), discover };

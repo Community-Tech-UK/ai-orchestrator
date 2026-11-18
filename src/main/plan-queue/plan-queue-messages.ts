@@ -25,6 +25,7 @@ import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 
 /** `stage` is sent only while it applies, so the many finished items cost nothing extra. */
 export function itemToDto(item: PlanQueueItem, stage: PlanQueueItemStage | undefined, totalRounds = 0, step?: PlanQueueItemDto['step']): PlanQueueItemDto {
+  const rowTitle = workSourceFor(item.sourceKind).rowTitle(item);
   return {
     ...(step ? { step } : {}),
     ...(totalRounds > item.round ? { totalRounds } : {}),
@@ -35,6 +36,7 @@ export function itemToDto(item: PlanQueueItem, stage: PlanQueueItemStage | undef
     runId: item.runId,
     sourceRef: item.sourceRef,
     sourceKind: item.sourceKind ?? 'markdown',
+    ...(rowTitle ? { title: rowTitle } : {}),
     heldAt: item.heldAt ?? null,
     pendingInstruction: item.pendingInstruction ?? null,
     steppedUpAt: item.steppedUpAt ?? null,

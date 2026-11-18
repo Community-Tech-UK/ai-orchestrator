@@ -381,6 +381,8 @@ export const PlanQueueItemDtoSchema = z.object({
   sourceRef: PathSchema,
   /** Absent means markdown. */
   sourceKind: PlanQueueSourceKindSchema.optional(),
+  /** The name to show for the work when its reference is not a file name (a ticket's identifier and approved title). */
+  title: z.string().max(300).optional(),
   /** Present for one step of a plan that runs one job per step: its number, its place among the run's jobs for the plan, and the step it waits for. */
   step: z.object({
     number: z.number().int().min(0),

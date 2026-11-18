@@ -518,9 +518,9 @@ export class PlanQueueStore {
     `).all<{ folder: string }>().map(row => row.folder);
   }
 
-  /** Folders where updates leave recovery copies: those of every document any job has worked on, and of its linked spec. */
+  /** Folders where updates leave recovery copies: those of every document any job has worked on, and of its linked spec. A ticket has no file. */
   listDocumentFolders(): string[] {
-    const documents = this.db.prepare('SELECT DISTINCT document_path FROM plan_queue_items').all<{ document_path: string }>();
+    const documents = this.db.prepare("SELECT DISTINCT document_path FROM plan_queue_items WHERE source_kind IS NULL OR source_kind = 'markdown'").all<{ document_path: string }>();
     return [...new Set(documents.flatMap(({ document_path: file }) => [file, ...linkedSpecPaths(file)].map(entry => path.dirname(entry))))];
   }
 

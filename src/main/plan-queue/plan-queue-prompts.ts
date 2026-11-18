@@ -82,7 +82,7 @@ export function livetestEnvironmentFor(item: Pick<PlanQueueItem, 'id' | 'livetes
   return { userDataPath: `/tmp/aio-lt-queue-${suffix}`, debugPort: item.livetestPort ?? derivedLivetestPort(item.id) };
 }
 
-interface ItemPromptContext {
+export interface ItemPromptContext {
   item: PlanQueueItem;
   kind: PlanQueueKind;
   repoRoot: string;

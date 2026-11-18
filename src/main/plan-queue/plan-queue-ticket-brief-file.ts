@@ -50,11 +50,11 @@ function isInside(child: string, parent: string): boolean {
  * folder, before it creates anything. The file is written whole to a private name and moved into place, so a reader
  * sees the old brief or the new one and never half of either.
  */
-export async function writeTicketBriefFile(input: { itemId: string; brief: string; repoRoot: string; workFolder: string }): Promise<string> {
+export async function writeTicketBriefFile(input: { itemId: string; brief: string; repoRoot: string; workFolder: string | null }): Promise<string> {
   const file = ticketBriefPath(input.itemId);
   const place = await resolvedPath(file);
   for (const forbidden of [input.repoRoot, input.workFolder]) {
-    if (isInside(place, await resolvedPath(forbidden))) throw new Error('A ticket brief is never written inside a repository or a work folder.');
+    if (forbidden && isInside(place, await resolvedPath(forbidden))) throw new Error('A ticket brief is never written inside a repository or a work folder.');
   }
   const folder = path.dirname(file);
   await fs.mkdir(folder, { recursive: true, mode: 0o700 });

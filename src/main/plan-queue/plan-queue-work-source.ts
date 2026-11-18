@@ -11,12 +11,16 @@
  * Methods are added to this interface when a caller needs them, and no earlier.
  */
 
-import type { PlanQueueKind, PlanQueueParkReason, PlanQueueSourceKind } from '@contracts/schemas/plan-queue';
+import type { PlanQueueFinding, PlanQueueKind, PlanQueueParkReason, PlanQueueSourceKind } from '@contracts/schemas/plan-queue';
 import type { DirtyOverlapResolver } from '../workspace/git/dirty-overlap.types';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import type { PreparedDocuments } from './plan-queue-doc-close';
+import type { DirectChange } from './plan-queue-direct-changes';
 import type { DocumentReview } from './plan-queue-document-review';
+import type { PlanQueueGateReceipt } from './plan-queue-gate-receipts';
 import type { PlanQueueHistoryStore } from './plan-queue-history-store';
+import type { PlanQueueItemPin } from './plan-queue-plan-pins';
+import type { ItemPromptContext } from './plan-queue-prompts';
 import type { PlanQueueStore } from './plan-queue-store';
 import type { RememberedOutcome } from './plan-queue-triage-memory';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
@@ -36,6 +40,8 @@ export interface WorkDiscoveryQuery {
 
 /** The source reference of an item, with the kind that says how to read it. */
 export type WorkItemRef = Pick<PlanQueueItem, 'sourceRef' | 'sourceKind'>;
+/** An item's reference with its own id, for a source that keeps the work's text per item (a ticket's approved text). */
+export type WorkItemId = Pick<PlanQueueItem, 'id' | 'sourceRef' | 'sourceKind'>;
 
 /**
  * Commit-message prefixes the interrupted-landing recogniser accepts (`plan-queue-landing-leftover.ts`): every
@@ -48,6 +54,35 @@ export type LandingCommitPrefix = (typeof LANDING_COMMIT_PREFIXES)[number];
 
 export type LandingMergeRecovery = { ok: true; mergedPaths: string[] } | { ok: false; reason: string };
 export type InterruptedMergeStore = Pick<PlanQueueStore, 'listWorkspaceRoots' | 'getItem' | 'getRun' | 'upsertItem'>;
+
+/** What a worker prompt is built from before the source reads the work itself. */
+export type WorkerPromptBase = Omit<ItemPromptContext, 'brief'> & {
+  /** True when this job's step writes the plan's as-built summary (markdown plans only). */
+  lastStepOfRun: boolean;
+};
+
+/** Every prompt a worker is given. Each is built from the work as it is now, and for a ticket from its approved text only. */
+export interface QueueWorkerPrompts {
+  first(base: WorkerPromptBase): Promise<string>;
+  resume(base: WorkerPromptBase, reason: string): Promise<string>;
+  stepUp(base: WorkerPromptBase, failedRounds: number, findings: readonly PlanQueueFinding[]): Promise<string>;
+  /** After a failed check. `planningNote` says which planning files the coordinator moved out of the work folder. */
+  fix(run: PlanQueueRun, item: PlanQueueItem, round: number, maxRounds: number, findings: readonly PlanQueueFinding[], planningNote: string | null | undefined, directChanges: readonly DirectChange[]): Promise<string>;
+}
+
+export interface CheckerPromptInput {
+  run: PlanQueueRun;
+  item: PlanQueueItem;
+  baseBranch: string;
+  receipts: readonly PlanQueueGateReceipt[];
+  diffStat: string;
+  /** The earlier failed rounds, as JSON, or undefined in the first round. */
+  earlierRounds: string | undefined;
+  /** What the work looked like when the job started. */
+  pin: PlanQueueItemPin | undefined;
+  /** Files changed on the base branch since the job began that this job must keep (`plan-queue-direct-changes.ts`). */
+  directChanges: readonly DirectChange[];
+}
 
 export interface QueueWorkSource {
   readonly kind: PlanQueueSourceKind;
@@ -78,6 +113,34 @@ export interface QueueWorkSource {
    * touched: the reason is the source's, and it clears itself when the source can be used again.
    */
   reasonToHold(run: PlanQueueRun): string | null;
+
+  // --- Rounds: what is reviewed, what counts as progress, what a session is told -------------------------------
+  /** What the checker reviewed, as a fingerprint. A PASS cannot stand when it differs when the check ends or the work lands. */
+  reviewFingerprint(item: WorkItemId): Promise<DocumentReview>;
+  /** A hash of the work's content for the no-progress check; null when it cannot be read, which is never "unchanged". */
+  contentHash(item: WorkItemId): Promise<string | null>;
+  /** The pin recorded when a job starts; null when the work cannot be read, which sets the job aside as a missing document. */
+  readPin(item: WorkItemId, recordedAt: number): Promise<PlanQueueItemPin | null>;
+  /** Whether the work is big enough to need the session's large-document setting. */
+  isLarge(item: WorkItemId): boolean;
+  /** At every checkpoint of the work folder: trim what the source keeps in the work itself. Never blocks the checkpoint. */
+  trimAtCheckpoint(item: PlanQueueItem, memory?: PlanQueueHistoryStore): Promise<void>;
+  /** The plan-specific text a worker is told: a worker's turn is built from the work as it is now. */
+  readonly workerPrompts: QueueWorkerPrompts;
+  /** What a step-up worker is asked for; also saved as the item's pending instruction. */
+  stepUpInstruction(failedRounds: number, findings: readonly PlanQueueFinding[]): string;
+  /** The checker's prompt. */
+  checkerPrompt(input: CheckerPromptInput): Promise<string>;
+
+  // --- Landing and listing ---------------------------------------------------------------------------------------
+  /** Why work that is one step of something bigger cannot land, or null. */
+  landingProblem(item: PlanQueueItem): Promise<string | null>;
+  /** After code landed with the work left open: what the source tells a person about it. Returns notes for the item. */
+  noteOpenLanding(item: PlanQueueItem, run: PlanQueueRun, jobsOfRun: () => readonly PlanQueueItem[]): Promise<string[]>;
+  /** How the Set aside list names a job's work and describes its state. */
+  setAsideView(item: WorkItemRef, folder: string): Promise<{ document: string; documentState: string }>;
+  /** The name a row shows, or null to let the page name it from the reference. */
+  rowTitle(item: WorkItemRef): string | null;
 
   // --- Parked notes ------------------------------------------------------------------------------------------
   /** Leave a note where a person will find a parked branch. Returns a failure sentence, or null. */

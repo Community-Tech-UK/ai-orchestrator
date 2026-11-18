@@ -45,13 +45,13 @@ export function reportFileTask(itemId: string, remote: Pick<RemoteJobPrompt, 're
   return reservation + `When the work is complete, write your report as one JSON file at \`${remote.reportFile}\` (create or overwrite it; it belongs to this turn only) with these fields instead of calling the \`${REPORT_READY_TOOL}\` tool, which is not available on this computer: \`item_id\` "${itemId}", \`summary\` (two or three plain sentences for a human), \`as_built\` (what you built), \`checks_run\` (a list of objects, one per command you ran, each with \`command\` and its numeric \`exitCode\`), \`deferred_checks\` (each check that needs a rebuilt app, a person or an outside service: an object with \`title\`, \`steps\`, \`expectedResult\` and \`whyDeferred\`; [] when none; write each one in the \`_livetest.md\` beside the plan under the same title, because the checker compares the two) and \`follow_ups\` (problems you found outside this job's scope; [] when none). Include optional \`capability_gaps\` (up to eight investigated missing controls, using the capability-report schema) when an original check remains blocked, and optional \`stale_plan_text\` (plan sentences a direct_changes entry overtook: \`commit\`, \`step\`, \`sentence\`). Do not write the report while a command you started is still running: wait for it to finish first. Check the file is valid JSON, then stop.`;
 }
 
-/** A follow-up turn for a worker whose turn ended before it reported. */
-export function buildWorkerReminderPrompt(itemId: string, reminder: number, maxReminders: number, waitRule: string): string {
+/** A follow-up turn for a worker whose turn ended before it reported. A ticket's worker (`livetestFile` false) has no plan to put a live-test file beside. */
+export function buildWorkerReminderPrompt(itemId: string, reminder: number, maxReminders: number, waitRule: string, livetestFile = true): string {
   return [
     `Plan Queue reminder ${reminder} of ${maxReminders}: your turn ended without a recorded report for item "${itemId}". Your work is not handed over until \`${REPORT_READY_TOOL}\` returns accepted: true.`,
     '',
     `- ${waitRule} Background commands may have stopped when your turn ended: check their output and run again any check that has no final exit code.`,
     ...toolDiscoverySteps(REPORT_READY_TOOL),
-    `- Then report once. ${reportReadyTask(itemId)} If discovery or invocation fails, quote the exact tool error in your reply.`,
+    `- Then report once. ${reportReadyTask(itemId, livetestFile)} If discovery or invocation fails, quote the exact tool error in your reply.`,
   ].join('\n');
 }

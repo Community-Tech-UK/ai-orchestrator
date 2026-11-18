@@ -22,7 +22,6 @@ import { getLogger } from '../logging/logger';
 import { ORCHESTRATOR_TOOL_DESCRIBE_NAME, ORCHESTRATOR_TOOL_SEARCH_NAME } from '../mcp/orchestrator-mcp-deferral';
 import { gitExec } from '../workspace/git/git-exec';
 import { hermeticGitEnv } from '../workspace/git/git-env';
-import { completedDocumentPath } from './plan-queue-doc-close';
 import { workSourceFor } from './plan-queue-work-sources';
 import type { PlanQueueInstancePort } from './plan-queue-host';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
@@ -94,15 +93,6 @@ export async function inspectSetAsideWork(
     logger.warn('Could not inspect a set-aside job', { branch: item.branchName, checkpoint: item.checkpointCommit, error: String(error) });
     return UNKNOWN;
   }
-}
-
-async function pathExists(file: string): Promise<boolean> {
-  return fs.access(file).then(() => true, () => false);
-}
-
-async function documentState(documentPath: string): Promise<'open' | 'closed' | 'gone'> {
-  if (await pathExists(completedDocumentPath(documentPath))) return 'closed';
-  return await pathExists(documentPath) ? 'open' : 'gone';
 }
 
 /**
@@ -245,9 +235,8 @@ export class PlanQueueSetAsideAgents {
         return {
           itemId: item.id,
           runId: item.runId,
-          document: path.relative(folder, item.sourceRef),
+          ...(await workSourceFor(item.sourceKind).setAsideView(item, folder)),
           attempt: latest.has(item.id) ? 'latest' : 'earlier',
-          documentState: await documentState(item.sourceRef),
           landedLater,
           reason: item.parkReason,
           checker: item.verdict?.verdict ?? null,

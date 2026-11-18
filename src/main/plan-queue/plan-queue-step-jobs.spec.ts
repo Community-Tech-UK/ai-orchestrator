@@ -363,17 +363,18 @@ describe('the answer given for a stepped plan', () => {
       store.upsertItem(newPlanQueueItem(id, 'run', file, section, { state: 'queued', section, answer }));
     }
     const sessions = new PlanQueueWorkerSessions({ host: { store } as never, lock: async () => undefined, stop: async () => undefined, spawn: async () => undefined, failed: async () => undefined });
-    const context = (id: string) => sessions.promptContext(run, store.getItem(id)!);
-    expect((await context('s2')).answer).toBe('Which runner? → The quiet one');
-    expect(buildWorkerPrompt(await context('s3'))).toContain('The quiet one');
-    expect([(await context('s2')).brief?.step?.last, (await context('s3')).brief?.step?.last]).toEqual([false, true]);
+    const prompt = (id: string) => sessions.firstPrompt(run, store.getItem(id)!);
+    expect(await prompt('s2')).toContain('Which runner? → The quiet one');
+    expect(await prompt('s3')).toContain('The quiet one');
+    const writesSummary = 'Yours is the last step: when it is done, also write the plan';
+    expect([(await prompt('s2')).includes(writesSummary), (await prompt('s3')).includes(writesSummary)]).toEqual([false, true]);
   });
 
   it('makes the run\'s last job write the summary when the plan\'s last step was ticked off and has no job', async () => {
     const file = plan('big_plan.md', bigStepped);
     for (const section of [1, 2]) store.upsertItem(newPlanQueueItem(`s${section}`, 'run', file, section, { state: 'queued', section }));
     const sessions = new PlanQueueWorkerSessions({ host: { store } as never, lock: async () => undefined, stop: async () => undefined, spawn: async () => undefined, failed: async () => undefined });
-    expect((await sessions.promptContext(run, store.getItem('s2')!)).brief?.step?.last).toBe(true);
+    expect(await sessions.firstPrompt(run, store.getItem('s2')!)).toContain('Yours is the last step: when it is done, also write the plan');
   });
 
   it('gives a job its own answer in preference to the first step\'s', async () => {

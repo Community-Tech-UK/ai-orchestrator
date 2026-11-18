@@ -7434,10 +7434,6 @@
       "lines": 941
     },
     {
-      "path": "src/main/plan-queue/plan-queue-item-flow.ts",
-      "lines": 940
-    },
-    {
       "path": "src/renderer/app/features/editor/editor-page.component.ts",
       "lines": 938
     },
@@ -7460,6 +7456,10 @@
     {
       "path": "src/shared/types/instance.types.ts",
       "lines": 935
+    },
+    {
+      "path": "src/main/plan-queue/plan-queue-item-flow.ts",
+      "lines": 933
     },
     {
       "path": "src/renderer/app/core/services/new-session-draft.service.ts",

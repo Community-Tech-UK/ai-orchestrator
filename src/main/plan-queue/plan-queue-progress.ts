@@ -12,6 +12,7 @@ import { readFile } from 'node:fs/promises';
 import type { PlanQueueFinding } from '@contracts/schemas/plan-queue';
 import type { PlanQueueItem } from './plan-queue.types';
 import type { PlanQueueHistoryStore } from './plan-queue-history-store';
+import { workSourceFor } from './plan-queue-work-sources';
 
 export interface PlanQueueProgressFingerprint {
   /** HEAD of the item's worktree at the last round (its checkpoint commit). */
@@ -110,7 +111,7 @@ export async function decideNoProgress(
   if (!lastFail) return { kind: 'continue' };
   const current = progressFingerprint(
     item.checkpointCommit,
-    await documentContentSha256(item.sourceRef),
+    await workSourceFor(item.sourceKind).contentHash(item),
     item.round,
   );
   const failed = progressFingerprint(lastFail.worktreeHead, lastFail.documentSha256, lastFail.round);

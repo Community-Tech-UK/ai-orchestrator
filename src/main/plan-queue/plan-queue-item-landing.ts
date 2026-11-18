@@ -29,8 +29,7 @@ import type { PlanQueueFlowHost } from './plan-queue-host';
 import { mergeCheckStillOwed, recordMergeCheckOwed } from './plan-queue-check-timeouts';
 import { landItemBranch, runPostMergeGate, syncItemWithBase } from './plan-queue-landing';
 import { landingBlockers, overlapReason, type PlanQueueLandingWaits } from './plan-queue-landing-wait';
-import { updatePlanIntegrationStatus, writeStalePlanNotes } from './plan-queue-document-status';
-import { finishesPlan, stepPlanProblem } from './plan-queue-sections';
+import { writeStalePlanNotes } from './plan-queue-document-status';
 import { buildActiveDocumentsPrompt, buildConflictPrompt, buildGateFailurePrompt } from './plan-queue-prompts';
 import { findUndoneDirectChanges, itemReferenceTime, stalePlanNotesFor, undoneDirectChangeNote } from './plan-queue-direct-changes';
 import { appendPlanningNote, clearPlanningMoveRecord, planningMoveNote } from './plan-queue-planning-files';
@@ -184,7 +183,7 @@ export class PlanQueueItemLanding {
     const alreadyLanded = item.landedCommit !== null && (await isAncestor(item.landedCommit, baseTip, repoRoot));
     if (!alreadyLanded) {
       signal.throwIfAborted();
-      const planProblem = item.section == null ? null : await stepPlanProblem(item.sourceRef);
+      const planProblem = await workSourceFor(item.sourceKind).landingProblem(item);
       if (planProblem) { await this.ctx.park(item, 'missing-document', planProblem); return; }
       // The request-time check cannot see the future: a resumed attempt can reach this point after a newer one merged.
       if (options.landAnywayBy === undefined && (host.store.newerAttemptLanded(item) || await this.newerAttemptOnBase(item, baseTip, repoRoot))) {
@@ -207,16 +206,12 @@ export class PlanQueueItemLanding {
     } else if (closeDocuments) {
       notes.push(...(await this.finishDocuments(item, repoRoot, baseBranch)));
     }
-    // A plan that stays open says whether its work is on main; a closed one carries that in its closed copy. Live-test documents have no such line.
-    if (!closeDocuments && run.kind === 'plans') {
-      try { await updatePlanIntegrationStatus(item.sourceRef, item.branchName ?? '', item.landedCommit!, item.section, finishesPlan(host.store.listItems(item.runId), item)); }
-      catch (error) { notes.push(`Code landed, but the plan's "On main" line could not be updated: ${errorMessage(error)}`); }
-      // The plan stays open for later steps: mark the sentences a direct change overtook, so their jobs and checkers
-      // read the note instead of the stale text. A closed plan has no later job, so a whole-document job writes none.
-      if (item.section != null) {
-        try { await writeStalePlanNotes(item.sourceRef, await stalePlanNotesFor(item, repoRoot, `refs/heads/${baseBranch}`, itemReferenceTime(item)), item.section); }
-        catch (error) { notes.push(`Code landed, but the plan's notes on out-of-date text could not be written: ${errorMessage(error)}`); }
-      }
+    if (!closeDocuments) notes.push(...(await workSourceFor(item.sourceKind).noteOpenLanding(item, run, () => host.store.listItems(item.runId))));
+    // The plan stays open for later steps: mark the sentences a direct change overtook, so their jobs and checkers
+    // read the note instead of the stale text. A closed plan has no later job, so a whole-document job writes none.
+    if (!closeDocuments && run.kind === 'plans' && item.section != null) {
+      try { await writeStalePlanNotes(item.sourceRef, await stalePlanNotesFor(item, repoRoot, `refs/heads/${baseBranch}`, itemReferenceTime(item)), item.section); }
+      catch (error) { notes.push(`Code landed, but the plan's notes on out-of-date text could not be written: ${errorMessage(error)}`); }
     }
 
     item = host.transition(item, 'landed', { workerSession: undefined, detail: notes.join(' ') || null, question: null, parkReason: null });

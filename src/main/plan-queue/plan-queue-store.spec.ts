@@ -509,6 +509,14 @@ describe('PlanQueueStore', () => {
     expect(store.listDocumentFolders().sort()).toEqual(['/other/notes', '/repo/docs/plans', '/repo/docs/specs']);
   });
 
+  it('leaves a ticket out of the document folders, since its reference is not a path the recovery sweep could read', () => {
+    store.upsertRun(makeRun());
+    store.upsertItem(makeItem({ id: 'doc', sourceRef: '/repo/docs/plans/b_plan.md' }));
+    store.upsertItem(makeItem({ id: 'ticket', sourceRef: 'linear:lin-12', sourceKind: 'linear' }));
+    expect(store.listDocumentFolders()).not.toContain('.');
+    expect(store.listDocumentFolders().sort()).toEqual(['/repo/docs/plans', '/repo/docs/specs']);
+  });
+
   it('refuses two items for the same document in one run', () => {
     store.upsertRun(makeRun());
     store.upsertItem(makeItem({ id: 'first' }));

@@ -90,7 +90,7 @@ export class PlanQueueWorkerReports {
     this.host.tracker.beginTurn(instanceId);
     // Not awaited, like the first turn: some adapters settle sendInput only when the turn ends, and the caller
     // holds the item lock that Pause and Cancel need.
-    const prompt = buildWorkerReminderPrompt(item.id, count + 1, MAX_WORKER_REMINDERS, WORKER_WAIT_RULE);
+    const prompt = buildWorkerReminderPrompt(item.id, count + 1, MAX_WORKER_REMINDERS, WORKER_WAIT_RULE, item.sourceKind !== 'linear');
     logPromptInjection('queueWorkerReminder', prompt, instanceId);
     void this.host.instances.sendInput(instanceId, prompt, undefined, { automatedInput: true, internalSource: 'plan-queue' })
       .catch((error: unknown) => {

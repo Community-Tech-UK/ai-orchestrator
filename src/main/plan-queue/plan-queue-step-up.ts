@@ -11,10 +11,9 @@
  * the saved mark is what stops a second handover.
  */
 
-import type { PlanQueueVerdict } from '@contracts/schemas/plan-queue';
+import type { PlanQueueFinding, PlanQueueVerdict } from '@contracts/schemas/plan-queue';
 import { findingKind } from './plan-queue-deferred-checks';
 import type { PlanQueueFlowHost } from './plan-queue-host';
-import { buildStepUpInstruction, buildStepUpPrompt } from './plan-queue-prompts';
 import { describeRouteChoice } from './plan-queue-routing';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { workSourceFor } from './plan-queue-work-sources';
@@ -24,7 +23,7 @@ export interface PlanQueueStepUpDeps {
   stopInstance(instanceId: string): Promise<void>;
   /** Start a worker for the item, already in `fixing`; holds or parks it itself when that fails. */
   spawnWorker(item: PlanQueueItem, prompt: string): Promise<void>;
-  promptContext(run: PlanQueueRun, item: PlanQueueItem): Promise<Parameters<typeof buildStepUpPrompt>[0]>;
+  stepUpPrompt(run: PlanQueueRun, item: PlanQueueItem, failedRounds: number, findings: readonly PlanQueueFinding[]): Promise<string>;
 }
 
 /**
@@ -50,10 +49,10 @@ export async function stepUpItem(deps: PlanQueueStepUpDeps, item: PlanQueueItem,
   if (item.workerInstanceId) await deps.stopInstance(item.workerInstanceId);
   const choice = describeRouteChoice(stepUp);
   // The task is also the pending instruction, so a Pause before the new session starts keeps it.
-  const prompt = buildStepUpPrompt(await deps.promptContext(run, { ...item, pendingInstruction: null }), failedRounds, verdict.findings);
+  const prompt = await deps.stepUpPrompt(run, { ...item, pendingInstruction: null }, failedRounds, verdict.findings);
   const saved = host.transition(item, 'fixing', {
     steppedUpAt: Date.now(), workerSession: undefined, round: 0, erroredRounds: 0, verdict, workerInstanceId: null,
-    pendingInstruction: buildStepUpInstruction(failedRounds, verdict.findings),
+    pendingInstruction: workSourceFor(item.sourceKind).stepUpInstruction(failedRounds, verdict.findings),
     detail: `Handed to a stronger worker (${choice}) after ${failedRounds} failed check(s).`,
   });
   await deps.spawnWorker(saved, prompt);

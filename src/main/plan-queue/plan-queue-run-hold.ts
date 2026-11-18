@@ -4,8 +4,9 @@ import { isOwnCheckout, UnresolvedMergeError, revertToSnapshot, snapshotTree, ty
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { hasCheckout, InvalidQueueCheckoutError } from './plan-queue-orphan-checkout';
 import { describePlanningMoves } from './plan-queue-planning-files';
-import { buildFixPrompt } from './plan-queue-prompts';
+import { directChangesForItem } from './plan-queue-direct-changes';
 import { PlanQueueCheckoutOwnershipError, readProvisionedPaths } from './plan-queue-worktree';
+import { workSourceFor } from './plan-queue-work-sources';
 import type { PlanQueueItem } from './plan-queue.types';
 
 const USAGE_WAIT_PREFIX = 'Waiting for usage: ';
@@ -60,8 +61,8 @@ export async function holdItem(
   // the resumed worker is told where they went, as the normal fix path does.
   const pendingInstructionNow = async (): Promise<string | null> => original.pendingInstruction
     ?? (original.verdict?.verdict === 'FAIL'
-      ? buildFixPrompt(original.round, host.getRun(original.runId).config.maxRounds, original.verdict.findings,
-        await describePlanningMoves(host.getRun(original.runId).workspaceCwd, original.id))
+      ? await workSourceFor(original.sourceKind).workerPrompts.fix(host.getRun(original.runId), original, original.round, host.getRun(original.runId).config.maxRounds, original.verdict.findings,
+        await describePlanningMoves(host.getRun(original.runId).workspaceCwd, original.id), await directChangesForItem(host.getRun(original.runId), original))
       : original.detail && !isHoldNote(original.detail) ? original.detail : null);
   await Promise.all([item.workerInstanceId, item.verifierInstanceId].filter((id): id is string => Boolean(id)).map(stopInstance));
   if (verifying) {

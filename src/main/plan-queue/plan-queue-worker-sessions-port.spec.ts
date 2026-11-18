@@ -53,18 +53,18 @@ describe('PlanQueueWorkerSessions.withLivetestPort', () => {
   });
 });
 
-describe('PlanQueueWorkerSessions.promptContext', () => {
+describe('PlanQueueWorkerSessions.firstPrompt', () => {
   it('reads a plan\'s Status and open work for its worker, and none for a livetest', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'prompt-context-'));
     try {
       const file = join(dir, 'a_plan.md');
       writeFileSync(file, '# A\n\n## Status\nNext: Step 2\n\n## Open\n- [ ] Open item\n');
       const plans = setup('plans', { sourceRef: file });
-      const context = await plans.sessions.promptContext(plans.run, plans.current());
-      expect(context.brief).toEqual({ status: 'Next: Step 2', acceptance: '- [ ] Open item' });
-      expect(context.directChanges).toEqual([]);
+      const prompt = await plans.sessions.firstPrompt(plans.run, plans.current());
+      expect(prompt).toContain('<plan_status>\nNext: Step 2\n</plan_status>');
+      expect(prompt).toContain('<plan_acceptance>\n- [ ] Open item\n</plan_acceptance>');
       const livetests = setup('livetests');
-      expect(await livetests.sessions.promptContext(livetests.run, livetests.current())).not.toHaveProperty('brief');
+      expect(await livetests.sessions.firstPrompt({ ...livetests.run, workspaceCwd: '/repo' }, livetests.current())).not.toContain('<plan_status>');
       expect(plans.sessions.continueContext(plans.run, plans.current())).not.toHaveProperty('brief');
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });

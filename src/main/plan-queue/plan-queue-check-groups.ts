@@ -8,7 +8,7 @@ import { blockingGateReceipts, notRunReasonOf, onlyTimedOut, type GateInput, typ
 import { recordCheckTimeout } from './plan-queue-check-timeouts';
 import type { PlanQueueFlowHost } from './plan-queue-host';
 import { machineGroupCoversMovedBase, groupRoundStillIntact } from './plan-queue-group-landing';
-import { readDocumentReview, type DocumentReview } from './plan-queue-document-review';
+import type { DocumentReview } from './plan-queue-document-review';
 import { readProvisionedPaths } from './plan-queue-worktree';
 import { syncItemWithBase } from './plan-queue-landing';
 import { workSourceFor } from './plan-queue-work-sources';
@@ -134,7 +134,7 @@ export class PlanQueueCheckGroups {
       if (!own) { if (member.verdict?.verdict !== 'PASS') return false; continue; }
       if (member.round !== own.round || member.sourceRef !== own.sourceRef || member.worktreePath !== own.input.cwd
         || member.checkpointCommit !== own.input.head || await gitExec(['rev-parse', 'HEAD'], own.input.cwd) !== own.input.head
-        || JSON.stringify(await readDocumentReview(member.sourceRef)) !== JSON.stringify(own.documentReview)) return false;
+        || JSON.stringify(await workSourceFor(member.sourceKind).reviewFingerprint(member)) !== JSON.stringify(own.documentReview)) return false;
       const provisioned = await readProvisionedPaths(own.input.cwd);
       if (await gitExec(['status', '--porcelain', '--untracked-files=all', '--', '.',
         ...provisioned.map(file => `:(exclude,literal)${file}`)], own.input.cwd)) return false;
@@ -172,7 +172,7 @@ export class PlanQueueCheckGroups {
         || !this.compatible(run, this.host.getRun(run.id))) return;
       try { await gitExec(['merge-base', '--is-ancestor', input.baseSha!, input.head], run.workspaceCwd); }
       catch (error) { if ((error as { code?: unknown }).code === 1) return; throw error; }
-      const members: Member[] = [{ itemId: leader.id, head: input.head, documentReview: await readDocumentReview(leader.sourceRef) }];
+      const members: Member[] = [{ itemId: leader.id, head: input.head, documentReview: await workSourceFor(leader.sourceKind).reviewFingerprint(leader) }];
       for (const id of group.members) {
         const member = await this.flow.lock(id, () => this.prepareMember(id, run, input));
         if (member) members.push(member);
@@ -272,7 +272,7 @@ export class PlanQueueCheckGroups {
     if (await gitExec(['rev-parse', `refs/heads/${run.config.baseBranch}`], run.workspaceCwd) !== input.baseSha) return;
     head = await gitExec(['rev-parse', 'HEAD'], item.worktreePath!);
     if (this.gates.cached({ ...input, cwd: item.worktreePath!, head }) || this.host.history.hasFailedCheckGroup(id, head)) return;
-    return { itemId: id, head, documentReview: await readDocumentReview(item.sourceRef) };
+    return { itemId: id, head, documentReview: await workSourceFor(item.sourceKind).reviewFingerprint(item) };
   }
 
   private eligibleClaimed(item: PlanQueueItem): boolean {

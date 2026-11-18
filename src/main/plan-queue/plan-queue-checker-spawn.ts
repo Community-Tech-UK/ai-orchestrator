@@ -1,7 +1,6 @@
 /** The checker spawn and teardown protocol, separate from item transitions. */
 import { requireOwnWorkFolder } from './plan-queue-spawn-guard';
 import { InvalidQueueCheckoutError } from './plan-queue-orphan-checkout';
-import { isLargeQueueDocument } from './plan-queue-document-policy';
 import type { PlanQueueParkReason } from '@contracts/schemas/plan-queue';
 import type { InstanceProvider } from '../../shared/types/instance.types';
 import { getLogger } from '../logging/logger';
@@ -55,7 +54,7 @@ export async function spawnQueueChecker(deps: CheckerSpawnDeps, waiting: PlanQue
         ...(choice.copilotProfileId ? { copilotAccountProfileId: choice.copilotProfileId } : {}),
         ...(choice.accountProfileIds?.length ? { allowedAccountProfileIds: choice.accountProfileIds } : {}),
         yoloMode: true,
-        metadata: { planQueueLargeDocument: isLargeQueueDocument(item.sourceRef), planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'verifier', planQueueRound: item.round, planQueueRouting: JSON.stringify(run.config.routing) },
+        metadata: { planQueueLargeDocument: workSourceFor(item.sourceKind).isLarge(item), planQueueRunId: run.id, planQueueItemId: item.id, planQueueRole: 'verifier', planQueueRound: item.round, planQueueRouting: JSON.stringify(run.config.routing) },
       });
       deps.host.registerRole(instance.id, { role: 'verifier', runId: run.id, itemId: item.id });
       recordSessionStart(deps.host, item.id, 'checker', instance.id, choice.provider, choice.modelOverride ?? deps.host.instances.getInstance(instance.id)?.currentModel);

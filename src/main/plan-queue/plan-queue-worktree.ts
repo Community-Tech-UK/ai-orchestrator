@@ -32,7 +32,6 @@ import { recoverLandingLeftover } from './plan-queue-landing-leftover';
 import type { PlanQueueItem } from './plan-queue.types';
 import { workSourceFor } from './plan-queue-work-sources';
 import type { PlanQueueHistoryStore } from './plan-queue-history-store';
-import { dietAtCheckpoint } from './plan-queue-plan-diet';
 import { appendPlanningNote, planningExclusions, planningMoveNote, relocatePlanningFiles, type PlanningMoveReport } from './plan-queue-planning-files';
 import { getCodemem } from '../codemem';
 import { stopAttributedLeftoversIn } from '../process/leftover-process-sweeper';
@@ -250,7 +249,7 @@ export class PlanQueueWorktreeService {
       // `??`: the write queue reruns a job after a Git lock error, and a rerun finds nothing left to recover.
       rescueRef = (await recoverLeftoverUnqueued(worktreePath, branchName, item.id, this.deps.repoRootForItem(item))) ?? rescueRef;
       await assertItemCheckout(worktreePath, branchName, this.deps.repoRootForItem(item));
-      await dietAtCheckpoint(item, this.deps.history);
+      await workSourceFor(item.sourceKind).trimAtCheckpoint(item, this.deps.history);
       // A resolved merge is completed by this commit (that is the worker
       // contract); an unresolved one must never be, or the conflict markers
       // would be committed and could land.

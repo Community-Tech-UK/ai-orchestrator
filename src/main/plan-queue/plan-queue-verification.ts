@@ -1,16 +1,13 @@
 /** Machine checks, durable round memory and pinned criteria for the queue flow. */
-import * as fs from 'node:fs/promises';
-import { readDocumentReview, type DocumentReview } from './plan-queue-document-review';
-import * as path from 'node:path';
+import type { DocumentReview } from './plan-queue-document-review';
 import type { PlanQueueVerdict } from '@contracts/schemas/plan-queue';
 import { gitExec } from '../workspace/git/git-exec';
 import { blockingGateReceipts, NOT_RUN_RETRY_MS, notRunReasonOf, onlyTimedOut, type PlanQueueGateRunner, type PlanQueueGateReceipt } from './plan-queue-gate-receipts';
 import { CHECK_HUNG_DETAIL, recordCheckTimeout } from './plan-queue-check-timeouts';
 import type { PlanQueueFlowHost } from './plan-queue-host';
-import { readPlanPin, comparePinnedUnchecked, extractChecklistItems } from './plan-queue-plan-pins';
-import { buildGateFailurePrompt, buildVerifierPrompt } from './plan-queue-prompts';
-import { bounded, PLAN_BRIEF_BYTES, readPlanBrief } from './plan-queue-plan-extract';
-import { decideNoProgress, documentContentSha256, progressFingerprint, recordRepeatedFindingObservation, repeatedFindingIds } from './plan-queue-progress';
+import { buildGateFailurePrompt } from './plan-queue-prompts';
+import { decideNoProgress, progressFingerprint, recordRepeatedFindingObservation, repeatedFindingIds } from './plan-queue-progress';
+import { workSourceFor } from './plan-queue-work-sources';
 import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { PlanQueueCheckGroups, type CheckGroupFlow } from './plan-queue-check-groups';
 import { deferredPassProblems } from './plan-queue-deferred-checks';
@@ -53,7 +50,7 @@ export class PlanQueueVerification {
 
   async pin(item: PlanQueueItem): Promise<void> {
     if (this.host.history.getPin(item.id)) return;
-    const pin = await readPlanPin(item);
+    const pin = await workSourceFor(item.sourceKind).readPin(item, Date.now());
     if (!pin) throw new Error('The source document could not be read before starting work');
     this.host.history.recordPinIfAbsent(pin);
   }
@@ -74,7 +71,7 @@ export class PlanQueueVerification {
   private async prepareChecks(item: PlanQueueItem, grouped: PlanQueueGateReceipt[] | undefined): Promise<Preparation> {
     this.checkedDocuments.delete(item.id);
     const run = this.host.getRun(item.runId);
-    const fingerprint = JSON.stringify(progressFingerprint(item.checkpointCommit, await documentContentSha256(item.sourceRef), item.round));
+    const fingerprint = JSON.stringify(progressFingerprint(item.checkpointCommit, await workSourceFor(item.sourceKind).contentHash(item), item.round));
     const warned = this.host.history.listEvents(item.id).some(event => event.reason === 'no-progress-warning' && event.detailHead === fingerprint);
     const progress = await decideNoProgress(this.host.history.listVerdicts(item.id), item, warned);
     if (progress.kind === 'park') return { ...progress, reason: 'no-progress' };
@@ -148,7 +145,7 @@ export class PlanQueueVerification {
     const configured = this.host.getRun(item.runId).config.verifierGates;
     const red = blockingGateReceipts(receipts);
     const missing = configured.length > 0 && (receipts.length !== configured.length || receipts.some(receipt => receipt.head !== head));
-    const currentReview = await readDocumentReview(item.sourceRef);
+    const currentReview = await workSourceFor(item.sourceKind).reviewFingerprint(item);
     const documentHash = currentReview.documentSha256;
     const checkedHash = this.checkedDocuments.get(item.id);
     const changedDocument = !documentHash || (checkedHash !== undefined && JSON.stringify(checkedHash) !== JSON.stringify(currentReview));
@@ -183,12 +180,7 @@ export class PlanQueueVerification {
     const earlier = rows.filter(row => row.verdict === 'FAIL').map(row => ({ round: row.round, findings: row.findings,
       status: 'unconfirmed, re-check', workerClaim: events
         .find(event => event.reason === 'worker-claim' && event.round === row.round)?.detailHead ?? 'No claimed fix was recorded.' }));
-    const pin = this.host.history.getPin(item.id);
-    const currentBytes = await fs.readFile(item.sourceRef);
-    const current = currentBytes.toString('utf8');
-    const relative = path.relative(run.workspaceCwd, item.sourceRef);
-    const docDiff = item.baseCommit && !relative.startsWith('..')
-      ? await gitExec(['diff', `${item.baseCommit}..HEAD`, '--', relative], item.worktreePath!) : '';
+    const source = workSourceFor(item.sourceKind);
     const receipts = this.receipts.get(item.id) ?? [];
     if (this.checkedDocuments.has(item.id) && receipts[0]?.checkGroup) {
       // Selection and the read-only snapshot await after preparation. Recheck here,
@@ -196,15 +188,10 @@ export class PlanQueueVerification {
       if (!await this.groups.confirmPending(item.id, receipts)) {
         throw new Error('The work or source document changed before its checker started; it will be checked again.');
       }
-    } else this.checkedDocuments.set(item.id, await readDocumentReview(item.sourceRef));
-    return buildVerifierPrompt({ item, kind: run.kind, repoRoot: run.workspaceCwd, worktreePath: item.worktreePath!, baseBranch,
-      gates: run.config.verifierGates, receipts: this.receipts.get(item.id) ?? [],
-      // The checker reads the plan's Status and open work and a change summary, then sections by line range.
-      diffStat: bounded(await gitExec(['diff', '--stat', `${baseBranch}...HEAD`], item.worktreePath!), PLAN_BRIEF_BYTES, '[Change summary truncated. Run git diff --stat for the rest.]'),
-      ...(run.kind === 'plans' ? { brief: await readPlanBrief(item.sourceRef, item.section) } : {}),
-      directChanges: await directChangesForItem(run, item),
-      earlierRounds: rows.length ? JSON.stringify({ earlier, diffSinceLastCheck: diff }) : undefined,
-      documentChanges: pin ? JSON.stringify({ originalHash: pin.documentSha256, originalUnchecked: pin.unchecked,
-        changes: comparePinnedUnchecked(pin.unchecked, extractChecklistItems(current, 'all')), diff: docDiff }) : undefined });
+    } else this.checkedDocuments.set(item.id, await source.reviewFingerprint(item));
+    return source.checkerPrompt({ run, item, baseBranch, receipts,
+      diffStat: await gitExec(['diff', '--stat', `${baseBranch}...HEAD`], item.worktreePath!),
+      earlierRounds: rows.length ? JSON.stringify({ earlier, diffSinceLastCheck: diff }) : undefined, pin: this.host.history.getPin(item.id) ?? undefined,
+      directChanges: await directChangesForItem(run, item) });
   }
 }

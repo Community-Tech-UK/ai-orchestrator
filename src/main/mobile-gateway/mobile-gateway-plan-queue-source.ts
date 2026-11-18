@@ -13,7 +13,7 @@ export function projectPlanQueueItem(item: PlanQueueItemDto): MobilePlanQueueIte
   return {
     id: item.id,
     runId: item.runId,
-    title: titleOf(item.sourceRef),
+    title: item.title ?? titleOf(item.sourceRef),
     sourceRef: item.sourceRef,
     state: item.state,
     round: item.round,
