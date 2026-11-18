@@ -21,7 +21,7 @@ import { nativeSessionIdInUse } from './claude-transcript-registry';
 import { resolveBashHookCommand } from '../hooks/hook-path-resolver';
 import { CLAUDE_SUBAGENT_WAITING_RULE_ROLLOUT, materializeSubagentWaitingRuleFile, resolveClaudeSubagentPromptArgs } from './claude-subagent-policy';
 import { DEFAULT_DISALLOWED_TOOLS } from './host-cli-tool-policy';
-import { buildPreCompactOverlay } from './claude-precompact-overlay';
+import { buildPreCompactOverlay, preCompactRoleFor } from './claude-precompact-overlay';
 import { EXCLUDE_DYNAMIC_SECTIONS_FLAG, EXCLUDE_DYNAMIC_MIN_VERSION, RECORDED_PROMPT_MIN_VERSION, isVersionAtLeast, isKnownOlderThan, resolveClaudeCliVersion } from './claude-cli-feature-probes';
 import { getLogger } from '../../logging/logger';
 import type {
@@ -114,6 +114,33 @@ export function buildClaudeSettingsOverlay(
   if (permissionHooks) settings.hooks = { ...settings.hooks, ...permissionHooks };
 
   return Object.keys(settings).length > 0 ? JSON.stringify(settings) : undefined;
+}
+
+/**
+ * What a `--settings` overlay holds, with no values that could carry text:
+ * the top-level key names, the hook event names (with how many entries each has),
+ * and the settings whose value is a number or a true/false switch. Hook command
+ * lines, plugin ids and every other string value are left out.
+ */
+export function summarizeClaudeSettingsOverlay(overlay: string | undefined): {
+  topLevelKeys: string[];
+  hookEvents: Record<string, number>;
+  numericSettings: Record<string, number>;
+  switches: Record<string, boolean>;
+} {
+  const summary = { topLevelKeys: [] as string[], hookEvents: {} as Record<string, number>,
+    numericSettings: {} as Record<string, number>, switches: {} as Record<string, boolean> };
+  if (!overlay) return summary;
+  const parsed = JSON.parse(overlay) as Record<string, unknown>;
+  summary.topLevelKeys = Object.keys(parsed);
+  for (const [key, value] of Object.entries(parsed)) {
+    if (typeof value === 'number') summary.numericSettings[key] = value;
+    else if (typeof value === 'boolean') summary.switches[key] = value;
+    else if (key === 'hooks' && value && typeof value === 'object') {
+      for (const [event, entries] of Object.entries(value)) summary.hookEvents[event] = Array.isArray(entries) ? entries.length : 0;
+    }
+  }
+  return summary;
 }
 
 export interface BuildClaudeCliArgsInput {
@@ -228,6 +255,15 @@ export function buildClaudeCliArgs(input: BuildClaudeCliArgsInput): string[] {
   if (settingsOverlay) {
     args.push('--settings', materializeInlineJsonArg(settingsOverlay));
   }
+  // The spawned command line cannot be read from inside a hardened session, so record the
+  // overlay's shape here (names and numbers only) for a test to read from the app log.
+  logger.debug('claude settings overlay', {
+    sessionId,
+    role: spawnOptions.machineSession ?? null,
+    preCompactRole: preCompactRoleFor(spawnOptions.machineSession) ?? null,
+    overlayPresent: settingsOverlay !== undefined,
+    ...summarizeClaudeSettingsOverlay(settingsOverlay),
+  });
 
   if (input.shouldUseNativeResume) {
     args.push('--resume', sessionId!);

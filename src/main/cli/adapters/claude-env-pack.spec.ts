@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { getLogger } from '../../logging/logger';
 import {
   _setSettingsReaderForTesting,
   applyClaudeHygieneEnv,
@@ -246,5 +247,42 @@ describe('CLAUDE_CODE_SUBAGENT_MODEL wiring (Step 2 item 2)', () => {
     expect(run('parent', SONNET_GROUP_SESSION)).not.toHaveProperty('CLAUDE_CODE_SUBAGENT_MODEL');
     expect(run(undefined, SONNET_GROUP_SESSION)).not.toHaveProperty('CLAUDE_CODE_SUBAGENT_MODEL');
     expect(run('sonnet', SAME_AS_SESSION_GROUP)['CLAUDE_CODE_SUBAGENT_MODEL']).toBe('sonnet');
+  });
+});
+
+describe('native limits record in the app log (capability repair df6fa124)', () => {
+  beforeEach(() => { getSettingMock.mockReset(); getSettingMock.mockReturnValue(undefined); });
+  const limitLines = (debug: { mock: { calls: unknown[][] } }) =>
+    debug.mock.calls.filter(call => call[0] === 'claude native limits').map(call => call[1] as Record<string, unknown>);
+
+  it('records the limits each machine role starts with, including the fork switch only where it is set', () => {
+    const debug = vi.spyOn(getLogger('ClaudeEnvPack'), 'debug');
+    applyClaudeHygieneEnv({}, 'q', { machineSession: 'plan-queue' });
+    applyClaudeHygieneEnv({}, 'a', { machineSession: 'automation' });
+    const [queue, automation] = limitLines(debug);
+    expect(queue).toEqual({ sessionId: 'q', role: 'plan-queue', limits: {
+      CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: '1', CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION: '60',
+      CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: '6', CLAUDE_CODE_FORK_SUBAGENT: '0' } });
+    expect(automation['limits']).toEqual({
+      CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: '2', CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION: '60',
+      CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: '6' });
+    debug.mockRestore();
+  });
+
+  it('records a caller-supplied number as set and hides any other text', () => {
+    const debug = vi.spyOn(getLogger('ClaudeEnvPack'), 'debug');
+    applyClaudeHygieneEnv({ CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: '3', CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION: 'sk-private' }, 'l', { machineSession: 'loop' });
+    const [line] = limitLines(debug);
+    expect(line['limits']).toMatchObject({ CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: '3', CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION: 'non-numeric' });
+    expect(JSON.stringify(line)).not.toContain('sk-private');
+    debug.mockRestore();
+  });
+
+  it('writes nothing for ordinary sessions and reviewers, which keep the native limits', () => {
+    const debug = vi.spyOn(getLogger('ClaudeEnvPack'), 'debug');
+    applyClaudeHygieneEnv({}, 'c');
+    applyClaudeHygieneEnv({}, 'r', { machineSession: 'review' });
+    expect(limitLines(debug)).toEqual([]);
+    debug.mockRestore();
   });
 });

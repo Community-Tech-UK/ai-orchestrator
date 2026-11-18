@@ -1,5 +1,6 @@
 import type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
 import { resolveClaudeCliVersion } from './claude-cli-feature-probes';
+import { getLogger } from '../../logging/logger';
 import { claudeSubagentArmForSession, resolveClaudeSubagentEnv, type ClaudeHelperAgentModelSetting } from './claude-subagent-policy';
 /**
  * WS14 — Claude CLI hygiene env/flag pack.
@@ -53,6 +54,14 @@ export function applyClaudeTaskToolsEnv(env: Record<string, string>, instanceId?
   if (isInstanceTaskTools(instanceId) && !('CLAUDE_CODE_ENABLE_TODO_TOOLS' in env)) {
     env['CLAUDE_CODE_ENABLE_TODO_TOOLS'] = '1';
   }
+}
+
+const logger = getLogger('ClaudeEnvPack');
+
+/** A limit's value for the log: the number as set, or a marker when a caller supplied something else. */
+function logValue(value: string | undefined): string {
+  if (value === undefined) return 'unset';
+  return /^\d{1,6}$/.test(value) ? value : 'non-numeric';
 }
 
 /** Fail-soft settings read, worker-safe (mirrors base-cli-adapter-degraded-output). */
@@ -116,6 +125,13 @@ export function applyClaudeHygieneEnv(
     for (const [key, value] of Object.entries(limits)) {
       if (!(key in env) && process.env[key] === undefined) env[key] = value;
     }
+    // The spawned process's environment cannot be read from inside a hardened session, so record the
+    // limits it will start with. These are the only values logged; each is a count or a 0/1 switch.
+    logger.debug('claude native limits', {
+      sessionId: sessionId ?? null,
+      role: reason,
+      limits: Object.fromEntries(Object.keys(limits).map(key => [key, logValue(env[key] ?? process.env[key])])),
+    });
   }
   if (!('DISABLE_UPDATES' in env)) {
     env['DISABLE_UPDATES'] = '1';

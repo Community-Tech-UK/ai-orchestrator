@@ -3,6 +3,7 @@ import {
   buildClaudeCliArgs,
   buildClaudeSettingsOverlay,
   mapClaudeReasoningEffort,
+  summarizeClaudeSettingsOverlay,
   type BuildClaudeCliArgsInput,
 } from './claude-cli-argv-builder';
 import type { ClaudeCliSpawnOptions } from './claude-cli-adapter.types';
@@ -11,6 +12,7 @@ import { CLAUDE_SUBAGENT_WAITING_RULE } from './claude-subagent-policy';
 import { CLAUDE_READ_ONLY_REVIEW_TOOLS } from './claude-machine-session-policy';
 import { readFileSync, statSync } from 'node:fs';
 import { _setOutputCapSettingsReaderForTesting } from './claude-output-caps';
+import { getLogger } from '../../logging/logger';
 
 const detection = vi.hoisted(() => ({ peekCachedResult: vi.fn((): unknown => null) }));
 vi.mock('../cli-detection', () => ({ getCliDetectionService: () => detection }));
@@ -583,5 +585,68 @@ describe('Harness tool approvals in ask-first sessions (2026-11-08 scheduled-ses
     const review = buildClaudeCliArgs(baseInput({ shouldUsePermissionHook: true,
       spawnOptions: { yoloMode: false, readOnlyReview: true, machineSession: 'review', permissionHookPath: HOOK } }));
     expect(review.join(' ')).not.toContain('PreToolUse');
+  });
+});
+
+describe('settings overlay record in the app log (capability repair df6fa124)', () => {
+  const overlayLines = (debug: { mock: { calls: unknown[][] } }) =>
+    debug.mock.calls.filter(call => call[0] === 'claude settings overlay').map(call => call[1] as Record<string, unknown>);
+
+  it('records a queue worker overlay: role, key names, hook events and numbers, never hook commands', () => {
+    const debug = vi.spyOn(getLogger('ClaudeCliAdapter'), 'debug');
+    buildClaudeCliArgs(baseInput({
+      sessionId: 'sess-queue',
+      shouldUsePermissionHook: true,
+      cliVersion: '2.1.304',
+      spawnOptions: { machineSession: 'plan-queue', permissionHookPath: '/secret-path/hook.js', bashOutputMaxChars: 12345 },
+    }));
+    const [line] = overlayLines(debug);
+    expect(line).toMatchObject({ sessionId: 'sess-queue', role: 'plan-queue', preCompactRole: 'queue-worker', overlayPresent: true });
+    expect(line['topLevelKeys']).toEqual(expect.arrayContaining(['hooks', 'precomputeCompactionEnabled', 'enabledPlugins']));
+    expect(line['hookEvents']).toMatchObject({ PreToolUse: expect.any(Number), PermissionRequest: 1 });
+    expect(line['switches']).toMatchObject({ precomputeCompactionEnabled: false });
+    expect(JSON.stringify(line)).not.toContain('/secret-path/hook.js');
+    expect(JSON.stringify(line)).not.toContain('command');
+    debug.mockRestore();
+  });
+
+  it('records a YOLO queue worker (the real runtime path) with compaction settings and no permission hooks', () => {
+    const debug = vi.spyOn(getLogger('ClaudeCliAdapter'), 'debug');
+    buildClaudeCliArgs(baseInput({
+      sessionId: 'sess-queue-yolo',
+      shouldUsePermissionHook: true,
+      cliVersion: '2.1.304',
+      spawnOptions: { machineSession: 'plan-queue', yoloMode: true, permissionHookPath: '/secret-path/hook.js' },
+    }));
+    const [line] = overlayLines(debug);
+    expect(line).toMatchObject({ role: 'plan-queue', preCompactRole: 'queue-worker', overlayPresent: true });
+    // The PreCompact hook command only resolves when the hook script is on disk (a built app), so
+    // the unit test cannot require it; it can require that no permission hook is present.
+    expect(line['topLevelKeys']).toContain('precomputeCompactionEnabled');
+    expect(line['hookEvents']).not.toHaveProperty('PermissionRequest');
+    expect(line['hookEvents']).not.toHaveProperty('PreToolUse');
+    debug.mockRestore();
+  });
+
+  it('records a person\'s own session as having no role and no overlay, and a plain completion likewise', () => {
+    const debug = vi.spyOn(getLogger('ClaudeCliAdapter'), 'debug');
+    buildClaudeCliArgs(baseInput({ sessionId: 'sess-own' }));
+    buildClaudeCliArgs(baseInput({ sessionId: 'sess-plain', spawnOptions: { plainCompletion: true, machineSession: 'review' } }));
+    const [own, plain] = overlayLines(debug);
+    expect(own).toMatchObject({ role: null, preCompactRole: null, overlayPresent: false, topLevelKeys: [], hookEvents: {} });
+    expect(plain).toMatchObject({ overlayPresent: false, topLevelKeys: [] });
+    debug.mockRestore();
+  });
+
+  it('summarises numbers and switches but leaves out every string value', () => {
+    expect(summarizeClaudeSettingsOverlay(JSON.stringify({
+      bashOutputMaxChars: 30000, fastMode: true, note: 'private text',
+      enabledPlugins: { 'a@b': false }, hooks: { PreCompact: [{ hooks: [{ command: 'node x.js' }] }] },
+    }))).toEqual({
+      topLevelKeys: ['bashOutputMaxChars', 'fastMode', 'note', 'enabledPlugins', 'hooks'],
+      hookEvents: { PreCompact: 1 },
+      numericSettings: { bashOutputMaxChars: 30000 },
+      switches: { fastMode: true },
+    });
   });
 });
