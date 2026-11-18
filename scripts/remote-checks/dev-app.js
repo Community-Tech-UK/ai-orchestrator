@@ -32,7 +32,7 @@ const os = require('os');
 const path = require('path');
 const { appendRunLog, isLoopRun, readConfig, remoteChecksDir } = require('./route');
 const { SSH_OPTIONS, sendScript, sendSnapshot, sshCommand } = require('./run-remote');
-const { SnapshotRefused, cleanGitEnv, takeSnapshot } = require('./snapshot');
+const { SnapshotRefused, cleanGitEnv, snapshotFileHash, takeSnapshot } = require('./snapshot');
 
 const STAY_HERE = 75;
 const USAGE_ERROR = 2;
@@ -47,6 +47,11 @@ const ANSWER_WAIT_MS = 15_000;
 const BUSY_LOAD_PER_CORE = 1.5;
 /** How long to wait before looking again when every computer is busy. AIO_DEVAPP_RECHECK_MS changes it. */
 const RECHECK_MS = 2 * 60_000;
+/**
+ * What a checkout needs for the copy to be owned as a live test: the far script runs the first, the app reads the second.
+ * A branch cut before they landed has neither, and without this check it fails only after the install and both builds.
+ */
+const LIVE_TEST_FILES = ['scripts/remote-checks/live-test-copy.js', 'src/main/app/live-test-context.ts'];
 const DATA_FOLDER = /^\/tmp\/aio-lt-[A-Za-z0-9._-][A-Za-z0-9._/-]*$/;
 
 const USAGE = `dev-app: a live test's Harness copy, run on another computer and driven from here.
@@ -478,6 +483,12 @@ async function start({ options, root, env, write, answers, localLoad }) {
     }
     if (checkedTree && snapshot.tree !== checkedTree) {
       write('dev-app: the actual index snapshot does not match the checked tree; nothing was sent.\n');
+      return false;
+    }
+    const missing = LIVE_TEST_FILES.find(file => snapshotFileHash(root, snapshot, file) === 'none');
+    if (missing) {
+      write(`dev-app: this checkout has no ${missing}, which a live-test copy needs. It was probably cut before that landed: `
+        + 'merge main into it, then run this again. Nothing was sent.\n');
       return false;
     }
     return true;

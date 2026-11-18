@@ -3,7 +3,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSyn
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -100,7 +100,7 @@ function freePort(): Promise<number> {
  * `config` is the test Mac's entry. With `pc`, the Windows PC's Linux space is the file's top-level machine, as it is
  * on James's Mac, and the test Mac follows it in `moreMachines`.
  */
-function setUp(config: Record<string, unknown> | null = {}, { pc = false } = {}) {
+function setUp(config: Record<string, unknown> | null = {}, { pc = false, liveTestFiles = true } = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'dev-app-')));
   temps.push(base);
   const root = join(base, 'harness');
@@ -111,6 +111,13 @@ function setUp(config: Record<string, unknown> | null = {}, { pc = false } = {})
   mkdirSync(dir);
   writeFileSync(join(root, '.nvmrc'), '24\n');
   writeFileSync(join(root, 'a.ts'), 'committed\n');
+  // What a checkout needs for a live-test copy; a branch cut before these landed has neither.
+  if (liveTestFiles) {
+    for (const file of ['scripts/remote-checks/live-test-copy.js', 'src/main/app/live-test-context.ts']) {
+      mkdirSync(dirname(join(root, file)), { recursive: true });
+      writeFileSync(join(root, file), '// stand-in\n');
+    }
+  }
   git(root, 'init', '-q', '-b', 'main');
   git(root, 'add', '-A');
   git(root, 'commit', '-qm', 'base');
@@ -226,6 +233,31 @@ describe('dev-app start', () => {
     expect(result.output).toContain('checked tree');
     expect(result.sshLog).toBe('');
   });
+  it.each([
+    ['scripts/remote-checks/live-test-copy.js', []],
+    ['src/main/app/live-test-context.ts', []],
+    ['scripts/remote-checks/live-test-copy.js', ['--checked-tree']],
+  ])('refuses a checkout without %s before anything is sent (%j)', async (missing, flags) => {
+    const setup = setUp();
+    git(setup.root, 'rm', '-q', missing);
+    git(setup.root, 'commit', '-qm', 'branch cut before the live-test files landed');
+    const checked = flags.length ? ['--checked-tree', git(setup.root, 'rev-parse', 'HEAD^{tree}')] : [];
+    const result = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-stale', ...checked]);
+    expect(result.code).toBe(1);
+    expect(result.output).toContain(`no ${missing}`);
+    expect(result.output).toContain('merge main');
+    expect(result.sshLog).toBe('');
+    expect(existsSync(join(setup.fake, 'start-data'))).toBe(false);
+  }, LIMIT);
+
+  it('refuses a checkout with neither live-test file, naming the first one', async () => {
+    const setup = setUp(undefined, { liveTestFiles: false });
+    const result = await run(setup, ['start', '--port', String(await freePort()), '--data', '/tmp/aio-lt-stale']);
+    expect(result.code).toBe(1);
+    expect(result.output).toContain('no scripts/remote-checks/live-test-copy.js');
+    expect(result.sshLog).toBe('');
+  }, LIMIT);
+
   it('sends the files on disk, starts the copy there with the data folder as data, and connects the port here', async () => {
     const setup = setUp();
     const port = await freePort();

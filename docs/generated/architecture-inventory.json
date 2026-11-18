@@ -7805,6 +7805,10 @@
       "lines": 817
     },
     {
+      "path": "scripts/remote-checks/dev-app.spec.ts",
+      "lines": 816
+    },
+    {
       "path": "src/main/remote-node/remote-node-file-transfer-mcp-service.ts",
       "lines": 816
     },
