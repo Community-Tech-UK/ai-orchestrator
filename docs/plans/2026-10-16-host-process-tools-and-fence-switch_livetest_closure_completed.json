@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "relativePath": "2026-10-16-host-process-tools-and-fence-switch_livetest.md",
+      "sha256": "23ac0a39e50bdcef418146d7a53ab4b1f3d5246b1b1313a4939a1f85143c75f4",
+      "retire": true
+    },
+    {
+      "relativePath": "2026-10-16-host-process-tools-and-fence-switch_history.md",
+      "sha256": null,
+      "retire": false
+    },
+    {
+      "relativePath": "2026-10-16-host-process-tools-and-fence-switch_history_completed.md",
+      "sha256": null,
+      "retire": false
+    }
+  ],
+  "candidateHistorySha256": null,
+  "outputs": [
+    {
+      "relativePath": "2026-10-16-host-process-tools-and-fence-switch_livetest_completed.md",
+      "sha256": "23ac0a39e50bdcef418146d7a53ab4b1f3d5246b1b1313a4939a1f85143c75f4"
+    }
+  ]
+}

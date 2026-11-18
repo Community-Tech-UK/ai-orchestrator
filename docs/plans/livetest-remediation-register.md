@@ -402,6 +402,8 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1040 | P2 | **FIXED ON MAIN; re-verify after landing.** Opening Settings (and any Control Center page) threw `Cannot read properties of undefined (reading 'data')` from `ControlSurfaceShellComponent.findActiveSurfaceId` because the shell read a live child route's snapshot before its outlet had activated. Main now walks the already-recognised `route.snapshot` tree (`src/renderer/app/shared/control-surface/control-surface-shell.component.ts:179-193`), with regressions in `control-surface-shell.component.spec.ts`. Same failure as LT-790 in the Local AI parity report. | [LT-1040 detail](#lt-1040) | host-process-tools-and-fence-switch livetest |
+| LT-1041 | P2 | **FIXED ON MAIN; installed-app discovery verified 2026-11-07 and 2026-11-11.** A tool search for `process` returned only the settings and Git tools, never `list_host_processes` or `stop_leftover_processes`: the ranker matches whole words and the descriptions said only "programs". The shared descriptions now contain the word `process` (`src/main/mcp/orchestrator-host-process-tools.ts:15`), with full-catalogue regressions on the deferred and stable surfaces. | [LT-1041 detail](#lt-1041) | host-process-tools-and-fence-switch livetest |
 | LT-1157 | P1 | **FIXED AND VERIFIED LIVE 2026-11-12 (source fix and rebuilt-app recheck).** A Codex session could never use Land anyway: its call was always refused with "This session's provider can't report when a turn starts". The queue asked the Codex adapter whether it reports turn starts while the adapter was being attached, before it had started, when it still says no. Found live on a Codex parent in a dev app. The check now asks at the time of the call. | [LT-1157 detail](#lt-1157) | [Land anyway live checks](2026-11-04-pq-b1-land-anyway_plan_livetest.md) |
 | LT-1156 | P2 | **SOURCE FIX VERIFIED 2026-11-11; rebuilt-app check pending.** The one-time "turn cost display on" settings change that Phase A recorded as implemented (Decision 15(a)) was not in the code. James's saved settings hold `showCost: false`, so session cost stayed hidden after the upgrade. Reproduced in a throwaway dev app, then fixed by restoring the migration (`migrateCostDisplayDecision`) with a test. |
 | LT-1145 | P2 | **PATCHED IN SOURCE + LIVE RECHECKED 2026-11-11 (queue worktree dev app); independent review pending.** A session context menu opened from the keyboard (Menu key or Shift+F10) stayed open but could not be reached: focus stayed on the row, arrow keys did nothing and 70 Tab presses never entered the menu. The instance list now moves focus into the menu for keyboard-opened menus and returns it to the row on close. [Detail](#lt-1145) | [Oct2 later live checks, 11 Nov 2026 run](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11) | same |
@@ -16457,3 +16459,35 @@ once `compactContext()` has returned false.
 A compaction the person cancelled ends as cancelled: no fallback, the provider thread is kept and the session returns to idle. Needs a cancelled outcome from
 `compactContext()` through `nativeCompact` (`compaction-runtime.ts`) into the coordinator, which must not start `restartCompactStrategy` for it. Acceptance: repeat the
 LT-1177 fixture; the session keeps its provider session id and no continuity package appears.
+
+## LT-1040 — entering Settings throws while the control shell looks up the active page
+
+**Status:** fixed on main (shared fix with LT-790; see the completed plans listed below). Re-verify after landing. Origin: LT-A1 to LT-B3 live test, 2026-10-27 run (originally recorded there as the branch-local number LT-723, which collides with an unrelated Plan Queue defect; LT-732 and LT-791 were also used and not retained). Pending independent verification.
+
+### Observed behaviour
+
+2026-10-27, isolated dev profile. The first dashboard to Settings navigation logged `Cannot read properties of undefined (reading 'data')` from `ControlSurfaceShellComponent.findActiveSurfaceId`. A second dashboard to Settings navigation with a cleared capture buffer logged it again. Settings then rendered and its controls worked. Receipt: `settings-route-repro.json` in the root checkout's `docs/plans/evidence/2026-10-27-host-process-tools/` (that folder is gitignored by `docs/plans/*evidence/`, so it exists only in the root checkout).
+
+### Root cause
+
+The shell's constructor subscription read `current.snapshot.data` on live child routes, which have no snapshot until their outlet activates. The recognised snapshot tree (`route.snapshot.firstChild`) already existed.
+
+### Required behaviour and acceptance
+
+The active page id comes from the complete recognised snapshot tree; the deepest page with metadata wins; no exception on direct load or navigation to Settings, Local AI, Automations or a nested route. Acceptance: `control-surface-shell.component.spec.ts` real-router cases (they failed on the old code, per the root plan `2026-10-27-control-surface-route-snapshot-remediation_plan_completed.md`) pass, and a 2026-11-11 dev-app run opened Settings and the page collected no window error events (script `e13.js` in the root checkout's `docs/plans/evidence/2026-11-11-host-process-fence-ui-worker/scripts/`; the run is described in the livetest document).
+
+## LT-1041 — searching for "process" does not find the host process tools
+
+**Status:** fixed on main. Installed-app discovery verified 2026-11-07 (`evidence/2026-11-07-host-process-tools-resume/installed-discovery-2026-11-07.json`) and a native Claude session found both tools with the default limit. Pending independent verification. Origin: LT-A1 live test, 2026-10-27 retry (originally recorded there as the branch-local number LT-791, not retained).
+
+### Observed behaviour
+
+The installed forwarder and a fresh worktree build both answered a `process` search with only `set_setting` and `git_batch_pull`. Looking the tools up by exact name worked.
+
+### Root cause
+
+The tool-search ranker matches whole words and does not stem. The tool names contain the plural `processes` and the descriptions said "programs", so the singular `process` matched neither.
+
+### Required behaviour and acceptance
+
+A `process` search with the default limit returns both tools on the deferred and stable surfaces, with no change to search semantics, schemas, ownership rules or the fence. Acceptance: the full-catalogue regressions in `orchestrator-mcp-deferral.spec.ts` (line 176) and `orchestrator-mcp-stable-tools.spec.ts` (line 119) pass; the installed run above found both tools. Implementation notes: root plan `2026-10-27-host-process-discovery-remediation_plan.md`.
