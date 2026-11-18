@@ -123,7 +123,8 @@ export function createLinearWorkSource(deps: LinearWorkSourceDependencies): Queu
     stepUpInstruction: (failedRounds, findings) => buildStepUpInstruction(failedRounds, findings, 'ticket'),
     async checkerPrompt({ run, item, baseBranch, receipts, diffStat, earlierRounds }) {
       const ctx = await context(item, run.workspaceCwd, item.worktreePath);
-      return buildTicketCheckerPrompt({ ...ctx, baseBranch, gates: run.config.verifierGates, receipts, earlierRounds, diffStat });
+      // The checker did not start before the change: only a worker is told the ticket changed since it started.
+      return buildTicketCheckerPrompt({ ...ctx, changedSinceStart: false, baseBranch, gates: run.config.verifierGates, receipts, earlierRounds, diffStat });
     },
 
     // A ticket has no steps and no plan to mark.

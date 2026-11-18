@@ -117,4 +117,29 @@ describe('a work source that holds one job', () => {
     await pumpPlanQueue(host);
     expect(saves).toEqual([]);
   });
+  it('takes an answered question off a job whose hold the answer was to release (a shutdown between the two), and then starts it', async () => {
+    const items = waiting();
+    const answered = { ...ASKED };
+    Object.assign(items[0], { question: answered, heldAt: 5, detail: ASKED.question });
+    Object.assign(items[1], { question: answered, heldAt: 5, detail: ASKED.question });
+    // A job held for something else keeps its note and its hold; only the question goes.
+    Object.assign(items[2], { question: answered, heldAt: 5, detail: 'Waiting for usage: out. The queue tries again every few minutes.' });
+    const { host, starts, saves } = setUp(items);
+    await pumpPlanQueue(host);
+    expect(saves).toEqual(expect.arrayContaining([{ id: 'worker', question: null }, { id: 'check', question: null }, { id: 'other-worker', question: null }]));
+    expect(items[0]).toMatchObject({ question: null, detail: null, heldAt: null });
+    expect(items[1]).toMatchObject({ question: null, detail: null, heldAt: null });
+    expect(items[2]).toMatchObject({ question: null, heldAt: 5, detail: 'Waiting for usage: out. The queue tries again every few minutes.' });
+    expect(starts).toEqual(expect.arrayContaining(['worker', 'check']));
+  });
+
+  it('leaves an ordinary question on a job alone', async () => {
+    const items = waiting();
+    const ordinary = { question: 'Which one?', options: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] };
+    Object.assign(items[0], { question: ordinary });
+    const { host, saves } = setUp(items);
+    await pumpPlanQueue(host);
+    expect(saves).toEqual([]);
+    expect(items[0].question).toEqual(ordinary);
+  });
 });

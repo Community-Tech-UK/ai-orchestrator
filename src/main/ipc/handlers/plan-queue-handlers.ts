@@ -14,6 +14,8 @@ import {
   PlanQueueListPayloadSchema,
   PlanQueueStartPayloadSchema,
   PlanQueueStartSetAsideAgentPayloadSchema,
+  PlanQueueTicketAskAnswerPayloadSchema,
+  PlanQueueTicketAskReadPayloadSchema,
   PlanQueuePreviewPayloadSchema,
   type PlanQueueStateChangedEvent,
 } from '@contracts/schemas/plan-queue';
@@ -24,6 +26,7 @@ import {
   PlanQueueLiveTestFixtureStartSchema,
 } from '../../plan-queue/plan-queue-livetest-fixture';
 import type { WindowManager } from '../../window-manager';
+import { readTicketAsk } from '../../plan-queue/plan-queue-ticket-answer';
 import { previewPlanQueueDocuments } from '../../plan-queue/plan-queue-discovery';
 import { repositoryRoot } from '../../plan-queue/plan-queue-git';
 import { handle } from './plan-queue-ipc-helpers';
@@ -81,6 +84,19 @@ export function registerPlanQueueHandlers(deps: { windowManager: WindowManager }
   handle(IPC_CHANNELS.PLAN_QUEUE_ANSWER, 'PLAN_QUEUE_ANSWER_FAILED', async (payload) => {
     const validated = validateIpcPayload(PlanQueueAnswerPayloadSchema, payload, 'PLAN_QUEUE_ANSWER');
     await coordinator.answer(validated.itemId, validated.optionId);
+    return null;
+  });
+
+  // The question about a Linear ticket that changed. These two channels answer the page only: the held text is read here and
+  // nowhere else, and `plan_queue_answer`, the phone and every session refuse the question (plan-queue-ticket-answer.ts).
+  handle(IPC_CHANNELS.PLAN_QUEUE_TICKET_ASK_READ, 'PLAN_QUEUE_TICKET_ASK_READ_FAILED', (payload) => {
+    const validated = validateIpcPayload(PlanQueueTicketAskReadPayloadSchema, payload, 'PLAN_QUEUE_TICKET_ASK_READ');
+    return { ask: readTicketAsk(validated.itemId) };
+  });
+
+  handle(IPC_CHANNELS.PLAN_QUEUE_TICKET_ASK_ANSWER, 'PLAN_QUEUE_TICKET_ASK_ANSWER_FAILED', async (payload) => {
+    const validated = validateIpcPayload(PlanQueueTicketAskAnswerPayloadSchema, payload, 'PLAN_QUEUE_TICKET_ASK_ANSWER');
+    await coordinator.answerTicketAsk(validated);
     return null;
   });
 

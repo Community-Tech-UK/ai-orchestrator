@@ -12,6 +12,7 @@ import type { PlanQueueItem, PlanQueueRun } from './plan-queue.types';
 import { workSourceForRun } from './plan-queue-work-sources';
 import { stepHold } from './plan-queue-sections';
 import { hasPendingLandingCleanup } from './plan-queue-item-landing';
+import { releasedTicketPatch } from './plan-queue-ticket-answer';
 import { isHeldForJames, isLandingWait, isTerminalItemState, itemHoldsWorkerSlot, itemHoldsWorktree } from './plan-queue-state';
 import { queueAdmission } from '../work-admission/queue-admission';
 import { pathCompareKey } from '../util/path-helpers';
@@ -113,12 +114,14 @@ export async function pumpPlanQueue(host: QueuePumpHost): Promise<void> {
       // A ticket whose text changed, or that cannot be read, is held by its own question until James answers it (the source's `itemHold`).
       const source = workSourceForRun(run);
       // A job held by a question that lost it (a shutdown between the hold and the saving of the question) gets it back here.
+      // And a question that was answered but not taken off the job (a shutdown between the two) is taken off here.
       const holdOf = (item: PlanQueueItem) => {
         const itemHold = source.itemHold(item, items);
         // Read again and save with no await between, so a change made since the list was read is not written over.
         const question = itemHold?.question;
-        const fresh = question ? host.getItem(item.id) : null;
+        const fresh = question || item.question?.jamesOnly ? host.getItem(item.id) : null;
         if (fresh && question && !fresh.question) { store.upsertItem({ ...fresh, question, updatedAt: Date.now() }); host.announceRun(fresh.runId); }
+        else if (fresh && !question && fresh.question?.jamesOnly) { store.upsertItem({ ...fresh, ...releasedTicketPatch(fresh), updatedAt: Date.now() }); host.announceRun(fresh.runId); }
         return itemHold;
       };
       const awaitingChecks = items.filter(item => item.state === 'awaiting-slot' && !isHeldForJames(item) && !holdOf(item));

@@ -12,6 +12,8 @@ import type {
   PlanQueueLinearTeamsSavePayload,
   PlanQueuePreviewPayload,
   PlanQueueRouteChoice,
+  PlanQueueTicketAskAnswerPayload,
+  PlanQueueTicketAskReadPayload,
 } from '@contracts/schemas/plan-queue';
 
 export function createPlanQueueDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_CHANNELS) {
@@ -86,6 +88,12 @@ export function createPlanQueueDomain(ipcRenderer: IpcRenderer, ch: typeof IPC_C
 
     planQueueLinearPreviewText: (payload: PlanQueueLinearPreviewTextPayload): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_PREVIEW_TEXT, payload),
+
+    planQueueTicketAskRead: (payload: PlanQueueTicketAskReadPayload): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PLAN_QUEUE_TICKET_ASK_READ, payload),
+
+    planQueueTicketAskAnswer: (payload: PlanQueueTicketAskAnswerPayload): Promise<IpcResponse> =>
+      ipcRenderer.invoke(ch.PLAN_QUEUE_TICKET_ASK_ANSWER, payload),
 
     planQueueLinearTeamsSave: (payload: PlanQueueLinearTeamsSavePayload): Promise<IpcResponse> =>
       ipcRenderer.invoke(ch.PLAN_QUEUE_LINEAR_TEAMS_SAVE, payload),

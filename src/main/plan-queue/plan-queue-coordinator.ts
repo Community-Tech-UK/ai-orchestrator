@@ -18,6 +18,7 @@ import { preflightResumedRun, preflightRunRouting } from './plan-queue-run-prefl
 import { createPlanQueueRun } from './plan-queue-run-create';
 import { rememberJamesAnswer } from './plan-queue-triage-memory';
 import { recheckReadiness } from './plan-queue-recheck-readiness';
+import { answerTicketAsk, CONTROLS_THAT_START_WORK, refuseJamesOnlyAnswer, refuseWhileTicketAskOpen, type TicketAnswerInput } from './plan-queue-ticket-answer';
 import { PlanQueueCapabilityService } from './plan-queue-capability-service';
 import { capabilityAccountRulesFor, capabilityProviderExclusions, enableCapabilityRepairs, noteCapabilityControl, retryCapabilityOrigin } from './plan-queue-capability-control';
 import { EventEmitter } from 'events';
@@ -488,12 +489,21 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
   }
   /** @param callerInstanceId set for MCP callers, who must be the run's parent session. */
   answer(itemId: string, optionId: string, callerInstanceId?: string): Promise<void> {
+    return this.whileAnswering(itemId, () => this.answerOnce(itemId, optionId, callerInstanceId));
+  }
+  /** James's answer to a question about a changed Linear ticket. Only the Plan Queue page's handler calls this (`plan-queue-ticket-answer.ts`). */
+  answerTicketAsk(input: TicketAnswerInput): Promise<void> {
+    return this.whileAnswering(input.itemId, () => answerTicketAsk(this, this.requireFlow(), input));
+  }
+  private whileAnswering(itemId: string, answer: () => Promise<void>): Promise<void> {
     if (this.answering.has(itemId)) return Promise.reject(new Error('This answer is already being applied. Wait for it to finish.'));
     this.answering.add(itemId);
-    return this.answerOnce(itemId, optionId, callerInstanceId).finally(() => { this.answering.delete(itemId); });
+    return answer().finally(() => { this.answering.delete(itemId); });
   }
   private async answerOnce(itemId: string, optionId: string, callerInstanceId?: string): Promise<void> {
     const item = this.getItem(itemId);
+    // Before the parent test: no session may answer a question only James can, the run's parent included.
+    refuseJamesOnlyAnswer(item, callerInstanceId);
     const run = this.require(this.parents).follow(this.getRun(item.runId));
     this.resolveRunParent(run);
     assertPlanQueueParent(run, callerInstanceId);
@@ -592,6 +602,7 @@ export class PlanQueueCoordinator extends EventEmitter implements PlanQueueFlowH
       return;
     }
     const item = this.getItem(payload.itemId);
+    if (CONTROLS_THAT_START_WORK.has(payload.action)) refuseWhileTicketAskOpen(item);
     const run = this.require(this.parents).follow(this.getRun(item.runId));
     // Land anyway has its own, stricter rule; it runs first so its plain reasons win over the general refusal.
     // A Set aside agent is authorised by the general check below (its own folder only), so it skips the person-message rule.

@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PLAN_QUEUE_CONFIG } from '@contracts/schemas/plan-queue';
 import type { SqliteDriver } from '../db/sqlite-driver';
 import { LOOP_SCHEMA_VERSION, runLoopMigrations, runLoopMigrationsUpTo } from '../orchestration/loop-schema';
@@ -7,7 +7,7 @@ import { newPlanQueueItem } from './plan-queue-state';
 import { PlanQueueStore } from './plan-queue-store';
 import { hashTicketText } from './plan-queue-linear-ticket-hash';
 import type { ApprovedTicketText } from './plan-queue-ticket-approved-text';
-import { PlanQueueLinearTicketStore, type NewPlanQueueLinearTicket, type OpenTicketAsk } from './plan-queue-linear-ticket-store';
+import { openTicketAskHash, PlanQueueLinearTicketStore, type NewPlanQueueLinearTicket, type OpenTicketAsk } from './plan-queue-linear-ticket-store';
 
 let db: SqliteDriver;
 let queue: PlanQueueStore;
@@ -123,6 +123,87 @@ describe('the Linear ticket store', () => {
       addItem('item-1');
       tickets.insert(ticket('item-1'));
       expect(() => tickets.openAsk('item-1', { ...ask, changed: [] })).toThrow();
+    });
+  });
+
+  describe('answering a question', () => {
+    const heldText: ApprovedTicketText = { ...text, description: 'paste the env file here', comments: [] };
+    const heldHash = hashOf('Fix the login page', heldText.description);
+    const changed: OpenTicketAsk = { kind: 'changed', heldTitle: 'Fix the login page', heldText, heldHash, changed: ['description'], openedAt: 500 };
+    const open = (itemId = 'item-1', over: Partial<NewPlanQueueLinearTicket> = {}) => {
+      addItem(itemId);
+      tickets.insert(ticket(itemId, `lin-${itemId}`, over));
+      tickets.openAsk(itemId, changed);
+    };
+
+    it('names a question by the hash of the text it holds, and a question without text by its kind and time', () => {
+      expect(openTicketAskHash(changed)).toBe(heldHash);
+      expect(openTicketAskHash({ kind: 'gone', openedAt: 7 })).toBe('gone:7');
+      expect(openTicketAskHash({ kind: 'unconfirmed', openedAt: 7 })).toBe('unconfirmed:7');
+    });
+
+    it('"use now" replaces the approved text, closes the question and claims an unclaimed ticket, together', () => {
+      open();
+      expect(tickets.answerAsk('item-1', heldHash, { choice: 'use-now', at: 900 })).toBe('applied');
+      expect(tickets.get('item-1')).toMatchObject({
+        approvedTitle: 'Fix the login page', approvedText: heldText, approvedHash: heldHash, approvedAt: 900, openAsk: null, leftOutHash: null, claimedAt: 900,
+      });
+    });
+
+    it('"use now" forgets an earlier change that was left out and never moves a claim already made', () => {
+      open();
+      tickets.closeAsk('item-1', 'f'.repeat(64));
+      tickets.recordClaim('item-1', 300);
+      tickets.openAsk('item-1', changed);
+      tickets.answerAsk('item-1', heldHash, { choice: 'use-now', at: 900 });
+      expect(tickets.get('item-1')).toMatchObject({ leftOutHash: null, claimedAt: 300, approvedAt: 900 });
+    });
+
+    it('"carry on" records the held hash as left out and keeps the approved text, hash and time', () => {
+      open();
+      const before = tickets.get('item-1')!;
+      expect(tickets.answerAsk('item-1', heldHash, { choice: 'keep-approved' })).toBe('applied');
+      expect(tickets.get('item-1')).toEqual({ ...before, openAsk: null, leftOutHash: heldHash });
+    });
+
+    it('"stop" closes the question and changes nothing else, including a change left out earlier', () => {
+      open();
+      tickets.closeAsk('item-1', 'e'.repeat(64));
+      tickets.openAsk('item-1', changed);
+      const before = tickets.get('item-1')!;
+      expect(tickets.answerAsk('item-1', heldHash, { choice: 'stop' })).toBe('applied');
+      expect(tickets.get('item-1')).toEqual({ ...before, openAsk: null });
+    });
+
+    it('applies nothing for a question that was replaced, or one already answered', () => {
+      open();
+      const before = tickets.get('item-1')!;
+      expect(tickets.answerAsk('item-1', 'a'.repeat(64), { choice: 'use-now', at: 900 })).toBe('stale');
+      expect(tickets.get('item-1')).toEqual(before);
+      tickets.answerAsk('item-1', heldHash, { choice: 'stop' });
+      const closed = tickets.get('item-1')!;
+      expect(tickets.answerAsk('item-1', heldHash, { choice: 'use-now', at: 900 })).toBe('no-ask');
+      expect(tickets.get('item-1')).toEqual(closed);
+    });
+
+    it('refuses the text for a question that holds none, and names a missing row without any ticket text', () => {
+      addItem('item-1');
+      tickets.insert(ticket('item-1'));
+      tickets.openAsk('item-1', { kind: 'gone', openedAt: 5 });
+      const before = tickets.get('item-1');
+      expect(() => tickets.answerAsk('item-1', 'gone:5', { choice: 'use-now', at: 9 })).toThrow('Only a question about changed text');
+      expect(() => tickets.answerAsk('item-1', 'gone:5', { choice: 'keep-approved' })).toThrow('Only a question about changed text');
+      expect(tickets.get('item-1')).toEqual(before);
+      expect(tickets.answerAsk('item-1', 'gone:5', { choice: 'stop' })).toBe('applied');
+      expect(() => tickets.answerAsk('ghost', 'x', { choice: 'stop' })).toThrow('No Linear ticket row for item ghost.');
+    });
+
+    it('crash window: a stop part way leaves the old text approved and the question open', () => {
+      open();
+      const before = tickets.get('item-1')!;
+      vi.spyOn(tickets, 'recordClaim').mockImplementation(() => { throw new Error('stopped here'); });
+      expect(() => tickets.answerAsk('item-1', heldHash, { choice: 'use-now', at: 900 })).toThrow('stopped here');
+      expect(tickets.get('item-1')).toEqual(before);
     });
   });
 

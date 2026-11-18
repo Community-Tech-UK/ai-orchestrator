@@ -18,6 +18,7 @@ export * from './plan-queue-linear-teams.schemas';
 export * from './plan-queue-linear-connection.schemas';
 export * from './plan-queue-linear-run.schemas';
 export * from './plan-queue-linear-preview.schemas';
+export * from './plan-queue-ticket-ask.schemas';
 
 // -------------------------------------------------------------------------
 // Enum schemas

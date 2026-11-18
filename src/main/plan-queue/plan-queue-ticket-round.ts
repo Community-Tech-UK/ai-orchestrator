@@ -43,7 +43,10 @@ export async function ticketPromptContext(
   const ticket = approvedTicketOf(deps, input.item.id);
   if (!ticket) throw new TicketTextUnavailable();
   const briefPath = await writeTicketBriefFile({ itemId: input.item.id, brief: buildTicketBrief(ticket), repoRoot: input.repoRoot, workFolder: input.worktreePath });
-  return { item: input.item, repoRoot: input.repoRoot, worktreePath: input.worktreePath ?? '', ticket, briefPath };
+  // James approved new text after the job began: the first check that found no change is the claim, and his answer is later.
+  const record = deps.record(input.item.id);
+  const changedSinceStart = record?.claimedAt != null && record.approvedAt > record.claimedAt;
+  return { item: input.item, repoRoot: input.repoRoot, worktreePath: input.worktreePath ?? '', ticket, briefPath, changedSinceStart };
 }
 
 /** What the checker reviewed: the hash James approved. A changed hash voids a PASS, as a changed document does. */

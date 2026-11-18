@@ -15,6 +15,11 @@ const ASK_PHRASE: Record<OpenTicketAskKind, string> = {
   unconfirmed: 'has no text Harness can confirm you approved.',
 };
 
+/** What the item's `answer` records: the fixed sentence and the choice, never any ticket text. "ORC-12 changed in Linear → Use the ticket as it is now". */
+export function ticketAnswerRecord(identifier: string, kind: OpenTicketAskKind, choiceLabel: string): string {
+  return `${identifier} ${ASK_PHRASE[kind].replace(/\.$/, '')} → ${choiceLabel}`;
+}
+
 const UNREADABLE_TAIL = ' could not be read in Linear, so nothing was started. Harness will try again soon.';
 /** The start of every sentence of the Linear connection (`linear-connection-reason.ts`). */
 const CONNECTION_PREFIX = 'Linear work is paused';

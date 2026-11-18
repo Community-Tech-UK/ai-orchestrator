@@ -567,6 +567,8 @@ export interface MobilePlanQueueOptionDto {
 export interface MobilePlanQueueQuestionDto {
   question: string;
   options: MobilePlanQueueOptionDto[];
+  /** Only James can answer it, on the Plan Queue page: the phone's answer route refuses it. */
+  jamesOnly?: boolean;
 }
 
 /** Safe projection of a plan-queue item: no worktree or branch internals. */

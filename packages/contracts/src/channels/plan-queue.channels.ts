@@ -58,6 +58,10 @@ export const PLAN_QUEUE_CHANNELS = {
   PLAN_QUEUE_LINEAR_PREVIEW_LOAD: 'plan-queue:linear-preview-load',
   /** Load one ticket's description and comments from a Linear preview, with the hash that pins them. */
   PLAN_QUEUE_LINEAR_PREVIEW_TEXT: 'plan-queue:linear-preview-text',
+  /** The open question about a Linear ticket that changed: the approved text and the held text, as plain strings. The page only. */
+  PLAN_QUEUE_TICKET_ASK_READ: 'plan-queue:ticket-ask-read',
+  /** James's answer to that question. A channel of its own: `plan_queue_answer`, the phone and every session refuse it. */
+  PLAN_QUEUE_TICKET_ASK_ANSWER: 'plan-queue:ticket-ask-answer',
 
   // Events (main → renderer)
   /** A run or item changed; carries the run's full DTO. */

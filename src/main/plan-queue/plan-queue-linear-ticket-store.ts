@@ -33,6 +33,21 @@ export const OpenTicketAskSchema = z.discriminatedUnion('kind', [
 
 export type OpenTicketAsk = z.infer<typeof OpenTicketAskSchema>;
 export type OpenTicketAskKind = OpenTicketAsk['kind'];
+
+/**
+ * What James is shown with a question and sends back with his answer, so an answer is applied only while the question is
+ * still the one he saw. A change is identified by the hash of the text it holds; the other two hold no text, so their
+ * opening time stands in.
+ */
+export function openTicketAskHash(ask: OpenTicketAsk): string {
+  return ask.kind === 'changed' ? ask.heldHash : `${ask.kind}:${ask.openedAt}`;
+}
+
+/** What James chose for a question: new text approved, a change left out, or neither (work on the ticket stops). */
+export type TicketAnswerChoice = { choice: 'use-now'; at: number } | { choice: 'keep-approved' } | { choice: 'stop' };
+
+/** `applied`; `no-ask` (nothing is open: already answered); `stale` (a different question is open than the one James saw). */
+export type TicketAnswerResult = 'applied' | 'no-ask' | 'stale';
 export type TicketChangeKind = z.infer<typeof TicketChangeKindSchema>;
 
 export interface PlanQueueLinearTicketRecord {
@@ -164,6 +179,35 @@ export class PlanQueueLinearTicketStore {
   closeAsk(itemId: string, leftOutHash: string | null): void {
     this.requireRow(itemId);
     this.db.prepare('UPDATE plan_queue_linear_tickets SET open_ask_json = NULL, left_out_hash = ? WHERE item_id = ?').run(leftOutHash, itemId);
+  }
+
+  /**
+   * James's answer, applied in one transaction and only while the open question is the one he was shown (`askHash`). So the
+   * new text, the closed question and the claim are saved together or not at all: a stop between them cannot leave the
+   * text replaced with the question still open, or the question closed with the old text still approved.
+   *
+   * `use-now`: the held text becomes the approved text, with its hash and the time; a change left out earlier is forgotten, and
+   * a ticket not yet claimed is claimed now, because the hash the run was started with is no longer what he approves.
+   * `keep-approved`: the held hash is recorded as left out, so the same change does not ask again. `stop`: the question
+   * closes and nothing else changes.
+   */
+  answerAsk(itemId: string, askHash: string, answer: TicketAnswerChoice): TicketAnswerResult {
+    return this.db.transaction((): TicketAnswerResult => {
+      const record = this.get(itemId);
+      if (!record) throw new Error(`No Linear ticket row for item ${itemId}.`);
+      const ask = record.openAsk;
+      if (!ask) return 'no-ask';
+      if (openTicketAskHash(ask) !== askHash) return 'stale';
+      if (answer.choice !== 'stop' && ask.kind !== 'changed') throw new Error('Only a question about changed text can be answered with the text.');
+      if (answer.choice === 'use-now' && ask.kind === 'changed') {
+        this.replaceApprovedText(itemId, { title: ask.heldTitle, text: ask.heldText, hash: ask.heldHash, approvedAt: answer.at });
+        this.closeAsk(itemId, null);
+        this.recordClaim(itemId, answer.at);
+      } else {
+        this.closeAsk(itemId, answer.choice === 'keep-approved' && ask.kind === 'changed' ? ask.heldHash : record.leftOutHash);
+      }
+      return 'applied';
+    })();
   }
 
   /** Deletes the approved text and any held text. The title, the hash and the times stay. */

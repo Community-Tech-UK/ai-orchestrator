@@ -16,6 +16,8 @@ import type { MobileBroadcastEvent } from './mobile-gateway-snapshot';
 const ITEM_STATES = new Set<string>(MOBILE_PLAN_QUEUE_ITEM_STATES);
 const RUN_STATUSES = new Set<string>(MOBILE_PLAN_QUEUE_RUN_STATUSES);
 const CONTROLS = new Set(['pause', 'resume', 'cancel']);
+/** The refusal for a question only James may answer. */
+const PAGE_ONLY_ANSWER = 'Answer this one on the Plan Queue page.';
 const DIRECT_CHANGE_CHOICES = new Set<string>(MOBILE_PLAN_QUEUE_DIRECT_CHANGE_CHOICES);
 
 export interface GatewayPlanQueueSource {
@@ -120,6 +122,9 @@ export class MobileGatewayPlanQueueHandlers {
       const body = await readJsonBody(req) as { optionId?: unknown };
       const optionId = typeof body.optionId === 'string' ? body.optionId.trim() : '';
       if (!optionId || optionId.length > 50) throw new MobileRouteError('A valid optionId is required');
+      // The phone has no screen that shows what a changed Linear ticket now says, so it cannot answer for James yet.
+      const asked = source.list().flatMap((run) => run.items).find((item) => item.id === id)?.question;
+      if (asked?.jamesOnly) throw new MobileRouteError(PAGE_ONLY_ANSWER, 403);
       await source.answer(id, optionId);
       sendJsonResponse(res, 200, { ok: true });
       return true;
