@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createInitializedAgentHarness, TestAcpCliAdapter } from './acp-cli-adapter.test-helpers';
@@ -205,6 +205,24 @@ describe('OpenCode 2 ACP integration', () => {
       threadCompacted: true, compactionSummary: 'Keep the accepted blue theme.',
     }) }));
     expect(JSON.stringify(outputs)).not.toContain('private provider body');
+    proc.exit();
+  });
+
+  it('finishes a pending compaction row when the turn is interrupted, before the provider answers', async () => {
+    const { proc, adapter, outputs } = harness();
+    await adapter.spawn();
+    proc.onRequest('session/prompt', () => {
+      proc.notify('session/update', { sessionId: 'sess-acp-1', update: { sessionUpdate: 'compaction_update', compactionId: 'compact-1', status: 'in_progress' } });
+    });
+    const turn = adapter.sendMessage({ role: 'user', content: 'go' }).catch(() => undefined);
+    await vi.waitFor(() => expect(outputs.some((output) => output.metadata?.['phase'] === 'in_progress')).toBe(true));
+    const pending = outputs.find((output) => output.metadata?.['source'] === 'acp-compaction');
+    const result = adapter.interrupt();
+    await (result as { completion?: Promise<unknown> }).completion;
+    await turn;
+    expect(outputs.filter((output) => output.id === pending?.id).at(-1)).toMatchObject({
+      content: 'Compaction cancelled.', metadata: { phase: 'cancelled', streaming: false },
+    });
     proc.exit();
   });
 

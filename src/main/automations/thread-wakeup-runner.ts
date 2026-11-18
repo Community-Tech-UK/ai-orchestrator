@@ -12,6 +12,7 @@ import type { AutomationStore } from './automation-store';
 import { getSessionAdmissionService, type RedeliveryContext, type SuppressReason } from '../session/session-admission-service';
 import { isBusyConversationSendError } from './automation-run-failure-class';
 import { boundThreadWakeupTurn } from './automation-thread-turn-limit';
+import { THREAD_WAKEUP_DEFERRED_BUSY } from '../../shared/utils/thread-wakeup-deferral';
 
 import { GlobalPauseService } from '../global-pause/global-pause-service';
 import type { AutomaticStartup } from '../work-admission/automatic-startup';
@@ -28,7 +29,6 @@ type WakeupStore = Pick<AutomationStore, 'attachInstance' | 'terminalizeRun' | '
 const WORKING_STATUSES = new Set<string>(['busy', 'processing', 'thinking_deeply']);
 
 const RESUME_ALREADY_WORKING = 'That conversation was already working again, so no resume was needed.';
-const DEFERRED_BUSY = 'That conversation was busy. Harness will send this when its current turn ends.';
 const SKIPPED_BUSY = 'That conversation was busy, so nothing was sent. The next scheduled run will try again.';
 
 export interface ThreadWakeupRequest {
@@ -204,7 +204,7 @@ export class ThreadWakeupRunner {
       reason,
       admissionId,
     });
-    return this.terminalize(run, 'skipped', DEFERRED_BUSY);
+    return this.terminalize(run, 'skipped', THREAD_WAKEUP_DEFERRED_BUSY);
   }
 
   private isConversationWorking(instanceId: string): boolean {

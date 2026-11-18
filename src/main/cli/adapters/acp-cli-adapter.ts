@@ -1270,6 +1270,8 @@ export class AcpCliAdapter extends BaseCliAdapter {
     const cancelledRequestId = this.currentPromptRequestId;
     // Retain client intent on this write's owner before the cancel packet queues behind it.
     if (this.currentPrompt?.writePhase) this.currentPrompt.writePhase.cancelledByClient = true;
+    // A compaction row still pending finishes now; the provider's own marker can arrive after a fallback replaced this adapter.
+    if (this.openCodeV2) for (const row of this.openCodeUpdates.cancelPending()) this.emit('output', row);
 
     // Notify the agent so it can tear down cleanly if it's still alive.
     // Best-effort: if stdin is already closed, we still want to reject the

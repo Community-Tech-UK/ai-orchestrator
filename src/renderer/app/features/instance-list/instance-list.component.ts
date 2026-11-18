@@ -1,5 +1,5 @@
 /** Project-grouped session rail. */
-import { groupSessionCopyActions } from './session-menu-groups';
+import { contextMenuOpenedByKeyboard, groupSessionCopyActions } from './session-menu-groups';
 import { watcherMenuItems } from './session-watcher-menu';
 import { SessionWatcherStore } from '../../core/state/session-watcher.store';
 import { SettingsStore } from '../../core/state/settings.store';
@@ -146,6 +146,9 @@ export class InstanceListComponent implements OnDestroy {
   protected contextMenuX = signal(0);
   protected contextMenuY = signal(0);
   protected contextMenuItems = signal<ContextMenuItem[]>([]);
+  /** True when the Menu key or Shift+F10 opened the menu, so focus moves into it and returns to the row on close. */
+  protected contextMenuFocusOnOpen = signal(false);
+  private contextMenuOpener: HTMLElement | null = null;
   /**
    * LT-631: `.project-menu` used to be `position: absolute` inside
    * `.project-menu-anchor`, so the scrolling `.instance-viewport` ancestor
@@ -477,6 +480,9 @@ export class InstanceListComponent implements OnDestroy {
   protected closeContextMenu(): void {
     this.contextMenuVisible.set(false);
     this.contextMenuItems.set([]);
+    const opener = this.contextMenuOpener;
+    this.contextMenuOpener = null;
+    opener?.focus();
   }
 
   private showContextMenu(event: MouseEvent, items: ContextMenuItem[]): void {
@@ -485,6 +491,9 @@ export class InstanceListComponent implements OnDestroy {
       return;
     }
 
+    const byKeyboard = contextMenuOpenedByKeyboard(event);
+    this.contextMenuOpener = byKeyboard && document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    this.contextMenuFocusOnOpen.set(byKeyboard);
     this.contextMenuX.set(event.clientX);
     this.contextMenuY.set(event.clientY);
     this.contextMenuItems.set(items);

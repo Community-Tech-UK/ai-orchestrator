@@ -1584,6 +1584,69 @@ describe('createInstance spawn transaction rollback', () => {
     expect(harness.adapters.get(instance.id)).toBe(resumedAdapter);
   });
 
+  describe('input sent during an in-place restart (LT-1035)', () => {
+    async function restartingSession(harness: ReturnType<typeof makeHarness>) {
+      mocks.resolveCliType.mockResolvedValue('codex');
+      mocks.createAdapter.mockImplementation(() => makeFakeAdapter());
+      mocks.getProviderCapabilities.mockReturnValue({
+        supportsResume: true, supportsForkSession: false, supportsNativeCompaction: true,
+        supportsPermissionPrompts: false, supportsDeferPermission: false, selfManagedAutoCompaction: true,
+      });
+      const instance = await harness.manager.createInstance({ workingDirectory: '/tmp/project', provider: 'codex' });
+      await instance.readyPromise;
+      instance.providerSessionId = 'provider-thread-1';
+      instance.sessionId = 'provider-thread-1';
+      harness.adapters.delete(instance.id);
+      return instance;
+    }
+
+    it('holds input until the restart has rebuilt the adapter, then releases it', async () => {
+      const harness = makeHarness();
+      const instance = await restartingSession(harness);
+      let finishSpawn!: (pid: number) => void;
+      const slow = makeFakeAdapter();
+      slow.spawn = vi.fn(() => new Promise<number>(resolve => { finishSpawn = resolve; }));
+      mocks.createAdapter.mockImplementation(() => slow);
+
+      const restart = harness.manager.restartInstance(instance.id);
+      await vi.waitFor(() => expect(slow.spawn).toHaveBeenCalled());
+      // The send path (`awaitInstanceInputReady`) waits on this promise, so a message sent now is not refused for a missing adapter.
+      expect(instance.readyPromise).toBeDefined();
+      let settled = false;
+      void instance.readyPromise!.then(() => { settled = true; });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      finishSpawn(4242);
+      await restart;
+      expect(instance.readyPromise).toBeUndefined();
+    });
+
+    it('releases the hold when the restart fails', async () => {
+      const harness = makeHarness();
+      const instance = await restartingSession(harness);
+      const failing = makeFakeAdapter();
+      failing.spawn = vi.fn().mockRejectedValue(new Error('spawn failed'));
+      mocks.createAdapter.mockImplementation(() => failing);
+
+      await harness.manager.restartInstance(instance.id).catch(() => undefined);
+      expect(instance.readyPromise).toBeUndefined();
+    });
+
+    it('leaves an init or wake that already holds input in place', async () => {
+      const harness = makeHarness();
+      const instance = await restartingSession(harness);
+      const existing = new Promise<void>(() => undefined);
+      instance.readyPromise = existing;
+      const slow = makeFakeAdapter();
+      slow.spawn = vi.fn().mockResolvedValue(1);
+      mocks.createAdapter.mockImplementation(() => slow);
+
+      await harness.manager.restartInstance(instance.id);
+      expect(instance.readyPromise).toBe(existing);
+    });
+  });
+
   describe('restart account routing (2026-10-19: a restart re-pinned a known-limited account)', () => {
     async function codexSession(harness: ReturnType<typeof makeHarness>, supportsResume: boolean) {
       mocks.resolveCliType.mockResolvedValue('codex');

@@ -8,10 +8,23 @@ function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+interface CompactionState {
+  id: string;
+  completed: boolean;
+  /** The row reached completed, failed or cancelled; later progress for it is stale. */
+  settled: boolean;
+  summary: string;
+  truncated: boolean;
+}
+
+type CompactionStatus = 'started' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
+
+const TERMINAL_COMPACTION_STATUSES: readonly string[] = ['completed', 'failed', 'cancelled'];
+
 /** Metadata-only child ownership; never append child answers to the parent transcript. */
 export class OpenCodeAcpUpdates {
   private readonly children = new Map<string, { rootId: string; title: string; createdAt: number }>();
-  private readonly compactions = new Map<string, { id: string; completed: boolean; summary: string; truncated: boolean }>();
+  private readonly compactions = new Map<string, CompactionState>();
 
   constructor(private readonly onCompactionFailed: () => void = () => undefined) {}
 
@@ -62,7 +75,7 @@ export class OpenCodeAcpUpdates {
     if (status === 'failed') this.onCompactionFailed();
     if (typeof key !== 'string') return undefined;
     if (!this.compactions.has(key) && this.compactions.size >= 128) return false;
-    const state = this.compactions.get(key) ?? { id: newId(), completed: false, summary: '', truncated: false };
+    const state = this.compactions.get(key) ?? { id: newId(), completed: false, settled: false, summary: '', truncated: false };
     if (chunk && record(marker['content']) && marker['content']['type'] === 'text' && typeof marker['content']['text'] === 'string') {
       const combined = state.summary + marker['content']['text'];
       state.truncated ||= combined.length > MAX_SUMMARY_CHARS;
@@ -75,10 +88,33 @@ export class OpenCodeAcpUpdates {
       state.summary = text.slice(0, MAX_SUMMARY_CHARS);
       state.truncated = text.length > MAX_SUMMARY_CHARS;
     }
+    if (state.settled && !TERMINAL_COMPACTION_STATUSES.includes(String(status))) return false;
     if (status === 'completed' && state.completed) return false;
     const firstCompletion = status === 'completed' && !state.completed;
     if (firstCompletion) state.completed = true;
+    if (TERMINAL_COMPACTION_STATUSES.includes(String(status))) state.settled = true;
     this.compactions.set(key, state);
+    return this.statusRow(state, status as CompactionStatus, firstCompletion);
+  }
+
+  /**
+   * The client cancelled the turn. Finish every compaction row still pending now: OpenCode's own
+   * `cancelled` marker arrives a moment later, and by then a restart fallback may have replaced the
+   * adapter, so the row would stay "Compacting the session…" for good.
+   */
+  cancelPending(): OutputMessage[] {
+    const rows: OutputMessage[] = [];
+    for (const state of this.compactions.values()) {
+      if (state.settled) continue;
+      state.settled = true;
+      state.summary = '';
+      state.truncated = false;
+      rows.push(this.statusRow(state, 'cancelled', false));
+    }
+    return rows;
+  }
+
+  private statusRow(state: CompactionState, status: CompactionStatus, firstCompletion: boolean): OutputMessage {
     const content = status === 'completed' ? 'Compaction completed.' : status === 'failed' ? 'Compaction failed.' : status === 'cancelled' ? 'Compaction cancelled.' : 'Compacting the session…';
     return { id: state.id, timestamp: Date.now(), type: 'system', content,
       metadata: { source: 'acp-compaction', transport: 'acp', phase: status, streaming: status === 'started' || status === 'in_progress', accumulatedContent: content,

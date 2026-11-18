@@ -402,6 +402,15 @@ sections below. The historical reproduction remains unchanged.
 | LT-1027 | P2 | **OPEN — reproduced live 2026-10-27.** First startup of an isolated dev profile fails Work controls initialization with `database is locked` at the RLM journal-mode pragma. The owned context worker also initializes RLM; the lock holder is unproven. A same-profile restart reaches the renderer and read-only IPC normally. | [LT-1027 detail](#lt-1027--first-profile-startup-fails-at-the-rlm-journal-mode-pragma) | [Compaction reliability resume](2026-09-27-codex-compaction-reliability_livetest.md#evidence-run--2026-10-27-parked-item-resume-receipt-reconciliation) |
 | LT-1016 | P1 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** A Plan Queue landing skipped the commit hook's related tests after a checklist that ran no tests. A livetest run's type check and lint passed on the exact landed tree, so the hook skipped `test:staged`; livetest `2026-09-27-livetest-agent-runtime-residuals` landed 252 files (program code and four test files) on 7 November with no test run anywhere in the queue. The skip now also needs a test command in the checklist whose output shows tests passing. | [LT-1016 detail](#lt-1016) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
 | LT-1017 | P2 | **SOURCE FIX VERIFIED 2026-11-08; rebuilt-app check pending.** The commit hook's test skip never fired for a normal plan landing. Queue workers commit without the hook, so the landing hook rebuilds the architecture list, and the hook's last check before `test:staged` required the index to equal the tested tree byte for byte. All five plan landings on 8 November differed only in that file (plus base-branch changes on one) and ran their related tests for 1.4 to 4.4 minutes each. The check now ignores regenerated documentation only; regenerated code still counts. | [LT-1017 detail](#lt-1017) | [Batched checks installed-app evidence](2026-11-02-plan-queue-batched-checks_livetest.md#evidence-follow-up--2026-11-08-hook-skip-on-a-real-landing-and-lt-1016) |
+| LT-1145 | P2 | **PATCHED IN SOURCE + LIVE RECHECKED 2026-11-11 (queue worktree dev app); independent review pending.** A session context menu opened from the keyboard (Menu key or Shift+F10) stayed open but could not be reached: focus stayed on the row, arrow keys did nothing and 70 Tab presses never entered the menu. The instance list now moves focus into the menu for keyboard-opened menus and returns it to the row on close. [Detail](#lt-1145) | [Oct2 later live checks, 11 Nov 2026 run](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11) | same |
+| LT-1146 | P2 | **PATCHED IN SOURCE + LIVE RECHECKED 2026-11-11; independent review pending.** A thread wake-up that came due while its session was mid-turn read "Next run unverified" instead of "Due now, waiting for the session to be idle", because the held run is recorded as `skipped` (not `pending`) and the countdown only looked for a pending run. The countdown now recognises the held run. [Detail](#lt-1146) | [Oct2 later live checks, 11 Nov 2026 run](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11) | same |
+| LT-1031 | P3 | **OPEN — product choice, 2026-11-11.** A session waiting on a provider sign-in reads "Problem — signed out of Codex" in the list and a sign-in banner in the conversation; the specific words "Waiting for you to sign in" required by Oct-2 later item 4 are in no source file on main (they existed only on the 2 Nov queue checkpoint). [Detail](#lt-1031) | [Oct2 later live checks, 11 Nov 2026 run](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11) | same |
+| LT-1032 | P3 | **PATCHED IN SOURCE + LIVE RECHECKED 2026-11-11; independent review pending.** Session facts showed "0 failed tools" after a Codex command that exited with status 1, because Codex reports that as `status: failed` with `is_error: false`. A provider-reported `failed` status now counts once. [Detail](#lt-1032) | [Oct2 later live checks, 11 Nov 2026 run](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11) | same |
+| LT-1033 | P3 | **PATCHED IN SOURCE + LIVE RECHECKED 2026-11-11; independent review pending.** Session facts reported "2 compactions" after one real Codex compaction, because that compaction writes two boundary rows (the provider's `self-managed` row and the app's `native` "— Context compacted —" divider) and both were counted. The divider that directly follows its provider row is now not counted again. [Detail](#lt-1033) | [Oct2 later live checks, 11 Nov 2026 run](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11) | same |
+| LT-1034 | P3 | **OPEN — observed 2026-11-11, outside the Oct-2 later scope.** The CLI update pill's `cli-update-pill:delta` event is blocked by the renderer-event check (`Unrecognized key: "waitingSessionCount"`) whenever sessions are waiting to update: the strict contract schema lacks the field that `cli-update-poll-service.ts` sends and the pill reads. [Detail](#lt-1034) | [Oct2 later live checks, 11 Nov 2026 run](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11) | same |
+| LT-1035 | P2 | **PATCHED IN SOURCE + LIVE RECHECKED 2026-11-11; independent review pending.** A send that reached a session in the middle of an in-place restart (for example the automatic restart after a crash) found no adapter, was marked `uncertain`, showed "Your message wasn't sent." and put its text back in the composer, while the restart's history replay then reached the model, which answered it. A restart now holds input until the adapter is rebuilt, so the send waits and is delivered once. [Detail](#lt-1035) | [Oct2 later live checks, 11 Nov 2026 run](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11) | same |
+| LT-1177 | P2 | **PATCHED IN SOURCE + LIVE RECHECKED 2026-11-16 (OpenCode 2.3.0); independent review pending.** Cancelling a native OpenCode 2 compaction left its "Compacting the session…" row streaming for good. The app rejected the cancelled prompt on the spot and began its restart fallback, so OpenCode's own "cancelled" update, which arrives about 235 ms later, reached an adapter that was already being replaced and was lost. The pending row is now finished the moment the client cancels. [Detail](#lt-1177) | [Oct2 later live checks, 16 Nov 2026 run](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-16-opencode-2-live-run) | same |
+| LT-1178 | P2 | **REPRODUCED LIVE 2026-11-16 (OpenCode 2.3.0); NOT REPAIRED.** Cancelling a native OpenCode 2 compaction is treated as a failed native attempt, so the app runs its restart-with-summary fallback anyway: it replaces the provider thread and sends a "Context Compaction Continuity Package" into the conversation, although the person asked for the compaction to stop. [Detail](#lt-1178) | [Oct2 later live checks, 16 Nov 2026 run](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-16-opencode-2-live-run) | same |
 | LT-1184 | P2 | **SOURCE FIX VERIFIED 2026-11-12; rebuilt-app check pending.** Only text the meaning search returns is added, and the keyword fallback is off for context building; the probe was repeated on the dev app and the dashboard message got no block. Original report: on the rebuilt app a message of everyday words got an unrelated earlier answer added as `[Retrieved Context]`: `make this dashboard look modern without touching how it works` was sent a sourdough recipe, although its best meaning score against anything in the session was 0.52 against a floor of 0.70. Two word searches had no floor: the keyword fallback inside `semantic_search`, and the word search added beside it. | [LT-1184 detail](#lt-1184) | [Installed check 7](2026-11-06-search-and-memory-repair_plan_livetest.md#7-memory-thresholds-suit-real-use) |
 | LT-1100 | P2 | **FIXED AND VERIFIED LIVE 2026-11-14 (Claude half).** Reproduced live 2026-11-10 at base `e429665064` (recorded then as LT-1018, which main also used for a different defect, so renumbered 2026-11-14): `read_session` by exact title with Cross-session messaging off answered bare `not-found`. The repair (plan history, "Step 1 verifier round 1 repair", commit `bd0db3b24`) is in the branch head. On 14 Nov a rebuilt dev app showed the off reply naming the switch and the audit row `not-allowed`, one row per call. The Codex reader half did not run (Codex is not installed on the test Mac). | [LT-1100 detail](#lt-1100) | [Phase 5 live checks](2026-10-10-oct-phase5-later_livetest.md#evidence-run--2026-11-14-dev-app-on-the-test-mac) |
 | LT-1101 | P2 | **FIXED AND VERIFIED LIVE 2026-11-14.** Reproduced live 2026-11-10 (recorded then as LT-1019, which main also used for a different defect, so renumbered 2026-11-14): on a real silent Claude turn the line under the conversation read "Working" for about 8 s and then "Agent active"; "Working quietly" never appeared. Fixed in the branch head on 13 Nov (`selectedInstanceActivity` returns nothing for the bland `active` state; the ten-second clock counts real events only). On 14 Nov a silent Opus turn showed "Working quietly" with the running time from about 10 s for over seven minutes, with the hover text. | [LT-1101 detail](#lt-1101) | [Phase 5 live checks](2026-10-10-oct-phase5-later_livetest.md#evidence-run--2026-11-14-dev-app-on-the-test-mac) |
@@ -13361,6 +13370,239 @@ plan landing whose code equals its tested code has a short commit check.
 
 **Fix (12 November 2026):** `SemanticSearchParams.keywordFallback` (default true) lets a caller turn the fallback off; `buildRlmContext` sets it false and only adds sections the meaning search returned, using the word search to reorder them. The unused `lexical` source is removed. `instance-context-rlm-retrieval.spec.ts` (2 tests) and a `context-search.spec.ts` case fail on the old code and pass. Dev-app probe on the real model: the related question still got the note, the dashboard message got nothing. Cost: a stored text that shares only an exact identifier with the message, and is not close in meaning, is no longer added; the `local-tfidf` fallback model still matches on shared words at its 0.5 floor.
 
+## LT-1145
+
+### LT-1145 — a keyboard-opened session menu cannot be used from the keyboard
+
+**Status: patched in source and live rechecked 11 November 2026; independent review pending.**
+
+Source: [Oct2 later live checks](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11), run 11 Nov 2026 in a dev app built from this queue worktree (isolated profile, focus emulation on, renderer served from a development build).
+
+### Observed behaviour
+
+With a session row focused, the Menu key opened the context menu (the `contextmenu` event arrives with `button === -1`;
+a right click reports 2). The menu stayed open, but focus stayed on the row: ArrowDown did nothing, Tab moved on to the
+row's own buttons and 70 Tab presses never reached the menu, and the menu did not close. A disabled item could therefore
+never be focused to read its reason.
+
+### Root cause
+
+`InstanceListComponent` rendered `<app-context-menu>` without `[focusOnOpen]`. Only the new-session options menu in
+`sidebar-header.component.ts` set it, so the focus move, arrow-key and Tab handling in `context-menu.component.ts`
+never ran for session rows or history rows.
+
+### Required behaviour and acceptance
+
+A menu opened by keyboard takes focus on its first item, ArrowUp/Down/Home/End move between items, Enter runs an item
+once, Escape closes it and focus returns to the row; a pointer-opened menu keeps focus where it was. Fix:
+`instance-list.component.ts` / `.html` pass `[focusOnOpen]` from `contextMenuOpenedByKeyboard(event)`
+(`session-menu-groups.ts`, tested in `session-menu-groups.spec.ts`) and restore focus to the opener on close. Rechecked
+live: focus lands on "Select session", whose reason ("This session is already selected.") shows on focus; Enter on the
+Copy entry opens its submenu; Enter on "Copy session ID" wrote the id exactly once; Escape closed the menu and focus
+returned to the row.
+
+## LT-1146
+
+### LT-1146 — a wake-up due during a busy turn does not say it is waiting for the session
+
+**Status: patched in source and live rechecked 11 November 2026; independent review pending.**
+
+Source: [Oct2 later live checks](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11), run 11 Nov 2026 in a dev app built from this queue worktree (isolated profile, focus emulation on, renderer served from a development build).
+
+### Observed behaviour
+
+A one-time wake-up was scheduled on a disposable Codex session. Its countdown ticked down by itself ("in 47 s", "in 42 s",
+... "in 2 s"). Both times the session was busy (a `sleep` tool call) when the wake-up came due. The countdown then read
+"Next run unverified" for the rest of the turn (80 s the first time) instead of "Due now, waiting for the session to be
+idle". When the turn ended the prompt was delivered and accepted, so the delivery itself works.
+
+### Root cause
+
+`thread-wakeup-runner.ts` admits the send behind the busy turn and ends the run as `skipped` with "That conversation was
+busy. Harness will send this when its current turn ends." The one-time automation's `nextFireAt` becomes null.
+`AutomationCountdownComponent` takes its deadline from a `pending` run or `nextFireAt` and only sets `waitingForIdle`
+when a `pending` run exists, so neither is true and `ScheduledCountdownComponent` falls through to "Next run
+unverified". Recorded store state at the time: automation `nextFireAt: null`, run `status: skipped`,
+`scheduledAt` equal to the due time.
+
+### Required behaviour and acceptance
+
+From the due time until the held prompt is delivered, the wake-up reads "Due now, waiting for the session to be idle".
+
+### Fix and recheck
+
+The reason text moved to `src/shared/utils/thread-wakeup-deferral.ts` (`THREAD_WAKEUP_DEFERRED_BUSY`) so main and renderer
+share it; `thread-wakeup-runner.ts` records it, and `AutomationCountdownComponent` treats a `skipped` run with that
+reason and an unconfirmed delivery (`threadPromptDelivered !== true`) as held: its `scheduledAt` is the deadline and
+`waitingForIdle` is true. The unconfirmed test includes the redelivery in flight (value null). A skip that was not a
+deferral, and a delivered prompt, are ignored. `automation-countdown.component.spec.ts` has three cases and failed (2 of 3)
+before the change. Live repeat in a rebuilt dev app: wake-up due 30 s in, session busy with a `sleep 70` tool call; the
+countdown read "in 26 s" ... "in 2 s", then "Due now, waiting for the session to be idle" in every sample from 32 s to 76 s,
+and the prompt was delivered when the turn ended.
+
+## LT-1031
+
+### LT-1031 — the sign-in wait wording promised by Oct-2 later item 4 is not in the build
+
+**Status: open; needs a wording decision.**
+
+Source: [Oct2 later live checks](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11), run 11 Nov 2026 in a dev app built from this queue worktree (isolated profile, focus emulation on, renderer served from a development build).
+
+### Observed behaviour
+
+Two seeded sessions in the dev app: `initializing` with `waitReason: auth-required`, and the live list row read "Problem —
+signed out of Codex" (tooltip) with no visible row text; the conversation showed the banner "Signed out of codex — sign
+in to resume this session." The text "Waiting for you to sign in" appears nowhere on the page. "Initializing" also does
+not appear, so the misleading starting-up label that item 4 set out to remove is gone.
+
+### Root cause
+
+`git log -S"Waiting for you to sign in" HEAD -- src` finds nothing: the row wording only existed in the queue checkpoint
+da15b30be (2 Nov), which never reached main. Oct-2 Phase E's status presenter
+(`instance-status-presentation.ts`, a closed list of labels) now maps `auth-required` to the label "Problem" with the
+detail "signed out of <provider>".
+
+### Decision needed
+
+Either accept "Problem — signed out of <provider>" plus the banner as the as-built wording and update item 4 of the
+completed plan's description, or add a status label for it (the presenter's label list is a product decision). The
+shortcut that jumps to sign-in waits works (see the evidence run).
+
+## LT-1032
+
+### LT-1032 — Session facts counts no failed tool for a Codex command that exited non-zero
+
+**Status: patched in source and live rechecked 11 November 2026; independent review pending.**
+
+Source: [Oct2 later live checks](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11), run 11 Nov 2026 in a dev app built from this queue worktree (isolated profile, focus emulation on, renderer served from a development build).
+
+### Observed behaviour
+
+A yolo Codex session ran `echo lt-ok` (exit 0), `sleep 120` and `cat /nonexistent-lt-file` (exit 1, output "No such
+file or directory"). Session facts said "0 failed tools".
+
+### Root cause
+
+`sessionFacts` counted only `metadata.is_error === true`. The Codex adapter deliberately sets `is_error` to false for a
+command that ran and exited non-zero and reports `status: 'failed'` instead (`codex-notification-item-events.ts`).
+
+### Required behaviour and acceptance
+
+A result the provider reports as `status: 'failed'` counts as one failed tool, also when `is_error` is true as well.
+Fix in `src/shared/utils/session-facts.ts` with a case in `session-facts.spec.ts`. Rechecked live after the fix, including
+after terminating and restoring the conversation from history: "1 failed tools".
+
+## LT-1033
+
+### LT-1033 — one Codex compaction is counted as two
+
+**Status: patched in source and live rechecked 11 November 2026; independent review pending.**
+
+Source: [Oct2 later live checks](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11), run 11 Nov 2026 in a dev app built from this queue worktree (isolated profile, focus emulation on, renderer served from a development build).
+
+### Observed behaviour
+
+After one `compactInstance` on the Codex session, Session facts said "2 compactions". The transcript held two boundary
+rows: "Codex compacted the conversation to free context space." (`threadCompacted`, `isCompactionBoundary`, marker
+`cmark_732c1be5-d1e`) and "— Context compacted —" (`isCompactionBoundary`, marker `cmark_86139f3f-3af`). The count
+stayed 2 after restoring the conversation from history.
+
+### Root cause
+
+`sessionFacts` adds one for every system row with `isCompactionBoundary` or `threadCompacted`, and a Codex compaction
+writes two such rows with different marker ids, so the markers cannot be used to join them.
+
+### Required behaviour and acceptance
+
+One compaction counts once, by a rule that does not use timestamps.
+
+### Fix and recheck
+
+The two rows come from different writers: the provider's own boundary (`instance-event-forwarding.ts`, `method:
+'self-managed'`, `threadCompacted`) and the app's `compaction-runtime.ts` divider (`method: 'native'`). `sessionFacts`
+now remembers that a provider boundary was just counted and does not count a `native` divider that follows it with only
+system rows in between; any user, assistant or tool message in between ends the pairing, so a later separate compaction
+still counts. The rule works on restored conversations too (the continuity projection keeps `method` but drops
+`threadCompacted`). `session-facts.spec.ts` covers provider+divider, restored, provider-only, divider-only, a later
+compaction after conversation (2) and two back-to-back compactions (2). Live repeat: one `compactInstance` shows
+"1 compactions" with the two boundary rows still in the transcript, and the same after terminating and restoring the
+conversation from history.
+
+## LT-1034
+
+### LT-1034 — the CLI update pill's waiting-session count is blocked by the event check
+
+**Status: open; outside the Oct-2 later scope, found while its dev app ran.**
+
+Source: [Oct2 later live checks](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11), run 11 Nov 2026 in a dev app built from this queue worktree (isolated profile, focus emulation on, renderer served from a development build).
+
+### Observed behaviour
+
+The log repeated `Blocked invalid renderer event payload` for `cli-update-pill:delta` with the issue
+`Unrecognized key: "waitingSessionCount"` (first at 2026-11-11T01:26:56Z, again at each session start).
+
+### Root cause
+
+`CliUpdatePillStateEventSchema` in `packages/contracts/src/schemas/observability.schemas.ts` is `.strict()` and has no
+`waitingSessionCount`, which `cli-update-poll-service.ts` sets and `cli-update-pill.component.ts` shows. The whole delta
+is dropped, so the pill neither updates its count nor shows the waiting sessions.
+
+### Required behaviour and acceptance
+
+Add `waitingSessionCount` (non-negative integer, optional) to the schema; a `renderer-event-validation.spec.ts` case
+with a delta carrying it passes; the log line stops appearing while sessions wait.
+
+## LT-1035
+
+### LT-1035 — a message delivered by crash recovery stays marked "not sent"
+
+**Status: patched in source and live rechecked 11 November 2026; independent review pending.**
+
+Source: [Oct2 later live checks](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-11), dev app built from this queue worktree.
+
+### Observed behaviour
+
+On a disposable Codex session the CLI child process (a direct child of the dev app, pid taken from the app's own
+instance record) was killed with `kill -9`. The app marked the session `error` and began its automatic restart
+(01:56:02.007Z). A message sent from the composer 0.5 s later (01:56:02.532Z) found no adapter
+(`No adapter found for instance`, `adapterExists: false`) and the bubble `2d0e2e4b` became `uncertain`. The transcript
+showed the error row "Your message wasn't sent." The restart then recovered by replay, `InstanceContinuityInputQueue`
+logged "Model replied after continuity text; no longer holding it" (01:56:07Z), and the assistant answered
+"LT-RETRY-OK". The final bubble state stayed `uncertain` ("Delivery uncertain, not retried") and the composer held the
+original text again: the next send combined the old and new text into one message (bubble `b618910f`).
+
+### Root cause
+
+The restart (`restartInstance` in `instance-lifecycle.ts`) holds the session mutex, removes the old adapter and rebuilds
+a new one, but nothing told the send path that a restart was running. `awaitInstanceInputReady`
+(`instance-input-ready.ts`) waits only for an init (`readyPromise`), an interrupt respawn (`respawnPromise`), a hibernation
+wake and a queued runtime change. A send arriving mid-restart therefore reached `communication.sendInput` with no
+adapter (log: `adapterExists: false`, `No adapter found for instance`), which is not in `isKnownSendRefusal`, so the bubble
+became `uncertain`, the error row appeared, the composer text came back and the session was pushed to `error` under the
+restart. The user's bubble had already been added to the transcript, so the restart's replay fallback
+(`buildFallbackHistory` then `sendHeldHistory`, adapter-level) carried it to the model, which answered. No second send
+call was logged (one `INSTANCE_SEND_INPUT` only), so the "delivery" was the replay, which never updates the bubble. An
+earlier version of this entry guessed at the continuity queue; the "Model replied after continuity text" line it cited is
+about the replay text, not the user's message.
+
+### Required behaviour and acceptance
+
+A message sent while a restart is rebuilding the adapter waits for the restart and is then delivered once, with its bubble
+moving to accepted, no "wasn't sent" row and an empty composer. A restart that fails gives the usual terminal failure.
+
+### Fix and recheck
+
+`holdInputWhileRestarting` (`lifecycle/overflow-replacement-readiness.ts`) sets `instance.readyPromise` for the length of
+`restartInstance` (released in its `finally`, so also on failure) unless an init or wake already holds input.
+`awaitInstanceInputReady` runs before the bubble is published, so the transcript has no copy of the message for the replay
+to carry and the message goes out once, after the restart. `instance-lifecycle-spawn-rollback.spec.ts` (describe "input
+sent during an in-place restart") covers hold while spawning, release after success and failure, and an existing hold left
+in place; the first case failed with the hold line disabled. Live repeat in a rebuilt dev app: CLI child (direct child of
+the dev app) killed with `kill -9`; the automatic restart began 21 s later (03:48:11.3Z) and the message was sent at
+03:48:12.5Z, mid-restart. The log shows `INSTANCE_SEND_INPUT` at 03:48:12.487, the replay fallback succeeding at
+03:48:12.873 and `sendInput called` at 03:48:12.880 with `adapterExists: true`. The single bubble went `sending` then
+`accepted`, the model answered "LT-RETRY-OK2" once, no error row appeared and the composer was empty.
+
 <a id="lt-1110"></a>
 
 ## LT-1110
@@ -15851,3 +16093,60 @@ The earlier fix carried the marker only through crash-recovery revival (continui
 - Reopening the entry from History, by native resume or by replay, gives the new session the marker, merged with any phone-member policy. A fork of the conversation does not get it.
 - Live: rebuild and restart, press Sort out, restart again, reopen the Sort out session and confirm its Set aside tool calls succeed (check 2 of the live-test document).
 - Fix record: [2026-11-17-sort-out-keeps-tools-after-history-restore_plan_completed.md](2026-11-17-sort-out-keeps-tools-after-history-restore_plan_completed.md).
+
+## LT-1177
+
+### LT-1177 — cancelling a native compaction leaves its row "Compacting the session…" for good
+
+**Status: patched in source and live rechecked 16 November 2026 (OpenCode 2.3.0); independent review pending.**
+
+Source: [Oct2 later live checks](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-16-opencode-2-live-run), dev app built from this queue worktree, OpenCode 2.3.0 installed in a temporary folder, isolated profile.
+
+### Observed behaviour
+
+On a disposable OpenCode 2 session (model `opencode/mimo-v2.6-flash-free`, three answered turns), `compactInstance` showed the row "Compacting the session…"
+(`phase: in_progress`, `streaming: true`). `interruptInstance` about 1.5 s later returned the session to idle, but the row stayed `in_progress`
+with `streaming: true` in both the main process and the renderer, for as long as the session was watched (25 s and longer). Two runs, same result.
+
+### Root cause
+
+Instrumented adapter log (since removed), interrupt at 12:55:28.765: `cancelCurrentPrompt` sent `session/cancel` and, as designed, rejected the local prompt
+promise at once. That made the native attempt return false, so `CompactionCoordinator` started `restart-with-summary` at 12:55:28.771.
+OpenCode's `compaction_update status=cancelled` (same `compactionId`, confirmed with a direct ACP session: it arrives 7 ms after
+`session/cancel`) reached the adapter at 12:55:29.000, 235 ms later, as the old adapter was being replaced. The row was keyed correctly
+(`compactRet: cancelled`), but the replacement meant it never reached the transcript. Nothing else finishes a pending compaction row.
+
+### Required behaviour and acceptance
+
+A cancelled compaction finishes its pending row whatever happens next. Fix: `OpenCodeAcpUpdates.cancelPending()` finishes every pending compaction row as
+"Compaction cancelled." when `AcpCliAdapter.cancelCurrentPrompt` runs; later progress for a finished row is ignored and the provider's own marker leaves it
+cancelled. Tests: `opencode-acp-updates.spec.ts` (two cases) and `acp-cli-adapter.opencode-v2.spec.ts` ("finishes a pending compaction row when the turn is
+interrupted"), the last failing before the change. Live recheck, same fixture: the row read `in_progress` at the interrupt and `cancelled` in every sample from
+2.5 s on, and the rendered transcript showed "Compaction cancelled.".
+
+## LT-1178
+
+### LT-1178 — cancelling a native compaction still replaces the provider thread
+
+**Status: reproduced live 16 November 2026 (OpenCode 2.3.0); not repaired.**
+
+Source: [Oct2 later live checks](2026-10-20-oct2-later_livetest.md#evidence-run--2026-11-16-opencode-2-live-run).
+
+### Observed behaviour
+
+Same fixture as LT-1177. After `interruptInstance` during a native compaction the session went `initializing`, then `busy`, then `idle`, and the transcript gained a
+"Harness (automated)" message beginning "[Context Compaction Continuity Package] Compaction method: restart-with-summary" with the recent turns. The log shows
+"Native compaction failed; recovered via restart-with-summary … the provider thread was replaced, not compacted in place" and an exit (143) of the old OpenCode process.
+The person had asked for the compaction to stop; the app did a heavier one.
+
+### Root cause
+
+`CompactionCoordinator.runCompaction` (`compaction-coordinator.ts`) treats any false from the native strategy as a failed attempt and falls back to
+`restartCompactStrategy`. A client cancel (`ACP_PROMPT_CANCELLED_BY_CLIENT_MESSAGE`, thrown into `sendAcpCompactionCommand`) is indistinguishable from an error
+once `compactContext()` has returned false.
+
+### Required behaviour and acceptance
+
+A compaction the person cancelled ends as cancelled: no fallback, the provider thread is kept and the session returns to idle. Needs a cancelled outcome from
+`compactContext()` through `nativeCompact` (`compaction-runtime.ts`) into the coordinator, which must not start `restartCompactStrategy` for it. Acceptance: repeat the
+LT-1177 fixture; the session keeps its provider session id and no continuity package appears.

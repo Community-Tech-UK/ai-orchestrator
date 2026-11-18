@@ -1,4 +1,4 @@
-import { beginOverflowReplacementReadiness } from './lifecycle/overflow-replacement-readiness';
+import { beginOverflowReplacementReadiness, holdInputWhileRestarting } from './lifecycle/overflow-replacement-readiness';
 /**
  * Instance Lifecycle Manager - Create, terminate, restart, and mode management
  */
@@ -2701,11 +2701,14 @@ export class InstanceLifecycleManager extends EventEmitter {
       turnId: pendingInstance?.activeTurnId,
       adapterGeneration: pendingInstance?.adapterGeneration,
     });
+    let releaseInputHold: (() => void) | undefined;
     try {
       const instance = this.deps.getInstance(instanceId);
       if (!instance) {
         throw new Error(`Instance ${instanceId} not found`);
       }
+      // Input sent while the adapter is rebuilt waits for the restart instead of failing against a missing adapter.
+      releaseInputHold = holdInputWhileRestarting(instance);
       const isCrashRecovery = instance.metadata?.['reason'] === 'crash-recovery';
 
       logger.info('[RESTART] begin', {
@@ -2853,6 +2856,7 @@ export class InstanceLifecycleManager extends EventEmitter {
       // prompt into it. The user asked to restart; that is the override,
       // whatever the outcome.
       this.disarmHoldsForRestart(instanceId);
+      releaseInputHold?.();
       release();
     }
   }

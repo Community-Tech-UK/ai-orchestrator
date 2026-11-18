@@ -11,3 +11,11 @@ export function groupSessionCopyActions(items: readonly ContextMenuItem[]): Cont
     ...rest.filter(item => item.danger),
   ];
 }
+
+/**
+ * The Menu key and Shift+F10 raise a `contextmenu` event with `button === -1`; a right click reports 2. Only the
+ * keyboard case moves focus into the menu, so a pointer user's focus stays where it was.
+ */
+export function contextMenuOpenedByKeyboard(event: Pick<MouseEvent, 'button'>): boolean {
+  return event.button === -1;
+}
